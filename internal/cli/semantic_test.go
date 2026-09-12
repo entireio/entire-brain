@@ -1020,6 +1020,86 @@ func TestSemanticRepairRebuildsMissingStoreFromActiveSnapshot(t *testing.T) {
 	}
 }
 
+// TestSemanticRepairIsNoOpWhenGenerationAlreadyValid guards against a
+// reproduced unbounded-growth bug: `semantic repair` used to unconditionally
+// rebuild a full new generation directory even when the active one was
+// already present and valid, because it never checked before doing the
+// work. On a real ~180MB semantic.sqlite store this permanently doubled disk
+// usage on every repair invocation (doctor suggests running repair
+// defensively, and nothing stops a user/agent from running it speculatively)
+// with no automatic cleanup of the orphaned generation (`semantic gc` is a
+// manual command, defaults to a 30-day age cutoff, so a same-day duplicate is
+// never pruned). Repair against a healthy store must be a true no-op: no new
+// generation directory, no manifest churn.
+func TestSemanticRepairIsNoOpWhenGenerationAlreadyValid(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	if _, err := execute(t, cmd, "refresh", "index", "--graph-binary", "entire"); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	before, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+	generationsRoot := filepath.Join(brainDir, semanticDirName, semanticGenerationsDir)
+	entriesBefore, err := os.ReadDir(generationsRoot)
+	if err != nil {
+		t.Fatalf("read generations dir: %v", err)
+	}
+	if len(entriesBefore) != 1 {
+		t.Fatalf("precondition: expected exactly one generation after index, got %d", len(entriesBefore))
+	}
+
+	out, err := execute(t, cmd, "repair")
+	if err != nil {
+		t.Fatalf("repair: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "already valid; nothing to repair") {
+		t.Fatalf("repair against a healthy store must be a reported no-op, got: %q", out)
+	}
+	if strings.Contains(out, "repaired semantic brain") {
+		t.Fatalf("repair against a healthy store must not claim to have repaired it: %q", out)
+	}
+
+	entriesAfter, err := os.ReadDir(generationsRoot)
+	if err != nil {
+		t.Fatalf("read generations dir after repair: %v", err)
+	}
+	if len(entriesAfter) != 1 {
+		t.Fatalf("repair against a healthy store created an extra generation directory: before=%d after=%d (%v)",
+			len(entriesBefore), len(entriesAfter), entriesAfter)
+	}
+	if entriesAfter[0].Name() != entriesBefore[0].Name() {
+		t.Fatalf("repair replaced the active generation directory: before=%s after=%s", entriesBefore[0].Name(), entriesAfter[0].Name())
+	}
+
+	after, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatalf("load manifest after repair: %v", err)
+	}
+	if after.Sources.Semantic.GenerationPath != before.Sources.Semantic.GenerationPath ||
+		after.Sources.Semantic.StorePath != before.Sources.Semantic.StorePath {
+		t.Fatalf("repair against a healthy store rewrote manifest pointers: before=%+v after=%+v",
+			before.Sources.Semantic, after.Sources.Semantic)
+	}
+
+	// Genuinely broken stores must still be repaired (unchanged behavior).
+	storePath := filepath.Join(brainDir, filepath.FromSlash(after.Sources.Semantic.StorePath))
+	if err := os.Remove(storePath); err != nil {
+		t.Fatalf("remove store: %v", err)
+	}
+	out, err = execute(t, cmd, "repair")
+	if err != nil {
+		t.Fatalf("repair after damage: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "repaired semantic brain") {
+		t.Fatalf("repair against a missing store must still rebuild it, got: %q", out)
+	}
+}
+
 func TestSemanticResetRequiresForceAndSemanticOnlyPreservesManifest(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
