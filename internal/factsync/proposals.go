@@ -88,6 +88,38 @@ func ProposalID(p factmerge.Proposal) string {
 	return "prop-" + hex.EncodeToString(h.Sum(nil))[:16]
 }
 
+// ErrProposalIDMismatch reports an open proposal whose id is not the id its own
+// content derives. Match it with errors.Is.
+var ErrProposalIDMismatch = errors.New("factsync: proposal id does not match its content")
+
+// bindProposalID makes an open proposal's id mean what it says.
+//
+// A proposal id is content-derived (see ProposalID), and that is the whole basis
+// for showing one to a human and accepting it back: "apply prop-abc123" is meant
+// to name one (action, candidate, target, branch, proposer) tuple and nothing
+// else. The open set, though, is served by the hosted brain, and settling is not
+// read-only — accept supersedes the target fact, a merge removes the candidate,
+// and the settled proposal is mirrored into the member's LOCAL fact store. A
+// server free to pick the id could therefore show one decision under an id and
+// execute a different one when the member confirmed it, against local facts of
+// the server's choosing.
+//
+// An absent id is still derived (older/looser servers omit it). A present one
+// must equal the derived value; anything else is refused rather than silently
+// corrected, because a corrected id would no longer resolve the reference the
+// member was given.
+func bindProposalID(p *OpenProposal) error {
+	want := ProposalID(p.Proposal)
+	if p.ID == "" {
+		p.ID = want
+		return nil
+	}
+	if p.ID != want {
+		return fmt.Errorf("%w: %s names %s/%s->%s, which derives %s", ErrProposalIDMismatch, p.ID, p.Proposal.Action, p.Proposal.CandidateID, p.Proposal.TargetID, want)
+	}
+	return nil
+}
+
 // OpenProposals stamps derived ids onto merge-core proposals, turning a Sync result's
 // Proposals into the hosted set's entries.
 func OpenProposals(proposals []factmerge.Proposal) []OpenProposal {
