@@ -148,7 +148,16 @@ func jsonDetail(body string) string {
 // everything it has to say in its title; the surrounding markup is noise that would
 // otherwise fill the member's whole line.
 func htmlTitle(body string) string {
-	lower := strings.ToLower(body)
+	// HTML tag names are ASCII-insensitive. Unicode case folding can change
+	// byte lengths (for example Kelvin sign to k), invalidating the offsets
+	// used to slice the original body.
+	folded := []byte(body)
+	for i, b := range folded {
+		if b >= 'A' && b <= 'Z' {
+			folded[i] = b + ('a' - 'A')
+		}
+	}
+	lower := string(folded)
 	if !strings.HasPrefix(lower, "<") {
 		return ""
 	}

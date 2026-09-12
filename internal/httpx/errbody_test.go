@@ -122,3 +122,14 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	c.n += len(p)
 	return len(p), nil
 }
+
+func TestErrorDetailHTMLUnicodeOffsets(t *testing.T) {
+	for _, body := range []string{
+		"<div>KKK</div><TITLE>upstream unavailable</TITLE>",
+		"<TITLE data-note=\"KKKKKKKKKK\">upstream unavailable</TITLE>",
+	} {
+		if got := ErrorDetailFromBody([]byte(body)); got != "upstream unavailable" {
+			t.Fatalf("got %q", got)
+		}
+	}
+}
