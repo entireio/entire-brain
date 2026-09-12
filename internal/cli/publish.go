@@ -540,17 +540,11 @@ func publishManifestRef(ctx context.Context, opts Options, repoDir string, manif
 	return brainKindManifest
 }
 
-// publishHTTPClient is the outbound client for the hosted publish call.
-//
-// It carries BOTH bounds from internal/httpx: publishRequestTimeout end to end (the
-// bundle is large, so this has to be generous) and the shared transport's much
-// narrower phase bounds. The phase bounds are the ones that matter here — with only
-// http.Client.Timeout on http.DefaultTransport, a server that accepts the bundle and
-// then never writes a response header costs the caller the full five minutes, and
-// any dependency mutating the process-global http.DefaultTransport retunes this path
-// behind our backs.
+// publishHTTPClient retains dial/TLS bounds and the full five-minute budget for
+// uploading and processing a bundle. It shares the upload connection pool, whose
+// header bound permits server processing after a large request has been sent.
 func publishHTTPClient() *http.Client {
-	return httpx.Client(publishRequestTimeout)
+	return httpx.UploadClient(publishRequestTimeout)
 }
 
 // postBrainArtifacts POSTs the bundle to the hosted brain publish endpoint and

@@ -39,7 +39,7 @@ import (
 type HTTPServer struct {
 	BaseURL string       // entire-api origin, e.g. https://api.entire.io (no trailing slash needed); must clear apiurl.Validate — https, or http only to loopback
 	Token   string       // bearer token; sent as Authorization: Bearer <token> when non-empty
-	Client  *http.Client // defaults to http.DefaultClient when nil
+	Client  *http.Client // defaults to the bounded shared upload client when nil
 }
 
 // syncRequestTimeout bounds one fact-set sync request end to end.
@@ -66,7 +66,7 @@ func (h *HTTPServer) client() *http.Client {
 	// bounded transport; syncRequestTimeout is this caller's own end-to-end bound.
 	// A fresh Client per call is free — the transport, and so the connection pool,
 	// is shared.
-	return apiurl.WithoutRedirects(httpx.Client(syncRequestTimeout))
+	return apiurl.WithoutRedirects(httpx.UploadClient(syncRequestTimeout))
 }
 
 // syncOperationTimeout is the stated ceiling for ONE do() call, retries included.
