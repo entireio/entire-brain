@@ -678,7 +678,7 @@ func loadLocalCheckpointSnapshotForVerify(ctx context.Context, runner CommandRun
 	if settingsErr != nil && !errors.Is(settingsErr, os.ErrNotExist) && !configured {
 		return nil, nil, fmt.Errorf("%w: checkpoint settings are malformed or unreadable: %v", errCheckpointSnapshotUnavailable, settingsErr)
 	}
-	snapshot, warnings, err := loadLocalCheckpointUnionSnapshot(ctx, runner, repoDir, primary, 0, checkpointBranchDestinations{}, nil, nil, true)
+	snapshot, warnings, err := loadLocalCheckpointUnionSnapshot(ctx, runner, repoDir, primary, true, 0, checkpointBranchDestinations{}, nil, nil, true)
 	if err != nil {
 		return nil, warnings, err
 	}
