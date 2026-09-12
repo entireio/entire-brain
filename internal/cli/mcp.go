@@ -347,6 +347,12 @@ var dispatchMCPMessage = func(ctx context.Context, opts Options, msg mcpMessage)
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "entire-brain", "version": opts.Version},
 		}
+	case "ping":
+		// MCP defines ping as a liveness check every server must answer, with an
+		// empty result. Falling through to "method not found" makes a client
+		// that pings — the spec's own recommended keepalive — conclude the
+		// server is broken and drop a session that was working fine.
+		response.Result = map[string]any{}
 	case "tools/list":
 		response.Result = map[string]any{"tools": mcpToolDefinitions()}
 	case "tools/call":
@@ -1832,11 +1838,31 @@ func readMCPMessage(reader *bufio.Reader) (mcpMessage, mcpFrameMode, error) {
 			length = parsed
 		}
 	}
+	// RECOVERABILITY IS ABOUT RESYNCHRONISATION, NOT SEVERITY.
+	//
+	// The serve loop answers errMCPRecoverable with -32700 and keeps reading,
+	// which is only correct when the reader is left positioned at the start of
+	// the NEXT frame. Where the body's extent is known we can get there; where
+	// it is not, continuing would reparse the body as headers and silently
+	// swallow whatever came after it. That is worse than disconnecting: the
+	// host hangs waiting for a reply to a request the server ate.
+	//
+	// So an unparseable or negative Content-Length stays FATAL (above) — the
+	// body boundary is unknown. The cases below are recoverable because the
+	// length is known, or because there is no body to skip.
 	if length < 0 {
-		return mcpMessage{}, "", errors.New("missing Content-Length")
+		// No Content-Length header at all: nothing has been consumed beyond the
+		// headers, so the stream is already at a frame boundary.
+		return mcpMessage{}, mcpFrameContentLength, fmt.Errorf("%w: missing Content-Length", errMCPRecoverable)
 	}
 	if length > maxMCPFrameBytes {
-		return mcpMessage{}, "", fmt.Errorf("Content-Length exceeds maximum frame size of %d bytes", maxMCPFrameBytes)
+		// The length is known, so the oversized body can be skipped. Recover
+		// ONLY if the whole body is drained — a short read means the stream is
+		// still mid-frame and there is no boundary to resume from.
+		if _, derr := io.CopyN(io.Discard, reader, int64(length)); derr != nil {
+			return mcpMessage{}, "", fmt.Errorf("Content-Length exceeds maximum frame size of %d bytes: %w", maxMCPFrameBytes, derr)
+		}
+		return mcpMessage{}, mcpFrameContentLength, fmt.Errorf("%w: Content-Length exceeds maximum frame size of %d bytes", errMCPRecoverable, maxMCPFrameBytes)
 	}
 	data := make([]byte, length)
 	if _, err := io.ReadFull(reader, data); err != nil {
@@ -1844,7 +1870,11 @@ func readMCPMessage(reader *bufio.Reader) (mcpMessage, mcpFrameMode, error) {
 	}
 	var msg mcpMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
-		return mcpMessage{}, "", err
+		// The body was read in full, so the reader IS at the next frame. This is
+		// the case a conforming client reaches first: a JSON-RPC batch body
+		// ([{...}]) is valid JSON-RPC that this server does not implement, and
+		// it was killing the session rather than being refused.
+		return mcpMessage{}, mcpFrameContentLength, fmt.Errorf("%w: %v", errMCPRecoverable, err)
 	}
 	return msg, mcpFrameContentLength, nil
 }
