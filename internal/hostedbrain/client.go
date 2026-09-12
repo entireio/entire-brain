@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -116,15 +117,13 @@ func (c *Client) rpc(ctx context.Context, repoID, method string, params any) (js
 	if err != nil {
 		return nil, err
 	}
-	// Scheme floor: the hosted MCP query surface is an egress chokepoint too — the
-	// query and the bearer token authorizing it must not cross plaintext to a
-	// non-loopback host.
+	// Validate the scheme before constructing a credential-bearing request.
 	base, err := apiurl.Validate(c.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("hostedbrain: %w", err)
 	}
-	url := base + "/api/v1/repos/" + repoID + "/brain/mcp"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(buf))
+	endpoint := base + "/api/v1/repos/" + url.PathEscape(repoID) + "/brain/mcp"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
 	if err != nil {
 		return nil, err
 	}

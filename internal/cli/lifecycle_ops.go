@@ -303,6 +303,18 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 		add("capture", "ok", detail)
 	}
 
+	// Docs projection: the manifest declaring a docs index is not evidence the
+	// index is on disk, and retrieval skips a missing index silently. Name an
+	// unreadable docs layer here rather than letting doctor pass while the
+	// whole layer contributes nothing.
+	if manifest.Sources != nil && manifest.Sources.Docs != nil {
+		if err := verifyDeclaredDocIndex(brainDir); err != nil {
+			add("docs_index", "error", "declared but unreadable: "+err.Error())
+		} else {
+			add("docs_index", "ok", fmt.Sprintf("%d records from %d files", manifest.Sources.Docs.Records, manifest.Sources.Docs.Files))
+		}
+	}
+
 	// History index health and conversation freshness: the projection is fresh
 	// only when it was built from the CURRENT session set (fingerprint match);
 	// a semantic-only refresh must never claim conversation freshness.
