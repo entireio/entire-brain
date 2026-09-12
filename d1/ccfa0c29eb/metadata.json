@@ -1,0 +1,56 @@
+{
+  "cli_version": "0.10.7-nightly.202609080625.78a655db4.0.20260908145503-8bbfeb6d3901+dirty",
+  "checkpoint_id": "d1ccfa0c29eb",
+  "strategy": "manual-commit",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/brainmark/_repo.py",
+    "benchmarks/agent-brain/brainmark/agents/base.py",
+    "benchmarks/agent-brain/brainmark/agents/claude_adapter.py",
+    "benchmarks/agent-brain/brainmark/agents/codex_provider_shim.py",
+    "benchmarks/agent-brain/brainmark/clone_repos.py",
+    "benchmarks/agent-brain/brainmark/grade.py",
+    "benchmarks/agent-brain/brainmark/mechmetrics.py",
+    "benchmarks/agent-brain/brainmark/memsources/_isolated.py",
+    "benchmarks/agent-brain/brainmark/memsources/base.py",
+    "benchmarks/agent-brain/brainmark/memsources/cmm_source.py",
+    "benchmarks/agent-brain/brainmark/memsources/graphify_source.py",
+    "benchmarks/agent-brain/brainmark/memsources/irrelevant.py",
+    "benchmarks/agent-brain/brainmark/memsources/mem0_source.py",
+    "benchmarks/agent-brain/brainmark/mine_fresh.py",
+    "benchmarks/agent-brain/brainmark/mine_pairs.py",
+    "benchmarks/agent-brain/brainmark/power_analysis.py",
+    "benchmarks/agent-brain/brainmark/release/croissant_gen.py",
+    "benchmarks/agent-brain/brainmark/release/make_release.py",
+    "benchmarks/agent-brain/brainmark/report.py",
+    "benchmarks/agent-brain/brainmark/run_b.py",
+    "benchmarks/agent-brain/brainmark/seal.py",
+    "benchmarks/agent-brain/brainmark/seal_prescreen.py",
+    "benchmarks/agent-brain/brainmark/tests/graphmark_fixture.py",
+    "benchmarks/agent-brain/brainmark/tests/test_agents_codex.py",
+    "benchmarks/agent-brain/brainmark/tests/test_fresh_miner.py",
+    "benchmarks/agent-brain/brainmark/tests/test_irrelevant_placebo.py",
+    "benchmarks/agent-brain/brainmark/tests/test_mine_pairs.py",
+    "benchmarks/agent-brain/brainmark/tests/test_run_b_dryrun.py",
+    "benchmarks/agent-brain/brainmark/tests/test_trail16_regressions.py",
+    "benchmarks/agent-brain/brainmark/tests/test_validity_render_session.py",
+    "benchmarks/agent-brain/brainmark/validity/analyze_validity.py",
+    "benchmarks/agent-brain/brainmark/validity/render_session.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d1/ccfa0c29eb/0/metadata.json",
+      "transcript": "/d1/ccfa0c29eb/0/full.jsonl",
+      "compact_transcript": "/d1/ccfa0c29eb/0/transcript.jsonl",
+      "content_hash": "/d1/ccfa0c29eb/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 140626,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 4016000,
+    "output_tokens": 17933,
+    "api_call_count": 51
+  }
+}
