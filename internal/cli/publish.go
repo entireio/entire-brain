@@ -563,6 +563,10 @@ func publishHTTPClient() *http.Client {
 // maps the response to a clear error or result. It is the only network call in
 // the command; it runs only after both opt-in gates have passed.
 func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body publishRequestBody) (publishResult, error) {
+	baseURL, err := apiurl.Validate(baseURL)
+	if err != nil {
+		return publishResult{}, fmt.Errorf("publish: %w", err)
+	}
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return publishResult{}, fmt.Errorf("publish: encode request: %w", err)
@@ -588,7 +592,7 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	resp, err := publishHTTPClient().Do(req)
+	resp, err := apiurl.WithoutRedirects(publishHTTPClient()).Do(req)
 	if err != nil {
 		return publishResult{}, fmt.Errorf("publish: request to %s failed: %w", endpoint, err)
 	}

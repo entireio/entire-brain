@@ -61,13 +61,13 @@ var syncRequestTimeout = 5 * time.Minute
 
 func (h *HTTPServer) client() *http.Client {
 	if h.Client != nil {
-		return h.Client
+		return apiurl.WithoutRedirects(h.Client)
 	}
 	// The phase bounds (dial, TLS handshake, response header) come from the shared
 	// bounded transport; syncRequestTimeout is this caller's own end-to-end bound.
 	// A fresh Client per call is free — the transport, and so the connection pool,
 	// is shared.
-	return httpx.Client(syncRequestTimeout)
+	return apiurl.WithoutRedirects(httpx.Client(syncRequestTimeout))
 }
 
 // syncOperationTimeout is the stated ceiling for ONE do() call, retries included.
@@ -108,9 +108,11 @@ const transientDialRetryDelay = 20 * time.Millisecond
 // do issues req, transparently redialing up to transientDialRetries times on
 // a TRANSIENT LOCAL dial failure — one where net/http never got past
 // establishing the TCP connection, so nothing reached the peer and a retry
-// can never double up a mutation (POST bodies are re-armed via req.GetBody,
+// can never double up a mutation. client() refuses redirects, so a later
+// redirect dial cannot disguise an already-applied POST as a local failure.
+// POST bodies are re-armed via req.GetBody,
 // which http.NewRequestWithContext populates automatically for the
-// bytes.Reader bodies every factsync request uses).
+// bytes.Reader bodies every factsync request uses.
 //
 // The failure this exists for is "dial tcp ...: connect: cannot assign
 // requested address" (EADDRNOTAVAIL): the LOCAL ephemeral port range or
@@ -134,19 +136,19 @@ func (h *HTTPServer) do(req *http.Request) (*http.Response, error) {
 	var lastErr error
 	for attempt := 0; attempt <= transientDialRetries; attempt++ {
 		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				cancel()
+				return nil, ctx.Err()
+			case <-time.After(transientDialRetryDelay):
+			}
 			if req.GetBody != nil {
 				body, err := req.GetBody()
 				if err != nil {
 					cancel()
-					return nil, lastErr
+					return nil, err
 				}
 				req.Body = body
-			}
-			select {
-			case <-ctx.Done():
-				cancel()
-				return nil, lastErr
-			case <-time.After(transientDialRetryDelay):
 			}
 		}
 		resp, err := h.client().Do(req)

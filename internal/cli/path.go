@@ -73,7 +73,11 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 		if !ok {
 			return err
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), filepath.Join(dirs.Data, repoStoreDirName, filepath.FromSlash(key)))
+		brainDir, dirErr := brainDirForKey(opts.Env, key)
+		if dirErr != nil {
+			return dirErr
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), brainDir)
 		return nil
 	}
 	if local {
@@ -98,7 +102,16 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 		return err
 	}
 	if ok {
-		fmt.Fprintln(cmd.OutOrStdout(), filepath.Join(dirs.Data, repoStoreDirName, filepath.FromSlash(key)))
+		// brainDirForKey rather than a raw join: `brain path` must print the
+		// location every other command would actually use, which means it has to
+		// answer to the same reserved-segment and symlink refusals. A path this
+		// helper refuses is one no other verb will read or write, so printing it
+		// hands the caller a location the tool does not honour.
+		brainDir, dirErr := brainDirForKey(opts.Env, key)
+		if dirErr != nil {
+			return dirErr
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), brainDir)
 		return nil
 	}
 	return fmt.Errorf("target is neither an existing path nor a supported repo URL: %s", target)
