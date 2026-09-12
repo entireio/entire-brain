@@ -91,6 +91,9 @@ type brainStatusFacts struct {
 	Branches     int            `json:"branches"`
 	Proposals    int            `json:"proposals"`
 	Verification *verifySummary `json:"verification,omitempty"`
+	// MissingBranches names declared fact branches whose on-disk store is
+	// absent. Empty in the healthy case, so it is additive for readers.
+	MissingBranches []string `json:"missing_branches,omitempty"`
 }
 
 type brainStatusSemantic struct {
@@ -1603,6 +1606,14 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		branch := status.Live.Branch
 		if branch == "" {
 			branch = distillDefaultBranch
+		}
+		// loadFacts cannot tell "this branch has no facts" from "this branch's
+		// store is gone". The manifest can: warn before the packet reports a
+		// healthy facts source that contributed nothing.
+		if status.Manifest != nil && status.Manifest.Sources != nil {
+			if warning := missingFactStoreWarning(missingFactBranchStores(status.Brain.Path, status.Manifest.Sources.Facts)); warning != "" {
+				report.Warnings = append(report.Warnings, warning)
+			}
 		}
 		factsLoadStarted := profile.start()
 		facts, factsErr := loadFacts(status.Brain.Path, branch)
@@ -4472,6 +4483,14 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 				Superseded: f.Superseded,
 				Branches:   len(f.Branches),
 				Proposals:  f.Proposals,
+			}
+			// The counts above come from the manifest, not from disk. A branch
+			// whose facts.ndjson is gone still counts here while every recall
+			// surface returns nothing for it, so name the gap instead of
+			// letting the counts imply a store that can be read.
+			report.Facts.MissingBranches = missingFactBranchStores(storage.BrainDir, f)
+			if warning := missingFactStoreWarning(report.Facts.MissingBranches); warning != "" {
+				report.Warnings = append(report.Warnings, warning)
 			}
 		}
 		if sem := manifest.Sources.Semantic; sem != nil {

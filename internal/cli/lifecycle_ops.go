@@ -315,6 +315,19 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 		}
 	}
 
+	// Durable facts: the manifest's fact counts are a claim about branches, not
+	// about files. loadFacts reads an absent store as an empty branch, so a
+	// declared branch with no facts.ndjson silently contributes nothing to
+	// recall/brief. Name it here rather than letting doctor pass.
+	if manifest.Sources != nil && manifest.Sources.Facts != nil {
+		facts := manifest.Sources.Facts
+		if missing := missingFactBranchStores(brainDir, facts); len(missing) > 0 {
+			add("facts", "error", fmt.Sprintf("%d fact(s) declared across %d branch(es), but the store is missing for: %s", facts.Facts, len(facts.Branches), strings.Join(missing, ", ")))
+		} else {
+			add("facts", "ok", fmt.Sprintf("%d fact(s) across %d branch(es)", facts.Facts, len(facts.Branches)))
+		}
+	}
+
 	// History index health and conversation freshness: the projection is fresh
 	// only when it was built from the CURRENT session set (fingerprint match);
 	// a semantic-only refresh must never claim conversation freshness.
