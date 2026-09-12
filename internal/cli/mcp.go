@@ -1206,6 +1206,7 @@ func runMCPListProjects(ctx context.Context, cmd *cobra.Command, opts Options) e
 	// the keys, brain paths, and index counts of every other repo on the machine.
 	// Scope the listing to the bound repo unless the operator opts out.
 	boundKey := ""
+	root := filepath.Join(dirs.Data, repoStoreDirName)
 	if !mcpCrossRepoAllowed() {
 		storage, bound, storageErr := mcpBoundRepoStorage(ctx, opts)
 		if storageErr != nil {
@@ -1215,8 +1216,8 @@ func runMCPListProjects(ctx context.Context, cmd *cobra.Command, opts Options) e
 			return mcpCrossRepoRefusal("brain_list_projects", "server has no bound repository", "")
 		}
 		boundKey = storage.Key
+		root = storage.BrainDir
 	}
-	root := filepath.Join(dirs.Data, repoStoreDirName)
 	var projects []mcpProjectSummary
 	if err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
