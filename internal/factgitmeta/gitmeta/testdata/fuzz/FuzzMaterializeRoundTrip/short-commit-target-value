@@ -1,0 +1,3 @@
+go test fuzz v1
+string("commit/ab/a/k/__value")
+string("v")

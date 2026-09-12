@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"time"
 )
 
 // CommandRunner runs external commands. Tests replace it so export behavior
@@ -53,6 +54,24 @@ type CommandStream interface {
 // error messages useful without letting a misbehaving provider exhaust memory.
 const streamStderrCap = 256 * 1024
 
+// commandWaitDelay bounds how long a command may keep the runner blocked after
+// its context is cancelled.
+//
+// exec.CommandContext kills the child on cancellation, but cmd.Run and cmd.Wait
+// return only once every writer of the stdout/stderr pipes has closed. A child
+// that spawns a grandchild inheriting those descriptors therefore keeps the
+// runner blocked for as long as the GRANDCHILD lives, long after the deadline
+// passed and the child was killed. Every context deadline in this binary is
+// implemented on top of this runner, so without a WaitDelay a single stray
+// grandchild makes all of them unenforceable: measured at 30s of wait against a
+// 300ms deadline.
+//
+// WaitDelay closes the pipes and force-kills the process group that far past
+// cancellation, converting an unbounded wait into a bounded one. It is a
+// backstop, not a timeout: a command that exits normally is never affected, and
+// the delay only starts counting once the context is already cancelled.
+const commandWaitDelay = 2 * time.Second
+
 type ExecRunner struct{}
 
 func (ExecRunner) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
@@ -65,6 +84,7 @@ func (ExecRunner) RunWithEnv(ctx context.Context, dir string, env map[string]str
 
 func runExecCommand(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = commandWaitDelay
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -115,6 +135,7 @@ func mergeCommandEnv(base []string, overrides map[string]string) []string {
 // stdout never blocks on stderr.
 func (ExecRunner) Stream(ctx context.Context, dir, name string, args ...string) (CommandStream, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = commandWaitDelay
 	if dir != "" {
 		cmd.Dir = dir
 	}

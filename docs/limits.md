@@ -81,6 +81,18 @@ read at `max+1` bytes via `io.LimitReader` and error if the source exceeds `max`
   trusted server environment (`ENTIRE_BRAIN_GRAPH_BINARY`, default `entire`), never
   from a client argument, and constrains the index path to the bound repo root
   unless `ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH` is set.
+- The MCP surface is scoped to the repository the server was bound to
+  (`ENTIRE_REPO_ROOT`): `brain_delete_project` refuses a foreign `repo_key`,
+  `brain_list_projects` returns only the bound project, and
+  `brain_workspace_graph`/`_regressions`/`_review` refuse a workspace the bound
+  repository is not a member of, or one whose repos live outside the bound
+  repository's parent directory — each unless the operator sets
+  `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO`. Without that override, an unbound server
+  refuses these operations. Workspace tools validate each key against its local
+  checkout and execute the same manifest snapshot they validated. This closes the confused-deputy path where
+  an agent working in repo A irreversibly erases repo B's brain, or enumerates
+  every other project on the machine. The plain `entire brain ...` CLI keeps its
+  cross-repo verbs: a human at a terminal is not the confused deputy.
 
 ## Fuzzing
 

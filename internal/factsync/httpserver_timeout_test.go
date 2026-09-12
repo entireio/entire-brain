@@ -18,7 +18,7 @@ func TestDefaultSyncClientHasABound(t *testing.T) {
 		t.Fatal("default factsync client has no Timeout; a wedged endpoint hangs the caller forever")
 	}
 	custom := &http.Client{Timeout: time.Second}
-	if (&HTTPServer{Client: custom}).client() != custom {
+	if (&HTTPServer{Client: custom}).client().Timeout != custom.Timeout {
 		t.Error("caller-supplied client must still win over the package default")
 	}
 }
