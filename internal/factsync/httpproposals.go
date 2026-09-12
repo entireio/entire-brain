@@ -90,10 +90,14 @@ func (h *HTTPServer) ListProposals(ctx context.Context, repoID, branch string) (
 	set := ProposalSet{Branch: branch, Ref: out.Ref, Found: out.Found, Proposals: out.Proposals}
 	// A server that omits ids (older/looser implementation) still yields addressable
 	// proposals: the id is content-derived, so recomputing it is always correct.
+	var invalid []int
 	for i := range set.Proposals {
 		if err := bindProposalID(&set.Proposals[i]); err != nil {
-			return ProposalSet{}, fmt.Errorf("factsync: proposals %s/%s: %w", repoID, branch, err)
+			invalid = append(invalid, i)
 		}
+	}
+	if len(invalid) != 0 {
+		return ProposalSet{}, &InvalidProposalSetError{Set: set, Invalid: invalid}
 	}
 	return set, nil
 }

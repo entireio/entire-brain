@@ -204,6 +204,8 @@ func TestFactsProposalsRefusesWithoutGates(t *testing.T) {
 			}
 			for _, args := range [][]string{
 				{"facts", "proposals", "list"},
+				{"facts", "proposals", "repair"},
+				{"facts", "proposals", "repair", "--apply", "--if-ref", "reviewed-ref"},
 				{"facts", "proposals", "show", proposal.ID},
 				{"facts", "proposals", "apply", proposal.ID},
 				{"facts", "proposals", "reject", proposal.ID},
@@ -431,5 +433,42 @@ func TestFactsProposalsRegisteredUnderFacts(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("help missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestFactsProposalsRepairPreviewAndApply(t *testing.T) {
+	f, fake, good := newHostedProposalsFixture(t)
+	bad := good
+	bad.ID = "forged-id"
+	fake.proposals = append(fake.proposals, bad)
+	originalFacts := string(fake.facts)
+	out, err := execute(t, NewRootCommand(f.opts), "facts", "proposals", "repair", "--json")
+	if err != nil {
+		t.Fatalf("preview: %v %s", err, out)
+	}
+	var preview factsync.ProposalRepairResult
+	if err := json.Unmarshal([]byte(out), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Invalid) != 1 || len(fake.openSet()) != 2 {
+		t.Fatalf("preview changed queue: %s", out)
+	}
+	calls := fake.count()
+	if _, err := execute(t, NewRootCommand(f.opts), "facts", "proposals", "repair", "--apply"); err == nil {
+		t.Fatal("missing ref accepted")
+	}
+	if fake.count() != calls {
+		t.Fatal("invalid apply reached server")
+	}
+	out, err = execute(t, NewRootCommand(f.opts), "facts", "proposals", "repair", "--apply", "--if-ref", preview.Ref, "--json")
+	if err != nil {
+		t.Fatalf("apply: %v %s", err, out)
+	}
+	set := fake.openSet()
+	if len(set) != 1 || set[0].ID != good.ID {
+		t.Fatalf("wrong entries removed: %+v", set)
+	}
+	if string(fake.facts) != originalFacts {
+		t.Fatal("repair changed facts")
 	}
 }

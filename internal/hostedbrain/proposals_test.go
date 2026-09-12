@@ -250,6 +250,7 @@ func TestClientProposalsRespectEgressGate(t *testing.T) {
 
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
 	for name, call := range map[string]func() error{
+		"repair":  func() error { _, err := c.RepairProposalIDs(ctx, "repo1", "main", false, ""); return err },
 		"list":    func() error { _, err := c.ListProposals(ctx, "repo1", "main"); return err },
 		"get":     func() error { _, err := c.GetProposal(ctx, "repo1", "main", open[0].ID); return err },
 		"apply":   func() error { _, err := c.ApplyProposal(ctx, "repo1", "main", open[0].ID, now); return err },
