@@ -133,3 +133,34 @@ func scopeToolArgs(tool, workspace string) map[string]any {
 		return map[string]any{"workspace": workspace, "query": "scope"}
 	}
 }
+
+// A manifest cannot impersonate the bound project from another storage directory.
+func TestMCPListProjectsScopesStorageBeforeReadingManifest(t *testing.T) {
+	t.Setenv(mcpAllowCrossRepoEnv, "")
+	opts, env := mcpScopeTestOptions(t, t.TempDir())
+	storage, bound, err := mcpBoundRepoStorage(context.Background(), opts)
+	if err != nil || !bound {
+		t.Fatalf("bound storage: %v", err)
+	}
+	own := writeScopeTestBrain(t, env, storage.Key)
+	foreign := writeScopeTestBrain(t, env, "gh/victim/other")
+	data, err := os.ReadFile(filepath.Join(own, exportManifestFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(foreign, exportManifestFileName), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	response := mcpScopeCall(t, opts, "brain_list_projects", map[string]any{})
+	payload := mcpTextJSONPayload(t, response)
+	data, err = json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "victim") {
+		t.Fatalf("foreign storage disclosed: %s", data)
+	}
+	if !strings.Contains(string(data), storage.Key) {
+		t.Fatalf("bound project missing: %s", data)
+	}
+}
