@@ -7842,7 +7842,18 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
         stdout = json.dumps({"results": [{"kind": "history", "text": "hit"}]}) + "\n"
         task = _harness_task()
         packet, delivery, calls = self._delivery(task, "raw_history", stdout)
-        self.assertEqual(packet, stdout)
+        # The packet is canonically serialized and ALWAYS carries the delivery
+        # note, truncated or not -- see bound_memory_packet. Asserting equality
+        # with the raw stdout pinned the pre-#212 shape, where the note appeared
+        # only on the oversized path and its mere presence told the subject how
+        # much memory its arm had. Assert the content survives and the shape is
+        # the constant one instead.
+        delivered = json.loads(packet)
+        self.assertEqual(delivered["results"], json.loads(stdout)["results"])
+        self.assertIn("_benchmark_delivery", delivered)
+        self.assertFalse(delivered["_benchmark_delivery"]["truncated"])
+        self.assertEqual(delivered["_benchmark_delivery"]["original_result_count"], 1)
+        self.assertEqual(delivered["_benchmark_delivery"]["delivered_result_count"], 1)
         self.assertTrue(delivery["ok"])
         self.assertEqual(delivery["mode"], "harness")
         self.assertEqual(delivery["condition"], "raw_history")
