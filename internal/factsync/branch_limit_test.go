@@ -90,7 +90,7 @@ var branchCalls = map[string]func(context.Context, *HTTPServer, string) error{
 		return err
 	},
 	"GetProposal": func(ctx context.Context, h *HTTPServer, branch string) error {
-		_, err := h.GetProposal(ctx, "repo", branch, "p1")
+		_, err := h.GetProposal(ctx, "repo", branch, "prop-1234567890abcdef")
 		return err
 	},
 	"PublishProposals": func(ctx context.Context, h *HTTPServer, branch string) error {
@@ -99,7 +99,7 @@ var branchCalls = map[string]func(context.Context, *HTTPServer, string) error{
 	},
 	"ResolveProposal": func(ctx context.Context, h *HTTPServer, branch string) error {
 		_, err := h.ResolveProposal(ctx, ResolveProposalRequest{
-			RepoID: "repo", Branch: branch, ProposalID: "p1",
+			RepoID: "repo", Branch: branch, ProposalID: "prop-1234567890abcdef",
 			Decision: Reject, FactsUnchanged: true,
 		})
 		return err

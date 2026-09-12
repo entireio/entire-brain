@@ -60,7 +60,7 @@ var factsyncCalls = map[string]func(context.Context, *HTTPServer) error{
 		return err
 	},
 	"GetProposal": func(ctx context.Context, h *HTTPServer) error {
-		_, err := h.GetProposal(ctx, "repo", "main", "p1")
+		_, err := h.GetProposal(ctx, "repo", "main", "prop-1234567890abcdef")
 		return err
 	},
 	"PublishProposals": func(ctx context.Context, h *HTTPServer) error {
@@ -69,7 +69,7 @@ var factsyncCalls = map[string]func(context.Context, *HTTPServer) error{
 	},
 	"ResolveProposal": func(ctx context.Context, h *HTTPServer) error {
 		_, err := h.ResolveProposal(ctx, ResolveProposalRequest{
-			RepoID: "repo", Branch: "main", ProposalID: "p1",
+			RepoID: "repo", Branch: "main", ProposalID: "prop-1234567890abcdef",
 			Decision: Reject, FactsUnchanged: true,
 		})
 		return err
@@ -155,7 +155,7 @@ func TestConflictStatusesStayErrConflict(t *testing.T) {
 					t.Fatalf("PublishProposals(%d) = %v; want ErrConflict", status, err)
 				}
 				_, err := h.ResolveProposal(context.Background(), ResolveProposalRequest{
-					RepoID: "repo", Branch: "main", ProposalID: "p1", Decision: Reject, FactsUnchanged: true,
+					RepoID: "repo", Branch: "main", ProposalID: "prop-1234567890abcdef", Decision: Reject, FactsUnchanged: true,
 				})
 				if !errors.Is(err, ErrConflict) {
 					t.Fatalf("ResolveProposal(%d) = %v; want ErrConflict", status, err)
@@ -201,7 +201,7 @@ func TestProposalNotFoundStaysNotFound(t *testing.T) {
 	srv := statusServer(t, http.StatusNotFound, `{"title":"Not Found","detail":"proposal p1 was resolved by another member"}`)
 	h := &HTTPServer{BaseURL: srv.URL, Token: "tok"}
 
-	_, getErr := h.GetProposal(context.Background(), "repo", "main", "p1")
+	_, getErr := h.GetProposal(context.Background(), "repo", "main", "prop-1234567890abcdef")
 	if !errors.Is(getErr, ErrProposalNotFound) {
 		t.Fatalf("GetProposal(404) = %v; want ErrProposalNotFound", getErr)
 	}
@@ -209,7 +209,7 @@ func TestProposalNotFoundStaysNotFound(t *testing.T) {
 		t.Fatalf("GetProposal(404) = %q; the server's explanation was dropped", getErr)
 	}
 	_, resErr := h.ResolveProposal(context.Background(), ResolveProposalRequest{
-		RepoID: "repo", Branch: "main", ProposalID: "p1", Decision: Reject, FactsUnchanged: true,
+		RepoID: "repo", Branch: "main", ProposalID: "prop-1234567890abcdef", Decision: Reject, FactsUnchanged: true,
 	})
 	if !errors.Is(resErr, ErrProposalNotFound) {
 		t.Fatalf("ResolveProposal(404) = %v; want ErrProposalNotFound", resErr)

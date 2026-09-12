@@ -20,22 +20,12 @@
 //	REQUEST bound (per caller, http.Client.Timeout)
 //	  the whole exchange including the body read
 //
-// The split matters. The request bound has to be generous, because a fact-set
-// advance or a publish bundle is large and a slow-but-progressing transfer must be
-// allowed to finish; a five-minute silence detector would be useless. The phase
-// bounds are what actually catch a hung endpoint quickly, and they are the same for
-// everyone. So each caller picks its own request bound to suit its payload and
-// inherits one shared set of phase bounds:
-//
-//	hostedbrain.Client   60s   bounded reads (search / get / status)
-//	factsync.HTTPServer   5m   uploads the whole merged fact-set
-//	cli publish           5m   uploads the whole brain artifact bundle
-//
-// One shared transport, not one per caller: a transport owns a connection pool, so
-// minting one per call site would fragment pooling and leak file descriptors. It is
-// deliberately NOT http.DefaultTransport — that is process-global state any
-// dependency can mutate, and it lacks the response-header bound this package exists
-// to add.
+// Queries use a 30s response-header bound within their 60s request budget.
+// Fact sync and artifact publish may spend substantial time processing a completed
+// upload before returning headers, so UploadClient gives those callers a separate
+// pooled transport with a 5m header bound. Their 5m request timeout still bounds
+// the entire upload, processing and response read together. Both pools retain
+// the 10s dial/TLS phase bounds and avoid mutable http.DefaultTransport policy.
 //
 // Not covered here, on purpose: the two loopback-pinned ollama clients
 // (cli/embed_ollama.go, cli/distill_cmd.go). They already carry their own request
@@ -61,7 +51,7 @@ type Config struct {
 	Request        time.Duration
 }
 
-// DefaultConfig is the shared phase policy. Request is only a default for NewClient;
+// DefaultConfig is the query phase policy. Request is only a default for NewClient;
 // Client() callers state their own.
 func DefaultConfig() Config {
 	return Config{
@@ -100,8 +90,25 @@ var shared = sync.OnceValue(func() *http.Transport { return NewTransport(Default
 // response-header bound http.DefaultTransport lacks.
 func Shared() *http.Transport { return shared() }
 
-// Client returns a client on the shared bounded transport with the caller's own
-// end-to-end request bound. This is what every hosted-API call site should use.
+// Client returns a query client with the shorter response-header bound and the
+// caller's end-to-end request bound. Upload callers use UploadClient instead.
 func Client(requestTimeout time.Duration) *http.Client {
 	return &http.Client{Timeout: requestTimeout, Transport: Shared()}
+}
+
+// uploadConfig preserves the full upload-processing budget. Unlike queries, an
+// upload endpoint may legitimately remain silent while processing the body.
+func uploadConfig() Config {
+	cfg := DefaultConfig()
+	cfg.ResponseHeader = cfg.Request
+	return cfg
+}
+
+var uploadShared = sync.OnceValue(func() *http.Transport { return NewTransport(uploadConfig()) })
+
+// UploadClient uses a shared pool for fact-set and artifact uploads, allowing
+// up to five minutes for response headers. The caller's overall deadline
+// continues to bound upload, processing and response reading together.
+func UploadClient(requestTimeout time.Duration) *http.Client {
+	return &http.Client{Timeout: requestTimeout, Transport: uploadShared()}
 }
