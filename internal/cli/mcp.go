@@ -377,8 +377,13 @@ func mcpToolDefinitions() []map[string]any {
 	stringArg := func(name, description string) map[string]any {
 		return map[string]any{"type": "string", "description": description, "title": name}
 	}
+	// The declared bounds are the bounds mcpPositiveInt/mcpNonNegativeInt
+	// actually enforce. Declaring only a floor told a schema-validating MCP
+	// client that limit=1000000 was a legal call; the handler rejects it with
+	// -32000, so the client learned the real ceiling by being refused at
+	// runtime instead of reading it off the schema.
 	integerArg := func(name, description string) map[string]any {
-		return map[string]any{"type": "integer", "description": description, "title": name, "minimum": 1}
+		return map[string]any{"type": "integer", "description": description, "title": name, "minimum": 1, "maximum": mcpIntegerArgMax}
 	}
 	// nonNegativeIntegerArg is for the handful of integer params whose zero
 	// value is meaningful and accepted by the handler (mcpNonNegativeInt):
@@ -387,7 +392,7 @@ func mcpToolDefinitions() []map[string]any {
 	// client that 0 is invalid when the server actually treats it as the
 	// default.
 	nonNegativeIntegerArg := func(name, description string) map[string]any {
-		return map[string]any{"type": "integer", "description": description, "title": name, "minimum": 0}
+		return map[string]any{"type": "integer", "description": description, "title": name, "minimum": 0, "maximum": mcpIntegerArgMax}
 	}
 	boolArg := func(name, description string) map[string]any {
 		return map[string]any{"type": "boolean", "description": description, "title": name}
@@ -499,7 +504,7 @@ func mcpToolDefinitions() []map[string]any {
 					"description": "Adjacent earlier exchanges to include (conversation: ids only)"},
 				"context_after": map[string]any{"type": "integer", "title": "context_after", "minimum": 0, "maximum": conversationContextMax,
 					"description": "Adjacent later exchanges to include (conversation: ids only)"},
-				"after_turn": map[string]any{"type": "integer", "title": "after_turn", "minimum": 0,
+				"after_turn": map[string]any{"type": "integer", "title": "after_turn", "minimum": 0, "maximum": mcpTurnCursorMax,
 					"description": "Outline cursor: entries after this turn ordinal (conversation-session: ids only)"},
 				"limit": map[string]any{"type": "integer", "title": "limit", "minimum": 1, "maximum": conversationOutlineMaxLimit,
 					"description": "Outline entries per page (conversation-session: ids only)"},
@@ -1698,12 +1703,10 @@ func mcpStringSlice(args map[string]any, key string) ([]string, error) {
 // client whose agent carries untrusted repository text in its context, so the
 // ceiling belongs on the server.
 //
-// It is enforced here rather than declared in each inputSchema on purpose: the
-// tool definitions are sent on every tools/list and their size is budgeted in
-// tokens (see TestMCPBrainBriefToolDefinitionGolden), so adding a "maximum" to
-// ~25 properties would spend that budget to restate a bound the server has to
-// check itself regardless. 10000 is far above any useful result count, depth, or
-// context window.
+// Input schemas also declare this ceiling so clients can plan valid calls;
+// server-side validation remains authoritative. Tool-definition goldens account
+// for the advertised bounds. Stricter per-tool limits and the separate turn
+// cursor range are declared and enforced at their respective call sites.
 const mcpIntegerArgMax = 10000
 
 // Turn cursors are only compared with stored ordinals; they do not size a
