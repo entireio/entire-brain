@@ -99,6 +99,39 @@ The target repo, API base URL, and bearer token resolve from --repo-id /` + " " 
 			},
 		},
 	)
+	var repairApply bool
+	var repairRef string
+	repairCmd := &cobra.Command{Use: "repair", Short: "Preview invalid proposal IDs; optionally remove them from the reviewed queue version", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if repairApply && repairRef == "" {
+				return fmt.Errorf("--apply requires --if-ref from the repair preview")
+			}
+			if !repairApply && repairRef != "" {
+				return fmt.Errorf("--if-ref requires --apply")
+			}
+			target, err := resolveHostedProposalTarget(cmd.Context(), opts, pOpts)
+			if err != nil {
+				return err
+			}
+			result, err := target.client.RepairProposalIDs(cmd.Context(), target.repoID, target.branch, repairApply, repairRef)
+			if err != nil {
+				return err
+			}
+			if pOpts.jsonOut {
+				return writeJSON(cmd, result)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "queue ref: %q; invalid proposals: %d; removed: %d\n", result.Ref, len(result.Invalid), result.Removed)
+			for _, p := range result.Invalid {
+				fmt.Fprintf(cmd.OutOrStdout(), "  invalid id: %q (derived: %q)\n", p.ID, factsync.ProposalID(p.Proposal))
+			}
+			if !repairApply && len(result.Invalid) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Review these entries, then use repair --apply --if-ref %q to remove them. Facts are unchanged.\n", result.Ref)
+			}
+			return nil
+		}}
+	repairCmd.Flags().BoolVar(&repairApply, "apply", false, "Remove invalid proposals from the reviewed queue version")
+	repairCmd.Flags().StringVar(&repairRef, "if-ref", "", "Queue ref reported by the repair preview")
+	cmd.AddCommand(repairCmd)
 	return cmd
 }
 
