@@ -37,7 +37,6 @@ const (
 	exportScopeAll    = "all"
 	exportScopeBranch = "branch"
 
-	v2MainRef           = "refs/entire/checkpoints/v2/main"
 	v1MainRef           = "refs/heads/entire/checkpoints/v1"
 	v1OriginRef         = "refs/remotes/origin/entire/checkpoints/v1"
 	v1RemoteFetchRef    = "refs/heads/entire/checkpoints/v1"
@@ -54,10 +53,8 @@ const (
 	checkpointRemoteBlobFilter     = "blob:limit=128k"
 
 	checkpointStorageV1 = 1
-	checkpointStorageV2 = 2
 
 	v1TranscriptFileName = "full.jsonl"
-	v2TranscriptFileName = "transcript.jsonl"
 
 	checkpointTrailerKey = "Entire-Checkpoint"
 
@@ -1041,9 +1038,7 @@ func checkpointScopeWarning(payload string) string {
 }
 
 func listAllCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir string, limit int) ([]checkpointListEntry, []string, error) {
-	settings, settingsErr := readEntireSettings(repoDir)
-	includeV2 := settingsErr == nil && settings.CheckpointsV2Enabled()
-	ids, warnings := listLocalCheckpointRefIDs(ctx, runner, repoDir, localCheckpointRefs(includeV2))
+	ids, warnings := listLocalCheckpointRefIDs(ctx, runner, repoDir, localCheckpointRefs())
 	refIDs, refWarnings := listLocalPerCheckpointRefIDs(ctx, runner, repoDir)
 	for id := range refIDs {
 		ids[id] = struct{}{}
@@ -1123,10 +1118,11 @@ func checkpointULIDTime(value string) (time.Time, bool) {
 	return time.UnixMilli(int64(millis)).UTC(), true
 }
 
-func localCheckpointRefs(includeV2 bool) []string {
-	if includeV2 {
-		return []string{v2MainRef, v1MainRef, v1OriginRef}
-	}
+// localCheckpointRefs lists the aggregate git-branch checkpoint refs a clone
+// can hold. entire/checkpoints/v1 is the only aggregate layout any released CLI
+// writes; the git-refs backend uses one ref per checkpoint under
+// checkpointRefPrefix and is enumerated separately.
+func localCheckpointRefs() []string {
 	return []string{v1MainRef, v1OriginRef}
 }
 
@@ -1260,38 +1256,6 @@ func validateGitHubRepoSlug(repo string) error {
 	return nil
 }
 
-func (s entireSettingsFile) CheckpointsV2Enabled() bool {
-	if s.StrategyOptions.CheckpointsVersionValue() == 2 {
-		return true
-	}
-	if s.StrategyOptions.CheckpointsV2 != nil {
-		return *s.StrategyOptions.CheckpointsV2
-	}
-	return false
-}
-
-func (s entireStrategyOptions) CheckpointsVersionValue() int {
-	if s.CheckpointsVersion == nil {
-		return 1
-	}
-	switch v := s.CheckpointsVersion.(type) {
-	case int:
-		if v == 1 || v == 2 {
-			return v
-		}
-	case float64:
-		if v == 1 || v == 2 {
-			return int(v)
-		}
-	case string:
-		parsed, err := strconv.Atoi(v)
-		if err == nil && (parsed == 1 || parsed == 2) {
-			return parsed
-		}
-	}
-	return 1
-}
-
 var errCheckpointSnapshotUnavailable = errors.New("checkpoint snapshot unavailable")
 
 func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner, repoDir string, raw bool, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress), cache *checkpointMetadataCache) (*checkpointSnapshot, []string, error) {
@@ -1315,48 +1279,6 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 	// checkpoints. No-egress mode intentionally reads the local catalog only.
 	if !brainNoEgressMode() && checkpointRemoteMayExtendCatalog(repoDir, settings, settingsErr) {
 		return nil, nil, fmt.Errorf("%w: configured checkpoint remote requires complete routed discovery", errCheckpointSnapshotUnavailable)
-	}
-
-	// The legacy compact v2 reader cannot be a complete scope-all fast path.
-	// New git-refs checkpoints are v1-shaped, and one export manifest cannot
-	// honestly label a mixed compact-v2/full-v1 snapshot with one transcript
-	// mode. Route through Entire, which resolves the active topology per ID.
-	if settingsErr == nil && settings.CheckpointsV2Enabled() && primary == checkpointBackendGitBranch {
-		refNames, probeWarnings, probeErr := probeLocalPerCheckpointRefs(ctx, runner, repoDir, brainNoEgressMode())
-		if probeErr != nil {
-			if brainNoEgressMode() {
-				probeWarnings = append(probeWarnings, "no_egress: checkpoint topology probe failed closed")
-			}
-			return nil, probeWarnings, fmt.Errorf("%w: cannot prove whether the v2 catalog is mixed with git-refs: %v", errCheckpointSnapshotUnavailable, probeErr)
-		}
-		if len(refNames) > 0 {
-			if brainNoEgressMode() {
-				return nil, probeWarnings, fmt.Errorf("%w: no-egress mode cannot route mixed v2 and git-refs transcript formats", errCheckpointSnapshotUnavailable)
-			}
-			return nil, probeWarnings, fmt.Errorf("%w: mixed v2 and git-refs checkpoint topology requires routed discovery", errCheckpointSnapshotUnavailable)
-		}
-		if raw {
-			return nil, probeWarnings, fmt.Errorf("%w: direct v2 raw transcript export is not implemented", errCheckpointSnapshotUnavailable)
-		}
-		treeOut, treeStderr, treeErr := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "ls-tree", "-r", "--name-only", v2MainRef)
-		probeWarnings = append(probeWarnings, warningLines("checkpoint ref "+v2MainRef, treeStderr)...)
-		if treeErr != nil {
-			if brainNoEgressMode() {
-				probeWarnings = append(probeWarnings, "no_egress: checkpoint remote snapshot fetch skipped")
-			}
-			return nil, probeWarnings, fmt.Errorf("%w: read checkpoint ref %s: %v", errCheckpointSnapshotUnavailable, v2MainRef, treeErr)
-		}
-		checkpointCount := len(checkpointIDsFromTreeListing(treeOut))
-		if limit > 0 && checkpointCount > limit {
-			return nil, probeWarnings, fmt.Errorf("%w: v2 local catalog has %d checkpoints and cannot apply newest-first limit %d without routed metadata", errCheckpointSnapshotUnavailable, checkpointCount, limit)
-		}
-		snapshot, snapshotWarnings, err := loadCheckpointSnapshotFromGitDirPolicy(ctx, runner, repoDir, v2MainRef, checkpointStorageV2, v2TranscriptFileName, "compact", 0, branchDestinations, progress, cache, brainNoEgressMode())
-		probeWarnings = append(probeWarnings, snapshotWarnings...)
-		if err != nil {
-			return nil, probeWarnings, err
-		}
-		probeWarnings = append(probeWarnings, fmt.Sprintf("exporting compact transcripts directly from local checkpoint ref %s", v2MainRef))
-		return snapshot, probeWarnings, nil
 	}
 
 	snapshot, warnings, err := loadLocalCheckpointUnionSnapshot(ctx, runner, repoDir, primary, limit, branchDestinations, progress, cache, brainNoEgressMode())
@@ -3611,9 +3533,7 @@ type entireCheckpointBackendSettings struct {
 }
 
 type entireStrategyOptions struct {
-	CheckpointRemote   *checkpointRemoteSettings `json:"checkpoint_remote,omitempty"`
-	CheckpointsV2      *bool                     `json:"checkpoints_v2,omitempty"`
-	CheckpointsVersion any                       `json:"checkpoints_version,omitempty"`
+	CheckpointRemote *checkpointRemoteSettings `json:"checkpoint_remote,omitempty"`
 }
 
 type checkpointRemoteSettings struct {
