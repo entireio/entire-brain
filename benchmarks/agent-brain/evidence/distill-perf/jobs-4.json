@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-05T13:39:44.114191Z",
+  "generated_at": "2026-09-11T23:33:31.687176Z",
   "taxonomy_path": "facts/taxonomy.json",
   "branches": [
     "claude/cc-debug",
@@ -48,13 +48,13 @@
     "pr85",
     "wip/memory-lifecycle-plan-handoff-20260712"
   ],
-  "facts": 246,
-  "distilled": 246,
+  "facts": 252,
+  "distilled": 252,
   "authored": 0,
-  "superseded": 0,
+  "superseded": 6,
   "proposals": 0,
   "verified": 0,
-  "unsigned": 246,
+  "unsigned": 252,
   "by_kind": {
     "convention": 64,
     "decision": 108,
@@ -83,8 +83,8 @@
     "output_tokens": 0,
     "total_tokens": 0
   },
-  "extraction_wait_seconds": 2.1357393030000007,
-  "reconcile_seconds": 3.780871715999999,
-  "write_seconds": 0.378908792,
-  "total_seconds": 8.437932291
+  "extraction_wait_seconds": 2.295949459,
+  "reconcile_seconds": 3.3895838740000013,
+  "write_seconds": 0.39021125,
+  "total_seconds": 7.537884084
 }
