@@ -2342,3 +2342,34 @@ func TestMCPIndexRepositoryDescribesForceAndPathScope(t *testing.T) {
 		}
 	}
 }
+
+// TestMCPBoundariesInvalidKindErrorNamesTheMCPArgument pins the brain_boundaries
+// error contract to the surface it is reached from.
+//
+// inspectBoundarySpec is shared by the `boundaries` CLI command and the
+// brain_boundaries MCP tool. Its rejection message used CLI flag syntax
+// ("--kind must be ..."), so an agent that sent {"kind":"controller"} over MCP
+// was told to fix a flag that does not exist on the MCP surface -- the argument
+// there is the JSON field "kind". The message must name the values without
+// naming a flag, so it reads correctly from both callers.
+func TestMCPBoundariesInvalidKindErrorNamesTheMCPArgument(t *testing.T) {
+	t.Parallel()
+
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_boundaries","arguments":{"kind":"controller"}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	data, err := json.Marshal(responses[0])
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+	message := string(data)
+	if strings.Contains(message, "--kind") {
+		t.Fatalf("brain_boundaries told an MCP caller to correct a CLI flag that does not exist on this surface: %s", message)
+	}
+	if !strings.Contains(message, "kind must be route, tool, or workflow") {
+		t.Fatalf("brain_boundaries did not name the accepted kind values: %s", message)
+	}
+}
