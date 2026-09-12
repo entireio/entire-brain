@@ -42,7 +42,7 @@ func newRefreshCommand(opts Options) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// --worktree belongs to seed/docs. A dirty semantic snapshot must be
-			// an explicit `brain index --worktree` operation (or the deprecated
+			// an explicit `refresh index --worktree` operation (or the deprecated
 			// --semantic-worktree compatibility flag), so the ordinary
 			// `refresh --worktree` path must not accidentally attempt and fail a
 			// committed-tree semantic rebuild.
