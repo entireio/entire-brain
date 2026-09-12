@@ -22,6 +22,7 @@ func providerLocalKeyFixtureSnapshot(repoDir string) string {
 	return `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"` + key + `","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"` + key + `:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"caller","to_id":"` + key + `:go:internal/auth/token.go:function:auth.ValidateToken","type":"CALLS","confidence":1}
+{"record_type":"summary","warnings":[],"partial_failures":[]}
 `
 }
 
