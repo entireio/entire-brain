@@ -1402,6 +1402,10 @@ func configuredCheckpointPrimary(repoDir string, base entireSettingsFile) (strin
 		return base.Checkpoints.Primary.Type, true, nil
 	}
 
+	// Deliberately strict, unlike the brain's own persisted state: this is a
+	// hand-edited settings file, where an unknown key is far more often the
+	// reader's typo than producer skew, and silently ignoring it would apply a
+	// checkpoint topology they did not ask for.
 	var selected entireCheckpointsSettings
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()

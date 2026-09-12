@@ -25,7 +25,11 @@ type Snapshot struct {
 }
 
 // Load materializes a Snapshot from a git-meta state.
-func Load(state gitmeta.State) *Snapshot {
+func Load(state gitmeta.State) *Snapshot { return LoadRevision(state, "") }
+
+// LoadRevision reads only one parser generation. Legacy readers continue to
+// see their original keys after a newer peer migrates and syncs its records.
+func LoadRevision(state gitmeta.State, revision string) *Snapshot {
 	snap := &Snapshot{
 		commitsByEntity: map[string][]string{},
 		aliases:         map[string]string{},
@@ -33,6 +37,11 @@ func Load(state gitmeta.State) *Snapshot {
 		windows:         map[string]IndexWindow{},
 	}
 	for _, lv := range state.Lists {
+		var ok bool
+		lv.Key, ok = originalRevisionKey(lv.Key, revision)
+		if !ok {
+			continue
+		}
 		if lv.Target != projectTarget {
 			continue
 		}
@@ -54,6 +63,11 @@ func Load(state gitmeta.State) *Snapshot {
 		snap.commitsByEntity[entityKey] = commits
 	}
 	for _, sv := range state.Strings {
+		var ok bool
+		sv.Key, ok = originalRevisionKey(sv.Key, revision)
+		if !ok {
+			continue
+		}
 		switch {
 		case sv.Target.Type == gitmeta.TargetCommit && sv.Key == ForwardKey:
 			snap.forward[sv.Target.Value] = sv.Value
@@ -384,4 +398,22 @@ func (s *Snapshot) IndexedCommits() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// HasOtherHistory is used only while rebuilding the derived query cache, never
+// on a backfill/freshness tick. A missing commit can be carried forward from a
+// different revision by migration. No old parser output is served as current.
+func HasOtherHistory(state gitmeta.State, revision string) bool {
+	current := map[string]bool{}
+	for _, v := range state.Strings {
+		if v.Target.Type == gitmeta.TargetCommit && v.Key == RevisionKey(ForwardKey, revision) {
+			current[v.Target.Value] = true
+		}
+	}
+	for _, v := range state.Strings {
+		if v.Target.Type == gitmeta.TargetCommit && anyRevisionKey(v.Key) == ForwardKey && !current[v.Target.Value] {
+			return true
+		}
+	}
+	return false
 }
