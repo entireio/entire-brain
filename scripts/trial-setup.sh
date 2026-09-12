@@ -55,8 +55,11 @@ die() { printf 'trial-setup: %s\n' "$1" >&2; exit 1; }
 command -v git >/dev/null 2>&1 || die 'git is required'
 command -v go >/dev/null 2>&1 || die 'a Go toolchain is required to build the branch binary'
 
-rm -rf "$trial_dir"
-mkdir -p "$trial_dir"
+# Only a directory created by this invocation may be cleaned up below.
+if [ -e "$trial_dir" ] || [ -L "$trial_dir" ]; then
+	die "sandbox path already exists; refusing to overwrite it: $trial_dir"
+fi
+mkdir -- "$trial_dir" || die "could not create fresh sandbox: $trial_dir"
 trial_dir=$(CDPATH='' cd -- "$trial_dir" && pwd)
 
 sandbox_home="$trial_dir/home"

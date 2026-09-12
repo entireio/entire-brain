@@ -123,3 +123,26 @@ func TestOnboardingStatusReportsCorruptWatchPlan(t *testing.T) {
 		t.Fatalf("corrupt plan hidden: %+v", status)
 	}
 }
+
+func TestFailedWorkspaceRegistrationPreservesSharedTuning(t *testing.T) {
+	f := newSetupTestFixture(t)
+	if _, err := recordSetupWatchPlan(f.env, daemonDefaultName, setupWatchPlanEntry{Workspace: setupDefaultWorkspace, Interval: "1h"}); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := workspaceDir(f.env, setupDefaultWorkspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAtomic(filepath.Join(dir, workspaceManifestName), []byte("invalid"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	rec := &recordedSetup{}
+	runSetupForTest(t, f, defaultSetupOptions(), rec)
+	plan, err := loadSetupWatchPlan(f.env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Workspaces[0].Interval != "1h" || rec.installCalls != 0 {
+		t.Fatalf("failed registration changed daemon: plan=%+v installs=%d", plan, rec.installCalls)
+	}
+}

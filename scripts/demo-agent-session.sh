@@ -122,8 +122,11 @@ if [ ! -t 1 ]; then
 	note 'That is fine here -- this script proves the loop, not the repaints.'
 fi
 
-rm -rf "$demo_dir"
-mkdir -p "$demo_dir"
+# Only a directory created by this invocation may be cleaned up below.
+if [ -e "$demo_dir" ] || [ -L "$demo_dir" ]; then
+	die "sandbox path already exists; refusing to overwrite it: $demo_dir"
+fi
+mkdir -- "$demo_dir" || die "could not create fresh sandbox: $demo_dir"
 demo_dir=$(CDPATH='' cd -- "$demo_dir" && pwd)
 
 sandbox_home="$demo_dir/home"

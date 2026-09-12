@@ -727,7 +727,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// A failure here is a warning, not a fatal: everything the deterministic
 	// phases built stays usable, and the next `setup` re-attempts it.
 	var watchPlanErr error
-	if !setupOpts.noDaemon && planErr == nil {
+	if !setupOpts.noDaemon && planErr == nil && report.Workspace.Registered {
 		if _, watchPlanErr = recordSetupWatchPlan(perRepo.Env, setupOpts.daemonName, setupWatchPlanEntryFor(setupOpts, steps.now())); watchPlanErr != nil {
 			report.Warnings = append(report.Warnings, "machine watch plan not saved: "+watchPlanErr.Error())
 			daemonProgress.Skip("machine watch plan not saved: " + watchPlanErr.Error())
@@ -739,6 +739,9 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	case setupOpts.noDaemon:
 		daemonProgress.Skip("background watcher (--no-daemon)")
 		report.Daemon = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Detail: "skipped: --no-daemon"}
+	case !report.Workspace.Registered:
+		daemonProgress.Skip("background watcher: workspace registration failed")
+		report.Daemon = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Detail: "skipped: workspace registration failed"}
 	case watchPlanErr != nil:
 		report.Daemon = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Detail: "skipped: machine watch plan not saved"}
 	case planErr != nil:

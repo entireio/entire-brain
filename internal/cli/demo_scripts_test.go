@@ -228,3 +228,37 @@ func TestDemoCleanupPreservesSignalExitAndStopsSandboxChild(t *testing.T) {
 		})
 	}
 }
+
+func TestDemoSandboxRefusesExistingUserDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX scripts")
+	}
+	for _, name := range []string{"demo-setup.sh", "demo-agent-session.sh", "trial-setup.sh"} {
+		data, err := os.ReadFile(filepath.Join("..", "..", "scripts", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(data)
+		start := strings.Index(text, "# Only a directory created by this invocation")
+		if start < 0 {
+			t.Fatal("sandbox creation guard missing")
+		}
+		end := strings.Index(text[start:], "sandbox_home=") + start
+		if start < 0 || end < start {
+			t.Fatal("sandbox creation guard missing")
+		}
+		root := t.TempDir()
+		sentinel := filepath.Join(root, "owned")
+		if err := os.WriteFile(sentinel, []byte("keep"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		script := "set -eu\ndemo_dir=$1\ntrial_dir=$1\ndie() { exit 1; }\n" + text[start:end]
+		cmd := exec.Command("sh", "-c", script, "test", root)
+		if out, err := cmd.CombinedOutput(); err == nil {
+			t.Fatalf("%s accepted existing directory: %s", name, out)
+		}
+		if data, err := os.ReadFile(sentinel); err != nil || string(data) != "keep" {
+			t.Fatalf("%s deleted user content: %v", name, err)
+		}
+	}
+}
