@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ashtom/entire-brain/internal/apiurl"
 	"github.com/ashtom/entire-brain/internal/brainwire"
 )
 
@@ -46,7 +47,9 @@ var (
 )
 
 // Client talks to a repo's hosted brain MCP endpoint. BaseURL is the entire-api
-// origin; Token is the member's bearer token (same as factsync.HTTPServer).
+// origin; Token is the member's bearer token (same as factsync.HTTPServer). BaseURL
+// must clear the shared scheme floor (apiurl.Validate): https, or http only to a
+// loopback host.
 type Client struct {
 	BaseURL string
 	Token   string
@@ -55,9 +58,9 @@ type Client struct {
 
 func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
-		return c.HTTP
+		return apiurl.WithoutRedirects(c.HTTP)
 	}
-	return http.DefaultClient
+	return apiurl.WithoutRedirects(http.DefaultClient)
 }
 
 // ServerInfo is the hosted brain's initialize serverInfo, including the brain wire
@@ -114,16 +117,25 @@ func (c *Client) rpc(ctx context.Context, repoID, method string, params any) (js
 	if err != nil {
 		return nil, err
 	}
-	// PathEscape keeps the repo id inside ONE path segment. Concatenated raw, a
-	// "/", "?", "#" or dot segment in the id rewrites the request target — and
-	// this request carries the caller's bearer token, so a rewritten target
-	// sends that token somewhere it was never meant to go. The id arrives from
-	// --repo-id or the environment, neither of which this package controls.
+	// Two independent guards on the same line, both about the bearer token this
+	// request carries.
 	//
-	// publish.go already escapes its own repo id the same way; this was the one
-	// remaining site that did not. The local was named `url`, which shadowed
-	// the package, hence `endpoint`.
-	endpoint := strings.TrimRight(c.BaseURL, "/") + "/api/v1/repos/" + url.PathEscape(repoID) + "/brain/mcp"
+	// Scheme floor: the hosted MCP query surface is an egress chokepoint — the
+	// query and the token authorizing it must not cross plaintext to a
+	// non-loopback host.
+	//
+	// PathEscape: concatenated raw, a "/", "?", "#" or dot segment in the repo
+	// id rewrites the request target, sending that same token somewhere it was
+	// never meant to go. The id arrives from --repo-id or the environment,
+	// neither of which this package controls.
+	//
+	// The local is `endpoint`, not `url`, because `url` shadows the package
+	// PathEscape comes from.
+	base, err := apiurl.Validate(c.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("hostedbrain: %w", err)
+	}
+	endpoint := base + "/api/v1/repos/" + url.PathEscape(repoID) + "/brain/mcp"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
 	if err != nil {
 		return nil, err
