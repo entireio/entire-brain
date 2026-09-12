@@ -1,19 +1,128 @@
 # Candidate-First Distillation Plan
 
-Implementation update (2026-09-10 UTC): the strict-negative corrective slice
-and Phase 4 runtime now have independently resolved passing gates. Phase 2
-acceptance failed closed on missing validated full-source and quantitative proof;
-retrieval, confirmation, and default-promotion gates remain unaccepted.
-See [current implementation and evidence](candidate_distillation_implementation_status.md).
-The dated evidence below retains its original scope.
+## Session handover — 2026-09-12
 
-Status: Phase 3 conservative-write exit gate complete. Phase 2 has a sealed
-three-judge agentic evidence package and one completed historical 20-item human
-selector calibration. The remaining implementation, quality, retrieval, and
-operational gates are agentically scored; no further human checkpoint occurs
-before the final Phase 5 default-promotion audit. That final audit recomputes
-the retained metrics from human labels and is the only human approval gate
-(2026-09-10).
+**Implementation is shipped; rollout acceptance is incomplete. Legacy remains
+the default.** Start here in the next session, then read the
+[current implementation and evidence](candidate_distillation_implementation_status.md).
+The dated phase narratives below are historical evidence, not a statement that
+all prerequisites have passed.
+
+### Repository and delivered work
+
+- Checkout: `/Users/thomi/Projects/entire-brain`.
+- Branch: `feat/candidate-distillation-quality-gate`.
+- Last pushed handover baseline: `87fb9241358d483a8629de73db901d66a0478161`.
+  The checkout was clean and equal to its upstream before this handover edit;
+  code and Entire checkpoints were pushed to `entireio`.
+- `13f60d74`: plan review corrections, pushed before implementation.
+- `540d6688`: strict candidate negatives, conservative splitting, discovery
+  reuse, hook/watch opt-in, privacy integration, recovery-budget preservation,
+  corpus export, phase resolver, and quantitative evaluator.
+- `b4e498b4`: isolated paired source snapshots with bounded input and complete
+  source authority identity.
+- `87fb9241`: retained phase decisions, verification, and development receipts.
+
+The user's review instruction was to fix the findings except 4 and 5. The
+human-audit blinding concern and historical 48/64 KiB baseline inconsistency
+were intentionally left outside that correction. New development measurements
+explicitly use 65,536-byte legacy chunks.
+
+### Accepted scope and current blocker
+
+- Phase 3 strict-negative corrective delta and Phase 4 incremental session-end
+  runtime each received three independent passes. These judgments bind runtime
+  tree `feae75d4cd34c8098c5dae65e26c0c956afe3d16` from `540d6688`; they do not
+  establish full-corpus quality or accept later changes automatically.
+- Phase 2 readiness failed closed: Claude and Copilot voted `fail`, Cursor
+  `insufficient_evidence`. There was no critical dissent and no Astra vote.
+  Read the retained [Phase 2 archive](candidate_distillation_evidence/2026-09-10/phase2.json).
+- Complete-source development labeling failed the two-valid-judge floor:
+  one valid judge for the 53-turn zero-candidate session, none for the 274-turn
+  candidate-bearing session, after bounded recovery. Invalid labels are missing
+  coverage, not negatives. This does not establish a semantic extraction error
+  rate. Admission-panel labels cannot replace full-source reference labels.
+- All twelve paired development extractions completed (two sessions, two arms,
+  three repetitions). Counts and token savings are diagnostic; reference
+  quality, retrieval non-inferiority, power, and untouched confirmation remain
+  unproven. No new human audit was started.
+
+### Next session: resume at the reference-evidence blocker
+
+1. Verify branch, HEAD, and working-tree changes before editing. Read the status
+   document, [evaluation workflow](../benchmarks/agent-brain/candidate_distillation_eval.md),
+   and [phase evidence contract](candidate_distillation_gate_evidence.md).
+2. Inspect the retained source-label validation failures and existing recovery
+   ledger. Declare a bounded corrective evaluation slice before changing the
+   labeling orchestration. Preserve complete source coverage and exact quote
+   attribution; do not weaken validators, reset exhausted recovery budgets, or
+   repeatedly optimize prompts against the same feedback. Record which inputs
+   change and why a new request is eligible under the gate contract.
+3. Establish valid independent full-source reference coverage, including
+   zero-candidate sessions and authority classes. Reuse only unchanged valid,
+   digest-verified evidence. Astra cannot substitute for fewer than two valid
+   primary judgments. If coverage remains insufficient, retain that result.
+4. Once development references are valid, complete paired fact-quality and
+   retrieval evidence and compute the prescribed development-only sample size.
+   Inventory every known prior development source and related session family;
+   the exporter's identity checks cannot discover every alias or contamination.
+5. Freeze implementation, providers/repetitions, metrics, source roster, split,
+   and power contract before viewing a fresh disjoint confirmation set. Use
+   fresh isolated snapshot arms and verify each dry-run's `brain_dir`. The two
+   sessions already inspected here are development forever. Score the complete
+   quantitative artifact, then obtain the independent phase decision; a scorer
+   `pass` is not phase acceptance.
+6. Proceed to Phase 5 human recomputation and explicit default-promotion approval
+   only after its prerequisite gates pass. Keep candidate mode opt-in until
+   then. Do not restart the cancelled admission run merely to fill its counters.
+
+### Evidence locations and verification limits
+
+Committed content-free receipts live in
+[`docs/candidate_distillation_evidence/2026-09-10/`](candidate_distillation_evidence/2026-09-10/).
+The local private evidence root, verified present at handover, is
+`/tmp/candidate-distill-implementation.tjw1ob`. Temporary files may not survive
+another machine or cleanup; verify availability and digests before reuse. Keep
+raw transcripts, prompts, facts, and source maps outside Git.
+
+Useful private paths relative to that root:
+
+- `phase2-readiness`, `phase3-corrected`, `phase4-corrected`: retained gate inputs
+  and verdicts. Earlier `phase3-review` / `phase4-review` archives are superseded.
+- `source-labels-development/summary.json` and `run.py`: full-source failures
+  and labeling orchestration; `source-corpus-development` and
+  `source-corpus-candidate`: complete source exports with unset label templates.
+- `paired-extraction-development`: twelve extraction runs and supplemental
+  `declaration-correction.json`, `fact-output-artifacts.json`, and
+  `source-manifest-binding.json`. Preserve these corrections with the original
+  receipts; do not treat the prototype outputs as untouched confirmation.
+- `quality-delta-budgeted`, `admission-report.json`, and
+  `admission-cancellation.json`: retained admission state. Claude has 556
+  completed / 17 invalid / 98 cancelled-unjudged; Copilot 671 completed; Cursor
+  616 completed / 55 invalid. Sixteen Claude requests were in flight when
+  cancelled; their usage is unknown, not zero. No provider jobs were left running
+  at the end of that implementation session.
+
+The full non-CGO race suite passed on the accepted runtime tree. Focused CGO,
+privacy, hook, discovery, manifest, corpus, and gate tests passed; the snapshot
+addition passed its race tests, vet, lint, and five-target cross-builds. Nine
+quantitative-evaluator tests passed. The complete `mise run check` is **not
+green**: `TestVecStoreConcurrentSavePresentMergesUnderBrainLock` races in the
+CGO suite and was reproduced on unchanged `13f60d74`. Baseline evidence is in
+`/tmp/entire-brain-baseline-race-13f60d74.log`. This unrelated race remains
+unfixed. Use isolated tracked-file checkouts for broad checks because ignored
+benchmark module caches disrupt Go package discovery; preserve those artifacts.
+Do not claim these checks validate a later changed tree without rerunning the
+checks appropriate to that change.
+
+## Historical plan and evidence
+
+Historical status (2026-09-10): Phase 3 conservative-write exit gate complete.
+Phase 2 had a sealed three-judge agentic evidence package and one completed
+historical 20-item human selector calibration. The final Phase 5 audit remains
+the only human approval gate. Current acceptance is governed by the handover
+above and the retained phase decisions, not by the presence of an evidence
+package alone.
 
 ### Delivery and acceptance model
 
