@@ -24,6 +24,14 @@ const maxMCPFrameBytes = 4 * 1024 * 1024
 
 var mcpRefreshTimeout = 60 * time.Second
 
+// mcpIndexTimeout bounds brain_index_repository. brain_refresh has been capped
+// since it was written, and index is the same shape of work — a full provider
+// snapshot over a repository of unknown size — on the same stdio transport,
+// where a call that never returns is a client that never recovers. The tool
+// descriptions already advertised the asymmetry: brain_refresh's says "Calls
+// are capped at 60 seconds", index's said nothing.
+var mcpIndexTimeout = 60 * time.Second
+
 type mcpFrameMode string
 
 const (
@@ -796,7 +804,19 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = boolErr
 			break
 		}
-		err = runSemanticIndex(ctx, cmd, opts, semanticIndexOptions{graphBinary: graphBinary, profile: strings.TrimSpace(profile), worktree: worktree, force: force, containRoot: containRoot}, path)
+		indexCtx, cancelIndex := context.WithTimeout(ctx, mcpIndexTimeout)
+		defer cancelIndex()
+		cmd.SetContext(indexCtx)
+		err = runSemanticIndex(indexCtx, cmd, opts, semanticIndexOptions{graphBinary: graphBinary, profile: strings.TrimSpace(profile), worktree: worktree, force: force, containRoot: containRoot}, path)
+		if errors.Is(indexCtx.Err(), context.DeadlineExceeded) {
+			// Mirrors brain_refresh: name the limit and point at the surface
+			// that has no limit, rather than returning a bare context error the
+			// caller cannot act on.
+			err = fmt.Errorf(
+				"brain_index_repository exceeded the %s MCP limit; use the dedicated CLI refresh/index command",
+				mcpIndexTimeout,
+			)
+		}
 	case "brain_list_projects":
 		err = runMCPListProjects(ctx, cmd, opts)
 	case "brain_delete_project":
@@ -1137,7 +1157,49 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"content": []map[string]any{{"type": "text", "text": out.String()}}}, nil
+	return mcpToolTextResult(ctx, params.Name, out.String())
+}
+
+// mcpToolTextResult wraps a tool's text output, refusing a frame the transport
+// cannot carry.
+//
+// Inbound frames have been bounded by maxMCPFrameBytes since framing was
+// written; outbound frames were not bounded at all. Every use of
+// maxMCPFrameBytes in this file was on the read side. The retrieval surface
+// grew its own 128 KiB budget (boundedRetrievalJSONPayload), but the ~25
+// graph/semantic/status/pattern tools had none, so a wide call — brain_impact
+// at the schema's own limit of 10000, say — could build a response far larger
+// than any frame the peer will accept. The client either drops the connection
+// or blocks; either way the caller learns nothing about why.
+//
+// REFUSES RATHER THAN TRUNCATES, deliberately. A silently shortened graph
+// answer is indistinguishable from a small one, and an agent cannot tell that
+// it is reasoning from a fragment. An error names the limit and the argument
+// to lower. Row-wise truncation with an explicit marker — what the retrieval
+// surface does — is the better long-term answer for the tools that can
+// support it, and is left as follow-up.
+func mcpToolTextResult(ctx context.Context, tool, text string) (map[string]any, error) {
+	result := map[string]any{"content": []map[string]any{{"type": "text", "text": text}}}
+	// Cheap reject first: the text alone cannot exceed the frame, so there is
+	// no need to marshal a response that is already too large.
+	if len(text) > maxMCPFrameBytes {
+		return nil, fmt.Errorf(
+			"%s produced a %d byte result, over the %d byte MCP frame limit; narrow the request (lower limit, or drop details)",
+			tool, len(text), maxMCPFrameBytes)
+	}
+	size, sizeErr := mcpToolResultTransportSize(ctx, result)
+	if sizeErr != nil {
+		// Measuring failed, not the result. Returning the result unmeasured is
+		// the pre-existing behaviour and strictly better than failing a call
+		// that may well be fine.
+		return result, nil
+	}
+	if size > maxMCPFrameBytes {
+		return nil, fmt.Errorf(
+			"%s produced a %d byte frame, over the %d byte MCP frame limit; narrow the request (lower limit, or drop details)",
+			tool, size, maxMCPFrameBytes)
+	}
+	return result, nil
 }
 
 func requireMCPQuery(query string) error {
