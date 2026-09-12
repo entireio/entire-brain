@@ -122,11 +122,25 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 			return err
 		}
 		facts = upsertFact(facts, record)
-		// An explicit --kind is a deliberate human correction and must win even
-		// when the fact already exists, where upsertFact's anti-thrash rule would
-		// otherwise keep the stored kind. The reported kind is then always the one
-		// actually persisted, never a discarded request.
 		if i := indexOfFact(facts, record.ID); i >= 0 {
+			// Re-authoring is a deliberate human assertion that the statement is
+			// true again. A fact id is content-derived, so `remember` of a
+			// statement that was previously retracted (or superseded) matches the
+			// retired record, and upsertFact only unions provenance — it never
+			// revives a status, which is exactly right for a re-distill but wrong
+			// here: without this the command prints "remembered ..." while the
+			// fact stays invisible to recall, and the author's write is silently
+			// lost. Reviving keeps the record and its history; it only restores
+			// the status the author just asserted.
+			if facts[i].Status != factStatusActive {
+				facts[i].Status = factStatusActive
+				facts[i].SupersededBy = ""
+				facts[i].UpdatedAt = now
+			}
+			// An explicit --kind is a deliberate human correction and must win even
+			// when the fact already exists, where upsertFact's anti-thrash rule would
+			// otherwise keep the stored kind. The reported kind is then always the one
+			// actually persisted, never a discarded request.
 			if explicitKind != "" {
 				facts[i].Kind = explicitKind
 			}
