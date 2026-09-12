@@ -1,13 +1,11 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"math"
 	"os"
 	"strconv"
-	"time"
 )
 
 // Size ceilings for reading untrusted inputs fully into memory. A file larger
@@ -53,11 +51,6 @@ func semanticSnapshotMaxBytes() int64 {
 // lstat-to-open TOCTOU window deterministically, matching the existing
 // memoryStateOpenFile and privacyOpen seams.
 var safeReadOpenFile = os.OpenFile
-
-// safeReadDeadline bounds a read on a descriptor that supports deadlines, so a
-// pollable file that never yields EOF cannot park the caller forever. Regular
-// files do not support deadlines (see safeOpenRegularFile) and are unaffected.
-const safeReadDeadline = 30 * time.Second
 
 // safeOpenRegularFile opens path for reading and refuses anything that is not a
 // regular file.
@@ -110,13 +103,9 @@ func safeOpenRegularFile(path string) (*os.File, error) {
 		_ = f.Close()
 		return nil, fmt.Errorf("%s must be a regular file", path)
 	}
-	// Best effort: a regular file reports os.ErrNoDeadline and needs no deadline
-	// (its reads complete or fail, they do not park in the netpoller). Anything
-	// pollable that reached this point despite the check above is bounded.
-	if err := f.SetReadDeadline(time.Now().Add(safeReadDeadline)); err != nil && !errors.Is(err, os.ErrNoDeadline) {
-		_ = f.Close()
-		return nil, err
-	}
+	// This is a file-type and allocation boundary, not a wall-clock deadline:
+	// regular-file reads can still wait on the backing filesystem. Trace ingestion
+	// therefore reads before acquiring the semantic index lock.
 	return f, nil
 }
 
