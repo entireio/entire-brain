@@ -2,7 +2,9 @@ package cli
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -195,3 +197,34 @@ var (
 type demoScriptError struct{ msg string }
 
 func (e *demoScriptError) Error() string { return e.msg }
+
+func TestDemoCleanupPreservesSignalExitAndStopsSandboxChild(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX demo scripts")
+	}
+	for _, name := range []string{"demo-setup.sh", "demo-agent-session.sh", "trial-setup.sh"} {
+		t.Run(name, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join("..", "..", "scripts", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := string(data)
+			start := strings.Index(text, "sandbox_processes() {")
+			end := strings.Index(text, "trap 'exit 143' TERM")
+			if start < 0 || end < start {
+				t.Fatal("cleanup block missing")
+			}
+			block := text[start : end+len("trap 'exit 143' TERM")]
+			root := filepath.Join(t.TempDir(), "sandbox")
+			script := "set -eu\ndemo_dir=$1\ntrial_dir=$1\nkeep=\nmkdir -p \"$1\"\ncp /bin/sleep \"$1/entire-brain\"\n" + block + "\n\"$1/entire-brain\" 60 &\nsleep 0.1\nkill -TERM $$\n"
+			cmd := exec.Command("sh", "-c", script, "test", root)
+			out, err := cmd.CombinedOutput()
+			if err == nil || cmd.ProcessState.ExitCode() != 143 {
+				t.Fatalf("signal exit: %v, %s", err, out)
+			}
+			if _, err := os.Stat(root); !os.IsNotExist(err) {
+				t.Fatalf("sandbox not cleaned after stopping child: %v, %s", err, out)
+			}
+		})
+	}
+}

@@ -69,6 +69,9 @@ func CommitTarget(sha string) gitmeta.Target {
 
 // BuildOptions configures one indexing pass.
 type BuildOptions struct {
+	migrating bool
+	// IdentityRevision pins the parser rules used for every stored delta.
+	IdentityRevision string
 	// RepoDir is the repository whose history is indexed.
 	RepoDir string
 	// GraphBinary is the Entire CLI binary exposing `graph diff` ("entire").
@@ -158,7 +161,10 @@ type commitInfo struct {
 // landed since (walking only tip..head, so an unchanged branch costs one empty
 // `git log`), and bounded backfill chunks pull the FLOOR backward until it
 // reaches the root. Either end stops at the first commit the provider could not
-// diff, so the range never claims to cover a hole.
+// diff, so the range never claims to cover a hole. A tip that is no longer on
+// the head's FIRST-PARENT chain — still an ancestor, but only through some
+// merge's second parent — is dropped and the range re-covered from the head:
+// `tip..head` omits exactly the commits such a window would go on to claim.
 func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opts BuildOptions) (BuildResult, error) {
 	if runner == nil {
 		return BuildResult{}, errors.New("entityindex: command runner is required")
@@ -183,7 +189,7 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 
 	window := IndexWindow{}
 	if !opts.Full {
-		window, err = readWindow(ctx, runner, store, opts.RepoDir, branch, head)
+		window, err = readRevisionWindow(ctx, runner, store, opts.RepoDir, branch, head, opts.IdentityRevision)
 		if err != nil {
 			return result, err
 		}
@@ -242,7 +248,7 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 		windowMut = []gitmeta.Mutation{{
 			Op:     gitmeta.OpSetString,
 			Target: projectTarget,
-			Key:    WindowKey(branch),
+			Key:    RevisionKey(WindowKey(branch), opts.IdentityRevision),
 			Value:  EncodeWindow(nextWindow),
 		}}
 	}
@@ -260,14 +266,31 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 		// concurrent writer may have indexed the same commits between our read
 		// and the CAS. A commit's records move together, so the WHOLE group is
 		// dropped — replaying only its reverse appends would duplicate entries.
+		//
+		// The one exception is a commit whose CURRENTLY stored document is
+		// itself a stale truncation (written under a lower maxDeltaEntities cap
+		// than is in effect now): that document does not satisfy today's cap
+		// either way, so it is not the "someone already indexed this" case the
+		// guard exists for, and the group is let through to replace it. A
+		// concurrent writer that already landed a fully-repaired document in
+		// the meantime still wins the drop, exactly as before.
 		pending := make([]gitmeta.Mutation, 0, b.mutCount+len(windowMut))
 		for _, group := range b.groups {
-			if current.HasKey(CommitTarget(group.sha), ForwardKey) {
-				continue
+			forwardKey := RevisionKey(ForwardKey, opts.IdentityRevision)
+			if current.HasKey(CommitTarget(group.sha), forwardKey) {
+				// HasKey, not CurrentString, is the presence test: it also sees a
+				// list or set value, so a group is never let through to clobber a
+				// non-string value. The stored STRING is then consulted only to
+				// spot the stale-truncation exception above.
+				raw, isString := current.CurrentString(CommitTarget(group.sha), forwardKey)
+				if !isString || !deltaNeedsRepair(raw) {
+					continue
+				}
 			}
 			pending = append(pending, group.muts...)
 		}
 		pending = append(pending, windowMut...)
+
 		if len(pending) == 0 {
 			return gitmeta.State{}, factgitmeta.ErrNoUpdate
 		}
@@ -294,7 +317,11 @@ func lockStore(store *factgitmeta.MetaStore, nonBlocking bool) (func(), error) {
 // ONE blob, not a materialization of the whole index: a tick that finds nothing
 // new must not pay for every record in the store.
 func readWindow(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, repoDir, branch, head string) (IndexWindow, error) {
-	raw, ok, err := store.ReadString(projectTarget, WindowKey(branch))
+	return readRevisionWindow(ctx, runner, store, repoDir, branch, head, "")
+}
+
+func readRevisionWindow(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, repoDir, branch, head, revision string) (IndexWindow, error) {
+	raw, ok, err := store.ReadString(projectTarget, RevisionKey(WindowKey(branch), revision))
 	if err != nil {
 		return IndexWindow{}, err
 	}
@@ -337,6 +364,52 @@ type builder struct {
 	// indexed memoizes per-commit forward-document presence, so a commit at a
 	// window edge is probed at most once per pass.
 	indexed map[string]bool
+
+	// shallow memoizes whether the repository is a shallow clone, so the probe
+	// costs one `git rev-parse` per pass rather than one per parentless commit.
+	shallow *bool
+}
+
+// repoIsShallow reports whether the repository has grafted (truncated) history.
+// A probe that cannot run answers false: the only thing this gates is an extra
+// check on parentless commits, and treating a full clone as full is the status
+// quo.
+func (b *builder) repoIsShallow() bool {
+	if b.shallow == nil {
+		shallow := false
+		if stdout, _, err := b.runner.Run(b.ctx, b.opts.RepoDir, "git", "rev-parse", "--is-shallow-repository"); err == nil {
+			shallow = strings.TrimSpace(string(stdout)) == "true"
+		}
+		b.shallow = &shallow
+	}
+	return *b.shallow
+}
+
+// isGraftedBoundary reports whether a commit git described as PARENTLESS is
+// really a shallow clone's boundary rather than a root.
+//
+// A graft truncates `git log --format=%P` to nothing, so a boundary commit is
+// indistinguishable from a root in the walk — and a root is diffed against the
+// empty tree, which would record every entity in the whole tree as ADDED by
+// that one commit. The raw object still carries its parent lines, so
+// `cat-file commit` tells the two apart.
+func (b *builder) isGraftedBoundary(sha string) bool {
+	if !b.repoIsShallow() {
+		return false
+	}
+	stdout, _, err := b.runner.Run(b.ctx, b.opts.RepoDir, "git", "cat-file", "commit", sha)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(stdout), "\n") {
+		if strings.TrimSpace(line) == "" {
+			break // the header ends at the blank line before the message
+		}
+		if strings.HasPrefix(line, "parent ") {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *builder) exhausted() bool { return b.opts.Limit > 0 && b.budget <= 0 }
@@ -354,40 +427,56 @@ func (b *builder) walkBudget() int {
 // extendWindow pushes the tip forward over commits that landed since, then
 // pulls the floor backward over older history, and returns the resulting range.
 func (b *builder) extendWindow(window IndexWindow, head string) IndexWindow {
-	next := window
-
 	// --- forward: cover what landed since the tip ---------------------------
+	var forward []commitInfo
 	if !window.Empty() && window.Tip != head {
 		// Only tip..head: O(new commits), and empty (one instant `git log`)
 		// when the branch has not moved. Bounded by what this pass can index,
 		// so a Limit:10 tick after a 5000-commit fast-forward materializes ten
 		// commit bodies rather than five thousand.
 		commits, err := b.walkForward(window.Tip+".."+head, b.walkBudget())
-		if err != nil {
-			b.result.Warnings = append(b.result.Warnings, err.Error())
-		}
 		// Oldest-first, so the tip advances over a contiguous run.
 		for i, j := 0, len(commits)-1; i < j; i, j = i+1, j-1 {
 			commits[i], commits[j] = commits[j], commits[i]
 		}
-		for _, commit := range commits {
-			if b.exhausted() {
-				break
-			}
-			b.result.Scanned++
-			if b.alreadyIndexed(commit.SHA) {
-				b.result.Skipped++
-				next.Tip = commit.SHA
-				continue
-			}
-			ok, stop := b.indexCommit(commit)
-			if !ok {
-				break // a hole the tip must not step over
-			}
+		if err != nil {
+			b.result.Warnings = append(b.result.Warnings, err.Error())
+		} else if !contiguousWithTip(commits, window.Tip) {
+			// The range does not sit DIRECTLY on top of the tip, so the tip is
+			// not on the head's first-parent chain — it is reachable only
+			// through some merge's second parent. `A..B` excludes everything
+			// reachable from A by ANY parent, so the first-parent commits
+			// between the tip and the head were never listed and are NOT
+			// indexed; advancing the tip over them would make the window claim
+			// coverage of a hole no later pass could ever detect. Re-cover from
+			// the head instead, exactly as a diverged tip does.
+			b.result.Warnings = append(b.result.Warnings, fmt.Sprintf(
+				"indexed window tip %s is not on the first-parent chain of %s; re-covering from the head",
+				short(window.Tip), short(head)))
+			window = IndexWindow{}
+			commits = nil
+		}
+		forward = commits
+	}
+
+	next := window
+	for _, commit := range forward {
+		if b.exhausted() {
+			break
+		}
+		b.result.Scanned++
+		if b.alreadyIndexed(commit.SHA) {
+			b.result.Skipped++
 			next.Tip = commit.SHA
-			if stop {
-				break
-			}
+			continue
+		}
+		ok, stop := b.indexCommit(commit)
+		if !ok {
+			break // a hole the tip must not step over
+		}
+		next.Tip = commit.SHA
+		if stop {
+			break
 		}
 	}
 
@@ -491,33 +580,77 @@ func (b *builder) indexCheckpointCommits(head string) {
 	}
 }
 
-// alreadyIndexed reports whether a commit already carries a forward document.
-// It reads ONE record rather than materializing the whole state, and is only
-// ever asked about commits OUTSIDE the covered window — everything inside it is
-// indexed by the window's own definition.
+// alreadyIndexed reports whether a commit already carries a forward document
+// that fully reflects the CURRENT maxDeltaEntities cap. It reads ONE record
+// rather than materializing the whole state, and is only ever asked about
+// commits OUTSIDE the covered window — everything inside it is indexed by the
+// window's own definition.
+//
+// A commit whose stored document was truncated wrote EXACTLY maxDeltaEntities
+// entities at the time it was indexed (that is what truncation means). If the
+// cap has since risen, that stored length is now smaller than the current cap,
+// which is the one signal available without a second provider invocation that
+// re-diffing would recover more of the commit. Such a commit is reported as
+// NOT indexed so the ordinary re-diff path (idempotent; see indexCommit)
+// refreshes it instead of leaving it stuck at the old, lower cap forever. A
+// commit truncated at the SAME cap it still stores (no cap change) is left
+// alone: re-diffing it would only reproduce the identical truncation.
 func (b *builder) alreadyIndexed(sha string) bool {
 	if known, ok := b.indexed[sha]; ok {
 		return known
 	}
-	present, err := b.store.HasString(CommitTarget(sha), ForwardKey)
+	raw, present, err := b.store.ReadString(CommitTarget(sha), RevisionKey(ForwardKey, b.opts.IdentityRevision))
 	if err != nil {
 		// Treat an unreadable probe as "not indexed": re-indexing is idempotent
 		// (the pre-CAS re-check drops the duplicate), skipping is not.
+		present = false
+	}
+	if present && deltaNeedsRepair(raw) {
 		present = false
 	}
 	b.indexed[sha] = present
 	return present
 }
 
+// deltaNeedsRepair reports whether a stored forward-document JSON was
+// truncated under a LOWER maxDeltaEntities cap than is in effect now. A
+// truncated document always stores exactly the cap's worth of entities at the
+// time it was written, so a stored length below today's cap is the signal
+// that re-diffing could recover more of the commit; a stored length equal to
+// today's cap means the cap has not moved since, and re-diffing would only
+// reproduce the identical truncation. An undecodable document is treated as
+// NOT needing repair — an unknown shape is not evidence of a stale cap.
+func deltaNeedsRepair(raw string) bool {
+	var delta Delta
+	if json.Unmarshal([]byte(raw), &delta) != nil {
+		return false
+	}
+	return delta.Truncated && len(delta.Entities) < maxDeltaEntities
+}
+
 // indexCommit diffs one commit and stages its records. indexed=false means the
 // commit was NOT recorded (so no cursor may step past it); stop=true means the
 // whole pass must end.
 func (b *builder) indexCommit(commit commitInfo) (indexed bool, stop bool) {
+	if commit.Parent == "" && b.isGraftedBoundary(commit.SHA) {
+		// A shallow clone's boundary is NOT a root: its parent exists, it is
+		// just not in this clone, so the commit's delta cannot be computed.
+		// Diffing it against the empty tree the way a real root is diffed would
+		// record every entity in the whole tree as ADDED by this one commit —
+		// a durable, git-native, silently fabricated answer to "which commit
+		// introduced this symbol". Treat it as the hole it is, so no cursor
+		// steps over it and nothing is written.
+		b.result.Failed++
+		b.result.Warnings = append(b.result.Warnings, fmt.Sprintf(
+			"commit %s is a shallow clone's boundary; its parent is not present, so its delta cannot be computed",
+			short(commit.SHA)))
+		return false, false
+	}
 	b.done++
 	if b.opts.Progress != nil {
 		b.opts.Progress(b.done)
 	}
-	delta, err := DiffCommit(b.ctx, b.runner, b.opts.RepoDir, b.opts.GraphBinary, commit.Parent, commit.SHA, b.now())
+	delta, err := diffCommit(b.ctx, b.runner, b.opts.RepoDir, b.opts.GraphBinary, commit.Parent, commit.SHA, b.now(), b.opts.migrating, b.opts.IdentityRevision)
 	if err != nil {
 		b.result.Failed++
 		b.result.Warnings = append(b.result.Warnings, err.Error())
@@ -531,8 +664,11 @@ func (b *builder) indexCommit(commit commitInfo) (indexed bool, stop bool) {
 	b.consecutiveFailures = 0
 	if len(delta.Entities) > maxDeltaEntities {
 		b.result.Warnings = append(b.result.Warnings, fmt.Sprintf("commit %s changed %d entities; stored the first %d", short(commit.SHA), len(delta.Entities), maxDeltaEntities))
+		delta.Truncated = true
+		delta.EntityCount = len(delta.Entities)
 		delta.Entities = delta.Entities[:maxDeltaEntities]
 	}
+	delta.IdentityRevision = b.opts.IdentityRevision
 	encoded, err := json.Marshal(delta)
 	if err != nil {
 		b.result.Failed++
@@ -542,7 +678,7 @@ func (b *builder) indexCommit(commit commitInfo) (indexed bool, stop bool) {
 	group := commitMutations{sha: commit.SHA, muts: []gitmeta.Mutation{{
 		Op:     gitmeta.OpSetString,
 		Target: CommitTarget(commit.SHA),
-		Key:    ForwardKey,
+		Key:    RevisionKey(ForwardKey, b.opts.IdentityRevision),
 		Value:  string(encoded),
 	}}}
 	b.mutCount++
@@ -556,7 +692,7 @@ func (b *builder) indexCommit(commit commitInfo) (indexed bool, stop bool) {
 		group.muts = append(group.muts, gitmeta.Mutation{
 			Op:     gitmeta.OpListPush,
 			Target: projectTarget,
-			Key:    EntityRecordKey(entity.Key()),
+			Key:    RevisionKey(EntityRecordKey(entity.Key()), b.opts.IdentityRevision),
 			Value:  commit.SHA,
 			NowMS:  entryMS,
 		})
@@ -565,7 +701,7 @@ func (b *builder) indexCommit(commit commitInfo) (indexed bool, stop bool) {
 			group.muts = append(group.muts, gitmeta.Mutation{
 				Op:     gitmeta.OpSetString,
 				Target: projectTarget,
-				Key:    AliasRecordKey(oldKey),
+				Key:    RevisionKey(AliasRecordKey(oldKey), b.opts.IdentityRevision),
 				Value:  entity.Key(),
 			})
 			b.mutCount++
@@ -602,6 +738,27 @@ func (b *builder) walkForward(spec string, maxCount int) ([]commitInfo, error) {
 		skip = total - maxCount
 	}
 	return b.walk(spec, maxCount, skip)
+}
+
+// contiguousWithTip reports whether a forward range walk actually starts one
+// commit above the window tip. `git log --first-parent <tip>..<head>` lists the
+// head's first-parent chain MINUS everything reachable from the tip by any
+// parent, so when the tip is only a merge's SECOND parent the range silently
+// omits the first-parent commits between them and the walk cannot be used to
+// advance the cursor. The walk is bounded from the NEWEST end (walkForward
+// skips past what the budget cannot reach), so its oldest element is always the
+// oldest commit of the range and its first parent is always the tip when the
+// range really is contiguous.
+//
+// commits must already be oldest-first. An empty range with tip != head means
+// the same thing: if the tip were on the head's first-parent chain there would
+// be at least one commit above it, and no commit above the tip is reachable
+// from it.
+func contiguousWithTip(commits []commitInfo, tip string) bool {
+	if len(commits) == 0 {
+		return false
+	}
+	return commits[0].Parent == tip
 }
 
 // countCommits counts the first-parent commits a revision spec names, without

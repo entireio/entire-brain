@@ -3,6 +3,8 @@ package factsync
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -185,5 +187,128 @@ func TestHTTPServerConvergenceOverWire(t *testing.T) {
 	}
 	if !texts["uses postgres"] || !texts["deploys via argo"] || len(recs) != 2 {
 		t.Fatalf("converged-over-HTTP set = %v; want both members' facts", recs)
+	}
+}
+
+// flakyDialTransport fails the first failFirst round trips with the exact
+// error shape net/http produces for a LOCAL dial failure (ephemeral port /
+// connection table exhaustion under host load), then delegates to a real
+// transport. It is what a momentarily overloaded host looks like from the
+// client's side: nothing about the remote server is wrong.
+type flakyDialTransport struct {
+	mu        sync.Mutex
+	failFirst int
+	calls     int
+	real      http.RoundTripper
+}
+
+func (f *flakyDialTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	f.mu.Lock()
+	f.calls++
+	n := f.calls
+	f.mu.Unlock()
+	if n <= f.failFirst {
+		return nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connect: cannot assign requested address")}
+	}
+	return f.real.RoundTrip(req)
+}
+
+func (f *flakyDialTransport) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
+// nonTransientDialTransport always fails with a dial error that is NOT the
+// local-exhaustion signature (e.g. a real "connection refused" from a server
+// that is actually down), so do() must return it on the very first attempt.
+type nonTransientDialTransport struct {
+	calls int
+}
+
+func (f *nonTransientDialTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	f.calls++
+	return nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connect: connection refused")}
+}
+
+// TestHTTPServerRetriesTransientLocalDialFailure pins the flake fix: a GET
+// that hits transientDialRetries-worth of local
+// dial failures (the "cannot assign requested address" signature a busy host
+// or a shared CI runner produces under ephemeral-port pressure) must still
+// succeed, because nothing ever reached the peer on the failed attempts.
+// Before this fix, the FIRST such blip failed the whole call.
+func TestHTTPServerRetriesTransientLocalDialFailure(t *testing.T) {
+	ctx := context.Background()
+	ts := contractServer(t, &fakeServer{})
+	defer ts.Close()
+	flaky := &flakyDialTransport{failFirst: transientDialRetries, real: http.DefaultTransport}
+	h := &HTTPServer{BaseURL: ts.URL, Token: "test-token", Client: &http.Client{Transport: flaky}}
+
+	if ref, blob, found, err := h.Current(ctx, "repo", "main"); err != nil || found || ref != "" || blob != nil {
+		t.Fatalf("Current with %d transient dial failures = %q,%v,%v,%v (err should be nil)", transientDialRetries, ref, blob, found, err)
+	}
+	if got, want := flaky.callCount(), transientDialRetries+1; got != want {
+		t.Fatalf("round trips attempted = %d, want %d (the failures plus the one that reached the server)", got, want)
+	}
+}
+
+// TestHTTPServerGivesUpAfterTheRetryBudget proves do() is bounded: one MORE
+// transient failure than the budget must still surface as an error rather
+// than retrying forever or hanging.
+func TestHTTPServerGivesUpAfterTheRetryBudget(t *testing.T) {
+	ctx := context.Background()
+	ts := contractServer(t, &fakeServer{})
+	defer ts.Close()
+	flaky := &flakyDialTransport{failFirst: transientDialRetries + 1, real: http.DefaultTransport}
+	h := &HTTPServer{BaseURL: ts.URL, Token: "test-token", Client: &http.Client{Transport: flaky}}
+
+	if _, _, _, err := h.Current(ctx, "repo", "main"); err == nil {
+		t.Fatal("Current succeeded despite exhausting the retry budget")
+	}
+	if got, want := flaky.callCount(), transientDialRetries+1; got != want {
+		t.Fatalf("round trips attempted = %d, want exactly %d (the retry budget, no more)", got, want)
+	}
+}
+
+// TestHTTPServerDoesNotRetryARealConnectivityFailure proves do() is narrow: a
+// dial error that is NOT the local-exhaustion signature (a server that is
+// genuinely down) must fail on the first attempt, not eat three retries'
+// worth of latency pretending a real outage might clear itself in
+// milliseconds.
+func TestHTTPServerDoesNotRetryARealConnectivityFailure(t *testing.T) {
+	ctx := context.Background()
+	refused := &nonTransientDialTransport{}
+	h := &HTTPServer{BaseURL: "http://127.0.0.1:1", Token: "test-token", Client: &http.Client{Transport: refused}}
+
+	if _, _, _, err := h.Current(ctx, "repo", "main"); err == nil {
+		t.Fatal("Current succeeded against a transport that always refuses")
+	}
+	if refused.calls != 1 {
+		t.Fatalf("round trips attempted = %d, want exactly 1 (a real connectivity error must not be retried)", refused.calls)
+	}
+}
+
+// TestHTTPServerRetriesTransientDialFailureOnPOSTWithoutDoublingTheMutation
+// proves the retry is safe for a mutating call: a dial failure never reaches
+// the peer, so the server must observe the Advance exactly once even though
+// the client retried, and the resulting state must be exactly what a single
+// successful Advance would produce.
+func TestHTTPServerRetriesTransientDialFailureOnPOSTWithoutDoublingTheMutation(t *testing.T) {
+	ctx := context.Background()
+	fake := &fakeServer{}
+	ts := contractServer(t, fake)
+	defer ts.Close()
+	flaky := &flakyDialTransport{failFirst: transientDialRetries, real: http.DefaultTransport}
+	h := &HTTPServer{BaseURL: ts.URL, Token: "test-token", Client: &http.Client{Transport: flaky}}
+
+	ref, err := h.Advance(ctx, "repo", "main", "", []byte("fact:a\n"))
+	if err != nil || ref != contentRef([]byte("fact:a\n")) {
+		t.Fatalf("Advance through transient dial failures = %q, %v", ref, err)
+	}
+	// A second Advance with the SAME oldRef must be a stale-CAS conflict, not
+	// a "no-op against a doubled ref" or any other sign the retried POST body
+	// landed twice.
+	if _, err := h.Advance(ctx, "repo", "main", "", []byte("fact:a\nfact:b\n")); err != ErrConflict {
+		t.Fatalf("Advance(stale oldRef after the retried create) = %v; want ErrConflict", err)
 	}
 }

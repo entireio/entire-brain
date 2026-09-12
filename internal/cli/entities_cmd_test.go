@@ -435,6 +435,49 @@ func TestEntitiesHistoryReportsAnEmptyIndex(t *testing.T) {
 	}
 }
 
+// TestEntitiesHistoryPrintsTruncatedWarningInHumanTextToo pins entity-index
+// audit fix (c): the entityIndexCacheMaxKeys clip sets "truncated": true in
+// the JSON contract, but the plain-text path printed nothing at all — a
+// human running `entities history` without --json had no way to know the
+// answer was a clipped subset of the index, a silent partial answer
+// indistinguishable in shape from a complete one.
+func TestEntitiesHistoryPrintsTruncatedWarningInHumanTextToo(t *testing.T) {
+	fixture := newEntityIndexFixture(t)
+	fixture.writeSessionManifest(t)
+	fixture.run(t, "entities", "backfill", "--json")
+
+	// Force the derived cache into the truncated state a real 50k+-entity
+	// index would reach, WITHOUT indexing 50,001 entities: keep everything
+	// else (MetaTip in particular) exactly as backfill left it, so
+	// loadEntityIndexView serves this cache as-is instead of rebuilding over
+	// it and silently clearing the flag.
+	cache, ok := loadEntityIndexCache(fixture.storage.BrainDir)
+	if !ok {
+		t.Fatal("backfill built no cache to truncate")
+	}
+	cache.Truncated = true
+	if err := saveEntityIndexCache(fixture.storage.BrainDir, cache); err != nil {
+		t.Fatalf("save truncated cache: %v", err)
+	}
+
+	// JSON contract: the flag is visible (already correct before this fix;
+	// pinned here so a regression on either side is caught).
+	stdout, _ := fixture.run(t, "entities", "history", "ChargeCard", "--json")
+	var result entityHistoryResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("decode: %v\n%s", err, stdout)
+	}
+	if !result.Truncated {
+		t.Fatalf("JSON result.Truncated = false, want true: %+v", result)
+	}
+
+	// Plain text: a human reader must see the SAME fact, not silence.
+	_, stderr := fixture.run(t, "entities", "history", "ChargeCard")
+	if !strings.Contains(stderr, "truncated") {
+		t.Fatalf("plain-text run printed no truncation warning; stderr=%q", stderr)
+	}
+}
+
 // TestEntitiesFreshnessStepIndexesNewCommits locks the deterministic,
 // zero-token freshness path the watch tick and the session-end hook call.
 func TestEntitiesFreshnessStepIndexesNewCommits(t *testing.T) {
@@ -548,7 +591,7 @@ func TestEntityProvenanceIsDeterministicOnTimestampTies(t *testing.T) {
 		for _, key := range order {
 			cache.Entries[key] = []entityIndexOccurrence{occurrences[key]}
 		}
-		resolver := buildEntityProvenanceResolver(cache, map[string]string{session: "main"})
+		resolver := buildEntityProvenanceResolver(cache, map[string]string{session: "main"}, nil)
 		if resolver == nil {
 			t.Fatal("resolver is nil despite a populated cache")
 		}
@@ -767,5 +810,55 @@ func TestBrainEntityHistoryMCPToolIsExposedAndAnswers(t *testing.T) {
 	}
 	if len(result.Matches[0].Occurrences) != 2 {
 		t.Fatalf("tool occurrences = %+v", result.Matches[0].Occurrences)
+	}
+}
+
+func TestEntityCommandsWithoutIdentityProbe(t *testing.T) {
+	for _, revisionedDiff := range []bool{false, true} {
+		name := "legacy provider"
+		if revisionedDiff {
+			name = "revisioned diff cannot enter legacy history"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newEntityIndexFixture(t)
+			f.runner.responses[fakeCommandKey("entire", "graph", "version", "--json")] = fakeCommandResponse{err: errors.New("unknown graph version command")}
+			if revisionedDiff {
+				for key, response := range f.runner.responses {
+					if strings.Contains(key, "graph") && strings.Contains(key, "diff") {
+						response.stdout = strings.Replace(response.stdout, "{", `{"identity_revision":"scope-1",`, 1)
+						f.runner.responses[key] = response
+					}
+				}
+			}
+			stdout, stderr := f.run(t, "entities", "backfill", "--json")
+			var result entityindex.BuildResult
+			if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(stderr, "using legacy history") {
+				t.Fatalf("missing fallback warning: %s", stderr)
+			}
+			if revisionedDiff {
+				if result.Indexed != 0 || result.Failed != 2 {
+					t.Fatalf("revisioned output polluted legacy index: %+v", result)
+				}
+				return
+			}
+			if result.Indexed != 2 {
+				t.Fatalf("legacy backfill failed: %+v", result)
+			}
+			if err := os.Remove(filepath.Join(f.storage.BrainDir, entitiesCachePath)); err != nil {
+				t.Fatal(err)
+			}
+			// Equivalent to receiving durable git-meta without the optional local join.
+			stdout, stderr = f.run(t, "entities", "show", entityFixtureCommitB)
+			var delta entityindex.Delta
+			if err := json.Unmarshal([]byte(stdout), &delta); err != nil {
+				t.Fatal(err)
+			}
+			if delta.Head != entityFixtureCommitB || len(delta.Entities) != 2 || !strings.Contains(stderr, "provider unavailable") {
+				t.Fatalf("uncached legacy show: %+v %s", delta, stderr)
+			}
+		})
 	}
 }

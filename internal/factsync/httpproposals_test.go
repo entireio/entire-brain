@@ -256,7 +256,7 @@ func TestHTTPProposalsListAndGet(t *testing.T) {
 		t.Fatalf("GetProposal = %+v, %v", got, err)
 	}
 
-	if _, err := h.GetProposal(ctx, "repo", "main", "prop-unknown"); !errors.Is(err, ErrProposalNotFound) {
+	if _, err := h.GetProposal(ctx, "repo", "main", "prop-deadbeefdeadbeef"); !errors.Is(err, ErrProposalNotFound) {
 		t.Fatalf("GetProposal(unknown) = %v; want ErrProposalNotFound", err)
 	}
 
@@ -266,7 +266,7 @@ func TestHTTPProposalsListAndGet(t *testing.T) {
 	}))
 	defer softMiss.Close()
 	soft := &HTTPServer{BaseURL: softMiss.URL}
-	if _, err := soft.GetProposal(ctx, "repo", "main", "prop-x"); !errors.Is(err, ErrProposalNotFound) {
+	if _, err := soft.GetProposal(ctx, "repo", "main", "prop-deadbeefdeadbeef"); !errors.Is(err, ErrProposalNotFound) {
 		t.Fatalf("GetProposal(found=false) = %v; want ErrProposalNotFound", err)
 	}
 }
@@ -288,7 +288,7 @@ func TestHTTPProposalsErrorStatuses(t *testing.T) {
 			}
 		}},
 		{"get 503", http.StatusServiceUnavailable, func(t *testing.T, h *HTTPServer) {
-			if _, err := h.GetProposal(ctx, "repo", "main", "prop-x"); err == nil || errors.Is(err, ErrProposalNotFound) {
+			if _, err := h.GetProposal(ctx, "repo", "main", "prop-deadbeefdeadbeef"); err == nil || errors.Is(err, ErrProposalNotFound) {
 				t.Fatalf("GetProposal(503) = %v; want a hard error", err)
 			}
 		}},
@@ -308,25 +308,25 @@ func TestHTTPProposalsErrorStatuses(t *testing.T) {
 			}
 		}},
 		{"resolve 412", http.StatusPreconditionFailed, func(t *testing.T, h *HTTPServer) {
-			_, err := h.ResolveProposal(ctx, ResolveProposalRequest{RepoID: "repo", Branch: "main", ProposalID: "prop-x", Facts: facts})
+			_, err := h.ResolveProposal(ctx, ResolveProposalRequest{RepoID: "repo", Branch: "main", ProposalID: "prop-deadbeefdeadbeef", Facts: facts})
 			if !errors.Is(err, ErrConflict) {
 				t.Fatalf("ResolveProposal(412) = %v; want ErrConflict", err)
 			}
 		}},
 		{"resolve 409", http.StatusConflict, func(t *testing.T, h *HTTPServer) {
-			_, err := h.ResolveProposal(ctx, ResolveProposalRequest{RepoID: "repo", Branch: "main", ProposalID: "prop-x", Facts: facts})
+			_, err := h.ResolveProposal(ctx, ResolveProposalRequest{RepoID: "repo", Branch: "main", ProposalID: "prop-deadbeefdeadbeef", Facts: facts})
 			if !errors.Is(err, ErrConflict) {
 				t.Fatalf("ResolveProposal(409) = %v; want ErrConflict", err)
 			}
 		}},
 		{"resolve 404", http.StatusNotFound, func(t *testing.T, h *HTTPServer) {
-			_, err := h.ResolveProposal(ctx, ResolveProposalRequest{RepoID: "repo", Branch: "main", ProposalID: "prop-x", Facts: facts})
+			_, err := h.ResolveProposal(ctx, ResolveProposalRequest{RepoID: "repo", Branch: "main", ProposalID: "prop-deadbeefdeadbeef", Facts: facts})
 			if !errors.Is(err, ErrProposalNotFound) {
 				t.Fatalf("ResolveProposal(404) = %v; want ErrProposalNotFound", err)
 			}
 		}},
 		{"resolve 500", http.StatusInternalServerError, func(t *testing.T, h *HTTPServer) {
-			_, err := h.ResolveProposal(ctx, ResolveProposalRequest{RepoID: "repo", Branch: "main", ProposalID: "prop-x", Facts: facts})
+			_, err := h.ResolveProposal(ctx, ResolveProposalRequest{RepoID: "repo", Branch: "main", ProposalID: "prop-deadbeefdeadbeef", Facts: facts})
 			if err == nil || errors.Is(err, ErrConflict) || errors.Is(err, ErrProposalNotFound) {
 				t.Fatalf("ResolveProposal(500) = %v; want a hard error", err)
 			}
@@ -393,7 +393,7 @@ func TestResolveProposalRefusesEmptyFactSet(t *testing.T) {
 	}))
 	defer ts.Close()
 	h := &HTTPServer{BaseURL: ts.URL}
-	if _, err := h.ResolveProposal(ctx, ResolveProposalRequest{RepoID: "repo", Branch: "main", ProposalID: "prop-x"}); err == nil {
+	if _, err := h.ResolveProposal(ctx, ResolveProposalRequest{RepoID: "repo", Branch: "main", ProposalID: "prop-deadbeefdeadbeef"}); err == nil {
 		t.Fatal("ResolveProposal with no facts must error")
 	}
 	if calls != 0 {

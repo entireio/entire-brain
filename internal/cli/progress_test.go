@@ -538,3 +538,20 @@ func TestFinishTerminalLineKeepsShortLabelsWhole(t *testing.T) {
 		t.Fatalf("terminal line lost its label or suffix: %q", lines[0])
 	}
 }
+
+func TestProgressVeryNarrowLineAndFailureSuffix(t *testing.T) {
+	for _, width := range []int{10, 20, 30} {
+		var buf bytes.Buffer
+		caps := ttyCaps()
+		caps.Width = width
+		p := newTestProgress(t, &buf, caps)
+		task := p.Begin(strings.Repeat("long label ", 10))
+		if got := runewidth.StringWidth(stripANSI(task.liveLine())); got >= width {
+			t.Errorf("live width %d >= %d", got, width)
+		}
+		task.Finish(errors.New("failed"))
+		if !strings.Contains(stripANSI(buf.String()), " failed") {
+			t.Errorf("failure hidden at width %d: %s", width, stripANSI(buf.String()))
+		}
+	}
+}

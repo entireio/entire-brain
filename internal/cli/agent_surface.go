@@ -101,6 +101,9 @@ type brainStatusFacts struct {
 	Branches     int            `json:"branches"`
 	Proposals    int            `json:"proposals"`
 	Verification *verifySummary `json:"verification,omitempty"`
+	// MissingBranches names declared fact branches whose on-disk store is
+	// absent. Empty in the healthy case, so it is additive for readers.
+	MissingBranches []string `json:"missing_branches,omitempty"`
 }
 
 type brainStatusSemantic struct {
@@ -499,7 +502,15 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 			}
 		}
 		if status.Manifest.Sources.History != nil {
-			report.RecentDecisions = recentDecisionMatches(status.Brain.Path, status.Manifest.Sources.History, decisions, overviewPrivacyGuard)
+			// The history source is declared, so an unreadable index is a
+			// storage failure, not an empty decision log. Report it instead of
+			// letting the section vanish from an otherwise confident summary.
+			recent, recentErr := recentDecisionMatches(status.Brain.Path, status.Manifest.Sources.History, decisions, overviewPrivacyGuard)
+			if recentErr != nil {
+				report.Warnings = append(report.Warnings, "recent decisions unavailable: the manifest declares a history index that could not be read: "+recentErr.Error())
+			} else {
+				report.RecentDecisions = recent
+			}
 		}
 	}
 	report.StrongestPatterns, err = strongestPatternsChecked(status.Brain.Path, 3)
@@ -525,13 +536,16 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 
 // recentDecisionMatches returns the most recent decision records so an agent can
 // see how the project's design has been steered, newest first.
-func recentDecisionMatches(brainDir string, source *historySourceManifest, limit int, guard sessionReadGuard) []brainTextMatch {
+// It returns an error when the declared history index cannot be loaded: an
+// unreadable index is not an empty decision log, and a caller that cannot tell
+// the two apart reads a silently truncated summary as a complete one.
+func recentDecisionMatches(brainDir string, source *historySourceManifest, limit int, guard sessionReadGuard) ([]brainTextMatch, error) {
 	if limit <= 0 {
-		return nil
+		return nil, nil
 	}
 	index, err := loadBrainHistoryIndex(brainDir, source)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var decisions []historyRecord
 	for _, record := range index.Records {
@@ -562,7 +576,7 @@ func recentDecisionMatches(brainDir string, source *historySourceManifest, limit
 			break
 		}
 	}
-	return matches
+	return matches, nil
 }
 
 func renderBrainOverviewText(cmd *cobra.Command, report brainOverviewReport) {
@@ -628,6 +642,15 @@ func renderBrainOverviewText(cmd *cobra.Command, report brainOverviewReport) {
 			fmt.Fprintf(out, "  [%s] %s (strength %.2f)\n", th.Shape, th.Title, th.Strength)
 		}
 	}
+	// Warnings are the only place a section that could not be built is named.
+	// They already ride the JSON contract; without this the text surface reads
+	// as a complete summary of a partially-unreadable brain.
+	if len(report.Warnings) > 0 {
+		fmt.Fprintln(out, "warnings:")
+		for _, warning := range report.Warnings {
+			fmt.Fprintf(out, "  %s\n", warning)
+		}
+	}
 }
 
 // freshnessSummary collapses the freshness axes into a single human line: "ok"
@@ -684,7 +707,7 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&briefOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().IntVar(&briefOpts.limit, "limit", brainBriefDefaultLimit, "Maximum records per section (default 3; raise only when the compact packet is insufficient)")
+	cmd.Flags().IntVar(&briefOpts.limit, "limit", brainBriefDefaultLimit, "Maximum records per section; raise only when the compact packet is insufficient")
 	cmd.Flags().BoolVar(&briefOpts.noSemantic, "no-semantic", false, "Disable embedding rerank for facts; use lexical ranking only")
 	cmd.Flags().StringVar(&briefOpts.profileJSON, "profile-json", "", "Atomically write a privacy-safe performance profile sidecar (mode 0600)")
 	cmd.Flags().BoolVar(&handoff, "handoff", false, "Emit a session-resumption packet (recent sessions' requests, decisions, validations) instead of a task packet")
@@ -1042,7 +1065,11 @@ func inspectBoundarySpec(kind string) (semanticBoundarySpec, error) {
 	case "workflow", "workflows":
 		return semanticBoundarySpec{Name: "workflows", Use: "boundaries", Short: "List workflow boundaries", SymbolKinds: []string{"workflow", "job", "pipeline"}, RelationTypes: []string{"HANDLES_WORKFLOW", "PART_OF_WORKFLOW"}}, nil
 	default:
-		return semanticBoundarySpec{}, fmt.Errorf("--kind must be route, tool, or workflow")
+		// Flag-neutral on purpose: this is shared by the `boundaries` CLI
+		// command and the brain_boundaries MCP tool, whose argument is the
+		// JSON field "kind". Naming "--kind" told an MCP caller to correct a
+		// flag that does not exist on the surface it is calling.
+		return semanticBoundarySpec{}, fmt.Errorf("kind must be route, tool, or workflow")
 	}
 }
 
@@ -1615,6 +1642,14 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		branch := status.Live.Branch
 		if branch == "" {
 			branch = distillDefaultBranch
+		}
+		// loadFacts cannot tell "this branch has no facts" from "this branch's
+		// store is gone". The manifest can: warn before the packet reports a
+		// healthy facts source that contributed nothing.
+		if status.Manifest != nil && status.Manifest.Sources != nil {
+			if warning := missingFactStoreWarning(missingFactBranchStores(status.Brain.Path, status.Manifest.Sources.Facts)); warning != "" {
+				report.Warnings = append(report.Warnings, warning)
+			}
 		}
 		factsLoadStarted := profile.start()
 		facts, factsErr := loadFacts(status.Brain.Path, branch)
@@ -4485,6 +4520,14 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 				Branches:   len(f.Branches),
 				Proposals:  f.Proposals,
 			}
+			// The counts above come from the manifest, not from disk. A branch
+			// whose facts.ndjson is gone still counts here while every recall
+			// surface returns nothing for it, so name the gap instead of
+			// letting the counts imply a store that can be read.
+			report.Facts.MissingBranches = missingFactBranchStores(storage.BrainDir, f)
+			if warning := missingFactStoreWarning(report.Facts.MissingBranches); warning != "" {
+				report.Warnings = append(report.Warnings, warning)
+			}
 		}
 		if sem := manifest.Sources.Semantic; sem != nil {
 			report.Semantic = &brainStatusSemantic{
@@ -4507,7 +4550,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		report.Live = live
 	}
 	if manifest != nil && manifest.Sources != nil && (manifest.Sources.Seed != nil || manifest.Sources.Docs != nil) {
-		report.Retrieval = buildBrainRetrievalStatus(ctx, opts.Runner, repoDir, manifest, report.Live)
+		report.Retrieval = buildBrainRetrievalStatus(ctx, opts.Runner, storage.BrainDir, repoDir, manifest, report.Live)
 		if report.Retrieval != nil {
 			report.Retrieval.Conversation = buildConversationStatus(report.Brain.Path, manifest)
 		}
@@ -4528,7 +4571,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	return report, nil
 }
 
-func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, repoDir string, manifest *exportManifest, live brainLiveState) *brainStatusRetrieval {
+func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainDir, repoDir string, manifest *exportManifest, live brainLiveState) *brainStatusRetrieval {
 	report := &brainStatusRetrieval{}
 	axes := map[string]staleAxis{}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Seed == nil {
@@ -4568,7 +4611,18 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, repoDi
 		report.DocsGeneratedAt = docs.GeneratedAt.Format(time.RFC3339)
 		report.DocsRecords = docs.Records
 		report.DocsFiles = docs.Files
-		if docs.GeneratedAt.IsZero() {
+		if err := verifyDeclaredDocIndex(brainDir); err != nil {
+			// The manifest declaring a docs index is not evidence the index is
+			// on disk, and retrieval skips a missing index silently. Freshness
+			// must not claim "ok" for a docs layer that will contribute nothing.
+			state := "unsafe"
+			detail := "docs index declared in the manifest but unreadable: " + err.Error()
+			if os.IsNotExist(err) {
+				state = "missing"
+				detail = "docs index declared in the manifest but " + docIndexPath + " is absent; run entire brain refresh --agent none"
+			}
+			axes["docs"] = staleAxis{State: state, Detail: detail}
+		} else if docs.GeneratedAt.IsZero() {
 			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index has no generation timestamp"}
 		} else if manifest.Sources.Seed == nil {
 			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index provenance cannot be checked without a seed source"}

@@ -319,6 +319,156 @@ func TestBuildIsIdempotentAndSkipsIndexedCommits(t *testing.T) {
 	}
 }
 
+// manyEntityChanges synthesizes n distinct "added function" changes in one
+// file, named so their sort order (by Path/Kind/Name) is Fn0, Fn1, ... Fn(n-1)
+// only for n<=10; callers past that only need a count, not a fixed order.
+func manyEntityChanges(n int) []graphEntityChange {
+	out := make([]graphEntityChange, n)
+	for i := range out {
+		out[i] = graphEntityChange{Type: "added", Kind: "function", Name: fmt.Sprintf("Fn%05d", i), AfterStartLine: i + 1}
+	}
+	return out
+}
+
+// TestBuildTruncatesAndMarksTheDeltaDocument pins entity-index audit fix (a): a
+// commit whose entity count exceeds maxDeltaEntities must be recorded as
+// truncated, with the TRUE count preserved, rather than silently stored as if
+// it were complete. Before this fix a 2001-entity commit was marked fully
+// indexed with no marker at all, so it stayed silently under-indexed forever.
+func TestBuildTruncatesAndMarksTheDeltaDocument(t *testing.T) {
+	t.Parallel()
+	runner := newFakeRunner()
+	const trueCount = maxDeltaEntities + 5
+	commits := []commitInfo{
+		{SHA: "aaaa111111111111111111111111111111111111", Parent: "", CommittedAt: commitAt(0), Message: "root\n"},
+	}
+	scriptRepo(runner, "main", commits)
+	runner.set(graphDiffKey(EmptyTreeSHA, commits[0].SHA), graphOutput(EmptyTreeSHA, commits[0].SHA, graphFileChange{
+		Path:    "a.go",
+		Changes: manyEntityChanges(trueCount),
+	}))
+	store := newTestStore(t)
+	result, err := Build(context.Background(), runner, store, BuildOptions{RepoDir: testRepoDir, Limit: 100, Now: fixedNow()})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if result.Indexed != 1 {
+		t.Fatalf("indexed=%d, want 1", result.Indexed)
+	}
+	if len(result.Warnings) == 0 {
+		t.Fatalf("expected a truncation warning, got none")
+	}
+
+	snap := loadSnapshot(t, store)
+	delta, ok := snap.Delta(commits[0].SHA)
+	if !ok {
+		t.Fatal("forward delta document missing")
+	}
+	if !delta.Truncated {
+		t.Fatalf("delta.Truncated = false, want true for a %d-entity commit capped at %d", trueCount, maxDeltaEntities)
+	}
+	if delta.EntityCount != trueCount {
+		t.Fatalf("delta.EntityCount = %d, want the true count %d", delta.EntityCount, trueCount)
+	}
+	if len(delta.Entities) != maxDeltaEntities {
+		t.Fatalf("stored %d entities, want exactly the cap %d", len(delta.Entities), maxDeltaEntities)
+	}
+
+	// A commit truncated at the cap that is STILL the current cap must not be
+	// re-diffed by a --full repair pass: nothing changed that would let it
+	// recover more of itself, so re-indexing would only reproduce the same
+	// truncation at provider-invocation cost.
+	full, err := Build(context.Background(), runner, store, BuildOptions{RepoDir: testRepoDir, Limit: 100, Full: true, Now: fixedNow()})
+	if err != nil {
+		t.Fatalf("full build: %v", err)
+	}
+	if full.Indexed != 0 || full.Skipped != 1 {
+		t.Fatalf("full pass indexed=%d skipped=%d, want 0/1 (an unchanged cap must not trigger a re-diff)", full.Indexed, full.Skipped)
+	}
+}
+
+// TestBuildFullPassRepairsATruncatedCommitWhenTheCapHasRisen pins the other
+// half of fix (a): the window/coverage logic must treat a commit that was
+// truncated under a LOWER cap than the one in effect now as not fully
+// indexed, so a --full repair pass re-diffs it and recovers the entities the
+// old, lower cap had dropped. The lower-cap document is seeded directly (the
+// production cap is a frozen constant), simulating history written before a
+// cap increase shipped.
+func TestBuildFullPassRepairsATruncatedCommitWhenTheCapHasRisen(t *testing.T) {
+	t.Parallel()
+	runner := newFakeRunner()
+	commits := []commitInfo{
+		{SHA: "aaaa111111111111111111111111111111111111", Parent: "", CommittedAt: commitAt(0), Message: "root\n"},
+	}
+	scriptRepo(runner, "main", commits)
+	const trueCount = 12
+	const oldCap = 5 // stands in for a maxDeltaEntities value lower than today's
+	fullDelta := graphOutput(EmptyTreeSHA, commits[0].SHA, graphFileChange{
+		Path:    "a.go",
+		Changes: manyEntityChanges(trueCount),
+	})
+	runner.set(graphDiffKey(EmptyTreeSHA, commits[0].SHA), fullDelta)
+	fullyDiffed, err := ParseDiff([]byte(fullDelta), EmptyTreeSHA, commits[0].SHA, fixedNow()())
+	if err != nil {
+		t.Fatalf("parse full diff: %v", err)
+	}
+	if len(fullyDiffed.Entities) != trueCount {
+		t.Fatalf("fixture entity count = %d, want %d", len(fullyDiffed.Entities), trueCount)
+	}
+
+	store := newTestStore(t)
+	// Seed a commit doc truncated at oldCap (< maxDeltaEntities) plus the
+	// window that already claims it covered, bypassing Build entirely — this
+	// is the state a real repo would be in the moment after a cap increase
+	// shipped, before any repair pass ran.
+	stale := fullyDiffed
+	stale.Truncated = true
+	stale.EntityCount = trueCount
+	stale.Entities = append([]EntityDelta(nil), fullyDiffed.Entities[:oldCap]...)
+	encoded, err := json.Marshal(stale)
+	if err != nil {
+		t.Fatalf("encode stale delta: %v", err)
+	}
+	windowKey := WindowKey("main")
+	seedMuts := []gitmeta.Mutation{
+		{Op: gitmeta.OpSetString, Target: CommitTarget(commits[0].SHA), Key: ForwardKey, Value: string(encoded)},
+		{Op: gitmeta.OpSetString, Target: projectTarget, Key: windowKey, Value: EncodeWindow(IndexWindow{Floor: commits[0].SHA, Tip: commits[0].SHA})},
+	}
+	if _, err := store.Update(len(seedMuts), func(current gitmeta.State) (gitmeta.State, error) {
+		return applyBatch(current, seedMuts), nil
+	}); err != nil {
+		t.Fatalf("seed stale state: %v", err)
+	}
+
+	// Sanity: before repair, the stored document is still the stale, truncated
+	// one.
+	before := loadSnapshot(t, store)
+	staleDelta, ok := before.Delta(commits[0].SHA)
+	if !ok || !staleDelta.Truncated || len(staleDelta.Entities) != oldCap {
+		t.Fatalf("seed did not land as expected: %+v (ok=%v)", staleDelta, ok)
+	}
+
+	full, err := Build(context.Background(), runner, store, BuildOptions{RepoDir: testRepoDir, Limit: 100, Full: true, Now: fixedNow()})
+	if err != nil {
+		t.Fatalf("full build: %v", err)
+	}
+	if full.Indexed != 1 {
+		t.Fatalf("full repair pass indexed=%d, want 1 (the stale-cap commit must be re-diffed)", full.Indexed)
+	}
+
+	after := loadSnapshot(t, store)
+	repaired, ok := after.Delta(commits[0].SHA)
+	if !ok {
+		t.Fatal("repaired delta document missing")
+	}
+	if repaired.Truncated {
+		t.Fatalf("repaired delta still truncated after the cap covers the whole commit: %+v", repaired)
+	}
+	if len(repaired.Entities) != trueCount {
+		t.Fatalf("repaired delta has %d entities, want the full %d", len(repaired.Entities), trueCount)
+	}
+}
+
 // TestBuildLimitedPassesConvergeBackwards pins the --limit contract: a bounded
 // pass covers the NEWEST unindexed commits, claims only the range it actually
 // covered, and the next pass pulls the floor further back — without re-walking
@@ -431,6 +581,99 @@ func TestBuildRecordsRenameAndMoveAliases(t *testing.T) {
 	if len(matches) != 1 || matches[0].EntityKey != newest || matches[0].AliasOf != oldest {
 		t.Fatalf("search by the old name = %+v", matches)
 	}
+}
+
+// TestResolveAliasSurvivesARenameBackCycle pins entity-index audit fix (b): an
+// entity renamed A -> B and later renamed BACK B -> A must resolve to A, the
+// spelling that actually exists in the tree at HEAD — not B, a name nothing is
+// called any more. AliasRecordKey(A) ("A -> B", from the first rename) and
+// AliasRecordKey(B) ("B -> A", from the second) BOTH persist forever — nothing
+// ever retracts the first edge, because the second rename touches a different
+// key — so the alias graph genuinely contains a 2-cycle; the fix is
+// resolveAlias breaking it with the reverse index's per-key recency instead of
+// returning whichever node it happened to visit right before detecting the
+// repeat.
+func TestResolveAliasSurvivesARenameBackCycle(t *testing.T) {
+	t.Parallel()
+	runner := newFakeRunner()
+	commits := []commitInfo{
+		{SHA: "1111111111111111111111111111111111111111", Parent: "", CommittedAt: commitAt(0), Message: "add\n"},
+		{SHA: "2222222222222222222222222222222222222222", Parent: "1111111111111111111111111111111111111111", CommittedAt: commitAt(1), Message: "rename A to B\n"},
+		{SHA: "3333333333333333333333333333333333333333", Parent: "2222222222222222222222222222222222222222", CommittedAt: commitAt(2), Message: "rename B back to A\n"},
+	}
+	scriptRepo(runner, "main", commits)
+	runner.set(graphDiffKey(EmptyTreeSHA, commits[0].SHA), graphOutput(EmptyTreeSHA, commits[0].SHA, graphFileChange{
+		Path:    "pkg.go",
+		Changes: []graphEntityChange{{Type: "added", Kind: "function", Name: "A", AfterStartLine: 3}},
+	}))
+	runner.set(graphDiffKey(commits[0].SHA, commits[1].SHA), graphOutput(commits[0].SHA, commits[1].SHA, graphFileChange{
+		Path:    "pkg.go",
+		Changes: []graphEntityChange{{Type: "renamed", Kind: "function", Name: "B", OldName: "A", NewName: "B", AfterStartLine: 3}},
+	}))
+	runner.set(graphDiffKey(commits[1].SHA, commits[2].SHA), graphOutput(commits[1].SHA, commits[2].SHA, graphFileChange{
+		Path:    "pkg.go",
+		Changes: []graphEntityChange{{Type: "renamed", Kind: "function", Name: "A", OldName: "B", NewName: "A", AfterStartLine: 3}},
+	}))
+
+	store := newTestStore(t)
+	if _, err := Build(context.Background(), runner, store, BuildOptions{RepoDir: testRepoDir, Limit: 100, Now: fixedNow()}); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	snap := loadSnapshot(t, store)
+
+	a := EntityKey("pkg.go", "function", "A")
+	b := EntityKey("pkg.go", "function", "B")
+	if got := snap.Resolve(a); got != a {
+		t.Fatalf("Resolve(%q) = %q, want %q (the live spelling, back where it started)", a, got, a)
+	}
+	if got := snap.Resolve(b); got != a {
+		t.Fatalf("Resolve(%q) = %q, want %q (an old spelling must resolve to the live one)", b, got, a)
+	}
+	// Confirm the premise: the alias graph genuinely holds BOTH edges (a real
+	// 2-cycle), so the assertions above are exercising the tie-break, not some
+	// other mechanism that happens to avoid the cycle entirely.
+	aliases := snap.Aliases()
+	if aliases[a] != b || aliases[b] != a {
+		t.Fatalf("alias map = %+v, want a real A<->B cycle (both edges present)", aliases)
+	}
+	// A query by the old name must still find the entity, reported under its
+	// current (and, here, original) key.
+	matches := snap.Search("B", 10)
+	if len(matches) != 1 || matches[0].EntityKey != a || matches[0].AliasOf != b {
+		t.Fatalf("search by the intermediate name = %+v", matches)
+	}
+	// The whole history is still reachable from any spelling it was ever
+	// known by — order is not chronological across keys (Commits' own
+	// contract: sort by commit date if you need that), so compare as a set.
+	want := []string{commits[0].SHA, commits[1].SHA, commits[2].SHA}
+	if got := snap.Commits(a); !sameSet(got, want) {
+		t.Fatalf("commits via the current key = %v, want the set %v", got, want)
+	}
+	if got := snap.Commits(b); !sameSet(got, want) {
+		t.Fatalf("commits via the intermediate key = %v, want the set %v", got, want)
+	}
+}
+
+// sameSet reports whether got and want hold the same elements, ignoring order
+// and duplicate count.
+func sameSet(got, want []string) bool {
+	g := map[string]struct{}{}
+	for _, v := range got {
+		g[v] = struct{}{}
+	}
+	w := map[string]struct{}{}
+	for _, v := range want {
+		w[v] = struct{}{}
+	}
+	if len(g) != len(w) {
+		return false
+	}
+	for v := range w {
+		if _, ok := g[v]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func TestBuildCheckpointsOnlySkipsPlainCommits(t *testing.T) {

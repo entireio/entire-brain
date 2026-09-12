@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ashtom/entire-brain/internal/apiurl"
 	"github.com/ashtom/entire-brain/internal/factsync"
 	"github.com/ashtom/entire-brain/internal/hostedbrain"
 )
@@ -61,7 +62,7 @@ The target repo, API base URL, and bearer token resolve from --repo-id /` + " " 
 
 	cmd.PersistentFlags().StringVar(&pOpts.branch, "branch", "", "Branch whose open proposals to review (default: current branch)")
 	cmd.PersistentFlags().StringVar(&pOpts.repoID, "repo-id", "", "Target repo id (overrides "+envRepoID+")")
-	cmd.PersistentFlags().StringVar(&pOpts.apiURL, "api-url", "", "Entire API base URL (overrides "+envAPIBaseURL+")")
+	cmd.PersistentFlags().StringVar(&pOpts.apiURL, "api-url", "", "Entire API base URL, https:// (overrides "+envAPIBaseURL+")")
 	cmd.PersistentFlags().StringVar(&pOpts.token, "token", "", "Entire API bearer token (overrides "+envAPIToken+")")
 	cmd.PersistentFlags().BoolVar(&pOpts.jsonOut, "json", false, "Emit the result as JSON")
 
@@ -99,6 +100,39 @@ The target repo, API base URL, and bearer token resolve from --repo-id /` + " " 
 			},
 		},
 	)
+	var repairApply bool
+	var repairRef string
+	repairCmd := &cobra.Command{Use: "repair", Short: "Preview invalid proposal IDs; optionally remove them from the reviewed queue version", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if repairApply && repairRef == "" {
+				return fmt.Errorf("--apply requires --if-ref from the repair preview")
+			}
+			if !repairApply && repairRef != "" {
+				return fmt.Errorf("--if-ref requires --apply")
+			}
+			target, err := resolveHostedProposalTarget(cmd.Context(), opts, pOpts)
+			if err != nil {
+				return err
+			}
+			result, err := target.client.RepairProposalIDs(cmd.Context(), target.repoID, target.branch, repairApply, repairRef)
+			if err != nil {
+				return err
+			}
+			if pOpts.jsonOut {
+				return writeJSON(cmd, result)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "queue ref: %q; invalid proposals: %d; removed: %d\n", result.Ref, len(result.Invalid), result.Removed)
+			for _, p := range result.Invalid {
+				fmt.Fprintf(cmd.OutOrStdout(), "  invalid id: %q (derived: %q)\n", p.ID, factsync.ProposalID(p.Proposal))
+			}
+			if !repairApply && len(result.Invalid) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Review these entries, then use repair --apply --if-ref %q to remove them. Facts are unchanged.\n", result.Ref)
+			}
+			return nil
+		}}
+	repairCmd.Flags().BoolVar(&repairApply, "apply", false, "Remove invalid proposals from the reviewed queue version")
+	repairCmd.Flags().StringVar(&repairRef, "if-ref", "", "Queue ref reported by the repair preview")
+	cmd.AddCommand(repairCmd)
 	return cmd
 }
 
@@ -129,6 +163,10 @@ func resolveHostedProposalTarget(ctx context.Context, opts Options, pOpts factsP
 	baseURL := publishFlagOrEnv(pOpts.apiURL, envAPIBaseURL)
 	if baseURL == "" {
 		return hostedProposalTarget{}, fmt.Errorf("facts proposals: API base URL is required; set --api-url or %s", envAPIBaseURL)
+	}
+	baseURL, urlErr := apiurl.Validate(baseURL)
+	if urlErr != nil {
+		return hostedProposalTarget{}, fmt.Errorf("facts proposals: %w", urlErr)
 	}
 	token := publishFlagOrEnv(pOpts.token, envAPIToken)
 	if token == "" {

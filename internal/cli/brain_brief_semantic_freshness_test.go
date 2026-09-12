@@ -22,6 +22,7 @@ const brainBriefSemanticFreshnessFixture = `{"schema_version":"1.1","provider":"
 {"record_type":"relation","from_id":"stale-test","to_id":"stale-root","type":"TESTS","confidence":1,"relation_scope":"file","resolution":"exact","target_kind":"symbol","evidence":[{"kind":"test_target","file_path":"packages/store/legacy_query.test.ts","start_line":2,"end_line":2,"detail":"legacy test"}]}
 {"record_type":"relation","from_id":"current-test","to_id":"current-root","type":"TESTS","confidence":1,"relation_scope":"file","resolution":"exact","target_kind":"symbol","evidence":[{"kind":"test_target","file_path":"packages/store/query.test.ts","start_line":2,"end_line":2,"detail":"current test"}]}
 {"record_type":"relation","from_id":"current-root","to_id":"pathless-policy","type":"CALLS","confidence":0.8,"relation_scope":"external","resolution":"name_only","target_kind":"external"}
+{"record_type":"summary"}
 `
 
 type brainBriefSemanticFreshnessFixtureEnv struct {

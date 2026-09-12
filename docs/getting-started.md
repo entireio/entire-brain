@@ -345,6 +345,12 @@ Install the Graph-based `entire-graph` from source (or from a matching release t
 once available), then re-run `entire brain refresh --agent none` to add the
 semantic code graph.
 
+### Exploring a repository you don't have locally
+
+`entire brain add <repo-url>` clones the repository, fetches its Entire
+checkpoint history, and runs the build above in one step; afterward explore
+the clone with `entire brain dash`, `status`, or `search`.
+
 ### Query the brain
 
 Every result carries an `id` you can fetch in full with `get`.
@@ -595,6 +601,11 @@ commands, key documents, and recent decisions.
 entire brain overview --json
 ```
 
+For interactive human exploration instead of scripted queries, `entire brain
+dash` opens a terminal dashboard over facts, sessions, history, and semantic
+records, and `entire brain viz` opens a local, no-egress browser view of the
+semantic call graph. Both are read-only and make no agent calls.
+
 ### Keep The Brain Fresh
 
 Freshness is part of every answer. A stale semantic index, missing provider,
@@ -669,7 +680,7 @@ context, inspect likely impact, then ask for tests. The normal tools are
 `brain_code` or `brain_search_code`, followed by `brain_context`,
 `brain_impact`, and `brain_tests`.
 
-This is where `entire-sem` matters. It is not an agent memory layer; it is the
+This is where `entire-graph` matters. It is not an agent memory layer; it is the
 local parser/provider that gives `entire-brain` the graph the agent queries.
 Semantic depth is language-dependent: parser-backed extraction covers the
 semantic language set, while many recognized filetypes are inventory-only. For
@@ -886,6 +897,8 @@ model or by fetching over the network:
 - query expansion with `recall --expand`
 - pattern verification and skill synthesis
 - judged evaluation commands
+- `publish` uploads the serialized local brain to hosted Entire; opt-in and off
+  by default, requiring both the command and `ENTIRE_BRAIN_ALLOW_HOSTED=1`
 
 Use `--agent none`, `--dry-run`, local loopback Ollama, or
 `ENTIRE_BRAIN_NO_EGRESS=1` / `ENTIRE_BRAIN_LOCAL_ONLY=1` when the repo must stay

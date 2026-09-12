@@ -74,9 +74,10 @@ type semanticStreamResult struct {
 	stream        semanticStreamCounts
 	extraWarnings []semanticWarning // synthesized warnings, e.g. unknown record types
 	haveHeader    bool
-	// providerRepoKey is the repo key exactly as the provider emitted it, kept
-	// even when header.RepoKey was rewritten to the brain's own spelling of the
-	// same repository. Diagnostics must be able to name what the provider said.
+	// providerRepoKey is the repo_key exactly as the semantic provider stamped
+	// it, before the brain normalizes the persisted header to its own storage
+	// key. Validation of the provider/brain repo-key contract must use this
+	// value; see semantic_repokey.go.
 	providerRepoKey string
 }
 
@@ -87,10 +88,10 @@ var semanticStreamProgressInterval = 5000
 type semanticStreamScanConfig struct {
 	ignore  brainIgnore
 	repoDir string
-	// repoKey is the brain's key for repoDir. When set, a header carrying the
-	// semantic provider's own spelling of THIS repository is stored under it —
-	// see semantic_repokey.go for why the two spellings differ and why this is
-	// safe. Left empty (tests, fuzzing) the header's repo key is untouched.
+	// repoKey is the brain's canonical storage key for repoDir. The header
+	// written to the snapshot is normalized to it so every later reader of a
+	// brain artifact compares like with like; the provider's own spelling is
+	// preserved on the result for contract validation.
 	repoKey  string
 	progress func(phase string)
 	// counts reports the running record tallies alongside the phase label, so a
@@ -130,11 +131,11 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 		if err := json.Unmarshal(text, &header); err != nil {
 			return res, fmt.Errorf("parse semantic snapshot header: %w", err)
 		}
-		header.RepoRoot = ""
 		res.providerRepoKey = header.RepoKey
-		if semanticProviderRepoKeyAlias(header.RepoKey, cfg.repoKey, cfg.repoDir) {
+		if cfg.repoKey != "" {
 			header.RepoKey = cfg.repoKey
 		}
+		header.RepoRoot = ""
 		header.Warnings = sanitizeSemanticWarnings(cfg.ignore.FilterWarnings(header.Warnings), cfg.repoDir)
 		header.PartialFailures = sanitizeSemanticWarnings(cfg.ignore.FilterWarnings(header.PartialFailures), cfg.repoDir)
 		headerLine, err := json.Marshal(header)
@@ -157,7 +158,7 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 		return res, nil
 	}
 
-	ignoredIDs := make(map[string]struct{})
+	ignoredIDs := make(map[string]bool)
 	files := make(map[string]struct{})
 	unknownTypes := make(map[string]struct{})
 	strict := semanticStrictIngest()
@@ -215,13 +216,16 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 			if err := validateSemanticRecordPath(&record); err != nil {
 				return res, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
 			}
+			if record.ID != "" && record.semanticPath() != "" {
+				ignoredIDs[record.ID] = ignoredIDs[record.ID] || cfg.ignore.Ignored(record.semanticPath())
+			}
 			if cfg.ignore.Ignored(record.semanticPath()) {
 				if record.ID != "" {
-					ignoredIDs[record.ID] = struct{}{}
+					ignoredIDs[record.ID] = true
 				}
 				break // skip ignored file/symbol record
 			}
-			if record.RecordType == "relation" && relationEndpointIgnored(record, cfg.ignore, ignoredIDs) {
+			if record.RecordType == "relation" && relationEndpointIgnored(record, res.header.RepoKey, cfg.ignore, ignoredIDs) {
 				break
 			}
 			switch record.RecordType {
@@ -321,18 +325,19 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 	return res, nil
 }
 
-func relationEndpointIgnored(record semanticRecord, ignore brainIgnore, ignoredIDs map[string]struct{}) bool {
-	if p := semanticEndpointPath(record.FromID); p != "" && ignore.Ignored(p) {
-		return true
-	}
-	if p := semanticEndpointPath(record.ToID); p != "" && ignore.Ignored(p) {
-		return true
-	}
-	if _, ok := ignoredIDs[record.FromID]; ok {
-		return true
-	}
-	if _, ok := ignoredIDs[record.ToID]; ok {
-		return true
+func relationEndpointIgnored(record semanticRecord, repoKey string, ignore brainIgnore, ignoredIDs map[string]bool) bool {
+	for _, id := range []string{record.FromID, record.ToID} {
+		// An explicit file/symbol path is authoritative, including an allowed
+		// path. Never override it with a heuristic parse of an unescaped ID.
+		if ignored, known := ignoredIDs[id]; known {
+			if ignored {
+				return true
+			}
+			continue
+		}
+		if p := semanticEndpointPath(repoKey, id); p != "" && ignore.Ignored(p) {
+			return true
+		}
 	}
 	return false
 }
@@ -474,7 +479,46 @@ func streamSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir, 
 	if !res.haveHeader {
 		return res, errors.New("semantic provider snapshot produced no output")
 	}
+	if truncErr := semanticSummaryTruncationCheck(&res); truncErr != nil {
+		return res, truncErr
+	}
 	return res, nil
+}
+
+// semanticSummaryTruncationCheck enforces that the trailing summary record is
+// the stream's end-of-stream marker, not merely an optional courtesy. A real
+// entire-graph provider emits it unconditionally as the last line before
+// exiting 0; its absence means the child exited (or was wrapped/shimmed into
+// exiting) before finishing, even though the exit code alone looks clean. A
+// provider bug, a truncated write, or a caught panic that still exits 0 can
+// all produce this shape, and none of them are distinguishable from a
+// legitimately short snapshot by exit code alone.
+//
+// Detection is scoped to the entire-graph provider (including an empty
+// provider field, which Brain defaults to entire-graph) so a hard failure
+// only fires where the summary record is guaranteed to exist. A third-party
+// or unknown provider that has not implemented the trailing summary record is
+// not truncated by definition — it never had one — so that case only
+// surfaces a warning, keeping this safe across version skew in both
+// directions.
+func semanticSummaryTruncationCheck(res *semanticStreamResult) error {
+	if res.summary != nil {
+		return nil
+	}
+	provider := strings.TrimSpace(res.header.Provider)
+	if provider == "" || provider == "entire-graph" {
+		return fmt.Errorf(
+			"semantic provider snapshot truncated: stream ended without its terminating summary record after %d file record(s), %d symbol(s), %d relation(s); the provider exited without finishing",
+			res.stream.Files, res.stream.Symbols, res.stream.Relations,
+		)
+	}
+	res.extraWarnings = append(res.extraWarnings, semanticWarning{
+		Code:     "provider_summary_missing",
+		Severity: "warning",
+		Effect:   "aggregate metadata (languages, completeness, stats) unavailable; truncation cannot be ruled out for this provider",
+		Detail:   fmt.Sprintf("semantic provider %q snapshot ended without a terminating summary record", provider),
+	})
+	return nil
 }
 
 // semanticStreamContextError maps a cancelled run context to a descriptive

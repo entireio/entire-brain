@@ -255,6 +255,12 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 	}
 	fmt.Fprintf(out, "  %s\n", render.Dim(strings.Join(identity, " "+render.Bullet()+" ")))
 
+	if report.Facts != nil {
+		if warning := missingFactStoreWarning(report.Facts.MissingBranches); warning != "" {
+			fmt.Fprintf(out, "  %s %s\n", render.Mark(tui.MarkFailed), render.PhasePaint(tui.PhaseFailed, warning))
+		}
+	}
+
 	renderStatusOnboardingBlock(out, render, report, brainCmd)
 
 	fmt.Fprintf(out, "\n%s\n", buildStatusHealth(report).Line(render, brainCmd))

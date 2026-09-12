@@ -24,6 +24,14 @@ const maxMCPFrameBytes = 4 * 1024 * 1024
 
 var mcpRefreshTimeout = 60 * time.Second
 
+// mcpIndexTimeout bounds brain_index_repository. brain_refresh has been capped
+// since it was written, and index is the same shape of work — a full provider
+// snapshot over a repository of unknown size — on the same stdio transport,
+// where a call that never returns is a client that never recovers. The tool
+// descriptions already advertised the asymmetry: brain_refresh's says "Calls
+// are capped at 60 seconds", index's said nothing.
+var mcpIndexTimeout = 60 * time.Second
+
 type mcpFrameMode string
 
 const (
@@ -58,15 +66,64 @@ type mcpResponseTransport struct {
 type mcpResponseTransportContextKey struct{}
 
 func newMCPCommand(opts Options) *cobra.Command {
-	return &cobra.Command{
+	var printConfig bool
+	cmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "Serve local brain tools over MCP stdio",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if printConfig {
+				return printMCPServerConfig(cmd.OutOrStdout())
+			}
 			nudgeMemoryAtStartup(cmd.Context(), opts)
 			return runMCP(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), opts)
 		},
 	}
+	cmd.Flags().BoolVar(&printConfig, "print-config", false,
+		"Print an MCP server entry that launches this binary directly, for a host agent's config")
+	return cmd
+}
+
+// mcpServerName is the key host agents register this server under.
+const mcpServerName = "entire-brain"
+
+// printMCPServerConfig writes an MCP server entry naming this executable by
+// absolute path.
+//
+// Hosts are usually registered with `entire brain mcp`, which asks the Entire
+// CLI to resolve `brain` as a plugin at spawn time. That resolution depends on
+// which entire is first on PATH and on the environment the host spawns with; it
+// resolves HOME to find the plugin, so a spawn without it exits with
+//
+//	Error: Invalid usage: unknown command "brain" for "entire"
+//
+// and the host surfaces only CONNECTION_CLOSED -- which names neither the
+// command nor the cause, and is why this was hard to diagnose from the agent
+// side. Naming this binary directly removes the lookup, so the entry keeps
+// working regardless of PATH order or spawn environment.
+func printMCPServerConfig(out io.Writer) error {
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve this executable: %w", err)
+	}
+	// Deliberately not resolved through symlinks: the managed install path is
+	// the stable one, while its target moves whenever the plugin is rebuilt.
+	config := map[string]any{
+		"mcpServers": map[string]any{
+			mcpServerName: map[string]any{
+				"type":    "stdio",
+				"command": executable,
+				"args":    []string{"mcp"},
+				"env":     map[string]string{},
+			},
+		},
+	}
+	encoded, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode MCP server config: %w", err)
+	}
+	_, err = fmt.Fprintln(out, string(encoded))
+	return err
 }
 
 func runMCP(ctx context.Context, in io.Reader, out io.Writer, opts Options) error {
@@ -298,6 +355,12 @@ var dispatchMCPMessage = func(ctx context.Context, opts Options, msg mcpMessage)
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "entire-brain", "version": opts.Version},
 		}
+	case "ping":
+		// MCP defines ping as a liveness check every server must answer, with an
+		// empty result. Falling through to "method not found" makes a client
+		// that pings — the spec's own recommended keepalive — conclude the
+		// server is broken and drop a session that was working fine.
+		response.Result = map[string]any{}
 	case "tools/list":
 		response.Result = map[string]any{"tools": mcpToolDefinitions()}
 	case "tools/call":
@@ -328,8 +391,22 @@ func mcpToolDefinitions() []map[string]any {
 	stringArg := func(name, description string) map[string]any {
 		return map[string]any{"type": "string", "description": description, "title": name}
 	}
+	// The declared bounds are the bounds mcpPositiveInt/mcpNonNegativeInt
+	// actually enforce. Declaring only a floor told a schema-validating MCP
+	// client that limit=1000000 was a legal call; the handler rejects it with
+	// -32000, so the client learned the real ceiling by being refused at
+	// runtime instead of reading it off the schema.
 	integerArg := func(name, description string) map[string]any {
-		return map[string]any{"type": "integer", "description": description, "title": name, "minimum": 1}
+		return map[string]any{"type": "integer", "description": description, "title": name, "minimum": 1, "maximum": mcpIntegerArgMax}
+	}
+	// nonNegativeIntegerArg is for the handful of integer params whose zero
+	// value is meaningful and accepted by the handler (mcpNonNegativeInt):
+	// "offset" (no results skipped) and "context_lines" (no surrounding
+	// lines). Declaring minimum:1 here would tell a schema-validating MCP
+	// client that 0 is invalid when the server actually treats it as the
+	// default.
+	nonNegativeIntegerArg := func(name, description string) map[string]any {
+		return map[string]any{"type": "integer", "description": description, "title": name, "minimum": 0, "maximum": mcpIntegerArgMax}
 	}
 	boolArg := func(name, description string) map[string]any {
 		return map[string]any{"type": "boolean", "description": description, "title": name}
@@ -398,8 +475,8 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_refresh",
-			"description": "Refresh bounded code-derived Brain sources and return status JSON. Includes current worktree content by default and never exports checkpoint sessions. Set semantic=true only for small repositories; for large repositories use brain_index_repository as a separate long-running step. Calls are capped at 60 seconds.",
-			"inputSchema": objectSchema(nil, map[string]any{"worktree": boolArg("worktree", "Include current uncommitted content (default true; set false for committed HEAD only)"), "semantic": boolArg("semantic", "Also rebuild the semantic index in this call (prefer brain_index_repository for large repositories)"), "force": boolArg("force", "Rebuild selected sources even when current")}),
+			"description": "Refresh bounded code-derived Brain sources and return status JSON. Seed and docs include current worktree content by default; the semantic index is always built from committed HEAD, so use brain_index_repository with worktree=true when you need a dirty semantic snapshot. Never exports checkpoint sessions. Set semantic=true only for small repositories; for large repositories use brain_index_repository as a separate long-running step. Calls are capped at 60 seconds.",
+			"inputSchema": objectSchema(nil, map[string]any{"worktree": boolArg("worktree", "Include current uncommitted content in seed and docs (default true; set false for committed HEAD only). Does not reach the semantic index, which always builds from committed HEAD."), "semantic": boolArg("semantic", "Also rebuild the semantic index in this call, from committed HEAD (prefer brain_index_repository for large repositories, and for a worktree snapshot)"), "force": boolArg("force", "Rebuild selected sources even when current")}),
 		},
 		{
 			"name":        "brain_brief",
@@ -441,7 +518,7 @@ func mcpToolDefinitions() []map[string]any {
 					"description": "Adjacent earlier exchanges to include (conversation: ids only)"},
 				"context_after": map[string]any{"type": "integer", "title": "context_after", "minimum": 0, "maximum": conversationContextMax,
 					"description": "Adjacent later exchanges to include (conversation: ids only)"},
-				"after_turn": map[string]any{"type": "integer", "title": "after_turn", "minimum": 0,
+				"after_turn": map[string]any{"type": "integer", "title": "after_turn", "minimum": 0, "maximum": mcpTurnCursorMax,
 					"description": "Outline cursor: entries after this turn ordinal (conversation-session: ids only)"},
 				"limit": map[string]any{"type": "integer", "title": "limit", "minimum": 1, "maximum": conversationOutlineMaxLimit,
 					"description": "Outline entries per page (conversation-session: ids only)"},
@@ -479,17 +556,17 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_index_repository",
-			"description": "Build or refresh the local semantic index for a repository path. Local-only; does not publish artifacts.",
-			"inputSchema": objectSchema(nil, map[string]any{"path": stringArg("path", "Local repository path (default: current repo)"), "profile": stringArg("profile", "Provider profile: full, fast, or syntax-only"), "worktree": boolArg("worktree", "Index dirty worktree content"), "force": boolArg("force", "Replace the current semantic snapshot")}),
+			"description": "Build the local semantic index for a repository path. Local-only; does not publish artifacts. Replacing an index that already exists requires force=true. The path stays inside the bound repository root unless ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH is set.",
+			"inputSchema": objectSchema(nil, map[string]any{"path": stringArg("path", "Local repository path (default: the bound repo). A relative path resolves inside the bound repository root, not the working directory; a path outside that root is refused unless ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH is set."), "profile": stringArg("profile", "Semantic provider snapshot profile (e.g. full, syntax-only), forwarded to the provider unchanged; empty uses the provider default."), "worktree": boolArg("worktree", "Index dirty worktree content"), "force": boolArg("force", "Replace the current semantic snapshot")}),
 		},
 		{
 			"name":        "brain_list_projects",
-			"description": "List locally indexed brain projects and semantic index counts.",
+			"description": "List locally indexed brain projects and semantic index counts. Scoped to the bound repository unless ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO is set.",
 			"inputSchema": objectSchema(nil, map[string]any{}),
 		},
 		{
 			"name":        "brain_delete_project",
-			"description": "Delete a local brain project by repo_key, or the current repo project when repo_key is omitted. This removes local generated brain data only. Irreversible: exported session history and indexes for the project are erased, so confirm=true is required.",
+			"description": "Delete a local brain project by repo_key, or the current repo project when repo_key is omitted. This removes local generated brain data only. Irreversible: exported session history and indexes for the project are erased, so confirm=true is required. A repo_key other than the bound repository's is refused unless ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO is set.",
 			"inputSchema": objectSchema([]string{"confirm"}, map[string]any{"repo_key": stringArg("repo_key", "Repository key to delete (default: current repo)"), "confirm": boolArg("confirm", "Must be true; acknowledges that the project's exported history and indexes are erased irreversibly")}),
 		},
 		{
@@ -500,7 +577,7 @@ func mcpToolDefinitions() []map[string]any {
 		{
 			"name":        "brain_search_graph",
 			"description": "Search the semantic graph for matching symbols with stable pagination.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or graph text query"), "limit": integerArg("limit", "Maximum results"), "offset": integerArg("offset", "Results to skip")}),
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or graph text query"), "limit": integerArg("limit", "Maximum results"), "offset": nonNegativeIntegerArg("offset", "Results to skip (default: 0)")}),
 		},
 		{
 			"name":        "brain_query_graph",
@@ -509,13 +586,13 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_get_graph_schema",
-			"description": "Return semantic graph schema metadata, counts, symbol kinds, and relation vocabulary.",
+			"description": "Return semantic graph schema metadata, counts, symbol kinds, and relation vocabulary, plus structural metrics (hotspots, entry points, packages, layers, and clusters).",
 			"inputSchema": objectSchema(nil, map[string]any{}),
 		},
 		{
 			"name":        "brain_get_code_snippet",
 			"description": "Return the exact bounded source snippet for a symbol id or name.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol id, name, or qualified name"), "context_lines": integerArg("context_lines", "Extra lines before and after")}),
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol id, name, or qualified name"), "context_lines": nonNegativeIntegerArg("context_lines", "Extra lines before and after (default: 0)")}),
 		},
 		{
 			"name":        "brain_trace_path",
@@ -534,7 +611,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_get_architecture",
-			"description": "Return graph-derived architecture metadata: schema, relation types, languages, and boundary counts.",
+			"description": "Alias for brain_get_graph_schema: return graph-derived architecture metadata (schema, relation types, languages) plus structural metrics (hotspots, entry points, package/layer breakdowns).",
 			"inputSchema": objectSchema(nil, map[string]any{}),
 		},
 		{
@@ -564,17 +641,17 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_workspace_regressions",
-			"description": "Flag suspected regressions across every repo in a local multi-repo workspace (each brain's memory vs that repo's current tree). Tolerates sessions-only brains; results are aggregated by repo_key.",
+			"description": "Flag suspected regressions across every repo in a local multi-repo workspace (each brain's memory vs that repo's current tree). Tolerates sessions-only brains; results are aggregated by repo_key. Allows registered sibling checkouts when the bound repo is a workspace member; other workspaces need ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO.",
 			"inputSchema": objectSchema([]string{"workspace", "query"}, map[string]any{"workspace": stringArg("workspace", "Workspace name"), "query": stringArg("query", "Task description plus the failing symbols/identifiers"), "limit": integerArg("limit", "Maximum suspected regressions per repo"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (higher recall, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}),
 		},
 		{
 			"name":        "brain_workspace_graph",
-			"description": "Return per-repo graph metadata plus shared external contracts and cross_edges for a local multi-repo workspace.",
+			"description": "Return per-repo graph metadata plus shared external contracts and cross_edges for a local multi-repo workspace. Allows registered sibling checkouts when the bound repo is a workspace member; other workspaces need ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO.",
 			"inputSchema": objectSchema([]string{"workspace"}, map[string]any{"workspace": stringArg("workspace", "Workspace name"), "limit": integerArg("limit", "Maximum contracts/cross_edges")}),
 		},
 		{
 			"name":        "brain_workspace_review",
-			"description": "Cross-repo diff-less review (versioned contract) of each local workspace repo's current tree against its brain memory. Returns severity-ranked suspected regressions per repo.",
+			"description": "Cross-repo diff-less review (versioned contract) of each local workspace repo's current tree against its brain memory. Returns severity-ranked suspected regressions per repo. Allows registered sibling checkouts when the bound repo is a workspace member; other workspaces need ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO.",
 			"inputSchema": objectSchema([]string{"workspace", "query"}, map[string]any{"workspace": stringArg("workspace", "Workspace name"), "query": stringArg("query", "What to review plus the relevant symbols/identifiers"), "limit": integerArg("limit", "Maximum findings per repo"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (lower confidence, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}),
 		},
 		{
@@ -651,33 +728,11 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		}
 		err = runAgentStatus(ctx, cmd, opts, agentStatusOptions{json: true, details: details, compact: true, failOn: semanticAuditFailOnNone}, target)
 	case "brain_refresh":
-		worktree := true
-		if _, provided := params.Arguments["worktree"]; provided {
-			worktree, err = mcpBool(params.Arguments, "worktree")
-			if err != nil {
-				break
-			}
-		}
-		force, boolErr := mcpBool(params.Arguments, "force")
-		if boolErr != nil {
-			err = boolErr
+		refreshOpts, refreshErr := mcpRefreshOptions(params.Arguments)
+		if refreshErr != nil {
+			err = refreshErr
 			break
 		}
-		semantic, boolErr := mcpBool(params.Arguments, "semantic")
-		if boolErr != nil {
-			err = boolErr
-			break
-		}
-		refreshOpts := defaultRefreshCommandOptions()
-		refreshOpts.force = force
-		refreshOpts.seed.force = force
-		refreshOpts.graphBinary = mcpGraphBinary()
-		refreshOpts.skipSessions = true
-		refreshOpts.historyIndex = false
-		refreshOpts.semantic = semantic
-		refreshOpts.statusAfter = false
-		refreshOpts.seed.agent = "none"
-		refreshOpts.seed.worktree = worktree
 		refreshCmd := &cobra.Command{Use: "brain_refresh"}
 		refreshCmd.SetOut(io.Discard)
 		refreshCmd.SetErr(io.Discard)
@@ -727,9 +782,21 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = boolErr
 			break
 		}
-		err = runSemanticIndex(ctx, cmd, opts, semanticIndexOptions{graphBinary: graphBinary, profile: strings.TrimSpace(profile), worktree: worktree, force: force, containRoot: containRoot}, path)
+		indexCtx, cancelIndex := context.WithTimeout(ctx, mcpIndexTimeout)
+		defer cancelIndex()
+		cmd.SetContext(indexCtx)
+		err = runSemanticIndex(indexCtx, cmd, opts, semanticIndexOptions{graphBinary: graphBinary, profile: strings.TrimSpace(profile), worktree: worktree, force: force, containRoot: containRoot}, path)
+		if errors.Is(indexCtx.Err(), context.DeadlineExceeded) {
+			// Mirrors brain_refresh: name the limit and point at the surface
+			// that has no limit, rather than returning a bare context error the
+			// caller cannot act on.
+			err = fmt.Errorf(
+				"brain_index_repository exceeded the %s MCP limit; use the dedicated CLI refresh/index command",
+				mcpIndexTimeout,
+			)
+		}
 	case "brain_list_projects":
-		err = runMCPListProjects(cmd, opts)
+		err = runMCPListProjects(ctx, cmd, opts)
 	case "brain_delete_project":
 		repoKey, stringErr := mcpOptionalString(params.Arguments, "repo_key")
 		if stringErr != nil {
@@ -822,7 +889,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		if gopts.ContextAfter, err = mcpNonNegativeInt(params.Arguments, "context_after", 0); err != nil {
 			break
 		}
-		if gopts.AfterTurn, err = mcpNonNegativeInt(params.Arguments, "after_turn", 0); err != nil {
+		if gopts.AfterTurn, err = mcpNonNegativeIntMax(params.Arguments, "after_turn", 0, mcpTurnCursorMax); err != nil {
 			break
 		}
 		if gopts.OutlineLimit, err = mcpNonNegativeInt(params.Arguments, "limit", 0); err != nil {
@@ -971,6 +1038,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = runBrainReview(ctx, cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, query)
 		}
 	case "brain_workspace_regressions":
+		var manifest workspaceManifest
 		workspace, stringErr := mcpOptionalString(params.Arguments, "workspace")
 		if stringErr != nil {
 			err = stringErr
@@ -982,14 +1050,18 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = errors.New("workspace is required")
 		}
 		if err == nil {
+			manifest, err = mcpWorkspaceManifest(ctx, opts, params.Name, workspace)
+		}
+		if err == nil {
 			inc, loc, boolErr := mcpRegressionBooleans(params.Arguments)
 			if boolErr != nil {
 				err = boolErr
 				break
 			}
-			err = runWorkspaceRegressions(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, workspace, query)
+			err = runWorkspaceRegressionsManifest(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, manifest, query)
 		}
 	case "brain_workspace_graph":
+		var manifest workspaceManifest
 		workspace, stringErr := mcpOptionalString(params.Arguments, "workspace")
 		if stringErr != nil {
 			err = stringErr
@@ -998,10 +1070,11 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		workspace = strings.TrimSpace(workspace)
 		if workspace == "" {
 			err = errors.New("workspace is required")
-		} else {
-			err = runWorkspaceGraph(cmd, opts, workspaceGraphOptions{limit: limit, json: true}, workspace)
+		} else if manifest, err = mcpWorkspaceManifest(ctx, opts, params.Name, workspace); err == nil {
+			err = runWorkspaceGraphManifest(cmd, opts, workspaceGraphOptions{limit: limit, json: true}, manifest)
 		}
 	case "brain_workspace_review":
+		var manifest workspaceManifest
 		workspace, stringErr := mcpOptionalString(params.Arguments, "workspace")
 		if stringErr != nil {
 			err = stringErr
@@ -1013,12 +1086,15 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = errors.New("workspace is required")
 		}
 		if err == nil {
+			manifest, err = mcpWorkspaceManifest(ctx, opts, params.Name, workspace)
+		}
+		if err == nil {
 			inc, loc, boolErr := mcpRegressionBooleans(params.Arguments)
 			if boolErr != nil {
 				err = boolErr
 				break
 			}
-			err = runWorkspaceReview(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, workspace, query)
+			err = runWorkspaceReviewManifest(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, manifest, query)
 		}
 	case "brain_patterns":
 		typ, typeErr := mcpOptionalString(params.Arguments, "type")
@@ -1059,7 +1135,87 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"content": []map[string]any{{"type": "text", "text": out.String()}}}, nil
+	return mcpToolTextResult(ctx, params.Name, out.String())
+}
+
+// mcpToolTextResult wraps a tool's text output, refusing a frame the transport
+// cannot carry.
+//
+// Inbound frames have been bounded by maxMCPFrameBytes since framing was
+// written; outbound frames were not bounded at all. Every use of
+// maxMCPFrameBytes in this file was on the read side. The retrieval surface
+// grew its own 128 KiB budget (boundedRetrievalJSONPayload), but the ~25
+// graph/semantic/status/pattern tools had none, so a wide call — brain_impact
+// at the schema's own limit of 10000, say — could build a response far larger
+// than any frame the peer will accept. The client either drops the connection
+// or blocks; either way the caller learns nothing about why.
+//
+// REFUSES RATHER THAN TRUNCATES, deliberately. A silently shortened graph
+// answer is indistinguishable from a small one, and an agent cannot tell that
+// it is reasoning from a fragment. An error names the limit and the argument
+// to lower. Row-wise truncation with an explicit marker — what the retrieval
+// surface does — is the better long-term answer for the tools that can
+// support it, and is left as follow-up.
+func mcpToolTextResult(ctx context.Context, tool, text string) (map[string]any, error) {
+	result := map[string]any{"content": []map[string]any{{"type": "text", "text": text}}}
+	// Cheap reject first: the text alone cannot exceed the frame, so there is
+	// no need to marshal a response that is already too large.
+	if len(text) > maxMCPFrameBytes {
+		return nil, fmt.Errorf(
+			"%s produced a %d byte result, over the %d byte MCP frame limit; narrow the request (lower limit, or drop details)",
+			tool, len(text), maxMCPFrameBytes)
+	}
+	size, sizeErr := mcpToolResultTransportSize(ctx, result)
+	if sizeErr != nil {
+		// Measuring failed, not the result. Returning the result unmeasured is
+		// the pre-existing behaviour and strictly better than failing a call
+		// that may well be fine.
+		return result, nil
+	}
+	if size > maxMCPFrameBytes {
+		return nil, fmt.Errorf(
+			"%s produced a %d byte frame, over the %d byte MCP frame limit; narrow the request (lower limit, or drop details)",
+			tool, size, maxMCPFrameBytes)
+	}
+	return result, nil
+}
+
+// mcpRefreshOptions builds the refresh options for the brain_refresh tool.
+//
+// Extracted so the tool's declared contract is testable directly: the
+// "worktree" argument sets seed.worktree only. semanticWorktree is deliberately
+// left false, because a dirty semantic snapshot is an explicit `brain index
+// --worktree` operation (see the refresh command's own RunE). brain_refresh's
+// description must therefore not promise that worktree content reaches the
+// semantic index -- it does not.
+func mcpRefreshOptions(args map[string]any) (refreshCommandOptions, error) {
+	worktree := true
+	if _, provided := args["worktree"]; provided {
+		parsed, err := mcpBool(args, "worktree")
+		if err != nil {
+			return refreshCommandOptions{}, err
+		}
+		worktree = parsed
+	}
+	force, err := mcpBool(args, "force")
+	if err != nil {
+		return refreshCommandOptions{}, err
+	}
+	semantic, err := mcpBool(args, "semantic")
+	if err != nil {
+		return refreshCommandOptions{}, err
+	}
+	refreshOpts := defaultRefreshCommandOptions()
+	refreshOpts.force = force
+	refreshOpts.seed.force = force
+	refreshOpts.graphBinary = mcpGraphBinary()
+	refreshOpts.skipSessions = true
+	refreshOpts.historyIndex = false
+	refreshOpts.semantic = semantic
+	refreshOpts.statusAfter = false
+	refreshOpts.seed.agent = "none"
+	refreshOpts.seed.worktree = worktree
+	return refreshOpts, nil
 }
 
 func requireMCPQuery(query string) error {
@@ -1125,12 +1281,27 @@ type mcpProjectSummary struct {
 	Profile     string   `json:"profile,omitempty"`
 }
 
-func runMCPListProjects(cmd *cobra.Command, opts Options) error {
+func runMCPListProjects(ctx context.Context, cmd *cobra.Command, opts Options) error {
 	dirs, err := resolvePluginDirs(opts.Env)
 	if err != nil {
 		return err
 	}
+	// Enumerating every locally indexed project hands an agent bound to one repo
+	// the keys, brain paths, and index counts of every other repo on the machine.
+	// Scope the listing to the bound repo unless the operator opts out.
+	boundKey := ""
 	root := filepath.Join(dirs.Data, repoStoreDirName)
+	if !mcpCrossRepoAllowed() {
+		storage, bound, storageErr := mcpBoundRepoStorage(ctx, opts)
+		if storageErr != nil {
+			return storageErr
+		}
+		if !bound {
+			return mcpCrossRepoRefusal("brain_list_projects", "server has no bound repository", "")
+		}
+		boundKey = storage.Key
+		root = storage.BrainDir
+	}
 	var projects []mcpProjectSummary
 	if err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -1145,6 +1316,9 @@ func runMCPListProjects(cmd *cobra.Command, opts Options) error {
 		brainDir := filepath.Dir(path)
 		manifest, err := loadBrainManifest(brainDir)
 		if err != nil {
+			return nil
+		}
+		if boundKey != "" && manifest.RepoKey != boundKey {
 			return nil
 		}
 		summary := mcpProjectSummary{
@@ -1176,24 +1350,47 @@ func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, 
 	var brainDir string
 	var err error
 	if repoKey == "" {
-		target := "."
-		if opts.Env.RepoRoot != "" {
-			target = opts.Env.RepoRoot
+		boundStorage, bound, boundErr := mcpBoundRepoStorage(ctx, opts)
+		if boundErr != nil {
+			return boundErr
 		}
-		repoDir, local, resolveErr := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
-		if resolveErr != nil {
-			return resolveErr
+		if !bound {
+			if !mcpCrossRepoAllowed() {
+				return mcpCrossRepoRefusal("brain_delete_project", "server has no bound repository", "")
+			}
+			// Explicitly opted-in unbound servers may use the process CWD.
+			target := "."
+			repoDir, local, resolveErr := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			if !local {
+				return fmt.Errorf("brain_delete_project requires a local repository path: %s", target)
+			}
+			storage, storageErr := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+			if storageErr != nil {
+				return storageErr
+			}
+			boundStorage = storage
 		}
-		if !local {
-			return fmt.Errorf("brain_delete_project requires a local repository path: %s", target)
-		}
-		storage, storageErr := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
-		if storageErr != nil {
-			return storageErr
-		}
-		repoKey = storage.Key
-		brainDir = storage.BrainDir
+		repoKey = boundStorage.Key
+		brainDir = boundStorage.BrainDir
 	} else {
+		// A repo_key names a project directly, so it is the confused-deputy
+		// vector: deleting a brain erases that repo's exported session history
+		// and every derived index, and confirm=true is no defence — the same
+		// prompt-injected agent that picks a foreign key also supplies the
+		// confirmation. Refuse anything but the bound repo unless the operator
+		// opted in.
+		if !mcpCrossRepoAllowed() {
+			boundStorage, bound, boundErr := mcpBoundRepoStorage(ctx, opts)
+			if boundErr != nil {
+				return boundErr
+			}
+			if !bound || repoKey != boundStorage.Key {
+				return mcpCrossRepoRefusal("brain_delete_project", fmt.Sprintf("repo_key %q names a different project", repoKey), boundStorage.Key)
+			}
+		}
 		brainDir, err = brainDirForKey(opts.Env, repoKey)
 		if err != nil {
 			return err
@@ -1217,6 +1414,210 @@ func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, 
 // it defaults to "entire". Resolving this server-side closes the
 // arbitrary-executable vector that an untrusted (or prompt-injected) MCP client
 // would otherwise reach through a tool argument.
+// mcpAllowCrossRepoEnv is the operator opt-in that lets MCP tools act outside
+// the bound repository root, the sibling of ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH used
+// by brain_index_repository. It is unset by default: the MCP surface is driven
+// by an agent whose context can be poisoned by hostile repository content, so
+// project deletion, project enumeration, and workspace fan-out stay inside the
+// repo the server was bound to. The plain CLI is unaffected — a human at a
+// terminal is not the confused deputy.
+const mcpAllowCrossRepoEnv = "ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO"
+
+// mcpCrossRepoAllowed reports whether the operator opted the MCP surface out of
+// bound-repo scoping.
+func mcpCrossRepoAllowed() bool { return envBool(mcpAllowCrossRepoEnv) }
+
+// mcpBoundRepoStorage resolves the storage identity (repo key + brain dir) of
+// the repository this MCP server is bound to. An empty EntireEnv.RepoRoot means
+// the server is not bound to a repo; scoped callers must refuse access unless
+// the operator explicitly permits cross-repository access.
+func mcpBoundRepoStorage(ctx context.Context, opts Options) (repoStorage, bool, error) {
+	root := strings.TrimSpace(opts.Env.RepoRoot)
+	if root == "" {
+		return repoStorage{}, false, nil
+	}
+	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, root)
+	if err != nil {
+		return repoStorage{}, false, err
+	}
+	if !local {
+		return repoStorage{}, false, fmt.Errorf("bound repository root is not a local repository: %s", root)
+	}
+	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+	if err != nil {
+		return repoStorage{}, false, err
+	}
+	return storage, true, nil
+}
+
+// mcpCrossRepoRefusal is the single refusal message for every MCP tool that
+// would otherwise reach outside the bound repository. It always names the gate
+// so an operator who genuinely wants cross-repo access knows the one knob.
+func mcpCrossRepoRefusal(tool, detail, boundKey string) error {
+	bound := boundKey
+	if bound == "" {
+		bound = "the bound repository"
+	}
+	return fmt.Errorf(
+		"%s is scoped to the MCP server's bound repository (%s): %s; set %s=1 to allow cross-repo access",
+		tool, bound, detail, mcpAllowCrossRepoEnv,
+	)
+}
+
+// mcpWorkspaceManifest loads once so execution uses exactly the members checked
+// at the MCP boundary. CLI callers continue to load their own unrestricted manifest.
+func mcpWorkspaceManifest(ctx context.Context, opts Options, tool, workspaceName string) (workspaceManifest, error) {
+	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	if err != nil {
+		return workspaceManifest{}, err
+	}
+	if err := mcpValidateWorkspaceScope(ctx, opts, tool, manifest); err != nil {
+		return workspaceManifest{}, err
+	}
+	return manifest, nil
+}
+
+func mcpEnforceWorkspaceScope(ctx context.Context, opts Options, tool, workspaceName string) error {
+	_, err := mcpWorkspaceManifest(ctx, opts, tool, workspaceName)
+	return err
+}
+
+func mcpValidateWorkspaceScope(ctx context.Context, opts Options, tool string, manifest workspaceManifest) error {
+	if mcpCrossRepoAllowed() {
+		return nil
+	}
+
+	storage, bound, storageErr := mcpBoundRepoStorage(ctx, opts)
+	if storageErr != nil {
+		return storageErr
+	}
+	if !bound {
+		return mcpCrossRepoRefusal(tool, "cannot resolve the bound repository", "")
+	}
+	boundKey := storage.Key
+
+	// RULE 1 -- MEMBERSHIP, which is what actually carries the confused-deputy
+	// protection. An agent bound to repo A may fan out over a workspace only if A
+	// is a member of it. Naming some OTHER workspace is precisely "an agent in
+	// repo A acting on unrelated repo B", and the operator's own `workspace add`
+	// is the declaration that these repos belong together.
+	if !workspaceIncludesBoundRepo(manifest, boundKey, opts.Env.RepoRoot) {
+		return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q does not include the bound repository", manifest.Name), boundKey)
+	}
+
+	// RULE 2 -- LOCALITY, scoped to the bound repo's PARENT rather than to the
+	// bound repo itself.
+	//
+	// Requiring every member to live INSIDE the bound root refused the only
+	// layout a workspace is ever built from. Checkouts sit side by side --
+	//
+	//	devenv/cli        <- bound here
+	//	devenv/entiredb   <- a member
+	//
+	// -- and a sibling is never inside its sibling, so all three workspace tools
+	// refused the standard setup they exist to serve. That is the normal case,
+	// not an edge case.
+	scopeRoot := workspaceScopeRoot(opts.Env.RepoRoot)
+	for _, repo := range manifest.Repos {
+		hint := strings.TrimSpace(repo.LocalPathHint)
+		if hint == "" {
+			return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q member %q has no local path, so its location cannot be checked", manifest.Name, repo.RepoKey), boundKey)
+		}
+		if enforceIndexContainment(scopeRoot, hint) != nil {
+			return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q includes repo %q outside %s", manifest.Name, repo.RepoKey, scopeRoot), boundKey)
+		}
+		repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, hint)
+		if err != nil {
+			return err
+		}
+		if !local || enforceIndexContainment(scopeRoot, repoDir) != nil {
+			return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q member %q has no in-scope checkout", manifest.Name, repo.RepoKey), boundKey)
+		}
+		memberStorage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+		if err != nil {
+			return err
+		}
+		if memberStorage.Key != repo.RepoKey {
+			return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q member %q does not match local checkout identity %q", manifest.Name, repo.RepoKey, memberStorage.Key), boundKey)
+		}
+
+	}
+	return nil
+}
+
+// workspaceIncludesBoundRepo reports whether the bound repository is a member of
+// manifest. The repo key is the primary match; the local path is the fallback,
+// because a member added under a different key spelling (a remote renamed since
+// `workspace add`, or a manifest written by another brain version) is still the
+// same checkout on disk.
+func workspaceIncludesBoundRepo(manifest workspaceManifest, boundKey, repoRoot string) bool {
+	for _, repo := range manifest.Repos {
+		if boundKey != "" && repo.RepoKey == boundKey {
+			return true
+		}
+		hint := strings.TrimSpace(repo.LocalPathHint)
+		if hint == "" {
+			continue
+		}
+		if samePathOnDisk(hint, repoRoot) {
+			return true
+		}
+	}
+	return false
+}
+
+// samePathOnDisk compares two paths after making them absolute and resolving
+// symlinks, so /var and /private/var (or a checkout reached through a symlinked
+// parent) are recognized as the same directory.
+//
+// The final comparison goes through filepath.Rel rather than string equality,
+// because string equality is not the host's rule. Windows compares paths
+// case-insensitively; symlink resolution only hides that while both paths exist
+// on disk, and a manifest's local path hint routinely names a checkout that has
+// been moved or not cloned yet. For such a path only Abs runs, which preserves
+// case, so `C:\dev\cli` and `C:\Dev\CLI` -- the same path on Windows -- compared
+// unequal and the bound repository was not recognized as a member of its own
+// workspace. filepath.Rel folds case on Windows and only on Windows, so this
+// applies each host's own rule.
+func samePathOnDisk(a, b string) bool {
+	resolve := func(p string) string {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return p
+		}
+		if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+			return resolved
+		}
+		return abs
+	}
+	rel, err := filepath.Rel(resolve(a), resolve(b))
+	return err == nil && rel == "."
+}
+
+// workspaceScopeRoot is the directory that bounds an MCP workspace fan-out: the
+// bound repository's PARENT, so sibling checkouts under a common parent are in
+// scope.
+//
+// It deliberately widens by exactly one level. Two levels would put unrelated
+// project trees in scope, and no widening at all refuses every real workspace.
+// A repository checked out at the top of a volume does not widen, so a shallow
+// path cannot put the whole filesystem in scope.
+func workspaceScopeRoot(repoRoot string) string {
+	abs, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return repoRoot
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	parent := filepath.Dir(abs)
+	if parent == abs || filepath.Dir(parent) == parent {
+		// abs is a filesystem/volume root, or its parent is -- do not widen.
+		return abs
+	}
+	return parent
+}
+
 func mcpGraphBinary() string {
 	if v := strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_GRAPH_BINARY")); v != "" {
 		return v
@@ -1375,6 +1776,28 @@ func mcpStringSlice(args map[string]any, key string) ([]string, error) {
 	return out, nil
 }
 
+// mcpIntegerArgMax caps integer arguments that bound work or allocations.
+//
+// The lower bounds below were always enforced; the UPPER bound was not, and it
+// is not a result-quality question. `limit` reaches make([]T, 0, limit) in the
+// retrieval layer (history_fts.go, doc_fts.go at limit*4) and `context_lines`
+// widens a snippet window, so a value like 1e9 asks the runtime for hundreds of
+// gigabytes. That is a fatal out-of-memory, which no recover() catches, and it
+// takes the whole brain MCP server down. A tools/call is one line of JSON from a
+// client whose agent carries untrusted repository text in its context, so the
+// ceiling belongs on the server.
+//
+// Input schemas also declare this ceiling so clients can plan valid calls;
+// server-side validation remains authoritative. Tool-definition goldens account
+// for the advertised bounds. Stricter per-tool limits and the separate turn
+// cursor range are declared and enforced at their respective call sites.
+const mcpIntegerArgMax = 10000
+
+// Turn cursors are only compared with stored ordinals; they do not size a
+// result allocation. Keep them exactly representable in JSON and in an int
+// on every supported platform without imposing the result-count ceiling.
+const mcpTurnCursorMax = math.MaxInt32
+
 func mcpPositiveInt(args map[string]any, key string, fallback int) (int, error) {
 	value, ok := args[key]
 	if !ok {
@@ -1382,33 +1805,37 @@ func mcpPositiveInt(args map[string]any, key string, fallback int) (int, error) 
 	}
 	switch typed := value.(type) {
 	case float64:
-		if typed >= 1 && typed <= float64(math.MaxInt) && math.Trunc(typed) == typed {
+		if typed >= 1 && typed <= float64(mcpIntegerArgMax) && math.Trunc(typed) == typed {
 			return int(typed), nil
 		}
 	case int:
-		if typed >= 1 {
+		if typed >= 1 && typed <= mcpIntegerArgMax {
 			return typed, nil
 		}
 	}
-	return 0, fmt.Errorf("%s must be an integer greater than zero", key)
+	return 0, fmt.Errorf("%s must be an integer between 1 and %d", key, mcpIntegerArgMax)
 }
 
 func mcpNonNegativeInt(args map[string]any, key string, fallback int) (int, error) {
+	return mcpNonNegativeIntMax(args, key, fallback, mcpIntegerArgMax)
+}
+
+func mcpNonNegativeIntMax(args map[string]any, key string, fallback, maximum int) (int, error) {
 	value, ok := args[key]
 	if !ok {
 		return fallback, nil
 	}
 	switch typed := value.(type) {
 	case float64:
-		if typed >= 0 && typed <= float64(math.MaxInt) && math.Trunc(typed) == typed {
+		if typed >= 0 && typed <= float64(maximum) && math.Trunc(typed) == typed {
 			return int(typed), nil
 		}
 	case int:
-		if typed >= 0 {
+		if typed >= 0 && typed <= maximum {
 			return typed, nil
 		}
 	}
-	return 0, fmt.Errorf("%s must be a non-negative integer", key)
+	return 0, fmt.Errorf("%s must be an integer between 0 and %d", key, maximum)
 }
 
 // errMCPRecoverable marks a single malformed/oversized frame that should be
@@ -1489,11 +1916,31 @@ func readMCPMessage(reader *bufio.Reader) (mcpMessage, mcpFrameMode, error) {
 			length = parsed
 		}
 	}
+	// RECOVERABILITY IS ABOUT RESYNCHRONISATION, NOT SEVERITY.
+	//
+	// The serve loop answers errMCPRecoverable with -32700 and keeps reading,
+	// which is only correct when the reader is left positioned at the start of
+	// the NEXT frame. Where the body's extent is known we can get there; where
+	// it is not, continuing would reparse the body as headers and silently
+	// swallow whatever came after it. That is worse than disconnecting: the
+	// host hangs waiting for a reply to a request the server ate.
+	//
+	// So an unparseable or negative Content-Length stays FATAL (above) — the
+	// body boundary is unknown. The cases below are recoverable because the
+	// length is known, or because there is no body to skip.
 	if length < 0 {
-		return mcpMessage{}, "", errors.New("missing Content-Length")
+		// No Content-Length header at all: nothing has been consumed beyond the
+		// headers, so the stream is already at a frame boundary.
+		return mcpMessage{}, mcpFrameContentLength, fmt.Errorf("%w: missing Content-Length", errMCPRecoverable)
 	}
 	if length > maxMCPFrameBytes {
-		return mcpMessage{}, "", fmt.Errorf("Content-Length exceeds maximum frame size of %d bytes", maxMCPFrameBytes)
+		// The length is known, so the oversized body can be skipped. Recover
+		// ONLY if the whole body is drained — a short read means the stream is
+		// still mid-frame and there is no boundary to resume from.
+		if _, derr := io.CopyN(io.Discard, reader, int64(length)); derr != nil {
+			return mcpMessage{}, "", fmt.Errorf("Content-Length exceeds maximum frame size of %d bytes: %w", maxMCPFrameBytes, derr)
+		}
+		return mcpMessage{}, mcpFrameContentLength, fmt.Errorf("%w: Content-Length exceeds maximum frame size of %d bytes", errMCPRecoverable, maxMCPFrameBytes)
 	}
 	data := make([]byte, length)
 	if _, err := io.ReadFull(reader, data); err != nil {
@@ -1501,7 +1948,11 @@ func readMCPMessage(reader *bufio.Reader) (mcpMessage, mcpFrameMode, error) {
 	}
 	var msg mcpMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
-		return mcpMessage{}, "", err
+		// The body was read in full, so the reader IS at the next frame. This is
+		// the case a conforming client reaches first: a JSON-RPC batch body
+		// ([{...}]) is valid JSON-RPC that this server does not implement, and
+		// it was killing the session rather than being refused.
+		return mcpMessage{}, mcpFrameContentLength, fmt.Errorf("%w: %v", errMCPRecoverable, err)
 	}
 	return msg, mcpFrameContentLength, nil
 }

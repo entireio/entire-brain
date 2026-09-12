@@ -159,7 +159,7 @@ func TestSetupComponentMarks(t *testing.T) {
 		"built":   tui.MarkDone,
 		"failed":  tui.MarkFailed,
 		"skipped": tui.MarkSkipped,
-		"missing": tui.MarkPending,
+		"missing": tui.MarkSkipped,
 		"":        tui.MarkPending,
 	} {
 		if got := setupComponentMark(state); got != want {

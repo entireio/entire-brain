@@ -21,6 +21,9 @@ Available tools:
 - Cross-repo (workspace): `brain_workspace_graph`,
   `brain_workspace_regressions`, `brain_workspace_review`
 - Pattern corpus: `brain_patterns`, `brain_patterns_status`
+- `brain_entity_history` for "which checkpoints and sessions changed this
+  function/class", answered from the persisted entity index (built by
+  `entire brain entities backfill`) rather than by re-reading history
 
 Tool responses wrap the existing CLI `--json` output as text content by default.
 Treat the CLI JSON contracts as the source of truth for fields and freshness
@@ -273,9 +276,12 @@ semantic context.
 
 `brain_refresh` is the deterministic local write tool for rebuilding
 code-derived sources when retrieval freshness is unsafe; it never runs seed
-agent synthesis and returns status JSON after completion. It includes current
-uncommitted content by default; set `worktree: false` only for committed HEAD.
-It refreshes seed/docs, skips checkpoint export/history, and has a 60-second
+agent synthesis and returns status JSON after completion. Its seed and docs
+include current uncommitted content by default; set `worktree: false` only for
+committed HEAD. `worktree` does not reach the semantic index: the index
+`semantic: true` rebuilds is always built from committed HEAD, so use
+`brain_index_repository` with `worktree: true` when you need a dirty semantic
+snapshot. It refreshes seed/docs, skips checkpoint export/history, and has a 60-second
 server-side deadline so the synchronous MCP connection cannot be held
 indefinitely. Set `semantic: true` only for small repositories; use
 `brain_index_repository` as a separate long-running step for large repositories.
@@ -284,6 +290,33 @@ patterns need refresh.
 `brain_index_repository` is the narrower local write tool for building only the
 semantic index; neither tool publishes artifacts. `brain_delete_project`
 removes local generated brain data for the selected repo key.
+
+### Cross-repo scope
+
+The MCP server is bound to one repository (`ENTIRE_REPO_ROOT`), and the tools
+that can reach past it are scoped to that repo by default:
+
+- `brain_delete_project` accepts only the bound repo's key. A foreign `repo_key`
+  is refused; the deletion is irreversible and `confirm=true` is no protection
+  against a prompt-injected agent that supplies it itself.
+- `brain_list_projects` returns only the bound project, not every locally
+  indexed repo's key, brain path, and index counts.
+- `brain_workspace_graph`, `brain_workspace_regressions`, and
+  `brain_workspace_review` refuse a workspace the bound repository is not a
+  member of, or one whose repos live outside the bound repository's parent
+  directory. Sibling checkouts under a common parent — `devenv/cli` alongside
+  `devenv/entiredb`, the layout `entire brain workspace add` produces — are in
+  scope without the opt-in.
+
+An unbound server refuses project listing, deletion, and workspace tools by
+default. Workspace keys must match their local checkouts, and execution uses
+the same manifest snapshot that passed the scope checks.
+
+Set `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO=1` on the server to opt back into
+cross-repo behaviour (the sibling of `ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH`, which
+does the same for `brain_index_repository`'s path argument). The refusal message
+always names the variable. None of this touches the `entire brain ...` CLI: a
+human at a terminal keeps every cross-repo verb, gate unset.
 
 `brain_patterns` and `brain_patterns_status` are read-only pattern-corpus
 inspection tools. Skill formation is intentionally not exposed as an MCP write

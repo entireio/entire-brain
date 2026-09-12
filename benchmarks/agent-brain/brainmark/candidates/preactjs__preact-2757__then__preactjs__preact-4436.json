@@ -1,0 +1,49 @@
+{
+  "a": {
+    "base_commit": "b17a932342bfdeeaf1dc0fbe4f436c83e258d6c8",
+    "created_at": "2020-09-19 09:38:08",
+    "files": [
+      "src/diff/index.js"
+    ],
+    "instance_id": "preactjs__preact-2757",
+    "language": "JavaScript",
+    "patch_sha256": "aa97cd3df39e8c877daef89607654fc6744232e6ef499914f31cccd5a0a1342a",
+    "problem_statement_sha256": "c4a64c16f0197524c52600a28f78e570a172ca47421b25874890028a74e5b394",
+    "version": "2757"
+  },
+  "ancestry_verified": true,
+  "b": {
+    "base_commit": "db0f4f2e7a2338ea40050f623f05505a798fc1a4",
+    "created_at": "2024-07-06 22:32:36",
+    "files": [
+      "src/diff/index.js",
+      "src/internal.d.ts"
+    ],
+    "instance_id": "preactjs__preact-4436",
+    "language": "JavaScript",
+    "patch_sha256": "9e9e952b7db4b14f6f71fdf2926ba39692b91e1e80d884b027edbe4263d6a101",
+    "problem_statement_sha256": "b4a47285fb82f850b56ba8e903017a1c501300b2232d4f79180a2a423921fcfc",
+    "version": "4436"
+  },
+  "leakage": {
+    "borderline": false,
+    "cap": 0.8,
+    "patch_body_overlap": 0.125
+  },
+  "needs_human_review": false,
+  "pair_id": "preactjs__preact-2757__then__preactjs__preact-4436",
+  "repo": "preactjs/preact",
+  "schema_version": 1,
+  "score": 1.0,
+  "score_components": {
+    "file_jaccard": 0.5,
+    "symbol_overlap": 0.5
+  },
+  "shared_files": [
+    "src/diff/index.js"
+  ],
+  "shared_symbols": [
+    "diffelementnodes",
+    "function"
+  ]
+}

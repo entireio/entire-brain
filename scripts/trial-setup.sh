@@ -64,16 +64,36 @@ scratch_repo="$trial_dir/scratch-repo"
 plain_dir="$trial_dir/not-a-repo"
 mkdir -p "$sandbox_home" "$scratch_repo" "$plain_dir"
 
+sandbox_processes() {
+	ps -axo pid=,comm=,args= | awk -v root="$trial_dir" '$2 ~ /(^|\/)entire-brain$/ && index($0, root) { print $1 }'
+}
+
 cleanup() {
 	status=$?
-	if [ -z "$keep" ]; then
-		# A detached memory worker may still hold a file open for a moment; one
-		# retry is enough and beats leaving the sandbox behind.
-		rm -rf "$trial_dir" 2>/dev/null || { sleep 2; rm -rf "$trial_dir" 2>/dev/null || true; }
+	trap - EXIT INT TERM
+	# Stop only brain processes whose executable/arguments identify this sandbox.
+	pids=$(sandbox_processes)
+	if [ -n "$pids" ]; then
+		for pid in $pids; do kill "$pid" 2>/dev/null || true; done
+		attempts=0
+		while [ "$attempts" -lt 5 ] && [ -n "$(sandbox_processes)" ]; do
+			sleep 1
+			attempts=$((attempts + 1))
+		done
+		pids=$(sandbox_processes)
+		for pid in $pids; do kill -KILL "$pid" 2>/dev/null || true; done
 	fi
-	exit $status
+	if [ -n "$(sandbox_processes)" ]; then
+		printf 'sandbox process still running; preserving %s\n' "$trial_dir" >&2
+		status=1
+	elif [ -z "$keep" ]; then
+		rm -rf "$trial_dir" || status=1
+	fi
+	exit "$status"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # ------------------------------------------------------------ before snapshot
 #
@@ -327,6 +347,7 @@ printf '\n'
 if [ "$first_status" -ne 0 ] || [ "$second_status" -ne 0 ]; then
 	die "setup did not succeed on a clean repository (first=$first_status second=$second_status)"
 fi
+[ "$concurrent_a" -eq 0 ] && [ "$concurrent_b" -eq 0 ] || die "concurrent setup failed (A=$concurrent_a B=$concurrent_b)"
 [ "$offline_status" -eq 0 ] || die "setup failed with no network reachable (exit $offline_status)"
 [ "$plain_status" -ne 0 ] || die 'setup accepted a directory that is not a git repository'
 printf 'trial-setup: OK -- setup succeeded twice and offline, refused a non-repository, and left nothing behind.\n'

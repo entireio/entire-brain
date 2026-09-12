@@ -585,7 +585,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	if machinePlanErr != nil {
 		report.Warnings = append(report.Warnings, "machine watch plan unreadable: "+machinePlanErr.Error())
 	}
-	if setupOpts.uninstallDaemon && !changed(setupFlagDaemonName) {
+	if !changed(setupFlagDaemonName) {
 		if installedName, known := installedDaemonName(machinePlan, machinePlanErr, previous, setUpBefore); known {
 			setupOpts.daemonName = installedName
 		}
@@ -725,7 +725,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// A failure here is a warning, not a fatal: everything the deterministic
 	// phases built stays usable, and the next `setup` re-attempts it.
 	var watchPlanErr error
-	if !setupOpts.noDaemon {
+	if !setupOpts.noDaemon && planErr == nil {
 		if _, watchPlanErr = recordSetupWatchPlan(perRepo.Env, setupOpts.daemonName, setupWatchPlanEntryFor(setupOpts, steps.now())); watchPlanErr != nil {
 			report.Warnings = append(report.Warnings, "machine watch plan not saved: "+watchPlanErr.Error())
 			daemonProgress.Skip("machine watch plan not saved: " + watchPlanErr.Error())
@@ -765,11 +765,16 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// the daemon that exists rather than the default one it would have created,
 	// and so a later bare `setup` re-installs the same daemon rather than one
 	// reverted to stock intervals and models.
+	// A failed plan must not become the identity used by the next setup.
+	recordedDaemonName := setupOpts.daemonName
+	if planErr != nil {
+		recordedDaemonName, _ = installedDaemonName(machinePlan, machinePlanErr, previous, setUpBefore)
+	}
 	if err := writeSetupRecord(stateDir, setupRecord{
 		SchemaVersion: setupBackfillStateVersion,
 		UpdatedAt:     steps.now().UTC(),
 		Workspace:     setupOpts.workspace,
-		DaemonName:    setupOpts.daemonName,
+		DaemonName:    recordedDaemonName,
 		Interval:      setupOpts.interval.String(),
 		DistillEvery:  setupOpts.distillEvery.String(),
 		Model:         strings.TrimSpace(setupOpts.model),

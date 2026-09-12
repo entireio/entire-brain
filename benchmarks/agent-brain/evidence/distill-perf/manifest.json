@@ -12,13 +12,13 @@
   "serial_run": "jobs-1.json",
   "parallel_run": "jobs-4.json",
   "artifact_sha256": {
-    "dry_run": "sha256:8845921a5664600f73bb8cd625e9ab391b26e938677c141ca511d7c968878dc4",
-    "serial_run": "sha256:f5baf03f11f4a6138c5840321cdf510248ffaf989ebc107674f9df4600661fe1",
-    "parallel_run": "sha256:ad960975f4ca20d74c474dbe04943a86da98507a83cc087916e5ee175c358bca"
+    "dry_run": "sha256:cfba772489fe9eba53135b9a7e026a72d4af65ae71066ca2c0d5b462a472a43f",
+    "serial_run": "sha256:28dd63488b667108c160ad0c921ee370370de4c98d76bb74d2c10bc79b78ea96",
+    "parallel_run": "sha256:dba59e4467365275e7c95a962c5afec54537367a99ebe52f2123ca5ea3926cc2"
   },
   "source_sha256": {
     "internal/cli/distill.go": "sha256:ff21f1af55ff4d37c487b614fde9f25fea34b8c53ed842732a05d52508fc375d",
-    "internal/cli/distill_cmd.go": "sha256:b7e3d9df71c69484c37b470686fd9b954e7d4f438a20ea48ed9ad6bffdd3ec96",
+    "internal/cli/distill_cmd.go": "sha256:f45e1a68c930a5dfd58d5930567ad475558dc7bcb5bc2472928ae6ea018964c7",
     "internal/cli/distill_test.go": "sha256:9bc6541fea5e81ba91ab9420f0d392b4e2dca1cd9b353d7680dd80fe336d786c",
     "internal/cli/distill_cmd_test.go": "sha256:2480ca21e74e562133ecbd04678fef9871841c84c6e5df52cb0c8c8f5e923d9f",
     "benchmarks/agent-brain/audit_distill_perf.py": "sha256:6c4407791e83642db0c35c12a6e079fe4f78f8626105ca76a815fa1bc2ca560d",

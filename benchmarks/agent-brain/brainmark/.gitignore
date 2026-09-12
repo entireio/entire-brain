@@ -1,0 +1,19 @@
+# Built binary (62MB) - rebuild with:
+#   go build -o benchmarks/agent-brain/brainmark/bin/entire-brain ./cmd/entire-brain
+bin/
+# Run artifacts: sessions, worktrees, packets, patches, reports.
+results/
+# Human review file - created by `seal.py review-template`, hashed into the seal.
+REVIEW.json
+__pycache__/
+*.pyc
+pools/*.json
+!pools/CLONE-LEDGER.json
+candidates/INDEX.json
+candidates/*.json
+candidates/fresh/*.json
+!candidates/fresh/SNAPSHOT.json
+!candidates/fresh/INDEX.json
+review/sheets/
+review/patches/
+review/statements/

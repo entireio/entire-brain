@@ -307,3 +307,37 @@ func TestInProcessDistillOptionsPassTheConcurrencyGuard(t *testing.T) {
 		t.Fatalf("--jobs must drive the distill pool, got concurrency %d", got.concurrency)
 	}
 }
+
+func TestNewestFirstDoesNotAutomaticallySupersedeNewerFacts(t *testing.T) {
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	brainDir := writeOrderedDistillFixture(t, now, "old", "new")
+	run := func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
+		if strings.HasPrefix(string(input), "CANDIDATES") {
+			return "1 supersede 1 1.0\n", nil
+		}
+		if strings.Contains(string(input), "marker new") {
+			return "project.tooling.stack\tUse Go 1.26.\n", nil
+		}
+		return "project.tooling.stack\tUse Go 1.20.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, newestFirst: true, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatal(err)
+	}
+	facts, err := loadFacts(brainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range facts {
+		if f.Status == "superseded" {
+			t.Fatalf("newest-first silently superseded a fact: %+v", f)
+		}
+	}
+	proposals, err := loadFactProposals(brainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(proposals) != 1 {
+		t.Fatalf("want one conflict awaiting review, got %+v", proposals)
+	}
+}

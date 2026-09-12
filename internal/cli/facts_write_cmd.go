@@ -39,6 +39,34 @@ func newRememberCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
+// rememberAnchorCommit resolves the commit an authored fact should cite.
+//
+// `remember --branch <other>` files the fact on ANOTHER branch without moving
+// the working tree, so HEAD is the wrong evidence: it is the CURRENT branch's
+// tip, and it may not be on <other> at all. The stored fact then reads "on
+// <other>, evidenced by <a commit that branch never had>" — and verification
+// launders it, because verifyCommitUncached accepts reachability from ANY local
+// ref rather than from the fact's branch.
+//
+// With an explicit override the named branch's tip is the only honest answer,
+// and a branch git cannot resolve yields NO commit: an absent anchor is honest
+// (verify reports it as unverifiable), a wrong one is not. Without an override
+// the branch was derived from HEAD in the first place, so HEAD stays the
+// answer — which also keeps a detached HEAD, where there is no branch to
+// resolve, citing the commit actually checked out.
+func rememberAnchorCommit(ctx context.Context, opts Options, repoDir, branch string, explicit bool) (string, bool) {
+	args := []string{"rev-parse", "HEAD"}
+	if explicit {
+		args = []string{"rev-parse", "--verify", branch + "^{commit}"}
+	}
+	commit, err := gitScalar(ctx, opts.Runner, repoDir, args...)
+	if err != nil {
+		return "", false
+	}
+	commit = strings.TrimSpace(commit)
+	return commit, commit != ""
+}
+
 func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, rememberOpts rememberCommandOptions, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -69,8 +97,8 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 	}
 
 	anchor := factAnchor{}
-	if commit, gitErr := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD"); gitErr == nil {
-		anchor.Commit = strings.TrimSpace(commit)
+	if commit, ok := rememberAnchorCommit(ctx, opts, repoDir, branch, strings.TrimSpace(rememberOpts.branch) != ""); ok {
+		anchor.Commit = commit
 	}
 
 	record := factRecord{
@@ -94,11 +122,25 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 			return err
 		}
 		facts = upsertFact(facts, record)
-		// An explicit --kind is a deliberate human correction and must win even
-		// when the fact already exists, where upsertFact's anti-thrash rule would
-		// otherwise keep the stored kind. The reported kind is then always the one
-		// actually persisted, never a discarded request.
 		if i := indexOfFact(facts, record.ID); i >= 0 {
+			// Re-authoring is a deliberate human assertion that the statement is
+			// true again. A fact id is content-derived, so `remember` of a
+			// statement that was previously retracted (or superseded) matches the
+			// retired record, and upsertFact only unions provenance — it never
+			// revives a status, which is exactly right for a re-distill but wrong
+			// here: without this the command prints "remembered ..." while the
+			// fact stays invisible to recall, and the author's write is silently
+			// lost. Reviving keeps the record and its history; it only restores
+			// the status the author just asserted.
+			if facts[i].Status != factStatusActive {
+				facts[i].Status = factStatusActive
+				facts[i].SupersededBy = ""
+				facts[i].UpdatedAt = now
+			}
+			// An explicit --kind is a deliberate human correction and must win even
+			// when the fact already exists, where upsertFact's anti-thrash rule would
+			// otherwise keep the stored kind. The reported kind is then always the one
+			// actually persisted, never a discarded request.
 			if explicitKind != "" {
 				facts[i].Kind = explicitKind
 			}

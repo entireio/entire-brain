@@ -530,7 +530,12 @@ func (t *refreshProgressTask) Finish(err error) {
 		// queryable now done".
 		if width := render.Width(); width > 0 {
 			used := utf8.RuneCountInString(render.MarkGlyph(mark)) + 1
-			line = render.TruncateTo(line, width-1-used)
+			budget := max(0, width-1-used)
+			if budget >= utf8.RuneCountInString(suffix) {
+				line = render.TruncateTo(label, budget-utf8.RuneCountInString(suffix)) + suffix
+			} else {
+				line = render.TruncateTo(strings.TrimSpace(suffix), budget)
+			}
 		}
 		fmt.Fprintf(t.progress.out, "%s %s\n", render.Mark(mark), render.PhasePaint(phase, line))
 	})
@@ -625,8 +630,8 @@ func (t *refreshProgressTask) liveLine() string {
 	limit := utf8.RuneCountInString(label)
 	if width > 0 {
 		limit = width - 1 - used
-		if limit < liveMinLabelWidth {
-			limit = liveMinLabelWidth
+		if limit < 0 {
+			limit = 0
 		}
 	}
 	parts := []string{render.PhasePaint(phase, spinner)}

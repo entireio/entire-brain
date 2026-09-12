@@ -917,12 +917,16 @@ func runWorkspaceImpact(cmd *cobra.Command, opts Options, impactOpts workspaceIm
 }
 
 func runWorkspaceGraph(cmd *cobra.Command, opts Options, graphOpts workspaceGraphOptions, workspaceName string) error {
-	if graphOpts.limit <= 0 {
-		return errors.New("--limit must be greater than zero")
-	}
 	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
 	if err != nil {
 		return err
+	}
+	return runWorkspaceGraphManifest(cmd, opts, graphOpts, manifest)
+}
+
+func runWorkspaceGraphManifest(cmd *cobra.Command, opts Options, graphOpts workspaceGraphOptions, manifest workspaceManifest) error {
+	if graphOpts.limit <= 0 {
+		return errors.New("--limit must be greater than zero")
 	}
 	payload, err := buildWorkspaceGraphPayload(cmd.Context(), opts, manifest, graphOpts.limit)
 	if err != nil {
@@ -3450,12 +3454,16 @@ func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo worksp
 }
 
 func runWorkspaceRegressions(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, workspaceName, query string) error {
-	if ro.limit <= 0 {
-		return errors.New("--limit must be greater than zero")
-	}
 	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
 	if err != nil {
 		return err
+	}
+	return runWorkspaceRegressionsManifest(cmd, opts, ro, manifest, query)
+}
+
+func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, manifest workspaceManifest, query string) error {
+	if ro.limit <= 0 {
+		return errors.New("--limit must be greater than zero")
 	}
 	var results []workspaceRegressionResult
 	for _, repo := range manifest.Repos {
@@ -3514,12 +3522,16 @@ func runWorkspaceRegressions(cmd *cobra.Command, opts Options, ro regressionDete
 }
 
 func runWorkspaceReview(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, workspaceName, query string) error {
-	if ro.limit <= 0 {
-		return errors.New("--limit must be greater than zero")
-	}
 	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
 	if err != nil {
 		return err
+	}
+	return runWorkspaceReviewManifest(cmd, opts, ro, manifest, query)
+}
+
+func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, manifest workspaceManifest, query string) error {
+	if ro.limit <= 0 {
+		return errors.New("--limit must be greater than zero")
 	}
 	var results []workspaceReviewResult
 	reposWithFindings := 0

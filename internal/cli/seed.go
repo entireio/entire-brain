@@ -539,15 +539,19 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 		entry.Reason = "binary or media"
 		return entry
 	}
-	data, err := os.ReadFile(filepath.Join(repoDir, clean))
-	if err == nil {
-		if bytes.IndexByte(data, 0) >= 0 {
+	// Stream the file rather than slurping it. A high-signal doc over
+	// opts.maxFileBytes is deliberately KEPT (marked truncated) and only its first
+	// max-file-bytes are ever copied, so reading the whole thing into memory made
+	// an ordinary refresh allocate the full size of the largest doc in the repo —
+	// unbounded, and attacker- or accident-controlled. Hashing incrementally keeps
+	// the recorded digest byte-identical while holding only one buffer.
+	if sum, binary, err := hashFileDetectingNUL(filepath.Join(repoDir, clean)); err == nil {
+		if binary {
 			entry.Included = false
 			entry.Reason = "binary content"
 			return entry
 		}
-		sum := sha256.Sum256(data)
-		entry.Hash = "sha256:" + hex.EncodeToString(sum[:])
+		entry.Hash = sum
 	}
 	return entry
 }
@@ -635,7 +639,9 @@ func isTestPath(path string) bool {
 }
 
 func packageJSONCommands(path, rel string) ([]seedCommand, error) {
-	data, err := os.ReadFile(path)
+	// A manifest is small; bound the read so a hostile or corrupt one cannot
+	// exhaust memory before the parser ever sees it.
+	data, err := safeReadFile(path, maxManifestBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", rel, err)
 	}
@@ -654,7 +660,9 @@ func packageJSONCommands(path, rel string) ([]seedCommand, error) {
 }
 
 func miseCommands(path, rel string) ([]seedCommand, error) {
-	data, err := os.ReadFile(path)
+	// A manifest is small; bound the read so a hostile or corrupt one cannot
+	// exhaust memory before the parser ever sees it.
+	data, err := safeReadFile(path, maxManifestBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", rel, err)
 	}
@@ -756,6 +764,16 @@ func writeSeedArtifacts(outputDir string, scan seedScanResult) error {
 	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "history-gaps.md")), []byte(renderSeedHistoryGaps(scan)), 0o600); err != nil {
 		return err
 	}
+	if err := writeSeedDocs(outputDir, scan); err != nil {
+		return err
+	}
+	return nil
+}
+
+// writeSeedDocs copies the selected high-signal docs into the seed, truncating each
+// to defaultSeedMaxFileBytes. Split out of writeSeedArtifacts so the bound on the
+// per-document read is directly testable.
+func writeSeedDocs(outputDir string, scan seedScanResult) error {
 	for _, doc := range scan.Docs {
 		cleanSrc := filepath.Clean(filepath.FromSlash(doc.Path))
 		if filepath.IsAbs(cleanSrc) || cleanSrc == "." || strings.HasPrefix(cleanSrc, ".."+string(filepath.Separator)) {
@@ -778,12 +796,15 @@ func writeSeedArtifacts(outputDir string, scan seedScanResult) error {
 		if err := rejectExistingSymlinkPathComponents(outputDir, cleanDst); err != nil {
 			return fmt.Errorf("validate seed document path %s: %w", cleanDst, err)
 		}
-		data, err := os.ReadFile(src)
+		// Read only what can survive the truncation below, plus one byte to
+		// detect that truncation is needed. Slurping the whole file first made
+		// the peak allocation the SOURCE file's size, which for a doc that is
+		// kept precisely because it is oversized is pure waste.
+		data, truncated, err := readFilePrefix(src, defaultSeedMaxFileBytes)
 		if err != nil {
 			continue
 		}
-		if len(data) > defaultSeedMaxFileBytes {
-			data = data[:defaultSeedMaxFileBytes]
+		if truncated {
 			data = append(data, []byte("\n\n[truncated]\n")...)
 		}
 		if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(cleanDst), data, 0o600); err != nil {

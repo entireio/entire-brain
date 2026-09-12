@@ -404,21 +404,32 @@ func newFactsReclassifyCommand(opts Options) *cobra.Command {
 }
 
 func runFactsReclassify(cmd *cobra.Command, opts Options, brainDir, branch string, force, jsonOut bool) error {
-	facts, err := loadFacts(brainDir, branch)
-	if err != nil {
-		return err
-	}
-	changed := reclassifyFacts(facts, force)
 	now := opts.Now().UTC()
-	if changed > 0 {
-		if err := writeFacts(brainDir, branch, facts); err != nil {
+	var facts []factRecord
+	changed := 0
+	// The whole load-mutate-write runs under the brain write lock, like every
+	// other fact mutator (remember, retract, review, promote, gc, distill's
+	// flush) and like the refresh-time reclassifyAllFactBranches. Reading the
+	// store outside it and writing the mutated copy back is a lost update: a
+	// concurrent writer that commits between this read and this write is
+	// silently overwritten, and its facts disappear.
+	if err := withBrainWriteLock(brainDir, func() error {
+		loaded, err := loadFacts(brainDir, branch)
+		if err != nil {
 			return err
 		}
-	}
-	// Always refresh the manifest, even on a no-op reclassify: a store predating
-	// the by_kind field has valid kinds but a stale/absent histogram that only a
-	// manifest rebuild repairs.
-	if err := updateFactSourceManifest(brainDir, now); err != nil {
+		facts = loaded
+		changed = reclassifyFacts(facts, force)
+		if changed > 0 {
+			if err := writeFacts(brainDir, branch, facts); err != nil {
+				return err
+			}
+		}
+		// Always refresh the manifest, even on a no-op reclassify: a store predating
+		// the by_kind field has valid kinds but a stale/absent histogram that only a
+		// manifest rebuild repairs.
+		return updateFactSourceManifestLocked(brainDir, now)
+	}); err != nil {
 		return err
 	}
 	byKind := map[string]int{}

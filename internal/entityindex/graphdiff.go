@@ -3,11 +3,24 @@ package entityindex
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 )
+
+// graphDiffTimeout bounds a single `entire graph diff` invocation. DiffCommit
+// runs once per commit inside the entity-index build loop (see build.go's
+// indexCommit), and nothing upstream of it — not build.go, not the CLI's
+// cmd.Context() in root.go — sets any deadline. Without a bound here, one
+// wedged provider process hangs the entire build forever with no output and
+// no way to tell what happened. Two minutes is generous for a single commit's
+// diff (far lighter than a full-repo semantic snapshot, which gets
+// semanticSnapshotTimeout's 30 minutes) while still failing a stuck build
+// fast enough to be noticed. A package-level var, not a const, so tests can
+// lower it — the same pattern semanticStreamProgressInterval uses.
+var graphDiffTimeout = 2 * time.Minute
 
 // Runner runs external commands. It is the same shape as the brain's
 // cli.CommandRunner seam, so the CLI passes its runner straight through and
@@ -24,10 +37,12 @@ type Runner interface {
 // copying it into the delta document's producer_version would have recorded a
 // number that means something else.
 type graphResult struct {
-	ProducerVersion string            `json:"producer_version"`
-	Base            string            `json:"base"`
-	Head            string            `json:"head"`
-	Files           []graphFileChange `json:"files"`
+	IdentityRevision string            `json:"identity_revision,omitempty"`
+	Warnings         []json.RawMessage `json:"warnings,omitempty"`
+	ProducerVersion  string            `json:"producer_version"`
+	Base             string            `json:"base"`
+	Head             string            `json:"head"`
+	Files            []graphFileChange `json:"files"`
 }
 
 type graphFileChange struct {
@@ -59,6 +74,10 @@ type graphEntityChange struct {
 // commit is a root: the empty tree is used so its entities are recorded as
 // added rather than dropped.
 func DiffCommit(ctx context.Context, runner Runner, repoDir, graphBinary, base, head string, now time.Time) (Delta, error) {
+	return diffCommit(ctx, runner, repoDir, graphBinary, base, head, now, false, "")
+}
+
+func diffCommit(ctx context.Context, runner Runner, repoDir, graphBinary, base, head string, now time.Time, strict bool, revision string) (Delta, error) {
 	if runner == nil {
 		return Delta{}, fmt.Errorf("entityindex: command runner is required")
 	}
@@ -77,9 +96,42 @@ func DiffCommit(ctx context.Context, runner Runner, repoDir, graphBinary, base, 
 		args = append(args, "--repo", repoDir)
 	}
 	args = append(args, "--base", base, "--head", head, "--json")
-	stdout, _, err := runner.Run(ctx, repoDir, graphBinary, args...)
+	runCtx, cancel := context.WithTimeout(ctx, graphDiffTimeout)
+	defer cancel()
+	stdout, _, err := runner.Run(runCtx, repoDir, graphBinary, args...)
 	if err != nil {
+		if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+			return Delta{}, fmt.Errorf("entityindex: graph diff %s..%s: provider timed out after %s (a wedged `entire graph diff` process); raise graphDiffTimeout or investigate the provider: %w", short(base), short(head), graphDiffTimeout, context.DeadlineExceeded)
+		}
 		return Delta{}, fmt.Errorf("entityindex: graph diff %s..%s: %w", short(base), short(head), err)
+	}
+	// Even a legacy fallback must not write explicitly revisioned output into
+	// legacy keys. A failed version probe is not proof of legacy parser rules.
+	var envelope graphResult
+	decodeErr := json.Unmarshal(stdout, &envelope)
+	if decodeErr == nil && envelope.IdentityRevision != revision {
+		return Delta{}, fmt.Errorf("graph diff identity revision changed during indexing")
+	}
+	if strict || revision != "" {
+		if err := decodeErr; err != nil {
+			return Delta{}, fmt.Errorf("migration requires a valid graph diff envelope: %w", err)
+		}
+		if strict {
+			var fields map[string]json.RawMessage
+			_ = json.Unmarshal(stdout, &fields)
+			if _, ok := fields["files"]; !ok {
+				return Delta{}, fmt.Errorf("migration graph diff is missing files")
+			}
+			if len(envelope.Warnings) > 0 {
+				return Delta{}, fmt.Errorf("migration graph diff has warnings; refusing potentially incomplete history: %s", envelope.Warnings[0])
+			}
+			// Entity mapping has the same tolerant rules in migration and
+			// backfill. File-only/unkeyable changes are skipped by ParseDiff;
+			// envelope/provenance and partial-output validation remain strict.
+		}
+		if envelope.Base != base || envelope.Head != head {
+			return Delta{}, fmt.Errorf("migration graph diff did not attest requested base/head")
+		}
 	}
 	return ParseDiff(stdout, base, head, now)
 }

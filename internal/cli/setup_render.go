@@ -114,7 +114,7 @@ func setupComponentMark(state string) tui.Mark {
 		return tui.MarkDone
 	case "failed":
 		return tui.MarkFailed
-	case "skipped":
+	case "skipped", "missing":
 		return tui.MarkSkipped
 	default:
 		return tui.MarkPending
