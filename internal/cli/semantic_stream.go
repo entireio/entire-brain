@@ -74,6 +74,11 @@ type semanticStreamResult struct {
 	stream        semanticStreamCounts
 	extraWarnings []semanticWarning // synthesized warnings, e.g. unknown record types
 	haveHeader    bool
+	// providerRepoKey is the repo_key exactly as the semantic provider stamped
+	// it, before the brain normalizes the persisted header to its own storage
+	// key. Validation of the provider/brain repo-key contract must use this
+	// value; see semantic_repokey.go.
+	providerRepoKey string
 }
 
 // semanticStreamProgressInterval controls how often progress is reported while
@@ -81,8 +86,13 @@ type semanticStreamResult struct {
 var semanticStreamProgressInterval = 5000
 
 type semanticStreamScanConfig struct {
-	ignore   brainIgnore
-	repoDir  string
+	ignore  brainIgnore
+	repoDir string
+	// repoKey is the brain's canonical storage key for repoDir. The header
+	// written to the snapshot is normalized to it so every later reader of a
+	// brain artifact compares like with like; the provider's own spelling is
+	// preserved on the result for contract validation.
+	repoKey  string
 	progress func(phase string)
 	// onRecord is invoked after each record line is processed with the record's
 	// record_type. Production wires this to the inactivity watchdog and progress
@@ -114,6 +124,10 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 		var header semanticHeader
 		if err := json.Unmarshal(text, &header); err != nil {
 			return res, fmt.Errorf("parse semantic snapshot header: %w", err)
+		}
+		res.providerRepoKey = header.RepoKey
+		if cfg.repoKey != "" {
+			header.RepoKey = cfg.repoKey
 		}
 		header.RepoRoot = ""
 		header.Warnings = sanitizeSemanticWarnings(cfg.ignore.FilterWarnings(header.Warnings), cfg.repoDir)
@@ -368,7 +382,7 @@ func writeNDJSONLine(out io.Writer, line []byte) error {
 // through ctx, with a configurable overall deadline and an inactivity timeout so
 // large repositories are not killed by a fixed short timeout while a hung
 // provider still aborts.
-func streamSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir string, indexOpts semanticIndexOptions, ignoreFiles []string, ignore brainIgnore, out io.Writer) (semanticStreamResult, error) {
+func streamSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir, repoKey string, indexOpts semanticIndexOptions, ignoreFiles []string, ignore brainIgnore, out io.Writer) (semanticStreamResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -405,6 +419,7 @@ func streamSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir s
 	cfg := semanticStreamScanConfig{
 		ignore:   ignore,
 		repoDir:  repoDir,
+		repoKey:  repoKey,
 		progress: indexOpts.progress,
 		onRecord: func(string) {
 			select {

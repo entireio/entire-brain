@@ -279,7 +279,7 @@ func TestStreamSemanticSnapshotReportsProviderFailureAfterPartialOutput(t *testi
 		},
 	}}
 	out := &bytes.Buffer{}
-	res, err := streamSemanticSnapshot(context.Background(), runner, repoDir, semanticIndexOptions{graphBinary: "entire"}, nil, brainIgnore{}, out)
+	res, err := streamSemanticSnapshot(context.Background(), runner, repoDir, "", semanticIndexOptions{graphBinary: "entire"}, nil, brainIgnore{}, out)
 	if err == nil {
 		t.Fatal("expected provider failure error")
 	}
@@ -480,7 +480,7 @@ func TestBundleRoundTripToleratesStreamedSnapshotRecords(t *testing.T) {
 // fails fast (rather than buffering) when given a runner that does not implement
 // CommandStreamer.
 func TestStreamSemanticSnapshotRequiresStreamingRunner(t *testing.T) {
-	_, err := streamSemanticSnapshot(context.Background(), nonStreamingRunner{}, t.TempDir(), semanticIndexOptions{graphBinary: "entire"}, nil, brainIgnore{}, io.Discard)
+	_, err := streamSemanticSnapshot(context.Background(), nonStreamingRunner{}, t.TempDir(), "", semanticIndexOptions{graphBinary: "entire"}, nil, brainIgnore{}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "streaming command runner") {
 		t.Fatalf("expected streaming-required error, got %v", err)
 	}

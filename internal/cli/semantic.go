@@ -513,8 +513,10 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 			return errors.New("--graph-binary must not be empty")
 		}
 		var doctorWarnings []semanticWarning
+		var doctorReport semanticDoctorReport
 		indexOpts.reportPhase("verifying provider")
-		noEgress, doctorWarnings = runSemanticDoctor(ctx, opts.Runner, repoDir, indexOpts.graphBinary)
+		doctorReport, doctorWarnings = runSemanticDoctor(ctx, opts.Runner, repoDir, indexOpts.graphBinary)
+		noEgress = doctorReport.NoEgress
 		warnings = append(warnings, doctorWarnings...)
 		if !noEgress {
 			code := "provider_no_egress_unverified"
@@ -524,7 +526,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 			return fmt.Errorf("%s: semantic provider no-egress status is not verified", code)
 		}
 		indexOpts.reportPhase("parsing sources")
-		res, serr := streamSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts, providerIgnoreFiles, ignore, out)
+		res, serr := streamSemanticSnapshot(ctx, opts.Runner, repoDir, storage.Key, indexOpts, providerIgnoreFiles, ignore, out)
 		if serr != nil && len(providerIgnoreFiles) > 0 && semanticSnapshotRejectsIgnoreFile(serr) {
 			warnings = append(warnings, semanticWarning{
 				Code:     "provider_ignore_file_unsupported",
@@ -535,7 +537,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 			if err := resetSnapshotTempFile(tmp, hasher); err != nil {
 				return err
 			}
-			res, serr = streamSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts, nil, ignore, out)
+			res, serr = streamSemanticSnapshot(ctx, opts.Runner, repoDir, storage.Key, indexOpts, nil, ignore, out)
 		}
 		if serr != nil {
 			return serr
@@ -552,7 +554,10 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		if err := validateSemanticSchema(header.SchemaVersion); err != nil {
 			return err
 		}
-		if err := validateLiveSemanticHeader(header, storage.Key, head, tree, indexOpts.worktree && dirty); err != nil {
+		if err := validateSemanticProviderRepoKey(ctx, opts.Runner, repoDir, storage.Key, res.providerRepoKey, doctorReport.RepoKey, indexOpts.graphBinary); err != nil {
+			return err
+		}
+		if err := validateLiveSemanticHeader(header, head, tree, indexOpts.worktree && dirty); err != nil {
 			return err
 		}
 		header.Warnings = sanitizeSemanticWarnings(header.Warnings, repoDir)
@@ -942,7 +947,21 @@ func acquireSemanticIndexLock(brainDir string) (func(), error) {
 	return func() { _ = lock.Close() }, nil
 }
 
-func runSemanticDoctor(ctx context.Context, runner CommandRunner, repoDir, graphBinary string) (bool, []semanticWarning) {
+// semanticDoctorReport is what the brain learns from `graph doctor --json`
+// before it spends a snapshot run.
+//
+// RepoKey is the provider's answer to "what repo_key will you stamp on this
+// repository". It is AUTHORITATIVE when present: the provider is the process
+// that writes the header, so it cannot be wrong about its own rule, whereas
+// providerRepoKeyFromRemotes is a mirror that drifts the moment entire-graph
+// changes. It is empty when the installed provider predates the handshake, and
+// the mirror is the fallback for exactly that case.
+type semanticDoctorReport struct {
+	NoEgress bool
+	RepoKey  string
+}
+
+func runSemanticDoctor(ctx context.Context, runner CommandRunner, repoDir, graphBinary string) (semanticDoctorReport, []semanticWarning) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -950,22 +969,33 @@ func runSemanticDoctor(ctx context.Context, runner CommandRunner, repoDir, graph
 	defer cancel()
 	stdout, _, err := runner.Run(runCtx, repoDir, graphBinary, "graph", "doctor", "--json")
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
-		return false, []semanticWarning{{Code: "provider_doctor_timeout", Severity: "warning", Effect: "provider diagnostics unavailable", Detail: fmt.Sprintf("semantic provider doctor timed out after %s", semanticDoctorTimeout)}}
+		return semanticDoctorReport{}, []semanticWarning{{Code: "provider_doctor_timeout", Severity: "warning", Effect: "provider diagnostics unavailable", Detail: fmt.Sprintf("semantic provider doctor timed out after %s", semanticDoctorTimeout)}}
 	}
 	if err != nil {
-		return false, []semanticWarning{{Code: "provider_doctor_failed", Severity: "warning", Effect: "provider diagnostics unavailable", Detail: err.Error()}}
+		return semanticDoctorReport{}, []semanticWarning{{Code: "provider_doctor_failed", Severity: "warning", Effect: "provider diagnostics unavailable", Detail: err.Error()}}
 	}
 	var data map[string]any
 	if err := json.Unmarshal(stdout, &data); err != nil {
-		return false, []semanticWarning{{Code: "provider_doctor_malformed", Severity: "warning", Effect: "provider diagnostics unavailable", Detail: err.Error()}}
+		return semanticDoctorReport{}, []semanticWarning{{Code: "provider_doctor_malformed", Severity: "warning", Effect: "provider diagnostics unavailable", Detail: err.Error()}}
 	}
+	report := semanticDoctorReport{RepoKey: strings.TrimSpace(stringValue(data, "repo_key"))}
 	if boolValue(data, "network_egress") || boolValue(data, "requires_network") || boolValue(data, "network_required") {
-		return false, []semanticWarning{{Code: "provider_network_required", Severity: "error", Effect: "phase 1 local-only guarantee not verified", Detail: "provider doctor reports network access is required"}}
+		return report, []semanticWarning{{Code: "provider_network_required", Severity: "error", Effect: "phase 1 local-only guarantee not verified", Detail: "provider doctor reports network access is required"}}
 	}
 	if boolValue(data, "no_egress") || boolValue(data, "no_egress_verified") || boolValue(data, "local_only") {
-		return true, nil
+		report.NoEgress = true
+		return report, nil
 	}
-	return false, []semanticWarning{{Code: "provider_no_egress_unknown", Severity: "warning", Effect: "phase 1 local-only guarantee not fully verified", Detail: "provider doctor did not report no-egress status"}}
+	return report, []semanticWarning{{Code: "provider_no_egress_unknown", Severity: "warning", Effect: "phase 1 local-only guarantee not fully verified", Detail: "provider doctor did not report no-egress status"}}
+}
+
+func stringValue(data map[string]any, key string) string {
+	value, ok := data[key]
+	if !ok {
+		return ""
+	}
+	s, _ := value.(string)
+	return s
 }
 
 func boolValue(data map[string]any, key string) bool {
@@ -989,7 +1019,20 @@ func semanticSnapshotRejectsIgnoreFile(err error) bool {
 			strings.Contains(text, "flag provided but not defined"))
 }
 
-func validateLiveSemanticHeader(header semanticHeader, repoKey, commit, tree string, allowWorktreeTree bool) error {
+// validateLiveSemanticHeader checks the header the brain is about to persist:
+// that it names a commit and a tree, and that both agree with the live
+// repository.
+//
+// It deliberately does NOT check repo_key. scanSemanticStream has already
+// rewritten header.RepoKey to the brain's canonical storage key, so comparing it
+// against that same storage key here compared a value with itself and could not
+// fail for any input -- protection in appearance only. The two places where a
+// repo_key is genuinely untrusted each have a real check:
+//
+//	validateSemanticProviderRepoKey   the spelling the provider stamped
+//	readSemanticSnapshotSummary /     a key read back from an on-disk artifact
+//	validateImportedBundle            (another brain's bundle, an older snapshot)
+func validateLiveSemanticHeader(header semanticHeader, commit, tree string, allowWorktreeTree bool) error {
 	if header.Commit == "" {
 		return errors.New("semantic snapshot header missing commit")
 	}
@@ -998,9 +1041,6 @@ func validateLiveSemanticHeader(header semanticHeader, repoKey, commit, tree str
 	}
 	if header.RepoKey == "" {
 		return errors.New("semantic snapshot header missing repo_key")
-	}
-	if !semanticRepoKeyEqual(header.RepoKey, repoKey) {
-		return fmt.Errorf("semantic snapshot repo_key %q does not match current repo %q", header.RepoKey, repoKey)
 	}
 	if header.Commit != "" && commit != "" && header.Commit != commit {
 		return fmt.Errorf("semantic snapshot commit %q does not match HEAD %q", header.Commit, commit)
