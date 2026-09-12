@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -80,10 +81,12 @@ func memoryAdminCommandFixture(t *testing.T) (Options, string) {
 	if err := writeBrainManifestAndReadme(storage.BrainDir, manifest); err != nil {
 		t.Fatal(err)
 	}
-	calls := 0
+	// The commands built from these Options start a coordinator heartbeat that
+	// samples this same clock from its own goroutine, so the counter is read and
+	// written concurrently.
+	var calls atomic.Int64
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time {
-		calls++
-		return manifest.GeneratedAt.Add(time.Duration(calls) * time.Second)
+		return manifest.GeneratedAt.Add(time.Duration(calls.Add(1)) * time.Second)
 	}}
 	return opts, storage.BrainDir
 }
@@ -866,12 +869,11 @@ func TestDoctorSamplesMemoryReadOnlyHealthOnce(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	env.RepoRoot = repoDir
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	nowCalls := 0
+	var nowCalls atomic.Int64
 	opts := Options{
 		Version: "test", Env: env, Runner: runner,
 		Now: func() time.Time {
-			nowCalls++
-			return time.Date(2026, 8, 10, 6, 0, nowCalls, 0, time.UTC)
+			return time.Date(2026, 8, 10, 6, 0, int(nowCalls.Add(1)), 0, time.UTC)
 		},
 	}
 	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
@@ -888,8 +890,8 @@ func TestDoctorSamplesMemoryReadOnlyHealthOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("doctor: %v\n%s", err, out)
 	}
-	if nowCalls != 1 {
-		t.Fatalf("doctor sampled the memory-health clock %d times, want exactly once", nowCalls)
+	if sampled := nowCalls.Load(); sampled != 1 {
+		t.Fatalf("doctor sampled the memory-health clock %d times, want exactly once", sampled)
 	}
 	var report doctorReport
 	if err := json.Unmarshal([]byte(out), &report); err != nil || report.Memory["manifest_health"] == nil {

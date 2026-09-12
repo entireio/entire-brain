@@ -131,4 +131,18 @@ func TestDocContractCapabilityMatrix(t *testing.T) {
 			t.Fatalf("%s must take --source", name)
 		}
 	}
+
+	// Every registered MCP tool must appear in the guide's "Available tools"
+	// catalog. brain_entity_history previously shipped in mcp.go and README.md
+	// but was missing from this catalog; this lock catches the next tool that
+	// registers without a matching guide entry.
+	for _, tool := range mcpToolDefinitions() {
+		name, _ := tool["name"].(string)
+		if name == "" {
+			continue
+		}
+		if !strings.Contains(guide, "`"+name+"`") {
+			t.Fatalf("semantic_mcp_guide.md tool catalog missing registered tool %q", name)
+		}
+	}
 }

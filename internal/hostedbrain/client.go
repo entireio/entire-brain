@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -77,13 +78,13 @@ var hostedRequestTimeout = 60 * time.Second
 
 func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
-		return c.HTTP
+		return apiurl.WithoutRedirects(c.HTTP)
 	}
 	// The phase bounds (dial, TLS handshake, response header) come from the shared
 	// bounded transport; hostedRequestTimeout is this caller's own end-to-end bound.
 	// A fresh Client per call is free — the transport, and so the connection pool,
 	// is shared.
-	return httpx.Client(hostedRequestTimeout)
+	return apiurl.WithoutRedirects(httpx.Client(hostedRequestTimeout))
 }
 
 // ServerInfo is the hosted brain's initialize serverInfo, including the brain wire
@@ -140,15 +141,13 @@ func (c *Client) rpc(ctx context.Context, repoID, method string, params any) (js
 	if err != nil {
 		return nil, err
 	}
-	// Scheme floor: the hosted MCP query surface is an egress chokepoint too — the
-	// query and the bearer token authorizing it must not cross plaintext to a
-	// non-loopback host.
+	// Validate the scheme before constructing a credential-bearing request.
 	base, err := apiurl.Validate(c.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("hostedbrain: %w", err)
 	}
-	url := base + "/api/v1/repos/" + repoID + "/brain/mcp"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(buf))
+	endpoint := base + "/api/v1/repos/" + url.PathEscape(repoID) + "/brain/mcp"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
 	if err != nil {
 		return nil, err
 	}

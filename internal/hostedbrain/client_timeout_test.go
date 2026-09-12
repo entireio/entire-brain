@@ -17,7 +17,7 @@ func TestDefaultClientHasABound(t *testing.T) {
 		t.Fatal("default hosted-brain client has no Timeout; a wedged endpoint hangs the caller forever")
 	}
 	custom := &http.Client{Timeout: time.Second}
-	if c2 := (&Client{HTTP: custom}); c2.httpClient() != custom {
+	if c2 := (&Client{HTTP: custom}); c2.httpClient().Timeout != custom.Timeout {
 		t.Error("caller-supplied client must still win over the package default")
 	}
 }

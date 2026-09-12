@@ -37,7 +37,10 @@ func TreeBasePath(t Target) string {
 		return string(TargetProject)
 	case TargetCommit:
 		// Commit SHAs shard on their own first two hex chars (no rehash).
-		return fmt.Sprintf("%s/%s/%s", t.Type, t.Value[:2], t.Value)
+		// shardPrefix, not Value[:2]: this function returns no error, so a caller
+		// that reached it without ValidateTargetValue (which enforces
+		// MinTargetValueLen) must get a wrong-but-total path rather than a panic.
+		return fmt.Sprintf("%s/%s/%s", t.Type, shardPrefix(t.Value), t.Value)
 	case TargetPath:
 		return fmt.Sprintf("%s/%s/%s", t.Type, encodePathTargetValue(t.Value), PathTargetSeparator)
 	default: // branch, change-id
@@ -117,6 +120,17 @@ func SetMemberTombstonePath(t Target, key, member string) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%s/%s/%s", kp, TombstoneRoot, member), nil
+}
+
+// shardPrefix returns the two-character shard directory for a value, or the
+// whole value when it is shorter. Values that short never reach a serialized
+// tree (ValidateTargetValue rejects them); this only keeps the unvalidated call
+// total.
+func shardPrefix(value string) string {
+	if len(value) < 2 {
+		return value
+	}
+	return value[:2]
 }
 
 // encodePathTargetValue escapes reserved path segments for safe tree storage.

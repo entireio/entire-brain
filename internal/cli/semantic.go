@@ -24,6 +24,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/ashtom/entire-brain/internal/entityindex"
 	"github.com/spf13/cobra"
 )
 
@@ -85,6 +86,7 @@ type semanticSourceManifest struct {
 	DirtyWorktree    bool              `json:"dirty_worktree"`
 	Provider         string            `json:"provider,omitempty"`
 	ProviderVersion  string            `json:"provider_version,omitempty"`
+	IdentityRevision string            `json:"identity_revision,omitempty"`
 	SchemaVersion    string            `json:"schema_version,omitempty"`
 	SnapshotPath     string            `json:"snapshot_path,omitempty"`
 	StorePath        string            `json:"store_path,omitempty"`
@@ -192,18 +194,19 @@ func (w *semanticWarning) UnmarshalJSON(data []byte) error {
 }
 
 type semanticHeader struct {
-	SchemaVersion   string            `json:"schema_version"`
-	Provider        string            `json:"provider"`
-	ProviderVersion string            `json:"provider_version"`
-	RepoRoot        string            `json:"repo_root,omitempty"`
-	RepoKey         string            `json:"repo_key"`
-	Commit          string            `json:"commit"`
-	Tree            string            `json:"tree"`
-	Languages       []string          `json:"languages"`
-	LanguageTiers   map[string]string `json:"language_tiers,omitempty"`
-	Capabilities    []string          `json:"capabilities"`
-	Warnings        []semanticWarning `json:"warnings"`
-	PartialFailures []semanticWarning `json:"partial_failures"`
+	SchemaVersion    string            `json:"schema_version"`
+	Provider         string            `json:"provider"`
+	ProviderVersion  string            `json:"provider_version"`
+	IdentityRevision string            `json:"identity_revision,omitempty"`
+	RepoRoot         string            `json:"repo_root,omitempty"`
+	RepoKey          string            `json:"repo_key"`
+	Commit           string            `json:"commit"`
+	Tree             string            `json:"tree"`
+	Languages        []string          `json:"languages"`
+	LanguageTiers    map[string]string `json:"language_tiers,omitempty"`
+	Capabilities     []string          `json:"capabilities"`
+	Warnings         []semanticWarning `json:"warnings"`
+	PartialFailures  []semanticWarning `json:"partial_failures"`
 
 	// Aggregate metadata carried by the authoritative trailing summary record
 	// (see semanticSummary / mergeSemanticSummary). These are omitempty so a
@@ -242,13 +245,14 @@ type semanticRecord struct {
 	// Schema 1.1 fields. These are omitempty so older (1.0) snapshots round-trip
 	// unchanged, but they must be modeled so the streaming filter does not
 	// silently drop them when re-marshaling file/symbol/relation records.
-	Bytes         int                `json:"bytes,omitempty"`          // file record: source size
-	ContainerID   string             `json:"container_id,omitempty"`   // symbol record: enclosing symbol
-	BodyHash      string             `json:"body_hash,omitempty"`      // symbol record: content hash
-	RelationScope string             `json:"relation_scope,omitempty"` // relation record: file|external|...
-	Resolution    string             `json:"resolution,omitempty"`     // relation record: exact|type_inferred|name_only
-	TargetKind    string             `json:"target_kind,omitempty"`    // relation record: symbol|external
-	Evidence      []semanticEvidence `json:"evidence,omitempty"`       // relation record: supporting spans
+	Bytes           int                `json:"bytes,omitempty"`            // file record: source size
+	ContainerID     string             `json:"container_id,omitempty"`     // symbol record: enclosing symbol
+	BodyHash        string             `json:"body_hash,omitempty"`        // symbol record: content hash
+	RelationScope   string             `json:"relation_scope,omitempty"`   // relation record: file|external|...
+	Resolution      string             `json:"resolution,omitempty"`       // relation record: exact|type_inferred|name_only
+	TargetKind      string             `json:"target_kind,omitempty"`      // relation record: symbol|external
+	Evidence        []semanticEvidence `json:"evidence,omitempty"`         // relation record: supporting spans
+	EvidenceDropped int                `json:"evidence_dropped,omitempty"` // relation record: supporting spans omitted by provider limit
 }
 
 // semanticEvidence is a single supporting span for a relation (schema 1.1).
@@ -624,6 +628,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		DirtyWorktree:    dirty,
 		Provider:         header.Provider,
 		ProviderVersion:  header.ProviderVersion,
+		IdentityRevision: header.IdentityRevision,
 		SchemaVersion:    header.SchemaVersion,
 		SnapshotPath:     snapshotRel,
 		StorePath:        filepath.ToSlash(filepath.Join(generation, semanticSQLiteName)),
@@ -1027,7 +1032,7 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 	if marshalErr != nil {
 		return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("encode filtered semantic snapshot header: %w", marshalErr)
 	}
-	ignoredIDs := make(map[string]struct{})
+	ignoredIDs := make(map[string]bool)
 	line := 1
 	for scanner.Scan() {
 		line++
@@ -1042,8 +1047,8 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 		if err := validateSemanticRecordPath(&record); err != nil {
 			return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
 		}
-		if ignore.Ignored(record.semanticPath()) && record.ID != "" {
-			ignoredIDs[record.ID] = struct{}{}
+		if record.ID != "" && record.semanticPath() != "" {
+			ignoredIDs[record.ID] = ignoredIDs[record.ID] || ignore.Ignored(record.semanticPath())
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -1078,7 +1083,7 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 			if ignore.Ignored(record.semanticPath()) {
 				continue
 			}
-			if record.RecordType == "relation" && relationEndpointIgnored(record, ignore, ignoredIDs) {
+			if record.RecordType == "relation" && relationEndpointIgnored(record, header.RepoKey, ignore, ignoredIDs) {
 				continue
 			}
 			switch record.RecordType {
@@ -1145,21 +1150,95 @@ func (r semanticRecord) semanticPath() string {
 }
 
 // semanticEndpointPath extracts the repository-relative file path encoded in a
-// semantic relation endpoint ID, or "" when the ID carries no path. Internal
-// IDs are "<repo-key>:<lang>:<path>:<kind>:<name>"; the repo key, language, and
-// kind segments never contain ":", so the path is always the third field.
-// External endpoints ("external:<kind>:<value>") carry no file path. Endpoint
-// IDs are filtered against the ignore set by file path so a substring in the
-// repo key or symbol name cannot accidentally redact unrelated relations.
-func semanticEndpointPath(id string) string {
+// semantic relation endpoint ID, or "" when the ID carries no path or the path
+// cannot be recovered from the ID alone.
+//
+// entire-graph builds endpoint IDs by joining unescaped fields with ":":
+//
+//	symbol:   "<repo-key>:<language>:<path>:<kind>:<qualified-name>"
+//	file:     "<repo-key>:file:<path>"
+//	external: "external:<kind>:<value>"          (carries no file path)
+//
+// A file path may legitimately contain ":" ("od:d/mod.py"), a local repo key is
+// "local/<directory name>" and so may contain ":" too, and a qualified name
+// routinely does (an Express route symbol is named "/users/:id"). Splitting on
+// ":" and taking a fixed field therefore reads the wrong segment: it turned
+// "od:d/mod.py" into "od" and a colon in the repo key into the language. That
+// path is what the ignore set is matched against, so a mis-read segment either
+// redacts relations whose file is not ignored or keeps relations whose file is.
+//
+// A relation record carries no file_path of its own — entire-graph's
+// RelationRecord has only from_id/to_id — so the path cannot simply be read off
+// the record; it has to come out of the ID. The parse below is therefore
+// anchored on the two fields that are known to be free of ":": the repo key
+// (known from the snapshot header) and the kind, which is always a bare token.
+func semanticEndpointPath(repoKey, id string) string {
 	if id == "" || strings.HasPrefix(id, "external:") {
 		return ""
 	}
-	parts := strings.Split(id, ":")
-	if len(parts) < 5 {
+	if repoKey == "" {
+		// Without the header's repo key the leading field cannot be delimited,
+		// so no parse is trustworthy. Endpoints then fall back to the ignored-ID
+		// set, which is exact. (A snapshot with no repo_key is rejected by
+		// validateSemanticSnapshotHeader anyway.)
 		return ""
 	}
-	return parts[2]
+	rest, ok := strings.CutPrefix(id, repoKey+":")
+	if !ok {
+		// An endpoint from another repository: it names no file in this one.
+		return ""
+	}
+	// File endpoint: everything after the "file:" marker is the path, colons
+	// included, so this shape is always exact.
+	if path, ok := strings.CutPrefix(rest, "file:"); ok {
+		return path
+	}
+	// Symbol endpoint: the language never contains ":", so it always ends at the
+	// first colon.
+	_, rest, ok = strings.Cut(rest, ":")
+	if !ok {
+		return ""
+	}
+	return semanticSymbolIDPath(rest)
+}
+
+// semanticSymbolIDPath recognizes provider kind markers, not arbitrary bare
+// path segments. Unescaped IDs are ambiguous when both the path and name
+// contain a kind marker; return no guess then and use snapshot ID metadata.
+func semanticSymbolIDPath(rest string) string {
+	result := ""
+	fallback, candidates := "", 0
+	for i := 0; i < len(rest); i++ {
+		if rest[i] != ':' || i == 0 {
+			continue
+		}
+		kind, _, ok := strings.Cut(rest[i+1:], ":")
+		if !ok {
+			continue
+		}
+		if kind != "" && !strings.ContainsAny(kind, "/.") {
+			// A later bare token may be the real (possibly future) kind, or
+			// part of the qualified name. Neither interpretation is provable.
+			if result != "" {
+				return ""
+			}
+			fallback = rest[:i]
+			candidates++
+		}
+		switch kind {
+		case "function", "method", "class", "struct", "interface", "enum", "type", "type_alias", "variable", "constant", "const", "field", "property", "module", "namespace", "package", "constructor", "trait", "impl", "macro", "test", "route", "cli_command", "workflow", "job", "tool":
+		default:
+			continue
+		}
+		if result != "" {
+			return ""
+		}
+		result = rest[:i]
+	}
+	if result == "" && candidates == 1 {
+		return fallback
+	}
+	return result
 }
 
 func (r *semanticRecord) setSemanticPath(path string) {
@@ -2344,6 +2423,12 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 		axes["provider"] = staleAxis{State: "degraded", Detail: "provider no-egress status was not verified"}
 	} else {
 		axes["provider"] = staleAxis{State: "ok", Detail: source.Provider + " " + source.ProviderVersion}
+		revision, identityErr := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, "entire")
+		if identityErr != nil {
+			axes["provider"] = staleAxis{State: "degraded", Detail: identityErr.Error()}
+		} else if revision != source.IdentityRevision {
+			axes["provider"] = staleAxis{State: "stale", Detail: "Graph identity revision changed; run entire brain refresh"}
+		}
 	}
 	if source.Provider == "skipped" || semanticWarningsContainCode(source.Warnings, "provider_skipped") {
 		axes["semantic_completeness"] = staleAxis{State: "unsafe", Detail: "semantic facts unavailable"}
@@ -5382,7 +5467,13 @@ func sanitizeSemanticRecordID(value, repoDir string, idMap map[string]string) st
 
 func rejectSymlinkPathComponents(root, rel string) error {
 	clean := filepath.Clean(rel)
-	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+	// clean == ".." must be listed explicitly: filepath.Clean("..") is "..",
+	// which is neither "." nor prefixed with "../", so a bare ".." otherwise
+	// falls through this whole test. The per-component walk below then Lstats
+	// the PARENT of root — a real directory, not a symlink — and passes it, and
+	// the closing containment check returns nil early whenever root does not
+	// exist yet. One level up is exactly the escape the guard exists to stop.
+	if filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("path is outside root: %s", rel)
 	}
 	current := root
@@ -5412,7 +5503,13 @@ func rejectSymlinkPathComponents(root, rel string) error {
 
 func rejectExistingSymlinkPathComponents(root, rel string) error {
 	clean := filepath.Clean(rel)
-	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+	// clean == ".." must be listed explicitly: filepath.Clean("..") is "..",
+	// which is neither "." nor prefixed with "../", so a bare ".." otherwise
+	// falls through this whole test. The per-component walk below then Lstats
+	// the PARENT of root — a real directory, not a symlink — and passes it, and
+	// the closing containment check returns nil early whenever root does not
+	// exist yet. One level up is exactly the escape the guard exists to stop.
+	if filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("path is outside root: %s", rel)
 	}
 	current := root
@@ -6320,6 +6417,9 @@ func validateSemanticSourceMatchesSnapshot(source *semanticSourceManifest, heade
 	}
 	if source.Provider != "" && header.Provider != "" && header.Provider != source.Provider {
 		return fmt.Errorf("provider %q does not match snapshot %q", source.Provider, header.Provider)
+	}
+	if source.IdentityRevision != header.IdentityRevision {
+		return fmt.Errorf("identity_revision differs between manifest and snapshot")
 	}
 	if source.ProviderVersion != "" && header.ProviderVersion != "" && header.ProviderVersion != source.ProviderVersion {
 		return fmt.Errorf("provider_version %q does not match snapshot %q", source.ProviderVersion, header.ProviderVersion)
