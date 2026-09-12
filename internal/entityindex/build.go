@@ -345,6 +345,52 @@ type builder struct {
 	// indexed memoizes per-commit forward-document presence, so a commit at a
 	// window edge is probed at most once per pass.
 	indexed map[string]bool
+
+	// shallow memoizes whether the repository is a shallow clone, so the probe
+	// costs one `git rev-parse` per pass rather than one per parentless commit.
+	shallow *bool
+}
+
+// repoIsShallow reports whether the repository has grafted (truncated) history.
+// A probe that cannot run answers false: the only thing this gates is an extra
+// check on parentless commits, and treating a full clone as full is the status
+// quo.
+func (b *builder) repoIsShallow() bool {
+	if b.shallow == nil {
+		shallow := false
+		if stdout, _, err := b.runner.Run(b.ctx, b.opts.RepoDir, "git", "rev-parse", "--is-shallow-repository"); err == nil {
+			shallow = strings.TrimSpace(string(stdout)) == "true"
+		}
+		b.shallow = &shallow
+	}
+	return *b.shallow
+}
+
+// isGraftedBoundary reports whether a commit git described as PARENTLESS is
+// really a shallow clone's boundary rather than a root.
+//
+// A graft truncates `git log --format=%P` to nothing, so a boundary commit is
+// indistinguishable from a root in the walk — and a root is diffed against the
+// empty tree, which would record every entity in the whole tree as ADDED by
+// that one commit. The raw object still carries its parent lines, so
+// `cat-file commit` tells the two apart.
+func (b *builder) isGraftedBoundary(sha string) bool {
+	if !b.repoIsShallow() {
+		return false
+	}
+	stdout, _, err := b.runner.Run(b.ctx, b.opts.RepoDir, "git", "cat-file", "commit", sha)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(stdout), "\n") {
+		if strings.TrimSpace(line) == "" {
+			break // the header ends at the blank line before the message
+		}
+		if strings.HasPrefix(line, "parent ") {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *builder) exhausted() bool { return b.opts.Limit > 0 && b.budget <= 0 }
@@ -521,6 +567,20 @@ func (b *builder) alreadyIndexed(sha string) bool {
 // commit was NOT recorded (so no cursor may step past it); stop=true means the
 // whole pass must end.
 func (b *builder) indexCommit(commit commitInfo) (indexed bool, stop bool) {
+	if commit.Parent == "" && b.isGraftedBoundary(commit.SHA) {
+		// A shallow clone's boundary is NOT a root: its parent exists, it is
+		// just not in this clone, so the commit's delta cannot be computed.
+		// Diffing it against the empty tree the way a real root is diffed would
+		// record every entity in the whole tree as ADDED by this one commit —
+		// a durable, git-native, silently fabricated answer to "which commit
+		// introduced this symbol". Treat it as the hole it is, so no cursor
+		// steps over it and nothing is written.
+		b.result.Failed++
+		b.result.Warnings = append(b.result.Warnings, fmt.Sprintf(
+			"commit %s is a shallow clone's boundary; its parent is not present, so its delta cannot be computed",
+			short(commit.SHA)))
+		return false, false
+	}
 	b.done++
 	if b.opts.Progress != nil {
 		b.opts.Progress(b.done)
