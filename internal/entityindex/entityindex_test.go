@@ -319,6 +319,156 @@ func TestBuildIsIdempotentAndSkipsIndexedCommits(t *testing.T) {
 	}
 }
 
+// manyEntityChanges synthesizes n distinct "added function" changes in one
+// file, named so their sort order (by Path/Kind/Name) is Fn0, Fn1, ... Fn(n-1)
+// only for n<=10; callers past that only need a count, not a fixed order.
+func manyEntityChanges(n int) []graphEntityChange {
+	out := make([]graphEntityChange, n)
+	for i := range out {
+		out[i] = graphEntityChange{Type: "added", Kind: "function", Name: fmt.Sprintf("Fn%05d", i), AfterStartLine: i + 1}
+	}
+	return out
+}
+
+// TestBuildTruncatesAndMarksTheDeltaDocument pins entity-index audit fix (a): a
+// commit whose entity count exceeds maxDeltaEntities must be recorded as
+// truncated, with the TRUE count preserved, rather than silently stored as if
+// it were complete. Before this fix a 2001-entity commit was marked fully
+// indexed with no marker at all, so it stayed silently under-indexed forever.
+func TestBuildTruncatesAndMarksTheDeltaDocument(t *testing.T) {
+	t.Parallel()
+	runner := newFakeRunner()
+	const trueCount = maxDeltaEntities + 5
+	commits := []commitInfo{
+		{SHA: "aaaa111111111111111111111111111111111111", Parent: "", CommittedAt: commitAt(0), Message: "root\n"},
+	}
+	scriptRepo(runner, "main", commits)
+	runner.set(graphDiffKey(EmptyTreeSHA, commits[0].SHA), graphOutput(EmptyTreeSHA, commits[0].SHA, graphFileChange{
+		Path:    "a.go",
+		Changes: manyEntityChanges(trueCount),
+	}))
+	store := newTestStore(t)
+	result, err := Build(context.Background(), runner, store, BuildOptions{RepoDir: testRepoDir, Limit: 100, Now: fixedNow()})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if result.Indexed != 1 {
+		t.Fatalf("indexed=%d, want 1", result.Indexed)
+	}
+	if len(result.Warnings) == 0 {
+		t.Fatalf("expected a truncation warning, got none")
+	}
+
+	snap := loadSnapshot(t, store)
+	delta, ok := snap.Delta(commits[0].SHA)
+	if !ok {
+		t.Fatal("forward delta document missing")
+	}
+	if !delta.Truncated {
+		t.Fatalf("delta.Truncated = false, want true for a %d-entity commit capped at %d", trueCount, maxDeltaEntities)
+	}
+	if delta.EntityCount != trueCount {
+		t.Fatalf("delta.EntityCount = %d, want the true count %d", delta.EntityCount, trueCount)
+	}
+	if len(delta.Entities) != maxDeltaEntities {
+		t.Fatalf("stored %d entities, want exactly the cap %d", len(delta.Entities), maxDeltaEntities)
+	}
+
+	// A commit truncated at the cap that is STILL the current cap must not be
+	// re-diffed by a --full repair pass: nothing changed that would let it
+	// recover more of itself, so re-indexing would only reproduce the same
+	// truncation at provider-invocation cost.
+	full, err := Build(context.Background(), runner, store, BuildOptions{RepoDir: testRepoDir, Limit: 100, Full: true, Now: fixedNow()})
+	if err != nil {
+		t.Fatalf("full build: %v", err)
+	}
+	if full.Indexed != 0 || full.Skipped != 1 {
+		t.Fatalf("full pass indexed=%d skipped=%d, want 0/1 (an unchanged cap must not trigger a re-diff)", full.Indexed, full.Skipped)
+	}
+}
+
+// TestBuildFullPassRepairsATruncatedCommitWhenTheCapHasRisen pins the other
+// half of fix (a): the window/coverage logic must treat a commit that was
+// truncated under a LOWER cap than the one in effect now as not fully
+// indexed, so a --full repair pass re-diffs it and recovers the entities the
+// old, lower cap had dropped. The lower-cap document is seeded directly (the
+// production cap is a frozen constant), simulating history written before a
+// cap increase shipped.
+func TestBuildFullPassRepairsATruncatedCommitWhenTheCapHasRisen(t *testing.T) {
+	t.Parallel()
+	runner := newFakeRunner()
+	commits := []commitInfo{
+		{SHA: "aaaa111111111111111111111111111111111111", Parent: "", CommittedAt: commitAt(0), Message: "root\n"},
+	}
+	scriptRepo(runner, "main", commits)
+	const trueCount = 12
+	const oldCap = 5 // stands in for a maxDeltaEntities value lower than today's
+	fullDelta := graphOutput(EmptyTreeSHA, commits[0].SHA, graphFileChange{
+		Path:    "a.go",
+		Changes: manyEntityChanges(trueCount),
+	})
+	runner.set(graphDiffKey(EmptyTreeSHA, commits[0].SHA), fullDelta)
+	fullyDiffed, err := ParseDiff([]byte(fullDelta), EmptyTreeSHA, commits[0].SHA, fixedNow()())
+	if err != nil {
+		t.Fatalf("parse full diff: %v", err)
+	}
+	if len(fullyDiffed.Entities) != trueCount {
+		t.Fatalf("fixture entity count = %d, want %d", len(fullyDiffed.Entities), trueCount)
+	}
+
+	store := newTestStore(t)
+	// Seed a commit doc truncated at oldCap (< maxDeltaEntities) plus the
+	// window that already claims it covered, bypassing Build entirely — this
+	// is the state a real repo would be in the moment after a cap increase
+	// shipped, before any repair pass ran.
+	stale := fullyDiffed
+	stale.Truncated = true
+	stale.EntityCount = trueCount
+	stale.Entities = append([]EntityDelta(nil), fullyDiffed.Entities[:oldCap]...)
+	encoded, err := json.Marshal(stale)
+	if err != nil {
+		t.Fatalf("encode stale delta: %v", err)
+	}
+	windowKey := WindowKey("main")
+	seedMuts := []gitmeta.Mutation{
+		{Op: gitmeta.OpSetString, Target: CommitTarget(commits[0].SHA), Key: ForwardKey, Value: string(encoded)},
+		{Op: gitmeta.OpSetString, Target: projectTarget, Key: windowKey, Value: EncodeWindow(IndexWindow{Floor: commits[0].SHA, Tip: commits[0].SHA})},
+	}
+	if _, err := store.Update(len(seedMuts), func(current gitmeta.State) (gitmeta.State, error) {
+		return applyBatch(current, seedMuts), nil
+	}); err != nil {
+		t.Fatalf("seed stale state: %v", err)
+	}
+
+	// Sanity: before repair, the stored document is still the stale, truncated
+	// one.
+	before := loadSnapshot(t, store)
+	staleDelta, ok := before.Delta(commits[0].SHA)
+	if !ok || !staleDelta.Truncated || len(staleDelta.Entities) != oldCap {
+		t.Fatalf("seed did not land as expected: %+v (ok=%v)", staleDelta, ok)
+	}
+
+	full, err := Build(context.Background(), runner, store, BuildOptions{RepoDir: testRepoDir, Limit: 100, Full: true, Now: fixedNow()})
+	if err != nil {
+		t.Fatalf("full build: %v", err)
+	}
+	if full.Indexed != 1 {
+		t.Fatalf("full repair pass indexed=%d, want 1 (the stale-cap commit must be re-diffed)", full.Indexed)
+	}
+
+	after := loadSnapshot(t, store)
+	repaired, ok := after.Delta(commits[0].SHA)
+	if !ok {
+		t.Fatal("repaired delta document missing")
+	}
+	if repaired.Truncated {
+		t.Fatalf("repaired delta still truncated after the cap covers the whole commit: %+v", repaired)
+	}
+	if len(repaired.Entities) != trueCount {
+		t.Fatalf("repaired delta has %d entities, want the full %d", len(repaired.Entities), trueCount)
+	}
+}
+
 // TestBuildLimitedPassesConvergeBackwards pins the --limit contract: a bounded
 // pass covers the NEWEST unindexed commits, claims only the range it actually
 // covered, and the next pass pulls the floor further back — without re-walking
