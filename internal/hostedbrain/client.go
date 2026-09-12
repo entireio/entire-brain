@@ -140,7 +140,20 @@ func (c *Client) rpc(ctx context.Context, repoID, method string, params any) (js
 	if err != nil {
 		return nil, err
 	}
-	// Validate the scheme before constructing a credential-bearing request.
+	// Two independent guards on the same line, both about the bearer token this
+	// request carries.
+	//
+	// Scheme floor: the hosted MCP query surface is an egress chokepoint — the
+	// query and the token authorizing it must not cross plaintext to a
+	// non-loopback host.
+	//
+	// PathEscape: concatenated raw, a "/", "?", "#" or dot segment in the repo
+	// id rewrites the request target, sending that same token somewhere it was
+	// never meant to go. The id arrives from --repo-id or the environment,
+	// neither of which this package controls.
+	//
+	// The local is `endpoint`, not `url`, because `url` shadows the package
+	// PathEscape comes from.
 	base, err := apiurl.Validate(c.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("hostedbrain: %w", err)
