@@ -14,6 +14,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -48,6 +49,11 @@ const (
 	checkpointPrimaryEnv       = "ENTIRE_CHECKPOINTS_PRIMARY"
 	checkpointMirrorsEnv       = "ENTIRE_CHECKPOINTS_MIRRORS"
 	gitNoLazyFetchEnv          = "GIT_NO_LAZY_FETCH"
+
+	// checkpointSyncRemotesFileName is the CLI's captured checkpoint-sync
+	// election, written into the git common dir by a past push
+	// (cmd/entire/cli/strategy/checkpoint_sync_capture.go).
+	checkpointSyncRemotesFileName = "entire-checkpoint-sync-remotes.json"
 
 	checkpointRemoteProviderGitHub = "github"
 	checkpointRemoteBlobFilter     = "blob:limit=128k"
@@ -1038,7 +1044,7 @@ func checkpointScopeWarning(payload string) string {
 }
 
 func listAllCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir string, limit int) ([]checkpointListEntry, []string, error) {
-	ids, warnings := listLocalCheckpointRefIDs(ctx, runner, repoDir, localCheckpointRefs())
+	ids, warnings := listLocalCheckpointRefIDs(ctx, runner, repoDir, localCheckpointRefs(ctx, runner, repoDir))
 	refIDs, refWarnings := listLocalPerCheckpointRefIDs(ctx, runner, repoDir)
 	for id := range refIDs {
 		ids[id] = struct{}{}
@@ -1122,8 +1128,225 @@ func checkpointULIDTime(value string) (time.Time, bool) {
 // can hold. entire/checkpoints/v1 is the only aggregate layout any released CLI
 // writes; the git-refs backend uses one ref per checkpoint under
 // checkpointRefPrefix and is enumerated separately.
-func localCheckpointRefs() []string {
-	return []string{v1MainRef, v1OriginRef}
+//
+// Which remote-tracking refs those are is not fixed: see aggregateCheckpointRefs.
+func localCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir string) []string {
+	return aggregateCheckpointRefs(ctx, runner, repoDir, brainNoEgressMode())
+}
+
+// aggregateCheckpointRefs is the ordered set of git-branch checkpoint refs this
+// clone may hold: the local branch, then one remote-tracking ref per remote the
+// CLI's checkpoint READS consult.
+//
+// Checkpoints do not necessarily sync to a remote named "origin". The CLI
+// elects exactly one remote to carry them, and its read paths consult the
+// elected remote first with "origin" behind it as a legacy tier
+// (cmd/entire/cli/strategy/checkpoint_read_remotes.go CheckpointReadRemotes).
+// Hardcoding [local, origin] meant a clone whose elected remote is named
+// anything else — a fork workflow, a `git clone -o base`, an explicit
+// checkpoint_push_remote — had checkpoints the brain could never see, and
+// reported a complete export while missing them.
+func aggregateCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool) []string {
+	refs := []string{v1MainRef}
+	seen := map[string]struct{}{v1MainRef: {}}
+	for _, remote := range checkpointReadRemotes(ctx, runner, repoDir, localOnly) {
+		ref := checkpointRemoteTrackingRef(remote)
+		if _, ok := seen[ref]; ok {
+			continue
+		}
+		seen[ref] = struct{}{}
+		refs = append(refs, ref)
+	}
+	return refs
+}
+
+func checkpointRemoteTrackingRef(remote string) string {
+	return "refs/remotes/" + remote + "/entire/checkpoints/v1"
+}
+
+// checkpointReadRemotes mirrors the CLI's read-candidate chain: the elected
+// checkpoint sync remote first, then "origin" as the legacy tier.
+//
+// Like the CLI's read side — and unlike its write side — this fails OPEN. A
+// broken election (an unreadable settings file, a checkpoint_push_remote naming
+// a remote that does not exist) yields ["origin"] when origin is configured.
+// Failing a read closed would only prevent FINDING checkpoints, with no
+// privacy benefit; failing it open at worst reads a tracking ref that is not
+// there, which is already an ordinary outcome here.
+func checkpointReadRemotes(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool) []string {
+	remotes, remotesErr := configuredGitRemotes(ctx, runner, repoDir, localOnly)
+	var candidates []string
+	if elected, err := electCheckpointSyncRemote(ctx, runner, repoDir, localOnly, remotes, remotesErr); err == nil && elected != "" {
+		candidates = append(candidates, elected)
+	}
+	// Origin stays a candidate even when it is not configured (or the remote
+	// listing failed): reading a ref that is absent is free, and dropping it
+	// would be a regression against the previous unconditional origin read.
+	if len(candidates) == 0 || candidates[0] != "origin" {
+		candidates = append(candidates, "origin")
+	}
+	return candidates
+}
+
+// electCheckpointSyncRemote mirrors strategy.ResolveCheckpointSyncRemote:
+// strategy_options.checkpoint_push_remote (fail-closed when it names a remote
+// that does not exist), then a remote a past push captured (fail-soft), then
+// "origin", then the sole/first remote in .git/config order.
+func electCheckpointSyncRemote(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, remotes []string, remotesErr error) (string, error) {
+	configured, err := configuredCheckpointPushRemote(repoDir)
+	if err != nil {
+		return "", err
+	}
+	if configured != "" {
+		if remotesErr != nil {
+			return "", fmt.Errorf("cannot confirm checkpoint_push_remote %q is configured: %w", configured, remotesErr)
+		}
+		if !slices.Contains(remotes, configured) {
+			return "", fmt.Errorf("checkpoint_push_remote %q is not a configured git remote", configured)
+		}
+		return configured, nil
+	}
+	if remotesErr != nil {
+		return "", remotesErr
+	}
+	for _, name := range capturedCheckpointSyncRemotes(ctx, runner, repoDir, localOnly) {
+		if slices.Contains(remotes, name) {
+			return name, nil
+		}
+	}
+	switch {
+	case len(remotes) == 0:
+		return "", nil
+	case slices.Contains(remotes, "origin"):
+		return "origin", nil
+	default:
+		// Sole and first collapse: the CLI distinguishes them only to label
+		// which rule fired, and both answer with the first configured remote.
+		return remotes[0], nil
+	}
+}
+
+// configuredCheckpointPushRemote reads strategy_options.checkpoint_push_remote,
+// with .entire/settings.local.json overriding .entire/settings.json — a remote
+// name is a per-clone fact, which is why the CLI documents the local file as
+// its home. A malformed file is an error so the caller can fail open
+// deliberately rather than mistake it for "unset".
+func configuredCheckpointPushRemote(repoDir string) (string, error) {
+	name := ""
+	for _, file := range []string{"settings.json", "settings.local.json"} {
+		data, err := readSettingsFileConfined(filepath.Join(repoDir, ".entire", file))
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return "", fmt.Errorf("read .entire/%s: %w", file, err)
+		}
+		var envelope struct {
+			StrategyOptions struct {
+				CheckpointPushRemote *string `json:"checkpoint_push_remote"`
+			} `json:"strategy_options"`
+		}
+		if err := json.Unmarshal(data, &envelope); err != nil {
+			return "", fmt.Errorf("parse .entire/%s: %w", file, err)
+		}
+		if envelope.StrategyOptions.CheckpointPushRemote != nil {
+			name = strings.TrimSpace(*envelope.StrategyOptions.CheckpointPushRemote)
+		}
+	}
+	if name != "" && !isSafeGitRemoteName(name) {
+		return "", fmt.Errorf("checkpoint_push_remote %q is not a usable git remote name", name)
+	}
+	return name, nil
+}
+
+// capturedCheckpointSyncRemotes reads the election a past push recorded.
+// Fail-soft, exactly as the CLI treats it: capture is automatic state, so a
+// missing, unreadable, or corrupt file reads as "nothing captured".
+func capturedCheckpointSyncRemotes(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool) []string {
+	stdout, _, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return nil
+	}
+	commonDir := strings.TrimSpace(string(stdout))
+	if commonDir == "" {
+		return nil
+	}
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(repoDir, commonDir)
+	}
+	data, err := readSettingsFileConfined(filepath.Join(commonDir, checkpointSyncRemotesFileName))
+	if err != nil {
+		return nil
+	}
+	var file struct {
+		Remotes []string `json:"remotes"`
+	}
+	if err := json.Unmarshal(data, &file); err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(file.Remotes))
+	for _, name := range file.Remotes {
+		if name = strings.TrimSpace(name); isSafeGitRemoteName(name) {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// configuredGitRemotes lists remote names in .git/config section order, which
+// is what the CLI's "first remote" tier means (`git remote` sorts
+// alphabetically and would elect a different remote).
+func configuredGitRemotes(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool) ([]string, error) {
+	stdout, _, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, "config", "--local", "--get-regexp", `^remote\..*\.url$`)
+	if err != nil {
+		// `git config --get-regexp` exits non-zero for "no match" as well as
+		// for a real failure, and the two are indistinguishable here. Report
+		// the error and let the caller fail open; an empty list would be a
+		// claim this cannot support.
+		return nil, fmt.Errorf("list configured git remotes: %w", err)
+	}
+	var names []string
+	seen := map[string]struct{}{}
+	for _, line := range strings.Split(strings.TrimSpace(string(stdout)), "\n") {
+		key, _, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if !ok {
+			continue
+		}
+		// The name may itself contain dots, so trim the fixed affixes rather
+		// than splitting on ".".
+		name, ok := strings.CutPrefix(key, "remote.")
+		if !ok {
+			continue
+		}
+		name, ok = strings.CutSuffix(name, ".url")
+		if !ok || !isSafeGitRemoteName(name) {
+			continue
+		}
+		if _, duplicate := seen[name]; duplicate {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	return names, nil
+}
+
+// isSafeGitRemoteName rejects anything that would not survive being spliced
+// into a ref path. Remote names reach here from git's own config listing and
+// from settings files, and only the first source is trusted to be well formed.
+func isSafeGitRemoteName(name string) bool {
+	if name == "" || name == "." || name == ".." || len(name) > 255 {
+		return false
+	}
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '-', r == '_', r == '.':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func listLocalCheckpointRefIDs(ctx context.Context, runner CommandRunner, repoDir string, refs []string) (map[string]struct{}, []string) {
@@ -1619,7 +1842,7 @@ func loadAggregateCheckpointSources(ctx context.Context, runner CommandRunner, r
 	sources := make(map[string]checkpointSnapshotSource)
 	var deferredErrors []string
 	var warnings []string
-	for _, ref := range []string{v1MainRef, v1OriginRef} {
+	for _, ref := range aggregateCheckpointRefs(ctx, runner, repoDir, localOnly) {
 		pathsOut, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, "ls-tree", "-r", "--name-only", ref)
 		if err != nil {
 			deferredErrors = append(deferredErrors, fmt.Sprintf("checkpoint ref %s unavailable: %v", ref, err))
