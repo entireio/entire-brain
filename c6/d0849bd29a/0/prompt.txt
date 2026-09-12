@@ -1,0 +1,1 @@
+Review Entire trail 16, address all findings, loop until there are no more findings, make sure CI passes green, and read the monitor rationales and judge the accuracy / whether changes are required. Let me know when the trail is ready to merge.
