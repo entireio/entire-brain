@@ -21,6 +21,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/spf13/cobra"
+
+	"github.com/ashtom/entire-brain/internal/tui"
 )
 
 const (
@@ -40,6 +42,9 @@ type agentStatusOptions struct {
 	json    bool
 	details bool
 	compact bool
+	// verbose selects the FULL text report. It changes rendering only: the data
+	// gathered, and therefore --json, is identical either way.
+	verbose bool
 	failOn  string
 }
 
@@ -73,10 +78,15 @@ type brainStatusReport struct {
 	Facts       *brainStatusFacts     `json:"facts,omitempty"`
 	Semantic    *brainStatusSemantic  `json:"semantic,omitempty"`
 	Retrieval   *brainStatusRetrieval `json:"retrieval,omitempty"`
-	Memory      map[string]any        `json:"memory,omitempty"`
-	Live        brainLiveState        `json:"live"`
-	Issues      []memoryHealthIssue   `json:"issues,omitempty"`
-	Warnings    []string              `json:"warnings,omitempty"`
+	// Onboarding is the `setup` progress projection: fact-backfill counters,
+	// background watcher health, and instant-phase component freshness. It
+	// answers "is the thing setup started still working?" on the surface people
+	// already read; doctor remains the deep environment check.
+	Onboarding *brainStatusOnboarding `json:"onboarding,omitempty"`
+	Memory     map[string]any         `json:"memory,omitempty"`
+	Live       brainLiveState         `json:"live"`
+	Issues     []memoryHealthIssue    `json:"issues,omitempty"`
+	Warnings   []string               `json:"warnings,omitempty"`
 	// Manifest is for in-process consumers (brief, overview, regressions). It is
 	// deliberately not part of the JSON contract: it duplicates the structured
 	// sections above and its session list scales with brain size.
@@ -364,6 +374,7 @@ func newAgentStatusCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&statusOpts.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().BoolVar(&statusOpts.details, "details", false, "Include coverage histograms, staged-file classifications, and changed-symbol records")
+	cmd.Flags().BoolVar(&statusOpts.verbose, "verbose", false, "Print the full report (coverage, freshness axes, blind spots, live state) instead of the short summary")
 	cmd.Flags().StringVar(&statusOpts.failOn, "fail-on", semanticAuditFailOnNone, "Return nonzero after emitting the report when the selected gate trips: release, unsafe, degraded, blind-spots, none")
 	return cmd
 }
@@ -1086,7 +1097,7 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 			return err
 		}
 	} else {
-		renderBrainStatusText(cmd, report)
+		renderBrainStatusText(cmd, report, statusOpts.verbose)
 	}
 	if err := semanticAuditFailureForReport(brainStatusFreshnessSeverity(report), len(brainStatusBlindSpots(report)), failOn); err != nil {
 		return renderedCommandError{err: err}
@@ -1201,8 +1212,22 @@ func brainStatusBlindSpots(report brainStatusReport) []brainBlindSpot {
 	return report.Semantic.BlindSpots
 }
 
-func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport) {
+func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose bool) {
+	// Every command this report names is spelled the way the reader reached this
+	// binary, resolved once here so the short report and the verbose one cannot
+	// disagree. See setupCommandPrefix.
+	brainCmd := setupCommandPrefix(os.LookupEnv)
 	out := cmd.OutOrStdout()
+	render := tui.NewRenderer(out)
+	if !verbose {
+		renderBrainStatusShort(out, render, report, brainCmd)
+		return
+	}
+	// Everything below is the full report. Blind spots and semantic partial
+	// failures describe the SAME records from two angles, so they are collapsed
+	// into groups once and the second section prints only what the first did
+	// not already cover — the old report printed all forty-four files twice.
+	var reportedSpots map[string]bool
 	fmt.Fprintln(out, "Brain")
 	fmt.Fprintf(out, "  path: %s\n", report.Brain.Path)
 	fmt.Fprintf(out, "  repo: %s (key %s)\n", report.Repo.Root, report.Repo.Key)
@@ -1221,6 +1246,7 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport) {
 				v.Facts, v.Verified, v.Stale, v.Orphaned, v.UnverifiableHere)
 		}
 	}
+	renderBrainOnboardingStatus(out, report.Onboarding, report.GeneratedAt, brainCmd)
 	if s := report.Semantic; s != nil {
 		fmt.Fprintln(out, "\nSemantic")
 		if p := s.Provider; p != nil && p.Name != "" {
@@ -1238,11 +1264,24 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport) {
 			if len(c.RelationTypes) > 0 {
 				fmt.Fprintf(out, "  relation types: %s\n", semanticAuditCountSummary(c.RelationTypes))
 			}
-			for _, warning := range c.WarningDetails {
-				fmt.Fprintf(out, "  warning: %s\n", semanticAuditWarningSummary(warning))
-			}
-			for _, failure := range c.PartialFailureDetails {
-				fmt.Fprintf(out, "  partial failure: %s\n", semanticAuditWarningSummary(failure))
+			reportedSpots = map[string]bool{}
+			for _, section := range []struct {
+				label    string
+				warnings []semanticWarning
+			}{
+				{label: "warning", warnings: c.WarningDetails},
+				{label: "partial failure", warnings: c.PartialFailureDetails},
+			} {
+				spots := blindSpotsFromWarnings(section.warnings)
+				for _, spot := range spots {
+					reportedSpots[blindSpotKey(spot)] = true
+				}
+				groups := groupStatusBlindSpots(spots)
+				if len(groups) == 0 {
+					continue
+				}
+				fmt.Fprintf(out, "  %s:\n", section.label+"s")
+				renderStatusBlindSpotGroups(out, render, "    ", groups, true, brainCmd)
 			}
 		}
 		if f := s.Freshness; f != nil {
@@ -1265,20 +1304,17 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport) {
 		// also fills blind spots — so its presence distinguishes "checked, none
 		// found" from "not checked".
 		if s.Coverage != nil {
-			if len(s.BlindSpots) == 0 {
+			switch {
+			case len(s.BlindSpots) == 0:
 				fmt.Fprintln(out, "  blind spots: none")
-			} else {
+			default:
 				fmt.Fprintf(out, "  blind spots: %d\n", len(s.BlindSpots))
-				for _, spot := range s.BlindSpots {
-					fmt.Fprintf(out, "    %s", valueOrUnset(spot.Path))
-					if spot.Code != "" {
-						fmt.Fprintf(out, " [%s]", spot.Code)
-					}
-					if strings.TrimSpace(spot.Detail) != "" {
-						fmt.Fprintf(out, " %s", spot.Detail)
-					}
-					fmt.Fprintln(out)
+				fresh := subtractBlindSpots(s.BlindSpots, reportedSpots)
+				if len(fresh) == 0 {
+					fmt.Fprintf(out, "    %s\n", render.Dim("all of them are the semantic warnings listed above"))
+					break
 				}
+				renderStatusBlindSpotGroups(out, render, "    ", groupStatusBlindSpots(fresh), true, brainCmd)
 			}
 		}
 	}
@@ -4527,6 +4563,11 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 			report.Semantic.Freshness = &freshness
 		}
 	}
+	// Read the identities a previous `setup` chose, so a custom-named watcher
+	// is inspected rather than reported missing.
+	recordedSetupOpts, _, _ := setupOptionsFromRecord(filepath.Dir(storage.HeadPath))
+	onboarding := buildBrainOnboardingStatus(ctx, opts, storage, manifest, recordedSetupOpts)
+	report.Onboarding = &onboarding
 	return report, nil
 }
 
@@ -4672,6 +4713,21 @@ func brainLiveStateReport(ctx context.Context, runner CommandRunner, repoDir str
 	status, err := gitStatusPorcelainAll(ctx, runner, repoDir)
 	if err != nil {
 		return live, err
+	}
+	// Apply the SAME ignore policy the semantic freshness check applies. This
+	// was the one dirtiness computation in the brain that read raw `git status`,
+	// and the gap showed up on the very first run in a pristine clone: the host
+	// `entire` CLI that setup shells out to creates an empty
+	// `.entire/logs/entire.log` inside the working tree, which every other
+	// reader here already treats as ignored (brainIgnore skips the whole
+	// `.entire` segment), but which made live.Dirty true, which graded the seed
+	// axis "dirty-unindexed", which reported a clean onboarding as
+	// "freshness: degraded". A successful setup must not end on a red line the
+	// user did not cause.
+	if ignore, ignoreErr := loadBrainIgnore(repoDir); ignoreErr != nil {
+		live.Warnings = append(live.Warnings, "ignore rules unavailable: "+ignoreErr.Error())
+	} else {
+		status = filterWorktreeStatus(status, ignore)
 	}
 	live.Staged, live.Unstaged, live.Untracked = parseBrainLiveStatus(status)
 	live.Dirty = len(live.Staged)+len(live.Unstaged)+len(live.Untracked) > 0

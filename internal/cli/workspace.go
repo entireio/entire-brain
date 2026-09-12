@@ -20,11 +20,12 @@ import (
 )
 
 const (
-	workspaceDirName       = "workspaces"
-	workspaceManifestName  = "workspace.json"
-	workspaceReadmeName    = "README.md"
-	workspaceGraphName     = "graph.json"
-	workspaceSchemaVersion = 1
+	workspaceDirName          = "workspaces"
+	workspaceManifestName     = "workspace.json"
+	workspaceManifestLockName = "workspace-manifest.lock"
+	workspaceReadmeName       = "README.md"
+	workspaceGraphName        = "graph.json"
+	workspaceSchemaVersion    = 1
 )
 
 var workspaceNamePattern = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
@@ -329,15 +330,101 @@ func newWorkspaceRefreshCommand(opts Options) *cobra.Command {
 func newWorkspaceWatchCommand(opts Options) *cobra.Command {
 	w := defaultWatchOptions()
 	cmd := &cobra.Command{
-		Use:   "watch <workspace>",
+		Use:   "watch [workspace]",
 		Short: "Keep every repo in a workspace fresh automatically (deterministic refresh is free; agent steps gated)",
-		Args:  cobra.ExactArgs(1),
+		Long: "Keep every repo in a workspace fresh automatically.\n\n" +
+			"With a workspace name, watches that one workspace with the flags given here.\n\n" +
+			"With NO workspace name this is SUPERVISED mode: it watches every workspace `setup`\n" +
+			"has recorded in the machine-level watch plan, each with its own interval, distill\n" +
+			"cadence, agent, model, effort and session cap. That is the form the installed\n" +
+			"background service runs, and it is why the installed unit is byte-identical on\n" +
+			"every machine: nothing about which repo ran `setup` reaches the unit file.",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return runSupervisedWatch(cmd.Context(), cmd, opts, w)
+			}
 			return runWorkspaceWatch(cmd.Context(), cmd, opts, w, args[0])
 		},
 	}
 	bindWatchFlags(cmd, &w)
 	return cmd
+}
+
+// runSupervisedWatch is the ONE machine-wide watcher. It re-reads the watch plan
+// on every outer pass, so a repo that runs `setup` while the daemon is already
+// running joins the rotation WITHOUT the unit file changing and therefore
+// without the service being unloaded and reloaded under an in-flight refresh.
+//
+// An empty plan is not an error. A KeepAlive/Restart=always unit that exits
+// non-zero because nothing is registered yet is a restart loop, and the honest
+// state of a machine mid-onboarding is "nothing to watch yet", so it says that
+// once per pass and keeps waiting.
+func runSupervisedWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions) error {
+	if w.distillJobs <= 0 {
+		return fmt.Errorf("--jobs must be greater than 0")
+	}
+	now := opts.Now
+	if now == nil {
+		now = time.Now
+	}
+	ctx, stop := watchSignalContext(ctx)
+	defer stop()
+	onePass := func(workspaceName string, pass watchCommandOptions, agentCalls *int) error {
+		return runWorkspaceWatchPass(ctx, cmd, opts, pass, workspaceName, now, agentCalls)
+	}
+	return supervisedWatchLoop(ctx, cmd.OutOrStdout(), opts.Env, w, onePass)
+}
+
+// supervisedWatchLoop is the supervised loop with the per-workspace pass
+// injected, so the part that matters — which workspaces get visited, with whose
+// tuning, and what an empty or unreadable plan does — is testable without a real
+// refresh, a real manifest, or a real agent.
+func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w watchCommandOptions, onePass func(workspace string, pass watchCommandOptions, agentCalls *int) error) error {
+	// This counter belongs to the supervised process, not to an individual
+	// workspace pass. --budget is documented as a lifetime cap, so it must
+	// survive both workspace fan-out and every outer-plan tick.
+	agentCalls := 0
+	for {
+		if ctx.Err() != nil {
+			fmt.Fprintln(out, "[watch] stopping")
+			return nil
+		}
+		plan, err := loadSetupWatchPlan(env)
+		if err != nil {
+			// An unreadable plan must not take the service down: report it and
+			// retry on the next pass, because the file is repaired by the next
+			// `setup` and a crash-looping daemon repairs nothing.
+			fmt.Fprintf(out, "[watch] watch plan unusable: %v\n", err)
+		}
+		if len(plan.Workspaces) == 0 {
+			fmt.Fprintln(out, "[watch] no workspaces registered yet — run `entire-brain setup` in a repo")
+		}
+		for _, entry := range plan.Workspaces {
+			pass := applyWatchPlanEntry(w, entry)
+			// once: this loop owns the waiting, so the inner workspace loop runs
+			// exactly one pass over its members and returns.
+			pass.once = true
+			if err := onePass(entry.Workspace, pass, &agentCalls); err != nil {
+				// One broken workspace must not stop the others. A manifest
+				// deleted by hand is a normal state, not a fatal one.
+				fmt.Fprintf(out, "[watch] workspace %s: skipped (%v)\n", entry.Workspace, err)
+			}
+			if ctx.Err() != nil {
+				fmt.Fprintln(out, "[watch] stopping")
+				return nil
+			}
+		}
+		if w.once {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			fmt.Fprintln(out, "[watch] stopping")
+			return nil
+		case <-time.After(watchPlanSleep(plan, w.interval)):
+		}
+	}
 }
 
 // runWorkspaceWatch fans the WS3 watch loop over every member repo, reusing the same per-repo
@@ -351,10 +438,18 @@ func runWorkspaceWatch(ctx context.Context, cmd *cobra.Command, opts Options, w 
 	if now == nil {
 		now = time.Now
 	}
-	out := cmd.OutOrStdout()
 	// Stop cleanly between ticks on SIGINT/SIGTERM (same as single-repo watch).
 	ctx, stop := watchSignalContext(ctx)
 	defer stop()
+	agentCalls := 0
+	return runWorkspaceWatchPass(ctx, cmd, opts, w, workspaceName, now, &agentCalls)
+}
+
+// runWorkspaceWatchPass is runWorkspaceWatch without the signal plumbing, so the
+// supervised loop can drive one workspace at a time under a context it already
+// owns instead of installing a second signal handler per workspace per pass.
+func runWorkspaceWatchPass(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, workspaceName string, now func() time.Time, agentCalls *int) error {
+	out := cmd.OutOrStdout()
 	repoTick := func(repoDir string, agentCalls *int) {
 		storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 		if err != nil {
@@ -364,17 +459,16 @@ func runWorkspaceWatch(ctx context.Context, cmd *cobra.Command, opts Options, w 
 		cursorPath := filepath.Join(filepath.Dir(storage.HeadPath), "watch.json")
 		watchTick(ctx, out, w, cursorPath, watchStepsForRepo(cmd, opts, w, repoDir, now), agentCalls)
 	}
-	return workspaceWatchLoop(ctx, out, opts, w, workspaceName, repoTick)
+	return workspaceWatchLoop(ctx, out, opts, w, workspaceName, agentCalls, repoTick)
 }
 
 // workspaceWatchLoop iterates the workspace members, resolving each to a local repo and handing it to
 // repoTick with a single shared agentCalls counter (so --budget caps total token spend across the whole
 // workspace, not per-repo). repoTick is injected so the fan-out is testable without a real refresh.
-func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watchCommandOptions, workspaceName string, repoTick func(repoDir string, agentCalls *int)) error {
+func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watchCommandOptions, workspaceName string, agentCalls *int, repoTick func(repoDir string, agentCalls *int)) error {
 	if w.interval <= 0 {
 		w.interval = 5 * time.Minute
 	}
-	agentCalls := 0
 	for {
 		if ctx.Err() != nil {
 			fmt.Fprintln(out, "[watch] stopping")
@@ -384,7 +478,9 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "[watch] workspace %s — %d repos, distill=%v (budget=%d)\n", manifest.Name, len(manifest.Repos), w.distill, w.budget)
+		fmt.Fprintf(out, "[watch] workspace %s — %d repos, distill=%v (every %s, max-sessions=%s, run-budget=%s)\n",
+			manifest.Name, len(manifest.Repos), w.distill, w.distillEvery,
+			watchCapLabel(w.distillMaxSessions), watchCapLabel(w.budget))
 		dirs, err := resolvePluginDirs(opts.Env)
 		if err != nil {
 			return err
@@ -396,7 +492,7 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 				continue
 			}
 			fmt.Fprintf(out, "[watch] %s:\n", repo.RepoKey)
-			repoTick(repoDir, &agentCalls)
+			repoTick(repoDir, agentCalls)
 		}
 		if w.once {
 			return nil
@@ -523,10 +619,6 @@ func newWorkspaceGetCommand(opts Options) *cobra.Command {
 }
 
 func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addOpts workspaceAddOptions, workspaceName, repoPath string) error {
-	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
-	if err != nil {
-		return err
-	}
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repoPath)
 	if err != nil {
 		return err
@@ -539,10 +631,78 @@ func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addO
 		return err
 	}
 	key := storage.Key
-	repo := workspaceRepo{RepoKey: key, Name: addOpts.name, LocalPathHint: repoDir}
+	if _, err := addWorkspaceRepoLocked(opts.Env, workspaceName, workspaceRepo{RepoKey: key, Name: addOpts.name, LocalPathHint: repoDir}); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "added %s\n", key)
+	return nil
+}
+
+// workspaceAddResult reports what the locked add actually did, so callers can
+// say "created", "added" or "already a member" without re-reading the manifest
+// and racing the very window the lock closed.
+type workspaceAddResult struct {
+	Created bool
+	Already bool
+}
+
+// workspaceDirOrEmpty resolves a workspace directory for use in a MESSAGE only:
+// the caller is already reporting an error, so a second one would just hide the
+// first.
+func workspaceDirOrEmpty(env EntireEnv, name string) string {
+	dir, err := workspaceDir(env, name)
+	if err != nil {
+		return ""
+	}
+	return dir
+}
+
+// addWorkspaceRepoLocked is the ONLY way a repo enters a workspace manifest.
+// Membership is a read-modify-write of a shared file, and the common case —
+// running `entire-brain setup` in two repos at once — had both readers load the
+// same manifest and both write their own single-member version back, so one
+// registration vanished with no error anywhere. The lock lives beside the
+// manifest and follows the same discipline as the brain locks: reject symlinked
+// path components first, then hold the lock across load AND write.
+func addWorkspaceRepoLocked(env EntireEnv, workspaceName string, repo workspaceRepo) (workspaceAddResult, error) {
+	var result workspaceAddResult
+	if err := validateWorkspaceName(workspaceName); err != nil {
+		return result, err
+	}
+	if err := validateWorkspaceRepoKey(repo.RepoKey); err != nil {
+		return result, err
+	}
+	lock, err := acquireWorkspaceManifestLock(env, workspaceName)
+	if err != nil {
+		return result, err
+	}
+	defer func() { _ = lock.Close() }()
+
+	manifest, err := loadWorkspaceManifest(env, workspaceName)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			// A manifest that exists but cannot be read blocks registration for
+			// EVERY repo in the workspace, permanently, and the underlying error
+			// ("invalid character ...") names neither the file nor a way out.
+			// Recreating it silently would be worse — it would drop every other
+			// member — so say exactly which file to look at.
+			return result, fmt.Errorf("%w\nworkspace manifest %s is unusable; fix or delete it, then re-run (deleting it drops the other members, who re-register on their next setup)",
+				err, filepath.Join(workspaceDirOrEmpty(env, workspaceName), workspaceManifestName))
+		}
+		manifest = workspaceManifest{SchemaVersion: workspaceSchemaVersion, Name: workspaceName}
+		result.Created = true
+	}
 	replaced := false
 	for i := range manifest.Repos {
-		if manifest.Repos[i].RepoKey == key {
+		if manifest.Repos[i].RepoKey == repo.RepoKey {
+			result.Already = true
+			// Keep the freshest local path hint; the member itself is unchanged.
+			// A caller that carries no display name — `setup`'s registration,
+			// which re-runs every time — must not erase the one a human set with
+			// `workspace add --name`.
+			if strings.TrimSpace(repo.Name) == "" {
+				repo.Name = manifest.Repos[i].Name
+			}
 			manifest.Repos[i] = repo
 			replaced = true
 			break
@@ -552,11 +712,24 @@ func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addO
 		manifest.Repos = append(manifest.Repos, repo)
 	}
 	sortWorkspaceRepos(manifest.Repos)
-	if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
-		return err
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		return result, err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "added %s\n", key)
-	return nil
+	return result, nil
+}
+
+func acquireWorkspaceManifestLock(env EntireEnv, workspaceName string) (*fileLock, error) {
+	dir, err := workspaceDir(env, workspaceName)
+	if err != nil {
+		return nil, err
+	}
+	workspaceRoot := filepath.Dir(dir)
+	if err := rejectExistingSymlinkPathComponents(workspaceRoot, brainLockDirName); err != nil {
+		return nil, err
+	}
+	// Keep membership locks outside the workspace directory so whole-workspace
+	// deletion can hold the same lock without deleting an open lock file.
+	return acquireFileLock(filepath.Join(workspaceRoot, brainLockDirName, workspaceName+"-"+workspaceManifestLockName), "workspace_manifest_locked", brainWriteLockTimeout)
 }
 
 func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, workspaceName string, full bool) error {
@@ -583,9 +756,7 @@ func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, 
 	if err != nil {
 		return err
 	}
-	manifest.Freshness = freshness
-	manifest.RefreshedAt = opts.Now().UTC()
-	if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
+	if err := writeWorkspaceRefreshResult(opts.Env, workspaceName, freshness, opts.Now().UTC()); err != nil {
 		return err
 	}
 	if full {
@@ -599,6 +770,35 @@ func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, 
 		fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", repo.RepoKey, repo.State)
 	}
 	return nil
+}
+
+// writeWorkspaceRefreshResult keeps the expensive multi-repo work outside the
+// membership lock, then merges its results into the latest manifest. Repos
+// added during refresh are preserved and simply receive freshness next pass;
+// repos removed during refresh are not resurrected.
+func writeWorkspaceRefreshResult(env EntireEnv, workspaceName string, freshness []workspaceRepoFreshness, refreshedAt time.Time) error {
+	lock, err := acquireWorkspaceManifestLock(env, workspaceName)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
+	manifest, err := loadWorkspaceManifest(env, workspaceName)
+	if err != nil {
+		return err
+	}
+	byRepo := make(map[string]workspaceRepoFreshness, len(freshness))
+	for _, state := range freshness {
+		byRepo[state.RepoKey] = state
+	}
+	merged := make([]workspaceRepoFreshness, 0, len(manifest.Repos))
+	for _, repo := range manifest.Repos {
+		if state, ok := byRepo[repo.RepoKey]; ok {
+			merged = append(merged, state)
+		}
+	}
+	manifest.Freshness = merged
+	manifest.RefreshedAt = refreshedAt
+	return writeWorkspaceManifest(env, manifest)
 }
 
 func runWorkspaceContext(cmd *cobra.Command, opts Options, contextOpts workspaceContextOptions, workspaceName, query string) error {
@@ -3087,6 +3287,12 @@ func newWorkspaceRemoveCommand(opts Options) *cobra.Command {
 }
 
 func runWorkspaceRemove(cmd *cobra.Command, opts Options, workspaceName, repoKey string) error {
+	lock, err := acquireWorkspaceManifestLock(opts.Env, workspaceName)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
+
 	if repoKey == "" {
 		// workspaceDir validates the name and rejects symlinked paths, so RemoveAll stays inside the store.
 		dir, err := workspaceDir(opts.Env, workspaceName)

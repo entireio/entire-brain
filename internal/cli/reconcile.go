@@ -133,13 +133,14 @@ For every candidate output exactly one line, in candidate-number order:
 - <decision>: one of
     new        — not represented by any existing fact.
     merge       — the SAME meaning as an existing fact (a restatement); consolidate.
-    supersede   — CONTRADICTS or replaces an existing fact (the candidate is newer/correct).
+    supersede   — CONTRADICTS or replaces an existing fact.
 - <existing#-or-dash>: for merge/supersede, the EXISTING fact number it refers
   to; for new, a dash "-".
 - <confidence>: 0.00 to 1.00, your confidence in a merge/supersede decision
   (use 1.0 for new).
 
 Rules:
+- Candidates are newly extracted, not necessarily newer evidence. Session processing may be newest-first; do not infer chronology from which list contains a fact.
 - A restatement ("use tabs") and a reversal ("use spaces") look similar but are
   NOT the same: the first is merge, the second is supersede. Read the meaning.
 - When unsure between merge/supersede and new, prefer new with lower confidence

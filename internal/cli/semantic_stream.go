@@ -94,6 +94,12 @@ type semanticStreamScanConfig struct {
 	// preserved on the result for contract validation.
 	repoKey  string
 	progress func(phase string)
+	// counts reports the running record tallies alongside the phase label, so a
+	// caller can draw a determinate bar instead of an indeterminate spinner.
+	// The label alone cannot serve that purpose: parsing numbers back out of a
+	// human sentence is exactly the kind of coupling that breaks the next time
+	// the sentence is reworded.
+	counts func(files, symbols, relations int)
 	// onRecord is invoked after each record line is processed with the record's
 	// record_type. Production wires this to the inactivity watchdog and progress
 	// reporting; tests use it to assert per-record (incremental) processing.
@@ -282,8 +288,13 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 		if cfg.onRecord != nil {
 			cfg.onRecord(probe.RecordType)
 		}
-		if cfg.progress != nil && semanticStreamProgressInterval > 0 && (line-1)%semanticStreamProgressInterval == 0 {
-			cfg.progress(fmt.Sprintf("parsing sources (%d symbols, %d relations)", res.counts.Symbols, res.counts.Relations))
+		if semanticStreamProgressInterval > 0 && (line-1)%semanticStreamProgressInterval == 0 {
+			if cfg.progress != nil {
+				cfg.progress(fmt.Sprintf("parsing sources (%d files, %d symbols, %d relations)", len(files), res.counts.Symbols, res.counts.Relations))
+			}
+			if cfg.counts != nil {
+				cfg.counts(len(files), res.counts.Symbols, res.counts.Relations)
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -421,6 +432,7 @@ func streamSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir, 
 		repoDir:  repoDir,
 		repoKey:  repoKey,
 		progress: indexOpts.progress,
+		counts:   indexOpts.progressCounts,
 		onRecord: func(string) {
 			select {
 			case activity <- struct{}{}:

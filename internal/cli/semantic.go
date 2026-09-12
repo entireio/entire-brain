@@ -294,6 +294,10 @@ type semanticIndexOptions struct {
 	// (verifying provider, snapshotting, building store, …) so long-running
 	// indexing reports something more useful than a static spinner.
 	progress func(phase string)
+	// progressCounts reports the running file/symbol/relation tallies while the
+	// provider streams, so the caller can render a determinate bar. Optional:
+	// nil simply means an indeterminate spinner.
+	progressCounts func(files, symbols, relations int)
 	// containRoot, when set, requires the resolved repository directory to stay
 	// inside it. The MCP server sets this to the bound repo root so an untrusted
 	// client cannot index a directory outside it — checked against the *resolved*
@@ -448,7 +452,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		return fmt.Errorf("check worktree dirtiness for semantic index: %w", err)
 	}
 	if dirty && !indexOpts.worktree {
-		return errors.New("dirty_worktree: refusing to index uncommitted content without --worktree")
+		return errors.New(dirtyWorktreeErrorCode + ": refusing to index uncommitted content without --worktree")
 	}
 	worktreeHashBefore := ""
 	if indexOpts.worktree {
@@ -1036,6 +1040,9 @@ func stringValue(data map[string]any, key string) string {
 // reaching the operator. The code prefix from the first warning is preserved
 // so existing callers matching on it keep working.
 func semanticDoctorFailureError(graphBinary string, doctorWarnings []semanticWarning) error {
+	if (strings.TrimSpace(graphBinary) == entireBinaryName || strings.TrimSpace(graphBinary) == "") && len(doctorWarnings) > 0 && semanticProviderMissing(doctorWarnings[0].Detail) {
+		return semanticProviderUnverifiedError(graphBinary, doctorWarnings)
+	}
 	code := "provider_no_egress_unverified"
 	detail := ""
 	if len(doctorWarnings) > 0 {
@@ -1086,6 +1093,106 @@ func semanticDetailMeansBinaryNotFound(detail string) bool {
 func semanticDetailMeansBinaryNotExecutable(detail string) bool {
 	d := strings.ToLower(detail)
 	return strings.Contains(d, "permission denied") || strings.Contains(d, "exec format error")
+}
+
+// semanticProviderUnverifiedError is the one error a reader ever sees when the
+// semantic index cannot be built because the provider could not be verified.
+//
+// runSemanticDoctor already captures WHY in the warning's Detail -- the missing
+// plugin's own "unknown command \"graph\"", a timeout, malformed JSON. That
+// detail used to be collected and then dropped in favour of the formatted
+// string, so the first thing a new user saw was
+//
+//	provider_doctor_failed: semantic provider no-egress status is not verified
+//
+// which names neither the cause nor a next step. It is reported here instead:
+// code, the human sentence, the underlying detail, and -- for the failure mode
+// that a first run actually hits, the entire-graph plugin simply not being
+// installed -- the install step by name.
+func semanticProviderUnverifiedError(graphBinary string, warnings []semanticWarning) error {
+	code := "provider_no_egress_unverified"
+	detail := ""
+	if len(warnings) > 0 {
+		if warnings[0].Code != "" {
+			code = warnings[0].Code
+		}
+		detail = strings.TrimSpace(warnings[0].Detail)
+	}
+	message := fmt.Sprintf("%s: semantic provider no-egress status is not verified", code)
+	if summary := semanticProviderDetailSummary(detail); summary != "" {
+		message += ": " + summary
+	}
+	if semanticProviderMissing(detail) {
+		binary := strings.TrimSpace(graphBinary)
+		if binary == "" {
+			binary = entireBinaryName
+		}
+		message += fmt.Sprintf(
+			"; the entire-graph semantic provider is not installed (%s has no `graph` command)"+
+				" -- install it with `scripts/install.sh` from the entire-brain checkout"+
+				" (it builds and registers entire-graph from the sibling clone),"+
+				" then re-run `%s setup`", binary, setupCommandPrefix(os.LookupEnv))
+	}
+	return errors.New(message)
+}
+
+// semanticProviderDetailSummary reduces a subprocess failure to one printable
+// line.
+//
+// A CLI answers an unknown command by dumping its ENTIRE usage text -- sixty
+// lines of command groups and flags -- to stderr, and that text arrives here as
+// the error detail. Printed whole it buries the one sentence that matters
+// inside setup's failure line, its summary block, `status` and `doctor` alike.
+// The line the CLI marks with "Error:" is that sentence; the first line is the
+// fallback for tools that do not mark one. Detection still runs against the
+// FULL detail, so shortening what is shown never changes what is recognised.
+func semanticProviderDetailSummary(detail string) string {
+	detail = strings.TrimSpace(detail)
+	if detail == "" {
+		return ""
+	}
+	lines := strings.Split(detail, "\n")
+	summary := strings.TrimSpace(lines[0])
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if after, ok := strings.CutPrefix(line, "Error:"); ok {
+			summary = strings.TrimSpace(after)
+			break
+		}
+	}
+	summary = strings.TrimSuffix(strings.TrimSpace(summary), "Usage:")
+	summary = strings.TrimSpace(summary)
+	const maxProviderDetail = 200
+	if runes := []rune(summary); len(runes) > maxProviderDetail {
+		summary = strings.TrimSpace(string(runes[:maxProviderDetail])) + "..."
+	}
+	return summary
+}
+
+// semanticProviderMissing recognises the provider-absent shape of a doctor
+// failure -- the host CLI rejecting an unknown `graph` command, or the binary
+// not being on PATH at all -- as opposed to a provider that ran and reported
+// something. Matching on text is unavoidable here: the failure is another
+// process's exit status plus its stderr, and there is no typed error to switch
+// on across a process boundary.
+func semanticProviderMissing(detail string) bool {
+	text := strings.ToLower(detail)
+	if text == "" {
+		return false
+	}
+	for _, marker := range []string{
+		`unknown command "graph"`,
+		"unknown command 'graph'",
+		"unknown command graph",
+		"executable file not found",
+		"no such file or directory",
+		"command not found",
+	} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func boolValue(data map[string]any, key string) bool {
@@ -1387,18 +1494,27 @@ func (r *semanticRecord) setSemanticPath(path string) {
 func validateSemanticRecordPath(record *semanticRecord) error {
 	switch record.RecordType {
 	case "file", "symbol":
+		path := record.semanticPath()
+		if path != "" {
+			clean, err := validateSemanticProviderPath(path)
+			if err != nil {
+				return err
+			}
+			record.setSemanticPath(clean)
+		}
 	default:
-		return nil
 	}
-	path := record.semanticPath()
-	if path == "" {
-		return nil
+	for i := range record.Evidence {
+		path := record.Evidence[i].FilePath
+		if path == "" {
+			continue
+		}
+		clean, err := validateSemanticProviderPath(path)
+		if err != nil {
+			return fmt.Errorf("semantic evidence path: %w", err)
+		}
+		record.Evidence[i].FilePath = clean
 	}
-	clean, err := validateSemanticProviderPath(path)
-	if err != nil {
-		return err
-	}
-	record.setSemanticPath(clean)
 	return nil
 }
 

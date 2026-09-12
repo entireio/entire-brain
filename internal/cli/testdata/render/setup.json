@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-21T14:33:26.432986Z",
+  "repo": "/home/example/brain-demo/repo",
+  "repo_key": "gh/demo-org/brain-demo",
+  "brain_path": "/home/example/brain-demo/plugin/data/repos/gh/demo-org/brain-demo",
+  "instant": {
+    "state": "degraded",
+    "detail": "session export: checkpoint_scope_incomplete: Entire returned no readable checkpoint IDs from an incomplete persistent-store inventory",
+    "seconds": 0.846374875,
+    "components": [
+      {
+        "name": "sessions",
+        "state": "failed",
+        "detail": "checkpoint_scope_incomplete: Entire returned no readable checkpoint IDs from an incomplete persistent-store inventory"
+      },
+      {
+        "name": "seed",
+        "state": "ok"
+      },
+      {
+        "name": "docs",
+        "state": "ok"
+      },
+      {
+        "name": "semantic",
+        "state": "ok"
+      },
+      {
+        "name": "entities",
+        "state": "ok"
+      },
+      {
+        "name": "memory",
+        "state": "ok"
+      }
+    ]
+  },
+  "backfill": {
+    "state": "skipped",
+    "detail": "--no-backfill"
+  },
+  "workspace": {
+    "name": "default",
+    "created": false,
+    "registered": true,
+    "already_registered": true,
+    "repo_key": "gh/demo-org/brain-demo"
+  },
+  "daemon": {
+    "manager": "launchd",
+    "label": "io.entire.brain-watch.a2d3fd66",
+    "unit_path": "/home/example/brain-demo/daemon/io.entire.brain-watch.a2d3fd66.plist",
+    "installed": false,
+    "current": false,
+    "running": false,
+    "detail": "skipped: --no-daemon"
+  },
+  "session_end_hook": {
+    "installed": false,
+    "detail": "no Entire SessionEnd hook found in .claude settings",
+    "entire_cli_on_path": true
+  },
+  "facts": {
+    "sessions": 0,
+    "distilled": 0,
+    "running": false,
+    "started_at": "0001-01-01T00:00:00Z"
+  }
+}

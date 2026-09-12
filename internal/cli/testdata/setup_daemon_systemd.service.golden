@@ -1,0 +1,20 @@
+[Unit]
+Description=Entire brain watcher (deterministic refresh is free; agent steps are gated)
+Documentation=https://github.com/entireio/entire-brain
+After=default.target
+
+[Service]
+Type=simple
+ExecStart="/opt/entire/bin/entire-brain" "workspace" "watch" "default" "--interval" "5m0s" "--distill" "--distill-every" "24h0m0s" "--effort" "low"
+WorkingDirectory=/opt/entire/bin
+Environment="ENTIRE_PLUGIN_DATA_DIR=/var/data/entire"
+Environment="ENTIRE_PLUGIN_STATE_DIR=/var/state/entire"
+Environment="PATH=/usr/bin:/bin"
+StandardOutput=append:/var/state/entire/logs/watch.log
+StandardError=append:/var/state/entire/logs/watch.log
+Restart=always
+RestartSec=60
+Nice=10
+
+[Install]
+WantedBy=default.target

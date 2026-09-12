@@ -236,23 +236,16 @@ func TestRunDistillForBrainReportsProgress(t *testing.T) {
 	}
 }
 
-// The distill label must not match progressCountPattern, or the non-TTY throttle
-// would treat same-fact-count sessions as the same status and suppress the
-// documented per-session progress line.
-func TestDistillProgressLabelNotThrottled(t *testing.T) {
-	label := distillProgressLabel(distillProgress{SessionsDone: 12, SessionsTotal: 55, Branch: "main", Facts: 0})
-	if progressCountPattern.MatchString(label) {
-		t.Errorf("label %q matches progressCountPattern; per-session updates would be throttled", label)
-	}
-}
-
 // On non-TTY output, two cached/zero-fact sessions in quick succession must each
-// emit a progress line rather than collapsing under the same-status throttle.
+// emit a progress line rather than collapsing. Per-session progress is reported
+// through Event precisely because Update coalesces labels that differ only in
+// their counters: right for a repaint of one phase, fatal for a per-item
+// completion that a detached backfill log depends on.
 func TestDistillProgressEmitsPerSessionNonTTY(t *testing.T) {
-	var buf bytes.Buffer // not an *os.File -> non-TTY path (no spinner)
+	var buf bytes.Buffer // not an *os.File -> plain path (no spinner)
 	task := newProgress(&buf, "distill").Begin("distill sessions")
-	task.Update(distillProgressLabel(distillProgress{SessionsDone: 1, SessionsTotal: 3, Branch: "main", Facts: 0}))
-	task.Update(distillProgressLabel(distillProgress{SessionsDone: 2, SessionsTotal: 3, Branch: "main", Facts: 0}))
+	task.Event(distillProgressLabel(distillProgress{SessionsDone: 1, SessionsTotal: 3, Branch: "main", Facts: 0}))
+	task.Event(distillProgressLabel(distillProgress{SessionsDone: 2, SessionsTotal: 3, Branch: "main", Facts: 0}))
 	out := buf.String()
 	if c := strings.Count(out, "1/3 done"); c != 1 {
 		t.Errorf("expected exactly one line for session 1, got %d in %q", c, out)

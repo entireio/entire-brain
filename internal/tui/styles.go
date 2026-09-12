@@ -22,6 +22,11 @@ type Theme struct {
 	Flag    lipgloss.Color // warnings / superseded
 	Link    lipgloss.Color // clickable links
 	Heading lipgloss.Color // detail section headings
+	// Alt is the second accent (magenta/purple family). It exists so a
+	// line-oriented renderer can colour-code MORE than the four states the
+	// dashboard needs — the backfill phase has to be distinguishable from the
+	// daemon phase at a glance, and both are "in progress".
+	Alt lipgloss.Color
 }
 
 var themes = map[string]Theme{
@@ -37,6 +42,7 @@ var themes = map[string]Theme{
 		Flag:    lipgloss.Color("220"),
 		Link:    lipgloss.Color("45"),
 		Heading: lipgloss.Color("39"),
+		Alt:     lipgloss.Color("170"),
 	},
 	"catppuccin": {
 		Name:    "catppuccin",
@@ -50,6 +56,7 @@ var themes = map[string]Theme{
 		Flag:    lipgloss.Color("#fab387"),
 		Link:    lipgloss.Color("#89dceb"),
 		Heading: lipgloss.Color("#cba6f7"),
+		Alt:     lipgloss.Color("#cba6f7"),
 	},
 	"gruvbox": {
 		Name:    "gruvbox",
@@ -63,6 +70,7 @@ var themes = map[string]Theme{
 		Flag:    lipgloss.Color("#fe8019"),
 		Link:    lipgloss.Color("#8ec07c"),
 		Heading: lipgloss.Color("#d3869b"),
+		Alt:     lipgloss.Color("#d3869b"),
 	},
 	"tokyonight": {
 		Name:    "tokyonight",
@@ -76,6 +84,7 @@ var themes = map[string]Theme{
 		Flag:    lipgloss.Color("#ff9e64"),
 		Link:    lipgloss.Color("#7dcfff"),
 		Heading: lipgloss.Color("#bb9af7"),
+		Alt:     lipgloss.Color("#bb9af7"),
 	},
 }
 

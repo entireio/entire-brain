@@ -1,0 +1,588 @@
+{
+  "generated_at": "2026-08-21T14:33:26.330278Z",
+  "repo": {
+    "root": "/home/example/brain-demo/repo",
+    "key": "gh/demo-org/brain-demo"
+  },
+  "brain": {
+    "path": "/home/example/brain-demo/plugin/data/repos/gh/demo-org/brain-demo",
+    "schema_version": 3,
+    "supported_schema_version": 3,
+    "manifest_state": "current",
+    "generated_at": "2026-08-21T13:51:08Z"
+  },
+  "sources": {
+    "seed": true,
+    "sessions": false,
+    "semantic": true,
+    "history": false,
+    "facts": false,
+    "docs": true
+  },
+  "semantic": {
+    "provider": {
+      "name": "entire-graph",
+      "version": "dev",
+      "schema_version": "1.1",
+      "snapshot_path": "semantic/snapshots/774f48bcd710f3b410ce7d78fd339f427ebec052-229cc3287a987e38/snapshot.ndjson",
+      "store_path": "semantic/generations/774f48bcd710f3b410ce7d78fd339f427ebec052-229cc3287a987e38/semantic.sqlite",
+      "capabilities": [
+        "local-only",
+        "ndjson",
+        "partial-failures",
+        "stable-symbol-id-v1"
+      ]
+    },
+    "coverage": {
+      "files": 3,
+      "symbols": 3,
+      "relations": 3,
+      "warnings": 0,
+      "partial_failures": 0,
+      "file_languages": [
+        {
+          "name": "Go",
+          "count": 2
+        },
+        {
+          "name": "Markdown",
+          "count": 1
+        }
+      ],
+      "languages": [
+        {
+          "name": "Go",
+          "count": 2
+        },
+        {
+          "name": "Markdown",
+          "count": 1
+        }
+      ],
+      "symbol_kinds": [
+        {
+          "name": "function",
+          "count": 2
+        },
+        {
+          "name": "section",
+          "count": 1
+        }
+      ],
+      "relation_types": [
+        {
+          "name": "DEFINES",
+          "count": 3
+        }
+      ]
+    },
+    "freshness": {
+      "severity": "ok",
+      "axes": {
+        "branch_tip": {
+          "state": "ok",
+          "current": "main",
+          "indexed": "main"
+        },
+        "head": {
+          "state": "ok",
+          "current": "774f48bcd710f3b410ce7d78fd339f427ebec052",
+          "indexed": "774f48bcd710f3b410ce7d78fd339f427ebec052"
+        },
+        "provider": {
+          "state": "ok",
+          "detail": "entire-graph dev"
+        },
+        "semantic_completeness": {
+          "state": "ok"
+        },
+        "snapshot": {
+          "state": "ok",
+          "detail": "semantic/snapshots/774f48bcd710f3b410ce7d78fd339f427ebec052-229cc3287a987e38/snapshot.ndjson"
+        },
+        "store": {
+          "state": "ok",
+          "detail": "semantic/generations/774f48bcd710f3b410ce7d78fd339f427ebec052-229cc3287a987e38/semantic.sqlite"
+        },
+        "worktree": {
+          "state": "clean"
+        }
+      }
+    }
+  },
+  "retrieval": {
+    "seed_commit": "774f48bcd710f3b410ce7d78fd339f427ebec052",
+    "seed_mode": "tracked",
+    "docs_generated_at": "2026-08-21T13:51:08Z",
+    "docs_records": 7,
+    "docs_files": 7,
+    "freshness": {
+      "severity": "degraded",
+      "axes": {
+        "docs": {
+          "state": "ok",
+          "detail": "docs index was built from the current seed"
+        },
+        "seed": {
+          "state": "dirty-unindexed",
+          "detail": "seed and docs are based on committed HEAD; refresh with --worktree to include current changes",
+          "current": "774f48bcd710f3b410ce7d78fd339f427ebec052",
+          "indexed": "774f48bcd710f3b410ce7d78fd339f427ebec052"
+        }
+      }
+    }
+  },
+  "onboarding": {
+    "facts_backfill": {
+      "sessions": 0,
+      "distilled": 0,
+      "running": false,
+      "started_at": "0001-01-01T00:00:00Z"
+    },
+    "daemon": {
+      "manager": "launchd",
+      "label": "io.entire.brain-watch.a2d3fd66",
+      "unit_path": "/home/example/brain-demo/daemon/io.entire.brain-watch.a2d3fd66.plist",
+      "installed": true,
+      "current": false,
+      "running": false
+    },
+    "last_tick_at": "0001-01-01T00:00:00Z",
+    "components": [
+      {
+        "name": "sessions",
+        "state": "failed",
+        "detail": "checkpoint_scope_incomplete: Entire returned no readable checkpoint IDs from an incomplete persistent-store inventory"
+      },
+      {
+        "name": "seed",
+        "state": "built"
+      },
+      {
+        "name": "docs",
+        "state": "built"
+      },
+      {
+        "name": "semantic",
+        "state": "built"
+      },
+      {
+        "name": "history",
+        "state": "missing"
+      }
+    ]
+  },
+  "memory": {
+    "canonical_sessions": {
+      "action": "run `entire brain refresh` (sessions stage)",
+      "count": 0,
+      "source_manifest_path": "manifest.json",
+      "source_manifest_schema_version": 3,
+      "source_manifest_state": "current",
+      "state": "absent",
+      "supported_source_manifest_schema_version": 3
+    },
+    "coordinator": {
+      "binary_version": "dev",
+      "heartbeat_age_seconds": 0,
+      "heartbeat_at": "2026-08-21T14:33:25.59377Z",
+      "heartbeat_present": true,
+      "last_outcome": "",
+      "pid": 99115,
+      "schema_version": 1,
+      "stale": false,
+      "stale_after_seconds": 30,
+      "started_at": "2026-08-21T14:32:35.571473Z",
+      "state": "running"
+    },
+    "fts": {
+      "action": "none",
+      "path": "history/index-fts.sqlite",
+      "present": false,
+      "schema_state": "absent",
+      "state": "absent",
+      "supported_schema_version": "3"
+    },
+    "hint_inventory_degraded": false,
+    "hint_inventory_entries_observed": 0,
+    "hint_inventory_truncated": false,
+    "hints": 0,
+    "install": {
+      "abstract_provider": "disabled",
+      "abstract_schema": 1,
+      "abstracts": {
+        "artifacts": 0,
+        "config_state": "absent",
+        "corrupt": 0,
+        "current_artifacts": 0,
+        "entries_observed": 0,
+        "hosted_egress": {
+          "entries_scanned": 0,
+          "issue_count": 0,
+          "migration_required": 0,
+          "receipts_scanned": 0,
+          "scan_ceiling": 10000,
+          "scan_degraded": false,
+          "scan_truncated": false,
+          "schema_state": "absent",
+          "state": "absent",
+          "supported_schema_version": 2
+        },
+        "issue_count": 0,
+        "issues_truncated": false,
+        "scan_ceiling": 4096,
+        "scan_degraded": false,
+        "scan_truncated": false,
+        "scanned": 0,
+        "schema_state": "absent",
+        "stale": 0,
+        "state": "absent",
+        "supported_schema_version": 1,
+        "unsafe": 0,
+        "unsupported": 0
+      },
+      "build_profile": "pure_go",
+      "cgo_build": false,
+      "directories": {
+        "brain": {
+          "evidence": "read_only_lstat_and_permission_mode_hint",
+          "exists": true,
+          "mode": "0700",
+          "mode_write_hint": true,
+          "path": "/home/example/brain-demo/plugin/data/repos/gh/demo-org/brain-demo",
+          "recommended_action": "writability is proven only by the requested mutation because ACLs and platform policy may override mode bits",
+          "state": "present_unproven",
+          "writability_proven": false
+        },
+        "history": {
+          "evidence": "read_only_lstat_and_permission_mode_hint",
+          "exists": true,
+          "mode": "0700",
+          "mode_write_hint": true,
+          "path": "history",
+          "recommended_action": "writability is proven only by the requested mutation because ACLs and platform policy may override mode bits",
+          "state": "present_unproven",
+          "writability_proven": false
+        },
+        "log_parent": {
+          "evidence": "read_only_lstat_and_permission_mode_hint",
+          "exists": true,
+          "mode": "0700",
+          "mode_write_hint": true,
+          "path": "history/work/v1",
+          "recommended_action": "writability is proven only by the requested mutation because ACLs and platform policy may override mode bits",
+          "state": "present_unproven",
+          "writability_proven": false
+        },
+        "work": {
+          "evidence": "read_only_lstat_and_permission_mode_hint",
+          "exists": true,
+          "mode": "0700",
+          "mode_write_hint": true,
+          "path": "history/work/v1",
+          "recommended_action": "writability is proven only by the requested mutation because ACLs and platform policy may override mode bits",
+          "state": "present_unproven",
+          "writability_proven": false
+        }
+      },
+      "entire_binary": {
+        "executed": false,
+        "path": "/home/example/.local/bin/entire",
+        "recommended_action": "run Entire's own version or doctor command to verify compatibility",
+        "state": "present_unproven",
+        "version_verified": false
+      },
+      "filtered_scan_ceiling": 10000,
+      "fts_schema": "3",
+      "get_batch_ceiling": 50,
+      "host_adapter": {
+        "authority": "entire-cli",
+        "implementation_state": "external_unverified",
+        "observability": "not_observable",
+        "recommended_action": "use Entire CLI's integration diagnostics to verify host-adapter installation, enablement, and trust; entire-brain does not execute Entire during status",
+        "state": "not_observable",
+        "targets": {
+          "claude_code": {
+            "enabled": "unknown",
+            "evidence": "external_entire_cli_state_not_observable",
+            "presence": "unknown",
+            "trust": "unknown"
+          },
+          "codex": {
+            "enabled": "unknown",
+            "evidence": "external_entire_cli_state_not_observable",
+            "presence": "unknown",
+            "trust": "unknown"
+          }
+        }
+      },
+      "job_schema_version": 2,
+      "legacy_mode_hints": {
+        "deprecated": true,
+        "history_dir_writable": true,
+        "semantics": "permission mode hint only; not a writability proof",
+        "work_dir_writable": true
+      },
+      "memory_config_schema": 1,
+      "overlay_schema_version": 3,
+      "provider_egress": {
+        "automatic": false,
+        "config_path": "history/memory-config-v1.json",
+        "effective_egress_class": "none",
+        "effective_hosted_egress_allowed": false,
+        "effective_provider_allowed": false,
+        "effective_state": "disabled",
+        "egress_class": "none",
+        "enabled": false,
+        "global_local_only": false,
+        "global_local_only_effective": false,
+        "global_no_egress": false,
+        "global_policy": "default",
+        "hosted_egress_allowed": false,
+        "model": "",
+        "provider": "",
+        "provider_summary": "disabled",
+        "state": "absent",
+        "supported_schema_version": 1
+      },
+      "receipt_schema_version": 1,
+      "reconciler_version": 3,
+      "vector_build": false,
+      "worker_log_max_bytes": 1048576,
+      "worker_log_path": "/home/example/brain-demo/plugin/data/repos/gh/demo-org/brain-demo/history/work/v1/worker.log"
+    },
+    "issue_count": 0,
+    "issues": [],
+    "issues_truncated": false,
+    "job_inventory": {
+      "action": "none",
+      "degraded": false,
+      "entries_observed": 0,
+      "entries_scanned": 0,
+      "jobs": 0,
+      "path": "history/work/v1/jobs",
+      "present": false,
+      "scan_complete": true,
+      "scan_truncated": false,
+      "schema_state": "absent",
+      "state": "absent",
+      "supported_schema_version": 2
+    },
+    "job_inventory_degraded": false,
+    "job_inventory_entries_observed": 0,
+    "job_inventory_entries_scanned": 0,
+    "job_inventory_scan_complete": true,
+    "job_inventory_truncated": false,
+    "jobs_by_state": {},
+    "jobs_health_degraded": 0,
+    "locks": {
+      "coordinator": {
+        "action": "correlate the lock leaf with coordinator heartbeat state; read-only status does not probe-acquire locks",
+        "evidence": "read_only_lstat",
+        "ownership_proven": false,
+        "path": "/home/example/brain-demo/plugin/data/repos/gh/demo-org/brain-demo/locks/memory-worker.lock",
+        "state": "present_unproven"
+      },
+      "inspection": "read_only_no_lock_probe",
+      "privacy": {
+        "action": "none",
+        "evidence": "read_only_lstat",
+        "ownership_proven": false,
+        "path": "/home/example/brain-demo/plugin/data/repos/gh/demo-org/brain-demo/locks/privacy-side-effect.lock",
+        "state": "absent"
+      },
+      "write": {
+        "action": "correlate the lock leaf with coordinator heartbeat state; read-only status does not probe-acquire locks",
+        "evidence": "read_only_lstat",
+        "ownership_proven": false,
+        "path": "/home/example/brain-demo/plugin/data/repos/gh/demo-org/brain-demo/locks/write.lock",
+        "state": "present_unproven"
+      }
+    },
+    "manifest_health": {
+      "path": "manifest.json",
+      "present": true,
+      "recommended_action": "none",
+      "schema_version": 3,
+      "state": "current",
+      "supported_schema_version": 3
+    },
+    "migration_progress": {
+      "state": "absent"
+    },
+    "migrations": null,
+    "overlay": {
+      "action": "none",
+      "path": "history/short-term.json",
+      "present": false,
+      "schema_state": "absent",
+      "state": "absent",
+      "supported_reconciler_version": 3,
+      "supported_schema_version": 3
+    },
+    "projection_receipts": {
+      "action": "run `entire memory repair` to rebuild the missing disposable receipt",
+      "count": 0,
+      "current": false,
+      "state": "absent"
+    },
+    "receipts": 0,
+    "receipts_current": false,
+    "reconciliation": {
+      "current": false,
+      "state": "absent"
+    },
+    "schemas": {
+      "compiled_capabilities": {
+        "abstract_artifact": 1,
+        "abstract_config": 1,
+        "abstract_egress": 2,
+        "brain_manifest": 3,
+        "cancellation": 1,
+        "coordinator": 1,
+        "fts": "3",
+        "hint": 1,
+        "history_scan_cache": 9,
+        "job": 2,
+        "migration_progress": 1,
+        "overlay": 3,
+        "overlay_reconciler": 3,
+        "projection_receipt": 1,
+        "source_manifest": 3,
+        "vector_progress": 2
+      },
+      "observed_health": {
+        "abstract_artifact": {
+          "normalized_state": "absent",
+          "schema_state": "absent",
+          "state": "absent",
+          "supported_schema_version": 1
+        },
+        "abstract_config": {
+          "normalized_state": "absent",
+          "state": "absent",
+          "supported_schema_version": 1
+        },
+        "abstract_egress": {
+          "normalized_state": "absent",
+          "schema_state": "absent",
+          "state": "absent",
+          "supported_schema_version": 2
+        },
+        "brain_manifest": {
+          "authority": "canonical_brain_manifest",
+          "observed": 3,
+          "path": "manifest.json",
+          "schema_version": 3,
+          "state": "current",
+          "supported": 3,
+          "supported_schema_version": 3
+        },
+        "coordinator": {
+          "normalized_state": "running",
+          "schema_version": 1,
+          "state": "running"
+        },
+        "fts": {
+          "normalized_state": "absent",
+          "path": "history/index-fts.sqlite",
+          "schema_state": "absent",
+          "state": "absent",
+          "supported_schema_version": "3"
+        },
+        "job": {
+          "normalized_state": "absent",
+          "path": "history/work/v1/jobs",
+          "schema_state": "absent",
+          "state": "absent",
+          "supported_schema_version": 2
+        },
+        "migration_progress": {
+          "normalized_state": "absent",
+          "state": "absent"
+        },
+        "overlay": {
+          "normalized_state": "absent",
+          "path": "history/short-term.json",
+          "schema_state": "absent",
+          "state": "absent",
+          "supported_reconciler_version": 3,
+          "supported_schema_version": 3
+        },
+        "projection_receipt": {
+          "normalized_state": "absent",
+          "state": "absent"
+        },
+        "source_manifest": {
+          "normalized_state": "current",
+          "path": "manifest.json",
+          "schema_state": "current",
+          "schema_version": 3,
+          "state": "current",
+          "supported_schema_version": 3
+        },
+        "tombstones": {
+          "normalized_state": "absent",
+          "schema_version": 1,
+          "state": "absent"
+        },
+        "vector_progress": {
+          "normalized_state": "absent",
+          "path": "history/work/v1/vector-progress.json",
+          "schema_state": "absent",
+          "state": "absent",
+          "supported_schema_version": 2
+        }
+      },
+      "state_counts": {
+        "absent": 10,
+        "corrupt": 0,
+        "current": 2,
+        "migration_required": 0,
+        "stale": 0,
+        "unsafe": 0,
+        "unsupported": 0
+      }
+    },
+    "source_manifest": {
+      "authority": "canonical_brain_manifest",
+      "canonical_sessions": "absent",
+      "history_projection": "absent",
+      "path": "manifest.json",
+      "schema_state": "current",
+      "schema_version": 3,
+      "state": "current",
+      "supported_schema_version": 3
+    },
+    "tombstones": {
+      "schema_version": 1,
+      "state": "absent"
+    },
+    "vector_progress": {
+      "action": "none",
+      "path": "history/work/v1/vector-progress.json",
+      "present": false,
+      "schema_state": "absent",
+      "state": "absent",
+      "supported_schema_version": 2
+    },
+    "worker_log": {
+      "bounded": true,
+      "bytes": 7281,
+      "last_event": "worker_started",
+      "max_bytes": 1048576,
+      "path": "/home/example/brain-demo/plugin/data/repos/gh/demo-org/brain-demo/history/work/v1/worker.log",
+      "present": true,
+      "rotated": false,
+      "rotated_files": 0
+    }
+  },
+  "live": {
+    "branch": "main",
+    "head": "774f48bcd710f3b410ce7d78fd339f427ebec052",
+    "dirty": true,
+    "untracked": [
+      ".entire/logs/entire.log"
+    ]
+  }
+}

@@ -261,7 +261,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 			return fmt.Errorf("check worktree before seed refresh: %w", err)
 		}
 		if dirty {
-			return errors.New("dirty_worktree: refusing to seed uncommitted content without --worktree")
+			return errors.New(dirtyWorktreeErrorCode + ": refusing to seed uncommitted content without --worktree")
 		}
 	}
 

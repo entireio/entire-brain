@@ -7,6 +7,11 @@ templates/** text eol=lf
 # Windows checkouts too.
 internal/cli/testdata/*.golden* text eol=lf
 
+# render_json_contract_test.go round-trips these through json.Marshal (always LF)
+# and compares bytes; a Windows checkout without this pin gets CRLF and fails the
+# contract test on content it never actually changed.
+internal/cli/testdata/render/*.json text eol=lf
+
 # Unified-diff context markers intentionally put one space before tab-indented
 # source. Do not report that patch syntax as a whitespace defect in outer diffs.
 *.patch -whitespace

@@ -3,11 +3,13 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -38,10 +40,21 @@ type watchCommandOptions struct {
 	distillEvery     time.Duration
 	distillAgent     string
 	distillJobs      int
-	seedAgent        string
-	model            string
-	effort           string
-	budget           int // cap on gated agent runs this process (distill + seed; each spends tokens); 0 = unlimited; resets on restart
+	// distillMaxSessions caps how many NOT-YET-DISTILLED sessions one gated
+	// pass processes (0 = no cap). --distill-every and the persisted cursor
+	// bound how OFTEN the daemon spends; this is the only thing that bounds how
+	// MUCH one spend costs. Without it a supervised watcher's first gated tick
+	// distills the entire remaining corpus of every repo in the workspace —
+	// exactly the spend `setup` told the user it had capped at 25.
+	distillMaxSessions int
+	seedAgent          string
+	model              string
+	effort             string
+	// budget caps gated agent runs for the life of THIS PROCESS (distill + seed;
+	// each spends tokens); 0 = unlimited. It is not window-scoped and never
+	// resets while the process lives, which makes it the wrong guard for a
+	// supervised daemon — see brainWatchDaemonArgs, which deliberately omits it.
+	budget int
 }
 
 // watchCursor persists across restarts so the daemon never re-refreshes unchanged state and never
@@ -108,10 +121,11 @@ func bindWatchFlags(cmd *cobra.Command, w *watchCommandOptions) {
 	cmd.Flags().DurationVar(&w.distillEvery, "distill-every", w.distillEvery, "Minimum interval between gated agent runs (distill and/or seed synthesis)")
 	cmd.Flags().StringVar(&w.distillAgent, "agent", w.distillAgent, "Agent for the distill step (used only with --distill)")
 	cmd.Flags().IntVar(&w.distillJobs, "jobs", w.distillJobs, "Parallel distill extraction jobs when --distill is enabled; reconciliation and writes remain deterministic")
+	cmd.Flags().IntVar(&w.distillMaxSessions, "max-sessions", w.distillMaxSessions, "Cap how many not-yet-distilled sessions ONE gated distill pass processes (0 = no cap). --distill-every bounds how often the daemon spends; this bounds how much each spend costs")
 	cmd.Flags().StringVar(&w.seedAgent, "seed-agent", w.seedAgent, "Agent for gated seed synthesis (SPENDS TOKENS); none = deterministic seed only. Bounded by --distill-every + --budget, NOT per-change")
 	cmd.Flags().StringVar(&w.model, "model", "", "Fast/cheap model for the gated agent steps (distill/seed)")
 	cmd.Flags().StringVar(&w.effort, "effort", "", "Reasoning effort for the gated agent steps (codex --config model_reasoning_effort=, claude --effort)")
-	cmd.Flags().IntVar(&w.budget, "budget", 0, "Cap on gated agent runs this process (distill + seed; each spends tokens); 0 = unlimited. Counts reset on restart — the durable guard against re-spend is --distill-every + the cursor.")
+	cmd.Flags().IntVar(&w.budget, "budget", 0, "Cap on gated agent runs for the LIFE OF THIS PROCESS (distill + seed); 0 = unlimited. It never resets, so on a long-lived daemon --budget 1 means one run EVER, not one per window — the durable per-window guard is --distill-every + the persisted cursor. Use it only for a bounded foreground run.")
 }
 
 func newWatchCommand(opts Options) *cobra.Command {
@@ -161,9 +175,26 @@ func runWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchComm
 	// Background context otherwise).
 	ctx, stop := watchSignalContext(ctx)
 	defer stop()
-	fmt.Fprintf(cmd.OutOrStdout(), "[watch] %s — interval %s, distill=%v (every %s, agent=%s, jobs=%d, model=%q, budget=%d)\n",
-		storage.Key, w.interval, w.distill, w.distillEvery, w.distillAgent, w.distillJobs, w.model, w.budget)
+	fmt.Fprintf(cmd.OutOrStdout(), "[watch] %s — interval %s, distill=%v (every %s, agent=%s, jobs=%d, model=%q, max-sessions=%s, run-budget=%s)\n",
+		storage.Key, w.interval, w.distill, w.distillEvery, w.distillAgent, w.distillJobs, w.model,
+		watchCapLabel(w.distillMaxSessions), watchCapLabel(w.budget))
 	return watchLoop(ctx, cmd.OutOrStdout(), w, cursorPath, steps)
+}
+
+// watchCapLabel renders a cap where a non-positive value means "no cap".
+//
+// The banner printed a bare "budget=0", and 0 is the value a setup-installed
+// watcher ALWAYS has: setup deliberately never passes --budget, because that
+// counter is process-lifetime and never resets (see brainWatchDaemonArgs). So
+// the one number the daemon's log offered about spend was both meaningless and
+// easy to read as "zero allowed", while the cap that actually binds it --
+// --max-sessions, carried per workspace in the machine watch plan -- was not
+// printed at all.
+func watchCapLabel(value int) string {
+	if value <= 0 {
+		return "uncapped"
+	}
+	return strconv.Itoa(value)
 }
 
 // watchSignalContext returns a context cancelled on SIGINT/SIGTERM so `watch` and `workspace watch`
@@ -292,7 +323,9 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 	// counted against --budget. A transient failure of one step is intentionally best-effort: we still
 	// advance the spend cursor + budget below so a failed step retries on the NEXT interval, not every
 	// tick (and a step that already burned tokens before failing can't be re-run for free).
+	seedAttempted := false
 	if w.seedAgent != "none" {
+		seedAttempted = true
 		if err := steps.seed(ctx); err != nil {
 			fmt.Fprintf(out, "[watch] seed synthesis failed: %v\n", err)
 		} else {
@@ -300,12 +333,46 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		}
 	}
 	if w.distill {
-		if err := steps.distill(ctx); err != nil {
+		switch err := steps.distill(ctx); {
+		case errors.Is(err, errDistillPassBusy):
+			// When distill was the only agent step, nothing was spent, so nothing
+			// may be charged. Hand the window
+			// back instead of logging "spent tokens" and going quiet until the
+			// next one — otherwise a watcher installed beside `setup`'s
+			// hours-long backfill loses its first window (and, if the backfill
+			// outlives it, every window) to a pass that never ran.
+			// A seed step attempted immediately before this may already have spent
+			// tokens even when it returned an error, so its reservation must stay.
+			if seedAttempted {
+				fmt.Fprintln(out, "[watch] distill skipped: another pass holds this brain; the spend window remains consumed by seed synthesis")
+			} else {
+				releaseWatchAgentSpend(cursorPath, cursor.LastAgentSpendAt, agentCalls)
+				fmt.Fprintln(out, "[watch] distill skipped: another pass holds this brain; the spend window was NOT consumed")
+			}
+		case err != nil:
 			fmt.Fprintf(out, "[watch] distill failed: %v\n", err)
-		} else {
+		default:
 			fmt.Fprintln(out, "[watch] distilled facts (agent step; spent tokens)")
 		}
 	}
+}
+
+// releaseWatchAgentSpend gives back a window reserved by reserveWatchAgentSpend
+// when the gated step turned out to do nothing at all. previous is the
+// LastAgentSpendAt read at the top of this tick, so the cursor lands exactly
+// where it was; the budget counter is decremented for the same reason. Failures
+// are deliberately silent: the worst case is the pre-existing behaviour (a
+// window charged for a no-op), and a watcher must never die on cursor
+// bookkeeping.
+func releaseWatchAgentSpend(cursorPath string, previous time.Time, agentCalls *int) {
+	_ = withWatchCursorLock(cursorPath, func() error {
+		cursor := loadWatchCursor(cursorPath)
+		cursor.LastAgentSpendAt = previous
+		if *agentCalls > 0 {
+			*agentCalls--
+		}
+		return saveWatchCursor(cursorPath, cursor)
+	})
 }
 
 // agentWorkEnabled reports whether any token-spending step is turned on.
@@ -473,18 +540,40 @@ func watchFingerprint(ctx context.Context, runner CommandRunner, repoDir string)
 // The coordinator owns projection publication, retries, and crash recovery;
 // watch only nudges it. Agent seed synthesis remains a separate gated step.
 func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string) error {
-	perRepo := opts
-	perRepo.Env.RepoRoot = repoDir
-	refreshOpts := refreshCommandOptions{
+	return watchDeterministicRefreshComponents(ctx, cmd, opts, repoDir, watchTickBuildsHistoryProjection, nil)
+}
+
+// watchDeterministicRefreshComponents is the same free path with an optional
+// per-component reporter. With a reporter the refresh is BEST-EFFORT: every
+// component is attempted and its outcome reported (err == nil means built)
+// instead of the first failure aborting the build. `setup` uses it so a single
+// broken source degrades the brain rather than killing first-run onboarding;
+// callers that pass nil keep the strict all-or-nothing behaviour.
+//
+// historyIndex separates the two callers that were previously identical. A
+// watch TICK passes false: it runs every few minutes, the per-tick delta
+// already makes new conversations recallable, and the coordinator consolidates
+// the durable projection on its own schedule. `setup` passes true, because it
+// is a one-shot onboarding build (the same shape as a manual `refresh`, which
+// has always defaulted history on) and it ends by telling the user to run
+// `entire-brain brief`. With history unbuilt that brief silently drops its
+// transcript half and prints "history index missing" instead — setup's own
+// recommended next command, answering with a warning about setup's own output.
+// watchDeterministicRefreshOptions is the free path's refresh configuration,
+// built here rather than inline so both callers' intent — above all whether the
+// history projection is built — is readable and testable in one place.
+func watchDeterministicRefreshOptions(historyIndex bool) refreshCommandOptions {
+	return refreshCommandOptions{
 		outputDir:       defaultExportDir,
 		checkpointLimit: defaultCheckpointLimit,
 		entireBinary:    "entire",
 		graphBinary:     "entire",
 		scope:           exportScopeAll,
-		// The history projection must not bypass the durable work ledger. The
-		// per-tick delta above already makes new conversations recallable while
-		// the coordinator consolidates asynchronously.
-		historyIndex: false,
+		// A tick must not bypass the durable work ledger: the per-tick delta
+		// already makes new conversations recallable while the coordinator
+		// consolidates asynchronously. A one-shot onboarding build has no next
+		// tick to wait for, so `setup` asks for it explicitly.
+		historyIndex: historyIndex,
 		semantic:     true,
 		seed: seedCommandOptions{
 			includeTests:       true,
@@ -498,6 +587,13 @@ func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Opt
 			agentMaxInputBytes: defaultAgentMaxInput,
 		},
 	}
+}
+
+func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string, historyIndex bool, component func(name string, err error)) error {
+	perRepo := opts
+	perRepo.Env.RepoRoot = repoDir
+	refreshOpts := watchDeterministicRefreshOptions(historyIndex)
+	refreshOpts.component = component
 	sub := &cobra.Command{}
 	sub.SetContext(ctx)
 	sub.SetOut(cmd.OutOrStdout())
@@ -508,13 +604,25 @@ func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Opt
 	// Deterministic and token-free, like everything else in this step: index any
 	// checkpoint commits that landed since the entity index's high-water mark.
 	// Bounded and failure-silent — a missing `entire graph` provider must never
-	// fail a tick that otherwise refreshed the brain.
-	if err := refreshEntityIndexQuietly(ctx, perRepo, repoDir); err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: entity index refresh skipped: %v\n", err)
+	// fail a tick that otherwise refreshed the brain. Under a reporter it is one
+	// more degradable component, so `setup --json`, `status` and `doctor` can
+	// name it instead of losing the reason to a discarded stderr line; with no
+	// reporter the strict watch path keeps its warning and carries on exactly as
+	// before.
+	entityErr := refreshEntityIndexQuietly(ctx, perRepo, repoDir)
+	switch {
+	case component != nil:
+		component(brainComponentEntities, entityErr)
+	case entityErr != nil:
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: entity index refresh skipped: %v\n", entityErr)
 	}
 	_, warning, err := reconcileMemoryAndLaunch(ctx, perRepo, repoDir, "watch")
 	if warning != "" {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: memory coordinator: %s\n", warning)
+	}
+	if component != nil {
+		component(brainComponentMemory, err)
+		return nil
 	}
 	return err
 }
@@ -544,19 +652,41 @@ func watchSeed(ctx context.Context, cmd *cobra.Command, opts Options, w watchCom
 	return runSeed(ctx, sub, opts, seedOpts, repoDir)
 }
 
+// errDistillPassBusy reports that the gated distill did NOTHING because another
+// process already held the brain's distill pass lock. `distill` itself treats
+// that as success — someone else is doing the work — but the watcher must not:
+// it had already reserved the --distill-every window, so a silent success burned
+// a whole window (24h by default) on a no-op and logged "spent tokens". `setup`
+// creates that collision by design, spawning an hours-long detached backfill and
+// installing a watcher that ticks immediately after.
+var errDistillPassBusy = errors.New("another distill pass holds this brain")
+
 func watchDistill(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, repoDir string) error {
 	distillOpts := watchDistillOptions(w)
+	busy := false
+	distillOpts.onPassSkipped = func() { busy = true }
 	sub := &cobra.Command{}
 	sub.SetContext(ctx)
 	sub.SetOut(cmd.OutOrStdout())
 	sub.SetErr(cmd.ErrOrStderr())
-	return runDistill(ctx, sub, opts, distillOpts, repoDir)
+	if err := runDistill(ctx, sub, opts, distillOpts, repoDir); err != nil {
+		return err
+	}
+	if busy {
+		return errDistillPassBusy
+	}
+	return nil
 }
 
 func watchDistillOptions(w watchCommandOptions) distillCommandOptions {
 	jobs := w.distillJobs
 	if jobs <= 0 {
 		jobs = 1
+	}
+	// A negative cap is a typo, not "unlimited". Only an explicit 0 means that.
+	maxSessions := w.distillMaxSessions
+	if maxSessions < 0 {
+		maxSessions = 0
 	}
 	return distillCommandOptions{
 		agent:               w.distillAgent,
@@ -565,7 +695,20 @@ func watchDistillOptions(w watchCommandOptions) distillCommandOptions {
 		timeout:             defaultDistillTimeout,
 		maxChunkBytes:       defaultDistillChunkSize,
 		confidenceThreshold: defaultFactConfidenceThreshold,
-		jobs:                jobs,
+		// The per-pass VOLUME cap. A capped pass is ordered newest-first,
+		// matching what `setup` says it did and what a reader wants first; the
+		// deferred remainder stays UNCACHED, so the next window picks it up
+		// rather than it being skipped forever. Ordering is left alone when
+		// there is no cap, so an uncapped `watch --distill` is unchanged.
+		maxSessions: maxSessions,
+		newestFirst: maxSessions > 0,
+		jobs:        jobs,
+		// concurrency is what the distill pipeline (and runDistill's guard)
+		// actually reads; --jobs is only its compatibility alias. Leaving it at
+		// the zero value made every gated distill the watcher ever attempted
+		// fail with "--concurrency must be greater than 0" before making a
+		// single agent call.
+		concurrency: jobs,
 	}
 }
 

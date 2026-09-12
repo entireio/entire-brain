@@ -17,6 +17,7 @@ const (
 	brainWriteLockName    = "write.lock"
 	brainManifestLockName = "manifest.lock"
 	brainPrivacyLockName  = "privacy-side-effect.lock"
+	brainDistillLockName  = "distill-pass.lock"
 	brainWriteLockTimeout = 10 * time.Second
 )
 
@@ -104,6 +105,43 @@ func withBrainPrivacySideEffectLock(brainDir string, fn func() error) error {
 		return err
 	}
 	defer unlock()
+	return fn()
+}
+
+// withDistillPassLock is the cross-process guard against two distill passes
+// spending agent tokens on the same sessions at once. `setup` creates exactly
+// that race: it spawns the detached backfill AND installs a watcher whose first
+// tick distills immediately. The brain write lock does not help — it only wraps
+// the flush at the END of a pass, so both processes sail through the expensive
+// agent calls first and only then serialize on writing the identical facts.
+//
+// Two properties matter, and both differ from the other brain locks:
+//
+//   - it is held for the WHOLE pass, not just the write, because the token spend
+//     is the resource being protected;
+//   - it is TRY-only. A second comer must skip cleanly, not queue behind an
+//     hours-long backfill and then re-spend on the sessions that backfill just
+//     finished. onBusy reports the skip; the pass returns nil, because "someone
+//     else is already doing this" is a success for the caller.
+func withDistillPassLock(brainDir string, onBusy func(), fn func() error) error {
+	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+		return err
+	}
+	if err := rejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
+		return err
+	}
+	// timeout 0 = try once; acquireFileLock reports contention as a timeout.
+	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, brainDistillLockName), "distill_pass_locked", 0)
+	if err != nil {
+		if errors.Is(err, errFileLockTimeout) {
+			if onBusy != nil {
+				onBusy()
+			}
+			return nil
+		}
+		return err
+	}
+	defer func() { _ = lock.Close() }()
 	return fn()
 }
 

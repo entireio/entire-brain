@@ -103,6 +103,7 @@ type preparedSession struct {
 	session     exportSession
 	branch      string
 	skip        bool  // filtered out by --branch/--session: carry cache through
+	deferred    bool  // --max-sessions budget spent: carry cache through, distill next run
 	readErr     error // canonical input refusal: abort without publication
 	cached      bool  // fingerprint matched: keep facts, no agent work
 	fingerprint string
@@ -263,6 +264,12 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 	}()
 	go func() { // stage B: in-order delivery + global-order dispatch
 		defer close(prepared)
+		// distilled counts sessions this run actually dispatched agent calls
+		// for. The --max-sessions budget is enforced HERE, in the single
+		// in-order dispatcher, so the decision is deterministic (the same N
+		// sessions every time for a given order) and, crucially, no agent call
+		// is ever dispatched for a deferred session.
+		distilled := 0
 		for f := range prepQueue {
 			var ps preparedSession
 			select {
@@ -278,6 +285,24 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 					return
 				}
 			}
+			if distillOpts.maxSessions > 0 && distilled >= distillOpts.maxSessions {
+				// Budget spent. Release the work slot the prep stage took (the
+				// consumer will never consume these chunks) and drop the chunk
+				// text so a deferred tail costs no memory.
+				if ps.release != nil {
+					ps.release()
+					ps.release = nil
+				}
+				ps.chunks = nil
+				ps.deferred = true
+				select {
+				case prepared <- ps:
+					continue
+				case <-ctx.Done():
+					return
+				}
+			}
+			distilled++
 			if sem == nil {
 				ps.seq = func(chunks []transcriptChunk) func(int) (string, error) {
 					return func(i int) (string, error) {
@@ -373,6 +398,25 @@ type distillCommandOptions struct {
 	dryRun              bool
 	jobs                int
 	cacheSalt           string
+	// newestFirst distills the most recent sessions BEFORE older ones. The
+	// default (false) keeps the established oldest-first order, where a later
+	// session's fact naturally supersedes an earlier one's. Newest-first is for
+	// the background backfill `setup` starts: a long O(sessions) pass whose
+	// early output is the only output a user sees soon, so the most useful
+	// (most recent) facts must land first. Ordering only decides which sessions
+	// are visited first — every session is still visited, and the persisted
+	// distill cache means neither order re-spends on unchanged sessions.
+	newestFirst bool
+	// onPassSkipped fires when the cross-process pass lock was already held, so
+	// this run did nothing and spent nothing. `distill` still exits 0 (another
+	// process is doing the work), but a caller that RESERVED a spend window
+	// before calling has to be able to give it back.
+	onPassSkipped func()
+	// maxSessions caps how many UNCACHED sessions one run distills (0 =
+	// unlimited). Paired with newestFirst it is "distill the N newest sessions
+	// that still need it", the token budget for a backfill pass; the remaining
+	// sessions stay uncached and are picked up by the next run or the watcher.
+	maxSessions int
 	// concurrency is the distill agent-call pool size; <=1 means strictly
 	// sequential, lazy agent calls (the zero value keeps tests and library
 	// callers on the old behavior). See chunkPrefetcher for the pool semantics.
@@ -434,13 +478,20 @@ type distillPlan struct {
 	ChunksIfUncached   int
 	Warnings           []string
 	CacheSalt          string
+	// BudgetDeferredSessions counts sessions that still need distilling but
+	// were held back by --max-sessions. They remain uncached, so a later run
+	// picks them up.
+	BudgetDeferredSessions int
 }
 
 type distillSessionPlan struct {
-	Session           exportSession
-	Branch            string
-	Fingerprint       string
-	Cached            bool
+	Session     exportSession
+	Branch      string
+	Fingerprint string
+	Cached      bool
+	// BudgetDeferred marks a session that needs distilling but was held back
+	// by --max-sessions. It is NOT cached: the next run distills it.
+	BudgetDeferred    bool
 	ReadFailed        bool
 	RawBytes          int
 	PreprocessedBytes int
@@ -538,6 +589,8 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&distillOpts.concurrency, "concurrency", defaultDistillConcurrency, "Distill agent calls to run in flight at once, shared across sessions (1 = strictly sequential; higher values may add one concurrent reconcile call)")
 	cmd.Flags().IntVar(&distillOpts.jobs, "jobs", 0, "Compatibility alias for --concurrency")
 	cmd.Flags().IntVar(&distillOpts.maxChunkBytes, "max-chunk-bytes", defaultDistillChunkSize, "Transcript chunk size in bytes; larger chunks mean fewer agent calls per session (long-context models handle 128-192KB comfortably)")
+	cmd.Flags().BoolVar(&distillOpts.newestFirst, "newest-first", false, "Distill the most recent sessions first so the most useful facts land early (default: oldest first)")
+	cmd.Flags().IntVar(&distillOpts.maxSessions, "max-sessions", 0, "Cap how many not-yet-distilled sessions this run processes (0 = no cap); pairs with --newest-first as a backfill budget")
 	return cmd
 }
 
@@ -604,16 +657,50 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	progress := newProgress(cmd.ErrOrStderr(), "distill")
 	task := progress.Begin("distill sessions")
 	distillOpts.progress = func(p distillProgress) {
-		task.Update(distillProgressLabel(p))
+		// Event, not Update: each callback is ONE session finished, and a
+		// detached backfill's log is the only place that per-session heartbeat
+		// exists. Update coalesces labels that differ only in counters — right
+		// for a repaint, fatal for a completion event.
+		task.Event(distillProgressLabel(p))
 	}
-	// Built once per run, before any agent call: reading the derived index is
-	// cheap and bounded, and a missing/empty index yields nil, which restores
-	// the pre-index anchoring exactly.
-	distillOpts.entityProvenance = newEntityProvenanceResolver(ctx, opts, repoDir)
-	source, err := runDistillForBrain(ctx, repoDir, storage.BrainDir, distillOpts, opts.Now().UTC())
+	// One pass at a time per brain. Every in-process caller funnels through here
+	// — the detached `setup` backfill child, the watcher's gated distill step,
+	// the session-end hook, and a human running `distill` — so this is the one
+	// place that can stop two of them spending tokens on the same sessions.
+	var source *factSourceManifest
+	skipped := false
+	err = withDistillPassLock(storage.BrainDir, func() {
+		skipped = true
+		// Tell the CALLER, not just the terminal. A skipped pass spends
+		// nothing, and a supervised watcher that cannot tell "done" from
+		// "someone else was holding the lock" burns its whole --distill-every
+		// window on a no-op and logs "spent tokens" while doing it — which is
+		// exactly what `setup` produces, since it spawns the hours-long
+		// detached backfill and installs a watcher that ticks immediately.
+		if distillOpts.onPassSkipped != nil {
+			distillOpts.onPassSkipped()
+		}
+		fmt.Fprintf(cmd.ErrOrStderr(),
+			"distill: another distill pass already holds %s for this brain; skipping so the same sessions are not distilled twice\n",
+			filepath.Join(storage.BrainDir, brainLockDirName, brainDistillLockName))
+	}, func() error {
+		// Built once per run, before any agent call: reading the derived index
+		// is cheap and bounded, and a missing/empty index yields nil, which
+		// restores the pre-index anchoring exactly. Built INSIDE the pass lock
+		// so a run that skips never pays for it and a run that proceeds reads
+		// the index as of the moment it actually owns the pass — the session-end
+		// hook refreshes that index just before calling in.
+		distillOpts.entityProvenance = newEntityProvenanceResolver(ctx, opts, repoDir)
+		var runErr error
+		source, runErr = runDistillForBrain(ctx, repoDir, storage.BrainDir, distillOpts, opts.Now().UTC())
+		return runErr
+	})
 	task.Finish(err)
 	if err != nil {
 		return err
+	}
+	if skipped {
+		return nil
 	}
 	if distillOpts.json {
 		data, err := json.MarshalIndent(source, "", "  ")
@@ -622,6 +709,9 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 		}
 		fmt.Fprintln(cmd.OutOrStdout(), string(data))
 		return nil
+	}
+	for _, warning := range source.Warnings {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "distilled %d facts (%d distilled, %d authored, %d superseded) across %d branch(es) from %d chunks; %d proposals queued for review\n",
 		source.Facts, source.Distilled, source.Authored, source.Superseded, len(source.Branches), source.ChunksScanned, source.Proposals)
@@ -705,8 +795,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		return nil, err
 	}
 	// Chronological order so any future supersession chain reconstructs
-	// deterministically regardless of incremental vs --force.
-	sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].CreatedAt.Before(sessions[j].CreatedAt) })
+	// deterministically regardless of incremental vs --force. --newest-first
+	// reverses it for the backfill pass (see sortDistillSessions).
+	sortDistillSessions(sessions, distillOpts.newestFirst)
 
 	prevCache := loadDistillCache(brainDir)
 	newCache := distillCache{Version: distillCacheVersion, Sessions: make(map[string]string, len(sessions))}
@@ -722,7 +813,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	dirtyBranches := map[string]bool{}
 	var warnings []string
 	chunksScanned, chunksDistilled := 0, 0
-	cacheHits, failedChunks := 0, 0
+	cacheHits, failedChunks, budgetDeferred := 0, 0, 0
 	extractionAgentCalls, reconcileAgentCalls := 0, 0
 	var preprocessedBytes int64
 	var extractionSeconds, reconcileSeconds float64
@@ -913,12 +1004,35 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	defer pipeCancel()
 	for ps := range startSessionPrefetch(pipeCtx, brainDir, repoDir, args, sessions, prevCache, distillOpts, resolveBranch) {
 		session, branch := ps.session, ps.branch
-		if ps.skip {
+		if ps.skip || ps.deferred {
+			if ps.deferred {
+				budgetDeferred++
+				sessionsDone++
+				if distillOpts.progress != nil {
+					distillOpts.progress(distillProgress{SessionsDone: sessionsDone, SessionsTotal: totalSessions, Branch: branch, Facts: factsFound})
+				}
+			}
 			// Carry the session's cache entry through unchanged: the final flush
 			// persists newCache only, so dropping filtered sessions here would
 			// make the next unfiltered run re-distill every other branch (or
 			// session) from scratch. (The fingerprint-match skip below does the
-			// same.)
+			// same.) A --max-sessions deferral carries nothing when the session
+			// was never distilled, which is exactly right: it stays uncached and
+			// the next run picks it up.
+			//
+			// EXCEPT under --force. A forced pass drops every distilled fact on
+			// each branch it visits (see ensureBranch), and a session deferred by
+			// --max-sessions `continue`s before ensureBranch — so its facts can
+			// already have been deleted by a SIBLING session on the same branch
+			// while its fingerprint says "distilled". Carrying that entry marks
+			// the session done forever: its facts are gone, no later run will
+			// re-derive them, and `status` counts it as distilled because it
+			// counts cache keys. --session + --force is rejected outright for the
+			// same reason; this pair needed the same guard. Dropping the entry
+			// costs at most one re-distill of a session whose facts survived.
+			if distillOpts.force && ps.deferred {
+				continue
+			}
 			if prev, ok := prevCache.Sessions[distillSessionCacheKey(branch, session.SessionID)]; ok {
 				newCache.Sessions[distillSessionCacheKey(branch, session.SessionID)] = prev
 			} else if prev, ok := prevCache.Sessions[session.SessionID]; ok {
@@ -1014,7 +1128,18 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			warnings = append(warnings, recWarnings...)
 			callsSinceFlush++ // reconcile is an agent call too
 			var chunkProposals []factProposal
-			byBranch[branch], chunkProposals = applyFactActions(byBranch[branch], actions, threshold, now)
+			for _, action := range actions {
+				actionThreshold := threshold
+				if distillOpts.newestFirst && action.Kind == "supersede" {
+					// Extraction order is not evidence that a candidate is newer.
+					// In reverse-order backfill, preserve both facts for review.
+					actionThreshold = 2 // above every valid agent confidence
+					warnings = append(warnings, "newest-first supersession requires review; both facts retained (run facts review)")
+				}
+				var pending []factProposal
+				byBranch[branch], pending = applyFactActions(byBranch[branch], []factAction{action}, actionThreshold, now)
+				chunkProposals = append(chunkProposals, pending...)
+			}
 			proposalsByBranch[branch] = append(proposalsByBranch[branch], chunkProposals...)
 			dirtyBranches[branch] = true
 			maybeFlush()
@@ -1037,6 +1162,13 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		)
 	}
 
+	if budgetDeferred > 0 {
+		// Prepended so the budget notice survives the warning cap: it is the
+		// one line that explains why the run stopped short of the corpus.
+		warnings = append([]string{fmt.Sprintf(
+			"--max-sessions %d reached: %d session(s) deferred to a later run (they stay undistilled, not skipped)",
+			distillOpts.maxSessions, budgetDeferred)}, warnings...)
+	}
 	warnings = capWarnings(warnings, maxDistillWarnings)
 
 	writeStarted := time.Now()
@@ -1283,7 +1415,7 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 	if err != nil {
 		return distillPlan{}, err
 	}
-	sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].CreatedAt.Before(sessions[j].CreatedAt) })
+	sortDistillSessions(sessions, distillOpts.newestFirst)
 	prevCache := loadDistillCache(brainDir)
 	branchSeen := map[string]struct{}{}
 	plan := distillPlan{CacheSalt: cacheSalt}
@@ -1325,6 +1457,15 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 				continue
 			}
 		}
+		// Budget: once the cap is reached, remaining sessions are planned but
+		// carry no work. They stay uncached, so the next run (or the watcher)
+		// distills them — the cap defers spend, it never drops a session.
+		if distillOpts.maxSessions > 0 && plan.SessionsToDistill >= distillOpts.maxSessions {
+			sessionPlan.BudgetDeferred = true
+			plan.BudgetDeferredSessions++
+			plan.Sessions = append(plan.Sessions, sessionPlan)
+			continue
+		}
 		plan.SessionsToDistill++
 		for chunkIndex := range chunks {
 			workIndex := len(plan.Work)
@@ -1340,6 +1481,28 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 	}
 	sort.Strings(plan.BranchOrder)
 	return plan, nil
+}
+
+// sortDistillSessions orders the corpus for one distill pass. Oldest-first is
+// the default and the established order (a later session's fact supersedes an
+// earlier one's naturally). Newest-first is the backfill order: the same set of
+// sessions, visited so the most recent — and most useful — facts land first.
+// Both are total and stable (session id breaks CreatedAt ties) so a plan is
+// reproducible.
+func sortDistillSessions(sessions []exportSession, newestFirst bool) {
+	sort.SliceStable(sessions, func(i, j int) bool {
+		left, right := sessions[i], sessions[j]
+		if !left.CreatedAt.Equal(right.CreatedAt) {
+			if newestFirst {
+				return right.CreatedAt.Before(left.CreatedAt)
+			}
+			return left.CreatedAt.Before(right.CreatedAt)
+		}
+		if newestFirst {
+			return right.SessionID < left.SessionID
+		}
+		return left.SessionID < right.SessionID
+	})
 }
 
 func resolveDistillBranch(manifest *exportManifest, session exportSession) string {

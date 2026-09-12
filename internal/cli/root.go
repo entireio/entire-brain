@@ -83,6 +83,8 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	}
 
 	// Create the brain — locate it, build/refresh it, manage workspaces.
+	// `setup` leads the group: it is the one command a new user runs.
+	addGrouped("create", newSetupCommand(opts))
 	addGrouped("create", newPathCommand(opts))
 	addGrouped("create", newAddCommand(opts))
 	addGrouped("create", newRefreshCommand(opts))
