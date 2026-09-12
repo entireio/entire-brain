@@ -648,15 +648,18 @@ func cloneWorkspaceRetrieveGroups(groups []workspaceRetrieveResult) []workspaceR
 	return out
 }
 
+// trimWorkspaceExtrasOnce drops one lowest-priority optional tail item so the
+// caller keeps a useful bounded response. A member's Error is deliberately NOT
+// trimmable: clearing it makes a member whose retrieval failed serialize as
+// {"results": []}, byte-identical to a healthy member with no matches, and the
+// generic response_truncated marker does not say a failure was suppressed.
+// Ranked rows are the cheap thing to drop; a member's failure is not.
 func trimWorkspaceExtrasOnce(groups []workspaceRetrieveResult) bool {
 	for i := len(groups) - 1; i >= 0; i-- {
 		switch {
 		case len(groups[i].AbstractPreviews) > 0:
 			groups[i].AbstractPreviews = groups[i].AbstractPreviews[:len(groups[i].AbstractPreviews)-1]
 			groups[i].AbstractPreviewsTruncated = true
-			return true
-		case groups[i].Error != "":
-			groups[i].Error = ""
 			return true
 		case groups[i].Freshness.Detail != "":
 			groups[i].Freshness.Detail = ""
