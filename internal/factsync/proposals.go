@@ -401,6 +401,13 @@ func ResolveOpen(ctx context.Context, srv ProposalServer, repoID, branch, ref st
 		if err != nil {
 			return ResolveOpenResult{}, err
 		}
+		// Same trust boundary as Sync: the head is member-writable, so a record's
+		// id is only meaningful once it has been re-derived from its own content.
+		// Settling a proposal rewrites fact status, so an unverified head here
+		// would let a forged record decide which statement survives.
+		if err := factmerge.VerifyIdentities(facts); err != nil {
+			return ResolveOpenResult{}, fmt.Errorf("factsync: shared fact-set head for %s/%s is not trustworthy: %w", repoID, branch, err)
+		}
 
 		resolved, err := Resolve(facts, target.Proposal, decision, now)
 		if err != nil {
