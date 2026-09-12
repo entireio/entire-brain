@@ -37,7 +37,6 @@ const (
 	exportScopeAll    = "all"
 	exportScopeBranch = "branch"
 
-	v2MainRef           = "refs/entire/checkpoints/v2/main"
 	v1MainRef           = "refs/heads/entire/checkpoints/v1"
 	v1OriginRef         = "refs/remotes/origin/entire/checkpoints/v1"
 	v1RemoteFetchRef    = "refs/heads/entire/checkpoints/v1"
@@ -54,10 +53,8 @@ const (
 	checkpointRemoteBlobFilter     = "blob:limit=128k"
 
 	checkpointStorageV1 = 1
-	checkpointStorageV2 = 2
 
 	v1TranscriptFileName = "full.jsonl"
-	v2TranscriptFileName = "transcript.jsonl"
 
 	checkpointTrailerKey = "Entire-Checkpoint"
 
@@ -1041,9 +1038,7 @@ func checkpointScopeWarning(payload string) string {
 }
 
 func listAllCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir string, limit int) ([]checkpointListEntry, []string, error) {
-	settings, settingsErr := readEntireSettings(repoDir)
-	includeV2 := settingsErr == nil && settings.CheckpointsV2Enabled()
-	ids, warnings := listLocalCheckpointRefIDs(ctx, runner, repoDir, localCheckpointRefs(includeV2))
+	ids, warnings := listLocalCheckpointRefIDs(ctx, runner, repoDir, localCheckpointRefs())
 	refIDs, refWarnings := listLocalPerCheckpointRefIDs(ctx, runner, repoDir)
 	for id := range refIDs {
 		ids[id] = struct{}{}
@@ -1123,10 +1118,11 @@ func checkpointULIDTime(value string) (time.Time, bool) {
 	return time.UnixMilli(int64(millis)).UTC(), true
 }
 
-func localCheckpointRefs(includeV2 bool) []string {
-	if includeV2 {
-		return []string{v2MainRef, v1MainRef, v1OriginRef}
-	}
+// localCheckpointRefs lists the aggregate git-branch checkpoint refs a clone
+// can hold. entire/checkpoints/v1 is the only aggregate layout any released CLI
+// writes; the git-refs backend uses one ref per checkpoint under
+// checkpointRefPrefix and is enumerated separately.
+func localCheckpointRefs() []string {
 	return []string{v1MainRef, v1OriginRef}
 }
 
@@ -1152,12 +1148,42 @@ func listLocalCheckpointRefIDs(ctx context.Context, runner CommandRunner, repoDi
 	return ids, warnings
 }
 
+// checkpointEntriesFromIDs orders discovered checkpoint IDs newest-first and
+// applies the limit, which the caller documents as "inspect the most recent N".
+//
+// The two ID formats do not share an ordering. A ULID encodes a millisecond
+// timestamp in its leading characters, so it IS time-sortable; a legacy 12-hex
+// ID is random throughout and carries no time at all. Sorting the mixed set as
+// plain reversed strings therefore did not order by recency: hex IDs are
+// lowercase and ULIDs are uppercase Crockford base32, so in descending byte
+// order every hex ID beginning a-f outranks every ULID. Under a limit that
+// systematically discarded the newest checkpoints — the ULIDs the git-refs
+// backend mints — in favour of the oldest ones from the pre-migration branch.
+//
+// Order by the time the ID actually carries, then fall back to descending ID
+// for the legacy IDs that carry none. This is the same rule
+// loadLocalCheckpointUnionSnapshot already applies to the same two formats.
 func checkpointEntriesFromIDs(ids map[string]struct{}, limit int) []checkpointListEntry {
 	sorted := make([]string, 0, len(ids))
 	for id := range ids {
 		sorted = append(sorted, id)
 	}
-	sort.Sort(sort.Reverse(sort.StringSlice(sorted)))
+	sort.SliceStable(sorted, func(i, j int) bool {
+		iTime, iTimed := checkpointULIDTime(sorted[i])
+		jTime, jTimed := checkpointULIDTime(sorted[j])
+		switch {
+		case iTimed && jTimed:
+			if !iTime.Equal(jTime) {
+				return iTime.After(jTime)
+			}
+		case iTimed != jTimed:
+			// An ID whose creation time is recoverable outranks one whose is
+			// not; a legacy hex ID could be from any era and guessing places it
+			// above checkpoints known to be newer.
+			return iTimed
+		}
+		return sorted[i] > sorted[j]
+	})
 	if limit > 0 && len(sorted) > limit {
 		sorted = sorted[:limit]
 	}
@@ -1230,38 +1256,6 @@ func validateGitHubRepoSlug(repo string) error {
 	return nil
 }
 
-func (s entireSettingsFile) CheckpointsV2Enabled() bool {
-	if s.StrategyOptions.CheckpointsVersionValue() == 2 {
-		return true
-	}
-	if s.StrategyOptions.CheckpointsV2 != nil {
-		return *s.StrategyOptions.CheckpointsV2
-	}
-	return false
-}
-
-func (s entireStrategyOptions) CheckpointsVersionValue() int {
-	if s.CheckpointsVersion == nil {
-		return 1
-	}
-	switch v := s.CheckpointsVersion.(type) {
-	case int:
-		if v == 1 || v == 2 {
-			return v
-		}
-	case float64:
-		if v == 1 || v == 2 {
-			return int(v)
-		}
-	case string:
-		parsed, err := strconv.Atoi(v)
-		if err == nil && (parsed == 1 || parsed == 2) {
-			return parsed
-		}
-	}
-	return 1
-}
-
 var errCheckpointSnapshotUnavailable = errors.New("checkpoint snapshot unavailable")
 
 func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner, repoDir string, raw bool, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress), cache *checkpointMetadataCache) (*checkpointSnapshot, []string, error) {
@@ -1285,48 +1279,6 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 	// checkpoints. No-egress mode intentionally reads the local catalog only.
 	if !brainNoEgressMode() && checkpointRemoteMayExtendCatalog(repoDir, settings, settingsErr) {
 		return nil, nil, fmt.Errorf("%w: configured checkpoint remote requires complete routed discovery", errCheckpointSnapshotUnavailable)
-	}
-
-	// The legacy compact v2 reader cannot be a complete scope-all fast path.
-	// New git-refs checkpoints are v1-shaped, and one export manifest cannot
-	// honestly label a mixed compact-v2/full-v1 snapshot with one transcript
-	// mode. Route through Entire, which resolves the active topology per ID.
-	if settingsErr == nil && settings.CheckpointsV2Enabled() && primary == checkpointBackendGitBranch {
-		refNames, probeWarnings, probeErr := probeLocalPerCheckpointRefs(ctx, runner, repoDir, brainNoEgressMode())
-		if probeErr != nil {
-			if brainNoEgressMode() {
-				probeWarnings = append(probeWarnings, "no_egress: checkpoint topology probe failed closed")
-			}
-			return nil, probeWarnings, fmt.Errorf("%w: cannot prove whether the v2 catalog is mixed with git-refs: %v", errCheckpointSnapshotUnavailable, probeErr)
-		}
-		if len(refNames) > 0 {
-			if brainNoEgressMode() {
-				return nil, probeWarnings, fmt.Errorf("%w: no-egress mode cannot route mixed v2 and git-refs transcript formats", errCheckpointSnapshotUnavailable)
-			}
-			return nil, probeWarnings, fmt.Errorf("%w: mixed v2 and git-refs checkpoint topology requires routed discovery", errCheckpointSnapshotUnavailable)
-		}
-		if raw {
-			return nil, probeWarnings, fmt.Errorf("%w: direct v2 raw transcript export is not implemented", errCheckpointSnapshotUnavailable)
-		}
-		treeOut, treeStderr, treeErr := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "ls-tree", "-r", "--name-only", v2MainRef)
-		probeWarnings = append(probeWarnings, warningLines("checkpoint ref "+v2MainRef, treeStderr)...)
-		if treeErr != nil {
-			if brainNoEgressMode() {
-				probeWarnings = append(probeWarnings, "no_egress: checkpoint remote snapshot fetch skipped")
-			}
-			return nil, probeWarnings, fmt.Errorf("%w: read checkpoint ref %s: %v", errCheckpointSnapshotUnavailable, v2MainRef, treeErr)
-		}
-		checkpointCount := len(checkpointIDsFromTreeListing(treeOut))
-		if limit > 0 && checkpointCount > limit {
-			return nil, probeWarnings, fmt.Errorf("%w: v2 local catalog has %d checkpoints and cannot apply newest-first limit %d without routed metadata", errCheckpointSnapshotUnavailable, checkpointCount, limit)
-		}
-		snapshot, snapshotWarnings, err := loadCheckpointSnapshotFromGitDirPolicy(ctx, runner, repoDir, v2MainRef, checkpointStorageV2, v2TranscriptFileName, "compact", 0, branchDestinations, progress, cache, brainNoEgressMode())
-		probeWarnings = append(probeWarnings, snapshotWarnings...)
-		if err != nil {
-			return nil, probeWarnings, err
-		}
-		probeWarnings = append(probeWarnings, fmt.Sprintf("exporting compact transcripts directly from local checkpoint ref %s", v2MainRef))
-		return snapshot, probeWarnings, nil
 	}
 
 	snapshot, warnings, err := loadLocalCheckpointUnionSnapshot(ctx, runner, repoDir, primary, limit, branchDestinations, progress, cache, brainNoEgressMode())
@@ -2827,27 +2779,13 @@ func readSnapshotTranscriptFromSource(ctx context.Context, runner CommandRunner,
 		}
 		return readCheckpointSourceTranscript(ctx, runner, source, sourcePath)
 	}
-	if _, ok := snapshot.TreePaths[sourcePath]; ok {
-		return catFileWithPolicy(ctx, runner, snapshot.GitDir, snapshot.Ref, sourcePath, brainNoEgressMode())
-	}
-
 	chunks := snapshotTranscriptChunks(sourcePath, snapshot.TreePaths)
 	if len(chunks) == 0 {
 		return nil, fmt.Errorf("transcript path %s not found in %s", sourcePath, snapshot.Ref)
 	}
-
-	var b strings.Builder
-	for i, chunk := range chunks {
-		data, err := catFileWithPolicy(ctx, runner, snapshot.GitDir, snapshot.Ref, chunk, brainNoEgressMode())
-		if err != nil {
-			return nil, fmt.Errorf("read transcript chunk %s: %w", chunk, err)
-		}
-		if i > 0 {
-			b.WriteByte('\n')
-		}
-		b.Write(data)
-	}
-	return []byte(b.String()), nil
+	return readTranscriptChunks(chunks, func(chunk string) ([]byte, error) {
+		return catFileWithPolicy(ctx, runner, snapshot.GitDir, snapshot.Ref, chunk, brainNoEgressMode())
+	})
 }
 
 func readCheckpointSourceTranscript(ctx context.Context, runner CommandRunner, source checkpointSnapshotSource, virtualPath string) ([]byte, error) {
@@ -2858,25 +2796,91 @@ func readCheckpointSourceTranscript(ctx context.Context, runner CommandRunner, s
 		}
 		return catFileWithPolicy(ctx, runner, source.GitDir, source.Ref, actualPath, source.LocalOnly)
 	}
-	if _, ok := source.TreePaths[virtualPath]; ok {
-		return readOne(virtualPath)
-	}
 	chunks := snapshotTranscriptChunks(virtualPath, source.TreePaths)
 	if len(chunks) == 0 {
 		return nil, fmt.Errorf("transcript path %s not found in %s", virtualPath, source.Ref)
 	}
-	var b strings.Builder
-	for i, chunk := range chunks {
+	return readTranscriptChunks(chunks, readOne)
+}
+
+// readTranscriptChunks reads the ordered parts of one stored transcript and
+// reassembles them the way the CLI that wrote them does.
+//
+// The CLI splits an oversized transcript into `full.jsonl` plus numbered
+// `full.jsonl.NNN` parts and reassembles them FORMAT-AWARE
+// (cmd/entire/cli/agent/chunking.go ReassembleTranscript). Every part is a
+// fragment, including the unsuffixed one, so a reader that returns the base
+// file whenever it exists returns a truncated transcript; and Gemini — the one
+// supported agent whose transcript is a standalone JSON document rather than
+// JSONL — stores each part as its own complete {"messages":[...]} object, so a
+// byte join with a newline produces two top-level JSON documents in one file
+// and the exported transcript does not parse at all.
+//
+// A single unchunked part is returned verbatim, so the overwhelmingly common
+// case is byte-identical to a plain read.
+func readTranscriptChunks(chunks []string, readOne func(string) ([]byte, error)) ([]byte, error) {
+	parts := make([][]byte, 0, len(chunks))
+	for _, chunk := range chunks {
 		data, err := readOne(chunk)
 		if err != nil {
 			return nil, fmt.Errorf("read transcript chunk %s: %w", chunk, err)
 		}
+		parts = append(parts, data)
+	}
+	if len(parts) == 1 {
+		return parts[0], nil
+	}
+	if isGeminiTranscriptDocument(parts[0]) {
+		return mergeGeminiTranscriptChunks(parts)
+	}
+	var b strings.Builder
+	for i, part := range parts {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		b.Write(data)
+		b.Write(part)
 	}
 	return []byte(b.String()), nil
+}
+
+// geminiTranscriptDocument is the Gemini transcript envelope. Messages stay raw
+// so a merge re-emits each message exactly as the CLI stored it.
+type geminiTranscriptDocument struct {
+	Messages []json.RawMessage `json:"messages"`
+}
+
+// isGeminiTranscriptDocument mirrors the CLI's own content sniff for a Gemini
+// transcript (cmd/entire/cli/agent/chunking.go DetectAgentTypeFromContent),
+// which is what the CLI itself falls back to when the agent type is not
+// recorded. A JSONL part cannot match: more than one line of JSON fails to
+// unmarshal as a single document.
+func isGeminiTranscriptDocument(data []byte) bool {
+	if !strings.HasPrefix(strings.TrimSpace(string(data)), "{") {
+		return false
+	}
+	var doc geminiTranscriptDocument
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return false
+	}
+	return len(doc.Messages) > 0
+}
+
+// mergeGeminiTranscriptChunks concatenates the parts' message arrays into one
+// document, the same reassembly the CLI performs
+// (cmd/entire/cli/agent/geminicli/gemini.go ReassembleTranscript).
+func mergeGeminiTranscriptChunks(parts [][]byte) ([]byte, error) {
+	merged := geminiTranscriptDocument{Messages: make([]json.RawMessage, 0, len(parts))}
+	for i, part := range parts {
+		var doc geminiTranscriptDocument
+		if err := json.Unmarshal(part, &doc); err != nil {
+			// The first part already parsed as a Gemini document, so a later
+			// one that does not is a damaged store, not a format guess gone
+			// wrong. Fail loudly rather than emit a file that does not parse.
+			return nil, fmt.Errorf("reassemble Gemini transcript chunk %d: %w", i, err)
+		}
+		merged.Messages = append(merged.Messages, doc.Messages...)
+	}
+	return json.Marshal(merged)
 }
 
 func (s checkpointSnapshotSource) actualPath(virtualPath string) (string, error) {
@@ -3529,9 +3533,7 @@ type entireCheckpointBackendSettings struct {
 }
 
 type entireStrategyOptions struct {
-	CheckpointRemote   *checkpointRemoteSettings `json:"checkpoint_remote,omitempty"`
-	CheckpointsV2      *bool                     `json:"checkpoints_v2,omitempty"`
-	CheckpointsVersion any                       `json:"checkpoints_version,omitempty"`
+	CheckpointRemote *checkpointRemoteSettings `json:"checkpoint_remote,omitempty"`
 }
 
 type checkpointRemoteSettings struct {

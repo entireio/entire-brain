@@ -678,20 +678,6 @@ func loadLocalCheckpointSnapshotForVerify(ctx context.Context, runner CommandRun
 	if settingsErr != nil && !errors.Is(settingsErr, os.ErrNotExist) && !configured {
 		return nil, nil, fmt.Errorf("%w: checkpoint settings are malformed or unreadable: %v", errCheckpointSnapshotUnavailable, settingsErr)
 	}
-	if settingsErr == nil && settings.CheckpointsV2Enabled() && primary == checkpointBackendGitBranch {
-		refSources, refWarnings := loadPerCheckpointSources(ctx, runner, repoDir, true, nil)
-		if len(refSources) > 0 {
-			return nil, refWarnings, fmt.Errorf("%w: mixed v2 and git-refs checkpoint verification requires routed transcript modes", errCheckpointSnapshotUnavailable)
-		}
-		for _, warning := range refWarnings {
-			if strings.Contains(warning, "checkpoint ref namespace unavailable") {
-				return nil, refWarnings, fmt.Errorf("%w: cannot prove the v2 checkpoint catalog excludes git-refs", errCheckpointSnapshotUnavailable)
-			}
-		}
-		snapshot, warnings, err := loadCheckpointSnapshotFromGitDirPolicy(ctx, runner, repoDir, v2MainRef, checkpointStorageV2, v2TranscriptFileName, "compact", 0, checkpointBranchDestinations{}, nil, nil, true)
-		warnings = append(refWarnings, warnings...)
-		return snapshot, warnings, err
-	}
 	snapshot, warnings, err := loadLocalCheckpointUnionSnapshot(ctx, runner, repoDir, primary, 0, checkpointBranchDestinations{}, nil, nil, true)
 	if err != nil {
 		return nil, warnings, err

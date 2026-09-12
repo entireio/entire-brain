@@ -58,9 +58,8 @@ const testRetention = 30 * 24 * time.Hour
 
 func TestRecordIDStableAcrossPathOrder(t *testing.T) {
 	a := RecordID("Use tabs, not spaces", []string{"preferences.coding.style", "project.tooling.stack"})
-	b := RecordID("Use tabs, not spaces", []string{"preferences.coding.style", "project.tooling.stack"})
-	if a != b {
-		t.Fatalf("id not deterministic: %s != %s", a, b)
+	if a != recordIDTabsNotSpaces {
+		t.Fatalf("RecordID = %s, want %s", a, recordIDTabsNotSpaces)
 	}
 	c := RecordID("  use TABS, not spaces  ", []string{"preferences.coding.style", "project.tooling.stack"})
 	if a != c {
@@ -75,13 +74,33 @@ func TestRecordIDStableAcrossPathOrder(t *testing.T) {
 func TestRecordIDIgnoresKind(t *testing.T) {
 	paths := NormalizePaths([]string{"constraints.invariants.general"})
 	id := RecordID("the index is derived from the ndjson truth", paths)
-	if id != RecordID("the index is derived from the ndjson truth", paths) {
-		t.Fatal("id must be stable")
-	}
-	if id == "" {
-		t.Fatal("id must be non-empty")
+	if id != recordIDNDJSONTruth {
+		t.Fatalf("RecordID = %s, want %s", id, recordIDNDJSONTruth)
 	}
 }
+
+// recordIDNDJSONTruth and recordIDTabsNotSpaces pin the wire form of the fact
+// identity scheme.
+//
+// RecordID is not an internal detail: it is the primary key of every stored fact,
+// it is what the shared cross-member fact-set head is keyed by, and VerifyIdentity
+// requires a record to carry exactly the id its own content hashes to. Changing the
+// preimage — the separator, the normalization, the path join, the truncation width —
+// therefore re-keys every fact that already exists. Existing stores stop verifying,
+// same-statement dedupe stops matching, and Promote's "same id means same statement"
+// merge silently forks facts that used to be one.
+//
+// Asserting only that RecordID(x) equals RecordID(x) cannot see any of that: the
+// call is compared against itself, so it holds for every possible implementation.
+// Flipping the separator from "\x00" to "\x01" left the entire repository suite —
+// 2,706 tests — green. A literal is the only assertion that fails.
+//
+// If a change to the scheme is deliberate, updating these constants is the point at
+// which the migration for already-stored facts has to be answered for.
+const (
+	recordIDNDJSONTruth   = "fact:6bc25f8fd4b22fcbae32d329"
+	recordIDTabsNotSpaces = "fact:57327fa207dc399b9a268ff7"
+)
 
 func TestNormalizePaths(t *testing.T) {
 	tests := []struct {

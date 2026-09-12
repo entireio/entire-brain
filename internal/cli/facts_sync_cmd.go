@@ -351,6 +351,12 @@ func readSharedFactHead(ctx context.Context, srv factsync.Server, repoID, branch
 	if err != nil {
 		return nil, fmt.Errorf("parse shared fact head: %w", err)
 	}
+	// The head is written by every member with push access. Re-derive each
+	// record's content id before any of it reaches local state: this read feeds
+	// proposal reconciliation, which supersedes and removes LOCAL facts by id.
+	if err := factmerge.VerifyIdentities(parsed); err != nil {
+		return nil, fmt.Errorf("shared fact head for %s/%s is not trustworthy: %w", repoID, branch, err)
+	}
 	return parsed, nil
 }
 

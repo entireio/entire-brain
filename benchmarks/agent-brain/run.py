@@ -462,6 +462,10 @@ TEMPORAL_DELIVERY_MODES = {"agent_tool", "harness"}
 DEFAULT_MEMORY_PACKET_MAX_BYTES = 65536
 TEMPORAL_AGENT_SANDBOX_EXECUTABLE = pathlib.Path("/usr/bin/sandbox-exec")
 FROZEN_MEMORY_PACKET_END_TAG = "</frozen-memory-packet>"
+#: What an arm with no memory delivers. Same envelope, same JSON shape, no
+#: results -- the honest output of a retrieval that found nothing, rather than a
+#: label saying this arm is the control.
+EMPTY_MEMORY_PACKET = '{"results":[]}'
 # Whitespace-tolerant matcher for the reserved end delimiter. Injected copies
 # may separate the structural tokens with whitespace -- either literal, or
 # decoded from JSON escapes such as \\u0009 / \\u000a / \\u000d -- to slip past a
@@ -469,6 +473,23 @@ FROZEN_MEMORY_PACKET_END_TAG = "</frozen-memory-packet>"
 FROZEN_MEMORY_PACKET_END_TAG_PATTERN = re.compile(
     r"<\s*/\s*frozen-memory-packet\s*>", re.IGNORECASE
 )
+# Whitespace is not the only invisible separator. Zero-width and format
+# characters (ZWSP, ZWNJ/ZWJ, word joiner, BOM, soft hyphen, the bidi controls)
+# and the C0/C1 control range are all absent from Python's \s, render to nothing,
+# and split the delimiter's tokens exactly the way a literal space does --
+# `<\u200b/frozen-memory-packet>` is indistinguishable from the real tag on
+# screen. Scanning text with this class removed closes that gap for the same
+# threat the \s tolerance was added for.
+FROZEN_MEMORY_PACKET_INVISIBLE_PATTERN = re.compile(
+    "[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u00ad\u061c"
+    "\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u206a-\u206f\ufeff"
+    "\ufff9-\ufffb]"
+)
+
+
+def strip_invisible_characters(text: str) -> str:
+    """Text with zero-width, format, and control characters removed."""
+    return FROZEN_MEMORY_PACKET_INVISIBLE_PATTERN.sub("", text)
 
 
 def temporal_delivery_mode(task: dict[str, Any]) -> str:
@@ -1547,11 +1568,25 @@ def load_ndjson(path: pathlib.Path) -> list[dict[str, Any]]:
     return records
 
 
+def opaque_cell_key(run_id: str) -> str:
+    """Arm-neutral name for a per-cell directory whose path reaches the agent.
+
+    A cell's run id is `<task>__<runner>__<condition>__r<n>`, so any path built
+    from it spells the arm. create_worktree already gives the agent an opaque
+    cwd for exactly this reason; anything that lands in the agent's ENVIRONMENT
+    is strictly more visible than its cwd (a bare `env` prints it), so it gets
+    the same treatment. Stable across a resume, distinct per cell."""
+    return hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:16]
+
+
 def runtime_cache_paths(suite_dir: pathlib.Path, run_dir: pathlib.Path | None, policy: str) -> dict[str, pathlib.Path]:
     if policy == "prewarmed_shared":
         root = suite_dir / "runtime-cache" / "shared"
     elif policy == "isolated_per_cell" and run_dir is not None:
-        root = run_dir / "runtime-cache"
+        # NOT `run_dir / "runtime-cache"`: these paths become GOCACHE,
+        # GOMODCACHE and ENTIRE_PLUGIN_CACHE_DIR in the agent's own
+        # environment, and run_dir's name carries the condition.
+        root = suite_dir / "runtime-cache" / "cells" / opaque_cell_key(run_dir.name)
     else:
         root = suite_dir / "runtime-cache" / "setup"
     return {
@@ -3920,10 +3955,52 @@ def parse_iso_timestamp(value: str, label: str) -> dt.datetime:
     return parsed.astimezone(dt.UTC)
 
 
+#: The closed field sets for a frozen memory bundle. Every name here is read by
+#: this module; an unlisted key is a typo, and a typo'd pin is an absent pin.
+MEMORY_BUNDLE_FIELDS = frozenset(
+    {
+        "role",
+        "checkpoint_ref_commit",
+        "cutoff_at",
+        "session_ids",
+        "session_variants",
+        "retrieval_branch",
+        "search_limit",
+        "packet",
+        "source_artifact",
+        "distill",
+        "require_facts",
+    }
+)
+MEMORY_BUNDLE_SOURCE_ARTIFACT_FIELDS = frozenset(
+    {"cache_key", "transcript_sha256", "history_sha256", "fact_artifact_sha256"}
+)
+MEMORY_BUNDLE_DISTILL_FIELDS = frozenset(
+    {
+        "agent",
+        "agent_command",
+        "binary",
+        "model",
+        "effort",
+        "concurrency",
+        "max_chunk_bytes",
+        "timeout_seconds",
+    }
+)
+
+
 def memory_bundle_config(task: dict[str, Any]) -> dict[str, Any]:
     raw = task.get("memory_bundle")
     if not isinstance(raw, dict):
         raise ValueError(f"task {task.get('id', '<unknown>')} requires a memory_bundle object")
+    # Closed key sets. Every field below is read by name somewhere in this file,
+    # so a misspelled one is not an extra annotation -- it is a pin that silently
+    # does not exist. `source_artifacts` instead of `source_artifact` turned off
+    # every content check in validate_temporal_source_artifact while the bundle
+    # still declared itself sealed.
+    unknown_bundle = sorted(set(raw) - MEMORY_BUNDLE_FIELDS)
+    if unknown_bundle:
+        raise ValueError(f"memory_bundle has unknown fields: {unknown_bundle}")
     role = raw.get("role")
     if role not in {"development", "sealed"}:
         raise ValueError("memory_bundle.role must be development or sealed")
@@ -3990,10 +4067,32 @@ def memory_bundle_config(task: dict[str, Any]) -> dict[str, Any]:
             if key in seen_variants:
                 raise ValueError("memory_bundle.session_variants must not contain duplicates")
             seen_variants.add(key)
+    distill = raw.get("distill")
+    if distill is not None:
+        if not isinstance(distill, dict):
+            raise ValueError("memory_bundle.distill must be an object when present")
+        unknown_distill = sorted(set(distill) - MEMORY_BUNDLE_DISTILL_FIELDS)
+        if unknown_distill:
+            raise ValueError(f"memory_bundle.distill has unknown fields: {unknown_distill}")
     source_artifact = raw.get("source_artifact")
+    if role == "sealed" and not isinstance(source_artifact, dict):
+        # `role` is copied verbatim into every memory record and read by a
+        # reviewer as the claim that this bundle's content is pinned. Without a
+        # source_artifact, validate_temporal_source_artifact returns on its first
+        # line and not one hash is compared -- the word "sealed" would assert
+        # something nothing checks.
+        raise ValueError(
+            "memory_bundle.role=sealed requires a source_artifact; without it no "
+            "transcript, history, or fact hash is ever compared"
+        )
     if source_artifact is not None:
         if not isinstance(source_artifact, dict):
             raise ValueError("memory_bundle.source_artifact must be an object when present")
+        unknown_artifact = sorted(set(source_artifact) - MEMORY_BUNDLE_SOURCE_ARTIFACT_FIELDS)
+        if unknown_artifact:
+            raise ValueError(
+                f"memory_bundle.source_artifact has unknown fields: {unknown_artifact}"
+            )
         if not re.fullmatch(r"[0-9a-f]{24}", str(source_artifact.get("cache_key") or "")):
             raise ValueError("memory_bundle.source_artifact.cache_key must be a 24-character lowercase hex key")
         for field in ("transcript_sha256", "fact_artifact_sha256"):
@@ -4731,36 +4830,56 @@ def _canonical_packet_json(value: Any) -> str:
 def bound_memory_packet(stdout: str, max_bytes: int) -> tuple[str, dict[str, Any]]:
     """Bound a search response without handing the agent malformed JSON.
 
-    Responses that already fit are delivered byte-for-byte. Oversized responses
-    retain ranked results in order: whole results first, then (when it fits) a
-    UTF-8-safe prefix of the next result's text. The compact packet records the
-    omitted/partial result counts in-band and in provenance.
+    EVERY delivered packet carries the same top-level keys, canonically
+    serialized, whether or not it needed truncating. `_benchmark_delivery` used
+    to be added only on the oversized path, so the mere PRESENCE of that key --
+    and of the truncation suffix inside the last delivered result -- was
+    correlated with how much memory an arm had. A content-poor arm (a baseline
+    with no results, or a size-matched placebo) could never trip it while a
+    content-rich arm routinely did, which let a subject read its own condition
+    off the packet's shape. Shape is harness-authored and must be constant;
+    only the VALUES may differ, and they still report what really happened.
+
+    Oversized responses retain ranked results in order: whole results first,
+    then (when it fits) a UTF-8-safe prefix of the next result's text. The
+    delivery note's ~150 bytes come out of the same budget for every arm.
     """
-    raw = stdout.encode("utf-8")
     payload = json.loads(stdout)
     if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
         raise ValueError("search response must be an object with a results array")
     results = payload["results"]
-    if len(raw) <= max_bytes:
-        delivered = stdout
+    delivery_note = {
+        "max_bytes": max_bytes,
+        "original_result_count": len(results),
+        "delivered_result_count": len(results),
+        "omitted_result_count": 0,
+        "partial_last_result": False,
+        "truncated": False,
+    }
+    packet_payload = {key: value for key, value in payload.items() if key != "results"}
+    packet_payload["results"] = list(results)
+    packet_payload["_benchmark_delivery"] = delivery_note
+
+    def render() -> str:
+        return _canonical_packet_json(packet_payload)
+
+    whole = render()
+    if len(whole.encode("utf-8")) <= max_bytes:
+        delivered = whole
         delivered_count = len(results)
         partial_last_result = False
         strategy = "none"
+        truncated = False
     else:
-        delivery_note = {
-            "max_bytes": max_bytes,
-            "original_result_count": len(results),
-            "delivered_result_count": 0,
-            "omitted_result_count": len(results),
-            "partial_last_result": False,
-            "truncated": True,
-        }
-        packet_payload = {key: value for key, value in payload.items() if key != "results"}
+        delivery_note.update(
+            {
+                "delivered_result_count": 0,
+                "omitted_result_count": len(results),
+                "partial_last_result": False,
+                "truncated": True,
+            }
+        )
         packet_payload["results"] = []
-        packet_payload["_benchmark_delivery"] = delivery_note
-
-        def render() -> str:
-            return _canonical_packet_json(packet_payload)
 
         if len(render().encode("utf-8")) > max_bytes:
             raise ValueError("search response metadata exceeds the packet byte budget")
@@ -4819,6 +4938,7 @@ def bound_memory_packet(stdout: str, max_bytes: int) -> tuple[str, dict[str, Any
         delivered = render()
         delivered_count = len(packet_payload["results"])
         strategy = "whole_ranked_results_then_text_prefix"
+        truncated = True
 
     delivered_raw = delivered.encode("utf-8")
     return delivered, {
@@ -4827,7 +4947,7 @@ def bound_memory_packet(stdout: str, max_bytes: int) -> tuple[str, dict[str, Any
         "token_estimate": deterministic_token_estimate(delivered),
         "token_estimator": "ceil_utf8_bytes_div_4",
         "max_bytes": max_bytes,
-        "truncated": len(raw) > max_bytes,
+        "truncated": truncated,
         "truncation_strategy": strategy,
         "original_result_count": len(results),
         "delivered_result_count": delivered_count,
@@ -4837,20 +4957,31 @@ def bound_memory_packet(stdout: str, max_bytes: int) -> tuple[str, dict[str, Any
     }
 
 
+def text_contains_reserved_delimiter(text: str) -> bool:
+    """True when this text carries the reserved end delimiter in any form that
+    renders as the delimiter: literal, whitespace-separated, or separated by
+    zero-width/format/control characters that display as nothing."""
+    if FROZEN_MEMORY_PACKET_END_TAG_PATTERN.search(text):
+        return True
+    stripped = strip_invisible_characters(text)
+    return stripped != text and bool(FROZEN_MEMORY_PACKET_END_TAG_PATTERN.search(stripped))
+
+
 def packet_contains_reserved_delimiter(packet_text: str) -> bool:
     """True when the serialized packet or any decoded JSON string contains the
     reserved prompt delimiter. JSON encoders (e.g. Go's, which HTML-escapes angle
     brackets to \\u003c/\\u003e) may hide the delimiter from a serialized-text
     scan, so the decoded string content is checked as well; undecodable packet
-    text fails closed. Matching is whitespace-tolerant so a delimiter whose
-    tokens are separated by literal whitespace or by escapes that decode to
-    whitespace (\\u0009/\\u000a/\\u000d) still fails closed."""
-    if FROZEN_MEMORY_PACKET_END_TAG_PATTERN.search(packet_text):
+    text fails closed. Matching tolerates any invisible separator between the
+    delimiter's tokens -- literal whitespace, escapes that decode to whitespace
+    (\\u0009/\\u000a/\\u000d), and the zero-width/format/control characters that
+    Python's \\s does not cover -- so none of them can forge a closing tag."""
+    if text_contains_reserved_delimiter(packet_text):
         return True
 
     def contains(item: Any) -> bool:
         if isinstance(item, str):
-            return bool(FROZEN_MEMORY_PACKET_END_TAG_PATTERN.search(item))
+            return text_contains_reserved_delimiter(item)
         if isinstance(item, dict):
             return any(contains(key) or contains(child) for key, child in item.items())
         if isinstance(item, list):
@@ -4870,6 +5001,34 @@ class MemoryDeliveryError(RuntimeError):
     def __init__(self, message: str, delivery: dict[str, Any]):
         super().__init__(message)
         self.delivery = delivery
+
+
+class HarnessIsolationError(RuntimeError):
+    """A harness-owned isolation step failed; the agent was never started.
+
+    Removing the brain store, dropping the git remote, sanitizing the agent env
+    and building the seatbelt profile are HARNESS work, not product work. A
+    failure in any of them is an infrastructure non-outcome, exactly like a
+    failed harness retrieval, and must not be scored as the arm performing
+    badly."""
+
+
+def harness_failure_analysis_exclusion(exc: BaseException) -> dict[str, Any] | None:
+    """Classify a cell failure as an infrastructure non-outcome, or not.
+
+    summarize() keeps `analysis_excluded` rows out of every arm mean, delta and
+    p-value and reports their count instead. The rule is ownership: a failure in
+    a step the PRODUCT owns (retrieval that returned nothing usable, validation,
+    a bad patch) is a real outcome for that arm; a failure in a step the HARNESS
+    owns is not. Harness-owned failures are also structurally arm-correlated --
+    only a treatment arm has a brain store to remove, only the causal lane runs
+    delivery isolation -- so scoring them injects a directional zero into one
+    arm only."""
+    if isinstance(exc, MemoryDeliveryError):
+        return {"reason": "harness_memory_delivery_failed"}
+    if isinstance(exc, HarnessIsolationError):
+        return {"reason": "harness_delivery_isolation_failed"}
+    return None
 
 
 def memory_delivery_sources(prep: dict[str, Any]) -> dict[str, Any]:
@@ -5088,8 +5247,24 @@ def remove_agent_visible_git_remotes(worktree: pathlib.Path) -> dict[str, Any]:
     return {"removed": remotes, "remaining": remaining}
 
 
-def sanitize_harness_agent_environment(env: dict[str, str]) -> tuple[dict[str, str], dict[str, Any]]:
-    """Remove harness-control and shell-redirection state from the agent env."""
+def sanitize_harness_agent_environment(
+    env: dict[str, str], identifying_tokens: Iterable[str] = ()
+) -> tuple[dict[str, str], dict[str, Any]]:
+    """Remove harness-control and shell-redirection state from the agent env.
+
+    The key list below is a NAME-based filter, which cannot see an arm name that
+    arrives inside a VALUE. Every variable holding a path derived from the
+    results tree does exactly that, because a cell's directory is named
+    `<task>__<runner>__<condition>__r<n>`; observed live in GOCACHE, GOMODCACHE
+    and ENTIRE_PLUGIN_CACHE_DIR, and the same shape reached the model through
+    CODEX_HOME / CLAUDE_CONFIG_DIR downstream. A bare `env` in the agent's own
+    shell prints all of it.
+
+    `identifying_tokens` closes that class for any caller: pass the strings that
+    must never reach the agent (the condition, the run id) and a remaining value
+    containing one is a fail-closed error rather than a silently delivered cue.
+    The default is empty, so existing callers keep the exact previous behaviour.
+    """
     blocked_exact = {
         "BASH_ENV",
         "CDPATH",
@@ -5119,7 +5294,21 @@ def sanitize_harness_agent_environment(env: dict[str, str]) -> tuple[dict[str, s
         or (key.startswith("ENTIRE_") and key not in allowed_entire)
     )
     sanitized = {key: value for key, value in env.items() if key not in removed}
-    return sanitized, {"removed_keys": removed, "remaining_keys_sha256": stable_json_sha256(sorted(sanitized))}
+    tokens = sorted({token for token in identifying_tokens if token})
+    leaking = sorted(
+        key for key, value in sanitized.items() if any(token in str(value) for token in tokens)
+    )
+    if leaking:
+        raise RuntimeError(
+            "agent environment names the arm: "
+            + ", ".join(f"{key}={sanitized[key]!r}" for key in leaking)
+        )
+    return sanitized, {
+        "removed_keys": removed,
+        "remaining_keys_sha256": stable_json_sha256(sorted(sanitized)),
+        "identifying_token_count": len(tokens),
+        "identifying_tokens_absent_from_values": bool(tokens),
+    }
 
 
 def temporal_agent_read_isolation(
@@ -5304,6 +5493,7 @@ def complete_harness_delivery_isolation(
     source: pathlib.Path,
     env: dict[str, str],
     tools: dict[str, pathlib.Path],
+    identifying_tokens: Iterable[str] = (),
 ) -> tuple[dict[str, str], str, dict[str, Any]]:
     """Complete the causal lane's isolation or mark delivery unusable before failing."""
     stage = "brain_store_removal"
@@ -5312,7 +5502,7 @@ def complete_harness_delivery_isolation(
         stage = "git_remote_isolation"
         delivery["git_remote_isolation"] = remove_agent_visible_git_remotes(worktree)
         stage = "environment_isolation"
-        env, environment_isolation = sanitize_harness_agent_environment(env)
+        env, environment_isolation = sanitize_harness_agent_environment(env, identifying_tokens)
         delivery["environment_isolation"] = environment_isolation
         stage = "filesystem_read_isolation"
         # The sanitized agent env (not the host env) is what the agent resolves
@@ -5328,7 +5518,44 @@ def complete_harness_delivery_isolation(
             # Persistence redacts the complete message before applying its size bound.
             "message": str(exc),
         }
-        raise
+        # Re-raised as a HARNESS failure, not a bare Exception: run_one's generic
+        # handler scores an unclassified failure 0 and leaves it in the arm mean,
+        # which is the one thing the sibling MemoryDeliveryError path exists to
+        # prevent. summarize()'s own contract already says isolation failures are
+        # kept out; this is what makes that true.
+        raise HarnessIsolationError(
+            f"harness delivery isolation failed at {stage}: {exc}"
+        ) from exc
+
+
+def standard_cell_read_isolation(
+    worktree: pathlib.Path,
+    source: pathlib.Path,
+    env: dict[str, str],
+    tools: dict[str, pathlib.Path],
+    extra_allowed_roots: Iterable[pathlib.Path] = (),
+) -> tuple[dict[str, Any], str, dict[str, Any]]:
+    """Physical isolation for a cell that did not go through the causal lane.
+
+    Same ownership rule as complete_harness_delivery_isolation: this is harness
+    work, so a failure here is an infrastructure non-outcome rather than the
+    arm's score."""
+    stage = "git_remote_isolation"
+    try:
+        git_remote_isolation = remove_agent_visible_git_remotes(worktree)
+        stage = "filesystem_read_isolation"
+        profile, read_isolation = temporal_agent_read_isolation(
+            worktree,
+            source,
+            tools,
+            host_env=env,
+            extra_allowed_roots=extra_allowed_roots,
+        )
+    except Exception as exc:
+        raise HarnessIsolationError(
+            f"standard-cell read isolation failed at {stage}: {exc}"
+        ) from exc
+    return git_remote_isolation, profile, read_isolation
 
 
 def brain_prep_commands(task: dict[str, Any], condition: str, worktree: pathlib.Path, tools: dict[str, pathlib.Path], checkpoint_limit: int) -> list[list[str]]:
@@ -6667,6 +6894,16 @@ def prompt_for(
                 "memory packet injection is only allowed for harness-delivered temporal "
                 "conditions or explicit packet treatments"
             )
+    if memory_packet is not None and packet_contains_reserved_delimiter(memory_packet):
+        # The prompt is the one place every lane's packet converges, so the
+        # delimiter guard belongs here as well as at each producer. The
+        # harness-delivery lane already screens its packet; the explicit
+        # treatment lane did not screen at all, and a fact whose text carries the
+        # closing tag would end the memory block and have everything after it
+        # read as an instruction.
+        raise RuntimeError(
+            f"memory packet for {condition} contains the reserved packet delimiter"
+        )
     base = user_query(task)
     validation = "\n".join(
         f"- `{entry['command']}`" for entry in validation_commands(task)
@@ -6782,7 +7019,13 @@ def prompt_for(
         parts.append("Run the focused tests you identify as relevant before finishing.")
     parts.append("Keep the fix minimal. Do not edit tests unless the task explicitly asks for test changes. Do not commit changes. Finish with a short summary of what changed and which validation commands passed.")
     if explicit_treatments:
-        payload = memory_packet if memory_packet is not None else "<no-packet>"
+        # The no-memory arm receives a well-formed EMPTY packet, not the literal
+        # string "<no-packet>". An empty `results` array is honest output for an
+        # arm with no memory; a harness-authored token that only the control
+        # carries -- and that is not even the JSON every other arm gets -- tells
+        # the subject it is the untreated control in the first bytes of its
+        # memory block.
+        payload = memory_packet if memory_packet is not None else EMPTY_MEMORY_PACKET
         parts.append("Context packet:\n<frozen-memory-packet>\n" + payload + "\n</frozen-memory-packet>")
     elif memory_packet is not None:
         # Injected verbatim so the recorded packet SHA-256 also covers what the
@@ -8865,7 +9108,7 @@ def run_one(
             )
             try:
                 env, read_isolation_profile, read_isolation = complete_harness_delivery_isolation(
-                    memory_delivery, worktree, source, env, tools
+                    memory_delivery, worktree, source, env, tools, (condition, run_id)
                 )
             finally:
                 persist_memory_delivery(
@@ -8886,16 +9129,15 @@ def run_one(
             # self-contained by design, so removing the remote and denying
             # reads of the harness and source trees changes nothing for a
             # compliant agent in any arm.
-            record["git_remote_isolation"] = remove_agent_visible_git_remotes(worktree)
             standard_cell_allowed_roots = []
             if agent_bin is not None:
                 standard_cell_allowed_roots.append(CACHE_DIR / "agent-bin" / agent_bin["key"])
-            read_isolation_profile, read_isolation = temporal_agent_read_isolation(
-                worktree,
-                source,
-                tools,
-                host_env=env,
-                extra_allowed_roots=standard_cell_allowed_roots,
+            (
+                record["git_remote_isolation"],
+                read_isolation_profile,
+                read_isolation,
+            ) = standard_cell_read_isolation(
+                worktree, source, env, tools, standard_cell_allowed_roots
             )
             record["agent_read_isolation"] = read_isolation
         prompt = prompt_for(task, condition, runner, memory_packet=memory_packet)
@@ -9165,7 +9407,7 @@ def run_one(
                 # from arm means -- it can only occur in the harness-delivered
                 # treatment arm, so counting its synthetic 0 zero-pollutes that arm
                 # directionally. summarize() drops it and reports the count.
-                "analysis_excluded": {"reason": "harness_memory_delivery_failed"},
+                "analysis_excluded": harness_failure_analysis_exclusion(exc),
             }
         )
     except Exception as exc:
@@ -9204,6 +9446,9 @@ def run_one(
                 },
             }
         )
+        exclusion = harness_failure_analysis_exclusion(exc)
+        if exclusion is not None:
+            record["analysis_excluded"] = exclusion
     finally:
         cell_finished = time.monotonic()
         if agent_interval_started is not None and agent_interval_wall_seconds is None:
