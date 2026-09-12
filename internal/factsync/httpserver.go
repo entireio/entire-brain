@@ -57,13 +57,13 @@ var syncRequestTimeout = 5 * time.Minute
 
 func (h *HTTPServer) client() *http.Client {
 	if h.Client != nil {
-		return h.Client
+		return apiurl.WithoutRedirects(h.Client)
 	}
 	// The phase bounds (dial, TLS handshake, response header) come from the shared
 	// bounded transport; syncRequestTimeout is this caller's own end-to-end bound.
 	// A fresh Client per call is free — the transport, and so the connection pool,
 	// is shared.
-	return httpx.Client(syncRequestTimeout)
+	return apiurl.WithoutRedirects(httpx.Client(syncRequestTimeout))
 }
 
 func (h *HTTPServer) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
