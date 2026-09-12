@@ -143,15 +143,17 @@ func (s *countingServer) Advance(context.Context, string, string, string, []byte
 // round-trip against the hosted backend on every single sync.
 func TestSyncResultCarriesMergedFacts(t *testing.T) {
 	now := time.Now().UTC()
+	// Ids are content-derived, and Sync verifies the head's records against their
+	// own content, so the fixture mints them the way the store does.
 	existing := factmerge.Record{
-		ID: "fact:bbb", Paths: []string{"ops.deploy.strategy"}, Text: "blue-green",
+		ID: factmerge.RecordID("blue-green", []string{"ops.deploy.strategy"}), Paths: []string{"ops.deploy.strategy"}, Text: "blue-green",
 		Branch: "main", Status: factmerge.StatusActive, CreatedAt: now, UpdatedAt: now,
 	}
 	head := hostedNDJSON(t, []factmerge.Record{existing})
 	srv := &countingServer{orphanServer: orphanServer{factsHead: head, setRef: "props-1"}}
 
 	local := []factmerge.Record{{
-		ID: "fact:aaa", Paths: []string{"ops.backup.cadence"}, Text: "nightly",
+		ID: factmerge.RecordID("nightly", []string{"ops.backup.cadence"}), Paths: []string{"ops.backup.cadence"}, Text: "nightly",
 		Branch: "main", Status: factmerge.StatusActive, CreatedAt: now, UpdatedAt: now,
 	}}
 
@@ -167,7 +169,7 @@ func TestSyncResultCarriesMergedFacts(t *testing.T) {
 	for _, f := range res.Facts {
 		ids[f.ID] = true
 	}
-	if !ids["fact:aaa"] || !ids["fact:bbb"] {
+	if !ids[local[0].ID] || !ids[existing.ID] {
 		t.Fatalf("Result.Facts is not the merged head: %+v", res.Facts)
 	}
 	if srv.currentCalls != 1 {

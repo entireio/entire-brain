@@ -20,12 +20,16 @@ import (
 //  1. Non-breaking. No index, no match, or an ambiguous match falls back to the
 //     exact prior behavior (session.LatestCheckpoint). Distill must never fail
 //     or slow meaningfully because of this.
-//  2. In-session. The sharpened checkpoint must belong to the SAME SESSION the
-//     fact was distilled from, on the fact's branch. The index is repo-wide, so
-//     an unscoped "newest checkpoint that touched this entity" happily pairs
-//     one session's id with another session's commit and checkpoint — a
-//     provenance triple that never existed and that verification would then
-//     have to either reject or launder.
+//  2. In-session AND on-branch. The sharpened checkpoint must belong to the
+//     SAME SESSION the fact was distilled from, and its commit must be
+//     reachable from that session's branch. The index is repo-wide, so an
+//     unscoped "newest checkpoint that touched this entity" happily pairs one
+//     session's id with another session's commit and checkpoint — a provenance
+//     triple that never existed and that verification would then have to either
+//     reject or launder. Session scoping alone is not enough: history rewriting
+//     puts one checkpoint's trailer on two commits, so the newest commit
+//     bearing a session's checkpoint can be another branch's copy — live,
+//     referenced, and off this fact's branch.
 //  3. Consistent. Commit and CheckpointID are overridden together or not at
 //     all; a commit from the index paired with a checkpoint from the fallback
 //     would be a provenance pair that never existed.
@@ -76,13 +80,70 @@ func newEntityProvenanceResolver(ctx context.Context, opts Options, repoDir stri
 	if err != nil || view == nil || len(view.cache.Entries) == 0 {
 		return nil
 	}
-	return buildEntityProvenanceResolver(view.cache, sessionBranchByID(ctx, opts, repoDir))
+	return buildEntityProvenanceResolver(
+		view.cache,
+		sessionBranchByID(ctx, opts, repoDir),
+		branchReachabilityLookup(ctx, opts, repoDir),
+	)
+}
+
+// provenanceBranchReachability answers "which commits are reachable from this
+// branch", or nil when that cannot be determined. It is the same walk
+// `entities history` already filters its answers through
+// (branchReachableCommits); provenance needs it for the same reason.
+type provenanceBranchReachability func(branch string) map[string]struct{}
+
+// branchReachabilityLookup memoizes branchReachableCommits per branch, so one
+// distill run pays for one rev-list per branch it distills rather than one per
+// candidate.
+func branchReachabilityLookup(ctx context.Context, opts Options, repoDir string) provenanceBranchReachability {
+	cache := map[string]map[string]struct{}{}
+	return func(branch string) map[string]struct{} {
+		branch = strings.TrimSpace(branch)
+		if branch == "" {
+			return nil
+		}
+		if set, ok := cache[branch]; ok {
+			return set
+		}
+		set := branchReachableCommits(ctx, opts.Runner, repoDir, branch)
+		if len(set) >= entityBranchRevWalkMax {
+			// The walk hit its bound, so the answer is the branch's NEWEST
+			// commits, not its commits. Reporting that as a reachability set
+			// would call every older indexed commit off-branch and silently
+			// stop sharpening the older half of a deep repository. A truncated
+			// walk is unknown reachability, which refuses nothing.
+			set = nil
+		}
+		cache[branch] = set
+		return set
+	}
+}
+
+// provenanceCommitOnBranch reports whether a candidate commit may anchor work
+// distilled on branch.
+//
+// UNKNOWN reachability is not a refusal. A branch that is gone locally, a walk
+// git refused, or a history deeper than the walk bound all return nil, and
+// treating that as "nothing is on this branch" would silently downgrade every
+// fact in the run to the coarse anchor. A KNOWN set that does not contain the
+// commit is a refusal: the commit is real, but it is not on this branch.
+func provenanceCommitOnBranch(reachable provenanceBranchReachability, branch, commit string) bool {
+	if reachable == nil || strings.TrimSpace(branch) == "" || strings.TrimSpace(commit) == "" {
+		return true
+	}
+	set := reachable(branch)
+	if set == nil {
+		return true
+	}
+	_, ok := set[commit]
+	return ok
 }
 
 // buildEntityProvenanceResolver folds a derived cache into the resolver. It is
 // the pure half of newEntityProvenanceResolver, so the resolution order can be
 // tested against a cache built by hand.
-func buildEntityProvenanceResolver(cache entityIndexCache, branchBySession map[string]string) *entityProvenanceResolver {
+func buildEntityProvenanceResolver(cache entityIndexCache, branchBySession map[string]string, reachable provenanceBranchReachability) *entityProvenanceResolver {
 	resolver := &entityProvenanceResolver{
 		byName:          map[string]*entityProvenanceEntry{},
 		byPath:          map[string]*entityProvenanceEntry{},
@@ -118,6 +179,25 @@ func buildEntityProvenanceResolver(cache entityIndexCache, branchBySession map[s
 			}
 			for _, sessionID := range occ.SessionIDs {
 				if strings.TrimSpace(sessionID) == "" {
+					continue
+				}
+				// The reverse index is PROJECT-scoped: it lists every commit
+				// that touched the entity on every branch, including cherry-
+				// picked and rebase-copied commits carrying the SAME
+				// Entire-Checkpoint trailer. One checkpoint id therefore
+				// resolves to more than one commit, and the newest committer
+				// date is routinely the copy that landed on another branch. A
+				// commit that is not on the session's branch is not this fact's
+				// evidence: `git log <branch>` will never show it, and verify
+				// passes it — verifyCommitUncached (verify_cmd.go:392) accepts
+				// reachability from ANY local ref, so a live commit on another
+				// branch verifies clean. (A commit no ref contains is a
+				// different case: verify does catch that one as orphaned. This
+				// guard still helps there, by keeping the honest coarse anchor
+				// instead of a dangling one.) Drop it here, so the winner is
+				// the newest ON-BRANCH candidate rather than the newest
+				// candidate anywhere.
+				if !provenanceCommitOnBranch(reachable, branchBySession[sessionID], candidate.commit) {
 					continue
 				}
 				if name != "" {
