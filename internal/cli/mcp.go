@@ -1703,12 +1703,10 @@ func mcpStringSlice(args map[string]any, key string) ([]string, error) {
 // client whose agent carries untrusted repository text in its context, so the
 // ceiling belongs on the server.
 //
-// It is enforced here rather than declared in each inputSchema on purpose: the
-// tool definitions are sent on every tools/list and their size is budgeted in
-// tokens (see TestMCPBrainBriefToolDefinitionGolden), so adding a "maximum" to
-// ~25 properties would spend that budget to restate a bound the server has to
-// check itself regardless. 10000 is far above any useful result count, depth, or
-// context window.
+// Input schemas also declare this ceiling so clients can plan valid calls;
+// server-side validation remains authoritative. Tool-definition goldens account
+// for the advertised bounds. Stricter per-tool limits and the separate turn
+// cursor range are declared and enforced at their respective call sites.
 const mcpIntegerArgMax = 10000
 
 // Turn cursors are only compared with stored ordinals; they do not size a
