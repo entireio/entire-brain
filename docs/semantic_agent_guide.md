@@ -33,10 +33,10 @@ Recommended intake flow:
 8. Use `entire brain inspect tests <symbol> --json` before choosing validation
    commands for a changed symbol. Code, context, impact, and test JSON is compact
    by default; use `--details` only when full provider records are required.
-   `entire brain inspect changes --json` is also read-only by default and maps
-   diff-hunk line ranges to the indexed symbols they actually touch; add
-   `--write-report` only when a persisted `semantic/changes/latest.json` artifact
-   is explicitly needed.
+   `entire brain inspect changes --json` maps diff-hunk line ranges to the
+   indexed symbols they actually touch, and persists
+   `semantic/changes/latest.json` by default; pass `--write-report=false` to
+   skip writing it.
 9. Use `entire brain workspace inspect context <workspace> <query> --json` (symbols) or
    `entire brain workspace inspect graph <workspace> --json` (per-repo graph
    metrics, shared external contracts, canonical route-template

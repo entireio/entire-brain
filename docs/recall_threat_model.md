@@ -120,8 +120,12 @@ Enforced:
   refuses a `repo_key` other than the bound repo's (`confirm=true` is not a
   defence — the same injected agent supplies it), `brain_list_projects` returns
   only the bound project instead of enumerating every local repo's key, path,
-  and counts, and the `brain_workspace_*` fan-out refuses a workspace whose
-  repos live outside the bound root. Each is opt-out via
+  and counts, and the `brain_workspace_*` fan-out refuses a workspace the bound
+  repository is not a member of (membership is what stops an agent in repo A
+  reaching an unrelated repo B), or one whose repos live outside the bound
+  repository's parent directory — sibling checkouts under a common parent stay
+  in scope, since that is the layout every real workspace has. Each is opt-out
+  via
   `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO`, and each applies to the MCP surface only:
   the `entire brain ...` CLI stays cross-repo because the operator there is a
   human, not a deputy acting on injected instructions.
@@ -145,9 +149,14 @@ hostile content cannot exfiltrate via the embedder channel.
 
 1. No retrieval surface returns conversation content without
    `verification_required` + the historical-evidence caveat.
-2. No MCP argument reaches a filesystem path or executable choice, and no MCP
-   argument reaches another repository's brain (read or delete) unless the
-   operator set `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO`.
+2. MCP clients cannot choose an executable. Repository indexing paths are scoped
+   by `ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH`; trace ingestion accepts a local path and
+   is not covered by that indexing boundary. Project listing and deletion require
+   a bound repository, and workspace tools require a validated snapshot whose
+   members include the bound repository and match checkouts under its parent.
+   Unbound servers refuse these project and workspace operations unless the
+   operator sets `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO`, which disables their scope
+   checks.
 3. Publish/bundle output never contains transcripts, history records, or
    conversation text.
 4. Tombstones are honored before every derived build AND consulted at every

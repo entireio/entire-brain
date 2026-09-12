@@ -58,15 +58,64 @@ type mcpResponseTransport struct {
 type mcpResponseTransportContextKey struct{}
 
 func newMCPCommand(opts Options) *cobra.Command {
-	return &cobra.Command{
+	var printConfig bool
+	cmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "Serve local brain tools over MCP stdio",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if printConfig {
+				return printMCPServerConfig(cmd.OutOrStdout())
+			}
 			nudgeMemoryAtStartup(cmd.Context(), opts)
 			return runMCP(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), opts)
 		},
 	}
+	cmd.Flags().BoolVar(&printConfig, "print-config", false,
+		"Print an MCP server entry that launches this binary directly, for a host agent's config")
+	return cmd
+}
+
+// mcpServerName is the key host agents register this server under.
+const mcpServerName = "entire-brain"
+
+// printMCPServerConfig writes an MCP server entry naming this executable by
+// absolute path.
+//
+// Hosts are usually registered with `entire brain mcp`, which asks the Entire
+// CLI to resolve `brain` as a plugin at spawn time. That resolution depends on
+// which entire is first on PATH and on the environment the host spawns with; it
+// resolves HOME to find the plugin, so a spawn without it exits with
+//
+//	Error: Invalid usage: unknown command "brain" for "entire"
+//
+// and the host surfaces only CONNECTION_CLOSED -- which names neither the
+// command nor the cause, and is why this was hard to diagnose from the agent
+// side. Naming this binary directly removes the lookup, so the entry keeps
+// working regardless of PATH order or spawn environment.
+func printMCPServerConfig(out io.Writer) error {
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve this executable: %w", err)
+	}
+	// Deliberately not resolved through symlinks: the managed install path is
+	// the stable one, while its target moves whenever the plugin is rebuilt.
+	config := map[string]any{
+		"mcpServers": map[string]any{
+			mcpServerName: map[string]any{
+				"type":    "stdio",
+				"command": executable,
+				"args":    []string{"mcp"},
+				"env":     map[string]string{},
+			},
+		},
+	}
+	encoded, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode MCP server config: %w", err)
+	}
+	_, err = fmt.Fprintln(out, string(encoded))
+	return err
 }
 
 func runMCP(ctx context.Context, in io.Reader, out io.Writer, opts Options) error {
@@ -518,7 +567,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_get_graph_schema",
-			"description": "Return semantic graph schema metadata, counts, symbol kinds, and relation vocabulary.",
+			"description": "Return semantic graph schema metadata, counts, symbol kinds, and relation vocabulary, plus structural metrics (hotspots, entry points, packages, layers, and clusters).",
 			"inputSchema": objectSchema(nil, map[string]any{}),
 		},
 		{
@@ -831,7 +880,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		if gopts.ContextAfter, err = mcpNonNegativeInt(params.Arguments, "context_after", 0); err != nil {
 			break
 		}
-		if gopts.AfterTurn, err = mcpNonNegativeInt(params.Arguments, "after_turn", 0); err != nil {
+		if gopts.AfterTurn, err = mcpNonNegativeIntMax(params.Arguments, "after_turn", 0, mcpTurnCursorMax); err != nil {
 			break
 		}
 		if gopts.OutlineLimit, err = mcpNonNegativeInt(params.Arguments, "limit", 0); err != nil {
@@ -980,6 +1029,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = runBrainReview(ctx, cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, query)
 		}
 	case "brain_workspace_regressions":
+		var manifest workspaceManifest
 		workspace, stringErr := mcpOptionalString(params.Arguments, "workspace")
 		if stringErr != nil {
 			err = stringErr
@@ -991,7 +1041,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = errors.New("workspace is required")
 		}
 		if err == nil {
-			err = mcpEnforceWorkspaceScope(ctx, opts, params.Name, workspace)
+			manifest, err = mcpWorkspaceManifest(ctx, opts, params.Name, workspace)
 		}
 		if err == nil {
 			inc, loc, boolErr := mcpRegressionBooleans(params.Arguments)
@@ -999,9 +1049,10 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 				err = boolErr
 				break
 			}
-			err = runWorkspaceRegressions(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, workspace, query)
+			err = runWorkspaceRegressionsManifest(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, manifest, query)
 		}
 	case "brain_workspace_graph":
+		var manifest workspaceManifest
 		workspace, stringErr := mcpOptionalString(params.Arguments, "workspace")
 		if stringErr != nil {
 			err = stringErr
@@ -1010,10 +1061,11 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		workspace = strings.TrimSpace(workspace)
 		if workspace == "" {
 			err = errors.New("workspace is required")
-		} else if err = mcpEnforceWorkspaceScope(ctx, opts, params.Name, workspace); err == nil {
-			err = runWorkspaceGraph(cmd, opts, workspaceGraphOptions{limit: limit, json: true}, workspace)
+		} else if manifest, err = mcpWorkspaceManifest(ctx, opts, params.Name, workspace); err == nil {
+			err = runWorkspaceGraphManifest(cmd, opts, workspaceGraphOptions{limit: limit, json: true}, manifest)
 		}
 	case "brain_workspace_review":
+		var manifest workspaceManifest
 		workspace, stringErr := mcpOptionalString(params.Arguments, "workspace")
 		if stringErr != nil {
 			err = stringErr
@@ -1025,7 +1077,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = errors.New("workspace is required")
 		}
 		if err == nil {
-			err = mcpEnforceWorkspaceScope(ctx, opts, params.Name, workspace)
+			manifest, err = mcpWorkspaceManifest(ctx, opts, params.Name, workspace)
 		}
 		if err == nil {
 			inc, loc, boolErr := mcpRegressionBooleans(params.Arguments)
@@ -1033,7 +1085,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 				err = boolErr
 				break
 			}
-			err = runWorkspaceReview(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, workspace, query)
+			err = runWorkspaceReviewManifest(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, manifest, query)
 		}
 	case "brain_patterns":
 		typ, typeErr := mcpOptionalString(params.Arguments, "type")
@@ -1154,9 +1206,10 @@ func runMCPListProjects(ctx context.Context, cmd *cobra.Command, opts Options) e
 		if storageErr != nil {
 			return storageErr
 		}
-		if bound {
-			boundKey = storage.Key
+		if !bound {
+			return mcpCrossRepoRefusal("brain_list_projects", "server has no bound repository", "")
 		}
+		boundKey = storage.Key
 	}
 	root := filepath.Join(dirs.Data, repoStoreDirName)
 	var projects []mcpProjectSummary
@@ -1212,7 +1265,10 @@ func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, 
 			return boundErr
 		}
 		if !bound {
-			// Unbound server: fall back to the process CWD repo, as before.
+			if !mcpCrossRepoAllowed() {
+				return mcpCrossRepoRefusal("brain_delete_project", "server has no bound repository", "")
+			}
+			// Explicitly opted-in unbound servers may use the process CWD.
 			target := "."
 			repoDir, local, resolveErr := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
 			if resolveErr != nil {
@@ -1236,7 +1292,7 @@ func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, 
 		// prompt-injected agent that picks a foreign key also supplies the
 		// confirmation. Refuse anything but the bound repo unless the operator
 		// opted in.
-		if !mcpCrossRepoAllowed() && strings.TrimSpace(opts.Env.RepoRoot) != "" {
+		if !mcpCrossRepoAllowed() {
 			boundStorage, bound, boundErr := mcpBoundRepoStorage(ctx, opts)
 			if boundErr != nil {
 				return boundErr
@@ -1283,8 +1339,8 @@ func mcpCrossRepoAllowed() bool { return envBool(mcpAllowCrossRepoEnv) }
 
 // mcpBoundRepoStorage resolves the storage identity (repo key + brain dir) of
 // the repository this MCP server is bound to. An empty EntireEnv.RepoRoot means
-// the server is not bound to a repo, which the callers treat the same way
-// mcpResolveIndexPath treats an unset root: no scoping to enforce.
+// the server is not bound to a repo; scoped callers must refuse access unless
+// the operator explicitly permits cross-repository access.
 func mcpBoundRepoStorage(ctx context.Context, opts Options) (repoStorage, bool, error) {
 	root := strings.TrimSpace(opts.Env.RepoRoot)
 	if root == "" {
@@ -1318,35 +1374,158 @@ func mcpCrossRepoRefusal(tool, detail, boundKey string) error {
 	)
 }
 
-// mcpEnforceWorkspaceScope refuses a workspace whose members reach outside the
-// bound repository root. Workspace fan-out reads (and reports on) every member
-// repo's brain and working tree, so an agent bound to one repo must not be able
-// to name an arbitrary workspace and pull the rest in. Enforced here, at the MCP
-// dispatch site, and never inside runWorkspace* — the CLI verbs share those
-// functions and must stay cross-repo.
-func mcpEnforceWorkspaceScope(ctx context.Context, opts Options, tool, workspaceName string) error {
-	if mcpCrossRepoAllowed() || strings.TrimSpace(opts.Env.RepoRoot) == "" {
-		return nil
-	}
+// mcpWorkspaceManifest loads once so execution uses exactly the members checked
+// at the MCP boundary. CLI callers continue to load their own unrestricted manifest.
+func mcpWorkspaceManifest(ctx context.Context, opts Options, tool, workspaceName string) (workspaceManifest, error) {
 	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
 	if err != nil {
-		return err
+		return workspaceManifest{}, err
 	}
-	boundKey := ""
-	if storage, bound, storageErr := mcpBoundRepoStorage(ctx, opts); storageErr == nil && bound {
-		boundKey = storage.Key
+	if err := mcpValidateWorkspaceScope(ctx, opts, tool, manifest); err != nil {
+		return workspaceManifest{}, err
 	}
+	return manifest, nil
+}
+
+func mcpEnforceWorkspaceScope(ctx context.Context, opts Options, tool, workspaceName string) error {
+	_, err := mcpWorkspaceManifest(ctx, opts, tool, workspaceName)
+	return err
+}
+
+func mcpValidateWorkspaceScope(ctx context.Context, opts Options, tool string, manifest workspaceManifest) error {
+	if mcpCrossRepoAllowed() {
+		return nil
+	}
+
+	storage, bound, storageErr := mcpBoundRepoStorage(ctx, opts)
+	if storageErr != nil {
+		return storageErr
+	}
+	if !bound {
+		return mcpCrossRepoRefusal(tool, "cannot resolve the bound repository", "")
+	}
+	boundKey := storage.Key
+
+	// RULE 1 -- MEMBERSHIP, which is what actually carries the confused-deputy
+	// protection. An agent bound to repo A may fan out over a workspace only if A
+	// is a member of it. Naming some OTHER workspace is precisely "an agent in
+	// repo A acting on unrelated repo B", and the operator's own `workspace add`
+	// is the declaration that these repos belong together.
+	if !workspaceIncludesBoundRepo(manifest, boundKey, opts.Env.RepoRoot) {
+		return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q does not include the bound repository", manifest.Name), boundKey)
+	}
+
+	// RULE 2 -- LOCALITY, scoped to the bound repo's PARENT rather than to the
+	// bound repo itself.
+	//
+	// Requiring every member to live INSIDE the bound root refused the only
+	// layout a workspace is ever built from. Checkouts sit side by side --
+	//
+	//	devenv/cli        <- bound here
+	//	devenv/entiredb   <- a member
+	//
+	// -- and a sibling is never inside its sibling, so all three workspace tools
+	// refused the standard setup they exist to serve. That is the normal case,
+	// not an edge case.
+	scopeRoot := workspaceScopeRoot(opts.Env.RepoRoot)
 	for _, repo := range manifest.Repos {
-		if boundKey != "" && repo.RepoKey == boundKey {
-			continue
-		}
 		hint := strings.TrimSpace(repo.LocalPathHint)
-		if hint != "" && enforceIndexContainment(opts.Env.RepoRoot, hint) == nil {
-			continue
+		if hint == "" {
+			return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q member %q has no local path, so its location cannot be checked", manifest.Name, repo.RepoKey), boundKey)
 		}
-		return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q includes repo %q outside that root", manifest.Name, repo.RepoKey), boundKey)
+		if enforceIndexContainment(scopeRoot, hint) != nil {
+			return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q includes repo %q outside %s", manifest.Name, repo.RepoKey, scopeRoot), boundKey)
+		}
+		repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, hint)
+		if err != nil {
+			return err
+		}
+		if !local || enforceIndexContainment(scopeRoot, repoDir) != nil {
+			return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q member %q has no in-scope checkout", manifest.Name, repo.RepoKey), boundKey)
+		}
+		memberStorage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+		if err != nil {
+			return err
+		}
+		if memberStorage.Key != repo.RepoKey {
+			return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q member %q does not match local checkout identity %q", manifest.Name, repo.RepoKey, memberStorage.Key), boundKey)
+		}
+
 	}
 	return nil
+}
+
+// workspaceIncludesBoundRepo reports whether the bound repository is a member of
+// manifest. The repo key is the primary match; the local path is the fallback,
+// because a member added under a different key spelling (a remote renamed since
+// `workspace add`, or a manifest written by another brain version) is still the
+// same checkout on disk.
+func workspaceIncludesBoundRepo(manifest workspaceManifest, boundKey, repoRoot string) bool {
+	for _, repo := range manifest.Repos {
+		if boundKey != "" && repo.RepoKey == boundKey {
+			return true
+		}
+		hint := strings.TrimSpace(repo.LocalPathHint)
+		if hint == "" {
+			continue
+		}
+		if samePathOnDisk(hint, repoRoot) {
+			return true
+		}
+	}
+	return false
+}
+
+// samePathOnDisk compares two paths after making them absolute and resolving
+// symlinks, so /var and /private/var (or a checkout reached through a symlinked
+// parent) are recognized as the same directory.
+//
+// The final comparison goes through filepath.Rel rather than string equality,
+// because string equality is not the host's rule. Windows compares paths
+// case-insensitively; symlink resolution only hides that while both paths exist
+// on disk, and a manifest's local path hint routinely names a checkout that has
+// been moved or not cloned yet. For such a path only Abs runs, which preserves
+// case, so `C:\dev\cli` and `C:\Dev\CLI` -- the same path on Windows -- compared
+// unequal and the bound repository was not recognized as a member of its own
+// workspace. filepath.Rel folds case on Windows and only on Windows, so this
+// applies each host's own rule.
+func samePathOnDisk(a, b string) bool {
+	resolve := func(p string) string {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return p
+		}
+		if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+			return resolved
+		}
+		return abs
+	}
+	rel, err := filepath.Rel(resolve(a), resolve(b))
+	return err == nil && rel == "."
+}
+
+// workspaceScopeRoot is the directory that bounds an MCP workspace fan-out: the
+// bound repository's PARENT, so sibling checkouts under a common parent are in
+// scope.
+//
+// It deliberately widens by exactly one level. Two levels would put unrelated
+// project trees in scope, and no widening at all refuses every real workspace.
+// A repository checked out at the top of a volume does not widen, so a shallow
+// path cannot put the whole filesystem in scope.
+func workspaceScopeRoot(repoRoot string) string {
+	abs, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return repoRoot
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	parent := filepath.Dir(abs)
+	if parent == abs || filepath.Dir(parent) == parent {
+		// abs is a filesystem/volume root, or its parent is -- do not widen.
+		return abs
+	}
+	return parent
 }
 
 func mcpGraphBinary() string {
@@ -1507,7 +1686,7 @@ func mcpStringSlice(args map[string]any, key string) ([]string, error) {
 	return out, nil
 }
 
-// mcpIntegerArgMax caps every integer tool argument.
+// mcpIntegerArgMax caps integer arguments that bound work or allocations.
 //
 // The lower bounds below were always enforced; the UPPER bound was not, and it
 // is not a result-quality question. `limit` reaches make([]T, 0, limit) in the
@@ -1525,6 +1704,11 @@ func mcpStringSlice(args map[string]any, key string) ([]string, error) {
 // check itself regardless. 10000 is far above any useful result count, depth, or
 // context window.
 const mcpIntegerArgMax = 10000
+
+// Turn cursors are only compared with stored ordinals; they do not size a
+// result allocation. Keep them exactly representable in JSON and in an int
+// on every supported platform without imposing the result-count ceiling.
+const mcpTurnCursorMax = math.MaxInt32
 
 func mcpPositiveInt(args map[string]any, key string, fallback int) (int, error) {
 	value, ok := args[key]
@@ -1545,21 +1729,25 @@ func mcpPositiveInt(args map[string]any, key string, fallback int) (int, error) 
 }
 
 func mcpNonNegativeInt(args map[string]any, key string, fallback int) (int, error) {
+	return mcpNonNegativeIntMax(args, key, fallback, mcpIntegerArgMax)
+}
+
+func mcpNonNegativeIntMax(args map[string]any, key string, fallback, maximum int) (int, error) {
 	value, ok := args[key]
 	if !ok {
 		return fallback, nil
 	}
 	switch typed := value.(type) {
 	case float64:
-		if typed >= 0 && typed <= float64(mcpIntegerArgMax) && math.Trunc(typed) == typed {
+		if typed >= 0 && typed <= float64(maximum) && math.Trunc(typed) == typed {
 			return int(typed), nil
 		}
 	case int:
-		if typed >= 0 && typed <= mcpIntegerArgMax {
+		if typed >= 0 && typed <= maximum {
 			return typed, nil
 		}
 	}
-	return 0, fmt.Errorf("%s must be an integer between 0 and %d", key, mcpIntegerArgMax)
+	return 0, fmt.Errorf("%s must be an integer between 0 and %d", key, maximum)
 }
 
 // errMCPRecoverable marks a single malformed/oversized frame that should be
