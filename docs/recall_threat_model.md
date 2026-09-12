@@ -149,9 +149,14 @@ hostile content cannot exfiltrate via the embedder channel.
 
 1. No retrieval surface returns conversation content without
    `verification_required` + the historical-evidence caveat.
-2. No MCP argument reaches a filesystem path or executable choice, and no MCP
-   argument reaches another repository's brain (read or delete) unless the
-   operator set `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO`.
+2. MCP clients cannot choose an executable. Repository indexing paths are scoped
+   by `ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH`; trace ingestion accepts a local path and
+   is not covered by that indexing boundary. Project listing and deletion require
+   a bound repository, and workspace tools require a validated snapshot whose
+   members include the bound repository and match checkouts under its parent.
+   Unbound servers refuse these project and workspace operations unless the
+   operator sets `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO`, which disables their scope
+   checks.
 3. Publish/bundle output never contains transcripts, history records, or
    conversation text.
 4. Tombstones are honored before every derived build AND consulted at every
