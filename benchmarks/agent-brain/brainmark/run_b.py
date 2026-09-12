@@ -346,21 +346,63 @@ def session_env(config: dict, cell: pathlib.Path) -> tuple[dict[str, str], dict]
     return env, provenance
 
 
-def read_isolation(config: dict, worktree: pathlib.Path, env: dict[str, str]):
-    """run.py's deny-first sandbox profile (run.py:5125). macOS only."""
+#: Explicit, recorded opt-out from read isolation. The ONLY way a macOS cell may
+#: run unsandboxed; it is stamped into meta.json so such a run can never be
+#: mistaken for an isolated one.
+NO_READ_ISOLATION_ENV = "BM_NO_READ_ISOLATION"
+
+
+def read_isolation(config: dict, worktree: pathlib.Path, env: dict[str, str],
+                   results_root: pathlib.Path | None = None):
+    """run.py's deny-first sandbox profile (run.py:5125). macOS only.
+
+    `tools["bin"]` IS REQUIRED by run.py:5152 -- it is one of the roots the
+    profile re-allows. Passing `tools={}` raised KeyError inside profile
+    construction, and a blanket `except Exception` turned that into
+    `(None, ...)`: isolation silently OFF for every cell on every platform,
+    while run_b's docstring went on justifying the arm-neutral worktree layout
+    by pointing at a profile that was never built. The netjail directory is the
+    right value here: it is this harness's frozen tool dir and it must stay
+    readable, exactly as run.py's tool dir does.
+
+    `results_root` is denied on top of run.py's own denies. run.py denies the
+    repo root and `source`, which covers the DEFAULT results tree
+    (brainmark/results) but not `--out /somewhere/else`; without this a B
+    session run with an external `--out` can read every sibling arm's
+    packet.txt, prompt.txt and meta.json, which is the exact side channel the
+    profile exists to close.
+
+    Failure is LOUD. The previous swallow was written to keep isolation setup
+    from killing a run; the effect was that it killed the isolation instead.
+    A cell that cannot be isolated must abort, or be opted out explicitly via
+    BM_NO_READ_ISOLATION=1, which is recorded.
+    """
     sandbox = _harness.sandbox_executable()
     if not sandbox.exists():
         return None, {"backend": None, "reason": f"{sandbox} not present"}
-    try:
-        profile, provenance = _harness.temporal_agent_read_isolation(
-            worktree=worktree,
-            source=_harness.AGENT_BENCH_DIR,
-            tools={},
-            host_env=env,
-        )
-        return profile, provenance
-    except Exception as exc:  # noqa: BLE001 - never let isolation setup kill a run silently
-        return None, {"backend": None, "reason": f"{type(exc).__name__}: {exc}"}
+    if os.environ.get(NO_READ_ISOLATION_ENV) == "1":
+        return None, {"backend": None, "reason": f"disabled by {NO_READ_ISOLATION_ENV}"}
+
+    tools_bin = _repo.netjail_dir(pathlib.Path(config["graphmark_root"]))
+    profile, provenance = _harness.temporal_agent_read_isolation(
+        worktree=worktree,
+        source=_harness.AGENT_BENCH_DIR,
+        tools={"bin": tools_bin},
+        host_env=env,
+    )
+    provenance = dict(provenance)
+    extra_denied: list[str] = []
+    if results_root is not None:
+        resolved = pathlib.Path(results_root).resolve()
+        worktree_resolved = pathlib.Path(worktree).resolve()
+        if not worktree_resolved.is_relative_to(resolved):
+            # Appended AFTER run.py's re-allows: seatbelt takes the last
+            # matching rule, so this deny is the one that stands for the
+            # results tree while the worktree's own allow is untouched.
+            profile += f"(deny file-read* (subpath {json.dumps(str(resolved))}))\n"
+            extra_denied.append(str(resolved))
+    provenance["extra_denied_roots"] = extra_denied
+    return profile, provenance
 
 
 #: Set to 1 to put the worktree back inside the cell dir. DEBUG ONLY -- it
@@ -454,7 +496,10 @@ def run_cell(
     agent_state, agent_state_arm_neutral = agent_state_path(
         cell, pair["pair_id"], arm, rep)
     env, env_prov = session_env(config, cell)
-    profile, iso_prov = read_isolation(config, worktree, env)
+    # cell == <results_root>/<pair_id>/<arm>; the whole results tree is what the
+    # sibling-artifact side channel lives in, so that is what gets denied.
+    profile, iso_prov = read_isolation(config, worktree, env,
+                                       results_root=cell.parent.parent)
     sandbox_wrapper = (
         [str(_harness.sandbox_executable()), "-p", profile] if profile is not None else None
     )
