@@ -7,6 +7,7 @@ import os
 import pathlib
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest import mock
 from typing import Any, Sequence
@@ -14,6 +15,34 @@ from typing import Any, Sequence
 import task_eligibility
 import task_negative_control as negative
 import relevance_dataset
+
+
+# A `select {}` body does not hang under `go test`.  With every goroutine
+# blocked and no timer pending, the Go runtime's deadlock detector aborts the
+# binary in single-digit milliseconds ("fatal error: all goroutines are asleep
+# - deadlock!"), so a command built from it exits almost immediately.  Sleeping
+# leaves a timer pending, the runtime therefore keeps waiting, and nothing but
+# the external timeout can end the run -- which is the property under test.
+HANG_TEST_SOURCE = (
+    "package hang\n"
+    "\n"
+    "import (\n"
+    '\t"testing"\n'
+    '\t"time"\n'
+    ")\n"
+    "\n"
+    "func TestHang(t *testing.T) { time.Sleep(time.Hour) }\n"
+)
+# Same dependencies, same command shape, but it returns at once: timing this
+# one measures everything the hanging run does except the hang.
+CONTROL_TEST_SOURCE = (
+    "package control\n\nimport \"testing\"\n\nfunc TestControl(t *testing.T) {}\n"
+)
+# The measured window has to clear the fully cached cost of `go test` on this
+# machine by a wide margin, without letting a slow machine stretch the test.
+HANG_TIMEOUT_MULTIPLE = 5.0
+HANG_TIMEOUT_FLOOR_SECONDS = 0.5
+HANG_TIMEOUT_CEILING_SECONDS = 5.0
 
 
 class TaskNegativeControlTest(unittest.TestCase):
@@ -208,23 +237,82 @@ class TaskNegativeControlTest(unittest.TestCase):
         )
 
     def test_hanging_go_test_is_killed_by_the_only_timeout(self) -> None:
+        captured: list[bytes] = []
         with tempfile.TemporaryDirectory() as temporary:
             repo = pathlib.Path(temporary)
             (repo / "go.mod").write_text("module example.invalid/hang\n\ngo 1.23\n", encoding="utf-8")
-            (repo / "hang_test.go").write_text(
-                "package hang\n\nimport \"testing\"\n\nfunc TestHang(t *testing.T) { select {} }\n",
-                encoding="utf-8",
-            )
+            (repo / "hang").mkdir()
+            (repo / "hang" / "hang_test.go").write_text(HANG_TEST_SOURCE, encoding="utf-8")
+            (repo / "control").mkdir()
+            (repo / "control" / "control_test.go").write_text(CONTROL_TEST_SOURCE, encoding="utf-8")
+            prebuilt = repo / "prebuilt"
+            prebuilt.mkdir()
             state_root = repo / "state"
             negative._reset_execution_state(state_root)
-            execution = negative._execution(
-                [negative._go_runtime()["binary"], "test", *negative.TEST_FLAGS, "."],
-                repo,
-                0.2,
-                negative._test_environment(state_root),
+            environment = negative._test_environment(state_root)
+            go = negative._go_runtime()["binary"]
+
+            # Compile both packages before anything is timed.  What is under
+            # test is that a command which never finishes is killed by the
+            # single external timeout, so the Go build must sit outside the
+            # measured window: on a cold build cache the build alone takes tens
+            # of seconds and on a warm one it takes milliseconds, and that
+            # spread decided the result rather than the hang.
+            for package in ("control", "hang"):
+                built = negative._run(
+                    [go, "test", "-c", "-o", str(prebuilt / package), f"./{package}"],
+                    cwd=repo,
+                    combined_output=True,
+                    env=environment,
+                )
+                self.assertEqual(
+                    built.returncode,
+                    0,
+                    f"pre-building ./{package} failed:\n"
+                    + built.stdout.decode("utf-8", errors="replace"),
+                )
+
+            # Calibrate the window against this machine rather than a constant.
+            started = time.monotonic()
+            control = negative._run(
+                [go, "test", *negative.TEST_FLAGS, "./control"],
+                cwd=repo,
+                combined_output=True,
+                env=environment,
             )
-        self.assertEqual(execution["status"], "timeout")
-        self.assertIsNone(execution["exit_code"])
+            cached_seconds = time.monotonic() - started
+            self.assertEqual(
+                control.returncode,
+                0,
+                "cached control run failed:\n" + control.stdout.decode("utf-8", errors="replace"),
+            )
+            timeout_seconds = min(
+                HANG_TIMEOUT_CEILING_SECONDS,
+                max(HANG_TIMEOUT_FLOOR_SECONDS, HANG_TIMEOUT_MULTIPLE * cached_seconds),
+            )
+
+            started = time.monotonic()
+            execution = negative._execution(
+                [go, "test", *negative.TEST_FLAGS, "./hang"],
+                repo,
+                timeout_seconds,
+                environment,
+                output_sink=captured.append,
+            )
+            elapsed = time.monotonic() - started
+
+        diagnosis = (
+            f"`go test ./hang` should have been killed by the only timeout "
+            f"({timeout_seconds:.3f}s, calibrated from a {cached_seconds:.3f}s cached "
+            f"control run) but returned status={execution['status']!r} "
+            f"exit_code={execution['exit_code']!r} after {elapsed:.3f}s. Command output:\n"
+            + (captured[0].decode("utf-8", errors="replace") if captured else "<no output captured>")
+        )
+        self.assertEqual(execution["status"], "timeout", diagnosis)
+        self.assertIsNone(execution["exit_code"], diagnosis)
+        # The command was still running when the window closed, so the window
+        # was actually spent -- it did not merely outlast a fast exit.
+        self.assertGreaterEqual(elapsed, timeout_seconds, diagnosis)
         self.assertEqual(
             negative._classification(
                 {
@@ -236,7 +324,45 @@ class TaskNegativeControlTest(unittest.TestCase):
                 execution,
             ),
             "reversed_invalid_timeout",
+            diagnosis,
         )
+
+    def test_isolated_execution_state_disables_the_go_telemetry_sidecar(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = pathlib.Path(temporary)
+            (repo / "go.mod").write_text(
+                "module example.invalid/telemetry\n\ngo 1.23\n", encoding="utf-8"
+            )
+            state_root = repo / "state"
+            negative._reset_execution_state(state_root)
+            directories = negative._telemetry_directories(state_root)
+            # Whichever of these the host's Go treats as os.UserConfigDir(),
+            # it finds a mode file that says "off".
+            for directory in directories:
+                self.assertEqual((directory / "mode").read_text(encoding="utf-8").strip(), "off")
+            environment = negative._test_environment(state_root)
+            self.assertEqual(environment["XDG_CONFIG_HOME"], str(state_root / "xdg-config"))
+            self.assertEqual(environment["HOME"], str(state_root / "home"))
+            completed = negative._run(
+                [negative._go_runtime()["binary"], "list", "-m", "-json"],
+                cwd=repo,
+                combined_output=True,
+                env=environment,
+            )
+            self.assertEqual(
+                completed.returncode,
+                0,
+                completed.stdout.decode("utf-8", errors="replace"),
+            )
+            # With the mode at "off" the toolchain neither opens a counter file
+            # nor forks the upload sidecar, so nothing is left writing into the
+            # execution state once the measured command has exited.
+            for directory in directories:
+                self.assertEqual(
+                    sorted(entry.name for entry in directory.iterdir()),
+                    ["mode"],
+                    f"the Go toolchain wrote telemetry into {directory}",
+                )
 
     def test_effective_environment_is_captured_before_execution(self) -> None:
         state_root = pathlib.Path(self.temporary.name) / "environment-state"
