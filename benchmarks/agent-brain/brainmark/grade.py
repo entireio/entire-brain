@@ -23,8 +23,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -36,13 +38,58 @@ else:
     from . import _harness
 
 
+#: grade_tag.sh resolves the arm from the TAG, with a shell `case`. We do not
+#: get to pass the arm in: whatever that case picks is the directory it then
+#: reads, so an arm the case cannot name is an arm that cannot be graded.
+_CASE_BLOCK = re.compile(r'case\s+"\$TAG"\s+in(.*?)esac', re.DOTALL)
+_CASE_ARM = re.compile(r'^\s*([^)\s]+)\)\s*ARM=([A-Za-z0-9_\-]+)', re.MULTILINE)
+
+
+def script_arm_patterns(script: pathlib.Path) -> list[tuple[str, str]]:
+    """[(glob, arm)] in the order grade_tag.sh's `case` tries them."""
+    block = _CASE_BLOCK.search(pathlib.Path(script).read_text(encoding="utf-8"))
+    if not block:
+        return []
+    return [(pattern, arm) for pattern, arm in _CASE_ARM.findall(block.group(1))]
+
+
+def unresolvable_arms(script: pathlib.Path, tag: str,
+                      arms: list[str]) -> list[tuple[str, str]]:
+    """[(arm, why)] for every arm grade_tag.sh would refuse or MISATTRIBUTE.
+
+    Two failure modes, both silent today:
+      * no pattern matches -- `cannot infer arm from tag`, exit 1, and grade.py
+        records an error with no resolved_ids;
+      * a pattern matches but names a DIFFERENT arm -- the script then reads
+        results/<tag>/<that other arm>/, which does not exist for this run.
+    """
+    patterns = script_arm_patterns(script)
+    if not patterns:
+        return []  # not a case-dispatching script; nothing to pre-check
+    problems: list[tuple[str, str]] = []
+    for arm in arms:
+        staged_tag = f"{tag}_{arm}"
+        resolved = next(
+            (name for glob, name in patterns if fnmatch.fnmatchcase(staged_tag, glob)),
+            None,
+        )
+        if resolved is None:
+            problems.append((arm, f"{script.name} cannot infer an arm from tag "
+                                  f"{staged_tag!r}; it would exit 1"))
+        elif resolved != arm:
+            problems.append((arm, f"{script.name} resolves tag {staged_tag!r} to arm "
+                                  f"{resolved!r}, not {arm!r}, and would read the "
+                                  f"wrong results directory"))
+    return problems
+
+
 def stage_arm(results: pathlib.Path, graphmark_root: pathlib.Path,
               tag: str, arm: str) -> tuple[pathlib.Path, list[str]]:
     """Materialize results/<tag>_<arm>/<arm>/<iid>/patch.diff for grade_tag.sh.
 
-    grade_tag.sh infers the arm from the tag SUFFIX, so the tag must end in a
-    string it recognizes; we pass the arm through explicitly via the directory
-    layout and give the tag an arm-suffixed name.
+    grade_tag.sh infers the arm from the TAG, not from this layout, so
+    `unresolvable_arms()` checks up front that the two agree. They must: if the
+    script picks a different arm it reads a directory this function never wrote.
     """
     staged_tag = f"{tag}_{arm}"
     staged_root = graphmark_root / "results" / staged_tag / arm
@@ -104,6 +151,16 @@ def run(results: pathlib.Path, config: dict, tag: str, arms: list[str],
     if not script.is_file():
         raise SystemExit(f"grade_tag.sh not found at {script}")
 
+    unresolvable = unresolvable_arms(script, tag, arms)
+    if unresolvable:
+        raise SystemExit(
+            "REFUSING TO GRADE -- the grading script cannot address these arms:\n"
+            + "\n".join(f"  {arm}: {why}" for arm, why in unresolvable)
+            + "\n\nGrading them anyway records an error with no resolved_ids, and "
+              "every instance of the arm is then scored UNRESOLVED, which turns an "
+              "infrastructure failure into a measured 'memory did not help'."
+        )
+
     elig = eligible_ids(results, arms)
     report: dict = {"tag": tag, "arms": arms, "eligible_instances": elig,
                     "eligible_count": len(elig), "dry_run": dry_run, "per_arm": {}}
@@ -129,14 +186,21 @@ def run(results: pathlib.Path, config: dict, tag: str, arms: list[str],
             entry["stdout_tail"] = (proc.stdout or "")[-2000:]
             entry["stderr_tail"] = (proc.stderr or "")[-2000:]
             official = graphmark_root / f"{staged_tag}.{staged_tag}.json"
-            if official.is_file():
+            if official.is_file() and proc.returncode == 0:
                 payload = json.loads(official.read_text(encoding="utf-8"))
                 entry["report_path"] = str(official)
                 entry["resolved_ids"] = sorted(payload.get("resolved_ids") or [])
                 entry["resolved"] = len(entry["resolved_ids"])
                 entry["total"] = payload.get("total_instances")
+                entry["graded"] = True
             else:
-                entry["error"] = "grade_tag.sh produced no official report"
+                # NO resolved_ids key, and an explicit graded=False. An arm that
+                # was not graded has no resolved% -- it does not have zero.
+                entry["graded"] = False
+                entry["error"] = (
+                    f"grade_tag.sh rc={proc.returncode} and no official report at "
+                    f"{official}"
+                )
         report["per_arm"][arm] = entry
     return report
 

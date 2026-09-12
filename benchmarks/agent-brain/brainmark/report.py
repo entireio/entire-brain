@@ -114,6 +114,27 @@ def check_integrity(results: pathlib.Path, arms: list[str],
 # --------------------------------------------------------------------------
 
 
+def ungraded_arms(grading: dict | None, arms: list[str]) -> list[str]:
+    """Arms whose grading produced no report. NOT the same as zero resolved.
+
+    grade.py records `error` and omits `resolved_ids` when grade_tag.sh fails
+    (it cannot even name five of the six BrainMark arms). Reading that as an
+    empty resolved set marks every instance of the arm UNRESOLVED and feeds a
+    fabricated 0-of-n into McNemar -- an infrastructure failure rendered as
+    "memory did not help", and asymmetric, since an arm that DID grade reports
+    real numbers beside it.
+    """
+    per_arm = (grading or {}).get("per_arm") or {}
+    out: list[str] = []
+    for arm in arms:
+        entry = per_arm.get(arm)
+        if entry is None:
+            continue  # not attempted at all; the resolved endpoint is simply absent
+        if entry.get("graded") is False or "resolved_ids" not in entry:
+            out.append(arm)
+    return sorted(out)
+
+
 def collect(results: pathlib.Path, arms: list[str],
             grading: dict | None = None) -> tuple[list[str], dict]:
     """-> (clean_pair_ids, {pair_id: {arm: cellrecord}})."""
@@ -149,7 +170,12 @@ def collect(results: pathlib.Path, arms: list[str],
 
     if grading:
         for arm, entry in (grading.get("per_arm") or {}).items():
-            resolved = set(entry.get("resolved_ids") or [])
+            if entry.get("graded") is False or "resolved_ids" not in entry:
+                # UNGRADED, not zero-resolved. Leaving the key absent is what
+                # makes compare() skip the resolved endpoint for this arm
+                # instead of running McNemar on a fabricated 0-of-n.
+                continue
+            resolved = set(entry["resolved_ids"])
             for pair, cells in table.items():
                 if arm in cells:
                     cells[arm]["resolved"] = cells[arm]["instance_id"] in resolved
@@ -358,6 +384,11 @@ def build_report(results: pathlib.Path, config: dict, arms: list[str],
 
     problems, warnings = check_integrity(results, arms, require_seal=require_seal)
     clean, table = collect(results, arms, grading)
+    for arm in ungraded_arms(grading, arms):
+        warnings.append(
+            f"{arm}: grading produced no report, so the resolved% endpoint is "
+            f"OMITTED for every comparison involving it. It is NOT zero."
+        )
     seal_ok, _ = seal.verify()
 
     report: dict = {
