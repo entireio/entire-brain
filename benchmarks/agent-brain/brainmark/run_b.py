@@ -342,6 +342,29 @@ def session_env(config: dict, cell: pathlib.Path) -> tuple[dict[str, str], dict]
 #: mistaken for an isolated one.
 NO_READ_ISOLATION_ENV = "BM_NO_READ_ISOLATION"
 
+#: Subtrees of the graphmark checkout that hold ANSWERS, relative to
+#: graphmark_root. `tasks/*.json` records carry `patch` (the gold patch),
+#: `test_patch`, `FAIL_TO_PASS`, `PASS_TO_PASS` and `hints_text` for every
+#: instance; `results/` holds other runs' and other arms' staged predictions.
+#:
+#: These are NOT covered by run.py's denies, which name the entire-brain repo
+#: root and benchmarks/agent-brain -- graphmark is a sibling checkout, so it
+#: fell under `(allow default)`. And the agent does not have to guess where it
+#: is: `_repo.netjail_path` puts `<graphmark_root>/tools/netjail` first on the
+#: session's own PATH, so `echo $PATH` hands over the checkout root, and
+#: `<root>/tasks/*.json` then hands over the gold patch for the very instance
+#: the session is being scored on.
+#:
+#: The repo cache is deliberately NOT here: the worktree's `.git` points into
+#: it and the session cannot run without it.
+ANSWER_KEY_SUBDIRS: tuple[str, ...] = ("tasks", "results")
+
+
+def answer_key_roots(graphmark_root: pathlib.Path) -> list[pathlib.Path]:
+    """Existing answer-holding subtrees of the graphmark checkout, to deny."""
+    root = pathlib.Path(graphmark_root)
+    return [root / name for name in ANSWER_KEY_SUBDIRS if (root / name).exists()]
+
 
 def read_isolation(config: dict, worktree: pathlib.Path, env: dict[str, str],
                    results_root: pathlib.Path | None = None):
@@ -374,7 +397,8 @@ def read_isolation(config: dict, worktree: pathlib.Path, env: dict[str, str],
     if os.environ.get(NO_READ_ISOLATION_ENV) == "1":
         return None, {"backend": None, "reason": f"disabled by {NO_READ_ISOLATION_ENV}"}
 
-    tools_bin = _repo.netjail_dir(pathlib.Path(config["graphmark_root"]))
+    graphmark_root = pathlib.Path(config["graphmark_root"])
+    tools_bin = _repo.netjail_dir(graphmark_root)
     profile, provenance = _harness.temporal_agent_read_isolation(
         worktree=worktree,
         source=_harness.AGENT_BENCH_DIR,
@@ -382,16 +406,21 @@ def read_isolation(config: dict, worktree: pathlib.Path, env: dict[str, str],
         host_env=env,
     )
     provenance = dict(provenance)
+    worktree_resolved = pathlib.Path(worktree).resolve()
     extra_denied: list[str] = []
-    if results_root is not None:
-        resolved = pathlib.Path(results_root).resolve()
-        worktree_resolved = pathlib.Path(worktree).resolve()
-        if not worktree_resolved.is_relative_to(resolved):
-            # Appended AFTER run.py's re-allows: seatbelt takes the last
-            # matching rule, so this deny is the one that stands for the
-            # results tree while the worktree's own allow is untouched.
-            profile += f"(deny file-read* (subpath {json.dumps(str(resolved))}))\n"
-            extra_denied.append(str(resolved))
+    for candidate in [results_root, *answer_key_roots(graphmark_root)]:
+        if candidate is None:
+            continue
+        resolved = pathlib.Path(candidate).resolve()
+        if worktree_resolved.is_relative_to(resolved):
+            continue
+        if str(resolved) in extra_denied:
+            continue
+        # Appended AFTER run.py's re-allows: seatbelt takes the last matching
+        # rule, so these denies stand while the worktree's own allow is
+        # untouched.
+        profile += f"(deny file-read* (subpath {json.dumps(str(resolved))}))\n"
+        extra_denied.append(str(resolved))
     provenance["extra_denied_roots"] = extra_denied
     return profile, provenance
 
