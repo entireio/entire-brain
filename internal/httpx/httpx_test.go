@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -90,5 +91,51 @@ func TestResponseHeaderTimeoutFiresBeforeTheRequestBound(t *testing.T) {
 		}
 	case <-time.After(20 * time.Second):
 		t.Fatal("a server that accepted the connection and never answered hung the client past its response-header bound")
+	}
+}
+
+func TestUploadClientAllowsProcessingWithinRequestBudget(t *testing.T) {
+	query := Client(time.Minute)
+	upload := UploadClient(5 * time.Minute)
+	tr := upload.Transport.(*http.Transport)
+	if upload.Timeout != 5*time.Minute || tr.ResponseHeaderTimeout != upload.Timeout {
+		t.Fatalf("upload budget mismatch: request=%v headers=%v", upload.Timeout, tr.ResponseHeaderTimeout)
+	}
+	if upload.Transport == query.Transport || upload.Transport != UploadClient(5*time.Minute).Transport {
+		t.Fatal("uploads need their own reused connection pool")
+	}
+	if tr.TLSHandshakeTimeout == 0 {
+		t.Fatal("upload TLS phase is unbounded")
+	}
+
+	// Scale the same policies down for a server that processes a completed body
+	// longer than the query header budget, but within the upload request budget.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(100 * time.Millisecond):
+			w.WriteHeader(http.StatusOK)
+		case <-r.Context().Done():
+		}
+	}))
+	defer server.Close()
+	cfg := uploadConfig()
+	cfg.Request = 2 * time.Second
+	cfg.ResponseHeader = cfg.Request
+	client := NewClient(cfg)
+	defer client.CloseIdleConnections()
+	resp, err := client.Post(server.URL, "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	cfg.ResponseHeader = 20 * time.Millisecond
+	queryProbe := NewClient(cfg)
+	defer queryProbe.CloseIdleConnections()
+	resp, err = queryProbe.Get(server.URL)
+	if resp != nil {
+		resp.Body.Close()
+	}
+	if err == nil {
+		t.Fatal("query header timeout did not fire")
 	}
 }
