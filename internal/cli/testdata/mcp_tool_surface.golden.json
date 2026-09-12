@@ -15,7 +15,7 @@
     "name": "brain_status"
   },
   {
-    "description": "Refresh bounded code-derived Brain sources and return status JSON. Includes current worktree content by default and never exports checkpoint sessions. Set semantic=true only for small repositories; for large repositories use brain_index_repository as a separate long-running step. Calls are capped at 60 seconds.",
+    "description": "Refresh bounded code-derived Brain sources and return status JSON. Seed and docs include current worktree content by default; the semantic index is always built from committed HEAD, so use brain_index_repository with worktree=true when you need a dirty semantic snapshot. Never exports checkpoint sessions. Set semantic=true only for small repositories; for large repositories use brain_index_repository as a separate long-running step. Calls are capped at 60 seconds.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -25,12 +25,12 @@
           "type": "boolean"
         },
         "semantic": {
-          "description": "Also rebuild the semantic index in this call (prefer brain_index_repository for large repositories)",
+          "description": "Also rebuild the semantic index in this call, from committed HEAD (prefer brain_index_repository for large repositories, and for a worktree snapshot)",
           "title": "semantic",
           "type": "boolean"
         },
         "worktree": {
-          "description": "Include current uncommitted content (default true; set false for committed HEAD only)",
+          "description": "Include current uncommitted content in seed and docs (default true; set false for committed HEAD only). Does not reach the semantic index, which always builds from committed HEAD.",
           "title": "worktree",
           "type": "boolean"
         }
@@ -567,7 +567,7 @@
     "name": "brain_index_status"
   },
   {
-    "description": "Build or refresh the local semantic index for a repository path. Local-only; does not publish artifacts.",
+    "description": "Build the local semantic index for a repository path. Local-only; does not publish artifacts. Replacing an index that already exists requires force=true. The path stays inside the bound repository root unless ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH is set.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -577,12 +577,12 @@
           "type": "boolean"
         },
         "path": {
-          "description": "Local repository path (default: current repo)",
+          "description": "Local repository path (default: the bound repo). A relative path resolves inside the bound repository root, not the working directory; a path outside that root is refused unless ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH is set.",
           "title": "path",
           "type": "string"
         },
         "profile": {
-          "description": "Provider profile: full, fast, or syntax-only",
+          "description": "Semantic provider snapshot profile (e.g. full, syntax-only), forwarded to the provider unchanged; empty uses the provider default.",
           "title": "profile",
           "type": "string"
         },
@@ -964,7 +964,7 @@
     "name": "brain_review"
   },
   {
-    "description": "Flag suspected regressions across every repo in a local multi-repo workspace (each brain's memory vs that repo's current tree). Tolerates sessions-only brains; results are aggregated by repo_key. Needs ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO for repos outside the bound repository.",
+    "description": "Flag suspected regressions across every repo in a local multi-repo workspace (each brain's memory vs that repo's current tree). Tolerates sessions-only brains; results are aggregated by repo_key. Allows registered sibling checkouts when the bound repo is a workspace member; other workspaces need ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1005,7 +1005,7 @@
     "name": "brain_workspace_regressions"
   },
   {
-    "description": "Return per-repo graph metadata plus shared external contracts and cross_edges for a local multi-repo workspace. Needs ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO for repos outside the bound repository.",
+    "description": "Return per-repo graph metadata plus shared external contracts and cross_edges for a local multi-repo workspace. Allows registered sibling checkouts when the bound repo is a workspace member; other workspaces need ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1030,7 +1030,7 @@
     "name": "brain_workspace_graph"
   },
   {
-    "description": "Cross-repo diff-less review (versioned contract) of each local workspace repo's current tree against its brain memory. Returns severity-ranked suspected regressions per repo. Needs ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO for repos outside the bound repository.",
+    "description": "Cross-repo diff-less review (versioned contract) of each local workspace repo's current tree against its brain memory. Returns severity-ranked suspected regressions per repo. Allows registered sibling checkouts when the bound repo is a workspace member; other workspaces need ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

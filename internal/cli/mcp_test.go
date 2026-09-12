@@ -144,8 +144,10 @@ func TestMCPBrainWorkspaceReviewToolDefinitionGolden(t *testing.T) {
 	// earlier measurement and are NOT re-measured here, because the pinned
 	// o200k_base asset is deliberately not a test dependency. Across the whole
 	// surface this is +432 bytes on the tools/list result (26,074 -> 26,506).
-	if len(got) != 1003 {
-		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 1003", len(got))
+	// The workspace membership/sibling description is now explicit; byte count
+	// below is re-measured, while the token counts above remain historical.
+	if len(got) != 1059 {
+		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 1059", len(got))
 	}
 }
 
@@ -2217,6 +2219,127 @@ func TestMCPIntegerArgsDeclareTheCeilingTheHandlerEnforces(t *testing.T) {
 	}
 	if seen == 0 {
 		t.Fatal("no integer tool arguments found; the walk is broken, not the schema")
+	}
+}
+
+// TestMCPRefreshWorktreeContractMatchesHandler pins brain_refresh's declared
+// contract to what mcpRefreshOptions actually builds.
+//
+// The description used to say, flatly, "Includes current worktree content by
+// default". The "worktree" argument only ever reaches seed and docs: the
+// handler leaves semanticWorktree false, so the semantic index brain_refresh
+// builds when semantic=true comes from committed HEAD. An agent reading the old
+// text had every reason to believe a brain_refresh(worktree=true,
+// semantic=true) left it with a semantic index of its uncommitted work. It did
+// not -- the same class of drift that shipped in the README (#141).
+//
+// This asserts both halves together so neither side can move alone.
+func TestMCPRefreshWorktreeContractMatchesHandler(t *testing.T) {
+	t.Parallel()
+
+	// Behaviour: worktree reaches seed, never the semantic snapshot, even in
+	// the exact combination the description discusses.
+	opts, err := mcpRefreshOptions(map[string]any{"worktree": true, "semantic": true})
+	if err != nil {
+		t.Fatalf("mcpRefreshOptions: %v", err)
+	}
+	if !opts.seed.worktree {
+		t.Fatal("worktree=true did not reach seed.worktree")
+	}
+	if !opts.semantic {
+		t.Fatal("semantic=true did not reach the semantic rebuild")
+	}
+	if opts.semanticWorktree {
+		t.Fatal("mcpRefreshOptions set semanticWorktree; if brain_refresh now really does index the worktree, this test and the tool description must change together")
+	}
+
+	// Default is worktree=true, which is what makes the old blanket wording so
+	// easy to read as covering everything the call rebuilds.
+	defaults, err := mcpRefreshOptions(map[string]any{})
+	if err != nil {
+		t.Fatalf("mcpRefreshOptions defaults: %v", err)
+	}
+	if !defaults.seed.worktree {
+		t.Fatal("brain_refresh no longer defaults to worktree=true; the description says it does")
+	}
+
+	// Declaration: the description must scope worktree to seed/docs and say
+	// where the semantic index actually comes from.
+	var toolDescription, worktreeDescription string
+	for _, tool := range mcpToolDefinitions() {
+		if tool["name"] != "brain_refresh" {
+			continue
+		}
+		toolDescription, _ = tool["description"].(string)
+		schema, _ := tool["inputSchema"].(map[string]any)
+		props, _ := schema["properties"].(map[string]any)
+		arg, _ := props["worktree"].(map[string]any)
+		worktreeDescription, _ = arg["description"].(string)
+	}
+	if toolDescription == "" || worktreeDescription == "" {
+		t.Fatal("brain_refresh tool definition missing")
+	}
+	for _, want := range []string{"Seed and docs include current worktree content", "committed HEAD"} {
+		if !strings.Contains(toolDescription, want) {
+			t.Errorf("brain_refresh description missing %q; it must not imply worktree content reaches the semantic index: %q", want, toolDescription)
+		}
+	}
+	if !strings.Contains(worktreeDescription, "seed and docs") || !strings.Contains(worktreeDescription, "committed HEAD") {
+		t.Errorf("brain_refresh worktree argument description must scope itself to seed and docs and name committed HEAD: %q", worktreeDescription)
+	}
+}
+
+// TestMCPIndexRepositoryDescribesForceAndPathScope pins brain_index_repository's
+// description to two things its handler really does and its old wording did not
+// mention: an existing index is not replaced without force=true, and the path
+// is confined to the bound repository root.
+//
+// The scoping half matters for consistency: every other path/repo-scoped tool
+// names its gate inline in the description (brain_delete_project,
+// brain_list_projects, the workspace tools), because an agent that hits the
+// refusal should learn the one knob from the surface it is already reading.
+// brain_index_repository was the one that did not.
+func TestMCPIndexRepositoryDescribesForceAndPathScope(t *testing.T) {
+	// No t.Parallel: this test uses t.Setenv to prove the gate lifts containment.
+
+	// Behaviour: a bound root confines the path, and the refusal is gated on
+	// exactly the env var the description now names.
+	env := EntireEnv{RepoRoot: "/repo"}
+	if _, contain := mcpResolveIndexPath(env, "/elsewhere"); contain != "/repo" {
+		t.Fatalf("mcpResolveIndexPath did not contain an absolute path to the bound root, got containRoot %q", contain)
+	}
+	if resolved, _ := mcpResolveIndexPath(env, "sub"); resolved != filepath.Join("/repo", "sub") {
+		t.Fatalf("relative path resolved to %q, want it joined onto the bound root", resolved)
+	}
+	t.Setenv("ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH", "1")
+	if _, contain := mcpResolveIndexPath(env, "/elsewhere"); contain != "" {
+		t.Fatalf("ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH did not lift containment, got containRoot %q", contain)
+	}
+
+	var toolDescription, pathDescription string
+	for _, tool := range mcpToolDefinitions() {
+		if tool["name"] != "brain_index_repository" {
+			continue
+		}
+		toolDescription, _ = tool["description"].(string)
+		schema, _ := tool["inputSchema"].(map[string]any)
+		props, _ := schema["properties"].(map[string]any)
+		arg, _ := props["path"].(map[string]any)
+		pathDescription, _ = arg["description"].(string)
+	}
+	if toolDescription == "" || pathDescription == "" {
+		t.Fatal("brain_index_repository tool definition missing")
+	}
+	if !strings.Contains(toolDescription, "force=true") {
+		t.Errorf("brain_index_repository description must say an existing index needs force=true; runSemanticIndex errors otherwise: %q", toolDescription)
+	}
+	if strings.Contains(toolDescription, "Build or refresh") {
+		t.Errorf("brain_index_repository does not refresh by default -- it errors when an index exists: %q", toolDescription)
+	}
+	for _, description := range []string{toolDescription, pathDescription} {
+		if !strings.Contains(description, "ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH") {
+			t.Errorf("brain_index_repository must name the gate that lifts path containment, as the other scoped tools do: %q", description)
+		}
 	}
 }
 
