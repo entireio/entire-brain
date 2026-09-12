@@ -111,7 +111,10 @@ class PlaceboPacketTest(unittest.TestCase):
             recipient_pair_id="a1__then__b1",
         )
         payload = json.loads(packet.text)
-        self.assertEqual(payload["arm"], "irrelevant")
+        # The arm name is NOT in the delivered bytes -- it would tell the model
+        # it is in the placebo condition. It stays on the packet object.
+        self.assertNotIn("arm", payload)
+        self.assertEqual(packet.arm, "irrelevant")
         self.assertEqual(payload["query"], QUERY, "the query is scaffold, not memory")
         self.assertEqual(len(payload["results"]), 4)
         self.assertTrue(all("other.py" in r["text"] for r in payload["results"]))

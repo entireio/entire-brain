@@ -26,6 +26,9 @@ def build(query: str, max_bytes: int, sentinel: str, **_ignored) -> MemoryPacket
         query=query,
         results=results,
         max_bytes=max_bytes,
-        extra={"note": sentinel},
+        # META ONLY. Delivered as a `note` field it was a key no other arm
+        # carried, whose value told the baseline in prose that it had no
+        # memory. The empty `results` array is the honest tool output.
+        extra={"empty_sentinel": sentinel},
         prep={"seconds": watch.elapsed_s, "llm_calls": 0, "usd": 0.0},
     )

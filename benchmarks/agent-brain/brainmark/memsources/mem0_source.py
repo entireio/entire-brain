@@ -43,7 +43,7 @@ from typing import Any
 #: password-like pin cannot be eaten by accident.
 _ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
-from ._competitor import run_competitor, transcript_to_messages
+from ._competitor import DEFAULT_RESULT_SOURCE, run_competitor, transcript_to_messages
 from .base import MemoryPacket, MemorySourceError
 
 ARM = "mem0"
@@ -172,7 +172,8 @@ class Mem0Client:
                 "score": float(hit.get("score") or 0.0),
                 "id": str(hit.get("id") or ""),
                 "created_at": hit.get("created_at"),
-                "source": ARM,
+                # NOT `ARM`: the delivered packet must not name the condition.
+                "source": DEFAULT_RESULT_SOURCE,
             })
         return out
 

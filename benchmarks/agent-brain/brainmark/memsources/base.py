@@ -6,8 +6,17 @@ bounder, screened by the SAME delimiter guard, wrapped in the SAME tags. Arms
 differ in packet CONTENT only. Anything an arm wants to say that the envelope
 cannot express is, by construction, an unfair advantage and is dropped.
 
-    {"query": <B problem statement>, "arm": <arm>, "results": [
+    {"query": <B problem statement>, "results": [
         {"source": str, "id": str, "text": str, "score": float, ...}, ...]}
+
+THE ENVELOPE IS ARM-BLIND. The arm name is NOT in the delivered bytes -- it
+lives on MemoryPacket.arm and in `meta`, which is what the artifacts and the
+report read. A packet whose first field said `"arm":"no_brain"` handed the
+model its own experimental condition inside the memory block; that is
+unblinding of the subject, not tool output, and it is the one thing an
+envelope shared by six arms must never do. What legitimately differs between
+arms is what the source RETURNED: how many results, what they say, and what a
+backend calls its own `source`.
 
 `results` is mandatory and is what run.py's bounder (run.py:4731) truncates
 rank-first, so a packet that overflows loses its WORST results, never its best,
@@ -88,10 +97,17 @@ def build_packet(
     extra: dict[str, Any] | None = None,
     prep: dict[str, Any] | None = None,
 ) -> MemoryPacket:
-    """Serialize -> bound (run.py:4731) -> delimiter-guard (run.py:4840) -> pin."""
-    payload: dict[str, Any] = {"query": query, "arm": arm, "results": results}
-    if extra:
-        payload.update(extra)
+    """Serialize -> bound (run.py:4731) -> delimiter-guard (run.py:4840) -> pin.
+
+    `extra` goes to `meta`, NOT into the packet: it exists so a source can
+    record something about its own prep, and anything it could add to the
+    delivered JSON would be a per-arm shape difference.
+    """
+    # NO `arm` KEY. The condition name is recorded on the returned MemoryPacket
+    # and in `meta`, never in the bytes the agent reads. `extra` is likewise
+    # meta-only: a key that only one arm carries is a tell even when its value
+    # is bland, so nothing here may vary in SHAPE between arms.
+    payload: dict[str, Any] = {"query": query, "results": results}
 
     text, bound_meta = _harness.bound_memory_packet(
         _harness.canonical_json(payload), max_bytes
@@ -110,6 +126,8 @@ def build_packet(
         "max_bytes": max_bytes,
         "bytes": len(text.encode("utf-8")),
     }
+    if extra:
+        meta.update(extra)
     if prep:
         meta["prep"] = prep
     return MemoryPacket(arm=arm, text=text, sha256=_harness.sha256_text(text), meta=meta)
