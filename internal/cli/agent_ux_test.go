@@ -39,6 +39,7 @@ func idfRankingSnapshot() string {
 		fmt.Fprintf(&b, `{"record_type":"symbol","id":"common-%d","kind":"function","name":"CommonThing%d","qualified_name":"pkg.CommonThing%d","file_path":"pkg/common%d.go","start_line":1,"end_line":2,"signature":"common1 common2 helper","language":"Go","stable_id_version":"1"}`+"\n", i, i, i, i)
 	}
 	b.WriteString(`{"record_type":"symbol","id":"rare-zebra","kind":"function","name":"ZebraThing","qualified_name":"pkg.ZebraThing","file_path":"pkg/zebra.go","start_line":1,"end_line":2,"signature":"zebra unique","language":"Go","stable_id_version":"1"}` + "\n")
+	b.WriteString(`{"record_type":"summary"}` + "\n")
 	return b.String()
 }
 
@@ -54,6 +55,7 @@ func leadingIntentRankingSnapshot() string {
 	for _, term := range []string{"subprocess", "allowlist", "credential", "withheld", "namespace", "desktop", "directory", "forwarded"} {
 		fmt.Fprintf(&b, `{"record_type":"symbol","id":"rare-%s","kind":"function","name":"Rare%s","qualified_name":"pkg.Rare%s","file_path":"pkg/%s.go","start_line":1,"end_line":2,"signature":"%s unique","language":"Go","stable_id_version":"1"}`+"\n", term, term, term, term, term)
 	}
+	b.WriteString(`{"record_type":"summary"}` + "\n")
 	return b.String()
 }
 
@@ -64,6 +66,7 @@ func morphologyRankingSnapshot() string {
 	for i := 0; i < 12; i++ {
 		fmt.Fprintf(&b, `{"record_type":"symbol","id":"repo-name-%d","kind":"function","name":"RepositoryNameHelper%d","qualified_name":"pkg.RepositoryNameHelper%d","file_path":"pkg/repo/helper%d.go","start_line":1,"end_line":2,"signature":"repository name helper","language":"Go","stable_id_version":"1"}`+"\n", i, i, i, i)
 	}
+	b.WriteString(`{"record_type":"summary"}` + "\n")
 	return b.String()
 }
 

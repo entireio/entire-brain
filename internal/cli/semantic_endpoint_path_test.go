@@ -62,6 +62,7 @@ func semanticColonPathSnapshot() string {
 {"record_type":"symbol","id":"gh/example/repo:Python:od:d/mod.py:function:load","kind":"function","name":"load","qualified_name":"load","file_path":"od:d/mod.py","start_line":1,"end_line":4,"language":"Python","stable_id_version":"1"}
 {"record_type":"symbol","id":"gh/example/repo:Go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"gh/example/repo:Go:internal/auth/token.go:function:auth.ValidateToken","to_id":"gh/example/repo:Python:od:d/mod.py:function:load","type":"CALLS","confidence":1}
+{"record_type":"summary","warnings":[],"partial_failures":[]}
 `
 }
 
@@ -75,6 +76,7 @@ func semanticIgnoredFileEndpointSnapshot() string {
 {"record_type":"file","id":"gh/example/repo:file:internal/auth/token.go","path":"internal/auth/token.go","blob":"abc123","language":"Go"}
 {"record_type":"relation","from_id":"gh/example/repo:file:internal/auth/token.go","to_id":"gh/example/repo:file:secret/config.go","type":"IMPORTS","confidence":1}
 {"record_type":"relation","from_id":"gh/example/repo:file:internal/auth/token.go","to_id":"gh/example/repo:file:od:d/secret.py","type":"IMPORTS","confidence":1}
+{"record_type":"summary","warnings":[],"partial_failures":[]}
 `
 }
 

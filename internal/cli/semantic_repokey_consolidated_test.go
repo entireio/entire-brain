@@ -59,6 +59,7 @@ func TestSemanticIndexAcceptsGitHubRemoteNotNamedOrigin(t *testing.T) {
 	// entire-graph therefore stamps the GitHub key, not local/<base>.
 	snapshot := `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/acme/widget","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"gh/acme/widget:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
+{"record_type":"summary","warnings":[],"partial_failures":[]}
 `
 	runner := semanticMultiRemoteFixtureRunner(repoDir, snapshot, remotes)
 	cmd := &cobra.Command{Use: "index"}
@@ -122,6 +123,7 @@ func TestDoctorReportedRepoKeyIsAuthoritative(t *testing.T) {
 	const futureKey = "sr/acme/widget" // a forge slug this brain's mirror does not know
 	snapshot := `{"schema_version":"1.0","provider":"entire-graph","provider_version":"9.9.9","repo_key":"` + futureKey + `","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"` + futureKey + `:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
+{"record_type":"summary","warnings":[],"partial_failures":[]}
 `
 	runner := semanticMultiRemoteFixtureRunner(repoDir, snapshot, map[string]string{"origin": "https://sr.ht/~acme/widget"})
 	runner.responses[fakeCommandKey("entire", "graph", "doctor", "--json")] = fakeCommandResponse{
