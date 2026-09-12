@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "5c3d7cc91172",
+  "session_id": "01a08c7d-721b-7952-8df2-510fa908151d",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-12T10:14:35.125346Z",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_workspace_snapshot_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "92d6bcfd4ecc",
+  "checkpoint_transcript_start": 3264,
+  "transcript_lines_at_start": 3264,
+  "compact_transcript_start": 399,
+  "token_usage": {
+    "input_tokens": 2761,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 72320,
+    "output_tokens": 239,
+    "api_call_count": 1
+  },
+  "session_metrics": {
+    "turn_count": 6
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-12T10:14:34.69267Z",
+    "agent_lines": 37,
+    "agent_removed": 14,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 37,
+    "total_lines_changed": 51,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
