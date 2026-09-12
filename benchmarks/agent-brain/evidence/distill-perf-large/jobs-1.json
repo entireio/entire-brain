@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-05T13:58:37.972823Z",
+  "generated_at": "2026-09-11T23:36:24.901365Z",
   "taxonomy_path": "facts/taxonomy.json",
   "branches": [
     "20260205-gitleaks",
@@ -372,8 +372,8 @@
     "output_tokens": 0,
     "total_tokens": 0
   },
-  "extraction_wait_seconds": 163.8081469589998,
-  "reconcile_seconds": 32.064957918000005,
-  "write_seconds": 2.781420959,
-  "total_seconds": 326.420891
+  "extraction_wait_seconds": 172.64025864300052,
+  "reconcile_seconds": 32.66447949799999,
+  "write_seconds": 2.802189792,
+  "total_seconds": 337.492863625
 }

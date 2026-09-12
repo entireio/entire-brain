@@ -5,7 +5,7 @@
 - Target: **github.com/entireio/cli**
 - Claim scope: **large-repo (entireio/cli) local command-agent distill extraction scheduling speedup**
 - Required speedup: **1.5x**
-- Observed speedup: **1.7114243734688384x**
+- Observed speedup: **1.793120038388398x**
 - Dry-run chunks: **2435**
 - Source hashes checked: **6/6**
 - Local Ollama contract artifact: **go-test-internal-cli-ollama-distill.jsonl**

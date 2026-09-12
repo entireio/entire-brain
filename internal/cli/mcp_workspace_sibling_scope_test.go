@@ -27,6 +27,7 @@ func workspaceSiblingFixture(t *testing.T, workspaceName string) (opts Options, 
 		}
 	}
 	opts, env := mcpScopeTestOptions(t, boundDir)
+	opts.Runner = &workspaceScopeRunner{CommandRunner: opts.Runner}
 	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
 	body := "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"
 
