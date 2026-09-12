@@ -40,6 +40,7 @@ import json
 import os
 import pathlib
 import re
+import signal
 import subprocess
 import time
 from typing import Any, Callable, Iterable
@@ -344,10 +345,23 @@ class AgentAdapter(abc.ABC):
         timed_out = False
         try:
             with stream_path.open("wb") as out_fh, err_path.open("wb") as err_fh:
-                proc = subprocess.run(
+                proc = subprocess.Popen(
                     cmd, cwd=str(worktree), env=child_env, stdin=subprocess.DEVNULL,
-                    stdout=out_fh, stderr=err_fh, timeout=timeout, check=False,
+                    stdout=out_fh, stderr=err_fh, start_new_session=(os.name != "nt"),
                 )
+                try:
+                    proc.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    if os.name == "nt":
+                        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                                       capture_output=True, check=True)
+                    else:
+                        try:
+                            os.killpg(proc.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                    proc.wait()
+                    raise
             returncode = proc.returncode
         except subprocess.TimeoutExpired:
             # 124 is the shell convention and what run.py records for a killed

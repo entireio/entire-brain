@@ -406,7 +406,7 @@ def select_slate(entries: list[dict], *, slate_size: int, repo_cap_frac: float,
             effective_repo_cap = math.floor(feasible * repo_cap_frac)
             keep: list[dict] = []
             seen: collections.Counter[str] = collections.Counter()
-            for entry in order:  # already in rank order
+            for entry in sorted(order, key=rank_key):
                 if seen[entry["repo"]] >= effective_repo_cap:
                     trimmed.append({**entry, "rationale": ["DROP_REPO_CAP_FINAL"]})
                     # NOTE: deliberately NOT popped from `chosen`. `chosen` is

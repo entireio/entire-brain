@@ -104,6 +104,9 @@ class ClaudeAdapter(AgentAdapter):
                 if isinstance(candidate, str) and candidate:
                     session_id = candidate
 
+        if returncode != 0 or not result:
+            result = {**result, "type": "result", "subtype": "error_process_exit",
+                      "is_error": True, "returncode": returncode}
         usage = {
             "backend": "claude",
             "model": model,
@@ -115,7 +118,7 @@ class ClaudeAdapter(AgentAdapter):
             "duration_ms": result.get("duration_ms"),
             "subtype": result.get("subtype"),
             "is_error": bool(result.get("is_error")),
-            "complete": bool(result),
+            "complete": returncode == 0 and not result.get("is_error", False),
         }
         return result, usage, session_id
 

@@ -33,9 +33,9 @@ import sys
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-    from brainmark import _harness  # type: ignore[no-redef]
+    from brainmark import _harness, run_b  # type: ignore[no-redef]
 else:
-    from . import _harness
+    from . import _harness, run_b
 
 
 #: grade_tag.sh resolves the arm from the TAG, with a shell `case`. We do not
@@ -137,11 +137,10 @@ def eligible_ids(results: pathlib.Path, arms: list[str]) -> list[str]:
             if meta_path.is_file():
                 meta = json.loads(meta_path.read_text(encoding="utf-8"))
                 iid_of[pair_dir.name] = meta["instance_id"]
-                usd = float((meta.get("result_event") or {}).get("total_cost_usd") or 0)
-                ok = usd > 0 and patch.is_file() and patch.stat().st_size > 0
+                ok = run_b.cell_is_complete(cell, backend=meta.get("backend"))
             per_pair.setdefault(pair_dir.name, {})[arm] = ok
     clean = [p for p, arms_ok in per_pair.items() if all(arms_ok.get(a) for a in arms)]
-    return sorted(iid_of[p] for p in clean if p in iid_of)
+    return sorted({iid_of[p] for p in clean if p in iid_of})
 
 
 def run(results: pathlib.Path, config: dict, tag: str, arms: list[str],
@@ -180,6 +179,8 @@ def run(results: pathlib.Path, config: dict, tag: str, arms: list[str],
         if dry_run:
             entry["skipped"] = "dry run: Docker grading not invoked"
         else:
+            official = graphmark_root / f"{staged_tag}.{staged_tag}.json"
+            official.unlink(missing_ok=True)
             proc = subprocess.run(cmd, cwd=str(graphmark_root), capture_output=True,
                                   text=True, check=False)
             entry["returncode"] = proc.returncode

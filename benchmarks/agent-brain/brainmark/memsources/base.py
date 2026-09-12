@@ -80,7 +80,7 @@ def normalize_results(raw: list[dict], top_k: int) -> list[dict]:
             "text": text,
             "score": round(score, 6),
         }
-        for optional in ("path", "line", "heading", "created_at", "session_id"):
+        for optional in ("path", "line", "heading"):
             value = item.get(optional)
             if value not in (None, "", 0):
                 entry[optional] = value

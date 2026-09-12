@@ -60,10 +60,7 @@ def cache_lock(graphmark_root: pathlib.Path, cache: pathlib.Path) -> Iterator[No
             break
         except FileExistsError:
             if time.monotonic() > deadline:
-                # Match run_3arm.sh: proceed rather than deadlock the whole run,
-                # but make the breach loud enough to find in a log.
-                print(f"[lock] TIMEOUT waiting for {lockdir}; proceeding unlocked")
-                break
+                raise TimeoutError(f"timed out waiting for cache lock {lockdir}")
             time.sleep(LOCK_POLL_S)
     try:
         yield
@@ -106,9 +103,13 @@ def collect_patch(graphmark_root: pathlib.Path, cache: pathlib.Path,
         raise RuntimeError(f"collect_patch.sh not found at {script}")
     out_patch.parent.mkdir(parents=True, exist_ok=True)
     with cache_lock(graphmark_root, cache):
-        subprocess.run(["bash", str(script), str(worktree), str(out_patch)],
-                       capture_output=True, check=False)
-    return out_patch.stat().st_size if out_patch.exists() else 0
+        out_patch.unlink(missing_ok=True)
+        proc = subprocess.run(["bash", str(script), str(worktree), str(out_patch)],
+                              capture_output=True, text=True, check=False)
+        if proc.returncode != 0 or not out_patch.is_file():
+            out_patch.unlink(missing_ok=True)
+            raise RuntimeError(f"patch collection failed ({proc.returncode}): {proc.stderr[:400]}")
+        return out_patch.stat().st_size
 
 
 def netjail_dir(graphmark_root: pathlib.Path) -> pathlib.Path:

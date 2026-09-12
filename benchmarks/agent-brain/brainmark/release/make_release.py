@@ -269,19 +269,18 @@ def build_release(src_root: pathlib.Path, dst_root: pathlib.Path,
         dst_path = dst_root / anon_rel_str
         dst_path.parent.mkdir(parents=True, exist_ok=True)
 
-        if src_path.suffix in TEXT_EXTENSIONS:
-            original = src_path.read_text(encoding="utf-8", errors="replace")
-            anonymized, n = anonymize_text(original)
-            dst_path.write_text(anonymized, encoding="utf-8")
-            substitutions_total += n
-            sha256 = hashlib.sha256(anonymized.encode("utf-8")).hexdigest()
-            files.append({"path": anon_rel_str, "anonymized": True, "substitutions": n,
-                          "sha256": sha256})
-        else:
-            shutil.copyfile(src_path, dst_path)
-            sha256 = hashlib.sha256(dst_path.read_bytes()).hexdigest()
-            files.append({"path": anon_rel_str, "anonymized": False, "substitutions": 0,
-                          "sha256": sha256})
+        if src_path.is_symlink():
+            raise ValueError(f"release input must not be a symlink: {rel}")
+        try:
+            original = src_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError(f"release input is not auditable UTF-8 text: {rel}") from exc
+        anonymized, n = anonymize_text(original)
+        dst_path.write_text(anonymized, encoding="utf-8")
+        substitutions_total += n
+        sha256 = hashlib.sha256(anonymized.encode("utf-8")).hexdigest()
+        files.append({"path": anon_rel_str, "anonymized": True, "substitutions": n,
+                      "sha256": sha256})
 
     return {
         "files": sorted(files, key=lambda f: f["path"]),
@@ -410,12 +409,19 @@ def scan_tree(root: pathlib.Path, extensions: frozenset[str] = TEXT_EXTENSIONS,
     """-> {relative_path: [findings, ...]} for every text file with >=1 hit."""
     hits: dict[str, list[dict]] = {}
     for path in sorted(root.rglob("*")):
-        if path.is_dir() or path.suffix not in extensions:
+        if path.is_dir():
             continue
         rel = path.relative_to(root)
         if any(part in exclude_dirs for part in rel.parts[:-1]):
             continue
-        text = path.read_text(encoding="utf-8", errors="replace")
+        if path.is_symlink():
+            hits[str(rel)] = [{"reason": "symlink cannot be audited"}]
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            hits[str(rel)] = [{"reason": "non-UTF-8 content cannot be audited"}]
+            continue
         findings = scan_forbidden(text)
         if findings:
             hits[str(rel)] = findings

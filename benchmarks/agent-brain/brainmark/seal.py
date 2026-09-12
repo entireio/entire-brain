@@ -212,7 +212,7 @@ def cmd_promote(args) -> int:
             "run `seal.py review-template` and fill it in."
         )
     review = json.loads(review_path.read_text(encoding="utf-8"))
-    if review.get("raters"):
+    if "raters" in review:
         return _promote_v2(args, review)
     return _promote_v1(args, review)
 
@@ -300,6 +300,8 @@ def _promote_v1(args, review: dict) -> int:
         "vendored_metrics_sha256": _harness.sha256_file(root / "vendor" / "graphmark_metrics.py"),
         "candidates_index_sha256": _harness.sha256_file(candidates_dir / "INDEX.json"),
         "review_sha256": _harness.sha256_file(review_path),
+        "review_path": _relative_to_root(root, review_path),
+        "candidates_index_path": _relative_to_root(root, candidates_dir / "INDEX.json"),
         "reviewer": review["reviewer"],
         "repo_commit": _git_commit(root),
         "repo_dirty_at_seal": _dirty(root),
@@ -482,6 +484,8 @@ def _promote_v2(args, review: dict) -> int:
         "vendored_metrics_sha256": _harness.sha256_file(root / "vendor" / "graphmark_metrics.py"),
         "candidates_index_sha256": _harness.sha256_file(candidates_dir / "INDEX.json"),
         "review_sha256": _harness.sha256_file(review_path),
+        "review_path": _relative_to_root(root, review_path),
+        "candidates_index_path": _relative_to_root(root, candidates_dir / "INDEX.json"),
         "reviewer": f"{r1}+{r2} (dual review; see seal_v2 for raters/kappa)",
         "repo_commit": _git_commit(root),
         "repo_dirty_at_seal": _dirty(root),
@@ -570,6 +574,8 @@ def verify(root: pathlib.Path | None = None) -> tuple[bool, list[str]]:
     for key, path_key, default_rel in (
         ("prereg_sha256", "prereg_path", "PREREGISTRATION.md"),
         ("config_sha256", "config_path", "config.json"),
+        ("review_sha256", "review_path", "REVIEW.json"),
+        ("candidates_index_sha256", "candidates_index_path", "tasks/candidates/INDEX.json"),
     ):
         rel = manifest.get(path_key)
         if not rel:

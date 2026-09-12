@@ -193,7 +193,7 @@ def build(
         )
 
     budget = max_bytes if target_bytes is None else max(1, min(int(max_bytes), int(target_bytes)))
-    return build_packet(
+    packet = build_packet(
         arm=ARM,
         query=query,
         results=results,
@@ -210,3 +210,7 @@ def build(
             "control_type": "placebo_exploratory_not_a_brain_ablation",
         },
     )
+
+    if not json.loads(packet.text).get("results"):
+        raise MemorySourceError("placebo byte budget removed every donor result")
+    return packet

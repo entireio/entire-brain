@@ -31,12 +31,15 @@ def build(
     **_ignored,
 ) -> MemoryPacket:
     pins = pins or {}
-    if pins.get("binary"):
-        os.environ["CMM_BIN"] = str(pins["binary"])
-    if pins.get("mem_budget_mb"):
-        os.environ["CMM_MEM_BUDGET_MB"] = str(pins["mem_budget_mb"])
-    if pins.get("index_mode"):
-        os.environ["CMM_INDEX_MODE"] = str(pins["index_mode"])
+    if not _ignored.get("_isolated"):
+        from . import _isolated
+        mapping = {'binary': 'CMM_BIN', 'mem_budget_mb': 'CMM_MEM_BUDGET_MB', 'index_mode': 'CMM_INDEX_MODE'}
+        environment = {env: str(pins[key]) for key, env in mapping.items() if pins.get(key) is not None}
+        return _isolated.build(ARM, environment, {
+            "query": query, "max_bytes": max_bytes, "top_k": top_k,
+            "transcript_bytes": transcript_bytes, "user_id": user_id,
+            "pins": pins, "observation_date": observation_date,
+        })
 
     client_cls = load_memharness_client("cmm_client", "CmmClient")
     return run_competitor(

@@ -28,6 +28,8 @@ import argparse
 import json
 import pathlib
 import random
+import re
+import secrets
 import sys
 
 if __package__ in (None, ""):
@@ -55,7 +57,7 @@ RESULT_SNIPPET_CHARS = 400
 def opaque_session_id(seed: int, pair_id: str, arm: str) -> str:
     """One-way id. A labeling sheet never carries the arm name or a results
     path, so nothing in the sheet itself can leak which arm produced it."""
-    return _harness.sha256_text(f"{seed}:{pair_id}:{arm}")[:12]
+    return secrets.token_hex(16)
 
 
 def extract_issue_text(prompt_text: str) -> str:
@@ -114,6 +116,12 @@ def _tool_result_text(content) -> str | None:
     return None
 
 
+def blind_text(text: str) -> str:
+    text = re.sub(r"(?i)(?<![a-z0-9])(?:no_brain|full_brain|irrelevant|mem0|graphify|cmm|entire[-_]brain)(?![a-z0-9])", "[memory]", text)
+    text = re.sub(r"(?:/Users/|/home/)[^/\s]+", "/home/[user]", text)
+    return text
+
+
 def tool_result_index(stream_path: pathlib.Path) -> dict[str, str]:
     """tool_use id -> short result snippet, when the transcript carries
     `user`/`tool_result` echoes (real Claude Code transcripts do; this
@@ -142,7 +150,7 @@ def tool_result_index(stream_path: pathlib.Path) -> dict[str, str]:
             use_id = block.get("tool_use_id")
             text = _tool_result_text(block.get("content"))
             if use_id and text:
-                index[use_id] = text[:RESULT_SNIPPET_CHARS]
+                index[use_id] = blind_text(text)[:RESULT_SNIPPET_CHARS]
     return index
 
 
@@ -178,7 +186,7 @@ def pre_edit_locate_calls(stream_path: pathlib.Path) -> list[dict]:
         out.append({
             "call_index": index,
             "name": call["name"],
-            "target": _render_target(call["name"], inputs.get(call_id, {})),
+            "target": blind_text(_render_target(call["name"], inputs.get(call_id, {}))),
             "result_snippet": results.get(call_id, ""),
         })
     return out

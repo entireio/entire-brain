@@ -48,6 +48,7 @@ import os
 import pathlib
 import shutil
 import subprocess
+import tempfile
 import sys
 
 if __package__ in (None, ""):
@@ -125,10 +126,8 @@ def clone_one(config: dict, repo: str, dest: pathlib.Path) -> tuple[bool, str]:
     timeout = int(clone_cfg.get("timeout_sec") or 1800)
     blob_filter = str(clone_cfg.get("filter") or "blob:none")
 
-    staging = dest.parent / f"{dest.name}.tmp"
-    if staging.exists():
-        shutil.rmtree(staging, ignore_errors=True)
     dest.parent.mkdir(parents=True, exist_ok=True)
+    staging = pathlib.Path(tempfile.mkdtemp(prefix=f"{dest.name}.tmp-", dir=dest.parent))
 
     cmd = ["git", "clone", "--quiet", f"--filter={blob_filter}",
            clone_url(config, repo), str(staging)]
@@ -153,7 +152,13 @@ def clone_one(config: dict, repo: str, dest: pathlib.Path) -> tuple[bool, str]:
         # Another agent won the race while we were cloning. Theirs wins.
         shutil.rmtree(staging, ignore_errors=True)
         return True, "already present (raced)"
-    staging.rename(dest)
+    try:
+        staging.rename(dest)
+    except OSError:
+        shutil.rmtree(staging, ignore_errors=True)
+        if is_git_repo(dest):
+            return True, "already present (raced)"
+        raise
     return True, "cloned"
 
 

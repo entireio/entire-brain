@@ -148,7 +148,8 @@ def resolve_model(config: dict, backend: str, tier: str, backends: dict,
     """
     if override:
         return override
-    session_b = (config.get("agent") or {}).get("session_b") or {}
+    session_b = {**(config.get("session_b") or {}),
+                 **((config.get("agent") or {}).get("session_b") or {})}
     scoped = session_b.get(f"{backend}_tier_{tier}")
     if scoped:
         return str(scoped)
@@ -237,7 +238,7 @@ def build_packets(
     packets: dict[str, memsources.MemoryPacket] = {}
 
     for arm in arms:
-        if arm == "no_brain" or force_empty_packet:
+        if arm == "no_brain":
             packets[arm] = memsources.ARMS["no_brain"](
                 query=query, max_bytes=max_bytes, sentinel=packet_cfg["empty_sentinel"]
             )
@@ -268,14 +269,16 @@ def build_packets(
             pins=config["competitors"].get(arm, {}),
         )
 
-    if irrelevant_source.ARM in arms and not force_empty_packet:
+    if irrelevant_source.ARM in arms:
         if not sealed_pairs:
             raise memsources.MemorySourceError(
                 f"arm {irrelevant_source.ARM}: the placebo needs the sealed pair "
                 "list to compute its derangement (pass --pairs / sealed_pairs)"
             )
         donor_pair_id = irrelevant_source.donor_for(pair["pair_id"], sealed_pairs)
-        lookup = donor_packet_lookup or find_donor_packet
+        if donor_packet_lookup is None:
+            raise memsources.MemorySourceError("placebo requires an explicit donor packet lookup")
+        lookup = donor_packet_lookup
         treatment = packets.get(irrelevant_source.DONOR_ARM)
         packets[irrelevant_source.ARM] = irrelevant_source.build(
             query=query, max_bytes=max_bytes, top_k=top_k,
@@ -284,6 +287,13 @@ def build_packets(
             recipient_pair_id=pair["pair_id"],
             target_bytes=(len(treatment.text.encode("utf-8")) if treatment else None),
         )
+    if force_empty_packet:
+        for arm, actual in list(packets.items()):
+            sentinel = memsources.ARMS["no_brain"](
+                query=query, max_bytes=max_bytes, sentinel=packet_cfg["empty_sentinel"])
+            packets[arm] = memsources.MemoryPacket(
+                arm=arm, text=sentinel.text, sha256=sentinel.sha256,
+                meta={**actual.meta, "null_test": True, "machinery_packet_sha256": actual.sha256})
     return packets
 
 
@@ -319,7 +329,9 @@ def cell_is_complete(cell: pathlib.Path, backend: str | None = None) -> bool:
             and isinstance(produced, (int, float))
             and float(produced) > 0
         )
-    return float(payload.get("total_cost_usd") or 0) > 0
+    return (not payload.get("is_error", False)
+            and payload.get("subtype", "success") == "success"
+            and float(payload.get("total_cost_usd") or 0) > 0)
 
 
 def build_command(config: dict, prompt: str, tier: str,
@@ -437,7 +449,8 @@ def worktree_path(cell: pathlib.Path, pair_id: str, arm: str,
     """
     if os.environ.get(WORKTREE_IN_CELL_ENV) == "1":
         return cell / "worktree", False
-    return worktree_root() / "bm-wt" / worktree_key(pair_id, arm, rep), True
+    key = hashlib.sha256(json.dumps([str(cell.resolve()), pair_id, arm, rep]).encode()).hexdigest()[:16]
+    return worktree_root() / "bm-wt" / key, True
 
 
 def agent_state_path(cell: pathlib.Path, pair_id: str, arm: str,
@@ -499,7 +512,7 @@ def run_cell(
     # cell == <results_root>/<pair_id>/<arm>; the whole results tree is what the
     # sibling-artifact side channel lives in, so that is what gets denied.
     profile, iso_prov = read_isolation(config, worktree, env,
-                                       results_root=cell.parent.parent)
+                                       results_root=(cell.parent.parent.parent if rep is not None else cell.parent.parent))
     sandbox_wrapper = (
         [str(_harness.sandbox_executable()), "-p", profile] if profile is not None else None
     )
@@ -513,6 +526,7 @@ def run_cell(
         "rep": rep,
         "rep_seed": rep_seed(config, rep),
         "packet_sha256": packet.sha256,
+        "config_sha256": _harness.sha256_text(_harness.canonical_json(config)),
         "packet_provenance": packet.to_provenance(),
         "prompt_sym_sha256": symmetry_sha,
         "prompt_sha256": _harness.sha256_text(prompt),
@@ -632,7 +646,23 @@ def run_pair(
 
     for arm in arms:
         cell = pair_root / arm
-        if resume and cell_is_complete(cell, backend_name):
+        expected = {
+            "model": resolved_model, "backend": backend_name, "tier": tier,
+            "rep": rep, "stub_only": stub_only,
+            "base_commit": pair["b"]["base_commit"],
+            "instance_id": pair["b"]["instance_id"],
+            "packet_sha256": packets[arm].sha256,
+            "prompt_sha256": _harness.sha256_text(built[arm]),
+            "config_sha256": _harness.sha256_text(_harness.canonical_json(config)),
+        }
+        stored = {}
+        try:
+            stored = json.loads((cell / "meta.json").read_text())
+        except (OSError, ValueError):
+            pass
+        if (resume and cell_is_complete(cell, backend_name)
+                and all(stored.get(k) == v for k, v in expected.items())
+                and bool((stored.get("packet_provenance") or {}).get("null_test")) == force_empty_packet):
             summary["cells"][arm] = {"skipped": "already complete"}
             continue
         summary["cells"][arm] = run_cell(

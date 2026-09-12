@@ -162,7 +162,7 @@ def _gh_json(args: list[str], timeout: int):
 
 def search_merged_prs(repo: str, cutoff: str, limit: int, timeout: int) -> list[int]:
     """PR numbers merged into `repo` on/after `cutoff`, ascending, capped."""
-    query = f"repo:{repo} is:pr is:merged merged:>={cutoff}"
+    query = f"repo:{repo} is:pr is:merged merged:>={cutoff} created:>={cutoff}"
     payload = _gh_json(
         ["api", "-X", "GET", "search/issues", "-f", f"q={query}",
          "-f", "per_page=100", "-f", "sort=created", "-f", "order=asc",
@@ -199,6 +199,7 @@ def fetch_pr(repo: str, number: int, max_files: int, timeout: int) -> dict | Non
             files.extend(f for f in page if isinstance(f, dict))
         elif isinstance(page, dict):
             files.append(page)
+    files_truncated = len(files) > max_files or int(pr.get("changed_files") or len(files)) > len(files)
     files = sorted(files, key=lambda f: str(f.get("filename") or ""))[:max_files]
     return {
         "repo": repo,
@@ -206,6 +207,8 @@ def fetch_pr(repo: str, number: int, max_files: int, timeout: int) -> dict | Non
         "title": str(pr.get("title") or ""),
         "body": str(pr.get("body") or ""),
         "merged_at": str(pr.get("merged_at") or ""),
+        "created_at": str(pr.get("created_at") or ""),
+        "files_truncated": files_truncated,
         "merge_commit_sha": str(pr.get("merge_commit_sha") or ""),
         "base_sha": str(((pr.get("base") or {}).get("sha")) or ""),
         "base_ref": str(((pr.get("base") or {}).get("ref")) or ""),
@@ -304,6 +307,12 @@ def rebuild_diff(files: list[dict]) -> str:
 
 def pr_to_instance(pr: dict, matchers: list[re.Pattern], cfg: dict) -> tuple[dict | None, str]:
     """One snapshot PR -> one fresh instance, or (None, reject_reason)."""
+    cutoff = str(cfg.get("training_cutoff") or "")
+    created = str(pr.get("created_at") or "")
+    if not created or (cutoff and created[:10] < cutoff[:10]):
+        return None, "created_before_cutoff_or_unknown"
+    if pr.get("files_truncated"):
+        return None, "files_truncated"
     issues = linked_issues(pr.get("title", ""), pr.get("body", ""))
     if cfg["require_linked_issue"] and not issues:
         return None, "no_linked_issue"
@@ -339,6 +348,8 @@ def pr_to_instance(pr: dict, matchers: list[re.Pattern], cfg: dict) -> tuple[dic
         "fresh_provenance": {
             "pr_number": int(pr["number"]),
             "merged_at": str(pr.get("merged_at") or ""),
+            "created_at": str(pr.get("created_at") or ""),
+            "files_truncated": bool(pr.get("files_truncated", False)),
             "merge_commit_sha": str(pr.get("merge_commit_sha") or ""),
             "base_ref": str(pr.get("base_ref") or ""),
             "head_sha": str(pr.get("head_sha") or ""),

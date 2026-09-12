@@ -179,8 +179,11 @@ def write_shim(shim_dir: pathlib.Path, azure: dict[str, Any],
         marker=MARKER_ENV,
     )
     shim = shim_dir / SHIM_NAME
-    shim.write_text(body, encoding="utf-8")
-    shim.chmod(shim.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    # Set permissions before writing credential-bearing bytes; never follow a link.
+    fd = os.open(shim, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o700)
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        os.fchmod(stream.fileno(), 0o700)
+        stream.write(body)
 
     return {
         "shim_path": str(shim),

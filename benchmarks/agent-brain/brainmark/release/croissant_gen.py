@@ -41,6 +41,8 @@ if __package__ in (None, ""):
 else:
     from .. import _harness
 
+from brainmark.release.make_release import anonymize_text
+
 CROISSANT_CONTEXT: dict = {
     "@language": "en",
     "@vocab": "https://schema.org/",
@@ -191,6 +193,7 @@ def build_responsible_ai(manifest: dict, datasheet_sections: dict[str, str]) -> 
     seal manifest (quantitative: kappa, provenance) and DATASHEET.md
     (qualitative: uses, limitations, licensing) rather than re-authored here.
     """
+    datasheet_sections = {key: anonymize_text(value)[0] for key, value in datasheet_sections.items()}
     seal_v2 = manifest.get("seal_v2")
     human_review: dict = {
         "reviewProcess": "dual independent review; see SEAL_PROTOCOL.md",
@@ -231,7 +234,7 @@ def build_responsible_ai(manifest: dict, datasheet_sections: dict[str, str]) -> 
 
 def build_croissant(manifest: dict, datasheet_text: str, config: dict | None = None,
                     dataset_name: str = "brainmark-pairs") -> dict:
-    sections = parse_markdown_sections(datasheet_text)
+    sections = parse_markdown_sections(anonymize_text(datasheet_text)[0])
     motivation = sections.get("Motivation", "")
     licensing = sections.get("Distribution and licensing", "")
 

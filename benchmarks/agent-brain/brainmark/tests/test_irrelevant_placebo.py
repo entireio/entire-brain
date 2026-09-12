@@ -245,8 +245,10 @@ class RegistrationTest(unittest.TestCase):
         packets = run_b.build_packets(
             config, pair, QUERY, b"", ["no_brain", "irrelevant"],
             a_created_at="2026-01-01T00:00:00Z", force_empty_packet=True,
-            sealed_pairs=SEALED)
+            sealed_pairs=SEALED,
+            donor_packet_lookup=lambda _: json.dumps({"results": [{"id": "x", "text": "unrelated memory"}]}))
         self.assertEqual(len({p.sha256 for p in packets.values()}), 1)
+        self.assertTrue(packets["irrelevant"].meta["null_test"])
 
 
 if __name__ == "__main__":

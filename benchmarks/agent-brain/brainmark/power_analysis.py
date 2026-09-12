@@ -254,7 +254,8 @@ def achieved_power(sd: float, n: int, reduction: float = TARGET_REDUCTION,
 
 
 def mde_curve(sd: float, n_grid: Sequence[int] | None = None,
-              alpha: float = ALPHA, power: float = POWER) -> list[dict]:
+              alpha: float = ALPHA, power: float = POWER,
+              reduction: float = TARGET_REDUCTION) -> list[dict]:
     """For each n: the smallest detectable reduction, in log units and percent."""
     grid = list(n_grid) if n_grid else [10, 20, 30, 40, 50, 60, 80, 100, 150, 200, 300]
     z_sum = _z(1 - alpha / 2) + _z(power)
@@ -268,7 +269,7 @@ def mde_curve(sd: float, n_grid: Sequence[int] | None = None,
             "mde_log": round(delta, 6),
             # A `delta` decrease on the log scale is a (1 - e^-delta) reduction.
             "mde_reduction_pct": round((1 - math.exp(-delta)) * 100, 3),
-            "meets_target": delta <= target_delta(),
+            "meets_target": delta <= target_delta(reduction),
         })
     return curve
 
@@ -425,7 +426,7 @@ def analyze(observations: Sequence[dict], treatment: str = "full_brain",
         return out
 
     out["required_n"] = required_n(sd, reduction, sealed_n=sealed_n)
-    out["mde_curve"] = mde_curve(sd)
+    out["mde_curve"] = mde_curve(sd, reduction=reduction)
 
     try:
         out["variance_decomposition"] = variance_components(observations)

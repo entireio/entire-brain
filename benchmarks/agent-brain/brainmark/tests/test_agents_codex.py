@@ -358,11 +358,8 @@ class CodexRunBStubTest(unittest.TestCase):
 
         self.graphmark = tmp / "graphmark"
         (self.graphmark / "tools").mkdir(parents=True)
-        real_graphmark = pathlib.Path(_harness.load_config()["graphmark_root"])
-        shutil.copyfile(real_graphmark / "tools" / "collect_patch.sh",
-                        self.graphmark / "tools" / "collect_patch.sh")
-        shutil.copytree(real_graphmark / "tools" / "netjail",
-                        self.graphmark / "tools" / "netjail", symlinks=True)
+        from graphmark_fixture import install
+        install(self.graphmark)
 
         self.repo_cache = tmp / "repo-cache"
         self.repo_cache.mkdir()

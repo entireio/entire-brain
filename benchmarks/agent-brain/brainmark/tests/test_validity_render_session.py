@@ -61,9 +61,9 @@ class BlindingTest(unittest.TestCase):
     def test_extract_issue_text_handles_missing_issue_header(self):
         self.assertEqual(render_session.extract_issue_text("no markers here"), "")
 
-    def test_opaque_session_id_is_deterministic_and_does_not_contain_arm(self):
+    def test_opaque_session_id_is_random_and_does_not_contain_arm(self):
         sid = render_session.opaque_session_id(20260815, "pair-42", "full_brain")
-        self.assertEqual(sid, render_session.opaque_session_id(20260815, "pair-42", "full_brain"))
+        self.assertNotEqual(sid, render_session.opaque_session_id(20260815, "pair-42", "full_brain"))
         self.assertNotIn("full_brain", sid)
         self.assertNotIn("pair-42", sid)
         # a different arm on the SAME pair must yield a different id, or two

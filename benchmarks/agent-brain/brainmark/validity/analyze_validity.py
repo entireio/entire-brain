@@ -244,7 +244,7 @@ def build_report(labels_by_rater: dict[str, dict], unblind_map: dict,
         agreement = per_rater_agreement(labels_by_rater[rater_ids[0]], labels_by_rater[rater_ids[1]])
 
     primary_rho = correlations.get(rater_ids[0], {}).get("rho") if rater_ids else None
-    gate_fires = primary_rho is not None and primary_rho < VALIDITY_GATE_RHO
+    gate_fires = primary_rho is None or primary_rho < VALIDITY_GATE_RHO
 
     return {
         "raters": rater_ids,
@@ -282,8 +282,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if report["validity_gate_fires"]:
         print(
-            f"\nVALIDITY GATE FIRES: primary rho={report['primary_rho']:.3f} < "
-            f"{VALIDITY_GATE_RHO} -- PREREGISTRATION.md requires a dated amendment of the "
+            f"\nVALIDITY GATE FIRES: primary rho={report['primary_rho']} (undefined or below "
+            f"{VALIDITY_GATE_RHO}) -- PREREGISTRATION.md requires a dated amendment of the "
             "primary metric BEFORE any confirmatory run.",
             file=sys.stderr,
         )

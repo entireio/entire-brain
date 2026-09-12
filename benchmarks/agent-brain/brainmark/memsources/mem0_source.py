@@ -143,9 +143,18 @@ class Mem0Client:
         custom_instructions: str | None = None,
         metadata: dict | None = None,
     ) -> dict | None:
-        return await asyncio.to_thread(
-            self._memory.add, messages, user_id=user_id, metadata=metadata or {}
-        )
+        details = dict(metadata or {})
+        if observation_date is not None:
+            details["observation_date"] = observation_date
+        if timestamp is not None:
+            details["timestamp"] = timestamp
+        kwargs = {"user_id": user_id, "metadata": details}
+        if custom_instructions is not None:
+            import inspect
+            if "custom_instructions" not in inspect.signature(self._memory.add).parameters:
+                raise MemorySourceError("installed mem0 add API does not support custom_instructions")
+            kwargs["custom_instructions"] = custom_instructions
+        return await asyncio.to_thread(self._memory.add, messages, **kwargs)
 
     async def search(
         self,

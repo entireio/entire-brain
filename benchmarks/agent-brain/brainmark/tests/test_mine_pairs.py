@@ -142,12 +142,24 @@ class LeakageScreenTest(unittest.TestCase):
 class DeterminismTest(unittest.TestCase):
     """MUTATION TARGET: any nondeterminism in the miner must fail this."""
 
+    def _fixture_result(self):
+        import tempfile
+        helper = LeakageScreenTest()
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = pathlib.Path(raw)
+            helper._write_pool(tmp, [
+                _instance("r__a", "o/r", "c1", "2020-01-01 00:00:00",
+                          _patch("src/m.py", ["alpha_one = compute_alpha(seed)"])),
+                _instance("r__b", "o/r", "c2", "2021-01-01 00:00:00",
+                          _patch("src/m.py", ["zeta_two = derive_zeta(other)"])),
+            ])
+            return mine_pairs.mine(helper._config(tmp), oracle=FakeOracle(True))
+
     def test_double_run_is_byte_identical(self):
         import tempfile
 
-        config = _harness.load_config()
-        result_a = mine_pairs.mine(config)
-        result_b = mine_pairs.mine(config)
+        result_a = self._fixture_result()
+        result_b = self._fixture_result()
         with tempfile.TemporaryDirectory() as raw:
             tmp = pathlib.Path(raw)
             mine_pairs.write_candidates(result_a, tmp / "one")
@@ -162,9 +174,9 @@ class DeterminismTest(unittest.TestCase):
                     f"{name} differed between runs",
                 )
 
-    def test_real_pool_yields_candidates_with_full_provenance(self):
-        config = _harness.load_config()
-        result = mine_pairs.mine(config)
+    def test_fixture_pool_yields_candidates_with_full_provenance(self):
+        result = self._fixture_result()
+        config = {"mining": {"leakage_overlap_max": 0.8}}
         self.assertGreater(result["candidate_count"], 0, "miner found nothing at all")
         for cand in result["candidates"]:
             for key in ("pair_id", "repo", "a", "b", "shared_files", "score", "leakage"):

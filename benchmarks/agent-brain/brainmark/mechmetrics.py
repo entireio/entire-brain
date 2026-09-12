@@ -357,7 +357,7 @@ def _codex_tool_calls(events: list[dict]) -> tuple[list[dict], dict]:
     index_by_key: dict[tuple[str, str], int] = {}
     result: dict = {}
     for event in events:
-        if event.get("type") == "turn.completed":
+        if event.get("type") in {"turn.completed", "turn.failed"}:
             result = event
         item = _codex_item(event)
         if item is None:
@@ -502,8 +502,8 @@ def session_metrics(stream: pathlib.Path | Iterable[str],
         num_turns = None  # codex has no turn counter on a single item event
         duration_ms = result.get("duration_ms")
         total_cost_usd = None  # codex reports no cost; the adapter computes one
-        subtype = "success" if result else None
-        is_error = False
+        is_error = result.get("type") != "turn.completed"
+        subtype = "error" if is_error else "success"
     else:
         num_turns = result.get("num_turns")
         duration_ms = result.get("duration_ms")

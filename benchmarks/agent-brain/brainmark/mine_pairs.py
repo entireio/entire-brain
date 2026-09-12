@@ -483,6 +483,11 @@ def write_candidates(result: dict, out_dir: pathlib.Path,
     `SNAPSHOT.json`, which lives beside its candidates and must not be deleted
     by the run that reads it. Subdirectories are never touched.
     """
+    for candidate in result["candidates"]:
+        pair_id = candidate.get("pair_id")
+        if (not isinstance(pair_id, str) or not pair_id or pair_id in {".", "..", "INDEX"}
+                or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-" for c in pair_id)):
+            raise ValueError(f"unsafe candidate pair_id: {pair_id!r}")
     out_dir.mkdir(parents=True, exist_ok=True)
     keep = set(preserve)
     for stale in sorted(out_dir.glob("*.json")):

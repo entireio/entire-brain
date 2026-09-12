@@ -341,7 +341,7 @@ def render_markdown(report: dict) -> str:
     lines.append("## Power")
     lines.append("")
     lines.append(
-        f"n = {n}. The minimum detectable effect at this n is roughly 25 points; "
+        f"n = {n}. The preregistered n=30 reference has a minimum detectable effect of roughly 25 points; "
         "a confidence interval that straddles zero is **not** evidence of no effect, "
         "and no sub-group of fewer than ~30 pairs inside this cell should be read at all."
     )

@@ -27,11 +27,15 @@ def build(
     **_ignored,
 ) -> MemoryPacket:
     pins = pins or {}
-    for key, env_name in (("bridge", "GRAPHIFY_BRIDGE"),
-                          ("source", "GRAPHIFY_SOURCE"),
-                          ("python", "GRAPHIFY_PYTHON")):
-        if pins.get(key):
-            os.environ[env_name] = str(pins[key])
+    if not _ignored.get("_isolated"):
+        from . import _isolated
+        mapping = {'bridge': 'GRAPHIFY_BRIDGE', 'source': 'GRAPHIFY_SOURCE', 'python': 'GRAPHIFY_PYTHON'}
+        environment = {env: str(pins[key]) for key, env in mapping.items() if pins.get(key) is not None}
+        return _isolated.build(ARM, environment, {
+            "query": query, "max_bytes": max_bytes, "top_k": top_k,
+            "transcript_bytes": transcript_bytes, "user_id": user_id,
+            "pins": pins, "observation_date": observation_date,
+        })
 
     client_cls = load_memharness_client("graphify_client", "GraphifyClient")
     return run_competitor(
