@@ -399,6 +399,9 @@ func (r *Renderer) TruncateTo(s string, limit int) string {
 	if r != nil && r.caps.Unicode {
 		tail = "…"
 	}
+	if runewidth.StringWidth(tail) > limit {
+		tail = ""
+	}
 	return runewidth.Truncate(s, limit, tail)
 }
 

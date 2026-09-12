@@ -247,6 +247,12 @@ func setupTestCommand(t *testing.T, out *bytes.Buffer, opts setupCommandOptions)
 	cmd.SetErr(out)
 	defaults := defaultSetupOptions()
 	typed := map[string]string{}
+	if opts.agent != defaults.agent {
+		typed[setupFlagAgent] = opts.agent
+	}
+	if opts.backfillBudget != defaults.backfillBudget {
+		typed[setupFlagBackfillBudget] = fmt.Sprint(opts.backfillBudget)
+	}
 	if opts.workspace != defaults.workspace {
 		typed[setupFlagWorkspace] = opts.workspace
 	}

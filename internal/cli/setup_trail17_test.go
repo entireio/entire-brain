@@ -75,3 +75,51 @@ func TestDistillTextReportsDeferredSessions(t *testing.T) {
 		t.Fatalf("deferred sessions hidden: %s", output.String())
 	}
 }
+
+func TestSetupRerunPreservesPinnedAgentAndUnlimitedBudget(t *testing.T) {
+	f := newSetupTestFixture(t)
+	rec := &recordedSetup{}
+	opts := defaultSetupOptions()
+	opts.agent = "claude"
+	opts.backfillBudget = 0
+	cmd := setupTestCommand(t, &bytes.Buffer{}, opts)
+	if err := cmd.Flags().Set("agent", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Flags().Set("backfill-budget", "0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runSetup(context.Background(), cmd, f.opts, opts, f.repoDir, rec.steps(f)); err != nil {
+		t.Fatal(err)
+	}
+	runSetupForTest(t, f, defaultSetupOptions(), rec)
+	plan, err := loadSetupWatchPlan(f.env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Workspaces) != 1 || plan.Workspaces[0].Agent != "claude" || plan.Workspaces[0].MaxSessions != 0 {
+		t.Fatalf("pinned tuning lost: %+v", plan)
+	}
+}
+
+func TestSemanticMissingCustomBinaryNamesTheBinary(t *testing.T) {
+	err := semanticDoctorFailureError("/missing/custom-graph", []semanticWarning{{Code: "provider_doctor_failed", Detail: "no such file or directory"}})
+	if !strings.Contains(err.Error(), `graph binary "/missing/custom-graph" was not found`) {
+		t.Fatal(err)
+	}
+}
+
+func TestOnboardingStatusReportsCorruptWatchPlan(t *testing.T) {
+	f := newSetupTestFixture(t)
+	path, err := setupWatchPlanPath(f.env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeJSONFile(path, map[string]any{"schema_version": 0}); err != nil {
+		t.Fatal(err)
+	}
+	status := buildBrainOnboardingStatus(context.Background(), f.opts, f.storage, nil, defaultSetupOptions())
+	if !strings.Contains(describeDaemonState(status.Daemon, "entire-brain"), "watch plan unavailable") {
+		t.Fatalf("corrupt plan hidden: %+v", status)
+	}
+}

@@ -268,10 +268,12 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			stage(brainComponentSessions, exportErr)
 		}
 	}
-	if exportErr != nil {
-		updateExportTask("export sessions: unavailable, using seed baseline")
+	if exportErr == nil || needSeed {
+		if exportErr != nil {
+			updateExportTask("export sessions: unavailable, using seed baseline")
+		}
+		finishExportTask(nil)
 	}
-	finishExportTask(nil)
 	switch {
 	case seedProbeErr != nil:
 		progress.Skip("seed baseline: freshness unknown (" + seedProbeErr.Error() + ")")

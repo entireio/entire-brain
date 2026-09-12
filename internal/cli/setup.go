@@ -567,6 +567,8 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		return fmt.Errorf("--workspace %q: %w", setupOpts.workspace, err)
 	}
 
+	configuredAgent := setupOpts.agent
+
 	// Resolve the agent ONCE, here, before the daemon plan is built. The plan
 	// embeds the argv the watcher runs forever, so an agent resolved later (in
 	// the backfill phase) reached the detached child but never the daemon, which
@@ -771,14 +773,16 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		recordedDaemonName, _ = installedDaemonName(machinePlan, machinePlanErr, previous, setUpBefore)
 	}
 	if err := writeSetupRecord(stateDir, setupRecord{
-		SchemaVersion: setupBackfillStateVersion,
-		UpdatedAt:     steps.now().UTC(),
-		Workspace:     setupOpts.workspace,
-		DaemonName:    recordedDaemonName,
-		Interval:      setupOpts.interval.String(),
-		DistillEvery:  setupOpts.distillEvery.String(),
-		Model:         strings.TrimSpace(setupOpts.model),
-		Effort:        strings.TrimSpace(setupOpts.effort),
+		SchemaVersion:  setupBackfillStateVersion,
+		UpdatedAt:      steps.now().UTC(),
+		Workspace:      setupOpts.workspace,
+		DaemonName:     recordedDaemonName,
+		Agent:          configuredAgent,
+		BackfillBudget: &setupOpts.backfillBudget,
+		Interval:       setupOpts.interval.String(),
+		DistillEvery:   setupOpts.distillEvery.String(),
+		Model:          strings.TrimSpace(setupOpts.model),
+		Effort:         strings.TrimSpace(setupOpts.effort),
 	}); err != nil {
 		report.Warnings = append(report.Warnings, "setup record not saved: "+err.Error())
 	}
@@ -1286,21 +1290,25 @@ type setupRecord struct {
 	DaemonName    string    `json:"daemon_name,omitempty"`
 	// The daemon's tuning is part of its identity too: a re-run that does not
 	// mention these must re-render the SAME unit, not one reverted to stock.
-	Interval     string `json:"interval,omitempty"`
-	DistillEvery string `json:"distill_every,omitempty"`
-	Model        string `json:"model,omitempty"`
-	Effort       string `json:"effort,omitempty"`
+	Interval       string `json:"interval,omitempty"`
+	DistillEvery   string `json:"distill_every,omitempty"`
+	Model          string `json:"model,omitempty"`
+	Effort         string `json:"effort,omitempty"`
+	Agent          string `json:"agent,omitempty"`
+	BackfillBudget *int   `json:"backfill_budget,omitempty"`
 }
 
 // setupFlagNames maps each remembered option to its flag, so "was this passed?"
 // is asked of cobra rather than inferred.
 const (
-	setupFlagWorkspace    = "workspace"
-	setupFlagDaemonName   = "daemon-name"
-	setupFlagInterval     = "interval"
-	setupFlagDistillEvery = "distill-every"
-	setupFlagModel        = "model"
-	setupFlagEffort       = "effort"
+	setupFlagAgent          = "agent"
+	setupFlagBackfillBudget = "backfill-budget"
+	setupFlagWorkspace      = "workspace"
+	setupFlagDaemonName     = "daemon-name"
+	setupFlagInterval       = "interval"
+	setupFlagDistillEvery   = "distill-every"
+	setupFlagModel          = "model"
+	setupFlagEffort         = "effort"
 )
 
 // setupFlagChanged reports which flags the user actually typed. Comparing a
@@ -1333,6 +1341,12 @@ func applySetupRecordDefaults(setupOpts setupCommandOptions, recorded setupComma
 	}
 	if !changed(setupFlagDaemonName) {
 		setupOpts.daemonName = recorded.daemonName
+	}
+	if !changed(setupFlagAgent) && recorded.agent != "" {
+		setupOpts.agent = recorded.agent
+	}
+	if !changed(setupFlagBackfillBudget) {
+		setupOpts.backfillBudget = recorded.backfillBudget
 	}
 	if !changed(setupFlagWorkspace) {
 		setupOpts.workspace = recorded.workspace
@@ -1436,6 +1450,12 @@ func setupOptionsFromRecord(stateDir string) (setupCommandOptions, bool, error) 
 	if err := json.Unmarshal(data, &record); err != nil {
 		return opts, false, fmt.Errorf("parse %s: %w", filepath.Join(stateDir, setupRecordFile), err)
 	}
+	if record.Agent != "" {
+		opts.agent = record.Agent
+	}
+	if record.BackfillBudget != nil {
+		opts.backfillBudget = *record.BackfillBudget
+	}
 	if strings.TrimSpace(record.Workspace) != "" {
 		opts.workspace = record.Workspace
 	}
@@ -1530,6 +1550,11 @@ func reportSetupHook(progress *refreshProgress, hook setupHookState) {
 }
 
 func describeDaemonState(state daemonState, brainCmd string) string {
+	if state.Detail != "" && state.Installed {
+		detail := state.Detail
+		state.Detail = ""
+		return describeDaemonState(state, brainCmd) + "; " + detail
+	}
 	switch {
 	case state.Detail != "" && !state.Installed:
 		return state.Detail

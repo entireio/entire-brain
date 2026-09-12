@@ -96,7 +96,7 @@ func TestShortStatusGolden(t *testing.T) {
 		"\n" +
 		"Onboarding\n" +
 		"  facts     #............. 20/185 distilled  (backfill running, pid 4242)\n" +
-		"  daemon    - installed but not running (io.entire.brain-watch.a2d3fd66) | last tick 17m0s ago\n" +
+		"  daemon    - installed but not running (io.entire.brain-watch.a2d3fd66) (last watcher tick 17m0s ago)\n" +
 		"  instant   + sessions  + seed  + docs  + semantic  - history\n" +
 		"\n" +
 		"- freshness degraded -- run `entire-brain doctor`\n" +

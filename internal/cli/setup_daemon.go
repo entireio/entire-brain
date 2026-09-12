@@ -457,12 +457,21 @@ func uninstallDaemon(ctx context.Context, runner CommandRunner, plan daemonPlan)
 	if !plan.supported() {
 		return nil
 	}
+	if _, err := os.Stat(plan.UnitPath); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
 	if runner != nil && !plan.NoRegister {
 		switch plan.Manager {
 		case daemonManagerLaunchd:
-			_, _, _ = runner.Run(ctx, "", "launchctl", "unload", "-w", plan.UnitPath)
+			if _, stderr, err := runner.Run(ctx, "", "launchctl", "unload", "-w", plan.UnitPath); err != nil {
+				return fmt.Errorf("launchctl unload: %w: %s", err, strings.TrimSpace(string(stderr)))
+			}
 		case daemonManagerSystemd:
-			_, _, _ = runner.Run(ctx, "", "systemctl", "--user", "disable", "--now", plan.Label)
+			if _, stderr, err := runner.Run(ctx, "", "systemctl", "--user", "disable", "--now", plan.Label); err != nil {
+				return fmt.Errorf("systemctl disable --now: %w: %s", err, strings.TrimSpace(string(stderr)))
+			}
 		}
 	}
 	if err := os.Remove(plan.UnitPath); err != nil && !os.IsNotExist(err) {

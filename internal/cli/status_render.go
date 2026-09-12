@@ -300,7 +300,11 @@ func renderStatusOnboardingBlock(out io.Writer, render *tui.Renderer, report bra
 		render.Mark(daemonMark), render.PhasePaint(daemonPhase, describeDaemonState(onboarding.Daemon, brainCmd)))
 	if !onboarding.LastTickAt.IsZero() {
 		age := humanizeAge(report.GeneratedAt.Sub(onboarding.LastTickAt))
-		daemonLine += render.Dim(" " + render.Bullet() + " last tick " + age + " ago")
+		if onboarding.Daemon.Running {
+			daemonLine += render.Dim(" " + render.Bullet() + " last tick " + age + " ago")
+		} else {
+			daemonLine += render.Dim(" (last watcher tick " + age + " ago)")
+		}
 	}
 	fmt.Fprintln(out, daemonLine)
 	// Say what the machine's ONE watcher covers. A hashed launchd label answers

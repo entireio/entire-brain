@@ -140,11 +140,15 @@ func buildBrainOnboardingStatus(ctx context.Context, opts Options, storage repoS
 	if cursor := loadWatchCursor(filepath.Join(stateDir, "watch.json")); !cursor.LastRefreshAt.IsZero() {
 		onboarding.LastTickAt = cursor.LastRefreshAt
 	}
-	onboarding.WatchPlan, _ = loadSetupWatchPlan(opts.Env)
+	var watchPlanErr error
+	onboarding.WatchPlan, watchPlanErr = loadSetupWatchPlan(opts.Env)
 	if plan, err := brainWatchDaemonPlan(opts, setupOpts); err == nil {
 		onboarding.Daemon = inspectDaemon(ctx, opts.Runner, plan)
 	} else {
 		onboarding.Daemon = daemonState{Manager: daemonManagerUnsupported, Detail: err.Error()}
+	}
+	if watchPlanErr != nil {
+		onboarding.Daemon.Detail = strings.TrimSpace(onboarding.Daemon.Detail + "; watch plan unavailable: " + watchPlanErr.Error())
 	}
 	onboarding.Components = instantPhaseComponents(manifest, readSetupInstantRecord(stateDir))
 	return onboarding

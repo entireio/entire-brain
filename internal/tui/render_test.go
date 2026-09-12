@@ -311,3 +311,10 @@ func TestTerminalWidthFallsBackRatherThanReturningZero(t *testing.T) {
 		t.Errorf("a junk COLUMNS = %d, want the 80 fallback", got)
 	}
 }
+
+func TestASCIITruncateFitsTwoCellBudget(t *testing.T) {
+	r := testRenderer(Caps{TTY: true, Unicode: false, Width: 3})
+	if got := r.TruncateTo("abcdef", 2); len(got) > 2 {
+		t.Fatalf("overflow: %q", got)
+	}
+}

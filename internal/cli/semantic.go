@@ -1040,7 +1040,7 @@ func stringValue(data map[string]any, key string) string {
 // reaching the operator. The code prefix from the first warning is preserved
 // so existing callers matching on it keep working.
 func semanticDoctorFailureError(graphBinary string, doctorWarnings []semanticWarning) error {
-	if len(doctorWarnings) > 0 && semanticProviderMissing(doctorWarnings[0].Detail) {
+	if (strings.TrimSpace(graphBinary) == entireBinaryName || strings.TrimSpace(graphBinary) == "") && len(doctorWarnings) > 0 && semanticProviderMissing(doctorWarnings[0].Detail) {
 		return semanticProviderUnverifiedError(graphBinary, doctorWarnings)
 	}
 	code := "provider_no_egress_unverified"

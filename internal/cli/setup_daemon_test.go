@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -184,10 +185,14 @@ func TestRenderedArtifactsAreStableAcrossRuns(t *testing.T) {
 type recordingDaemonRunner struct {
 	calls   []string
 	listErr error
+	stopErr error
 }
 
 func (r *recordingDaemonRunner) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 	r.calls = append(r.calls, strings.Join(append([]string{name}, args...), " "))
+	if len(args) > 0 && (args[0] == "unload" || (len(args) > 1 && args[1] == "disable")) {
+		return nil, nil, r.stopErr
+	}
 	if name == "launchctl" && len(args) > 0 && args[0] == "list" {
 		return nil, nil, r.listErr
 	}
@@ -404,5 +409,26 @@ func TestLaunchdLabelIsInjective(t *testing.T) {
 	}
 	if launchdLabel("entire-brain-watch") != launchdLabel("entire-brain-watch") {
 		t.Fatal("the label must be stable for one name, or every setup would reinstall")
+	}
+}
+
+func TestUninstallDaemonPreservesUnitWhenStopFails(t *testing.T) {
+	for _, goos := range []string{"darwin", "linux"} {
+		t.Run(goos, func(t *testing.T) {
+			plan, err := planBrainWatchDaemon(goos, t.TempDir(), "", "", fixedDaemonSpec())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := writeFileAtomic(plan.UnitPath, []byte(plan.Contents), 0600); err != nil {
+				t.Fatal(err)
+			}
+			runner := &recordingDaemonRunner{stopErr: errors.New("service manager unavailable")}
+			if err := uninstallDaemon(context.Background(), runner, plan); err == nil {
+				t.Fatal("stop failure ignored")
+			}
+			if _, err := os.Stat(plan.UnitPath); err != nil {
+				t.Fatalf("unit lost after stop failure: %v", err)
+			}
+		})
 	}
 }
