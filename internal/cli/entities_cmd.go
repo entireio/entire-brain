@@ -341,6 +341,18 @@ func entityHistory(ctx context.Context, opts Options, repoDir, query, branch str
 	if view.warning != "" {
 		result.Warnings = append(result.Warnings, view.warning)
 	}
+	if result.Truncated {
+		// Route through Warnings rather than a bespoke print: the caller
+		// already prints every entry in Warnings to stderr BEFORE branching on
+		// --json (see runEntitiesHistory), so this reaches a human reader the
+		// same way a JSON consumer already saw it in the "truncated" field.
+		// Before this, a human running the plain-text path had no way to know
+		// the answer was a clipped subset of the index — a silent partial
+		// answer identical in shape to a complete one.
+		result.Warnings = append(result.Warnings, fmt.Sprintf(
+			"the entity index cache is truncated at %d keys (entityIndexCacheMaxKeys); results may omit entities outside that cap",
+			entityIndexCacheMaxKeys))
+	}
 	if len(view.cache.Entries) == 0 {
 		result.Note = "the entity index is empty; run `entire brain entities backfill`"
 		return result, nil
