@@ -72,8 +72,9 @@ var ErrIdentityMismatch = errors.New("factmerge: record id does not match its co
 
 // VerifyIdentity re-derives a record's content id and checks the record carries
 // it. It is the check that makes "same id" mean "same statement" rather than
-// merely "same label", and it must be applied to every record that arrives from
-// outside this member's own store.
+// merely "same label", and is applied at the shared fact-set read and publication boundaries. It
+// does not authenticate lifecycle fields or provenance; see
+// docs/shared-fact-identity.md for the scope and recovery policy.
 //
 // Nothing about a record is authenticated by its transport: the shared fact-set
 // head is written by every member with push access. Without this check a record
