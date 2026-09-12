@@ -161,9 +161,7 @@ func loadMemoryConfigChecked(brainDir string) (memoryConfig, memoryConfigReadSta
 		return empty, memoryConfigUnsupported, fmt.Errorf("%s: %s schema version %d is newer than supported version %d", memoryErrUnsupportedVersion, memoryConfigRel, header.SchemaVersion, memoryConfigSchemaVersion)
 	}
 	var config memoryConfig
-	decoder := json.NewDecoder(strings.NewReader(string(data)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&config); err != nil || decoder.Decode(&struct{}{}) != io.EOF {
+	if _, err := decodeVersionedJSONBody(data, &config, false); err != nil {
 		return empty, memoryConfigCorrupt, fmt.Errorf("%s: decode %s failed strict validation", memoryErrStateCorrupt, memoryConfigRel)
 	}
 	if config.SchemaVersion != memoryConfigSchemaVersion {
@@ -284,9 +282,7 @@ func decodeAbstractEgressReceipt(data []byte, version int, expectedRef string) (
 		return abstractEgressReceipt{SchemaVersion: header.SchemaVersion}, fmt.Errorf("%s: abstract egress receipt schema %d", memoryErrUnsupportedVersion, header.SchemaVersion)
 	}
 	var receipt abstractEgressReceipt
-	decoder := json.NewDecoder(strings.NewReader(string(data)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&receipt); err != nil || decoder.Decode(&struct{}{}) != io.EOF {
+	if _, err := decodeVersionedJSONBody(data, &receipt, false); err != nil {
 		return receipt, fmt.Errorf("%s: abstract egress receipt cannot be parsed", memoryErrStateCorrupt)
 	}
 	if err := validAbstractEgressReceipt(receipt, version, expectedRef); err != nil {
@@ -987,6 +983,10 @@ func decodeSessionAbstractOutput(out string) (sessionAbstract, error) {
 			trimmed = strings.TrimSpace(trimmed[firstNL+1 : lastFence])
 		}
 	}
+	// Deliberately strict, unlike the brain's own persisted state: these bytes
+	// are a model's response, not something a build of ours wrote, so an
+	// unrecognised field is a malformed generation to reject and retry rather
+	// than a field some other version of this code knows about.
 	var artifact sessionAbstract
 	decoder := json.NewDecoder(strings.NewReader(trimmed))
 	decoder.DisallowUnknownFields()
@@ -1062,13 +1062,11 @@ func decodeSessionAbstractBytes(data []byte, sessionDigest string) (sessionAbstr
 		return sessionAbstract{SchemaVersion: header.SchemaVersion}, sessionAbstractUnsupported, fmt.Errorf("%s: abstract %s schema version %d is newer than supported version %d", memoryErrUnsupportedVersion, sessionDigest, header.SchemaVersion, abstractSchemaVersion)
 	}
 	var artifact sessionAbstract
-	decoder := json.NewDecoder(strings.NewReader(string(data)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&artifact); err != nil {
+	if _, err := decodeVersionedJSONBody(data, &artifact, false); err != nil {
+		if errors.Is(err, errTrailingJSONData) {
+			return sessionAbstract{}, sessionAbstractCorrupt, fmt.Errorf("%s: abstract %s has trailing JSON data", memoryErrStateCorrupt, sessionDigest)
+		}
 		return sessionAbstract{}, sessionAbstractCorrupt, fmt.Errorf("%s: decode abstract %s: %w", memoryErrStateCorrupt, sessionDigest, err)
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return sessionAbstract{}, sessionAbstractCorrupt, fmt.Errorf("%s: abstract %s has trailing JSON data", memoryErrStateCorrupt, sessionDigest)
 	}
 	if artifact.SchemaVersion != abstractSchemaVersion || artifact.SessionDigest != sessionDigest || !strings.HasPrefix(artifact.SessionRef, conversationSessionIDPrefix) {
 		return sessionAbstract{}, sessionAbstractCorrupt, fmt.Errorf("%s: abstract %s has invalid schema or digest identity", memoryErrStateCorrupt, sessionDigest)
@@ -2087,9 +2085,7 @@ func purgeSessionAbstractsForRefs(brainDir string, refs map[string]bool) error {
 			return fmt.Errorf("%s: abstract disappeared during cleanup inventory: %s", memoryErrStateCorrupt, entry.Name())
 		}
 		var artifact sessionAbstract
-		decoder := json.NewDecoder(strings.NewReader(string(data)))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&artifact); err != nil || decoder.Decode(&struct{}{}) != io.EOF ||
+		if _, err := decodeVersionedJSONBody(data, &artifact, false); err != nil ||
 			artifact.SchemaVersion != abstractSchemaVersion || artifact.SessionDigest != digest ||
 			!strings.HasPrefix(artifact.SessionRef, conversationSessionIDPrefix) || validateSessionAbstractSchema(artifact) != nil {
 			return fmt.Errorf("%s: invalid abstract cleanup artifact %s", memoryErrStateCorrupt, entry.Name())

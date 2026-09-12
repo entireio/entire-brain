@@ -514,7 +514,10 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 		// writer is excluded. The projection's outer Brain lock supplies its
 		// source/identity serialization; this leaf lock prevents a different
 		// writer family from down-converting vNext state at the commit point.
-		if _, err := loadBrainManifest(outputDir); err != nil {
+		// The strict reader is what makes that refusal happen: the bytes below
+		// are marshalled from a struct, so a field it could not name would be
+		// erased here.
+		if _, err := loadBrainManifestForReplace(outputDir); err != nil {
 			return err
 		}
 		return historyProjectionWriteFile(outputDir, exportManifestFileName, append(manifestData, '\n'), 0o600)

@@ -112,6 +112,28 @@ func TestSemanticIndexStoresProviderSnapshotAndManifest(t *testing.T) {
 	}
 }
 
+func TestSemanticIndexAcceptsEntireProxyOrigin(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	runner.responses[fakeCommandKey("git", "remote", "get-url", "origin")] = fakeCommandResponse{stdout: "entire://cluster.example/gh/example/repo\n"}
+	cmd := &cobra.Command{Use: "index"}
+
+	if err := runSemanticIndex(cmd.Context(), cmd, Options{
+		Version: "test",
+		Env:     env,
+		Runner:  runner,
+		Now:     func() time.Time { return time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC) },
+	}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	manifestPath := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo", exportManifestFileName)
+	if _, err := os.Stat(manifestPath); err != nil {
+		t.Fatalf("manifest under canonical proxy path: %v", err)
+	}
+}
+
 func TestBuildSemanticGenerationLeavesIncompleteTargetInPlace(t *testing.T) {
 	repoDir := t.TempDir()
 	brainDir := t.TempDir()
@@ -1424,21 +1446,10 @@ func TestSemanticIndexKeepsRelationsWhenIgnorePatternMatchesRepoKey(t *testing.T
 	}
 }
 
-func TestSemanticEndpointPath(t *testing.T) {
-	cases := map[string]string{
-		"gh/ashtom/entire-brain:Go:cmd/entire-brain/main.go:function:main": "cmd/entire-brain/main.go",
-		"gh/example/repo:go:secret/config.go:function:Secret":              "secret/config.go",
-		"external:import:archive/tar":                                      "",
-		"external:route:/repo":                                             "",
-		"public":                                                           "",
-		"":                                                                 "",
-	}
-	for id, want := range cases {
-		if got := semanticEndpointPath(id); got != want {
-			t.Fatalf("semanticEndpointPath(%q) = %q, want %q", id, got, want)
-		}
-	}
-}
+// TestSemanticEndpointPath is superseded by
+// TestSemanticEndpointPathRecoversFieldsAroundColons in
+// semantic_endpoint_path_test.go, which covers every case below plus the ID
+// shapes whose fields contain ":".
 
 func TestSemanticIndexDoesNotTreatSecretDirectoryAsDefaultIgnore(t *testing.T) {
 	repoDir := t.TempDir()

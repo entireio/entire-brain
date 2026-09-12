@@ -35,8 +35,9 @@ The plugin binary is named `entire-brain` and is invoked through Entire as
 
 ## Development source of truth
 
-Entire Brain has no released product version. Development starts from the
-locally fetched current mainline; do not resume an old WIP/integration checkout
+Entire Brain releases are tagged (`v0.2.0` is the current one), but development
+still starts from the locally fetched current mainline — a tag is a marker on
+main, not a branch to work from. Do not resume an old WIP/integration checkout
 or use an older Brain binary as a benchmark control. The Agent Brain harness
 builds from the active checkout and refuses to run unless `HEAD` contains local
 `origin/main`. All causal arms use that same binary and vary only memory
@@ -56,7 +57,7 @@ Prerequisites:
 - Entire already enabled in the repository you want to use
 - The target agent hooks already installed for that repository
 - Git
-- Go 1.26 toolchain for `entire-brain`
+- Go 1.27 toolchain for `entire-brain`
 - A cgo-capable compiler/toolchain for `entire-graph`
 
 ### 1. Clone the repositories
@@ -120,10 +121,11 @@ entire brain status
 ```
 
 Refresh refuses a dirty worktree by default. Run it on a clean checkout, or use
-`entire brain refresh --worktree` only when you intentionally want seed/docs and
-the semantic index to include the same current uncommitted state. Use the
-advanced `refresh index --worktree` path when only the semantic layer needs
-updating. Worktree-backed semantic indexes are rejected by bundle export.
+`entire brain refresh --worktree` only when you intentionally want seed/docs to
+include the current uncommitted state — this does not touch the semantic index.
+Use the advanced `refresh index --worktree` path when the semantic layer itself
+needs to reflect uncommitted state. Worktree-backed semantic indexes are
+rejected by bundle export.
 
 `--agent none` keeps the first build deterministic and token-free, with no
 hosted-model calls. Refresh exports captured sessions, builds the local
@@ -133,6 +135,10 @@ derived brain under Entire's local plugin data directory.
 At this point the brain can answer from captured history, docs, semantic code
 structure, runtime traces, patterns, and any existing durable facts. It has not
 yet extracted new durable facts from retained sessions.
+
+Cloning a repository you don't have locally yet? `entire brain add <repo-url>`
+clones it, fetches its Entire checkpoint history, and runs this same build in
+one step; afterward explore the clone with `entire brain dash` or `search`.
 
 ### 4. Distill durable facts
 
@@ -309,6 +315,11 @@ search. For repo-level orientation instead of task-specific, use `overview`
 (`entire brain overview --json`): a compact project map of stack signals,
 entrypoints, commands, key documents, and recent decisions.
 
+For interactive human exploration instead of scripted queries, `entire brain
+dash` opens a terminal dashboard over facts, sessions, history, and semantic
+records, and `entire brain viz` opens a local, no-egress browser view of the
+semantic call graph. Both are read-only and make no agent calls.
+
 ### Keep the brain fresh
 
 Freshness is part of every answer — a stale index, missing provider, dirty-
@@ -442,8 +453,8 @@ entire brain inspect graph-ui semantic-graph.html        # local static graph ex
 entire brain inspect trace-path "<caller>" "<callee>" --json
 entire brain inspect dead-code --json
 entire brain inspect boundaries --kind tool --json
-entire brain inspect changes --json                      # read-only, diff-hunk-scoped symbol mapping
-# add --write-report only when semantic/changes/latest.json should be persisted
+entire brain inspect changes --json                      # diff-hunk-scoped symbol mapping
+# persists semantic/changes/latest.json by default; pass --write-report=false to skip it
 ```
 
 ### Trace a symbol back to the work that changed it
@@ -624,6 +635,9 @@ model or by fetching over the network:
 - pattern verification and skill synthesis
 - explicitly configured session-abstract generation
 - judged evaluation commands
+- `publish` uploads the serialized local brain (manifest, semantic snapshots,
+  branch overlays, durable facts) to hosted Entire; opt-in and off by default,
+  requiring both the command and `ENTIRE_BRAIN_ALLOW_HOSTED=1`
 
 Use `--agent none`, `--dry-run`, local loopback Ollama, or
 `ENTIRE_BRAIN_NO_EGRESS=1` / `ENTIRE_BRAIN_LOCAL_ONLY=1` when the repo must stay
@@ -699,6 +713,8 @@ required for normal use.
 | `ENTIRE_BRAIN_BRIEF_CONVERSATION` | disabled | Development flag: include conversation hits in `brain_brief`. Off until qualified for the compact budget. |
 | `ENTIRE_BRAIN_NO_EGRESS` / `ENTIRE_BRAIN_LOCAL_ONLY` | (unset) | Strict local-only mode; enforces locality for no-agent, dry-run, and loopback-Ollama paths. |
 | `ENTIRE_BRAIN_MCP_DEBUG_LOG` | (unset) | Path the stdio MCP adapter appends frame-level debug lines to. Diagnostics only. |
+| `ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH` | (unset) | Lets the MCP `brain_index_repository` tool index a path outside the bound repository root (`ENTIRE_REPO_ROOT`). |
+| `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO` | (unset) | Lets MCP tools act outside the bound repository: `brain_delete_project` with a foreign `repo_key`, `brain_list_projects` returning every local project, and the `brain_workspace_*` tools on a workspace the bound repository is not a member of, or one whose repos live outside the bound repository's parent directory (so sibling checkouts under a common parent are in scope by default). Without the override, unbound servers refuse these operations, and workspace keys must match their local checkouts. Off by default — the MCP surface is driven by an agent whose context can be poisoned, and deleting a brain is irreversible. The plain CLI is unaffected. |
 
 ## Development
 

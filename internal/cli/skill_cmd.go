@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -339,7 +337,7 @@ func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandida
 	// Write path.
 	if !s.force {
 		for _, d := range dests {
-			if _, statErr := os.Stat(skillFilePath(d.Path)); statErr == nil {
+			if skillFileExists(d.Path) {
 				return fmt.Errorf("refusing to overwrite existing skill file: %s (use --force)", d.Path)
 			}
 		}
@@ -348,12 +346,8 @@ func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandida
 	sha := "sha256:" + fmt.Sprintf("%x", sha256Sum(data))
 	var installs []skillInstall
 	for _, d := range dests {
-		abs := skillFilePath(d.Path)
-		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-			return fmt.Errorf("create skill dir: %w", err)
-		}
-		if err := os.WriteFile(abs, data, 0o644); err != nil {
-			return fmt.Errorf("write skill: %w", err)
+		if err := writeSkillFile(d, data); err != nil {
+			return err
 		}
 		installs = append(installs, skillInstall{Agents: d.Agents, Path: d.Path, ContentSHA: sha})
 	}
