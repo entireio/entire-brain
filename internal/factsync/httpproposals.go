@@ -130,6 +130,9 @@ func (h *HTTPServer) GetProposal(ctx context.Context, repoID, branch, proposalID
 	if err := bindProposalID(&p); err != nil {
 		return OpenProposal{}, fmt.Errorf("factsync: proposal %s/%s/%s: %w", repoID, branch, proposalID, err)
 	}
+	if p.ID != proposalID {
+		return OpenProposal{}, fmt.Errorf("%w: requested %s but server returned %s", ErrProposalIDMismatch, proposalID, p.ID)
+	}
 	return p, nil
 }
 

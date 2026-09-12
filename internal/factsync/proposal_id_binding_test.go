@@ -2,6 +2,10 @@ package factsync
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/ashtom/entire-brain/internal/factmerge"
@@ -95,6 +99,48 @@ func TestProposalsStillAcceptDerivedAndOmittedIDs(t *testing.T) {
 			}
 			if set.Proposals[0].ID != ProposalID(honest) {
 				t.Fatalf("id = %s, want the derived %s", set.Proposals[0].ID, ProposalID(honest))
+			}
+		})
+	}
+}
+
+// A self-consistent response can still substitute a different decision for the
+// one requested. Check both explicit and legacy omitted response IDs.
+func TestGetProposalBindsResponseToRequestedID(t *testing.T) {
+	t.Parallel()
+	requested := factmerge.Proposal{Action: factmerge.ActionMerge, CandidateID: "fact:aaa", TargetID: "fact:bbb", Branch: "main"}
+	other := factmerge.Proposal{Action: factmerge.ActionSupersede, CandidateID: "fact:attacker", TargetID: "fact:victim", Branch: "main"}
+	for _, tc := range []struct {
+		name     string
+		proposal factmerge.Proposal
+		omit     bool
+		reject   bool
+	}{
+		{"matching", requested, false, false}, {"matching omitted", requested, true, false},
+		{"substituted", other, false, true}, {"substituted omitted", other, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := OpenProposal{ID: ProposalID(tc.proposal), Proposal: tc.proposal}
+			if tc.omit {
+				p.ID = ""
+			}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/v1/repos/repo-1/brain/facts/proposals/"+ProposalID(requested) {
+					t.Errorf("unexpected target %s", r.URL.Path)
+				}
+				_ = json.NewEncoder(w).Encode(wireProposalSet{Found: true, Proposal: &p})
+			}))
+			defer srv.Close()
+			client := &HTTPServer{BaseURL: srv.URL}
+			got, err := client.GetProposal(context.Background(), "repo-1", "main", ProposalID(requested))
+			if tc.reject {
+				if !errors.Is(err, ErrProposalIDMismatch) {
+					t.Fatalf("substituted decision accepted: %+v, %v", got, err)
+				}
+				return
+			}
+			if err != nil || got.ID != ProposalID(requested) {
+				t.Fatalf("matching response refused: %+v, %v", got, err)
 			}
 		})
 	}
