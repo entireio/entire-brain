@@ -18,15 +18,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ashtom/entire-brain/internal/apiurl"
 	"github.com/ashtom/entire-brain/internal/brainwire"
+	"github.com/ashtom/entire-brain/internal/httpx"
+	"github.com/ashtom/entire-brain/internal/repoid"
 )
 
 // mcpProtocolVersion is the MCP protocol version the client requests on initialize.
@@ -56,11 +57,33 @@ type Client struct {
 	HTTP    *http.Client
 }
 
+// hostedRequestTimeout bounds one hosted-brain RPC end to end.
+//
+// The realistic caller is the CLI or the workspace daemon passing
+// context.Background(): with no caller deadline, this client's own bound is the only
+// thing standing between a wedged hosted endpoint — one that completes the dial and
+// then never responds — and a permanently hung process. http.DefaultClient has no
+// timeout at all, so it can never provide one. http.Client.Timeout covers the whole
+// exchange (dial, request, response headers, body), which is what a stall after a
+// successful dial needs; a dial-phase bound alone would not fire.
+//
+// The hosted tools are bounded reads (search / get / status), so a minute is
+// generous; factsync.HTTPServer uses a longer bound because it uploads a whole
+// fact-set. This mirrors cli.publishRequestTimeout, the same shape already used on
+// the hosted publish path.
+//
+// It is a var, not a const, so tests can shorten it.
+var hostedRequestTimeout = 60 * time.Second
+
 func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return apiurl.WithoutRedirects(c.HTTP)
 	}
-	return apiurl.WithoutRedirects(http.DefaultClient)
+	// The phase bounds (dial, TLS handshake, response header) come from the shared
+	// bounded transport; hostedRequestTimeout is this caller's own end-to-end bound.
+	// A fresh Client per call is free — the transport, and so the connection pool,
+	// is shared.
+	return apiurl.WithoutRedirects(httpx.Client(hostedRequestTimeout))
 }
 
 // ServerInfo is the hosted brain's initialize serverInfo, including the brain wire
@@ -135,7 +158,19 @@ func (c *Client) rpc(ctx context.Context, repoID, method string, params any) (js
 	if err != nil {
 		return nil, fmt.Errorf("hostedbrain: %w", err)
 	}
-	endpoint := base + "/api/v1/repos/" + url.PathEscape(repoID) + "/brain/mcp"
+	// The repo id is interpolated into the request target by concatenation, so it
+	// must be exactly one safe path segment — otherwise a "/", "?", "#", or dot
+	// segment rewrites the target and sends the caller's bearer token to an
+	// endpoint it never asked for. Escaping alone is NOT enough: "." and ".." are
+	// unreserved, so url.PathEscape("..") == "..", and "/api/v1/repos/../brain/mcp"
+	// collapses to /api/v1/brain/mcp at any normalizing hop. repoid.Validate states
+	// the rule instead, and it is the SAME rule the fact-set transport and `brain
+	// publish` apply — one implementation in internal/repoid, not three copies.
+	// Refuse before the request exists, so a bad id costs zero egress.
+	if err := repoid.Validate(repoID); err != nil {
+		return nil, fmt.Errorf("hostedbrain: %s: %w", method, err)
+	}
+	endpoint := base + "/api/v1/repos/" + repoID + "/brain/mcp"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
 	if err != nil {
 		return nil, err
@@ -150,17 +185,26 @@ func (c *Client) rpc(ctx context.Context, repoID, method string, params any) (js
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		body := strings.TrimSpace(string(raw))
+		// httpx renders the body rather than pasting it: bounded read, the JSON
+		// envelope's own explanation when the endpoint answered, an HTML page's title
+		// when something in FRONT of the endpoint did, and control characters
+		// stripped either way. Pasting the raw prefix (what this used to do) was
+		// right for the documented envelope and wrong for a gateway's error page —
+		// kilobytes of markup, or a peer's terminal escapes, printed at the member.
+		//
+		// The typed sentinels are unchanged and still wrapped with %w: callers branch
+		// on errors.Is, and the detail is additive. A body with nothing to say adds
+		// no separator, so a silent refusal no longer ends in a bare ": ".
+		detail := httpx.ErrorSuffix(resp)
 		switch resp.StatusCode {
 		case http.StatusUnauthorized:
-			return nil, fmt.Errorf("%w: %s", ErrUnauthorized, body)
+			return nil, fmt.Errorf("%w%s", ErrUnauthorized, detail)
 		case http.StatusForbidden:
-			return nil, fmt.Errorf("%w: %s", ErrForbidden, body)
+			return nil, fmt.Errorf("%w%s", ErrForbidden, detail)
 		case http.StatusServiceUnavailable:
-			return nil, fmt.Errorf("%w: %s", ErrNotConfigured, body)
+			return nil, fmt.Errorf("%w%s", ErrNotConfigured, detail)
 		default:
-			return nil, fmt.Errorf("hostedbrain: %s %s: unexpected status %s: %s", method, repoID, resp.Status, body)
+			return nil, fmt.Errorf("hostedbrain: %s %s: unexpected status %s%s", method, repoID, resp.Status, detail)
 		}
 	}
 	var out struct {

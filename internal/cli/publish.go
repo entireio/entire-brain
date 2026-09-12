@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,6 +20,8 @@ import (
 
 	"github.com/ashtom/entire-brain/internal/apiurl"
 	"github.com/ashtom/entire-brain/internal/brainwire"
+	"github.com/ashtom/entire-brain/internal/httpx"
+	"github.com/ashtom/entire-brain/internal/repoid"
 )
 
 // Hosted brain publish (P1.M1.5, client half). This command is the ONLY path in
@@ -180,6 +181,12 @@ func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOp
 	repoID := publishFlagOrEnv(publishOpts.repoID, envRepoID)
 	if repoID == "" {
 		return fmt.Errorf("publish: target repo id is required; set --repo-id or %s", envRepoID)
+	}
+	// The id is concatenated into the publish target, so it must be exactly one safe
+	// path segment. Checked here, alongside the URL floor and before any git/disk
+	// work, so a malformed target refuses with the whole brain still on disk.
+	if err := repoid.Validate(repoID); err != nil {
+		return fmt.Errorf("publish: %w", err)
 	}
 	baseURL := publishFlagOrEnv(publishOpts.apiURL, envAPIBaseURL)
 	if baseURL == "" {
@@ -539,6 +546,13 @@ func publishManifestRef(ctx context.Context, opts Options, repoDir string, manif
 	return brainKindManifest
 }
 
+// publishHTTPClient retains dial/TLS bounds and the full five-minute budget for
+// uploading and processing a bundle. It shares the upload connection pool, whose
+// header bound permits server processing after a large request has been sent.
+func publishHTTPClient() *http.Client {
+	return httpx.UploadClient(publishRequestTimeout)
+}
+
 // postBrainArtifacts POSTs the bundle to the hosted brain publish endpoint and
 // maps the response to a clear error or result. It is the only network call in
 // the command; it runs only after both opt-in gates have passed.
@@ -551,7 +565,19 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 	if err != nil {
 		return publishResult{}, fmt.Errorf("publish: encode request: %w", err)
 	}
-	endpoint := strings.TrimRight(baseURL, "/") + publishAPIPathPrefix + url.PathEscape(repoID) + publishAPIPathSuffix
+	// The chokepoint check, not a duplicate of the one in runPublish: this is the
+	// only function that turns a repo id into a network target, and it is reachable
+	// from tests and any future caller that did not come through the command. An id
+	// that is not one bare path segment re-addresses the request — url.PathEscape
+	// cannot prevent that, since "." and ".." are unreserved and survive escaping, so
+	// ".." here yields /api/v1/repos/../brain/artifacts, which normalizes to
+	// /api/v1/brain/artifacts with the caller's bearer token and the whole brain
+	// bundle attached. Refuse before http.NewRequest exists.
+	if err := repoid.Validate(repoID); err != nil {
+		return publishResult{}, fmt.Errorf("publish: %w", err)
+	}
+	// Validated ids equal their own escaped form, so the id is concatenated raw.
+	endpoint := strings.TrimRight(baseURL, "/") + publishAPIPathPrefix + repoID + publishAPIPathSuffix
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
@@ -560,8 +586,7 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	client := &http.Client{Timeout: publishRequestTimeout}
-	resp, err := apiurl.WithoutRedirects(client).Do(req)
+	resp, err := apiurl.WithoutRedirects(publishHTTPClient()).Do(req)
 	if err != nil {
 		return publishResult{}, fmt.Errorf("publish: request to %s failed: %w", endpoint, err)
 	}
@@ -580,7 +605,12 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 	case http.StatusUnprocessableEntity:
 		return publishResult{}, fmt.Errorf("publish_rejected: server rejected the brain artifacts (HTTP 422)%s", publishServerDetail(respBody))
 	case http.StatusServiceUnavailable:
-		return publishResult{}, fmt.Errorf("publish_unavailable: hosted brain publishing is not configured on the server (HTTP 503)")
+		// The server uses 503 for more than one reason (no hosted brain on this
+		// deployment, publishing disabled for this jurisdiction, a store that is
+		// temporarily read-only), so its own sentence is the only thing that says
+		// WHICH — dropping the body here left the client guessing on the member's
+		// behalf.
+		return publishResult{}, fmt.Errorf("publish_unavailable: hosted brain publishing is not available on the server (HTTP 503)%s", publishServerDetail(respBody))
 	case http.StatusRequestEntityTooLarge:
 		return publishResult{}, fmt.Errorf("publish_too_large: the server rejected the brain bundle as too large (HTTP 413); its request body exceeds the hosted publish size limit%s", publishServerDetail(respBody))
 	default:
@@ -588,30 +618,19 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 	}
 }
 
-// publishServerDetail extracts a short human-readable reason from a server error
-// body (huma emits {"title","detail",...}), falling back to a bounded raw
-// snippet, so a failure surfaces the server's message without dumping the body.
+// publishServerDetail renders a short human-readable reason from a server error body.
+//
+// It delegates to httpx, which is the shared renderer for every hosted-API error body
+// in this repo. The local version this replaced handled the ONE shape the endpoint
+// documents — huma's {"title","detail"} — and pasted everything else through as a
+// raw 200-byte prefix. That is exactly the wrong answer for the two shapes that
+// actually show up when the endpoint is not the thing answering: a proxy's HTML page
+// (200 bytes of doctype and markup, with the useful part — its <title> — usually past
+// the cut) and a body carrying control bytes, printed straight into the member's
+// terminal. httpx renders both, and still prefers the envelope's own detail when the
+// endpoint did answer.
 func publishServerDetail(body []byte) string {
-	trimmed := strings.TrimSpace(string(body))
-	if trimmed == "" {
-		return ""
-	}
-	var env struct {
-		Detail string `json:"detail"`
-		Title  string `json:"title"`
-	}
-	if json.Unmarshal(body, &env) == nil {
-		if env.Detail != "" {
-			return ": " + env.Detail
-		}
-		if env.Title != "" {
-			return ": " + env.Title
-		}
-	}
-	if len(trimmed) > 200 {
-		trimmed = trimmed[:200]
-	}
-	return ": " + trimmed
+	return httpx.SuffixFromBody(body)
 }
 
 // contentDigest returns the "sha256:"-prefixed lowercase-hex digest of data, the
