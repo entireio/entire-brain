@@ -22,6 +22,11 @@ import (
 
 func liveGraphProviderAvailable(t *testing.T) bool {
 	t.Helper()
+	// The package pins the XDG roots (see main_test.go) so no test can resolve a
+	// store under the real home. The installed CLI finds its plugins under the
+	// data root, so this one test — the only one that drives the REAL provider —
+	// gets the machine's own data root back for its duration.
+	useHostXDGDataHome(t)
 	binary, err := exec.LookPath("entire")
 	if err != nil {
 		return false

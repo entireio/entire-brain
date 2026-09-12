@@ -34,6 +34,10 @@ is cleared before execution to ensure tests actually run. Direct launches
 set PWD to the package directory, prepend GOTOOLDIR to PATH, and preserve
 `-test.paniconexit0`. The harness inventories target-selected TestMain
 functions and rejects lifecycle drift until the settings are reviewed.
+The CLI's pinned `TestMain` isolates XDG storage in a fresh temporary directory
+for each process, runs `m.Run()` once, and propagates its exit code. It does not
+filter tests or share state between shards; inventory-only launches also clean
+up their temporary roots.
 Before and after execution it verifies the tracked worktree and commit.
 
 The separate `phase1-semantic` matrix retains its original race-test command,
