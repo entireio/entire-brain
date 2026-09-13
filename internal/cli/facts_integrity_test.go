@@ -203,9 +203,12 @@ func TestFactStoreIntegrityDetectsOneLostFactAmongFive(t *testing.T) {
 
 	// get: "not found" for an id the caller is holding is the same lie.
 	t.Run("get", func(t *testing.T) {
+		// A miss exits non-zero (#243 made `get` agree with `show`), and the
+		// payload is still emitted first -- so the qualification below has to
+		// survive the failing exit, not depend on a clean one.
 		getOut, err := execute(t, NewRootCommand(opts), "get", lost[0], "--branch", "feature")
-		if err != nil {
-			t.Fatalf("get: %v\n%s", err, getOut)
+		if err == nil {
+			t.Fatalf("get exited clean for an id it could not produce:\n%s", getOut)
 		}
 		if !strings.Contains(getOut, "not found") {
 			t.Fatalf("the fixture did not actually lose the fact:\n%s", getOut)
