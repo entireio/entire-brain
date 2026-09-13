@@ -35,7 +35,7 @@ The plugin binary is named `entire-brain` and is invoked through Entire as
 
 ## Development source of truth
 
-Entire Brain releases are tagged (`v0.2.0` is the current one), but development
+Entire Brain releases are tagged (`v0.3.0` is the current one), but development
 still starts from the locally fetched current mainline — a tag is a marker on
 main, not a branch to work from. Do not resume an old WIP/integration checkout
 or use an older Brain binary as a benchmark control. The Agent Brain harness

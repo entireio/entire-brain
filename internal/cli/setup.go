@@ -508,9 +508,10 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// the reason someone is uninstalling.
 	if !setupOpts.uninstallDaemon {
 		if _, ok := gitWorkTreeRoot(ctx, opts.Runner, repoDir); !ok {
-			return fmt.Errorf("not a git repository: %s\n"+
-				"%[2]s setup builds every source it has -- sessions, seed, docs, semantic index, entities -- from git history, so it needs one.\n"+
-				"run `git init` here and make at least one commit, or point setup at a repository: %[2]s setup <path>", repoDir, brainCmd)
+			return notARepositoryError(ctx, opts.Runner, repoDir,
+				setupBrainCommand(brainCmd)+" setup builds every source it has -- sessions, seed, docs, semantic index, entities -- from git history, so it needs git and a repository.",
+				setupBrainCommand(brainCmd)+" setup",
+				setupBrainCommand(brainCmd)+" setup <path>")
 		}
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)

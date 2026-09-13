@@ -83,6 +83,17 @@ func (r *fakeCommandRunner) run(ctx context.Context, dir string, env map[string]
 		if key == fakeCommandKey("git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD") {
 			return []byte("origin/main\n"), nil, nil
 		}
+		// An unscripted fixture describes an ORDINARY machine, and an ordinary
+		// machine has git. `git --version` reads no repository, so it cannot
+		// fail for anything a fixture is modelling about a directory -- and the
+		// diagnosis that separates "git is not installed" from "this is not a
+		// repository" asks exactly this question. Leaving it unscripted made
+		// every non-repository fixture also claim git was missing, which is how
+		// four of them came to assert the wrong message. A fixture that really
+		// does mean "no git on this machine" scripts this call to fail.
+		if name == "git" && len(args) == 1 && args[0] == "--version" {
+			return []byte("git version 2.48.1\n"), nil, nil
+		}
 		if r.fallback != nil {
 			if response, handled := r.fallback(name, args); handled {
 				return []byte(response.stdout), []byte(response.stderr), response.err

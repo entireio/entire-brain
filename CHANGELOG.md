@@ -7,6 +7,53 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Changed
 
+- Every printed repair command resolves in the dispatch mode that printed it.
+  The memory health and error surfaces named `entire memory repair` and
+  `entire memory migrate` — commands NEITHER mode can run, because `memory` is a
+  subcommand of this binary and not a verb of the host CLI. They now carry the
+  spelling `setupCommandPrefix` resolves, the same as every other printer.
+- `doctor` and `config` are visible in `--help` again. Both were hidden in June
+  2026 as plugin plumbing; since then `doctor` became the documented
+  verification step with an exit-code contract (`--fail-on`) that CI is meant to
+  gate on, `scripts/install.sh` runs both and tells the reader to re-run
+  `doctor`, and a user who did that and then grepped `--help` found nothing.
+
+### Fixed
+
+- **A missing `git` was reported as a missing repository.** `git rev-parse
+  --show-toplevel` fails for both reasons and the four repo-ness gates (`setup`,
+  `path`, `refresh`, `workspace add`) read every failure as the second. On a
+  machine with no git, a perfectly good repository was reported as "not a git
+  repository" and the remedy offered was `git init` — which needs the program
+  that is missing. The two are now told apart by a `git --version` probe, which
+  answers on git's presence alone and so cannot be confounded by the state of
+  the directory, and each gets its own message and its own followable remedy.
+- `docs/getting-started.md` advertised two install methods that do not exist: a
+  "prebuilt release archive" (the tagged releases carry no binaries and no
+  source archive) and `go install` (which the same file later admits is
+  unavailable). It now describes only the source install that works, and says
+  plainly that the Go toolchain is therefore not optional.
+- `scripts/install.sh`'s Entire CLI prerequisite said "install the Entire CLI",
+  which is the restatement of the problem, not a fix. It now gives the same
+  grade of answer the Go check already gave: the Homebrew cask, the install
+  script, and the repository.
+- `CHANGELOG.md` had exactly one heading, `## [Unreleased]`, covering work that
+  shipped in `v0.3.0` — no version section had ever been cut at any tag. The
+  `0.3.0` and `0.2.0` sections below are that history, recorded from the
+  published release notes.
+
+## [0.3.0] - 2026-09-13
+
+219 commits since `v0.2.0`, 62 merged PRs. Cut after an adversarial campaign of
+roughly 400 hostile invocations across nine attack families: zero panics, zero
+stack traces, zero escapes outside the store, no lost updates under 12
+concurrent writers, and `bundle import` rejecting traversal, absolute paths,
+symlinks, hardlinks, device nodes and a 600 MB decompression bomb. What the
+campaign found instead was commands that reported success while something was
+wrong, which is most of what follows.
+
+### Changed
+
 - The documented journey now ends where a user actually ends up: a brain
   onboarded in *their* repository. It used to stop at the install. `README.md`
   said "That is the whole install" and the next thing a reader was given was
@@ -322,3 +369,139 @@ all, `entire brain setup --uninstall-daemon` removes the watcher, and
 - The daemon's unit path now honours `ENTIRE_BRAIN_DAEMON_DIR`, so a sandboxed
   or test run cannot install a live launchd agent or systemd unit into a real
   user's directories even when it can see the real `$HOME`.
+
+### Security — 0.3.0 release notes
+
+- **A repository's git hooks were a fifth execution vector, undefended.**
+  `git_harden.go` states the model in its own header — "A repository is data,
+  not a trust boundary" — and defended four vectors. Git hooks need no config
+  keys at all, just an executable file, so they are strictly easier to arm than
+  the four that were covered; arbitrary code ran as the user while the tool
+  printed `+ healthy`. The security suite could never have caught it because its
+  own fixture disarmed hooks before every test. Suppression is
+  `core.hooksPath=/dev/null/entire-brain-hooks-disabled`: absolute, because git
+  resolves a relative hooksPath against the repository's own worktree, and
+  `/dev/null/…` rather than a merely-nonexistent directory, because `/dev/null`
+  is a character device so the path is ENOTDIR by construction. Executions per
+  invocation went 6→0 (`refresh --agent none`), 3→0 (`refresh --worktree
+  --agent none`) and 1→0 (`status`, `status --verbose`, `overview`). (#241)
+- **The MCP surface advertised a limit it could not answer.** Every size
+  argument declares `"maximum": 10000`; against a real index (48,275 symbols,
+  155,298 relations) eight tools hard-failed at their own stated ceiling and
+  five more returned unflagged multi-megabyte documents. `brain_impact` built
+  33.8 MB and died; `brain_brief` spent 14.3s to return nothing. Responses are
+  now bounded to a 128 KiB budget with an explicit truncation marker, using one
+  shared row cap so an impact answer cannot come back containing no impact.
+  Every default-limit call is byte-identical. (#240)
+- Earlier in the cycle: a git-config RCE path (#210), an HTTPS floor (#211), and
+  MCP framing and recoverability fixes (#214, #215, #234).
+
+### Fixed — durable memory
+
+- **Facts could vanish while three health surfaces reported them present.**
+  Replacing one of five lines in `facts.ndjson` with valid non-fact JSON had
+  `status` say 5, `doctor` say 5, and `verify` — whose entire job is fact
+  integrity — see 4 and report `0 orphaned`, exit 0. Nothing cross-checked the
+  two numbers. With all five replaced, the retrieval note volunteered a false
+  explanation: "the answer may genuinely not be in the brain." The cross-check
+  now covers `status`, `doctor`, `verify`, `facts map` and the retrieval note,
+  keeping four failure modes in their own words — missing, unreadable, lossy,
+  stale — and naming which branch's store will not parse. In `unreadable` mode
+  it reports "store unreadable", never "0 readable": zero was a measurement
+  nobody took. (#242, #239)
+- **`privacy purge` deleted facts without rebuilding `sources.facts`**, so a
+  sanctioned purge left the manifest overstating — on disk indistinguishable
+  from the corruption above. Found while fixing it; without this, the new check
+  would have reported every legitimate purge as data loss.
+
+### Fixed — diagnostics
+
+- **`doctor` printed `error` and exited 0**, so it was unusable in CI or an
+  agent loop. It now takes `--fail-on {error|warn|none}`, defaulting to `error`,
+  with findings scoped so a missing host CLI is reported but does not fail a
+  gate about the brain's own store. It also stopped crying wolf: six warnings on
+  a pristine brain became two. Three of those could never pass by construction,
+  including `memory_reconciliation`, which printed with no reason at all because
+  a named string type was read with a bare `.(string)` assertion that failed for
+  every value but one. (#239)
+- Other surfaces that reported success while wrong: `status` marked a shredded
+  semantic index as built; `workspace add /etc/passwd` succeeded; `get` and
+  `multi-get` exited 0 on a miss while sibling `show` exited 1; `{}` and
+  `schema_version: 0` were accepted as "manifest current"; unparseable MCP lines
+  were silently dropped depending on their first character; and degenerate repos
+  leaked raw git text including a hardening flag the user never typed.
+  (#243, #236, #237, #238)
+
+### Changed — release engineering
+
+- All eight `release-evidence` checks pass against this tag, with the Radar
+  tool-contract lane re-measured, not re-pinned (#245). The gate runs at release
+  — a `v*` tag or `workflow_dispatch` — rather than on every push to main
+  (#202), and the README's examples execute in CI (#203).
+
+### Known — 0.3.0
+
+- Both repositories are private and there is no published binary, so the
+  documented `git clone` install cannot work for anyone outside the org. That is
+  a visibility decision, not a code fix.
+- A repository reached through a symlinked path (macOS `/tmp` → `/private/tmp`)
+  can produce a `repo_identity_conflict` between the canonical and pre-upgrade
+  alias keys. It fails closed and names both keys, both paths and the remedy;
+  normal paths are unaffected.
+- The git-hooks fix is reasoned rather than executed on Windows — the ENOTDIR
+  guarantee is POSIX-only and degrades there to ordinary non-existence — and its
+  tests skip rather than fail on a coarse-timestamp filesystem. The MCP
+  truncation bounds the response, not the work: `brain_impact` still builds its
+  33 MB before discarding it.
+
+## [0.2.0] - 2026-09-12
+
+First release since `v0.1.0` (2026-07-02), 514 commits later. Cut on the first
+`main` that satisfies the release gates end to end: CI green (28/28 on this
+tag), every `release-evidence` lane passing, and the four known path/identity
+escapes closed. Each defect below was verified by reproducing it on unpatched
+`main` first, then proving the fix closes it.
+
+### Security
+
+- **Path guards accepted a bare `..`** — `filepath.Clean("..")` is `".."`,
+  neither `"."` nor `"../"`-prefixed, so it fell through both shared guards.
+  `brain_delete_project` passed the repo key straight to `os.RemoveAll`: the
+  whole plugin data root, every project's brain included. (#204)
+- **Skill writes escaped the skills directory**, two ways. `path.Join`
+  *collapses* `".."` rather than rejecting it, and the skill name is parsed from
+  agent frontmatter — text an untrusted repo reaches. Separately the overwrite
+  guard used `os.Stat`, which reports a dangling symlink as absent, so the write
+  then created the file the link pointed at. A `SKILL.md` is an
+  agent-instruction file. (#96)
+- **Repo-key guards were missing** at several store-path sites, and
+  `repoKeyFromRemote` could mint a reserved key (`workspaces/...`). (#153)
+- **The repo id went unescaped into the hosted brain MCP request path.** That
+  request carries a bearer token, so a `/`, `?` or `#` in the id sent the token
+  to an endpoint nobody asked for. `publish.go` had escaped its own id since it
+  was written; this was the one site that did not. (#205)
+
+### Changed
+
+- `release-evidence` runs at release — a `v*` tag or `workflow_dispatch` —
+  rather than on every push to `main`. It pins six source files by content hash,
+  so any edit marked the evidence stale; the run that had main red since
+  2026-09-07 was tripped by an import-grouping commit, and the lanes had been
+  re-recorded eight times since June for the same reason. Nothing was weakened
+  (the audits still run with `--fail-on-flags`), and a hole closed: the workflow
+  previously had no tag trigger at all, so a release could be published without
+  its proof ever being checked. This tag is the first where it ran. (#202)
+- Both distill scheduler lanes and the Radar tool-contract lane were re-measured,
+  not re-pinned, against this tree, and came back identical to the retained
+  workloads: current-repo 206 sessions / 246 chunks, 1.25x gate, 2.9851x; and
+  large-repo 2,375 sessions / 2,435 chunks, 1.50x gate, 1.7931x. (#206, #207)
+- The README's own examples now execute in CI. Eleven documented commands had no
+  test behind them; all eleven are covered, so nothing is announced that is not
+  tested. (#203)
+
+### Known — 0.2.0
+
+- The README correction landing in #208 — `refresh --worktree` does not update
+  the semantic index, and the "no released product version" line — merged to
+  `main` after this tag was cut, so it ships in the next release rather than
+  this one.

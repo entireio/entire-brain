@@ -73,7 +73,7 @@ var memoryWorkerLaunchAfter = func(repoDir string, delay time.Duration) error {
 	// the Go-side handle but the process stays this process's child at the OS
 	// level, and the Go runtime installs no SIGCHLD reaper, so every launch
 	// left a <defunct> entry for the parent's whole lifetime. A long-lived
-	// `entire watch` or MCP server launches one worker per tick with changes
+	// `entire brain watch` or MCP server launches one worker per tick with changes
 	// and accumulated a PID each time, up to RLIMIT_NPROC. Waiting in a
 	// goroutine keeps the launch non-blocking and does not tie the child's
 	// lifetime to ours: if this process exits first, the child is reparented

@@ -72,11 +72,22 @@ func TestRootWithoutCommandShowsHelp(t *testing.T) {
 			t.Fatalf("root output missing %q:\n%s", want, out)
 		}
 	}
-	// Absent from top-level help: hidden plugin/config commands and the dropped
-	// completion generator; removed redundant aliases; and the build stages that
-	// now live under `refresh` (sessions, index, seed).
+	// `doctor` and `config` are PRESENT. They were hidden here as plugin
+	// plumbing, and this list pinned that -- while the README documented
+	// doctor's exit-code contract in its own section and scripts/install.sh ran
+	// both and closed by telling the reader to re-run `entire brain doctor`.
+	// TestDocumentedCommandsAreDiscoverable now holds the general rule; this is
+	// the direct assertion for the two that were wrong.
+	for _, want := range []string{"  doctor ", "  config "} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("root output should list %q (the docs tell users to run it):\n%s", want, out)
+		}
+	}
+	// Absent from top-level help: the dropped completion generator; removed
+	// redundant aliases; and the build stages that now live under `refresh`
+	// (sessions, index, seed).
 	for _, absent := range []string{
-		"  doctor ", "  config ", "  completion ",
+		"  completion ",
 		"  context ", "  impact ", "  changes ",
 		"  tests ", "  routes ", "  tools ", "  workflows ",
 		"  index ", "  seed ", "  sessions ", "  history-index ",

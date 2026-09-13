@@ -156,9 +156,10 @@ func checkPathTargetIsAddressable(ctx context.Context, opts Options, storage rep
 		return nil
 	}
 	brainCmd := setupCommandPrefix(os.LookupEnv)
-	return fmt.Errorf("not a git repository: %s\n"+
-		"%[2]s path reports where a repository's brain lives, and a repository's identity -- like every source its brain is built from -- comes from git.\n"+
-		"run `git init` here, or name a repository: %[2]s path <path-or-repo-url>", repoDir, brainCmd)
+	return notARepositoryError(ctx, opts.Runner, repoDir,
+		brainCmd+" path reports where a repository's brain lives, and a repository's identity -- like every source its brain is built from -- comes from git.",
+		brainCmd+" path",
+		brainCmd+" path <path-or-repo-url>")
 }
 
 // validateForEnsure checks the build flags, which are only read when --ensure
@@ -273,6 +274,38 @@ func gitWorkTreeRoot(ctx context.Context, runner CommandRunner, dir string) (str
 	return filepath.Clean(root), true
 }
 
+// notARepositoryError names the RIGHT failure when gitWorkTreeRoot says no.
+//
+// `git rev-parse --show-toplevel` fails for two unrelated reasons, and they are
+// indistinguishable from the caller's side: the directory is not a repository,
+// or `git` could not be run at all. Every caller read the failure as the first,
+// so a machine with no git in PATH was told "not a git repository: <a perfectly
+// good repository>" and handed `git init` as the remedy -- advice that needs the
+// program that is missing. nameDegenerateRepoFailure already reasons this way
+// about an unborn HEAD ("answering that with 'no commits yet' would be a
+// confident wrong diagnosis"); the repo-ness gate simply never did.
+//
+// The probe is positive evidence, not inference: `git --version` succeeds or
+// fails on git's presence alone -- it never reads a repository, so it cannot be
+// confounded by the state of this directory. It runs only on a path that has
+// already failed, so a healthy repo pays nothing for it.
+//
+// `needsGit` is the sentence naming why git is needed. The two remedies are
+// separate on purpose: with git missing the reader has nothing to change about
+// this directory and simply re-runs `rerun` once git is installed, while with
+// git present the directory is the problem and `elsewhere` is how they name a
+// different one.
+func notARepositoryError(ctx context.Context, runner CommandRunner, repoDir, needsGit, rerun, elsewhere string) error {
+	if !commandLooksAvailable(ctx, runner, repoDir, "git") {
+		return fmt.Errorf("git is not available: %s\n"+
+			"%s\n"+
+			"install git and put it on PATH, then re-run `%s`", repoDir, needsGit, rerun)
+	}
+	return fmt.Errorf("not a git repository: %s\n"+
+		"%s\n"+
+		"run `git init` here and make at least one commit, or name a repository: %s", repoDir, needsGit, elsewhere)
+}
+
 // firstErrorLine is an error reduced to its opening line, for the one-line
 // slots -- progress notes, status axes -- that a multi-line named condition
 // would otherwise wrap into nonsense.
@@ -319,9 +352,10 @@ func nameDegenerateRepoFailure(ctx context.Context, runner CommandRunner, repoDi
 				"%[2]s reads seed, docs and the semantic index out of a working tree, and a bare repository has none.\n"+
 				"point it at a clone with a checkout: %[2]s refresh <path>", repoDir, brainCmd)
 		}
-		return fmt.Errorf("not a git repository: %s\n"+
-			"%[2]s builds every source it has -- sessions, seed, docs, semantic index -- from git history, so it needs one.\n"+
-			"run `git init` here, or name a repository: %[2]s refresh <path>", repoDir, brainCmd)
+		return notARepositoryError(ctx, runner, repoDir,
+			brainCmd+" builds every source it has -- sessions, seed, docs, semantic index -- from git history, so it needs git and a repository.",
+			brainCmd+" refresh",
+			brainCmd+" refresh <path>")
 	}
 	// An unborn HEAD has to be shown, not inferred from the failure that got us
 	// here: `git rev-parse HEAD` also fails when git itself is unavailable, and

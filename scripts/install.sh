@@ -83,12 +83,22 @@ if ! have git; then
 fi
 
 if ! have entire; then
+	# The routes below are the ones entireio/cli documents for itself; they are
+	# not invented here. "install the Entire CLI" was the restatement of the
+	# problem, not a fix -- the Go check two blocks down already gave a real
+	# answer, and this one has no reason to give less.
 	# shellcheck disable=SC2016  # literal backticks, prose not expansion
 	add_problem 'the Entire CLI is not on PATH as `entire`
       It is the host that dispatches `entire brain` and `entire graph`, and it
       captures the sessions a brain learns from. A plugin cannot be registered
       without it.
-      fix: install the Entire CLI, then re-run this script'
+      fix: install it with Homebrew:
+             brew tap entireio/tap
+             brew trust entireio/tap
+             brew install --cask entire
+           or with its install script:
+             curl -fsSL https://entire.io/install.sh | bash
+           source and other platforms: https://github.com/entireio/cli'
 fi
 
 # The required Go version is read from go.mod rather than pinned here, so this

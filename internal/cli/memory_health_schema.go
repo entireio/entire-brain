@@ -344,7 +344,7 @@ func memoryJobInventoryHealth(inventory memoryJobInventory) map[string]any {
 	case "corrupt":
 		health["action"] = "repair the named content-free job records before queue mutation"
 	case memoryErrMigrationRequired:
-		health["action"] = "run `entire memory migrate` to rewrite previous job schemas"
+		health["action"] = "run `" + setupCommandPrefix(os.LookupEnv) + " memory migrate` to rewrite previous job schemas"
 	}
 	return health
 }

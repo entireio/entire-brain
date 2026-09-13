@@ -1849,7 +1849,7 @@ func memoryHealthIssues(issues []memoryStateIssue) []memoryHealthIssue {
 		case memoryErrUnsupportedVersion:
 			action = "upgrade entire-brain; this newer file is left untouched"
 		case memoryErrMigrationRequired:
-			action = "run `entire memory migrate`"
+			action = "run `" + setupCommandPrefix(os.LookupEnv) + " memory migrate`"
 		case memoryErrQueryTooBroad:
 			action = fmt.Sprintf("reduce the directory below the %d-file scan ceiling", abstractInventoryMaxFiles)
 		case memoryErrStateUnsafe:
