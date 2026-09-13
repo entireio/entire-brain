@@ -934,7 +934,9 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		if gopts.OutlineLimit, err = mcpNonNegativeInt(params.Arguments, "limit", 0); err != nil {
 			break
 		}
-		err = runGet(ctx, cmd, opts, []string{id}, branch, true, gopts, "mcp:brain_get")
+		// The missing ids are already in the emitted payload; a tool result
+		// reports them there, not as a JSON-RPC error.
+		_, err = runGet(ctx, cmd, opts, []string{id}, branch, true, gopts, "mcp:brain_get")
 	case "brain_multi_get":
 		ids, sliceErr := mcpStringSlice(params.Arguments, "ids")
 		if sliceErr != nil {
@@ -944,7 +946,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		if len(ids) == 0 {
 			err = errors.New("ids is required")
 		} else {
-			err = runGet(ctx, cmd, opts, ids, branch, true, getOptions{}, "mcp:brain_multi_get")
+			_, err = runGet(ctx, cmd, opts, ids, branch, true, getOptions{}, "mcp:brain_multi_get")
 		}
 	case "brain_context":
 		err = requireMCPQuery(query)
@@ -1918,6 +1920,36 @@ func drainMCPLine(reader *bufio.Reader) {
 	}
 }
 
+// mcpHeaderFieldName reports whether a line's pre-colon text is a syntactically
+// valid frame-header name (an RFC 7230 token).
+//
+// This is what separates a header this server should skip past -- Content-Type,
+// which conforming LSP-framed clients do send -- from a line that is not framing
+// at all. Rejecting every header the server does not itself consume would break
+// those clients; accepting every line with a colon in it is what let a JSON
+// batch pass for a header.
+func mcpHeaderFieldName(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		if !isMCPHeaderTokenByte(name[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func isMCPHeaderTokenByte(c byte) bool {
+	switch {
+	case c >= '0' && c <= '9', c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z':
+		return true
+	default:
+		return strings.IndexByte("!#$%&'*+-.^_`|~", c) >= 0
+	}
+}
+
 func readMCPMessage(reader *bufio.Reader) (mcpMessage, mcpFrameMode, error) {
 	length := -1
 	for {
@@ -1944,7 +1976,26 @@ func readMCPMessage(reader *bufio.Reader) (mcpMessage, mcpFrameMode, error) {
 			break
 		}
 		name, value, ok := strings.Cut(line, ":")
-		if ok && strings.EqualFold(strings.TrimSpace(name), "Content-Length") {
+		// A line that is neither a JSON-RPC frame nor a frame HEADER is not
+		// framing at all, and it used to be swallowed here without a response:
+		// only a line starting with "{" reached the decoder, so `banana`, a bare
+		// scalar, and an NDJSON batch ("[{...}]", whose first colon sits inside
+		// the JSON) were all handed to this header scanner, failed to be
+		// Content-Length, and were dropped. The client saw silence and waited.
+		//
+		// Nothing past this line has been consumed, so the stream is still at a
+		// frame boundary: this is recoverable, and the serve loop answers it
+		// with the same -32700 every other framing failure gets.
+		if !ok || !mcpHeaderFieldName(name) {
+			// A Content-Length already seen means the peer is speaking LSP
+			// framing; otherwise the line arrived where NDJSON would be.
+			mode := mcpFrameJSONLine
+			if length >= 0 {
+				mode = mcpFrameContentLength
+			}
+			return mcpMessage{}, mode, fmt.Errorf("%w: not a JSON-RPC message or a frame header", errMCPRecoverable)
+		}
+		if strings.EqualFold(strings.TrimSpace(name), "Content-Length") {
 			parsed, err := strconv.Atoi(strings.TrimSpace(value))
 			if err != nil {
 				return mcpMessage{}, "", err

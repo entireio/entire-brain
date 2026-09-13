@@ -202,6 +202,69 @@ func TestStatusNamesTheCorruptStoreAndTheCommandThatRebuildsIt(t *testing.T) {
 	}
 }
 
+// TestTheInstantLineDoesNotCallAnUnreadableSemanticIndexBuilt covers the last
+// line of the default report that still called a shredded store fine. The
+// verdict and its cause were fixed to name `store=unsafe`, but the onboarding
+// block two lines above kept printing `+ semantic`, because the component marks
+// answer from manifest PRESENCE and a shredded file is still present. One
+// screen said the index built and the next said it cannot be opened.
+//
+// The control half matters as much as the failing half: the mark has to go back
+// to `+` on a store that opens, or the fix is just a second constant.
+func TestTheInstantLineDoesNotCallAnUnreadableSemanticIndexBuilt(t *testing.T) {
+	opts, repoDir, brainDir := statusTruthFixture(t)
+	if err := runSemanticIndex(context.Background(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storePath := filepath.Join(brainDir, filepath.FromSlash(manifest.Sources.Semantic.StorePath))
+
+	healthy, err := execute(t, NewRootCommand(opts), "status")
+	if err != nil {
+		t.Fatalf("status: %v\n%s", err, healthy)
+	}
+	healthyInstant := statusInstantLine(t, healthy)
+	if !strings.Contains(healthyInstant, "+ semantic") {
+		t.Fatalf("the fixture never reported a built semantic index, so the failing case proves nothing:\n%s", healthy)
+	}
+
+	shredSemanticStore(t, storePath)
+
+	out, err := execute(t, NewRootCommand(opts), "status")
+	if err != nil {
+		t.Fatalf("status: %v\n%s", err, out)
+	}
+	instant := statusInstantLine(t, out)
+	if strings.Contains(instant, "+ semantic") {
+		t.Fatalf("the instant line still marks an unreadable semantic index as built:\n%s", out)
+	}
+	if !strings.Contains(instant, "x semantic") {
+		t.Fatalf("the instant line does not mark the unreadable semantic index as failed:\n%s", out)
+	}
+	// Every other source keeps the mark it had. A report that fails everything
+	// the moment one axis trips is no more usable than one that passes
+	// everything, so the semantic mark must be the whole difference.
+	if restored := strings.Replace(instant, "x semantic", "+ semantic", 1); restored != healthyInstant {
+		t.Fatalf("a corrupt semantic store changed a mark other than semantic:\n before: %s\n  after: %s", healthyInstant, instant)
+	}
+}
+
+// statusInstantLine returns the onboarding block's `instant` line, which is the
+// only line in the default report carrying the per-source marks.
+func statusInstantLine(t *testing.T, out string) string {
+	t.Helper()
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "instant") {
+			return line
+		}
+	}
+	t.Fatalf("status printed no instant line:\n%s", out)
+	return ""
+}
+
 // TestDoctorNamesTheFailingSemanticAxis closes the other end of the dead end:
 // whatever still sends a reader to doctor must find more there than it left
 // behind. Doctor used to answer a shredded SQLite store with `semantic: warn

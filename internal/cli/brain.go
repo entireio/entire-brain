@@ -12,6 +12,17 @@ import (
 
 const brainManifestSchemaVersion = 3
 
+// brainManifestMinSchemaVersion is the oldest manifest this build reads.
+//
+// It is 1 rather than 0 because 0 is not a version anything ever wrote: the
+// commit that introduced manifest.json already set schema_version 1, and the
+// field carries no `omitempty`, so no build of this tool can emit a manifest
+// without one. A manifest reporting 0 is therefore an ABSENT field -- `{}`, a
+// hand-edited file, a truncated write -- and not a pre-versioning document to
+// adapt. Reading it as "current" was how an empty object passed for a healthy
+// brain.
+const brainManifestMinSchemaVersion = 1
+
 const (
 	brainLockDirName      = "locks"
 	brainWriteLockName    = "write.lock"
@@ -208,10 +219,13 @@ func readBrainManifest(outputDir string, tolerateUnknownFields bool) (*exportMan
 		}
 		return nil, false, fmt.Errorf("parse brain manifest: %s: brain manifest cannot be parsed: %w", memoryErrStateCorrupt, err)
 	}
-	// Versionless legacy exports predate the top-level schema field and adapt as
-	// v1. Explicit v1-v3 documents are supported; no writer may down-convert a
-	// vNext manifest or silently discard additive fields.
-	if version < 0 || version > brainManifestSchemaVersion {
+	// Explicit v1-v3 documents are supported; no writer may down-convert a vNext
+	// manifest or silently discard additive fields, and a manifest that declares
+	// no version at all is not a v0 to adapt (see brainManifestMinSchemaVersion).
+	if version < brainManifestMinSchemaVersion {
+		return nil, false, fmt.Errorf("%s: brain manifest declares schema version %d, older than the first supported version %d", memoryErrUnsupportedVersion, version, brainManifestMinSchemaVersion)
+	}
+	if version > brainManifestSchemaVersion {
 		return nil, false, fmt.Errorf("%s: unsupported brain manifest schema version %d", memoryErrUnsupportedVersion, version)
 	}
 	normalizeBrainManifest(&manifest)

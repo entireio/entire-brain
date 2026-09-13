@@ -128,3 +128,105 @@ func TestRecoverableFramesStillRecover(t *testing.T) {
 		t.Fatalf("the request after the bad frame was never answered:\n%s", body)
 	}
 }
+
+// A line the server cannot parse must be ANSWERED, not eaten.
+//
+// #234 (above) fixed the shape of the responses on the Content-Length path.
+// This is the adjacent hole it did not reach: whether a malformed line got a
+// -32700 at all depended on its FIRST CHARACTER. Only a line starting with "{"
+// reached the JSON decoder. Everything else was handed to the frame-header
+// scanner, failed to be a Content-Length, and was discarded with no response,
+// no log and no error — the server read to EOF and exited 0 having written
+// nothing. A host that sent one waits forever for a reply to a request the
+// server silently dropped.
+//
+// The routing goes through mcpFrameErrorResponse, the helper #234 already
+// added; nothing here is a second copy of it.
+func TestALineThatIsNotAFrameIsRefusedRatherThanSwallowed(t *testing.T) {
+	for _, line := range []string{
+		"banana\n",
+		// A JSON-RPC batch over NDJSON. Its first colon sits inside the JSON, so
+		// the header scanner read `[{"jsonrpc"` as a field name and dropped it.
+		// The Content-Length-framed batch was already refused with -32700; this
+		// is the same message over the other framing.
+		"[{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}]\n",
+		"\"hello\"\n",
+		"123\n",
+		"null\n",
+	} {
+		t.Run(strings.TrimSpace(line), func(t *testing.T) {
+			var out bytes.Buffer
+			if err := runMCP(context.Background(), strings.NewReader(line), &out, Options{Version: "test"}); err != nil {
+				t.Fatalf("an unparseable line ended the session: %v", err)
+			}
+			body := out.String()
+			if strings.TrimSpace(body) == "" {
+				t.Fatalf("%q was swallowed: the server wrote nothing at all", line)
+			}
+			if !strings.Contains(body, "-32700") {
+				t.Fatalf("%q did not produce a parse error frame:\n%s", line, body)
+			}
+			if !strings.Contains(body, `"id":null`) {
+				t.Fatalf("%q produced a parse error without the explicit null id:\n%s", line, body)
+			}
+		})
+	}
+}
+
+// TestAnUnparseableLineDoesNotCostTheSession pins the other half: the refusal is
+// recoverable, so the request AFTER the bad line is still served, and the reply
+// arrives in the framing the client was speaking.
+func TestAnUnparseableLineDoesNotCostTheSession(t *testing.T) {
+	var out bytes.Buffer
+	input := "banana\n" + `{"jsonrpc":"2.0","id":7,"method":"ping"}` + "\n"
+	if err := runMCP(context.Background(), strings.NewReader(input), &out, Options{Version: "test"}); err != nil {
+		t.Fatalf("an unparseable line ended the session: %v", err)
+	}
+	body := out.String()
+	if !strings.Contains(body, "-32700") {
+		t.Fatalf("the bad line was not refused:\n%s", body)
+	}
+	if !strings.Contains(body, `"id":7`) {
+		t.Fatalf("the request after the bad line was never answered:\n%s", body)
+	}
+	// A client speaking newline-delimited JSON must not be answered in LSP
+	// framing, or the refusal is unreadable to it and the drop is still silent.
+	if strings.Contains(body, "Content-Length:") {
+		t.Fatalf("an NDJSON session was answered with Content-Length framing:\n%s", body)
+	}
+}
+
+// TestHeadersTheServerDoesNotConsumeAreStillSkipped is the control. Conforming
+// LSP-framed clients send Content-Type, and refusing every header this server
+// does not itself read would break them — so the rule is "syntactically a header
+// field", not "a header I recognise".
+func TestHeadersTheServerDoesNotConsumeAreStillSkipped(t *testing.T) {
+	good := `{"jsonrpc":"2.0","id":11,"method":"ping"}`
+	input := "Content-Type: application/vscode-jsonrpc; charset=utf-8\r\n" +
+		fmt.Sprintf("Content-Length: %d\r\n\r\n%s", len(good), good)
+
+	var out bytes.Buffer
+	if err := runMCP(context.Background(), strings.NewReader(input), &out, Options{Version: "test"}); err != nil {
+		t.Fatalf("a conforming framed request failed: %v", err)
+	}
+	body := out.String()
+	if strings.Contains(body, "-32700") {
+		t.Fatalf("a valid Content-Type header was refused as unparseable:\n%s", body)
+	}
+	if !strings.Contains(body, `"id":11`) {
+		t.Fatalf("the request was never answered:\n%s", body)
+	}
+}
+
+// TestANotificationIsStillAnsweredWithSilence guards the JSON-RPC rule the fix
+// must not trade away: a message with no id gets NO response, and it is valid
+// JSON, so it never reaches the framing check above.
+func TestANotificationIsStillAnsweredWithSilence(t *testing.T) {
+	var out bytes.Buffer
+	if err := runMCP(context.Background(), strings.NewReader(`{"jsonrpc":"2.0","method":"notifications/initialized"}`+"\n"), &out, Options{Version: "test"}); err != nil {
+		t.Fatalf("a notification ended the session: %v", err)
+	}
+	if body := strings.TrimSpace(out.String()); body != "" {
+		t.Fatalf("a notification was answered:\n%s", body)
+	}
+}

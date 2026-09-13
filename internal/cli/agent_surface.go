@@ -4567,6 +4567,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	// is inspected rather than reported missing.
 	recordedSetupOpts, _, _ := setupOptionsFromRecord(filepath.Dir(storage.HeadPath))
 	onboarding := buildBrainOnboardingStatus(ctx, opts, storage, manifest, recordedSetupOpts)
+	markUnreadableSemanticComponent(&onboarding, semanticFreshnessOf(report))
 	report.Onboarding = &onboarding
 	return report, nil
 }

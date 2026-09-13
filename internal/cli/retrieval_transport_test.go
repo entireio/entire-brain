@@ -364,7 +364,7 @@ func TestAllRetrievalEmissionPathsRejectLateTombstone(t *testing.T) {
 			if jsonOut {
 				ids = append(ids, "history:missing")
 			}
-			err := runGet(context.Background(), cmd, fixture.Options, ids, "", jsonOut, getOptions{}, "get")
+			_, err := runGet(context.Background(), cmd, fixture.Options, ids, "", jsonOut, getOptions{}, "get")
 			requireLatePrivacyEmissionFailure(t, err, &out, called)
 		})
 	}
@@ -697,7 +697,8 @@ func TestExplicitPatternRequestsReportUnavailableCorpusWithoutOutput(t *testing.
 			return runRetrieve(context.Background(), cmd, fixture.Options, "privacy state", modeLexical, 5, "", retrievalOptions{Source: retrievalSourceConversation}, true, true, "query")
 		}},
 		{name: "get pattern", run: func(cmd *cobra.Command) error {
-			return runGet(context.Background(), cmd, fixture.Options, []string{"pattern:missing"}, "", true, getOptions{}, "get")
+			_, err := runGet(context.Background(), cmd, fixture.Options, []string{"pattern:missing"}, "", true, getOptions{}, "get")
+			return err
 		}},
 		{name: "review patterns", run: func(cmd *cobra.Command) error {
 			return runBrainReview(context.Background(), cmd, fixture.Options, regressionDetectorOptions{limit: 3, json: true, patterns: true}, "privacy state")
