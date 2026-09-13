@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "114e855b6ad5",
+  "session_id": "01a08c7d-721b-7952-8df2-510fa908151d",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-13T07:58:00.332424Z",
+  "branch": "codex/review-entity-history-and-source-findings",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/entityindex/build.go",
+    "internal/entityindex/doc.go",
+    "internal/entityindex/review_repair_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "95ddd4451b76",
+  "checkpoint_transcript_start": 5667,
+  "transcript_lines_at_start": 5667,
+  "compact_transcript_start": 713,
+  "token_usage": {
+    "input_tokens": 4246,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 767104,
+    "output_tokens": 2905,
+    "api_call_count": 8
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-13T07:57:59.621839Z",
+    "agent_lines": 38,
+    "agent_removed": 8,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 38,
+    "total_lines_changed": 46,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
