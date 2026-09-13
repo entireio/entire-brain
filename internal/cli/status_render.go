@@ -331,6 +331,24 @@ func plural(n int, word string) string {
 	return word + "s"
 }
 
+// statusFactsIdentity renders the fact count on the identity line. A bare
+// "5 facts" is the manifest's CLAIM, and printing it unqualified is how a
+// brain that had lost a fact still said 5 while recall produced 4. When the
+// cross-check fails, both numbers are shown so the claim can never be mistaken
+// for an observation.
+func statusFactsIdentity(f *brainStatusFacts) string {
+	if f.Integrity == nil || f.Integrity.OK() {
+		return fmt.Sprintf("%d facts", f.Facts)
+	}
+	// A store that would not parse yielded no count at all, so "0 readable"
+	// would be a measurement nobody took. Say what is true: it could not be
+	// read.
+	if f.Integrity.Mode == factStoreDefectUnreadable {
+		return fmt.Sprintf("%d facts declared, store unreadable", f.Facts)
+	}
+	return fmt.Sprintf("%d facts declared, %d readable", f.Facts, f.Integrity.Readable)
+}
+
 // statusLabelWidth aligns the short report's left column.
 const statusLabelWidth = 9
 
@@ -349,12 +367,12 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 		identity = append(identity, fmt.Sprintf("%d files, %d symbols", s.Coverage.Files, s.Coverage.Symbols))
 	}
 	if f := report.Facts; f != nil {
-		identity = append(identity, fmt.Sprintf("%d facts", f.Facts))
+		identity = append(identity, statusFactsIdentity(f))
 	}
 	fmt.Fprintf(out, "  %s\n", render.Dim(strings.Join(identity, " "+render.Bullet()+" ")))
 
-	if report.Facts != nil {
-		if warning := missingFactStoreWarning(report.Facts.MissingBranches); warning != "" {
+	if f := report.Facts; f != nil && f.Integrity != nil {
+		if warning := f.Integrity.Warning(); warning != "" {
 			fmt.Fprintf(out, "  %s %s\n", render.Mark(tui.MarkFailed), render.PhasePaint(tui.PhaseFailed, warning))
 		}
 	}

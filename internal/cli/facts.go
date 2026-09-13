@@ -142,7 +142,16 @@ func factBranchStoreExists(brainDir, branch string) bool {
 // surfaced rather than silently dropping records.
 func loadFacts(brainDir, branch string) ([]factRecord, error) {
 	path := filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath(branch)))
-	return parseFactsFile(path)
+	records, err := parseFactsFile(path)
+	if err != nil {
+		// The bare parse error names the damage but not the repair, and this
+		// is the error every read surface shows a user. Name the repair here,
+		// once, the way the history index names `refresh history`.
+		// parseFactsFile itself stays clean so the integrity report (which
+		// quotes it inside a fuller sentence) does not say it twice.
+		return nil, fmt.Errorf("%w; %s", err, factsRepairHint)
+	}
+	return records, nil
 }
 
 // parseFactsFile reads a facts.ndjson file at an absolute path. A missing file
@@ -335,6 +344,14 @@ func summarizeFactSource(now time.Time, byBranch map[string][]factRecord, chunks
 	source.Branches = branches
 	for _, branch := range branches {
 		for _, record := range byBranch[branch] {
+			// A stored line carrying no id is not a fact (see isFactRecord): it
+			// cannot be fetched, recalled, verified or superseded. Counting it
+			// here is how a damaged store re-declared its own damage as healthy
+			// on the next `remember` or `refresh`, and it is what the integrity
+			// cross-check compares against.
+			if !isFactRecord(record) {
+				continue
+			}
 			source.Facts++
 			switch record.Origin {
 			case factOriginDistilled:

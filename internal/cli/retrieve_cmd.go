@@ -696,6 +696,16 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 		for _, id := range missing {
 			fmt.Fprintf(out, "not found: %s\n", id)
 		}
+		// "not found" for an id the caller is already holding makes the same
+		// claim the empty-result note makes: that the item was never there.
+		// When the fact store cannot produce what the manifest declares, that
+		// claim is wrong — and `get fact:<id>` is usually the exact moment a
+		// user discovers the loss.
+		if len(missing) > 0 {
+			if integrity := inspectBrainFactStore(brainDir); !integrity.OK() {
+				fmt.Fprintf(out, "note: \"not found\" is NOT evidence of absence — %s\n", integrity.Warning())
+			}
+		}
 	}); err != nil {
 		return err
 	}

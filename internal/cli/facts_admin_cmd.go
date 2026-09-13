@@ -610,17 +610,25 @@ func newFactsMapCommand(opts Options) *cobra.Command {
 			if _, ok := outline.Nodes[node]; !ok {
 				return fmt.Errorf("no outline node %q on %s", path, resolvedBranch)
 			}
+			// The outline counts what loadFacts produced. When the manifest
+			// declares more than that, "root (4 facts)" is a count of survivors
+			// rendered as if it were the corpus. Qualify it before rendering,
+			// and exit nonzero so a caller cannot read the map as complete.
+			integrityErr := reportFactStoreIntegrity(cmd, brainDir, jsonOut)
 			if jsonOut {
-				return writeJSON(cmd, outline)
+				if err := writeJSON(cmd, outline); err != nil {
+					return err
+				}
+				return integrityErr
 			}
 			var b strings.Builder
 			renderFactOutline(&b, outline, node, depth)
 			if b.Len() == 0 {
 				fmt.Fprintf(cmd.OutOrStdout(), "no facts on %s\n", resolvedBranch)
-				return nil
+				return integrityErr
 			}
 			fmt.Fprint(cmd.OutOrStdout(), b.String())
-			return nil
+			return integrityErr
 		},
 	}
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch to map (default: current branch)")
