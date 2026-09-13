@@ -99,7 +99,8 @@ func TestShortStatusGolden(t *testing.T) {
 		"  daemon    - installed but not running (io.entire.brain-watch.a2d3fd66) (last watcher tick 17m0s ago)\n" +
 		"  instant   + sessions  + seed  + docs  + semantic  - history\n" +
 		"\n" +
-		"- freshness degraded -- run `entire-brain doctor`\n" +
+		"- freshness degraded -- run `entire-brain refresh --agent none`\n" +
+		"  semantic_completeness=degraded (44 partial failures)\n" +
 		"  `entire-brain status --verbose` for the full report\n"
 	if got != want {
 		t.Fatalf("short status\n got:\n%s\nwant:\n%s", got, want)
@@ -116,9 +117,14 @@ func TestShortStatusNeverLeaksTheVerboseWall(t *testing.T) {
 		t.Fatalf("the default report grew to %d lines; it exists to be short:\n%s", lines, got)
 	}
 	for _, forbidden := range []string{
-		"E_MINIFIED",             // per-file warnings
-		"relation types",         // the histogram
-		"partial failure",        // the duplicate listing
+		"E_MINIFIED",     // per-file warnings
+		"relation types", // the histogram
+		// The duplicate listing, named by its section header. The verdict is
+		// allowed to say "44 partial failures" as a COUNT on its one cause
+		// line -- that is the collapse working, and the number is why the
+		// reader would open --verbose. What must never appear is the section
+		// that enumerates them, which the path check below also catches.
+		"partial failures:",
 		"benchmarks/agent-brain", // any enumerated path
 		"Retrieval",              // full-report sections
 		"Live",

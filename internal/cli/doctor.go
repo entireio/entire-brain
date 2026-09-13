@@ -166,10 +166,19 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool) error {
 			report.Checks = append(report.Checks, doctorCheckResult{Name: "semantic", State: "warn", Detail: "unavailable: " + semErr.Error()})
 		} else {
 			state := "ok"
+			detail := semReport.Severity
 			if semReport.Severity != "ok" {
 				state = "warn"
+				// A bare severity was one word, and a strictly SMALLER one word
+				// than `status --verbose` already prints: a reader sent here to
+				// learn why the brain is unsafe learned nothing. freshnessSummary
+				// is the same renderer `overview` uses, so a shredded store now
+				// reads as "store=unsafe (validate semantic sqlite integrity: …)".
+				if summary := freshnessSummary(semReport); summary != "" {
+					detail += ": " + summary
+				}
 			}
-			report.Checks = append(report.Checks, doctorCheckResult{Name: "semantic", State: state, Detail: semReport.Severity})
+			report.Checks = append(report.Checks, doctorCheckResult{Name: "semantic", State: state, Detail: detail})
 		}
 	}
 	if jsonOut {
