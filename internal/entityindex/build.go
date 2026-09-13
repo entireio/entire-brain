@@ -45,6 +45,8 @@ const (
 	// stored with its entities truncated and a warning is reported — the commit
 	// still counts as indexed; a full pass repairs it after a cap increase.
 	maxDeltaEntities = 2000
+	// Legacy writers capped without recording truncation.
+	legacyUnmarkedDeltaCap = 2000
 
 	// maxConsecutiveDiffFailures stops a pass whose provider is simply broken
 	// (missing binary, wrong flags) instead of invoking it once per commit in
@@ -188,7 +190,7 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 	result := BuildResult{Branch: branch, Tip: head}
 
 	window := IndexWindow{}
-	if !opts.Full {
+	if !opts.Full || opts.CheckpointsOnly {
 		window, err = readRevisionWindow(ctx, runner, store, opts.RepoDir, branch, head, opts.IdentityRevision)
 		if err != nil {
 			return result, err
@@ -657,7 +659,7 @@ func (b *builder) alreadyIndexed(commit commitInfo) bool {
 		// (the pre-CAS re-check drops the duplicate), skipping is not.
 		present = false
 	}
-	if present && b.opts.Full {
+	if present && b.opts.Full && !b.opts.CheckpointsOnly {
 		var delta Delta
 		if json.Unmarshal([]byte(raw), &delta) == nil && delta.Base == EmptyTreeSHA &&
 			(commit.Parent != "" || b.isGraftedBoundary(sha)) {
@@ -688,9 +690,9 @@ func deltaNeedsRepair(raw string) bool {
 	}
 	// Legacy writers silently capped at 2000. An unmarked document at
 	// that limit is ambiguous and needs one verification pass. New writers
-	// always record EntityCount, including complete documents at the cap.
+	// record EntityCount for truncated or cap-sized documents.
 	return (delta.Truncated && len(delta.Entities) < maxDeltaEntities) ||
-		(!delta.Truncated && delta.EntityCount == 0 && len(delta.Entities) == 2000)
+		(!delta.Truncated && delta.EntityCount == 0 && len(delta.Entities) == legacyUnmarkedDeltaCap)
 }
 
 // indexCommit diffs one commit and stages its records. indexed=false means the
@@ -728,7 +730,9 @@ func (b *builder) indexCommit(commit commitInfo) (indexed bool, stop bool) {
 		return false, false
 	}
 	b.consecutiveFailures = 0
-	delta.EntityCount = len(delta.Entities)
+	if len(delta.Entities) >= maxDeltaEntities || len(delta.Entities) == legacyUnmarkedDeltaCap {
+		delta.EntityCount = len(delta.Entities)
+	}
 	if len(delta.Entities) > maxDeltaEntities {
 		b.result.Warnings = append(b.result.Warnings, fmt.Sprintf("commit %s changed %d entities; stored the first %d", short(commit.SHA), len(delta.Entities), maxDeltaEntities))
 		delta.Truncated = true

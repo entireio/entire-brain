@@ -100,7 +100,7 @@ type Delta struct {
 	// this field even when capped; a legacy 2000-entry document is ambiguous
 	// until a full repair pass re-diffs it.
 	Truncated bool `json:"truncated,omitempty"`
-	// EntityCount records the total before capping, including complete deltas.
+	// EntityCount records the total for truncated and cap-sized deltas.
 	// Its presence distinguishes a verified complete cap-sized document from
 	// an ambiguous legacy document.
 

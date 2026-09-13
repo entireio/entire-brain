@@ -50,11 +50,11 @@ func TestInvalidWindowIsRetractedWhenRecoveryFails(t *testing.T) {
 }
 
 func TestBoundaryRepairAndDetection(t *testing.T) {
-	for _, mode := range []string{"depth1", "graft", "replace"} {
+	for _, mode := range []string{"depth1", "graft", "replace", "unshallowed"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newGitFixture(t)
 			f.commit("first.go", "1", "first")
-			head := f.commit("second.go", "1", "second")
+			head := f.commit("second.go", "1", "second\n\nEntire-Checkpoint: abcdef123456")
 			repo := f.dir
 			if mode == "depth1" || mode == "replace" {
 				repo = filepath.Join(t.TempDir(), "clone")
@@ -81,11 +81,37 @@ func TestBoundaryRepairAndDetection(t *testing.T) {
 			if _, err := store.Update(len(muts), func(s gitmeta.State) (gitmeta.State, error) { return applyBatch(s, muts), nil }); err != nil {
 				t.Fatal(err)
 			}
+			before, err := store.Tip()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Build(context.Background(), shallowRunner{}, store, BuildOptions{RepoDir: repo, Full: true, CheckpointsOnly: true, Now: fixedNow()}); err != nil {
+				t.Fatal(err)
+			}
+			if after, err := store.Tip(); err != nil || after != before {
+				t.Fatalf("checkpoint-only pass changed persisted coverage: %s -> %s (%v)", before, after, err)
+			}
 			result, err := Build(context.Background(), shallowRunner{}, store, BuildOptions{RepoDir: repo, Full: true, Now: fixedNow()})
 			if err != nil {
 				t.Fatal(err)
 			}
 			snap := loadSnapshot(t, store)
+			if mode == "unshallowed" {
+				delta, ok := snap.Delta(head)
+				if !ok || delta.Base == EmptyTreeSHA {
+					t.Fatalf("true parent delta was not recovered: %+v", delta)
+				}
+				if len(snap.Commits(entity.Key())) != 0 {
+					t.Fatal("fabricated entity survives recovery")
+				}
+				assertWindowCovered(t, f, snap, result.Window)
+				return
+			}
+			b := builder{ctx: context.Background(), runner: shallowRunner{}, opts: BuildOptions{RepoDir: repo}, result: &BuildResult{}, consecutiveFailures: 4}
+			if ok, stop := b.indexCommit(commitInfo{SHA: head}); ok || stop || b.consecutiveFailures != 0 {
+				t.Fatalf("boundary counted as a provider failure: indexed=%v stop=%v failures=%d", ok, stop, b.consecutiveFailures)
+			}
+
 			if _, ok := snap.RawDelta(head); ok {
 				t.Fatal("fabricated boundary delta survives full repair")
 			}
