@@ -323,3 +323,33 @@ func TestInstallChangedReport(t *testing.T) {
 		t.Fatalf("repeat: %v, %v", changed, err)
 	}
 }
+
+// A directly invoked binary must generate its own instructions without a host.
+func TestCoordinationWithoutEntireHost(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	for _, product := range []string{"graph", "brain"} {
+		t.Run(product, func(t *testing.T) {
+			repo := t.TempDir()
+			opts := Options{StateDir: t.TempDir(), ConfigDir: t.TempDir(), DataDir: t.TempDir()}
+			want := GraphGuide
+			if product == "brain" {
+				want = BrainGuide()
+			}
+			render := func() (string, error) { return Preview(repo, product, opts) }
+			got, err := render()
+			if err != nil || got != want {
+				t.Fatalf("standalone preview: %v", err)
+			}
+			if err := Install(repo, render, io.Discard); err != nil {
+				t.Fatal(err)
+			}
+			if got := readFileForTest(t, filepath.Join(repo, Path)); got != want {
+				t.Fatal("installed guide differs from preview")
+			}
+			changed, err := InstallChanged(repo, render)
+			if err != nil || len(changed) != 0 {
+				t.Fatalf("repeat generation: %v, %v", changed, err)
+			}
+		})
+	}
+}

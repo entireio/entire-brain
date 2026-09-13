@@ -134,6 +134,22 @@ fi
         assert snapshot(repo) == before
     del env['TEST_LIST_FAILURE']
 
+    # Standalone binaries need neither the host nor any other executable on PATH.
+    saved_path = env['PATH']
+    no_host = root / 'no-host'
+    no_host.mkdir()
+    for product in ('graph', 'brain'):
+        repo, _ = project('no-host-' + product, brain=True)
+        env['PATH'] = str(no_host)
+        calls_before = log.read_text()
+        run(product, repo, 'init-agents')
+        check(repo, product, product.title())
+        before = snapshot(repo)
+        run(product, repo, 'init-agents')
+        assert snapshot(repo) == before
+        assert log.read_text() == calls_before
+        env['PATH'] = saved_path
+
     # Default context and explicit overrides, including read-only outside-repo preview.
     repo, _ = project('context', brain=True)
     sub = repo / 'sub'
@@ -157,4 +173,4 @@ if graph_source.exists():
     for path in brain_source.iterdir():
         if path.is_file():
             assert path.read_bytes() == (graph_source / path.name).read_bytes(), path.name
-print('PASS: compiled CLI modes, both orders, migration, regeneration, removal, failures, preview parity, context, byte stability, no plugin dispatch')
+print('PASS: compiled CLI modes, standalone without host, both orders, migration, regeneration, removal, failures, preview parity, context, byte stability, no plugin dispatch')

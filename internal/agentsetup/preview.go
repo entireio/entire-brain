@@ -3,6 +3,7 @@ package agentsetup
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -23,17 +24,24 @@ func Preview(repo, product string, opts Options) (string, error) {
 	if product != "graph" && product != "brain" {
 		return "", fmt.Errorf("unknown product %q", product)
 	}
+	standalone := GraphGuide
+	if product == "brain" {
+		standalone = BrainGuide()
+	}
 	if repo == "" {
-		if product == "brain" {
-			return BrainGuide(), nil
-		}
-		return GraphGuide, nil
+		return standalone, nil
 	}
 	list := opts.ListPlugins
 	if list == nil {
 		list = pluginList
 	}
 	raw, err := list()
+	// The host is optional for directly invoked standalone binaries. Only an
+	// absent executable permits fallback: a broken host or malformed listing
+	// must not silently downgrade an existing coordinated workflow.
+	if errors.Is(err, exec.ErrNotFound) {
+		return standalone, nil
+	}
 	if err != nil {
 		return "", fmt.Errorf("read entire plugin list: %w", err)
 	}
