@@ -81,18 +81,29 @@ func (e *projectionStateLoadError) Error() string {
 	return fmt.Sprintf("%s: projection receipt %s: %s", e.Code, e.Path, detail)
 }
 
+// projectionStateAction names the command that clears each state.
+//
+// `memory` is a subcommand of THIS binary, not a verb of the host CLI, so the
+// repair command has to carry the brain's own spelling. It was printed as
+// `entire memory repair` -- a command neither dispatch mode can resolve: a
+// standalone reader has no `entire` at all, and a plugin reader's `entire`
+// dispatches `memory` to nothing. The spelling comes from setupCommandPrefix,
+// read from the process environment the same way path.go, workspace.go and
+// agent_surface.go read it -- these printers sit too deep in the health/error
+// path to be handed one.
 func projectionStateAction(state projectionStateReadState) string {
+	brainCmd := setupCommandPrefix(os.LookupEnv)
 	switch state {
 	case projectionStateAbsent:
-		return "run `entire memory repair` to rebuild the missing disposable receipt"
+		return "run `" + brainCmd + " memory repair` to rebuild the missing disposable receipt"
 	case projectionStateStale:
-		return "run `entire memory repair` to atomically publish a receipt matching current canonical sessions"
+		return "run `" + brainCmd + " memory repair` to atomically publish a receipt matching current canonical sessions"
 	case projectionStateUnsafe:
 		return "inspect the manifest receipt path; remove the unsafe pointer before repair"
 	case projectionStateUnsupported:
 		return "upgrade entire-brain; this newer receipt is left untouched"
 	case projectionStateCorrupt:
-		return "inspect the reported receipt, then run `entire memory repair` to rebuild disposable state"
+		return "inspect the reported receipt, then run `" + brainCmd + " memory repair` to rebuild disposable state"
 	default:
 		return ""
 	}

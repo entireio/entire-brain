@@ -639,9 +639,10 @@ func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addO
 	// repository, which is the same gate `setup` and `path` already apply.
 	if _, ok := gitWorkTreeRoot(ctx, opts.Runner, repoDir); !ok {
 		brainCmd := setupCommandPrefix(os.LookupEnv)
-		return fmt.Errorf("not a git repository: %s\n"+
-			"%[2]s workspace add registers a repository whose brain -- like every source it is built from -- comes from git.\n"+
-			"run `git init` there, or name a repository: %[2]s workspace add %[3]s <path>", repoDir, brainCmd, workspaceName)
+		return notARepositoryError(ctx, opts.Runner, repoDir,
+			brainCmd+" workspace add registers a repository whose brain -- like every source it is built from -- comes from git.",
+			brainCmd+" workspace add "+workspaceName+" "+repoPath,
+			brainCmd+" workspace add "+workspaceName+" <path>")
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {

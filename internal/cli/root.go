@@ -134,9 +134,26 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	// review surface is `entire review` in the cli, not a standalone brain command.
 	addHidden(newBrainReviewCommand(opts))
 
-	// Hidden plugin/config commands.
-	addHidden(newDoctorCommand(opts))
-	addHidden(newConfigCommand(opts.Env))
+	// `doctor` and `config` were hidden in June 2026 as "plugin plumbing" --
+	// commands nobody invokes by hand. Both halves of that premise have since
+	// stopped being true, so they are visible again.
+	//
+	// `doctor` is the documented verification step. The README has a section on
+	// it, scripts/install.sh runs it as the last thing it does and its closing
+	// banner tells the reader to re-run it, and v0.3.0 gave it a deliberate
+	// exit-code contract (`--fail-on {error|warn|none}`, default `error`) so it
+	// could be gated on in CI and agent loops. A command whose exit codes were
+	// stabilised for machines to depend on is not an unfinished surface, and a
+	// user who runs it once on the installer's advice and then cannot find it in
+	// `--help` reasonably concludes it was withdrawn.
+	//
+	// `config` is named to the reader by the same three documents that describe
+	// what the installer did on their behalf (`entire brain config init`). Its
+	// subcommands are `path`, `show` and `init` -- inspect where configuration
+	// lives, what is in effect, and write the defaults -- which is exactly what
+	// somebody re-runs when an install half-finished.
+	addGrouped("maintain", newDoctorCommand(opts))
+	addGrouped("maintain", newConfigCommand(opts.Env))
 
 	// Hidden measurement harness for the history retrieval layer (the facts
 	// analog lives under `facts eval`/`eval-gen`; summaries are compatible with

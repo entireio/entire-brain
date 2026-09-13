@@ -29,8 +29,10 @@ surfaces that agents and humans query. Everything it builds stays on your machin
   dispatches `entire brain`, and it is what captures the sessions the brain
   learns from.
 - Git.
-- A Go toolchain (1.27 or newer) if you install with `go install` or build from
-  source. The prebuilt release archive does not need Go.
+- A Go toolchain (1.27 or newer). It is not optional: every install path here
+  builds from source. There is no prebuilt archive to download -- the tagged
+  releases carry release notes and no binaries -- and there is no `go install`
+  path yet; see "Versioned install status" below.
 - The `entire-graph` semantic provider, invoked as `entire graph`. The brain shells
   out to it (`entire graph snapshot`, `entire graph doctor`) to build the semantic
   code graph. Building `entire-graph` from source needs a cgo-capable C compiler,
@@ -85,12 +87,18 @@ source, so the clone has to happen either way.
 
 ### Versioned install status
 
-A versioned `go install` path is not available for the Graph-named integration
-yet. The existing `v0.1.0` tags predate the rename: the provider tag builds
-`entire-sem`, and the brain tag invokes `entire sem`. Do not combine those tags
-with the `entire graph` commands in this guide. This section will gain copy-paste
-`go install` commands after matching Graph-based release tags are published in
-both repositories.
+There is no versioned install today. `entire-brain` is tagged -- `v0.3.0` is the
+current release -- but a tag here is release notes and nothing else: the releases
+carry **no binaries and no source archive**, so there is nothing to download and
+run. The `v0.1.0` tags additionally predate the Graph rename (the provider tag
+builds `entire-sem` and the brain tag invokes `entire sem`), so do not combine
+them with the `entire graph` commands in this guide.
+
+A versioned `go install` path is not available either, and will not be until
+matching Graph-based release tags exist in both repositories. This section will
+gain copy-paste commands when they do. Until then the source install above --
+`scripts/install.sh` against a checkout -- is the only way to install this, which
+is why the Go toolchain is a hard requirement rather than a conditional one.
 
 `entire plugin install` currently supports local executable paths only. It does
 not fetch from a git URL or a GitHub release, and it does not auto-install the
