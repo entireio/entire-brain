@@ -190,6 +190,12 @@ func buildFactsStatusReport(ctx context.Context, runner CommandRunner, repoDir, 
 	}
 
 	report.FactsArmReady = report.Totals.Active > 0
+	// The totals above are what the store produced. If the manifest declares
+	// more, say so here too: this is the fact-health command, and a total that
+	// silently omits lost facts reads as a clean bill of health.
+	if integrity := inspectBrainFactStore(brainDir); !integrity.OK() {
+		report.Warnings = append(report.Warnings, integrity.Warning())
+	}
 	report.Warnings = append(report.Warnings, factsStatusWarnings(report)...)
 	return report, nil
 }
@@ -197,6 +203,12 @@ func buildFactsStatusReport(ctx context.Context, runner CommandRunner, repoDir, 
 func factsStatusCountsForBranch(brainDir, branch string, facts []factRecord) (factsStatusCounts, error) {
 	counts := factsStatusCounts{}
 	for _, fact := range facts {
+		// A stored line carrying no id is not a fact (see isFactRecord).
+		// Counting it would report unaddressable junk as an ACTIVE fact,
+		// because the status switch below reads an empty status as active.
+		if !isFactRecord(fact) {
+			continue
+		}
 		counts.Facts++
 		switch fact.Status {
 		case factStatusSuperseded:

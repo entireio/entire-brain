@@ -257,13 +257,17 @@ func TestFactTaxonomyDefaultAndRoundTrip(t *testing.T) {
 
 func TestSummarizeFactSource(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	// Every record carries an id, because that is what makes it a fact.
+	// summarizeFactSource counts only records that have one (see isFactRecord),
+	// so the fixture has to be a store of real facts rather than a bag of
+	// half-populated structs.
 	byBranch := map[string][]factRecord{
 		"main": {
-			{Origin: factOriginDistilled, Status: factStatusActive, Provenance: []factAnchor{{SessionID: "s1", Verified: true}}},
-			{Origin: factOriginAuthored, Status: factStatusActive, Provenance: []factAnchor{{SessionID: "s2"}}},
+			{ID: "fact:main-1", Origin: factOriginDistilled, Status: factStatusActive, Provenance: []factAnchor{{SessionID: "s1", Verified: true}}},
+			{ID: "fact:main-2", Origin: factOriginAuthored, Status: factStatusActive, Provenance: []factAnchor{{SessionID: "s2"}}},
 		},
 		"feature": {
-			{Origin: factOriginDistilled, Status: factStatusSuperseded, Provenance: []factAnchor{{SessionID: "s3"}}},
+			{ID: "fact:feature-1", Origin: factOriginDistilled, Status: factStatusSuperseded, Provenance: []factAnchor{{SessionID: "s3"}}},
 		},
 	}
 	source := summarizeFactSource(now, byBranch, 100, 7, 4, []string{"w"})
@@ -290,6 +294,15 @@ func TestSummarizeFactSource(t *testing.T) {
 	}
 	if source.TaxonomyPath != factsTaxonomyPath {
 		t.Errorf("TaxonomyPath = %q, want %q", source.TaxonomyPath, factsTaxonomyPath)
+	}
+
+	// A stored line that parses but carries no id is not a fact and must never
+	// be declared as one: counting it here is how a damaged store re-declared
+	// its own damage as whole on the next `remember` or `refresh`, hiding the
+	// loss from the integrity cross-check that reads this number back.
+	byBranch["main"] = append(byBranch["main"], factRecord{Status: factStatusActive, Origin: factOriginAuthored})
+	if got := summarizeFactSource(now, byBranch, 100, 7, 4, nil).Facts; got != 3 {
+		t.Errorf("Facts = %d after adding an id-less line, want 3", got)
 	}
 }
 

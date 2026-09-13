@@ -31,7 +31,11 @@ func distillCoverage(manifest *exportManifest) (last time.Time, undigested int, 
 }
 
 // emptyResultBlindSpot is the one-liner appended to empty retrieval results.
-// Reads only the already-loadable manifest — cheap enough for every empty.
+// Reads the manifest and, when facts are declared, cross-checks the fact store
+// behind it. Both are cheap, and this only runs on an EMPTY result — the exact
+// moment the difference between "nothing was stored" and "what was stored is
+// gone" decides whether the line is true.
+// Empty string when nothing useful can be said (no manifest at all).
 func emptyResultBlindSpot(brainDir string) string {
 	manifest, err := loadBrainManifest(brainDir)
 	// A missing manifest loads as an empty struct, not an error, and a nil
@@ -41,6 +45,18 @@ func emptyResultBlindSpot(brainDir string) string {
 	// line most needs to cover — see noBrainBlindSpot.
 	if err != nil || manifest == nil || manifest.Sources == nil {
 		return noBrainBlindSpot(err)
+	}
+	// Every branch below EXPLAINS an absence, and each explanation is false
+	// when the facts were stored and the store lost them. The last one —
+	// "the answer may genuinely not be in the brain" — is the most damaging
+	// thing this tool can say: it tells a user their memory never existed,
+	// immediately after it was destroyed. A known-lossy store must never reach
+	// it, so the truth replaces the note here.
+	//
+	// This single choke point is why recall, search, query and retrieve all
+	// inherit the correction without each having to remember to ask.
+	if integrity := inspectFactStore(brainDir, manifest.Sources.Facts); !integrity.OK() {
+		return "note: this empty result is NOT evidence of absence — " + integrity.Warning()
 	}
 	last, undigested, ok := distillCoverage(manifest)
 	if !ok {

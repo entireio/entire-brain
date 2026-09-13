@@ -104,6 +104,24 @@ type brainStatusFacts struct {
 	// MissingBranches names declared fact branches whose on-disk store is
 	// absent. Empty in the healthy case, so it is additive for readers.
 	MissingBranches []string `json:"missing_branches,omitempty"`
+	// Integrity is the manifest-vs-store cross-check. Facts above is what the
+	// manifest DECLARES; this says whether the store can produce it. Present
+	// only when the store fails the check, so it stays additive for readers
+	// and its presence alone means "do not trust the counts above".
+	Integrity *factStoreIntegrity `json:"integrity,omitempty"`
+}
+
+// Readable is the fact count a reader may actually rely on: the observed
+// number when the cross-check found a defect, and the declared number
+// otherwise. Callers rendering a count should prefer it over Facts.
+func (f *brainStatusFacts) Readable() int {
+	if f == nil {
+		return 0
+	}
+	if f.Integrity != nil && !f.Integrity.OK() {
+		return f.Integrity.Readable
+	}
+	return f.Facts
 }
 
 type brainStatusSemantic struct {
@@ -1241,6 +1259,14 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 		fmt.Fprintln(out, "\nFacts")
 		fmt.Fprintf(out, "  counts: %d (%d distilled, %d authored, %d superseded) across %d branch(es); %d proposals pending\n",
 			f.Facts, f.Distilled, f.Authored, f.Superseded, f.Branches, f.Proposals)
+		// The counts above are the manifest's claim. When the store cannot
+		// produce it, say so on the next line rather than leaving a reader to
+		// assume the numbers were observed.
+		if f.Integrity != nil {
+			if warning := f.Integrity.Warning(); warning != "" {
+				fmt.Fprintf(out, "  integrity: %s\n", warning)
+			}
+		}
 		if v := f.Verification; v != nil {
 			fmt.Fprintf(out, "  verification: %d facts, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
 				v.Facts, v.Verified, v.Stale, v.Orphaned, v.UnverifiableHere)
@@ -1644,11 +1670,13 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			branch = distillDefaultBranch
 		}
 		// loadFacts cannot tell "this branch has no facts" from "this branch's
-		// store is gone". The manifest can: warn before the packet reports a
-		// healthy facts source that contributed nothing.
+		// store is gone", and it cannot tell a complete store from one that
+		// yields fewer facts than the manifest declares. The manifest can:
+		// warn before the packet reports a healthy facts source that
+		// contributed less than it claims.
 		if status.Manifest != nil && status.Manifest.Sources != nil {
-			if warning := missingFactStoreWarning(missingFactBranchStores(status.Brain.Path, status.Manifest.Sources.Facts)); warning != "" {
-				report.Warnings = append(report.Warnings, warning)
+			if integrity := inspectFactStore(status.Brain.Path, status.Manifest.Sources.Facts); !integrity.OK() {
+				report.Warnings = append(report.Warnings, integrity.Warning())
 			}
 		}
 		factsLoadStarted := profile.start()
@@ -4520,13 +4548,18 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 				Branches:   len(f.Branches),
 				Proposals:  f.Proposals,
 			}
-			// The counts above come from the manifest, not from disk. A branch
-			// whose facts.ndjson is gone still counts here while every recall
-			// surface returns nothing for it, so name the gap instead of
-			// letting the counts imply a store that can be read.
-			report.Facts.MissingBranches = missingFactBranchStores(storage.BrainDir, f)
-			if warning := missingFactStoreWarning(report.Facts.MissingBranches); warning != "" {
-				report.Warnings = append(report.Warnings, warning)
+			// The counts above come from the manifest, not from disk. The
+			// manifest is a claim, and a store that can no longer produce what
+			// it claims — a branch whose facts.ndjson is gone, a line that will
+			// not parse, or a file that simply yields fewer facts than declared
+			// — still reported the declared number on every surface while
+			// recall returned less. Cross-check it, and say so when it fails,
+			// instead of letting the counts imply a store that can be read.
+			integrity := inspectFactStore(storage.BrainDir, f)
+			report.Facts.MissingBranches = integrity.Missing
+			if !integrity.OK() {
+				report.Facts.Integrity = &integrity
+				report.Warnings = append(report.Warnings, integrity.Warning())
 			}
 		}
 		if sem := manifest.Sources.Semantic; sem != nil {
