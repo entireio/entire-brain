@@ -1,0 +1,52 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1.0.20260913155315-d419fef66327",
+  "checkpoint_id": "7fee67e4a64a",
+  "strategy": "manual-commit",
+  "branch": "feat/coordinated-agent-instructions",
+  "checkpoints_count": 8,
+  "files_touched": [
+    "README.md",
+    "docs/agent-coordination.md",
+    "docs/getting-started.md",
+    "internal/agentsetup/adapter_test.go",
+    "internal/agentsetup/agents_hardlink_unix.go",
+    "internal/agentsetup/agents_hardlink_windows.go",
+    "internal/agentsetup/agents_notwindows.go",
+    "internal/agentsetup/agents_reparse.go",
+    "internal/agentsetup/agents_reparse_test.go",
+    "internal/agentsetup/agents_test.go",
+    "internal/agentsetup/agents_windows.go",
+    "internal/agentsetup/agents_windows_test.go",
+    "internal/agentsetup/brain-reference.md",
+    "internal/agentsetup/brain_state.go",
+    "internal/agentsetup/coordination_test.go",
+    "internal/agentsetup/files.go",
+    "internal/agentsetup/guide.go",
+    "internal/agentsetup/migration.go",
+    "internal/agentsetup/paths.go",
+    "internal/agentsetup/preview.go",
+    "internal/cli/agent_setup.go",
+    "internal/cli/agent_setup_test.go",
+    "internal/cli/agent_surface.go",
+    "internal/cli/guide_contract_test.go",
+    "internal/cli/root.go",
+    "scripts/test-agent-coordination.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/7f/ee67e4a64a/0/metadata.json",
+      "transcript": "/7f/ee67e4a64a/0/full.jsonl",
+      "compact_transcript": "/7f/ee67e4a64a/0/transcript.jsonl",
+      "content_hash": "/7f/ee67e4a64a/0/content_hash.txt",
+      "prompt": "/7f/ee67e4a64a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 249469,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 10415488,
+    "output_tokens": 70793,
+    "api_call_count": 81,
+    "subagent_tokens_complete": true
+  }
+}

@@ -1,0 +1,156 @@
+Review the following task description: Implement coordinated agent instructions for Entire Graph and Entire Brain.
+
+Both products expose init-agents and agent-guide commands, invoked through:
+- entire graph
+- entire brain
+
+OBJECTIVE
+
+Generate repository-specific instructions when init-agents runs. Agents must receive the correct workflow directly, without detecting tool availability at runtime.
+
+Graph and Brain currently compete by independently requiring the first action. Remove that conflict while preserving standalone operation.
+
+REPOSITORIES
+
+- /Users/thomi/Projects/entire-graph
+- /Users/thomi/Projects/entire-brain
+
+Graph was last pulled to main at b0357092. Inspect current checkout state before changing anything. Read applicable repository instructions. Preserve unrelated edits.
+
+Implement the changes, update documentation, and run focused tests.
+
+NON-NEGOTIABLE CONSTRAINTS
+
+1. Never run “entire graph version”, “entire brain version”, or another plugin command to detect availability. Dispatch through Entire can install missing plugins.
+2. Machine-level installation is irrelevant. Determine whether each product was set up for the current repository.
+3. Resolve this during instruction generation, not during agent execution.
+4. Generated instructions must contain no availability probes, setup-marker checks, or conditional “if Brain is installed” routing.
+5. Do not invent existing markers or configuration fields. Inspect the actual setup and activation implementations.
+6. Distinguish repository setup from index freshness. A stale index must not change the generated instruction mode.
+7. Avoid circular dependencies and mutually recursive init-agents calls.
+
+REQUIRED MODES
+
+Graph only:
+- Use Graph for code discovery, structural understanding, and semantic change analysis.
+- Start discovery with:
+  entire graph query --repo . --profile full --query "<task>"
+
+Brain only:
+- Use Brain for task context, retained knowledge, and its available semantic inspection tools.
+
+Graph and Brain:
+- Use Brain for task context and retained knowledge.
+- Use Graph for detailed code discovery and structural analysis.
+
+All modes:
+- Permit direct source inspection when the task already provides sufficient locations.
+- Do not require ceremonial queries for small edits or follow-up work.
+- Preserve source inspection, focused verification, and untrusted-content handling.
+
+COMBINED-MODE ROUTING
+
+Write explicit instructions with this behavior:
+
+- Begin substantive tasks needing orientation with:
+  entire brain brief "<task>" --json
+  Skip this when equivalent task context is already available.
+- Reuse useful code locations from the brief. Do not require a redundant Graph query.
+- Use Graph query, def, neighbors, and impact for additional code discovery and structural analysis.
+- Use Graph diff, commit, and checkpoint for semantic comparisons of code revisions.
+- Use Brain retrieval for previous decisions, attempts, documentation, and durable facts.
+- Use Brain entities history to connect code changes to earlier checkpoints and sessions.
+- Use Brain memory-informed review and workspace capabilities when relevant.
+- Do not ask both tools the same question without an identified gap.
+- Account for source state: Graph interactive queries normally inspect the working tree; Brain semantic answers refer to a stored index.
+- Current source and executed tests establish present behavior. Historical memory explains prior intent or behavior. Investigate disagreements.
+- If an ordinary task query fails, continue with useful remaining tools or direct source inspection. Do not automatically install, configure, or repair tools.
+
+GENERATION CONTRACT
+
+Inspect both products’ init-agents and agent-guide commands and their setup records. Choose and implement a small, explicit coordination contract.
+
+The contract must:
+
+1. Resolve current-repository configuration using safe local reads at generation time.
+2. Make both generators agree on the instruction mode.
+3. Keep every active generated guide consistent, including when agents load both guides.
+4. Preserve standalone operation without requiring the other plugin executable.
+5. Support both activation orders: Graph then Brain, and Brain then Graph.
+6. Prevent re-running either generator from restoring conflicting first-action rules.
+7. Define how removal of configuration is reconciled on regeneration.
+8. Distinguish unreadable or malformed setup state from absent setup state.
+
+Choose shared generated content, coordinated managed blocks, or another mechanism based on the existing architecture. Avoid unnecessary duplicate state.
+
+Use the same rendering logic for agent-guide and init-agents. Define repository-context selection and agent-guide behavior outside a repository.
+
+Preserve existing generation safety:
+- Idempotent output.
+- User-authored text outside managed blocks.
+- Managed-block validation.
+- Supported instruction-file aliases.
+- Protected filesystem write paths.
+
+Update maintained documentation and generated artifacts so they do not contradict the new routing.
+
+TESTS
+
+Use isolated repositories and redirected state directories. Do not modify real plugin installations, daemons, or unrelated repositories.
+
+Cover:
+- Graph-only output.
+- Brain-only output.
+- Combined output.
+- Both activation orders.
+- Re-running either initializer after combined setup.
+- Agreement between displayed and installed guides.
+- No runtime availability detection in generated instructions.
+- No plugin dispatch or installation during setup detection.
+- No competing unconditional first-action rules.
+- Missing, malformed, and unreadable setup records.
+- Configuration removal followed by regeneration.
+- Byte-stable repeat generation.
+- Preservation of user-authored content.
+
+DELIVERABLE
+
+Complete the implementation and report:
+- The generation-time coordination contract.
+- The standalone and combined workflows.
+- Files changed.
+- Tests run and results.
+- Migration or regeneration needed for existing repositories.
+- Any remaining limitation and its concrete cause. Before you start any work, reflect the plan back to me.
+
+---
+
+What did I say that you should do?
+
+---
+
+Well great. Revert all those changes.
+
+---
+
+Now do what I told you to begin with
+
+---
+
+Did you actually review the plan or are you just repeating it?
+
+---
+
+First of all, you can check with entire plugin list which plugins are installed. If the user calls entire graph init-agents, check if brain is installed and the repo has a brain. If so, you can assume both should be activated. If the user calls entire brain init-agents, check if graph is installed. If so, both should be activated; graph needs no additional steps to be initialiazed. Otherwise, you know that only one should be activated. If both are activated, the instructions should be the same. Do not create duplicate instructions. What else do you need to know?
+
+---
+
+Ok, before we implement, what do we do about agent-guide?
+
+---
+
+You have the full plan then?
+
+---
+
+Implement and test it
