@@ -125,7 +125,14 @@ func factsFileRelPath(branch string) string {
 // lines are skipped; a malformed line is a hard error so a corrupt store is
 // surfaced rather than silently dropping records.
 func loadFacts(brainDir, branch string) ([]factRecord, error) {
-	path := filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath(branch)))
+	rel := factsFileRelPath(branch)
+	if err := rejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(brainDir, filepath.FromSlash(rel))
+	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("fact store is not a regular file: %s", rel)
+	}
 	return parseFactsFile(path)
 }
 
@@ -168,15 +175,39 @@ func missingFactBranchStores(brainDir string, source *factSourceManifest) []stri
 	if source == nil || brainDir == "" {
 		return nil
 	}
-	var missing []string
+	var missing, empty []string
+	seen := map[string]bool{}
+	total := 0
 	for _, branch := range source.Branches {
-		if branch == "" {
+		if branch == "" || seen[branch] {
 			continue
 		}
-		path := filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath(branch)))
-		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		seen[branch] = true
+		rel := factsFileRelPath(branch)
+		path := filepath.Join(brainDir, filepath.FromSlash(rel))
+		if err := rejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
 			missing = append(missing, branch)
+			continue
 		}
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			missing = append(missing, branch)
+			continue
+		}
+		records, err := loadFacts(brainDir, branch)
+		if err != nil {
+			missing = append(missing, branch)
+			continue
+		}
+		total += len(records)
+		if len(records) == 0 {
+			empty = append(empty, branch)
+		}
+	}
+	// Counts are aggregate, not per branch. An empty branch is suspicious
+	// only when the manifest promises more records than the stores contain.
+	if total < source.Facts {
+		missing = append(missing, empty...)
 	}
 	return missing
 }
@@ -188,7 +219,7 @@ func missingFactStoreWarning(missing []string) string {
 		return ""
 	}
 	return fmt.Sprintf(
-		"facts declared for branch(es) %s but their %s is missing from the brain; those facts cannot be recalled — run `entire brain refresh` and re-distill",
+		"facts declared for branch(es) %s but their %s is missing, unreadable, or empty despite the declared count; those facts cannot be recalled — run `entire brain refresh` and re-distill",
 		strings.Join(missing, ", "), factsFileName,
 	)
 }
@@ -345,4 +376,14 @@ func summarizeFactSource(now time.Time, byBranch map[string][]factRecord, chunks
 		}
 	}
 	return source
+}
+
+// missingFactStoreWarningForBranch scopes retrieval warnings to the store read.
+func missingFactStoreWarningForBranch(brainDir string, source *factSourceManifest, branch string) string {
+	for _, missing := range missingFactBranchStores(brainDir, source) {
+		if missing == branch {
+			return missingFactStoreWarning([]string{branch})
+		}
+	}
+	return ""
 }

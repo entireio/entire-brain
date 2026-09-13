@@ -485,10 +485,12 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 			for _, kind := range []string{"route", "tool", "workflow"} {
 				spec, specErr := inspectBoundarySpec(kind)
 				if specErr != nil {
+					report.Warnings = append(report.Warnings, kind+" boundaries unavailable: "+specErr.Error())
 					continue
 				}
 				facts, factsErr := semanticBoundaryFacts(status.Brain.Path, sem, spec, 10000)
 				if factsErr != nil {
+					report.Warnings = append(report.Warnings, kind+" boundaries unavailable: "+factsErr.Error())
 					continue
 				}
 				report.Boundaries[spec.Name] = len(facts.Boundaries)
@@ -1647,7 +1649,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		// store is gone". The manifest can: warn before the packet reports a
 		// healthy facts source that contributed nothing.
 		if status.Manifest != nil && status.Manifest.Sources != nil {
-			if warning := missingFactStoreWarning(missingFactBranchStores(status.Brain.Path, status.Manifest.Sources.Facts)); warning != "" {
+			if warning := missingFactStoreWarningForBranch(status.Brain.Path, status.Manifest.Sources.Facts, branch); warning != "" {
 				report.Warnings = append(report.Warnings, warning)
 			}
 		}

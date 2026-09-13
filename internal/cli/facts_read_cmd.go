@@ -247,6 +247,13 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 			if err != nil {
 				return err
 			}
+			var storeWarning string
+			manifest, manifestErr := loadBrainManifest(brainDir)
+			if manifestErr != nil {
+				storeWarning = "fact source manifest unavailable: " + manifestErr.Error()
+			} else if manifest != nil && manifest.Sources != nil {
+				storeWarning = missingFactStoreWarningForBranch(brainDir, manifest.Sources.Facts, resolvedBranch)
+			}
 			candidateFacts := allFacts
 			var eligibility *factEligibilityAudit
 			if eligibleBefore != "" || sessionDatesPath != "" || len(excludeSessionIDs) > 0 {
@@ -346,8 +353,12 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 				if proposalsErr != nil && len(matches) > 0 {
 					out["warnings"] = []string{factReviewQueueUnavailableWarning}
 				}
+				if storeWarning != "" {
+					warnings, _ := out["warnings"].([]string)
+					out["warnings"] = append(warnings, storeWarning)
+				}
 				if len(matches) == 0 {
-					if note := emptyResultBlindSpot(brainDir); note != "" {
+					if note := emptyResultBlindSpot(brainDir); note != "" && storeWarning == "" {
 						out["blind_spot"] = note
 					}
 				}
@@ -362,12 +373,18 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 			if len(matches) == 0 {
 				return writeText(cmd, func(out io.Writer) {
 					fmt.Fprintf(out, "no facts for %q on %s\n", query, resolvedBranch)
-					if note := emptyResultBlindSpot(brainDir); note != "" {
+					if storeWarning != "" {
+						fmt.Fprintln(out, "warning: "+storeWarning)
+					}
+					if note := emptyResultBlindSpot(brainDir); note != "" && storeWarning == "" {
 						fmt.Fprintln(out, note)
 					}
 				})
 			}
 			if err := writeText(cmd, func(out io.Writer) {
+				if storeWarning != "" {
+					fmt.Fprintln(out, "warning: "+storeWarning)
+				}
 				if proposalsErr != nil {
 					fmt.Fprintf(out, "⚠ %s\n", factReviewQueueUnavailableWarning)
 				}
