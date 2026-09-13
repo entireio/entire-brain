@@ -163,7 +163,10 @@ func TestDoctorDoesNotCreateOrProbePluginDataDir(t *testing.T) {
 
 	// About the must-not-create-or-probe invariant, not about the exit code.
 	out := doctorReportText(t, opts)
-	if !strings.Contains(out, "plugin data dir: ok ("+dirs+"/data: not created yet") {
+	// filepath.Join, not dirs+"/data": doctor reports the cleaned path, so on
+	// Windows the finding reads `...\001\data` while the raw env value keeps the
+	// forward slash it was given. The sibling XDG test above already joins.
+	if !strings.Contains(out, "plugin data dir: ok ("+filepath.Join(dirs, "data")+": not created yet") {
 		t.Fatalf("doctor output missing read-only directory status:\n%s", out)
 	}
 	for _, suffix := range []string{"config", "data", "state", "cache"} {
