@@ -374,6 +374,13 @@ type sessionListEntry struct {
 	Excluded       bool   `json:"excluded,omitempty"`
 	ExcludedAt     string `json:"excluded_at,omitempty"`
 	Reason         string `json:"reason,omitempty"`
+	// Unmatched marks a tombstone that no captured session in this brain
+	// answers to -- either armed pre-emptively before capture, or left behind
+	// by a session a later refresh dropped. It is a real, active exclusion
+	// either way, so it is still listed; it is just not evidence that anything
+	// was ever removed, and rendering it identically to a matched exclusion is
+	// what let a typo look like a completed cleanup forever.
+	Unmatched bool `json:"unmatched,omitempty"`
 }
 
 func newSessionsListCommand(opts Options) *cobra.Command {
@@ -423,7 +430,7 @@ func newSessionsListCommand(opts Options) *cobra.Command {
 			}
 			for id, stone := range stones.Excluded {
 				if !known[id] {
-					entries = append(entries, sessionListEntry{SessionID: id, Excluded: true, ExcludedAt: stone.At.UTC().Format(time.RFC3339), Reason: stone.Reason})
+					entries = append(entries, sessionListEntry{SessionID: id, Excluded: true, Unmatched: true, ExcludedAt: stone.At.UTC().Format(time.RFC3339), Reason: stone.Reason})
 				}
 			}
 			if jsonOut {
@@ -441,12 +448,25 @@ func newSessionsListCommand(opts Options) *cobra.Command {
 					fmt.Fprintln(out, "no captured sessions in this brain")
 					return
 				}
+				unmatched := 0
 				for _, entry := range entries {
 					state := "included"
-					if entry.Excluded {
+					switch {
+					case entry.Excluded && entry.Unmatched:
+						// Distinct from EXCLUDED on purpose. The row is the
+						// only place a user can notice that the id they typed
+						// matched nothing -- every other column is <unset>,
+						// which reads as missing metadata rather than as a
+						// tombstone waiting for a session that may never exist.
+						state = "UNMATCHED"
+						unmatched++
+					case entry.Excluded:
 						state = "EXCLUDED"
 					}
 					fmt.Fprintf(out, "%-10s %s  %s  %s  %s\n", state, valueOrUnset(entry.SessionID), valueOrUnset(entry.CreatedAt), valueOrUnset(entry.Agent), entry.TranscriptPath)
+				}
+				if unmatched > 0 {
+					fmt.Fprintf(out, "UNMATCHED: %d tombstone(s) match no captured session in this brain; each stays recorded and applies if such a session is captured later\n", unmatched)
 				}
 			})
 		},
@@ -602,6 +622,8 @@ func runSessionsExclude(ctx context.Context, cmd *cobra.Command, opts Options, s
 		return err
 	}
 	brainDir := storage.BrainDir
+	var plan sessionPurgePlan
+	matched := false
 	if err := withBrainPrivacySideEffectLock(brainDir, func() error {
 		return withBrainWriteLock(brainDir, func() error {
 			// Exclusion is purge minus the transcript: the tombstone guards
@@ -609,20 +631,97 @@ func runSessionsExclude(ctx context.Context, cmd *cobra.Command, opts Options, s
 			// index records, facts, episodes, pattern outputs, caches, FTS and
 			// vector stores -- is removed or rebuilt from the surviving truth.
 			// Errors propagate; a partial cleanup is a failure, not a success.
-			plan, planErr := buildSessionPurgePlan(brainDir, sessionID)
+			var planErr error
+			plan, planErr = buildSessionPurgePlan(brainDir, sessionID)
 			if planErr != nil {
 				return planErr
 			}
+			manifest, manifestErr := loadBrainManifest(brainDir)
+			if manifestErr != nil {
+				return manifestErr
+			}
+			matched = sessionExclusionMatchedSomething(manifest, plan, sessionID)
 			return executeSessionCleanup(brainDir, sessionID, plan, opts.Now().UTC(), strings.TrimSpace(reason), true)
 		})
 	}); err != nil {
 		return err
 	}
 	if jsonOut {
-		return writeJSON(cmd, map[string]any{"excluded": sessionID})
+		return writeJSON(cmd, map[string]any{
+			"excluded": sessionID,
+			// matched says whether anything in this brain answered to the id.
+			// A false here is not a failure: the tombstone is recorded and
+			// will apply to a session captured later. It is the difference
+			// between "cleaned up" and "armed", which the caller cannot infer
+			// from the exit code.
+			"matched":               matched,
+			"records":               plan.Records,
+			"facts_deleted":         plan.FactsDeleted,
+			"fact_anchors_stripped": plan.FactAnchorsStripped,
+			"episodes":              plan.Episodes,
+			"transcripts":           len(plan.Transcripts),
+		})
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "excluded %s and removed or rebuilt its derived projections\n", sessionID)
-	return nil
+	return writeText(cmd, func(out io.Writer) {
+		// Report what happened, not what the command is for. Excluding an id no
+		// session in this brain answers to is a legitimate PRE-EMPTIVE privacy
+		// operation -- arming the tombstone before capture is strictly safer
+		// than refusing it and losing the race -- so the operation stays
+		// permitted and keeps exiting 0. What was wrong was the sentence: it
+		// claimed to have "removed or rebuilt its derived projections" for a
+		// session that had produced none, which is the same class of lie as
+		// under-reporting a real cleanup. `purge` already reports its real
+		// inventory on the same plan; exclude now does too.
+		if !matched {
+			fmt.Fprintf(out, "excluded %s: tombstone recorded, nothing to remove or rebuild\n", sessionID)
+			fmt.Fprintln(out, "  no captured session in this brain matches this id")
+			fmt.Fprintln(out, "  the tombstone stays recorded and applies if such a session is captured later")
+			return
+		}
+		fmt.Fprintf(out, "excluded %s and removed or rebuilt its derived projections:\n", sessionID)
+		fmt.Fprintf(out, "  %d derived index records\n", plan.Records)
+		if plan.FactsDeleted > 0 || plan.FactAnchorsStripped > 0 {
+			fmt.Fprintf(out, "  %d single-source facts deleted, %d anchors stripped from corroborated facts\n", plan.FactsDeleted, plan.FactAnchorsStripped)
+		}
+		if plan.Episodes > 0 {
+			fmt.Fprintf(out, "  %d pattern episodes\n", plan.Episodes)
+		}
+		for _, artifact := range plan.DerivedStores {
+			fmt.Fprintf(out, "  derived store %s (%d bytes, rebuilds from surviving truth)\n", artifact.Path, artifact.Bytes)
+		}
+	})
+}
+
+// sessionExclusionMatchedSomething reports whether anything in this brain
+// actually answers to the excluded id.
+//
+// The evidence is deliberately drawn from the manifest and from the plan's
+// manifest-derived counts only -- never from the privacy transaction record or
+// the wholesale derived-store inventory. Both of those are non-empty for an id
+// this brain has never seen: the transaction is written by the exclusion
+// itself, and the rebuildable stores (scan caches, FTS, vectors) are dropped
+// unconditionally. Counting either would make a repeated exclusion of the same
+// phantom report itself as a real cleanup on the second run.
+func sessionExclusionMatchedSomething(manifest *exportManifest, plan sessionPurgePlan, sessionID string) bool {
+	if len(plan.Transcripts) > 0 || plan.Records > 0 || plan.FactsDeleted > 0 || plan.FactAnchorsStripped > 0 || plan.Episodes > 0 {
+		return true
+	}
+	return manifestHasCapturedSession(manifest, sessionID)
+}
+
+// manifestHasCapturedSession reports whether the brain manifest lists this
+// session id as captured. A session with no transcript path and no derived
+// records still counts: it was captured, so excluding it is not pre-emptive.
+func manifestHasCapturedSession(manifest *exportManifest, sessionID string) bool {
+	if manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
+		return false
+	}
+	for _, session := range manifest.Sources.Sessions.Sessions {
+		if strings.TrimSpace(session.SessionID) == sessionID {
+			return true
+		}
+	}
+	return false
 }
 
 func newSessionsIncludeCommand(opts Options) *cobra.Command {
@@ -1630,8 +1729,74 @@ type privacyTransaction struct {
 	Error       string          `json:"error,omitempty"`
 }
 
+// windowsReservedDeviceNames are the DOS device names Windows still resolves in
+// every directory, with or without an extension: `CON.json` names the console,
+// not a file. The comparison is case-insensitive and the list has not changed
+// in decades.
+var windowsReservedDeviceNames = map[string]bool{
+	"CON": true, "PRN": true, "AUX": true, "NUL": true,
+	"COM1": true, "COM2": true, "COM3": true, "COM4": true, "COM5": true,
+	"COM6": true, "COM7": true, "COM8": true, "COM9": true,
+	"LPT1": true, "LPT2": true, "LPT3": true, "LPT4": true, "LPT5": true,
+	"LPT6": true, "LPT7": true, "LPT8": true, "LPT9": true,
+}
+
+// escapePrivacyTransactionID turns a session id into one path component that is
+// a legal filename on every platform this ships to.
+//
+// This used to be url.PathEscape alone, and PathEscape is a URL function, not a
+// filename function: RFC 3986 allows a colon inside a path segment, so it
+// deliberately leaves one unescaped. NTFS does not -- `a:b` names an alternate
+// data stream -- so on Windows the FIRST write both `privacy exclude` and
+// `privacy purge` perform (the transaction record, written before the
+// tombstone) failed with ERROR_INVALID_PARAMETER, "The parameter is incorrect",
+// for any id containing a colon, and neither command could run at all.
+//
+// Captured session ids are UUIDs and were never affected, which is why this
+// survived: every test in the suite used a hyphenated fixture id. Ids an
+// OPERATOR types are affected, and this tool's own id vocabulary is full of
+// colons -- `conversation-session:…`, `fact:…`, `history:…` are what `get`,
+// `search` and `multi-get` print and what their documented examples show -- so
+// pasting an id the tool itself emitted was enough to hit it.
+//
+// PathEscape already escapes the rest of the Windows-illegal set (\ / * ? " < >
+// |, control bytes, and a trailing space), so the fix is exactly the colon plus
+// the reserved device names and nothing else. Every id whose characters are
+// already safe -- every UUID, and so every real captured session -- keeps the
+// byte-identical filename it has on disk today, and no existing record is
+// renamed.
+//
+// This escaping is for FILENAMES ONLY. Do not reach for it at the three sites
+// that escape a session id for the distill cache -- distillSessionCacheKey,
+// the purge/exclude eviction in purgeDistillCacheEntries, and the check in
+// verifySessionPrivacy. Those build a JSON MAP KEY, not a path, a colon is
+// harmless in one, and the three match each other by suffix: hardening one
+// without the others makes purge silently stop evicting and verification start
+// reporting the leftovers.
+//
+// One residual: a POSIX brain that ran exclude/purge with a colon id before
+// this fix (which could only ever have been a phantom, since no captured id
+// contains one) keeps a file under the old name that nothing now reads. It is
+// inert -- nothing enumerates this directory, transactions are only ever looked
+// up by id, and the tombstone that actually enforces an exclusion lives in
+// history/tombstones.json keyed by the raw id, so `privacy include` still
+// clears it. A read-fallback to the old name was rejected deliberately: it
+// would have to be threaded through includeSessionLocked's two-file rollback
+// protocol, which is carefully built around a single transaction path, to
+// recover a record that describes an operation that did nothing.
+func escapePrivacyTransactionID(sessionID string) string {
+	escaped := strings.ReplaceAll(url.PathEscape(sessionID), ":", "%3A")
+	if windowsReservedDeviceNames[strings.ToUpper(escaped)] {
+		// Escaping the first byte is enough to stop the name resolving as a
+		// device, and cannot collide with any other id: PathEscape never emits
+		// %XX for an ASCII letter, so only "CON" can produce "%43ON".
+		escaped = fmt.Sprintf("%%%02X%s", escaped[0], escaped[1:])
+	}
+	return escaped
+}
+
 func privacyTransactionRel(sessionID string) string {
-	return filepath.ToSlash(filepath.Join(historyDirName, "privacy", url.PathEscape(sessionID)+".json"))
+	return filepath.ToSlash(filepath.Join(historyDirName, "privacy", escapePrivacyTransactionID(sessionID)+".json"))
 }
 
 func writePrivacyTransaction(brainDir string, tx privacyTransaction, now time.Time) error {

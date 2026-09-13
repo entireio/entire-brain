@@ -124,8 +124,11 @@ The script does not publish artifacts.
 
 ## Shared Baselines
 
-Semantic bundle import/export is the policy-controlled shared baseline path for
-this repository. Use:
+Brain bundle import/export is the policy-controlled shared baseline path for
+this repository. A bundle carries the semantic index, seed, docs and facts by
+default; captured sessions and the history and patterns projections built from
+them travel only under `--include-sessions`; session tombstones, privacy
+transactions and local worker state are never bundled. Use:
 
 ```sh
 entire brain bundle export --output /tmp/repo-brain.tar
@@ -133,6 +136,9 @@ entire brain bundle import /tmp/repo-brain.tar --sha256 <sha256>
 ```
 
 The implementation validates checksums, schema compatibility, repo policy, path
-traversal, symlink safety, size caps, and redaction before import. Shared
+traversal, symlink safety, size caps, and redaction before import. Import
+refuses to overwrite a layer the destination brain already holds unless
+`--overwrite` is passed, and the refusal happens before anything is written.
+Export prints exactly which layers it wrote and which it left out. Shared
 baselines remain explicit local files; there is no remote publishing or registry
 discovery.
