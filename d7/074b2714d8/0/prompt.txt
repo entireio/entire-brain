@@ -1,1 +1,1 @@
-commit/push first, then rename guide to agent-guide and add init-agents and capabilities.
+Commit/push and open a trail with these changes.
