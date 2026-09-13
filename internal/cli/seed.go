@@ -292,7 +292,20 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	if seedOpts.worktree {
 		worktreeHash, err = worktreeFingerprint(ctx, opts.Runner, repoDir)
 		if err != nil {
-			return fmt.Errorf("fingerprint worktree for seed: %w", err)
+			// --worktree routes around the wrapped worktreeDirty check above, so
+			// this is the FIRST git failure a `--worktree` run in a degenerate
+			// repository ever reaches -- and it reached the reader verbatim,
+			// hardening flags and all:
+			//
+			//	fingerprint worktree for seed: git [-c core.fsmonitor=false
+			//	-c core.hooksPath=/dev/null/entire-brain-hooks-disabled status
+			//	--porcelain --untracked-files=all]: exit status 128: fatal: this
+			//	operation must be run in a work tree
+			//
+			// The same repository WITHOUT --worktree already said "bare
+			// repository has no working tree ... point it at a clone with a
+			// checkout". Same condition, same sentence.
+			return nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("fingerprint worktree for seed: %w", err))
 		}
 	}
 

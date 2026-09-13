@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -2987,12 +2988,12 @@ func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) 
 		return nil, "", false, err
 	}
 	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
-		return nil, "", false, err
+		return nil, "", false, historyIndexReadError(source, err)
 	}
 	path := filepath.Join(brainDir, clean)
 	info, err := os.Lstat(path)
 	if err != nil {
-		return nil, "", false, err
+		return nil, "", false, historyIndexReadError(source, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return nil, "", false, fmt.Errorf("%s: history index must be a regular file and must not be a symlink: %s", memoryErrStateCorrupt, source.IndexPath)
@@ -3020,6 +3021,22 @@ func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) 
 		}
 	}
 	return data, contentDigest, generationAddressed, nil
+}
+
+// historyIndexReadError names the one condition the hardened read path could
+// otherwise only express as a raw filesystem error.
+//
+// The guard lstats every path component, so deleting the brain's history/
+// directory surfaced as `load history index: lstat <brainDir>/history: no such
+// file or directory` — an internal path, no condition, no remedy. The nil-source
+// case three lines above already says "history index missing; run `entire brain
+// refresh`"; a DECLARED index that is not on disk is the same sentence with the
+// artifact named. Every other failure keeps its own words.
+func historyIndexReadError(source *historySourceManifest, err error) error {
+	if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return declaredIndexDefect{Source: declaredIndexHistory, Path: source.IndexPath, Absent: true, Err: err}
 }
 
 func loadBrainHistoryIndexOnce(brainDir string, source *historySourceManifest) (historyIndex, error) {

@@ -372,16 +372,20 @@ func validateHistoryFTSDirectSource(brainDir string, source *historySourceManife
 	if err != nil {
 		return historyFTSIdentity{}, false, false, err
 	}
+	// historyIndexReadError on every not-exist: this is the OTHER reader of the
+	// declared index (the FTS payload fast path `search` takes), and a defect
+	// named by one reader and left raw by the other is how the same broken brain
+	// produced a sentence from `vsearch` and an `lstat` from `search`.
 	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
-		return historyFTSIdentity{}, false, false, err
+		return historyFTSIdentity{}, false, false, historyIndexReadError(source, err)
 	}
 	path := filepath.Join(brainDir, clean)
 	if err := rejectUnsafeExistingRegularFile(path, "history index"); err != nil {
-		return historyFTSIdentity{}, false, false, err
+		return historyFTSIdentity{}, false, false, historyIndexReadError(source, err)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		return historyFTSIdentity{}, false, false, err
+		return historyFTSIdentity{}, false, false, historyIndexReadError(source, err)
 	}
 	if !info.Mode().IsRegular() {
 		return historyFTSIdentity{}, false, false, fmt.Errorf("history index must be a regular file: %s", source.IndexPath)

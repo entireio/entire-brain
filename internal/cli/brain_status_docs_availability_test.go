@@ -80,14 +80,25 @@ func TestStatusReportsDeclaredDocsIndexMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The docs layer is now dead: prove retrieval really returns nothing before
-	// asserting what status must say about it.
+	// The docs layer is now dead: prove retrieval really cannot answer from it
+	// before asserting what status must say about it.
+	//
+	// This step used to assert that `search` SUCCEEDED and returned nothing,
+	// which is what the docs arm did at the time: loadDocIndex's os.IsNotExist
+	// was skipped rather than raised. That silent skip is the defect this test's
+	// own comment describes, and it is now fixed — a doc index the manifest
+	// DECLARES and the store does not hold is refused by name. The assertion
+	// that matters here is unchanged (the removed record must not come back);
+	// only the shape of "cannot answer" moved from an empty result to an error.
 	out, err := execute(t, NewRootCommand(opts), "search", "postgres")
-	if err != nil {
-		t.Fatalf("search after docs index removal: %v\n%s", err, out)
+	if err == nil {
+		t.Fatalf("search answered over a docs index that is gone:\n%s", out)
 	}
 	if strings.Contains(out, "doc:doc-1") {
 		t.Fatalf("search still returned the doc record after the index was removed:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), docIndexPath) {
+		t.Fatalf("search does not name the absent index: %v", err)
 	}
 
 	degraded, err := buildAvailableBrainStatusReport(context.Background(), opts, repoDir)

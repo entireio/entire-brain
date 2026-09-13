@@ -158,3 +158,70 @@ func TestTheSemanticIndexNamesAnEmptyRepository(t *testing.T) {
 		t.Fatalf("raw git text survived into the semantic index failure:\n%s", text)
 	}
 }
+
+// TestWorktreeRefreshNamesADegenerateRepository covers the route around that
+// classifier.
+//
+// #238 applied nameDegenerateRepoFailure at the four sites a default run
+// reaches. --worktree reaches none of them: it skips the wrapped worktreeDirty
+// check in runSeed entirely, and the FIRST git command it then runs is the
+// worktree fingerprint, which was wrapped raw. So the same two repositories
+// answered well without the flag and leaked with it:
+//
+//	fingerprint worktree for seed: git [-c core.fsmonitor=false
+//	-c core.hooksPath=/dev/null/entire-brain-hooks-disabled status --porcelain
+//	--untracked-files=all]: exit status 128: fatal: this operation must be run
+//	in a work tree
+//
+// Note what leaks past git's own text: core.hooksPath, a flag this binary adds
+// and no reader ever typed.
+func TestWorktreeRefreshNamesADegenerateRepository(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	for _, tc := range []struct {
+		name  string
+		init  []string
+		want  string
+		verbs [][]string
+	}{
+		{
+			name:  "bare repository",
+			init:  []string{"init", "-q", "--bare"},
+			want:  "bare repository has no working tree",
+			verbs: [][]string{{"refresh", "seed", "--worktree"}, {"refresh", "--worktree"}},
+		},
+		{
+			name:  "no commits yet",
+			init:  []string{"init", "-q"},
+			want:  "no commits yet",
+			verbs: [][]string{{"refresh", "seed", "--worktree"}, {"refresh", "--worktree"}},
+		},
+	} {
+		for _, verb := range tc.verbs {
+			t.Run(tc.name+" "+strings.Join(verb, " "), func(t *testing.T) {
+				repoDir := t.TempDir()
+				gitAt(t, repoDir, tc.init...)
+				env := semanticTestEnv(t, repoDir)
+				env.RepoRoot = repoDir
+				opts := Options{Version: "test", Env: env, Runner: ExecRunner{}}
+
+				out, err := execute(t, NewRootCommand(opts), verb...)
+				if err == nil {
+					t.Fatalf("a degenerate repository must still fail:\n%s", out)
+				}
+				text := err.Error()
+				if !strings.Contains(text, tc.want) {
+					t.Fatalf("the condition is not named:\n%s", text)
+				}
+				// The hardened argv is the part that is ours, not git's, and it
+				// is the part a reader can do least with.
+				for _, leak := range []string{"fsmonitor", "hooksPath", "fatal:", "exit status 128"} {
+					if strings.Contains(text, leak) {
+						t.Fatalf("raw git detail %q survived into the message:\n%s", leak, text)
+					}
+				}
+			})
+		}
+	}
+}
