@@ -63,6 +63,21 @@ All notable changes to `entire-brain` are recorded here. The format follows
   passed. Export prints what it included and what it omitted. The bundle
   manifest also stops claiming `generated_at: 0001-01-01T00:00:00Z`, keeps
   `branches`, and records `brain_version`, the build that produced the artifact.
+- `privacy exclude` and `privacy purge` could not run at all on Windows for any
+  session id containing a colon. Both write a durable transaction record before
+  anything else, and its filename was built with `url.PathEscape`, which is
+  specified against URL path segments and therefore deliberately leaves a colon
+  alone — legal in a URL, an alternate data stream on NTFS. The first write
+  failed with `ERROR_INVALID_PARAMETER` ("The parameter is incorrect"). Captured
+  session ids are UUIDs and were never affected, which is how it survived: every
+  fixture in the suite used a hyphenated id. Ids an operator types are affected,
+  and this tool's own vocabulary is full of colons (`conversation-session:…`,
+  `fact:…`, `history:…`). `memoryJobRel` already hashes job ids with the comment
+  "Job IDs contain a colon, which is not a valid Windows filename"; this path
+  simply never got the same treatment. The colon and the reserved DOS device
+  names are now escaped, and nothing else is, so every id whose characters were
+  already safe — every UUID, and so every real captured session — keeps a
+  byte-identical filename and no existing record is renamed.
 - `privacy exclude` reported cleanup it had not performed. Excluding a session
   id that no captured session answers to is a legitimate pre-emptive privacy
   operation and still succeeds, but it printed "removed or rebuilt its derived

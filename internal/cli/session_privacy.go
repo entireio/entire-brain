@@ -1729,8 +1729,74 @@ type privacyTransaction struct {
 	Error       string          `json:"error,omitempty"`
 }
 
+// windowsReservedDeviceNames are the DOS device names Windows still resolves in
+// every directory, with or without an extension: `CON.json` names the console,
+// not a file. The comparison is case-insensitive and the list has not changed
+// in decades.
+var windowsReservedDeviceNames = map[string]bool{
+	"CON": true, "PRN": true, "AUX": true, "NUL": true,
+	"COM1": true, "COM2": true, "COM3": true, "COM4": true, "COM5": true,
+	"COM6": true, "COM7": true, "COM8": true, "COM9": true,
+	"LPT1": true, "LPT2": true, "LPT3": true, "LPT4": true, "LPT5": true,
+	"LPT6": true, "LPT7": true, "LPT8": true, "LPT9": true,
+}
+
+// escapePrivacyTransactionID turns a session id into one path component that is
+// a legal filename on every platform this ships to.
+//
+// This used to be url.PathEscape alone, and PathEscape is a URL function, not a
+// filename function: RFC 3986 allows a colon inside a path segment, so it
+// deliberately leaves one unescaped. NTFS does not -- `a:b` names an alternate
+// data stream -- so on Windows the FIRST write both `privacy exclude` and
+// `privacy purge` perform (the transaction record, written before the
+// tombstone) failed with ERROR_INVALID_PARAMETER, "The parameter is incorrect",
+// for any id containing a colon, and neither command could run at all.
+//
+// Captured session ids are UUIDs and were never affected, which is why this
+// survived: every test in the suite used a hyphenated fixture id. Ids an
+// OPERATOR types are affected, and this tool's own id vocabulary is full of
+// colons -- `conversation-session:…`, `fact:…`, `history:…` are what `get`,
+// `search` and `multi-get` print and what their documented examples show -- so
+// pasting an id the tool itself emitted was enough to hit it.
+//
+// PathEscape already escapes the rest of the Windows-illegal set (\ / * ? " < >
+// |, control bytes, and a trailing space), so the fix is exactly the colon plus
+// the reserved device names and nothing else. Every id whose characters are
+// already safe -- every UUID, and so every real captured session -- keeps the
+// byte-identical filename it has on disk today, and no existing record is
+// renamed.
+//
+// This escaping is for FILENAMES ONLY. Do not reach for it at the three sites
+// that escape a session id for the distill cache -- distillSessionCacheKey,
+// the purge/exclude eviction in purgeDistillCacheEntries, and the check in
+// verifySessionPrivacy. Those build a JSON MAP KEY, not a path, a colon is
+// harmless in one, and the three match each other by suffix: hardening one
+// without the others makes purge silently stop evicting and verification start
+// reporting the leftovers.
+//
+// One residual: a POSIX brain that ran exclude/purge with a colon id before
+// this fix (which could only ever have been a phantom, since no captured id
+// contains one) keeps a file under the old name that nothing now reads. It is
+// inert -- nothing enumerates this directory, transactions are only ever looked
+// up by id, and the tombstone that actually enforces an exclusion lives in
+// history/tombstones.json keyed by the raw id, so `privacy include` still
+// clears it. A read-fallback to the old name was rejected deliberately: it
+// would have to be threaded through includeSessionLocked's two-file rollback
+// protocol, which is carefully built around a single transaction path, to
+// recover a record that describes an operation that did nothing.
+func escapePrivacyTransactionID(sessionID string) string {
+	escaped := strings.ReplaceAll(url.PathEscape(sessionID), ":", "%3A")
+	if windowsReservedDeviceNames[strings.ToUpper(escaped)] {
+		// Escaping the first byte is enough to stop the name resolving as a
+		// device, and cannot collide with any other id: PathEscape never emits
+		// %XX for an ASCII letter, so only "CON" can produce "%43ON".
+		escaped = fmt.Sprintf("%%%02X%s", escaped[0], escaped[1:])
+	}
+	return escaped
+}
+
 func privacyTransactionRel(sessionID string) string {
-	return filepath.ToSlash(filepath.Join(historyDirName, "privacy", url.PathEscape(sessionID)+".json"))
+	return filepath.ToSlash(filepath.Join(historyDirName, "privacy", escapePrivacyTransactionID(sessionID)+".json"))
 }
 
 func writePrivacyTransaction(brainDir string, tx privacyTransaction, now time.Time) error {
