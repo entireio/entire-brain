@@ -1,0 +1,7 @@
+Commit and push in both repos, then open trails.
+
+---
+
+Fix this:
+[P2] Standalone instruction generation now requires the Entire host executable.
+Inside a repository, both commands unconditionally run entire plugin list and abort if it fails. A standalone Graph or Brain binary therefore cannot generate even its own instructions without Entire on PATH. Repository-local setup detection should not require this machine-inventory dependency.
