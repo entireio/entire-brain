@@ -3,8 +3,8 @@
 ## Install and discover agent instructions
 
 Run `entire brain init-agents` in the consuming project to install
-`.entire/brain-agent.md` plus managed pointers in `AGENTS.md` and
-`CLAUDE.md`. Reruns update only Brain's blocks and preserve your own text.
+`.entire/agent-guide.md` plus managed pointers in `AGENTS.md` and
+`CLAUDE.md`. Reruns reconcile Graph and Brain blocks into one shared workflow and preserve your own text.
 Use `--repo <path>` for another project. Installation does not build indexes,
 call an agent, or start services.
 

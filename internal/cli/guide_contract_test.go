@@ -27,6 +27,7 @@ var guideInvocation = regexp.MustCompile(`(?m)^\s+entire brain ([^\n#]+)`)
 // tokens with the trailing comment removed.
 func guideCommandLines(t *testing.T) [][]string {
 	t.Helper()
+	t.Chdir(t.TempDir()) // Standalone reference; never inspect real plugin state.
 	out, err := execute(t, NewRootCommand(Options{Version: "test"}), "agent-guide")
 	if err != nil {
 		t.Fatalf("guide: %v", err)

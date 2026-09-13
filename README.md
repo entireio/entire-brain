@@ -147,20 +147,20 @@ entire brain status --verbose
 entire brain overview
 ```
 
-### Set up your agent
+### Set up coding-agent instructions
 
-```bash
-entire brain init-agents                  # install instructions in the current project
-entire brain agent-guide                  # print the same operating guide
-entire brain capabilities --json          # inspect this binary's supported features
+```sh
+entire brain init-agents
+entire brain agent-guide
 ```
 
-`init-agents` writes `.entire/brain-agent.md` and managed pointer blocks in
-`AGENTS.md` and `CLAUDE.md`. It preserves text outside its markers, coexists
-with Graph's blocks, and updates in place on reruns. Use `--repo <path>` (or a
-positional path) to target another project. Existing instruction symlinks must
-resolve inside the project. Malformed markers and invalid targets are rejected
-before installation. This command does not build the Brain or start services.
+The initializer writes one shared `.entire/agent-guide.md` and managed references
+in `AGENTS.md` and `CLAUDE.md`. When Graph is listed by `entire plugin list`, the
+guide coordinates Brain context with Graph discovery. The preview uses the same
+rules and accepts `--repo <path>`; `guide` remains an alias. Existing user text and
+supported instruction aliases are preserved. Initialization does not build a Brain
+or start services. See [the coordination contract](docs/agent-coordination.md) for
+routing, migration, state directories, and removal.
 
 `capabilities` works without a repository or an initialized Brain. It reports
 retrieval modes, sources, experimental features, build support, and semantic

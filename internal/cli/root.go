@@ -96,7 +96,7 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	}
 
 	addGrouped("agents", newInitAgentsCommand(opts))
-	addGrouped("agents", newBrainGuideCommand())
+	addGrouped("agents", newBrainGuideCommand(opts))
 	addGrouped("agents", newCapabilitiesCommand(opts))
 
 	// Create the brain — locate it, build/refresh it, manage workspaces.
