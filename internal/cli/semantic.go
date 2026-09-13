@@ -59,6 +59,12 @@ const (
 	semanticSnapshotTimeout           = 30 * time.Minute
 	semanticSnapshotInactivityTimeout = 5 * time.Minute
 	semanticIndexLockTimeout          = 10 * time.Second
+
+	// semanticWorktreeModeName is the worktree_mode value recorded for an index
+	// built from dirty worktree content rather than committed HEAD. The two are
+	// different artifacts at the same commit, so several checks compare against
+	// it by name.
+	semanticWorktreeModeName = "worktree"
 )
 
 var (
@@ -385,6 +391,87 @@ func newSemanticResetCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
+// semanticIndexAlreadyCurrent answers the only question that makes a non-forced
+// `refresh index` a no-op: is the recorded index already the one this
+// invocation would build, and can it still be read?
+//
+// Readability is deliberately part of the question. An index whose manifest
+// matches HEAD but whose SQLite store no longer opens is not a reason to skip
+// work -- `refresh index` is the command that repairs exactly that -- so a
+// recorded-but-broken generation falls through to a rebuild instead of being
+// reported as current.
+//
+// The returned string is the reason to print; it is empty when ok is false.
+func semanticIndexAlreadyCurrent(brainDir string, source *semanticSourceManifest, indexOpts semanticIndexOptions, head, tree, worktreeHash string) (string, bool) {
+	if source == nil || head == "" || tree == "" {
+		return "", false
+	}
+	if source.Commit == "" || source.Commit != head || source.Tree == "" || source.Tree != tree {
+		return "", false
+	}
+	// A worktree index and a committed-HEAD index are different artifacts even
+	// at the same commit, so the two modes never satisfy each other.
+	if indexOpts.worktree != (source.WorktreeMode == semanticWorktreeModeName) {
+		return "", false
+	}
+	if indexOpts.worktree && (source.WorktreeHash == "" || source.WorktreeHash != worktreeHash) {
+		return "", false
+	}
+	// An explicitly requested profile that the recorded index was not built
+	// with is a different index, not the same one.
+	if profile := strings.TrimSpace(indexOpts.profile); profile != "" && profile != source.Profile {
+		return "", false
+	}
+	if err := semanticRecordedArtifactsReadable(brainDir, source); err != nil {
+		return "", false
+	}
+	reason := "commit " + head
+	if indexOpts.worktree {
+		reason += " (worktree overlay)"
+	}
+	return reason, true
+}
+
+// semanticRecordedArtifactsReadable re-reads the two files the recorded
+// semantic source points at -- the provider snapshot and the derived SQLite
+// store -- and reports the first that will not load. It answers "is what the
+// manifest claims actually still there and openable", which is the half of
+// freshness that a commit comparison cannot see.
+func semanticRecordedArtifactsReadable(brainDir string, source *semanticSourceManifest) error {
+	if source.SnapshotPath == "" {
+		return errors.New("semantic snapshot_path is missing")
+	}
+	snapshot, err := validateSemanticSnapshotPath(source.SnapshotPath)
+	if err != nil {
+		return err
+	}
+	if err := rejectSymlinkPathComponents(brainDir, snapshot); err != nil {
+		return err
+	}
+	info, err := os.Lstat(filepath.Join(brainDir, snapshot))
+	if err != nil {
+		return err
+	}
+	if info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("semantic snapshot must be a regular file: %s", source.SnapshotPath)
+	}
+	if source.StorePath == "" {
+		return nil
+	}
+	generation, err := validateSemanticGenerationPath(source.GenerationPath)
+	if err != nil {
+		return err
+	}
+	store, err := validateSemanticGenerationFilePath(source.StorePath, generation, semanticSQLiteName)
+	if err != nil {
+		return err
+	}
+	if err := rejectSymlinkPathComponents(brainDir, store); err != nil {
+		return err
+	}
+	return validateSemanticSQLiteStore(filepath.Join(brainDir, store), source.Symbols, source.Relations)
+}
+
 func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, indexOpts semanticIndexOptions, target string) error {
 	if indexOpts.graphBinary == "" {
 		indexOpts.graphBinary = indexOpts.semBinary
@@ -425,10 +512,6 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	if err != nil {
 		return err
 	}
-	if !indexOpts.force && existing.Sources != nil && existing.Sources.Semantic != nil {
-		return errors.New("semantic index already exists; use --force to replace it")
-	}
-
 	ignore, err := loadBrainIgnore(repoDir)
 	if err != nil {
 		return err
@@ -459,6 +542,29 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		worktreeHashBefore, err = worktreeFingerprint(ctx, opts.Runner, repoDir)
 		if err != nil {
 			return fmt.Errorf("fingerprint worktree for semantic index: %w", err)
+		}
+	}
+	// Idempotent re-run. `refresh index` used to fail the moment ANY semantic
+	// source existed, which made the documented refresh sequence succeed once
+	// and exit 1 on every run after that -- a scripted loop containing the
+	// documented step could never be green twice. The decision is now made
+	// against what the index actually records rather than against its mere
+	// existence:
+	//
+	//   - already the index this invocation would produce, and readable:
+	//     nothing to do, say so and exit 0.
+	//   - present but stale, or present but unreadable: this is a REFRESH, so
+	//     rebuild it. That is what the caller asked for.
+	//   - --force: rebuild unconditionally, including when already current.
+	//
+	// Real failures below (no provider, dirty worktree without --worktree, a
+	// provider that errors) still exit nonzero; only "there is nothing to do"
+	// stopped being a failure.
+	if !indexOpts.force && existing.Sources != nil && existing.Sources.Semantic != nil {
+		if reason, ok := semanticIndexAlreadyCurrent(storage.BrainDir, existing.Sources.Semantic, indexOpts, head, tree, worktreeHashBefore); ok {
+			indexOpts.reportPhase("already current")
+			fmt.Fprintf(cmd.OutOrStdout(), "semantic index already current: %s\n", reason)
+			return nil
 		}
 	}
 
@@ -596,7 +702,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	worktreeHash := ""
 	if indexOpts.worktree && dirty {
 		snapshotID = "worktree-" + contentSuffix
-		worktreeMode = "worktree"
+		worktreeMode = semanticWorktreeModeName
 		worktreeHash = worktreeHashBefore
 	} else if snapshotID == "" {
 		snapshotID = "unknown"
@@ -5430,34 +5536,223 @@ func newSemanticBundleCommand(opts Options) *cobra.Command {
 	}
 	var output string
 	var expectedChecksum string
+	var includeSessions bool
+	var overwrite bool
 	exportCmd := &cobra.Command{
 		Use:   "export",
-		Short: "Export a local brain bundle",
+		Short: "Export this brain's layers as a portable bundle (captured sessions excluded by default)",
+		Long: `export writes one local archive containing this brain's layers so another
+machine can rebuild the same brain from it.
+
+Included by default: the semantic index (snapshot and derived store), seed,
+docs and facts.
+
+Excluded by default: the session family -- captured transcripts and the two
+layers projected from them, history and patterns. Transcripts are verbatim
+conversation content, and a history projection is committed against a
+fingerprint of the sessions it was built from, so a bundle carrying history
+without its sessions lands as immediately stale state the receiving brain
+discards on its next refresh. --include-sessions ships all three together.
+
+Never included: privacy policy (session tombstones and their transactions) and
+local operational state (locks, worker logs, the bundle audit log). Those are
+statements about this machine, not content of the brain, and a bundle that
+carried them would apply one machine's exclusions to another.
+
+Every run prints exactly which layers it wrote and which it left out.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if output == "" {
 				return errors.New("--output is required")
 			}
-			return runSemanticBundleExport(cmd.Context(), cmd, opts, output)
+			return runSemanticBundleExport(cmd.Context(), cmd, opts, output, includeSessions)
 		},
 	}
 	exportCmd.Flags().StringVar(&output, "output", "", "Local output archive path")
+	exportCmd.Flags().BoolVar(&includeSessions, "include-sessions", false, "Also export the session family: captured transcripts plus the history and patterns projections built from them")
 	importCmd := &cobra.Command{
 		Use:   "import <archive>",
 		Short: "Import a local brain bundle",
-		Args:  cobra.ExactArgs(1),
+		Long: `import verifies the archive's checksum, repo key and schema, then restores the
+layers it carries into this brain.
+
+A layer the destination brain already holds is NOT overwritten unless you pass
+--overwrite: restoring a bundle over a live brain replaces its facts, docs and
+history with the producer's, and that is a decision the operator makes, not a
+side effect of an import. The refusal names every conflicting layer and happens
+before anything is written.
+
+Privacy policy in the destination brain is never touched by an import.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if expectedChecksum == "" {
 				return errors.New("--sha256 is required for bundle import")
 			}
-			return runSemanticBundleImport(cmd.Context(), cmd, opts, args[0], expectedChecksum)
+			return runSemanticBundleImport(cmd.Context(), cmd, opts, args[0], expectedChecksum, overwrite)
 		},
 	}
 	importCmd.Flags().StringVar(&expectedChecksum, "sha256", "", "Expected SHA-256 checksum for the local bundle archive")
+	importCmd.Flags().BoolVar(&overwrite, "overwrite", false, "Overwrite brain layers the destination already has (files the bundle carries are replaced; files it does not carry stay)")
 	cmd.AddCommand(exportCmd, importCmd)
 	return cmd
 }
 
-func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Options, output string) error {
+// brainBundleLayer is one brain layer `bundle export` carries beside the
+// semantic index.
+//
+// The bundle used to be semantic-only, and that was never a decision: the
+// command was written on 2026-05-31, the day semantic.go was created and the
+// day `semantic` was the ONLY source a brain had. history, facts, docs and
+// patterns all landed in the weeks after (2026-06-01 through 2026-06-16) and
+// nobody came back to the exporter. The result exported one layer of seven,
+// said nothing about the other six, and a round-trip into a fresh store
+// silently destroyed every authored fact -- in a command whose entire job is to
+// move a brain without losing it. The design doc is explicit about the intended
+// contents ("semantic manifests, semantic SQLite generations, raw provider
+// artifacts needed for repair, seed summaries ... exclude ... session
+// transcripts by default unless explicitly requested", docs/semantic_brain_plan.md),
+// which is what this table now implements.
+type brainBundleLayer struct {
+	name string
+	dir  string
+	// skip names dir-relative subtrees a bundle must never carry. They are not
+	// brain content: `history/tombstones.json` and `history/privacy/` are this
+	// machine's privacy POLICY (a bundle carrying them would apply one
+	// operator's exclusions to another brain), and `history/work/` is worker
+	// lifecycle state and logs.
+	skip []string
+	// withSessions marks the session family: the captured transcripts
+	// themselves and the two layers that are projections OF them. They travel
+	// only under --include-sessions, for two reasons that point the same way.
+	//
+	// Privacy: transcripts are verbatim conversation content, and history and
+	// patterns are distilled from it.
+	//
+	// Coherence: a history projection is committed against a fingerprint of the
+	// sessions it was built from (see loadProjectionStateForSource). Ship it
+	// without them and the destination is immediately and correctly reported
+	// stale -- `memory_reconciliation: error (memory_source_stale)` -- and the
+	// first refresh discards the imported projection and rebuilds it from the
+	// destination's own sessions. Carrying it by default would be shipping
+	// something the receiving brain throws away.
+	//
+	// seed, docs, facts and semantic have no such tie: they are projections of
+	// the repository, or durable authored records, and both ends share a
+	// repo_key.
+	withSessions bool
+}
+
+const (
+	bundleLayerSeed     = "seed"
+	bundleLayerDocs     = "docs"
+	bundleLayerFacts    = "facts"
+	bundleLayerHistory  = "history"
+	bundleLayerPatterns = "patterns"
+	bundleLayerSessions = "sessions"
+	bundleLayerSemantic = "semantic"
+	// brainPatternsDirName is the pattern layer's directory under the brain
+	// root. The pattern code writes the literal in several places; the bundle
+	// needs a name it can put in a table.
+	brainPatternsDirName = "patterns"
+)
+
+var brainBundleLayers = []brainBundleLayer{
+	{name: bundleLayerSeed, dir: seedDirName},
+	{name: bundleLayerDocs, dir: docDirName},
+	{name: bundleLayerFacts, dir: factsDirName},
+	{name: bundleLayerSessions, dir: exportSessionsDirectory, withSessions: true},
+	{name: bundleLayerHistory, dir: historyDirName, skip: []string{sessionTombstonesFileName, "privacy", "work"}, withSessions: true},
+	{name: bundleLayerPatterns, dir: brainPatternsDirName, withSessions: true},
+}
+
+// skipsPath reports whether a brain-relative slash path falls inside one of the
+// layer's never-bundled subtrees.
+func (l brainBundleLayer) skipsPath(relSlash string) bool {
+	for _, skip := range l.skip {
+		full := l.dir + "/" + skip
+		if relSlash == full || strings.HasPrefix(relSlash, full+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// copyBundleLayerSource moves one layer's manifest source between two
+// brainSources. Export copies brain -> bundle and import copies bundle ->
+// brain, so the mapping lives in exactly one place and the two directions
+// cannot drift.
+func copyBundleLayerSource(dst, src *brainSources, layer string) {
+	if dst == nil || src == nil {
+		return
+	}
+	switch layer {
+	case bundleLayerSeed:
+		dst.Seed = src.Seed
+	case bundleLayerDocs:
+		dst.Docs = src.Docs
+	case bundleLayerFacts:
+		dst.Facts = src.Facts
+	case bundleLayerHistory:
+		dst.History = src.History
+	case bundleLayerPatterns:
+		dst.Patterns = src.Patterns
+	case bundleLayerSessions:
+		dst.Sessions = src.Sessions
+	}
+}
+
+// collectBrainBundleLayerPaths lists the brain-relative files of one layer, in
+// sorted order, skipping the never-bundled subtrees. An absent layer is not an
+// error: a brain that has never run `distill` simply has no facts to carry.
+//
+// It reads the same shape from a brain directory and from an extracted bundle
+// root, so export and import walk identical rules.
+func collectBrainBundleLayerPaths(root string, layer brainBundleLayer) ([]string, error) {
+	layerRoot := filepath.Join(root, layer.dir)
+	info, err := os.Lstat(layerRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("bundle refuses symlinked brain layer: %s", layer.dir)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("brain layer must be a directory: %s", layer.dir)
+	}
+	var paths []string
+	err = filepath.WalkDir(layerRoot, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if layer.skipsPath(filepath.ToSlash(rel)) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if err := rejectSymlinkPathComponents(root, rel); err != nil {
+			return err
+		}
+		paths = append(paths, rel)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
+func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Options, output string, includeSessions bool) error {
 	if err := rejectRemoteBundlePath(output); err != nil {
 		return err
 	}
@@ -5520,6 +5815,30 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 			return err
 		}
 	}
+	// Decide the contents BEFORE opening the output, so a layer that cannot be
+	// read fails the export instead of producing a short bundle.
+	bundleSources := &brainSources{Semantic: sanitizeSemanticSourceForExport(manifest.Sources.Semantic, repoDir)}
+	included := []string{bundleLayerSemantic}
+	var omitted, sessionFamily []string
+	layerFiles := map[string][]string{}
+	var layerOrder []string
+	for _, layer := range brainBundleLayers {
+		paths, err := collectBrainBundleLayerPaths(storage.BrainDir, layer)
+		if err != nil {
+			return err
+		}
+		if len(paths) == 0 {
+			continue
+		}
+		if layer.withSessions && !includeSessions {
+			sessionFamily = append(sessionFamily, layer.name)
+			continue
+		}
+		layerFiles[layer.name] = paths
+		layerOrder = append(layerOrder, layer.name)
+		copyBundleLayerSource(bundleSources, manifest.Sources, layer.name)
+		included = append(included, layer.name)
+	}
 	f, tempPath, finalPath, err := createBundleOutputTemp(output, storage.BrainDir)
 	if err != nil {
 		return err
@@ -5535,8 +5854,31 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 	tw := tar.NewWriter(mw)
 	if err := addBundleManifest(tw, exportManifest{
 		SchemaVersion: brainManifestSchemaVersion,
-		RepoKey:       storage.Key,
-		Sources:       &brainSources{Semantic: sanitizeSemanticSourceForExport(manifest.Sources.Semantic, repoDir)},
+		// GeneratedAt was never set, so every bundle ever produced carried
+		// "0001-01-01T00:00:00Z" -- an artifact with no production time at all.
+		GeneratedAt: opts.Now().UTC(),
+		RepoKey:     storage.Key,
+		// BrainVersion attributes the ARTIFACT to the build that wrote it.
+		// sources.semantic.provider_version cannot do this job: it is the
+		// semantic PROVIDER's version, copied verbatim out of the snapshot
+		// header entire-graph wrote, and validateSemanticSourceMatchesSnapshot
+		// fails the import if the two disagree -- so overwriting it with this
+		// binary's version would be both false and broken.
+		BrainVersion: opts.Version,
+		// Branches is repo structure (branch name, brain-relative directory,
+		// session count) and is what tells a reader which branches a bundle
+		// covers. It was dropped along with everything else that was not the
+		// semantic source.
+		//
+		// repo_root stays out, deliberately and against the letter of the
+		// report that asked for it: it is the PRODUCER's absolute filesystem
+		// path, nothing on the import side ever reads it (the destination
+		// resolves its own), and this exporter already spends
+		// sanitizeSemanticSourceForExport redacting exactly such paths out of
+		// warnings. Putting the host path back in the header would undo that.
+		// repo_key, which is already exported, is the portable identity.
+		Branches: append([]exportBranch(nil), manifest.Branches...),
+		Sources:  bundleSources,
 	}); err != nil {
 		_ = f.Close()
 		return err
@@ -5559,6 +5901,14 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 			return err
 		}
 	}
+	for _, name := range layerOrder {
+		for _, rel := range layerFiles[name] {
+			if err := addBundlePath(tw, storage.BrainDir, rel); err != nil {
+				_ = f.Close()
+				return err
+			}
+		}
+	}
 	if err := tw.Close(); err != nil {
 		_ = f.Close()
 		return err
@@ -5574,7 +5924,19 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 	if err := appendSemanticAudit(storage.BrainDir, "bundle_export", output, checksum); err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "exported bundle: %s\nsha256: %s\n", output, checksum)
+	// Say what is in the archive and what is not. A bundle that silently
+	// carried one layer of seven is the defect; a bundle that carries six and
+	// says nothing would be the same defect with a better ratio.
+	sort.Strings(included)
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "exported bundle: %s\nsha256: %s\n", output, checksum)
+	fmt.Fprintf(out, "includes: %s\n", strings.Join(included, ", "))
+	if len(sessionFamily) > 0 {
+		sort.Strings(sessionFamily)
+		omitted = append(omitted, strings.Join(sessionFamily, "/")+" (captured sessions and their projections; pass --include-sessions)")
+	}
+	omitted = append(omitted, "privacy policy and local operational state (never bundled)")
+	fmt.Fprintf(out, "omits: %s\n", strings.Join(omitted, ", "))
 	return nil
 }
 
@@ -6134,7 +6496,7 @@ func resolvedOutputPath(output string) (string, error) {
 	return filepath.Abs(resolvedExisting)
 }
 
-func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Options, archive, expectedChecksum string) error {
+func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Options, archive, expectedChecksum string, overwrite bool) error {
 	if err := rejectRemoteBundlePath(archive); err != nil {
 		return err
 	}
@@ -6227,6 +6589,16 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 	if err != nil {
 		return err
 	}
+	// Decide the overwrite question BEFORE the first byte is written, so a
+	// refusal leaves the destination brain exactly as it was rather than
+	// half-imported.
+	conflicts, err := brainBundleLayerConflicts(storage.BrainDir, tmpDir)
+	if err != nil {
+		return err
+	}
+	if len(conflicts) > 0 && !overwrite {
+		return fmt.Errorf("bundle import would overwrite brain layers this brain already has (%s); re-run with --overwrite to accept that, or import into a brain without them", strings.Join(conflicts, ", "))
+	}
 	if err := filepath.WalkDir(tmpDir, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -6267,11 +6639,117 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 	if err := writeBrainSemanticSource(storage.BrainDir, storage.Key, importManifest.Sources.Semantic); err != nil {
 		return err
 	}
+	restored, err := restoreBundleBrainLayers(storage.BrainDir, tmpDir)
+	if err != nil {
+		return err
+	}
+	if len(restored) > 0 {
+		if err := writeBrainBundleLayerSources(storage.BrainDir, storage.Key, restored, importManifest); err != nil {
+			return err
+		}
+	}
 	if err := appendSemanticAudit(storage.BrainDir, "bundle_import", archive, sum); err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "imported bundle entries: %d\nsha256: %s\n", imported, sum)
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "imported bundle entries: %d\nsha256: %s\n", imported, sum)
+	fmt.Fprintf(out, "restored layers: %s\n", strings.Join(append([]string{bundleLayerSemantic}, restored...), ", "))
 	return nil
+}
+
+// brainBundleLayerConflicts names the layers a bundle carries that this brain
+// already holds.
+//
+// It exists because restoring a bundle over a live brain replaces that brain's
+// facts, docs and history with the producer's, and the command whose defect
+// report is "a round-trip destroyed my facts" must not close that hole by
+// opening the mirror image of it on the destination side. An import into a
+// brain that has never built those layers -- restore, migration, reproducing a
+// CI failure -- is unaffected and needs no flag.
+func brainBundleLayerConflicts(brainDir, bundleRoot string) ([]string, error) {
+	var conflicts []string
+	for _, layer := range brainBundleLayers {
+		incoming, err := collectBrainBundleLayerPaths(bundleRoot, layer)
+		if err != nil {
+			return nil, err
+		}
+		if len(incoming) == 0 {
+			continue
+		}
+		existing, err := collectBrainBundleLayerPaths(brainDir, layer)
+		if err != nil {
+			return nil, err
+		}
+		if len(existing) > 0 {
+			conflicts = append(conflicts, layer.name)
+		}
+	}
+	return conflicts, nil
+}
+
+// restoreBundleBrainLayers writes the non-semantic layers a bundle carries into
+// the destination brain and reports which ones it restored.
+//
+// Files are written individually rather than by swapping whole directories.
+// That is the same shape the semantic snapshot restore above already uses, and
+// it has the property that matters here: it touches only paths the bundle
+// actually carries, so the destination's privacy tombstones, privacy
+// transactions and worker state -- which no bundle contains -- cannot be
+// deleted by an import. Replacing history/ wholesale would have silently
+// un-excluded every session the destination had tombstoned.
+func restoreBundleBrainLayers(brainDir, bundleRoot string) ([]string, error) {
+	var restored []string
+	for _, layer := range brainBundleLayers {
+		paths, err := collectBrainBundleLayerPaths(bundleRoot, layer)
+		if err != nil {
+			return nil, err
+		}
+		if len(paths) == 0 {
+			continue
+		}
+		for _, rel := range paths {
+			content, err := safeReadFile(filepath.Join(bundleRoot, rel), semanticSnapshotMaxBytes())
+			if err != nil {
+				return nil, err
+			}
+			if err := rejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
+				return nil, err
+			}
+			target := filepath.Join(brainDir, rel)
+			if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+				return nil, err
+			}
+			if err := writeFileAtomic(target, content, 0o600); err != nil {
+				return nil, err
+			}
+		}
+		restored = append(restored, layer.name)
+	}
+	return restored, nil
+}
+
+// writeBrainBundleLayerSources records the restored layers' manifest sources in
+// the destination brain. Without this the files would land on disk and every
+// status, doctor and retrieval surface would still report the layers as absent,
+// because those read the manifest and not the directory.
+func writeBrainBundleLayerSources(brainDir, repoKey string, restored []string, bundle *exportManifest) error {
+	if bundle == nil || bundle.Sources == nil {
+		return nil
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return err
+	}
+	if manifest.Sources == nil {
+		manifest.Sources = &brainSources{}
+	}
+	manifest.SchemaVersion = brainManifestSchemaVersion
+	manifest.RepoKey = repoKey
+	for _, name := range restored {
+		copyBundleLayerSource(manifest.Sources, bundle.Sources, name)
+	}
+	applySessionSourceAliases(manifest)
+	return writeBrainManifestAndReadme(brainDir, *manifest)
 }
 
 func replaceImportedSemanticGeneration(brainDir, bundleRoot string, source *semanticSourceManifest) error {
@@ -6865,12 +7343,38 @@ func validateBundleEntry(header *tar.Header) error {
 		return fmt.Errorf("unsafe bundle path: %s", header.Name)
 	}
 	cleanSlash := filepath.ToSlash(clean)
-	if clean != exportManifestFileName &&
-		!strings.HasPrefix(cleanSlash, filepath.ToSlash(filepath.Join(semanticDirName, semanticSnapshotsDir))+"/") &&
-		!strings.HasPrefix(cleanSlash, filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir))+"/") {
+	if !bundleEntryPathAllowed(clean, cleanSlash) {
 		return fmt.Errorf("bundle entry outside allowed paths: %s", header.Name)
 	}
 	return nil
+}
+
+// bundleEntryPathAllowed is the import-side allowlist, and it is deliberately
+// narrower than "any path under the brain".
+//
+// The skip check runs BEFORE the layer prefix check, so an archive claiming to
+// carry history/tombstones.json, history/privacy/* or history/work/* is
+// refused outright rather than silently dropped: those are the destination's
+// own privacy policy and operational state, and a bundle has no business
+// naming them. semantic/audit.jsonl stays out for the same reason -- only the
+// snapshot and generation subtrees of semantic/ are allowed.
+func bundleEntryPathAllowed(clean, cleanSlash string) bool {
+	if clean == exportManifestFileName {
+		return true
+	}
+	if strings.HasPrefix(cleanSlash, filepath.ToSlash(filepath.Join(semanticDirName, semanticSnapshotsDir))+"/") ||
+		strings.HasPrefix(cleanSlash, filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir))+"/") {
+		return true
+	}
+	for _, layer := range brainBundleLayers {
+		if layer.skipsPath(cleanSlash) {
+			return false
+		}
+		if strings.HasPrefix(cleanSlash, layer.dir+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func appendSemanticAudit(brainDir, action, path, checksum string) error {

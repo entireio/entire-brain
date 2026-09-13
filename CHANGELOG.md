@@ -47,6 +47,51 @@ All notable changes to `entire-brain` are recorded here. The format follows
   key so every spelling of the repository finds it. The conflict message now
   names this command; it used to end with "move one brain/head store aside and
   retry", an instruction to run `mv` by hand with nothing behind it.
+- `bundle export` carried one layer of seven and said nothing about the other
+  six. The exporter hardcoded `Sources: &brainSources{Semantic: …}` and wrote
+  only the `semantic/` subtree, so an export/import round trip into a fresh
+  store destroyed every authored fact — in the one command whose job is moving a
+  brain without losing it. It was never a scope decision: the code was written
+  the day `semantic` was a brain's only source, and `history`, `facts`, `docs`
+  and `patterns` all arrived afterwards. A bundle now carries the semantic
+  index, seed, docs and facts by default; captured sessions and the history and
+  patterns projections built from them travel under `--include-sessions`;
+  session tombstones, privacy transactions and local worker state are never
+  bundled and are refused on import. `bundle import` restores every layer it
+  receives with its manifest source, and refuses — before writing anything — to
+  overwrite a layer the destination already holds unless `--overwrite` is
+  passed. Export prints what it included and what it omitted. The bundle
+  manifest also stops claiming `generated_at: 0001-01-01T00:00:00Z`, keeps
+  `branches`, and records `brain_version`, the build that produced the artifact.
+- `privacy exclude` reported cleanup it had not performed. Excluding a session
+  id that no captured session answers to is a legitimate pre-emptive privacy
+  operation and still succeeds, but it printed "removed or rebuilt its derived
+  projections" for a session that had produced none, and `privacy list` then
+  rendered the tombstone exactly like a completed exclusion forever. Exclude now
+  reports the real inventory the way `purge` already did, names a tombstone that
+  matched nothing, and `privacy list` marks it `UNMATCHED` (`unmatched` in
+  `--json`).
+- `doctor` called an unreadable semantic store a warning, so the default
+  `--fail-on error` gate exited 0 on a brain whose SQLite store was not a
+  database. The `semantic` check is a mixed one — its axes include
+  host-environment reasons like a missing `entire` binary — so it is now split
+  along the scope line #239 introduced: the artifact axes (snapshot, store)
+  become a brain-scoped `error` when unreadable, and the provider axis becomes a
+  separate environment-scoped finding, reported at full severity and never
+  gated. Staleness and a never-built index stay warnings.
+- `facts proposals --json` printed twelve lines of human help to stdout and
+  exited 0 — the only `--json` violation among the 92 nodes that advertise the
+  flag. It now emits the standard JSON error envelope naming the missing verb
+  and exits nonzero. Without `--json` the help is unchanged.
+- `refresh index` exited 1 whenever an index existed, so a scripted refresh loop
+  containing the documented step could be green exactly once. An already-current
+  index is now a no-op that succeeds and says so; a stale or unreadable one is
+  rebuilt; `--force` still rebuilds unconditionally; real failures still exit
+  nonzero.
+- `--version`, `-v` were "unknown flag". `Options.Version` was set but the
+  `cobra.Command`'s own `Version` field never was, so cobra's
+  `InitDefaultVersionFlag` no-opped. Both now print the same string as
+  `entire-brain version`.
 
 ### Changed
 

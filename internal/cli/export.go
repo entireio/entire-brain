@@ -3934,8 +3934,24 @@ type selectedSession struct {
 }
 
 type exportManifest struct {
-	SchemaVersion      int             `json:"schema_version"`
-	GeneratedAt        time.Time       `json:"generated_at"`
+	SchemaVersion int       `json:"schema_version"`
+	GeneratedAt   time.Time `json:"generated_at"`
+	// BrainVersion is the entire-brain build that PRODUCED the document. It is
+	// set only on exported bundles -- artifacts that leave this machine and so
+	// have to be attributable to a release.
+	//
+	// It is not a duplicate of sources.semantic.provider_version, which is the
+	// semantic PROVIDER's version (entire-graph's), copied verbatim out of the
+	// snapshot header the provider wrote. That field reading "dev" on a machine
+	// whose installed Entire CLI is itself a dev build is CORRECT, and
+	// overwriting it with this binary's version would both lie and break
+	// validateSemanticSourceMatchesSnapshot, which fails an import when the
+	// manifest and the snapshot header disagree. The producing build's own
+	// version was simply never recorded anywhere; this is that field.
+	//
+	// omitempty, and never set on the on-disk brain manifest, so no stored
+	// manifest gains a field an older build would then refuse to rewrite.
+	BrainVersion       string          `json:"brain_version,omitempty"`
 	RepoRoot           string          `json:"repo_root,omitempty"`
 	RepoKey            string          `json:"repo_key,omitempty"`
 	EntireCLIVersion   string          `json:"entire_cli_version,omitempty"`

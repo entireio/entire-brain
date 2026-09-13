@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -195,6 +196,122 @@ func doctorDirectoryFinding(label string, health memoryInstallDirectoryHealth) d
 	}
 }
 
+// doctorSemanticProviderAxis is the freshness axis that describes the SEMANTIC
+// PROVIDER -- the `entire graph` surface of a different product this binary
+// neither installs nor repairs -- rather than any artifact in this brain.
+const doctorSemanticProviderAxis = "provider"
+
+// doctorSemanticArtifactAxes are the freshness axes that describe persisted
+// semantic artifacts this brain CLAIMS to have: the provider snapshot on disk
+// and the derived SQLite store. An `unsafe` reading on one of these is not a
+// staleness observation and not a host-environment observation -- it is this
+// brain's own recorded data failing to load.
+//
+// The `semantic` axis is deliberately NOT here. Its only state is "missing"
+// ("no semantic source in manifest"), which is the ordinary condition of a
+// brain that has not run `refresh index` yet. Promoting never-built to `error`
+// would fail the gate on every fresh brain, which is the same mistake in the
+// opposite direction.
+var doctorSemanticArtifactAxes = map[string]bool{
+	"snapshot": true,
+	"store":    true,
+}
+
+// semanticAxisBroken reports an axis state that means "what the manifest points
+// at could not be read", as opposed to "this is behind" (stale, dirty-*),
+// "this is incomplete" (degraded), or "this was never built" (missing).
+func semanticAxisBroken(state string) bool {
+	return state == "unsafe"
+}
+
+// semanticAxisCurrent mirrors freshnessSummary's notion of an axis with nothing
+// to say.
+func semanticAxisCurrent(state string) bool {
+	return state == "ok" || state == "clean"
+}
+
+// semanticDoctorFindings splits the semantic freshness report along the line
+// doctor's exit gate already draws: what is wrong with THIS BRAIN, and what is
+// wrong with the host environment around it.
+//
+// It was one mixed finding, and the mix was load-bearing in the wrong
+// direction. Its axes include `store=unsafe (validate semantic sqlite
+// integrity: file is not a database)` -- the strongest evidence this tool can
+// produce that a brain is broken -- and `provider=degraded (exec: "entire":
+// executable file not found)`, which says nothing about the brain and fires on
+// any machine without the host CLI. Reporting the pair as a single `warn` meant
+// the default `--fail-on error` gate exited 0 on a brain whose semantic store
+// no longer opens. Promoting the whole check to `error` instead would fail the
+// gate on every runner without `entire`, which is exactly why #239 left this
+// check alone when it scoped the others.
+//
+// So the axes are separated rather than the severity being guessed:
+//
+//   - the artifact axes become a brain-scoped finding, and an `unsafe` reading
+//     on one of them is an `error` -- gated, because a store that is not a
+//     database is a fact about this brain and no environment can excuse it.
+//   - the provider axis becomes its own environment-scoped finding, reported at
+//     full severity and never gated, for the same reason memory_install is not.
+//   - head, branch_tip, worktree and semantic_completeness are staleness and
+//     completeness, not corruption. They stay warnings on the brain finding.
+func semanticDoctorFindings(report staleReport) []doctorCheckResult {
+	names := make([]string, 0, len(report.Axes))
+	for name := range report.Axes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var brainParts, providerParts []string
+	brainState := "ok"
+	providerState := "ok"
+	providerDetail := ""
+	for _, name := range names {
+		axis := report.Axes[name]
+		if name == doctorSemanticProviderAxis {
+			if semanticAxisCurrent(axis.State) {
+				providerDetail = axis.Detail
+				continue
+			}
+			providerState = "warn"
+			providerParts = append(providerParts, semanticAxisPart(name, axis))
+			continue
+		}
+		if semanticAxisCurrent(axis.State) {
+			continue
+		}
+		brainParts = append(brainParts, semanticAxisPart(name, axis))
+		if doctorSemanticArtifactAxes[name] && semanticAxisBroken(axis.State) {
+			brainState = "error"
+		} else if brainState != "error" {
+			brainState = "warn"
+		}
+	}
+
+	// The detail keeps the shape a reader already knows from `status
+	// --verbose`: the aggregate severity, then the axes that explain it.
+	brainDetail := "ok"
+	if len(brainParts) > 0 {
+		brainDetail = report.Severity + ": " + strings.Join(brainParts, "; ")
+	}
+	if providerDetail == "" {
+		providerDetail = "ok"
+	}
+	if len(providerParts) > 0 {
+		providerDetail = strings.Join(providerParts, "; ")
+	}
+	return []doctorCheckResult{
+		{Name: "semantic", State: brainState, Detail: brainDetail},
+		{Name: "semantic provider", State: providerState, Detail: providerDetail, Scope: doctorScopeEnvironment},
+	}
+}
+
+func semanticAxisPart(name string, axis staleAxis) string {
+	if axis.Detail != "" {
+		return fmt.Sprintf("%s=%s (%s)", name, axis.State, axis.Detail)
+	}
+	return fmt.Sprintf("%s=%s", name, axis.State)
+}
+
 func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool, failOn string) error {
 	failOn, err := normalizeDoctorFailOn(failOn)
 	if err != nil {
@@ -293,20 +410,7 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool, failOn string) er
 		if semReport, semErr := semanticStaleReport(cmd.Context(), opts, repoRoot); semErr != nil {
 			report.Checks = append(report.Checks, doctorCheckResult{Name: "semantic", State: "warn", Detail: "unavailable: " + semErr.Error()})
 		} else {
-			state := "ok"
-			detail := semReport.Severity
-			if semReport.Severity != "ok" {
-				state = "warn"
-				// A bare severity was one word, and a strictly SMALLER one word
-				// than `status --verbose` already prints: a reader sent here to
-				// learn why the brain is unsafe learned nothing. freshnessSummary
-				// is the same renderer `overview` uses, so a shredded store now
-				// reads as "store=unsafe (validate semantic sqlite integrity: …)".
-				if summary := freshnessSummary(semReport); summary != "" {
-					detail += ": " + summary
-				}
-			}
-			report.Checks = append(report.Checks, doctorCheckResult{Name: "semantic", State: state, Detail: detail})
+			report.Checks = append(report.Checks, semanticDoctorFindings(semReport)...)
 		}
 	}
 	if jsonOut {

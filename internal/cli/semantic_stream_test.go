@@ -458,13 +458,13 @@ func TestBundleRoundTripToleratesStreamedSnapshotRecords(t *testing.T) {
 		t.Fatalf("index: %v", err)
 	}
 	output := filepath.Join(t.TempDir(), "brain.tar")
-	if err := runSemanticBundleExport(cmd.Context(), cmd, exportOpts, output); err != nil {
+	if err := runSemanticBundleExport(cmd.Context(), cmd, exportOpts, output, false); err != nil {
 		t.Fatalf("export: %v", err)
 	}
 
 	importEnv := semanticTestEnv(t, repoDir)
 	importOpts := Options{Env: importEnv, Runner: runner, Now: time.Now}
-	if err := runSemanticBundleImport(cmd.Context(), cmd, importOpts, output, bundleSHA256(t, output)); err != nil {
+	if err := runSemanticBundleImport(cmd.Context(), cmd, importOpts, output, bundleSHA256(t, output), false); err != nil {
 		t.Fatalf("import: %v", err)
 	}
 	report, err := semanticStaleReport(cmd.Context(), importOpts, repoDir)

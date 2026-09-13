@@ -33,6 +33,20 @@ type factsProposalsOptions struct {
 	jsonOut bool
 }
 
+// commandSubcommandNames lists a group node's verbs in registration order, so
+// the "requires a subcommand" error names exactly what exists rather than a
+// hand-maintained copy that drifts the next time a verb is added.
+func commandSubcommandNames(cmd *cobra.Command) []string {
+	names := make([]string, 0, len(cmd.Commands()))
+	for _, sub := range cmd.Commands() {
+		if sub.Hidden || sub.Name() == "help" {
+			continue
+		}
+		names = append(names, sub.Name())
+	}
+	return names
+}
+
 func newFactsProposalsCommand(opts Options) *cobra.Command {
 	var pOpts factsProposalsOptions
 
@@ -56,6 +70,18 @@ The target repo, API base URL, and bearer token resolve from --repo-id /` + " " 
 --api-url / ` + envAPIBaseURL + `, and --token / ` + envAPIToken + `.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// `--json` is a promise that this invocation answers in JSON. The
+			// group node has no result of its own, and printing human help to
+			// stdout under exit 0 told a machine caller "here is your JSON" and
+			// handed it prose instead. It must not quietly run `list` either:
+			// that verb is HOSTED, and turning an inert invocation into network
+			// egress is exactly what the opt-in gates above exist to prevent.
+			// So name what is missing, in the JSON error envelope every other
+			// --json surface already uses (see wrapJSONErrorRendering), and
+			// exit nonzero. Without --json the human help is unchanged.
+			if pOpts.jsonOut {
+				return fmt.Errorf("facts proposals requires a subcommand: %s", strings.Join(commandSubcommandNames(cmd), ", "))
+			}
 			return cmd.Help()
 		},
 	}

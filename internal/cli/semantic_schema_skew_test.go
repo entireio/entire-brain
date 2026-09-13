@@ -206,7 +206,7 @@ func TestBundleImportRecordsNewerMinorWarning(t *testing.T) {
 	})
 	if err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{
 		Version: "test", Env: env, Runner: runner, Now: time.Now,
-	}, archive, bundleSHA256(t, archive)); err != nil {
+	}, archive, bundleSHA256(t, archive), false); err != nil {
 		t.Fatalf("a newer supported-major minor must import: %v", err)
 	}
 	source := mustSemanticSource(t, env)
@@ -237,7 +237,7 @@ func TestBundleImportSilentAtSupportedMinor(t *testing.T) {
 	})
 	if err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{
 		Version: "test", Env: env, Runner: runner, Now: time.Now,
-	}, archive, bundleSHA256(t, archive)); err != nil {
+	}, archive, bundleSHA256(t, archive), false); err != nil {
 		t.Fatalf("import: %v", err)
 	}
 	for _, warning := range mustSemanticSource(t, env).Warnings {

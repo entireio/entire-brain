@@ -46,8 +46,15 @@ func NewRootCommand(opts Options) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:           "entire-brain",
-		Short:         "Build and query a local repository brain for agents",
+		Use:   "entire-brain",
+		Short: "Build and query a local repository brain for agents",
+		// Version is what makes cobra install `--version` at all:
+		// InitDefaultVersionFlag is a no-op on a command whose Version is
+		// empty, so leaving it unset while carrying the value on Options meant
+		// `--version`, `-v` and `-V` all failed with "unknown flag" on a binary
+		// that knows perfectly well what it is. It is the same string the
+		// `version` subcommand and the MCP serverInfo already report.
+		Version:       opts.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Long: `entire-brain is an external-command plugin for the Entire CLI.
@@ -59,6 +66,11 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 			return cmd.Help()
 		},
 	}
+	// One binary must not answer "what version are you" two different ways.
+	// cobra's default template prints "entire-brain version X"; `entire-brain
+	// version` prints the bare string, and that is the form scripts already
+	// parse.
+	cmd.SetVersionTemplate("{{.Version}}\n")
 
 	// The shell-completion generator targets the standalone binary name and is
 	// dead weight when dispatched as `entire brain`, so drop it entirely.
