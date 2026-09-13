@@ -114,7 +114,14 @@ type seedHistoryCoverage struct {
 	OldestSessionAt         *time.Time          `json:"oldest_session_at,omitempty"`
 	ExportedCheckpoints     int                 `json:"exported_checkpoints"`
 	UncoveredCommits        []seedCoveredCommit `json:"uncovered_commits,omitempty"`
-	GeneratedFrom           string              `json:"generated_from"`
+	// UncoveredCommitsTotal / UncoveredCommitsTruncated are how the manifest
+	// copy of this record admits it is a sample. They are omitempty, so a
+	// coverage record that carries every uncovered commit is byte-identical to
+	// what previous builds wrote; they appear only when rows were dropped, and
+	// then they say how many there were. See manifestSeedHistoryCoverage.
+	UncoveredCommitsTotal     int    `json:"uncovered_commits_total,omitempty"`
+	UncoveredCommitsTruncated bool   `json:"uncovered_commits_truncated,omitempty"`
+	GeneratedFrom             string `json:"generated_from"`
 }
 
 type seedCoveredCommit struct {
@@ -317,6 +324,13 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	if scan.Coverage != nil && scan.Coverage.MissingSessionCommits > 0 {
 		scan.Warnings = append(scan.Warnings, fmt.Sprintf("%d commits after oldest session have no Entire checkpoint trailer; see seed/history-gaps.md", scan.Coverage.MissingSessionCommits))
 	}
+	// The manifest gets a bounded projection of the coverage record; the full
+	// per-commit list stays in seed/history-gaps.md, which is where it is meant
+	// to be read. See manifestSeedHistoryCoverage.
+	manifestCoverage := manifestSeedHistoryCoverage(scan.Coverage)
+	if manifestCoverage != nil && manifestCoverage.UncoveredCommitsTruncated {
+		scan.Warnings = append(scan.Warnings, fmt.Sprintf("manifest lists %d of %d uncovered commits; the full list is in seed/history-gaps.md", len(manifestCoverage.UncoveredCommits), manifestCoverage.UncoveredCommitsTotal))
+	}
 	var seedManifest *seedSourceManifest
 	commitSeed := func() error {
 		if err := writeSeedArtifacts(outputDir, scan); err != nil {
@@ -334,7 +348,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 			Entrypoints:       scan.Entrypoints,
 			Commands:          scan.Commands,
 			HistoryBaseline:   buildSeedHistoryBaseline(ctx, opts.Runner, repoDir, outputDir),
-			HistoryCoverage:   scan.Coverage,
+			HistoryCoverage:   manifestCoverage,
 			Warnings:          scan.Warnings,
 			DeterministicPath: []string{"seed/repo-overview.md", "seed/architecture.md", "seed/commands.md", "seed/conventions.md", "seed/risks.md", "seed/history-gaps.md", "seed/file-index.json"},
 		}
@@ -397,7 +411,17 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	fmt.Fprintf(out, "seeded brain from %d files\n", len(scan.Files))
 	fmt.Fprintf(out, "output: %s\n", outputDir)
 	if len(seedManifest.Warnings) > 0 {
+		// A bare count is not a report. On a 50,000-file repository the entire
+		// output was "seeded brain from 2000 files" followed by "warnings: 1",
+		// which withholds the one sentence that says 96% of the repository was
+		// never read -- a sentence already recorded, in the manifest this very
+		// line is summarizing. `refresh sessions` has always printed the count
+		// AND the text (runExportSessions); seed printed only the count, so the
+		// stage that drops the most content explained the least.
 		fmt.Fprintf(out, "warnings: %d\n", len(seedManifest.Warnings))
+		for _, warning := range seedManifest.Warnings {
+			fmt.Fprintf(out, "warning: %s\n", warning)
+		}
 	}
 	return nil
 }
@@ -405,7 +429,13 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repoKey string, opts seedCommandOptions) (seedScanResult, error) {
 	paths, warnings := listSeedFiles(ctx, runner, repoDir, opts)
 	if len(paths) > opts.maxFiles {
-		warnings = append(warnings, fmt.Sprintf("file scan capped at %d files", opts.maxFiles))
+		// Name what was dropped, not just the ceiling that dropped it. "file
+		// scan capped at 2000 files" is true of a 2,001-file repository and of
+		// a 100,000-file one, and only the second is a reason to raise the cap.
+		// The reader cannot tell which they have from the cap alone -- the
+		// count of files that were never looked at is the number that decides
+		// whether this warning matters.
+		warnings = append(warnings, fmt.Sprintf("file scan capped at %d of %d files; %d files were not read (raise with --max-files)", opts.maxFiles, len(paths), len(paths)-opts.maxFiles))
 		paths = paths[:opts.maxFiles]
 	}
 	commit := strings.TrimSpace(string(runGitOutput(ctx, runner, repoDir, "rev-parse", "HEAD")))
@@ -1056,6 +1086,49 @@ func buildSeedHistoryCoverage(ctx context.Context, runner CommandRunner, repoDir
 		}
 	}
 	return coverage
+}
+
+// seedManifestMaxUncoveredCommits bounds the per-commit gap list that is copied
+// into the brain manifest.
+//
+// The list had no bound at all, and it is one record per commit that carries no
+// Entire checkpoint trailer -- which is EVERY commit of every repository that
+// predates Entire. At roughly 420 bytes each (hash, parents, timestamp, author,
+// subject, body excerpt) it crosses maxManifestBytes at about 40,000 commits, a
+// size an ordinary five-year-old repository reaches, and the manifest writer had
+// no ceiling to stop it. The brain then wrote a manifest it could never read
+// back: every subsequent command, status and doctor included, failed with
+// "manifest.json exceeds maximum size of 16777216 bytes", and nothing short of
+// `reset` recovered it. Measured on a 50,000-commit fixture: 28 MB manifest,
+// 21 MB of it this one field, and the brain bricked on the very next stage.
+//
+// 500 rows is a sample, and the point of a sample here is to show the shape of
+// the gap (which commits, from when, by whom) rather than to enumerate it. The
+// enumeration already has a home: seed/history-gaps.md is rendered from the
+// unbounded in-memory record and keeps every row. The counts in this struct are
+// totals over all commits and stay exact, so nothing that reads them learns a
+// smaller number than the truth.
+const seedManifestMaxUncoveredCommits = 500
+
+// manifestSeedHistoryCoverage returns the copy of a coverage record that is safe
+// to embed in the brain manifest: identical in every count, with the per-commit
+// list bounded and, when it was bounded, saying so.
+//
+// It copies rather than mutating because the caller's record is what
+// writeSeedArtifacts renders seed/history-gaps.md from, and that document is
+// supposed to be complete.
+func manifestSeedHistoryCoverage(coverage *seedHistoryCoverage) *seedHistoryCoverage {
+	if coverage == nil {
+		return nil
+	}
+	if len(coverage.UncoveredCommits) <= seedManifestMaxUncoveredCommits {
+		return coverage
+	}
+	bounded := *coverage
+	bounded.UncoveredCommitsTotal = len(coverage.UncoveredCommits)
+	bounded.UncoveredCommitsTruncated = true
+	bounded.UncoveredCommits = append([]seedCoveredCommit(nil), coverage.UncoveredCommits[:seedManifestMaxUncoveredCommits]...)
+	return &bounded
 }
 
 func parseSeedGitLog(data []byte) []seedCoveredCommit {
