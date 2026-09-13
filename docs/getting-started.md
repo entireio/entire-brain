@@ -1,5 +1,20 @@
 # Getting Started
 
+## Install and discover agent instructions
+
+Run `entire brain init-agents` in the consuming project to install
+`.entire/brain-agent.md` plus managed pointers in `AGENTS.md` and
+`CLAUDE.md`. Reruns update only Brain's blocks and preserve your own text.
+Use `--repo <path>` for another project. Installation does not build indexes,
+call an agent, or start services.
+
+`entire brain agent-guide` prints the same guide; `guide` remains an alias.
+Use `entire brain capabilities --json` to discover compiled features and their
+requirements without a repository. Use `status --details --json` for the
+current repository's readiness. Graph's language/relation inventory remains
+available through `entire graph capabilities --json`.
+
+
 This guide takes you from nothing to querying a local repository brain. No team
 context is assumed.
 
@@ -372,7 +387,7 @@ entire brain recall "why did we pick this default"  # durable facts for the curr
 entire brain get fact:<id>                     # fetch one item in full
 ```
 
-Add `--json` to any of these for machine-readable output. `entire brain guide`
+Add `--json` to any of these for machine-readable output. `entire brain agent-guide`
 prints the recommended command set for a coding agent.
 
 ### Optional: distill durable facts

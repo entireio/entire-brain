@@ -1,5 +1,20 @@
 # Semantic Agent Guide
 
+## Install and discover agent instructions
+
+Run `entire brain init-agents` in the consuming project to install
+`.entire/brain-agent.md` plus managed pointers in `AGENTS.md` and
+`CLAUDE.md`. Reruns update only Brain's blocks and preserve your own text.
+Use `--repo <path>` for another project. Installation does not build indexes,
+call an agent, or start services.
+
+`entire brain agent-guide` prints the same guide; `guide` remains an alias.
+Use `entire brain capabilities --json` to discover compiled features and their
+requirements without a repository. Use `status --details --json` for the
+current repository's readiness. Graph's language/relation inventory remains
+available through `entire graph capabilities --json`.
+
+
 Use the local semantic brain as task-specific context. Treat freshness as part
 of the answer, not as decoration.
 
