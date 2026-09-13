@@ -1,0 +1,1 @@
+commit/push first, then rename guide to agent-guide and add init-agents and capabilities.

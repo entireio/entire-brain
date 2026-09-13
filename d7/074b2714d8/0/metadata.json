@@ -1,0 +1,70 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1.0.20260913155315-d419fef66327",
+  "checkpoint_id": "d7074b2714d8",
+  "session_id": "01a09c2f-51ca-7702-9dc0-39dcf5184bb3",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-13T19:49:59.84162Z",
+  "branch": "codex/brain-agent-setup",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "CHANGELOG.md",
+    "README.md",
+    "docs/agent_benchmark_plan.md",
+    "docs/getting-started.md",
+    "docs/reference.md",
+    "docs/semantic_agent_guide.md",
+    "docs/semantic_brain_plan.md",
+    "internal/cli/agent_setup.go",
+    "internal/cli/agent_setup_test.go",
+    "internal/cli/agent_surface.go",
+    "internal/cli/capabilities.go",
+    "internal/cli/guide_contract_test.go",
+    "internal/cli/root.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "8f2005a8a9af",
+  "checkpoint_transcript_start": 399,
+  "transcript_lines_at_start": 399,
+  "compact_transcript_start": 56,
+  "token_usage": {
+    "input_tokens": 37561,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2938624,
+    "output_tokens": 13981,
+    "api_call_count": 26,
+    "subagent_tokens_complete": true
+  },
+  "session_metrics": {
+    "turn_count": 10
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-13T19:49:59.717723Z",
+    "agent_lines": 776,
+    "agent_removed": 14,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 776,
+    "total_lines_changed": 790,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 776,
+      "agent_lines_removed": 14
+    }
+  ]
+}
