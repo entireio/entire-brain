@@ -120,6 +120,22 @@ func factsFileRelPath(branch string) string {
 	return filepath.ToSlash(filepath.Join(factsBranchRelDir(branch), factsFileName))
 }
 
+// factBranchStoreExists reports whether the brain actually holds a facts.ndjson
+// for a branch.
+//
+// loadFacts deliberately returns an empty slice for a missing file so first-run
+// callers need no special case, which means every read surface reports a
+// misspelled branch exactly as it reports a real branch with nothing on it.
+// Wherever that difference matters — naming a promote endpoint, say — this is
+// the check that tells the two apart.
+func factBranchStoreExists(brainDir, branch string) bool {
+	if brainDir == "" || branch == "" {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath(branch))))
+	return err == nil
+}
+
 // loadFacts reads a branch's facts.ndjson. A missing file is not an error: it
 // yields an empty slice so first-run callers do not special-case it. Blank
 // lines are skipped; a malformed line is a hard error so a corrupt store is

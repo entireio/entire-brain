@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -143,7 +144,33 @@ type factsReviewActions struct {
 	jsonOut             bool
 }
 
+// validate refuses a request that asks for the same proposal to be both applied
+// and rejected.
+//
+// The resolver below tests applyThis before rejectThis, so every contradictory
+// combination used to settle the apply half, drop the reject half on the floor
+// and report "resolved 1 proposal(s)" — a user who mistyped which side they
+// meant was told their decision had landed while the opposite one actually did.
+// A contradiction is not a preference to break silently; it is a question only
+// the caller can answer.
+func (act factsReviewActions) validate() error {
+	switch {
+	case act.applyAll && act.rejectAll:
+		return fmt.Errorf("--apply-all and --reject-all cannot both be set")
+	case act.applyAll && act.reject != "":
+		return fmt.Errorf("--apply-all and --reject %s cannot both be set: --apply-all already settles that proposal", act.reject)
+	case act.rejectAll && act.apply != "":
+		return fmt.Errorf("--reject-all and --apply %s cannot both be set: --reject-all already settles that proposal", act.apply)
+	case act.apply != "" && act.apply == act.reject:
+		return fmt.Errorf("--apply and --reject cannot both name %s", act.apply)
+	}
+	return nil
+}
+
 func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, act factsReviewActions) error {
+	if err := act.validate(); err != nil {
+		return err
+	}
 	now := opts.Now().UTC()
 
 	// No resolution requested: list pending proposals.
@@ -305,6 +332,9 @@ func newFactsPromoteCommand(opts Options) *cobra.Command {
 			if target == from {
 				return fmt.Errorf("--from and --into must differ")
 			}
+			if err := validateFactsPromoteEndpoints(cmd.Context(), opts, repoDir, brainDir, from, target); err != nil {
+				return err
+			}
 			return runFactsPromote(cmd, opts, brainDir, from, target, strategy, jsonOut)
 		},
 	}
@@ -313,6 +343,46 @@ func newFactsPromoteCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&strategy, "strategy", "keep-both", "Conflict strategy: keep-both, prefer-source, or prefer-target")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the result summary as JSON")
 	return cmd
+}
+
+// factsBranchIsReal reports whether a branch name still names something: a ref
+// git knows, or a fact store this brain already holds. The second half matters
+// because a merged feature branch is commonly deleted while its facts live on,
+// and promoting those forward is the whole point of the command.
+func factsBranchIsReal(ctx context.Context, opts Options, repoDir, brainDir, branch string) bool {
+	if factBranchStoreExists(brainDir, branch) {
+		return true
+	}
+	return gitRefExists(ctx, opts.Runner, repoDir, "refs/heads/"+branch) ||
+		gitRefExists(ctx, opts.Runner, repoDir, "refs/remotes/origin/"+branch)
+}
+
+// validateFactsPromoteEndpoints checks the two branch names promote was handed.
+// Neither used to be checked at all, and each typo failed in its own quiet way:
+//
+//   - a bad --from loaded nothing (loadFacts reads a missing store as an empty
+//     branch) and reported "promoted 0 fact(s)" — the same success line a real
+//     but empty source produces, so the user had no way to tell a typo from a
+//     branch that genuinely had nothing to give;
+//   - a bad --into was worse than quiet. writeFacts creates the target store on
+//     demand, so promote happily forked the fact set into a directory keyed to a
+//     branch that does not exist. Nothing reads it back, no later command names
+//     it, and no branch can ever reach it: the facts are gone while the command
+//     reports success.
+//
+// So both endpoints must name something real, and --from must additionally have
+// facts — "nothing to promote" is a distinct, stateable outcome, not a success.
+func validateFactsPromoteEndpoints(ctx context.Context, opts Options, repoDir, brainDir, from, into string) error {
+	if !factsBranchIsReal(ctx, opts, repoDir, brainDir, from) {
+		return fmt.Errorf("--from %q is not a branch: git does not know it and this brain holds no facts for it", from)
+	}
+	if !factBranchStoreExists(brainDir, from) {
+		return fmt.Errorf("--from %q has no facts to promote", from)
+	}
+	if !factsBranchIsReal(ctx, opts, repoDir, brainDir, into) {
+		return fmt.Errorf("--into %q is not a branch: git does not know it and this brain holds no facts for it; promoting into it would strand a fact store no branch can reach", into)
+	}
+	return nil
 }
 
 func runFactsPromote(cmd *cobra.Command, opts Options, brainDir, from, into, strategy string, jsonOut bool) error {
