@@ -189,12 +189,11 @@ func TestBrainIngestTracesStaysInsideTheBoundRepository(t *testing.T) {
 	if err := os.WriteFile(foreign, []byte(`{"traces":[]}`), 0o600); err != nil {
 		t.Fatalf("write foreign trace file: %v", err)
 	}
-	env := EntireEnv{RepoRoot: root}
 
 	// Refused: an absolute path outside the bound repository, whether or not it
 	// exists -- so nothing can be learned from the difference.
 	for _, path := range []string{foreign, filepath.Join(outside, "absent.json"), "/etc/hosts", "../escape.json"} {
-		resolved, err := mcpResolveTracePath(env, "brain_ingest_traces", path)
+		resolved, err := mcpResolveTracePath(root, "brain_ingest_traces", path)
 		if err == nil {
 			t.Errorf("path %q was accepted and resolved to %q", path, resolved)
 			continue
@@ -209,7 +208,7 @@ func TestBrainIngestTracesStaysInsideTheBoundRepository(t *testing.T) {
 
 	// Accepted: inside the repository, absolute or relative to the bound root.
 	for _, path := range []string{inside, "traces.json", "./traces.json"} {
-		resolved, err := mcpResolveTracePath(env, "brain_ingest_traces", path)
+		resolved, err := mcpResolveTracePath(root, "brain_ingest_traces", path)
 		if err != nil {
 			t.Errorf("path %q inside the bound repository was refused: %v", path, err)
 			continue
@@ -220,9 +219,48 @@ func TestBrainIngestTracesStaysInsideTheBoundRepository(t *testing.T) {
 	}
 
 	// A missing path argument is still a missing-argument error, not a scope one.
-	if _, err := mcpResolveTracePath(env, "brain_ingest_traces", "  "); err == nil ||
+	if _, err := mcpResolveTracePath(root, "brain_ingest_traces", "  "); err == nil ||
 		!strings.Contains(err.Error(), "path is required") {
 		t.Errorf("empty path error = %v, want \"path is required\"", err)
+	}
+}
+
+// TestTraceContainmentHoldsForAnUnboundServer pins the gap a live probe found
+// after the containment landed: it was enforced against env.RepoRoot alone, so
+// a server started by cd-ing into a repository -- no ENTIRE_REPO_ROOT -- read
+// any absolute path and still answered the two failures differently.
+//
+//	UNBOUND  /etc/hosts -> "invalid character '#' looking for beginning of value"
+//	BOUND    /etc/hosts -> "... is scoped to the MCP server's bound repository"
+//
+// The oracle stayed open in a launch mode this surface endorses: mcpRepoLocalStorage
+// exists precisely so a cwd launch answers brain_list_projects. The root is now
+// resolved by the caller, so both launches enforce the same scope. A process that
+// is genuinely not inside a repository still has no scope to enforce.
+func TestTraceContainmentHoldsForAnUnboundServer(t *testing.T) {
+	root := t.TempDir()
+	inside := filepath.Join(root, "traces.json")
+	if err := os.WriteFile(inside, []byte(`{"traces":[]}`), 0o600); err != nil {
+		t.Fatalf("write trace file: %v", err)
+	}
+
+	// The resolved cwd repository stands in for what mcpConfigRepoRoot returns
+	// for an unbound server: the same value, reached without ENTIRE_REPO_ROOT.
+	for _, path := range []string{"/etc/hosts", filepath.Join(t.TempDir(), "absent.json")} {
+		if _, err := mcpResolveTracePath(root, "brain_ingest_traces", path); err == nil {
+			t.Errorf("unbound server accepted %q", path)
+		} else if strings.Contains(err.Error(), "no such file") || strings.Contains(err.Error(), "invalid character") {
+			t.Errorf("unbound refusal for %q leaks existence or parseability: %v", path, err)
+		}
+	}
+	if _, err := mcpResolveTracePath(root, "brain_ingest_traces", inside); err != nil {
+		t.Errorf("unbound server refused a path inside its own repository: %v", err)
+	}
+
+	// No repository at all is the one remaining latitude, matching
+	// brain_index_repository: nothing to enforce against.
+	if _, err := mcpResolveTracePath("", "brain_ingest_traces", "/etc/hosts"); err != nil {
+		t.Errorf("a server outside any repository must keep the index tool's latitude: %v", err)
 	}
 }
 
