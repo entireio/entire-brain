@@ -6,6 +6,14 @@ import (
 	"testing"
 )
 
+// gitHardenWant builds an expectation out of gitHardenConfig itself, so adding
+// a neutralizer to the prefix does not break every case in this file at once.
+// The prefix's CONTENTS are pinned separately by TestGitHardenConfigIsPinned,
+// which is what stops "derive it" from decaying into "assert nothing".
+func gitHardenWant(rest ...string) []string {
+	return append(slices.Clone(gitHardenConfig), rest...)
+}
+
 func TestHardenedGitArgs(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -16,42 +24,42 @@ func TestHardenedGitArgs(t *testing.T) {
 		{
 			name: "diff gains both flags after the subcommand",
 			in:   []string{"diff", "--binary", "HEAD"},
-			want: []string{"-c", "core.fsmonitor=false", "diff", "--no-ext-diff", "--no-textconv", "--binary", "HEAD"},
+			want: gitHardenWant("diff", "--no-ext-diff", "--no-textconv", "--binary", "HEAD"),
 		},
 		{
 			name: "flags land before the pathspec separator",
 			in:   []string{"diff", "--cached", "--binary", "HEAD", "--", ".", ":(exclude).env"},
-			want: []string{"-c", "core.fsmonitor=false", "diff", "--no-ext-diff", "--no-textconv", "--cached", "--binary", "HEAD", "--", ".", ":(exclude).env"},
+			want: gitHardenWant("diff", "--no-ext-diff", "--no-textconv", "--cached", "--binary", "HEAD", "--", ".", ":(exclude).env"),
 		},
 		{
 			name: "existing caller flags are not duplicated",
 			in:   []string{"diff", "--unified=0", "--no-ext-diff", "--no-color", "HEAD"},
-			want: []string{"-c", "core.fsmonitor=false", "diff", "--no-textconv", "--unified=0", "--no-ext-diff", "--no-color", "HEAD"},
+			want: gitHardenWant("diff", "--no-textconv", "--unified=0", "--no-ext-diff", "--no-color", "HEAD"),
 		},
 		{
 			name: "a leading -c global option is stepped over",
 			in:   []string{"-c", "core.quotepath=false", "diff", "--name-only", "-z"},
-			want: []string{"-c", "core.fsmonitor=false", "-c", "core.quotepath=false", "diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z"},
+			want: gitHardenWant("-c", "core.quotepath=false", "diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z"),
 		},
 		{
 			name: "diff-tree is in the family",
 			in:   []string{"-c", "core.quotepath=false", "diff-tree", "--no-commit-id", "-r", "deadbeef"},
-			want: []string{"-c", "core.fsmonitor=false", "-c", "core.quotepath=false", "diff-tree", "--no-ext-diff", "--no-textconv", "--no-commit-id", "-r", "deadbeef"},
+			want: gitHardenWant("-c", "core.quotepath=false", "diff-tree", "--no-ext-diff", "--no-textconv", "--no-commit-id", "-r", "deadbeef"),
 		},
 		{
 			name: "status rejects the diff flags so it only gets config",
 			in:   []string{"status", "--porcelain", "--untracked-files=all"},
-			want: []string{"-c", "core.fsmonitor=false", "status", "--porcelain", "--untracked-files=all"},
+			want: gitHardenWant("status", "--porcelain", "--untracked-files=all"),
 		},
 		{
 			name: "ls-files rejects the diff flags so it only gets config",
 			in:   []string{"ls-files", "--others", "--exclude-standard"},
-			want: []string{"-c", "core.fsmonitor=false", "ls-files", "--others", "--exclude-standard"},
+			want: gitHardenWant("ls-files", "--others", "--exclude-standard"),
 		},
 		{
 			name: "clone keeps its argv intact after the config prefix",
 			in:   []string{"clone", "--quiet", "--", "https://example.invalid/r.git", "dest"},
-			want: []string{"-c", "core.fsmonitor=false", "clone", "--quiet", "--", "https://example.invalid/r.git", "dest"},
+			want: gitHardenWant("clone", "--quiet", "--", "https://example.invalid/r.git", "dest"),
 		},
 		{
 			name: "empty input yields nothing to run",
@@ -70,9 +78,10 @@ func TestHardenedGitArgs(t *testing.T) {
 	}
 }
 
-// Every git invocation must end up with the fsmonitor neutralizer, and every
-// invocation that can render patch text must end up with both diff flags. This
-// guards the mapping itself rather than any one call site.
+// Every git invocation must end up with the whole config prefix -- the fsmonitor
+// and hooks neutralizers alike -- and every invocation that can render patch
+// text must end up with both diff flags. This guards the mapping itself rather
+// than any one call site.
 func TestHardenedGitArgsCoversEveryInvocation(t *testing.T) {
 	t.Parallel()
 	invocations := [][]string{
@@ -104,9 +113,8 @@ func TestHardenedGitArgsCoversEveryInvocation(t *testing.T) {
 	}
 	for _, args := range invocations {
 		got := hardenedGitArgs(args...)
-		joined := strings.Join(got, " ")
-		if !strings.HasPrefix(joined, "-c core.fsmonitor=false ") {
-			t.Errorf("%q: missing fsmonitor neutralizer, got %q", args, got)
+		if len(got) < len(gitHardenConfig) || !slices.Equal(got[:len(gitHardenConfig)], gitHardenConfig) {
+			t.Errorf("%q: missing the hardening config prefix, got %q", args, got)
 		}
 		sub := args[gitSubcommandIndex(args)]
 		if gitHardenDiffFamily[sub] {
@@ -125,11 +133,31 @@ func TestHardenedGitArgsCoversEveryInvocation(t *testing.T) {
 func TestHardenedGitArgsIgnoresPathspecsWhenDeduplicating(t *testing.T) {
 	t.Parallel()
 	got := hardenedGitArgs("diff", "--binary", "HEAD", "--", ".", "--no-ext-diff", "--no-textconv")
-	want := []string{
-		"-c", "core.fsmonitor=false", "diff", "--no-ext-diff", "--no-textconv",
+	want := gitHardenWant(
+		"diff", "--no-ext-diff", "--no-textconv",
 		"--binary", "HEAD", "--", ".", "--no-ext-diff", "--no-textconv",
-	}
+	)
 	if !slices.Equal(got, want) {
 		t.Fatalf("neutralizer suppressed by a pathspec\n got %q\nwant %q", got, want)
+	}
+}
+
+// TestGitHardenConfigIsPinned spells the prefix out in full, because every other
+// expectation in this file is derived from it. Losing a neutralizer has to fail
+// a test rather than quietly rewrite what the suite expects.
+func TestGitHardenConfigIsPinned(t *testing.T) {
+	t.Parallel()
+	want := []string{
+		"-c", "core.fsmonitor=false",
+		"-c", "core.hooksPath=/dev/null/entire-brain-hooks-disabled",
+	}
+	if !slices.Equal(gitHardenConfig, want) {
+		t.Fatalf("the hardening prefix changed\n got %q\nwant %q", gitHardenConfig, want)
+	}
+	// git resolves a relative core.hooksPath against the repository's own
+	// worktree, so a relative value would hand the vector back to the attacker
+	// with one mkdir. Absolute is not a style preference here.
+	if !strings.HasPrefix(gitHooksDisabledPath, "/") {
+		t.Fatalf("core.hooksPath must be absolute, got %q", gitHooksDisabledPath)
 	}
 }

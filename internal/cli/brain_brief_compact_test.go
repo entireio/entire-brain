@@ -310,8 +310,12 @@ func TestMCPBrainBriefToolDefinitionGolden(t *testing.T) {
 	// earlier measurement and are NOT re-measured here, because the pinned
 	// o200k_base asset is deliberately not a test dependency. Across the whole
 	// surface this is +432 bytes on the tools/list result (26,074 -> 26,506).
-	if len(got) != 763 {
-		t.Fatalf("brain_brief tool definition bytes = %d, want 763", len(got))
+	// The response-budget note (mcpResponseBudgetNote) adds 64 bytes per limit/
+	// depth argument -- 22 of them -- for +1,536 bytes on the tools/list result
+	// (27,433 -> 28,969). The full statement of the contract is carried once in
+	// initialize's instructions instead of being repeated in twenty-two schemas.
+	if len(got) != 827 {
+		t.Fatalf("brain_brief tool definition bytes = %d, want 827", len(got))
 	}
 }
 

@@ -162,12 +162,32 @@ func subtractBlindSpots(spots []brainBlindSpot, seen map[string]bool) []brainBli
 	return out
 }
 
+// statusCauseWidth bounds the one-line cause so the short report stays short
+// even when a provider hands back a paragraph-length axis detail.
+const statusCauseWidth = 140
+
 // statusHealth is the one-line verdict the short report ends on.
 type statusHealth struct {
 	Issues   int
 	Warnings int
 	Failed   []string
 	Severity string
+	// BrainMissing reports that this repository has no brain at all: the
+	// manifest is absent and every source is unbuilt. It is a STATE, not a
+	// problem count, which is why it cannot be folded into Issues — and why
+	// the old verdict got it exactly backwards. Nothing built means nothing
+	// broken, so every counter read zero and the first command a new user runs
+	// answered "healthy" about a brain that does not exist.
+	BrainMissing bool
+	// SemanticMissing reports that a brain exists but its manifest declares no
+	// semantic index, so `inspect code`, `query` and `brief` have nothing to
+	// read. Freshness cannot see this either: with no semantic source there is
+	// no freshness report, and brainStatusFreshnessSeverity returns "" — which
+	// Healthy() used to accept as "fine".
+	SemanticMissing bool
+	// Cause names WHICH axis is not current, in the words `overview` uses. See
+	// statusFreshnessCause.
+	Cause string
 }
 
 // buildStatusHealth counts everything a reader would call a problem.
@@ -176,7 +196,14 @@ func buildStatusHealth(report brainStatusReport) statusHealth {
 		Issues:   len(report.Issues),
 		Warnings: len(report.Warnings) + len(report.Live.Warnings),
 		Severity: brainStatusFreshnessSeverity(report),
+		// "absent" is inspectBrainManifestHealth's own word for a brain that
+		// was never built (and for one just removed by `reset --force`).
+		BrainMissing: report.Brain.ManifestState == "absent",
+		Cause:        statusFreshnessCause(report),
 	}
+	// Only one of the two: "no brain" already implies "no semantic index", and
+	// a verdict that said both would be reporting one fact twice.
+	health.SemanticMissing = !health.BrainMissing && report.Semantic == nil
 	if report.Onboarding != nil {
 		for _, component := range report.Onboarding.Components {
 			if component.State == "failed" {
@@ -187,14 +214,75 @@ func buildStatusHealth(report brainStatusReport) statusHealth {
 	return health
 }
 
+// statusFreshnessCause is the store-validity signal, and it is the SAME one
+// `overview` prints: semanticStaleReport opens the semantic SQLite store and
+// runs `PRAGMA integrity_check` on it, records the failure as
+// store=unsafe (…), and freshnessSummary renders that axis. `overview` calls
+// freshnessSummary; the short status report kept only the aggregate severity
+// and threw the axes away, so one shredded SQLite file, a semantic index one
+// commit behind, and a provider that was skipped all printed the same single
+// word.
+func statusFreshnessCause(report brainStatusReport) string {
+	parts := make([]string, 0, 2)
+	for _, freshness := range []*staleReport{
+		semanticFreshnessOf(report),
+		retrievalFreshnessOf(report),
+	} {
+		if freshness == nil || freshness.Severity == "ok" {
+			continue
+		}
+		if summary := freshnessSummary(*freshness); summary != "" {
+			parts = append(parts, summary)
+		}
+	}
+	return truncateString(strings.Join(parts, "; "), statusCauseWidth)
+}
+
+func semanticFreshnessOf(report brainStatusReport) *staleReport {
+	if report.Semantic == nil {
+		return nil
+	}
+	return report.Semantic.Freshness
+}
+
+func retrievalFreshnessOf(report brainStatusReport) *staleReport {
+	if report.Retrieval == nil {
+		return nil
+	}
+	return report.Retrieval.Freshness
+}
+
 // Total is how many distinct problems the verdict is reporting.
 func (h statusHealth) Total() int { return h.Issues + h.Warnings + len(h.Failed) }
 
 // Healthy reports whether the verdict is "nothing to do". A degraded or unsafe
 // freshness severity counts as unhealthy even with no issues: a stale index is
-// the failure most likely to make the brain quietly wrong.
+// the failure most likely to make the brain quietly wrong. An absent brain and
+// an absent semantic index are never healthy either — they are the two states
+// in which every counter reads zero because nothing was ever built.
 func (h statusHealth) Healthy() bool {
+	if h.BrainMissing || h.SemanticMissing {
+		return false
+	}
 	return h.Total() == 0 && (h.Severity == "" || h.Severity == "ok")
+}
+
+// Remedy is the command that FIXES what the verdict just named, not a second
+// command that reports it again. `doctor` diagnoses; it rebuilds nothing, so
+// sending a reader with a corrupt store there was a dead end — doctor's own
+// answer for that brain is one word shorter than the question.
+func (h statusHealth) Remedy() string {
+	switch {
+	case h.BrainMissing:
+		return "setup"
+	case h.SemanticMissing, h.Severity != "" && h.Severity != "ok":
+		// Deterministic and token-free: the index is rebuilt without asking an
+		// agent for anything, which is what a stale, missing or corrupt index
+		// needs.
+		return "refresh --agent none"
+	default:
+		return "doctor"
+	}
 }
 
 // Line renders the verdict.
@@ -203,7 +291,13 @@ func (h statusHealth) Line(render *tui.Renderer, brainCmd string) string {
 	if h.Healthy() {
 		return render.Mark(tui.MarkDone) + " " + render.PhasePaint(tui.PhaseDone, "healthy")
 	}
-	parts := make([]string, 0, 4)
+	parts := make([]string, 0, 6)
+	if h.BrainMissing {
+		parts = append(parts, "no brain for this repo yet")
+	}
+	if h.SemanticMissing {
+		parts = append(parts, "no semantic index")
+	}
 	if len(h.Failed) > 0 {
 		parts = append(parts, fmt.Sprintf("%s failed", strings.Join(h.Failed, ", ")))
 	}
@@ -222,8 +316,12 @@ func (h statusHealth) Line(render *tui.Renderer, brainCmd string) string {
 		phase = tui.PhaseFailed
 		mark = tui.MarkFailed
 	}
-	return render.Mark(mark) + " " + render.PhasePaint(phase, strings.Join(parts, ", ")) +
-		render.Dim(" "+render.Dash()+" run `"+brainCmd+" doctor`")
+	line := render.Mark(mark) + " " + render.PhasePaint(phase, strings.Join(parts, ", ")) +
+		render.Dim(" "+render.Dash()+" run `"+brainCmd+" "+h.Remedy()+"`")
+	if h.Cause != "" {
+		line += "\n  " + render.Dim(h.Cause)
+	}
+	return line
 }
 
 func plural(n int, word string) string {
@@ -231,6 +329,24 @@ func plural(n int, word string) string {
 		return word
 	}
 	return word + "s"
+}
+
+// statusFactsIdentity renders the fact count on the identity line. A bare
+// "5 facts" is the manifest's CLAIM, and printing it unqualified is how a
+// brain that had lost a fact still said 5 while recall produced 4. When the
+// cross-check fails, both numbers are shown so the claim can never be mistaken
+// for an observation.
+func statusFactsIdentity(f *brainStatusFacts) string {
+	if f.Integrity == nil || f.Integrity.OK() {
+		return fmt.Sprintf("%d facts", f.Facts)
+	}
+	// A store that would not parse yielded no count at all, so "0 readable"
+	// would be a measurement nobody took. Say what is true: it could not be
+	// read.
+	if f.Integrity.Mode == factStoreDefectUnreadable {
+		return fmt.Sprintf("%d facts declared, store unreadable", f.Facts)
+	}
+	return fmt.Sprintf("%d facts declared, %d readable", f.Facts, f.Integrity.Readable)
 }
 
 // statusLabelWidth aligns the short report's left column.
@@ -251,12 +367,12 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 		identity = append(identity, fmt.Sprintf("%d files, %d symbols", s.Coverage.Files, s.Coverage.Symbols))
 	}
 	if f := report.Facts; f != nil {
-		identity = append(identity, fmt.Sprintf("%d facts", f.Facts))
+		identity = append(identity, statusFactsIdentity(f))
 	}
 	fmt.Fprintf(out, "  %s\n", render.Dim(strings.Join(identity, " "+render.Bullet()+" ")))
 
-	if report.Facts != nil {
-		if warning := missingFactStoreWarning(report.Facts.MissingBranches); warning != "" {
+	if f := report.Facts; f != nil && f.Integrity != nil {
+		if warning := f.Integrity.Warning(); warning != "" {
 			fmt.Fprintf(out, "  %s %s\n", render.Mark(tui.MarkFailed), render.PhasePaint(tui.PhaseFailed, warning))
 		}
 	}

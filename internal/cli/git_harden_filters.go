@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -118,6 +119,17 @@ func repoFilterDriverOverrides(ctx context.Context, repoDir string) []gitConfigO
 // sets. It spawns git directly rather than going through the hardened runner:
 // the runner calls back into this function, and `git config` reads no worktree
 // content, so no filter can run during the probe.
+//
+// Spawning directly means hardenedGitArgs does not run here, so this is the one
+// git invocation in the binary that has to carry gitHardenConfig itself.
+// Splicing the shared slice in rather than repeating its flags is what keeps
+// the probe from drifting behind the chokepoint: core.hooksPath was added to
+// gitHardenConfig after a `.git/hooks/post-index-change` was found to execute
+// during indexing, and a hand-copied `-c core.fsmonitor=false` here would have
+// silently missed it. `git config` does not touch the index and so cannot fire
+// post-index-change today; the flags are applied because "every git spawn is
+// hardened" is a cheaper invariant to keep than a per-call-site argument about
+// which hooks a subcommand can reach.
 func enumerateRepoFilterDrivers(ctx context.Context, repoDir string) []gitConfigOverride {
 	if ctx == nil {
 		ctx = context.Background()
@@ -126,8 +138,9 @@ func enumerateRepoFilterDrivers(ctx context.Context, repoDir string) []gitConfig
 	defer cancel()
 	// -z keeps the output unambiguous for a subsection name containing a
 	// newline; --show-scope tells local/worktree apart from global/system.
-	cmd := exec.CommandContext(runCtx, "git", "-c", "core.fsmonitor=false",
+	args := append(slices.Clone(gitHardenConfig),
 		"config", "-z", "--show-scope", "--name-only", "--get-regexp", `^filter\..*\.(clean|smudge|process|required)$`)
+	cmd := exec.CommandContext(runCtx, "git", args...)
 	cmd.Dir = repoDir
 	out, err := cmd.Output()
 	if err != nil {

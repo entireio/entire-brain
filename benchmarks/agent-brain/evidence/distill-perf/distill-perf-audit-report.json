@@ -12,7 +12,7 @@
   },
   "executed_agent": null,
   "min_speedup": 1.25,
-  "speedup": 2.985050584654228,
+  "speedup": 2.8188472217892797,
   "dry_run": {
     "sessions": 206,
     "sessions_to_distill": 206,
@@ -23,13 +23,13 @@
   "serial_run": {
     "jobs": 1,
     "extraction_jobs_cap": 1,
-    "total_seconds": 22.500965292,
+    "total_seconds": 21.957943667,
     "total_agent_calls": 417
   },
   "parallel_run": {
     "jobs": 4,
     "extraction_jobs_cap": 4,
-    "total_seconds": 7.537884084,
+    "total_seconds": 7.789689167,
     "total_agent_calls": 417
   },
   "source_hashes": {

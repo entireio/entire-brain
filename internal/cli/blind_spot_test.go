@@ -42,8 +42,9 @@ func TestEmptyResultBlindSpot(t *testing.T) {
 		t.Fatalf("fully-digested brain should vouch for the empty, got %q", note)
 	}
 
-	// No manifest at all: nothing useful to say.
-	if note := emptyResultBlindSpot(t.TempDir()); note != "" {
-		t.Fatalf("missing manifest should yield no note, got %q", note)
+	// No manifest at all: the case that MOST needs saying, not the one to
+	// stay silent about. See TestEmptyResultBlindSpotNamesAMissingBrain.
+	if note := emptyResultBlindSpot(t.TempDir()); !strings.Contains(note, "no brain has been built") {
+		t.Fatalf("missing manifest must name the missing brain, got %q", note)
 	}
 }

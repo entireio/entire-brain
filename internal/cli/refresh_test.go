@@ -621,9 +621,11 @@ func TestPathMaterializesSeedWhenExportUnavailable(t *testing.T) {
 		},
 		Runner: runner,
 	})
-	out, err := execute(t, cmd, "path", "--entire-binary", "entire-test", repoDir)
+	// --ensure: `path` is a getter and no longer builds on its own, so the
+	// opt-in build is how this exercises the seed fallback.
+	out, err := execute(t, cmd, "path", "--ensure", "--entire-binary", "entire-test", repoDir)
 	if err != nil {
-		t.Fatalf("path: %v\n%s", err, out)
+		t.Fatalf("path --ensure: %v\n%s", err, out)
 	}
 	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "example", "repo")
 	if out != brainDir+"\n" {

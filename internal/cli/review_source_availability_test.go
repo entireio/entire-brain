@@ -50,8 +50,12 @@ func TestFactAvailabilityRejectsEmptyCorruptAndSymlinkStores(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := statusFactsMissingBranches(t, status); len(got) != 1 || got[0] != "feature" {
-				t.Fatalf("%s reported healthy: %v", mode, got)
+			if len(status.Warnings) == 0 {
+				t.Fatalf("%s reported healthy", mode)
+			}
+			manifest, _ := loadBrainManifest(brain)
+			if integrity := inspectFactStore(brain, manifest.Sources.Facts); integrity.OK() {
+				t.Fatalf("%s reported intact", mode)
 			}
 			if mode == "empty" {
 				for _, args := range [][]string{{"recall", "postgres", "--no-semantic"}, {"recall", "postgres", "--no-semantic", "--json"}} {
@@ -59,7 +63,7 @@ func TestFactAvailabilityRejectsEmptyCorruptAndSymlinkStores(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					if !strings.Contains(out, factsFileName) || strings.Contains(out, "the answer may genuinely not be") {
+					if (!strings.Contains(out, factsFileName) && !strings.Contains(out, "fact count does not match")) || strings.Contains(out, "the answer may genuinely not be") {
 						t.Fatalf("empty store hidden by recall: %s", out)
 					}
 				}

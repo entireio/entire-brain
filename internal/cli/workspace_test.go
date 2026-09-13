@@ -3377,3 +3377,133 @@ func TestWorkspaceConversationSourceIsolationAndBranchPropagation(t *testing.T) 
 		t.Fatalf("matching branch filter dropped the exchange:\n%s", hitOut)
 	}
 }
+
+// workspaceManifestRepos reads back what `workspace add` actually registered,
+// which is the half of the bug the exit code hid: the refusal has to happen
+// before the member row exists, not after.
+func workspaceManifestRepos(t *testing.T, env EntireEnv, workspace string) []workspaceRepo {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(env.PluginDataDir, workspaceDirName, workspace, workspaceManifestName))
+	if err != nil {
+		t.Fatalf("read workspace: %v", err)
+	}
+	var manifest workspaceManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parse workspace: %v", err)
+	}
+	return manifest.Repos
+}
+
+// TestWorkspaceAddRefusesAPathThatIsNotARepository pins the check `workspace
+// add` never made. It tested for EXISTENCE, and a regular file exists, so
+// `workspace add ws /etc/passwd` rewrote the file to its parent directory,
+// hashed /etc into a local/ key, printed "added" and exited 0 -- registering a
+// member that can never grow a brain.
+func TestWorkspaceAddRefusesAPathThatIsNotARepository(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	// An empty response map makes every git call fail, which is what
+	// `rev-parse --show-toplevel` does outside a repository.
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	if _, err := execute(t, cmd, "workspace", "create", "payments-platform"); err != nil {
+		t.Fatalf("workspace create: %v", err)
+	}
+
+	plainDir := t.TempDir()
+	plainFile := filepath.Join(plainDir, "passwd")
+	if err := os.WriteFile(plainFile, []byte("root:x:0:0:\n"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	for _, target := range []string{plainDir, plainFile} {
+		_, err := execute(t, cmd, "workspace", "add", "payments-platform", target)
+		if err == nil {
+			t.Fatalf("workspace add accepted a non-repository: %s", target)
+		}
+		if !strings.Contains(err.Error(), "not a git repository") {
+			t.Fatalf("the refusal does not name the condition for %s: %v", target, err)
+		}
+		// A file names the directory that was actually checked, so the parent
+		// rewrite is visible rather than silent.
+		if !strings.Contains(err.Error(), plainDir) {
+			t.Fatalf("the refusal does not name the path it checked for %s: %v", target, err)
+		}
+		if !strings.Contains(err.Error(), "git init") {
+			t.Fatalf("the refusal does not name the fix for %s: %v", target, err)
+		}
+	}
+	if repos := workspaceManifestRepos(t, env, "payments-platform"); len(repos) != 0 {
+		t.Fatalf("a refused path was registered anyway: %+v", repos)
+	}
+}
+
+// TestWorkspaceAddStillResolvesAFileInsideARepository keeps the half of the
+// parent-directory rewrite that was always legitimate: naming a file in a repo
+// is a reasonable way to name the repo, and git resolves it to the work-tree
+// root exactly as it resolves a subdirectory. Only the case where the rewrite
+// landed OUTSIDE a repository was ever wrong.
+func TestWorkspaceAddStillResolvesAFileInsideARepository(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	if _, err := execute(t, cmd, "workspace", "create", "payments-platform"); err != nil {
+		t.Fatalf("workspace create: %v", err)
+	}
+	readme := filepath.Join(repoDir, "README.md")
+	if err := os.WriteFile(readme, []byte("# api\n"), 0o600); err != nil {
+		t.Fatalf("write readme: %v", err)
+	}
+	if _, err := execute(t, cmd, "workspace", "add", "payments-platform", readme); err != nil {
+		t.Fatalf("workspace add: %v", err)
+	}
+	repos := workspaceManifestRepos(t, env, "payments-platform")
+	if len(repos) != 1 || repos[0].RepoKey != "gh/example/repo" || repos[0].LocalPathHint != repoDir {
+		t.Fatalf("a file inside a repo did not register the repo: %+v", repos)
+	}
+}
+
+// TestWorkspaceAddValidatesTheMemberDisplayName closes the asymmetry inside one
+// command: the workspace name positional was allowlisted, while the --name flag
+// on the same invocation was stored raw, so a 5000-character value and a
+// `../`-laden one both round-tripped into workspace.json and from there,
+// unescaped, into the workspace README.
+func TestWorkspaceAddValidatesTheMemberDisplayName(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	if _, err := execute(t, cmd, "workspace", "create", "payments-platform"); err != nil {
+		t.Fatalf("workspace create: %v", err)
+	}
+	for _, name := range []string{
+		strings.Repeat("A", 5000),
+		"../../../etc/passwd",
+		"..",
+		".",
+		"api server",
+		"api/server",
+	} {
+		_, err := execute(t, cmd, "workspace", "add", "payments-platform", repoDir, "--name", name)
+		if err == nil {
+			t.Fatalf("workspace add accepted --name %q", truncateString(name, 40))
+		}
+		if !strings.Contains(err.Error(), "workspace repo name must") {
+			t.Fatalf("the refusal for --name %q does not say what a name may be: %v", truncateString(name, 40), err)
+		}
+		// The refusal must not echo a 5000-character value back at the reader.
+		if len(err.Error()) > 200 {
+			t.Fatalf("the refusal echoed the whole oversized name back: %d bytes", len(err.Error()))
+		}
+	}
+	if repos := workspaceManifestRepos(t, env, "payments-platform"); len(repos) != 0 {
+		t.Fatalf("a refused --name was registered anyway: %+v", repos)
+	}
+	// The names people actually use keep working, including the dots, dashes
+	// and underscores the workspace name allows.
+	for _, name := range []string{"api", "api-gateway", "api_v2.1"} {
+		if _, err := execute(t, cmd, "workspace", "add", "payments-platform", repoDir, "--name", name); err != nil {
+			t.Fatalf("workspace add rejected --name %q: %v", name, err)
+		}
+	}
+}

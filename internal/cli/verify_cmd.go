@@ -30,6 +30,10 @@ const (
 var (
 	errVerifyIssues       = errors.New("verification found stale or orphaned facts")
 	errVerifyStrictIssues = errors.New("verification found unverifiable-here facts")
+	// errVerifyStoreIncomplete is the verdict for a corpus that is short: the
+	// facts verify cannot read are neither verified nor orphaned, they are
+	// gone, and reporting them as "0 orphaned" was the defect.
+	errVerifyStoreIncomplete = errors.New("verification incomplete: the fact store cannot produce every fact the manifest declares")
 )
 
 type verifyCommandOptions struct {
@@ -57,6 +61,12 @@ type verifyReport struct {
 	Summary       verifySummary      `json:"summary"`
 	Results       []verifyFactResult `json:"results"`
 	Warnings      []string           `json:"warnings,omitempty"`
+	// StoreIntegrity is the manifest-vs-store cross-check. verify's whole job
+	// is fact integrity, and without this it answered "0 orphaned" about a
+	// store that had lost a fact — it verified the facts it could still read
+	// and never asked whether that was all of them. Present only when the
+	// cross-check fails.
+	StoreIntegrity *factStoreIntegrity `json:"store_integrity,omitempty"`
 }
 
 type verifySummary struct {
@@ -172,6 +182,15 @@ func runVerify(ctx context.Context, cmd *cobra.Command, opts Options, verifyOpts
 }
 
 func verifyFailureForReport(report verifyReport, verifyOpts verifyCommandOptions) error {
+	// A store that cannot produce what the manifest declares fails verification
+	// unconditionally, and before the per-fact verdicts: those verdicts were
+	// computed over the survivors, so a clean sweep of them is not a pass. This
+	// matches how a corrupt history index behaves today — the read refuses and
+	// the command exits nonzero — rather than reporting success about a corpus
+	// it knows is short.
+	if report.StoreIntegrity != nil {
+		return errVerifyStoreIncomplete
+	}
 	if report.Summary.Stale > 0 || report.Summary.Orphaned > 0 {
 		return errVerifyIssues
 	}
@@ -190,6 +209,17 @@ func buildVerifyReport(ctx context.Context, opts Options, repoDir, brainDir, rep
 	if err != nil {
 		return verifyReport{}, err
 	}
+	// A fact the store can no longer produce is not "0 orphaned" — it is a
+	// fact that is gone, and verify is the command that must say so. Check the
+	// manifest's claim against the store before verifying what survived, so
+	// the verdict below can never be read as a clean bill of health for a
+	// corpus that is short.
+	var storeIntegrity *factStoreIntegrity
+	if manifest != nil && manifest.Sources != nil {
+		if integrity := inspectFactStore(brainDir, manifest.Sources.Facts); !integrity.OK() {
+			storeIntegrity = &integrity
+		}
+	}
 	selected, query, err := selectFactsForVerify(allFacts, target, verifyOpts)
 	if err != nil {
 		return verifyReport{}, err
@@ -203,14 +233,15 @@ func buildVerifyReport(ctx context.Context, opts Options, repoDir, brainDir, rep
 		manifest: manifest,
 	}
 	report := verifyReport{
-		SchemaVersion: verifySchemaVersion,
-		GeneratedAt:   opts.Now().UTC(),
-		Repo:          brainStatusRepo{Root: repoDir, Key: repoKey},
-		BrainPath:     brainDir,
-		Branch:        branch,
-		Target:        strings.TrimSpace(target),
-		Query:         query,
-		Results:       []verifyFactResult{},
+		SchemaVersion:  verifySchemaVersion,
+		GeneratedAt:    opts.Now().UTC(),
+		Repo:           brainStatusRepo{Root: repoDir, Key: repoKey},
+		BrainPath:      brainDir,
+		Branch:         branch,
+		Target:         strings.TrimSpace(target),
+		Query:          query,
+		Results:        []verifyFactResult{},
+		StoreIntegrity: storeIntegrity,
 	}
 	for _, fact := range selected {
 		result := vctx.verifyFact(fact)
@@ -821,6 +852,14 @@ func renderVerifyReportText(cmd *cobra.Command, report verifyReport) {
 	s := report.Summary
 	fmt.Fprintf(out, "verification: %d facts, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
 		s.Facts, s.Verified, s.Stale, s.Orphaned, s.UnverifiableHere)
+	// The summary above describes only the facts the store could still
+	// produce. If it could not produce everything the manifest declares, that
+	// line is a count of survivors, not a verdict — say so directly beneath it
+	// rather than leaving "0 orphaned" to stand as the answer.
+	if report.StoreIntegrity != nil {
+		fmt.Fprintf(out, "store integrity: %s\n", report.StoreIntegrity.Warning())
+		fmt.Fprintf(out, "  the counts above cover only the %d fact(s) still readable\n", report.StoreIntegrity.Readable)
+	}
 	for _, result := range report.Results {
 		fmt.Fprintf(out, "%s %s [%s]\n  %s\n", result.Verdict, result.Fact.ID, strings.Join(result.Fact.Paths, ","), result.Fact.Text)
 		if result.Reason != "" {

@@ -202,17 +202,24 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 					tree = &factTreeNode{Label: "facts"}
 				}
 			}
+			// "N facts on main" is a count of what the store produced. When the
+			// manifest declares more, that N is survivors, not the corpus — the
+			// same lie `facts map` told. Qualify it, and exit nonzero.
+			integrityErr := reportFactStoreIntegrity(cmd, brainDir, jsonOut)
 			if jsonOut {
-				return writeJSON(cmd, tree)
+				if err := writeJSON(cmd, tree); err != nil {
+					return err
+				}
+				return integrityErr
 			}
 			distinct := distinctFactCount(tree)
 			if distinct == 0 {
 				fmt.Fprintf(cmd.OutOrStdout(), "no facts on %s%s\n", resolvedBranch, pathSuffix(path))
-				return nil
+				return integrityErr
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%d facts on %s%s\n", distinct, resolvedBranch, pathSuffix(path))
 			renderFactTree(cmd, tree, depth, leaves)
-			return nil
+			return integrityErr
 		},
 	}
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch to outline (default: current branch)")

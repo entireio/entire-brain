@@ -19,37 +19,108 @@ import (
 // surface (counts/ranges by branch, agent, source, completion state, and index
 // version).
 
+// doctorScope says what kind of claim a finding is making, because doctor makes
+// two of them -- its own Short is "Check the plugin environment AND the
+// capture-to-recall chain" -- and only one of them is about the thing doctor is
+// diagnosing.
+//
+// A brain-scoped finding is a claim about data this process owns and can name
+// the repair for: `facts: error` means this store is unreadable, and
+// re-distilling fixes it.
+//
+// An environment-scoped finding is a claim about the surrounding machine --
+// most of all about the Entire CLI, a different product that entire-brain does
+// not install, does not execute, and cannot repair. The brain is fully
+// readable and queryable without it: every entire-brain command works, which is
+// exactly what CI demonstrates by running the whole suite on a runner that has
+// no `entire` on PATH. So the absence of the host CLI is not evidence that
+// anything is wrong with the brain, and it must not decide doctor's exit code
+// on behalf of one. It is still REPORTED, at full severity -- see
+// doctorGateFailure for why severity and gating are separated rather than the
+// finding being softened.
+const (
+	doctorScopeBrain       = "brain"
+	doctorScopeEnvironment = "environment"
+)
+
+// doctorCheckResult is one finding. Scope is omitted for brain-scoped findings,
+// which is the default and the overwhelming majority: an absent "scope" in the
+// JSON contract means "brain", so existing readers are unaffected and only the
+// exceptions are called out.
 type doctorCheckResult struct {
 	Name   string `json:"name"`
 	State  string `json:"state"` // ok | warn | error
 	Detail string `json:"detail,omitempty"`
+	Scope  string `json:"scope,omitempty"` // "" (brain) | environment
 }
+
+// scope resolves the omitted default, so the "absent means brain" rule lives in
+// code rather than only in a comment.
+func (d doctorCheckResult) scope() string {
+	if d.Scope == "" {
+		return doctorScopeBrain
+	}
+	return d.Scope
+}
+
+// environmental returns true when the finding is a claim about the host
+// machine rather than about this brain.
+func (d doctorCheckResult) environmental() bool { return d.scope() == doctorScopeEnvironment }
 
 func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResult {
 	checks := make([]doctorCheckResult, 0, 15)
 	add := func(name, state, detail string) {
 		checks = append(checks, doctorCheckResult{Name: name, State: state, Detail: detail})
 	}
+	// addEnvironment records a finding about the host machine: reported in
+	// full, never a reason for doctor to fail a brain.
+	addEnvironment := func(name, state, detail string) {
+		checks = append(checks, doctorCheckResult{Name: name, State: state, Detail: detail, Scope: doctorScopeEnvironment})
+	}
 	install, _ := snapshot.Payload["install"].(map[string]any)
 	if binary, ok := install["entire_binary"].(memoryInstallBinaryHealth); ok {
-		state := "warn"
+		// "present_unproven" is the SUCCESS case: the entire executable was
+		// found on PATH at an absolute path. Reporting it as a warning because
+		// doctor declined to execute it made a correct install indistinguishable
+		// from a broken one on every healthy machine, forever -- doctor never
+		// executes the host binary, so nothing a user could do would clear it.
+		// The three states that are real problems stay errors.
+		//
+		// Environment-scoped: this is the host Entire CLI, not the brain. Note
+		// the shape of the claim -- it can only ever fire when entire-brain was
+		// run directly, because reaching doctor through `entire brain doctor`
+		// means `entire` is on PATH by definition. So it fires exactly for the
+		// people running CI, a container, a fresh checkout, or an evaluation
+		// before installing the suite: for whom a missing host CLI is expected,
+		// not broken.
+		state := "ok"
+		detail := "found at " + binary.Path
 		switch binary.State {
-		case "not_found", "unsafe_relative_path", "lookup_failed":
-			state = "error"
+		case "not_found":
+			state, detail = "error", "the entire executable is not on PATH"
+		case "unsafe_relative_path":
+			state, detail = "error", "the entire executable resolves through a relative PATH entry: "+binary.Path
+		case "lookup_failed":
+			state, detail = "error", "could not look up the entire executable on PATH"
 		}
-		detail := binary.State
-		if binary.Path != "" {
-			detail += " at " + binary.Path
+		if binary.RecommendedAction != "" && state != "ok" {
+			detail += "; " + binary.RecommendedAction
 		}
-		detail += "; binary was not executed"
-		add("memory_install", state, detail)
+		addEnvironment("memory_install", state, detail)
 	}
 	if adapter, ok := install["host_adapter"].(memoryHostAdapterHealth); ok {
-		state := "warn"
-		if adapter.Observability != "not_observable" && adapter.State == "trusted" {
-			state = "ok"
-		}
-		add("memory_host_adapter", state, fmt.Sprintf("%s; authority %s; Claude Code/Codex presence, enablement, and trust are not attested by this process", adapter.State, adapter.Authority))
+		// Host-adapter installation belongs to the Entire CLI and this process
+		// never inspects it: memoryInstallHealth hard-codes state and
+		// observability to "not_observable", so the old ok-condition
+		// (observability != not_observable && state == trusted) was
+		// unreachable by construction and the check was a warning on every
+		// run of every install. Scope is not a fault -- say where the answer
+		// lives, and do not spend the reader's attention on it.
+		//
+		// Environment-scoped for the same reason memory_install is: it and
+		// entire_binary come out of the same `install` payload and describe the
+		// same external product.
+		addEnvironment("memory_host_adapter", "ok", fmt.Sprintf("not checked here (%s; authority %s): host-adapter install, enablement and trust are owned by the Entire CLI -- verify them with its own integration diagnostics", adapter.State, adapter.Authority))
 	}
 	if coordinator, ok := snapshot.Payload["coordinator"].(map[string]any); ok {
 		stateName, _ := coordinator["state"].(string)
@@ -222,12 +293,18 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 		add("memory_sessions", state, fmt.Sprintf("%s; %v canonical session(s)", stateName, sessions["count"]))
 	}
 	if reconciliation, ok := snapshot.Payload["reconciliation"].(map[string]any); ok {
-		stateName, _ := reconciliation["state"].(string)
+		// memoryObservedStateValue, not a .(string) assertion. The projection
+		// receipt's state is a projectionStateReadState, a named string type,
+		// so the assertion failed for EVERY non-current state and printed
+		// "memory_reconciliation: warn" with no reason at all -- exactly when
+		// the reason mattered. The JSON payload had "absent"/"stale" the whole
+		// time; only the human line lost it.
+		stateName := memoryObservedStateValue(reconciliation["state"])
 		state := "warn"
 		if current, _ := reconciliation["current"].(bool); current {
 			state = "ok"
 		}
-		if code, _ := reconciliation["error_code"].(string); code != "" {
+		if code := memoryObservedStateValue(reconciliation["error_code"]); code != "" {
 			state = "error"
 			stateName += "; " + code
 		}
@@ -235,7 +312,12 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 		if at, ok := reconciliation["last_successful_at"]; ok {
 			detail += fmt.Sprintf("; last successful %v", at)
 		}
-		add("memory_reconciliation", state, detail)
+		// A state is not advice. projectionStateAction already knows what
+		// clears each one, so carry it instead of leaving the reader to guess.
+		if action := projectionStateAction(projectionStateReadState(memoryObservedStateValue(reconciliation["state"]))); action != "" && state != "ok" {
+			detail += "; " + action
+		}
+		add("memory_reconciliation", state, strings.TrimPrefix(detail, "; "))
 	}
 	return checks
 }
@@ -315,14 +397,16 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 		}
 	}
 
-	// Durable facts: the manifest's fact counts are a claim about branches, not
-	// about files. loadFacts reads an absent store as an empty branch, so a
-	// declared branch with no facts.ndjson silently contributes nothing to
-	// recall/brief. Name it here rather than letting doctor pass.
+	// Durable facts: the manifest's fact counts are a claim about the store,
+	// not an observation of it. loadFacts reads an absent store as an empty
+	// branch, and a readable-but-short facts.ndjson reads as a complete one, so
+	// "facts: ok (5 fact(s))" survived a store that could only produce four.
+	// Cross-check the claim and report the failure at error level; the exit
+	// gate belongs to `doctor --fail-on`, not to this check.
 	if manifest.Sources != nil && manifest.Sources.Facts != nil {
 		facts := manifest.Sources.Facts
-		if missing := missingFactBranchStores(brainDir, facts); len(missing) > 0 {
-			add("facts", "error", fmt.Sprintf("%d fact(s) declared across %d branch(es), but the store is missing for: %s", facts.Facts, len(facts.Branches), strings.Join(missing, ", ")))
+		if integrity := inspectFactStore(brainDir, facts); !integrity.OK() {
+			add("facts", "error", integrity.Warning())
 		} else {
 			add("facts", "ok", fmt.Sprintf("%d fact(s) across %d branch(es)", facts.Facts, len(facts.Branches)))
 		}

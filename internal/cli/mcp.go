@@ -73,7 +73,7 @@ func newMCPCommand(opts Options) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if printConfig {
-				return printMCPServerConfig(cmd.OutOrStdout())
+				return printMCPServerConfig(cmd.Context(), cmd.OutOrStdout(), opts)
 			}
 			nudgeMemoryAtStartup(cmd.Context(), opts)
 			return runMCP(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), opts)
@@ -101,10 +101,22 @@ const mcpServerName = "entire-brain"
 // command nor the cause, and is why this was hard to diagnose from the agent
 // side. Naming this binary directly removes the lookup, so the entry keeps
 // working regardless of PATH order or spawn environment.
-func printMCPServerConfig(out io.Writer) error {
+//
+// The entry also BINDS THE SERVER to a repository via ENTIRE_REPO_ROOT. It used
+// to emit an empty env, and an empty env is not a neutral default: a server with
+// no bound repository refuses every repo-scoped tool (brain_list_projects,
+// brain_delete_project, and the three brain_workspace_* tools), so the config
+// this command recommends advertised 36 tools of which 5 could never succeed.
+// A host registering the printed entry verbatim is entitled to the whole
+// surface.
+func printMCPServerConfig(ctx context.Context, out io.Writer, opts Options) error {
 	executable, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve this executable: %w", err)
+	}
+	env := map[string]string{}
+	if root := mcpConfigRepoRoot(ctx, opts); root != "" {
+		env[envRepoRoot] = root
 	}
 	// Deliberately not resolved through symlinks: the managed install path is
 	// the stable one, while its target moves whenever the plugin is rebuilt.
@@ -114,7 +126,7 @@ func printMCPServerConfig(out io.Writer) error {
 				"type":    "stdio",
 				"command": executable,
 				"args":    []string{"mcp"},
-				"env":     map[string]string{},
+				"env":     env,
 			},
 		},
 	}
@@ -124,6 +136,63 @@ func printMCPServerConfig(out io.Writer) error {
 	}
 	_, err = fmt.Fprintln(out, string(encoded))
 	return err
+}
+
+// mcpFrameErrorResponse builds the -32700 a framing failure is reported with.
+//
+// The id is an explicit JSON null, not an omitted field. JSON-RPC 2.0 section 5
+// requires a Response to carry "id", and null is the value for a request that
+// could not be parsed well enough to have one. mcpMessage.ID is `omitempty`, so
+// a nil interface drops the member entirely and strict client validators reject
+// the response object.
+func mcpFrameErrorResponse(err error) mcpMessage {
+	message := "parse error"
+	if err != nil {
+		if detail := strings.TrimSpace(strings.TrimPrefix(err.Error(), errMCPRecoverable.Error()+": ")); detail != "" {
+			message = "parse error: " + detail
+		}
+	}
+	return mcpMessage{
+		JSONRPC: "2.0",
+		ID:      json.RawMessage("null"),
+		Error:   &mcpError{Code: -32700, Message: message},
+	}
+}
+
+// mcpConfigRepoRoot resolves the repository the printed entry should bind the
+// server to, using the SAME resolution every other command uses for its target:
+// an already-supplied ENTIRE_REPO_ROOT wins (the Entire CLI sets it when it
+// dispatches this plugin), otherwise the working directory, and either way the
+// answer is the git toplevel that resolveLocalTargetRepoDir reports -- not the
+// raw directory, so running `--print-config` from a subdirectory still binds the
+// repository root.
+//
+// Returns "" when there is no local repository to name. A printed binding that
+// points at a non-repository would be worse than none: the server would accept
+// it, fail to resolve storage for it, and report an error that blames the tool
+// rather than the config. resolveLocalTargetRepoDir deliberately TOLERATES a
+// non-repository, so -- as its own doc comment says -- a caller that requires
+// one asks gitWorkTreeRoot for itself, exactly as `setup` does.
+func mcpConfigRepoRoot(ctx context.Context, opts Options) string {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	target := strings.TrimSpace(opts.Env.RepoRoot)
+	if target == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return ""
+		}
+		target = wd
+	}
+	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	if err != nil || !local {
+		return ""
+	}
+	if _, ok := gitWorkTreeRoot(ctx, opts.Runner, repoDir); !ok {
+		return ""
+	}
+	return repoDir
 }
 
 func runMCP(ctx context.Context, in io.Reader, out io.Writer, opts Options) error {
@@ -142,16 +211,34 @@ func runMCP(ctx context.Context, in io.Reader, out io.Writer, opts Options) erro
 		if errors.Is(err, errMCPRecoverable) {
 			// Reply with a JSON-RPC parse error and keep serving; one bad frame
 			// must not kill the whole MCP session.
+			//
+			// The message names the CAUSE. It used to be the bare string "parse
+			// error" for four different failures — missing Content-Length, an
+			// oversized body, a batch body, malformed JSON — and the server
+			// knows which one while the client was told nothing.
 			mcpDebugLog(debugLog, "parse_error: "+err.Error())
-			resp := mcpMessage{JSONRPC: "2.0", Error: &mcpError{Code: -32700, Message: "parse error"}}
-			if werr := writeMCPMessage(out, resp, frameMode); werr != nil {
+			if werr := writeMCPMessage(out, mcpFrameErrorResponse(err), frameMode); werr != nil {
 				mcpDebugLog(debugLog, "write_error: "+werr.Error())
 				return werr
 			}
 			continue
 		}
 		if err != nil {
+			// SAY WHY BEFORE DYING. An unparseable Content-Length is fatal on
+			// purpose — the body's extent is unknown, so the stream cannot be
+			// resynchronised and continuing would reparse the body as headers
+			// and swallow the next request. But exiting silently is the worst
+			// shape available: the client sees only a closed pipe, and the real
+			// reason ("strconv.Atoi: parsing \"banana\"") goes to stderr, which
+			// most hosts discard.
+			//
+			// Emit one JSON-RPC error naming the cause, THEN close. The session
+			// still ends — that part was right — but the host can log why
+			// instead of reporting an unexplained disconnect.
 			mcpDebugLog(debugLog, "read_error: "+err.Error())
+			if werr := writeMCPMessage(out, mcpFrameErrorResponse(err), frameMode); werr != nil {
+				mcpDebugLog(debugLog, "write_error: "+werr.Error())
+			}
 			return err
 		}
 		mcpDebugLog(debugLog, "message: "+msg.Method)
@@ -354,6 +441,10 @@ var dispatchMCPMessage = func(ctx context.Context, opts Options, msg mcpMessage)
 			"protocolVersion": protocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "entire-brain", "version": opts.Version},
+			// The response budget is a property of the whole surface, not of any
+			// one tool, so it is stated once here (MCP's place for exactly this)
+			// instead of being repeated in full across twenty-two schemas.
+			"instructions": mcpServerInstructions,
 		}
 	case "ping":
 		// MCP defines ping as a liveness check every server must answer, with an
@@ -396,8 +487,14 @@ func mcpToolDefinitions() []map[string]any {
 	// client that limit=1000000 was a legal call; the handler rejects it with
 	// -32000, so the client learned the real ceiling by being refused at
 	// runtime instead of reading it off the schema.
+	//
+	// integerArg is the size knob on every tool that has one (limit, depth), so
+	// it also states the other half of the contract: the maximum is a ceiling on
+	// what is asked for, not a promise about what comes back. A response that
+	// would exceed the budget sheds whole tail rows and says so, rather than
+	// failing at a number the schema itself offered.
 	integerArg := func(name, description string) map[string]any {
-		return map[string]any{"type": "integer", "description": description, "title": name, "minimum": 1, "maximum": mcpIntegerArgMax}
+		return map[string]any{"type": "integer", "description": description + mcpResponseBudgetNote, "title": name, "minimum": 1, "maximum": mcpIntegerArgMax}
 	}
 	// nonNegativeIntegerArg is for the handful of integer params whose zero
 	// value is meaningful and accepted by the handler (mcpNonNegativeInt):
@@ -895,7 +992,9 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		if gopts.OutlineLimit, err = mcpNonNegativeInt(params.Arguments, "limit", 0); err != nil {
 			break
 		}
-		err = runGet(ctx, cmd, opts, []string{id}, branch, true, gopts, "mcp:brain_get")
+		// The missing ids are already in the emitted payload; a tool result
+		// reports them there, not as a JSON-RPC error.
+		_, err = runGet(ctx, cmd, opts, []string{id}, branch, true, gopts, "mcp:brain_get")
 	case "brain_multi_get":
 		ids, sliceErr := mcpStringSlice(params.Arguments, "ids")
 		if sliceErr != nil {
@@ -905,7 +1004,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		if len(ids) == 0 {
 			err = errors.New("ids is required")
 		} else {
-			err = runGet(ctx, cmd, opts, ids, branch, true, getOptions{}, "mcp:brain_multi_get")
+			_, err = runGet(ctx, cmd, opts, ids, branch, true, getOptions{}, "mcp:brain_multi_get")
 		}
 	case "brain_context":
 		err = requireMCPQuery(query)
@@ -1138,8 +1237,8 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	return mcpToolTextResult(ctx, params.Name, out.String())
 }
 
-// mcpToolTextResult wraps a tool's text output, refusing a frame the transport
-// cannot carry.
+// mcpToolTextResult wraps a tool's text output, holding it to the response
+// budget the tool schemas can actually honour.
 //
 // Inbound frames have been bounded by maxMCPFrameBytes since framing was
 // written; outbound frames were not bounded at all. Every use of
@@ -1150,34 +1249,21 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 // than any frame the peer will accept. The client either drops the connection
 // or blocks; either way the caller learns nothing about why.
 //
-// REFUSES RATHER THAN TRUNCATES, deliberately. A silently shortened graph
-// answer is indistinguishable from a small one, and an agent cannot tell that
-// it is reasoning from a fragment. An error names the limit and the argument
-// to lower. Row-wise truncation with an explicit marker — what the retrieval
-// surface does — is the better long-term answer for the tools that can
-// support it, and is left as follow-up.
+// That was first fixed by refusing. Refusing kept the surface safe but left the
+// contract false: the schema advertised maximum:10000 so a client could plan a
+// valid call, and ten of the seventeen limit-taking tools then failed at that
+// very number — after, in brain_brief's case, 34 seconds of work — with an error
+// that never named a limit that would have fit. Row-wise truncation with an
+// explicit marker, what the retrieval surface already does, is now what happens
+// (mcp_response_budget.go): the advertised ceiling is reachable, and a response
+// that had to shed rows says so in the document. maxMCPFrameBytes remains the
+// transport backstop beneath it.
 func mcpToolTextResult(ctx context.Context, tool, text string) (map[string]any, error) {
-	result := map[string]any{"content": []map[string]any{{"type": "text", "text": text}}}
-	// Cheap reject first: the text alone cannot exceed the frame, so there is
-	// no need to marshal a response that is already too large.
-	if len(text) > maxMCPFrameBytes {
-		return nil, fmt.Errorf(
-			"%s produced a %d byte result, over the %d byte MCP frame limit; narrow the request (lower limit, or drop details)",
-			tool, len(text), maxMCPFrameBytes)
+	bounded, err := mcpBoundedToolText(ctx, tool, text)
+	if err != nil {
+		return nil, err
 	}
-	size, sizeErr := mcpToolResultTransportSize(ctx, result)
-	if sizeErr != nil {
-		// Measuring failed, not the result. Returning the result unmeasured is
-		// the pre-existing behaviour and strictly better than failing a call
-		// that may well be fine.
-		return result, nil
-	}
-	if size > maxMCPFrameBytes {
-		return nil, fmt.Errorf(
-			"%s produced a %d byte frame, over the %d byte MCP frame limit; narrow the request (lower limit, or drop details)",
-			tool, size, maxMCPFrameBytes)
-	}
-	return result, nil
+	return map[string]any{"content": []map[string]any{{"type": "text", "text": bounded}}}, nil
 }
 
 // mcpRefreshOptions builds the refresh options for the brain_refresh tool.
@@ -1297,7 +1383,7 @@ func runMCPListProjects(ctx context.Context, cmd *cobra.Command, opts Options) e
 			return storageErr
 		}
 		if !bound {
-			return mcpCrossRepoRefusal("brain_list_projects", "server has no bound repository", "")
+			return mcpCrossRepoRefusal("brain_list_projects", mcpUnboundRepoDetail, "")
 		}
 		boundKey = storage.Key
 		root = storage.BrainDir
@@ -1356,7 +1442,7 @@ func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, 
 		}
 		if !bound {
 			if !mcpCrossRepoAllowed() {
-				return mcpCrossRepoRefusal("brain_delete_project", "server has no bound repository", "")
+				return mcpCrossRepoRefusal("brain_delete_project", mcpUnboundRepoDetail, "")
 			}
 			// Explicitly opted-in unbound servers may use the process CWD.
 			target := "."
@@ -1387,7 +1473,14 @@ func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, 
 			if boundErr != nil {
 				return boundErr
 			}
-			if !bound || repoKey != boundStorage.Key {
+			if !bound {
+				// Not a cross-repo request: with no binding there is no repo
+				// this key could match, and reporting "names a different
+				// project" sent the reader hunting for a mismatch that does
+				// not exist.
+				return mcpCrossRepoRefusal("brain_delete_project", mcpUnboundRepoDetail, "")
+			}
+			if repoKey != boundStorage.Key {
 				return mcpCrossRepoRefusal("brain_delete_project", fmt.Sprintf("repo_key %q names a different project", repoKey), boundStorage.Key)
 			}
 		}
@@ -1431,6 +1524,21 @@ func mcpCrossRepoAllowed() bool { return envBool(mcpAllowCrossRepoEnv) }
 // the repository this MCP server is bound to. An empty EntireEnv.RepoRoot means
 // the server is not bound to a repo; scoped callers must refuse access unless
 // the operator explicitly permits cross-repository access.
+//
+// DELIBERATELY NOT a fallback to the process working directory, even though the
+// repo-local read tools (brain_search, brain_status, brain_patterns, ...) do
+// resolve their target that way when no root is set. The asymmetry is the
+// point: those tools read the one repository in front of them, while the five
+// tools gated here either enumerate every local project, erase one
+// irreversibly, or fan out across a workspace whose membership and locality
+// rules are both computed RELATIVE to the bound repo. Deriving that anchor from
+// an MCP host's working directory -- which is routinely the user home, or "/",
+// and is never a statement about which repository the server serves -- would
+// silently widen workspaceScopeRoot to that directory's parent and make an
+// unbound server capable of deleting whatever brain it happened to start next
+// to. Requiring an explicit binding keeps the anchor a deliberate declaration.
+// The cure for an unbound server is ENTIRE_REPO_ROOT, which printMCPServerConfig
+// now emits; see mcpCrossRepoRefusal for the message that says so.
 func mcpBoundRepoStorage(ctx context.Context, opts Options) (repoStorage, bool, error) {
 	root := strings.TrimSpace(opts.Env.RepoRoot)
 	if root == "" {
@@ -1450,17 +1558,46 @@ func mcpBoundRepoStorage(ctx context.Context, opts Options) (repoStorage, bool, 
 	return storage, true, nil
 }
 
+// mcpUnboundRepoDetail is the detail every scoped tool reports when the server
+// itself was started without a bound repository, as opposed to being asked
+// about a repository other than the one it is bound to. The two are different
+// failures with different fixes and must not share a sentence.
+const mcpUnboundRepoDetail = "the server has no bound repository"
+
 // mcpCrossRepoRefusal is the single refusal message for every MCP tool that
-// would otherwise reach outside the bound repository. It always names the gate
-// so an operator who genuinely wants cross-repo access knows the one knob.
+// would otherwise reach outside the bound repository.
+//
+// It names ENTIRE_REPO_ROOT first, and the ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO
+// opt-out only as the deliberate cross-repo choice. The previous wording named
+// only the opt-out:
+//
+//	... server has no bound repository; set ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO=1
+//	to allow cross-repo access
+//
+// which pointed the reader at the security switch as the remedy for a MISSING
+// SETTING. An agent follows that literally and turns off the confused-deputy
+// protection to repair a misconfiguration -- the one outcome this gate exists
+// to prevent. Binding the server is the fix; lifting the gate is a separate,
+// deliberate decision.
 func mcpCrossRepoRefusal(tool, detail, boundKey string) error {
-	bound := boundKey
-	if bound == "" {
-		bound = "the bound repository"
+	if strings.TrimSpace(boundKey) == "" {
+		// UNBOUND. Nothing here is a cross-repo request yet -- the server was
+		// simply started without ENTIRE_REPO_ROOT, which is what an MCP entry
+		// with an empty env produces.
+		return fmt.Errorf(
+			"%s is scoped to the MCP server's bound repository: %s; "+
+				"set %s=<path to the repository this server serves> in the MCP server entry's env "+
+				"(`entire-brain mcp --print-config` emits an entry that already does) and restart the server. "+
+				"%s=1 does not fix this: it is the separate opt-out for deliberately acting on repositories "+
+				"other than the bound one",
+			tool, detail, envRepoRoot, mcpAllowCrossRepoEnv,
+		)
 	}
 	return fmt.Errorf(
-		"%s is scoped to the MCP server's bound repository (%s): %s; set %s=1 to allow cross-repo access",
-		tool, bound, detail, mcpAllowCrossRepoEnv,
+		"%s is scoped to the MCP server's bound repository (%s): %s; "+
+			"bind the server to the repository you mean with %s, "+
+			"or set %s=1 if acting across repositories is deliberate",
+		tool, boundKey, detail, envRepoRoot, mcpAllowCrossRepoEnv,
 	)
 }
 
@@ -1492,7 +1629,7 @@ func mcpValidateWorkspaceScope(ctx context.Context, opts Options, tool string, m
 		return storageErr
 	}
 	if !bound {
-		return mcpCrossRepoRefusal(tool, "cannot resolve the bound repository", "")
+		return mcpCrossRepoRefusal(tool, mcpUnboundRepoDetail, "")
 	}
 	boundKey := storage.Key
 
@@ -1879,6 +2016,36 @@ func drainMCPLine(reader *bufio.Reader) {
 	}
 }
 
+// mcpHeaderFieldName reports whether a line's pre-colon text is a syntactically
+// valid frame-header name (an RFC 7230 token).
+//
+// This is what separates a header this server should skip past -- Content-Type,
+// which conforming LSP-framed clients do send -- from a line that is not framing
+// at all. Rejecting every header the server does not itself consume would break
+// those clients; accepting every line with a colon in it is what let a JSON
+// batch pass for a header.
+func mcpHeaderFieldName(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		if !isMCPHeaderTokenByte(name[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func isMCPHeaderTokenByte(c byte) bool {
+	switch {
+	case c >= '0' && c <= '9', c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z':
+		return true
+	default:
+		return strings.IndexByte("!#$%&'*+-.^_`|~", c) >= 0
+	}
+}
+
 func readMCPMessage(reader *bufio.Reader) (mcpMessage, mcpFrameMode, error) {
 	length := -1
 	for {
@@ -1905,7 +2072,26 @@ func readMCPMessage(reader *bufio.Reader) (mcpMessage, mcpFrameMode, error) {
 			break
 		}
 		name, value, ok := strings.Cut(line, ":")
-		if ok && strings.EqualFold(strings.TrimSpace(name), "Content-Length") {
+		// A line that is neither a JSON-RPC frame nor a frame HEADER is not
+		// framing at all, and it used to be swallowed here without a response:
+		// only a line starting with "{" reached the decoder, so `banana`, a bare
+		// scalar, and an NDJSON batch ("[{...}]", whose first colon sits inside
+		// the JSON) were all handed to this header scanner, failed to be
+		// Content-Length, and were dropped. The client saw silence and waited.
+		//
+		// Nothing past this line has been consumed, so the stream is still at a
+		// frame boundary: this is recoverable, and the serve loop answers it
+		// with the same -32700 every other framing failure gets.
+		if !ok || !mcpHeaderFieldName(name) {
+			// A Content-Length already seen means the peer is speaking LSP
+			// framing; otherwise the line arrived where NDJSON would be.
+			mode := mcpFrameJSONLine
+			if length >= 0 {
+				mode = mcpFrameContentLength
+			}
+			return mcpMessage{}, mode, fmt.Errorf("%w: not a JSON-RPC message or a frame header", errMCPRecoverable)
+		}
+		if strings.EqualFold(strings.TrimSpace(name), "Content-Length") {
 			parsed, err := strconv.Atoi(strings.TrimSpace(value))
 			if err != nil {
 				return mcpMessage{}, "", err

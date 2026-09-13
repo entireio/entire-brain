@@ -208,8 +208,10 @@ func TestDoctorInfersTheRepoFromTheWorkingDirectory(t *testing.T) {
 	cmd.SetContext(context.Background())
 	cmd.SetOut(out)
 	cmd.SetErr(out)
-	if err := runDoctor(cmd, opts, false); err != nil {
-		t.Fatalf("runDoctor: %v", err)
+	// The component failure is an `error` finding, so the default gate trips;
+	// what this test is about is that the REASON is printed either way.
+	if err := runDoctor(cmd, opts, false, doctorFailOnError); !errors.Is(err, errDoctorGate) {
+		t.Fatalf("runDoctor must fail the gate on a failed setup component, got: %v", err)
 	}
 
 	printed := out.String()
@@ -237,7 +239,7 @@ func TestDoctorSaysSoWhenNoRepositoryIsInScope(t *testing.T) {
 	cmd.SetContext(context.Background())
 	cmd.SetOut(out)
 	cmd.SetErr(out)
-	if err := runDoctor(cmd, Options{Version: "test", Env: env, Runner: runner, Now: time.Now}, false); err != nil {
+	if err := runDoctor(cmd, Options{Version: "test", Env: env, Runner: runner, Now: time.Now}, false, doctorFailOnError); err != nil {
 		t.Fatalf("runDoctor: %v", err)
 	}
 	if !strings.Contains(out.String(), "no repository in scope") {

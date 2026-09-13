@@ -9,13 +9,26 @@ import (
 	"time"
 )
 
+// Config is the plugin's persisted configuration: brain.json, and nothing else.
+//
+// It holds exactly one setting, because exactly one setting is persisted. It
+// used to also carry a scaffold `Greeting` that nothing in this program ever
+// read, so `config show` reported "Hello from Entire Brain" as if that were the
+// plugin's configuration. A field no code consults is not configuration.
 type Config struct {
-	Greeting    string            `json:"greeting"`
+	// DomainSlugs maps a git host to the segment its repositories are stored
+	// under in the brain store (github.com -> "gh" and the other well-known
+	// hosts are built in; an unknown host is assigned a slug on first sight and
+	// recorded here so a repository's identity, and therefore its brain
+	// directory, stays stable forever after).
 	DomainSlugs map[string]string `json:"domain_slugs,omitempty"`
 }
 
+// Default is the configuration of a machine that has never been configured:
+// no host slugs learned yet. `config init` writes it so the file and its lock
+// exist before the first repository needs a slug recorded.
 func Default() Config {
-	return Config{Greeting: "Hello from Entire Brain"}
+	return Config{}
 }
 
 func Path(configDir string) (string, error) {
@@ -56,9 +69,6 @@ func loadPath(path string) (Config, error) {
 			fmt.Fprintf(os.Stderr, "warning: %s was not valid JSON (%v); using defaults\n", path, err)
 		}
 		return Default(), nil
-	}
-	if cfg.Greeting == "" {
-		cfg.Greeting = Default().Greeting
 	}
 	return cfg, nil
 }

@@ -120,6 +120,22 @@ func factsFileRelPath(branch string) string {
 	return filepath.ToSlash(filepath.Join(factsBranchRelDir(branch), factsFileName))
 }
 
+// factBranchStoreExists reports whether the brain actually holds a facts.ndjson
+// for a branch.
+//
+// loadFacts deliberately returns an empty slice for a missing file so first-run
+// callers need no special case, which means every read surface reports a
+// misspelled branch exactly as it reports a real branch with nothing on it.
+// Wherever that difference matters — naming a promote endpoint, say — this is
+// the check that tells the two apart.
+func factBranchStoreExists(brainDir, branch string) bool {
+	if brainDir == "" || branch == "" {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath(branch))))
+	return err == nil
+}
+
 // loadFacts reads a branch's facts.ndjson. A missing file is not an error: it
 // yields an empty slice so first-run callers do not special-case it. Blank
 // lines are skipped; a malformed line is a hard error so a corrupt store is
@@ -133,7 +149,17 @@ func loadFacts(brainDir, branch string) ([]factRecord, error) {
 	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("fact store is not a regular file: %s", rel)
 	}
-	return parseFactsFile(path)
+	records, err := parseFactsFile(path)
+	if err != nil {
+		// The bare parse error names the damage but not the repair, and this
+		// is the error every read surface shows a user. Name the repair here,
+		// once, the way the history index names `refresh history`.
+		// parseFactsFile itself stays clean so the integrity report (which
+		// quotes it inside a fuller sentence) does not say it twice.
+		return nil, fmt.Errorf("%w; %s", err, factsRepairHint)
+	}
+	return records, nil
+
 }
 
 // parseFactsFile reads a facts.ndjson file at an absolute path. A missing file
@@ -175,41 +201,56 @@ func missingFactBranchStores(brainDir string, source *factSourceManifest) []stri
 	if source == nil || brainDir == "" {
 		return nil
 	}
-	var missing, empty []string
-	seen := map[string]bool{}
-	total := 0
+	var missing []string
 	for _, branch := range source.Branches {
-		if branch == "" || seen[branch] {
+		if branch == "" {
 			continue
 		}
-		seen[branch] = true
-		rel := factsFileRelPath(branch)
-		path := filepath.Join(brainDir, filepath.FromSlash(rel))
-		if err := rejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
+		path := filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath(branch)))
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 			missing = append(missing, branch)
-			continue
 		}
-		info, err := os.Lstat(path)
-		if err != nil || !info.Mode().IsRegular() {
-			missing = append(missing, branch)
-			continue
-		}
-		records, err := loadFacts(brainDir, branch)
-		if err != nil {
-			missing = append(missing, branch)
-			continue
-		}
-		total += len(records)
-		if len(records) == 0 {
-			empty = append(empty, branch)
-		}
-	}
-	// Counts are aggregate, not per branch. An empty branch is suspicious
-	// only when the manifest promises more records than the stores contain.
-	if total < source.Facts {
-		missing = append(missing, empty...)
 	}
 	return missing
+}
+
+// unreadableFactBranchStore is one declared branch whose facts.ndjson is on
+// disk but cannot be read back.
+type unreadableFactBranchStore struct {
+	Branch string
+	Err    error
+}
+
+// unreadableFactBranchStores returns the declared branches whose facts.ndjson
+// exists but does not parse.
+//
+// Existence is not readability. `facts status`, `recall`, `brief` and every
+// other fact reader goes through loadFacts, which fails hard on a malformed
+// line so a corrupt store is never silently truncated -- so a single bad line
+// takes the whole branch out of every retrieval surface while the manifest,
+// the file listing, and therefore missingFactBranchStores all still report the
+// store as present. Doctor is the command a user is sent to when `status` says
+// something is wrong, and it must not hand out a clean bill of health for a
+// store every other command refuses to read.
+//
+// This deliberately calls the SAME loader those commands call rather than
+// scanning the file itself: a second, more forgiving parser here would put
+// doctor back in the business of disagreeing with the readers it is supposed
+// to explain.
+func unreadableFactBranchStores(brainDir string, source *factSourceManifest) []unreadableFactBranchStore {
+	if source == nil || brainDir == "" {
+		return nil
+	}
+	var unreadable []unreadableFactBranchStore
+	for _, branch := range source.Branches {
+		if branch == "" {
+			continue
+		}
+		if _, err := loadFacts(brainDir, branch); err != nil {
+			unreadable = append(unreadable, unreadableFactBranchStore{Branch: branch, Err: err})
+		}
+	}
+	return unreadable
 }
 
 // missingFactStoreWarning renders the caller-facing warning for the branches
@@ -219,7 +260,7 @@ func missingFactStoreWarning(missing []string) string {
 		return ""
 	}
 	return fmt.Sprintf(
-		"facts declared for branch(es) %s but their %s is missing, unreadable, or empty despite the declared count; those facts cannot be recalled — run `entire brain refresh` and re-distill",
+		"facts declared for branch(es) %s but their %s is missing from the brain; those facts cannot be recalled — run `entire brain refresh` and re-distill",
 		strings.Join(missing, ", "), factsFileName,
 	)
 }
@@ -350,6 +391,14 @@ func summarizeFactSource(now time.Time, byBranch map[string][]factRecord, chunks
 	source.Branches = branches
 	for _, branch := range branches {
 		for _, record := range byBranch[branch] {
+			// A stored line carrying no id is not a fact (see isFactRecord): it
+			// cannot be fetched, recalled, verified or superseded. Counting it
+			// here is how a damaged store re-declared its own damage as healthy
+			// on the next `remember` or `refresh`, and it is what the integrity
+			// cross-check compares against.
+			if !isFactRecord(record) {
+				continue
+			}
 			source.Facts++
 			switch record.Origin {
 			case factOriginDistilled:
@@ -380,10 +429,24 @@ func summarizeFactSource(now time.Time, byBranch map[string][]factRecord, chunks
 
 // missingFactStoreWarningForBranch scopes retrieval warnings to the store read.
 func missingFactStoreWarningForBranch(brainDir string, source *factSourceManifest, branch string) string {
-	for _, missing := range missingFactBranchStores(brainDir, source) {
-		if missing == branch {
-			return missingFactStoreWarning([]string{branch})
+	integrity := inspectFactStore(brainDir, source)
+	switch integrity.Mode {
+	case factStoreDefectMissing:
+		for _, missing := range integrity.Missing {
+			if missing == branch {
+				return missingFactStoreWarning([]string{branch})
+			}
 		}
+		return ""
+	case factStoreDefectUnreadable:
+		for _, unreadable := range integrity.Unreadable {
+			if unreadable == branch {
+				return integrity.Warning()
+			}
+		}
+		return ""
+	default:
+		// Aggregate count discrepancies cannot be assigned to one branch.
+		return integrity.Warning()
 	}
-	return ""
 }

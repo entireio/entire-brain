@@ -1596,8 +1596,8 @@ func inspectBrainManifestHealth(brainDir string) (*exportManifest, memoryManifes
 		}
 	}
 	health.SchemaVersion = version
-	if err == nil && version < 0 {
-		err = fmt.Errorf("%s: unsupported brain manifest schema version %d", memoryErrUnsupportedVersion, version)
+	if err == nil && version < brainManifestMinSchemaVersion {
+		err = fmt.Errorf("%s: brain manifest declares schema version %d, older than the first supported version %d", memoryErrUnsupportedVersion, version, brainManifestMinSchemaVersion)
 	}
 	if err != nil {
 		code := memoryErrorCode(err)
@@ -1606,7 +1606,16 @@ func inspectBrainManifestHealth(brainDir string) (*exportManifest, memoryManifes
 		health.RecommendedAction = "repair or rebuild the manifest from canonical sources"
 		if code == memoryErrUnsupportedVersion {
 			health.State = "unsupported"
-			health.RecommendedAction = "upgrade entire-brain; this newer manifest remains read-only"
+			// Which way the version is skewed decides the remedy, and only one
+			// of the two directions is "upgrade". A manifest older than v1
+			// declares no version this project ever wrote, so no build reads it
+			// and there is nothing to upgrade INTO -- the way out is to rebuild
+			// it from the canonical sources it was derived from.
+			if version < brainManifestMinSchemaVersion {
+				health.RecommendedAction = "run `entire brain refresh --force` to rebuild the manifest from canonical sources"
+			} else {
+				health.RecommendedAction = "upgrade entire-brain; this newer manifest remains read-only"
+			}
 		}
 		issue := memoryHealthIssue{Kind: "manifest", Path: exportManifestFileName, Code: code, Version: version, Action: health.RecommendedAction}
 		return nil, health, &issue
@@ -2059,11 +2068,17 @@ func memoryReadOnlyHealth(brainDir string, now time.Time) memoryReadOnlyHealthSn
 		if generatedAt, ok := receipts["generated_at"]; ok {
 			reconciliation["last_successful_at"] = generatedAt
 		}
+		// Normalize to a plain string. receipts["state"] holds a
+		// projectionStateReadState (a named string type), and copying it in
+		// raw meant every reader doing the obvious `.(string)` assertion --
+		// doctor's memory_reconciliation line among them -- silently got "".
+		// JSON could not tell the difference, so the payload looked correct
+		// while the rendered reason vanished.
 		if state, ok := receipts["state"]; ok && reconciliation["state"] == "never" {
-			reconciliation["state"] = state
+			reconciliation["state"] = memoryObservedStateValue(state)
 		}
 		if code, ok := receipts["error_code"]; ok {
-			reconciliation["error_code"] = code
+			reconciliation["error_code"] = memoryObservedStateValue(code)
 		}
 	}
 	payload["reconciliation"] = reconciliation

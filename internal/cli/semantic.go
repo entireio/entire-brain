@@ -439,11 +439,11 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	}
 	head, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD")
 	if err != nil {
-		return fmt.Errorf("resolve HEAD for semantic index: %w", err)
+		return nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("resolve HEAD for semantic index: %w", err))
 	}
 	tree, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD^{tree}")
 	if err != nil {
-		return fmt.Errorf("resolve HEAD tree for semantic index: %w", err)
+		return nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("resolve HEAD tree for semantic index: %w", err))
 	}
 	branch, _ := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current")
 	defaultBranch, defaultWarnings := detectDefaultBranch(ctx, opts.Runner, repoDir)
@@ -3057,10 +3057,28 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 	if freshness.Severity != "ok" {
 		fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", freshness.Severity)
 	}
+	if len(results) == 0 {
+		printSemanticNoMatch(cmd, "symbols", query)
+		return nil
+	}
 	for _, result := range results {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s:%d-%d\n", result.Kind, displaySymbolName(result), result.FilePath, result.StartLine, result.EndLine)
 	}
 	return nil
+}
+
+// printSemanticNoMatch writes the text-mode empty-state line for a semantic
+// read that matched nothing.
+//
+// These commands used to print zero bytes and exit 0 on a no-match query, which
+// is the one outcome a caller cannot act on: a silent success is equally
+// consistent with "the index has no such symbol", "the index was never built"
+// and "this command is broken". Their --json siblings always said so with
+// "results": [], and `inspect boundaries` and `inspect changes` already say so
+// in prose; this is that same idiom, extended with the query so an empty index
+// stays distinguishable from an unlucky search term.
+func printSemanticNoMatch(cmd *cobra.Command, kind, query string) {
+	fmt.Fprintf(cmd.OutOrStdout(), "no %s found in the semantic index for %q\n", kind, query)
 }
 
 func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, contextOpts semanticContextOptions, query string) error {
@@ -3129,6 +3147,10 @@ func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, c
 	}
 	if freshness.Severity != "ok" {
 		fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", freshness.Severity)
+	}
+	if len(result.Symbols) == 0 && len(result.Relations) == 0 && len(result.Neighbors) == 0 && len(result.Content) == 0 {
+		printSemanticNoMatch(cmd, "context", query)
+		return nil
 	}
 	for _, symbol := range result.Symbols {
 		fmt.Fprintf(cmd.OutOrStdout(), "symbol %s %s:%d-%d\n", displaySymbolName(symbol), symbol.FilePath, symbol.StartLine, symbol.EndLine)
@@ -3201,6 +3223,10 @@ func runSemanticImpact(ctx context.Context, cmd *cobra.Command, opts Options, im
 	}
 	if freshness.Severity != "ok" {
 		fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", freshness.Severity)
+	}
+	if len(symbols) == 0 && len(relations) == 0 {
+		printSemanticNoMatch(cmd, "impact", query)
+		return nil
 	}
 	for _, symbol := range symbols {
 		fmt.Fprintf(cmd.OutOrStdout(), "symbol %s %s:%d-%d\n", displaySymbolName(symbol), symbol.FilePath, symbol.StartLine, symbol.EndLine)
@@ -3430,6 +3456,10 @@ func runSemanticTests(ctx context.Context, cmd *cobra.Command, opts Options, tes
 	}
 	if freshness.Severity != "ok" {
 		fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", freshness.Severity)
+	}
+	if len(result.Suggestions) == 0 {
+		printSemanticNoMatch(cmd, "tests", query)
+		return nil
 	}
 	for _, suggestion := range result.Suggestions {
 		symbol := suggestion.Symbol

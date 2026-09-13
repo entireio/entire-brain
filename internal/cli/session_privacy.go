@@ -433,6 +433,14 @@ func newSessionsListCommand(opts Options) *cobra.Command {
 				return writeJSON(cmd, map[string]any{"sessions": entries})
 			}
 			return writeText(cmd, func(out io.Writer) {
+				// An empty session list is the normal state of a brain that has
+				// never captured a session, and printing nothing for it made the
+				// one command a privacy-conscious user reaches for indistinguishable
+				// from a command that failed to look. Say which it is.
+				if len(entries) == 0 {
+					fmt.Fprintln(out, "no captured sessions in this brain")
+					return
+				}
 				for _, entry := range entries {
 					state := "included"
 					if entry.Excluded {
@@ -1790,8 +1798,21 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	for _, artifact := range plan.Transcripts {
 		transcriptRels[normalizePrivacyTranscriptPath(artifact.Path)] = true
 	}
-	if _, _, err := purgeSessionFacts(brainDir, sessionID, transcriptRels); err != nil {
+	deletedFacts, strippedAnchors, err := purgeSessionFacts(brainDir, sessionID, transcriptRels)
+	if err != nil {
 		return err
+	}
+	// Rebuild sources.facts from what survived. Every other fact mutation
+	// (remember, review, promote, retract, gc, sync) resummarizes the manifest;
+	// privacy cleanup deleted facts and did not, so the manifest kept declaring
+	// facts this function had just removed. That is indistinguishable on disk
+	// from the corruption the integrity cross-check exists to catch, and would
+	// make a sanctioned purge report itself as data loss. This runs under the
+	// caller's brain write lock.
+	if deletedFacts > 0 || strippedAnchors > 0 {
+		if err := updateFactSourceManifestLocked(brainDir, now); err != nil {
+			return err
+		}
 	}
 	if _, _, err := filterEpisodesFile(brainDir, sessionID, transcriptRels, true); err != nil {
 		return err

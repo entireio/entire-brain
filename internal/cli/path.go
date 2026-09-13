@@ -16,6 +16,14 @@ type pathCommandOptions struct {
 	entireBinary    string
 	rawTranscript   bool
 	scope           string
+	// ensure opts INTO building a missing brain. It is off by default because
+	// `path` is a getter: it answers "where does this repository's brain live".
+	// It used to refresh a missing brain unconditionally, so a single read-only
+	// question against an empty store wrote a seed corpus, a docs FTS index, a
+	// pattern corpus, a manifest and a lock directory -- and in a directory git
+	// could not answer for, it failed inside that build with a raw
+	// `fatal: not a git repository` from a subprocess the caller never asked for.
+	ensure bool
 }
 
 func newPathCommand(opts Options) *cobra.Command {
@@ -30,10 +38,12 @@ func newPathCommand(opts Options) *cobra.Command {
 		Short: "Print the persistent brain path for a repo path or URL",
 		Long: `Path prints the persistent brain export directory for a repository.
 
-When the target is an existing local path, it is resolved to the containing git
-worktree when possible. If that brain has not been exported yet, path creates
-the persistent export before printing the directory. Repo URLs are resolved to
-their deterministic brain directory without exporting.`,
+Path is a getter: by default it writes nothing. It resolves the target -- an
+existing local path to its containing git worktree, a repo URL to its
+deterministic brain directory -- and prints where that repository's brain
+lives. The directory is printed whether or not the brain has been built yet;
+build it with "setup" or "refresh", or pass --ensure to build a missing brain
+here.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := "."
@@ -47,10 +57,11 @@ their deterministic brain directory without exporting.`,
 		},
 	}
 
-	cmd.Flags().IntVar(&pathOpts.checkpointLimit, "checkpoint-limit", defaultCheckpointLimit, "Maximum checkpoints to inspect when exporting (0 means all)")
-	cmd.Flags().StringVar(&pathOpts.entireBinary, "entire-binary", "entire", "Entire CLI binary to invoke when exporting")
-	cmd.Flags().BoolVar(&pathOpts.rawTranscript, "raw", false, "Export raw agent transcripts instead of normalized compact transcripts")
-	cmd.Flags().StringVar(&pathOpts.scope, "scope", exportScopeAll, "Checkpoint discovery scope when exporting: all or branch")
+	cmd.Flags().BoolVar(&pathOpts.ensure, "ensure", false, "Build the brain when it is missing instead of only printing where it would live")
+	cmd.Flags().IntVar(&pathOpts.checkpointLimit, "checkpoint-limit", defaultCheckpointLimit, "Maximum checkpoints to inspect when building with --ensure (0 means all)")
+	cmd.Flags().StringVar(&pathOpts.entireBinary, "entire-binary", "entire", "Entire CLI binary to invoke when building with --ensure")
+	cmd.Flags().BoolVar(&pathOpts.rawTranscript, "raw", false, "Export raw agent transcripts instead of normalized compact transcripts when building with --ensure")
+	cmd.Flags().StringVar(&pathOpts.scope, "scope", exportScopeAll, "Checkpoint discovery scope when building with --ensure: all or branch")
 
 	return cmd
 }
@@ -85,7 +96,13 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 		if err != nil {
 			return err
 		}
-		if !brainExportExists(storage.BrainDir) {
+		if err := checkPathTargetIsAddressable(ctx, opts, storage, repoDir); err != nil {
+			return err
+		}
+		if pathOpts.ensure && !brainExportExists(storage.BrainDir) {
+			if err := pathOpts.validateForEnsure(); err != nil {
+				return err
+			}
 			if err := runPathRefresh(ctx, opts, pathOpts, repoDir); err != nil {
 				return err
 			}
@@ -115,6 +132,48 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 		return nil
 	}
 	return fmt.Errorf("target is neither an existing path nor a supported repo URL: %s", target)
+}
+
+// checkPathTargetIsAddressable refuses a local target git cannot answer for,
+// UNLESS a brain is already stored for it.
+//
+// resolveLocalTargetRepoDir deliberately tolerates a non-repository, so without
+// this check `path` printed a brain directory derived from a path hash for any
+// directory at all -- a location `refresh` can never populate, because every
+// source the brain is built from is read out of git. Printing it made a
+// `BRAIN=$(entire brain path)` caller believe it had an answer. The existing-brain
+// exemption keeps a brain reachable after its worktree loses .git, which is
+// exactly when a reader needs to find it.
+func checkPathTargetIsAddressable(ctx context.Context, opts Options, storage repoStorage, repoDir string) error {
+	if _, ok := gitWorkTreeRoot(ctx, opts.Runner, repoDir); ok {
+		return nil
+	}
+	stored, err := repoStorageContainsState(storage)
+	if err != nil {
+		return err
+	}
+	if stored {
+		return nil
+	}
+	brainCmd := setupCommandPrefix(os.LookupEnv)
+	return fmt.Errorf("not a git repository: %s\n"+
+		"%[2]s path reports where a repository's brain lives, and a repository's identity -- like every source its brain is built from -- comes from git.\n"+
+		"run `git init` here, or name a repository: %[2]s path <path-or-repo-url>", repoDir, brainCmd)
+}
+
+// validateForEnsure checks the build flags, which are only read when --ensure
+// actually builds something.
+func (o pathCommandOptions) validateForEnsure() error {
+	if o.checkpointLimit < 0 {
+		return fmt.Errorf("--checkpoint-limit must be greater than or equal to zero")
+	}
+	if strings.TrimSpace(o.entireBinary) == "" {
+		return fmt.Errorf("--entire-binary must not be empty")
+	}
+	if o.scope != exportScopeAll && o.scope != exportScopeBranch {
+		return fmt.Errorf("--scope must be either all or branch")
+	}
+	return nil
 }
 
 func looksLikeWindowsDrivePath(target string) bool {
@@ -214,6 +273,78 @@ func gitWorkTreeRoot(ctx context.Context, runner CommandRunner, dir string) (str
 	return filepath.Clean(root), true
 }
 
+// firstErrorLine is an error reduced to its opening line, for the one-line
+// slots -- progress notes, status axes -- that a multi-line named condition
+// would otherwise wrap into nonsense.
+func firstErrorLine(err error) string {
+	if err == nil {
+		return ""
+	}
+	text := err.Error()
+	if idx := strings.IndexByte(text, '\n'); idx >= 0 {
+		return text[:idx]
+	}
+	return text
+}
+
+// nameDegenerateRepoFailure replaces a raw git failure with the repository
+// condition that explains it.
+//
+// A brain command run against a repository with no commits exited 1 -- the right
+// code -- while printing whichever git subprocess happened to notice first,
+// verbatim, including the hardening flags this binary adds and the caller never
+// typed:
+//
+//	resolve HEAD for semantic index: git [-c core.fsmonitor=false rev-parse HEAD]:
+//	exit status 128: fatal: ambiguous argument 'HEAD': unknown revision or path
+//	not in the working tree.
+//
+// Only the conditions one further probe settles are named: no work tree at all,
+// a bare repository, and an unborn HEAD. A detached HEAD and a shallow clone are
+// deliberately absent -- both build a brain, and the surfaces that care already
+// describe them (branch_tip=stale, and the shallow-boundary warning entityindex
+// raises) -- and every other failure keeps git's own text, which is worth more
+// than a guess.
+//
+// The probes run only on a path that has already failed, so a healthy repo pays
+// nothing for them.
+func nameDegenerateRepoFailure(ctx context.Context, runner CommandRunner, repoDir string, err error) error {
+	if err == nil || runner == nil {
+		return err
+	}
+	brainCmd := setupCommandPrefix(os.LookupEnv)
+	if _, ok := gitWorkTreeRoot(ctx, runner, repoDir); !ok {
+		if bare, bareErr := gitScalar(ctx, runner, repoDir, "rev-parse", "--is-bare-repository"); bareErr == nil && strings.TrimSpace(bare) == "true" {
+			return fmt.Errorf("bare repository has no working tree: %s\n"+
+				"%[2]s reads seed, docs and the semantic index out of a working tree, and a bare repository has none.\n"+
+				"point it at a clone with a checkout: %[2]s refresh <path>", repoDir, brainCmd)
+		}
+		return fmt.Errorf("not a git repository: %s\n"+
+			"%[2]s builds every source it has -- sessions, seed, docs, semantic index -- from git history, so it needs one.\n"+
+			"run `git init` here, or name a repository: %[2]s refresh <path>", repoDir, brainCmd)
+	}
+	// An unborn HEAD has to be shown, not inferred from the failure that got us
+	// here: `git rev-parse HEAD` also fails when git itself is unavailable, and
+	// answering that with "no commits yet" would be a confident wrong diagnosis.
+	//
+	// symbolic-ref SUCCEEDING is the positive evidence -- it proves git ran and
+	// the repo is readable, and it returns the branch HEAD points at even when
+	// that branch has no commit. If that branch then does not resolve, the only
+	// thing left is that nothing has been committed to it. A detached HEAD has
+	// no symbolic ref and falls through here untouched, which is correct: it is
+	// not a condition this names.
+	ref, refErr := gitScalar(ctx, runner, repoDir, "symbolic-ref", "--quiet", "HEAD")
+	if refErr != nil || strings.TrimSpace(ref) == "" {
+		return err
+	}
+	if _, resolved := gitScalar(ctx, runner, repoDir, "rev-parse", "--verify", "--quiet", strings.TrimSpace(ref)); resolved == nil {
+		return err
+	}
+	return fmt.Errorf("this repository has no commits yet: %s\n"+
+		"%[2]s pins every source it builds to a commit, and an unborn branch has none.\n"+
+		"make at least one commit, then run `%[2]s refresh` again", repoDir, brainCmd)
+}
+
 func matchingLexicalAncestor(path, target string) (string, bool) {
 	targetInfo, err := os.Stat(target)
 	if err != nil {
@@ -234,37 +365,6 @@ func matchingLexicalAncestor(path, target string) (string, bool) {
 func brainExportExists(brainDir string) bool {
 	info, err := os.Stat(filepath.Join(brainDir, exportManifestFileName))
 	return err == nil && !info.IsDir()
-}
-
-func runPathExport(ctx context.Context, opts Options, pathOpts pathCommandOptions, repoDir string) error {
-	if pathOpts.checkpointLimit < 0 {
-		return fmt.Errorf("--checkpoint-limit must be greater than or equal to zero")
-	}
-	if strings.TrimSpace(pathOpts.entireBinary) == "" {
-		return fmt.Errorf("--entire-binary must not be empty")
-	}
-	if pathOpts.scope != exportScopeAll && pathOpts.scope != exportScopeBranch {
-		return fmt.Errorf("--scope must be either all or branch")
-	}
-
-	exportEnv := opts.Env
-	exportEnv.RepoRoot = repoDir
-	exportCmd := &cobra.Command{Use: "export"}
-	exportCmd.SetOut(io.Discard)
-	exportCmd.SetErr(io.Discard)
-	exportOpts := exportCommandOptions{
-		outputDir:       defaultExportDir,
-		checkpointLimit: pathOpts.checkpointLimit,
-		entireBinary:    pathOpts.entireBinary,
-		rawTranscript:   pathOpts.rawTranscript,
-		scope:           pathOpts.scope,
-	}
-	return runExport(ctx, exportCmd, Options{
-		Version: opts.Version,
-		Env:     exportEnv,
-		Runner:  opts.Runner,
-		Now:     opts.Now,
-	}, exportOpts)
 }
 
 func runPathRefresh(ctx context.Context, opts Options, pathOpts pathCommandOptions, repoDir string) error {

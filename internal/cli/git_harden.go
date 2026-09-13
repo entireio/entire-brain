@@ -26,10 +26,22 @@ import "slices"
 //     per-command flag for it, so it is neutralized in the environment instead;
 //     see git_harden_filters.go, which is the other half of this hardening
 //     point.
+//   - the hook directory needs no config key at all: an executable
+//     .git/hooks/post-index-change runs for any command that REWRITES THE
+//     INDEX, which `git status` does for a tracked file whose stat data went
+//     stale while its content did not. That makes it the cheapest vector of the
+//     five to arm -- a file and a chmod, nothing in .git/config -- and
+//     core.hooksPath relocates the directory for an attacker who prefers a
+//     config key. Confirmed on git 2.54.0: a first `refresh --worktree` ran the
+//     payload 3x and `status` and `overview` 1x each, every one of them while
+//     the command reported success. Only post-index-change is reachable while
+//     this binary merely reads, but the hook directory belongs to the
+//     repository, so any hook it ships is one future write-side git command
+//     away from running.
 //
-// The flags below cover the first three vectors. The filter drivers have no
-// flag equivalent and are handled by repoFilterDriverOverrides, applied at the
-// same single spawn point in runner.go.
+// The flags below cover the first three vectors and the hooks. The filter
+// drivers have no flag equivalent and are handled by repoFilterDriverOverrides,
+// applied at the same single spawn point in runner.go.
 //
 // Neutralizing the diff drivers with `-c diff.external=` does NOT work: git
 // still takes the external-diff path and aborts with "external diff died,
@@ -40,10 +52,33 @@ import "slices"
 // core.fsmonitor is a pure performance cache, so disabling it is behaviour
 // preserving: the commands return identical results, just without the
 // filesystem-monitor shortcut.
+// gitHooksDisabledPath is the value core.hooksPath is pinned to. git never
+// creates or writes this path -- it only probes <path>/<hook-name> for an
+// executable -- so any value that cannot resolve to a directory disables every
+// hook at once, which is exactly the blunt instrument wanted here: this binary
+// reads repositories and has no use for a hook of any name.
+//
+// The value must be ABSOLUTE. git resolves a relative core.hooksPath against
+// the worktree, and the worktree is the attacker's, so a relative value is one
+// `mkdir` away from naming an attacker-supplied hook directory -- it would hand
+// over the vector it is meant to close.
+//
+// /dev/null is a character device, so /dev/null/<anything> is ENOTDIR by
+// construction: `mkdir -p` on it fails even for root, a guarantee a merely
+// not-yet-existing directory cannot make. The trailing segment carries the
+// intent into `ps` output and keeps the value inert on Windows too, where there
+// is no /dev/null and the path simply does not resolve. Verified on git 2.54.0
+// to add neither stderr nor a non-zero exit to status, rev-parse, diff, log,
+// ls-files, worktree, gc, clone or commit.
+const gitHooksDisabledPath = "/dev/null/entire-brain-hooks-disabled"
+
 var (
 	// gitHardenConfig applies to every git invocation. Verified accepted by
 	// every subcommand this binary runs, including clone.
-	gitHardenConfig = []string{"-c", "core.fsmonitor=false"}
+	gitHardenConfig = []string{
+		"-c", "core.fsmonitor=false",
+		"-c", "core.hooksPath=" + gitHooksDisabledPath,
+	}
 
 	// gitHardenDiffFlags apply only to the subcommands that accept them.
 	// `git status` and `git ls-files` reject both flags outright.

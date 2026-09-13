@@ -609,9 +609,12 @@ func TestDoctorReportsC5HealthWithoutCreatingState(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(storage.BrainDir, exportManifestFileName), future, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// This fixture is a deliberately broken brain (a manifest from the future),
+	// so doctor's default gate trips. The contract under test is the JSON
+	// payload, which must be complete on stdout before it does.
 	out, err := execute(t, NewRootCommand(opts), "doctor", "--json")
-	if err != nil {
-		t.Fatalf("doctor: %v\n%s", err, out)
+	if !errors.Is(err, errDoctorGate) {
+		t.Fatalf("doctor on an unsupported manifest = %v, want the gate error\n%s", err, out)
 	}
 	var report doctorReport
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
@@ -634,7 +637,9 @@ func TestDoctorReportsC5HealthWithoutCreatingState(t *testing.T) {
 	if checks["manifest"].State != "error" || !strings.Contains(checks["manifest"].Detail, memoryErrUnsupportedVersion) {
 		t.Fatalf("manifest check = %+v", checks["manifest"])
 	}
-	if got := checks["memory_host_adapter"]; got.State != "warn" || !strings.Contains(got.Detail, "authority entire-cli") {
+	// Not a warning: this process never observes the host adapter, so the
+	// check could never pass. It still has to name the authority that can.
+	if got := checks["memory_host_adapter"]; got.State != "ok" || !strings.Contains(got.Detail, "authority entire-cli") {
 		t.Fatalf("host adapter check = %+v", got)
 	}
 	if got := checks["memory_schema_capabilities"]; got.State != "ok" || !strings.Contains(got.Detail, fmt.Sprintf("manifest %d", brainManifestSchemaVersion)) {
@@ -887,8 +892,8 @@ func TestDoctorSamplesMemoryReadOnlyHealthOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := execute(t, NewRootCommand(opts), "doctor", "--json")
-	if err != nil {
-		t.Fatalf("doctor: %v\n%s", err, out)
+	if !errors.Is(err, errDoctorGate) {
+		t.Fatalf("doctor on an unsupported manifest = %v, want the gate error\n%s", err, out)
 	}
 	if sampled := nowCalls.Load(); sampled != 1 {
 		t.Fatalf("doctor sampled the memory-health clock %d times, want exactly once", sampled)
@@ -896,5 +901,114 @@ func TestDoctorSamplesMemoryReadOnlyHealthOnce(t *testing.T) {
 	var report doctorReport
 	if err := json.Unmarshal([]byte(out), &report); err != nil || report.Memory["manifest_health"] == nil {
 		t.Fatalf("doctor report decode=%v payload=%#v\n%s", err, report.Memory, out)
+	}
+}
+
+// TestAManifestWithNoSchemaVersionIsNotCurrent covers the backward half of the
+// version check. Forward skew was already handled well -- v4 is refused as
+// `unsupported` and left untouched -- but the floor was `version < 0`, so the
+// two values that mean "this file declares no version" fell through it: `{}`,
+// where the field is absent and decodes to Go's zero, and an explicit 0. Both
+// were normalised to 1 and reported as `manifest current`, and the normalised 1
+// was then reported as the OBSERVED version, so the report hid its own input.
+//
+// 0 is not a pre-versioning document to adapt. The commit that introduced
+// manifest.json already wrote schema_version 1 and the field carries no
+// `omitempty`, so no build of this tool has ever emitted a manifest without one.
+func TestAManifestWithNoSchemaVersionIsNotCurrent(t *testing.T) {
+	now := time.Date(2026, 8, 10, 1, 2, 3, 0, time.UTC)
+	for _, tc := range []struct {
+		name     string
+		data     []byte
+		observed int
+	}{
+		{name: "empty object", data: []byte("{}\n"), observed: 0},
+		{name: "explicit zero", data: []byte("{\"schema_version\":0}\n"), observed: 0},
+		{name: "negative", data: []byte("{\"schema_version\":-5}\n"), observed: -5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repoDir := t.TempDir()
+			env := semanticTestEnv(t, repoDir)
+			env.RepoRoot = repoDir
+			runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+			opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+			storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(storage.BrainDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(storage.BrainDir, exportManifestFileName), tc.data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			out, err := execute(t, NewRootCommand(opts), "status", "--json")
+			if err != nil {
+				t.Fatalf("status: %v\n%s", err, out)
+			}
+			var report brainStatusReport
+			if err := json.Unmarshal([]byte(out), &report); err != nil {
+				t.Fatalf("decode status: %v\n%s", err, out)
+			}
+			if report.Brain.ManifestState == "current" {
+				t.Fatalf("a manifest declaring no schema version was reported current: %+v", report.Brain)
+			}
+			if report.Brain.ManifestState != "unsupported" {
+				t.Fatalf("manifest state = %q, want unsupported", report.Brain.ManifestState)
+			}
+			if report.Brain.Schema != tc.observed {
+				t.Fatalf("reported schema = %d, want the observed %d (the 0 -> 1 coercion must not reach the report)", report.Brain.Schema, tc.observed)
+			}
+			found := false
+			for _, issue := range report.Issues {
+				if issue.Kind == "manifest" && issue.Code == memoryErrUnsupportedVersion {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("typed manifest issue missing: %+v", report.Issues)
+			}
+
+			// The remedy has to match the direction of the skew. There is no
+			// build to upgrade INTO for a version older than the first one ever
+			// written, so the way out is a rebuild.
+			_, health, issue := inspectBrainManifestHealth(storage.BrainDir)
+			if issue == nil {
+				t.Fatal("no manifest issue raised")
+			}
+			if strings.Contains(health.RecommendedAction, "upgrade") {
+				t.Fatalf("a backward-skewed manifest was answered with an upgrade: %q", health.RecommendedAction)
+			}
+			if !strings.Contains(health.RecommendedAction, "refresh") {
+				t.Fatalf("the remedy does not name the command that rebuilds it: %q", health.RecommendedAction)
+			}
+
+			// The strict loader every writer gates on must refuse it too, or a
+			// refresh would rewrite from a manifest it could not vouch for.
+			if _, _, err := readBrainManifest(storage.BrainDir, true); err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+				t.Fatalf("strict loader error = %v, want %s", err, memoryErrUnsupportedVersion)
+			}
+		})
+	}
+
+	// The control: a manifest that does declare a supported version is current,
+	// so the floor did not simply reject everything.
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	env.RepoRoot = repoDir
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(storage.BrainDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(storage.BrainDir, exportManifestFileName), []byte("{\"schema_version\":1}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, health, issue := inspectBrainManifestHealth(storage.BrainDir); issue != nil || health.State != "current" {
+		t.Fatalf("v1 manifest must stay current: state=%q issue=%+v", health.State, issue)
 	}
 }
