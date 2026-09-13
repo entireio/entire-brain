@@ -243,10 +243,19 @@ func TestDoctorReportsAnUnparseableFactStore(t *testing.T) {
 		t.Fatalf("doctor must name the unreadable branch: %q", detail)
 	}
 	// Doctor must report what the readers report, not its own opinion: it
-	// calls the same loader, so the reason is the same string.
+	// calls the same loader, so the REASON is the same string. Compare the
+	// reason only -- both sides append the same repair hint, but the readers
+	// append it inline (";  run ...") while doctor closes its sentence with it
+	// after an em-dash, so comparing the decorated errors whole would pin
+	// punctuation rather than the diagnosis.
 	for name, readerErr := range readerErrs {
-		if !strings.Contains(detail, readerErr.Error()) {
-			t.Fatalf("doctor detail %q does not carry the reason %s gave: %v", detail, name, readerErr)
+		reason := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(readerErr.Error()), factsRepairHint))
+		reason = strings.TrimSuffix(reason, ";")
+		if reason == "" {
+			t.Fatalf("%s gave no reason beyond the repair hint: %v", name, readerErr)
+		}
+		if !strings.Contains(detail, reason) {
+			t.Fatalf("doctor detail %q does not carry the reason %s gave: %q", detail, name, reason)
 		}
 	}
 }
