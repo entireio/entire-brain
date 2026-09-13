@@ -33,6 +33,35 @@ and known failure modes instead of rediscovering them from scratch.
 The plugin binary is named `entire-brain` and is invoked through Entire as
 `entire brain`.
 
+## Agent setup and capability discovery
+
+| Command | Purpose |
+|---|---|
+| `entire brain init-agents [path]` | Install the guide and managed pointers in AGENTS.md/CLAUDE.md |
+| `entire brain agent-guide` | Print the canonical coding-agent operating guide |
+| `entire brain capabilities [--json]` | List compiled features, retrieval sources, requirements, and experimental features |
+| `entire brain refresh index` | Build the semantic index from committed HEAD (use `--worktree` for dirty code) |
+
+`init-agents` accepts `--repo <path>` instead of the positional path and
+`--json` to return a `changed_files` array (empty when already up to date).
+With neither path form it uses the host's repository root, then the current
+directory. It writes `.entire/brain-agent.md` and updates only the
+`<!-- entire-brain:begin -->` / `<!-- entire-brain:end -->` block in each
+instruction file. Existing user text and Graph blocks are preserved. Internal
+instruction symlink aliases are supported; links outside the project,
+non-regular targets, files larger than 4 MiB, and malformed markers are refused.
+The guide file is plugin-managed and replaced on update; edit your own
+instructions outside the managed blocks. No Brain setup or services run.
+
+`guide` remains a compatibility alias for `agent-guide`.
+`capabilities --json` emits schema version 1: `build`, `query`, `sources`,
+`features`, `experimental`, `graph_provider`, and `readiness_command`.
+A source's `semantic_compiled` field reports build support only;
+`semantic_requires` lists additional runtime requirements. No repository,
+provider invocation, or model initialization is needed. This is distinct from
+`status --details --json`, which checks a particular Brain's readiness.
+Language/relation inventories come from `entire graph capabilities --json`.
+
 ## Development source of truth
 
 Entire Brain releases are tagged (`v0.3.0` is the current one), but development

@@ -147,6 +147,28 @@ entire brain status --verbose
 entire brain overview
 ```
 
+### Set up your agent
+
+```bash
+entire brain init-agents                  # install instructions in the current project
+entire brain agent-guide                  # print the same operating guide
+entire brain capabilities --json          # inspect this binary's supported features
+```
+
+`init-agents` writes `.entire/brain-agent.md` and managed pointer blocks in
+`AGENTS.md` and `CLAUDE.md`. It preserves text outside its markers, coexists
+with Graph's blocks, and updates in place on reruns. Use `--repo <path>` (or a
+positional path) to target another project. Existing instruction symlinks must
+resolve inside the project. Malformed markers and invalid targets are rejected
+before installation. This command does not build the Brain or start services.
+
+`capabilities` works without a repository or an initialized Brain. It reports
+retrieval modes, sources, experimental features, build support, and semantic
+requirements; it does not probe models or the Graph provider. Use
+`status --details --json` for actual repository readiness and
+`entire graph capabilities --json` for parsed languages and relation types.
+The old `guide` name remains an alias for `agent-guide`.
+
 ### Record and retrieve facts
 
 ```bash

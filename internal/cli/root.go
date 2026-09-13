@@ -77,6 +77,7 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	cmd.CompletionOptions.DisableDefaultCmd = true
 
 	cmd.AddGroup(
+		&cobra.Group{ID: "agents", Title: "Set up your agent:"},
 		&cobra.Group{ID: "create", Title: "Create the brain:"},
 		&cobra.Group{ID: "explore", Title: "Explore the brain:"},
 		&cobra.Group{ID: "maintain", Title: "Maintain & share:"},
@@ -94,6 +95,10 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 		cmd.AddCommand(c)
 	}
 
+	addGrouped("agents", newInitAgentsCommand(opts))
+	addGrouped("agents", newBrainGuideCommand())
+	addGrouped("agents", newCapabilitiesCommand(opts))
+
 	// Create the brain — locate it, build/refresh it, manage workspaces.
 	// `setup` leads the group: it is the one command a new user runs.
 	addGrouped("create", newSetupCommand(opts))
@@ -110,7 +115,6 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	// Explore the brain — task packets, search, records, specialist inspection.
 	addGrouped("explore", newBrainOverviewCommand(opts))
 	addGrouped("explore", newBrainBriefCommand(opts))
-	addGrouped("explore", newBrainGuideCommand())
 	addGrouped("explore", newBrainInspectCommand(opts))
 	addGrouped("explore", newMCPCommand(opts))
 	addGrouped("explore", newRecallCommand(opts))

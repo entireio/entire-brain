@@ -27,7 +27,7 @@ var guideInvocation = regexp.MustCompile(`(?m)^\s+entire brain ([^\n#]+)`)
 // tokens with the trailing comment removed.
 func guideCommandLines(t *testing.T) [][]string {
 	t.Helper()
-	out, err := execute(t, NewRootCommand(Options{Version: "test"}), "guide")
+	out, err := execute(t, NewRootCommand(Options{Version: "test"}), "agent-guide")
 	if err != nil {
 		t.Fatalf("guide: %v", err)
 	}

@@ -128,7 +128,7 @@ entire brain brief "<task>" --json
 entire brain query --keyword "<query>" --json
 entire brain show <id> --json
 entire brain refresh
-entire brain guide
+entire brain agent-guide
 entire brain path [repo]
 ```
 
