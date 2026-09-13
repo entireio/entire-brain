@@ -54,7 +54,19 @@ func TestMCPUnboundProjectAndWorkspaceAccessFailsClosed(t *testing.T) {
 	}
 }
 
-func TestMCPWorkspaceRejectsForgedCheckoutIdentity(t *testing.T) {
+// TestMCPWorkspaceNeverExecutesAForgedCheckoutIdentity: a member whose repo_key
+// is not the repository actually checked out at its path is never executed,
+// whichever member it is.
+//
+// The key is what addresses a BRAIN, and brainDirForKey applies no containment,
+// so a forged key names any brain on the machine; the in-scope checkout is the
+// only thing that grounds it. Such a member is therefore dropped from the
+// executed manifest and reported as skipped, rather than failing the call --
+// a legitimately moved or re-cloned sibling must not take the workspace down
+// for its healthy peers (TestMCPWorkspaceToolsSurviveOneDeadMember). What this
+// test pins is the invariant that holds either way: the foreign brain is never
+// opened.
+func TestMCPWorkspaceNeverExecutesAForgedCheckoutIdentity(t *testing.T) {
 	t.Setenv(mcpAllowCrossRepoEnv, "")
 	for _, member := range []int{0, 1} {
 		opts, _, _ := workspaceSiblingFixture(t, "forged")
@@ -69,8 +81,16 @@ func TestMCPWorkspaceRejectsForgedCheckoutIdentity(t *testing.T) {
 		}
 		for _, tool := range []string{"brain_workspace_graph", "brain_workspace_regressions", "brain_workspace_review"} {
 			response := mcpScopeCall(t, opts, tool, scopeToolArgs(tool, "forged"))
-			if msg := mcpScopeErrorMessage(t, response); !strings.Contains(msg, "does not match local checkout identity") {
-				t.Fatalf("%s: %s", tool, msg)
+			data, err := json.Marshal(response)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Either outcome is acceptable for the CALL; neither may read the
+			// foreign brain. A refusal is what happens when the forged entry was
+			// the bound repository's own and nothing else identifies it as a
+			// member.
+			if _, refused := response["error"]; !refused && !strings.Contains(string(data), "skipped (unverified)") {
+				t.Fatalf("%s neither refused nor reported the forged member as skipped: %s", tool, data)
 			}
 		}
 		entries, err := os.ReadDir(victim)

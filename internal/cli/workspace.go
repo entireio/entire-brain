@@ -649,10 +649,31 @@ func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addO
 		return err
 	}
 	key := storage.Key
-	if _, err := addWorkspaceRepoLocked(opts.Env, workspaceName, workspaceRepo{RepoKey: key, Name: addOpts.name, LocalPathHint: repoDir}); err != nil {
+	result, err := addWorkspaceRepoLocked(opts.Env, workspaceName, workspaceRepo{RepoKey: key, Name: addOpts.name, LocalPathHint: repoDir})
+	if err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "added %s\n", key)
+	// "added" was printed unconditionally, including when the key was ALREADY a
+	// member and this call merely rebound it to a different checkout. Two paths
+	// reach the same key routinely -- a git worktree of a member (same origin,
+	// same key), the same checkout named through a symlink, a second clone --
+	// and each of those `workspace add` calls reported a success that implied a
+	// new member. The member count did not move, the earlier --name was
+	// replaced, and the local path silently moved to the newly named tree, which
+	// is the tree every later scan then runs against.
+	//
+	// addWorkspaceRepoLocked has always returned this; `setup` has always used
+	// it. Only the human-facing command threw it away.
+	out := cmd.OutOrStdout()
+	switch {
+	case !result.Already:
+		fmt.Fprintf(out, "added %s\n", key)
+	case result.PreviousPathHint != "" && result.PreviousPathHint != repoDir:
+		fmt.Fprintf(out, "%s is already a member of %s; its path now points at %s (was %s)\n",
+			key, workspaceName, repoDir, result.PreviousPathHint)
+	default:
+		fmt.Fprintf(out, "%s is already a member of %s\n", key, workspaceName)
+	}
 	return nil
 }
 
@@ -662,6 +683,10 @@ func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addO
 type workspaceAddResult struct {
 	Created bool
 	Already bool
+	// PreviousPathHint is the checkout an existing member pointed at before this
+	// add rebound it, so a caller can say WHICH tree the workspace now scans.
+	// Empty unless Already is true.
+	PreviousPathHint string
 }
 
 // workspaceDirOrEmpty resolves a workspace directory for use in a MESSAGE only:
@@ -714,6 +739,7 @@ func addWorkspaceRepoLocked(env EntireEnv, workspaceName string, repo workspaceR
 	for i := range manifest.Repos {
 		if manifest.Repos[i].RepoKey == repo.RepoKey {
 			result.Already = true
+			result.PreviousPathHint = manifest.Repos[i].LocalPathHint
 			// Keep the freshest local path hint; the member itself is unchanged.
 			// A caller that carries no display name — `setup`'s registration,
 			// which re-runs every time — must not erase the one a human set with
@@ -939,10 +965,22 @@ func runWorkspaceGraph(cmd *cobra.Command, opts Options, graphOpts workspaceGrap
 	if err != nil {
 		return err
 	}
-	return runWorkspaceGraphManifest(cmd, opts, graphOpts, manifest)
+	return runWorkspaceGraphManifest(cmd, opts, graphOpts, manifest, nil)
 }
 
-func runWorkspaceGraphManifest(cmd *cobra.Command, opts Options, graphOpts workspaceGraphOptions, manifest workspaceManifest) error {
+// workspaceSkippedResultError renders a member the caller dropped before
+// execution. The wording matches the per-member skips the runners already emit
+// for an unsafe pairing, so a reader cannot tell a skip apart by shape and then
+// treat one of them as a silent success.
+func workspaceSkippedResultError(f workspaceRepoFreshness) string {
+	detail := strings.TrimSpace(f.Detail)
+	if detail == "" {
+		detail = "member could not be verified against a checkout in scope"
+	}
+	return "skipped (unverified): " + detail
+}
+
+func runWorkspaceGraphManifest(cmd *cobra.Command, opts Options, graphOpts workspaceGraphOptions, manifest workspaceManifest, skipped []workspaceRepoFreshness) error {
 	if graphOpts.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
@@ -950,6 +988,15 @@ func runWorkspaceGraphManifest(cmd *cobra.Command, opts Options, graphOpts works
 	if err != nil {
 		return err
 	}
+	// A skipped member is still a member: report it, so "six repos in the
+	// workspace, five in the results" is never something the reader has to
+	// notice for themselves.
+	for _, f := range skipped {
+		payload.Results = append(payload.Results, workspaceGraphResult{
+			RepoKey: f.RepoKey, Name: f.Name, Freshness: f, Error: workspaceSkippedResultError(f),
+		})
+	}
+	sort.Slice(payload.Results, func(i, j int) bool { return payload.Results[i].RepoKey < payload.Results[j].RepoKey })
 	if _, err := writeWorkspaceGraphPayload(opts.Env, payload); err != nil {
 		return err
 	}
@@ -2220,7 +2267,28 @@ func workspaceImportSymbolNames(subpath string) []string {
 	return out
 }
 
+// workspaceImportCandidateRank orders the symbols a cross-repo import edge may
+// point at, best first.
+//
+// Prose ranks BELOW every file. A repository's symbol table carries its
+// Markdown headings as `section` symbols, `section` fell into the default arm
+// alongside every real code symbol, and the tie was then broken by file path --
+// where `README.md` sorts ahead of `client/client.go`, `money/money.go` and
+// everything else. So a root-package import (`@owner/pkg`, `github.com/o/p`,
+// with no subpath to match a symbol name against) resolved to the target
+// repository's README heading, every time, in preference to its actual API:
+//
+//	web-dash imports @fleetk7q3z9/api-client
+//	  -> api-client README.md section:api-client     (was)
+//	  -> api-client client/client.go type:Client     (now)
+//
+// The edge is what tells an agent where a cross-repo dependency LANDS, so
+// pointing it at documentation is worse than pointing it at nothing: the target
+// is real, plausible, and never the code that would have to change.
 func workspaceImportCandidateRank(candidate workspaceGraphSymbolRef) int {
+	if workspaceDocumentationSymbolKinds[strings.ToLower(strings.TrimSpace(candidate.Kind))] {
+		return 3
+	}
 	switch strings.ToLower(candidate.Kind) {
 	case "package", "module", "namespace", "project":
 		return 0
@@ -2229,6 +2297,19 @@ func workspaceImportCandidateRank(candidate workspaceGraphSymbolRef) int {
 	default:
 		return 1
 	}
+}
+
+// workspaceDocumentationSymbolKinds are the symbol kinds that describe prose
+// rather than code. They are still legitimate import targets when nothing else
+// matches -- a docs-only repository has nothing better to offer -- so they are
+// ranked last rather than filtered out.
+var workspaceDocumentationSymbolKinds = map[string]bool{
+	"section":   true,
+	"heading":   true,
+	"chapter":   true,
+	"doc":       true,
+	"document":  true,
+	"paragraph": true,
 }
 
 func sortWorkspaceGraphCrossEdges(edges []workspaceGraphCrossEdge) {
@@ -3466,6 +3547,23 @@ func workspaceFreshnessWarning(f workspaceRepoFreshness) string {
 	}
 }
 
+// workspaceRepoBlockNeedsHeader decides whether a repo's block in the text
+// regression listing gets its "<repo_key> [<state>]" header.
+//
+// EVERY reason a repo emits a line has to appear here, and the warnings term
+// was the one that did not. A repo that was scanned cleanly but carried a
+// caveat -- "no code identifiers found in query", "semantic index missing --
+// scanned raw sessions only" -- printed that caveat with no header above it. In
+// a multi-repo listing an unattributed line is not merely untidy: it reads as
+// belonging to the next repo printed, so a caveat about repo A appeared under
+// repo B's heading, qualifying the wrong repo's findings.
+//
+// runWorkspaceReviewManifest's equivalent condition has always included the
+// warnings term; this is the sibling renderer catching up.
+func workspaceRepoBlockNeedsHeader(state string, anomalies, warnings int, errText string) bool {
+	return anomalies > 0 || warnings > 0 || errText != "" || state != "ok"
+}
+
 // scanWorkspaceRepoRegressions runs the regression detector for a single workspace repo and returns
 // the resolved working-tree path, anomalies, warnings, and a per-repo error string (empty on success).
 func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo workspaceRepo, ro regressionDetectorOptions, query string) (string, []regressionAnomaly, []string, string) {
@@ -3507,14 +3605,19 @@ func runWorkspaceRegressions(cmd *cobra.Command, opts Options, ro regressionDete
 	if err != nil {
 		return err
 	}
-	return runWorkspaceRegressionsManifest(cmd, opts, ro, manifest, query)
+	return runWorkspaceRegressionsManifest(cmd, opts, ro, manifest, query, nil)
 }
 
-func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, manifest workspaceManifest, query string) error {
+func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, manifest workspaceManifest, query string, skipped []workspaceRepoFreshness) error {
 	if ro.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
 	var results []workspaceRegressionResult
+	for _, f := range skipped {
+		results = append(results, workspaceRegressionResult{
+			RepoKey: f.RepoKey, Name: f.Name, Freshness: f, Error: workspaceSkippedResultError(f),
+		})
+	}
 	for _, repo := range manifest.Repos {
 		freshness := workspaceRepoFreshnessForRepo(cmd.Context(), opts, repo)
 		result := workspaceRegressionResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
@@ -3541,13 +3644,17 @@ func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regres
 	}
 	out := cmd.OutOrStdout()
 	total := 0
+	scanned := 0
 	for _, result := range results {
+		if result.Error == "" {
+			scanned++
+		}
 		// Surface per-repo freshness so a stale/degraded pairing is never silently trusted.
 		state := result.Freshness.State
 		if state == "" {
 			state = "unknown"
 		}
-		if len(result.Anomalies) > 0 || result.Error != "" || state != "ok" {
+		if workspaceRepoBlockNeedsHeader(state, len(result.Anomalies), len(result.Warnings), result.Error) {
 			fmt.Fprintf(out, "%s [%s]\n", result.RepoKey, state)
 		}
 		if result.Error != "" {
@@ -3565,7 +3672,16 @@ func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regres
 		}
 	}
 	if total == 0 {
-		fmt.Fprintf(out, "No suspected regressions across %d repo(s) in %q.\n", len(results), manifest.Name)
+		// COVERAGE, not membership. The count used to be len(results), so a
+		// workspace whose members were skipped unsafe or never resolved still
+		// reported "No suspected regressions across 6 repo(s)" -- a clean bill of
+		// health over repos nothing ever looked at.
+		if scanned == len(results) {
+			fmt.Fprintf(out, "No suspected regressions across %d repo(s) in %q.\n", scanned, manifest.Name)
+		} else {
+			fmt.Fprintf(out, "No suspected regressions across %d of %d repo(s) in %q; %d not scanned (see the per-repo lines above).\n",
+				scanned, len(results), manifest.Name, len(results)-scanned)
+		}
 	}
 	return nil
 }
@@ -3575,16 +3691,24 @@ func runWorkspaceReview(cmd *cobra.Command, opts Options, ro regressionDetectorO
 	if err != nil {
 		return err
 	}
-	return runWorkspaceReviewManifest(cmd, opts, ro, manifest, query)
+	return runWorkspaceReviewManifest(cmd, opts, ro, manifest, query, nil)
 }
 
-func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, manifest workspaceManifest, query string) error {
+func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, manifest workspaceManifest, query string, skipped []workspaceRepoFreshness) error {
 	if ro.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
 	var results []workspaceReviewResult
 	reposWithFindings := 0
 	totalFindings := 0
+	for _, f := range skipped {
+		results = append(results, workspaceReviewResult{
+			RepoKey: f.RepoKey, Name: f.Name, Freshness: f,
+			Error:    workspaceSkippedResultError(f),
+			Summary:  "skipped: this member could not be verified against a checkout in scope.",
+			Findings: []reviewFinding{},
+		})
+	}
 	for _, repo := range manifest.Repos {
 		freshness := workspaceRepoFreshnessForRepo(cmd.Context(), opts, repo)
 		result := workspaceReviewResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
@@ -3618,7 +3742,23 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 		}
 		results = append(results, result)
 	}
-	summary := fmt.Sprintf("Cross-repo diff-less review: %d suspected regression(s) across %d/%d repo(s).", totalFindings, reposWithFindings, len(results))
+	// "%d/%d repo(s)" is a statement about REVIEWED repos, so the denominator
+	// has to be the reviewed ones. It used to be len(results), which counts the
+	// members that were skipped unsafe or never resolved -- so a workspace with
+	// two dead members reported "0 suspected regression(s) across 0/6 repo(s)",
+	// a headline that reads as six repos inspected and all six clean. The
+	// unreviewed ones are now named in their own clause instead of padding the
+	// total.
+	reviewed := 0
+	for _, result := range results {
+		if result.Error == "" {
+			reviewed++
+		}
+	}
+	summary := fmt.Sprintf("Cross-repo diff-less review: %d suspected regression(s) across %d/%d repo(s).", totalFindings, reposWithFindings, reviewed)
+	if reviewed != len(results) {
+		summary += fmt.Sprintf(" %d of %d member(s) were not reviewed.", len(results)-reviewed, len(results))
+	}
 	if ro.json {
 		return writeJSON(cmd, struct {
 			Workspace     string                  `json:"workspace"`
