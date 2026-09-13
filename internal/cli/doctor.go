@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,16 +11,89 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// doctor's exit gate. A diagnostic that prints `error` and exits 0 cannot be
+// used from CI or a script, which is the whole point of a diagnostic. The
+// shape deliberately mirrors `status --fail-on`: normalize the value, emit the
+// WHOLE report first, then return a rendered error so the exit code is nonzero
+// and nothing is printed twice.
+//
+// The default differs from status's, on purpose. status's gate is opt-in
+// because its gates are policy ("is this release-ready?"). doctor's are not:
+// an `error` finding means a check that doctor itself performed came back
+// broken, and there is no reading of that under which exit 0 is honest.
+// `warn` stays opt-in (`--fail-on warn`) because warnings include ordinary
+// not-built-yet states, and `--fail-on none` restores the old always-zero
+// behaviour for callers that only want the report.
+const (
+	doctorFailOnNone  = "none"
+	doctorFailOnError = "error"
+	doctorFailOnWarn  = "warn"
+)
+
+var errDoctorGate = errors.New("doctor found problems")
+
+func doctorFailOnValues() string {
+	return strings.Join([]string{doctorFailOnError, doctorFailOnWarn, doctorFailOnNone}, ", ")
+}
+
+func normalizeDoctorFailOn(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", doctorFailOnError:
+		return doctorFailOnError, nil
+	case doctorFailOnWarn:
+		return doctorFailOnWarn, nil
+	case doctorFailOnNone:
+		return doctorFailOnNone, nil
+	default:
+		return "", fmt.Errorf("--fail-on must be one of: %s", doctorFailOnValues())
+	}
+}
+
+// doctorGateFailure evaluates the gate over every finding in the report --
+// directory health and repo-scoped checks alike, since a caller gating on
+// "doctor is unhappy" does not care which section noticed.
+func doctorGateFailure(report doctorReport, failOn string) error {
+	if failOn == doctorFailOnNone {
+		return nil
+	}
+	var failing []string
+	errorCount, warnCount := 0, 0
+	for _, finding := range append(append([]doctorCheckResult{}, report.Dirs...), report.Checks...) {
+		switch finding.State {
+		case "error":
+			errorCount++
+			failing = append(failing, finding.Name)
+		case "warn":
+			warnCount++
+			if failOn == doctorFailOnWarn {
+				failing = append(failing, finding.Name)
+			}
+		}
+	}
+	if len(failing) == 0 {
+		return nil
+	}
+	summary := fmt.Sprintf("%d error(s)", errorCount)
+	if failOn == doctorFailOnWarn {
+		summary += fmt.Sprintf(", %d warning(s)", warnCount)
+	}
+	return fmt.Errorf("%w: %s: %s", errDoctorGate, summary, strings.Join(failing, ", "))
+}
+
 func newDoctorCommand(opts Options) *cobra.Command {
-	var jsonOut bool
+	var (
+		jsonOut bool
+		failOn  string
+	)
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Check the plugin environment and the capture-to-recall chain",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDoctor(cmd, opts, jsonOut)
+			return runDoctor(cmd, opts, jsonOut, failOn)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().StringVar(&failOn, "fail-on", doctorFailOnError, "Return nonzero after printing the report when a finding at this severity exists: error, warn, none")
 	return cmd
 }
 
@@ -65,7 +139,51 @@ func doctorRepoRoot(ctx context.Context, opts Options) (root, source string) {
 	return "", ""
 }
 
-func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool) error {
+// doctorDirectoryFinding turns read-only directory health into a finding.
+//
+// It reports the EVIDENCE inspectAbsoluteInstallDirectory already collected
+// instead of its epistemic state name. The previous mapping called anything
+// other than "present_unproven" a warning, which made every not-yet-created
+// plugin directory -- the normal state of a fresh install, and of any XDG
+// directory the user has not caused a write to yet -- a permanent warning that
+// no action could ever clear, because doctor performs no probe write and so
+// can never observe "proven". A check that can never pass teaches the reader
+// to ignore all of them.
+//
+// What is actually checkable without a probe write is the permission mode of
+// the directory (or, when it does not exist yet, of its nearest existing
+// ancestor). That is a real signal in one direction: mode bits that deny
+// writes mean the next refresh WILL fail, and saying so is worth a warning.
+// Mode bits that permit writes are not a proof of writability -- ACLs and
+// platform policy can still override them -- but "not proven" is not the same
+// as "suspect", and only the JSON contract (directory_health[].state,
+// .evidence, .writability_proven) needs to carry that distinction.
+func doctorDirectoryFinding(label string, health memoryInstallDirectoryHealth) doctorCheckResult {
+	switch health.State {
+	case "present_unproven":
+		if !health.ModeWriteHint {
+			return doctorCheckResult{Name: label, State: "warn", Detail: fmt.Sprintf("%s: mode bits currently deny writes (mode %s); grant write access before the next refresh", health.Path, health.Mode)}
+		}
+		return doctorCheckResult{Name: label, State: "ok", Detail: health.Path}
+	case "creatable_unproven":
+		if !health.ModeWriteHint {
+			return doctorCheckResult{Name: label, State: "warn", Detail: fmt.Sprintf("%s: does not exist and cannot be created; its nearest existing parent denies writes (mode %s)", health.Path, health.Mode)}
+		}
+		return doctorCheckResult{Name: label, State: "ok", Detail: health.Path + ": not created yet; the first write creates it"}
+	default:
+		detail := fmt.Sprintf("%s: %s", health.Path, health.State)
+		if health.RecommendedAction != "" && health.RecommendedAction != "none" {
+			detail += "; " + health.RecommendedAction
+		}
+		return doctorCheckResult{Name: label, State: "error", Detail: detail}
+	}
+}
+
+func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool, failOn string) error {
+	failOn, err := normalizeDoctorFailOn(failOn)
+	if err != nil {
+		return err
+	}
 	env := opts.Env
 	report := doctorReport{Env: map[string]string{
 		"ENTIRE_CLI_VERSION":       env.CLIVersion,
@@ -90,18 +208,7 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool) error {
 	} {
 		health := inspectAbsoluteInstallDirectory(check.path)
 		report.DirectoryHealth = append(report.DirectoryHealth, health)
-		state := "ok"
-		if health.State != "present_unproven" {
-			state = "warn"
-		}
-		if health.State == "unsafe" || health.State == "unavailable" {
-			state = "error"
-		}
-		detail := fmt.Sprintf("%s: %s", health.State, health.Path)
-		if health.RecommendedAction != "" && health.RecommendedAction != "none" {
-			detail += "; " + health.RecommendedAction
-		}
-		report.Dirs = append(report.Dirs, doctorCheckResult{Name: check.label, State: state, Detail: detail})
+		report.Dirs = append(report.Dirs, doctorDirectoryFinding(check.label, health))
 	}
 	repoRoot, repoRootSource := doctorRepoRoot(cmd.Context(), opts)
 	report.RepoRoot = repoRoot
@@ -182,7 +289,10 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool) error {
 		}
 	}
 	if jsonOut {
-		return writeJSON(cmd, report)
+		if err := writeJSON(cmd, report); err != nil {
+			return err
+		}
+		return doctorGateResult(report, failOn)
 	}
 	out := cmd.OutOrStdout()
 	for _, key := range []string{"ENTIRE_CLI_VERSION", "ENTIRE_REPO_ROOT", "ENTIRE_PLUGIN_CONFIG_DIR", "ENTIRE_PLUGIN_DATA_DIR", "ENTIRE_PLUGIN_STATE_DIR", "ENTIRE_PLUGIN_CACHE_DIR"} {
@@ -200,6 +310,17 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool) error {
 			fmt.Fprintf(out, " (%s)", check.Detail)
 		}
 		fmt.Fprintln(out)
+	}
+	return doctorGateResult(report, failOn)
+}
+
+// doctorGateResult wraps a tripped gate the way `status --fail-on` does: the
+// report is already on stdout and names every failing check, so the error is
+// marked rendered and the process exits nonzero without printing a second,
+// less informative copy of the same news to stderr.
+func doctorGateResult(report doctorReport, failOn string) error {
+	if err := doctorGateFailure(report, failOn); err != nil {
+		return renderedCommandError{err: err}
 	}
 	return nil
 }

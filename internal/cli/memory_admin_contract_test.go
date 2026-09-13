@@ -609,9 +609,12 @@ func TestDoctorReportsC5HealthWithoutCreatingState(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(storage.BrainDir, exportManifestFileName), future, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// This fixture is a deliberately broken brain (a manifest from the future),
+	// so doctor's default gate trips. The contract under test is the JSON
+	// payload, which must be complete on stdout before it does.
 	out, err := execute(t, NewRootCommand(opts), "doctor", "--json")
-	if err != nil {
-		t.Fatalf("doctor: %v\n%s", err, out)
+	if !errors.Is(err, errDoctorGate) {
+		t.Fatalf("doctor on an unsupported manifest = %v, want the gate error\n%s", err, out)
 	}
 	var report doctorReport
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
@@ -634,7 +637,9 @@ func TestDoctorReportsC5HealthWithoutCreatingState(t *testing.T) {
 	if checks["manifest"].State != "error" || !strings.Contains(checks["manifest"].Detail, memoryErrUnsupportedVersion) {
 		t.Fatalf("manifest check = %+v", checks["manifest"])
 	}
-	if got := checks["memory_host_adapter"]; got.State != "warn" || !strings.Contains(got.Detail, "authority entire-cli") {
+	// Not a warning: this process never observes the host adapter, so the
+	// check could never pass. It still has to name the authority that can.
+	if got := checks["memory_host_adapter"]; got.State != "ok" || !strings.Contains(got.Detail, "authority entire-cli") {
 		t.Fatalf("host adapter check = %+v", got)
 	}
 	if got := checks["memory_schema_capabilities"]; got.State != "ok" || !strings.Contains(got.Detail, fmt.Sprintf("manifest %d", brainManifestSchemaVersion)) {
@@ -887,8 +892,8 @@ func TestDoctorSamplesMemoryReadOnlyHealthOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := execute(t, NewRootCommand(opts), "doctor", "--json")
-	if err != nil {
-		t.Fatalf("doctor: %v\n%s", err, out)
+	if !errors.Is(err, errDoctorGate) {
+		t.Fatalf("doctor on an unsupported manifest = %v, want the gate error\n%s", err, out)
 	}
 	if sampled := nowCalls.Load(); sampled != 1 {
 		t.Fatalf("doctor sampled the memory-health clock %d times, want exactly once", sampled)

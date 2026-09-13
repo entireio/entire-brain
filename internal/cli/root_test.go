@@ -128,12 +128,16 @@ func TestDoctorUsesXDGFallbacks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("doctor: %v\n%s", err, out)
 	}
+	// A plugin directory that has not been created yet is the normal state of
+	// a fresh install, not a finding: what doctor owes the reader here is the
+	// PATH it resolved from the XDG fallback, and the promise that it did not
+	// create it. See doctor_honest_reporting_test.go for the state mapping.
 	for _, want := range []string{
 		"ENTIRE_PLUGIN_DATA_DIR=<unset>",
-		"plugin config dir: warn (creatable_unproven: " + filepath.Join(xdg, "config", "entire"),
-		"plugin data dir: warn (creatable_unproven: " + filepath.Join(xdg, "data", "entire", "plugins", "data", pluginDataName),
-		"plugin state dir: warn (creatable_unproven: " + filepath.Join(xdg, "state", "entire"),
-		"plugin cache dir: warn (creatable_unproven: " + filepath.Join(xdg, "cache", "entire"),
+		"plugin config dir: ok (" + filepath.Join(xdg, "config", "entire"),
+		"plugin data dir: ok (" + filepath.Join(xdg, "data", "entire", "plugins", "data", pluginDataName),
+		"plugin state dir: ok (" + filepath.Join(xdg, "state", "entire"),
+		"plugin cache dir: ok (" + filepath.Join(xdg, "cache", "entire"),
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, out)
@@ -162,7 +166,7 @@ func TestDoctorDoesNotCreateOrProbePluginDataDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("doctor: %v", err)
 	}
-	if !strings.Contains(out, "plugin data dir: warn (creatable_unproven:") {
+	if !strings.Contains(out, "plugin data dir: ok ("+dirs+"/data: not created yet") {
 		t.Fatalf("doctor output missing read-only directory status:\n%s", out)
 	}
 	for _, suffix := range []string{"config", "data", "state", "cache"} {

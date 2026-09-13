@@ -160,6 +160,18 @@ If `doctor` reports the semantic provider is missing, re-run
 `==> entire-graph semantic provider`; that is the checkout it built the provider
 from.
 
+**`entire brain doctor` exits non-zero when it reports an `error` finding**, so
+it can be used as a CI or script gate directly. Warnings do not fail it --
+"not built yet" is a warning, and a fresh brain has several. Tighten or loosen
+that with `--fail-on`, which mirrors `status --fail-on`: the whole report is
+printed first, then the exit code is set.
+
+```sh
+entire brain doctor                   # default: nonzero on any `error` finding
+entire brain doctor --fail-on warn    # strict: nonzero on warnings too
+entire brain doctor --fail-on none    # report only, always exits 0
+```
+
 ### Managing the provider checkout yourself
 
 If you would rather own the `entire-graph` checkout, clone both repositories and

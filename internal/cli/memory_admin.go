@@ -2068,11 +2068,17 @@ func memoryReadOnlyHealth(brainDir string, now time.Time) memoryReadOnlyHealthSn
 		if generatedAt, ok := receipts["generated_at"]; ok {
 			reconciliation["last_successful_at"] = generatedAt
 		}
+		// Normalize to a plain string. receipts["state"] holds a
+		// projectionStateReadState (a named string type), and copying it in
+		// raw meant every reader doing the obvious `.(string)` assertion --
+		// doctor's memory_reconciliation line among them -- silently got "".
+		// JSON could not tell the difference, so the payload looked correct
+		// while the rendered reason vanished.
 		if state, ok := receipts["state"]; ok && reconciliation["state"] == "never" {
-			reconciliation["state"] = state
+			reconciliation["state"] = memoryObservedStateValue(state)
 		}
 		if code, ok := receipts["error_code"]; ok {
-			reconciliation["error_code"] = code
+			reconciliation["error_code"] = memoryObservedStateValue(code)
 		}
 	}
 	payload["reconciliation"] = reconciliation

@@ -32,24 +32,36 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 	}
 	install, _ := snapshot.Payload["install"].(map[string]any)
 	if binary, ok := install["entire_binary"].(memoryInstallBinaryHealth); ok {
-		state := "warn"
+		// "present_unproven" is the SUCCESS case: the entire executable was
+		// found on PATH at an absolute path. Reporting it as a warning because
+		// doctor declined to execute it made a correct install indistinguishable
+		// from a broken one on every healthy machine, forever -- doctor never
+		// executes the host binary, so nothing a user could do would clear it.
+		// The three states that are real problems stay errors.
+		state := "ok"
+		detail := "found at " + binary.Path
 		switch binary.State {
-		case "not_found", "unsafe_relative_path", "lookup_failed":
-			state = "error"
+		case "not_found":
+			state, detail = "error", "the entire executable is not on PATH"
+		case "unsafe_relative_path":
+			state, detail = "error", "the entire executable resolves through a relative PATH entry: "+binary.Path
+		case "lookup_failed":
+			state, detail = "error", "could not look up the entire executable on PATH"
 		}
-		detail := binary.State
-		if binary.Path != "" {
-			detail += " at " + binary.Path
+		if binary.RecommendedAction != "" && state != "ok" {
+			detail += "; " + binary.RecommendedAction
 		}
-		detail += "; binary was not executed"
 		add("memory_install", state, detail)
 	}
 	if adapter, ok := install["host_adapter"].(memoryHostAdapterHealth); ok {
-		state := "warn"
-		if adapter.Observability != "not_observable" && adapter.State == "trusted" {
-			state = "ok"
-		}
-		add("memory_host_adapter", state, fmt.Sprintf("%s; authority %s; Claude Code/Codex presence, enablement, and trust are not attested by this process", adapter.State, adapter.Authority))
+		// Host-adapter installation belongs to the Entire CLI and this process
+		// never inspects it: memoryInstallHealth hard-codes state and
+		// observability to "not_observable", so the old ok-condition
+		// (observability != not_observable && state == trusted) was
+		// unreachable by construction and the check was a warning on every
+		// run of every install. Scope is not a fault -- say where the answer
+		// lives, and do not spend the reader's attention on it.
+		add("memory_host_adapter", "ok", fmt.Sprintf("not checked here (%s; authority %s): host-adapter install, enablement and trust are owned by the Entire CLI -- verify them with its own integration diagnostics", adapter.State, adapter.Authority))
 	}
 	if coordinator, ok := snapshot.Payload["coordinator"].(map[string]any); ok {
 		stateName, _ := coordinator["state"].(string)
@@ -222,12 +234,18 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 		add("memory_sessions", state, fmt.Sprintf("%s; %v canonical session(s)", stateName, sessions["count"]))
 	}
 	if reconciliation, ok := snapshot.Payload["reconciliation"].(map[string]any); ok {
-		stateName, _ := reconciliation["state"].(string)
+		// memoryObservedStateValue, not a .(string) assertion. The projection
+		// receipt's state is a projectionStateReadState, a named string type,
+		// so the assertion failed for EVERY non-current state and printed
+		// "memory_reconciliation: warn" with no reason at all -- exactly when
+		// the reason mattered. The JSON payload had "absent"/"stale" the whole
+		// time; only the human line lost it.
+		stateName := memoryObservedStateValue(reconciliation["state"])
 		state := "warn"
 		if current, _ := reconciliation["current"].(bool); current {
 			state = "ok"
 		}
-		if code, _ := reconciliation["error_code"].(string); code != "" {
+		if code := memoryObservedStateValue(reconciliation["error_code"]); code != "" {
 			state = "error"
 			stateName += "; " + code
 		}
@@ -235,7 +253,12 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 		if at, ok := reconciliation["last_successful_at"]; ok {
 			detail += fmt.Sprintf("; last successful %v", at)
 		}
-		add("memory_reconciliation", state, detail)
+		// A state is not advice. projectionStateAction already knows what
+		// clears each one, so carry it instead of leaving the reader to guess.
+		if action := projectionStateAction(projectionStateReadState(memoryObservedStateValue(reconciliation["state"]))); action != "" && state != "ok" {
+			detail += "; " + action
+		}
+		add("memory_reconciliation", state, strings.TrimPrefix(detail, "; "))
 	}
 	return checks
 }
