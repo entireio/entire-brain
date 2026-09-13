@@ -445,6 +445,21 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 				lists = append(lists, vectorRanks.calibratedSemanticOnly)
 			}
 		}
+	case includeDocs && derr != nil && os.IsNotExist(derr):
+		// A doc index the manifest DECLARES and the store no longer holds is
+		// data loss, not an un-built layer, and skipping it silently is how
+		// `vsearch` answered "no results for \"Greet\"" with exit 0 over a brain
+		// that had returned six doc hits for that exact query minutes earlier —
+		// while `search`, which reaches history first, exited 1. Two retrieval
+		// verbs disagreeing about the same broken brain is itself the defect, so
+		// both fail here, and for the reason the comment above already gave: a
+		// real storage problem is surfaced.
+		//
+		// A brain whose manifest declares NO docs source keeps the silent skip.
+		// That is a brain that has not been refreshed, not a broken one.
+		if defect := inspectBrainDeclaredIndex(brainDir, declaredIndexDocs); !defect.OK() {
+			return nil, defect
+		}
 	case derr != nil && !os.IsNotExist(derr):
 		return nil, fmt.Errorf("load doc index: %w", derr)
 	}

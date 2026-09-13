@@ -32,6 +32,10 @@ type refreshCommandOptions struct {
 	graphBinary      string
 	statusAfter      bool
 	seed             seedCommandOptions
+	// semanticWorktreeSkip records that --worktree, not the user, turned the
+	// semantic stage off. The decision is correct and stays; what was missing is
+	// that anyone could tell. See refreshWorktreeSemanticSkipNote.
+	semanticWorktreeSkip bool
 	// component, when non-nil, turns the refresh BEST-EFFORT: every stage
 	// reports its outcome through this callback (err == nil means built) and a
 	// failing stage no longer aborts the run. One broken source — a semantic
@@ -55,6 +59,7 @@ func newRefreshCommand(opts Options) *cobra.Command {
 			// committed-tree semantic rebuild.
 			if refreshOpts.seed.worktree && !refreshOpts.semanticWorktree && !cmd.Flags().Changed("semantic") {
 				refreshOpts.semantic = false
+				refreshOpts.semanticWorktreeSkip = true
 			}
 			return runRefresh(cmd.Context(), cmd, opts, refreshOpts)
 		},
@@ -254,26 +259,55 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	if exportErr != nil && (manifest == nil || manifest.Sources == nil) && seedProbeErr == nil {
 		needSeed = true
 	}
+	// hostCLIAbsent is the ONE export failure that is not this brain's fault:
+	// the Entire CLI session capture reads through is not installed. It is an
+	// environmental fact, identical on the first refresh and the hundredth, and
+	// no repair applies to it — so it degrades unconditionally, with the cause
+	// named and the install step attached (see host_cli.go).
+	//
+	// It is deliberately NOT folded into the clause above. That clause asks
+	// "does this brain have a baseline at all", which is genuinely a first-run
+	// question, and it is why a missing `entire` degraded on run 1: a fresh
+	// store has no manifest, so the seed fallback caught the failure on its way
+	// past. Run 2 has a manifest, the clause is false, and the SAME condition
+	// became a fatal raw `exec: "entire": executable file not found in $PATH`
+	// — while `status` went on recommending the command that produced it.
+	//
+	// Keeping the two separate is also what preserves what the manifest test
+	// was protecting. An export that RAN and failed still aborts here, because
+	// answering real loss with "unavailable, using seed baseline" is the
+	// masking this file already had to undo once (see
+	// discardManifestThisBuildCannotRewrite above); only the launch failure is
+	// forgiven, and only because there is nothing to fix in the brain.
+	hostCLIAbsent := hostCLIMissing(exportErr, refreshOpts.entireBinary)
+	if hostCLIAbsent {
+		exportErr = hostCLIMissingExportError(exportErr, refreshOpts.entireBinary)
+	}
 	// The sessions component is reported exactly once, here, where the export
 	// outcome and the seed fallback are both known: a failed export that a seed
 	// baseline papers over is still a failed sessions source, and saying so is
 	// the whole point of a per-component report.
+	var degradedSessions error
 	if !refreshOpts.skipSessions {
-		if exportErr != nil && !needSeed {
+		if exportErr != nil && !needSeed && !hostCLIAbsent {
 			finishExportTask(exportErr)
 			if stage(brainComponentSessions, exportErr) {
 				return exportErr
 			}
-		} else {
-			stage(brainComponentSessions, exportErr)
+		} else if stage(brainComponentSessions, exportErr) {
+			degradedSessions = exportErr
 		}
 	}
-	if exportErr == nil || needSeed {
+	if exportErr == nil || needSeed || hostCLIAbsent {
 		if exportErr != nil {
-			updateExportTask("export sessions: unavailable, using seed baseline")
+			updateExportTask(refreshExportDegradedLabel(hostCLIAbsent, needSeed))
 		}
 		finishExportTask(nil)
 	}
+	// After the stage's own terminal line, not before it: the progress reporter
+	// holds one buffered line per phase, so a note emitted at the decision point
+	// lands in the middle of the stage it is explaining.
+	noteDegradedStage(cmd.ErrOrStderr(), brainComponentSessions, degradedSessions)
 	switch {
 	case seedProbeErr != nil:
 		// One line: this is a parenthesised progress note, and a named repository
@@ -432,12 +466,20 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	if refreshOpts.semantic {
 		semanticCheckTask := progress.Begin(refreshSemanticCheckLabel(manifest))
 		semanticWorktree := refreshOpts.semanticWorktree
+		// Both semantic failure paths below are forgiven for exactly one
+		// reason: the provider IS the host CLI and the host CLI is not
+		// installed. Evaluated once, before either, so the two stages cannot
+		// disagree about the machine they are running on.
+		semanticHostAbsent := hostCLISemanticProviderAbsent(refreshOpts.graphBinary)
 		needSemantic, identityWarning, err := semanticRefreshNeeded(ctx, opts, brainDir, repoDir, manifest, semanticWorktree, refreshOpts.graphBinary)
 		switch {
 		case err != nil:
 			semanticCheckTask.Finish(err)
 			if stage(brainComponentSemantic, err) {
-				return err
+				if !semanticHostAbsent {
+					return err
+				}
+				noteDegradedStage(cmd.ErrOrStderr(), brainComponentSemantic, err)
 			}
 		default:
 			if identityWarning != "" {
@@ -478,7 +520,10 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 				if err := runSemanticIndex(ctx, indexCmd, opts, semanticIndexOptions{force: true, graphBinary: refreshOpts.graphBinary, worktree: semanticWorktree, outputDir: brainDir, outputExplicit: outputExplicit, progress: semanticProgress, progressCounts: semanticCounts}, repoDir); err != nil {
 					semanticTask.Finish(err)
 					if stage(brainComponentSemantic, err) {
-						return err
+						if !semanticHostAbsent {
+							return err
+						}
+						noteDegradedStage(cmd.ErrOrStderr(), brainComponentSemantic, err)
 					}
 				} else {
 					manifest, _ = loadBrainManifest(brainDir)
@@ -491,6 +536,8 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 				stage(brainComponentSemantic, nil)
 			}
 		}
+	} else if refreshOpts.semanticWorktreeSkip {
+		progress.Skip("semantic index: skipped, --worktree refreshes seed and docs only")
 	} else {
 		progress.Skip("semantic index")
 	}
@@ -543,6 +590,18 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			finishPatterns(nil)
 			stage(brainComponentPatterns, nil)
 		}
+	}
+	// On STDOUT, beside the success line it qualifies. `--worktree` turning the
+	// semantic stage off is deliberate, and `setup`'s documented exit-0-on-partial
+	// is the precedent for keeping the exit code at 0 -- but setup earns that by
+	// naming every component it skipped, and this named none. The skip went to
+	// stderr as a bare "semantic index skipped" while stdout said "refreshed
+	// brain" and the status verdict underneath went on reporting the same
+	// degradation, so the one state no command clears was the one state nothing
+	// explained. An exit code cannot carry the sentence a reader needs here; the
+	// sentence can.
+	if refreshOpts.semanticWorktreeSkip {
+		printAroundLiveLine(cmd.OutOrStdout(), "%s\n", refreshWorktreeSemanticSkipNote(setupCommandPrefix(os.LookupEnv)))
 	}
 	printAroundLiveLine(cmd.OutOrStdout(), "refreshed brain: %s\n", brainDir)
 	if refreshOpts.statusAfter && !outputExplicit {
@@ -647,6 +706,53 @@ func pluralUnit(unit string, count int) string {
 	return unit + "s"
 }
 
+// refreshWorktreeSemanticSkipNote is what `--worktree` owes the reader: the
+// stage it silently declined, why, and the only action that actually clears the
+// dirty-unindexed state it leaves behind. Neither `refresh --agent none` (which
+// refuses to seed uncommitted content) nor `refresh --worktree` (which indexes
+// the uncommitted content instead of resolving it) does, so the remedy is git's
+// — the same two verbs setupDirtyWorktreeHint names on `status` and `setup`.
+func refreshWorktreeSemanticSkipNote(brainCmd string) string {
+	return "note: semantic index not rebuilt -- --worktree refreshes seed and docs only;" +
+		" commit or stash the working tree, then run `" + brainCmd + " refresh` to index it"
+}
+
+// noteDegradedStage prints the named cause of a stage this refresh chose to
+// survive rather than abort on.
+//
+// A progress line has room for a condition ("`entire` is not on PATH"), not for
+// a remedy, and when the error is no longer returned the remedy has nowhere
+// else to go: a standalone `refresh` has no per-component reporter, so the
+// whole sentence vanished and the run printed "semantic index ... failed" with
+// no reason at all. `setup` does not use this — its component callback already
+// renders detail and hint — so nothing is ever said twice.
+//
+// stderr, because stdout belongs to the refresh report.
+func noteDegradedStage(w io.Writer, component string, err error) {
+	if err == nil {
+		return
+	}
+	fmt.Fprintf(w, "refresh: %s degraded: %s\n", setupComponentLabel(component), strings.TrimSpace(err.Error()))
+}
+
+// refreshExportDegradedLabel is the one progress line a tolerated session
+// export leaves behind. "unavailable, using seed baseline" describes what the
+// brain fell back ON, which answers nothing when the fallback did not run —
+// and on a machine with no Entire CLI it never does after the first refresh.
+// The absent host CLI is named instead, because that is the only one of the
+// two conditions the reader can act on. The full sentence, with the install
+// step, rides on the sessions component itself (hostCLIMissingExportError).
+func refreshExportDegradedLabel(hostCLIAbsent, seeded bool) string {
+	switch {
+	case hostCLIAbsent && seeded:
+		return "export sessions: skipped, `" + entireBinaryName + "` is not on PATH; using seed baseline"
+	case hostCLIAbsent:
+		return "export sessions: skipped, `" + entireBinaryName + "` is not on PATH"
+	default:
+		return "export sessions: unavailable, using seed baseline"
+	}
+}
+
 func refreshSeedLabel(manifest *exportManifest) string {
 	seed := existingSeedSource(manifest)
 	if seed == nil {
@@ -738,7 +844,11 @@ func semanticRefreshNeeded(ctx context.Context, opts Options, brainDir, repoDir 
 	if worktree {
 		hash, err := worktreeFingerprint(ctx, opts.Runner, repoDir)
 		if err != nil {
-			return false, warning, fmt.Errorf("fingerprint worktree for semantic refresh: %w", err)
+			// Same rule as the HEAD resolution this function's siblings already
+			// apply: no worktreeFingerprint failure reaches a reader as raw git
+			// argv. A repository that lost its work tree since the last build
+			// fails here first.
+			return false, warning, nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("fingerprint worktree for semantic refresh: %w", err))
 		}
 		if source.WorktreeMode != "worktree" || source.WorktreeHash != hash {
 			return true, warning, nil
@@ -919,7 +1029,7 @@ func seedRefreshNeeded(ctx context.Context, opts Options, repoDir string, manife
 	if worktree {
 		hash, err := worktreeFingerprint(ctx, opts.Runner, repoDir)
 		if err != nil {
-			return false, fmt.Errorf("fingerprint worktree for seed refresh: %w", err)
+			return false, nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("fingerprint worktree for seed refresh: %w", err))
 		}
 		return seed.WorktreeMode != "worktree" || seed.WorktreeHash != hash, nil
 	}

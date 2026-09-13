@@ -188,7 +188,25 @@ type statusHealth struct {
 	// Cause names WHICH axis is not current, in the words `overview` uses. See
 	// statusFreshnessCause.
 	Cause string
+	// HostCLIMissing reports that the Entire CLI this plugin runs under is not
+	// installed. Sessions, the semantic index and the entity index are all built
+	// THROUGH it, so while it is absent no refresh brings any of them back and
+	// the verdict must say so rather than naming a command that cannot repair
+	// what it just listed.
+	HostCLIMissing bool
+	// DirtyWorktree reports uncommitted changes in the working tree. Both stages
+	// `refresh --agent none` would rebuild REFUSE that state by design — seed
+	// with "dirty_worktree: refusing to seed uncommitted content without
+	// --worktree", semantic with the same refusal to index it — so recommending
+	// that command to a reader with a dirty tree is recommending an exit 1.
+	DirtyWorktree bool
 }
+
+// statusRemedyRefresh is the deterministic rebuild. Named, because it is also
+// the ONE remedy a dirty working tree invalidates, and the override has to be
+// scoped to exactly it: a dirty tree does not change the right answer for a
+// brain that was never built (`setup`) or for a corrupt store (`doctor`).
+const statusRemedyRefresh = "refresh --agent none"
 
 // buildStatusHealth counts everything a reader would call a problem.
 func buildStatusHealth(report brainStatusReport) statusHealth {
@@ -205,12 +223,20 @@ func buildStatusHealth(report brainStatusReport) statusHealth {
 	// a verdict that said both would be reporting one fact twice.
 	health.SemanticMissing = !health.BrainMissing && report.Semantic == nil
 	if report.Onboarding != nil {
+		health.HostCLIMissing = report.Onboarding.HostCLIMissing
 		for _, component := range report.Onboarding.Components {
 			if component.State == "failed" {
 				health.Failed = append(health.Failed, component.Name)
 			}
 		}
 	}
+	// The live worktree, not a freshness axis. The `dirty-unindexed` axis is one
+	// SYMPTOM of a dirty tree and it was the obvious thing to key on, but it is
+	// not the condition: after `refresh --worktree` the seed axis reads
+	// `dirty-indexed` and freshness aggregates to "ok", while `refresh --agent
+	// none` goes on refusing to reseed the same uncommitted content. Asking the
+	// working tree directly covers both.
+	health.DirtyWorktree = report.Live.Dirty
 	return health
 }
 
@@ -279,10 +305,127 @@ func (h statusHealth) Remedy() string {
 		// Deterministic and token-free: the index is rebuilt without asking an
 		// agent for anything, which is what a stale, missing or corrupt index
 		// needs.
-		return "refresh --agent none"
+		return statusRemedyRefresh
 	default:
 		return "doctor"
 	}
+}
+
+// statusRemediationRule is one candidate answer to "what do I do now", with
+// the condition that earns it. Rules are consulted in the order below and the
+// first match wins, because the verdict has room for exactly ONE next step.
+type statusRemediationRule struct {
+	// condition names the situation, for readers of this table only.
+	condition string
+	when      func(statusHealth) bool
+	text      func(statusHealth, string) string
+}
+
+// statusRemediationRules ranks the conditions a verdict can end on, most
+// PROXIMATE first: the most specific condition that has a repair of its own
+// claims the line, and a background condition that can coexist with any number
+// of specific failures is the floor.
+//
+// The ranking is the whole design, so it is written down once here rather than
+// re-derived by whoever adds the next rule. Getting it wrong is not a cosmetic
+// bug -- it answers a real, diagnosed fault with advice that does not touch it:
+//
+//	x semantic failed, freshness unsafe -- `entire` is not on PATH; install the Entire CLI...
+//	  store=unsafe (validate semantic sqlite integrity: file is not a database (26))
+//
+// Installing the Entire CLI does not make `file is not a database` readable.
+// The store is corrupt, `refresh --agent none` rebuilds it, and #236 had
+// already established that the verdict names that command. A background
+// environmental note displaced it, because it was ranked above the diagnosis
+// instead of below it.
+//
+//  1. ABSENT -- there is no brain. Nothing more specific can be said about a
+//     thing that does not exist, and `setup` is the one command that runs both
+//     on a dirty tree and with no host CLI, so no later rule can improve on it.
+//
+//  2. BLOCKED -- the repair the next tier would name cannot START. A dirty
+//     working tree makes `refresh --agent none` exit 1 on dirty_worktree before
+//     it reads a single index. This deliberately outranks the fault it blocks:
+//     a corrupt store AND a dirty tree is answered "commit or stash", because
+//     until that happens the rebuild does not run at all. Scoped to the one
+//     remedy a dirty tree invalidates -- `doctor` reads a corrupt store on a
+//     dirty tree perfectly well.
+//
+//  3. BROKEN -- something that WAS built is now wrong, and the verdict is
+//     already printing its cause on the next line. A freshness severity is
+//     computed by probing artifacts that exist (store=unsafe, snapshot=unsafe,
+//     stale), and a health issue carries its own repair action, so both are
+//     diagnoses rather than absences. The rule produces the same text as the
+//     default; it exists to claim the line BEFORE the environmental floor.
+//
+//  4. UNBUILT -- components failed to build and the tool that builds them is
+//     not installed. sessions, semantic and entities are all built THROUGH
+//     `entire`, so while it is absent no refresh brings any of them back.
+//     Reached only when nothing above claimed the line, which is what keeps a
+//     missing host CLI from ever displacing a diagnosis.
+//
+//     SemanticMissing is deliberately NOT a trigger here. A brain that has
+//     simply never had an index built is an absence, not a failure to blame on
+//     the environment, and #236 fixed that state to name the command that
+//     builds it. `setup` on a machine with no host CLI records semantic as
+//     FAILED, so the real degraded brain lands in this tier through Failed.
+//
+//     In practice it does not reach this tier TODAY, and the reason is a
+//     separate, pre-existing bug rather than anything about this ranking: a
+//     brain with no sessions source publishes a history source with an empty
+//     SessionsFingerprint, so its own projection receipt reads back as
+//     memory_source_stale and tier 3 claims the line. That is reproducible on
+//     the released binary from `setup` alone, with no refresh involved. It is
+//     left to its own change: bending the ladder around another defect is how a
+//     ranking stops meaning what it says.
+//
+//  5. DEFAULT -- whatever Remedy names.
+var statusRemediationRules = []statusRemediationRule{
+	{
+		condition: "absent: no brain for this repo",
+		when:      func(h statusHealth) bool { return h.BrainMissing },
+		text:      statusRemedyCommand,
+	},
+	{
+		condition: "blocked: a dirty worktree stops the rebuild from starting",
+		when: func(h statusHealth) bool {
+			return h.DirtyWorktree && h.Remedy() == statusRemedyRefresh
+		},
+		text: func(_ statusHealth, brainCmd string) string { return setupDirtyWorktreeHint(brainCmd) },
+	},
+	{
+		condition: "broken: a diagnosed fault in something already built",
+		when: func(h statusHealth) bool {
+			return h.Issues > 0 || (h.Severity != "" && h.Severity != "ok")
+		},
+		text: statusRemedyCommand,
+	},
+	{
+		condition: "unbuilt: components failed and the host CLI that builds them is absent",
+		when:      func(h statusHealth) bool { return h.HostCLIMissing && len(h.Failed) > 0 },
+		text: func(_ statusHealth, brainCmd string) string {
+			return "`" + entireBinaryName + "` is not on PATH; install the Entire CLI, then run `" + brainCmd + " setup`"
+		},
+	},
+}
+
+// statusRemedyCommand is the ordinary trailing clause: run this command.
+func statusRemedyCommand(h statusHealth, brainCmd string) string {
+	return "run `" + brainCmd + " " + h.Remedy() + "`"
+}
+
+// Remediation is the verdict's trailing clause: the step the reader takes next.
+// Remedy answers WHICH brain subcommand repairs a fault; this answers the wider
+// question, including the two states where no brain subcommand is the answer.
+// See statusRemediationRules for the ranking and why it is ordered that way.
+func (h statusHealth) Remediation(brainCmd string) string {
+	brainCmd = setupBrainCommand(brainCmd)
+	for _, rule := range statusRemediationRules {
+		if rule.when(h) {
+			return rule.text(h, brainCmd)
+		}
+	}
+	return statusRemedyCommand(h, brainCmd)
 }
 
 // Line renders the verdict.
@@ -317,7 +460,7 @@ func (h statusHealth) Line(render *tui.Renderer, brainCmd string) string {
 		mark = tui.MarkFailed
 	}
 	line := render.Mark(mark) + " " + render.PhasePaint(phase, strings.Join(parts, ", ")) +
-		render.Dim(" "+render.Dash()+" run `"+brainCmd+" "+h.Remedy()+"`")
+		render.Dim(" "+render.Dash()+" "+h.Remediation(brainCmd))
 	if h.Cause != "" {
 		line += "\n  " + render.Dim(h.Cause)
 	}

@@ -4604,6 +4604,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	recordedSetupOpts, _, _ := setupOptionsFromRecord(filepath.Dir(storage.HeadPath))
 	onboarding := buildBrainOnboardingStatus(ctx, opts, storage, manifest, recordedSetupOpts)
 	markUnreadableSemanticComponent(&onboarding, semanticFreshnessOf(report))
+	markMissingDeclaredIndexes(&onboarding, storage.BrainDir, manifest)
 	report.Onboarding = &onboarding
 	return report, nil
 }

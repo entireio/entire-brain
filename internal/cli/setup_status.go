@@ -73,6 +73,12 @@ type brainStatusOnboarding struct {
 	// breaking change for anything parsing it today, so this is carried for the
 	// text renderer only.
 	WatchPlan setupWatchPlan `json:"-"`
+	// HostCLIMissing reports that the Entire CLI is not on PATH. Sessions, the
+	// semantic index and the entity index are all built THROUGH it, so the
+	// verdict needs this to avoid recommending a rebuild that provably cannot
+	// run. Stated in the negative so the zero value is the ordinary machine,
+	// and json:"-" for the same published-contract reason as WatchPlan.
+	HostCLIMissing bool `json:"-"`
 }
 
 // factsBackfillStatusForBrain counts how many exported sessions have already
@@ -128,7 +134,7 @@ func readSetupBackfillState(stateDir string) (setupBackfillState, bool) {
 // or a report built without a command runner); the daemon then reports
 // installed-or-not without a liveness probe.
 func buildBrainOnboardingStatus(ctx context.Context, opts Options, storage repoStorage, manifest *exportManifest, setupOpts setupCommandOptions) brainStatusOnboarding {
-	onboarding := brainStatusOnboarding{Facts: factsBackfillStatusForBrain(storage.BrainDir)}
+	onboarding := brainStatusOnboarding{Facts: factsBackfillStatusForBrain(storage.BrainDir), HostCLIMissing: !hostCLIOnPath()}
 	stateDir := filepath.Dir(storage.HeadPath)
 	if state, ok := readSetupBackfillState(stateDir); ok {
 		onboarding.Facts.PID = state.PID
@@ -285,6 +291,40 @@ func markUnreadableSemanticComponent(onboarding *brainStatusOnboarding, freshnes
 		}
 		onboarding.Components[i].State = "failed"
 		onboarding.Components[i].Detail = unsafe.Detail
+	}
+}
+
+// markMissingDeclaredIndexes downgrades an instant component whose manifest
+// entry declares an artifact the store no longer holds.
+//
+// Same mechanism as markUnreadableSemanticComponent, one source wider. That
+// function taught the instant line to stop answering from manifest PRESENCE for
+// `semantic`, using the freshness report's readability axes; docs and history
+// have no such axes on this line, so they kept reporting `+ docs  + history`
+// with both directories deleted. The signal here is the weakest and most
+// direct one there is — is the declared file on disk — which is precisely what
+// "report what is on disk, not what the manifest claims" asks for.
+//
+// "failed", not "missing": missing means never attempted, and a manifest entry
+// is proof it WAS. Reporting a deleted index as never-built is how a corrupt
+// brain reads as a new one, and the new-brain case is protected instead by the
+// only rule that can protect it — an undeclared source is never inspected.
+//
+// A component the last setup already recorded as failed keeps that record, for
+// the same reason as the semantic case: the build's own reason is more specific
+// than "the file is not there now".
+func markMissingDeclaredIndexes(onboarding *brainStatusOnboarding, brainDir string, manifest *exportManifest) {
+	if onboarding == nil {
+		return
+	}
+	for _, defect := range inspectDeclaredIndexes(brainDir, manifest) {
+		for i, component := range onboarding.Components {
+			if component.Name != string(defect.Source) || component.State != "built" {
+				continue
+			}
+			onboarding.Components[i].State = "failed"
+			onboarding.Components[i].Detail = defect.Warning()
+		}
 	}
 }
 
