@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -9,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The tests below encode a code-execution finding: git resolves several
@@ -33,9 +35,23 @@ func gitHardenSkipUnsupported(t *testing.T) {
 	}
 }
 
+// gitHardenRun runs one of the fixture's OWN git commands. It turns hooks off
+// for that invocation only, on argv, because `git init` copies whatever
+// init.templateDir holds into .git/hooks and a developer with a global
+// core.hooksPath would otherwise have their real pre-commit run inside a
+// fixture repository.
+//
+// The suppression used to be written into the fixture repository's config
+// instead (`git config core.hooksPath <dir>/.no-hooks`), which disarmed hooks
+// for the CODE UNDER TEST as well. Every hardening test therefore ran against a
+// repository where the hook vector was already neutralized by the fixture, so
+// the suite was structurally incapable of noticing that nothing in the product
+// neutralized it -- and it did not, until gitHardenConfig gained core.hooksPath.
+// Keeping the flag on argv covers the test's own scaffolding and nothing else,
+// which is what lets the hook tests below drive production code at a live hook.
 func gitHardenRun(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", append([]string{"-c", "core.hooksPath=" + gitHooksDisabledPath}, args...)...)
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
@@ -49,11 +65,14 @@ func gitHardenRun(t *testing.T, dir string, args ...string) {
 func gitHardenRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	gitHardenRun(t, dir, "init", "-q", ".")
+	// --template= starts .git/hooks empty. Without it a developer whose
+	// init.templateDir ships executable hooks would get them copied into every
+	// fixture repository, where they are neither this test's payload nor
+	// something the assertions can account for.
+	gitHardenRun(t, dir, "init", "-q", "--template=", ".")
 	gitHardenRun(t, dir, "config", "user.name", "Entire Brain Test")
 	gitHardenRun(t, dir, "config", "user.email", "brain-test@example.invalid")
 	gitHardenRun(t, dir, "config", "commit.gpgsign", "false")
-	gitHardenRun(t, dir, "config", "core.hooksPath", filepath.Join(dir, ".no-hooks"))
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hello\nworld\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -388,4 +407,242 @@ func TestGlobalFilterDriversAreLeftAlone(t *testing.T) {
 			t.Fatalf("local driver not fully neutralized: %q missing from %v", want, keys)
 		}
 	}
+}
+
+// A FIFTH vector, and the cheapest of the five to arm: git HOOKS.
+//
+// The four above each need a config key, an in-tree .gitattributes entry, or
+// both. A hook needs neither: an executable file at .git/hooks/<name> is the
+// entire arming, and core.hooksPath merely relocates the directory for an
+// attacker who would rather also set a key. Nothing in the product read
+// core.hooksPath before gitHardenConfig did.
+//
+// post-index-change is the hook a read-only indexer reaches. git runs it
+// whenever a command REWRITES the index, and git rewrites the index when it
+// meets a tracked file whose cached stat data no longer matches the filesystem
+// but whose content still hashes to the indexed blob: it re-reads the file,
+// confirms the content, refreshes the stat cache, and writes the index back
+// out. `git status` does exactly that, and `git status` is the first thing the
+// worktree fingerprint runs.
+//
+// Measured against the unpatched binary on git 2.54.0, in a repository armed
+// with nothing but an executable hook file:
+//
+//	refresh --worktree --agent none   3 executions
+//	refresh --agent none              6
+//	status                            1
+//	status --verbose                  1
+//	overview                          1
+//
+// -- every one of them while the command exited 0 and reported "+ healthy".
+//
+// Only post-index-change is reachable while this binary merely reads. The
+// assertions below still cover the whole hook directory rather than that one
+// name, because the directory is the repository's and the neutralizer is not
+// hook-specific; a future call path that checks something out must not quietly
+// reopen the vector under a different hook name.
+
+const gitHardenHookName = "post-index-change"
+
+// gitHardenRunWithHooks is gitHardenRun without the hook suppression, for the
+// control that proves a test's arming actually fires. Using gitHardenRun here
+// would prove nothing: it disables the very hook being checked.
+func gitHardenRunWithHooks(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+}
+
+// gitHardenHookRepo builds a repository carrying a live post-index-change hook
+// and returns the file that hook appends a line to on every execution.
+//
+// The hook is written straight to disk because git has no command that installs
+// one, and it writes only to that file: post-index-change inherits the caller's
+// stdout, so a chattier payload would corrupt the porcelain under test rather
+// than merely proving it ran.
+//
+// b.txt is the file the arming works on. gitHardenRepo leaves a.txt genuinely
+// modified, and git does not refresh the cached stat of a file whose content no
+// longer matches the index -- it has real work to report instead. The trigger
+// has to be a file that is still clean.
+func gitHardenHookRepo(t *testing.T) (repo, log string) {
+	t.Helper()
+	repo = gitHardenRepo(t)
+	log = filepath.Join(t.TempDir(), "EXECUTIONS")
+
+	hooks := filepath.Join(repo, ".git", "hooks")
+	if err := os.MkdirAll(hooks, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "#!/bin/sh\necho fired >> " + log + "\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(hooks, gitHardenHookName), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(repo, "b.txt"), []byte("clean\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Staging b.txt alone keeps a.txt in the index exactly as HEAD has it, so
+	// the commit does not swallow the worktree modification the other tests in
+	// this file depend on.
+	gitHardenRun(t, repo, "add", "b.txt")
+	gitHardenRun(t, repo, "commit", "-qm", "armed")
+	return repo, log
+}
+
+// gitHardenArmHook leaves b.txt's content alone and makes only its stat data
+// disagree with the index, which is the state that costs git an index rewrite.
+// The timestamp is pushed into the future because git additionally refuses to
+// trust a cached stat whose mtime is not safely in the past, so a future date
+// arms the check on any filesystem timestamp granularity.
+func gitHardenArmHook(t *testing.T, repo, log string) {
+	t.Helper()
+	future := time.Now().Add(365 * 24 * time.Hour)
+	if err := os.Chtimes(filepath.Join(repo, "b.txt"), future, future); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(log); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+}
+
+// gitHardenHookExecutions counts the lines the payload appended, so a failure
+// can say how many times the repository ran code rather than just that it did.
+func gitHardenHookExecutions(t *testing.T, log string) int {
+	t.Helper()
+	data, err := os.ReadFile(log)
+	if os.IsNotExist(err) {
+		return 0
+	}
+	if err != nil {
+		t.Fatalf("read hook log: %v", err)
+	}
+	return len(strings.Fields(string(data)))
+}
+
+// gitHardenRequireLiveHook proves the arming fires before anything is asserted
+// about it. Without this control a hook test that silently stopped arming
+// anything -- a git change, a coarse-grained filesystem -- would keep passing
+// while defending nothing.
+func gitHardenRequireLiveHook(t *testing.T, repo, log string) {
+	t.Helper()
+	gitHardenArmHook(t, repo, log)
+	gitHardenRunWithHooks(t, repo, "status", "--porcelain")
+	if gitHardenHookExecutions(t, log) == 0 {
+		t.Skipf("plain `git status` did not run %s here, so the vector cannot be exercised", gitHardenHookName)
+	}
+}
+
+// gitHardenBrainEnv points the real commands at a throwaway brain store. The
+// commands below are driven through NewRootCommand rather than through the
+// individual git helpers because the finding is about what a user typing
+// `entire-brain status` gets, and because the command layer is where a future
+// git spawn that forgot the runner would show up.
+func gitHardenBrainEnv(t *testing.T, repo string) EntireEnv {
+	t.Helper()
+	root := t.TempDir()
+	return EntireEnv{
+		RepoRoot:        repo,
+		PluginDataDir:   filepath.Join(root, "data"),
+		PluginCacheDir:  filepath.Join(root, "cache"),
+		PluginStateDir:  filepath.Join(root, "state"),
+		PluginConfigDir: filepath.Join(root, "config"),
+	}
+}
+
+// gitHardenAssertCommandsRunNoHook drives every command the vector was measured
+// on and asserts the repository never got to run code. A command that fails is
+// still evidence -- the hook must not run either way -- so its error is
+// reported alongside a violation rather than ending the test early.
+func gitHardenAssertCommandsRunNoHook(t *testing.T, repo, log, vector string) {
+	t.Helper()
+	env := gitHardenBrainEnv(t, repo)
+	for _, argv := range [][]string{
+		{"refresh", "--worktree", "--agent", "none"},
+		{"refresh", "--agent", "none"},
+		{"status"},
+		{"status", "--verbose"},
+		{"overview"},
+	} {
+		gitHardenArmHook(t, repo, log)
+		cmd := NewRootCommand(Options{Version: "test-version", Env: env})
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		cmd.SetArgs(argv)
+		err := cmd.Execute()
+		if n := gitHardenHookExecutions(t, log); n != 0 {
+			t.Fatalf("SECURITY: `entire-brain %s` ran a repo-local %s hook %d time(s) via %s (command err: %v)\n%s",
+				strings.Join(argv, " "), gitHardenHookName, n, vector, err, out.String())
+		}
+	}
+}
+
+// TestIndexingDoesNotRunRepoLocalGitHooks is the cheapest arming of all: a file
+// and a chmod, with nothing at all written to .git/config.
+func TestIndexingDoesNotRunRepoLocalGitHooks(t *testing.T) {
+	gitHardenSkipUnsupported(t)
+	repo, log := gitHardenHookRepo(t)
+	gitHardenRequireLiveHook(t, repo, log)
+
+	gitHardenAssertCommandsRunNoHook(t, repo, log, ".git/hooks")
+
+	// The same vector at the two functions every one of those commands reaches
+	// it through, so a regression is reported against the code that carries the
+	// defect and not only against the command that surfaced it.
+	gitHardenArmHook(t, repo, log)
+	if _, err := gitStatusPorcelainAll(context.Background(), ExecRunner{}, repo); err != nil {
+		t.Fatalf("gitStatusPorcelainAll: %v", err)
+	}
+	if n := gitHardenHookExecutions(t, log); n != 0 {
+		t.Fatalf("SECURITY: gitStatusPorcelainAll ran a repo-local %s hook %d time(s)", gitHardenHookName, n)
+	}
+
+	gitHardenArmHook(t, repo, log)
+	fingerprint, err := worktreeFingerprint(context.Background(), ExecRunner{}, repo)
+	if err != nil {
+		t.Fatalf("worktreeFingerprint: %v", err)
+	}
+	if n := gitHardenHookExecutions(t, log); n != 0 {
+		t.Fatalf("SECURITY: worktreeFingerprint ran a repo-local %s hook %d time(s)", gitHardenHookName, n)
+	}
+	// Suppressing hooks must not cost the read: git still has to refresh the
+	// index and report the worktree, it just must not announce it to the
+	// repository's own code.
+	if fingerprint == "" {
+		t.Fatal("empty fingerprint")
+	}
+}
+
+// TestIndexingDoesNotRunGitHooksRelocatedByHooksPath covers the config-key
+// half. core.hooksPath moves the directory, so a neutralizer that only ignored
+// .git/hooks -- or that pointed core.hooksPath at a RELATIVE path, which git
+// resolves against the repository's own worktree -- would still execute here.
+func TestIndexingDoesNotRunGitHooksRelocatedByHooksPath(t *testing.T) {
+	gitHardenSkipUnsupported(t)
+	repo, log := gitHardenHookRepo(t)
+
+	elsewhere := filepath.Join(t.TempDir(), "hooks")
+	if err := os.MkdirAll(elsewhere, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(repo, ".git", "hooks", gitHardenHookName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(elsewhere, gitHardenHookName), body, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Remove the original so a pass cannot come from the default directory
+	// being the one that was neutralized.
+	if err := os.Remove(filepath.Join(repo, ".git", "hooks", gitHardenHookName)); err != nil {
+		t.Fatal(err)
+	}
+	gitHardenRun(t, repo, "config", "core.hooksPath", elsewhere)
+
+	gitHardenRequireLiveHook(t, repo, log)
+	gitHardenAssertCommandsRunNoHook(t, repo, log, "core.hooksPath")
 }
