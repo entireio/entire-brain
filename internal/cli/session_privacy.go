@@ -433,6 +433,14 @@ func newSessionsListCommand(opts Options) *cobra.Command {
 				return writeJSON(cmd, map[string]any{"sessions": entries})
 			}
 			return writeText(cmd, func(out io.Writer) {
+				// An empty session list is the normal state of a brain that has
+				// never captured a session, and printing nothing for it made the
+				// one command a privacy-conscious user reaches for indistinguishable
+				// from a command that failed to look. Say which it is.
+				if len(entries) == 0 {
+					fmt.Fprintln(out, "no captured sessions in this brain")
+					return
+				}
 				for _, entry := range entries {
 					state := "included"
 					if entry.Excluded {

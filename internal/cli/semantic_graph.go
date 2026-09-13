@@ -457,6 +457,10 @@ func runSemanticQueryGraph(cmd *cobra.Command, opts Options, graphOpts semanticG
 	if graphOpts.json {
 		return writeJSON(cmd, result)
 	}
+	if len(result.Relations) == 0 {
+		printSemanticNoMatch(cmd, "relations", query)
+		return nil
+	}
 	for _, relation := range result.Relations {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s -> %s %s\n", relation.FromID, relation.ToID, relation.Type)
 	}
