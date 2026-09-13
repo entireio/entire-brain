@@ -1,0 +1,90 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1.0.20260913155315-d419fef66327",
+  "checkpoint_id": "f79534b8719c",
+  "session_id": "01a09c2f-51ca-7702-9dc0-39dcf5184bb3",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-13T19:38:22.131921Z",
+  "branch": "main",
+  "checkpoints_count": 9,
+  "save_step_count": 3,
+  "files_touched": [
+    "CHANGELOG.md",
+    "README.md",
+    "docs/agent_benchmark_plan.md",
+    "docs/eval_ledger.md",
+    "docs/getting-started.md",
+    "docs/reference.md",
+    "docs/release_press_release.md",
+    "docs/release_readiness_audit.md",
+    "docs/semantic_agent_guide.md",
+    "docs/semantic_brain_plan.md",
+    "docs/semantic_mcp_guide.md",
+    "docs/vitality_receipts.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go",
+    "internal/cli/retrieve.go",
+    "internal/cli/retrieve_cmd.go",
+    "internal/cli/retrieve_test.go",
+    "internal/cli/testdata/mcp_tool_surface.golden.json",
+    "internal/cli/workspace.go",
+    "internal/cli/workspace_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "39ec0206b9f6",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 100678,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3263488,
+    "output_tokens": 14031,
+    "api_call_count": 50,
+    "subagent_tokens_complete": true
+  },
+  "session_metrics": {
+    "turn_count": 9
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-13T19:38:22.09734Z",
+    "agent_lines": 336,
+    "agent_removed": 46,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 336,
+    "total_lines_changed": 382,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 336,
+      "agent_lines_removed": 46
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 336,
+      "agent_lines_removed": 46
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 336,
+      "agent_lines_removed": 46
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1.0.20260913155315-d419fef66327",
+  "checkpoint_id": "f79534b8719c",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 9,
+  "files_touched": [
+    "CHANGELOG.md",
+    "README.md",
+    "docs/agent_benchmark_plan.md",
+    "docs/eval_ledger.md",
+    "docs/getting-started.md",
+    "docs/reference.md",
+    "docs/release_press_release.md",
+    "docs/release_readiness_audit.md",
+    "docs/semantic_agent_guide.md",
+    "docs/semantic_brain_plan.md",
+    "docs/semantic_mcp_guide.md",
+    "docs/vitality_receipts.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go",
+    "internal/cli/retrieve.go",
+    "internal/cli/retrieve_cmd.go",
+    "internal/cli/retrieve_test.go",
+    "internal/cli/testdata/mcp_tool_surface.golden.json",
+    "internal/cli/workspace.go",
+    "internal/cli/workspace_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f7/9534b8719c/0/metadata.json",
+      "transcript": "/f7/9534b8719c/0/full.jsonl",
+      "compact_transcript": "/f7/9534b8719c/0/transcript.jsonl",
+      "content_hash": "/f7/9534b8719c/0/content_hash.txt",
+      "prompt": "/f7/9534b8719c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 100678,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3263488,
+    "output_tokens": 14031,
+    "api_call_count": 50,
+    "subagent_tokens_complete": true
+  }
+}
