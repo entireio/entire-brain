@@ -580,15 +580,21 @@ func newWorkspaceQueryCommand(opts Options) *cobra.Command {
 // independently and results stay grouped by repo — scores from different brains'
 // indexes are not comparable, so there is no cross-repo fusion.
 func newWorkspaceRetrieveCommand(opts Options, use string, mode retrievalMode, short string) *cobra.Command {
+	var selection querySelection
 	retrieveOpts := workspaceRetrieveOptions{limit: 10}
 	cmd := &cobra.Command{
 		Use:   use + " <workspace> <query>",
 		Short: short,
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runWorkspaceRetrieve(cmd, opts, retrieveOpts, mode, args[0], args[1])
+			selectedMode, err := selection.mode(mode)
+			if err != nil {
+				return err
+			}
+			return runWorkspaceRetrieve(cmd, opts, retrieveOpts, selectedMode, args[0], args[1])
 		},
 	}
+	configureQueryCommand(cmd, use, &selection, 1)
 	cmd.Flags().IntVar(&retrieveOpts.limit, "limit", 10, "Maximum results per repo")
 	cmd.Flags().StringVar(&retrieveOpts.branch, "branch", "", "Branch for facts in every repo (default: each repo's distill default)")
 	cmd.Flags().BoolVar(&retrieveOpts.json, "json", false, "Emit machine-readable JSON")

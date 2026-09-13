@@ -775,11 +775,11 @@ Orient first (what is this project?):
 Then, for a task:
   entire brain brief "<task>" --json
 
-Retrieval (qmd-inspired verbs; search/vsearch/query take --json/--format json|cli/--limit/-n/--branch,
+Retrieval (query takes --json/--format json|cli/--limit/-n/--branch,
 get/multi-get take --json/--format json|cli/--branch):
   entire brain query "<query>" --json       # hybrid (lexical+vector, RRF) — the default
-  entire brain search "<query>" --json      # lexical keyword over facts + history + docs (BM25 for history/docs)
-  entire brain vsearch "<query>" --json     # vector/semantic over facts + docs (+ history/conversation with a Gemma-class embedder)
+  entire brain query --keyword "<query>" --json      # lexical keyword over facts + history + docs (BM25 for history/docs)
+  entire brain query --semantic "<query>" --json     # vector/semantic over facts + docs (+ history/conversation with a Gemma-class embedder)
   entire brain get <id> --json              # fetch one item by id (fact:… | history:… | doc:…)
   entire brain multi-get <id>... --json     # fetch several by id
 
@@ -820,8 +820,10 @@ Specialist tools (symbol graph + regression analysis — what the verbs can't do
   entire brain inspect regressions "<query>" --location-only [--include-deletions] --json
 
 Search tips:
-  - query first (fuses keyword + concept); fall back to search for exact
-    identifiers, vsearch for paraphrased/conceptual queries.
+  - query first (fuses keyword + concept); use query --keyword for exact
+    identifiers, query --semantic for paraphrased/conceptual queries.
+  - Supply text positionally or with --query; flags work before or after it.
+    --keyword and --semantic are mutually exclusive.
   - Every result carries an id — pass it to get/multi-get for the full record.
   - The inspect code/search-graph/query-graph/context/impact tools traverse the
     symbol graph (symbols, relations, callers, callees, impact set); reach for

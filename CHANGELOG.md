@@ -5,6 +5,15 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Unified retrieval under `query`: hybrid by default, with mutually exclusive
+  `--keyword` and `--semantic` modes. Query text can be positional or passed
+  with `--query`, with flags before or after it. Workspace queries support the
+  same forms. `search` and `vsearch` remain hidden compatibility commands.
+- MCP `brain_query` now accepts `keyword` and `semantic` booleans; existing
+  retrieval tools remain compatible. Updated CLI help, docs, and agent guidance.
+
 ### Fixed
 
 - A repository reached through a symlinked path no longer ends up with two

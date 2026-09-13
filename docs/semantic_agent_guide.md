@@ -50,7 +50,7 @@ Recommended intake flow:
    namespace-qualified resource endpoints with short-name fallback, Docker
    Compose service resource-candidate `cross_edges`, and
    a persisted `graph.json` artifact) or
-   `entire brain workspace search|vsearch|query <workspace> <query> --json`
+   `entire brain workspace query <workspace> <query> --json`
    (facts/history/docs, grouped per repo; ids are repo-qualified for
    `workspace get`) only for local workspaces that already list local repo
    path hints.
@@ -66,3 +66,19 @@ Recommended intake flow:
 
 Do not publish semantic artifacts or send semantic context to remote services in
 phase 1.
+
+### Query input and modes
+
+Use `entire brain query "text"` for default hybrid retrieval. Select keyword
+matching with `--keyword` or semantic matching with `--semantic`; the two
+flags are mutually exclusive and belong only to the query command.
+Text may instead be supplied as `--query "text"`. Flags work before or after
+positional text; combining positional text and `--query` is an error.
+For example: `entire brain query --keyword --query "RetryPolicy" --json`.
+
+Workspace retrieval supports the same forms:
+`entire brain workspace query <workspace> --semantic --query "retry policy"`.
+The old `search` and `vsearch` commands remain hidden compatibility aliases.
+MCP agents should use `brain_query` with optional, mutually exclusive
+`keyword: true` or `semantic: true` arguments; `brain_search` and
+`brain_vsearch` remain compatibility tools.

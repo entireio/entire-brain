@@ -32,7 +32,7 @@ anecdotes.
   and semantic records.
 - Durable facts through separate distill, remember, recall, review, admin,
   verify, and eval surfaces.
-- QMD-inspired retrieval verbs: `search`, `vsearch`, `query`, `get`, and
+- Unified retrieval: `query` with optional keyword or semantic modes, `get`, and
   `multi-get`.
 - Semantic freshness, blind-spot reporting, and a semantic audit surface
   (`status --json`, gated in CI by `status --fail-on release`).

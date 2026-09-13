@@ -101,3 +101,6 @@ From the memory-lifecycle plan, everything that consumes receipts:
   `facts eval` paired-proof bar).
 
 Receipts are currently *observable evidence only*: no read path consults them.
+
+All `query` modes (default hybrid, `--keyword`, `--semantic`) emit the
+`query` CLI surface. Compatibility commands retain their existing surface names.

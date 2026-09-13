@@ -454,6 +454,24 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	for _, pair := range []struct{ alias, flag string }{{"search", "--keyword"}, {"vsearch", "--semantic"}} {
+		var results []string
+		for _, args := range [][]string{{pair.alias, "alpha checkpoint"}, {"query", pair.flag, "--query", "alpha checkpoint"}} {
+			out, err := execute(t, NewRootCommand(opts), append(args, "--json")...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var payload map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(out), &payload); err != nil {
+				t.Fatal(err)
+			}
+			results = append(results, string(payload["results"]))
+		}
+		if results[0] != results[1] {
+			t.Fatalf("%s and query %s differ: %v", pair.alias, pair.flag, results)
+		}
+	}
+
 	for _, tc := range []struct {
 		name       string
 		args       []string
@@ -462,6 +480,11 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 	}{
 		{name: "search short number json", args: []string{"search", "alpha checkpoint", "-n", "1", "--format", "json"}, wantResult: true, wantLimit: true},
 		{name: "query long number json", args: []string{"query", "alpha checkpoint", "--number", "1", "--format", "json"}, wantResult: true, wantLimit: true},
+		{name: "keyword before", args: []string{"query", "--keyword", "alpha checkpoint", "--json", "-n", "1"}, wantResult: true, wantLimit: true},
+		{name: "keyword after", args: []string{"query", "alpha checkpoint", "--keyword", "--json", "-n", "1"}, wantResult: true, wantLimit: true},
+		{name: "named keyword", args: []string{"query", "--keyword", "--query", "alpha checkpoint", "--json", "-n", "1"}, wantResult: true, wantLimit: true},
+		{name: "named hybrid", args: []string{"query", "--query", "alpha checkpoint", "--json", "-n", "1"}, wantResult: true, wantLimit: true},
+		{name: "named semantic", args: []string{"query", "--query", "alpha checkpoint", "--semantic", "--json", "-n", "1"}},
 		{name: "vsearch format json", args: []string{"vsearch", "alpha checkpoint", "-n", "1", "--format", "json"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -716,7 +739,7 @@ func TestQMDTopLevelHelpListsRetrievalVerbs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("root --help: %v\n%s", err, out)
 	}
-	for _, want := range []string{"search", "vsearch", "query", "get", "multi-get"} {
+	for _, want := range []string{"query", "get", "multi-get"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("root help missing QMD verb %q:\n%s", want, out)
 		}
@@ -900,5 +923,40 @@ func TestGetAndMultiGetExitNonzeroOnAMissingID(t *testing.T) {
 	}
 	if len(payload.Results) != 1 || len(payload.Missing) != 1 || payload.Missing[0] != "fact:absent" {
 		t.Fatalf("unexpected partial payload: %+v", payload)
+	}
+}
+
+func TestQueryInputAndHelpContracts(t *testing.T) {
+	for _, prefix := range [][]string{{"query"}, {"workspace", "query", "example"}} {
+		for _, input := range [][]string{
+			{}, {"--query", ""}, {"--query", " "}, {"text", "--query", "text"},
+			{"text", "extra"}, {"text", "--keyword", "--semantic"},
+		} {
+			args := append(append([]string(nil), prefix...), input...)
+			if _, err := execute(t, NewRootCommand(Options{Version: "test"}), args...); err == nil {
+				t.Fatalf("%v should fail", args)
+			}
+		}
+	}
+	for _, path := range [][]string{{}, {"workspace"}, {"search"}, {"vsearch"}, {"query"}, {"workspace", "query"}, {"workspace", "search"}} {
+		args := append(append([]string(nil), path...), "--help")
+		out, err := execute(t, NewRootCommand(Options{Version: "test"}), args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := len(path) > 0 && path[len(path)-1] == "query"
+		for _, flag := range []string{"--keyword", "--semantic", "--query string"} {
+			if strings.Contains(out, flag) != want {
+				t.Fatalf("%v: unexpected help for %s:\n%s", path, flag, out)
+			}
+		}
+		if len(path) == 0 || (len(path) == 1 && path[0] == "workspace") {
+			for _, line := range strings.Split(out, "\n") {
+				fields := strings.Fields(line)
+				if len(fields) > 0 && (fields[0] == "search" || fields[0] == "vsearch") {
+					t.Fatalf("compatibility alias listed: %s", line)
+				}
+			}
+		}
 	}
 }
