@@ -19,7 +19,7 @@ func TestLoadQuarantinesCorruptConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("corrupt config should not be fatal: %v", err)
 	}
-	if cfg.Greeting != Default().Greeting {
+	if !reflect.DeepEqual(cfg, Default()) {
 		t.Fatalf("expected defaults, got %+v", cfg)
 	}
 	if _, err := os.Stat(path + ".corrupt"); err != nil {
@@ -35,14 +35,14 @@ func TestLoadReturnsDefaultWhenMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Greeting != Default().Greeting {
-		t.Fatalf("Greeting = %q, want %q", cfg.Greeting, Default().Greeting)
+	if !reflect.DeepEqual(cfg, Default()) {
+		t.Fatalf("Load = %+v, want %+v", cfg, Default())
 	}
 }
 
 func TestSaveLoadRoundTrip(t *testing.T) {
 	dataDir := t.TempDir()
-	want := Config{Greeting: "hi"}
+	want := Config{DomainSlugs: map[string]string{"git.example.invalid": "ab"}}
 	if err := Save(dataDir, want); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -56,7 +56,9 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
-func TestLoadFillsMissingGreeting(t *testing.T) {
+// An empty object is a configured machine that has learned nothing yet, and it
+// must load as the default rather than being back-filled with anything.
+func TestLoadTreatsEmptyObjectAsDefault(t *testing.T) {
 	dataDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dataDir, "brain.json"), []byte("{}\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -66,8 +68,8 @@ func TestLoadFillsMissingGreeting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got.Greeting != Default().Greeting {
-		t.Fatalf("Greeting = %q, want default", got.Greeting)
+	if !reflect.DeepEqual(got, Default()) {
+		t.Fatalf("Load = %+v, want default %+v", got, Default())
 	}
 }
 
@@ -124,14 +126,15 @@ func TestSaveReacquiresWhenLockFileRemains(t *testing.T) {
 	if err := os.WriteFile(lockPath, []byte("stale metadata\n"), 0o600); err != nil {
 		t.Fatalf("write stale lock file: %v", err)
 	}
-	if err := Save(dataDir, Config{Greeting: "after stale"}); err != nil {
+	after := Config{DomainSlugs: map[string]string{"after.stale.invalid": "as"}}
+	if err := Save(dataDir, after); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	got, err := Load(dataDir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got.Greeting != "after stale" {
-		t.Fatalf("Greeting = %q", got.Greeting)
+	if !reflect.DeepEqual(got, after) {
+		t.Fatalf("Load = %+v, want %+v", got, after)
 	}
 }

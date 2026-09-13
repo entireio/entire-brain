@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ashtom/entire-brain/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -171,12 +172,26 @@ func TestDoctorDoesNotCreateOrProbePluginDataDir(t *testing.T) {
 	}
 }
 
+// configShowTestEnv pins the process-level switches `config show` reports, so
+// the assertions below do not depend on the developer's or CI runner's shell.
+func configShowTestEnv(t *testing.T) EntireEnv {
+	t.Helper()
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
+	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
+	t.Setenv("ENTIRE_BRAIN_GRAPH_BINARY", "")
+	root := t.TempDir()
+	return EntireEnv{
+		PluginConfigDir: filepath.Join(root, "config"),
+		PluginDataDir:   filepath.Join(root, "data"),
+		PluginStateDir:  filepath.Join(root, "state"),
+		PluginCacheDir:  filepath.Join(root, "cache"),
+		RepoRoot:        filepath.Join(root, "repo"),
+	}
+}
+
 func TestConfigInitAndShow(t *testing.T) {
-	configDir := t.TempDir()
-	cmd := NewRootCommand(Options{
-		Version: "test-version",
-		Env:     EntireEnv{PluginConfigDir: configDir},
-	})
+	env := configShowTestEnv(t)
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env})
 
 	out, err := execute(t, cmd, "config", "init")
 	if err != nil {
@@ -186,15 +201,114 @@ func TestConfigInitAndShow(t *testing.T) {
 		t.Fatalf("config init output missing path:\n%s", out)
 	}
 
-	cmd = NewRootCommand(Options{
-		Version: "test-version",
-		Env:     EntireEnv{PluginConfigDir: configDir},
-	})
+	cmd = NewRootCommand(Options{Version: "test-version", Env: env})
 	out, err = execute(t, cmd, "config", "show")
 	if err != nil {
 		t.Fatalf("config show: %v", err)
 	}
-	if !strings.Contains(out, `"greeting": "Hello from Entire Brain"`) {
-		t.Fatalf("config show output missing default greeting:\n%s", out)
+
+	var report map[string]any
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("config show did not emit JSON: %v\n%s", err, out)
+	}
+	// The scaffold this replaced: `config show` reported the hello-world
+	// greeting as if it were the plugin's configuration, and `scripts/install.sh`
+	// writes that file as a documented install step.
+	if strings.Contains(out, "greeting") || strings.Contains(out, "Hello from Entire Brain") {
+		t.Fatalf("config show still reports the scaffold greeting:\n%s", out)
+	}
+	wantFile := filepath.Join(env.PluginConfigDir, "brain.json")
+	if report["config_file"] != wantFile {
+		t.Fatalf("config_file = %v, want %q", report["config_file"], wantFile)
+	}
+	if report["config_file_exists"] != true {
+		t.Fatalf("config_file_exists = %v after config init, want true", report["config_file_exists"])
+	}
+	dirs, ok := report["directories"].(map[string]any)
+	if !ok {
+		t.Fatalf("config show did not report the plugin directories:\n%s", out)
+	}
+	for _, dir := range []struct {
+		key  string
+		want string
+	}{
+		{"config", env.PluginConfigDir},
+		{"data", env.PluginDataDir},
+		{"state", env.PluginStateDir},
+		{"cache", env.PluginCacheDir},
+	} {
+		if dirs[dir.key] != dir.want {
+			t.Fatalf("directories.%s = %v, want %q", dir.key, dirs[dir.key], dir.want)
+		}
+	}
+	if want := filepath.Join(env.PluginDataDir, repoStoreDirName); report["brain_store"] != want {
+		t.Fatalf("brain_store = %v, want %q", report["brain_store"], want)
+	}
+	if report["repo_root"] != env.RepoRoot {
+		t.Fatalf("repo_root = %v, want %q", report["repo_root"], env.RepoRoot)
+	}
+	slugs, ok := report["domain_slugs"].(map[string]any)
+	if !ok || len(slugs) != 0 {
+		t.Fatalf("domain_slugs = %v, want an empty object on a fresh config", report["domain_slugs"])
+	}
+	if report["no_egress"] != false {
+		t.Fatalf("no_egress = %v, want false", report["no_egress"])
+	}
+	if report["mcp_graph_binary"] != "entire" {
+		t.Fatalf("mcp_graph_binary = %v, want the default %q", report["mcp_graph_binary"], "entire")
+	}
+}
+
+// Every field `config show` prints must track the thing it names, or the report
+// is decoration. These are the three that change under a reader.
+func TestConfigShowTracksLiveConfiguration(t *testing.T) {
+	env := configShowTestEnv(t)
+	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "1")
+	t.Setenv("ENTIRE_BRAIN_GRAPH_BINARY", "/opt/entire/bin/entire")
+
+	// No `config init`: the file is genuinely absent, and the report must say so
+	// rather than presenting defaults as if they were written.
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env})
+	out, err := execute(t, cmd, "config", "show")
+	if err != nil {
+		t.Fatalf("config show: %v\n%s", err, out)
+	}
+	var report map[string]any
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("config show did not emit JSON: %v\n%s", err, out)
+	}
+	if report["config_file_exists"] != false {
+		t.Fatalf("config_file_exists = %v with no config written, want false", report["config_file_exists"])
+	}
+	if report["no_egress"] != true {
+		t.Fatalf("no_egress = %v under ENTIRE_BRAIN_LOCAL_ONLY=1, want true", report["no_egress"])
+	}
+	if report["mcp_graph_binary"] != "/opt/entire/bin/entire" {
+		t.Fatalf("mcp_graph_binary = %v, want the ENTIRE_BRAIN_GRAPH_BINARY override", report["mcp_graph_binary"])
+	}
+
+	// A persisted host slug is the one real setting brain.json carries, and it
+	// is what a reader debugging a repo key needs to see.
+	if _, err := config.Update(env.PluginConfigDir, func(cfg *config.Config) error {
+		cfg.DomainSlugs = map[string]string{"git.example.invalid": "ab"}
+		return nil
+	}); err != nil {
+		t.Fatalf("persist domain slug: %v", err)
+	}
+	cmd = NewRootCommand(Options{Version: "test-version", Env: env})
+	out, err = execute(t, cmd, "config", "show")
+	if err != nil {
+		t.Fatalf("config show: %v\n%s", err, out)
+	}
+	report = nil
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("config show did not emit JSON: %v\n%s", err, out)
+	}
+	if report["config_file_exists"] != true {
+		t.Fatalf("config_file_exists = %v after a write, want true", report["config_file_exists"])
+	}
+	slugs, ok := report["domain_slugs"].(map[string]any)
+	if !ok || slugs["git.example.invalid"] != "ab" {
+		t.Fatalf("domain_slugs = %v, want the persisted git.example.invalid slug", report["domain_slugs"])
 	}
 }

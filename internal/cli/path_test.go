@@ -279,7 +279,138 @@ func TestPathUsesExistingLocalBrainWithoutExport(t *testing.T) {
 	}
 }
 
-func TestPathExportsExistingRepoWhenMissing(t *testing.T) {
+// pathBuildFixtureRunner scripts the git calls `path` legitimately makes to
+// identify a repository, and NOTHING else. Any brain-building subprocess --
+// the worktree probe seed runs, the `entire` checkpoint calls export runs --
+// is therefore an unexpected command and fails the run loudly, which is what
+// makes the "path builds nothing" tests below fail without the fix.
+func pathBuildFixtureRunner(repoDir string) *fakeCommandRunner {
+	return &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "remote", "get-url", "origin"):  {stdout: "https://github.com/entireio/cli.git\n"},
+	}}
+}
+
+func TestPathBuildsNothingForRepoWithoutBrain(t *testing.T) {
+	repoDir := t.TempDir()
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "data")
+	stateDir := filepath.Join(root, "state")
+	cacheDir := filepath.Join(root, "cache")
+	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "entireio", "cli")
+
+	runner := pathBuildFixtureRunner(repoDir)
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			PluginConfigDir: filepath.Join(root, "config"),
+			PluginDataDir:   dataDir,
+			PluginStateDir:  stateDir,
+			PluginCacheDir:  cacheDir,
+		},
+		Runner: runner,
+		Now:    func() time.Time { return time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC) },
+	})
+
+	out, err := execute(t, cmd, "path", repoDir)
+	if err != nil {
+		t.Fatalf("path: %v\n%s", err, out)
+	}
+	if out != brainDir+"\n" {
+		t.Fatalf("path output = %q, want %q", out, brainDir+"\n")
+	}
+	// The getter contract: asking where the brain lives must leave the store
+	// exactly as it found it. Before the fix this single call wrote seed
+	// markdown, a docs FTS index, a pattern corpus, a manifest and a lock dir.
+	for _, dir := range []string{dataDir, stateDir, cacheDir} {
+		if _, err := os.Lstat(dir); !os.IsNotExist(err) {
+			t.Fatalf("path created %s (lstat err = %v); path must not build a brain", dir, err)
+		}
+	}
+	for _, call := range runner.calls {
+		if call.name != "git" {
+			t.Fatalf("path ran a non-git command, so it was building: %+v", runner.calls)
+		}
+	}
+}
+
+func TestPathRefusesDirectoryGitCannotAnswerFor(t *testing.T) {
+	plainDir := t.TempDir()
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "data")
+
+	// No scripted responses at all: every git call fails, exactly as it does in
+	// a directory that is not inside a work tree.
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			PluginConfigDir: filepath.Join(root, "config"),
+			PluginDataDir:   dataDir,
+			PluginStateDir:  filepath.Join(root, "state"),
+			PluginCacheDir:  filepath.Join(root, "cache"),
+		},
+		Runner: runner,
+	})
+
+	out, err := execute(t, cmd, "path", plainDir)
+	if err == nil {
+		t.Fatalf("path succeeded in a non-repository:\n%s", out)
+	}
+	// Before the fix this failed from INSIDE a build nobody asked for, with a
+	// raw `fatal: not a git repository` leaked from a seed subprocess.
+	if !strings.Contains(err.Error(), "not a git repository: "+plainDir) {
+		t.Fatalf("path err = %v, want a clear not-a-repository refusal naming %s", err, plainDir)
+	}
+	if strings.Contains(err.Error(), "seed refresh") || strings.Contains(err.Error(), "worktree") {
+		t.Fatalf("path leaked a build failure instead of refusing up front: %v", err)
+	}
+	if strings.TrimSpace(out) != "" {
+		t.Fatalf("path printed something for a non-repository: %q", out)
+	}
+	if _, err := os.Lstat(dataDir); !os.IsNotExist(err) {
+		t.Fatalf("path created %s while refusing (lstat err = %v)", dataDir, err)
+	}
+}
+
+func TestPathPrintsStoredBrainWhenWorktreeLostItsGitDir(t *testing.T) {
+	plainDir := t.TempDir()
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "data")
+	env := EntireEnv{
+		PluginConfigDir: filepath.Join(root, "config"),
+		PluginDataDir:   dataDir,
+		PluginStateDir:  filepath.Join(root, "state"),
+		PluginCacheDir:  filepath.Join(root, "cache"),
+	}
+	dirs, err := resolvePluginDirs(env)
+	if err != nil {
+		t.Fatalf("plugin dirs: %v", err)
+	}
+	storage := repoStorageForKey(dirs, filepath.ToSlash(filepath.Join("local", localRepoKey(plainDir))))
+	if err := os.MkdirAll(storage.BrainDir, 0o700); err != nil {
+		t.Fatalf("create stored brain: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(storage.BrainDir, exportManifestFileName), []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env:     env,
+		Runner:  &fakeCommandRunner{responses: map[string]fakeCommandResponse{}},
+	})
+
+	out, err := execute(t, cmd, "path", plainDir)
+	if err != nil {
+		t.Fatalf("path: %v\n%s", err, out)
+	}
+	if out != storage.BrainDir+"\n" {
+		t.Fatalf("path output = %q, want stored brain %q", out, storage.BrainDir+"\n")
+	}
+}
+
+func TestPathEnsureBuildsMissingBrain(t *testing.T) {
 	repoDir := t.TempDir()
 	dataDir := filepath.Join(t.TempDir(), "data")
 	stateDir := filepath.Join(t.TempDir(), "state")
@@ -329,21 +460,18 @@ func TestPathExportsExistingRepoWhenMissing(t *testing.T) {
 		},
 	})
 
-	out, err := execute(t, cmd, "path", "--entire-binary", "entire-test", repoDir)
+	out, err := execute(t, cmd, "path", "--ensure", "--entire-binary", "entire-test", repoDir)
 	if err != nil {
-		t.Fatalf("path: %v\n%s", err, out)
+		t.Fatalf("path --ensure: %v\n%s", err, out)
 	}
 	if out != brainDir+"\n" {
 		t.Fatalf("path output = %q, want %q", out, brainDir+"\n")
 	}
-	if strings.Contains(out, "exported") {
-		t.Fatalf("path output should only contain the brain path:\n%s", out)
-	}
 	if _, err := os.Stat(filepath.Join(brainDir, exportManifestFileName)); err != nil {
-		t.Fatalf("path did not export manifest: %v", err)
+		t.Fatalf("path --ensure did not export manifest: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(stateDir, repoStoreDirName, "gh", "entireio", "cli", brainHeadFileName)); err != nil {
-		t.Fatalf("path did not write cursor: %v", err)
+		t.Fatalf("path --ensure did not write cursor: %v", err)
 	}
 
 	var exportedTranscript bool
@@ -353,6 +481,29 @@ func TestPathExportsExistingRepoWhenMissing(t *testing.T) {
 		}
 	}
 	if !exportedTranscript {
-		t.Fatalf("path did not export missing brain, calls: %+v", runner.calls)
+		t.Fatalf("path --ensure did not build the missing brain, calls: %+v", runner.calls)
+	}
+}
+
+func TestPathEnsureRefusesDirectoryGitCannotAnswerFor(t *testing.T) {
+	plainDir := t.TempDir()
+	root := t.TempDir()
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			PluginConfigDir: filepath.Join(root, "config"),
+			PluginDataDir:   filepath.Join(root, "data"),
+			PluginStateDir:  filepath.Join(root, "state"),
+			PluginCacheDir:  filepath.Join(root, "cache"),
+		},
+		Runner: &fakeCommandRunner{responses: map[string]fakeCommandResponse{}},
+	})
+
+	out, err := execute(t, cmd, "path", "--ensure", plainDir)
+	if err == nil {
+		t.Fatalf("path --ensure succeeded in a non-repository:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "not a git repository: "+plainDir) {
+		t.Fatalf("path --ensure err = %v, want a clear not-a-repository refusal", err)
 	}
 }
