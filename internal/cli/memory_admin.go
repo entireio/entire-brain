@@ -474,7 +474,7 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 				return fail(receiptErr)
 			}
 			receiptsCurrent := receiptState == projectionStateCurrent
-			fingerprintCurrent := source != nil && source.SessionsFingerprint == brainSessionsFingerprint(brainDir)
+			fingerprintCurrent := source != nil && sessionSourceFingerprintCurrent(source.SessionsFingerprint, brainSessionsFingerprint(brainDir))
 			needsRebuild := !indexCurrent || !verifyAvailable || !verify.Clean || !receiptsCurrent || !fingerprintCurrent
 			if sessionRef != "" {
 				digest, scopeErr := canonicalSessionInputDigest(brainDir, manifest, sessionRef)
@@ -523,7 +523,7 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 					return fail(fmt.Errorf("%s: repair did not publish a current projection receipt", memoryErrStateCorrupt))
 				}
 				receiptsCurrent = true
-				fingerprintCurrent = postSource != nil && postSource.SessionsFingerprint == brainSessionsFingerprint(brainDir)
+				fingerprintCurrent = postSource != nil && sessionSourceFingerprintCurrent(postSource.SessionsFingerprint, brainSessionsFingerprint(brainDir))
 			} else if needsRebuild {
 				planMemoryProjectionRefreshStates(&receipt.Artifacts)
 			}

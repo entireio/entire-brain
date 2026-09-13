@@ -663,6 +663,27 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 			add(id, "episodes", "episode "+record.ID+" via anchor")
 		}
 	}
+	// Entity index session linkage. The derived entity -> commit join records
+	// which captured sessions changed each symbol, and `entities history` reads
+	// it back verbatim. Cleanup strips the tombstoned ids; this proves it,
+	// rather than leaving the one session-derived field in that file
+	// uninspected while the report claims every projection is clean.
+	entityCache, entityPresent, err := loadPrivacyEntityIndex(brainDir)
+	if err != nil {
+		return report, err
+	}
+	if entityPresent {
+		for key, occurrences := range entityCache.Entries {
+			for _, occurrence := range occurrences {
+				for _, id := range occurrence.SessionIDs {
+					id = strings.TrimSpace(id)
+					if _, tombstoned := stones.Excluded[id]; tombstoned && id != "" {
+						add(id, "entity_index", "entity "+key+" at commit "+occurrence.Commit)
+					}
+				}
+			}
+		}
+	}
 	// Fact provenance anchors.
 	byBranch, err := loadAllFactBranchesForPrivacy(brainDir)
 	if err != nil {

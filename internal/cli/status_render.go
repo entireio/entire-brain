@@ -370,14 +370,12 @@ type statusRemediationRule struct {
 //     builds it. `setup` on a machine with no host CLI records semantic as
 //     FAILED, so the real degraded brain lands in this tier through Failed.
 //
-//     In practice it does not reach this tier TODAY, and the reason is a
-//     separate, pre-existing bug rather than anything about this ranking: a
-//     brain with no sessions source publishes a history source with an empty
-//     SessionsFingerprint, so its own projection receipt reads back as
-//     memory_source_stale and tier 3 claims the line. That is reproducible on
-//     the released binary from `setup` alone, with no refresh involved. It is
-//     left to its own change: bending the ladder around another defect is how a
-//     ranking stops meaning what it says.
+//     This tier was previously unreachable, for a reason that had nothing to do
+//     with the ranking: a brain with no sessions source published a history
+//     source with an empty SessionsFingerprint, its own projection receipt read
+//     back as memory_source_stale, and tier 3 claimed the line. That defect is
+//     fixed in its own change (sessionSourceFingerprintAbsent), so the tier now
+//     reports what it says it reports.
 //
 //  5. DEFAULT -- whatever Remedy names.
 var statusRemediationRules = []statusRemediationRule{
