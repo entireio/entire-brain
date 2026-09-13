@@ -93,17 +93,24 @@ func skillDestinations(target, scope, name, repoDir string) ([]skillDestination,
 		return skillDestination{Agents: agents, Path: path.Join(base, rel), base: base, rel: rel}, nil
 	}
 
-	codexGlobal := filepath.ToSlash(os.Getenv("CODEX_HOME"))
-	if codexGlobal == "" {
-		codexGlobal = "~/.codex"
-	}
+	// A harness told WHERE ITS CONFIGURATION HOME IS must be written to there,
+	// not to the default the user moved away from.
+	//
+	// CODEX_HOME was already honoured; CLAUDE_CONFIG_DIR was not, and the two are
+	// the same variable for the same reason -- Claude Code resolves its whole
+	// configuration home from it, which is how an alternate or sandboxed install
+	// is pointed somewhere other than ~/.claude. The asymmetry is silent, and
+	// that is what makes it worth closing: ~/.claude usually still exists, so the
+	// skill lands in a directory that looks right, the command reports success,
+	// and the agent the file was written for never sees it. An unset variable
+	// keeps the historical path byte for byte.
 	specs := map[string]struct {
 		globalRoot, repoSub string
 		agents              []string
 	}{
 		"standard":        {"~/.agents", ".agents", standardAgents},
-		"claude-code":     {"~/.claude", ".claude", []string{"claude-code", "opencode"}},
-		"codex":           {codexGlobal, ".codex", []string{"codex"}},
+		"claude-code":     {harnessHomeRoot("CLAUDE_CONFIG_DIR", "~/.claude"), ".claude", []string{"claude-code", "opencode"}},
+		"codex":           {harnessHomeRoot("CODEX_HOME", "~/.codex"), ".codex", []string{"codex"}},
 		"factoryai-droid": {"~/.factory", ".factory", []string{"factoryai-droid"}},
 	}
 
@@ -215,6 +222,24 @@ func writeSkillFile(d skillDestination, data []byte) error {
 // this.
 func skillFilePath(p string) string {
 	return filepath.FromSlash(expandHomePath(p))
+}
+
+// harnessHomeRoot is a coding agent's configuration home: the variable that
+// relocates it when the user has set one, and the documented default otherwise.
+//
+// A relative or whitespace-only value is ignored rather than honoured. The
+// result is joined with "skills/<name>/SKILL.md" and written, so a relative root
+// would plant an agent-instruction file under whatever directory the command
+// happened to run in -- silently, and somewhere no agent reads.
+func harnessHomeRoot(envVar, fallback string) string {
+	root := filepath.ToSlash(strings.TrimSpace(os.Getenv(envVar)))
+	if root == "" {
+		return fallback
+	}
+	if root == "~" || strings.HasPrefix(root, "~/") || path.IsAbs(root) {
+		return root
+	}
+	return fallback
 }
 
 func sha256Sum(data []byte) []byte {

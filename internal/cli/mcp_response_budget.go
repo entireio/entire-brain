@@ -116,9 +116,15 @@ var mcpServerInstructions = fmt.Sprintf("Tool results are bounded: a response ov
 	"drops whole tail rows rather than failing, sets %q: true, and reports each shortened list "+
 	"as {path, returned, total} under %q. A limit or depth argument therefore caps the work "+
 	"requested, not the bytes returned; a call at the schema maximum always returns an answer, "+
-	"and the answer says how much of it was dropped. Every list keeps its first %d rows where "+
-	"the budget allows, and rows above that are shared in proportion to how many rows each list "+
-	"has, so no list is starved and a wider list is not cut to a narrower one's width. Counts "+
+	"and the answer says how much of it was dropped. Read `total` as the rows THIS CALL "+
+	"PRODUCED before trimming -- already capped by the limit you sent -- not the number that "+
+	"exist: if you asked for 100 and see {returned: 57, total: 100}, 43 rows were dropped for "+
+	"size and an unknown further number were never gathered. Raise the limit to learn the real "+
+	"count. Every list keeps its first %d rows where the budget allows, and rows above that are "+
+	"shared in proportion to how many rows each list has. When even that does not fit, the "+
+	"fallback holds every list to one shared width instead, so on a wide document a long list "+
+	"CAN be cut to a short list's length -- equal row counts across lists of very different "+
+	"sizes are the signature of that fallback, not of the data. Counts "+
 	"beside a shortened list (pagination.count and friends) are rewritten to the rows actually "+
 	"returned. A result whose JSON root is an array is wrapped in {%q: [...]} when it is "+
 	"truncated, so the marker is always at the document root and never inside a data row.",
