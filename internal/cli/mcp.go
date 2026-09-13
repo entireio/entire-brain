@@ -126,6 +126,27 @@ func printMCPServerConfig(out io.Writer) error {
 	return err
 }
 
+// mcpFrameErrorResponse builds the -32700 a framing failure is reported with.
+//
+// The id is an explicit JSON null, not an omitted field. JSON-RPC 2.0 section 5
+// requires a Response to carry "id", and null is the value for a request that
+// could not be parsed well enough to have one. mcpMessage.ID is `omitempty`, so
+// a nil interface drops the member entirely and strict client validators reject
+// the response object.
+func mcpFrameErrorResponse(err error) mcpMessage {
+	message := "parse error"
+	if err != nil {
+		if detail := strings.TrimSpace(strings.TrimPrefix(err.Error(), errMCPRecoverable.Error()+": ")); detail != "" {
+			message = "parse error: " + detail
+		}
+	}
+	return mcpMessage{
+		JSONRPC: "2.0",
+		ID:      json.RawMessage("null"),
+		Error:   &mcpError{Code: -32700, Message: message},
+	}
+}
+
 func runMCP(ctx context.Context, in io.Reader, out io.Writer, opts Options) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -142,16 +163,34 @@ func runMCP(ctx context.Context, in io.Reader, out io.Writer, opts Options) erro
 		if errors.Is(err, errMCPRecoverable) {
 			// Reply with a JSON-RPC parse error and keep serving; one bad frame
 			// must not kill the whole MCP session.
+			//
+			// The message names the CAUSE. It used to be the bare string "parse
+			// error" for four different failures — missing Content-Length, an
+			// oversized body, a batch body, malformed JSON — and the server
+			// knows which one while the client was told nothing.
 			mcpDebugLog(debugLog, "parse_error: "+err.Error())
-			resp := mcpMessage{JSONRPC: "2.0", Error: &mcpError{Code: -32700, Message: "parse error"}}
-			if werr := writeMCPMessage(out, resp, frameMode); werr != nil {
+			if werr := writeMCPMessage(out, mcpFrameErrorResponse(err), frameMode); werr != nil {
 				mcpDebugLog(debugLog, "write_error: "+werr.Error())
 				return werr
 			}
 			continue
 		}
 		if err != nil {
+			// SAY WHY BEFORE DYING. An unparseable Content-Length is fatal on
+			// purpose — the body's extent is unknown, so the stream cannot be
+			// resynchronised and continuing would reparse the body as headers
+			// and swallow the next request. But exiting silently is the worst
+			// shape available: the client sees only a closed pipe, and the real
+			// reason ("strconv.Atoi: parsing \"banana\"") goes to stderr, which
+			// most hosts discard.
+			//
+			// Emit one JSON-RPC error naming the cause, THEN close. The session
+			// still ends — that part was right — but the host can log why
+			// instead of reporting an unexplained disconnect.
 			mcpDebugLog(debugLog, "read_error: "+err.Error())
+			if werr := writeMCPMessage(out, mcpFrameErrorResponse(err), frameMode); werr != nil {
+				mcpDebugLog(debugLog, "write_error: "+werr.Error())
+			}
 			return err
 		}
 		mcpDebugLog(debugLog, "message: "+msg.Method)
