@@ -19,16 +19,63 @@ import (
 // surface (counts/ranges by branch, agent, source, completion state, and index
 // version).
 
+// doctorScope says what kind of claim a finding is making, because doctor makes
+// two of them -- its own Short is "Check the plugin environment AND the
+// capture-to-recall chain" -- and only one of them is about the thing doctor is
+// diagnosing.
+//
+// A brain-scoped finding is a claim about data this process owns and can name
+// the repair for: `facts: error` means this store is unreadable, and
+// re-distilling fixes it.
+//
+// An environment-scoped finding is a claim about the surrounding machine --
+// most of all about the Entire CLI, a different product that entire-brain does
+// not install, does not execute, and cannot repair. The brain is fully
+// readable and queryable without it: every entire-brain command works, which is
+// exactly what CI demonstrates by running the whole suite on a runner that has
+// no `entire` on PATH. So the absence of the host CLI is not evidence that
+// anything is wrong with the brain, and it must not decide doctor's exit code
+// on behalf of one. It is still REPORTED, at full severity -- see
+// doctorGateFailure for why severity and gating are separated rather than the
+// finding being softened.
+const (
+	doctorScopeBrain       = "brain"
+	doctorScopeEnvironment = "environment"
+)
+
+// doctorCheckResult is one finding. Scope is omitted for brain-scoped findings,
+// which is the default and the overwhelming majority: an absent "scope" in the
+// JSON contract means "brain", so existing readers are unaffected and only the
+// exceptions are called out.
 type doctorCheckResult struct {
 	Name   string `json:"name"`
 	State  string `json:"state"` // ok | warn | error
 	Detail string `json:"detail,omitempty"`
+	Scope  string `json:"scope,omitempty"` // "" (brain) | environment
 }
+
+// scope resolves the omitted default, so the "absent means brain" rule lives in
+// code rather than only in a comment.
+func (d doctorCheckResult) scope() string {
+	if d.Scope == "" {
+		return doctorScopeBrain
+	}
+	return d.Scope
+}
+
+// environmental returns true when the finding is a claim about the host
+// machine rather than about this brain.
+func (d doctorCheckResult) environmental() bool { return d.scope() == doctorScopeEnvironment }
 
 func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResult {
 	checks := make([]doctorCheckResult, 0, 15)
 	add := func(name, state, detail string) {
 		checks = append(checks, doctorCheckResult{Name: name, State: state, Detail: detail})
+	}
+	// addEnvironment records a finding about the host machine: reported in
+	// full, never a reason for doctor to fail a brain.
+	addEnvironment := func(name, state, detail string) {
+		checks = append(checks, doctorCheckResult{Name: name, State: state, Detail: detail, Scope: doctorScopeEnvironment})
 	}
 	install, _ := snapshot.Payload["install"].(map[string]any)
 	if binary, ok := install["entire_binary"].(memoryInstallBinaryHealth); ok {
@@ -38,6 +85,14 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 		// from a broken one on every healthy machine, forever -- doctor never
 		// executes the host binary, so nothing a user could do would clear it.
 		// The three states that are real problems stay errors.
+		//
+		// Environment-scoped: this is the host Entire CLI, not the brain. Note
+		// the shape of the claim -- it can only ever fire when entire-brain was
+		// run directly, because reaching doctor through `entire brain doctor`
+		// means `entire` is on PATH by definition. So it fires exactly for the
+		// people running CI, a container, a fresh checkout, or an evaluation
+		// before installing the suite: for whom a missing host CLI is expected,
+		// not broken.
 		state := "ok"
 		detail := "found at " + binary.Path
 		switch binary.State {
@@ -51,7 +106,7 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 		if binary.RecommendedAction != "" && state != "ok" {
 			detail += "; " + binary.RecommendedAction
 		}
-		add("memory_install", state, detail)
+		addEnvironment("memory_install", state, detail)
 	}
 	if adapter, ok := install["host_adapter"].(memoryHostAdapterHealth); ok {
 		// Host-adapter installation belongs to the Entire CLI and this process
@@ -61,7 +116,11 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 		// unreachable by construction and the check was a warning on every
 		// run of every install. Scope is not a fault -- say where the answer
 		// lives, and do not spend the reader's attention on it.
-		add("memory_host_adapter", "ok", fmt.Sprintf("not checked here (%s; authority %s): host-adapter install, enablement and trust are owned by the Entire CLI -- verify them with its own integration diagnostics", adapter.State, adapter.Authority))
+		//
+		// Environment-scoped for the same reason memory_install is: it and
+		// entire_binary come out of the same `install` payload and describe the
+		// same external product.
+		addEnvironment("memory_host_adapter", "ok", fmt.Sprintf("not checked here (%s; authority %s): host-adapter install, enablement and trust are owned by the Entire CLI -- verify them with its own integration diagnostics", adapter.State, adapter.Authority))
 	}
 	if coordinator, ok := snapshot.Payload["coordinator"].(map[string]any); ok {
 		stateName, _ := coordinator["state"].(string)

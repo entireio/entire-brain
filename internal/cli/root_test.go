@@ -123,11 +123,10 @@ func TestDoctorUsesXDGFallbacks(t *testing.T) {
 	t.Setenv(xdgStateHome, filepath.Join(xdg, "state"))
 	t.Setenv(xdgCacheHome, filepath.Join(xdg, "cache"))
 
-	cmd := NewRootCommand(Options{Version: "test-version"})
-	out, err := execute(t, cmd, "doctor")
-	if err != nil {
-		t.Fatalf("doctor: %v\n%s", err, out)
-	}
+	// This test is about the PATHS doctor resolves, not about its exit code:
+	// see doctorReportText. A runner with no `entire` on PATH makes doctor
+	// report a host-environment error, which is none of this test's business.
+	out := doctorReportText(t, Options{Version: "test-version"})
 	// A plugin directory that has not been created yet is the normal state of
 	// a fresh install, not a finding: what doctor owes the reader here is the
 	// PATH it resolved from the XDG fallback, and the promise that it did not
@@ -152,7 +151,7 @@ func TestDoctorUsesXDGFallbacks(t *testing.T) {
 
 func TestDoctorDoesNotCreateOrProbePluginDataDir(t *testing.T) {
 	dirs := t.TempDir()
-	cmd := NewRootCommand(Options{
+	opts := Options{
 		Version: "test-version",
 		Env: EntireEnv{
 			PluginConfigDir: dirs + "/config",
@@ -160,12 +159,10 @@ func TestDoctorDoesNotCreateOrProbePluginDataDir(t *testing.T) {
 			PluginStateDir:  dirs + "/state",
 			PluginCacheDir:  dirs + "/cache",
 		},
-	})
-
-	out, err := execute(t, cmd, "doctor")
-	if err != nil {
-		t.Fatalf("doctor: %v", err)
 	}
+
+	// About the must-not-create-or-probe invariant, not about the exit code.
+	out := doctorReportText(t, opts)
 	if !strings.Contains(out, "plugin data dir: ok ("+dirs+"/data: not created yet") {
 		t.Fatalf("doctor output missing read-only directory status:\n%s", out)
 	}

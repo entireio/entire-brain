@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -116,6 +117,23 @@ func TestDoctorGatePolicies(t *testing.T) {
 	erroredDir := doctorReport{
 		Dirs: []doctorCheckResult{{Name: "plugin data dir", State: "error"}},
 	}
+	// ...but a finding about the HOST MACHINE never gates, at any severity.
+	// This is the CI case: no `entire` on PATH says nothing about the brain.
+	environmentError := doctorReport{
+		Checks: []doctorCheckResult{
+			{Name: "facts", State: "ok"},
+			{Name: "memory_install", State: "error", Scope: doctorScopeEnvironment},
+			{Name: "repo", State: "warn", Scope: doctorScopeEnvironment},
+		},
+	}
+	// A brain error alongside an environment error still gates, and the
+	// message names only the finding that is actually about the brain.
+	mixed := doctorReport{
+		Checks: []doctorCheckResult{
+			{Name: "facts", State: "error"},
+			{Name: "memory_install", State: "error", Scope: doctorScopeEnvironment},
+		},
+	}
 	for _, tc := range []struct {
 		name   string
 		report doctorReport
@@ -131,6 +149,9 @@ func TestDoctorGatePolicies(t *testing.T) {
 		{"error/warn", errored, doctorFailOnWarn, true},
 		{"error/none", errored, doctorFailOnNone, false},
 		{"dir-error/error", erroredDir, doctorFailOnError, true},
+		{"environment-error/error", environmentError, doctorFailOnError, false},
+		{"environment-error/warn", environmentError, doctorFailOnWarn, false},
+		{"mixed/error", mixed, doctorFailOnError, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := doctorGateFailure(tc.report, tc.failOn)
@@ -146,6 +167,13 @@ func TestDoctorGatePolicies(t *testing.T) {
 			// A gate that will not name what tripped it is a second riddle.
 			for _, finding := range append(append([]doctorCheckResult{}, tc.report.Dirs...), tc.report.Checks...) {
 				if finding.State == "ok" {
+					continue
+				}
+				if finding.environmental() {
+					// Never gated, so never named as the cause.
+					if strings.Contains(err.Error(), finding.Name) {
+						t.Fatalf("gate failure %q blamed the host-environment finding %q", err, finding.Name)
+					}
 					continue
 				}
 				if finding.State == "warn" && tc.failOn != doctorFailOnWarn {
@@ -464,4 +492,191 @@ func decodeDoctorReport(t *testing.T, out string) doctorReport {
 		t.Fatalf("decode doctor JSON: %v\n%s", err, out)
 	}
 	return report
+}
+
+// doctorReportText runs `doctor` for a test that is about what the REPORT SAYS,
+// not about the exit code, and returns the printed report.
+//
+// It tolerates exactly one error: a tripped gate. Those tests assert on report
+// content and have no opinion about gate policy, so making them fail when some
+// unrelated finding in their fixture turns into an `error` puts a second,
+// invisible assertion in every one of them -- which is how three tests about
+// XDG fallbacks, the must-not-create invariant and semantic axis naming ended
+// up red because a CI runner has no `entire` on PATH. Any OTHER error still
+// fails the test, so a genuinely broken doctor is still caught here.
+func doctorReportText(t *testing.T, opts Options, args ...string) string {
+	t.Helper()
+	out, err := execute(t, NewRootCommand(opts), append([]string{"doctor"}, args...)...)
+	if err != nil && !errors.Is(err, errDoctorGate) {
+		t.Fatalf("doctor: %v\n%s", err, out)
+	}
+	return out
+}
+
+// TestDoctorGateIgnoresHostEnvironmentFindings is the regression test for the
+// thing that turned CI red, and it fails without the scope fix.
+//
+// With no `entire` on PATH -- CI, a container, a fresh checkout, anyone
+// evaluating entire-brain before installing the suite -- doctor reported
+// `memory_install: error` and exited 1, condemning a brain that was perfectly
+// readable because a DIFFERENT product was absent from the machine. The
+// finding is true and must still be printed; it just is not a claim about the
+// brain, so it does not decide the brain's exit code.
+func TestDoctorGateIgnoresHostEnvironmentFindings(t *testing.T) {
+	// Exactly what the CI runner has: no entire executable anywhere on PATH.
+	t.Setenv("PATH", "")
+	opts, _, _ := factsAvailabilityFixture(t)
+
+	out, err := execute(t, NewRootCommand(opts), "doctor")
+	if err != nil {
+		t.Fatalf("doctor failed a healthy brain because the host CLI is absent: %v\n%s", err, out)
+	}
+	// Not silenced: reported in full, at its real severity.
+	if !strings.Contains(out, "memory_install: error") {
+		t.Fatalf("doctor stopped reporting a missing host CLI instead of merely not gating on it:\n%s", out)
+	}
+	// And the strict gate must not pick it up either -- `--fail-on warn` is
+	// "tell me about anything wrong with this brain", not "audit my machine".
+	out, err = execute(t, NewRootCommand(opts), "doctor", "--fail-on", "warn")
+	if err != nil && !strings.Contains(err.Error(), "facts") && !strings.Contains(err.Error(), "capture") {
+		t.Fatalf("--fail-on warn tripped on a host-environment finding: %v\n%s", err, out)
+	}
+	if err != nil && strings.Contains(err.Error(), "memory_install") {
+		t.Fatalf("--fail-on warn named a host-environment finding: %v", err)
+	}
+}
+
+// TestDoctorScopesHostEnvironmentFindings pins the classification itself, and
+// the JSON contract that lets a caller who really does want to gate on the
+// host environment do it themselves.
+func TestDoctorScopesHostEnvironmentFindings(t *testing.T) {
+	t.Setenv("PATH", "")
+	opts, _, _ := factsAvailabilityFixture(t)
+
+	out, err := execute(t, NewRootCommand(opts), "doctor", "--json")
+	if err != nil {
+		t.Fatalf("doctor --json: %v\n%s", err, out)
+	}
+	report := decodeDoctorReport(t, out)
+	byName := map[string]doctorCheckResult{}
+	for _, check := range append(append([]doctorCheckResult{}, report.Dirs...), report.Checks...) {
+		byName[check.Name] = check
+	}
+	// The host Entire CLI and its host adapter come out of the same install
+	// payload and describe the same external product; they get the same answer.
+	for _, name := range []string{"memory_install", "memory_host_adapter"} {
+		got, ok := byName[name]
+		if !ok {
+			t.Fatalf("doctor dropped the %s check entirely: %+v", name, report.Checks)
+		}
+		if got.Scope != doctorScopeEnvironment {
+			t.Fatalf("%s scope = %q, want %q", name, got.Scope, doctorScopeEnvironment)
+		}
+	}
+	if got := byName["memory_install"]; got.State != "error" {
+		t.Fatalf("memory_install = %+v with no entire on PATH, want the finding kept at error severity", got)
+	}
+	// The brain's own storage is NOT environment: a plugin directory doctor
+	// cannot write is a real reason a brain cannot be built.
+	for _, name := range []string{"plugin config dir", "plugin data dir", "plugin state dir", "plugin cache dir", "facts", "manifest"} {
+		if got, ok := byName[name]; ok && got.scope() != doctorScopeBrain {
+			t.Fatalf("%s scope = %q, want %q", name, got.scope(), doctorScopeBrain)
+		}
+	}
+}
+
+// TestEmptyDerivedFTSStoreIsNotCorruption is the second misclassification the
+// exit gate exposed, and it is the one that would have made `doctor` fail a
+// brand new brain.
+//
+// The history FTS store is created lazily, so opening it creates the file
+// while the meta table only lands when a build writes records. A brain with no
+// history records therefore keeps a valid, completely EMPTY SQLite file on
+// disk -- and health read the missing meta table as damage. Doctor then
+// contradicted itself in one report, saying
+//
+//	history_fts: warn (BM25 index absent or stale; it rebuilds on the next query)
+//	memory_fts:  error (corrupt; ...; memory_state_corrupt)
+//
+// about the same file, and memory_schemas counted the same observation, so a
+// pristine brain reported two schema errors it did not have. Harmless while
+// nothing keyed on it; fatal once `error` sets the exit code.
+func TestEmptyDerivedFTSStoreIsNotCorruption(t *testing.T) {
+	brainDir := t.TempDir()
+	now := time.Date(2026, 8, 10, 2, 0, 0, 0, time.UTC)
+	if err := writeBrainManifestAndReadme(brainDir, exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Exactly what lazy creation leaves behind: a readable database with
+	// nothing in it.
+	ftsPath := filepath.Join(brainDir, filepath.FromSlash(historyFTSDBRelPath()))
+	if err := os.MkdirAll(filepath.Dir(ftsPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	createEmptySQLiteFile(t, ftsPath)
+
+	health := memoryHistoryFTSHealth(brainDir, nil)
+	if present, _ := health["present"].(bool); !present {
+		t.Fatalf("fixture did not leave the FTS file on disk: %#v", health)
+	}
+	if got := normalizeMemoryObservedState(memoryObservedStateValue(health["state"])); got != "absent" {
+		t.Fatalf("an empty but readable derived store = %q, want absent (it holds no index yet): %#v", got, health)
+	}
+	if _, hasCode := health["error_code"]; hasCode {
+		t.Fatalf("an empty derived store must not carry an error code: %#v", health)
+	}
+
+	// And the two doctor lines about that one file must now agree.
+	checks := doctorChecksByName(memoryDoctorChecks(memoryReadOnlyHealth(brainDir, now)))
+	if got := checks["memory_fts"]; got.State != "ok" {
+		t.Fatalf("memory_fts = %+v on a never-built derived store, want ok", got)
+	}
+	if got := checks["memory_schemas"]; got.State == "error" {
+		t.Fatalf("memory_schemas counted a never-built derived store as a schema error: %+v", got)
+	}
+}
+
+// TestUnreadableFTSStoreIsStillCorruption is the guard on the other side: the
+// relaxation above must not swallow a file that is not a database at all.
+func TestUnreadableFTSStoreIsStillCorruption(t *testing.T) {
+	brainDir := t.TempDir()
+	ftsPath := filepath.Join(brainDir, filepath.FromSlash(historyFTSDBRelPath()))
+	if err := os.MkdirAll(filepath.Dir(ftsPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ftsPath, []byte("this is not a database, it is a sandwich"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	health := memoryHistoryFTSHealth(brainDir, nil)
+	if got := normalizeMemoryObservedState(memoryObservedStateValue(health["state"])); got != "corrupt" {
+		t.Fatalf("a file that is not a database = %q, want corrupt: %#v", got, health)
+	}
+	if health["error_code"] != memoryErrStateCorrupt {
+		t.Fatalf("corrupt FTS store lost its error code: %#v", health)
+	}
+}
+
+// createEmptySQLiteFile writes a valid, zero-table SQLite database, which is
+// what opening the lazily-built FTS store leaves behind before anything is
+// indexed into it.
+func createEmptySQLiteFile(t *testing.T, path string) {
+	t.Helper()
+	db, err := sql.Open(sqliteDriverName, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Force the file into existence without creating any table.
+	if _, err := db.Exec(`PRAGMA user_version = 0`); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("empty sqlite fixture was not created: %v", err)
+	}
 }

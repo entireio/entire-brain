@@ -280,10 +280,9 @@ func TestDoctorNamesTheFailingSemanticAxis(t *testing.T) {
 	}
 	shredSemanticStore(t, filepath.Join(brainDir, filepath.FromSlash(manifest.Sources.Semantic.StorePath)))
 
-	out, err := execute(t, NewRootCommand(opts), "doctor")
-	if err != nil {
-		t.Fatalf("doctor: %v\n%s", err, out)
-	}
+	// About what the semantic line SAYS, not about the exit code: see
+	// doctorReportText.
+	out := doctorReportText(t, opts)
 	if strings.Contains(out, "semantic: warn (unsafe)\n") {
 		t.Fatalf("doctor still answers a corrupt store with one word:\n%s", out)
 	}

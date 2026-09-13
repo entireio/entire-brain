@@ -24,6 +24,8 @@ import (
 // `warn` stays opt-in (`--fail-on warn`) because warnings include ordinary
 // not-built-yet states, and `--fail-on none` restores the old always-zero
 // behaviour for callers that only want the report.
+//
+// The gate is scoped to findings about the BRAIN. See doctorScope.
 const (
 	doctorFailOnNone  = "none"
 	doctorFailOnError = "error"
@@ -49,9 +51,20 @@ func normalizeDoctorFailOn(value string) (string, error) {
 	}
 }
 
-// doctorGateFailure evaluates the gate over every finding in the report --
-// directory health and repo-scoped checks alike, since a caller gating on
-// "doctor is unhappy" does not care which section noticed.
+// doctorGateFailure evaluates the gate over the findings that are claims about
+// THIS BRAIN -- directory health and repo-scoped checks alike, since a caller
+// gating on "is this brain healthy" does not care which section noticed.
+//
+// Environment-scoped findings are excluded, and that is a statement about what
+// doctor's exit code means rather than a softening of the finding. The line is
+// still printed, at its real severity, in both the text and JSON reports; it
+// simply does not decide the exit status of a diagnostic about a different
+// subsystem. The concrete case: `memory_install: error (the entire executable
+// is not on PATH)` is true and worth printing, but the brain it was asked about
+// is perfectly readable, so failing on it would make `doctor` unusable from CI,
+// a container, or a fresh checkout -- the exact environments the gate was added
+// to serve. Callers that really do want to gate on the host environment have
+// `scope` and `state` in `doctor --json`.
 func doctorGateFailure(report doctorReport, failOn string) error {
 	if failOn == doctorFailOnNone {
 		return nil
@@ -59,6 +72,9 @@ func doctorGateFailure(report doctorReport, failOn string) error {
 	var failing []string
 	errorCount, warnCount := 0, 0
 	for _, finding := range append(append([]doctorCheckResult{}, report.Dirs...), report.Checks...) {
+		if finding.environmental() {
+			continue
+		}
 		switch finding.State {
 		case "error":
 			errorCount++
@@ -93,7 +109,7 @@ func newDoctorCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().StringVar(&failOn, "fail-on", doctorFailOnError, "Return nonzero after printing the report when a finding at this severity exists: error, warn, none")
+	cmd.Flags().StringVar(&failOn, "fail-on", doctorFailOnError, "Return nonzero after printing the report when a brain finding at this severity exists: error, warn, none (host-environment findings are reported, never gated)")
 	return cmd
 }
 
@@ -217,15 +233,20 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool, failOn string) er
 	case repoRoot == "":
 		// Say so, and say what to do. Silence here is what made doctor look
 		// broken rather than out of scope.
+		// Environment-scoped: "you ran me somewhere without a repository" is a
+		// statement about the invocation, not a finding about any brain's
+		// health, and it must not fail a gate on one.
 		report.Checks = append(report.Checks, doctorCheckResult{
 			Name:   "repo",
 			State:  "warn",
+			Scope:  doctorScopeEnvironment,
 			Detail: "no repository in scope: " + envRepoRoot + " is unset and the working directory is not inside a git work tree; run doctor from inside the repository, or set " + envRepoRoot,
 		})
 	case opts.Runner == nil:
 		report.Checks = append(report.Checks, doctorCheckResult{
 			Name:   "repo",
 			State:  "warn",
+			Scope:  doctorScopeEnvironment,
 			Detail: "no command runner: repo-scoped checks skipped for " + repoRoot,
 		})
 	}

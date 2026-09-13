@@ -321,11 +321,12 @@ if ! entire brain config init; then
 fi
 
 say 'Verifying the plugin environment'
-# --fail-on none on purpose. `doctor` now exits nonzero on an `error` finding so
-# it can be used as a CI gate, but this step only PRINTS the environment before
-# the "installed end to end" summary, and it may run from inside a repository
-# whose brain is unrelated to whether the install succeeded. The report above
-# still names anything wrong; the installer does not abort on it.
+# --fail-on none on purpose. `doctor` now exits nonzero on an `error` finding
+# about a brain so it can be used as a CI gate, but this step only PRINTS the
+# environment before the "installed end to end" summary, and it may run from
+# inside a repository whose brain is unrelated to whether the install
+# succeeded. The report above still names anything wrong; the installer does
+# not abort on it.
 entire brain doctor --fail-on none
 
 cat <<DONE
