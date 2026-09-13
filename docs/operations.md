@@ -65,8 +65,8 @@ that will register a watcher opens with it, before any work, naming the unit
 label and the path it will write and giving both `--no-daemon` and
 `entire brain setup --uninstall-daemon`. `--no-daemon` skips it, `entire brain
 setup --uninstall-daemon` removes it, and `entire brain setup --no-backfill
---no-daemon` spends nothing and changes no service. See the README's
-[step 3](../README.md#3-onboard-a-repository-entire-brain-setup) for the full
+--no-daemon` spends nothing and changes no service. See the reference's
+[step 3](reference.md#3-onboard-a-repository-entire-brain-setup) for the full
 phase table and the ordering against `entire enable`.
 
 ## Local Install (brain only)
