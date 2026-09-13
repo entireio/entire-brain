@@ -304,6 +304,7 @@ Be explicit about what you did *not* verify. A pull request that names its gaps 
 ## Further Reading
 
 - **[docs/reference.md](docs/reference.md)** — the complete reference: every command, the capability matrix, architecture, and operational detail.
+- [docs/recall-evidence.md](docs/recall-evidence.md) — experimental source-span recall, provenance, budgets, and fallback.
 - [docs/recall_threat_model.md](docs/recall_threat_model.md) — threat model and privacy posture.
 - [docs/semantic_mcp_guide.md](docs/semantic_mcp_guide.md) — the semantic and MCP surfaces in depth.
 - [docs/release_readiness_audit.md](docs/release_readiness_audit.md) — what must hold before a release is cut.

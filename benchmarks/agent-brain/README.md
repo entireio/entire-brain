@@ -3,6 +3,12 @@
 This directory contains a repeatable harness for comparing Codex and Claude Code
 with and without Entire Brain.
 
+For a synthetic component canary on corrupted or omitted memory claims, use
+`memory_integrity.py`; see [MEMORY-INTEGRITY.md](MEMORY-INTEGRITY.md) and the
+[initial results](MEMORY-INTEGRITY-RESULTS.md). It runs real product retrieval
+without a model and exports blind reader requests. It does not measure coding
+performance or the actual distiller error rate.
+
 For unpaid product-path latency and packet-size profiling without an agent or
 model, use `profile_brief.py` with the 114-task checked-in development corpus.
 See `BRIEF-PROFILE-BASELINE.md`. That profile is explicitly not confirmatory and
@@ -462,3 +468,13 @@ the repository. Result directories are ignored by git.
 Rolling-cutoff frozen-brain tasks constrain temporal eligibility before lexical
 or semantic top-K ranking. See [TEMPORAL-ELIGIBILITY-DESIGN.md](TEMPORAL-ELIGIBILITY-DESIGN.md)
 for the fail-closed provenance, immutable-cache, and audit-field contract.
+
+Live component evaluation: [reader and actual-distiller pilot results](MEMORY-INTEGRITY-LIVE-RESULTS.md) (2026-09-13).
+
+Experimental relevance and evidence-link packing: [selector development results](EVIDENCE-SELECTOR-RESULTS.md). Synthetic improvements and real-session failures are retained; this is not a production default or release evidence.
+
+Source-block selection with immutable IDs and optional corroboration: [span-selector results](SPAN-SELECTOR-RESULTS.md), with [current upstream PR constraints](SPAN-SELECTOR-PR-NOTES.md). This is experimental component evidence; model-inferred relationships are not persisted as facts.
+
+Opt-in production-code integration: [evidence recall pilot](RECALL-EVIDENCE-RESULTS.md), with [CLI usage](../../docs/recall-evidence.md). External labels, service failures, latency and baseline Windows test failures are retained; this is not release evidence.
+
+Follow-up: [compact evidence selector and multi-session diagnosis](RECALL-COMPACT-RESULTS.md), with frozen before/after artifacts and unchanged official labels.

@@ -218,9 +218,10 @@ func TestUnknownFieldErrorTextIsStillStdlibContract(t *testing.T) {
 // whether it is guarding a rewrite or only reading — the distinction this
 // package got wrong. Each entry carries its reason at the call site.
 var decodersAllowedToRejectUnknownFields = map[string]string{
-	"export.go":          "user-authored settings, where an unknown key is usually a typo",
-	"memory_abstract.go": "untrusted model output, not state a build of ours wrote",
-	"versioned_state.go": "the shared decoder itself",
+	"recall_evidence_select.go": "untrusted query-scoped model output, never persisted Brain state",
+	"export.go":                 "user-authored settings, where an unknown key is usually a typo",
+	"memory_abstract.go":        "untrusted model output, not state a build of ours wrote",
+	"versioned_state.go":        "the shared decoder itself",
 }
 
 func TestPersistedStateDecodersRouteThroughTheSharedDecoder(t *testing.T) {

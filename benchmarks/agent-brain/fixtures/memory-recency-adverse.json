@@ -1,0 +1,240 @@
+{
+  "schema": 1,
+  "kind": "synthetic-integrity-canary",
+  "sources": [
+    {
+      "id": "ledger-rule",
+      "text": "Human: ExportLedger timestamps must use UTC, regardless of the operator timezone.",
+      "timestamp": "2026-09-01T10:00:00Z",
+      "branch": "main"
+    },
+    {
+      "id": "ledger-ui",
+      "text": "Agent: ExportLedger dashboard polish review: the preview panel heading is now blue, the loading badge has a new spinner, and the toolbar icons have been aligned with the navigation. These are display cosmetics; this review did not examine exported data formats.",
+      "timestamp": "2026-09-12T10:00:00Z",
+      "branch": "main"
+    },
+    {
+      "id": "shard-rule",
+      "text": "Human: CacheShard assigns a tenant to a shard by tenant ID; this is the approved isolation boundary.",
+      "timestamp": "2026-09-01T10:00:00Z",
+      "branch": "main"
+    },
+    {
+      "id": "shard-proposal",
+      "text": "Agent: CacheShard proposal: perhaps routing by request ID would spread hot tenants across workers. This is an untested hypothesis, not an approved migration. No load test, isolation review, or decision has occurred; do not treat this exploration as established policy.",
+      "timestamp": "2026-09-11T10:00:00Z",
+      "branch": "main"
+    },
+    {
+      "id": "wire-main",
+      "text": "Human: WireDecode on main must continue accepting version 1 for backward compatibility.",
+      "timestamp": "2026-09-01T10:00:00Z",
+      "branch": "main"
+    },
+    {
+      "id": "wire-experiment",
+      "text": "Human: WireDecode on experiment accepts version 2 only. Reject version 1 here. This branch experiment is not approved for main.",
+      "timestamp": "2026-09-12T10:00:00Z",
+      "branch": "experiment"
+    },
+    {
+      "id": "flush-first",
+      "text": "Human: FlushQueue uses batches of 100 records; this is the initial limit.",
+      "timestamp": "2026-09-01T10:00:00Z",
+      "branch": "main"
+    },
+    {
+      "id": "flush-second",
+      "text": "Human: Reduce FlushQueue batches to 10 records while investigating queue stalls. This replaces the initial 100-record limit.",
+      "timestamp": "2026-09-05T10:00:00Z",
+      "branch": "main"
+    },
+    {
+      "id": "flush-final",
+      "text": "Human: The FlushQueue investigation is complete. Set batches to 50 records; this replaces both the initial 100 and temporary 10 limits.",
+      "timestamp": "2026-09-12T10:00:00Z",
+      "branch": "main"
+    },
+    {
+      "id": "archive-rule",
+      "text": "Human: ArchiveSync must encrypt every archive before upload. This requirement stays in force.",
+      "timestamp": "2026-09-01T10:00:00Z",
+      "branch": "main"
+    },
+    {
+      "id": "archive-addition",
+      "text": "Human: Add compression to ArchiveSync uploads. This adds a requirement; it does not replace any existing one.",
+      "timestamp": "2026-09-12T10:00:00Z",
+      "branch": "main"
+    },
+    {
+      "id": "timeout-now",
+      "text": "Human: ProbeDial timeout is 10 seconds for the current deployment.",
+      "timestamp": "2026-09-01T10:00:00Z",
+      "branch": "main"
+    },
+    {
+      "id": "timeout-future",
+      "text": "Human: ProbeDial timeout will become 30 seconds effective October 1, 2026. This is a future rollout decision, not an immediate deployment change. The rollout is scheduled after the September audit; no early activation has been approved.",
+      "timestamp": "2026-09-12T10:00:00Z",
+      "branch": "main"
+    }
+  ],
+  "facts": [
+    {
+      "id": "ledger-memory",
+      "text": "ExportLedger must export timestamps in UTC.",
+      "source_ids": [
+        "ledger-rule"
+      ],
+      "branch": "main"
+    },
+    {
+      "id": "shard-memory",
+      "text": "CacheShard uses tenant ID for approved shard assignment.",
+      "source_ids": [
+        "shard-rule"
+      ],
+      "branch": "main"
+    },
+    {
+      "id": "wire-memory",
+      "text": "WireDecode on main accepts version 1.",
+      "source_ids": [
+        "wire-main"
+      ],
+      "branch": "main"
+    },
+    {
+      "id": "wire-experiment-memory",
+      "text": "WireDecode on experiment rejects version 1.",
+      "source_ids": [
+        "wire-experiment"
+      ],
+      "branch": "experiment"
+    },
+    {
+      "id": "flush-memory",
+      "text": "FlushQueue batch size is 100 records.",
+      "source_ids": [
+        "flush-first"
+      ],
+      "branch": "main"
+    },
+    {
+      "id": "archive-memory",
+      "text": "ArchiveSync requires encryption before upload.",
+      "source_ids": [
+        "archive-rule"
+      ],
+      "branch": "main"
+    },
+    {
+      "id": "timeout-memory",
+      "text": "ProbeDial currently uses a 10-second timeout.",
+      "source_ids": [
+        "timeout-now"
+      ],
+      "branch": "main"
+    }
+  ],
+  "cases": [
+    {
+      "id": "recent-distraction",
+      "query": "Which timezone must ExportLedger use in exported timestamps?",
+      "branch": "main",
+      "choices": {
+        "utc": "UTC",
+        "local": "Operator local timezone",
+        "abstain": "Insufficient evidence"
+      },
+      "expected_choice": "utc",
+      "relevant_sources": [
+        "ledger-rule"
+      ],
+      "misleading_facts": []
+    },
+    {
+      "id": "recent-speculation",
+      "query": "What is the approved CacheShard assignment key?",
+      "branch": "main",
+      "choices": {
+        "tenant": "Tenant ID",
+        "request": "Request ID",
+        "abstain": "Insufficient evidence"
+      },
+      "expected_choice": "tenant",
+      "relevant_sources": [
+        "shard-rule"
+      ],
+      "misleading_facts": []
+    },
+    {
+      "id": "other-branch",
+      "query": "Does WireDecode on main still accept version 1?",
+      "branch": "main",
+      "choices": {
+        "accept": "Accept version 1",
+        "reject": "Reject version 1",
+        "abstain": "Insufficient evidence"
+      },
+      "expected_choice": "accept",
+      "relevant_sources": [
+        "wire-main"
+      ],
+      "misleading_facts": []
+    },
+    {
+      "id": "corrected-again",
+      "query": "What is the latest settled FlushQueue batch size?",
+      "branch": "main",
+      "choices": {
+        "hundred": "100",
+        "ten": "10",
+        "fifty": "50",
+        "abstain": "Insufficient evidence"
+      },
+      "expected_choice": "fifty",
+      "relevant_sources": [
+        "flush-final"
+      ],
+      "misleading_facts": [
+        "flush-memory"
+      ]
+    },
+    {
+      "id": "old-and-new-required",
+      "query": "Which requirements must ArchiveSync satisfy after the latest change?",
+      "branch": "main",
+      "choices": {
+        "encrypt": "Encryption only",
+        "compress": "Compression only",
+        "both": "Encryption and compression",
+        "abstain": "Insufficient evidence"
+      },
+      "expected_choice": "both",
+      "relevant_sources": [
+        "archive-rule",
+        "archive-addition"
+      ],
+      "misleading_facts": []
+    },
+    {
+      "id": "future-effective-date",
+      "query": "As of September 13, 2026, which ProbeDial timeout is in force?",
+      "branch": "main",
+      "choices": {
+        "ten": "10 seconds",
+        "thirty": "30 seconds",
+        "abstain": "Insufficient evidence"
+      },
+      "expected_choice": "ten",
+      "relevant_sources": [
+        "timeout-now",
+        "timeout-future"
+      ],
+      "misleading_facts": []
+    }
+  ]
+}

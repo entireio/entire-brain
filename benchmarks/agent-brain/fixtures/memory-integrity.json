@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "kind": "synthetic-integrity-canary",
+  "sources": [
+    {"id":"payment-decision","branch":"main","timestamp":"2026-08-01T10:00:00Z","text":"Human: In ChargeCustomer, retries of the SAME payment attempt reuse its idempotency key. A NEW purchase, even for the same customer, gets a NEW key. This prevents duplicate charges without dropping later purchases."},
+    {"id":"tls-decision","branch":"main","timestamp":"2026-08-02T10:00:00Z","text":"Human: ConfigureTransport must NOT disable TLS certificate verification in production. The insecure transport was allowed only inside the loopback integration-test fixture."},
+    {"id":"retry-original","branch":"main","timestamp":"2026-08-03T10:00:00Z","text":"Human: RetryUpload currently retries every server failure. This is our initial policy for the upload worker."},
+    {"id":"retry-correction","branch":"main","timestamp":"2026-08-10T10:00:00Z","text":"Human: Correction to RetryUpload: retry only HTTP 503 with Retry-After. Do not retry HTTP 500. This replaces the earlier policy of retrying every server failure."},
+    {"id":"schema-main","branch":"main","timestamp":"2026-08-05T10:00:00Z","text":"Human: On main, DecodeEnvelope must still accept schema version 1 for compatibility. The migration has not been approved for main."},
+    {"id":"schema-experiment","branch":"experiment","timestamp":"2026-08-11T10:00:00Z","text":"Human: On experiment only, DecodeEnvelope accepts schema version 2 exclusively and rejects version 1. This experiment must not change main."},
+    {"id":"cache-hypothesis","branch":"main","timestamp":"2026-08-06T10:00:00Z","text":"Agent: CacheLookup corruption might be caused by concurrent writers. This is only a hypothesis. Human: We have no reproducer and no evidence establishing the root cause yet."},
+    {"id":"clock-constraint","branch":"main","timestamp":"2026-08-07T10:00:00Z","text":"Human: LeaseDeadline must measure elapsed duration with a monotonic clock. Wall-clock adjustments during NTP synchronization can otherwise extend a lease."},
+    {"id":"index-empty","branch":"main","timestamp":"2026-08-08T10:00:00Z","text":"Agent: IndexReader returned zero matches. Human: That was an empty fixture with no records. This run tells us nothing about whether IndexReader searches nested namespaces."},
+    {"id":"timeout-unsettled","branch":"main","timestamp":"2026-08-09T10:00:00Z","text":"Human: ConnectWorker needs a timeout, but we have not selected its duration. Leave the duration decision open pending latency measurements."},
+    {"id":"distractor","branch":"main","timestamp":"2026-08-12T10:00:00Z","text":"Human: FormatBanner uses a blue heading in interactive terminals. Plain output has no colors."}
+  ],
+  "facts": [
+    {"id":"payment-global","branch":"main","text":"ChargeCustomer always reuses the customer's idempotency key for retries and new purchases.","source_ids":["payment-decision"]},
+    {"id":"tls-negated","branch":"main","text":"ConfigureTransport should disable TLS certificate verification in production.","source_ids":["tls-decision"]},
+    {"id":"retry-stale","branch":"main","text":"RetryUpload must retry every HTTP 500 and HTTP 503 server failure.","source_ids":["retry-original"]},
+    {"id":"schema-mis-scoped","branch":"main","text":"DecodeEnvelope accepts schema version 2 exclusively and rejects version 1 on main.","source_ids":["schema-experiment"]},
+    {"id":"schema-experiment-only","branch":"experiment","text":"DecodeEnvelope accepts schema version 2 exclusively on the experiment branch.","source_ids":["schema-experiment"]},
+    {"id":"cache-cause","branch":"main","text":"CacheLookup corruption is definitively caused by concurrent writers.","source_ids":["cache-hypothesis"]},
+    {"id":"index-negative","branch":"main","text":"IndexReader does not support searching nested namespaces.","source_ids":["index-empty"]},
+    {"id":"timeout-invented","branch":"main","text":"ConnectWorker has a settled connection timeout of 30 seconds.","source_ids":["timeout-unsettled"]},
+    {"id":"banner","branch":"main","text":"FormatBanner uses blue headings only for interactive terminals.","source_ids":["distractor"]}
+  ],
+  "cases": [
+    {"id":"scope","query":"How should ChargeCustomer choose the idempotency key for a new purchase by an existing customer?","branch":"main","choices":{"reuse":"Reuse the prior purchase key","new":"Create a new key for the new purchase","abstain":"Insufficient evidence"},"expected_choice":"new","relevant_sources":["payment-decision"],"misleading_facts":["payment-global"]},
+    {"id":"negation","query":"Should ConfigureTransport disable TLS certificate verification in production?","branch":"main","choices":{"disable":"Disable certificate verification","verify":"Keep certificate verification enabled","abstain":"Insufficient evidence"},"expected_choice":"verify","relevant_sources":["tls-decision"],"misleading_facts":["tls-negated"]},
+    {"id":"correction","query":"Under the current policy, should RetryUpload retry an HTTP 500 response?","branch":"main","choices":{"retry":"Retry HTTP 500","stop":"Do not retry HTTP 500","abstain":"Insufficient evidence"},"expected_choice":"stop","relevant_sources":["retry-correction"],"misleading_facts":["retry-stale"]},
+    {"id":"branch","query":"Must DecodeEnvelope on main continue accepting schema version 1?","branch":"main","choices":{"accept":"Accept version 1","reject":"Reject version 1","abstain":"Insufficient evidence"},"expected_choice":"accept","relevant_sources":["schema-main"],"misleading_facts":["schema-mis-scoped"]},
+    {"id":"hypothesis","query":"Has concurrent writing been established as the root cause of CacheLookup corruption?","branch":"main","choices":{"established":"Yes, concurrent writers are the established cause","abstain":"The cause has not been established"},"expected_choice":"abstain","relevant_sources":["cache-hypothesis"],"misleading_facts":["cache-cause"]},
+    {"id":"omission","query":"Which clock should LeaseDeadline use to measure elapsed lease duration?","branch":"main","choices":{"wall":"Wall clock","monotonic":"Monotonic clock","abstain":"Insufficient evidence"},"expected_choice":"monotonic","relevant_sources":["clock-constraint"],"misleading_facts":[]},
+    {"id":"negative-evidence","query":"Does the recorded empty IndexReader result establish that nested namespace search is unsupported?","branch":"main","choices":{"unsupported":"Yes, nested search is unsupported","abstain":"The empty fixture does not establish support or lack of support"},"expected_choice":"abstain","relevant_sources":["index-empty"],"misleading_facts":["index-negative"]},
+    {"id":"invented-value","query":"What exact connection timeout duration was settled for ConnectWorker?","branch":"main","choices":{"thirty":"30 seconds","sixty":"60 seconds","abstain":"No duration was settled"},"expected_choice":"abstain","relevant_sources":["timeout-unsettled"],"misleading_facts":["timeout-invented"]}
+  ]
+}

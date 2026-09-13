@@ -206,6 +206,8 @@ func newRecallCommand(opts Options) *cobra.Command {
 // seam for deterministic backend/failure coverage. Production always passes
 // defaultEmbedder.
 func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder) *cobra.Command {
+	var evidence bool
+	var evidenceBytes int
 	var (
 		branch                string
 		limit                 int
@@ -242,6 +244,12 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 			repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
 			if err != nil {
 				return err
+			}
+			if evidence {
+				if expand || includeAll || scope != "" || kind != "" || locus != "" || eligibleBefore != "" || sessionDatesPath != "" || len(excludeSessionIDs) > 0 {
+					return fmt.Errorf("--evidence supports --branch, --k, --agent, --model, --agent-command, --evidence-bytes and --json; fact filters and query expansion are not supported")
+				}
+				return runRecallEvidence(cmd, opts, repoDir, brainDir, resolvedBranch, query, limit, evidenceBytes, agent, model, agentCommand, jsonOut, nil)
 			}
 			allFacts, err := loadFacts(brainDir, resolvedBranch)
 			if err != nil {
@@ -404,6 +412,8 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&evidence, "evidence", false, "Experimental: return original source spans selected for the query (opt-in model call)")
+	cmd.Flags().IntVar(&evidenceBytes, "evidence-bytes", 8192, "Maximum compact JSON bytes in the evidence span array; metadata is separate")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch to recall from (default: current branch)")
 	cmd.Flags().IntVar(&limit, "k", 10, "Maximum facts to return")
 	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted facts")
@@ -412,7 +422,7 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 	cmd.Flags().StringVar(&locus, "locus", "", "Restrict to facts about a code locus (a path or symbol, e.g. internal/cli/facts.go or factRecord)")
 	cmd.Flags().BoolVar(&noSemantic, "no-semantic", false, "Disable embedding rerank; rank with lexical + taxonomy only")
 	cmd.Flags().BoolVar(&expand, "expand", false, "Expand the query with agent-generated retrieval terms before ranking")
-	cmd.Flags().StringVar(&agent, "agent", "auto", "Agent for --expand: auto, codex, claude-code, ollama, or command")
+	cmd.Flags().StringVar(&agent, "agent", "auto", "Agent for --expand/--evidence: auto, codex, claude-code, ollama, command; none gives deterministic evidence")
 	cmd.Flags().StringVar(&model, "model", "", "Model for codex/claude-code/ollama expand calls")
 	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
