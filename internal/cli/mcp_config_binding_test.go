@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 )
@@ -40,7 +41,7 @@ var mcpRepoScopedTools = append([]string{"brain_list_projects"}, mcpBoundAnchorT
 func mcpPrintedServerEnv(t *testing.T, opts Options) map[string]string {
 	t.Helper()
 	var out bytes.Buffer
-	if err := printMCPServerConfig(context.Background(), &out, opts); err != nil {
+	if err := printMCPServerConfig(context.Background(), &out, io.Discard, opts); err != nil {
 		t.Fatalf("print config: %v", err)
 	}
 	var config struct {
@@ -94,8 +95,15 @@ func TestPrintMCPServerConfigOmitsABindingOutsideARepository(t *testing.T) {
 		}},
 	}
 
-	if env := mcpPrintedServerEnv(t, opts); len(env) != 0 {
-		t.Fatalf("a non-repository must print no binding, got %#v", env)
+	env := mcpPrintedServerEnv(t, opts)
+	if root, ok := env[envRepoRoot]; ok {
+		t.Fatalf("a non-repository must print no %s binding, got %q", envRepoRoot, root)
+	}
+	// The STORE is a different thing from the BINDING and is still printed: it
+	// says which brain to read, not which repository to serve, and a host that
+	// prunes the environment needs it either way.
+	if _, ok := env[envPluginDataDir]; !ok {
+		t.Errorf("the store binding must survive a missing repository binding, got %#v", env)
 	}
 }
 

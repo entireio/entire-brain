@@ -606,7 +606,7 @@
     "name": "brain_index_status"
   },
   {
-    "description": "Build the local semantic index for a repository path. Local-only; does not publish artifacts. Replacing an index that already exists requires force=true. The path stays inside the bound repository root unless ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH is set.",
+    "description": "Build the local semantic index for a repository path. Local-only; does not publish artifacts. Replacing an index that already exists requires force=true. The path stays inside the bound repository root unless ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH is set. Calls are capped at 60 seconds, exactly as brain_refresh is: brain_refresh names this tool as the separate long-running step for a large repository, but the cap applies here too, so a repository that needs longer must be indexed from a shell with `entire brain refresh index`.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
