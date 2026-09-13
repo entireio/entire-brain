@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,8 @@ import (
 
 	"github.com/ashtom/entire-brain/internal/apiurl"
 	"github.com/ashtom/entire-brain/internal/brainwire"
+	"github.com/ashtom/entire-brain/internal/factmerge"
+	"github.com/ashtom/entire-brain/internal/factsync"
 	"github.com/ashtom/entire-brain/internal/httpx"
 	"github.com/ashtom/entire-brain/internal/repoid"
 )
@@ -520,15 +523,59 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 
 	var out []publishArtifact
 	for _, stream := range streams {
+		// REDACT before the bytes become an artifact. The digest and the manifest
+		// ContentRef must describe what actually leaves, so the redaction has to
+		// happen ahead of both.
+		data, err := redactFactsForEgress(stream.data)
+		if err != nil {
+			return nil, fmt.Errorf("read facts %s: %w", stream.branch, err)
+		}
 		rel := factsFileRelPath(stream.branch)
-		digest := contentDigest(stream.data)
+		digest := contentDigest(data)
 		art.AddFacts(brainwire.FactsRef{
 			Branch:  stream.branch,
-			Content: brainwire.ContentRef{Digest: digest, Size: int64(len(stream.data)), MediaType: mediaTypeNDJSON, Path: rel},
+			Content: brainwire.ContentRef{Digest: digest, Size: int64(len(data)), MediaType: mediaTypeNDJSON, Path: rel},
 		})
-		out = append(out, publishArtifact{Kind: brainKindFacts, Ref: stream.branch, Digest: digest, Data: stream.data})
+		out = append(out, publishArtifact{Kind: brainKindFacts, Ref: stream.branch, Digest: digest, Data: data})
 	}
 	return out, nil
+}
+
+// redactFactsForEgress re-renders a facts stream with the LOCAL-ONLY provenance
+// coordinates stripped, which is what `facts sync` has always done and what publish
+// did not.
+//
+// A distilled fact's anchor mixes two kinds of value (see factsync.SanitizeForEgress):
+// opaque cross-member ids another member can carry but never resolve (session id,
+// commit, checkpoint, turn), and the coordinates of a private file on THIS machine —
+// Transcript, a brain-relative transcript path, and Line, a turn offset into it. The
+// path is not an opaque handle: it is rendered as
+//
+//	sessions/main/20260530T174906Z_codex_<session-uuid>_<checkpoint>.jsonl
+//
+// so shipping it hands the other side a dated inventory of the member's private
+// sessions — when each ran, which agent tool ran it — and, with Line, the exact turn
+// a statement came from. None of it is needed to consume a fact: the reasoning layer
+// treats a peer's anchor as opaque and never resolves one (ADR-P1).
+//
+// factsync.SanitizeForEgress is the SAME redaction the fact-set sync and the
+// proposal push apply, deliberately rather than a second copy of the rule: the two
+// egress paths carry the same records to the same service, so they must agree on
+// what may leave, and one implementation is how that stays true.
+//
+// A stream that will not parse is an ERROR, not a stream to ship unredacted. It is
+// also not a new class of failure: `facts sync` already refuses the same file, so a
+// brain that cannot publish here could not sync either.
+func redactFactsForEgress(data []byte) ([]byte, error) {
+	records, err := factmerge.ParseNDJSON(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("cannot redact local-only provenance before upload: %w", err)
+	}
+	var buf bytes.Buffer
+	if err := factmerge.WriteNDJSON(&buf, factsync.SanitizeForEgress(records)); err != nil {
+		return nil, fmt.Errorf("cannot redact local-only provenance before upload: %w", err)
+	}
+	return buf.Bytes(), nil
 }
 
 // publishManifestRef addresses the manifest by the repo HEAD commit (the store
@@ -588,7 +635,13 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 
 	resp, err := apiurl.WithoutRedirects(publishHTTPClient()).Do(req)
 	if err != nil {
-		return publishResult{}, fmt.Errorf("publish: request to %s failed: %w", endpoint, err)
+		// The wrapped error is a *url.Error, whose own Error() renders the target
+		// through url.URL.Redacted() — any userinfo password is printed as "xxxxx".
+		// Interpolating `endpoint` here as well undid exactly that redaction and
+		// printed the cleartext credential. apiurl.Validate now refuses a base URL
+		// carrying userinfo at all, so this is the second of two guards; the target
+		// is still named, by the half of the message that redacts it.
+		return publishResult{}, fmt.Errorf("publish: request failed: %w", err)
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxPublishResponseBytes))
@@ -599,23 +652,47 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 		if err := json.Unmarshal(respBody, &result); err != nil {
 			return publishResult{}, fmt.Errorf("publish: decode server response: %w", err)
 		}
+		// A 200 whose body acknowledges NOTHING is not a success, and reporting it as
+		// one is the worst outcome on this path: the member is told the brain is
+		// published, stops thinking about it, and the hosted brain holds nothing. The
+		// endpoint answers with the coordinate of every artifact it stored, so an
+		// empty `stored` against a non-empty upload means the bytes did not land —
+		// a half-deployed server, a proxy answering `{}` in front of it, or a
+		// response that never came from the endpoint at all. Refuse, and say which
+		// of the two it is rather than guessing on the member's behalf.
+		if len(body.Artifacts) > 0 && len(result.Stored) == 0 {
+			return publishResult{}, fmt.Errorf("publish_unacknowledged: the server answered HTTP 200 but acknowledged storing 0 of the %d artifact(s) sent%s; the brain was NOT published — check that %s is the hosted Entire API and not a proxy in front of it",
+				len(body.Artifacts), publishStatusDetail(result.Status), endpoint)
+		}
 		return result, nil
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return publishResult{}, fmt.Errorf("publish_auth: authentication or push authorization failed (HTTP %d)%s", resp.StatusCode, publishServerDetail(respBody))
+		return publishResult{}, fmt.Errorf("publish_auth: authentication or push authorization failed (HTTP %d)%s", resp.StatusCode, publishServerDetail(respBody, token))
 	case http.StatusUnprocessableEntity:
-		return publishResult{}, fmt.Errorf("publish_rejected: server rejected the brain artifacts (HTTP 422)%s", publishServerDetail(respBody))
+		return publishResult{}, fmt.Errorf("publish_rejected: server rejected the brain artifacts (HTTP 422)%s", publishServerDetail(respBody, token))
 	case http.StatusServiceUnavailable:
 		// The server uses 503 for more than one reason (no hosted brain on this
 		// deployment, publishing disabled for this jurisdiction, a store that is
 		// temporarily read-only), so its own sentence is the only thing that says
 		// WHICH — dropping the body here left the client guessing on the member's
 		// behalf.
-		return publishResult{}, fmt.Errorf("publish_unavailable: hosted brain publishing is not available on the server (HTTP 503)%s", publishServerDetail(respBody))
+		return publishResult{}, fmt.Errorf("publish_unavailable: hosted brain publishing is not available on the server (HTTP 503)%s", publishServerDetail(respBody, token))
 	case http.StatusRequestEntityTooLarge:
-		return publishResult{}, fmt.Errorf("publish_too_large: the server rejected the brain bundle as too large (HTTP 413); its request body exceeds the hosted publish size limit%s", publishServerDetail(respBody))
+		return publishResult{}, fmt.Errorf("publish_too_large: the server rejected the brain bundle as too large (HTTP 413); its request body exceeds the hosted publish size limit%s", publishServerDetail(respBody, token))
 	default:
-		return publishResult{}, fmt.Errorf("publish_failed: unexpected server response (HTTP %d)%s", resp.StatusCode, publishServerDetail(respBody))
+		return publishResult{}, fmt.Errorf("publish_failed: unexpected server response (HTTP %d)%s", resp.StatusCode, publishServerDetail(respBody, token))
 	}
+}
+
+// publishStatusDetail renders the server's own `status` field for the
+// acknowledged-nothing refusal, as " (status \"...\")", or "" when it said nothing.
+// It goes through the same terminal-safety cleaning as every other server string
+// this command prints.
+func publishStatusDetail(status string) string {
+	cleaned := httpx.ErrorDetailFromBody([]byte(status))
+	if cleaned == "" {
+		return ""
+	}
+	return " (status " + strconv.Quote(cleaned) + ")"
 }
 
 // publishServerDetail renders a short human-readable reason from a server error body.
@@ -629,8 +706,11 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 // the cut) and a body carrying control bytes, printed straight into the member's
 // terminal. httpx renders both, and still prefers the envelope's own detail when the
 // endpoint did answer.
-func publishServerDetail(body []byte) string {
-	return httpx.SuffixFromBody(body)
+func publishServerDetail(body []byte, token string) string {
+	// httpx.Redact strips this request's own bearer token from the rendered line: a
+	// server that echoes the Authorization header back would otherwise put it in the
+	// member's stderr, and from there into a CI log or a pasted bug report.
+	return httpx.Redact(httpx.SuffixFromBody(body), token)
 }
 
 // contentDigest returns the "sha256:"-prefixed lowercase-hex digest of data, the
