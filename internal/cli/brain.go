@@ -440,6 +440,24 @@ func writeBrainManifestAndReadme(outputDir string, manifest exportManifest) erro
 			return fmt.Errorf("encode %s: %w", exportManifestFileName, err)
 		}
 		data = append(data, '\n')
+		// The writer must not exceed what the reader will accept. readBrainManifest
+		// caps the manifest at maxManifestBytes; this side had no cap at all, so a
+		// single unbounded field could -- and did -- produce a manifest the brain
+		// could never read back. A 50,000-commit repository wrote 28 MB of
+		// manifest, and from that moment every command, status and doctor
+		// included, failed with "exceeds maximum size of 16777216 bytes". The
+		// store was bricked by its own successful write, and nothing short of
+		// `reset` recovered it.
+		//
+		// Refusing here fails the stage that produced the oversized record and
+		// leaves the previous manifest -- which is readable by construction,
+		// loadBrainManifestForReplace just read it -- exactly where it was. A
+		// failed refresh over a working brain is a recoverable state; an
+		// unreadable manifest over a 4 GB store is not. This mirrors the guard
+		// writeDocIndexAndSourceLocked already applies to the doc index.
+		if int64(len(data)) > maxManifestBytes {
+			return fmt.Errorf("write %s: %w; the brain kept its previous manifest -- this is a bug in whatever produced an oversized record, please report the repository size that triggered it", exportManifestFileName, &readBoundExceededError{source: exportManifestFileName, max: maxManifestBytes})
+		}
 		if err := writeBrainRelativeFileAtomic(outputDir, exportManifestFileName, data, 0o600); err != nil {
 			return fmt.Errorf("write %s: %w", exportManifestFileName, err)
 		}
