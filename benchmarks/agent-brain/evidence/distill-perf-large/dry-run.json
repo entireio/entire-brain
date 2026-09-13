@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-11T23:35:50.399337Z",
+  "generated_at": "2026-09-13T02:09:07.525778Z",
   "brain_path": "/tmp/distill-large-evidence/repos/gh/entireio/cli",
   "force": true,
   "agent": "command",
