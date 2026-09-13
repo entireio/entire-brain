@@ -79,6 +79,12 @@ type semanticStreamResult struct {
 	// key. Validation of the provider/brain repo-key contract must use this
 	// value; see semantic_repokey.go.
 	providerRepoKey string
+	// parsedFiles is the set of repo-relative paths the provider actually
+	// emitted a file or symbol record for, AFTER .brainignore filtering. It is
+	// the only evidence the brain has of what the provider looked at, and
+	// semantic_coverage.go reconciles it against the tracked tree so a file the
+	// provider silently skipped is named rather than missing.
+	parsedFiles map[string]struct{}
 }
 
 // semanticStreamProgressInterval controls how often progress is reported while
@@ -302,6 +308,7 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 	}
 
 	res.counts.Files = len(files)
+	res.parsedFiles = files
 	res.extraWarnings = unknownRecordWarnings(unknownTypes)
 	if res.stream.Dropped > 0 {
 		detail := fmt.Sprintf("%d malformed record(s) skipped", res.stream.Dropped)
