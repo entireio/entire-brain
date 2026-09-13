@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "0d73d16d6cf0",
+  "strategy": "manual-commit",
+  "branch": "codex/review-entity-history-and-source-findings",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/facts.go",
+    "internal/cli/facts_read_cmd.go",
+    "internal/cli/review_source_availability_test.go",
+    "internal/entityindex/build.go",
+    "internal/entityindex/doc.go",
+    "internal/entityindex/entityindex_test.go",
+    "internal/entityindex/review_repair_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0d/73d16d6cf0/0/metadata.json",
+      "transcript": "/0d/73d16d6cf0/0/full.jsonl",
+      "compact_transcript": "/0d/73d16d6cf0/0/transcript.jsonl",
+      "content_hash": "/0d/73d16d6cf0/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 374110,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3078016,
+    "output_tokens": 13874,
+    "api_call_count": 771
+  }
+}
