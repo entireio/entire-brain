@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	entirebrain "github.com/ashtom/entire-brain"
 )
@@ -194,11 +196,13 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 	var records []factRecord
 	var warnings []string
 	capped := false
+	sawContent := false
 	for _, raw := range strings.Split(output, "\n") {
 		line := strings.TrimRight(raw, "\r")
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
+		sawContent = true
 		// Some models (seen with gpt-5.3-codex-spark) emit the separator as a
 		// literal backslash-t escape instead of a real tab character. Recover the
 		// first literal `\t` (the leading structural separator); when that leading
@@ -216,7 +220,7 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 			// Prose / preamble the template forbids; ignore quietly unless it
 			// looks like an attempted fact (contains a path-like token).
 			if strings.Contains(line, ".") && strings.Contains(line, " ") {
-				warnings = append(warnings, "dropped line without tab separator: "+truncateString(strings.TrimSpace(line), 120))
+				warnings = append(warnings, "dropped line without tab separator: "+distillUntrustedExcerpt(line))
 			}
 			continue
 		}
@@ -227,7 +231,7 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 		paths := normalizeFactPaths(rawPaths)
 		paths = filterFactPathsByTaxonomy(paths, taxonomy, &warnings)
 		if len(paths) == 0 {
-			warnings = append(warnings, "dropped fact with no valid taxonomy path: "+truncateString(text, 120))
+			warnings = append(warnings, "dropped fact with no valid taxonomy path: "+distillUntrustedExcerpt(text))
 			continue
 		}
 		if len(records) >= factsMaxPerChunk {
@@ -235,6 +239,19 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 			continue
 		}
 		text = truncateString(text, distillFactMaxTextSize)
+		// The model is an extractor, not an authority: its text is printed
+		// verbatim by recall/search/tree/get/brief and the MCP surfaces, so a
+		// control byte it emits is a control byte the reader's terminal
+		// executes. Strip before the id is derived, so the stored id matches the
+		// stored text.
+		if sanitized, stripped := sanitizeDistilledFactText(text); stripped {
+			if sanitized == "" {
+				warnings = append(warnings, "dropped fact that was entirely control characters: "+distillUntrustedExcerpt(text))
+				continue
+			}
+			warnings = append(warnings, "stripped control characters from fact text: "+distillUntrustedExcerpt(sanitized))
+			text = sanitized
+		}
 		if kind == "" {
 			kind = inferFactKind(paths, text) // agent omitted/violated kind → deterministic fallback
 		}
@@ -255,7 +272,31 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 	if capped {
 		warnings = append(warnings, fmt.Sprintf("chunk produced more than %d facts; extra lines dropped", factsMaxPerChunk))
 	}
+	// The agent said SOMETHING and none of it became a fact, yet nothing above
+	// found it worth explaining — the per-line drops are deliberately quiet
+	// about preamble that does not look like an attempted fact. Reported as-is,
+	// that chunk is indistinguishable from a transcript with nothing in it: a
+	// model that refused, answered in prose, or was simply the wrong model reads
+	// as "0 facts found", no warnings, exit 0, after the call was already paid
+	// for. Say it once, with the line, so the cause is visible.
+	//
+	// Genuinely empty output stays silent: the agent was asked and correctly
+	// found nothing, and warning about that would bury a clean corpus in noise.
+	if len(records) == 0 && sawContent && len(warnings) == 0 {
+		warnings = append(warnings, "agent returned output but no line parsed as a fact: "+distillUntrustedExcerpt(firstNonBlankLine(output)))
+	}
 	return records, warnings
+}
+
+// firstNonBlankLine returns the first line of s that is not blank, for use in a
+// diagnostic that has to show what the agent actually said.
+func firstNonBlankLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if strings.TrimSpace(line) != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 // parseFactLine parses one distill output line into (kind, raw paths, fact
@@ -347,4 +388,79 @@ func filterFactPathsByTaxonomy(paths []string, taxonomy factTaxonomy, warnings *
 		*warnings = append(*warnings, fmt.Sprintf("dropped path under unknown category: %s", path))
 	}
 	return kept
+}
+
+// isDisplayControlRune reports whether a rune steers how following text is
+// DISPLAYED rather than carrying content: the Unicode bidirectional overrides
+// and isolates, which can silently reverse the reading order of a fact, and the
+// zero-width/BOM characters that can hide content inside one. They are not
+// "control characters" by unicode.IsControl (they are category Cf), so they
+// need naming explicitly.
+func isDisplayControlRune(r rune) bool {
+	switch {
+	case r >= 0x200B && r <= 0x200F: // ZWSP, ZWNJ, ZWJ, LRM, RLM
+		return true
+	case r >= 0x202A && r <= 0x202E: // LRE, RLE, PDF, LRO, RLO
+		return true
+	case r >= 0x2066 && r <= 0x2069: // LRI, RLI, FSI, PDI
+		return true
+	case r == 0xFEFF: // zero-width no-break space / BOM
+		return true
+	}
+	return false
+}
+
+// distillFactTextRuneIsDroppable reports whether the rune at byte offset i of
+// text must not reach the fact store. The offset is needed to tell a genuine
+// U+FFFD (three bytes, real content a model may legitimately emit) from a
+// decode failure over one invalid byte, which range yields as the same rune.
+func distillFactTextRuneIsDroppable(text string, i int, r rune) bool {
+	if r == utf8.RuneError {
+		_, size := utf8.DecodeRuneInString(text[i:])
+		return size == 1
+	}
+	return unicode.IsControl(r) || isDisplayControlRune(r)
+}
+
+// sanitizeDistilledFactText removes every rune that can steer a terminal or the
+// reading order from one distilled fact's text, and reports whether anything
+// was removed. It strips rather than rejects: the legible content of a fact is
+// worth keeping, the escape sequence never is, and a caller that drops the
+// whole fact over one stray byte loses real extraction to a cosmetic defect.
+// The empty result is the caller's signal that nothing legible remained.
+//
+// Text that needs no change is returned verbatim, with stripped false, so the
+// content-derived fact id is stable and no warning claims a strip that did not
+// happen.
+func sanitizeDistilledFactText(text string) (string, bool) {
+	dirty := false
+	for i, r := range text {
+		if distillFactTextRuneIsDroppable(text, i, r) {
+			dirty = true
+			break
+		}
+	}
+	if !dirty {
+		return text, false
+	}
+	var b strings.Builder
+	b.Grow(len(text))
+	for i, r := range text {
+		if distillFactTextRuneIsDroppable(text, i, r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimSpace(b.String()), true
+}
+
+// distillUntrustedExcerpt renders a fragment of AGENT OUTPUT for a warning
+// message. Warnings are printed to the operator's terminal and embedded in the
+// --json summary, so quoting agent text into one is the same untrusted-input
+// boundary the fact store has: an escape sequence in a line the parser REJECTED
+// would otherwise reach the terminal precisely because it was rejected. Strip
+// first, then bound the length.
+func distillUntrustedExcerpt(text string) string {
+	cleaned, _ := sanitizeDistilledFactText(text)
+	return truncateString(strings.TrimSpace(cleaned), 120)
 }

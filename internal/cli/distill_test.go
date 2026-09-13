@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestRenderDistillPromptSubstitutesTaxonomy(t *testing.T) {
@@ -476,5 +477,171 @@ func TestDistilledFactsFromOutputClosedNegativeKind(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("distill prompt should contain %q", want)
 		}
+	}
+}
+
+// TestDistilledFactsFromOutputStripsTerminalControls pins the untrusted-model
+// boundary: distilled fact text is written by the LLM and then printed verbatim
+// by `recall`, `search`, `facts tree`, `brief` and the MCP surfaces. A model
+// that emits ANSI escapes, a NUL, or a Unicode bidi override therefore controls
+// the reader's terminal and can reorder what the reader sees. Observed before
+// the fix, on a real distill run: the text
+// "Fact with \x00nul and \x1b[31mansi\x1b[0m" round-tripped byte-for-byte into
+// facts.ndjson and back out through `recall`, `facts tree` and `get`.
+func TestDistilledFactsFromOutputStripsTerminalControls(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	taxonomy := defaultFactTaxonomy(now)
+	anchor := factAnchor{SessionID: "s1", CheckpointID: "cp1", Transcript: "sessions/main/s1.jsonl", Line: 1}
+
+	output := "preferences.coding.style\tFact with \x00nul and \x1b[31mansi\x1b[0m and \u202ebidi\u202c and \u200bzero width.\n"
+	records, warnings := distilledFactsFromOutput(output, taxonomy, anchor, "main", now)
+	if len(records) != 1 {
+		t.Fatalf("expected the fact to survive sanitization, got %d records (%v)", len(records), warnings)
+	}
+	text := records[0].Text
+	for _, r := range text {
+		if r == 0x7f || r < 0x20 || (r >= 0x80 && r <= 0x9f) {
+			t.Errorf("control character %U survived into fact text: %q", r, text)
+		}
+		if isDisplayControlRune(r) {
+			t.Errorf("display-control rune %U survived into fact text: %q", r, text)
+		}
+	}
+	if !strings.Contains(text, "ansi") || !strings.Contains(text, "bidi") || !strings.Contains(text, "nul") {
+		t.Errorf("sanitization destroyed the legible content: %q", text)
+	}
+	// The rejection has to say what was wrong, like every other drop does.
+	if !strings.Contains(strings.Join(warnings, "\n"), "control") {
+		t.Errorf("stripping was silent; warnings were %v", warnings)
+	}
+
+	// Clean text must be untouched and warning-free, so fact ids stay stable.
+	clean := "preferences.coding.style\tThe user prefers tabs \u2014 always.\n"
+	cleanRecords, cleanWarnings := distilledFactsFromOutput(clean, taxonomy, anchor, "main", now)
+	if len(cleanRecords) != 1 || cleanRecords[0].Text != "The user prefers tabs \u2014 always." {
+		t.Fatalf("clean text altered: %+v", cleanRecords)
+	}
+	if len(cleanWarnings) != 0 {
+		t.Errorf("clean text warned: %v", cleanWarnings)
+	}
+}
+
+// TestDistilledFactsFromOutputAlwaysExplainsAnEmptyChunk pins the contract that
+// every rejection says what was wrong. A chunk whose agent produced output that
+// yielded no fact used to come back with ZERO warnings whenever no line happened
+// to contain both a "." and a " " — so a model that refused, answered in prose,
+// or was simply the wrong model reported exactly what an empty transcript
+// reports: "0 facts found", no warnings, exit 0. The operator had no way to tell
+// a broken agent from a transcript with nothing in it, having already paid for
+// every call.
+func TestDistilledFactsFromOutputAlwaysExplainsAnEmptyChunk(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	taxonomy := defaultFactTaxonomy(now)
+	anchor := factAnchor{SessionID: "s1", CheckpointID: "cp1", Transcript: "sessions/main/s1.jsonl", Line: 1}
+
+	for _, tc := range []struct {
+		name   string
+		output string
+	}{
+		{"prose without a period", "i am not a fact line at all\n"},
+		{"single word", "nothing\n"},
+		{"refusal", "I cannot help with that\n"},
+		{"path with no fact text", "preferences.coding.style\t\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			records, warnings := distilledFactsFromOutput(tc.output, taxonomy, anchor, "main", now)
+			if len(records) != 0 {
+				t.Fatalf("expected no records, got %d", len(records))
+			}
+			if len(warnings) == 0 {
+				t.Fatalf("agent output %q produced no fact AND no warning: silent drop", tc.output)
+			}
+		})
+	}
+
+	// Genuinely empty output is NOT a defect to report: the agent was asked and
+	// correctly found nothing. It must stay quiet so a clean corpus is not buried
+	// in noise.
+	for _, empty := range []string{"", "\n", "\n\n", "   \n\t\n"} {
+		if _, warnings := distilledFactsFromOutput(empty, taxonomy, anchor, "main", now); len(warnings) != 0 {
+			t.Errorf("empty agent output %q warned: %v", empty, warnings)
+		}
+	}
+
+	// A chunk that DID produce a fact must not gain a spurious warning.
+	if records, warnings := distilledFactsFromOutput("preferences.coding.style\tThe user prefers tabs.\n", taxonomy, anchor, "main", now); len(records) != 1 || len(warnings) != 0 {
+		t.Errorf("clean chunk: %d records, warnings %v", len(records), warnings)
+	}
+}
+
+// TestSanitizeDistilledFactTextLeavesCleanTextAlone pins that the untrusted-text
+// scrub is a no-op on text that needs no change — including a genuine U+FFFD,
+// which a model may legitimately emit and which `range` reports with the same
+// rune value as a one-byte decode failure. Reporting a strip that did not happen
+// would warn about nothing and, worse, invite a caller to assume the text
+// changed when the content-derived fact id did not.
+func TestSanitizeDistilledFactTextLeavesCleanTextAlone(t *testing.T) {
+	for _, clean := range []string{
+		"The user prefers tabs.",
+		"An em dash \u2014 and an accent \u00e9 and CJK \u4e2d\u6587.",
+		"A real replacement character \ufffd is content, not a decode failure.",
+		"",
+	} {
+		got, stripped := sanitizeDistilledFactText(clean)
+		if stripped {
+			t.Errorf("clean text %q reported as stripped", clean)
+		}
+		if got != clean {
+			t.Errorf("clean text altered: got %q, want %q", got, clean)
+		}
+	}
+
+	// An invalid UTF-8 byte IS dropped, and the text is valid UTF-8 afterwards.
+	got, stripped := sanitizeDistilledFactText("bad \xff byte")
+	if !stripped {
+		t.Fatal("an invalid UTF-8 byte was not reported as stripped")
+	}
+	if !utf8.ValidString(got) {
+		t.Errorf("sanitized text is still not valid UTF-8: %q", got)
+	}
+	if !strings.Contains(got, "bad") || !strings.Contains(got, "byte") {
+		t.Errorf("sanitization destroyed legible content: %q", got)
+	}
+}
+
+// TestDistilledFactsFromOutputWarningsCarryNoControlBytes pins the OTHER half of
+// the untrusted-model boundary. Warnings are printed to the operator's terminal
+// and embedded in the --json summary, and they quote the agent line that was
+// rejected. Quoting it raw means an escape sequence reaches the terminal exactly
+// BECAUSE the parser refused the line — the rejection path becoming the
+// injection path.
+func TestDistilledFactsFromOutputWarningsCarryNoControlBytes(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	taxonomy := defaultFactTaxonomy(now)
+	anchor := factAnchor{SessionID: "s1", CheckpointID: "cp1", Transcript: "sessions/main/s1.jsonl", Line: 1}
+
+	for _, tc := range []struct {
+		name   string
+		output string
+	}{
+		{"no tab separator", "some.prose \x1b[2Jwith an escape and a dot.\n"},
+		{"unknown taxonomy path", "totally.invented.category\tfact \x1b[31mwith an escape\x00.\n"},
+		{"no path at all", "\tfact \x1b]0;title\x07with an OSC sequence.\n"},
+		{"nothing parsed", "\x1b[1;31mI cannot help with that\n"},
+		{"kept but scrubbed", "preferences.coding.style\tkept \x1b[31mfact\x1b[0m.\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, warnings := distilledFactsFromOutput(tc.output, taxonomy, anchor, "main", now)
+			if len(warnings) == 0 {
+				t.Fatalf("output %q produced no warning at all", tc.output)
+			}
+			for _, w := range warnings {
+				for i, r := range w {
+					if distillFactTextRuneIsDroppable(w, i, r) {
+						t.Errorf("warning carries control rune %U to the terminal: %q", r, w)
+					}
+				}
+			}
+		})
 	}
 }

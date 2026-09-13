@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1853,5 +1854,468 @@ func TestRunDistillForBrainPreservesSyncRaisedProposalsOnForce(t *testing.T) {
 	}
 	if keptDistillOwned {
 		t.Errorf("--force kept distill's own stale proposal, which the rebuild is supposed to replace; queue=%+v", after)
+	}
+}
+
+// TestPreprocessTranscriptForDistillEntireV1Dialect pins the transcript dialect
+// the CLI writes today: `{"v":1,"agent":"codex",...,"type":"assistant","content":[...]}`
+// — text blocks at the RECORD's top level, with no `message` wrapper. Before the
+// fix, distillConversationText read only jsonMap(obj["message"])["content"] for
+// the assistant/user types, which is nil for this shape, so EVERY record in a
+// modern transcript preprocessed to the empty string: six real 1.7 MB Codex
+// sessions collapsed to 1.6 KB, produced zero chunks, made zero agent calls and
+// distilled zero facts while exiting 0.
+func TestPreprocessTranscriptForDistillEntireV1Dialect(t *testing.T) {
+	lines := []string{
+		`{"v":1,"agent":"codex","cli_version":"0.9.0","type":"user","ts":"2026-09-10T18:03:51.292Z","content":[{"text":"always use tabs","type":"text"}]}`,
+		`{"v":1,"agent":"codex","cli_version":"0.9.0","type":"assistant","ts":"2026-09-10T18:03:55.025Z","content":[{"text":"decided to keep it","type":"text"},{"id":"call_1","input":{"input":"exec_command"},"name":"exec","result":{"output":"huge command output blob","status":"success"},"type":"tool_use"}]}`,
+		`{"v":1,"agent":"codex","type":"assistant","content":[{"type":"tool_use","name":"exec","result":{"output":"only tool noise"}}]}`,
+		// A `message` wrapper still wins when present (the claude-code dialect).
+		`{"v":1,"type":"assistant","message":{"content":[{"type":"text","text":"nested still works"}]},"content":[{"type":"text","text":"top level ignored"}]}`,
+	}
+	out := preprocessTranscriptForDistill(strings.Join(lines, "\n"))
+	got := strings.Split(out, "\n")
+	want := []string{"always use tabs", "decided to keep it", "", "nested still works"}
+	if len(got) != len(want) {
+		t.Fatalf("line count changed: got %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("line %d: got %q, want %q", i+1, got[i], want[i])
+		}
+	}
+	for _, needle := range []string{"tool_use", "command output blob", "only tool noise", "top level ignored"} {
+		if strings.Contains(out, needle) {
+			t.Errorf("preprocessed output still contains %q", needle)
+		}
+	}
+}
+
+// TestRunDistillForBrainCachesDuplicateSessionIDs pins incrementality when the
+// export manifest carries the SAME session id twice — which a real
+// `refresh sessions` produces whenever one session was checkpointed on two
+// branches (one of them the empty/"unknown" branch, which resolves to the
+// default). The distill cache was keyed on branch+session id alone, so both
+// entries collided on one key: each run the loser rewrote the winner's
+// fingerprint, the next run missed, and one extraction + one reconcile agent
+// call were re-spent on every single pass, forever. Observed on a real brain:
+// 5 of 6 sessions cached on every run, the 6th never.
+func TestRunDistillForBrainCachesDuplicateSessionIDs(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := t.TempDir()
+	// Same session id, two checkpoints, two transcripts. The second carries no
+	// branch at all, exactly like an export's `sessions/unknown` entry, so both
+	// resolve to the default branch "main".
+	sessions := []exportSession{
+		{SessionID: "dup", Branch: "main", LatestCheckpoint: "cpA", TranscriptPath: "sessions/main/a.jsonl", CreatedAt: now.Add(-2 * time.Hour)},
+		{SessionID: "dup", Branch: "", LatestCheckpoint: "cpB", TranscriptPath: "sessions/unknown/b.jsonl", CreatedAt: now.Add(-time.Hour)},
+	}
+	for i, s := range sessions {
+		p := filepath.Join(brainDir, filepath.FromSlash(s.TranscriptPath))
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(fmt.Sprintf("turn %d alpha\nturn %d beta\n", i, i)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   now,
+		DefaultBranch: "main",
+		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	var calls int
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		return "project.tooling.stack\tThe project uses Go.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	first := calls
+	if first == 0 {
+		t.Fatal("first run made no agent calls")
+	}
+	// Two further runs: BOTH must be pure cache hits. One run alone is not
+	// enough — the collision ping-pongs, so a single extra run can look clean
+	// for the entry that happens to have written last.
+	for pass := 2; pass <= 3; pass++ {
+		before := calls
+		if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+			t.Fatalf("run %d: %v", pass, err)
+		}
+		if calls != before {
+			t.Fatalf("run %d re-spent %d agent call(s) with no new sessions (duplicate session id evicted its twin's cache entry)", pass, calls-before)
+		}
+	}
+
+	// Both entries must be cached under DISTINCT keys, and both keys must stay
+	// evictable by the privacy purge, which matches on a "/<session id>" suffix.
+	cache := loadDistillCache(brainDir)
+	if len(cache.Sessions) != 2 {
+		t.Fatalf("expected 2 distinct cache entries, got %d: %v", len(cache.Sessions), cache.Sessions)
+	}
+	// The checkpoint id is optional in an export entry; two entries that both
+	// lack one must still get distinct keys.
+	noCheckpoint := []exportSession{
+		{SessionID: "dup", Branch: "main", TranscriptPath: "sessions/main/a.jsonl"},
+		{SessionID: "dup", Branch: "", TranscriptPath: "sessions/unknown/b.jsonl"},
+	}
+	dups := distillDuplicateSessionKeys(noCheckpoint, func(s exportSession) string {
+		if s.Branch == "" {
+			return "main"
+		}
+		return s.Branch
+	})
+	keyA := distillSessionCacheKeyFor("main", noCheckpoint[0], dups)
+	keyB := distillSessionCacheKeyFor("main", noCheckpoint[1], dups)
+	if keyA == keyB {
+		t.Errorf("checkpoint-less duplicates collapsed onto one key: %q", keyA)
+	}
+	for _, key := range []string{keyA, keyB} {
+		if !strings.HasSuffix(key, "/"+url.PathEscape("dup")) {
+			t.Errorf("cache key %q does not end in /<session id>", key)
+		}
+	}
+	for key := range cache.Sessions {
+		if !strings.HasSuffix(key, "/"+url.PathEscape("dup")) {
+			t.Errorf("cache key %q does not end in /<session id>; privacy purge would not evict it", key)
+		}
+	}
+}
+
+// TestDistillCommandRejectsOutOfRangeConfidence pins --confidence against the
+// same validation --jobs, --concurrency and --max-chunk-bytes already get.
+// Confidence is a probability the agent reports in [0,1] and the flag is the
+// threshold it is compared against, but every out-of-range value was accepted
+// silently and then did something other than what was asked:
+//
+//	--confidence 0     -> threshold <= 0 collapses to the 0.75 DEFAULT, so the
+//	                      user who asked to auto-apply everything got the
+//	                      default gate and no word about it
+//	--confidence -0.5  -> same silent fallback
+//	--confidence 2     -> a threshold no agent report can ever clear, so every
+//	                      merge/supersede is queued for manual review forever
+//	                      with nothing saying why
+func TestDistillCommandRejectsOutOfRangeConfidence(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		value string
+		want  string
+	}{
+		{"0", "--confidence must be greater than 0 and at most 1"},
+		{"-0.5", "--confidence must be greater than 0 and at most 1"},
+		{"2", "--confidence must be greater than 0 and at most 1"},
+		{"1.0001", "--confidence must be greater than 0 and at most 1"},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			repoDir := t.TempDir()
+			runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+				fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
+				fakeCommandKey("git", "remote", "get-url", "origin"):  {stdout: "git@github.com:example/repo.git\n"},
+			}}
+			opts := Options{
+				Version: "test",
+				Env: EntireEnv{
+					RepoRoot: repoDir, PluginConfigDir: t.TempDir(), PluginDataDir: t.TempDir(),
+					PluginStateDir: t.TempDir(), PluginCacheDir: t.TempDir(),
+				},
+				Runner: runner,
+				Now:    func() time.Time { return now },
+			}
+			storage, err := repoStoragePaths(context.Background(), runner, opts.Env, repoDir)
+			if err != nil {
+				t.Fatalf("storage: %v", err)
+			}
+			writeDistillFixtureAt(t, storage.BrainDir, now)
+
+			var stdout, stderr bytes.Buffer
+			cmd := NewRootCommand(opts)
+			cmd.SetOut(&stdout)
+			cmd.SetErr(&stderr)
+			// --dry-run so the rejection cannot be confused with an agent failure.
+			cmd.SetArgs([]string{"distill", "--agent", "command", "--agent-command", "true", "--dry-run", "--confidence", tc.value})
+			err = cmd.Execute()
+			if err == nil {
+				t.Fatalf("--confidence %s was accepted; stdout:\n%s", tc.value, stdout.String())
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("--confidence %s error %q does not say what was wrong (want %q)", tc.value, err, tc.want)
+			}
+		})
+	}
+
+	// In-range values, and an unset flag, must still work.
+	for _, value := range []string{"0.01", "0.5", "1"} {
+		repoDir := t.TempDir()
+		runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+			fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
+			fakeCommandKey("git", "remote", "get-url", "origin"):  {stdout: "git@github.com:example/repo.git\n"},
+		}}
+		opts := Options{
+			Version: "test",
+			Env: EntireEnv{
+				RepoRoot: repoDir, PluginConfigDir: t.TempDir(), PluginDataDir: t.TempDir(),
+				PluginStateDir: t.TempDir(), PluginCacheDir: t.TempDir(),
+			},
+			Runner: runner,
+			Now:    func() time.Time { return now },
+		}
+		storage, err := repoStoragePaths(context.Background(), runner, opts.Env, repoDir)
+		if err != nil {
+			t.Fatalf("storage: %v", err)
+		}
+		writeDistillFixtureAt(t, storage.BrainDir, now)
+		var stdout, stderr bytes.Buffer
+		cmd := NewRootCommand(opts)
+		cmd.SetOut(&stdout)
+		cmd.SetErr(&stderr)
+		cmd.SetArgs([]string{"distill", "--agent", "command", "--agent-command", "true", "--dry-run", "--json", "--confidence", value})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("--confidence %s rejected: %v\nstderr:\n%s", value, err, stderr.String())
+		}
+	}
+}
+
+// TestRunDistillForBrainNeverTripsFactStoreIntegrity guards the fact-integrity
+// cross-check against firing on a legitimate distill. The check compares
+// declared-vs-stored fact IDS (not just counts) and reports a repeated id on one
+// branch as "duplicated" — a defect severity that tells the operator a fact was
+// overwritten by a copy of its neighbour. A distilled fact's id is derived from
+// its (text, paths), so two sessions that yield the SAME sentence — the normal
+// case for a durable fact like "the project uses Go" — produce the same id twice
+// on one branch. If the merge did not collapse them, every health surface
+// (status, verify, brief, blind-spot) would cry wolf after an ordinary run.
+func TestRunDistillForBrainNeverTripsFactStoreIntegrity(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+
+	for _, tc := range []struct {
+		name   string
+		output func(call int) string
+	}{
+		{
+			"identical fact from every session",
+			func(int) string { return "project.tooling.stack\tThe project uses Go.\n" },
+		},
+		{
+			"identical fact repeated within one chunk",
+			func(int) string {
+				return strings.Repeat("project.tooling.stack\tThe project uses Go.\n", 4)
+			},
+		},
+		{
+			"distinct facts per call",
+			func(call int) string {
+				return fmt.Sprintf("preferences.coding.style\tDistinct fact %d.\n", call)
+			},
+		},
+		{
+			"same text under different paths",
+			func(int) string {
+				return "project.tooling.stack\tShared sentence.\nworkflow.testing.rules\tShared sentence.\n"
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			brainDir := writeDistillFixture(t, now)
+			call := 0
+			run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+				if strings.HasPrefix(string(input), "CANDIDATES\n") {
+					return "1 new - 1.0\n", nil
+				}
+				call++
+				return tc.output(call), nil
+			}
+			opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+
+			// Three passes: first build, a --force rebuild, then an incremental
+			// pass. Each one rewrites the manifest and the stores, so each is a
+			// chance for the declared count and the stored ids to drift apart.
+			for pass, o := range []distillCommandOptions{opts, withForce(opts), opts} {
+				source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, o, now)
+				if err != nil {
+					t.Fatalf("pass %d: %v", pass+1, err)
+				}
+				if source.Facts == 0 {
+					t.Fatalf("pass %d distilled nothing; the check would pass vacuously", pass+1)
+				}
+				integrity := inspectBrainFactStore(brainDir)
+				if !integrity.OK() {
+					t.Fatalf("pass %d: a legitimate distill tripped the fact-store integrity check: mode=%q declared=%d readable=%d distinct=%d unusable=%d duplicate_ids=%v",
+						pass+1, integrity.Mode, integrity.Declared, integrity.Readable, integrity.Distinct, integrity.Unusable, integrity.DuplicateIDs)
+				}
+				// The cross-check is only meaningful if the manifest and the store
+				// actually agree on the number, not merely on "no defect".
+				if integrity.Declared != source.Facts {
+					t.Fatalf("pass %d: manifest declares %d facts, run summary reported %d", pass+1, integrity.Declared, source.Facts)
+				}
+			}
+		})
+	}
+}
+
+func withForce(opts distillCommandOptions) distillCommandOptions {
+	opts.force = true
+	return opts
+}
+
+// TestRunDistillForBrainWarnsWhenFiltersMatchNothing pins that a filter which
+// selects no session says so. `--branch` and `--session` both silently matched
+// nothing on a typo: zero chunks, zero agent calls, exit 0, and a summary that
+// looks exactly like a corpus with nothing left to distill. Every other
+// misdirected flag on this command errors (--jobs 0, --max-chunk-bytes 0,
+// --agent bogus); these two just quietly did nothing.
+func TestRunDistillForBrainWarnsWhenFiltersMatchNothing(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		return "project.tooling.stack\tThe project uses Go.\n", nil
+	}
+	base := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+
+	for _, tc := range []struct {
+		name   string
+		mutate func(*distillCommandOptions)
+		want   string
+	}{
+		{"unknown branch", func(o *distillCommandOptions) { o.branch = "no-such-branch" }, "--branch no-such-branch matched no exported session"},
+		{"unknown session", func(o *distillCommandOptions) { o.session = "no-such-session" }, "--session no-such-session matched no exported session"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			brainDir := writeDistillFixture(t, now)
+			opts := base
+			tc.mutate(&opts)
+			source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
+			if err != nil {
+				t.Fatalf("runDistillForBrain: %v", err)
+			}
+			if !slices.ContainsFunc(source.Warnings, func(w string) bool { return strings.Contains(w, tc.want) }) {
+				t.Fatalf("filter matched nothing and said nothing; warnings were %v", source.Warnings)
+			}
+		})
+	}
+
+	// A filter that DOES match must stay quiet.
+	for _, tc := range []struct {
+		name   string
+		mutate func(*distillCommandOptions)
+	}{
+		{"known branch", func(o *distillCommandOptions) { o.branch = "main" }},
+		{"known session", func(o *distillCommandOptions) { o.session = "s1" }},
+		{"no filter", func(*distillCommandOptions) {}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			brainDir := writeDistillFixture(t, now)
+			opts := base
+			tc.mutate(&opts)
+			source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
+			if err != nil {
+				t.Fatalf("runDistillForBrain: %v", err)
+			}
+			for _, w := range source.Warnings {
+				if strings.Contains(w, "matched no exported session") {
+					t.Fatalf("a matching filter warned: %q", w)
+				}
+			}
+			if source.Facts == 0 {
+				t.Fatal("expected facts from a matching filter")
+			}
+		})
+	}
+}
+
+// TestCachedDistillSessionFingerprintFindsDisambiguatedKey pins the "has this
+// session been distilled at all" lookup against the duplicate-session key shape.
+// factsBackfillStatusForBrain (what `setup status` prints as backfill progress)
+// asks this question once per exported session by branch+id. A session exported
+// twice under one branch is stored under checkpoint-disambiguated keys, so an
+// exact-key-only lookup would answer "not distilled" for BOTH copies and report
+// a completed backfill as permanently unfinished.
+func TestCachedDistillSessionFingerprintFindsDisambiguatedKey(t *testing.T) {
+	cache := distillCache{Version: distillCacheVersion, Sessions: map[string]string{
+		"main/cpB/dup":  "sha256:b",
+		"main/cpA/dup":  "sha256:a",
+		"main/solo":     "sha256:solo",
+		"feature/other": "sha256:other",
+	}}
+	if fp, ok := cachedDistillSessionFingerprint(cache, "main", "dup"); !ok {
+		t.Fatal("a session stored under a disambiguated key read as never distilled")
+	} else if fp != "sha256:a" {
+		t.Errorf("disambiguated lookup is not deterministic: got %q, want the lowest key's %q", fp, "sha256:a")
+	}
+	// The exact key still wins, and still comes back verbatim.
+	if fp, ok := cachedDistillSessionFingerprint(cache, "main", "solo"); !ok || fp != "sha256:solo" {
+		t.Errorf("exact key lookup broke: %q %v", fp, ok)
+	}
+	// Misses stay misses: a different branch, an unknown session, and a session
+	// whose id is only a SUFFIX of a stored one must not match.
+	for _, tc := range [][2]string{{"main", "other"}, {"main", "nope"}, {"other", "dup"}, {"main", "up"}} {
+		if _, ok := cachedDistillSessionFingerprint(cache, tc[0], tc[1]); ok {
+			t.Errorf("branch %q session %q matched something it should not", tc[0], tc[1])
+		}
+	}
+}
+
+// TestExecDistillAgentTimesOutAndKillsTheProcess pins the agent-timeout failure
+// path, which had no test at all: a hung agent must fail its chunk with a
+// message naming the timeout, and must not leave the process running behind the
+// distill run that gave up on it.
+func TestExecDistillAgentTimesOutAndKillsTheProcess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh not available")
+	}
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "still-running")
+	// Sleep well past the timeout, then touch a file. If the process outlived
+	// the deadline the marker appears.
+	script := "sleep 30; touch " + marker
+	start := time.Now()
+	out, err := execDistillAgent(context.Background(), dir, []string{"sh", "-c", script}, []byte("chunk"), 150*time.Millisecond)
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatalf("a hung agent returned success with output %q", out)
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("timeout error does not say it timed out: %v", err)
+	}
+	if out != "" {
+		t.Errorf("a timed-out agent returned output: %q", out)
+	}
+	if elapsed > 10*time.Second {
+		t.Errorf("timeout was not enforced: waited %s for a 150ms deadline", elapsed)
+	}
+	if _, statErr := os.Stat(marker); statErr == nil {
+		t.Error("the agent process outlived its deadline")
+	}
+}
+
+// TestRunDistillForBrainAbortsWhenEveryAgentCallTimesOut pins what a systemically
+// hung agent does to a whole run: it must abort with the timeout as the named
+// cause rather than churning through every session reporting "0 facts found",
+// and it must leave no facts behind.
+func TestRunDistillForBrainAbortsWhenEveryAgentCallTimesOut(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		return "", fmt.Errorf("agent timed out after %s", timeout)
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+	_, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
+	if err == nil {
+		t.Fatal("a run whose every agent call timed out reported success")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("the abort does not name the timeout as the cause: %v", err)
+	}
+	for _, branch := range []string{"main", "feature"} {
+		if facts, loadErr := loadFacts(brainDir, branch); loadErr == nil && len(facts) != 0 {
+			t.Errorf("branch %s kept %d facts from a fully timed-out run", branch, len(facts))
+		}
 	}
 }
