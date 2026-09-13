@@ -60,11 +60,13 @@
             "compact_v2",
             "compact_v3"
           ],
+          "maxLength": 8192,
           "title": "packet_format",
           "type": "string"
         },
         "task": {
           "description": "Task or bug description",
+          "maxLength": 8192,
           "title": "task",
           "type": "string"
         }
@@ -100,21 +102,25 @@
       "properties": {
         "after": {
           "description": "Conversation source only: sessions at or after this time (RFC3339 or YYYY-MM-DD)",
+          "maxLength": 8192,
           "title": "after",
           "type": "string"
         },
         "agent": {
           "description": "Conversation source only: exchanges captured by this agent/harness (e.g. \"Claude Code\", \"Codex\")",
+          "maxLength": 8192,
           "title": "agent",
           "type": "string"
         },
         "before": {
           "description": "Conversation source only: sessions before this time (RFC3339 or YYYY-MM-DD)",
+          "maxLength": 8192,
           "title": "before",
           "type": "string"
         },
         "branch": {
           "description": "Branch for facts (default: current)",
+          "maxLength": 8192,
           "title": "branch",
           "type": "string"
         },
@@ -142,11 +148,13 @@
         },
         "query": {
           "description": "Natural-language or keyword query",
+          "maxLength": 8192,
           "title": "query",
           "type": "string"
         },
         "session_id": {
           "description": "Conversation source only: exchanges from this session id (disables the per-session diversity cap)",
+          "maxLength": 8192,
           "title": "session_id",
           "type": "string"
         },
@@ -159,6 +167,7 @@
             "conversation",
             "doc"
           ],
+          "maxLength": 8192,
           "title": "source",
           "type": "string"
         }
@@ -194,21 +203,25 @@
       "properties": {
         "after": {
           "description": "Conversation source only: sessions at or after this time (RFC3339 or YYYY-MM-DD)",
+          "maxLength": 8192,
           "title": "after",
           "type": "string"
         },
         "agent": {
           "description": "Conversation source only: exchanges captured by this agent/harness (e.g. \"Claude Code\", \"Codex\")",
+          "maxLength": 8192,
           "title": "agent",
           "type": "string"
         },
         "before": {
           "description": "Conversation source only: sessions before this time (RFC3339 or YYYY-MM-DD)",
+          "maxLength": 8192,
           "title": "before",
           "type": "string"
         },
         "branch": {
           "description": "Branch for facts (default: current)",
+          "maxLength": 8192,
           "title": "branch",
           "type": "string"
         },
@@ -236,11 +249,13 @@
         },
         "query": {
           "description": "Natural-language or keyword query",
+          "maxLength": 8192,
           "title": "query",
           "type": "string"
         },
         "session_id": {
           "description": "Conversation source only: exchanges from this session id (disables the per-session diversity cap)",
+          "maxLength": 8192,
           "title": "session_id",
           "type": "string"
         },
@@ -253,6 +268,7 @@
             "conversation",
             "doc"
           ],
+          "maxLength": 8192,
           "title": "source",
           "type": "string"
         }
@@ -288,21 +304,25 @@
       "properties": {
         "after": {
           "description": "Conversation source only: sessions at or after this time (RFC3339 or YYYY-MM-DD)",
+          "maxLength": 8192,
           "title": "after",
           "type": "string"
         },
         "agent": {
           "description": "Conversation source only: exchanges captured by this agent/harness (e.g. \"Claude Code\", \"Codex\")",
+          "maxLength": 8192,
           "title": "agent",
           "type": "string"
         },
         "before": {
           "description": "Conversation source only: sessions before this time (RFC3339 or YYYY-MM-DD)",
+          "maxLength": 8192,
           "title": "before",
           "type": "string"
         },
         "branch": {
           "description": "Branch for facts (default: current)",
+          "maxLength": 8192,
           "title": "branch",
           "type": "string"
         },
@@ -330,11 +350,13 @@
         },
         "query": {
           "description": "Natural-language or keyword query",
+          "maxLength": 8192,
           "title": "query",
           "type": "string"
         },
         "session_id": {
           "description": "Conversation source only: exchanges from this session id (disables the per-session diversity cap)",
+          "maxLength": 8192,
           "title": "session_id",
           "type": "string"
         },
@@ -347,6 +369,7 @@
             "conversation",
             "doc"
           ],
+          "maxLength": 8192,
           "title": "source",
           "type": "string"
         }
@@ -372,6 +395,7 @@
         },
         "branch": {
           "description": "Branch for facts (default: current)",
+          "maxLength": 8192,
           "title": "branch",
           "type": "string"
         },
@@ -391,6 +415,7 @@
         },
         "id": {
           "description": "Prefixed item id",
+          "maxLength": 8192,
           "title": "id",
           "type": "string"
         },
@@ -416,6 +441,7 @@
       "properties": {
         "branch": {
           "description": "Branch for facts (default: current)",
+          "maxLength": 8192,
           "title": "branch",
           "type": "string"
         },
@@ -456,6 +482,7 @@
         },
         "query": {
           "description": "Symbol or text query",
+          "maxLength": 8192,
           "title": "query",
           "type": "string"
         }
@@ -493,6 +520,7 @@
         },
         "query": {
           "description": "Symbol or text query",
+          "maxLength": 8192,
           "title": "query",
           "type": "string"
         }
@@ -540,6 +568,7 @@
         },
         "query": {
           "description": "Symbol name or text query",
+          "maxLength": 8192,
           "title": "query",
           "type": "string"
         }
@@ -578,11 +607,13 @@
         },
         "path": {
           "description": "Local repository path (default: the bound repo). A relative path resolves inside the bound repository root, not the working directory; a path outside that root is refused unless ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH is set.",
+          "maxLength": 8192,
           "title": "path",
           "type": "string"
         },
         "profile": {
           "description": "Semantic provider snapshot profile (e.g. full, syntax-only), forwarded to the provider unchanged; empty uses the provider default.",
+          "maxLength": 8192,
           "title": "profile",
           "type": "string"
         },
@@ -617,6 +648,7 @@
         },
         "repo_key": {
           "description": "Repository key to delete (default: current repo)",
+          "maxLength": 8192,
           "title": "repo_key",
           "type": "string"
         }
@@ -647,6 +679,7 @@
         },
         "query": {
           "description": "Symbol name or text query",
+          "maxLength": 8192,
           "title": "query",
           "type": "string"
         }
@@ -679,6 +712,7 @@
         },
         "query": {
           "description": "Symbol or graph text query",
+          "maxLength": 8192,
           "title": "query",
           "type": "string"
         }
@@ -704,6 +738,7 @@
         },
         "query": {
           "description": "Graph query, e.g. type:CALLS from:Foo",
+          "maxLength": 8192,
           "title": "query",
           "type": "string"
         }
@@ -738,6 +773,7 @@
         },
         "query": {
           "description": "Symbol id, name, or qualified name",
+          "maxLength": 8192,
           "title": "query",
           "type": "string"
         }
@@ -763,11 +799,13 @@
         },
         "from": {
           "description": "Start symbol id, name, or qualified name",
+          "maxLength": 8192,
           "title": "from",
           "type": "string"
         },
         "to": {
           "description": "Target symbol id, name, or qualified name",
+          "maxLength": 8192,
           "title": "to",
           "type": "string"
         }
@@ -830,6 +868,7 @@
       "properties": {
         "path": {
           "description": "Local JSON or NDJSON trace file",
+          "maxLength": 8192,
           "title": "path",
           "type": "string"
         }
@@ -860,6 +899,7 @@
         },
         "query": {
           "description": "Symbol or text query",
+          "maxLength": 8192,
           "title": "query",
           "type": "string"
         }
@@ -878,6 +918,15 @@
       "properties": {
         "kind": {
           "description": "route, tool, or workflow (default: tool)",
+          "enum": [
+            "route",
+            "routes",
+            "tool",
+            "tools",
+            "workflow",
+            "workflows"
+          ],
+          "maxLength": 8192,
           "title": "kind",
           "type": "string"
         },
@@ -917,6 +966,7 @@
         },
         "query": {
           "description": "Task description plus the failing symbols/identifiers",
+          "maxLength": 8192,
           "title": "query",
           "type": "string"
         }
@@ -952,6 +1002,7 @@
         },
         "query": {
           "description": "What to review plus the relevant symbols/identifiers",
+          "maxLength": 8192,
           "title": "query",
           "type": "string"
         }
@@ -987,11 +1038,13 @@
         },
         "query": {
           "description": "Task description plus the failing symbols/identifiers",
+          "maxLength": 8192,
           "title": "query",
           "type": "string"
         },
         "workspace": {
           "description": "Workspace name",
+          "maxLength": 8192,
           "title": "workspace",
           "type": "string"
         }
@@ -1018,6 +1071,7 @@
         },
         "workspace": {
           "description": "Workspace name",
+          "maxLength": 8192,
           "title": "workspace",
           "type": "string"
         }
@@ -1053,11 +1107,13 @@
         },
         "query": {
           "description": "What to review plus the relevant symbols/identifiers",
+          "maxLength": 8192,
           "title": "query",
           "type": "string"
         },
         "workspace": {
           "description": "Workspace name",
+          "maxLength": 8192,
           "title": "workspace",
           "type": "string"
         }
@@ -1083,12 +1139,25 @@
           "type": "integer"
         },
         "scope": {
-          "description": "Filter by scope: repo or workspace (empty = both)",
+          "description": "Filter by scope: repo or workspace (omit for both)",
+          "enum": [
+            "repo",
+            "workspace"
+          ],
+          "maxLength": 8192,
           "title": "scope",
           "type": "string"
         },
         "type": {
-          "description": "Filter by type: task, procedure, risk, practice, or theme (empty = all)",
+          "description": "Filter by type: task, procedure, risk, practice, or theme (omit for all)",
+          "enum": [
+            "task",
+            "procedure",
+            "risk",
+            "practice",
+            "theme"
+          ],
+          "maxLength": 8192,
           "title": "type",
           "type": "string"
         }
@@ -1104,6 +1173,7 @@
       "properties": {
         "branch": {
           "description": "Branch for facts (default: current)",
+          "maxLength": 8192,
           "title": "branch",
           "type": "string"
         },
@@ -1116,6 +1186,7 @@
         },
         "query": {
           "description": "Entity name, path, or full \"\u003cpath\u003e#\u003ckind\u003e#\u003cname\u003e\" index key",
+          "maxLength": 8192,
           "title": "query",
           "type": "string"
         }

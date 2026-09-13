@@ -108,8 +108,13 @@ func TestMCPBrainReviewToolDefinitionGolden(t *testing.T) {
 	// depth argument -- 22 of them -- for +1,536 bytes on the tools/list result
 	// (27,433 -> 28,969). The full statement of the contract is carried once in
 	// initialize's instructions instead of being repeated in twenty-two schemas.
-	if len(got) != 890 {
-		t.Fatalf("brain_review tool definition bytes = %d, want 890", len(got))
+	// A declared maxLength on every string argument (mcpStringArgMaxBytes) adds
+	// 18 bytes per string argument, so the surface can state the bound it
+	// enforces: an argument the tool echoes back cannot be trimmed away by
+	// dropping rows, so an oversize scalar is refused rather than blowing the
+	// response budget.
+	if len(got) != 907 {
+		t.Fatalf("brain_review tool definition bytes = %d, want 907", len(got))
 	}
 }
 
@@ -154,8 +159,13 @@ func TestMCPBrainWorkspaceReviewToolDefinitionGolden(t *testing.T) {
 	// depth argument -- 22 of them -- for +1,536 bytes on the tools/list result
 	// (27,433 -> 28,969). The full statement of the contract is carried once in
 	// initialize's instructions instead of being repeated in twenty-two schemas.
-	if len(got) != 1123 {
-		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 1123", len(got))
+	// A declared maxLength on every string argument (mcpStringArgMaxBytes) adds
+	// 18 bytes per string argument, so the surface can state the bound it
+	// enforces: an argument the tool echoes back cannot be trimmed away by
+	// dropping rows, so an oversize scalar is refused rather than blowing the
+	// response budget.
+	if len(got) != 1157 {
+		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 1157", len(got))
 	}
 }
 

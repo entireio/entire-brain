@@ -252,14 +252,17 @@ func TestNestedRowListsAreTruncated(t *testing.T) {
 	}
 }
 
-// TestATopLevelArrayResultCarriesTheMarkerOnItsLastRow. brain_patterns returns
-// a bare JSON array. There is no envelope to flag, so the marker goes where the
-// retrieval surface already puts its row marker: on the last row that survived.
-func TestATopLevelArrayResultCarriesTheMarkerOnItsLastRow(t *testing.T) {
+// TestAnUntruncatedArrayResultKeepsItsArrayRoot. brain_patterns returns a bare
+// JSON array, and the marker used to go on its last surviving row -- which put
+// the server's bookkeeping inside a data record (see
+// TestATruncatedArrayRootCarriesItsMarkerAtTheDocumentRoot, which replaces that
+// contract). Wrapping happens ONLY when the response had to be truncated: the
+// shape a client already decodes on the normal path must not move.
+func TestAnUntruncatedArrayResultKeepsItsArrayRoot(t *testing.T) {
 	t.Parallel()
 
 	var doc map[string]any
-	if err := json.Unmarshal([]byte(mcpRowsPayload(t, "rows", 4000)), &doc); err != nil {
+	if err := json.Unmarshal([]byte(mcpRowsPayload(t, "rows", 20)), &doc); err != nil {
 		t.Fatalf("decode payload: %v", err)
 	}
 	payload, err := json.MarshalIndent(doc["rows"], "", "  ")
@@ -269,31 +272,22 @@ func TestATopLevelArrayResultCarriesTheMarkerOnItsLastRow(t *testing.T) {
 
 	result, resErr := mcpToolTextResult(context.Background(), "brain_patterns", string(payload))
 	if resErr != nil {
-		t.Fatalf("a top-level array result was refused instead of truncated: %v", resErr)
+		t.Fatalf("mcpToolTextResult: %v", resErr)
 	}
 	content, _ := result["content"].([]map[string]any)
 	text, _ := content[0]["text"].(string)
 	var rows []any
 	if err := json.Unmarshal([]byte(text), &rows); err != nil {
-		t.Fatalf("the array root was reshaped into something else: %v", err)
+		t.Fatalf("an in-budget array root was reshaped: %v", err)
 	}
-	if len(rows) == 0 || len(rows) >= 4000 {
-		t.Fatalf("array has %d rows, want a non-empty proper subset", len(rows))
+	if len(rows) != 20 {
+		t.Fatalf("array has %d rows, want all 20 back untouched", len(rows))
 	}
-	last, _ := rows[len(rows)-1].(map[string]any)
-	if last[mcpResponseTruncatedKey] != true {
-		t.Fatalf("the last surviving row does not carry the marker: %#v", last)
-	}
-	// Exactly one row may carry the marker; a stale marker left on a row
-	// dropped-past in an earlier round would lie about where the cut is.
-	marked := 0
-	for _, row := range rows {
-		if row, ok := row.(map[string]any); ok && row[mcpResponseTruncatedKey] == true {
-			marked++
+	for i, row := range rows {
+		record, _ := row.(map[string]any)
+		if _, bad := record[mcpResponseTruncatedKey]; bad {
+			t.Errorf("row %d carries a marker on a response that fit", i)
 		}
-	}
-	if marked != 1 {
-		t.Fatalf("%d rows carry the truncation marker, want exactly the last one", marked)
 	}
 }
 
@@ -456,7 +450,13 @@ func TestARowTooLargeToCarryDegradesToAFlaggedEmptyList(t *testing.T) {
 // brain_impact at the advertised ceiling carries 84,022 relations beside 10,000
 // symbols. Filling the widest list first left relations at zero rows -- not one
 // relation fits beside ten thousand symbols -- so an impact answer came back
-// with no impact in it. Every list is held to one shared row cap instead.
+// with no impact in it.
+//
+// The fix for that was one shared row width for every list, and it bought the
+// opposite defect: a naturally wide list was cut to its narrowest sibling's
+// size, so RAISING a limit returned LESS (brain_context returned 200 relations
+// at limit=50 and 94 at limit=10000). Both properties are asserted here: no
+// list is starved, AND the wider list keeps more rows than the narrower one.
 func TestTruncationDoesNotStarveOneListToFillAnother(t *testing.T) {
 	t.Parallel()
 
@@ -489,9 +489,19 @@ func TestTruncationDoesNotStarveOneListToFillAnother(t *testing.T) {
 	if len(symbols) == 0 {
 		t.Fatalf("the narrower list was starved to zero rows while relations kept %d", len(relations))
 	}
-	// One shared cap, so neither list may run away with the budget.
-	if len(relations) != len(symbols) {
-		t.Errorf("relations kept %d rows and symbols %d; a shared cap keeps them level", len(relations), len(symbols))
+	// Neither list runs away with the budget: every list keeps at least its
+	// fair share of rows.
+	if len(symbols) < mcpResponseTrimFairRows {
+		t.Errorf("symbols kept %d rows, below the %d row fair share", len(symbols), mcpResponseTrimFairRows)
+	}
+	if len(relations) < mcpResponseTrimFairRows {
+		t.Errorf("relations kept %d rows, below the %d row fair share", len(relations), mcpResponseTrimFairRows)
+	}
+	// ... and the wider list is not cut to the narrower one's width. relations
+	// has four times the rows, so it must keep more of them than symbols does.
+	if len(relations) <= len(symbols) {
+		t.Errorf("relations (8000 rows available) kept %d and symbols (2000 available) kept %d; "+
+			"the wider list was cut to the narrower one's width", len(relations), len(symbols))
 	}
 }
 
@@ -527,20 +537,201 @@ func TestInitializeCarriesTheResponseBudgetInstructions(t *testing.T) {
 	}
 }
 
-// TestAnEmptiedArrayRootIsRefusedNotReturnedBlank. An array root carries the
-// marker on its last row, so an emptied one has nowhere to say it was
-// truncated. Returning "[]" there would be the silent fragment this whole
-// change exists to prevent.
-func TestAnEmptiedArrayRootIsRefusedNotReturnedBlank(t *testing.T) {
+// TestAnEmptiedArrayRootIsFlaggedNotReturnedBlank. An array root used to carry
+// the marker on its last row, so an emptied one had nowhere to say it was
+// truncated and the whole call was refused rather than return a silent "[]".
+// Wrapping a truncated array root in an object gives it the same envelope an
+// object root always had, so the emptied case is now what the object case
+// already was: an explicit, flagged, empty answer.
+func TestAnEmptiedArrayRootIsFlaggedNotReturnedBlank(t *testing.T) {
 	t.Parallel()
 
 	text := `[{"blob":"` + strings.Repeat("x", mcpToolResponseMaxBytes*2) + `"}]`
 	result, err := mcpToolTextResult(context.Background(), "brain_patterns", text)
-	if err == nil {
-		content, _ := result["content"].([]map[string]any)
-		t.Fatalf("an unmarkable empty array was returned instead of refused: %v", content[0]["text"])
+	if err != nil {
+		t.Fatalf("mcpToolTextResult: %v", err)
 	}
-	if !strings.Contains(err.Error(), "narrow the request") {
-		t.Fatalf("refusal is not actionable: %v", err)
+	_, doc := mcpDecodeToolText(t, result)
+	if doc[mcpResponseTruncatedKey] != true {
+		t.Fatalf("an emptied array came back unflagged: %v", doc)
+	}
+	rows, ok := doc[mcpResponseTrimArrayKey].([]any)
+	if !ok || len(rows) != 0 {
+		t.Fatalf("rows = %v, want an empty list under %q", doc[mcpResponseTrimArrayKey], mcpResponseTrimArrayKey)
+	}
+	report, _ := doc[mcpResponseTruncationKey].(map[string]any)
+	dropped, _ := report["dropped_from"].([]any)
+	entry, _ := dropped[0].(map[string]any)
+	if returned, _ := entry["returned"].(float64); int(returned) != 0 {
+		t.Errorf("dropped_from returned = %v, want 0", entry["returned"])
+	}
+	if total, _ := entry["total"].(float64); int(total) != 1 {
+		t.Errorf("dropped_from total = %v, want 1", entry["total"])
+	}
+}
+
+// TestPaginationCountIsRepairedWhenItSitsAboveTheTrimmedList.
+//
+// brain_context's rows live under "context" while its pagination sits beside it
+// at the ROOT, one level up, and the count repair only ever looked at the list's
+// own object and that object's "pagination" child. So the field kept its
+// pre-trim value and changed meaning the moment the trimmer fired:
+//
+//	limit=50     symbols 50   pagination.count 50    (rows returned)
+//	limit=200    symbols 90   pagination.count 200   (the requested limit)
+//	limit=10000  symbols 94   pagination.count 4559  (the total available)
+//
+// brain_search_code, whose rows and pagination share one object, was repaired
+// correctly in the same server. The count must mean "rows returned" in both.
+func TestPaginationCountIsRepairedWhenItSitsAboveTheTrimmedList(t *testing.T) {
+	t.Parallel()
+
+	var rows map[string]any
+	if err := json.Unmarshal([]byte(mcpRowsPayload(t, "symbols", 4000)), &rows); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	symbols, _ := rows["symbols"].([]any)
+	payload, err := json.MarshalIndent(map[string]any{
+		"pagination": map[string]any{"limit": 10000, "offset": 0, "count": len(symbols)},
+		"context":    map[string]any{"symbols": symbols},
+	}, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	result, resErr := mcpToolTextResult(context.Background(), "brain_context", string(payload))
+	if resErr != nil {
+		t.Fatalf("mcpToolTextResult: %v", resErr)
+	}
+	_, doc := mcpDecodeToolText(t, result)
+	if doc[mcpResponseTruncatedKey] != true {
+		t.Fatal("the payload was not truncated; the fixture no longer exercises the repair")
+	}
+	context_, _ := doc["context"].(map[string]any)
+	kept, _ := context_["symbols"].([]any)
+	pagination, _ := doc["pagination"].(map[string]any)
+	count, _ := pagination["count"].(float64)
+	if int(count) != len(kept) {
+		t.Errorf("pagination.count = %d beside %d returned rows (total available was %d)",
+			int(count), len(kept), len(symbols))
+	}
+	// The other pagination fields describe the REQUEST and must not be rewritten.
+	if limit, _ := pagination["limit"].(float64); int(limit) != 10000 {
+		t.Errorf("pagination.limit = %v, want the requested 10000", pagination["limit"])
+	}
+}
+
+// TestRaisingTheLimitDoesNotReturnFewerRows.
+//
+// The uniform shared width made a wider request return a narrower answer: a
+// document whose lists are 4:1 was clamped to 1:1, so the wide list lost rows it
+// had returned at a SMALLER limit, where the whole document still fit. The
+// simulation of that here is two documents from the same tool -- the smaller one
+// fits whole, the larger is over budget -- and no list may shrink between them.
+func TestRaisingTheLimitDoesNotReturnFewerRows(t *testing.T) {
+	t.Parallel()
+
+	build := func(t *testing.T, symbols, relations, neighbours int) map[string]any {
+		t.Helper()
+		var s, r, n map[string]any
+		if err := json.Unmarshal([]byte(mcpRowsPayload(t, "symbols", symbols)), &s); err != nil {
+			t.Fatalf("decode symbols: %v", err)
+		}
+		if err := json.Unmarshal([]byte(mcpRowsPayload(t, "relations", relations)), &r); err != nil {
+			t.Fatalf("decode relations: %v", err)
+		}
+		if err := json.Unmarshal([]byte(mcpRowsPayload(t, "neighbors", neighbours)), &n); err != nil {
+			t.Fatalf("decode neighbors: %v", err)
+		}
+		payload, err := json.MarshalIndent(map[string]any{"context": map[string]any{
+			"symbols": s["symbols"], "relations": r["relations"], "neighbors": n["neighbors"],
+		}}, "", "  ")
+		if err != nil {
+			t.Fatalf("marshal payload: %v", err)
+		}
+		result, resErr := mcpToolTextResult(context.Background(), "brain_context", string(payload))
+		if resErr != nil {
+			t.Fatalf("mcpToolTextResult: %v", resErr)
+		}
+		_, doc := mcpDecodeToolText(t, result)
+		out, _ := doc["context"].(map[string]any)
+		return out
+	}
+
+	// limit=25: 25 symbols, 100 relations, 12 neighbours -- fits whole.
+	small := build(t, 25, 100, 12)
+	// limit=10000: the same shape, saturated -- far over budget.
+	large := build(t, 4000, 16000, 800)
+
+	for _, list := range []string{"symbols", "relations", "neighbors"} {
+		before, _ := small[list].([]any)
+		after, _ := large[list].([]any)
+		if len(after) == 0 {
+			t.Errorf("%s was starved to zero rows at the larger limit", list)
+			continue
+		}
+		if len(after) < len(before) {
+			t.Errorf("%s returned %d rows at the small limit and only %d at the large one; "+
+				"raising the limit returned less", list, len(before), len(after))
+		}
+	}
+}
+
+// TestATruncatedArrayRootCarriesItsMarkerAtTheDocumentRoot.
+//
+// brain_patterns' result is a bare JSON array, and the marker was stamped onto
+// its last surviving row. That produced a Pattern record carrying two foreign
+// keys -- response_truncated and response_truncation -- 208 rows of 2,389, with
+// nothing at the document root to find. A client reading the root saw a plain
+// (silently short) array; a typed []Pattern decoder either dropped the marker or
+// failed; and one data record was corrupted.
+func TestATruncatedArrayRootCarriesItsMarkerAtTheDocumentRoot(t *testing.T) {
+	t.Parallel()
+
+	var rows map[string]any
+	if err := json.Unmarshal([]byte(mcpRowsPayload(t, "patterns", 4000)), &rows); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	payload, err := json.MarshalIndent(rows["patterns"], "", "  ")
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	result, resErr := mcpToolTextResult(context.Background(), "brain_patterns", string(payload))
+	if resErr != nil {
+		t.Fatalf("mcpToolTextResult: %v", resErr)
+	}
+	_, doc := mcpDecodeToolText(t, result)
+	if doc[mcpResponseTruncatedKey] != true {
+		t.Fatalf("no truncation marker at the document root: %v", doc)
+	}
+	kept, ok := doc[mcpResponseTrimArrayKey].([]any)
+	if !ok || len(kept) == 0 {
+		t.Fatalf("rows are not under %q: %v", mcpResponseTrimArrayKey, doc)
+	}
+	for i, row := range kept {
+		record, _ := row.(map[string]any)
+		if _, bad := record[mcpResponseTruncatedKey]; bad {
+			t.Errorf("row %d carries the server's %s marker", i, mcpResponseTruncatedKey)
+		}
+		if _, bad := record[mcpResponseTruncationKey]; bad {
+			t.Errorf("row %d carries the server's %s report", i, mcpResponseTruncationKey)
+		}
+		// The row is otherwise exactly what the tool produced.
+		if _, want := record["id"]; !want {
+			t.Errorf("row %d lost its own fields: %v", i, record)
+		}
+	}
+	report, _ := doc[mcpResponseTruncationKey].(map[string]any)
+	dropped, _ := report["dropped_from"].([]any)
+	if len(dropped) != 1 {
+		t.Fatalf("dropped_from = %v, want one entry for the array root", dropped)
+	}
+	entry, _ := dropped[0].(map[string]any)
+	if path, _ := entry["path"].(string); path != mcpResponseTrimArrayKey {
+		t.Errorf("dropped_from path = %q, want %q (where the rows now are)", path, mcpResponseTrimArrayKey)
+	}
+	if returned, _ := entry["returned"].(float64); int(returned) != len(kept) {
+		t.Errorf("dropped_from returned = %v beside %d rows", entry["returned"], len(kept))
 	}
 }

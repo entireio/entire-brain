@@ -32,7 +32,7 @@ func TestMCPUnboundProjectAndWorkspaceAccessFailsClosed(t *testing.T) {
 	opts, _, _ := workspaceSiblingFixture(t, "unbound")
 	victim := writeScopeTestBrain(t, opts.Env, "gh/victim/other")
 	opts.Env.RepoRoot = ""
-	for _, tool := range []string{"brain_list_projects", "brain_delete_project", "brain_workspace_graph", "brain_workspace_regressions", "brain_workspace_review"} {
+	for _, tool := range mcpBoundAnchorTools {
 		response := mcpScopeCall(t, opts, tool, scopeToolArgs(tool, "unbound"))
 		if msg := mcpScopeErrorMessage(t, response); !strings.Contains(msg, mcpAllowCrossRepoEnv) {
 			t.Fatalf("%s: %s", tool, msg)

@@ -80,11 +80,6 @@ func TestRecoverableFramingErrorsAreResynchronisable(t *testing.T) {
 			frame: fmt.Sprintf("Content-Length: %d\r\n\r\n[{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}]", len(`[{"jsonrpc":"2.0","id":1,"method":"ping"}]`)),
 			why:   "a JSON-RPC batch — the case a CONFORMING client reaches first; the body was read in full",
 		},
-		{
-			name:  "oversized body that can be drained",
-			frame: fmt.Sprintf("Content-Length: %d\r\n\r\n%s", maxMCPFrameBytes+len(big), strings.Repeat("x", maxMCPFrameBytes+len(big))),
-			why:   "the length is known, so the body can be skipped to reach the next frame",
-		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -97,6 +92,38 @@ func TestRecoverableFramingErrorsAreResynchronisable(t *testing.T) {
 			}
 		})
 	}
+
+	// An oversized body is recoverable too, but it is reported to the serve
+	// loop as its own type rather than as errMCPRecoverable, because the loop
+	// has to WRITE THE REFUSAL BEFORE IT DRAINS: a peer that declares
+	// 99,999,999 bytes and sends none used to leave the server blocked in the
+	// drain and the client waiting forever. The session-level property is the
+	// one that matters, so it is asserted end to end.
+	t.Run("oversized body that can be drained", func(t *testing.T) {
+		body := strings.Repeat("x", maxMCPFrameBytes+len(big))
+		var oversize *mcpOversizeFrameError
+		_, _, err := readMCPMessage(bufio.NewReader(strings.NewReader(
+			fmt.Sprintf("Content-Length: %d\r\n\r\n%s", len(body), body))))
+		if !errors.As(err, &oversize) {
+			t.Fatalf("an oversized frame must be refusable, not fatal: %v", err)
+		}
+		input := fmt.Sprintf("Content-Length: %d\r\n\r\n%s", len(body), body) +
+			frameMCP(`{"jsonrpc":"2.0","id":7,"method":"ping"}`)
+		var out bytes.Buffer
+		if err := runMCP(context.Background(), strings.NewReader(input), &out, Options{Version: "test"}); err != nil {
+			t.Fatalf("the session died on a drainable frame: %v", err)
+		}
+		responses := readMCPResponses(t, out.String())
+		if len(responses) != 2 {
+			t.Fatalf("got %d responses, want the refusal and the next request's answer: %q", len(responses), out.String())
+		}
+		if failure, _ := responses[0]["error"].(map[string]any); failure == nil {
+			t.Errorf("the oversized frame was not refused: %v", responses[0])
+		}
+		if _, ok := responses[1]["result"]; !ok {
+			t.Errorf("the request after the drained frame was not answered: %v", responses[1])
+		}
+	})
 }
 
 // TestUnresynchronisableFramingErrorsStayFatal is the other half, and the
