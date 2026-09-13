@@ -269,6 +269,7 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 	}
 
 	metaTip, err := store.UpdateLocked(b.mutCount+len(windowMut)+len(b.invalidated), func(current gitmeta.State) (gitmeta.State, error) {
+		commitWindowMut := append([]gitmeta.Mutation(nil), windowMut...)
 		// Re-check idempotence against the state actually held under the lock: a
 		// concurrent writer may have indexed the same commits between our read
 		// and the CAS. A commit's records move together, so the WHOLE group is
@@ -312,7 +313,7 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 			}
 			current = applyBatch(current, cleanup)
 			if !nextWindow.Empty() && !opts.CheckpointsOnly {
-				windowMut = []gitmeta.Mutation{{Op: gitmeta.OpSetString, Target: projectTarget, Key: RevisionKey(WindowKey(branch), opts.IdentityRevision), Value: EncodeWindow(nextWindow)}}
+				commitWindowMut = []gitmeta.Mutation{{Op: gitmeta.OpSetString, Target: projectTarget, Key: RevisionKey(WindowKey(branch), opts.IdentityRevision), Value: EncodeWindow(nextWindow)}}
 			}
 		}
 		// Index memberships once, rather than scanning the full store for
@@ -360,7 +361,7 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 				pending = append(pending, m)
 			}
 		}
-		pending = append(pending, windowMut...)
+		pending = append(pending, commitWindowMut...)
 
 		if len(pending) == 0 && len(cleanup) == 0 {
 			return gitmeta.State{}, factgitmeta.ErrNoUpdate
