@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -566,7 +567,13 @@ func newGetCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get <id>",
 		Short: "Fetch one item in full by id (fact:… | review:… | history:… | conversation:… | conversation-session:… | doc:… | pattern:… | theme:…)",
-		Args:  cobra.ExactArgs(1),
+		Long: `get fetches one item in full by id (fact: | review: | history: | conversation: |
+conversation-session: | doc: | pattern: | theme:).
+
+Exit code: 0 when the id was found, 1 when it was not. A miss still prints
+` + "`not found: <id>`" + ` (or a JSON body whose "missing" array names it) before
+exiting, so the result is readable either way.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wantJSON, err := outputWantsJSON(jsonOut, format)
 			if err != nil {
@@ -578,7 +585,11 @@ func newGetCommand(opts Options) *cobra.Command {
 				ContextSet: cmd.Flags().Changed("context-before") || cmd.Flags().Changed("context-after"),
 				OutlineSet: cmd.Flags().Changed("after-turn") || cmd.Flags().Changed("limit"),
 			}
-			return runGet(cmd.Context(), cmd, opts, []string{args[0]}, branch, wantJSON, gopts, "get")
+			missing, err := runGet(cmd.Context(), cmd, opts, []string{args[0]}, branch, wantJSON, gopts, "get")
+			if err != nil {
+				return err
+			}
+			return retrievalMissingFailure(missing)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
@@ -598,19 +609,59 @@ func newMultiGetCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "multi-get <id>...",
 		Short: "Fetch multiple items by id",
-		Args:  cobra.MinimumNArgs(1),
+		Long: `multi-get fetches several items by id in one pass.
+
+Exit code: 0 only when EVERY id was found; 1 if any was missing, including a
+partial hit. Each id is a request the caller made, and get is the one-id case of
+this command, so a partial miss cannot mean success here and failure there. The
+items that were found are printed first either way, and the ids that were not
+are named on stdout (or in the JSON "missing" array), so the partial answer
+survives the nonzero exit.`,
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wantJSON, err := outputWantsJSON(jsonOut, format)
 			if err != nil {
 				return err
 			}
-			return runGet(cmd.Context(), cmd, opts, args, branch, wantJSON, getOptions{}, "multi-get")
+			missing, err := runGet(cmd.Context(), cmd, opts, args, branch, wantJSON, getOptions{}, "multi-get")
+			if err != nil {
+				return err
+			}
+			return retrievalMissingFailure(missing)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current)")
 	return cmd
+}
+
+// errRetrievalIDsMissing is the gate `get` and `multi-get` close when an id the
+// caller named was not in the brain.
+var errRetrievalIDsMissing = errors.New("requested ids were not found")
+
+// retrievalMissingFailure turns "part of what you asked for is not here" into an
+// exit code, AFTER the results and the `not found:` lines have been written.
+//
+// `show`, the sibling verb, already exits 1 for the one id it takes, while
+// `get` and `multi-get` exited 0 whether they found everything, something or
+// nothing -- so nothing downstream could branch without parsing stdout.
+//
+// ANY missing id fails, including a partial hit. Every id in the argument list
+// is a request the caller made, and `get` is the one-id case of `multi-get`, so
+// a rule that forgave a partial miss would make the SAME id exit 0 when asked
+// for alongside a hit and 1 when asked for alone. Nothing is withheld to say
+// it: the found results and the per-id `not found:` lines (or the JSON
+// `missing` array) are already out, so a caller that wants the partial answer
+// still has it and can ignore the code.
+//
+// renderedCommandError because the ids were named on the way out; repeating
+// them on stderr would say it twice.
+func retrievalMissingFailure(missing []string) error {
+	if len(missing) == 0 {
+		return nil
+	}
+	return renderedCommandError{err: fmt.Errorf("%w: %s", errRetrievalIDsMissing, strings.Join(missing, ", "))}
 }
 
 func outputWantsJSON(jsonOut bool, format string) (bool, error) {
@@ -626,14 +677,19 @@ func outputWantsJSON(jsonOut bool, format string) (bool, error) {
 	}
 }
 
-func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string, branch string, jsonOut bool, gopts getOptions, surface string) error {
+// runGet emits the requested items and REPORTS which ids were not found rather
+// than failing on them. The miss is a result, not an error: the MCP tools share
+// this body, and a JSON-RPC tool result has to keep carrying `missing` in its
+// payload. Turning a miss into an exit code is the CLI's job, one layer up --
+// see retrievalMissingFailure.
+func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string, branch string, jsonOut bool, gopts getOptions, surface string) ([]string, error) {
 	repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(ctx, opts, agentSurfaceTarget(opts, nil), branch)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	requestedPattern := false
 	for _, id := range ids {
@@ -645,15 +701,15 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 	}
 	if requestedPattern {
 		if err := requirePrivacyDerivedRead(brainDir); err != nil {
-			return err
+			return nil, err
 		}
 		if err := requirePatternCorpusAvailable(brainDir); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	found, missing, err := getUnifiedBatchOptions(repoDir, brainDir, resolvedBranch, ids, gopts)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	factIDs := unifiedFactIDs(found)
 	recordReceipt := func() {
@@ -671,15 +727,15 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 	if jsonOut {
 		serialized, err := jsonOutputBytes(map[string]any{"branch": resolvedBranch, "results": found, "missing": missing})
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized, privacyPolicy); err != nil {
-			return err
+			return nil, err
 		}
 		if len(factIDs) > 0 {
 			recordReceipt()
 		}
-		return nil
+		return missing, nil
 	}
 	var rendered bytes.Buffer
 	if err := writeTextToWriter(&rendered, func(out io.Writer) {
@@ -707,15 +763,15 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 			}
 		}
 	}); err != nil {
-		return err
+		return nil, err
 	}
 	if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), rendered.Bytes(), privacyPolicy); err != nil {
-		return err
+		return nil, err
 	}
 	if len(factIDs) > 0 {
 		recordReceipt()
 	}
-	return nil
+	return missing, nil
 }
 
 // unifiedResultLocation renders a result's source anchor, including the

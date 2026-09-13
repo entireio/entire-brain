@@ -619,12 +619,29 @@ func newWorkspaceGetCommand(opts Options) *cobra.Command {
 }
 
 func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addOpts workspaceAddOptions, workspaceName, repoPath string) error {
+	if err := validateWorkspaceRepoName(addOpts.name); err != nil {
+		return err
+	}
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repoPath)
 	if err != nil {
 		return err
 	}
 	if !local {
 		return fmt.Errorf("workspace repo must be an existing local path: %s", repoPath)
+	}
+	// Existence is not repo-ness. resolveLocalTargetRepoDir deliberately
+	// tolerates a non-repository and rewrites a FILE to its parent directory,
+	// so `workspace add ws /etc/passwd` resolved to /etc, hashed it into a
+	// local/ key and reported "added" -- for a path that can never grow a
+	// brain. The rewrite stays (naming a file inside a repo is a reasonable
+	// way to name the repo, and git resolves it to the work-tree root the same
+	// way a subdirectory is resolved); what it resolves to now has to be a
+	// repository, which is the same gate `setup` and `path` already apply.
+	if _, ok := gitWorkTreeRoot(ctx, opts.Runner, repoDir); !ok {
+		brainCmd := setupCommandPrefix(os.LookupEnv)
+		return fmt.Errorf("not a git repository: %s\n"+
+			"%[2]s workspace add registers a repository whose brain -- like every source it is built from -- comes from git.\n"+
+			"run `git init` there, or name a repository: %[2]s workspace add %[3]s <path>", repoDir, brainCmd, workspaceName)
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
@@ -3113,6 +3130,37 @@ func writeWorkspaceManifest(env EntireEnv, manifest workspaceManifest) error {
 		return err
 	}
 	return writeFileAtomic(filepath.Join(dir, workspaceReadmeName), []byte(renderWorkspaceReadme(manifest)), 0o600)
+}
+
+// workspaceRepoNameMaxLength bounds the workspace-local display name. It is a
+// label a person reads in a list, not a key: 64 characters is past anything
+// anyone types deliberately and far short of the 5000-character value that
+// motivated the bound.
+const workspaceRepoNameMaxLength = 64
+
+// validateWorkspaceRepoName applies the workspace name's own rules to the
+// display name `workspace add --name` attaches to a member.
+//
+// The two arrived in the manifest through the same command and got opposite
+// treatment: the workspace name was allowlisted, while --name was stored raw,
+// so a 5000-character value and a `../`-laden one both round-tripped into
+// workspace.json and from there, unescaped, into the workspace README. The name
+// never builds a filesystem path, which is why this is not a traversal fix --
+// it is the missing half of one command's input validation.
+//
+// An empty name is not an error: `setup`'s re-registration carries none, and
+// refusing it there would make the display name mandatory.
+func validateWorkspaceRepoName(name string) error {
+	if name == "" {
+		return nil
+	}
+	if len(name) > workspaceRepoNameMaxLength {
+		return fmt.Errorf("workspace repo name must be at most %d characters: %d given", workspaceRepoNameMaxLength, len(name))
+	}
+	if name == "." || name == ".." || strings.Trim(name, ".") == "" || !workspaceNamePattern.MatchString(name) {
+		return fmt.Errorf("workspace repo name must contain only letters, numbers, dots, underscores, or dashes: %s", name)
+	}
+	return nil
 }
 
 func validateWorkspaceName(name string) error {

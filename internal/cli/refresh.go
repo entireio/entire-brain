@@ -276,7 +276,10 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	}
 	switch {
 	case seedProbeErr != nil:
-		progress.Skip("seed baseline: freshness unknown (" + seedProbeErr.Error() + ")")
+		// One line: this is a parenthesised progress note, and a named repository
+		// condition carries its remedy on the lines after the first, which the
+		// terminal error still prints in full.
+		progress.Skip("seed baseline: freshness unknown (" + firstErrorLine(seedProbeErr) + ")")
 		if stage(brainComponentSeed, seedProbeErr) {
 			return seedProbeErr
 		}
@@ -908,7 +911,7 @@ func seedRefreshNeeded(ctx context.Context, opts Options, repoDir string, manife
 	seed := manifest.Sources.Seed
 	head, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD")
 	if err != nil {
-		return false, fmt.Errorf("resolve HEAD for seed refresh: %w", err)
+		return false, nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("resolve HEAD for seed refresh: %w", err))
 	}
 	if seed.Commit != head {
 		return true, nil

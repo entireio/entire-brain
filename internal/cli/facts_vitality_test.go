@@ -168,9 +168,10 @@ func TestVitalityRetrieveGetAndStatusSurfaces(t *testing.T) {
 	if out, err := execute(t, NewRootCommand(f.opts), "get", fact.ID, "--json"); err != nil {
 		t.Fatalf("get: %v\n%s", err, out)
 	}
-	if out, err := execute(t, NewRootCommand(f.opts), "multi-get", fact.ID, "fact:absent", "--json"); err != nil {
-		t.Fatalf("multi-get: %v\n%s", err, out)
-	}
+	// The absent id fails the command, but the receipt for the id that WAS
+	// served still has to be written: the gate closes after the emit, not
+	// instead of it.
+	executeExpectingMissing(t, NewRootCommand(f.opts), "multi-get", fact.ID, "fact:absent", "--json")
 
 	rollup := vitalityViewOrFatal(t, f.brainDir, "main")
 	entry := rollup.Facts[fact.ID]

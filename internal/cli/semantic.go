@@ -439,11 +439,11 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	}
 	head, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD")
 	if err != nil {
-		return fmt.Errorf("resolve HEAD for semantic index: %w", err)
+		return nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("resolve HEAD for semantic index: %w", err))
 	}
 	tree, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD^{tree}")
 	if err != nil {
-		return fmt.Errorf("resolve HEAD tree for semantic index: %w", err)
+		return nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("resolve HEAD tree for semantic index: %w", err))
 	}
 	branch, _ := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current")
 	defaultBranch, defaultWarnings := detectDefaultBranch(ctx, opts.Runner, repoDir)

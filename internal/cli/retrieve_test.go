@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -416,6 +417,24 @@ func TestHistoryRetrievalPathFiltersSelfEchoesAndRefills(t *testing.T) {
 	}
 }
 
+// executeExpectingMissing runs a retrieval verb on ids it cannot all resolve.
+//
+// The miss is now the command's exit code as well as its output -- `get` and
+// `multi-get` used to exit 0 on a total miss, which `show` never did -- so these
+// tests assert the SAME payload they always did and additionally pin which
+// error carries the nonzero exit.
+func executeExpectingMissing(t *testing.T, cmd *cobra.Command, args ...string) string {
+	t.Helper()
+	out, err := execute(t, cmd, args...)
+	if err == nil {
+		t.Fatalf("%s: a missing id did not fail the command:\n%s", strings.Join(args, " "), out)
+	}
+	if !errors.Is(err, errRetrievalIDsMissing) {
+		t.Fatalf("%s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return out
+}
+
 func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -512,10 +531,7 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 		t.Fatalf("get branch = %q, want feature", getPayload.Branch)
 	}
 
-	multiOut, err := execute(t, NewRootCommand(opts), "multi-get", facts[1].ID, "fact:missing", "--format", "json")
-	if err != nil {
-		t.Fatalf("multi-get --format json: %v\n%s", err, multiOut)
-	}
+	multiOut := executeExpectingMissing(t, NewRootCommand(opts), "multi-get", facts[1].ID, "fact:missing", "--format", "json")
 	var multiPayload struct {
 		Branch  string          `json:"branch"`
 		Results []unifiedResult `json:"results"`
@@ -585,17 +601,25 @@ func TestQMDBranchOverrideAcrossRetrievalVerbs(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		args []string
+		// wantMissing marks the verbs that are asked for an id the branch
+		// override puts out of reach: they report it, and now also exit 1.
+		wantMissing bool
 	}{
 		{name: "search", args: []string{"search", "zephyr branch override", "--branch", branch, "--format", "json", "-n", "5"}},
 		{name: "query", args: []string{"query", "zephyr branch override", "--branch", branch, "--format", "json", "-n", "5"}},
 		{name: "vsearch", args: []string{"vsearch", "zephyr branch override feature", "--branch", branch, "--format", "json", "-n", "5"}},
 		{name: "get", args: []string{"get", featureFact.ID, "--branch", branch, "--format", "json"}},
-		{name: "multi-get", args: []string{"multi-get", featureFact.ID, mainFact.ID, "--branch", branch, "--format", "json"}},
+		{name: "multi-get", args: []string{"multi-get", featureFact.ID, mainFact.ID, "--branch", branch, "--format", "json"}, wantMissing: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			out, err := execute(t, NewRootCommand(opts), tc.args...)
-			if err != nil {
-				t.Fatalf("%s: %v\n%s", strings.Join(tc.args, " "), err, out)
+			var out string
+			if tc.wantMissing {
+				out = executeExpectingMissing(t, NewRootCommand(opts), tc.args...)
+			} else {
+				var err error
+				if out, err = execute(t, NewRootCommand(opts), tc.args...); err != nil {
+					t.Fatalf("%s: %v\n%s", strings.Join(tc.args, " "), err, out)
+				}
 			}
 			got := assertPayload(t, out, branch, featureFact.ID, mainFact.ID)
 			if tc.name == "multi-get" && (len(got.Missing) != 1 || got.Missing[0] != mainFact.ID) {
@@ -604,10 +628,7 @@ func TestQMDBranchOverrideAcrossRetrievalVerbs(t *testing.T) {
 		})
 	}
 
-	out, err := execute(t, NewRootCommand(opts), "get", featureFact.ID, "--branch", "main", "--format", "json")
-	if err != nil {
-		t.Fatalf("get wrong branch: %v\n%s", err, out)
-	}
+	out := executeExpectingMissing(t, NewRootCommand(opts), "get", featureFact.ID, "--branch", "main", "--format", "json")
 	got := assertPayload(t, out, "main", "", featureFact.ID)
 	if len(got.Results) != 0 || len(got.Missing) != 1 || got.Missing[0] != featureFact.ID {
 		t.Fatalf("wrong-branch get should miss feature fact, got %+v", got)
@@ -768,10 +789,7 @@ func TestQMDFormatCLIOverridesJSONAndReportsMissingIDs(t *testing.T) {
 		}
 	}
 
-	getOut, err := execute(t, NewRootCommand(opts), "get", "fact:missing", "--format", "json")
-	if err != nil {
-		t.Fatalf("get missing --format json: %v\n%s", err, getOut)
-	}
+	getOut := executeExpectingMissing(t, NewRootCommand(opts), "get", "fact:missing", "--format", "json")
 	var getPayload struct {
 		Results []unifiedResult `json:"results"`
 		Missing []string        `json:"missing"`
@@ -783,10 +801,7 @@ func TestQMDFormatCLIOverridesJSONAndReportsMissingIDs(t *testing.T) {
 		t.Fatalf("unexpected missing get payload: %+v", getPayload)
 	}
 
-	multiOut, err := execute(t, NewRootCommand(opts), "multi-get", fact.ID, "fact:missing", "--format", "cli")
-	if err != nil {
-		t.Fatalf("multi-get --format cli: %v\n%s", err, multiOut)
-	}
+	multiOut := executeExpectingMissing(t, NewRootCommand(opts), "multi-get", fact.ID, "fact:missing", "--format", "cli")
 	for _, want := range []string{fact.ID, "not found: fact:missing"} {
 		if !strings.Contains(multiOut, want) {
 			t.Fatalf("CLI multi-get output missing %q:\n%s", want, multiOut)
@@ -815,5 +830,75 @@ func TestQMDUnsupportedFormatRejectedAcrossRetrievalVerbs(t *testing.T) {
 				t.Fatalf("unexpected error for %s: %v\n%s", strings.Join(tc.args, " "), err, out)
 			}
 		})
+	}
+}
+
+// TestGetAndMultiGetExitNonzeroOnAMissingID pins the exit code an agent or a
+// shell script can actually branch on. `get` and `multi-get` printed
+// `not found: <id>` and exited 0 -- for a total miss as much as a partial one --
+// while the sibling verb `show` exited 1 for the same condition, so the only way
+// to tell a hit from a miss was to parse stdout.
+//
+// The partial case is the one worth stating out loud: 1 of 2 found still fails,
+// because every id in the argument list is a request the caller made and `get`
+// is the one-id case of `multi-get`. The found item is still printed first.
+func TestGetAndMultiGetExitNonzeroOnAMissingID(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	paths := normalizeFactPaths([]string{"architecture.data.flow"})
+	fact := factRecord{
+		ID:        factRecordID("exit codes are a contract", paths),
+		Text:      "exit codes are a contract",
+		Paths:     paths,
+		Branch:    "feature",
+		Status:    factStatusActive,
+		UpdatedAt: now,
+	}
+	if err := writeFacts(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
+		t.Fatalf("write facts: %v", err)
+	}
+
+	// A hit still exits 0, or the gate is just "always fail".
+	if out, err := execute(t, NewRootCommand(opts), "get", fact.ID); err != nil {
+		t.Fatalf("get on a present id must succeed: %v\n%s", err, out)
+	}
+	if out, err := execute(t, NewRootCommand(opts), "multi-get", fact.ID); err != nil {
+		t.Fatalf("multi-get on a present id must succeed: %v\n%s", err, out)
+	}
+
+	// A total miss, the case `show` already got right.
+	out := executeExpectingMissing(t, NewRootCommand(opts), "get", "fact:d7bc8dd14ad31da3f66b9ccf")
+	if !strings.Contains(out, "not found: fact:d7bc8dd14ad31da3f66b9ccf") {
+		t.Fatalf("the miss stopped being readable on the way to the exit code:\n%s", out)
+	}
+
+	// A partial hit: the found item is emitted, and the command still fails.
+	partial := executeExpectingMissing(t, NewRootCommand(opts), "multi-get", fact.ID, "fact:absent")
+	if !strings.Contains(partial, fact.ID) {
+		t.Fatalf("a partial hit withheld the item it did find:\n%s", partial)
+	}
+	if !strings.Contains(partial, "not found: fact:absent") {
+		t.Fatalf("a partial hit did not name the id it missed:\n%s", partial)
+	}
+
+	// The JSON body survives the nonzero exit too -- the exit code adds a
+	// signal, it does not replace the payload.
+	jsonOut := executeExpectingMissing(t, NewRootCommand(opts), "multi-get", fact.ID, "fact:absent", "--json")
+	var payload struct {
+		Results []unifiedResult `json:"results"`
+		Missing []string        `json:"missing"`
+	}
+	if err := json.Unmarshal([]byte(jsonOut), &payload); err != nil {
+		t.Fatalf("decode multi-get JSON: %v\n%s", err, jsonOut)
+	}
+	if len(payload.Results) != 1 || len(payload.Missing) != 1 || payload.Missing[0] != "fact:absent" {
+		t.Fatalf("unexpected partial payload: %+v", payload)
 	}
 }

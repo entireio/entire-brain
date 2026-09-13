@@ -273,6 +273,78 @@ func gitWorkTreeRoot(ctx context.Context, runner CommandRunner, dir string) (str
 	return filepath.Clean(root), true
 }
 
+// firstErrorLine is an error reduced to its opening line, for the one-line
+// slots -- progress notes, status axes -- that a multi-line named condition
+// would otherwise wrap into nonsense.
+func firstErrorLine(err error) string {
+	if err == nil {
+		return ""
+	}
+	text := err.Error()
+	if idx := strings.IndexByte(text, '\n'); idx >= 0 {
+		return text[:idx]
+	}
+	return text
+}
+
+// nameDegenerateRepoFailure replaces a raw git failure with the repository
+// condition that explains it.
+//
+// A brain command run against a repository with no commits exited 1 -- the right
+// code -- while printing whichever git subprocess happened to notice first,
+// verbatim, including the hardening flags this binary adds and the caller never
+// typed:
+//
+//	resolve HEAD for semantic index: git [-c core.fsmonitor=false rev-parse HEAD]:
+//	exit status 128: fatal: ambiguous argument 'HEAD': unknown revision or path
+//	not in the working tree.
+//
+// Only the conditions one further probe settles are named: no work tree at all,
+// a bare repository, and an unborn HEAD. A detached HEAD and a shallow clone are
+// deliberately absent -- both build a brain, and the surfaces that care already
+// describe them (branch_tip=stale, and the shallow-boundary warning entityindex
+// raises) -- and every other failure keeps git's own text, which is worth more
+// than a guess.
+//
+// The probes run only on a path that has already failed, so a healthy repo pays
+// nothing for them.
+func nameDegenerateRepoFailure(ctx context.Context, runner CommandRunner, repoDir string, err error) error {
+	if err == nil || runner == nil {
+		return err
+	}
+	brainCmd := setupCommandPrefix(os.LookupEnv)
+	if _, ok := gitWorkTreeRoot(ctx, runner, repoDir); !ok {
+		if bare, bareErr := gitScalar(ctx, runner, repoDir, "rev-parse", "--is-bare-repository"); bareErr == nil && strings.TrimSpace(bare) == "true" {
+			return fmt.Errorf("bare repository has no working tree: %s\n"+
+				"%[2]s reads seed, docs and the semantic index out of a working tree, and a bare repository has none.\n"+
+				"point it at a clone with a checkout: %[2]s refresh <path>", repoDir, brainCmd)
+		}
+		return fmt.Errorf("not a git repository: %s\n"+
+			"%[2]s builds every source it has -- sessions, seed, docs, semantic index -- from git history, so it needs one.\n"+
+			"run `git init` here, or name a repository: %[2]s refresh <path>", repoDir, brainCmd)
+	}
+	// An unborn HEAD has to be shown, not inferred from the failure that got us
+	// here: `git rev-parse HEAD` also fails when git itself is unavailable, and
+	// answering that with "no commits yet" would be a confident wrong diagnosis.
+	//
+	// symbolic-ref SUCCEEDING is the positive evidence -- it proves git ran and
+	// the repo is readable, and it returns the branch HEAD points at even when
+	// that branch has no commit. If that branch then does not resolve, the only
+	// thing left is that nothing has been committed to it. A detached HEAD has
+	// no symbolic ref and falls through here untouched, which is correct: it is
+	// not a condition this names.
+	ref, refErr := gitScalar(ctx, runner, repoDir, "symbolic-ref", "--quiet", "HEAD")
+	if refErr != nil || strings.TrimSpace(ref) == "" {
+		return err
+	}
+	if _, resolved := gitScalar(ctx, runner, repoDir, "rev-parse", "--verify", "--quiet", strings.TrimSpace(ref)); resolved == nil {
+		return err
+	}
+	return fmt.Errorf("this repository has no commits yet: %s\n"+
+		"%[2]s pins every source it builds to a commit, and an unborn branch has none.\n"+
+		"make at least one commit, then run `%[2]s refresh` again", repoDir, brainCmd)
+}
+
 func matchingLexicalAncestor(path, target string) (string, bool) {
 	targetInfo, err := os.Stat(target)
 	if err != nil {
