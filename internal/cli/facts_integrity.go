@@ -94,6 +94,11 @@ type factStoreIntegrity struct {
 	// ParseError is the first line the store could not parse, in the loader's
 	// own words ("parse facts.ndjson line 3: ...").
 	ParseError string `json:"parse_error,omitempty"`
+	// Unreadable names the declared branches whose facts.ndjson will not parse.
+	// loadAllFactBranches stops at the first bad line and does not say WHOSE
+	// it was; with several branches declared, that is the difference between a
+	// repair the user can aim and one they cannot.
+	Unreadable []string `json:"unreadable_branches,omitempty"`
 	// Mode is the classification; empty when the store is intact.
 	Mode factStoreDefectMode `json:"mode,omitempty"`
 }
@@ -122,9 +127,13 @@ func (r factStoreIntegrity) Warning() string {
 	case factStoreDefectMissing:
 		return missingFactStoreWarning(r.Missing)
 	case factStoreDefectUnreadable:
+		where := "fact store"
+		if len(r.Unreadable) > 0 {
+			where = "fact store for " + strings.Join(r.Unreadable, ", ")
+		}
 		return fmt.Sprintf(
-			"fact store is corrupt: %s; the %d fact(s) the manifest declares cannot be recalled — %s",
-			r.ParseError, r.Declared, factsRepairHint,
+			"%s is corrupt: %s; the %d fact(s) the manifest declares cannot be recalled — %s",
+			where, r.ParseError, r.Declared, factsRepairHint,
 		)
 	case factStoreDefectLossy:
 		detail := fmt.Sprintf(
@@ -173,6 +182,9 @@ func inspectFactStore(brainDir string, source *factSourceManifest) factStoreInte
 	byBranch, err := loadAllFactBranches(brainDir)
 	if err != nil {
 		report.ParseError = err.Error()
+		for _, broken := range unreadableFactBranchStores(brainDir, source) {
+			report.Unreadable = append(report.Unreadable, broken.Branch)
+		}
 		report.Mode = factStoreDefectUnreadable
 		return report
 	}

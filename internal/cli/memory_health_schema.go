@@ -184,6 +184,34 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 		return finishHistoryFTSReadError(health)
 	}
 	db.SetMaxOpenConns(1)
+	// A readable database that simply has no index in it yet is NOT damage.
+	//
+	// The FTS store is created lazily: opening it creates the file, and the
+	// meta table only lands when a build actually writes records. On a brain
+	// with no history records that leaves a valid, completely empty SQLite
+	// file on disk forever -- and reporting the missing meta table as
+	// "corrupt" made doctor contradict itself on a pristine brain, saying
+	// `history_fts: warn (absent or stale; it rebuilds on the next query)` and
+	// `memory_fts: error (corrupt)` about the same file in the same report.
+	// The aggregate memory_schemas counted that observation too, so a brand
+	// new brain reported two schema errors it did not have.
+	//
+	// The probe is sqlite_master rather than the shape of a driver error
+	// string, because this repo builds against two different SQLite drivers
+	// and their messages differ. A query that fails HERE means the file is not
+	// a readable database, which is the real corruption case; a query that
+	// succeeds and returns nothing means the store holds no index yet, whose
+	// remedy is identical to absent: the next query builds it.
+	var metaTable string
+	switch err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'history_fts_meta'`).Scan(&metaTable); {
+	case errors.Is(err, sql.ErrNoRows):
+		_ = db.Close()
+		health["action"] = "none; the derived store holds no index yet and is built on the next query"
+		return health
+	case err != nil:
+		_ = db.Close()
+		return finishHistoryFTSReadError(health)
+	}
 	var schema, fingerprint string
 	if err := db.QueryRow(`SELECT value FROM history_fts_meta WHERE key = 'schema'`).Scan(&schema); err != nil {
 		_ = db.Close()

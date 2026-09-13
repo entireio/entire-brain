@@ -206,6 +206,45 @@ func missingFactBranchStores(brainDir string, source *factSourceManifest) []stri
 	return missing
 }
 
+// unreadableFactBranchStore is one declared branch whose facts.ndjson is on
+// disk but cannot be read back.
+type unreadableFactBranchStore struct {
+	Branch string
+	Err    error
+}
+
+// unreadableFactBranchStores returns the declared branches whose facts.ndjson
+// exists but does not parse.
+//
+// Existence is not readability. `facts status`, `recall`, `brief` and every
+// other fact reader goes through loadFacts, which fails hard on a malformed
+// line so a corrupt store is never silently truncated -- so a single bad line
+// takes the whole branch out of every retrieval surface while the manifest,
+// the file listing, and therefore missingFactBranchStores all still report the
+// store as present. Doctor is the command a user is sent to when `status` says
+// something is wrong, and it must not hand out a clean bill of health for a
+// store every other command refuses to read.
+//
+// This deliberately calls the SAME loader those commands call rather than
+// scanning the file itself: a second, more forgiving parser here would put
+// doctor back in the business of disagreeing with the readers it is supposed
+// to explain.
+func unreadableFactBranchStores(brainDir string, source *factSourceManifest) []unreadableFactBranchStore {
+	if source == nil || brainDir == "" {
+		return nil
+	}
+	var unreadable []unreadableFactBranchStore
+	for _, branch := range source.Branches {
+		if branch == "" {
+			continue
+		}
+		if _, err := loadFacts(brainDir, branch); err != nil {
+			unreadable = append(unreadable, unreadableFactBranchStore{Branch: branch, Err: err})
+		}
+	}
+	return unreadable
+}
+
 // missingFactStoreWarning renders the caller-facing warning for the branches
 // missingFactBranchStores found, or "" when the declared store is intact.
 func missingFactStoreWarning(missing []string) string {

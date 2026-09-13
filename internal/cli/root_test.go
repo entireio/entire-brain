@@ -123,17 +123,20 @@ func TestDoctorUsesXDGFallbacks(t *testing.T) {
 	t.Setenv(xdgStateHome, filepath.Join(xdg, "state"))
 	t.Setenv(xdgCacheHome, filepath.Join(xdg, "cache"))
 
-	cmd := NewRootCommand(Options{Version: "test-version"})
-	out, err := execute(t, cmd, "doctor")
-	if err != nil {
-		t.Fatalf("doctor: %v\n%s", err, out)
-	}
+	// This test is about the PATHS doctor resolves, not about its exit code:
+	// see doctorReportText. A runner with no `entire` on PATH makes doctor
+	// report a host-environment error, which is none of this test's business.
+	out := doctorReportText(t, Options{Version: "test-version"})
+	// A plugin directory that has not been created yet is the normal state of
+	// a fresh install, not a finding: what doctor owes the reader here is the
+	// PATH it resolved from the XDG fallback, and the promise that it did not
+	// create it. See doctor_honest_reporting_test.go for the state mapping.
 	for _, want := range []string{
 		"ENTIRE_PLUGIN_DATA_DIR=<unset>",
-		"plugin config dir: warn (creatable_unproven: " + filepath.Join(xdg, "config", "entire"),
-		"plugin data dir: warn (creatable_unproven: " + filepath.Join(xdg, "data", "entire", "plugins", "data", pluginDataName),
-		"plugin state dir: warn (creatable_unproven: " + filepath.Join(xdg, "state", "entire"),
-		"plugin cache dir: warn (creatable_unproven: " + filepath.Join(xdg, "cache", "entire"),
+		"plugin config dir: ok (" + filepath.Join(xdg, "config", "entire"),
+		"plugin data dir: ok (" + filepath.Join(xdg, "data", "entire", "plugins", "data", pluginDataName),
+		"plugin state dir: ok (" + filepath.Join(xdg, "state", "entire"),
+		"plugin cache dir: ok (" + filepath.Join(xdg, "cache", "entire"),
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, out)
@@ -148,7 +151,7 @@ func TestDoctorUsesXDGFallbacks(t *testing.T) {
 
 func TestDoctorDoesNotCreateOrProbePluginDataDir(t *testing.T) {
 	dirs := t.TempDir()
-	cmd := NewRootCommand(Options{
+	opts := Options{
 		Version: "test-version",
 		Env: EntireEnv{
 			PluginConfigDir: dirs + "/config",
@@ -156,13 +159,14 @@ func TestDoctorDoesNotCreateOrProbePluginDataDir(t *testing.T) {
 			PluginStateDir:  dirs + "/state",
 			PluginCacheDir:  dirs + "/cache",
 		},
-	})
-
-	out, err := execute(t, cmd, "doctor")
-	if err != nil {
-		t.Fatalf("doctor: %v", err)
 	}
-	if !strings.Contains(out, "plugin data dir: warn (creatable_unproven:") {
+
+	// About the must-not-create-or-probe invariant, not about the exit code.
+	out := doctorReportText(t, opts)
+	// filepath.Join, not dirs+"/data": doctor reports the cleaned path, so on
+	// Windows the finding reads `...\001\data` while the raw env value keeps the
+	// forward slash it was given. The sibling XDG test above already joins.
+	if !strings.Contains(out, "plugin data dir: ok ("+filepath.Join(dirs, "data")+": not created yet") {
 		t.Fatalf("doctor output missing read-only directory status:\n%s", out)
 	}
 	for _, suffix := range []string{"config", "data", "state", "cache"} {
