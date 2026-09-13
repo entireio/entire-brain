@@ -9,16 +9,31 @@ import (
 	"testing"
 )
 
-// mcpRepoScopedTools are the five tools that refuse to act without a bound
-// repository. Every one of them is advertised by tools/list, so a config that
-// leaves the server unbound ships a surface that is 5/36 dead on arrival.
-var mcpRepoScopedTools = []string{
-	"brain_list_projects",
+// mcpBoundAnchorTools are the four tools whose SCOPE ANCHOR is the bound
+// repository root, and which therefore refuse to act without one: deleting a
+// brain is irreversible, and the workspace tools fan out to whatever
+// workspaceScopeRoot computes from the anchor's parent. An anchor picked up from
+// an MCP host's working directory -- routinely $HOME, or / -- is never a
+// statement about which repository the server serves, so these fail closed.
+//
+// brain_list_projects is deliberately NOT here. It used to be, and it was the
+// only tool on the whole surface that required ENTIRE_REPO_ROOT: a server
+// launched from a repository with no env answered 35 tools from the working
+// directory and refused the 36th. Listing has no widening branch -- the listing
+// it produces is scoped to the one repository it resolved, exactly as
+// brain_status and brain_patterns already are -- so it resolves its target the
+// way they do. See mcpRepoLocalStorage.
+var mcpBoundAnchorTools = []string{
 	"brain_workspace_graph",
 	"brain_workspace_regressions",
 	"brain_workspace_review",
 	"brain_delete_project",
 }
+
+// mcpRepoScopedTools is every tool that needs a repository to act on, anchor
+// tools plus the listing. A config that leaves the server unbound and is not
+// started inside a repository ships a surface that is 5/36 dead on arrival.
+var mcpRepoScopedTools = append([]string{"brain_list_projects"}, mcpBoundAnchorTools...)
 
 // mcpPrintedServerEnv runs `entire-brain mcp --print-config` and returns the env
 // block a host would register verbatim.
@@ -144,7 +159,7 @@ func TestMCPUnboundScopeRefusalNamesRepoRootBeforeTheOptOut(t *testing.T) {
 	opts, _, _ := workspaceSiblingFixture(t, "unbound")
 	opts.Env.RepoRoot = ""
 
-	for _, tool := range mcpRepoScopedTools {
+	for _, tool := range mcpBoundAnchorTools {
 		message := mcpScopeErrorMessage(t, mcpScopeCall(t, opts, tool, scopeToolArgs(tool, "unbound")))
 		root := strings.Index(message, envRepoRoot)
 		gate := strings.Index(message, mcpAllowCrossRepoEnv)

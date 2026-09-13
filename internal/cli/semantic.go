@@ -472,6 +472,29 @@ func semanticRecordedArtifactsReadable(brainDir string, source *semanticSourceMa
 	return validateSemanticSQLiteStore(filepath.Join(brainDir, store), source.Symbols, source.Relations)
 }
 
+// semanticIndexStageDeadline stops an index at a stage boundary when its caller's
+// deadline has already passed.
+//
+// A deadline that is only consulted after the work finishes is not a deadline.
+// brain_index_repository advertises a 60 second cap and returned at ~113 seconds,
+// because nothing between "verify the provider" and "write the manifest" ever
+// asked whether it was still wanted -- the cap chose the error, the work chose
+// the wall clock. Checking at each boundary, plus inside the store build's own
+// row loop (buildSemanticGeneration), means an expired index stops at the next
+// boundary instead of running to completion and then being thrown away.
+//
+// The stage name is in the error so a caller reading a debug log can see WHERE
+// the time went, not just that time ran out.
+func semanticIndexStageDeadline(ctx context.Context, stage string) error {
+	if ctx == nil {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("semantic index stopped after %s: %w", stage, err)
+	}
+	return nil
+}
+
 func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, indexOpts semanticIndexOptions, target string) error {
 	if indexOpts.graphBinary == "" {
 		indexOpts.graphBinary = indexOpts.semBinary
@@ -636,6 +659,9 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		if !noEgress {
 			return semanticDoctorFailureError(indexOpts.graphBinary, doctorWarnings)
 		}
+		if err := semanticIndexStageDeadline(ctx, "verifying provider"); err != nil {
+			return err
+		}
 		indexOpts.reportPhase("parsing sources")
 		res, serr := streamSemanticSnapshot(ctx, opts.Runner, repoDir, storage.Key, indexOpts, providerIgnoreFiles, ignore, out)
 		if serr != nil && len(providerIgnoreFiles) > 0 && semanticSnapshotRejectsIgnoreFile(serr) {
@@ -724,14 +750,20 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	if err := os.Chmod(snapshotPath, 0o600); err != nil {
 		return fmt.Errorf("set semantic snapshot permissions: %w", err)
 	}
+	if err := semanticIndexStageDeadline(ctx, "writing snapshot"); err != nil {
+		return err
+	}
 	indexOpts.reportPhase("building store")
 	snapshotFile, err := os.Open(snapshotPath)
 	if err != nil {
 		return fmt.Errorf("open semantic snapshot for store build: %w", err)
 	}
-	generation, metrics, err := buildSemanticGeneration(storage.BrainDir, repoDir, snapshotID, snapshotFile, contentSuffix, header, counts, opts.Now().UTC())
+	generation, metrics, err := buildSemanticGeneration(ctx, storage.BrainDir, repoDir, snapshotID, snapshotFile, contentSuffix, header, counts, opts.Now().UTC())
 	_ = snapshotFile.Close()
 	if err != nil {
+		return err
+	}
+	if err := semanticIndexStageDeadline(ctx, "building store"); err != nil {
 		return err
 	}
 	overlayPath, err := writeSemanticBranchOverlay(ctx, opts.Runner, storage.BrainDir, repoDir, branch, defaultBranch, header.Commit, snapshotRel, opts.Now().UTC())
@@ -777,6 +809,9 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		SummaryPresent:          summary != nil,
 		CompletenessLevel:       completenessLevelFromStats(header.Stats),
 		Trust:                   trustForCompleteness(completenessLevelFromStats(header.Stats)),
+	}
+	if err := semanticIndexStageDeadline(ctx, "writing branch overlay"); err != nil {
+		return err
 	}
 	if err := writeBrainSemanticSource(storage.BrainDir, storage.Key, source); err != nil {
 		return err
@@ -887,7 +922,7 @@ func runSemanticRepair(ctx context.Context, cmd *cobra.Command, opts Options, ta
 	if snapshotID == "." || snapshotID == string(filepath.Separator) || snapshotID == "" {
 		return fmt.Errorf("semantic snapshot path has no generation id: %s", source.SnapshotPath)
 	}
-	generation, metrics, err := buildSemanticGeneration(storage.BrainDir, repoDir, snapshotID, bytes.NewReader(raw), semanticGenerationContentSuffix(raw), header, counts, opts.Now().UTC())
+	generation, metrics, err := buildSemanticGeneration(ctx, storage.BrainDir, repoDir, snapshotID, bytes.NewReader(raw), semanticGenerationContentSuffix(raw), header, counts, opts.Now().UTC())
 	if err != nil {
 		return err
 	}
@@ -1725,7 +1760,23 @@ func semanticSchemaMinorSkewWarning(version string) *semanticWarning {
 // generation. snapshot is scanned record-by-record (never fully buffered);
 // contentSuffix is the hex digest fragment used to disambiguate the generation
 // directory when a base ID already exists.
-func buildSemanticGeneration(brainDir, repoDir, generationID string, snapshot io.Reader, contentSuffix string, header semanticHeader, counts semanticCounts, now time.Time) (string, semanticBuildMetrics, error) {
+// buildSemanticGeneration takes a context because it is the LONGEST
+// UNINTERRUPTIBLE STAGE of an index, and an MCP call is bounded at 60 seconds.
+//
+// It used to take none. brain_index_repository's deadline therefore decided only
+// WHEN THE ERROR WAS CHOSEN, not when the call returned: the store build carried
+// on to completion and the 60 second cap was reported after ~113 seconds of wall
+// clock, on a call whose whole point was to protect a host configured to wait 60.
+// The cap bought six seconds out of a hundred and nineteen. Threading the
+// context here, and checking it inside the row loop, is what makes the advertised
+// number true.
+func buildSemanticGeneration(ctx context.Context, brainDir, repoDir, generationID string, snapshot io.Reader, contentSuffix string, header semanticHeader, counts semanticCounts, now time.Time) (string, semanticBuildMetrics, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", semanticBuildMetrics{}, err
+	}
 	start := time.Now()
 	generationsRoot := filepath.Join(brainDir, semanticDirName, semanticGenerationsDir)
 	if err := rejectExistingSymlinkPathComponents(brainDir, filepath.Join(semanticDirName, semanticGenerationsDir)); err != nil {
@@ -1755,7 +1806,7 @@ func buildSemanticGeneration(brainDir, repoDir, generationID string, snapshot io
 		_ = db.Close()
 		return "", semanticBuildMetrics{}, err
 	}
-	metrics, err := populateSemanticSQLite(db, repoDir, finalID, snapshot, header, counts, now, tmpDir)
+	metrics, err := populateSemanticSQLite(ctx, db, repoDir, finalID, snapshot, header, counts, now, tmpDir)
 	if closeErr := db.Close(); err == nil && closeErr != nil {
 		err = closeErr
 	}
@@ -1845,7 +1896,23 @@ func initializeSemanticSQLite(db *sql.DB) error {
 	return nil
 }
 
-func populateSemanticSQLite(db *sql.DB, repoDir, generationID string, snapshot io.Reader, header semanticHeader, counts semanticCounts, now time.Time, generationDir string) (semanticBuildMetrics, error) {
+// semanticBuildCancelCheckEvery / semanticBuildCancelCheckEveryFile are how
+// often the store build asks whether its deadline has passed. Both are small
+// enough that a cancelled MCP index stops within a fraction of a second and
+// large enough that the check itself is free.
+//
+// The two differ by two orders of magnitude because the loops do: a snapshot
+// record is a JSON unmarshal plus an INSERT (~0.1ms, 205k of them), while a
+// parse-cache file is a sha256 of the file's contents plus an artifact write
+// (~11ms, ~900 of them). One constant for both is what left the first version of
+// this fix still 5 seconds past its deadline: at 1024, a file loop of 900
+// entries checks exactly once, on entry.
+const (
+	semanticBuildCancelCheckEvery     = 1024
+	semanticBuildCancelCheckEveryFile = 16
+)
+
+func populateSemanticSQLite(ctx context.Context, db *sql.DB, repoDir, generationID string, snapshot io.Reader, header semanticHeader, counts semanticCounts, now time.Time, generationDir string) (semanticBuildMetrics, error) {
 	tx, err := db.Begin()
 	if err != nil {
 		return semanticBuildMetrics{}, err
@@ -1885,7 +1952,16 @@ func populateSemanticSQLite(db *sql.DB, repoDir, generationID string, snapshot i
 	if !scanner.Scan() {
 		return commit(errors.New("semantic snapshot missing header"))
 	}
+	// One check per batch of records, not per record: ctx.Err() is cheap but
+	// 200k of them is still work, and 1024 records is a small fraction of a
+	// second on any snapshot this code has seen.
+	scanned := 0
 	for scanner.Scan() {
+		if scanned++; scanned%semanticBuildCancelCheckEvery == 0 {
+			if err := ctx.Err(); err != nil {
+				return commit(err)
+			}
+		}
 		text := bytes.TrimSpace(scanner.Bytes())
 		if len(text) == 0 {
 			continue
@@ -1937,6 +2013,11 @@ func populateSemanticSQLite(db *sql.DB, repoDir, generationID string, snapshot i
 
 	parseCacheFiles := 0
 	for path, record := range files {
+		if parseCacheFiles%semanticBuildCancelCheckEveryFile == 0 {
+			if err := ctx.Err(); err != nil {
+				return commit(err)
+			}
+		}
 		contentHash := semanticFileContentHash(repoDir, path)
 		if contentHash == "" && record.Blob != "" {
 			contentHash = "git-blob:" + record.Blob
@@ -6115,7 +6196,9 @@ func addSanitizedSemanticStoreBundlePath(tw *tar.Writer, rel, snapshotPath, repo
 		_ = db.Close()
 		return err
 	}
-	_, err = populateSemanticSQLite(db, repoDir, generationID, bytes.NewReader(raw), header, counts, now, tmpDir)
+	// Bundle export/import is not the deadline-bounded MCP path; it has no
+	// context of its own to honour.
+	_, err = populateSemanticSQLite(context.Background(), db, repoDir, generationID, bytes.NewReader(raw), header, counts, now, tmpDir)
 	if closeErr := db.Close(); err == nil && closeErr != nil {
 		err = closeErr
 	}
@@ -6853,7 +6936,9 @@ func rebuildImportedSemanticStore(brainDir, repoDir string, source *semanticSour
 		_ = db.Close()
 		return err
 	}
-	_, err = populateSemanticSQLite(db, repoDir, pathpkg.Base(filepath.ToSlash(generationRel)), bytes.NewReader(raw), header, counts, now, filepath.Join(brainDir, generationRel))
+	// Bundle export/import is not the deadline-bounded MCP path; it has no
+	// context of its own to honour.
+	_, err = populateSemanticSQLite(context.Background(), db, repoDir, pathpkg.Base(filepath.ToSlash(generationRel)), bytes.NewReader(raw), header, counts, now, filepath.Join(brainDir, generationRel))
 	if closeErr := db.Close(); err == nil && closeErr != nil {
 		err = closeErr
 	}

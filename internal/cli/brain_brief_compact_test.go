@@ -314,8 +314,13 @@ func TestMCPBrainBriefToolDefinitionGolden(t *testing.T) {
 	// depth argument -- 22 of them -- for +1,536 bytes on the tools/list result
 	// (27,433 -> 28,969). The full statement of the contract is carried once in
 	// initialize's instructions instead of being repeated in twenty-two schemas.
-	if len(got) != 827 {
-		t.Fatalf("brain_brief tool definition bytes = %d, want 827", len(got))
+	// A declared maxLength on every string argument (mcpStringArgMaxBytes) adds
+	// 18 bytes per string argument, so the surface can state the bound it
+	// enforces: an argument the tool echoes back cannot be trimmed away by
+	// dropping rows, so an oversize scalar is refused rather than blowing the
+	// response budget.
+	if len(got) != 861 {
+		t.Fatalf("brain_brief tool definition bytes = %d, want 861", len(got))
 	}
 }
 
