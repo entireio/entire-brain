@@ -441,6 +441,10 @@ var dispatchMCPMessage = func(ctx context.Context, opts Options, msg mcpMessage)
 			"protocolVersion": protocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "entire-brain", "version": opts.Version},
+			// The response budget is a property of the whole surface, not of any
+			// one tool, so it is stated once here (MCP's place for exactly this)
+			// instead of being repeated in full across twenty-two schemas.
+			"instructions": mcpServerInstructions,
 		}
 	case "ping":
 		// MCP defines ping as a liveness check every server must answer, with an
@@ -483,8 +487,14 @@ func mcpToolDefinitions() []map[string]any {
 	// client that limit=1000000 was a legal call; the handler rejects it with
 	// -32000, so the client learned the real ceiling by being refused at
 	// runtime instead of reading it off the schema.
+	//
+	// integerArg is the size knob on every tool that has one (limit, depth), so
+	// it also states the other half of the contract: the maximum is a ceiling on
+	// what is asked for, not a promise about what comes back. A response that
+	// would exceed the budget sheds whole tail rows and says so, rather than
+	// failing at a number the schema itself offered.
 	integerArg := func(name, description string) map[string]any {
-		return map[string]any{"type": "integer", "description": description, "title": name, "minimum": 1, "maximum": mcpIntegerArgMax}
+		return map[string]any{"type": "integer", "description": description + mcpResponseBudgetNote, "title": name, "minimum": 1, "maximum": mcpIntegerArgMax}
 	}
 	// nonNegativeIntegerArg is for the handful of integer params whose zero
 	// value is meaningful and accepted by the handler (mcpNonNegativeInt):
@@ -1225,8 +1235,8 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	return mcpToolTextResult(ctx, params.Name, out.String())
 }
 
-// mcpToolTextResult wraps a tool's text output, refusing a frame the transport
-// cannot carry.
+// mcpToolTextResult wraps a tool's text output, holding it to the response
+// budget the tool schemas can actually honour.
 //
 // Inbound frames have been bounded by maxMCPFrameBytes since framing was
 // written; outbound frames were not bounded at all. Every use of
@@ -1237,34 +1247,21 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 // than any frame the peer will accept. The client either drops the connection
 // or blocks; either way the caller learns nothing about why.
 //
-// REFUSES RATHER THAN TRUNCATES, deliberately. A silently shortened graph
-// answer is indistinguishable from a small one, and an agent cannot tell that
-// it is reasoning from a fragment. An error names the limit and the argument
-// to lower. Row-wise truncation with an explicit marker — what the retrieval
-// surface does — is the better long-term answer for the tools that can
-// support it, and is left as follow-up.
+// That was first fixed by refusing. Refusing kept the surface safe but left the
+// contract false: the schema advertised maximum:10000 so a client could plan a
+// valid call, and ten of the seventeen limit-taking tools then failed at that
+// very number — after, in brain_brief's case, 34 seconds of work — with an error
+// that never named a limit that would have fit. Row-wise truncation with an
+// explicit marker, what the retrieval surface already does, is now what happens
+// (mcp_response_budget.go): the advertised ceiling is reachable, and a response
+// that had to shed rows says so in the document. maxMCPFrameBytes remains the
+// transport backstop beneath it.
 func mcpToolTextResult(ctx context.Context, tool, text string) (map[string]any, error) {
-	result := map[string]any{"content": []map[string]any{{"type": "text", "text": text}}}
-	// Cheap reject first: the text alone cannot exceed the frame, so there is
-	// no need to marshal a response that is already too large.
-	if len(text) > maxMCPFrameBytes {
-		return nil, fmt.Errorf(
-			"%s produced a %d byte result, over the %d byte MCP frame limit; narrow the request (lower limit, or drop details)",
-			tool, len(text), maxMCPFrameBytes)
+	bounded, err := mcpBoundedToolText(ctx, tool, text)
+	if err != nil {
+		return nil, err
 	}
-	size, sizeErr := mcpToolResultTransportSize(ctx, result)
-	if sizeErr != nil {
-		// Measuring failed, not the result. Returning the result unmeasured is
-		// the pre-existing behaviour and strictly better than failing a call
-		// that may well be fine.
-		return result, nil
-	}
-	if size > maxMCPFrameBytes {
-		return nil, fmt.Errorf(
-			"%s produced a %d byte frame, over the %d byte MCP frame limit; narrow the request (lower limit, or drop details)",
-			tool, size, maxMCPFrameBytes)
-	}
-	return result, nil
+	return map[string]any{"content": []map[string]any{{"type": "text", "text": bounded}}}, nil
 }
 
 // mcpRefreshOptions builds the refresh options for the brain_refresh tool.
