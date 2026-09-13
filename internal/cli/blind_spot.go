@@ -32,13 +32,15 @@ func distillCoverage(manifest *exportManifest) (last time.Time, undigested int, 
 
 // emptyResultBlindSpot is the one-liner appended to empty retrieval results.
 // Reads only the already-loadable manifest — cheap enough for every empty.
-// Empty string when nothing useful can be said (no manifest at all).
 func emptyResultBlindSpot(brainDir string) string {
 	manifest, err := loadBrainManifest(brainDir)
-	// A missing manifest loads as an empty struct, not an error; a manifest
-	// with no sources means "not a brain (yet)" — nothing useful to say.
+	// A missing manifest loads as an empty struct, not an error, and a nil
+	// Sources is exactly that case: normalizeBrainManifest gives every manifest
+	// it actually parsed a non-nil Sources, so only the absent-manifest path
+	// reaches here with nil. That is the NO-BRAIN case, and it is the one this
+	// line most needs to cover — see noBrainBlindSpot.
 	if err != nil || manifest == nil || manifest.Sources == nil {
-		return ""
+		return noBrainBlindSpot(err)
 	}
 	last, undigested, ok := distillCoverage(manifest)
 	if !ok {
@@ -51,4 +53,31 @@ func emptyResultBlindSpot(brainDir string) string {
 		return fmt.Sprintf("note: facts last distilled %s; %d session(s) captured since are not yet distilled", last.Format("2006-01-02"), undigested)
 	}
 	return fmt.Sprintf("note: facts last distilled %s and all captured sessions are distilled — the answer may genuinely not be in the brain", last.Format("2006-01-02"))
+}
+
+// noBrainBlindSpot is the note for a repository whose brain does not exist or
+// cannot be read.
+//
+// This case used to return the empty string — "nothing useful to say" — which
+// inverted the whole point of the mechanism. A brain that HAS been built got a
+// note explaining its empty result; a repository with no brain at all got a
+// bare
+//
+//	{"branch":"main","query":"Hello","results":[]}
+//
+// so the note appeared when it was least needed and was missing when it
+// mattered most. An agent reads that empty array as "the brain knows nothing
+// about this" and writes the tool off, when the true answer is "there is no
+// brain here yet". brain_code already refuses this state out loud ("semantic
+// index missing; run `entire brain index`"); the text retrieval surface stayed
+// silent about it.
+//
+// Same mechanism as every other line in this file: one `note:` string, carried
+// by the existing blind_spot field on JSON responses and printed under the
+// "no results" line on text ones. Nothing new is introduced.
+func noBrainBlindSpot(loadErr error) string {
+	if loadErr != nil {
+		return "note: this repository's brain could not be read, so this empty result is not evidence of absence; run `entire brain status` for the reason"
+	}
+	return "note: no brain has been built for this repository, so nothing is indexed here and this empty result is not evidence of absence; run `entire brain setup`"
 }
