@@ -1260,6 +1260,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		}
 	case "brain_workspace_regressions":
 		var manifest workspaceManifest
+		var skipped []workspaceRepoFreshness
 		workspace, stringErr := mcpOptionalString(params.Arguments, "workspace")
 		if stringErr != nil {
 			err = stringErr
@@ -1271,7 +1272,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = mcpRequiredArg("workspace")
 		}
 		if err == nil {
-			manifest, err = mcpWorkspaceManifest(ctx, opts, params.Name, workspace)
+			manifest, skipped, err = mcpWorkspaceManifest(ctx, opts, params.Name, workspace)
 		}
 		if err == nil {
 			inc, loc, boolErr := mcpRegressionBooleans(params.Arguments)
@@ -1279,10 +1280,11 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 				err = boolErr
 				break
 			}
-			err = runWorkspaceRegressionsManifest(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, manifest, query)
+			err = runWorkspaceRegressionsManifest(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, manifest, query, skipped)
 		}
 	case "brain_workspace_graph":
 		var manifest workspaceManifest
+		var skipped []workspaceRepoFreshness
 		workspace, stringErr := mcpOptionalString(params.Arguments, "workspace")
 		if stringErr != nil {
 			err = stringErr
@@ -1291,11 +1293,12 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		workspace = strings.TrimSpace(workspace)
 		if workspace == "" {
 			err = mcpRequiredArg("workspace")
-		} else if manifest, err = mcpWorkspaceManifest(ctx, opts, params.Name, workspace); err == nil {
-			err = runWorkspaceGraphManifest(cmd, opts, workspaceGraphOptions{limit: limit, json: true}, manifest)
+		} else if manifest, skipped, err = mcpWorkspaceManifest(ctx, opts, params.Name, workspace); err == nil {
+			err = runWorkspaceGraphManifest(cmd, opts, workspaceGraphOptions{limit: limit, json: true}, manifest, skipped)
 		}
 	case "brain_workspace_review":
 		var manifest workspaceManifest
+		var skipped []workspaceRepoFreshness
 		workspace, stringErr := mcpOptionalString(params.Arguments, "workspace")
 		if stringErr != nil {
 			err = stringErr
@@ -1307,7 +1310,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = mcpRequiredArg("workspace")
 		}
 		if err == nil {
-			manifest, err = mcpWorkspaceManifest(ctx, opts, params.Name, workspace)
+			manifest, skipped, err = mcpWorkspaceManifest(ctx, opts, params.Name, workspace)
 		}
 		if err == nil {
 			inc, loc, boolErr := mcpRegressionBooleans(params.Arguments)
@@ -1315,7 +1318,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 				err = boolErr
 				break
 			}
-			err = runWorkspaceReviewManifest(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, manifest, query)
+			err = runWorkspaceReviewManifest(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, manifest, query, skipped)
 		}
 	case "brain_patterns":
 		typ, typeErr := mcpEnumArg(params.Arguments, "type", mcpPatternTypes)
@@ -1860,33 +1863,40 @@ func mcpCrossRepoRefusal(tool, detail, boundKey string) error {
 
 // mcpWorkspaceManifest loads once so execution uses exactly the members checked
 // at the MCP boundary. CLI callers continue to load their own unrestricted manifest.
-func mcpWorkspaceManifest(ctx context.Context, opts Options, tool, workspaceName string) (workspaceManifest, error) {
+func mcpWorkspaceManifest(ctx context.Context, opts Options, tool, workspaceName string) (workspaceManifest, []workspaceRepoFreshness, error) {
 	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
 	if err != nil {
-		return workspaceManifest{}, err
+		return workspaceManifest{}, nil, err
 	}
-	if err := mcpValidateWorkspaceScope(ctx, opts, tool, manifest); err != nil {
-		return workspaceManifest{}, err
+	kept, excluded, err := mcpValidateWorkspaceScope(ctx, opts, tool, manifest)
+	if err != nil {
+		return workspaceManifest{}, nil, err
 	}
-	return manifest, nil
+	manifest.Repos = kept
+	return manifest, excluded, nil
 }
 
 func mcpEnforceWorkspaceScope(ctx context.Context, opts Options, tool, workspaceName string) error {
-	_, err := mcpWorkspaceManifest(ctx, opts, tool, workspaceName)
+	_, _, err := mcpWorkspaceManifest(ctx, opts, tool, workspaceName)
 	return err
 }
 
-func mcpValidateWorkspaceScope(ctx context.Context, opts Options, tool string, manifest workspaceManifest) error {
+// mcpValidateWorkspaceScope splits a workspace's members into the ones this
+// bound server may execute against and the ones it must not, and refuses the
+// call outright only for a member that is genuinely OUT OF SCOPE.
+//
+// The two outcomes are not interchangeable. See mcpWorkspaceMemberExcluded.
+func mcpValidateWorkspaceScope(ctx context.Context, opts Options, tool string, manifest workspaceManifest) ([]workspaceRepo, []workspaceRepoFreshness, error) {
 	if mcpCrossRepoAllowed() {
-		return nil
+		return manifest.Repos, nil, nil
 	}
 
 	storage, bound, storageErr := mcpBoundRepoStorage(ctx, opts)
 	if storageErr != nil {
-		return storageErr
+		return nil, nil, storageErr
 	}
 	if !bound {
-		return mcpCrossRepoRefusal(tool, mcpUnboundRepoDetail, "")
+		return nil, nil, mcpCrossRepoRefusal(tool, mcpUnboundRepoDetail, "")
 	}
 	boundKey := storage.Key
 
@@ -1896,7 +1906,7 @@ func mcpValidateWorkspaceScope(ctx context.Context, opts Options, tool string, m
 	// repo A acting on unrelated repo B", and the operator's own `workspace add`
 	// is the declaration that these repos belong together.
 	if !workspaceIncludesBoundRepo(manifest, boundKey, opts.Env.RepoRoot) {
-		return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q does not include the bound repository", manifest.Name), boundKey)
+		return nil, nil, mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q does not include the bound repository", manifest.Name), boundKey)
 	}
 
 	// RULE 2 -- LOCALITY, scoped to the bound repo's PARENT rather than to the
@@ -1912,32 +1922,86 @@ func mcpValidateWorkspaceScope(ctx context.Context, opts Options, tool string, m
 	// refused the standard setup they exist to serve. That is the normal case,
 	// not an edge case.
 	scopeRoot := workspaceScopeRoot(opts.Env.RepoRoot)
+	kept := make([]workspaceRepo, 0, len(manifest.Repos))
+	var excluded []workspaceRepoFreshness
+	exclude := func(repo workspaceRepo, detail string) {
+		excluded = append(excluded, workspaceRepoFreshness{
+			RepoKey:       repo.RepoKey,
+			Name:          repo.Name,
+			State:         "unsafe",
+			PairingUnsafe: true,
+			Detail:        detail,
+		})
+	}
 	for _, repo := range manifest.Repos {
 		hint := strings.TrimSpace(repo.LocalPathHint)
 		if hint == "" {
-			return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q member %q has no local path, so its location cannot be checked", manifest.Name, repo.RepoKey), boundKey)
+			return nil, nil, mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q member %q has no local path, so its location cannot be checked", manifest.Name, repo.RepoKey), boundKey)
 		}
-		if enforceIndexContainment(scopeRoot, hint) != nil {
-			return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q includes repo %q outside %s", manifest.Name, repo.RepoKey, scopeRoot), boundKey)
+		if enforceIndexContainment(scopeRoot, workspaceMemberScopePath(hint)) != nil {
+			return nil, nil, mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q includes repo %q outside %s", manifest.Name, repo.RepoKey, scopeRoot), boundKey)
 		}
 		repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, hint)
-		if err != nil {
-			return err
+		if err != nil || !local {
+			// The member's declared location is inside scopeRoot (checked
+			// immediately above); the checkout simply is not there -- deleted,
+			// not cloned yet, or on an unmounted volume.
+			exclude(repo, "no checkout at "+hint+" to confirm this member's identity")
+			continue
 		}
-		if !local || enforceIndexContainment(scopeRoot, repoDir) != nil {
-			return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q member %q has no in-scope checkout", manifest.Name, repo.RepoKey), boundKey)
+		if enforceIndexContainment(scopeRoot, repoDir) != nil {
+			// A genuine escape: an in-scope hint whose resolved work tree lands
+			// OUTSIDE scopeRoot (a symlink inside the parent pointing away, or a
+			// git toplevel that walks above it). The workspace is describing a
+			// repository this server may not reach at all, which is the
+			// confused-deputy case, and stays a whole-call refusal.
+			return nil, nil, mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q member %q resolves to a checkout outside %s", manifest.Name, repo.RepoKey, scopeRoot), boundKey)
 		}
 		memberStorage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 		if err != nil {
-			return err
+			exclude(repo, "cannot derive the checkout's identity: "+err.Error())
+			continue
 		}
 		if memberStorage.Key != repo.RepoKey {
-			return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q member %q does not match local checkout identity %q", manifest.Name, repo.RepoKey, memberStorage.Key), boundKey)
+			exclude(repo, "checkout at "+repoDir+" is now "+memberStorage.Key)
+			continue
 		}
-
+		kept = append(kept, repo)
 	}
-	return nil
+	return kept, excluded, nil
 }
+
+// mcpWorkspaceMemberExcluded is the contract behind the kept/excluded split, and
+// the distinction it draws is the whole point of this gate.
+//
+// EXCLUDED, not refused. A member whose checkout is missing, or whose checkout
+// is no longer the repository the member was registered as, is dropped from the
+// manifest the tool executes and reported as a skipped member with its reason.
+// It used to fail the ENTIRE call: `rm -rf` one sibling, or re-clone one with a
+// renamed remote, and brain_workspace_graph / _review / _regressions answered
+// nothing at all for a workspace whose other five members were perfectly
+// healthy. The CLI path has never behaved that way -- workspaceRepoFreshnessForRepo
+// classifies exactly these states, and each runner reports them per member -- so
+// the agent-facing surface was the strictly worse one. Worse still, the refusal
+// named ENTIRE_REPO_ROOT and ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO as the remedies
+// for a deleted directory. Neither is; and setting the second one, the
+// confused-deputy opt-out, WOULD silence it -- the exact reasoning
+// mcpCrossRepoRefusal's own comment exists to stop an agent from following.
+//
+// DROPPED, not merely flagged. Excluding is not cosmetic: a workspace member's
+// repo_key addresses a BRAIN, and brainDirForKey applies no containment, so a
+// key is a reach to any brain on the machine. The checkout is the only thing
+// that grounds the key, and it is bounded by scopeRoot. A member whose key
+// cannot be confirmed against an in-scope checkout therefore must not be
+// executed at all -- buildWorkspaceGraphPayload opens that brain by key alone.
+// Keeping such a member and trusting downstream code to notice would reopen the
+// forged-manifest path in every runner separately; removing it closes it once.
+//
+// REFUSED. Only a member the workspace declares OUTSIDE the bound repository's
+// parent -- by its hint, or by where that hint actually resolves -- fails the
+// call. That is a workspace this server may not act on at all, and no per-member
+// report makes it safe.
+const mcpWorkspaceMemberExcluded = "unverifiable member: dropped from the executed manifest and reported, never silently trusted"
 
 // workspaceIncludesBoundRepo reports whether the bound repository is a member of
 // manifest. The repo key is the primary match; the local path is the fallback,
@@ -1986,6 +2050,45 @@ func samePathOnDisk(a, b string) bool {
 	}
 	rel, err := filepath.Rel(resolve(a), resolve(b))
 	return err == nil && rel == "."
+}
+
+// workspaceMemberScopePath makes a member's local path hint comparable to
+// workspaceScopeRoot's output when the checkout is NOT on disk.
+//
+// The two sides were resolved unequally. workspaceScopeRoot symlink-resolves
+// the bound root, and enforceIndexContainment resolves both its arguments -- but
+// EvalSymlinks fails outright on a path that does not exist, so a missing
+// member kept its literal spelling while the scope root did not. On any host
+// where the parent is reached through a symlinked ancestor -- macOS, where /tmp
+// and /var (and therefore every $TMPDIR) redirect into /private -- the two no
+// longer shared a prefix, and a member whose only problem was a deleted
+// checkout was reported as living OUTSIDE the workspace's own parent directory.
+// That is both the wrong diagnosis and the wrong severity: it is the refusal
+// reserved for a confused-deputy request.
+//
+// Resolving the deepest ancestor that DOES exist and re-appending the missing
+// tail puts both sides in the same namespace without inventing a path. It
+// cannot be used to escape: filepath.Abs has already collapsed any "..", and a
+// symlinked ancestor that points out of scope resolves to its real target and is
+// still refused.
+func workspaceMemberScopePath(hint string) string {
+	abs, err := filepath.Abs(hint)
+	if err != nil {
+		return hint
+	}
+	var missing []string
+	current := abs
+	for {
+		if resolved, err := filepath.EvalSymlinks(current); err == nil {
+			return filepath.Join(append([]string{resolved}, missing...)...)
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return abs
+		}
+		missing = append([]string{filepath.Base(current)}, missing...)
+		current = parent
+	}
 }
 
 // workspaceScopeRoot is the directory that bounds an MCP workspace fan-out: the
