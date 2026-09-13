@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
@@ -29,14 +30,113 @@ func newBrainTable(th Theme) table.Model {
 	return t
 }
 
-// flexWidth budgets a flexible column: the inner table width minus the fixed
-// columns and bubbles/table's 2-cell-per-column padding, floored at min.
-func flexWidth(inner, fixedSum, numCols, min int) int {
-	w := inner - fixedSum - 2*numCols
-	if w < min {
-		return min
+// colSpec is one column's layout intent, resolved into a real width by
+// layoutColumns. want is its comfortable width, min the narrowest width at
+// which it still says something, and rank its drop order — the LOWEST rank
+// gives up width first and is the first to disappear entirely, so the column
+// carrying an entry's identity is the last thing a narrow pane takes away. At
+// most one column is flex: it absorbs whatever is left over.
+type colSpec struct {
+	title string
+	want  int
+	min   int
+	rank  int
+	flex  bool
+}
+
+// layoutColumns fits a column layout into a table of inner display columns.
+//
+// bubbles/table pads every cell by one column on each side and never wraps a
+// row itself: if the widths plus that padding exceed the table's width, the
+// header and every row simply spill past the pane's right border and the
+// TERMINAL wraps them, shredding the left pane. The previous layout floored
+// each flexible column at a minimum without re-checking the total, so Facts
+// overflowed below ~123 columns and Sessions and Semantic below ~150 — that is,
+// on every ordinary terminal. This budgets instead of flooring, so the sum is
+// never larger than the space there is.
+//
+// Width is surrendered in this order: fixed columns shrink want -> min lowest
+// rank first, then drop min -> 0 lowest rank first, and only then does the flex
+// column give up its own minimum. A zero-width column is skipped by both
+// headersView and renderRow in bubbles/table, so dropping one keeps the header
+// and the rows aligned. The column COUNT never changes: renderRow indexes
+// m.cols[i] for every cell i of a row, so returning fewer columns than a tab's
+// rows have cells would panic.
+func layoutColumns(specs []colSpec, inner int) []table.Column {
+	out := make([]table.Column, len(specs))
+	for i, s := range specs {
+		out[i] = table.Column{Title: s.title}
 	}
-	return w
+	// bubbles/table's Cell/Header styles pad 1 cell either side of every column.
+	budget := inner - 2*len(specs)
+	if budget <= 0 {
+		return out // nothing fits; every column renders empty rather than wrapped
+	}
+
+	flexIdx, used := -1, 0
+	for i, s := range specs {
+		if s.flex {
+			flexIdx = i
+			out[i].Width = s.min
+			used += s.min
+			continue
+		}
+		out[i].Width = s.want
+		used += s.want
+	}
+
+	// Shrink fixed columns toward their minimums, cheapest column first.
+	for _, i := range specOrderByRank(specs) {
+		if used <= budget {
+			break
+		}
+		give := out[i].Width - specs[i].min
+		if give <= 0 {
+			continue
+		}
+		if give > used-budget {
+			give = used - budget
+		}
+		out[i].Width -= give
+		used -= give
+	}
+	// Still over: drop fixed columns entirely, cheapest first.
+	for _, i := range specOrderByRank(specs) {
+		if used <= budget {
+			break
+		}
+		used -= out[i].Width
+		out[i].Width = 0
+	}
+	if flexIdx < 0 {
+		return out
+	}
+	// Whatever is left over belongs to the flex column — and if the budget is so
+	// small that even its minimum does not fit, it gives that up too.
+	out[flexIdx].Width += budget - used
+	if out[flexIdx].Width < 0 {
+		out[flexIdx].Width = 0
+	}
+	return out
+}
+
+// specOrderByRank lists the fixed (non-flex) column indexes cheapest first:
+// ascending rank, then right to left so a tie gives up the outermost column.
+func specOrderByRank(specs []colSpec) []int {
+	order := make([]int, 0, len(specs))
+	for i, s := range specs {
+		if !s.flex {
+			order = append(order, i)
+		}
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		left, right := order[a], order[b]
+		if specs[left].rank != specs[right].rank {
+			return specs[left].rank < specs[right].rank
+		}
+		return left > right
+	})
+	return order
 }
 
 // columnsFor lays out the columns for a tab at a given inner table width. Column
@@ -44,48 +144,42 @@ func flexWidth(inner, fixedSum, numCols, min int) int {
 func columnsFor(tab Tab, inner int) []table.Column {
 	switch tab {
 	case TabHome:
-		name := 14
-		return []table.Column{
-			{Title: "", Width: 2},
-			{Title: "Source", Width: name},
-			{Title: "Detail", Width: flexWidth(inner, 2+name, 3, 8)},
-		}
+		return layoutColumns([]colSpec{
+			{title: "", want: 2, min: 2, rank: 3},
+			{title: "Source", want: 14, min: 8, rank: 2},
+			{title: "Detail", min: 8, flex: true},
+		}, inner)
 	case TabFacts:
-		kind, status := 11, 10
-		return []table.Column{
-			{Title: "Kind", Width: kind},
-			{Title: "Fact", Width: flexWidth(inner, kind+status, 3, 12)},
-			{Title: "Status", Width: status},
-		}
+		return layoutColumns([]colSpec{
+			{title: "Kind", want: 11, min: 4, rank: 2},
+			{title: "Fact", min: 12, flex: true},
+			{title: "Status", want: 10, min: 5, rank: 1},
+		}, inner)
 	case TabSessions:
-		date, agent, files := 16, 12, 5
-		return []table.Column{
-			{Title: "When", Width: date},
-			{Title: "Agent", Width: agent},
-			{Title: "Files", Width: files},
-			{Title: "Session", Width: flexWidth(inner, date+agent+files, 4, 8)},
-		}
+		return layoutColumns([]colSpec{
+			{title: "When", want: 16, min: 10, rank: 3},
+			{title: "Agent", want: 12, min: 6, rank: 2},
+			{title: "Files", want: 5, min: 3, rank: 1},
+			{title: "Session", min: 8, flex: true},
+		}, inner)
 	case TabHistory:
-		kind := 12
-		return []table.Column{
-			{Title: "Kind", Width: kind},
-			{Title: "Summary", Width: flexWidth(inner, kind, 2, 12)},
-		}
+		return layoutColumns([]colSpec{
+			{title: "Kind", want: 12, min: 6, rank: 1},
+			{title: "Summary", min: 12, flex: true},
+		}, inner)
 	case TabSemantic:
-		kind, file := 10, 22
-		return []table.Column{
-			{Title: "Kind", Width: kind},
-			{Title: "Name", Width: flexWidth(inner, kind+file, 3, 10)},
-			{Title: "File", Width: file},
-		}
+		return layoutColumns([]colSpec{
+			{title: "Kind", want: 10, min: 4, rank: 1},
+			{title: "Name", min: 10, flex: true},
+			{title: "File", want: 22, min: 8, rank: 2},
+		}, inner)
 	case TabSearch:
-		source := 9
-		return []table.Column{
-			{Title: "Source", Width: source},
-			{Title: "Result", Width: flexWidth(inner, source, 2, 12)},
-		}
+		return layoutColumns([]colSpec{
+			{title: "Source", want: 9, min: 4, rank: 1},
+			{title: "Result", min: 12, flex: true},
+		}, inner)
 	default:
-		return []table.Column{{Title: "", Width: max(inner-2, 8)}}
+		return layoutColumns([]colSpec{{title: "", min: 8, flex: true}}, inner)
 	}
 }
 
@@ -108,11 +202,7 @@ func rowsFor(s Snapshot, tab Tab, indices []int) []table.Row {
 		switch tab {
 		case TabHome:
 			h := s.Home.Sources[i]
-			dot := "○"
-			if h.Present {
-				dot = "●"
-			}
-			rows = append(rows, table.Row{dot, cell(h.Name), cell(h.Detail)})
+			rows = append(rows, table.Row{sourceDot(h), cell(h.Name), cell(h.Detail)})
 		case TabFacts:
 			f := s.Facts[i]
 			rows = append(rows, table.Row{cell(orDash(f.Kind)), cell(f.Text), cell(orDash(f.Status))})

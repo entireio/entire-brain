@@ -75,12 +75,11 @@ func DetectCapsWithEnv(w io.Writer, lookup EnvLookup) Caps {
 		return PlainCaps()
 	}
 	caps := Caps{TTY: true}
-	term := strings.TrimSpace(getenv("TERM"))
 	// NO_COLOR is honoured by PRESENCE, per no-color.org: an empty value still
 	// means "no colour". TERM=dumb and an unset TERM describe a terminal that
 	// cannot be trusted with escape sequences at all, so they disable the
 	// in-place repaint too, not just the colour.
-	if term == "" || term == "dumb" {
+	if !SupportsFullScreen(getenv) {
 		return PlainCaps()
 	}
 	if _, noColor := lookup("NO_COLOR"); !noColor {
@@ -89,6 +88,24 @@ func DetectCapsWithEnv(w io.Writer, lookup EnvLookup) Caps {
 	caps.Unicode = localeIsUTF8(getenv)
 	caps.Width = terminalWidth(fd, getenv)
 	return caps
+}
+
+// SupportsFullScreen reports whether TERM describes a terminal that can be
+// driven with escape sequences at all. TERM=dumb and an unset TERM do not: a
+// dumb terminal has no cursor addressing, no alternate screen and no SGR, so
+// anything written for one arrives as literal escape bytes.
+//
+// It gates both halves of this package. The line renderer above drops to
+// PlainCaps; the dashboard declines to start and the caller prints the plain
+// summary instead — otherwise `dash` on TERM=dumb pushed \x1b[?1049h, a
+// rounded-border layout and 256-colour SGR at a terminal that renders every
+// byte of it as text.
+func SupportsFullScreen(getenv func(string) string) bool {
+	if getenv == nil {
+		return false
+	}
+	term := strings.TrimSpace(getenv("TERM"))
+	return term != "" && term != "dumb"
 }
 
 // terminalWidth resolves the usable line width for a terminal, in order of

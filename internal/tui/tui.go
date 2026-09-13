@@ -99,17 +99,26 @@ func NewModel(snap Snapshot, theme Theme) Model {
 // opening on startTab. search may be nil to disable in-dashboard search. It
 // blocks until the user quits.
 func Run(snap Snapshot, theme Theme, search SearchFunc, startTab Tab, out io.Writer) error {
+	p := tea.NewProgram(newRunModel(snap, theme, search, startTab),
+		tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithOutput(out))
+	_, err := p.Run()
+	return err
+}
+
+// newRunModel is everything Run does before handing the model to bubbletea. It
+// is separate so the start-tab seating can be tested without starting a program
+// that blocks on a terminal — that seating is exactly where `dash --tab
+// sessions` used to panic.
+func newRunModel(snap Snapshot, theme Theme, search SearchFunc, startTab Tab) Model {
 	m := NewModel(snap, theme)
 	m.searchFn = search
 	m.snap.SearchEnabled = search != nil
 	if startTab != TabHome {
-		m.tab = startTab
-		m.rebuildVisible()
+		// setTab, not a bare `m.tab = …`: the table still holds Home's columns,
+		// and rebuildVisible would push the new tab's rows against them.
+		m.setTab(startTab)
 	}
-	p := tea.NewProgram(m,
-		tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithOutput(out))
-	_, err := p.Run()
-	return err
+	return m
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -139,15 +148,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.snap.Search = msg.results
 			m.snap.SearchErr = ""
 		}
-		m.tab = TabSearch
-		m.focusDetail = false
-		// Clear any committed filter from the previous tab so it can't silently
-		// hide search hits (which would also desync the Search (N) count).
-		m.filter.SetValue("")
-		m.table.SetRows(nil)
-		m.table.SetColumns(columnsFor(m.tab, m.leftInner))
-		m.table.SetCursor(0)
-		m.rebuildVisible()
+		// setTab also clears any committed filter from the previous tab, so it
+		// can't silently hide search hits (which would desync the Search (N)
+		// count), and re-lays the table for the Search columns.
+		m.setTab(TabSearch)
 		return m, nil
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyCtrlC {
@@ -217,14 +221,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) switchTab(delta int) {
 	n := len(allTabs)
 	idx := (int(m.tab) + delta%n + n) % n
-	m.tab = allTabs[idx]
+	m.setTab(allTabs[idx])
+}
+
+// setTab makes tab active and re-lays the table for it. It is the ONLY way the
+// active tab may change, because the table's columns and its rows must be
+// swapped together: bubbles/table indexes m.cols[i] for every cell i of a row,
+// so a row carrying more cells than the current tab has columns panics with an
+// index-out-of-range the moment the table re-renders — and both SetRows and
+// SetColumns re-render immediately. Sessions has 4 columns and every other tab
+// has 2 or 3, so opening the dashboard straight onto Sessions (`dash --tab
+// sessions`) used to push 4-cell rows against Home's 3 columns and crash before
+// the first frame. Clearing the rows first makes the swap safe in both
+// directions, whatever the old and new tab are.
+func (m *Model) setTab(tab Tab) {
+	m.tab = tab
 	m.focusDetail = false
 	m.filter.SetValue("")
-	// Clear the rows before swapping in the new tab's columns: SetColumns
-	// immediately re-renders the table against whatever rows it still holds, and
-	// the previous tab's rows may have more cells than the new tab has columns
-	// (e.g. Sessions has 4, History has 2) — which would panic. rebuildVisible
-	// repopulates rows that match the new columns.
 	m.table.SetRows(nil)
 	m.table.SetColumns(columnsFor(m.tab, m.leftInner))
 	m.table.SetCursor(0)
@@ -416,8 +429,23 @@ func (m *Model) rebuildVisible() {
 		}
 	}
 	m.table.SetRows(rowsFor(m.snap, m.tab, m.visible))
-	if m.table.Cursor() >= len(m.visible) {
-		m.table.SetCursor(max(0, len(m.visible)-1))
+	// Re-seat the cursor now that the rows are in place, and only now.
+	// bubbles/table parks its cursor at -1 whenever it holds no rows — SetRows
+	// clamps to len(rows)-1, and SetCursor's own clamp(n, 0, len(rows)-1)
+	// collapses to -1 on an empty table as well — and nothing brings it back
+	// when rows arrive. -1 reads as "no selection" here, so switching tabs (or
+	// opening on one with --tab) left a full list with no highlighted row and a
+	// detail pane insisting "No entries in this section." until the user pressed
+	// a navigation key.
+	cursor := m.table.Cursor()
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(m.visible)-1 {
+		cursor = len(m.visible) - 1
+	}
+	if cursor != m.table.Cursor() {
+		m.table.SetCursor(cursor)
 	}
 	m.refreshDetail()
 }
@@ -463,17 +491,46 @@ func (m Model) View() string {
 	body := lipgloss.NewStyle().MaxWidth(m.width).Render(
 		lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane))
 
-	return strings.Join([]string{title, secondRow, body, m.footerView()}, "\n")
+	// Clamp the finished frame to the terminal box. The panes are laid out from
+	// floors (a pane is never narrower than 30 columns nor shorter than 8 rows)
+	// so that bubbles/table and the viewport always get a workable size; on a
+	// terminal smaller than those floors the frame would otherwise be handed to
+	// the renderer larger than the screen, wrap, and push the title and tabs off
+	// the top — a resize down to a small window left the dashboard looking
+	// corrupted rather than cramped. Clipping is the honest outcome: the user
+	// sees the top-left of a too-big frame instead of a scrambled one.
+	return clampToScreen(strings.Join([]string{title, secondRow, body, m.footerView()}, "\n"), m.width, m.height)
+}
+
+// clampToScreen trims s to at most width columns and height rows. A
+// non-positive bound is left unclamped (the size is not known yet).
+func clampToScreen(s string, width, height int) string {
+	style := lipgloss.NewStyle()
+	if width > 0 {
+		style = style.MaxWidth(width)
+	}
+	if height > 0 {
+		style = style.MaxHeight(height)
+	}
+	return style.Render(s)
 }
 
 // footerView renders the help line (plus a scroll hint when the detail pane has
-// more below the fold).
+// more below the fold), clipped to the terminal width.
+//
+// The clip is load-bearing, not belt-and-braces. bubbles/help stops adding
+// bindings once the line would exceed help.Width, but ONLY if the "…" tail
+// still fits — when it does not it falls through and appends the whole binding
+// anyway (shouldAddItem in bubbles v1.0.0). At 80 columns, the most common
+// terminal width there is, that overshoot put a 113-column help line on screen:
+// it wrapped, the frame grew a row taller than resize() had budgeted for, and
+// the top of the dashboard scrolled away.
 func (m Model) footerView() string {
 	h := m.help.View(m.keys)
 	if m.focusDetail && !m.vp.AtBottom() {
 		h += m.theme.dimStyle().Render("   ↓ more")
 	}
-	return h
+	return clampToScreen(h, m.width, 0)
 }
 
 func (m Model) renderTabs() string {
