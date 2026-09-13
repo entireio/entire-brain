@@ -341,6 +341,162 @@ func TestWorkspaceImportTargetPrefersCodeOverDocumentation(t *testing.T) {
 	}
 }
 
+// TestWorkspaceReviewWillNotCallATreeCleanWithoutComparingIt.
+//
+// The per-repo verdict came from a default: branch that never asked whether
+// anything had been compared:
+//
+//	result.Summary = "no suspected regressions (current tree matches the brain's memory)."
+//
+// detectRegressionAnomalies returns the number of files it read for exactly
+// this purpose, and the caller discarded it with `_`. So a brain with no
+// distilled assertions, and a query naming nothing the detector could anchor,
+// both produced a sentence asserting a comparison that never ran -- printed
+// directly above the warning saying it had not. `summary` is what an agent or
+// script reads.
+func TestWorkspaceReviewWillNotCallATreeCleanWithoutComparingIt(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	// A brain whose history holds no precise assertion about the query, so the
+	// detector anchors nothing and opens no file.
+	repoDir, key := writeLocalWorkspaceBrainRepo(t, env,
+		`{"text":"we talked about the deployment schedule"}`,
+		"pkg/review_context.go", "package x\n")
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "unscanned",
+		Repos:         []workspaceRepo{{RepoKey: key, Name: "quiet", LocalPathHint: repoDir}},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatal(err)
+	}
+	out, err := execute(t, cmd, "workspace", "review", "unscanned", "scopeBaseRef base scope", "--json")
+	if err != nil {
+		t.Fatalf("workspace review: %v", err)
+	}
+	var payload struct {
+		Summary string                  `json:"summary"`
+		Results []workspaceReviewResult `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("parse review json: %v\n%s", err, out)
+	}
+	if len(payload.Results) != 1 {
+		t.Fatalf("expected one member, got %d", len(payload.Results))
+	}
+	r := payload.Results[0]
+	if r.FilesScanned != 0 {
+		t.Skipf("fixture unexpectedly compared %d file(s); the unscanned case is what this pins", r.FilesScanned)
+	}
+	if r.Checked {
+		t.Fatalf("checked=true for a repo where no file was read: %+v", r)
+	}
+	if strings.Contains(r.Summary, "matches the brain's memory") {
+		t.Fatalf("summary claimed a comparison that never ran: %q", r.Summary)
+	}
+	if !strings.Contains(r.Summary, "INCONCLUSIVE") {
+		t.Fatalf("an unscanned repo must be reported INCONCLUSIVE: %q", r.Summary)
+	}
+	// And the workspace headline must not read as a clean sweep either.
+	if !strings.Contains(payload.Summary, "INCONCLUSIVE") {
+		t.Fatalf("workspace headline read as a clean sweep over an unscanned member: %q", payload.Summary)
+	}
+}
+
+// TestWorkspaceReviewStillReportsAGenuinelyCleanTree is the other half: when
+// files WERE compared and nothing was wrong, that is a real clean result and
+// must keep saying so -- with the count, so the claim carries its own evidence.
+func TestWorkspaceReviewStillReportsAGenuinelyCleanTree(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
+	clean := "package x\nfunc f() string {\n\treturn scopeBaseRef + \"..HEAD\"\n}\n"
+	repoDir, key := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/review_context.go", clean)
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "scanned",
+		Repos:         []workspaceRepo{{RepoKey: key, Name: "clean", LocalPathHint: repoDir}},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatal(err)
+	}
+	out, err := execute(t, cmd, "workspace", "review", "scanned", "fix scopeBaseRef base scope", "--json")
+	if err != nil {
+		t.Fatalf("workspace review: %v", err)
+	}
+	var payload struct {
+		Summary string                  `json:"summary"`
+		Results []workspaceReviewResult `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("parse review json: %v\n%s", err, out)
+	}
+	r := payload.Results[0]
+	if !r.Checked || r.FilesScanned == 0 {
+		t.Fatalf("a repo that was compared must report it: %+v", r)
+	}
+	if strings.Contains(r.Summary, "INCONCLUSIVE") {
+		t.Fatalf("a genuinely compared clean tree must not be called inconclusive: %q", r.Summary)
+	}
+	if !strings.Contains(r.Summary, "no suspected regressions") {
+		t.Fatalf("summary = %q", r.Summary)
+	}
+}
+
+// TestWorkspaceReviewSummaryVerdict pins the rule both callers share.
+func TestWorkspaceReviewSummaryVerdict(t *testing.T) {
+	if got := workspaceReviewSummary(false, 0); !strings.Contains(got, "INCONCLUSIVE") {
+		t.Fatalf("nothing compared must be inconclusive: %q", got)
+	}
+	// A zero file count is inconclusive even if a caller says it checked: the
+	// count is the evidence, and the two must never disagree in the clean
+	// direction.
+	if got := workspaceReviewSummary(true, 0); !strings.Contains(got, "INCONCLUSIVE") {
+		t.Fatalf("zero files compared must be inconclusive: %q", got)
+	}
+	got := workspaceReviewSummary(true, 3)
+	if strings.Contains(got, "INCONCLUSIVE") || !strings.Contains(got, "3 file(s)") {
+		t.Fatalf("a real comparison must report itself with its count: %q", got)
+	}
+}
+
+// TestWorkspaceRegressionsHeadlineWillNotCallAWorkspaceCleanWithoutScanningIt:
+// the regressions all-clear has the same duty as the review summary. A run in
+// which no repo compared a single file is not "no suspected regressions" -- it
+// is a run that never looked.
+func TestWorkspaceRegressionsHeadlineWillNotCallAWorkspaceCleanWithoutScanningIt(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	// Two members, neither of whose history anchors the query, so neither scans.
+	quiet := `{"text":"we talked about the deployment schedule"}`
+	rA, kA := writeLocalWorkspaceBrainRepo(t, env, quiet, "pkg/a.go", "package a\n")
+	rB, kB := writeLocalWorkspaceBrainRepo(t, env, quiet, "pkg/b.go", "package b\n")
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "allquiet",
+		Repos: []workspaceRepo{
+			{RepoKey: kA, Name: "a", LocalPathHint: rA},
+			{RepoKey: kB, Name: "b", LocalPathHint: rB},
+		},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatal(err)
+	}
+	out, err := execute(t, cmd, "workspace", "inspect", "regressions", "allquiet", "scopeBaseRef base scope")
+	if err != nil {
+		t.Fatalf("workspace regressions: %v", err)
+	}
+	if strings.Contains(out, "No suspected regressions across") {
+		t.Fatalf("an all-clear was printed over a workspace where nothing was scanned:\n%s", out)
+	}
+	if !strings.Contains(out, "INCONCLUSIVE") {
+		t.Fatalf("a workspace where nothing was scanned must be reported INCONCLUSIVE:\n%s", out)
+	}
+}
+
 // workspaceSharedOriginRunner makes every directory resolve to one repository,
 // the way a git worktree and its main checkout share an origin remote.
 type workspaceSharedOriginRunner struct{}
