@@ -308,13 +308,20 @@ func TestMemoryWorkerPrepassFailurePreservesProgressAndSchedulesRetry(t *testing
 		return errors.New("temporary export failure")
 	}
 	var scheduled time.Duration
-	memoryWorkerLaunchAfter = func(_ string, delay time.Duration) error { scheduled = delay; return nil }
+	scheduledFailures := -1
+	memoryWorkerLaunchAfter = func(_ string, delay time.Duration, failures int) error {
+		scheduled, scheduledFailures = delay, failures
+		return nil
+	}
 	out, err := execute(t, newMemoryWorkerCommand(opts), "--once")
 	if err != nil {
 		t.Fatalf("worker must continue already-exported work after prepass failure: %v\n%s", err, out)
 	}
-	if prepassCalls != 1 || scheduled != time.Minute || !strings.Contains(out, `"prepass_failed": true`) || !strings.Contains(out, `"jobs_retried": 1`) {
-		t.Fatalf("prepass calls=%d scheduled=%v output=%s", prepassCalls, scheduled, out)
+	// The first failure in a chain still retries in a minute; the chain now
+	// carries its failure count so the next one backs off instead of repeating.
+	if prepassCalls != 1 || scheduled != time.Minute || scheduledFailures != 1 ||
+		!strings.Contains(out, `"prepass_failed": true`) || !strings.Contains(out, `"jobs_retried": 1`) {
+		t.Fatalf("prepass calls=%d scheduled=%v failures=%d output=%s", prepassCalls, scheduled, scheduledFailures, out)
 	}
 	job, err := memoryJobByID(storage.BrainDir, pending.JobID)
 	if err != nil || job.State != memoryJobStateRetryable {
