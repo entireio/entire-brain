@@ -12,8 +12,9 @@ brain from the current working directory:
 brain_dir="$(entire brain path "$PWD")"
 ```
 
-If the command fails, report that the brain could not be found or materialized
-and continue with normal repo inspection.
+`path` reports where the brain lives; it never builds one. If the command fails,
+or `$brain_dir` does not exist, report that this repository has no brain yet
+(`entire brain setup` builds it) and continue with normal repo inspection.
 
 Use the brain as staged context. Do not read everything blindly.
 
