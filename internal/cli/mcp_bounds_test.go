@@ -55,17 +55,29 @@ func TestAnOrdinaryToolResultIsUnaffected(t *testing.T) {
 	}
 }
 
-// TestTheBoundIsTheFrameLimitNotAnArbitraryNumber pins the bound to the same
-// constant the read side uses, so the two cannot drift apart.
-func TestTheBoundIsTheFrameLimitNotAnArbitraryNumber(t *testing.T) {
-	// One byte under the limit must pass; the limit is on the whole frame, so
-	// leave room for the JSON-RPC envelope by measuring a text well under it.
-	justUnder := strings.Repeat("x", maxMCPFrameBytes-4096)
-	if _, err := mcpToolTextResult(context.Background(), "brain_status", justUnder); err != nil {
-		t.Fatalf("a result comfortably under the limit was refused: %v", err)
+// TestTheOutboundBoundIsTheResponseBudgetNotTheFrameLimit.
+//
+// The outbound bound started life as the frame limit, because the frame limit
+// was the only number to hand. It is the wrong number: 4 MiB of JSON is roughly
+// a million tokens, so everything short of it came back as a success no caller
+// could use -- brain_dead_code at the advertised limit returned 3,401,455 bytes
+// exactly that way. The bound is now the response budget, with the frame limit
+// beneath it as the transport's own backstop.
+func TestTheOutboundBoundIsTheResponseBudgetNotTheFrameLimit(t *testing.T) {
+	// Well under the budget: untouched.
+	if _, err := mcpToolTextResult(context.Background(), "brain_status", strings.Repeat("x", 4096)); err != nil {
+		t.Fatalf("a result comfortably under the budget was refused: %v", err)
+	}
+	// Between the budget and the frame limit: no longer a silent success.
+	betweenBudgetAndFrame := strings.Repeat("x", maxMCPFrameBytes-4096)
+	if len(betweenBudgetAndFrame) <= mcpToolResponseMaxBytes {
+		t.Fatalf("fixture %d bytes is not between the budget and the frame limit", len(betweenBudgetAndFrame))
+	}
+	if _, err := mcpToolTextResult(context.Background(), "brain_status", betweenBudgetAndFrame); err == nil {
+		t.Fatal("a result under the frame limit but far over the response budget was returned as a plain success")
 	}
 	if _, err := mcpToolTextResult(context.Background(), "brain_status", strings.Repeat("x", maxMCPFrameBytes+1)); err == nil {
-		t.Fatal("a result over the limit was accepted")
+		t.Fatal("a result over the frame limit was accepted")
 	}
 }
 
