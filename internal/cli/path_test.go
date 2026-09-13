@@ -168,7 +168,7 @@ func TestPathExplicitAliasRecoversLegacyLocalBrain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plugin dirs: %v", err)
 	}
-	legacyKey := filepath.ToSlash(filepath.Join("local", localRepoKey(alias)))
+	legacyKey := localRepoStorageKeyForSpelling(alias)
 	legacy := repoStorageForKey(dirs, legacyKey)
 	if err := os.MkdirAll(legacy.BrainDir, 0o700); err != nil {
 		t.Fatalf("create legacy brain: %v", err)
@@ -387,7 +387,7 @@ func TestPathPrintsStoredBrainWhenWorktreeLostItsGitDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plugin dirs: %v", err)
 	}
-	storage := repoStorageForKey(dirs, filepath.ToSlash(filepath.Join("local", localRepoKey(plainDir))))
+	storage := repoStorageForKey(dirs, testLocalRepoStorageKey(t, plainDir))
 	if err := os.MkdirAll(storage.BrainDir, 0o700); err != nil {
 		t.Fatalf("create stored brain: %v", err)
 	}

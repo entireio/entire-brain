@@ -127,6 +127,9 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	addGrouped("maintain", newSemanticGCCommand(opts))
 	addGrouped("maintain", newSemanticRepairCommand(opts))
 	addGrouped("maintain", newSemanticResetCommand(opts))
+	// The recovery path for repo_identity_conflict, which otherwise refuses
+	// every repo-scoped command including the deletes that would clear it.
+	addGrouped("maintain", newRepoIdentityCommand(opts))
 	addGrouped("maintain", newVersionCommand(opts.Version))
 
 	// Hidden: `review` is the machine contract `entire review`'s diff-less mode shells

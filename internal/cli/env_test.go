@@ -121,6 +121,24 @@ func TestRepoStorageKeyUsesCanonicalEntireProxyPath(t *testing.T) {
 	}
 }
 
+// testLocalRepoStorageKey is the storage key a local repository root maps to,
+// derived the same way production derives it. Tests must never spell the key
+// out of a raw path hash: that is precisely the bug -- a key that depends on
+// how the directory was addressed rather than on which directory it is -- and a
+// test that recomputes it by hand cannot catch a regression in the rule.
+//
+// Use localRepoStorageKeyForSpelling instead when the test is deliberately
+// naming an ALTERNATE spelling's store, such as a brain left behind by an
+// older build.
+func testLocalRepoStorageKey(tb testing.TB, repoDir string) string {
+	tb.Helper()
+	key, err := localRepoStorageKey(repoDir)
+	if err != nil {
+		tb.Fatalf("local repo storage key for %q: %v", repoDir, err)
+	}
+	return key
+}
+
 func TestRepoStorageKeyTreatsEntireProxyAsOriginEquivalent(t *testing.T) {
 	configDir := t.TempDir()
 	originKey, originOK, originErr := repoKeyFromRemote(configDir, "https://github.com/entirehq/entire-api.git")
@@ -140,7 +158,7 @@ func TestRepoStorageKeyRejectsHostlessEntireProxy(t *testing.T) {
 func TestRepoStorageKeyTreatsMalformedEntireProxyAsLocal(t *testing.T) {
 	repoDir := t.TempDir()
 	configDir := t.TempDir()
-	want := filepath.ToSlash(filepath.Join("local", localRepoKey(repoDir)))
+	want := testLocalRepoStorageKey(t, repoDir)
 	for _, remote := range []string{
 		"entire://cluster.example/gh/owner",
 		"entire://cluster.example/gh",
@@ -296,7 +314,7 @@ func TestCanonicalLocalRepoDirFollowsFinalSymlinkChain(t *testing.T) {
 	}
 
 	for _, alias := range []string{relativeAlias, chainedAlias, absoluteAlias} {
-		got, err := canonicalExistingLocalRepoDir(alias)
+		got, err := rootSymlinkResolvedLocalRepoDir(alias)
 		if err != nil {
 			t.Fatalf("canonicalize %q: %v", alias, err)
 		}
@@ -306,7 +324,22 @@ func TestCanonicalLocalRepoDirFollowsFinalSymlinkChain(t *testing.T) {
 	}
 }
 
-func TestRepoStorageKeyPreservesSymlinkedAncestorSpelling(t *testing.T) {
+// TestRepoStorageKeyCollapsesSymlinkedAncestorSpellings is the defect itself,
+// on a REAL symlink.
+//
+// A local repo key used to be the hash of whatever path string the caller
+// supplied, so one repository reached two ways got two keys. That is not a
+// corner case on macOS: /tmp is a symlink to /private/tmp, so every repository
+// under /tmp has a lexical and a physical spelling, and the two routes into
+// this binary disagree about which one they use -- an absolute
+// ENTIRE_REPO_ROOT (what `mcp --print-config` bakes into a host config) keeps
+// the caller's spelling, while a relative invocation from inside the tree can
+// only produce the physical one. Two keys meant two brains, and once both
+// existed every command, INCLUDING the delete that would have cleared them,
+// refused with repo_identity_conflict.
+//
+// The key must therefore be a property of the directory, not of the route.
+func TestRepoStorageKeyCollapsesSymlinkedAncestorSpellings(t *testing.T) {
 	parent := t.TempDir()
 	realParent := filepath.Join(parent, "real-parent")
 	repoDir := filepath.Join(realParent, "repo")
@@ -318,22 +351,104 @@ func TestRepoStorageKeyPreservesSymlinkedAncestorSpelling(t *testing.T) {
 		t.Skipf("directory symlinks are unavailable on this platform: %v", err)
 	}
 	logicalRepoDir := filepath.Join(aliasParent, "repo")
+	if logicalRepoDir == repoDir {
+		t.Fatal("test setup produced one spelling; there is nothing to collapse")
+	}
 
-	canonical, err := canonicalExistingLocalRepoDir(logicalRepoDir)
+	// The alternate spelling is still derivable -- an older build keyed brains
+	// on it, and they have to stay findable.
+	rootLinkResolved, err := rootSymlinkResolvedLocalRepoDir(logicalRepoDir)
 	if err != nil {
-		t.Fatalf("canonical local repo: %v", err)
+		t.Fatalf("root-link-resolved local repo: %v", err)
 	}
-	if canonical != logicalRepoDir {
-		t.Fatalf("canonical root = %q, want ancestor spelling preserved as %q", canonical, logicalRepoDir)
+	if rootLinkResolved != logicalRepoDir {
+		t.Fatalf("root-link-resolved root = %q, want the ancestor spelling %q", rootLinkResolved, logicalRepoDir)
 	}
-	key, err := repoStorageKey(context.Background(), nil, t.TempDir(), logicalRepoDir)
+
+	viaAlias, err := repoStorageKey(context.Background(), nil, t.TempDir(), logicalRepoDir)
 	if err != nil {
-		t.Fatalf("local key: %v", err)
+		t.Fatalf("key through the symlinked ancestor: %v", err)
 	}
-	sum := sha256.Sum256([]byte(filepath.Clean(logicalRepoDir)))
+	direct, err := repoStorageKey(context.Background(), nil, t.TempDir(), repoDir)
+	if err != nil {
+		t.Fatalf("key through the physical path: %v", err)
+	}
+	if viaAlias != direct {
+		t.Fatalf("one repository got two keys: %q through %s, %q through %s",
+			viaAlias, logicalRepoDir, direct, repoDir)
+	}
+
+	// And that one key is the physical spelling, because that is the only
+	// spelling every route can produce.
+	resolved, err := filepath.EvalSymlinks(repoDir)
+	if err != nil {
+		t.Fatalf("resolve repo dir: %v", err)
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(resolved)))
 	want := "local/repo-" + hex.EncodeToString(sum[:])[:12]
-	if key != want {
-		t.Fatalf("local key = %q, want established lexical key %q", key, want)
+	if direct != want {
+		t.Fatalf("local key = %q, want fully resolved key %q", direct, want)
+	}
+}
+
+// TestRepoStoragePathsAdoptsPreFixLexicalStore is the migration half of the
+// same change. Making the key physical moves where NEW brains are created; it
+// must not move where an EXISTING one is read.
+//
+// The guarantee under test is per-route: whatever spelling created a brain
+// under the PRE-FIX rule still opens that same brain, in place. Nothing moves
+// on disk, so there is no half-finished migration to recover from if the
+// process dies mid-command -- the old key simply stays the key that repository
+// keeps using.
+func TestRepoStoragePathsAdoptsPreFixLexicalStore(t *testing.T) {
+	parent := t.TempDir()
+	realParent := filepath.Join(parent, "real-parent")
+	repoDir := filepath.Join(realParent, "repo")
+	if err := os.MkdirAll(repoDir, 0o700); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	aliasParent := filepath.Join(parent, "alias-parent")
+	if err := os.Symlink(realParent, aliasParent); err != nil {
+		t.Skipf("directory symlinks are unavailable on this platform: %v", err)
+	}
+	repoAlias := filepath.Join(parent, "repo-alias")
+	if err := os.Symlink(repoDir, repoAlias); err != nil {
+		t.Skipf("directory symlinks are unavailable on this platform: %v", err)
+	}
+
+	// Every spelling a caller could have addressed this repository by before
+	// the fix: through a symlinked ancestor, through a symlinked root, and the
+	// plain path.
+	for _, spelling := range []string{filepath.Join(aliasParent, "repo"), repoAlias, repoDir} {
+		t.Run(filepath.Base(filepath.Dir(spelling))+"/"+filepath.Base(spelling), func(t *testing.T) {
+			env := EntireEnv{
+				PluginConfigDir: t.TempDir(),
+				PluginDataDir:   t.TempDir(),
+				PluginStateDir:  t.TempDir(),
+			}
+			dirs, err := resolvePluginDirs(env)
+			if err != nil {
+				t.Fatalf("plugin dirs: %v", err)
+			}
+			// The pre-fix rule: resolve only the root's final component, then
+			// hash that spelling verbatim.
+			preFixRoot, err := rootSymlinkResolvedLocalRepoDir(spelling)
+			if err != nil {
+				t.Fatalf("pre-fix root: %v", err)
+			}
+			established := repoStorageForKey(dirs, localRepoStorageKeyForSpelling(preFixRoot))
+			if err := os.MkdirAll(established.BrainDir, 0o700); err != nil {
+				t.Fatalf("create pre-fix brain: %v", err)
+			}
+
+			got, err := repoStoragePaths(context.Background(), nil, env, spelling)
+			if err != nil {
+				t.Fatalf("storage through %s: %v", spelling, err)
+			}
+			if got.BrainDir != established.BrainDir {
+				t.Fatalf("the spelling that created the brain no longer opens it\n got: %s\nwant: %s", got.BrainDir, established.BrainDir)
+			}
+		})
 	}
 }
 
@@ -421,8 +536,8 @@ func TestRepoStoragePathsCanonicalIdentityUpgradeCompatibility(t *testing.T) {
 			if err != nil {
 				t.Fatalf("plugin dirs: %v", err)
 			}
-			canonicalKey := filepath.ToSlash(filepath.Join("local", localRepoKey(repoDir)))
-			legacyKey := filepath.ToSlash(filepath.Join("local", localRepoKey(alias)))
+			canonicalKey := testLocalRepoStorageKey(t, repoDir)
+			legacyKey := localRepoStorageKeyForSpelling(alias)
 			canonical := repoStorageForKey(dirs, canonicalKey)
 			legacy := repoStorageForKey(dirs, legacyKey)
 			if tc.canonicalData {
@@ -495,7 +610,7 @@ func TestRepoStoragePathsRemoteSymlinkBypassesLocalLegacyState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plugin dirs: %v", err)
 	}
-	legacyKey := filepath.ToSlash(filepath.Join("local", localRepoKey(alias)))
+	legacyKey := localRepoStorageKeyForSpelling(alias)
 	legacy := repoStorageForKey(dirs, legacyKey)
 	if err := os.MkdirAll(legacy.BrainDir, 0o700); err != nil {
 		t.Fatalf("create legacy local brain: %v", err)
@@ -540,7 +655,7 @@ func TestEnvFromOSKeepsLexicalAliasForStorageCompatibility(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plugin dirs: %v", err)
 	}
-	legacyKey := filepath.ToSlash(filepath.Join("local", localRepoKey(alias)))
+	legacyKey := localRepoStorageKeyForSpelling(alias)
 	legacy := repoStorageForKey(dirs, legacyKey)
 	if err := os.MkdirAll(legacy.BrainDir, 0o700); err != nil {
 		t.Fatalf("create legacy brain: %v", err)

@@ -583,12 +583,12 @@ func TestWorkspaceGraphReportsPerRepoTrust(t *testing.T) {
 	cmd := &cobra.Command{Use: "index"}
 
 	repoA := t.TempDir()
-	keyA := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
+	keyA := testLocalRepoStorageKey(t, repoA)
 	indexWorkspaceGraphRepo(t, cmd, opts, runner, repoA, keyA, "HandleA")
 
 	// Pin a degraded completeness/trust on the repo's semantic manifest so the
 	// workspace graph result is asserted to carry per-repo trust diagnostics.
-	brainDirA := filepath.Join(env.PluginDataDir, repoStoreDirName, "local", localRepoKey(repoA))
+	brainDirA := filepath.Join(env.PluginDataDir, repoStoreDirName, filepath.FromSlash(keyA))
 	manifestA, err := loadBrainManifest(brainDirA)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
@@ -630,10 +630,10 @@ func TestWorkspaceGraphReportsSharedExternalContracts(t *testing.T) {
 	cmd := &cobra.Command{Use: "index"}
 
 	repoA := t.TempDir()
-	keyA := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
+	keyA := testLocalRepoStorageKey(t, repoA)
 	indexWorkspaceGraphRepo(t, cmd, opts, runner, repoA, keyA, "HandleSharedA")
 	repoB := t.TempDir()
-	keyB := filepath.ToSlash(filepath.Join("local", localRepoKey(repoB)))
+	keyB := testLocalRepoStorageKey(t, repoB)
 	indexWorkspaceGraphRepo(t, cmd, opts, runner, repoB, keyB, "HandleSharedB")
 
 	manifest := workspaceManifest{
@@ -685,9 +685,9 @@ func TestWorkspaceGraphReportsCrossRepoImportCandidates(t *testing.T) {
 	cmd := &cobra.Command{Use: "index"}
 
 	repoA := t.TempDir()
-	keyA := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
+	keyA := testLocalRepoStorageKey(t, repoA)
 	repoB := t.TempDir()
-	keyB := filepath.ToSlash(filepath.Join("local", localRepoKey(repoB)))
+	keyB := testLocalRepoStorageKey(t, repoB)
 	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoA, keyA, workspaceGraphImportingSnapshot(keyA, "HandleAPI", keyB+"/pkg"))
 	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoB, keyB, workspaceGraphLibrarySnapshot(keyB, "pkg/service.go", "Service"))
 
@@ -1557,9 +1557,9 @@ func TestWorkspaceGraphReportsCrossRepoRouteCalls(t *testing.T) {
 	cmd := &cobra.Command{Use: "index"}
 
 	repoA := t.TempDir()
-	keyA := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
+	keyA := testLocalRepoStorageKey(t, repoA)
 	repoB := t.TempDir()
-	keyB := filepath.ToSlash(filepath.Join("local", localRepoKey(repoB)))
+	keyB := testLocalRepoStorageKey(t, repoB)
 	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoA, keyA, workspaceGraphRouteCallerSnapshot(keyA, "CallShared", "/shared"))
 	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoB, keyB, workspaceGraphRouteHandlerSnapshot(keyB, "HandleShared", "/shared"))
 
@@ -1803,9 +1803,9 @@ func TestWorkspaceGraphReportsExactExternalSymbolEdges(t *testing.T) {
 	cmd := &cobra.Command{Use: "index"}
 
 	repoA := t.TempDir()
-	keyA := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
+	keyA := testLocalRepoStorageKey(t, repoA)
 	repoB := t.TempDir()
-	keyB := filepath.ToSlash(filepath.Join("local", localRepoKey(repoB)))
+	keyB := testLocalRepoStorageKey(t, repoB)
 	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoA, keyA, workspaceGraphExternalSymbolSnapshot(keyA, "HandleAPI", "lib.Service"))
 	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoB, keyB, workspaceGraphQualifiedSymbolSnapshot(keyB, "lib/service.go", "Service", "lib.Service"))
 
@@ -1847,9 +1847,9 @@ func TestWorkspaceGraphMatchesRepoPrefixedExternalSymbols(t *testing.T) {
 	cmd := &cobra.Command{Use: "index"}
 
 	repoA := t.TempDir()
-	keyA := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
+	keyA := testLocalRepoStorageKey(t, repoA)
 	repoB := t.TempDir()
-	keyB := filepath.ToSlash(filepath.Join("local", localRepoKey(repoB)))
+	keyB := testLocalRepoStorageKey(t, repoB)
 	externalSpec := keyB + "/pkg.Service"
 	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoA, keyA, workspaceGraphExternalSymbolSnapshot(keyA, "HandleAPI", externalSpec))
 	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoB, keyB, workspaceGraphQualifiedSymbolSnapshot(keyB, "pkg/service.go", "Service", "pkg.Service"))
@@ -2361,7 +2361,7 @@ func writeWorkspaceBrainRepo(t *testing.T, env EntireEnv, key, sessionText, repo
 func writeLocalWorkspaceBrainRepo(t *testing.T, env EntireEnv, sessionText, repoRel, fileBody string) (string, string) {
 	t.Helper()
 	repoDir := t.TempDir()
-	key := filepath.ToSlash(filepath.Join("local", localRepoKey(repoDir)))
+	key := testLocalRepoStorageKey(t, repoDir)
 	writeWorkspaceBrainRepoAt(t, env, key, repoDir, sessionText, repoRel, fileBody)
 	return repoDir, key
 }
@@ -2492,7 +2492,7 @@ func TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain(t *testing.T) {
 	repoA, keyA := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/review_context.go", regressed)
 	// A repo registered with a real working tree but NO brain prepped (missing-brain).
 	missingTree := t.TempDir()
-	missingKey := filepath.ToSlash(filepath.Join("local", localRepoKey(missingTree)))
+	missingKey := testLocalRepoStorageKey(t, missingTree)
 
 	manifest := workspaceManifest{
 		SchemaVersion: workspaceSchemaVersion,

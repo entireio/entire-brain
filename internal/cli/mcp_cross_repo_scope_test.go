@@ -115,7 +115,7 @@ func TestMCPDeleteProjectRefusesForeignRepoKey(t *testing.T) {
 func TestMCPDeleteProjectAllowsBoundRepoKey(t *testing.T) {
 	repoDir := t.TempDir()
 	opts, env := mcpScopeTestOptions(t, repoDir)
-	boundKey := filepath.ToSlash(filepath.Join("local", localRepoKey(repoDir)))
+	boundKey := testLocalRepoStorageKey(t, repoDir)
 	boundDir := writeScopeTestBrain(t, env, boundKey)
 
 	response := mcpScopeCall(t, opts, "brain_delete_project", map[string]any{"repo_key": boundKey, "confirm": true})
@@ -149,7 +149,7 @@ func TestMCPDeleteProjectHonorsCrossRepoGate(t *testing.T) {
 func TestMCPListProjectsScopesToBoundRepo(t *testing.T) {
 	repoDir := t.TempDir()
 	opts, env := mcpScopeTestOptions(t, repoDir)
-	boundKey := filepath.ToSlash(filepath.Join("local", localRepoKey(repoDir)))
+	boundKey := testLocalRepoStorageKey(t, repoDir)
 	writeScopeTestBrain(t, env, boundKey)
 	writeScopeTestBrain(t, env, "gh/victim/other")
 
@@ -167,7 +167,7 @@ func TestMCPListProjectsScopesToBoundRepo(t *testing.T) {
 func TestMCPListProjectsHonorsCrossRepoGate(t *testing.T) {
 	repoDir := t.TempDir()
 	opts, env := mcpScopeTestOptions(t, repoDir)
-	boundKey := filepath.ToSlash(filepath.Join("local", localRepoKey(repoDir)))
+	boundKey := testLocalRepoStorageKey(t, repoDir)
 	writeScopeTestBrain(t, env, boundKey)
 	writeScopeTestBrain(t, env, "gh/victim/other")
 	t.Setenv(mcpAllowCrossRepoEnv, "1")
@@ -196,7 +196,7 @@ func TestMCPWorkspaceToolsRefuseReposOutsideBoundRoot(t *testing.T) {
 	}
 	opts, env := mcpScopeTestOptions(t, repoDir)
 	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
-	boundKey := filepath.ToSlash(filepath.Join("local", localRepoKey(repoDir)))
+	boundKey := testLocalRepoStorageKey(t, repoDir)
 	writeWorkspaceBrainRepoAt(t, env, boundKey, repoDir, session, "pkg/review_context.go", "package x\n")
 	foreignRepo, foreignKey := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/review_context.go", "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n")
 	manifest := workspaceManifest{

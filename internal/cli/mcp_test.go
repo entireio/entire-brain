@@ -197,7 +197,7 @@ func TestMCPToolsListIncludesQMDRetrievalSurface(t *testing.T) {
 func TestMCPProjectManagementTools(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
-	repoKey := filepath.ToSlash(filepath.Join("local", localRepoKey(repoDir)))
+	repoKey := testLocalRepoStorageKey(t, repoDir)
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
 		fakeCommandKey("git", "rev-parse", "--show-toplevel"):                                                  {stdout: repoDir + "\n"},
 		fakeCommandKey("git", "rev-parse", "HEAD"):                                                             {stdout: "aaa111\n"},
@@ -342,10 +342,10 @@ func TestMCPWorkspaceGraphReturnsCrossEdges(t *testing.T) {
 	cmd := &cobra.Command{Use: "index"}
 
 	repoA := t.TempDir()
-	keyA := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
+	keyA := testLocalRepoStorageKey(t, repoA)
 	indexWorkspaceGraphRepo(t, cmd, opts, runner, repoA, keyA, "HandleMCPA")
 	repoB := t.TempDir()
-	keyB := filepath.ToSlash(filepath.Join("local", localRepoKey(repoB)))
+	keyB := testLocalRepoStorageKey(t, repoB)
 	indexWorkspaceGraphRepo(t, cmd, opts, runner, repoB, keyB, "HandleMCPB")
 	manifest := workspaceManifest{
 		SchemaVersion: workspaceSchemaVersion,

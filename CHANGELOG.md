@@ -5,6 +5,49 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A repository reached through a symlinked path no longer ends up with two
+  brains and then locked out of both. A local repo key was the hash of whatever
+  path string the caller supplied, so one checkout could have two identities:
+  a relative invocation resolves symlinks (git and the `getcwd` syscall both
+  report the physical root), while an absolute `ENTIRE_REPO_ROOT` kept the
+  caller's spelling — and `mcp --print-config` baked in the UNRESOLVED path,
+  because `os.Getwd` honours `$PWD`. On macOS `/tmp` is a symlink to
+  `/private/tmp`, so this was the default for any repository created under
+  `/tmp`, not an edge case. Once both stores existed, every repo-scoped command
+  refused with `repo_identity_conflict`, including `brain_delete_project` — the
+  one call that could have cleared them — so the MCP surface had no recovery
+  path at all.
+  - A local repo key is now derived from the FULLY symlink-resolved root, so it
+    is a property of the directory rather than of the route taken to it. Every
+    spelling collapses onto one key.
+  - A brain already stored under an older key spelling is adopted **in place**:
+    nothing moves on disk, so no existing store is orphaned and there is no
+    half-finished migration to recover from. Repositories on paths with no
+    symlinked ancestor keep byte-identical keys.
+  - An existing root whose symlinks cannot be resolved is now reported instead
+    of silently keyed on its lexical spelling, which would mint the second key
+    this change exists to prevent. A root that does not exist yet still keeps
+    its spelling: workspace manifests use those paths as durable hints.
+  - `mcp --print-config` emits the canonical spelling, so a config-file launch
+    and a `cd`-and-run launch of the same repository agree.
+  - `brain_delete_project` resolves storage through the conflict-tolerant path
+    and erases every store the repository resolves to, so it can clear a
+    conflict rather than be blocked by one. It now removes the per-repo head
+    store alongside the brain; leaving it behind left a cursor pointing at a
+    deleted brain, and left the duplicate identity standing.
+
+### Added
+
+- `entire brain repo-identity` reports every brain store a repository resolves
+  to, and `--keep <repo-key>` resolves a `repo_identity_conflict` by keeping one
+  store and RENAMING the rest to a dated sibling — nothing is deleted, so a
+  wrong choice is undone with `mv`. The kept history is moved onto the canonical
+  key so every spelling of the repository finds it. The conflict message now
+  names this command; it used to end with "move one brain/head store aside and
+  retry", an instruction to run `mv` by hand with nothing behind it.
+
 ### Changed
 
 - Every printed repair command resolves in the dispatch mode that printed it.

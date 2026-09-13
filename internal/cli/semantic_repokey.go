@@ -16,10 +16,11 @@ import (
 //	brain storage key (resolveRepoStorageIdentity, env.go)
 //	    the `origin` remote, through repoKeyFromRemote, for ANY host, folded to
 //	    lower case: "gh/owner/name", "gl/owner/name", "<generated-slug>/…".
-//	    With no `origin`: "local/<sanitized base>-<sha256(abs repo dir)[:12]>".
-//	    The hash suffix is load-bearing — the key IS the on-disk directory name
-//	    under <data>/repos/, so two checkouts sharing a basename must not
-//	    collide onto one brain.
+//	    With no `origin`: "local/<sanitized base>-<sha256(repo dir)[:12]>", over
+//	    the FULLY SYMLINK-RESOLVED root, so one checkout reached by two path
+//	    spellings is one repository. The hash suffix is load-bearing — the key
+//	    IS the on-disk directory name under <data>/repos/, so two checkouts
+//	    sharing a basename must not collide onto one brain.
 //
 //	provider label (entire-graph internal/sem/provider.go repoKey())
 //	    the first remote URL (origin first) matching a github.com pattern, case
