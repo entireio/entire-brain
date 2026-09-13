@@ -211,3 +211,36 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
+
+// Redact removes a caller's own bearer token from a string that came back from the
+// peer, replacing every occurrence with a fixed placeholder.
+//
+// This exists because a non-2xx body is ATTACKER-CONTROLLED text that this plugin
+// prints. ErrorDetail already makes such a body safe to display — bounded, no control
+// characters, valid UTF-8 — but "safe to display" is not "safe to KEEP". A hosted
+// endpoint that echoes the request's Authorization header into its error envelope
+//
+//	400 {"detail":"bad credential: Bearer entire_pat_..."}
+//
+// gets that token rendered verbatim into the member's stderr, from where it reaches
+// terminal scrollback, a CI job log, and the bug report they paste it into. The peer
+// already holds the token, so this is not about hiding it from the peer; it is about
+// the peer being able to decide that the token ends up somewhere durable and shared.
+//
+// The comparison is on the raw secret only. The token travels as a plain header
+// value, so no encoding of it is in play, and a fuzzy match would risk redacting
+// legitimate text. An empty secret redacts nothing (an unauthenticated client has no
+// token to protect), and a very short one is ignored rather than turning every
+// coincidental substring into a placeholder.
+func Redact(s, secret string) string {
+	if len(secret) < minRedactableSecretBytes || s == "" {
+		return s
+	}
+	return strings.ReplaceAll(s, secret, redactedPlaceholder)
+}
+
+// minRedactableSecretBytes keeps a short or accidental token value from redacting
+// unrelated text. Real API tokens are far longer than this.
+const minRedactableSecretBytes = 8
+
+const redactedPlaceholder = "[redacted-token]"

@@ -49,8 +49,8 @@ import (
 // errors.Is(err, ErrProposalNotFound) as "another member already settled this", a
 // normal outcome they skip past rather than a failure. %w keeps that true while the
 // message grows.
-func notFound(resp *http.Response, proposalID string) error {
-	if detail := httpx.ErrorDetail(resp); detail != "" {
+func (h *HTTPServer) notFound(resp *http.Response, proposalID string) error {
+	if detail := httpx.Redact(httpx.ErrorDetail(resp), h.Token); detail != "" {
 		return fmt.Errorf("%w: %s: %s", ErrProposalNotFound, proposalID, detail)
 	}
 	return fmt.Errorf("%w: %s", ErrProposalNotFound, proposalID)
@@ -129,12 +129,12 @@ func (h *HTTPServer) ListProposals(ctx context.Context, repoID, branch string) (
 		// queue with a warning, which is right for an optional sub-feature — and the
 		// next sync re-checks, so a genuinely transient 503 costs one cycle, never a
 		// failed sync whose head-advance already succeeded.
-		return ProposalSet{}, fmt.Errorf("%w: GET proposals %s/%s: %s%s", ErrProposalQueueUnsupported, repoID, branch, resp.Status, httpx.ErrorSuffix(resp))
+		return ProposalSet{}, fmt.Errorf("%w: GET proposals %s/%s: %s%s", ErrProposalQueueUnsupported, repoID, branch, resp.Status, h.detail(resp))
 	default:
-		return ProposalSet{}, fmt.Errorf("factsync: GET proposals %s/%s: unexpected status %s%s", repoID, branch, resp.Status, httpx.ErrorSuffix(resp))
+		return ProposalSet{}, fmt.Errorf("factsync: GET proposals %s/%s: unexpected status %s%s", repoID, branch, resp.Status, h.detail(resp))
 	}
 	var out wireProposalSet
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := httpx.DecodeJSONBody(resp, &out); err != nil {
 		return ProposalSet{}, fmt.Errorf("factsync: decode proposals %s/%s: %w", repoID, branch, err)
 	}
 	set := ProposalSet{Branch: branch, Ref: out.Ref, Found: out.Found, Proposals: out.Proposals}
@@ -173,12 +173,12 @@ func (h *HTTPServer) GetProposal(ctx context.Context, repoID, branch, proposalID
 	switch resp.StatusCode {
 	case http.StatusOK:
 	case http.StatusNotFound:
-		return OpenProposal{}, notFound(resp, proposalID)
+		return OpenProposal{}, h.notFound(resp, proposalID)
 	default:
-		return OpenProposal{}, fmt.Errorf("factsync: GET proposal %s/%s/%s: unexpected status %s%s", repoID, branch, proposalID, resp.Status, httpx.ErrorSuffix(resp))
+		return OpenProposal{}, fmt.Errorf("factsync: GET proposal %s/%s/%s: unexpected status %s%s", repoID, branch, proposalID, resp.Status, h.detail(resp))
 	}
 	var out wireProposalSet
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := httpx.DecodeJSONBody(resp, &out); err != nil {
 		return OpenProposal{}, fmt.Errorf("factsync: decode proposal %s/%s/%s: %w", repoID, branch, proposalID, err)
 	}
 	if !out.Found || out.Proposal == nil {
@@ -234,7 +234,7 @@ func (h *HTTPServer) PublishProposals(ctx context.Context, repoID, branch, oldRe
 			Version int64  `json:"version"`
 			Changed *bool  `json:"changed"`
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		if err := httpx.DecodeJSONBody(resp, &out); err != nil {
 			return "", fmt.Errorf("factsync: decode publish proposals %s/%s: %w", repoID, branch, err)
 		}
 		if out.Changed != nil && !*out.Changed {
@@ -245,13 +245,13 @@ func (h *HTTPServer) PublishProposals(ctx context.Context, repoID, branch, oldRe
 		}
 		return out.Ref, nil
 	case http.StatusPreconditionFailed, http.StatusConflict:
-		return "", conflict(resp)
+		return "", h.conflict(resp)
 	case http.StatusNotFound, http.StatusNotImplemented, http.StatusServiceUnavailable:
 		// Same reading as the list path: no queue on this deployment, so the proposals
 		// stay local rather than failing a sync that already landed its facts.
-		return "", fmt.Errorf("%w: POST proposals %s/%s: %s%s", ErrProposalQueueUnsupported, repoID, branch, resp.Status, httpx.ErrorSuffix(resp))
+		return "", fmt.Errorf("%w: POST proposals %s/%s: %s%s", ErrProposalQueueUnsupported, repoID, branch, resp.Status, h.detail(resp))
 	default:
-		return "", fmt.Errorf("factsync: POST proposals %s/%s: unexpected status %s%s", repoID, branch, resp.Status, httpx.ErrorSuffix(resp))
+		return "", fmt.Errorf("factsync: POST proposals %s/%s: unexpected status %s%s", repoID, branch, resp.Status, h.detail(resp))
 	}
 }
 
@@ -339,7 +339,7 @@ func (h *HTTPServer) ResolveProposal(ctx context.Context, req ResolveProposalReq
 			ProposalsRef string `json:"proposalsRef"`
 			Changed      *bool  `json:"changed"`
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		if err := httpx.DecodeJSONBody(resp, &out); err != nil {
 			return ResolveProposalResponse{}, fmt.Errorf("factsync: decode resolve %s/%s/%s: %w", req.RepoID, req.Branch, req.ProposalID, err)
 		}
 		changed := true
@@ -348,11 +348,11 @@ func (h *HTTPServer) ResolveProposal(ctx context.Context, req ResolveProposalReq
 		}
 		return ResolveProposalResponse{FactsRef: out.FactsRef, ProposalsRef: out.ProposalsRef, Changed: changed}, nil
 	case http.StatusPreconditionFailed, http.StatusConflict:
-		return ResolveProposalResponse{}, conflict(resp)
+		return ResolveProposalResponse{}, h.conflict(resp)
 	case http.StatusNotFound:
-		return ResolveProposalResponse{}, notFound(resp, req.ProposalID)
+		return ResolveProposalResponse{}, h.notFound(resp, req.ProposalID)
 	default:
 		return ResolveProposalResponse{}, fmt.Errorf("factsync: POST resolve %s/%s/%s: unexpected status %s%s",
-			req.RepoID, req.Branch, req.ProposalID, strings.TrimSpace(resp.Status), httpx.ErrorSuffix(resp))
+			req.RepoID, req.Branch, req.ProposalID, strings.TrimSpace(resp.Status), h.detail(resp))
 	}
 }

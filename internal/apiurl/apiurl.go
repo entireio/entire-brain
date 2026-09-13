@@ -20,6 +20,12 @@
 // string) is rejected outright: the hosted API is HTTP(S), so anything else is a
 // misconfiguration at best and a redirection primitive at worst.
 //
+// A URL carrying userinfo (https://user:pw@host) is rejected on every scheme. This
+// API takes a bearer token, so userinfo authenticates nothing here; what it does do
+// is put a cleartext password into a value this plugin prints, and hand net/http a
+// credential it will promote to an Authorization: Basic header on any request that
+// does not already carry one. See Validate for the full reasoning.
+//
 // Loopback is decided from the URL's literal host only — no DNS resolution. Resolving
 // would be a TOCTOU check (the name can resolve differently at request time), would
 // need the network to validate a URL, and would let a hostile DNS answer widen the
@@ -78,6 +84,28 @@ func Validate(raw string) (string, error) {
 		}
 	default:
 		return "", fmt.Errorf("invalid_api_url: unsupported URL scheme %q in %q; the hosted API is HTTP(S) — want https:// (or http:// on loopback)", u.Scheme, trimmed)
+	}
+	// Credentials must not live in the base URL. Three separate reasons, any one of
+	// which is enough:
+	//
+	//   - The hosted API authenticates with a bearer token (--token /
+	//     ENTIRE_API_TOKEN), so userinfo is never the way in. There is nothing to
+	//     support here, only a way to get it wrong.
+	//   - The base URL is a value this plugin PRINTS: publish names its target,
+	//     `facts sync` labels its backend with it, and a transport failure formats
+	//     it. net/url guards its own rendering with URL.Redacted(), but every
+	//     %s of the plain string defeats that and puts the cleartext password in a
+	//     terminal, a CI log, or a pasted bug report.
+	//   - net/http promotes userinfo to an `Authorization: Basic` header whenever the
+	//     request does not already carry one. The fact-set and hosted-MCP clients set
+	//     Authorization only when their token is non-empty, so a tokenless call to a
+	//     URL with userinfo silently egresses a DIFFERENT credential than the one the
+	//     member configured.
+	//
+	// The refusal quotes u.Redacted(), not the raw string: an error about a leaked
+	// password must not be the thing that leaks it.
+	if u.User != nil {
+		return "", fmt.Errorf("invalid_api_url: %s carries credentials in the URL; the hosted API authenticates with a bearer token — remove the user:password@ from the base URL and pass the token with --token or ENTIRE_API_TOKEN", u.Redacted())
 	}
 	return strings.TrimRight(trimmed, "/"), nil
 }

@@ -271,6 +271,15 @@ func validateBranch(branch string) error {
 	return nil
 }
 
+// detail renders the server's objection with this client's own bearer token removed.
+// Every non-2xx render on the fact-set and proposal surfaces goes through here, so
+// the redaction is applied once rather than at each of the ten call sites. See
+// httpx.Redact for why an echoed token has to be stripped even though the peer that
+// echoed it already had it.
+func (h *HTTPServer) detail(resp *http.Response) string {
+	return httpx.Redact(httpx.ErrorSuffix(resp), h.Token)
+}
+
 // conflict renders a 412/409 as ErrConflict, carrying whatever the server said about
 // the head that moved.
 //
@@ -280,8 +289,8 @@ func validateBranch(branch string) error {
 // silently turn a converging retry into a failed sync. When the server said nothing
 // the bare sentinel is returned unchanged, so a quiet 412 reads exactly as it did
 // before this file learned to read bodies.
-func conflict(resp *http.Response) error {
-	if detail := httpx.ErrorDetail(resp); detail != "" {
+func (h *HTTPServer) conflict(resp *http.Response) error {
+	if detail := httpx.Redact(httpx.ErrorDetail(resp), h.Token); detail != "" {
 		return fmt.Errorf("%w: %s", ErrConflict, detail)
 	}
 	return ErrConflict
@@ -347,7 +356,7 @@ func (h *HTTPServer) Current(ctx context.Context, repoID, branch string) (string
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", nil, false, fmt.Errorf("factsync: GET fact-set head %s/%s: unexpected status %s%s", repoID, branch, resp.Status, httpx.ErrorSuffix(resp))
+		return "", nil, false, fmt.Errorf("factsync: GET fact-set head %s/%s: unexpected status %s%s", repoID, branch, resp.Status, h.detail(resp))
 	}
 	var out struct {
 		Found   bool   `json:"found"`
@@ -355,7 +364,7 @@ func (h *HTTPServer) Current(ctx context.Context, repoID, branch string) (string
 		Version int64  `json:"version"`
 		Data    []byte `json:"data"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := httpx.DecodeJSONBody(resp, &out); err != nil {
 		return "", nil, false, fmt.Errorf("factsync: decode fact-set head %s/%s: %w", repoID, branch, err)
 	}
 	if !out.Found {
@@ -406,7 +415,7 @@ func (h *HTTPServer) Advance(ctx context.Context, repoID, branch, oldRef string,
 			Changed         *bool  `json:"changed"`
 			UnchangedLegacy *bool  `json:"unchanged"`
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		if err := httpx.DecodeJSONBody(resp, &out); err != nil {
 			return "", fmt.Errorf("factsync: decode advance %s/%s: %w", repoID, branch, err)
 		}
 		if out.Changed != nil && !*out.Changed {
@@ -430,8 +439,8 @@ func (h *HTTPServer) Advance(ctx context.Context, repoID, branch, oldRef string,
 		// The sentinel is the contract (sync.go re-reads and re-merges on
 		// errors.Is(err, ErrConflict)); the server's account of WHICH head moved is
 		// additive, and only when it said something.
-		return "", conflict(resp)
+		return "", h.conflict(resp)
 	default:
-		return "", fmt.Errorf("factsync: POST advance %s/%s: unexpected status %s%s", repoID, branch, resp.Status, httpx.ErrorSuffix(resp))
+		return "", fmt.Errorf("factsync: POST advance %s/%s: unexpected status %s%s", repoID, branch, resp.Status, h.detail(resp))
 	}
 }
