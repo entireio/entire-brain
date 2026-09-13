@@ -2052,6 +2052,9 @@ func execDistillAgent(ctx context.Context, dir string, args []string, input []by
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	command := exec.CommandContext(runCtx, args[0], args[1:]...)
+	// Provider wrappers can leave descendants holding stdout/stderr after cancellation.
+	// Match ExecRunner: bound pipe draining as well as the immediate process.
+	command.WaitDelay = commandWaitDelay
 	command.Dir = dir
 	command.Stdin = bytes.NewReader(input)
 	stdoutLimit := distillStdoutLimit(args)
