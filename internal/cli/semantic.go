@@ -703,6 +703,21 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		header.Warnings = sanitizeSemanticWarnings(header.Warnings, repoDir)
 		header.PartialFailures = sanitizeSemanticWarnings(header.PartialFailures, repoDir)
 		warnings = append(warnings, header.Warnings...)
+		// Reconcile what the provider parsed against what the tree holds. A
+		// provider reports its own coverage, so a file it never considered
+		// appears in no warning and no partial failure -- it is simply absent,
+		// and the snapshot alone cannot tell absence from non-existence. See
+		// semantic_coverage.go for why this is narrow enough not to
+		// second-guess the provider's file-selection policy.
+		//
+		// Never fatal: a coverage check that cannot run must not fail an index
+		// that otherwise succeeded. A git listing that fails says nothing about
+		// the snapshot already on disk.
+		if tracked, terr := semanticTrackedFiles(ctx, opts.Runner, repoDir, head, indexOpts.worktree && dirty); terr == nil {
+			reported := append(append([]semanticWarning{}, header.Warnings...), header.PartialFailures...)
+			missing := semanticUnreportedSkips(tracked, res.parsedFiles, reported, ignore)
+			warnings = append(warnings, semanticUnreportedSkipWarnings(missing)...)
+		}
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("flush semantic snapshot temp file: %w", err)
