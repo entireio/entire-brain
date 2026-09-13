@@ -20,6 +20,27 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Fixed
 
+- **The v0.3.0 fact-integrity cross-check compared counts, so a corruption that
+  preserved the count was invisible.** Overwriting one line of `facts.ndjson`
+  with a copy of another leaves the store parseable, the line count unchanged
+  and the manifest's number correct — and the fact whose line was taken is gone.
+  `get fact:<id>` answered "not found" while `doctor` said `facts: ok`, `status`
+  raised no warning, and `search` went back to volunteering that "the answer may
+  genuinely not be in the brain" — the exact false statement #242 was written to
+  eliminate, reached by a route the count could not see. The check now also
+  compares IDENTITY: within a branch an id names exactly one fact (every writer
+  keys by id before it writes), so a branch that yields the same id twice was
+  not written by this program and the repeat is standing where another fact used
+  to be. The four existing modes keep their own words; this is a fifth,
+  `duplicated`, because a substitution is not a shortfall — nothing is short,
+  something was replaced. The comparison is scoped to a branch and never to the
+  brain: a fact id is derived from text and paths only, so `facts promote`
+  carrying a fact between branches stores one id twice on purpose, and a
+  brain-wide id set would have reported every promote as data loss. A duplicate
+  that was appended rather than written over used to land in `stale`, whose
+  advice — "the manifest is behind the store — run `entire brain refresh`" —
+  would have re-declared the collided store and silenced the brain about it; it
+  now lands in `duplicated`, which names the re-distill.
 - **A missing `git` was reported as a missing repository.** `git rev-parse
   --show-toplevel` fails for both reasons and the four repo-ness gates (`setup`,
   `path`, `refresh`, `workspace add`) read every failure as the second. On a

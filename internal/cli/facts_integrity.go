@@ -3,13 +3,16 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 )
 
-// facts_integrity.go cross-checks the manifest's declared fact count against
-// the facts the store can actually produce.
+// facts_integrity.go cross-checks the manifest's declared fact source against
+// the facts the store can actually produce — both HOW MANY it produces and
+// WHICH ones, because a corruption can leave the first right while destroying
+// the second (see COUNTS ARE NOT ENOUGH below).
 //
 // sources.facts in the manifest is a CLAIM: "this brain holds N facts". Every
 // health surface printed that claim as though it were an observation, and
@@ -49,10 +52,43 @@ import (
 // emptyResultBlindSpot choke point, which covers recall, search, query and
 // retrieve at once.
 
+// COUNTS ARE NOT ENOUGH. The first cut of this check compared Declared against
+// Readable and nothing else, which leaves a corruption that PRESERVES the count
+// completely invisible: overwrite one line of facts.ndjson with a copy of
+// another and the store still yields N records, still parses, still declares N
+// — and the fact whose line was taken is gone. `get fact:<id>` says "not
+// found", doctor says "facts: ok", and `search` goes back to volunteering that
+// the answer "may genuinely not be in the brain". That is the same affirmative
+// false statement this file exists to eliminate, reached by a different route.
+//
+// The obvious repair — compare the declared id SET against the readable one —
+// is not available: sources.facts records counts (facts/distilled/authored/
+// superseded/by_kind), never ids, and putting ids there would not help. That
+// manifest is re-derived from the store itself by summarizeFactSource on every
+// remember, refresh, gc, promote and retract, so a declared id set would
+// re-baseline onto the damage at the next write exactly as the count does, and
+// would cry loss on every legitimate id-changing operation in between.
+//
+// What IS checkable from the store alone, with no bookkeeping and nothing that
+// can go stale, is the invariant the store is written under: WITHIN ONE BRANCH
+// AN ID IDENTIFIES EXACTLY ONE FACT. Every writer keys by id before it writes
+// (factmerge.Upsert, factmerge.Promote via IndexOf, factmerge.GC), so a branch
+// that yields the same id twice was not written by this program. The second
+// record did not join the fact set; it stands where a different fact used to
+// be. That is loss, and it is loss the count cannot see.
+//
+// Per BRANCH, emphatically not per brain. A fact id is sha256 of normalized
+// text plus sorted paths (factmerge.RecordID) — the branch is not in it — so
+// the same fact carried between branches keeps its id, which is precisely what
+// `facts promote` does on purpose. A brain-wide id set would report data loss
+// on every promote, and a check that cries loss on a legitimate operation is
+// worse than the hole it closes.
+
 // factStoreDefectMode names WHICH way the store fails the manifest. They are
-// three different user situations and must not collapse into one sentence:
-// "not built" is a rebuild, "corrupt" is a repair, "lossy" is data that is
-// gone and has to be re-distilled.
+// different user situations and must not collapse into one sentence: "not
+// built" is a rebuild, "corrupt" is a repair, "lossy" is data that is gone and
+// has to be re-distilled, and "duplicated" is data that was overwritten while
+// the numbers stayed right.
 type factStoreDefectMode string
 
 const (
@@ -72,6 +108,15 @@ const (
 	// declares. Not data loss — the manifest is behind — but still a declared
 	// number that was never observed, so it is reported rather than printed.
 	factStoreDefectStale factStoreDefectMode = "stale"
+	// factStoreDefectDuplicated: every line parses and the counts are not
+	// short, but one branch stores the same fact id twice. Deliberately NOT
+	// folded into "lossy": lossy is a SHORTFALL — fewer facts than claimed,
+	// repaired by re-distilling what is missing — while this is a
+	// SUBSTITUTION, where the arithmetic is intact and a specific fact was
+	// overwritten by a copy of its neighbour. Telling the two apart is the
+	// difference between "some of your memory did not survive" and "this
+	// particular record is standing in for one that is gone".
+	factStoreDefectDuplicated factStoreDefectMode = "duplicated"
 )
 
 // factStoreIntegrity is the cross-check result. The zero value is a healthy
@@ -89,6 +134,16 @@ type factStoreIntegrity struct {
 	// reported even when the counts happen to agree, because a manifest
 	// re-summarized from an already-damaged store would otherwise hide them.
 	Unusable int `json:"unusable,omitempty"`
+	// Distinct is how many DIFFERENT fact ids the store yields, summed across
+	// branches but counted within each one (a fact id does not include the
+	// branch, so `facts promote` legitimately stores one id on two branches —
+	// see the file header). In a store this program wrote, Distinct always
+	// equals Readable; anything less is a record that overwrote another.
+	Distinct int `json:"distinct,omitempty"`
+	// DuplicateIDs names the ids a single branch stores more than once, sorted
+	// so the report is stable. The full set is kept for JSON and MCP readers;
+	// the one-line warning names only the first few.
+	DuplicateIDs []string `json:"duplicate_ids,omitempty"`
 	// Missing names declared branches whose facts.ndjson is absent.
 	Missing []string `json:"missing_branches,omitempty"`
 	// ParseError is the first line the store could not parse, in the loader's
@@ -113,6 +168,37 @@ func (r factStoreIntegrity) Lost() int {
 		return r.Declared - r.Readable
 	}
 	return 0
+}
+
+// Overwritten is how many stored records lost their place to another record's
+// id. Zero unless a branch repeated an id.
+//
+// Kept separate from Lost() on purpose. Lost() measures the store against the
+// manifest's COUNT, and a substitution is invisible to that measurement by
+// construction: the count is exactly what the corruption preserved.
+func (r factStoreIntegrity) Overwritten() int {
+	if r.Readable > r.Distinct {
+		return r.Readable - r.Distinct
+	}
+	return 0
+}
+
+// factStoreDuplicateIDsShown caps how many colliding ids the single-line
+// warning names. The complete list stays in DuplicateIDs; a warning that
+// printed a hundred ids would push the repair off the end of the line.
+const factStoreDuplicateIDsShown = 3
+
+// factStoreIDList renders at most factStoreDuplicateIDsShown ids and says how
+// many it held back, so the line stays one line without implying the damage
+// stopped where the list did.
+func factStoreIDList(ids []string) string {
+	if len(ids) <= factStoreDuplicateIDsShown {
+		return strings.Join(ids, ", ")
+	}
+	return fmt.Sprintf("%s and %d more",
+		strings.Join(ids[:factStoreDuplicateIDsShown], ", "),
+		len(ids)-factStoreDuplicateIDsShown,
+	)
 }
 
 // factsRepairHint is the repair for a store that lost content. Rebuilding the
@@ -146,7 +232,18 @@ func (r factStoreIntegrity) Warning() string {
 		if r.Unusable > 0 {
 			detail += fmt.Sprintf("; %d stored line(s) carry no fact id", r.Unusable)
 		}
+		// A store can be BOTH short and collided. Reporting only the shortfall
+		// would understate the damage — the overwritten fact is gone too, and
+		// it is not one of the ones the arithmetic accounted for.
+		if overwritten := r.Overwritten(); overwritten > 0 {
+			detail += fmt.Sprintf("; %d more record(s) repeat a fact id (%s)", overwritten, factStoreIDList(r.DuplicateIDs))
+		}
 		return detail + " — " + factsRepairHint
+	case factStoreDefectDuplicated:
+		return fmt.Sprintf(
+			"fact ids are not unique: %d stored record(s) repeat an id the branch already holds (%s); an id identifies exactly one fact, so each repeat stands where another fact used to be and that fact can no longer be recalled; the manifest's %d were counted, not read — %s",
+			r.Overwritten(), factStoreIDList(r.DuplicateIDs), r.Declared, factsRepairHint,
+		)
 	case factStoreDefectStale:
 		return fmt.Sprintf(
 			"fact count does not match the manifest: %d declared, %d readable; the manifest is behind the store — run `entire brain refresh`",
@@ -198,20 +295,49 @@ func inspectFactStore(brainDir string, source *factSourceManifest) factStoreInte
 		report.Mode = factStoreDefectUnreadable
 		return report
 	}
+	duplicated := map[string]struct{}{}
 	for _, records := range byBranch {
+		// One `seen` per branch, never one for the whole brain: see the file
+		// header on why a brain-wide id set would fire on every `facts
+		// promote`. byBranch is keyed by the branch recorded ON each record,
+		// which is what every writer sets to the store it writes into, so this
+		// is the same set `loadFacts` hands to recall for that branch.
+		seen := make(map[string]struct{}, len(records))
 		for _, record := range records {
 			if !isFactRecord(record) {
 				report.Unusable++
 				continue
 			}
 			report.Readable++
+			if _, repeat := seen[record.ID]; repeat {
+				duplicated[record.ID] = struct{}{}
+				continue
+			}
+			seen[record.ID] = struct{}{}
+			report.Distinct++
 		}
+	}
+	if len(duplicated) > 0 {
+		report.DuplicateIDs = make([]string, 0, len(duplicated))
+		for id := range duplicated {
+			report.DuplicateIDs = append(report.DuplicateIDs, id)
+		}
+		sort.Strings(report.DuplicateIDs)
 	}
 
 	// Mode 3 — readable but short (or long).
 	switch {
 	case report.Readable < report.Declared, report.Unusable > 0:
 		report.Mode = factStoreDefectLossy
+	// Mode 4 — readable, and the arithmetic is not short, but a branch holds
+	// one id twice. This runs BEFORE the stale test on purpose: a duplicate
+	// that was appended rather than written over also makes the store longer
+	// than the manifest, and "the manifest is behind the store — run refresh"
+	// is the one piece of advice that must not be given here. Refreshing
+	// re-derives the count from the collided store, declares it, and the
+	// brain goes quiet about a fact it can no longer produce.
+	case len(report.DuplicateIDs) > 0:
+		report.Mode = factStoreDefectDuplicated
 	case report.Readable > report.Declared:
 		report.Mode = factStoreDefectStale
 	}
