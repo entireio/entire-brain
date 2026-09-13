@@ -491,6 +491,14 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 		Warnings:    status.Warnings,
 		Boundaries:  map[string]int{},
 	}
+	// A brain that was never built has to say so. Every number below it is a
+	// real zero — "semantic: 0 files, 0 symbols, 0 relations", no boundaries, no
+	// decisions — and read on its own that is indistinguishable from a built
+	// brain over an empty repository. `dash` already draws the distinction;
+	// `overview`, the command the guide tells an agent to run FIRST, did not.
+	if !anySource(status.Sources) && (status.Manifest == nil || status.Manifest.GeneratedAt.IsZero()) {
+		report.Warnings = append(report.Warnings, "brain not built yet — run `entire brain refresh`; every count in this report is absence of data, not absence of findings")
+	}
 	if status.Semantic != nil && status.Semantic.Freshness != nil {
 		report.Freshness = brainOverviewFresh{
 			Severity: status.Semantic.Freshness.Severity,
@@ -602,11 +610,16 @@ func recentDecisionMatches(brainDir string, source *historySourceManifest, limit
 func renderBrainOverviewText(cmd *cobra.Command, report brainOverviewReport) {
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "repo: %s (%s)\n", report.Repo.Root, report.Repo.Key)
-	fmt.Fprintf(out, "freshness: %s", report.Freshness.Severity)
-	if report.Freshness.Summary != "" {
-		fmt.Fprintf(out, " — %s", report.Freshness.Summary)
+	// An empty severity means there is no freshness verdict to give (no semantic
+	// index to age), not a blank one. "freshness: " with nothing after the colon
+	// read as a rendering glitch and told the reader nothing.
+	if severity := report.Freshness.Severity; severity == "" {
+		fmt.Fprintln(out, "freshness: unknown (no semantic index to check)")
+	} else if report.Freshness.Summary != "" {
+		fmt.Fprintf(out, "freshness: %s — %s\n", severity, report.Freshness.Summary)
+	} else {
+		fmt.Fprintf(out, "freshness: %s\n", severity)
 	}
-	fmt.Fprintln(out)
 	fmt.Fprintf(out, "semantic: %d files, %d symbols, %d relations\n", report.Semantic.Files, report.Semantic.Symbols, report.Semantic.Relations)
 	if len(report.Boundaries) > 0 {
 		fmt.Fprintf(out, "boundaries: routes=%d tools=%d workflows=%d\n", report.Boundaries["routes"], report.Boundaries["tools"], report.Boundaries["workflows"])

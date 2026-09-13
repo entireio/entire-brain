@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,7 +88,16 @@ func runDash(ctx context.Context, cmd *cobra.Command, opts Options, flags dashFl
 		return err
 	}
 
-	if flags.json || flags.plain || !commandOutputIsTTY(cmd) {
+	// A dumb or unset TERM is a terminal that cannot render escape sequences at
+	// all, so the dashboard must not be started on one: it would arrive as
+	// literal \x1b[?1049h, rounded box-drawing and 256-colour SGR bytes. The
+	// plain summary is the same content in a form that terminal can show, and
+	// the note goes to stderr so stdout stays byte-identical to --plain.
+	dumbTerminal := commandOutputIsTTY(cmd) && !tui.SupportsFullScreen(os.Getenv)
+	if flags.json || flags.plain || !commandOutputIsTTY(cmd) || dumbTerminal {
+		if dumbTerminal && !flags.json && !flags.plain {
+			fmt.Fprintln(cmd.ErrOrStderr(), "note: TERM is unset or dumb — printing the plain summary; the dashboard needs a terminal that renders escape sequences")
+		}
 		return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
 			if flags.json {
 				return writeJSON(cmd, snap)
@@ -96,10 +106,44 @@ func runDash(ctx context.Context, cmd *cobra.Command, opts Options, flags dashFl
 			return nil
 		})
 	}
-	return tui.Run(snap, theme, brainSearchFunc(repoDir, brainDir, branch), startTab, privacyLinearizedWriter{
-		out: cmd.OutOrStdout(), policies: []retrievalPrivacyPolicy{privacyPolicy},
-	})
+	return tui.Run(snap, theme, brainSearchFunc(repoDir, brainDir, branch), startTab,
+		dashTerminalWriter(cmd.OutOrStdout(), privacyPolicy))
 }
+
+// dashTerminalWriter is the stream the dashboard program renders to: every
+// write still goes through the privacy re-check, but the terminal underneath
+// stays visible to the terminal library.
+//
+// That second half is not a nicety. bubbletea learns the window size by calling
+// Fd() on its output and only if the output satisfies term.File (an
+// io.ReadWriteCloser with an Fd); anything else is "can't query window size",
+// so it never sends the initial WindowSizeMsg and never installs the SIGWINCH
+// resize watcher. A plain privacyLinearizedWriter is exactly that anything
+// else — one Write method — so the dashboard sat on its pre-size placeholder
+// ("loading…") forever on a real terminal, and resizing it did nothing. It
+// still accepted keys and still quit on q, which is why exit-code checks never
+// caught it.
+//
+// Embedding the file carries Read/Close/Fd through untouched while Write stays
+// on the audited path, so the privacy boundary is unchanged.
+func dashTerminalWriter(out io.Writer, policy retrievalPrivacyPolicy) io.Writer {
+	guarded := privacyLinearizedWriter{out: out, policies: []retrievalPrivacyPolicy{policy}}
+	file, ok := out.(*os.File)
+	if !ok {
+		return guarded
+	}
+	return dashTTYWriter{File: file, guarded: guarded}
+}
+
+// dashTTYWriter is a terminal that writes through the privacy guard. The
+// embedded *os.File supplies Read/Close/Fd (what bubbletea probes for a window
+// size); Write is overridden so no byte reaches the terminal unchecked.
+type dashTTYWriter struct {
+	*os.File
+	guarded privacyLinearizedWriter
+}
+
+func (w dashTTYWriter) Write(p []byte) (int, error) { return w.guarded.Write(p) }
 
 // brainSearchFunc adapts the lexical retrieval (`entire brain search`) into the
 // callback the dashboard's `s` key invokes, so search runs the same code path as
@@ -165,7 +209,7 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 
 	// Facts (per branch).
 	if facts, err := loadFacts(brainDir, branch); err != nil {
-		snap.Home.Warnings = append(snap.Home.Warnings, "facts unavailable: "+err.Error())
+		markSourceUnreadable(&snap.Home, "Facts", "facts unavailable: "+err.Error())
 	} else {
 		facts = guardFactRecords(guard, facts)
 		snap.Facts = dashFactViews(facts, brainDir, limit)
@@ -182,7 +226,7 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 		// History (index.json).
 		if h := manifest.Sources.History; h != nil {
 			if idx, err := loadBrainHistoryIndex(brainDir, h); err != nil {
-				snap.Home.Warnings = append(snap.Home.Warnings, "history unavailable: "+err.Error())
+				markSourceUnreadable(&snap.Home, "History", "history unavailable: "+err.Error())
 			} else {
 				records := filterHistoryRecords(idx.Records, func(record historyRecord) bool { return !guard.blocksRecord(record) })
 				snap.History = dashHistoryViews(records, brainDir, limit)
@@ -192,7 +236,7 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 		// Semantic symbols (snapshot.ndjson).
 		if sem := manifest.Sources.Semantic; sem != nil {
 			if syms, err := loadSemanticSymbols(brainDir, sem, limit); err != nil {
-				snap.Home.Warnings = append(snap.Home.Warnings, "semantic unavailable: "+err.Error())
+				markSourceUnreadable(&snap.Home, "Semantic", "semantic unavailable: "+err.Error())
 			} else {
 				snap.Semantic = dashSemanticViews(syms, repoDir)
 				snap.Notes = appendCapNote(snap.Notes, "semantic symbols", sem.Symbols, len(snap.Semantic))
@@ -201,6 +245,33 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 	}
 
 	return snap, nil
+}
+
+// markSourceUnreadable records that a source the manifest declares could not
+// actually be read: the Sources row flips from "present" to "unreadable", its
+// detail leads with the failure, and the warning is still raised.
+//
+// The Sources list is built from the manifest, which only says what the brain
+// CLAIMS to hold. A corrupt semantic snapshot therefore rendered as "Semantic
+// present (8 symbols · 18 relations · 2 files)" — manifest counts quoted with
+// full confidence — directly above a warning that the same file could not be
+// parsed, and above a tab bar reading "Semantic (0)". Three lines, two of them
+// true. The row has to carry the bad news itself, because the row is what a
+// reader scans.
+func markSourceUnreadable(home *tui.HomeView, name, warning string) {
+	home.Warnings = append(home.Warnings, warning)
+	for i := range home.Sources {
+		if home.Sources[i].Name != name {
+			continue
+		}
+		home.Sources[i].Unreadable = true
+		if claim := home.Sources[i].Detail; claim != "" {
+			home.Sources[i].Detail = warning + " (manifest claims " + claim + ")"
+		} else {
+			home.Sources[i].Detail = warning
+		}
+		return
+	}
 }
 
 // dashHomeView maps the status report into the Home tab view model.
@@ -502,11 +573,7 @@ func printDashPlain(cmd *cobra.Command, snap tui.Snapshot) {
 	}
 	fmt.Fprintln(out, "\nSources")
 	for _, s := range snap.Home.Sources {
-		mark := "absent"
-		if s.Present {
-			mark = "present"
-		}
-		line := fmt.Sprintf("  %-9s %s", s.Name, mark)
+		line := fmt.Sprintf("  %-9s %s", s.Name, s.State())
 		if s.Detail != "" {
 			line += "  (" + s.Detail + ")"
 		}

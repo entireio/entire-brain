@@ -1195,7 +1195,13 @@ func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, 
 	}
 	out := cmd.OutOrStdout()
 	if len(anomalies) == 0 {
-		fmt.Fprintf(out, "No suspected regressions for %q (scanned %d files).\n", query, scanned)
+		// Same rule as reviewSummary: zero anomalies out of zero files scanned is
+		// "nothing was checked", not "nothing is wrong".
+		if scanned == 0 {
+			fmt.Fprintf(out, "INCONCLUSIVE for %q: nothing was compared (0 files scanned).\n", query)
+		} else {
+			fmt.Fprintf(out, "No suspected regressions for %q (scanned %d files).\n", query, scanned)
+		}
 		for _, w := range warnings {
 			fmt.Fprintf(out, "  note: %s\n", w)
 		}
@@ -1262,13 +1268,25 @@ type reviewFinding struct {
 }
 
 type reviewReport struct {
-	SchemaVersion int              `json:"schema_version"`
-	GeneratedAt   time.Time        `json:"generated_at"`
-	Mode          string           `json:"mode"`
-	Query         string           `json:"query"`
-	RepoPath      string           `json:"repo_path"`
-	BrainPath     string           `json:"brain_path"`
-	Summary       string           `json:"summary"`
+	SchemaVersion int       `json:"schema_version"`
+	GeneratedAt   time.Time `json:"generated_at"`
+	Mode          string    `json:"mode"`
+	Query         string    `json:"query"`
+	RepoPath      string    `json:"repo_path"`
+	BrainPath     string    `json:"brain_path"`
+	Summary       string    `json:"summary"`
+	// Checked reports whether the review actually compared anything. False means
+	// the brain held nothing to check this tree against — history carried no
+	// precise code assertions for these identifiers, or there were no current
+	// files to read — so an empty Findings list means UNKNOWN, not clean. A
+	// consumer that reads len(findings) == 0 as a pass must read this first;
+	// FilesScanned is the evidence behind it.
+	//
+	// Additive: nothing was renamed or removed and the contract has no landed
+	// consumer (see reviewReportSchemaVersion), so the schema version is
+	// unchanged.
+	Checked       bool             `json:"checked"`
+	FilesScanned  int              `json:"files_scanned"`
 	Findings      []reviewFinding  `json:"findings"`
 	Warnings      []string         `json:"warnings,omitempty"`
 	RuntimeTraces []semanticRecord `json:"runtime_traces,omitempty"`
@@ -1299,6 +1317,32 @@ func regressionSeverity(conf float64) string {
 		return "medium"
 	default:
 		return "low"
+	}
+}
+
+// reviewSummary is the one line a reader takes away, and it may never say more
+// than the run actually established.
+//
+// Zero findings has two completely different causes and they were reported with
+// the same sentence: "no suspected regressions (current tree matches the brain's
+// memory)". On a brain that was never built, or whose history holds no precise
+// code assertions for the query, detectRegressionAnomalies returns before it
+// opens a single file — scanned == 0 — and that sentence became a clean bill of
+// health for a comparison that never happened. The contradiction was printed
+// directly underneath it, as "note: history holds no precise code assertions for
+// these identifiers", but the summary is the line people quote.
+//
+// scanned is the number of current files actually read and compared, so
+// scanned == 0 is the precise, non-string-matched test for "nothing was
+// checked".
+func reviewSummary(findings, scanned int) string {
+	switch {
+	case findings > 0:
+		return fmt.Sprintf("Diff-less review: %d suspected regression(s) — verify each before acting.", findings)
+	case scanned == 0:
+		return "Diff-less review: INCONCLUSIVE — nothing was compared (the brain holds no code assertions to check this tree against). This is not a clean result; see the notes below."
+	default:
+		return fmt.Sprintf("Diff-less review: no suspected regressions (%d file(s) compared against the brain's memory).", scanned)
 	}
 }
 
@@ -1345,7 +1389,7 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 	if status.Manifest != nil && status.Manifest.Sources != nil {
 		semSource = status.Manifest.Sources.Semantic
 	}
-	anomalies, _, warnings := detectRegressionAnomalies(status.Brain.Path, status.Repo.Root, semSource, query, ro.limit, ro.includeDeletions)
+	anomalies, scanned, warnings := detectRegressionAnomalies(status.Brain.Path, status.Repo.Root, semSource, query, ro.limit, ro.includeDeletions)
 	var runtimeTraces []semanticRecord
 	if semSource != nil {
 		traces, err := semanticRuntimeTraceFacts(status.Brain.Path, semSource, query, ro.limit)
@@ -1372,10 +1416,6 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 	for _, a := range anomalies {
 		findings = append(findings, anomalyToReviewFinding(a))
 	}
-	summary := "Diff-less review: no suspected regressions (current tree matches the brain's memory)."
-	if len(findings) > 0 {
-		summary = fmt.Sprintf("Diff-less review: %d suspected regression(s) — verify each before acting.", len(findings))
-	}
 	report := reviewReport{
 		SchemaVersion: reviewReportSchemaVersion,
 		GeneratedAt:   opts.Now().UTC(),
@@ -1383,7 +1423,9 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 		Query:         query,
 		RepoPath:      status.Repo.Root,
 		BrainPath:     status.Brain.Path,
-		Summary:       summary,
+		Summary:       reviewSummary(len(findings), scanned),
+		Checked:       scanned > 0,
+		FilesScanned:  scanned,
 		Findings:      findings,
 		Warnings:      warnings,
 		RuntimeTraces: runtimeTraces,
