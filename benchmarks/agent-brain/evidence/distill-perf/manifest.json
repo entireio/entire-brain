@@ -12,15 +12,15 @@
   "serial_run": "jobs-1.json",
   "parallel_run": "jobs-4.json",
   "artifact_sha256": {
-    "dry_run": "sha256:cfba772489fe9eba53135b9a7e026a72d4af65ae71066ca2c0d5b462a472a43f",
-    "serial_run": "sha256:28dd63488b667108c160ad0c921ee370370de4c98d76bb74d2c10bc79b78ea96",
-    "parallel_run": "sha256:dba59e4467365275e7c95a962c5afec54537367a99ebe52f2123ca5ea3926cc2"
+    "dry_run": "sha256:d45e0ccbae12ec560fc060cbe80bb18067f98f2900a0300d088a2c59ced29b66",
+    "serial_run": "sha256:6c83ad46ed09bff45aa2ef7f2c46c354886db1a73cb2bd01068a83fb16fbb119",
+    "parallel_run": "sha256:fdd31f91bfd4776baa2798b5a79bf2bcb4e05144d47f83f058a45e8566c1884d"
   },
   "source_sha256": {
     "internal/cli/distill.go": "sha256:ff21f1af55ff4d37c487b614fde9f25fea34b8c53ed842732a05d52508fc375d",
-    "internal/cli/distill_cmd.go": "sha256:f45e1a68c930a5dfd58d5930567ad475558dc7bcb5bc2472928ae6ea018964c7",
+    "internal/cli/distill_cmd.go": "sha256:23c8abc7f427f1d84efb0879f9b704c0d334e06e57d35a9dc5b9bf51ac9596d7",
     "internal/cli/distill_test.go": "sha256:9bc6541fea5e81ba91ab9420f0d392b4e2dca1cd9b353d7680dd80fe336d786c",
-    "internal/cli/distill_cmd_test.go": "sha256:2480ca21e74e562133ecbd04678fef9871841c84c6e5df52cb0c8c8f5e923d9f",
+    "internal/cli/distill_cmd_test.go": "sha256:f5a9203844035d078f3f359773335137a9488fe706adb64f03f97b8d5f690396",
     "benchmarks/agent-brain/audit_distill_perf.py": "sha256:6c4407791e83642db0c35c12a6e079fe4f78f8626105ca76a815fa1bc2ca560d",
     "benchmarks/agent-brain/evidence/distill-perf/local-command-agent.py": "sha256:a7bd42a7de1b482b79c3a757034714eee0b77826ad500e6e82806577f2a611ba"
   },

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-11T23:33:31.687176Z",
+  "generated_at": "2026-09-13T02:08:05.582144Z",
   "taxonomy_path": "facts/taxonomy.json",
   "branches": [
     "claude/cc-debug",
@@ -83,8 +83,8 @@
     "output_tokens": 0,
     "total_tokens": 0
   },
-  "extraction_wait_seconds": 2.295949459,
-  "reconcile_seconds": 3.3895838740000013,
-  "write_seconds": 0.39021125,
-  "total_seconds": 7.537884084
+  "extraction_wait_seconds": 2.120539876999999,
+  "reconcile_seconds": 3.744658249,
+  "write_seconds": 0.371898459,
+  "total_seconds": 7.789689167
 }
