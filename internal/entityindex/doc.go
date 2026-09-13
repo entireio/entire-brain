@@ -96,17 +96,14 @@ type Delta struct {
 	Head             string        `json:"head"`
 	ComputedAt       string        `json:"computed_at"`
 	Entities         []EntityDelta `json:"entities"`
-	// Truncated reports that Entities was capped at maxDeltaEntities and does
-	// NOT list every entity this commit actually changed. Omitted (false) on
-	// every document written before this field existed, which is the correct
-	// reading: nothing was ever truncated silently before the cap existed
-	// either. See EntityCount for the true total.
+	// Truncated reports that Entities was capped. Legacy documents omitted
+	// this field even when capped; a legacy 2000-entry document is ambiguous
+	// until a full repair pass re-diffs it.
 	Truncated bool `json:"truncated,omitempty"`
-	// EntityCount is the TRUE number of entities this commit changed, recorded
-	// only when Truncated is true (0 otherwise, and absent from JSON). It lets
-	// a reader tell "this commit touched exactly maxDeltaEntities entities"
-	// apart from "this commit touched many more than we stored", and lets a
-	// later pass decide whether raising the cap would recover more of it.
+	// EntityCount records the total for truncated and cap-sized deltas.
+	// Its presence distinguishes a verified complete cap-sized document from
+	// an ambiguous legacy document.
+
 	EntityCount int `json:"entity_count,omitempty"`
 }
 

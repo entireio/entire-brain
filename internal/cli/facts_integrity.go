@@ -179,6 +179,16 @@ func inspectFactStore(brainDir string, source *factSourceManifest) factStoreInte
 	// Mode 2 — corrupt. loadAllFactBranches is the same function
 	// updateFactSourceManifestLocked used to PRODUCE source.Facts, so a
 	// disagreement below is a real one and not a re-derivation artifact.
+	// Validate declared paths through the same guarded reader used by recall
+	// before the aggregate loader opens any of those stores.
+	if broken := unreadableFactBranchStores(brainDir, source); len(broken) > 0 {
+		report.ParseError = broken[0].Err.Error()
+		for _, store := range broken {
+			report.Unreadable = append(report.Unreadable, store.Branch)
+		}
+		report.Mode = factStoreDefectUnreadable
+		return report
+	}
 	byBranch, err := loadAllFactBranches(brainDir)
 	if err != nil {
 		report.ParseError = err.Error()

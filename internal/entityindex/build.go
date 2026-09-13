@@ -38,13 +38,15 @@ const (
 	// captured. It is what makes a commit a "checkpoint commit".
 	checkpointTrailer = "Entire-Checkpoint"
 
-	// maxDeltaBytes caps one commit's stored delta document. A pathological
+	// maxDeltaEntities caps one commit's stored delta document. A pathological
 	// commit (a vendored tree drop, a generated-code refresh) can name tens of
 	// thousands of entities; storing that verbatim would bloat every subsequent
 	// materialize of the whole git-meta state. Over the cap the document is
 	// stored with its entities truncated and a warning is reported — the commit
-	// still counts as indexed, so it is never re-diffed.
+	// still counts as indexed; a full pass repairs it after a cap increase.
 	maxDeltaEntities = 2000
+	// Legacy writers capped without recording truncation.
+	legacyUnmarkedDeltaCap = 2000
 
 	// maxConsecutiveDiffFailures stops a pass whose provider is simply broken
 	// (missing binary, wrong flags) instead of invoking it once per commit in
@@ -188,7 +190,7 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 	result := BuildResult{Branch: branch, Tip: head}
 
 	window := IndexWindow{}
-	if !opts.Full {
+	if !opts.Full || opts.CheckpointsOnly {
 		window, err = readRevisionWindow(ctx, runner, store, opts.RepoDir, branch, head, opts.IdentityRevision)
 		if err != nil {
 			return result, err
@@ -224,15 +226,16 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 	defer unlock()
 
 	b := &builder{
-		ctx:     ctx,
-		runner:  runner,
-		opts:    opts,
-		now:     now,
-		result:  &result,
-		store:   store,
-		budget:  opts.Limit,
-		baseMS:  now().UTC().UnixMilli(),
-		indexed: map[string]bool{},
+		ctx:         ctx,
+		runner:      runner,
+		opts:        opts,
+		now:         now,
+		result:      &result,
+		store:       store,
+		budget:      opts.Limit,
+		baseMS:      now().UTC().UnixMilli(),
+		indexed:     map[string]bool{},
+		invalidated: map[string]string{},
 	}
 
 	nextWindow := window
@@ -244,15 +247,21 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 	result.Window = nextWindow
 
 	var windowMut []gitmeta.Mutation
-	if nextWindow != window && !nextWindow.Empty() {
-		windowMut = []gitmeta.Mutation{{
-			Op:     gitmeta.OpSetString,
-			Target: projectTarget,
-			Key:    RevisionKey(WindowKey(branch), opts.IdentityRevision),
-			Value:  EncodeWindow(nextWindow),
-		}}
+	if !opts.CheckpointsOnly {
+		key := RevisionKey(WindowKey(branch), opts.IdentityRevision)
+		raw, present, readErr := store.ReadString(projectTarget, key)
+		if readErr != nil {
+			return result, readErr
+		}
+		if nextWindow.Empty() {
+			if present {
+				windowMut = append(windowMut, gitmeta.Mutation{Op: gitmeta.OpRemoveKey, Target: projectTarget, Key: key})
+			}
+		} else if !present || raw != EncodeWindow(nextWindow) {
+			windowMut = append(windowMut, gitmeta.Mutation{Op: gitmeta.OpSetString, Target: projectTarget, Key: key, Value: EncodeWindow(nextWindow)})
+		}
 	}
-	if len(b.groups) == 0 && len(windowMut) == 0 {
+	if len(b.groups) == 0 && len(windowMut) == 0 && len(b.invalidated) == 0 {
 		tipHash, tipErr := store.Tip()
 		if tipErr != nil {
 			return result, tipErr
@@ -261,7 +270,8 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 		return result, nil
 	}
 
-	metaTip, err := store.UpdateLocked(b.mutCount+len(windowMut), func(current gitmeta.State) (gitmeta.State, error) {
+	metaTip, err := store.UpdateLocked(b.mutCount+len(windowMut)+len(b.invalidated), func(current gitmeta.State) (gitmeta.State, error) {
+		commitWindowMut := append([]gitmeta.Mutation(nil), windowMut...)
 		// Re-check idempotence against the state actually held under the lock: a
 		// concurrent writer may have indexed the same commits between our read
 		// and the CAS. A commit's records move together, so the WHOLE group is
@@ -274,6 +284,50 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 		// guard exists for, and the group is let through to replace it. A
 		// concurrent writer that already landed a fully-repaired document in
 		// the meantime still wins the drop, exactly as before.
+		var cleanup []gitmeta.Mutation
+		for sha, expected := range b.invalidated {
+			key := RevisionKey(ForwardKey, opts.IdentityRevision)
+			if raw, ok := current.CurrentString(CommitTarget(sha), key); !ok || raw != expected {
+				continue
+			}
+			cleanup = append(cleanup, gitmeta.Mutation{Op: gitmeta.OpRemoveKey, Target: CommitTarget(sha), Key: key})
+			for _, list := range current.Lists {
+				original, sameRevision := originalRevisionKey(list.Key, opts.IdentityRevision)
+				if list.Target != projectTarget || !sameRevision || !strings.HasPrefix(original, reverseKeyPrefix) {
+					continue
+				}
+				for _, entry := range list.Entries {
+					if entry.Value == sha {
+						cleanup = append(cleanup, gitmeta.Mutation{Op: gitmeta.OpListRemove, Target: projectTarget, Key: list.Key, Value: sha})
+						break
+					}
+				}
+			}
+		}
+		if len(cleanup) > 0 {
+			// Other branches may share this poisoned forward record. Retract
+			// their coverage too; each branch can safely re-establish its window.
+			for _, value := range current.Strings {
+				original, sameRevision := originalRevisionKey(value.Key, opts.IdentityRevision)
+				if value.Target == projectTarget && sameRevision && strings.HasPrefix(original, windowKeyPrefix) {
+					cleanup = append(cleanup, gitmeta.Mutation{Op: gitmeta.OpRemoveKey, Target: projectTarget, Key: value.Key})
+				}
+			}
+			current = applyBatch(current, cleanup)
+			if !nextWindow.Empty() && !opts.CheckpointsOnly {
+				commitWindowMut = []gitmeta.Mutation{{Op: gitmeta.OpSetString, Target: projectTarget, Key: RevisionKey(WindowKey(branch), opts.IdentityRevision), Value: EncodeWindow(nextWindow)}}
+			}
+		}
+		// Index memberships once, rather than scanning the full store for
+		// every repaired entity.
+		existingEntries := map[stateKey]map[string]bool{}
+		for _, list := range current.Lists {
+			values := map[string]bool{}
+			for _, entry := range list.Entries {
+				values[entry.Value] = true
+			}
+			existingEntries[stateKey{list.Target, list.Key}] = values
+		}
 		pending := make([]gitmeta.Mutation, 0, b.mutCount+len(windowMut))
 		for _, group := range b.groups {
 			forwardKey := RevisionKey(ForwardKey, opts.IdentityRevision)
@@ -287,11 +341,31 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 					continue
 				}
 			}
-			pending = append(pending, group.muts...)
+			// Keep existing reverse timestamps and later alias decisions when
+			// extending a truncated document. Only newly discovered entities
+			// should add history entries.
+			oldRaw, _ := current.CurrentString(CommitTarget(group.sha), forwardKey)
+			var old Delta
+			_ = json.Unmarshal([]byte(oldRaw), &old)
+			oldAliases := map[string]bool{}
+			for _, e := range old.Entities {
+				if k, ok := e.OldKey(); ok {
+					oldAliases[RevisionKey(AliasRecordKey(k), opts.IdentityRevision)] = true
+				}
+			}
+			for _, m := range group.muts {
+				if m.Op == gitmeta.OpListPush && existingEntries[stateKey{m.Target, m.Key}][m.Value] {
+					continue
+				}
+				if m.Op == gitmeta.OpSetString && m.Target == projectTarget && oldAliases[m.Key] {
+					continue
+				}
+				pending = append(pending, m)
+			}
 		}
-		pending = append(pending, windowMut...)
+		pending = append(pending, commitWindowMut...)
 
-		if len(pending) == 0 {
+		if len(pending) == 0 && len(cleanup) == 0 {
 			return gitmeta.State{}, factgitmeta.ErrNoUpdate
 		}
 		return applyBatch(current, pending), nil
@@ -363,26 +437,8 @@ type builder struct {
 
 	// indexed memoizes per-commit forward-document presence, so a commit at a
 	// window edge is probed at most once per pass.
-	indexed map[string]bool
-
-	// shallow memoizes whether the repository is a shallow clone, so the probe
-	// costs one `git rev-parse` per pass rather than one per parentless commit.
-	shallow *bool
-}
-
-// repoIsShallow reports whether the repository has grafted (truncated) history.
-// A probe that cannot run answers false: the only thing this gates is an extra
-// check on parentless commits, and treating a full clone as full is the status
-// quo.
-func (b *builder) repoIsShallow() bool {
-	if b.shallow == nil {
-		shallow := false
-		if stdout, _, err := b.runner.Run(b.ctx, b.opts.RepoDir, "git", "rev-parse", "--is-shallow-repository"); err == nil {
-			shallow = strings.TrimSpace(string(stdout)) == "true"
-		}
-		b.shallow = &shallow
-	}
-	return *b.shallow
+	indexed     map[string]bool
+	invalidated map[string]string
 }
 
 // isGraftedBoundary reports whether a commit git described as PARENTLESS is
@@ -394,10 +450,7 @@ func (b *builder) repoIsShallow() bool {
 // that one commit. The raw object still carries its parent lines, so
 // `cat-file commit` tells the two apart.
 func (b *builder) isGraftedBoundary(sha string) bool {
-	if !b.repoIsShallow() {
-		return false
-	}
-	stdout, _, err := b.runner.Run(b.ctx, b.opts.RepoDir, "git", "cat-file", "commit", sha)
+	stdout, _, err := b.runner.Run(b.ctx, b.opts.RepoDir, "git", "--no-replace-objects", "cat-file", "commit", sha)
 	if err != nil {
 		return false
 	}
@@ -465,7 +518,7 @@ func (b *builder) extendWindow(window IndexWindow, head string) IndexWindow {
 			break
 		}
 		b.result.Scanned++
-		if b.alreadyIndexed(commit.SHA) {
+		if b.alreadyIndexed(commit) {
 			b.result.Skipped++
 			next.Tip = commit.SHA
 			continue
@@ -513,7 +566,7 @@ func (b *builder) extendWindow(window IndexWindow, head string) IndexWindow {
 	for i := len(commits) - 1; i >= 0; i-- {
 		commit := commits[i]
 		b.result.Scanned++
-		if b.alreadyIndexed(commit.SHA) {
+		if b.alreadyIndexed(commit) {
 			b.result.Skipped++
 			covered[commit.SHA] = true
 			continue
@@ -570,7 +623,7 @@ func (b *builder) indexCheckpointCommits(head string) {
 			b.result.Skipped++
 			continue
 		}
-		if b.alreadyIndexed(commit.SHA) {
+		if b.alreadyIndexed(commit) {
 			b.result.Skipped++
 			continue
 		}
@@ -595,7 +648,8 @@ func (b *builder) indexCheckpointCommits(head string) {
 // refreshes it instead of leaving it stuck at the old, lower cap forever. A
 // commit truncated at the SAME cap it still stores (no cap change) is left
 // alone: re-diffing it would only reproduce the identical truncation.
-func (b *builder) alreadyIndexed(sha string) bool {
+func (b *builder) alreadyIndexed(commit commitInfo) bool {
+	sha := commit.SHA
 	if known, ok := b.indexed[sha]; ok {
 		return known
 	}
@@ -604,6 +658,15 @@ func (b *builder) alreadyIndexed(sha string) bool {
 		// Treat an unreadable probe as "not indexed": re-indexing is idempotent
 		// (the pre-CAS re-check drops the duplicate), skipping is not.
 		present = false
+	}
+	if present && b.opts.Full && !b.opts.CheckpointsOnly {
+		var delta Delta
+		if json.Unmarshal([]byte(raw), &delta) == nil && delta.Base == EmptyTreeSHA &&
+			(commit.Parent != "" || b.isGraftedBoundary(sha)) {
+			b.invalidated[sha] = raw
+			present = false
+			b.result.Warnings = append(b.result.Warnings, "retracting a previously fabricated root delta for commit "+short(sha))
+		}
 	}
 	if present && deltaNeedsRepair(raw) {
 		present = false
@@ -625,7 +688,11 @@ func deltaNeedsRepair(raw string) bool {
 	if json.Unmarshal([]byte(raw), &delta) != nil {
 		return false
 	}
-	return delta.Truncated && len(delta.Entities) < maxDeltaEntities
+	// Legacy writers silently capped at 2000. An unmarked document at
+	// that limit is ambiguous and needs one verification pass. New writers
+	// record EntityCount for truncated or cap-sized documents.
+	return (delta.Truncated && len(delta.Entities) < maxDeltaEntities) ||
+		(!delta.Truncated && delta.EntityCount == 0 && len(delta.Entities) == legacyUnmarkedDeltaCap)
 }
 
 // indexCommit diffs one commit and stages its records. indexed=false means the
@@ -640,9 +707,10 @@ func (b *builder) indexCommit(commit commitInfo) (indexed bool, stop bool) {
 		// a durable, git-native, silently fabricated answer to "which commit
 		// introduced this symbol". Treat it as the hole it is, so no cursor
 		// steps over it and nothing is written.
+		b.consecutiveFailures = 0
 		b.result.Failed++
 		b.result.Warnings = append(b.result.Warnings, fmt.Sprintf(
-			"commit %s is a shallow clone's boundary; its parent is not present, so its delta cannot be computed",
+			"commit %s has a shallow or grafted boundary; its original parent is hidden, so its delta cannot be computed; fetch complete history and run entities backfill --full",
 			short(commit.SHA)))
 		return false, false
 	}
@@ -662,10 +730,12 @@ func (b *builder) indexCommit(commit commitInfo) (indexed bool, stop bool) {
 		return false, false
 	}
 	b.consecutiveFailures = 0
+	if len(delta.Entities) >= maxDeltaEntities || len(delta.Entities) == legacyUnmarkedDeltaCap {
+		delta.EntityCount = len(delta.Entities)
+	}
 	if len(delta.Entities) > maxDeltaEntities {
 		b.result.Warnings = append(b.result.Warnings, fmt.Sprintf("commit %s changed %d entities; stored the first %d", short(commit.SHA), len(delta.Entities), maxDeltaEntities))
 		delta.Truncated = true
-		delta.EntityCount = len(delta.Entities)
 		delta.Entities = delta.Entities[:maxDeltaEntities]
 	}
 	delta.IdentityRevision = b.opts.IdentityRevision

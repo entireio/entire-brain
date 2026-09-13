@@ -434,6 +434,9 @@ func TestBuildFullPassRepairsATruncatedCommitWhenTheCapHasRisen(t *testing.T) {
 		{Op: gitmeta.OpSetString, Target: CommitTarget(commits[0].SHA), Key: ForwardKey, Value: string(encoded)},
 		{Op: gitmeta.OpSetString, Target: projectTarget, Key: windowKey, Value: EncodeWindow(IndexWindow{Floor: commits[0].SHA, Tip: commits[0].SHA})},
 	}
+	for _, entity := range stale.Entities {
+		seedMuts = append(seedMuts, gitmeta.Mutation{Op: gitmeta.OpListPush, Target: projectTarget, Key: EntityRecordKey(entity.Key()), Value: commits[0].SHA, NowMS: 123})
+	}
 	if _, err := store.Update(len(seedMuts), func(current gitmeta.State) (gitmeta.State, error) {
 		return applyBatch(current, seedMuts), nil
 	}); err != nil {
@@ -467,6 +470,24 @@ func TestBuildFullPassRepairsATruncatedCommitWhenTheCapHasRisen(t *testing.T) {
 	if len(repaired.Entities) != trueCount {
 		t.Fatalf("repaired delta has %d entities, want the full %d", len(repaired.Entities), trueCount)
 	}
+	for _, entity := range stale.Entities {
+		if got := after.Commits(entity.Key()); len(got) != 1 {
+			t.Fatalf("repair duplicated reverse history: %v", got)
+		}
+	}
+
+	state, err := store.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, list := range state.Lists {
+		for _, entity := range stale.Entities {
+			if list.Key == EntityRecordKey(entity.Key()) && (len(list.Entries) != 1 || list.Entries[0].Timestamp != 123) {
+				t.Fatalf("repair changed existing timestamps: %+v", list)
+			}
+		}
+	}
+
 }
 
 // TestBuildLimitedPassesConvergeBackwards pins the --limit contract: a bounded

@@ -141,7 +141,14 @@ func factBranchStoreExists(brainDir, branch string) bool {
 // lines are skipped; a malformed line is a hard error so a corrupt store is
 // surfaced rather than silently dropping records.
 func loadFacts(brainDir, branch string) ([]factRecord, error) {
-	path := filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath(branch)))
+	rel := factsFileRelPath(branch)
+	if err := rejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(brainDir, filepath.FromSlash(rel))
+	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("fact store is not a regular file: %s", rel)
+	}
 	records, err := parseFactsFile(path)
 	if err != nil {
 		// The bare parse error names the damage but not the repair, and this
@@ -152,6 +159,7 @@ func loadFacts(brainDir, branch string) ([]factRecord, error) {
 		return nil, fmt.Errorf("%w; %s", err, factsRepairHint)
 	}
 	return records, nil
+
 }
 
 // parseFactsFile reads a facts.ndjson file at an absolute path. A missing file
@@ -417,4 +425,28 @@ func summarizeFactSource(now time.Time, byBranch map[string][]factRecord, chunks
 		}
 	}
 	return source
+}
+
+// missingFactStoreWarningForBranch scopes retrieval warnings to the store read.
+func missingFactStoreWarningForBranch(brainDir string, source *factSourceManifest, branch string) string {
+	integrity := inspectFactStore(brainDir, source)
+	switch integrity.Mode {
+	case factStoreDefectMissing:
+		for _, missing := range integrity.Missing {
+			if missing == branch {
+				return missingFactStoreWarning([]string{branch})
+			}
+		}
+		return ""
+	case factStoreDefectUnreadable:
+		for _, unreadable := range integrity.Unreadable {
+			if unreadable == branch {
+				return integrity.Warning()
+			}
+		}
+		return ""
+	default:
+		// Aggregate count discrepancies cannot be assigned to one branch.
+		return integrity.Warning()
+	}
 }
