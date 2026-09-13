@@ -31,8 +31,8 @@ func workspaceSiblingFixture(t *testing.T, workspaceName string) (opts Options, 
 	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
 	body := "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"
 
-	boundKey := filepath.ToSlash(filepath.Join("local", localRepoKey(boundDir)))
-	siblingKey = filepath.ToSlash(filepath.Join("local", localRepoKey(siblingDir)))
+	boundKey := testLocalRepoStorageKey(t, boundDir)
+	siblingKey = testLocalRepoStorageKey(t, siblingDir)
 	writeWorkspaceBrainRepoAt(t, env, boundKey, boundDir, session, "pkg/review_context.go", body)
 	writeWorkspaceBrainRepoAt(t, env, siblingKey, siblingDir, session, "pkg/review_context.go", body)
 
@@ -90,7 +90,7 @@ func TestMCPWorkspaceToolsRefuseWorkspaceWithoutTheBoundRepo(t *testing.T) {
 	}
 	opts, env := mcpScopeTestOptions(t, boundDir)
 	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
-	strangerKey := filepath.ToSlash(filepath.Join("local", localRepoKey(strangerDir)))
+	strangerKey := testLocalRepoStorageKey(t, strangerDir)
 	writeWorkspaceBrainRepoAt(t, env, strangerKey, strangerDir, session, "pkg/review_context.go", "package x\n")
 	manifest := workspaceManifest{
 		SchemaVersion: workspaceSchemaVersion,
@@ -226,10 +226,10 @@ func TestMCPWorkspaceMemberOutsideTheParentIsRefused(t *testing.T) {
 	env := opts.Env
 	farDir := t.TempDir() // a different parent entirely
 	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
-	farKey := filepath.ToSlash(filepath.Join("local", localRepoKey(farDir)))
+	farKey := testLocalRepoStorageKey(t, farDir)
 	writeWorkspaceBrainRepoAt(t, env, farKey, farDir, session, "pkg/review_context.go", "package x\n")
 
-	boundKey := filepath.ToSlash(filepath.Join("local", localRepoKey(boundDir)))
+	boundKey := testLocalRepoStorageKey(t, boundDir)
 	manifest := workspaceManifest{
 		SchemaVersion: workspaceSchemaVersion,
 		Name:          "reaches-out",

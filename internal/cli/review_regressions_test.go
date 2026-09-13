@@ -118,7 +118,10 @@ func TestLocalRepoPhysicalSpellingRecoversOneBrain(t *testing.T) {
 	// the fully resolved physical root (what `git rev-parse --show-toplevel`
 	// reports, and what filepath.Abs yields on platforms that expand a prefix
 	// such as macOS /var -> /private/var).
-	physicalKey := filepath.ToSlash(filepath.Join("local", localRepoKey(physicalLocalRepoDir(repoDir))))
+	physicalKey, err := localRepoStorageKey(repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	physical := repoStorageForKey(dirs, physicalKey)
 	if err := os.MkdirAll(physical.BrainDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -138,7 +141,7 @@ func TestLocalRepoPhysicalSpellingRecoversOneBrain(t *testing.T) {
 	}
 
 	// Both spellings populated is a refusal, never a silent pick.
-	lexicalKey := filepath.ToSlash(filepath.Join("local", localRepoKey(logicalRepoDir)))
+	lexicalKey := localRepoStorageKeyForSpelling(logicalRepoDir)
 	lexical := repoStorageForKey(dirs, lexicalKey)
 	if lexicalKey == physicalKey {
 		t.Skip("platform collapsed the two spellings; nothing to disambiguate")

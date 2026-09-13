@@ -192,6 +192,25 @@ func mcpConfigRepoRoot(ctx context.Context, opts Options) string {
 	if _, ok := gitWorkTreeRoot(ctx, opts.Runner, repoDir); !ok {
 		return ""
 	}
+	// Emit the CANONICAL spelling -- every path component resolved -- because
+	// the printed entry is a durable binding and must name the repository the
+	// same way the server itself will.
+	//
+	// This is the second half of the two-brain split. os.Getwd above honours
+	// $PWD, so `--print-config` run from a shell inside /tmp/repo printed
+	// ENTIRE_REPO_ROOT=/tmp/repo, while resolveLocalTargetRepoDir keeps a
+	// caller's absolute spelling on purpose. On macOS /tmp is a symlink, so the
+	// config-file launch and a plain `cd`-and-run launch of the SAME repository
+	// disagreed about its path -- and, before local keys were resolved, about
+	// its identity. Resolving here also makes the binding survive the symlink
+	// being repointed or removed later.
+	//
+	// A resolution failure leaves the spelling alone: it is no worse than what
+	// this command printed before, and an entry with no binding at all refuses
+	// five tools outright.
+	if canonical, err := canonicalLocalRepoRoot(repoDir); err == nil && canonical != "" {
+		return canonical
+	}
 	return repoDir
 }
 
@@ -1432,11 +1451,24 @@ func runMCPListProjects(ctx context.Context, cmd *cobra.Command, opts Options) e
 	}{Projects: projects})
 }
 
+// runMCPDeleteProject erases a project's brain.
+//
+// It resolves storage through the CONFLICT-TOLERANT path on purpose. Every
+// other repo-scoped tool refuses while a repository's state is split across two
+// keys, and this tool used to refuse with them -- which left the MCP surface
+// with no recovery at all, because the one call that could have cleared the
+// duplicate was blocked by the duplicate. A delete that names a repository has
+// nothing to disambiguate: both stores ARE that repository (they were derived
+// from one root path), and "delete this project's brain" means all of it. So it
+// deletes every store the repository resolves to, and the conflict is gone
+// afterwards.
+//
+// `repo-identity --keep` is the non-destructive counterpart for a user who
+// wants to keep one of the two histories.
 func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, repoKey string) error {
-	var brainDir string
-	var err error
+	var targets []repoStorage
 	if repoKey == "" {
-		boundStorage, bound, boundErr := mcpBoundRepoStorage(ctx, opts)
+		boundSet, bound, boundErr := mcpBoundRepoStorageSet(ctx, opts)
 		if boundErr != nil {
 			return boundErr
 		}
@@ -1453,14 +1485,19 @@ func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, 
 			if !local {
 				return fmt.Errorf("brain_delete_project requires a local repository path: %s", target)
 			}
-			storage, storageErr := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+			set, storageErr := resolveRepoStorageSet(ctx, opts.Runner, opts.Env, repoDir)
 			if storageErr != nil {
 				return storageErr
 			}
-			boundStorage = storage
+			boundSet = set
 		}
-		repoKey = boundStorage.Key
-		brainDir = boundStorage.BrainDir
+		primary := boundSet.Active()
+		targets = append(targets, primary)
+		for _, storage := range boundSet.Populated {
+			if storage.Key != primary.Key {
+				targets = append(targets, storage)
+			}
+		}
 	} else {
 		// A repo_key names a project directly, so it is the confused-deputy
 		// vector: deleting a brain erases that repo's exported session history
@@ -1469,7 +1506,7 @@ func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, 
 		// confirmation. Refuse anything but the bound repo unless the operator
 		// opted in.
 		if !mcpCrossRepoAllowed() {
-			boundStorage, bound, boundErr := mcpBoundRepoStorage(ctx, opts)
+			boundSet, bound, boundErr := mcpBoundRepoStorageSet(ctx, opts)
 			if boundErr != nil {
 				return boundErr
 			}
@@ -1480,25 +1517,70 @@ func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, 
 				// not exist.
 				return mcpCrossRepoRefusal("brain_delete_project", mcpUnboundRepoDetail, "")
 			}
-			if repoKey != boundStorage.Key {
-				return mcpCrossRepoRefusal("brain_delete_project", fmt.Sprintf("repo_key %q names a different project", repoKey), boundStorage.Key)
+			// Any key the bound repository resolves to is the bound
+			// repository. Matching only the canonical one would refuse a
+			// caller who named the key `brain_list_projects` showed them --
+			// which, while the identity conflict stands, is the OTHER store.
+			if !repoStorageSetHasKey(boundSet, repoKey) {
+				return mcpCrossRepoRefusal("brain_delete_project", fmt.Sprintf("repo_key %q names a different project", repoKey), boundSet.Canonical.Key)
 			}
 		}
-		brainDir, err = brainDirForKey(opts.Env, repoKey)
-		if err != nil {
+		brainDir, dirErr := brainDirForKey(opts.Env, repoKey)
+		if dirErr != nil {
+			return dirErr
+		}
+		headPath, headErr := headPathForKey(opts.Env, repoKey)
+		if headErr != nil {
+			return headErr
+		}
+		targets = append(targets, repoStorage{Key: repoKey, BrainDir: brainDir, HeadPath: headPath})
+	}
+	deleted := make([]string, 0, len(targets))
+	for _, storage := range targets {
+		if err := deleteRepoStore(storage); err != nil {
 			return err
 		}
-	}
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	if err := os.RemoveAll(brainDir); err != nil {
-		return fmt.Errorf("delete project %s: %w", repoKey, err)
+		deleted = append(deleted, storage.Key)
 	}
 	return writeJSON(cmd, struct {
-		DeletedRepoKey string `json:"deleted_repo_key"`
-		BrainDir       string `json:"brain_dir"`
-	}{DeletedRepoKey: repoKey, BrainDir: brainDir})
+		DeletedRepoKey string   `json:"deleted_repo_key"`
+		BrainDir       string   `json:"brain_dir"`
+		AlsoDeleted    []string `json:"also_deleted_repo_keys,omitempty"`
+	}{DeletedRepoKey: targets[0].Key, BrainDir: targets[0].BrainDir, AlsoDeleted: deleted[1:]})
+}
+
+// deleteRepoStore erases BOTH halves of one store.
+//
+// The head store is a per-key directory holding the export cursor, the setup
+// record and the watch cursor. It used to survive a delete, which left two
+// problems: a later refresh resumed from a cursor whose brain was gone, and --
+// since repoStorageContainsState counts either half -- a deleted duplicate was
+// still a second identity, so the conflict outlived the call meant to end it.
+func deleteRepoStore(storage repoStorage) error {
+	if err := rejectSymlinkedBrainRoot(storage.BrainDir); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.RemoveAll(storage.BrainDir); err != nil {
+		return fmt.Errorf("delete project %s: %w", storage.Key, err)
+	}
+	if err := os.RemoveAll(filepath.Dir(storage.HeadPath)); err != nil {
+		return fmt.Errorf("delete project %s head store: %w", storage.Key, err)
+	}
+	return nil
+}
+
+// repoStorageSetHasKey reports whether key names any store this repository
+// resolves to.
+func repoStorageSetHasKey(set repoStorageSet, key string) bool {
+	if key == set.Canonical.Key {
+		return true
+	}
+	for _, storage := range set.Populated {
+		if storage.Key == key {
+			return true
+		}
+	}
+	return false
 }
 
 // mcpGraphBinary resolves the Entire CLI binary that exposes `graph` provider
@@ -1540,22 +1622,37 @@ func mcpCrossRepoAllowed() bool { return envBool(mcpAllowCrossRepoEnv) }
 // The cure for an unbound server is ENTIRE_REPO_ROOT, which printMCPServerConfig
 // now emits; see mcpCrossRepoRefusal for the message that says so.
 func mcpBoundRepoStorage(ctx context.Context, opts Options) (repoStorage, bool, error) {
+	set, bound, err := mcpBoundRepoStorageSet(ctx, opts)
+	if err != nil || !bound {
+		return repoStorage{}, bound, err
+	}
+	// Ordinary tools still refuse a split identity: reading or writing one of
+	// two stores would silently pick one history over the other.
+	if err := set.conflictError(); err != nil {
+		return repoStorage{}, false, err
+	}
+	return set.Active(), true, nil
+}
+
+// mcpBoundRepoStorageSet is mcpBoundRepoStorage without the identity-conflict
+// refusal, for the one tool whose job is to clear the conflict.
+func mcpBoundRepoStorageSet(ctx context.Context, opts Options) (repoStorageSet, bool, error) {
 	root := strings.TrimSpace(opts.Env.RepoRoot)
 	if root == "" {
-		return repoStorage{}, false, nil
+		return repoStorageSet{}, false, nil
 	}
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, root)
 	if err != nil {
-		return repoStorage{}, false, err
+		return repoStorageSet{}, false, err
 	}
 	if !local {
-		return repoStorage{}, false, fmt.Errorf("bound repository root is not a local repository: %s", root)
+		return repoStorageSet{}, false, fmt.Errorf("bound repository root is not a local repository: %s", root)
 	}
-	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+	set, err := resolveRepoStorageSet(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
-		return repoStorage{}, false, err
+		return repoStorageSet{}, false, err
 	}
-	return storage, true, nil
+	return set, true, nil
 }
 
 // mcpUnboundRepoDetail is the detail every scoped tool reports when the server

@@ -57,8 +57,12 @@ func TestPrintMCPServerConfigBindsARepository(t *testing.T) {
 	if !ok {
 		t.Fatalf("printed env must set %s, got %#v", envRepoRoot, env)
 	}
-	if root != boundDir {
-		t.Fatalf("printed %s = %q, want the resolved repository root %q", envRepoRoot, root, boundDir)
+	want, err := canonicalLocalRepoRoot(boundDir)
+	if err != nil {
+		t.Fatalf("canonical repository root: %v", err)
+	}
+	if root != want {
+		t.Fatalf("printed %s = %q, want the canonical repository root %q", envRepoRoot, root, want)
 	}
 }
 
