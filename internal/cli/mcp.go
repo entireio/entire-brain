@@ -1211,7 +1211,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = stringErr
 			break
 		}
-		resolved, pathErr := mcpResolveTracePath(opts.Env, params.Name, path)
+		resolved, pathErr := mcpResolveTracePath(mcpConfigRepoRoot(ctx, opts), params.Name, path)
 		if pathErr != nil {
 			err = pathErr
 			break
@@ -2066,15 +2066,22 @@ func mcpResolveIndexPath(env EntireEnv, path string) (resolved string, containRo
 // Containment matches brain_index_repository exactly: enforced against the
 // bound root, resolved through symlinks (enforceIndexContainment), relative
 // paths resolved INSIDE the root rather than against the process CWD, and
-// lifted only by the same explicit ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH opt-out. A
-// server with no bound repository has no scope to enforce and keeps the latitude
-// the index tool already has there.
-func mcpResolveTracePath(env EntireEnv, tool, path string) (string, error) {
+// lifted only by the same explicit ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH opt-out.
+//
+// An UNBOUND server falls back to the repository the process is running in,
+// rather than to no scope at all. "No bound root, so no scope to enforce" was
+// true when every repo-scoped tool required ENTIRE_REPO_ROOT -- but a cwd launch
+// is now a supported way to start this server (mcpRepoLocalStorage), so leaving
+// the oracle open there leaves it open in a mode the surface endorses. The
+// caller passes the root; the resolution is mcpConfigRepoRoot's, which yields ""
+// only when the process is genuinely not inside a repository. That last case is
+// the sole remaining latitude, and it matches brain_index_repository.
+func mcpResolveTracePath(root string, tool, path string) (string, error) {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
 		return "", mcpRequiredArg("path")
 	}
-	root := strings.TrimSpace(env.RepoRoot)
+	root = strings.TrimSpace(root)
 	if root == "" || envBool("ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH") {
 		return trimmed, nil
 	}
