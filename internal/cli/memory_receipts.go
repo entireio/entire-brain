@@ -294,7 +294,7 @@ func loadProjectionStateCheckedOnce(brainDir string, source *historySourceManife
 	if documentState != projectionStateCurrent {
 		return projectionState{}, documentState, documentErr
 	}
-	if source.SessionsFingerprint == "" || source.SessionsFingerprint != brainSessionsFingerprint(brainDir) {
+	if !sessionSourceFingerprintCurrent(source.SessionsFingerprint, brainSessionsFingerprint(brainDir)) {
 		return projectionState{}, projectionStateStale, newProjectionStateLoadError(projectionStateStale, rel, "canonical session fingerprint changed", state.SchemaVersion)
 	}
 	return state, projectionStateCurrent, nil
