@@ -64,14 +64,10 @@ func prunedHostEnv(printed map[string]string) EntireEnv {
 // and is told "no brain has been built for this repository", which is a
 // confident wrong answer about a repository that has one.
 func TestPrintedMCPConfigCarriesTheStoreToAPrunedHost(t *testing.T) {
-	// A host of our own so the fallback this test must not hit is a directory
-	// nothing else in the suite shares.
-	fallbackHome := t.TempDir()
-	t.Setenv("HOME", fallbackHome)
-	t.Setenv(xdgConfigHome, "")
-	t.Setenv(xdgDataHome, "")
-	t.Setenv(xdgStateHome, "")
-	t.Setenv(xdgCacheHome, "")
+	// Leave the package's XDG pin so the wrong answer this test must not accept
+	// -- the default store -- is a sandboxed directory nothing else shares,
+	// with the home redirected on every platform rather than only on POSIX.
+	useDefaultStoreFallback(t)
 
 	t.Run("explicit plugin dirs", func(t *testing.T) {
 		opts, boundDir, _ := workspaceSiblingFixture(t, "printed-store")
@@ -141,12 +137,7 @@ func assertPrintedEntryReachesTheSameBrain(t *testing.T, opts Options, boundDir 
 // printing process happened to be using it -- but it must point there
 // EXPLICITLY when that is the store, so a pruned host does not have to guess.
 func TestPrintedMCPConfigPinsTheDefaultStoreExplicitly(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv(xdgConfigHome, "")
-	t.Setenv(xdgDataHome, "")
-	t.Setenv(xdgStateHome, "")
-	t.Setenv(xdgCacheHome, "")
+	home := useDefaultStoreFallback(t)
 
 	opts, _, _ := workspaceSiblingFixture(t, "printed-default")
 	opts.Env.PluginConfigDir = ""
