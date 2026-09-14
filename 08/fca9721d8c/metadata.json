@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "08fca9721d8c",
+  "strategy": "manual-commit",
+  "branch": "codex/trail-184-brain-sync",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/agentsetup/files.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/08/fca9721d8c/0/metadata.json",
+      "transcript": "/08/fca9721d8c/0/full.jsonl",
+      "compact_transcript": "/08/fca9721d8c/0/transcript.jsonl",
+      "content_hash": "/08/fca9721d8c/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 15754,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1890944,
+    "output_tokens": 2554,
+    "api_call_count": 21
+  }
+}
