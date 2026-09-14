@@ -56,10 +56,6 @@ const maxInstructionFileBytes = 4 << 20
 // the message, because only it knows which file the limit was applied to and why.
 var errContainedFileTooLarge = errors.New("file is larger than the read limit")
 
-// runInitAgents installs the guide into a consuming project so ANY coding agent finds it:
-// writes .entire/graph-agent.md (plugin-managed, overwritten on re-run) and upserts a
-// marker-guarded pointer block into AGENTS.md (the cross-agent convention) and CLAUDE.md
-// (which additionally understands the @-import line).
 // Install writes one guide and migrates managed entry points. Rendering is deferred
 // until after filesystem preflight; it must be read-only and return the same
 // bytes as Preview. No sibling initializer is invoked.
@@ -1928,7 +1924,7 @@ func ensureRenderedInstructionFits(path string, source, rendered []byte) error {
 		return nil
 	}
 	return fmt.Errorf(
-		"%s: the file is %d bytes and the Entire Graph managed block would take it to %d, "+
+		"%s: the file is %d bytes and the Entire agent managed block would take it to %d, "+
 			"past the %d-byte limit init-agents will read back on its next run; "+
 			"reduce it (or move its bulk into a file it imports) and rerun init-agents",
 		path, len(source), len(rendered), maxInstructionFileBytes,
@@ -1958,7 +1954,7 @@ func validatePointerMarkers(path string, content []byte) (int, int, error) {
 		reason = "the end marker appears before the begin marker"
 	}
 	return -1, -1, fmt.Errorf(
-		"%s: malformed Entire Graph managed markers (%s); back up the file, preserve user-owned text, reduce it to zero markers or exactly one complete %q / %q pair with begin before end, then rerun init-agents",
+		"%s: malformed Entire agent managed markers (%s); back up the file, preserve user-owned text, reduce it to zero markers or exactly one complete %q / %q pair with begin before end, then rerun init-agents",
 		path, reason, agentPointerBegin, agentPointerEnd,
 	)
 }
