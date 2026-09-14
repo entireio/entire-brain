@@ -1732,6 +1732,12 @@ func refuseSharedInode(root *os.Root, file *os.File, name, resolved string, mana
 	if !identified || links <= 1 {
 		return nil
 	}
+	// Only the two instruction entry points may share an inode. In particular,
+	// being managed does not make the guide interchangeable with either one.
+	// Enforce this on the open handle as well as in topology preflight.
+	if name != "AGENTS.md" && name != "CLAUDE.md" {
+		managed = nil
+	}
 	// A shared inode is only dangerous if one of its OTHER names is somewhere
 	// this command must not write. Hard-linking two managed instruction files
 	// together is documented and supported, so the question is not "is this
@@ -1744,6 +1750,9 @@ func refuseSharedInode(root *os.Root, file *os.File, name, resolved string, mana
 	// reaches the same bytes, and the write must be refused.
 	accounted := uint64(0)
 	for _, candidate := range managed {
+		if candidate != "AGENTS.md" && candidate != "CLAUDE.md" {
+			continue
+		}
 		// The entry must be a HARD LINK to count, and a symlink is not one.
 		//
 		// Only real directory entries contribute to an inode's link count, so

@@ -84,3 +84,34 @@ func TestSafeKeyBeforePlatformConversion(t *testing.T) {
 		}
 	}
 }
+
+func TestWriteTimeGuardKeepsGuideDistinctFromInstructions(t *testing.T) {
+	for _, target := range []string{filepath.FromSlash(Path), "AGENTS.md"} {
+		t.Run(target, func(t *testing.T) {
+			repo := t.TempDir()
+			guide := filepath.FromSlash(Path)
+			mkdirAllForTest(t, filepath.Join(repo, ".entire"))
+			const original = "existing content\n"
+			writeFileForTest(t, filepath.Join(repo, guide), original)
+			if err := os.Link(filepath.Join(repo, guide), filepath.Join(repo, "AGENTS.md")); err != nil {
+				t.Fatal(err)
+			}
+			root, err := os.OpenRoot(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer root.Close()
+			// Bypass topology preflight to model an alias introduced after it.
+			// Listing every managed path must not authorize guide/instruction sharing.
+			err = writeContainedFile(root, target, []byte("replacement\n"), 0644, guide, "AGENTS.md", "CLAUDE.md")
+			if !errors.Is(err, errSharedInodeManagedTarget) {
+				t.Fatalf("write-time guard accepted a guide alias: %v", err)
+			}
+			for _, name := range []string{guide, "AGENTS.md"} {
+				if got := readFileForTest(t, filepath.Join(repo, name)); got != original {
+					t.Fatalf("changed %s before refusing the alias: %q", name, got)
+				}
+			}
+		})
+	}
+}
