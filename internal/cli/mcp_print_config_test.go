@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,7 +18,7 @@ func TestPrintMCPServerConfigNamesThisBinaryDirectly(t *testing.T) {
 	t.Parallel()
 
 	var out bytes.Buffer
-	if err := printMCPServerConfig(context.Background(), &out, Options{Runner: ExecRunner{}}); err != nil {
+	if err := printMCPServerConfig(context.Background(), &out, io.Discard, Options{Runner: ExecRunner{}}); err != nil {
 		t.Fatalf("print config: %v", err)
 	}
 

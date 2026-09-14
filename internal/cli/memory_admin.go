@@ -26,22 +26,27 @@ import (
 // Stable error codes (maintenance taxonomy). An empty result never stands in for any
 // of these states.
 const (
-	memoryErrStateCorrupt               = "memory_state_corrupt"
-	memoryErrStateUnsafe                = "memory_state_unsafe"
-	memoryErrLockBusy                   = "memory_lock_busy"
-	memoryErrSourceStale                = "memory_source_stale"
-	memoryErrCancelled                  = "memory_cancelled"
-	memoryErrCancelTooLate              = "memory_cancel_too_late"
-	memoryErrMigrationRequired          = "memory_migration_required"
-	memoryErrUnsupportedVersion         = "memory_unsupported_version"
-	memoryErrQueryTooBroad              = "memory_query_too_broad"
-	memoryErrInputTooLarge              = "memory_input_too_large"
-	memoryErrPrivacyExcluded            = "memory_privacy_excluded"
-	memoryErrPrivacyDirty               = "memory_privacy_dirty"
-	memoryErrPrivacyBusy                = "memory_privacy_busy"
-	memoryErrIdentityAmbiguous          = "memory_identity_ambiguous"
-	memoryErrProviderUnavail            = "memory_provider_unavailable"
-	memoryErrSessionInventory           = "memory_session_inventory_degraded"
+	memoryErrStateCorrupt       = "memory_state_corrupt"
+	memoryErrStateUnsafe        = "memory_state_unsafe"
+	memoryErrLockBusy           = "memory_lock_busy"
+	memoryErrSourceStale        = "memory_source_stale"
+	memoryErrCancelled          = "memory_cancelled"
+	memoryErrCancelTooLate      = "memory_cancel_too_late"
+	memoryErrMigrationRequired  = "memory_migration_required"
+	memoryErrUnsupportedVersion = "memory_unsupported_version"
+	memoryErrQueryTooBroad      = "memory_query_too_broad"
+	memoryErrInputTooLarge      = "memory_input_too_large"
+	memoryErrPrivacyExcluded    = "memory_privacy_excluded"
+	memoryErrPrivacyDirty       = "memory_privacy_dirty"
+	memoryErrPrivacyBusy        = "memory_privacy_busy"
+	memoryErrIdentityAmbiguous  = "memory_identity_ambiguous"
+	memoryErrProviderUnavail    = "memory_provider_unavailable"
+	memoryErrSessionInventory   = "memory_session_inventory_degraded"
+	// memoryErrWorkerDegraded reports that the last worker pass completed its
+	// projection lanes but could not export new sessions. It is a health issue,
+	// not a crash: the Brain keeps answering from what it already has, while
+	// nothing captured since that failure can reach it.
+	memoryErrWorkerDegraded             = "memory_worker_degraded"
 	memoryOperationReceiptSchemaVersion = 1
 	memoryMigrationProgressRel          = memoryWorkDirRel + "/migration-progress-v1.json"
 )
@@ -474,7 +479,7 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 				return fail(receiptErr)
 			}
 			receiptsCurrent := receiptState == projectionStateCurrent
-			fingerprintCurrent := source != nil && source.SessionsFingerprint == brainSessionsFingerprint(brainDir)
+			fingerprintCurrent := source != nil && sessionSourceFingerprintCurrent(source.SessionsFingerprint, brainSessionsFingerprint(brainDir))
 			needsRebuild := !indexCurrent || !verifyAvailable || !verify.Clean || !receiptsCurrent || !fingerprintCurrent
 			if sessionRef != "" {
 				digest, scopeErr := canonicalSessionInputDigest(brainDir, manifest, sessionRef)
@@ -523,7 +528,7 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 					return fail(fmt.Errorf("%s: repair did not publish a current projection receipt", memoryErrStateCorrupt))
 				}
 				receiptsCurrent = true
-				fingerprintCurrent = postSource != nil && postSource.SessionsFingerprint == brainSessionsFingerprint(brainDir)
+				fingerprintCurrent = postSource != nil && sessionSourceFingerprintCurrent(postSource.SessionsFingerprint, brainSessionsFingerprint(brainDir))
 			} else if needsRebuild {
 				planMemoryProjectionRefreshStates(&receipt.Artifacts)
 			}
@@ -1976,6 +1981,15 @@ func memoryAggregateHealthAt(brainDir string, source *historySourceManifest, now
 		coordinatorHealth["started_at"] = coordinator.StartedAt
 		coordinatorHealth["heartbeat_at"] = coordinator.HeartbeatAt
 		coordinatorHealth["last_outcome"] = coordinator.LastOutcome
+		if coordinator.LastOutcome == memoryWorkerOutcomeDegraded {
+			// A degraded pass is the one worker outcome that leaves the Brain
+			// quietly falling behind: the projection ran, so nothing looks
+			// broken, while no session captured since then can reach it. Make
+			// it an issue so `status` and `doctor` report it instead of showing
+			// a healthy coordinator beside a stalled export.
+			coordinatorHealth["error_code"] = memoryErrWorkerDegraded
+			coordinatorHealth["action"] = "the last worker pass could not export new sessions; run `entire-brain refresh delta` in the repository to see why"
+		}
 		payload["coordinator"] = coordinatorHealth
 	} else if err == nil {
 		payload["coordinator"] = map[string]any{"state": "absent", "heartbeat_present": false, "stale": false, "action": "none"}

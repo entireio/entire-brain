@@ -79,3 +79,54 @@ func TestRecordSkillDecisionUpsert(t *testing.T) {
 		t.Errorf("P2 lost: %+v", byID["P2"])
 	}
 }
+
+// A harness told where its configuration home is must be written to there.
+//
+// CODEX_HOME was honoured and CLAUDE_CONFIG_DIR was not, so a Claude Code
+// install relocated with CLAUDE_CONFIG_DIR had its skills written to ~/.claude
+// instead -- a directory that usually still exists, so the write succeeded, the
+// command reported success, and the agent never saw the file.
+func TestSkillDestinationsHonourHarnessHomeOverrides(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "/elsewhere/claude-home")
+	t.Setenv("CODEX_HOME", "/elsewhere/codex-home")
+
+	for _, tc := range []struct{ target, want string }{
+		{"claude-code", "/elsewhere/claude-home/skills/my-skill/SKILL.md"},
+		{"codex", "/elsewhere/codex-home/skills/my-skill/SKILL.md"},
+	} {
+		d, err := skillDestinations(tc.target, "global", "my-skill", "/repo")
+		if err != nil {
+			t.Fatalf("%s: %v", tc.target, err)
+		}
+		if len(d) != 1 || d[0].Path != tc.want {
+			t.Errorf("%s global path = %+v, want %q", tc.target, d, tc.want)
+		}
+	}
+
+	// The repo scope is a path in the repository, not a configuration home, so
+	// the override must not reach it.
+	d, err := skillDestinations("claude-code", "repo", "my-skill", "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d[0].Path != "/repo/.claude/skills/my-skill/SKILL.md" {
+		t.Errorf("repo scope moved with the override: %q", d[0].Path)
+	}
+}
+
+// An unset override keeps the documented default, and a relative one is ignored
+// rather than honoured: the root is joined with skills/<name>/SKILL.md and
+// written, so a relative value plants an agent-instruction file under whatever
+// directory the command happened to run in.
+func TestSkillDestinationsRejectUnusableHarnessHomeOverrides(t *testing.T) {
+	for _, value := range []string{"", "   ", "relative/path", "./claude"} {
+		t.Setenv("CLAUDE_CONFIG_DIR", value)
+		d, err := skillDestinations("claude-code", "global", "my-skill", "/repo")
+		if err != nil {
+			t.Fatalf("CLAUDE_CONFIG_DIR=%q: %v", value, err)
+		}
+		if d[0].Path != "~/.claude/skills/my-skill/SKILL.md" {
+			t.Errorf("CLAUDE_CONFIG_DIR=%q gave %q, want the documented default", value, d[0].Path)
+		}
+	}
+}

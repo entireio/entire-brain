@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,13 +47,67 @@ func newMemoryCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
+// memoryWorkerMaxLeaseSleep bounds how long a scheduled worker may hold the
+// per-Brain coordinator while it is only WAITING. Taking the lease before the
+// sleep is what keeps repeated notifications from piling up detached sleepers,
+// but holding it for the WHOLE wait froze the Brain: nextMemoryWorkerDelay
+// returns the time until the earliest pending job, a backed-off retry puts that
+// nearly two hours out, and for that whole window every watch tick, session hook
+// and MCP nudge got `already_active` and did nothing. A long wait is now served
+// WITHOUT the lease and only its last minute with it, so one backed-off job can
+// no longer block unrelated work.
+//
+// It is a variable only so tests can exercise the boundary without sleeping for
+// production time.
+var memoryWorkerMaxLeaseSleep = time.Minute
+
+const (
+	// A failed prepass reschedules itself. These bound that chain. Without a
+	// bound it ran at a fixed one-minute interval forever: a permanently broken
+	// delta export (a repository where `entire` is disabled, say) produced 1285
+	// consecutive failures across 21.6 unbroken hours on one real machine.
+	memoryWorkerPrepassRetryBase     = time.Minute
+	memoryWorkerPrepassRetryCeiling  = 30 * time.Minute
+	memoryWorkerPrepassRetryAttempts = 8
+
+	// memoryWorkerOutcomeDegraded is the coordinator outcome for a pass that
+	// completed its projection work but could not export new sessions. It is
+	// neither "complete" (the pass did not do what it was launched to do) nor
+	// "failed" (the projection lanes ran). Before it existed a failed prepass
+	// left last_outcome="complete", so the health surfaces reported success
+	// while the failures accumulated.
+	memoryWorkerOutcomeDegraded = "degraded"
+)
+
+// memoryWorkerPrepassRetry returns the delay before the next attempt in a
+// prepass-failure relaunch chain, and whether the chain continues at all.
+// failures counts the consecutive failures INCLUDING the one just observed, so
+// the schedule is 1m, 2m, 4m, 8m, 16m, 30m, 30m and then give up — about two
+// hours of retries rather than a day and a half. A chain gives up silently only
+// in the sense that it stops relaunching: the degraded outcome and the worker
+// log both record why, and any new lifecycle event starts a fresh chain,
+// because an external event is new evidence that the condition may have changed.
+func memoryWorkerPrepassRetry(failures int) (time.Duration, bool) {
+	if failures < 1 || failures >= memoryWorkerPrepassRetryAttempts {
+		return 0, false
+	}
+	delay := memoryWorkerPrepassRetryBase
+	for i := 1; i < failures; i++ {
+		delay *= 2
+		if delay >= memoryWorkerPrepassRetryCeiling {
+			return memoryWorkerPrepassRetryCeiling, true
+		}
+	}
+	return delay, true
+}
+
 // memoryWorkerLaunch is the best-effort, non-blocking worker launch used by
 // notify. Injectable for tests; a launch failure never fails the host.
 var memoryWorkerLaunch = func(repoDir string) error {
-	return memoryWorkerLaunchAfter(repoDir, 0)
+	return memoryWorkerLaunchAfter(repoDir, 0, 0)
 }
 
-var memoryWorkerLaunchAfter = func(repoDir string, delay time.Duration) error {
+var memoryWorkerLaunchAfter = func(repoDir string, delay time.Duration, prepassFailures int) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
@@ -60,6 +115,9 @@ var memoryWorkerLaunchAfter = func(repoDir string, delay time.Duration) error {
 	args := []string{"memory", "worker", "--once"}
 	if delay > 0 {
 		args = append(args, "--delay", delay.String())
+	}
+	if prepassFailures > 0 {
+		args = append(args, "--prepass-failures", strconv.Itoa(prepassFailures))
 	}
 	command := exec.Command(exe, args...)
 	command.Dir = repoDir
@@ -699,15 +757,20 @@ func reconcileAbstractJobsLocked(brainDir, trigger string, now time.Time) (creat
 }
 
 type memoryWorkerStats struct {
-	JobsCreated    int      `json:"jobs_created"`
-	JobsCompleted  int      `json:"jobs_completed"`
-	JobsRetried    int      `json:"jobs_retried"`
-	JobsRecovered  int      `json:"jobs_recovered"`
-	JobsCancelled  int      `json:"jobs_cancelled"`
-	JobsPruned     int      `json:"jobs_pruned"`
-	HintsConsumed  int      `json:"hints_consumed"`
-	AlreadyActive  bool     `json:"already_active,omitempty"`
-	PrepassFailed  bool     `json:"prepass_failed,omitempty"`
+	JobsCreated   int  `json:"jobs_created"`
+	JobsCompleted int  `json:"jobs_completed"`
+	JobsRetried   int  `json:"jobs_retried"`
+	JobsRecovered int  `json:"jobs_recovered"`
+	JobsCancelled int  `json:"jobs_cancelled"`
+	JobsPruned    int  `json:"jobs_pruned"`
+	HintsConsumed int  `json:"hints_consumed"`
+	AlreadyActive bool `json:"already_active,omitempty"`
+	PrepassFailed bool `json:"prepass_failed,omitempty"`
+	// PrepassGaveUp reports that the relaunch chain this failure belongs to has
+	// exhausted memoryWorkerPrepassRetryAttempts and will not reschedule
+	// itself. The condition is durable, so the honest answer is to stop rather
+	// than keep a failing pass running once a minute for a day.
+	PrepassGaveUp  bool     `json:"prepass_gave_up,omitempty"`
 	VectorPending  bool     `json:"vector_pending,omitempty"`
 	HealthDegraded bool     `json:"health_degraded,omitempty"`
 	HealthIssues   []string `json:"health_issues,omitempty"`
@@ -1527,6 +1590,7 @@ func runMemoryAbstractDrainWithClock(ctx context.Context, repoDir, brainDir stri
 func newMemoryWorkerCommand(opts Options) *cobra.Command {
 	var once bool
 	var delay time.Duration
+	var prepassFailures int
 	cmd := &cobra.Command{
 		Use:    "worker",
 		Short:  "Run one bounded deterministic projection pass (hidden; hints/watch/startup launch it)",
@@ -1538,6 +1602,9 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			}
 			if delay < 0 || delay > 2*time.Hour {
 				return fmt.Errorf("worker delay must be between 0 and 2h")
+			}
+			if prepassFailures < 0 {
+				return fmt.Errorf("worker prepass failure count must not be negative")
 			}
 			storage, err := resolveSessionsBrain(cmd.Context(), opts)
 			if err != nil {
@@ -1556,6 +1623,24 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			if _, _, err := loadSessionTombstonesChecked(storage.BrainDir); err != nil {
 				return err
 			}
+			// Wait out everything beyond the last minute BEFORE taking the
+			// scheduler lease. Holding it across the whole wait made one
+			// backed-off job freeze every other launch for this Brain (see
+			// memoryWorkerMaxLeaseSleep); nothing is lost by yielding here,
+			// because a contender that wins the lease meanwhile does the same
+			// work, and this process then finds nothing to do.
+			leaseSleep := delay
+			if unleased := delay - memoryWorkerMaxLeaseSleep; unleased > 0 {
+				leaseSleep = memoryWorkerMaxLeaseSleep
+				timer := time.NewTimer(unleased)
+				select {
+				case <-timer.C:
+				case <-cmd.Context().Done():
+					timer.Stop()
+					return cmd.Context().Err()
+				}
+				timer.Stop()
+			}
 			coordinator, err := acquireMemoryCoordinator(storage.BrainDir, opts.Now().UTC(), opts.Version)
 			if err != nil {
 				if strings.Contains(err.Error(), "memory_worker_active") {
@@ -1565,10 +1650,11 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			}
 			outcome := "complete"
 			var relaunchDelay *time.Duration
+			relaunchPrepassFailures := 0
 			defer func() {
 				coordinator.close(opts.Now().UTC(), outcome)
 				if relaunchDelay != nil {
-					_ = memoryWorkerLaunchAfter(repoDir, *relaunchDelay)
+					_ = memoryWorkerLaunchAfter(repoDir, *relaunchDelay, relaunchPrepassFailures)
 				}
 			}()
 			clock := memoryClock(opts.Now)
@@ -1583,12 +1669,14 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 				outcome = "failed"
 				return err
 			}
-			// A delayed retry owns the coordinator before it sleeps. This is the
-			// scheduler lease: repeated startup/watch notifications can launch
-			// contenders, but they fail fast instead of accumulating detached
-			// sleepers that all wake for the same retry.
-			if delay > 0 {
-				timer := time.NewTimer(delay)
+			// The last stretch of a delayed retry owns the coordinator. This is
+			// the scheduler lease: repeated startup/watch notifications can
+			// launch contenders, but they fail fast instead of accumulating
+			// detached sleepers that all wake for the same retry. Only this
+			// bounded tail is held; anything longer was waited out above,
+			// unleased.
+			if leaseSleep > 0 {
+				timer := time.NewTimer(leaseSleep)
 				defer timer.Stop()
 				select {
 				case <-timer.C:
@@ -1598,13 +1686,29 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 				}
 			}
 			var stats memoryWorkerStats
+			var prepassRetry *time.Duration
 			if err := memoryWorkerPrepass(cmd.Context(), opts, repoDir); err != nil {
 				// The durable hint remains. Continue with already-exported work and
 				// schedule another bounded prepass instead of hiding the failure.
 				stats.PrepassFailed = true
+				// A pass that could not export new sessions did not do what it
+				// was launched to do. Say so: reporting "complete" here is what
+				// let 1285 consecutive failures accumulate with every health
+				// surface showing a healthy last outcome.
+				outcome = memoryWorkerOutcomeDegraded
 				_ = appendMemoryWorkerLog(storage.BrainDir, opts.Now().UTC(), "prepass_failed", coordinator.token)
-				retry := time.Minute
-				relaunchDelay = &retry
+				failures := prepassFailures + 1
+				if retry, ok := memoryWorkerPrepassRetry(failures); ok {
+					prepassRetry = &retry
+					relaunchPrepassFailures = failures
+				} else {
+					// The chain has retried for as long as it is worth retrying.
+					// Stop relaunching for this reason; the degraded outcome and
+					// this event are the durable record, and the next lifecycle
+					// hint starts a fresh chain.
+					stats.PrepassGaveUp = true
+					_ = appendMemoryWorkerLog(storage.BrainDir, opts.Now().UTC(), "prepass_gave_up", coordinator.token)
+				}
 			}
 			projectionStats, err := runMemoryProjectionLaneWithClock(cmd.Context(), storage.BrainDir, clock, coordinator.token)
 			if err != nil {
@@ -1634,6 +1738,15 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			} else if ok && (relaunchDelay == nil || next < *relaunchDelay) {
 				relaunchDelay = &next
 			}
+			// The prepass retry is the last relaunch candidate, and the soonest
+			// one still wins. Vector continuation and a pending job are
+			// self-terminating reasons to come back; the prepass is not, which
+			// is why only it carries a failure count forward. A chain that has
+			// given up contributes no candidate at all, so a permanently broken
+			// prepass stops being a reason to relaunch.
+			if prepassRetry != nil && (relaunchDelay == nil || *prepassRetry < *relaunchDelay) {
+				relaunchDelay = prepassRetry
+			}
 			stopHeartbeat()
 			heartbeatStopped = true
 			for _, issue := range coordinator.healthIssuesSnapshot() {
@@ -1644,6 +1757,8 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&once, "once", false, "Run one pass and exit")
 	cmd.Flags().DurationVar(&delay, "delay", 0, "Delay before running (internal retry scheduler)")
+	cmd.Flags().IntVar(&prepassFailures, "prepass-failures", 0, "Consecutive prepass failures already seen in this relaunch chain (internal retry scheduler)")
+	_ = cmd.Flags().MarkHidden("prepass-failures")
 	return cmd
 }
 
@@ -1657,6 +1772,7 @@ func (s *memoryWorkerStats) add(other memoryWorkerStats) {
 	s.HintsConsumed += other.HintsConsumed
 	s.AlreadyActive = s.AlreadyActive || other.AlreadyActive
 	s.PrepassFailed = s.PrepassFailed || other.PrepassFailed
+	s.PrepassGaveUp = s.PrepassGaveUp || other.PrepassGaveUp
 	s.VectorPending = s.VectorPending || other.VectorPending
 	s.VectorContinue = s.VectorContinue || other.VectorContinue
 	s.HealthDegraded = s.HealthDegraded || other.HealthDegraded

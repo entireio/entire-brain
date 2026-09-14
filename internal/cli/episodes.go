@@ -38,8 +38,17 @@ const patternsEpisodesPath = "patterns/episodes.ndjson"
 // pattern/skill-memory counters are reserved for later phases and stay zero until
 // then.
 type patternSourceManifest struct {
-	GeneratedAt         time.Time           `json:"generated_at"`
-	EpisodesPath        string              `json:"episodes_path"`
+	GeneratedAt  time.Time `json:"generated_at"`
+	EpisodesPath string    `json:"episodes_path"`
+	// PrivacyIdentity binds this corpus to the exact tombstone bytes the build
+	// filtered against, exactly as historySourceManifest does. The sessions
+	// fingerprint alone cannot see a privacy change: exclude/include leave the
+	// canonical session set untouched, so without this an exclusion sweep
+	// (which rewrites episodes.ndjson in place, behind this manifest's back)
+	// left `patterns status` reporting the pre-sweep episode count as
+	// "current", and a later `privacy include` never rebuilt the corpus at all
+	// because nothing had changed as far as the fingerprint could tell.
+	PrivacyIdentity     string              `json:"privacy_identity,omitempty"`
 	SessionsFingerprint string              `json:"sessions_fingerprint,omitempty"`
 	Episodes            int                 `json:"episodes"`
 	Reinforcement       reinforcementCounts `json:"reinforcement"`
@@ -225,8 +234,12 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 	})
 
 	source := &patternSourceManifest{
-		GeneratedAt:         now,
-		EpisodesPath:        patternsEpisodesPath,
+		GeneratedAt:  now,
+		EpisodesPath: patternsEpisodesPath,
+		// The guard's identity is the exact tombstone bytes this build
+		// filtered against, so the recorded epoch cannot drift from the
+		// corpus it describes.
+		PrivacyIdentity:     guard.policyIdentity,
 		SessionsFingerprint: brainSessionsFingerprint(outputDir),
 		Episodes:            len(episodes),
 		Reinforcement:       counts,
@@ -304,11 +317,38 @@ func writeBrainEpisodesAndSourceLocked(outputDir string, now time.Time) (*patter
 	return source, nil
 }
 
+// patternSourceCurrent reports whether a recorded patterns source still
+// describes the brain's inputs. Both inputs matter: the canonical session set
+// AND the tombstone policy the corpus was filtered against. `patterns status`
+// and the refresh trigger share this so they can never disagree about whether
+// a rebuild is owed.
+//
+// A source recorded before privacy_identity existed carries "", which stays
+// current only while the brain has no tombstones at all — the same allowance
+// the vector epoch check already makes. Once a tombstone exists, a corpus that
+// cannot name the epoch it filtered against is exactly the silently-rewritten
+// one this predicate has to catch.
+func patternSourceCurrent(source *patternSourceManifest, brainDir string) bool {
+	if source == nil {
+		return false
+	}
+	if !sessionSourceFingerprintCurrent(source.SessionsFingerprint, brainSessionsFingerprint(brainDir)) {
+		return false
+	}
+	_, state, err := loadSessionTombstonesChecked(brainDir)
+	if err != nil {
+		return false
+	}
+	if source.PrivacyIdentity == state.Identity {
+		return true
+	}
+	return source.PrivacyIdentity == "" && state.State == sessionTombstoneAbsent
+}
+
 // refreshPatternLayer rebuilds the pattern layer (episodes -> tasks, procedures,
-// practices) when sessions changed or force is set, and reports whether it
+// practices) when its inputs changed or force is set, and reports whether it
 // rebuilt. Deterministic and token-free; called by `entire brain refresh` so the
-// pattern layer is populated without a separate command. Staleness is the same
-// input-derived sessions fingerprint the status surface uses.
+// pattern layer is populated without a separate command.
 func refreshPatternLayer(brainDir string, force bool, now time.Time) (bool, error) {
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
@@ -317,8 +357,7 @@ func refreshPatternLayer(brainDir string, force bool, now time.Time) (bool, erro
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil {
 		return false, nil // no sessions to build from
 	}
-	if !force && manifest.Sources.Patterns != nil &&
-		manifest.Sources.Patterns.SessionsFingerprint == brainSessionsFingerprint(brainDir) {
+	if !force && patternSourceCurrent(manifest.Sources.Patterns, brainDir) {
 		return false, nil // current
 	}
 	if _, err := writeBrainEpisodesAndSource(brainDir, now); err != nil {

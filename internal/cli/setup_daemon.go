@@ -333,6 +333,99 @@ func renderSystemdUnit(spec daemonSpec) string {
 	return b.String()
 }
 
+// daemonPathPlaceholder stands in for the inherited search path while two
+// rendered units are compared. It is never written to disk.
+const daemonPathPlaceholder = "\x00entire-brain-daemon-path\x00"
+
+// daemonUnitMaterial reduces a rendered unit to the part that decides what the
+// daemon DOES, so `Current` answers "would this build install a different
+// service" instead of "was this shell's environment byte-identical to the one
+// that installed it".
+//
+// The only ambient value in the unit is PATH. daemonEnv copies it from the
+// installing process because a launchd/systemd job inherits almost nothing and
+// the deterministic refresh shells out to `git` and `entire` — but PATH is the
+// most volatile variable on a developer machine. Installing a tool, opening a
+// different terminal, a shell rc that prepends a directory twice: any of those
+// made the on-disk unit differ from the freshly rendered one by a single line.
+//
+// Byte equality therefore reported drift on a perfectly good service, and
+// `setup` "repairs" drift by unloading and reloading it — tearing down the ONE
+// machine-wide watcher, mid-refresh, on a re-run that changed nothing. `status`
+// meanwhile told the user their running watcher was stale and to re-run the
+// command that would do it again. This is the same failure the log path caused
+// before it was made machine-level (see brainWatchDaemonPlan); PATH is the
+// remaining instance of it, and the more volatile one.
+//
+// Masking is deliberately narrow: only the PATH VALUE is neutralized. A unit
+// that gains or loses PATH entirely, or whose binary, arguments, working
+// directory, log path or ENTIRE_PLUGIN_* dirs changed, still reads as drift and
+// is still repaired — and a real reinstall always writes the current PATH.
+func daemonUnitMaterial(manager, contents string) string {
+	lines := strings.Split(contents, "\n")
+	switch manager {
+	case daemonManagerLaunchd:
+		for i, line := range lines {
+			if strings.TrimSpace(line) != "<key>PATH</key>" || i+1 >= len(lines) {
+				continue
+			}
+			next := strings.TrimSpace(lines[i+1])
+			if strings.HasPrefix(next, "<string>") && strings.HasSuffix(next, "</string>") {
+				lines[i+1] = daemonPathPlaceholder
+			}
+		}
+	case daemonManagerSystemd:
+		for i, line := range lines {
+			if strings.HasPrefix(strings.TrimSpace(line), `Environment="PATH=`) {
+				lines[i] = daemonPathPlaceholder
+			}
+		}
+	default:
+		return contents
+	}
+	return strings.Join(lines, "\n")
+}
+
+// setupDaemonLockName serializes the daemon REGISTRATION sequence across
+// processes. It lives beside the machine-level watch plan, in the plugin state
+// dir, for the same reason the plan does: exactly one service exists per
+// machine, so the thing that guards it must be machine-level too.
+const setupDaemonLockName = "daemon-install.lock"
+
+// withDaemonRegistrationLock runs fn holding the machine-level daemon lock.
+//
+// `setup` decides what to do about the daemon with inspect() and then acts with
+// install()/uninstall(), and install() on darwin is not one call but two
+// (`launchctl unload` then `launchctl load -w`) with the service DOWN in
+// between. None of that was serialized, while the watch plan written moments
+// earlier — the far less dangerous file — already was. Two repos onboarding at
+// once is the ordinary case this whole file was rewritten for, and interleaving
+// two unload/load pairs against one label means one run's `load` can land
+// between the other's `unload` and `load`: the second then fails with "service
+// already loaded" and `setup` reports "daemon install failed" for a watcher
+// that is in fact running. Every process now observes the service, changes it
+// and re-observes it as one atomic step.
+//
+// It degrades rather than fails: a state dir that cannot be resolved or locked
+// runs fn unlocked, because a machine that cannot take the lock must still be
+// able to install its watcher.
+func withDaemonRegistrationLock(env EntireEnv, fn func() error) error {
+	planPath, err := setupWatchPlanPath(env)
+	if err != nil {
+		return fn()
+	}
+	stateDir := filepath.Dir(planPath)
+	if err := rejectExistingSymlinkPathComponents(stateDir, brainLockDirName); err != nil {
+		return fn()
+	}
+	lock, err := acquireFileLock(filepath.Join(stateDir, brainLockDirName, setupDaemonLockName), "daemon_install_locked", brainWriteLockTimeout)
+	if err != nil {
+		return fn()
+	}
+	defer func() { _ = lock.Close() }()
+	return fn()
+}
+
 // daemonState is what `setup` and `status` report about the installed watcher.
 type daemonState struct {
 	Manager   string `json:"manager"`
@@ -362,7 +455,7 @@ func inspectDaemon(ctx context.Context, runner CommandRunner, plan daemonPlan) d
 	switch {
 	case err == nil:
 		state.Installed = true
-		state.Current = string(data) == plan.Contents
+		state.Current = daemonUnitMaterial(plan.Manager, string(data)) == daemonUnitMaterial(plan.Manager, plan.Contents)
 	case os.IsNotExist(err):
 		// Nothing installed under this label, so nothing can be running under
 		// it either. Skipping the probe keeps `status` free of a subprocess on
@@ -405,6 +498,31 @@ func daemonRunning(ctx context.Context, runner CommandRunner, plan daemonPlan) (
 		return false, ""
 	}
 	return false, ""
+}
+
+// refreshDaemonUnitBytes rewrites the unit file when it differs from what this
+// build would install, WITHOUT going near the service manager.
+//
+// It is the other half of daemonUnitMaterial. Masking PATH out of the
+// "is it current" decision correctly stops `setup` from tearing the live
+// watcher down over a shell variable — but on its own it would also freeze the
+// daemon's PATH at whatever the very first install happened to inherit, with
+// nothing ever refreshing it. Writing the file here and reloading nothing gets
+// both: the running service is left strictly alone, and it picks up the current
+// PATH at its next natural restart (login, crash, reboot).
+//
+// A failure is deliberately not an error to the caller: the watcher is running
+// and correct, and refusing a re-run of `setup` over a cosmetic rewrite would
+// be worse than skipping it.
+func refreshDaemonUnitBytes(plan daemonPlan) error {
+	if !plan.supported() {
+		return nil
+	}
+	data, err := os.ReadFile(plan.UnitPath)
+	if err != nil || string(data) == plan.Contents {
+		return err
+	}
+	return writeFileAtomic(plan.UnitPath, []byte(plan.Contents), 0o600)
 }
 
 // installDaemon writes the unit and (re)loads it. It is idempotent by
@@ -481,4 +599,101 @@ func uninstallDaemon(ctx context.Context, runner CommandRunner, plan daemonPlan)
 		_, _, _ = runner.Run(ctx, "", "systemctl", "--user", "daemon-reload")
 	}
 	return nil
+}
+
+const (
+	// daemonLogMaxBytes caps the installed watcher's log before it is rotated.
+	// The watcher is a KeepAlive service meant to run for months and it prints
+	// several lines PER TICK PER REPO — plus, on a brain whose manifest cannot
+	// be parsed, three error lines every tick forever. Nothing rotated that
+	// file: not launchd (StandardOutPath is a plain append), not systemd
+	// (append: likewise), and not this program, which caps the memory worker's
+	// log at 1 MiB and the facts vitality log at 1 MiB but left the one log
+	// that grows fastest and lives longest unbounded.
+	//
+	// 4 MiB plus one archive keeps roughly a week of healthy five-minute ticks
+	// readable while bounding the whole thing at 8 MiB.
+	daemonLogMaxBytes = 4 << 20
+	// daemonLogArchiveSuffix names the single retained previous generation.
+	daemonLogArchiveSuffix = ".1"
+)
+
+// daemonLogPath resolves the file the installed unit points stdout and stderr
+// at. It is derived from the plugin state dir exactly as brainWatchDaemonPlan
+// derives it, so the running watcher can find its own log without the unit
+// having to tell it — which means no unit bytes change and no installed daemon
+// is restarted to gain rotation.
+func daemonLogPath(env EntireEnv) (string, error) {
+	dirs, err := resolvePluginDirs(env)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dirs.State, "logs", setupDaemonLogFile), nil
+}
+
+// rotateDaemonLogIfLarge copies the log aside and truncates it IN PLACE.
+//
+// Truncation rather than rename is the whole point: launchd and systemd opened
+// this file with O_APPEND before the process started and hold that descriptor
+// for the life of the job. Renaming it would leave the service writing to the
+// renamed inode forever and the fresh file permanently empty, so the log would
+// appear to stop. An O_APPEND write always seeks to the end first, so after
+// truncation the very next line lands at offset 0.
+//
+// Anything that is not a plain regular file is left alone, so a watcher run in
+// a terminal, or one whose log path has been replaced with a symlink, is never
+// touched.
+func rotateDaemonLogIfLarge(path string, maxBytes int64) error {
+	if maxBytes <= 0 {
+		return nil
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Size() <= maxBytes {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if err := writeFileAtomic(path+daemonLogArchiveSuffix, data, 0o600); err != nil {
+		return err
+	}
+	return os.Truncate(path, 0)
+}
+
+// daemonLogMaintainer returns the per-pass upkeep for a watcher that IS the
+// installed service, and nil for every other caller.
+//
+// The test is identity, not configuration: the returned closure exists only
+// when this process's stdout is the very file the unit names. A `workspace
+// watch` run by hand in a terminal, a test with a buffer, or a second watcher
+// redirected somewhere else therefore cannot truncate the daemon's log — only
+// the process actually writing to it can.
+func daemonLogMaintainer(env EntireEnv) func() {
+	path, err := daemonLogPath(env)
+	if err != nil {
+		return nil
+	}
+	if !stdoutIsFile(path) {
+		return nil
+	}
+	return func() { _ = rotateDaemonLogIfLarge(path, daemonLogMaxBytes) }
+}
+
+func stdoutIsFile(path string) bool {
+	target, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	mine, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return os.SameFile(mine, target)
 }

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-13T02:09:07.525778Z",
+  "generated_at": "2026-09-13T21:17:55.193706Z",
   "brain_path": "/tmp/distill-large-evidence/repos/gh/entireio/cli",
   "force": true,
   "agent": "command",
@@ -13,12 +13,12 @@
   "sessions_to_distill": 2375,
   "missing_transcripts": 0,
   "raw_bytes": 4198054600,
-  "preprocessed_bytes": 117311688,
-  "chunks": 2435,
-  "chunks_if_uncached": 2435,
-  "extraction_agent_calls": 2435,
-  "reconcile_agent_calls_upper_bound": 2435,
-  "estimated_agent_calls_upper_bound": 4870,
+  "preprocessed_bytes": 117460720,
+  "chunks": 2443,
+  "chunks_if_uncached": 2443,
+  "extraction_agent_calls": 2443,
+  "reconcile_agent_calls_upper_bound": 2443,
+  "estimated_agent_calls_upper_bound": 4886,
   "branches": [
     {
       "branch": "20260205-gitleaks",
@@ -1024,9 +1024,9 @@
       "sessions": 2,
       "cached_sessions": 0,
       "sessions_to_distill": 2,
-      "chunks": 0,
-      "chunks_if_uncached": 0,
-      "preprocessed_bytes": 303
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 82887
     },
     {
       "branch": "feat/openai-privacy-filter",
@@ -1591,9 +1591,9 @@
       "sessions": 1605,
       "cached_sessions": 0,
       "sessions_to_distill": 1605,
-      "chunks": 1637,
-      "chunks_if_uncached": 1637,
-      "preprocessed_bytes": 74012736
+      "chunks": 1643,
+      "chunks_if_uncached": 1643,
+      "preprocessed_bytes": 74079184
     },
     {
       "branch": "migrate-force-fixups",
