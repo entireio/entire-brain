@@ -1,0 +1,47 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "19937f5e0d94",
+  "session_id": "01a09f03-9c6c-78c2-8b72-ed430131829f",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-14T08:26:24.871911Z",
+  "branch": "codex/trail-184-brain-sync",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/agent-coordination.md",
+    "internal/agentsetup/brain_state.go",
+    "internal/agentsetup/coordination_test.go",
+    "internal/agentsetup/files.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "8bd949d1407a",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 78398,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 504448,
+    "output_tokens": 2891,
+    "api_call_count": 11
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-14T08:26:24.848585Z",
+    "agent_lines": 144,
+    "agent_removed": 12,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 144,
+    "total_lines_changed": 156,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
