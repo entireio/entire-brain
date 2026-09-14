@@ -126,6 +126,9 @@ both is required.
 Concurrent initializers are not supported. Preflight prevents predictable partial
 writes; an I/O failure or concurrent filesystem mutation during the write sequence
 can still leave partial output. Resolve the reported error and regenerate.
+Once migration starts, the canonical guide is retained on failure so any legacy
+redirects already written still have a valid target; cleanup does not roll back
+overwritten files.
 
 ## Tests
 

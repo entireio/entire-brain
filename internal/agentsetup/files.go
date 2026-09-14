@@ -224,8 +224,11 @@ func Install(root string, render func() (string, error), out io.Writer) error {
 		return fmt.Errorf("init-agents: %w", rollback(err, guideCreated))
 	}
 	fmt.Fprintf(out, "wrote %s\n", guidePath)
+	// From here on, a write may publish a redirect or instruction pointer.
+	// Keep its guide on failure: rollback only removes newly created targets,
+	// so it cannot undo migration and would leave published pointers dangling.
 	if err := writeLegacy(repoRoot, legacy); err != nil {
-		return err
+		return fmt.Errorf("init-agents: migrate legacy guides: %w", err)
 	}
 
 	if err := writeContainedFile(repoRoot, agentsName, agentsContent, 0o644, guideName, agentsName, claudeName); err != nil {
@@ -927,6 +930,11 @@ func landingCarriesManagedContent(root *os.Root, resolved string) bool {
 	content, err := io.ReadAll(io.LimitReader(file, maxManagedLandingBytes))
 	if err != nil {
 		return false
+	}
+	// Recognize the exact redirect emitted by migration, including redirects
+	// from earlier versions, so non-Markdown aliases remain regenerable.
+	if bytes.Equal(content, []byte(legacyRedirect)) {
+		return true
 	}
 	for _, marker := range []string{agentPointerBegin, agentGuideHeading,
 		"<!-- entire-graph:begin -->", "<!-- entire-brain:begin -->",

@@ -32,9 +32,9 @@ type brainSetupRecord struct {
 }
 
 func brainDirectory(explicit, override, xdg, fallback string) (string, error) {
-	dir := os.Getenv(override)
+	dir := explicit
 	if dir == "" {
-		dir = explicit
+		dir = os.Getenv(override)
 	}
 	if dir != "" {
 		if !filepath.IsAbs(dir) {

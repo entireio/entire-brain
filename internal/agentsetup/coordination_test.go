@@ -150,8 +150,17 @@ func TestCoordinationErrorsBeforeWrites(t *testing.T) {
 			path := fixtureSetup(t, repo, opts, contents)
 			switch state {
 			case "unreadable":
-				os.Chmod(path, 0000)
+				if err := os.Chmod(path, 0000); err != nil {
+					t.Fatal(err)
+				}
 				defer os.Chmod(path, 0600)
+				info, err := os.Stat(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if info.Mode().Perm()&0444 != 0 {
+					t.Skip("filesystem does not support removing Unix read permission bits")
+				}
 			case "directory":
 				os.Remove(path)
 				os.Mkdir(path, 0700)
@@ -256,11 +265,16 @@ func TestCoordinationLegacyAliasesAndProtectedTargets(t *testing.T) {
 		mkdirAllForTest(t, filepath.Join(repo, ".entire"))
 		writeFileForTest(t, filepath.Join(repo, "GUIDE"), "# entire-graph — instructions for coding agents (follow directly)\nold workflow\n")
 		symlinkForTest(t, "../GUIDE", filepath.Join(repo, ".entire/graph-agent.md"))
-		if err := Install(repo, func() (string, error) { return CombinedGuide, nil }, io.Discard); err != nil {
-			t.Fatal(err)
-		}
-		if got := readFileForTest(t, filepath.Join(repo, "GUIDE")); got != legacyRedirect {
-			t.Fatal("legacy alias not migrated")
+		for _, guide := range []string{CombinedGuide, GraphGuide, CombinedGuide} {
+			if err := Install(repo, func() (string, error) { return guide, nil }, io.Discard); err != nil {
+				t.Fatal(err)
+			}
+			if got := readFileForTest(t, filepath.Join(repo, "GUIDE")); got != legacyRedirect {
+				t.Fatal("legacy alias not migrated")
+			}
+			if got := readFileForTest(t, filepath.Join(repo, Path)); got != guide {
+				t.Fatal("regeneration did not update the shared guide")
+			}
 		}
 	})
 	for _, kind := range []string{"outside", "git", "instruction-alias"} {
@@ -351,5 +365,78 @@ func TestCoordinationWithoutEntireHost(t *testing.T) {
 				t.Fatalf("repeat generation: %v, %v", changed, err)
 			}
 		})
+	}
+}
+
+func TestCoordinationExplicitStoreRootsOverrideEnvironment(t *testing.T) {
+	for _, key := range []string{"ENTIRE_BRAIN_STATE_DIR", "ENTIRE_BRAIN_CONFIG_DIR", "ENTIRE_BRAIN_DATA_DIR"} {
+		t.Run(key, func(t *testing.T) {
+			// An invalid ambient root must not affect explicit, isolated stores.
+			t.Setenv(key, "relative-ambient-store")
+			repo := t.TempDir()
+			opts := fixtureOptions(t, "brain")
+			fixtureSetup(t, repo, opts, `{"schema_version":1}`)
+			guide, err := Preview(repo, "graph", opts)
+			if err != nil || guide != CombinedGuide {
+				t.Fatalf("explicit store lost precedence: %v", err)
+			}
+		})
+	}
+}
+
+type migrationFailureWriter struct{ mutate func() }
+
+func (w *migrationFailureWriter) Write(p []byte) (int, error) {
+	if w.mutate != nil {
+		w.mutate()
+		w.mutate = nil
+	}
+	return len(p), nil
+}
+
+func TestCoordinationPartialMigrationKeepsRedirectTarget(t *testing.T) {
+	repo := t.TempDir()
+	mkdirAllForTest(t, filepath.Join(repo, ".entire"))
+	graph := filepath.Join(repo, ".entire/graph-agent.md")
+	brain := filepath.Join(repo, ".entire/brain-agent.md")
+	for _, path := range []string{graph, brain} {
+		writeFileForTest(t, path, "old guide\n")
+	}
+	const instructions = "user instructions\n"
+	writeFileForTest(t, filepath.Join(repo, "AGENTS.md"), instructions)
+	writeFileForTest(t, filepath.Join(repo, "CLAUDE.md"), instructions)
+	// Change the second legacy target after preflight, when Install reports
+	// the canonical guide write. The first redirect will already be written
+	// when the second write fails. Cleanup must not strand that redirect.
+	out := &migrationFailureWriter{mutate: func() {
+		if err := os.Remove(brain); err != nil {
+			t.Fatal(err)
+		}
+		mkdirAllForTest(t, brain)
+	}}
+	render := func() (string, error) { return CombinedGuide, nil }
+	if err := Install(repo, render, out); err == nil {
+		t.Fatal("concurrent target replacement was not reported")
+	}
+	if got := readFileForTest(t, graph); got != legacyRedirect {
+		t.Fatal("fixture did not reach a partially migrated state")
+	}
+	if got := readFileForTest(t, filepath.Join(repo, Path)); got != CombinedGuide {
+		t.Fatal("partial migration stranded the written redirect")
+	}
+	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
+		if got := readFileForTest(t, filepath.Join(repo, name)); got != instructions {
+			t.Fatal("failed migration changed instruction entry points")
+		}
+	}
+	if err := os.Remove(brain); err != nil {
+		t.Fatal(err)
+	}
+	writeFileForTest(t, brain, "old guide\n")
+	if err := Install(repo, render, io.Discard); err != nil {
+		t.Fatalf("regeneration after repair: %v", err)
+	}
+	if got := readFileForTest(t, brain); got != legacyRedirect {
+		t.Fatal("regeneration did not finish migration")
 	}
 }
