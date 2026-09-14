@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "4a9ceaddff39",
+  "strategy": "manual-commit",
+  "branch": "feat/deterministic-evidence-recall",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/recall_evidence_regression_test.go",
+    "internal/cli/recall_evidence_source.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/4a/9ceaddff39/0/metadata.json",
+      "transcript": "/4a/9ceaddff39/0/full.jsonl",
+      "compact_transcript": "/4a/9ceaddff39/0/transcript.jsonl",
+      "content_hash": "/4a/9ceaddff39/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 66359,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 879360,
+    "output_tokens": 4121,
+    "api_call_count": 20
+  }
+}
