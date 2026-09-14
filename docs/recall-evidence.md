@@ -27,10 +27,16 @@ must interpret the evidence and acknowledge missing or conflicting context.
   matched session contributes from a ranked pool of up to 128 blocks, scanning
   at most 4,096 blocks. Admission across sessions proceeds in rounds and gives
   both user and assistant messages an opportunity. The global pool is at most
-  128 blocks with a 24 KiB compact-text-and-metadata admission estimate.
+  128 blocks. Its compact-text-and-metadata admission limit is the larger of
+  24 KiB and three times `--evidence-bytes` (up to 3 MiB). This preserves the
+  default candidate pool while allowing larger requests to retrieve larger
+  blocks and more context before output packing.
 - The heuristic candidate budget is distinct from the exact public output
   budget. `input_truncated` and a warning report candidate limits, including
-  `--k`; they do not measure recall accuracy or guarantee corpus coverage.
+  `--k`; the warning includes the active candidate byte limit. These limits do
+  not measure recall accuracy or guarantee corpus coverage. Larger output
+  budgets do not increase session or block count limits, or guarantee a full
+  response budget will be used.
 - Supports plain text, Claude/Pi messages, Codex user/assistant events and
   response messages, simple role/content JSONL, and OpenCode message documents.
   Structured hidden reasoning, tool output, system instructions and metadata
@@ -38,7 +44,8 @@ must interpret the evidence and acknowledge missing or conflicting context.
 - Malformed JSON, invalid UTF-8, unavailable files, and sources with no supported
   conversation fields yield warnings and `partial` or `unavailable` retrieval.
   Known non-conversation records are ignored. Ambiguous session identities fail
-  closed rather than guessing which source supplied a fact anchor.
+  closed rather than guessing which source supplied a fact anchor, including
+  conflicts later in the manifest than the source-read limits.
 
 ## Citation contract
 
@@ -69,6 +76,8 @@ and brackets. Enclosing metadata and pretty-print whitespace are outside this
 budget, so it is not a full-response transport cap. Whole blocks that do not fit
 are skipped; later smaller blocks can still fit. `omitted_ids` and `truncated`
 report those omissions. A budget of 2 returns `[]`.
+Serialization errors abort the buffered response; they are never treated as
+zero-byte spans or reported as budget omissions.
 
 The response reports `schema_version: 1`, `selection_mode: deterministic`,
 `effective_engine: canonical_sessions_lexical_with_fact_anchors`, counts, byte

@@ -31,7 +31,7 @@ func evidenceFixture(t *testing.T) (Options, string) {
 
 func TestRecallEvidenceSourceAnchors(t *testing.T) {
 	_, brain := evidenceFixture(t)
-	c, err := collectEvidence(context.Background(), brain, "main", "target", 10)
+	c, err := collectEvidence(context.Background(), brain, "main", "target", 10, 8192)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestRecallEvidenceSourceAnchors(t *testing.T) {
 	if err := os.WriteFile(p, append(data, '\n'), 0600); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := collectEvidence(context.Background(), brain, "main", "target", 10)
+	changed, err := collectEvidence(context.Background(), brain, "main", "target", 10, 8192)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestRecallEvidenceBlocksKeepFences(t *testing.T) {
 
 func TestRecallEvidenceMissingBranchAndSource(t *testing.T) {
 	_, brain := evidenceFixture(t)
-	c, err := collectEvidence(context.Background(), brain, "other", "target", 10)
+	c, err := collectEvidence(context.Background(), brain, "other", "target", 10, 8192)
 	if err != nil || len(c.Spans) != 0 {
 		t.Fatalf("cross-branch evidence: %+v %v", c, err)
 	}
@@ -93,7 +93,7 @@ func TestRecallEvidenceMissingBranchAndSource(t *testing.T) {
 	if err := os.Remove(filepath.Join(brain, filepath.FromSlash(m.Sources.Sessions.Sessions[0].TranscriptPath))); err != nil {
 		t.Fatal(err)
 	}
-	c, err = collectEvidence(context.Background(), brain, "main", "target", 10)
+	c, err = collectEvidence(context.Background(), brain, "main", "target", 10, 8192)
 	if err != nil || c.State != "unavailable" || len(c.Warnings) == 0 || len(c.Spans) != 0 {
 		t.Fatalf("missing source: %+v %v", c, err)
 	}
@@ -111,7 +111,7 @@ func TestRecallEvidenceRejectsAmbiguousIdentity(t *testing.T) {
 	if err := writeBrainManifestAndReadme(brain, *m); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := collectEvidence(context.Background(), brain, "main", "target", 10); err == nil {
+	if _, err := collectEvidence(context.Background(), brain, "main", "target", 10, 8192); err == nil {
 		t.Fatal("ambiguous source accepted")
 	}
 }
@@ -127,7 +127,7 @@ func TestRecallEvidenceCandidateCapAndMalformedContent(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(brain, filepath.FromSlash(rel)), []byte(line), 0600); err != nil {
 		t.Fatal(err)
 	}
-	c, err := collectEvidence(context.Background(), brain, "main", "target", 10)
+	c, err := collectEvidence(context.Background(), brain, "main", "target", 10, 8192)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestRecallEvidenceDiverseNaturalLanguageCandidates(t *testing.T) {
 	if err := writeBrainManifestAndReadme(brain, m); err != nil {
 		t.Fatal(err)
 	}
-	c, err := collectEvidence(context.Background(), brain, "main", "How many model kits have I completed?", 128)
+	c, err := collectEvidence(context.Background(), brain, "main", "How many model kits have I completed?", 128, 8192)
 	if err != nil {
 		t.Fatal(err)
 	}

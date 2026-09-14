@@ -202,8 +202,11 @@ func evidenceFields(data []byte, path string) ([]evidenceField, bool) {
 	return fields, incomplete || len(fields) == 0
 }
 
-func collectEvidence(ctx context.Context, brainDir, branch, query string, limit int) (evidenceCandidates, error) {
+func collectEvidence(ctx context.Context, brainDir, branch, query string, limit, outputBudget int) (evidenceCandidates, error) {
 	c := evidenceCandidates{Spans: []evidenceSpan{}, State: "available"}
+	// Keep the research pool at the default output budget, but let larger
+	// requests retrieve larger blocks and more context before exact packing.
+	candidateBudget := max(evidenceCandidateBytes, 3*outputBudget)
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
 		c.State = "unavailable"
@@ -268,12 +271,14 @@ func collectEvidence(ctx context.Context, brainDir, branch, query string, limit 
 			continue
 		}
 		seen[s.SessionID] = s
-		if c.SessionsScanned >= 128 || total >= 32*1024*1024 {
-			c.InputTruncated = true
-			break
-		}
 		if err := ctx.Err(); err != nil {
 			return c, err
+		}
+		if c.SessionsScanned >= 128 || total >= 32*1024*1024 {
+			c.InputTruncated = true
+			// Continue checking manifest identities after bounded source reads
+			// stop. A later conflicting identity invalidates earlier anchors.
+			continue
 		}
 		c.SessionsScanned++
 		data, err := readCanonicalHistoryTranscript(ctx, brainDir, s.TranscriptPath)
@@ -287,7 +292,8 @@ func collectEvidence(ctx context.Context, brainDir, branch, query string, limit 
 		}
 		if total+len(data) > 32*1024*1024 {
 			c.InputTruncated = true
-			break
+			total = 32 * 1024 * 1024
+			continue
 		}
 		total += len(data)
 		fields, incomplete := evidenceFields(data, s.TranscriptPath)
@@ -337,7 +343,7 @@ func collectEvidence(ctx context.Context, brainDir, branch, query string, limit 
 				scanned++
 				span := evidenceSpan{SessionID: d.session.SessionID, Branch: branch, Path: filepath.ToSlash(d.session.TranscriptPath), Line: f.line, JSONPointer: f.pointer, Role: f.role, Timestamp: timestamp, SourceSHA256: d.hash, ContentSHA256: contentHash, StartByte: r[0], EndByte: r[1], Text: f.text[r[0]:r[1]]}
 				cost := evidenceCandidateCost(span)
-				if cost > evidenceCandidateBytes {
+				if cost > candidateBudget {
 					c.InputTruncated = true
 					continue
 				}
@@ -387,7 +393,7 @@ func collectEvidence(ctx context.Context, brainDir, branch, query string, limit 
 				continue
 			}
 			item := pool[round]
-			if len(c.Spans) >= 128 || inputSize+item.cost > evidenceCandidateBytes {
+			if len(c.Spans) >= 128 || inputSize+item.cost > candidateBudget {
 				c.InputTruncated = true
 				continue
 			}
@@ -396,7 +402,7 @@ func collectEvidence(ctx context.Context, brainDir, branch, query string, limit 
 		}
 	}
 	if c.InputTruncated {
-		c.Warnings = append(c.Warnings, "candidate limits omitted context before selection")
+		c.Warnings = append(c.Warnings, fmt.Sprintf("candidate limits omitted context before selection (candidate byte limit %d; at most 128 blocks from %d matched sessions)", candidateBudget, limit))
 	}
 	if c.State == "partial" && len(c.Spans) == 0 {
 		c.State = "unavailable"
@@ -404,6 +410,7 @@ func collectEvidence(ctx context.Context, brainDir, branch, query string, limit 
 	return c, nil
 }
 
+// Minimum admission budget, retained for the default 8 KiB output request.
 const evidenceCandidateBytes = 24 * 1024
 
 // Charge compact candidate text and metadata consistently with the research

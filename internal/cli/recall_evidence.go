@@ -52,11 +52,14 @@ func runRecallEvidence(cmd *cobra.Command, brainDir, branch, query string, limit
 	// cannot commit between checking the source and emitting its bytes.
 	// This path never invokes a provider or writes derived facts.
 	return runPrivacyLinearizedPatternMutation(cmd, []retrievalPrivacyPolicy{policy}, func() error {
-		c, err := collectEvidence(cmd.Context(), brainDir, branch, query, limit)
+		c, err := collectEvidence(cmd.Context(), brainDir, branch, query, limit, budget)
 		if err != nil {
 			return err
 		}
-		spans, omitted, size := packDeterministicEvidence(c.Spans, budget)
+		spans, omitted, size, err := packDeterministicEvidence(c.Spans, budget)
+		if err != nil {
+			return err
+		}
 		out := evidenceRecallResult{
 			SchemaVersion: 1, Branch: branch, Query: query,
 			EffectiveEngine: "canonical_sessions_lexical_with_fact_anchors", SelectionMode: "deterministic",
@@ -90,11 +93,16 @@ func runRecallEvidence(cmd *cobra.Command, brainDir, branch, query string, limit
 // Keep whole blocks in candidate order, skipping blocks that do not fit.
 // Charge the actual compact JSON representation, including escaping, anchors,
 // brackets and commas. Pretty printing and envelope fields are outside the cap.
-func packDeterministicEvidence(candidates []evidenceSpan, budget int) ([]evidenceSpan, []string, int) {
+func packDeterministicEvidence(candidates []evidenceSpan, budget int) ([]evidenceSpan, []string, int, error) {
 	spans, omitted := []evidenceSpan{}, []string{}
 	size := 2
 	for _, span := range candidates {
-		encoded, _ := json.Marshal(span)
+		encoded, err := json.Marshal(span)
+		if err != nil {
+			// Fail before emitting the buffered response; an encoding failure is
+			// not a budget omission and must never be charged as zero bytes.
+			return nil, nil, 0, fmt.Errorf("encode evidence span: %w", err)
+		}
 		cost := len(encoded)
 		if len(spans) > 0 {
 			cost++
@@ -106,5 +114,5 @@ func packDeterministicEvidence(candidates []evidenceSpan, budget int) ([]evidenc
 		spans = append(spans, span)
 		size += cost
 	}
-	return spans, omitted, size
+	return spans, omitted, size, nil
 }

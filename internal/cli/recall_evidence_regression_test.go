@@ -47,7 +47,7 @@ func TestRecallEvidenceSessionDefaultBranch(t *testing.T) {
 			if err := writeBrainManifestAndReadme(brain, *m); err != nil {
 				t.Fatal(err)
 			}
-			c, err := collectEvidence(context.Background(), brain, tc.want, "target", 10)
+			c, err := collectEvidence(context.Background(), brain, tc.want, "target", 10, 8192)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -59,7 +59,7 @@ func TestRecallEvidenceSessionDefaultBranch(t *testing.T) {
 					t.Fatalf("wrong citation branch: %s", span.Branch)
 				}
 			}
-			c, err = collectEvidence(context.Background(), brain, "other", "target", 10)
+			c, err = collectEvidence(context.Background(), brain, "other", "target", 10, 8192)
 			if err != nil {
 				t.Fatal(err)
 			}

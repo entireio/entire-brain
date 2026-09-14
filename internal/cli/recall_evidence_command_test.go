@@ -78,7 +78,10 @@ func TestRecallEvidenceBudgetAndStableOrdering(t *testing.T) {
 	}
 	spans := []evidenceSpan{{ID: "large", Text: strings.Repeat("x", 2000)}, {ID: "small", Text: "<tag> café ಕನ್ನಡ\r\n\"quoted\""}}
 	one, _ := json.Marshal(spans[1:])
-	packed, omitted, size := packDeterministicEvidence(spans, len(one))
+	packed, omitted, size, err := packDeterministicEvidence(spans, len(one))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(packed, spans[1:]) || !reflect.DeepEqual(omitted, []string{"large"}) || size != len(one) {
 		t.Fatalf("must skip oversized blocks and preserve exact small text: %+v %v %d", packed, omitted, size)
 	}
