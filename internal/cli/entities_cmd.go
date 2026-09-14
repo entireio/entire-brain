@@ -655,7 +655,10 @@ func rebuildEntityIndexCache(ctx context.Context, opts Options, repoDir, brainDi
 	if err != nil {
 		return entityIndexCache{}, err
 	}
-	sessionsByCheckpoint := sessionIDsByCheckpoint(ctx, opts, repoDir, brainDir)
+	sessionsByCheckpoint, err := sessionIDsByCheckpoint(ctx, opts, repoDir, brainDir)
+	if err != nil {
+		return entityIndexCache{}, err
+	}
 
 	keys := snapshot.Keys()
 	if len(keys) > entityIndexCacheMaxKeys {
@@ -814,11 +817,23 @@ func partitionPresentCommits(ctx context.Context, runner CommandRunner, repoDir 
 //
 // The checkpoint store is best-effort: an unreadable or absent one leaves the
 // manifest join exactly as it was.
-func sessionIDsByCheckpoint(ctx context.Context, opts Options, repoDir, brainDir string) map[string][]string {
+// Session tombstones are honored here rather than only at the manifest, because
+// the checkpoint-store half of this join reads the repository's checkpoint refs
+// directly and never consults the brain manifest at all. Without the guard an
+// excluded or purged session reappeared in the index on the next
+// `entities backfill`, and `entities history` answered with it — a derived
+// projection quietly restoring the session linkage the user asked to erase.
+// Unreadable tombstone state fails the join closed for the same reason every
+// other privacy gate does.
+func sessionIDsByCheckpoint(ctx context.Context, opts Options, repoDir, brainDir string) (map[string][]string, error) {
+	guard, err := loadSessionReadGuard(brainDir, nil)
+	if err != nil {
+		return nil, err
+	}
 	out := map[string][]string{}
 	add := func(checkpoint, id string) {
 		checkpoint, id = strings.TrimSpace(checkpoint), strings.TrimSpace(id)
-		if checkpoint == "" || id == "" {
+		if checkpoint == "" || id == "" || guard.blocksSession(id) {
 			return
 		}
 		if !containsString(out[checkpoint], id) {
@@ -842,7 +857,7 @@ func sessionIDsByCheckpoint(ctx context.Context, opts Options, repoDir, brainDir
 	for key := range out {
 		sort.Strings(out[key])
 	}
-	return out
+	return out, nil
 }
 
 func sessionIDsFor(byCheckpoint map[string][]string, checkpointIDs []string) []string {

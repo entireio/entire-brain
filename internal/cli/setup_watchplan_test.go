@@ -446,7 +446,7 @@ func TestSupervisedWatchVisitsEveryWorkspaceWithItsOwnTuning(t *testing.T) {
 		func(workspace string, pass watchCommandOptions, _ *int) error {
 			visits = append(visits, visit{workspace, pass.interval, pass.model, pass.distillMaxSessions, pass.once})
 			return nil
-		})
+		}, nil)
 	if err != nil {
 		t.Fatalf("supervised loop: %v", err)
 	}
@@ -474,7 +474,7 @@ func TestSupervisedWatchSurvivesAnEmptyPlan(t *testing.T) {
 	base.once = true
 	called := 0
 	if err := supervisedWatchLoop(context.Background(), out, f.env, base,
-		func(string, watchCommandOptions, *int) error { called++; return nil }); err != nil {
+		func(string, watchCommandOptions, *int) error { called++; return nil }, nil); err != nil {
 		t.Fatalf("an empty plan must not take the service down: %v", err)
 	}
 	if called != 0 {
@@ -505,7 +505,7 @@ func TestSupervisedWatchKeepsGoingAfterOneWorkspaceFails(t *testing.T) {
 				return errors.New("manifest gone")
 			}
 			return nil
-		}); err != nil {
+		}, nil); err != nil {
 		t.Fatalf("one failing workspace must not fail the loop: %v", err)
 	}
 	if len(seen) != 2 || seen[1] != "fine" {
@@ -532,7 +532,7 @@ func TestSupervisedWatchBudgetSurvivesOuterPasses(t *testing.T) {
 				cancel()
 			}
 			return nil
-		})
+		}, nil)
 	if err != nil {
 		t.Fatalf("supervised loop: %v", err)
 	}

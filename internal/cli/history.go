@@ -1095,7 +1095,7 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 	return historyProjectionIdentity{
 		SessionsFingerprint: func() string {
 			if manifest.Sources == nil {
-				return ""
+				return sessionSourceFingerprintAbsent
 			}
 			return sessionSourceFingerprint(manifest.Sources.Sessions)
 		}(),
@@ -1342,8 +1342,11 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 		IndexPath:              historyIndexPath,
 		TranscriptsFingerprint: transcriptsFingerprint,
 		SessionsFingerprint: func() string {
-			if manifest == nil || manifest.Sources == nil {
+			if manifest == nil {
 				return ""
+			}
+			if manifest.Sources == nil {
+				return sessionSourceFingerprintAbsent
 			}
 			return sessionSourceFingerprint(manifest.Sources.Sessions)
 		}(),
@@ -1501,15 +1504,21 @@ func scanSessionFileDescriptorRecords(ctx context.Context, f *os.File, path, rel
 
 func scanSessionFileReaderRecords(ctx context.Context, f io.ReadSeeker, path, rel string) (records []historyRecord, incomplete int, warnings []string, ok bool) {
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return nil, 0, []string{err.Error()}, false
+		return nil, 0, []string{fmt.Sprintf("history records skipped for %s: %v", rel, err)}, false
 	}
 	scanned, scanErr := scanHistoryFileReader(ctx, f, rel, filepath.Ext(path))
 	if scanErr != nil {
-		return nil, 0, []string{scanErr.Error()}, false
+		// Name the transcript. A whole session drops out of the projection
+		// here — one line over historyMaxLineBytes is enough — and the bare
+		// error ("bufio.Scanner: token too long") named no file, so the only
+		// evidence a reader had was a session count that silently disagreed
+		// with the manifest. The conversation branch below already attributes
+		// its failures; this one is the same class of loss, and larger.
+		return nil, 0, []string{fmt.Sprintf("history records skipped for %s: %v", rel, scanErr)}, false
 	}
 	records = scanned
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return nil, 0, []string{err.Error()}, false
+		return nil, 0, []string{fmt.Sprintf("history records skipped for %s: %v", rel, err)}, false
 	}
 	conversationScan, convErr := scanConversationTranscriptFileContext(ctx, f, path)
 	if convErr != nil {
@@ -1693,17 +1702,57 @@ func encodeHistoryScanCache(cache historyScanCache) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// sessionSourceFingerprintAbsent is the fingerprint of a brain that provably
+// has NO canonical sessions source: the session export never ran, or ran and
+// failed (no host CLI, no readable checkpoint catalog). It is a real, stable,
+// comparable value and deliberately not "" — "" is reserved for "the recorder
+// could not name the source at all", which is never evidence of freshness.
+//
+// Conflating the two is what made a sessionless brain refuse its own receipt:
+// the publisher wrote "" into sources.history.sessions_fingerprint, the checked
+// receipt reader treats "" as unproven, and `memory repair` then republished
+// the same "" it had just rejected — a prescribed remedy that could never
+// succeed. "absent" matches what the same manifest already writes for
+// privacy_identity when there are no tombstones.
+const sessionSourceFingerprintAbsent = "absent"
+
 func brainSessionsFingerprint(outputDir string) string {
 	manifest, err := loadBrainManifest(outputDir)
-	if err != nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
+	if err != nil {
+		// The manifest itself is unreadable, so the current source cannot be
+		// named at all. Unknown, which is not the same as absent.
 		return ""
+	}
+	if manifest.Sources == nil {
+		return sessionSourceFingerprintAbsent
 	}
 	return sessionSourceFingerprint(manifest.Sources.Sessions)
 }
 
+// sessionSourceFingerprintCurrent reports whether a recorded fingerprint still
+// describes the brain's canonical sessions source.
+//
+// An empty CURRENT value means the manifest could not be read, so nothing can
+// be proven current against it. An empty RECORDED value means the producer did
+// not name its source — an index built before fingerprinting — which stays
+// stale, EXCEPT against a brain that has no sessions source at all, where there
+// is no session set that could have drifted and the two emptinesses describe
+// the same state. That exception is what lets a brain whose session export
+// failed read back its own receipt instead of reporting memory_source_stale
+// forever.
+func sessionSourceFingerprintCurrent(recorded, current string) bool {
+	if current == "" {
+		return false
+	}
+	if recorded == "" {
+		return current == sessionSourceFingerprintAbsent
+	}
+	return recorded == current
+}
+
 func sessionSourceFingerprint(source *sessionSourceManifest) string {
 	if source == nil {
-		return ""
+		return sessionSourceFingerprintAbsent
 	}
 	type fingerprintSession struct {
 		SessionID        string `json:"session_id"`

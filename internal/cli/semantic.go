@@ -1053,7 +1053,7 @@ func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, res
 	if f, err := os.OpenFile(filepath.Join(lockDir, brainWriteLockName), os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0o600); err != nil {
 		return fmt.Errorf("recreate brain write lock metadata: %w", err)
 	} else {
-		writeLockMetadata(f)
+		writeLockOwnerMetadata(filepath.Join(lockDir, brainWriteLockName))
 		if err := f.Close(); err != nil {
 			return fmt.Errorf("close brain write lock metadata: %w", err)
 		}

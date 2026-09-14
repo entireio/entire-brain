@@ -175,9 +175,16 @@ func treeContentHash(t *testing.T, root string) string {
 		if !entry.IsDir() {
 			rel, _ := filepath.Rel(root, path)
 			rel = filepath.ToSlash(rel)
+			vitalityLock := filepath.ToSlash(filepath.Join(brainLockDirName, factsVitalityLockName))
 			if filepath.Base(path) == factsVitalityLogFileName ||
 				filepath.Base(path) == factsVitalityRollupFileName ||
-				rel == filepath.ToSlash(filepath.Join(brainLockDirName, factsVitalityLockName)) {
+				rel == vitalityLock ||
+				// The owner sidecar is part of the same artifact as the lock
+				// above and is rewritten on the same acquisitions. It carries
+				// the timestamp that used to live INSIDE the lock file, so
+				// excluding the lock without its sidecar would make this hash
+				// sensitive to the clock rather than to the brain.
+				rel == vitalityLock+fileLockOwnerSuffix {
 				return nil
 			}
 			paths = append(paths, path)

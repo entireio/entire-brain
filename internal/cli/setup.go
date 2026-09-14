@@ -602,7 +602,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// --uninstall-daemon is a standalone maintenance verb: it must not build,
 	// backfill, or register anything.
 	if setupOpts.uninstallDaemon {
-		return runSetupUninstall(ctx, cmd, setupOpts, steps, plan, planErr, report)
+		return runSetupUninstall(ctx, cmd, opts, setupOpts, steps, plan, planErr, report)
 	}
 
 	// Renaming the daemon must MOVE it, not fork it: without this the old
@@ -749,7 +749,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		daemonProgress.Skip("background watcher: " + planErr.Error())
 		report.Daemon = daemonState{Manager: daemonManagerUnsupported, Detail: planErr.Error()}
 	default:
-		report.Daemon = runSetupDaemon(ctx, daemonProgress, steps, plan, &report, brainCmd)
+		report.Daemon = runSetupDaemon(ctx, daemonProgress, opts.Env, steps, plan, &report, brainCmd)
 		// Switch watcher names only after the replacement is confirmed on disk.
 		// This preserves the old service if the instant phase or new install
 		// fails, while still preventing two names from running indefinitely.
@@ -802,13 +802,16 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	return nil
 }
 
-func runSetupUninstall(ctx context.Context, cmd *cobra.Command, setupOpts setupCommandOptions, steps setupSteps, plan daemonPlan, planErr error, report setupReport) error {
+func runSetupUninstall(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts setupCommandOptions, steps setupSteps, plan daemonPlan, planErr error, report setupReport) error {
 	out := cmd.OutOrStdout()
 	if planErr != nil {
 		return planErr
 	}
-	before := steps.inspect(ctx, plan)
-	if err := steps.uninstall(ctx, plan); err != nil {
+	var before daemonState
+	if err := withDaemonRegistrationLock(opts.Env, func() error {
+		before = steps.inspect(ctx, plan)
+		return steps.uninstall(ctx, plan)
+	}); err != nil {
 		return err
 	}
 	report.Daemon = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Detail: "uninstalled"}
@@ -859,16 +862,31 @@ func setupDaemonPreflightLine(plan daemonPlan, before daemonState, brainCmd stri
 // deterministic phases built stays usable. Pretending to install a launchd
 // agent on windows, or failing setup because the platform has no launchd, would
 // both be worse than saying plainly that freshness there is manual for now.
-func runSetupDaemon(ctx context.Context, progress *refreshProgress, steps setupSteps, plan daemonPlan, report *setupReport, brainCmd string) daemonState {
+func runSetupDaemon(ctx context.Context, progress *refreshProgress, env EntireEnv, steps setupSteps, plan daemonPlan, report *setupReport, brainCmd string) daemonState {
 	if !plan.supported() {
 		// progress.Skip appends "skipped", so the label must not say it twice.
 		progress.Skip(fmt.Sprintf("background watcher: not supported on %s yet (run `%s workspace watch %s` yourself to keep the brain fresh)", plan.OS, setupBrainCommand(brainCmd), report.Workspace.Name))
 		return daemonState{Manager: daemonManagerUnsupported, Detail: "not supported on " + plan.OS + " yet"}
 	}
+	// Observe, decide and act as one step across processes: see
+	// withDaemonRegistrationLock.
+	var state daemonState
+	_ = withDaemonRegistrationLock(env, func() error {
+		state = runSetupDaemonLocked(ctx, progress, steps, plan, report)
+		return nil
+	})
+	return state
+}
+
+func runSetupDaemonLocked(ctx context.Context, progress *refreshProgress, steps setupSteps, plan daemonPlan, report *setupReport) daemonState {
 	before := steps.inspect(ctx, plan)
 	// Idempotence: an installed, byte-identical, running unit is left strictly
 	// alone. Reloading it would kill an in-flight refresh for no reason.
 	if before.Installed && before.Current && before.Running {
+		// Left strictly alone at the service manager, but the file is brought up
+		// to date so the inherited PATH is refreshed at the next natural restart
+		// instead of being frozen at whatever the first install saw.
+		_ = refreshDaemonUnitBytes(plan)
 		progress.Skip(fmt.Sprintf("background watcher already running (%s)", plan.Label))
 		return before
 	}

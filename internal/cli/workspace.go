@@ -384,14 +384,19 @@ func runSupervisedWatch(ctx context.Context, cmd *cobra.Command, opts Options, w
 	onePass := func(workspaceName string, pass watchCommandOptions, agentCalls *int) error {
 		return runWorkspaceWatchPass(ctx, cmd, opts, pass, workspaceName, now, agentCalls)
 	}
-	return supervisedWatchLoop(ctx, cmd.OutOrStdout(), opts.Env, w, onePass)
+	return supervisedWatchLoop(ctx, cmd.OutOrStdout(), opts.Env, w, onePass, daemonLogMaintainer(opts.Env))
 }
 
 // supervisedWatchLoop is the supervised loop with the per-workspace pass
 // injected, so the part that matters — which workspaces get visited, with whose
 // tuning, and what an empty or unreadable plan does — is testable without a real
 // refresh, a real manifest, or a real agent.
-func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w watchCommandOptions, onePass func(workspace string, pass watchCommandOptions, agentCalls *int) error) error {
+// maintain is the daemon's per-pass self-upkeep (log rotation). It runs at the
+// TOP of every outer pass, before the plan is even read, because the pass that
+// most needs bounding is the one that finds nothing to do and prints a line
+// anyway — an empty or unreadable plan logs once per interval forever. It is
+// nil for any watcher that is not the installed service.
+func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w watchCommandOptions, onePass func(workspace string, pass watchCommandOptions, agentCalls *int) error, maintain func()) error {
 	// This counter belongs to the supervised process, not to an individual
 	// workspace pass. --budget is documented as a lifetime cap, so it must
 	// survive both workspace fan-out and every outer-plan tick.
@@ -400,6 +405,9 @@ func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w wa
 		if ctx.Err() != nil {
 			fmt.Fprintln(out, "[watch] stopping")
 			return nil
+		}
+		if maintain != nil {
+			maintain()
 		}
 		plan, err := loadSetupWatchPlan(env)
 		if err != nil {

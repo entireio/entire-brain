@@ -121,7 +121,7 @@ func newMCPCommand(opts Options) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if printConfig {
-				return printMCPServerConfig(cmd.Context(), cmd.OutOrStdout(), opts)
+				return printMCPServerConfig(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), opts)
 			}
 			nudgeMemoryAtStartup(cmd.Context(), opts)
 			return runMCP(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), opts)
@@ -157,7 +157,25 @@ const mcpServerName = "entire-brain"
 // this command recommends advertised 36 tools of which 5 could never succeed.
 // A host registering the printed entry verbatim is entitled to the whole
 // surface.
-func printMCPServerConfig(ctx context.Context, out io.Writer, opts Options) error {
+//
+// The entry also CARRIES THE STORE, for the same reason it carries the binding:
+// two of the three harnesses that consume it do not give the server the
+// environment the command was printed in. Codex starts an MCP server with a
+// 14-variable allowlist and Cursor with a 15-variable one -- HOME, PATH, PWD,
+// SHELL, USER and friends -- plus whatever the entry's own `env` block declares;
+// only Claude Code passes the parent environment through. Every ENTIRE_* and
+// XDG_* variable is therefore dropped unless it is written into the entry. The
+// four plugin dirs are what resolvePluginDirs reads to find the brain, so an
+// entry that omits them leaves the server to re-derive a store from an
+// environment that no longer has the inputs -- and it lands on the default
+// $HOME/.local/share/entire path. The CLI and the agent then read DIFFERENT
+// BRAINS for the same repository, and the agent is told "no brain has been built
+// for this repository": a confident wrong answer, not an error. Emitting the
+// resolved dirs is exact, not merely close -- resolveXDGDir returns an explicit
+// plugin dir verbatim, and resolvePluginDirs only appends the plugins/data/brain
+// suffix when the data dir was unset -- so the printed entry round-trips to the
+// same paths this process is using.
+func printMCPServerConfig(ctx context.Context, out, errOut io.Writer, opts Options) error {
 	executable, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve this executable: %w", err)
@@ -165,6 +183,19 @@ func printMCPServerConfig(ctx context.Context, out io.Writer, opts Options) erro
 	env := map[string]string{}
 	if root := mcpConfigRepoRoot(ctx, opts); root != "" {
 		env[envRepoRoot] = root
+	} else if errOut != nil {
+		// SAY SO. Without a binding the entry is still usable -- 31 of the 36
+		// tools resolve their target from the server's working directory -- but
+		// the five repo-scoped ones refuse, and the printed JSON says nothing
+		// about it. The note goes to stderr so `--print-config > .mcp.json`
+		// keeps working.
+		fmt.Fprintf(errOut, "note: printed an entry with no %s binding: %s\n"+
+			"      brain_list_projects, brain_delete_project and the three brain_workspace_* tools "+
+			"refuse on a server that is neither bound nor started inside a repository.\n",
+			envRepoRoot, mcpConfigNoBindingReason(ctx, opts))
+	}
+	for name, dir := range mcpConfigStoreEnv(opts) {
+		env[name] = dir
 	}
 	// Deliberately not resolved through symlinks: the managed install path is
 	// the stable one, while its target moves whenever the plugin is rebuilt.
@@ -184,6 +215,48 @@ func printMCPServerConfig(ctx context.Context, out io.Writer, opts Options) erro
 	}
 	_, err = fmt.Fprintln(out, string(encoded))
 	return err
+}
+
+// mcpConfigStoreEnv is the store binding the printed entry carries so a host
+// that prunes the environment still reaches the brain this process reads.
+//
+// The values are the RESOLVED dirs, not the raw variables, because the raw
+// variables are not the whole input: XDG_CONFIG_HOME and friends feed
+// resolveXDGDir, and Codex and Cursor drop those too. Resolving here collapses
+// every input into four absolute paths that need no environment to reproduce.
+//
+// A resolution failure emits nothing. That is the pre-existing behaviour -- an
+// entry with no store dirs -- and it is strictly better than writing a path this
+// process could not itself resolve.
+func mcpConfigStoreEnv(opts Options) map[string]string {
+	dirs, err := resolvePluginDirs(opts.Env)
+	if err != nil {
+		return nil
+	}
+	return map[string]string{
+		envPluginConfigDir: dirs.Config,
+		envPluginDataDir:   dirs.Data,
+		envPluginStateDir:  dirs.State,
+		envPluginCacheDir:  dirs.Cache,
+	}
+}
+
+// mcpConfigNoBindingReason names why --print-config had no repository to bind,
+// and the two reasons have different remedies.
+//
+// `git rev-parse --show-toplevel` fails both when the directory is not a
+// repository and when git cannot be run at all, and mcpConfigRepoRoot cannot
+// tell them apart -- it just returns "". Reporting the first for the second
+// would tell someone standing in a perfectly good repository to go find a
+// different one, which is the same confident wrong diagnosis notARepositoryError
+// exists to prevent. The `git --version` probe is positive evidence about git
+// alone and runs only on a path that has already failed.
+func mcpConfigNoBindingReason(ctx context.Context, opts Options) string {
+	if !commandLooksAvailable(ctx, opts.Runner, "", "git") {
+		return "git could not be run, so no working directory can be resolved to a repository; " +
+			"install git and put it on PATH, then re-run"
+	}
+	return "this directory is not inside a git repository; re-run from the repository the server should serve"
 }
 
 // mcpFrameErrorResponse builds the -32700 a framing failure is reported with.
@@ -767,7 +840,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_index_repository",
-			"description": "Build the local semantic index for a repository path. Local-only; does not publish artifacts. Replacing an index that already exists requires force=true. The path stays inside the bound repository root unless ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH is set.",
+			"description": "Build the local semantic index for a repository path. Local-only; does not publish artifacts. Replacing an index that already exists requires force=true. The path stays inside the bound repository root unless ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH is set. Calls are capped at 60 seconds, exactly as brain_refresh is: brain_refresh names this tool as the separate long-running step for a large repository, but the cap applies here too, so a repository that needs longer must be indexed from a shell with `entire brain refresh index`.",
 			"inputSchema": objectSchema(nil, map[string]any{"path": stringArg("path", "Local repository path (default: the bound repo). A relative path resolves inside the bound repository root, not the working directory; a path outside that root is refused unless ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH is set."), "profile": stringArg("profile", "Semantic provider snapshot profile (e.g. full, syntax-only), forwarded to the provider unchanged; empty uses the provider default."), "worktree": boolArg("worktree", "Index dirty worktree content"), "force": boolArg("force", "Replace the current semantic snapshot")}),
 		},
 		{
@@ -1523,7 +1596,7 @@ func runMCPListProjects(ctx context.Context, cmd *cobra.Command, opts Options) e
 			return storageErr
 		}
 		if !bound {
-			return mcpCrossRepoRefusal("brain_list_projects", mcpUnresolvedRepoDetail, "")
+			return mcpCrossRepoRefusal("brain_list_projects", mcpUnresolvedRepoDetail(ctx, opts), "")
 		}
 		boundKey = storage.Key
 		root = storage.BrainDir
@@ -1831,7 +1904,29 @@ func mcpRepoLocalStorage(ctx context.Context, opts Options) (repoStorage, bool, 
 
 // mcpUnresolvedRepoDetail is what a repo-local tool reports when neither the
 // bound root nor the working directory names a repository.
-const mcpUnresolvedRepoDetail = "the server has no bound repository and its working directory is not inside one"
+//
+// It used to be a constant asserting "its working directory is not inside one",
+// and that sentence is a claim this code cannot keep. mcpRepoLocalStorage
+// decides by way of gitWorkTreeRoot, which fails identically when the directory
+// is not a repository and when `git` cannot be executed at all -- and a host
+// that starts the server with a pruned PATH produces the second while the
+// message reports the first. That is reproducible: launched with the four plugin
+// dirs and no PATH, cwd inside a real repository, brain_status resolved that
+// repository and answered from it while brain_list_projects refused in the same
+// process, telling the agent its working directory was not inside a repository.
+// An agent reading that edits its config to work around a problem it does not
+// have.
+//
+// The probe is the one notARepositoryError already uses: `git --version` is
+// positive evidence about git alone, cannot be confounded by this directory, and
+// runs only after the resolution has already failed.
+func mcpUnresolvedRepoDetail(ctx context.Context, opts Options) string {
+	if !commandLooksAvailable(ctx, opts.Runner, "", "git") {
+		return "the server has no bound repository, and git could not be run to resolve one " +
+			"from its working directory (the host may have started it with a pruned PATH)"
+	}
+	return "the server has no bound repository and its working directory is not inside one"
+}
 
 // mcpUnboundRepoDetail is the detail every scoped tool reports when the server
 // itself was started without a bound repository, as opposed to being asked
