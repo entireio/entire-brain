@@ -160,7 +160,8 @@ func evidenceFields(data []byte, path string) ([]evidenceField, bool) {
 	}
 	text := string(data)
 	trimmed := strings.TrimSpace(text)
-	structured := strings.HasSuffix(strings.ToLower(path), ".json") || strings.HasSuffix(strings.ToLower(path), ".jsonl") || strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")
+	declaredJSON := strings.HasSuffix(strings.ToLower(path), ".json") || strings.HasSuffix(strings.ToLower(path), ".jsonl")
+	structured := declaredJSON || strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")
 	if !structured {
 		return []evidenceField{{text: text, line: 1}}, false
 	}
@@ -178,16 +179,25 @@ func evidenceFields(data []byte, path string) ([]evidenceField, bool) {
 	}
 	var fields []evidenceField
 	incomplete := false
+	// A bracket prefix alone does not make a plain-text transcript JSON.
+	// Recognized JSON must still fail closed, including unsupported schemas.
+	detectedJSON := json.Valid(data)
 	for i, line := range bytes.Split(data, []byte("\n")) {
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
 		var obj map[string]any
+		if json.Valid(line) {
+			detectedJSON = true
+		}
 		if json.Unmarshal(line, &obj) != nil {
 			incomplete = true
 			continue
 		}
 		fields = append(fields, evidenceJSONFields(obj, "", i+1)...)
+	}
+	if !declaredJSON && !detectedJSON {
+		return []evidenceField{{text: text, line: 1}}, false
 	}
 	return fields, incomplete || len(fields) == 0
 }
@@ -238,9 +248,12 @@ func collectEvidence(ctx context.Context, brainDir, branch, query string, limit 
 	seen := map[string]exportSession{}
 	total := 0
 	for _, s := range manifest.Sources.Sessions.Sessions {
-		b := s.Branch
+		b := strings.TrimSpace(s.Branch)
 		if b == "" {
-			b = manifest.DefaultBranch
+			b = strings.TrimSpace(manifest.Sources.Sessions.DefaultBranch)
+		}
+		if b == "" {
+			b = strings.TrimSpace(manifest.DefaultBranch)
 		}
 		if b == "" {
 			b = distillDefaultBranch
