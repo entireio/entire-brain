@@ -13,9 +13,13 @@ Both products provide `init-agents` and `agent-guide`, invoked through
 | Brain initializer or preview | Otherwise | Brain only |
 
 `entire plugin list` enumerates managed installations without dispatching plugins.
-Its current CLI offers text output, not JSON; an unexpected listing or command
-failure is reported explicitly. Unmanaged executables that do not appear in that
-list do not activate the peer. No plugin executable is invoked for detection.
+The host executable is optional: when `entire` is absent from `PATH`, either
+standalone binary can preview and install its own instructions inside a repository.
+No peer activation is inferred without the host inventory. Regeneration with the
+host available resolves coordination normally. Its current CLI offers text output,
+not JSON; an unexpected listing or failure from a present host is reported
+explicitly. Unmanaged executables that do not appear in that list do not activate
+the peer. No plugin executable is invoked for detection.
 
 Graph determines repository Brain state using safe, bounded local reads. A valid
 `setup.json` written by Brain setup under `<state>/repos/<key>/` establishes setup.
@@ -127,6 +131,9 @@ the full installation and alias updates are not a filesystem transaction.
 Concurrent initializers are not supported. Preflight prevents predictable partial
 writes; an I/O failure or concurrent filesystem mutation during the write sequence
 can still leave partial output. Resolve the reported error and regenerate.
+Once migration starts, the canonical guide is retained on failure so any legacy
+redirects already written still have a valid target; cleanup does not roll back
+overwritten files.
 
 ## Tests
 
