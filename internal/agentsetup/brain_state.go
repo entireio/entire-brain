@@ -52,6 +52,16 @@ func brainDirectory(explicit, override, xdg, fallback string) (string, error) {
 	return filepath.Join(home, fallback, "entire"), nil
 }
 func readRecord(dir, name string) ([]byte, bool, error) {
+	// Validate the raw spelling before any join can erase dot components.
+	if !filepath.IsLocal(name) {
+		return nil, false, fmt.Errorf("invalid setup record path %q", name)
+	}
+	for _, part := range strings.Split(filepath.ToSlash(name), "/") {
+		if part == "" || part == "." || part == ".." {
+			return nil, false, fmt.Errorf("invalid setup record path %q", name)
+		}
+	}
+
 	root, err := os.OpenRoot(dir)
 	if os.IsNotExist(err) {
 		return nil, false, nil

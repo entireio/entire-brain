@@ -5,6 +5,7 @@ package agentsetup
 
 import (
 	"bytes"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -1605,44 +1606,103 @@ func readContainedFile(root *os.Root, name string, limit int64) ([]byte, error) 
 	return content, nil
 }
 
-// writeContainedFile is os.WriteFile confined to root. The perm argument applies only when the
-// file is created, matching os.WriteFile, so an existing file keeps its mode.
+// writeContainedFile replaces a contained target only after the complete new
+// content has been written, synced, and closed. Existing modes and symlink
+// aliases are preserved; managed hard-link aliases are relinked to the new inode.
 func writeContainedFile(root *os.Root, name string, content []byte, perm os.FileMode, managed ...string) error {
+	return replaceContainedFile(root, name, perm, func(file *os.File) error {
+		_, err := file.Write(content)
+		return err
+	}, managed...)
+}
+
+func replaceContainedFile(root *os.Root, name string, perm os.FileMode, write func(*os.File) error, managed ...string) error {
 	resolved, err := resolveContainedName(root, name)
 	if err != nil {
 		return err
 	}
-	// O_TRUNC is deliberately NOT in this open, and the file is judged from the
-	// HANDLE rather than from the resolved name.
-	//
-	// Both follow from the same gap. resolveContainedName decides on a path, and
-	// the path is not the thing written: OpenFile re-resolves it, so a link
-	// swapped in between the two is followed (os.Root refuses a link that
-	// ESCAPES the root, atomically, but follows one that stays inside — and
-	// `.git` is inside). Judging the open handle removes the window, because the
-	// handle IS what the write lands on.
-	//
-	// And truncation is already the damage. Opening `.git/config` with O_TRUNC
-	// destroys it before any guard below can object, so the truncate happens
-	// only after the handle has been accepted.
-	file, err := root.OpenFile(resolved, os.O_WRONLY|os.O_CREATE, perm)
+	var original os.FileInfo
+	// Check write permission and hard-link ownership without creating or truncating.
+	file, err := root.OpenFile(resolved, os.O_WRONLY, 0)
+	if err == nil {
+		guardErr := refuseSharedInode(root, file, name, resolved, managed)
+		original, err = file.Stat()
+		closeErr := file.Close()
+		if guardErr != nil {
+			return guardErr
+		}
+		if err != nil {
+			return err
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		if !original.Mode().IsRegular() {
+			return fmt.Errorf("%s is not a regular file", name)
+		}
+		perm = original.Mode().Perm()
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	// Snapshot the other real directory entries before replacing the old inode.
+	var aliases []string
+	if original != nil {
+		for _, candidate := range managed {
+			info, err := root.Lstat(candidate)
+			if err != nil || !info.Mode().IsRegular() || !os.SameFile(original, info) {
+				continue
+			}
+			target, err := resolveContainedName(root, candidate)
+			if err != nil {
+				return err
+			}
+			if target != resolved && !slices.Contains(aliases, target) {
+				aliases = append(aliases, target)
+			}
+		}
+	}
+	parent, err := root.OpenRoot(filepath.Dir(resolved))
 	if err != nil {
 		return err
 	}
-	if err := refuseSharedInode(root, file, name, resolved, managed); err != nil {
-		_ = file.Close()
+	defer parent.Close()
+	temp := ".entire-agent-" + rand.Text()
+	staged, err := parent.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	if err != nil {
 		return err
 	}
-	if err := file.Truncate(0); err != nil {
-		_ = file.Close()
-		return err
+	defer parent.Remove(temp)
+	writeErr := write(staged)
+	if writeErr == nil && original != nil {
+		writeErr = staged.Chmod(perm)
 	}
-	_, writeErr := file.Write(content)
-	closeErr := file.Close()
+	if writeErr == nil {
+		writeErr = staged.Sync()
+	}
+	closeErr := staged.Close()
 	if writeErr != nil {
 		return writeErr
 	}
-	return closeErr
+	if closeErr != nil {
+		return closeErr
+	}
+	// Rename replaces a directory entry rather than following a newly swapped link.
+	if err := parent.Rename(temp, filepath.Base(resolved)); err != nil {
+		return err
+	}
+	for _, alias := range aliases {
+		link := filepath.Join(filepath.Dir(alias), ".entire-agent-"+rand.Text())
+		if err := root.Link(resolved, link); err != nil {
+			return err
+		}
+		err := root.Rename(link, alias)
+		_ = root.Remove(link)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // refuseSharedInode rejects an open managed target that is a HARD link.

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -24,7 +25,7 @@ func TestAgentSetupReadsActualBrainRecords(t *testing.T) {
 				if err := os.WriteFile(included, []byte("[url \"https://github.com/\"]\n\tinsteadOf = git@rewrite:\n"), 0600); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(global, []byte("[include]\n\tpath = "+included+"\n"), 0600); err != nil {
+				if err := os.WriteFile(global, []byte("[include]\n\tpath = "+strconv.Quote(filepath.ToSlash(included))+"\n"), 0600); err != nil {
 					t.Fatal(err)
 				}
 			}

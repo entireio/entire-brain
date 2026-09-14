@@ -301,6 +301,17 @@ func TestInitAgentsWritesSameFileOnlyOnce(t *testing.T) {
 
 			agents := readFileForTest(t, filepath.Join(repo, "AGENTS.md"))
 			claude := readFileForTest(t, filepath.Join(repo, "CLAUDE.md"))
+			agentsInfo, err := os.Stat(filepath.Join(repo, "AGENTS.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			claudeInfo, err := os.Stat(filepath.Join(repo, "CLAUDE.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !os.SameFile(agentsInfo, claudeInfo) {
+				t.Fatal("instruction aliases no longer share an inode")
+			}
 			if agents != claude {
 				t.Fatalf("same-file aliases diverged:\nAGENTS.md:\n%s\nCLAUDE.md:\n%s", agents, claude)
 			}

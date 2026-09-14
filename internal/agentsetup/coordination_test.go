@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -150,6 +151,9 @@ func TestCoordinationErrorsBeforeWrites(t *testing.T) {
 			path := fixtureSetup(t, repo, opts, contents)
 			switch state {
 			case "unreadable":
+				if runtime.GOOS == "windows" {
+					t.Skip("Windows chmod does not remove read permission")
+				}
 				os.Chmod(path, 0000)
 				defer os.Chmod(path, 0600)
 			case "directory":

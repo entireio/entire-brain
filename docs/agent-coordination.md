@@ -119,6 +119,11 @@ and remove the managed pointer blocks. Reload instructions or start a new agent
 session after regeneration. Old binaries can restore old instructions, so upgrading
 both is required.
 
+Existing files are replaced from complete, synced temporary files in the same
+directory, so a failed content write preserves the previous file. Managed hard-link
+aliases are relinked to the replacement inode. These replacements are per file;
+the full installation and alias updates are not a filesystem transaction.
+
 Concurrent initializers are not supported. Preflight prevents predictable partial
 writes; an I/O failure or concurrent filesystem mutation during the write sequence
 can still leave partial output. Resolve the reported error and regenerate.
