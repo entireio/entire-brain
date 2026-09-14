@@ -2,7 +2,7 @@
 
 **A local, inspectable memory layer for a Git repository — it turns retained agent sessions, checkpoint history, docs, code structure, and durable facts into something you and your coding agents can actually query.**
 
-[![Release](https://img.shields.io/badge/release-v0.3.0-blue)](https://github.com/entireio/entire-brain/releases/tag/v0.3.0)
+[![Release](https://img.shields.io/badge/release-v0.3.1-blue)](https://github.com/entireio/entire-brain/releases/tag/v0.3.1)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.27-00ADD8)](go.mod)
 
@@ -84,7 +84,7 @@ cd entire-brain
 Verify:
 
 ```bash
-entire brain version    # -> 0.3.0
+entire brain version    # -> 0.3.1
 entire brain doctor     # -> findings, exit 0 on a healthy environment
 ```
 
@@ -95,7 +95,7 @@ git clone https://github.com/entireio/entire-brain.git
 cd entire-brain
 
 # Build with the version stamped in; without -ldflags the binary reports "dev".
-go build -ldflags "-X main.version=0.3.0" -o entire-brain ./cmd/entire-brain
+go build -ldflags "-X main.version=0.3.1" -o entire-brain ./cmd/entire-brain
 
 # Register it with the Entire CLI.
 entire plugin install ./entire-brain
@@ -258,6 +258,21 @@ entire brain mcp --print-config
 ```bash
 entire brain dash   # TUI: status, facts, sessions, history, semantic
 entire brain viz    # offline graph in your browser
+```
+
+### Recover from a split brain
+
+A repository reached through two different paths — a symlink, or `/tmp` on
+macOS — could once end up with two brains and then refuse every repo-scoped
+command. Keys are now derived from the resolved directory, so new splits
+cannot happen; if you have an existing one:
+
+```bash
+# List every store this repository resolves to.
+entire brain repo-identity
+
+# Keep one and retire the others (renamed to a dated sibling, never deleted).
+entire brain repo-identity --keep <repo-key>
 ```
 
 ### Keep it fresh
