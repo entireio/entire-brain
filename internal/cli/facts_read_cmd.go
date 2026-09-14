@@ -206,6 +206,8 @@ func newRecallCommand(opts Options) *cobra.Command {
 // seam for deterministic backend/failure coverage. Production always passes
 // defaultEmbedder.
 func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder) *cobra.Command {
+	var evidence bool
+	var evidenceBytes int
 	var (
 		branch                string
 		limit                 int
@@ -233,6 +235,15 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 			if len(args) == 1 {
 				query = args[0]
 			}
+			if evidence {
+				for _, flag := range []string{"all", "scope", "kind", "locus", "expand", "agent", "model", "agent-command", "eligible-before", "session-dates", "exclude-session-id", "read-only-semantic-cache"} {
+					if cmd.Flags().Changed(flag) {
+						return fmt.Errorf("--%s is not supported with --evidence; evidence recall is deterministic and does not apply fact filters", flag)
+					}
+				}
+			} else if cmd.Flags().Changed("evidence-bytes") {
+				return fmt.Errorf("--evidence-bytes requires --evidence")
+			}
 			if err := validateScopeFlag(scope); err != nil {
 				return err
 			}
@@ -242,6 +253,9 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 			repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
 			if err != nil {
 				return err
+			}
+			if evidence {
+				return runRecallEvidence(cmd, brainDir, resolvedBranch, query, limit, evidenceBytes, jsonOut)
 			}
 			allFacts, err := loadFacts(brainDir, resolvedBranch)
 			if err != nil {
@@ -404,8 +418,10 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&evidence, "evidence", false, "Experimental: return original source spans using deterministic retrieval; no model call")
+	cmd.Flags().IntVar(&evidenceBytes, "evidence-bytes", 8192, "Maximum compact JSON bytes in the evidence array, including citations; enclosing metadata is separate")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch to recall from (default: current branch)")
-	cmd.Flags().IntVar(&limit, "k", 10, "Maximum facts to return")
+	cmd.Flags().IntVar(&limit, "k", 10, "Maximum facts to return, or candidate sessions with --evidence (1-128)")
 	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted facts")
 	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) facts")
 	cmd.Flags().StringVar(&kind, "kind", "", "Restrict to one kind: decision|invariant|gotcha|preference|convention")
