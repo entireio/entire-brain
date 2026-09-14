@@ -44,14 +44,17 @@ The plugin binary is named `entire-brain` and is invoked through Entire as
 
 `init-agents` accepts `--repo <path>` instead of the positional path and
 `--json` to return a `changed_files` array (empty when already up to date).
-With neither path form it uses the host's repository root, then the current
-directory. It writes `.entire/brain-agent.md` and updates only the
-`<!-- entire-brain:begin -->` / `<!-- entire-brain:end -->` block in each
-instruction file. Existing user text and Graph blocks are preserved. Internal
-instruction symlink aliases are supported; links outside the project,
-non-regular targets, files larger than 4 MiB, and malformed markers are refused.
-The guide file is plugin-managed and replaced on update; edit your own
-instructions outside the managed blocks. No Brain setup or services run.
+With neither path form it uses the host's repository root, then the nearest Git
+repository. Outside a repository, supply an explicit project path to install.
+It writes `.entire/agent-guide.md` and reconciles legacy Graph and Brain blocks
+into shared `<!-- entire-agent:begin -->` / `<!-- entire-agent:end -->` pointers.
+Existing user text and supported instruction aliases are preserved. Unsafe write
+paths and malformed markers are refused. The guide is plugin-managed; keep user
+instructions outside managed blocks. No Brain setup or services run.
+
+`agent-guide --repo <path>` previews the same repository-specific instructions.
+Outside a repository it prints the standalone reference without detection.
+See [the coordination contract](agent-coordination.md) for routing and migration.
 
 `guide` remains a compatibility alias for `agent-guide`.
 `capabilities --json` emits schema version 1: `build`, `query`, `sources`,

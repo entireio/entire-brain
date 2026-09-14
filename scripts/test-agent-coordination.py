@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+"""Hermetic cross-binary contract test. No real plugins, state, or daemons are touched."""
+import argparse
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--graph-binary', required=True, type=Path)
+parser.add_argument('--brain-binary', required=True, type=Path)
+args = parser.parse_args()
+binaries = {'graph': args.graph_binary.resolve(), 'brain': args.brain_binary.resolve()}
+with tempfile.TemporaryDirectory(prefix='agent-coordination-') as tmp:
+    root = Path(tmp)
+    env = {k: v for k, v in os.environ.items() if not k.startswith(('ENTIRE_', 'GIT_'))}
+    for key in ('HOME', 'XDG_STATE_HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME'):
+        env[key] = str(root / key)
+        Path(env[key]).mkdir()
+    stub = root / 'bin'
+    stub.mkdir()
+    log = root / 'calls'
+    (stub / 'entire').write_text('''#!/bin/sh
+printf '%s\\n' "$*" >> "$TEST_CALLS"
+if [ "$#" != 2 ] || [ "$1" != plugin ] || [ "$2" != list ]; then exit 97; fi
+if [ "$TEST_LIST_FAILURE" = 1 ]; then exit 98; fi
+if [ -z "$TEST_PLUGINS" ]; then
+  echo "No plugins installed in /fixture."
+  echo "Install one with 'entire plugin install <name|url|path>', or drop an entire-<name> binary anywhere on \u0024PATH."
+else
+  echo "Managed plugin directory: /fixture"
+  echo
+  for name in $TEST_PLUGINS; do printf '  %-20s %-18s → /fixture/%s\\n' "$name" v1.0.0 "$name"; done
+fi
+''')
+    (stub / 'entire').chmod(0o755)
+    env['PATH'] = str(stub) + os.pathsep + env['PATH']
+    env['TEST_CALLS'] = str(log)
+    env['TEST_PLUGINS'] = 'graph brain'
+
+    def run(tool, repo, command, success=True, explicit=True, cwd=None, extra=()):
+        argv = [str(binaries[tool]), command, *extra]
+        if explicit:
+            argv += ['--repo', str(repo)]
+        result = subprocess.run(argv, cwd=cwd or root, env=env, capture_output=True, text=True)
+        assert (result.returncode == 0) == success, (argv, result.stdout, result.stderr)
+        return result.stdout
+
+    def snapshot(repo):
+        return {str(p.relative_to(repo)): p.read_bytes() for p in repo.rglob('*') if p.is_file() and '.git' not in p.parts}
+
+    def project(name, brain=False):
+        repo = root / name
+        repo.mkdir()
+        subprocess.run(['git', 'init', '-q', str(repo)], env=env, check=True)
+        subprocess.run(['git', '-C', str(repo), 'remote', 'add', 'origin', 'https://github.com/test/' + name], env=env, check=True)
+        setup = Path(env['XDG_STATE_HOME']) / 'entire/repos/gh/test' / name / 'setup.json'
+        if brain:
+            setup.parent.mkdir(parents=True)
+            setup.write_text(json.dumps({'schema_version': 1, 'updated_at': '2000-01-01T00:00:00Z'}))
+        return repo, setup
+
+    def check(repo, product, mode):
+        text = (repo / '.entire/agent-guide.md').read_text()
+        assert run(product, repo, 'agent-guide') == text
+        assert text.splitlines()[0] == '# Entire repository agent guide — ' + mode
+        for forbidden in ('FIRST action', 'SEARCH FIRST', 'entire plugin list', 'command -v', 'setup.json', 'if Brain is installed', 'entire graph version', 'entire brain version'):
+            assert forbidden not in text
+        for name in ('AGENTS.md', 'CLAUDE.md'):
+            content = (repo / name).read_text()
+            assert content.count('<!-- entire-agent:begin -->') == 1
+            assert '<!-- entire-graph:begin -->' not in content
+            assert '<!-- entire-brain:begin -->' not in content
+
+    for first in ('graph', 'brain'):
+        repo, setup = project(first, brain=True)
+        original = 'User prefix\n<!-- entire-graph:begin -->\nold graph\n<!-- entire-graph:end -->\nMiddle\n<!-- entire-brain:begin -->\nold brain\n<!-- entire-brain:end -->\nUser suffix\n'
+        (repo / 'AGENTS.md').write_text(original)
+        (repo / 'CLAUDE.md').write_text('@AGENTS.md\n')
+        (repo / '.entire').mkdir()
+        for legacy in ('graph-agent.md', 'brain-agent.md'):
+            (repo / '.entire' / legacy).write_text('Your FIRST action must be an old query\n')
+        second = 'brain' if first == 'graph' else 'graph'
+        before = None
+        for product in (first, second, first, second):
+            run(product, repo, 'init-agents')
+            check(repo, product, 'Graph and Brain')
+            assert run('graph', repo, 'agent-guide') == run('brain', repo, 'agent-guide')
+            if before is not None:
+                assert snapshot(repo) == before
+            before = snapshot(repo)
+        content = (repo / 'AGENTS.md').read_text()
+        for user_text in ('User prefix\n', '\nMiddle\n', '\nUser suffix\n'):
+            assert user_text in content
+        assert sum('Begin substantive tasks' in p.read_text() for p in (repo / '.entire').glob('*.md')) == 1
+        setup.unlink()
+        run('graph', repo, 'init-agents')
+        check(repo, 'graph', 'Graph')
+        # The agreed asymmetry: Brain init assumes its own activation, even without setup.
+        run('brain', repo, 'init-agents')
+        check(repo, 'brain', 'Graph and Brain')
+
+    for product in ('graph', 'brain'):
+        env['TEST_PLUGINS'] = product
+        repo, _ = project('only-' + product)
+        run(product, repo, 'init-agents')
+        check(repo, product, product.title())
+
+    env['TEST_PLUGINS'] = 'brain'
+    repo, _ = project('json-report')
+    report = json.loads(run('brain', repo, 'init-agents', extra=('--json',)))
+    assert report['changed_files'] == ['.entire/agent-guide.md', 'AGENTS.md', 'CLAUDE.md']
+    report = json.loads(run('brain', repo, 'init-agents', extra=('--json',)))
+    assert report['changed_files'] == []
+
+    env['TEST_PLUGINS'] = 'graph brain'
+    repo, setup = project('failure', brain=True)
+    run('graph', repo, 'init-agents')
+    for contents in ('{', 'null', '{"schema_version":99}', '{"schema_version":1,"workspace":4}'):
+        setup.write_text(contents)
+        before = snapshot(repo)
+        run('graph', repo, 'init-agents', success=False)
+        run('graph', repo, 'agent-guide', success=False)
+        assert snapshot(repo) == before
+    setup.write_text('{"schema_version":1}')
+    setup.chmod(0)
+    run('graph', repo, 'init-agents', success=False)
+    setup.chmod(0o600)
+    env['TEST_LIST_FAILURE'] = '1'
+    for product in ('graph', 'brain'):
+        before = snapshot(repo)
+        run(product, repo, 'init-agents', success=False)
+        assert snapshot(repo) == before
+    del env['TEST_LIST_FAILURE']
+
+    # Standalone binaries need neither the host nor any other executable on PATH.
+    saved_path = env['PATH']
+    no_host = root / 'no-host'
+    no_host.mkdir()
+    for product in ('graph', 'brain'):
+        repo, _ = project('no-host-' + product, brain=True)
+        env['PATH'] = str(no_host)
+        calls_before = log.read_text()
+        run(product, repo, 'init-agents')
+        check(repo, product, product.title())
+        before = snapshot(repo)
+        run(product, repo, 'init-agents')
+        assert snapshot(repo) == before
+        assert log.read_text() == calls_before
+        env['PATH'] = saved_path
+
+    # Default context and explicit overrides, including read-only outside-repo preview.
+    repo, _ = project('context', brain=True)
+    sub = repo / 'sub'
+    sub.mkdir()
+    run('graph', repo, 'init-agents', explicit=False, cwd=sub)
+    check(repo, 'graph', 'Graph and Brain')
+    env['ENTIRE_REPO_ROOT'] = str(repo)
+    assert run('graph', repo, 'agent-guide', explicit=False) == (repo / '.entire/agent-guide.md').read_text()
+    del env['ENTIRE_REPO_ROOT']
+    calls_before = log.read_text()
+    for product in ('graph', 'brain'):
+        assert run(product, None, 'agent-guide', explicit=False).startswith('# Entire repository agent guide — ' + product.title() + '\n')
+        run(product, None, 'init-agents', explicit=False, success=False)
+    assert log.read_text() == calls_before
+    assert set(log.read_text().splitlines()) == {'plugin list'}, 'a plugin was dispatched'
+
+# The mirrored leaf packages must remain identical, including renderer and protection tests.
+brain_source = Path(__file__).resolve().parents[1] / 'internal/agentsetup'
+graph_source = Path(__file__).resolve().parents[2] / 'entire-graph/internal/agentsetup'
+if graph_source.exists():
+    for path in brain_source.iterdir():
+        if path.is_file():
+            assert path.read_bytes() == (graph_source / path.name).read_bytes(), path.name
+print('PASS: compiled CLI modes, standalone without host, both orders, migration, regeneration, removal, failures, preview parity, context, byte stability, no plugin dispatch')

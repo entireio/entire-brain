@@ -3,8 +3,8 @@
 ## Install and discover agent instructions
 
 Run `entire brain init-agents` in the consuming project to install
-`.entire/brain-agent.md` plus managed pointers in `AGENTS.md` and
-`CLAUDE.md`. Reruns update only Brain's blocks and preserve your own text.
+`.entire/agent-guide.md` plus managed pointers in `AGENTS.md` and
+`CLAUDE.md`. Reruns reconcile Graph and Brain blocks into one shared workflow and preserve your own text.
 Use `--repo <path>` for another project. Installation does not build indexes,
 call an agent, or start services.
 
@@ -611,10 +611,11 @@ summary. The normal tool is `brain_brief`. The useful output is the freshness
 state, likely files and symbols, relevant history records, durable facts, likely
 tests, and any blind spots.
 
-The agent should use the brief before broad shell search or file reads. If the
-brief points to likely files, inspect those first. If freshness is degraded, the
-agent should say so and either refresh the brain or lower confidence in semantic
-answers.
+Begin substantive orientation with a brief unless equivalent context is already
+available. Reuse useful locations without a redundant Graph query. Inspect source
+directly when locations are sufficient, including small edits and follow-ups. Do
+not automatically refresh or repair tools to answer an ordinary query. See
+[coordinated agent instructions](agent-coordination.md).
 
 For repo-level orientation rather than task-specific orientation, use
 `overview`. It returns a compact project map: stack signals, entrypoints,
