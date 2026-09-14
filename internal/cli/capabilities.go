@@ -56,7 +56,7 @@ func compiledBrainCapabilities(version string) brainCapabilities {
 		{retrievalSourceConversation, false, true, true, brainCGOBuild, []string{"brain_cgo build", "fusion-eligible embedder", "refresh-built conversation vectors"}},
 	}
 	c.Features = []string{"agent_instructions", "hybrid_retrieval", "durable_facts", "task_briefs", "workspaces", "mcp", "graph_inspection", "freshness_checks"}
-	c.Experimental = []string{"conversation_retrieval", "compact_brief_formats", "recall_expansion", "facts_bm25"}
+	c.Experimental = []string{"conversation_retrieval", "compact_brief_formats", "recall_expansion", "facts_bm25", "deterministic_evidence_recall"}
 	c.GraphProvider.CapabilitiesCommand = "entire graph capabilities --json"
 	c.GraphProvider.Note = "Languages and relation types belong to the installed Graph provider; this command does not invoke it."
 	c.ReadinessCommand = "entire brain status --details --json"
