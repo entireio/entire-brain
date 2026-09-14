@@ -17,7 +17,7 @@ Everything runs locally. Nothing leaves your machine unless you explicitly opt i
 ## Key Features
 
 - **Durable facts with provenance.** Author facts by hand (`remember`) or distill them from captured sessions (`distill`). Every fact is anchored to real sources, and `verify` re-checks those anchors against what is actually in the repository today.
-- **Hybrid retrieval.** Lexical BM25 (`search`), vector/semantic (`vsearch`), and Reciprocal Rank Fusion across both (`query`) — over facts, history, docs, and conversations.
+- **Hybrid retrieval.** Lexical BM25 (`query --keyword`), vector/semantic (`query --semantic`), and Reciprocal Rank Fusion across both (`query`) — over facts, history, docs, and conversations.
 - **Semantic code navigation.** Symbol-level structure, impact analysis, dead-code detection, and regression radar, backed by the `entire-graph` provider.
 - **An MCP server for agents.** ~36 tools over stdio, so Claude Code, Codex, and any MCP-capable client can read the brain directly. Every response is bounded, so a wide query returns a truncated *answer* rather than blowing the transport.
 - **Honest health reporting.** `status` and `doctor` distinguish *not built yet* from *broken*, cross-check the manifest's claims against what the store can actually produce, and exit non-zero when something is genuinely wrong — so CI and agent loops can branch on them.
@@ -147,6 +147,28 @@ entire brain status --verbose
 entire brain overview
 ```
 
+### Set up your agent
+
+```bash
+entire brain init-agents                  # install instructions in the current project
+entire brain agent-guide                  # print the same operating guide
+entire brain capabilities --json          # inspect this binary's supported features
+```
+
+`init-agents` writes `.entire/brain-agent.md` and managed pointer blocks in
+`AGENTS.md` and `CLAUDE.md`. It preserves text outside its markers, coexists
+with Graph's blocks, and updates in place on reruns. Use `--repo <path>` (or a
+positional path) to target another project. Existing instruction symlinks must
+resolve inside the project. Malformed markers and invalid targets are rejected
+before installation. This command does not build the Brain or start services.
+
+`capabilities` works without a repository or an initialized Brain. It reports
+retrieval modes, sources, experimental features, build support, and semantic
+requirements; it does not probe models or the Graph provider. Use
+`status --details --json` for actual repository readiness and
+`entire graph capabilities --json` for parsed languages and relation types.
+The old `guide` name remains an alias for `agent-guide`.
+
 ### Record and retrieve facts
 
 ```bash
@@ -164,16 +186,30 @@ entire brain verify
 
 ```bash
 # Lexical (BM25 over history and docs, token overlap over facts).
-entire brain search "rate limiter"
+entire brain query --keyword "rate limiter"
 
 # Vector / semantic.
-entire brain vsearch "how do we handle backpressure"
+entire brain query --semantic "how do we handle backpressure"
 
 # Hybrid: lexical + vector, fused with RRF. Usually the one you want.
 entire brain query "why did we drop the queue abstraction"
 ```
 
-`query`, `search`, and `vsearch` also take `--source` (`all` | `fact` | `history` | `doc` | `conversation`) to narrow the corpus, and `--json` for machine-readable output:
+Supply the query text positionally or with `--query`; flags can appear before or
+after it:
+
+```bash
+entire brain query --keyword --query "RetryPolicy"
+entire brain query --query "handling temporary failures" --semantic
+```
+
+The default mode is hybrid. `--keyword` and `--semantic` are mutually
+exclusive; supplying both a positional query and `--query` is an error.
+The same forms work with `entire brain workspace query <workspace>`.
+The old `search` and `vsearch` commands remain hidden compatibility aliases.
+Mode flags appear only in query-command help, not as global flags.
+
+`query` also takes `--source` (`all` | `fact` | `history` | `doc` | `conversation`) to narrow the corpus, and `--json` for machine-readable output:
 
 ```bash
 entire brain query "auth middleware" --source fact --json | jq '.results[0]'

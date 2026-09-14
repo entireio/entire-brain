@@ -10,8 +10,9 @@ Available tools:
 - Project/index management: `brain_refresh`, `brain_index_repository`,
   `brain_list_projects`, `brain_delete_project`
 - `brain_brief`
-- Unified retrieval (qmd-inspired): `brain_query` (hybrid lexical+vector, RRF),
-  `brain_search` (lexical), `brain_vsearch` (vector), `brain_get`, `brain_multi_get`
+- Unified retrieval: `brain_query` (hybrid by default; optional mutually exclusive
+  `keyword: true` or `semantic: true`), `brain_get`, `brain_multi_get`.
+  Compatibility tools: `brain_search` (lexical), `brain_vsearch` (vector).
 - Symbol graph: `brain_code`, `brain_search_code`, `brain_context`,
   `brain_impact`, `brain_changes`, `brain_detect_changes`, `brain_tests`,
   `brain_boundaries`, `brain_search_graph`, `brain_query_graph`,
@@ -46,6 +47,12 @@ data, task-relevant status/trust signals, semantic relations and neighbors,
 history, facts, actions, patterns, guidance, and an end-to-end body checksum.
 They are experimental and are not selected automatically; a future
 incompatible representation will use a new version name.
+
+Prefer `brain_query`: omit mode arguments for hybrid retrieval, set
+`keyword: true` for keywords/identifiers, or `semantic: true` for
+conceptual/paraphrased queries. Setting both to true is an error.
+The required `query` string holds the search text. `brain_search` and
+`brain_vsearch` remain compatibility tools.
 
 `brain_query` and `brain_search` rank across facts, history, and docs;
 `brain_vsearch` ranks vector-backed facts and docs (plus history when a
@@ -92,7 +99,7 @@ at index time.
 Conversation vectors (Phase 2): behind the same gate as history vectors; a
 fusion-eligible embedder (`ENTIRE_BRAIN_EMBEDDER` with a Gemma-class server)
 plus the `brain_cgo` build; `refresh` also embeds exchange projections into a
-separate vec0 store. Explicit `vsearch --source conversation` is semantic-only
+separate vec0 store. Explicit `query --semantic --source conversation` is semantic-only
 over that store (a structured unavailable error names the requirements when
 the arm is closed). Conversation `query` stays **BM25-only by default**: the
 2026-08-07 calibration measured RRF fusion trading exact-match precision for a
@@ -222,7 +229,7 @@ mismatch is a structured error. A legacy exchange id that resolves in more
 than one session scope returns `memory_identity_ambiguous` unless `--branch`
 selects one.
 
-Multi-concept session recall: `search`, `query`, and `vsearch` take
+Multi-concept session recall: `query` (including either mode flag) takes
 repeatable `--concept` flags (MCP: a `concepts` array on all three retrieval
 tools, which share one strict schema including `source` and the
 structured filters on `brain_vsearch` too). Two to five total concepts
@@ -243,7 +250,7 @@ the record schema is experimental and may change.
 
 Workspace symbol traversal and unified retrieval currently live in the CLI
 (`entire brain workspace inspect context|impact|graph|regressions` and
-`entire brain workspace search|vsearch|query|get`). MCP exposes the
+`entire brain workspace query|get`). MCP exposes the
 single-repo tools plus `brain_workspace_graph` for cross-repo graph contracts
 and `cross_edges` (shared external contracts, canonical route-template
 HTTP client-to-handler edges, repo-key-matched unresolved import candidates,

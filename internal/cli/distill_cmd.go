@@ -58,6 +58,14 @@ const (
 	// session cache). A distill run is hours of agent calls; flushing every ~50
 	// calls bounds what an interruption can lose to minutes instead of the run.
 	distillFlushCallInterval = 50
+
+	// distillAgentWaitDelay is how long Wait may keep waiting on an agent's
+	// output pipes after the agent process itself has been killed for exceeding
+	// its timeout. It exists because the pipes are inherited by whatever the
+	// agent spawned, which the kill does not reach. Long enough to collect the
+	// output of an agent that is merely finishing up, short enough that the
+	// timeout stays a bound.
+	distillAgentWaitDelay = 5 * time.Second
 )
 
 // capWarnings truncates a warning list to max entries, replacing the overflow
@@ -162,6 +170,7 @@ func (ps *preparedSession) result(i int) (string, error) {
 // canceled. Cancel ctx to stop preparation, dispatch, and in-flight calls.
 func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []string, sessions []exportSession, prevCache distillCache, distillOpts distillCommandOptions, resolveBranch func(exportSession) string) <-chan preparedSession {
 	prepared := make(chan preparedSession, distillSessionLookahead)
+	duplicateKeys := distillDuplicateSessionKeys(sessions, resolveBranch)
 	var sem chan struct{}
 	if distillOpts.concurrency > 1 {
 		sem = make(chan struct{}, distillOpts.concurrency)
@@ -237,7 +246,8 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 				ps.preBytes = len(distillInput)
 				ps.fingerprint = distillSessionFingerprint(ps.session, ps.branch, distillInput, distillOpts.cacheSalt)
 				if !distillOpts.force {
-					if prev, ok := cachedDistillSessionFingerprint(prevCache, ps.branch, ps.session.SessionID); ok && prev == ps.fingerprint {
+					cacheKey := distillSessionCacheKeyFor(ps.branch, ps.session, duplicateKeys)
+					if prev, ok := cachedDistillFingerprintForKey(prevCache, cacheKey); ok && prev == ps.fingerprint {
 						releaseWork()
 						ps.cached = true
 						f <- ps
@@ -245,8 +255,14 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 					}
 					// Pre-upgrade entry (legacy key + formula): the session is
 					// unchanged; the consumer rewrites it under the new
-					// key/format — lazy migration, zero agent calls.
-					if grandfatheredDistillFingerprint(prevCache, ps.session, ps.branch, distillInput) {
+					// key/format — lazy migration, zero agent calls. Skipped for
+					// a duplicated session id: the single legacy entry cannot
+					// say WHICH of the colliding exports produced it, and
+					// grandfathering both would mark a genuinely undistilled
+					// export as done. One re-distill, once, then both hold
+					// distinct keys.
+					if !duplicateKeys[distillSessionCacheKey(ps.branch, ps.session.SessionID)] &&
+						grandfatheredDistillFingerprint(prevCache, ps.session, ps.branch, distillInput) {
 						releaseWork()
 						ps.cached = true
 						f <- ps
@@ -612,6 +628,13 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	if distillOpts.concurrency <= 0 {
 		return fmt.Errorf("--concurrency must be greater than 0")
 	}
+	// Only when the user actually typed it: the zero value of the option means
+	// "use the default" for every in-process caller (runDistillForBrain reads
+	// threshold <= 0 that way), so the library contract has to stay intact while
+	// the flag stops silently swallowing a value it cannot honour.
+	if cmd.Flags().Changed("confidence") && (distillOpts.confidenceThreshold <= 0 || distillOpts.confidenceThreshold > 1) {
+		return fmt.Errorf("--confidence must be greater than 0 and at most 1 (agent confidence is a probability); got %g", distillOpts.confidenceThreshold)
+	}
 	if cmd.Flags().Changed("jobs") {
 		if distillOpts.jobs <= 0 {
 			return fmt.Errorf("--jobs must be greater than 0")
@@ -801,6 +824,11 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 
 	prevCache := loadDistillCache(brainDir)
 	newCache := distillCache{Version: distillCacheVersion, Sessions: make(map[string]string, len(sessions))}
+	// Computed from the same (sessions, resolveBranch) pair the prefetch uses,
+	// so producer and consumer agree on every session's key.
+	duplicateKeys := distillDuplicateSessionKeys(sessions, func(session exportSession) string {
+		return resolveDistillBranch(manifest, session)
+	})
 
 	byBranch := map[string][]factRecord{}
 	baselineByBranch := map[string][]factRecord{}
@@ -843,11 +871,29 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		}
 		totalSessions++
 	}
+	// A filter that selects nothing is a typo, not an empty corpus. Left silent
+	// it reports zero chunks, zero agent calls and exit 0 — indistinguishable
+	// from "everything is already distilled" — while every other misdirected
+	// flag on this command errors outright.
+	if totalSessions == 0 && len(sessions) > 0 {
+		if distillOpts.branch != "" {
+			warnings = append(warnings, fmt.Sprintf("--branch %s matched no exported session; nothing was distilled", distillOpts.branch))
+		}
+		if distillOpts.session != "" {
+			warnings = append(warnings, fmt.Sprintf("--session %s matched no exported session; nothing was distilled", distillOpts.session))
+		}
+	}
 	sessionsDone, factsFound := 0, 0
 	// Track agent-call outcomes so a misconfiguration that fails every call (e.g.
 	// an invalid --model) aborts fast with the agent's own error, instead of
 	// silently churning through every session reporting "0 facts found".
 	agentFailures, anyAgentSuccess := 0, false
+	// The cause of the LAST failure, so the end-of-run abort can name it. The
+	// fail-fast threshold already reports it; a corpus smaller than that
+	// threshold reached the end-of-run abort instead and lost it entirely —
+	// "check --agent, --model, authentication, and executable PATH" when the
+	// answer was "agent timed out after 10m0s".
+	var lastAgentErr error
 
 	// ensureBranch lazily loads a branch's existing facts. On --force the
 	// previously distilled facts are dropped so they are rebuilt from scratch;
@@ -1033,8 +1079,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			if distillOpts.force && ps.deferred {
 				continue
 			}
-			if prev, ok := prevCache.Sessions[distillSessionCacheKey(branch, session.SessionID)]; ok {
-				newCache.Sessions[distillSessionCacheKey(branch, session.SessionID)] = prev
+			key := distillSessionCacheKeyFor(branch, session, duplicateKeys)
+			if prev, ok := prevCache.Sessions[key]; ok {
+				newCache.Sessions[key] = prev
 			} else if prev, ok := prevCache.Sessions[session.SessionID]; ok {
 				// A legacy entry stays under its legacy key (and formula) until
 				// its session is actually visited and grandfathered — copying it
@@ -1061,7 +1108,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		preprocessedBytes += int64(ps.preBytes)
 		if ps.cached {
 			cacheHits++
-			newCache.Sessions[distillSessionCacheKey(branch, session.SessionID)] = ps.fingerprint // unchanged; retain in cache and keep existing facts
+			newCache.Sessions[distillSessionCacheKeyFor(branch, session, duplicateKeys)] = ps.fingerprint // unchanged; retain in cache and keep existing facts
 			reportProgress()
 			continue
 		}
@@ -1082,6 +1129,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			callsSinceFlush++
 			if runErr != nil {
 				warnings = append(warnings, fmt.Sprintf("agent failed on %s:%d: %v", session.SessionID, chunk.StartLine, runErr))
+				lastAgentErr = runErr
 				sessionFailed = true
 				failedChunks++
 				agentFailures++
@@ -1151,14 +1199,14 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		// session whose agent calls failed is retried on the next run rather
 		// than being silently treated as done.
 		if !sessionFailed {
-			newCache.Sessions[distillSessionCacheKey(branch, session.SessionID)] = ps.fingerprint
+			newCache.Sessions[distillSessionCacheKeyFor(branch, session, duplicateKeys)] = ps.fingerprint
 		}
 		reportProgress()
 	}
 	if agentFailures > 0 && !anyAgentSuccess {
 		return nil, fmt.Errorf(
-			"distill aborted after all %d agent calls failed with no successful response; check --agent, --model, authentication, and executable PATH",
-			agentFailures,
+			"distill aborted after all %d agent calls failed with no successful response; check --agent, --model, authentication, and executable PATH. Last error: %v",
+			agentFailures, lastAgentErr,
 		)
 	}
 
@@ -1417,6 +1465,13 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 	}
 	sortDistillSessions(sessions, distillOpts.newestFirst)
 	prevCache := loadDistillCache(brainDir)
+	// Same disambiguation the run uses, so the plan a --dry-run prints is the
+	// plan the run executes. Computed over the UNFILTERED session list for the
+	// same reason the run does: a --branch/--session filter must not change
+	// which keys collide.
+	duplicateKeys := distillDuplicateSessionKeys(sessions, func(session exportSession) string {
+		return resolveDistillBranch(manifest, session)
+	})
 	branchSeen := map[string]struct{}{}
 	plan := distillPlan{CacheSalt: cacheSalt}
 	for _, session := range sessions {
@@ -1449,8 +1504,10 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 		sessionPlan.ChunksIfUncached = len(chunks)
 		plan.ChunksIfUncached += sessionPlan.ChunksIfUncached
 		if !distillOpts.force {
-			prev, ok := cachedDistillSessionFingerprint(prevCache, branch, session.SessionID)
-			if (ok && prev == sessionPlan.Fingerprint) || grandfatheredDistillFingerprint(prevCache, session, branch, distillInput) {
+			legacyKey := distillSessionCacheKey(branch, session.SessionID)
+			prev, ok := cachedDistillFingerprintForKey(prevCache, distillSessionCacheKeyFor(branch, session, duplicateKeys))
+			if (ok && prev == sessionPlan.Fingerprint) ||
+				(!duplicateKeys[legacyKey] && grandfatheredDistillFingerprint(prevCache, session, branch, distillInput)) {
 				sessionPlan.Cached = true
 				plan.CachedSessions++
 				plan.Sessions = append(plan.Sessions, sessionPlan)
@@ -1737,7 +1794,18 @@ func distillConversationText(obj map[string]any) string {
 		}
 		return distillTextBlocks(payload["content"])
 	case "assistant", "user":
-		return distillTextBlocks(jsonMap(obj["message"])["content"])
+		// Two shapes carry the same record type. The claude-code dialect nests
+		// the turn under "message"; the dialect the CLI writes today
+		// ({"v":1,"agent":"codex",...,"content":[...]}) puts the content blocks
+		// at the RECORD's top level with no wrapper at all. Reading only the
+		// nested one stripped every record of a modern transcript to "" — the
+		// same silent total loss the "message" case below documents for pi, but
+		// on the dialect that is now the default (observed: 1.7 MB of real Codex
+		// sessions preprocessed to 1.6 KB and distilled zero facts).
+		if message, ok := obj["message"]; ok {
+			return distillTextBlocks(jsonMap(message)["content"])
+		}
+		return distillTextBlocks(obj["content"])
 	case "message":
 		// pi sessions wrap every turn as {"type":"message","message":{role,content}}.
 		// Without this case they fell to the default branch, whose
@@ -1984,11 +2052,104 @@ func distillSessionCacheKey(branch, sessionID string) string {
 	return url.PathEscape(branch) + "/" + url.PathEscape(sessionID)
 }
 
+// distillDuplicateSessionKeys returns the set of branch+session cache keys that
+// MORE THAN ONE exported session maps onto. A real `refresh sessions` produces
+// exactly that whenever one session was checkpointed under two branches — most
+// commonly a branch-bearing entry plus an empty-branch ("sessions/unknown")
+// entry, which resolveBranch collapses onto the SAME default branch.
+//
+// Both entries then shared one cache key with two different fingerprints, so
+// each run the second entry overwrote the first's, the next run missed, and one
+// extraction plus one reconcile agent call were re-spent on every pass forever
+// — real money per watch tick, and the cache never converged.
+func distillDuplicateSessionKeys(sessions []exportSession, resolveBranch func(exportSession) string) map[string]bool {
+	if len(sessions) < 2 {
+		return nil
+	}
+	seen := make(map[string]int, len(sessions))
+	for _, session := range sessions {
+		seen[distillSessionCacheKey(resolveBranch(session), session.SessionID)]++
+	}
+	var duplicates map[string]bool
+	for key, count := range seen {
+		if count > 1 {
+			if duplicates == nil {
+				duplicates = make(map[string]bool)
+			}
+			duplicates[key] = true
+		}
+	}
+	return duplicates
+}
+
+// distillSessionCacheKeyFor is the cache key one exported session is stored
+// under. It is the plain branch+session key — byte-identical to every key
+// already on disk, so no existing brain is invalidated — EXCEPT for the
+// sessions distillDuplicateSessionKeys flagged, which get the checkpoint id
+// interposed so the colliding entries stay distinct.
+//
+// The checkpoint goes BEFORE the session id, never after: `privacy purge`
+// (purgeDistillCacheEntries) and the post-purge leftover check
+// (verifySessionPrivacy) both evict by the "/<escaped session id>" SUFFIX, and
+// an id appended to the tail would make a purged session's entry unmatchable.
+func distillSessionCacheKeyFor(branch string, session exportSession, duplicates map[string]bool) string {
+	key := distillSessionCacheKey(branch, session.SessionID)
+	if !duplicates[key] {
+		return key
+	}
+	// The checkpoint is what distinguishes two exports of one session, but it is
+	// an optional field; the transcript path is not, and the export writes one
+	// file per entry. Falling back to it keeps two checkpoint-less duplicates
+	// apart instead of re-colliding them under an empty segment.
+	discriminator := session.LatestCheckpoint
+	if discriminator == "" {
+		discriminator = filepath.ToSlash(session.TranscriptPath)
+	}
+	return url.PathEscape(branch) + "/" + url.PathEscape(discriminator) + "/" + url.PathEscape(session.SessionID)
+}
+
+// cachedDistillSessionFingerprint answers "has this session been distilled on
+// this branch", by branch and id alone. It is the progress lookup
+// (factsBackfillStatusForBrain): the CALLERS that must match a specific
+// exported entry use cachedDistillFingerprintForKey with the key
+// distillSessionCacheKeyFor built for them.
+//
+// A session the export lists twice under one branch lives under
+// checkpoint-disambiguated keys, so the exact key misses for BOTH copies. The
+// scan below finds them, which is what keeps `setup status` from reporting a
+// finished backfill as permanently unfinished. It is ordered so the answer does
+// not depend on Go's map iteration order.
 func cachedDistillSessionFingerprint(cache distillCache, branch, sessionID string) (string, bool) {
+	if fp, ok := cachedDistillFingerprintForKey(cache, distillSessionCacheKey(branch, sessionID)); ok {
+		return fp, ok
+	}
+	prefix := url.PathEscape(branch) + "/"
+	suffix := "/" + url.PathEscape(sessionID)
+	best := ""
+	for key := range cache.Sessions {
+		// The length guard keeps the two affixes from overlapping, so a key is
+		// only a match when it really carries a discriminator BETWEEN them.
+		if len(key) <= len(prefix)+len(suffix) || !strings.HasPrefix(key, prefix) || !strings.HasSuffix(key, suffix) {
+			continue
+		}
+		if best == "" || key < best {
+			best = key
+		}
+	}
+	if best == "" {
+		return "", false
+	}
+	return cache.Sessions[best], true
+}
+
+// cachedDistillFingerprintForKey looks a fingerprint up under an already-built
+// cache key, so callers that must use the duplicate-disambiguated key (see
+// distillSessionCacheKeyFor) share one lookup with the plain-key callers.
+func cachedDistillFingerprintForKey(cache distillCache, key string) (string, bool) {
 	if cache.Sessions == nil {
 		return "", false
 	}
-	fp, ok := cache.Sessions[distillSessionCacheKey(branch, sessionID)]
+	fp, ok := cache.Sessions[key]
 	// No legacy-key fallback here: a legacy-FORMAT fingerprint can never equal
 	// a new-format one, so returning it only manufactures false mismatches.
 	// Pre-upgrade entries are honored by grandfatheredDistillFingerprint.
@@ -2052,9 +2213,6 @@ func execDistillAgent(ctx context.Context, dir string, args []string, input []by
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	command := exec.CommandContext(runCtx, args[0], args[1:]...)
-	// Provider wrappers can leave descendants holding stdout/stderr after cancellation.
-	// Match ExecRunner: bound pipe draining as well as the immediate process.
-	command.WaitDelay = commandWaitDelay
 	command.Dir = dir
 	command.Stdin = bytes.NewReader(input)
 	stdoutLimit := distillStdoutLimit(args)
@@ -2062,6 +2220,16 @@ func execDistillAgent(ctx context.Context, dir string, args []string, input []by
 	stderr := newCappedDistillBuffer(distillMaxOutputBytes)
 	command.Stdout = &stdout
 	command.Stderr = &stderr
+	// CommandContext kills the agent process itself, but Run also waits for the
+	// stdout/stderr copying goroutines, and every real agent CLI (codex exec,
+	// claude, a --agent-command wrapper) spawns CHILDREN that inherit those
+	// pipes. Killing the agent does not close them, so without a WaitDelay the
+	// timeout is not a bound at all: Run blocks until the orphaned grandchild
+	// exits on its own. Measured: a 150ms deadline on `sh -c "sleep 30; ..."`
+	// returned after 30s. WaitDelay closes the descriptors shortly after the
+	// kill and lets Wait return, so `timeout` is the real ceiling and a --jobs N
+	// pool cannot be wedged by one hung call.
+	command.WaitDelay = distillAgentWaitDelay
 	err := command.Run()
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		return "", fmt.Errorf("agent timed out after %s", timeout)

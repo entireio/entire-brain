@@ -847,7 +847,34 @@ func includeSessionLocked(brainDir, sessionID string, now time.Time) error {
 	if err := rebuildSessionHistoryForIncludeLocked(brainDir, now); err != nil {
 		return errors.Join(err, restoreIncludePrivacyState(brainDir, rollback))
 	}
+	// Cleanup stripped this session's id out of the derived entity join. The
+	// join is recomputed from the durable git-meta store, which the exclusion
+	// never touched, so the linkage comes back the moment the join is rebuilt —
+	// but the cache is pinned to the git-meta tip, which an include does not
+	// move, so without this the re-included session would stay missing from
+	// `entities history` indefinitely. Unpinning it is best-effort on purpose:
+	// a failed rebuild falls back to serving this same (still privacy-clean)
+	// cache, so nothing is lost and include must not fail over an accelerator.
+	invalidateEntityIndexJoin(brainDir)
 	return nil
+}
+
+// invalidateEntityIndexJoin unpins the derived entity index from the git-meta
+// tip so the next read recomputes it. It deliberately clears the pin rather
+// than deleting the file: the rebuild needs the Graph provider, and on a
+// machine without it a deleted cache could never be recreated, while an
+// unpinned one is still served.
+func invalidateEntityIndexJoin(brainDir string) {
+	cache, present, err := loadPrivacyEntityIndex(brainDir)
+	if err != nil || !present || cache.MetaTip == "" {
+		return
+	}
+	cache.MetaTip = ""
+	data, err := json.Marshal(cache)
+	if err != nil {
+		return
+	}
+	_ = writeBrainRelativeFileAtomic(brainDir, entitiesCachePath, append(data, '\n'), 0o600)
 }
 
 func privacyBytesIdentity(data []byte) string {
@@ -1554,6 +1581,76 @@ func loadPrivacyEpisodeLines(brainDir string) ([]privacyEpisodeLine, bool, error
 	return lines, true, nil
 }
 
+// loadPrivacyEntityIndex reads the derived entity -> commit join strictly, for
+// privacy cleanup and verification.
+//
+// The ordinary reader (loadEntityIndexCache) treats every read or parse failure
+// as "no cache" so a query can degrade to a rebuild. A privacy gate must not:
+// an unreadable or unparseable index is state whose session attribution cannot
+// be inspected, and treating it as empty would let cleanup claim a session was
+// erased from a file it never managed to read.
+func loadPrivacyEntityIndex(brainDir string) (entityIndexCache, bool, error) {
+	data, present, err := readPrivacyArtifact(brainDir, entitiesCachePath, "entity index", defaultMaxReadBytes)
+	if err != nil || !present {
+		return entityIndexCache{}, present, err
+	}
+	var cache entityIndexCache
+	if err := json.Unmarshal(data, &cache); err != nil {
+		return entityIndexCache{}, true, fmt.Errorf("%s: parse %s: %w", memoryErrStateCorrupt, entitiesCachePath, err)
+	}
+	// A forward-version index may attribute sessions in a shape this binary
+	// cannot see, so neither stripping nor verifying it can be trusted. Refuse,
+	// the way every other forward-state gate here does, rather than reading it
+	// as empty and calling that clean.
+	if cache.SchemaVersion > entityIndexCacheVersion {
+		return entityIndexCache{}, true, fmt.Errorf("%s: %s schema %d is newer than this binary supports (%d)",
+			memoryErrUnsupportedVersion, entitiesCachePath, cache.SchemaVersion, entityIndexCacheVersion)
+	}
+	return cache, true, nil
+}
+
+// filterEntityIndexSessions strips tombstoned session ids from the derived
+// entity index and reports how many occurrences it touched. With write=false it
+// only counts.
+//
+// It strips the session linkage, not the occurrence: the commit and its subject
+// are ordinary git history that privacy cleanup does not claim to rewrite, and
+// the checkpoint id is the capture identity that history carries in its trailer.
+// The session id is the one field derived from the captured session, and it is
+// what makes `entities history` answer "this symbol was changed by session X"
+// for a session the user excluded.
+func filterEntityIndexSessions(brainDir string, tombstoned map[string]sessionTombstone, write bool) (removed int, err error) {
+	if len(tombstoned) == 0 {
+		return 0, nil
+	}
+	cache, present, err := loadPrivacyEntityIndex(brainDir)
+	if err != nil || !present {
+		return 0, err
+	}
+	for key, occurrences := range cache.Entries {
+		for i := range occurrences {
+			kept := occurrences[i].SessionIDs[:0:0]
+			for _, id := range occurrences[i].SessionIDs {
+				if _, excluded := tombstoned[strings.TrimSpace(id)]; excluded {
+					removed++
+					continue
+				}
+				kept = append(kept, id)
+			}
+			occurrences[i].SessionIDs = kept
+		}
+		cache.Entries[key] = occurrences
+	}
+	if !write || removed == 0 {
+		return removed, nil
+	}
+	data, err := json.Marshal(cache)
+	if err != nil {
+		return removed, err
+	}
+	return removed, writeBrainRelativeFileAtomic(brainDir, entitiesCachePath, append(data, '\n'), 0o600)
+}
+
 // countSessionEpisodes counts episode records that would be filtered out of
 // patterns/episodes.ndjson by a purge.
 func countSessionEpisodes(brainDir, sessionID string, transcriptRels map[string]bool) (int, error) {
@@ -1980,6 +2077,13 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 		}
 	}
 	if _, _, err := filterEpisodesFile(brainDir, sessionID, transcriptRels, true); err != nil {
+		return err
+	}
+	// Strip the session linkage from the derived entity index. Sweeping against
+	// the WHOLE tombstone set, not just this session, repairs an index rebuilt
+	// by an `entities backfill` that ran between two cleanups; the builder now
+	// filters too, so a later rebuild stays clean by construction.
+	if _, err := filterEntityIndexSessions(brainDir, stones.Excluded, true); err != nil {
 		return err
 	}
 	if err := purgeDistillCacheEntries(brainDir, sessionID); err != nil {

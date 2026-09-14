@@ -114,12 +114,7 @@ func renderHome(th Theme, s Snapshot, width int) string {
 	b.WriteString(sectionHeader(th, "Sources"))
 	b.WriteString("\n")
 	for _, src := range s.Home.Sources {
-		dot := "○"
-		color := th.Bad
-		if src.Present {
-			dot, color = "●", th.Good
-		}
-		line := lipgloss.NewStyle().Foreground(color).Render("  "+dot+" ") +
+		line := lipgloss.NewStyle().Foreground(th.healthColor(src.State())).Render("  "+sourceDot(src)+" ") +
 			th.textStyle().Render(fmt.Sprintf("%-9s", src.Name))
 		if src.Detail != "" {
 			line += "  " + th.dimStyle().Render(src.Detail)
@@ -372,6 +367,21 @@ func renderSemantic(th Theme, v SemanticView, width int) string {
 }
 
 // --- small render helpers --------------------------------------------------
+
+// sourceDot is the Sources glyph: filled for a source that read, hollow for one
+// the brain does not have, half-filled for one it claims but could not read.
+// The third glyph exists so the row itself carries the warning, instead of the
+// warning living only in a Warnings section further down the page.
+func sourceDot(h SourceHealth) string {
+	switch {
+	case h.Unreadable:
+		return "◐"
+	case h.Present:
+		return "●"
+	default:
+		return "○"
+	}
+}
 
 func sectionHeader(th Theme, title string) string {
 	return th.headingStyle().Render("▌ " + title)

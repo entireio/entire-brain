@@ -592,9 +592,11 @@ func runPatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, ta
 }
 
 // buildPatternsStatusReport reads the patterns source from the manifest and
-// derives freshness from the sessions fingerprint, the same input-derived signal
-// the history source uses — no re-extraction required. Skill-memory counts are
-// computed by evaluating each user decision against the current pattern set.
+// derives freshness from its recorded inputs — the sessions fingerprint and the
+// tombstone epoch — via patternSourceCurrent, the same predicate the refresh
+// trigger uses, so no re-extraction is required and the two cannot disagree.
+// Skill-memory counts are computed by evaluating each user decision against the
+// current pattern set.
 func buildPatternsStatusReport(brainDir string) patternsStatusReport {
 	report, _ := buildPatternsStatusReportChecked(brainDir)
 	return report
@@ -622,7 +624,7 @@ func buildPatternsStatusReportChecked(brainDir string) (patternsStatusReport, er
 	}
 	src := manifest.Sources.Patterns
 	freshness := "current"
-	if src.SessionsFingerprint != brainSessionsFingerprint(brainDir) {
+	if !patternSourceCurrent(src, brainDir) {
 		freshness = "stale"
 	}
 	rc := src.Reinforcement

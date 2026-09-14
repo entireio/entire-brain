@@ -1,5 +1,9 @@
 # Release Readiness Audit
 
+> Naming note: recorded `search` and `vsearch` commands remain compatibility
+> aliases. Current usage is `query --keyword` and `query --semantic`; plain
+> `query` remains hybrid. Historical results below retain their original names.
+
 This audit tracks the loose ends that need to close before `entire-brain`,
 `entire-graph`, and `entire-replay-lab` can ship with honest claims.
 

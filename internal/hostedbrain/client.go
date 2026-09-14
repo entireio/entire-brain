@@ -195,7 +195,10 @@ func (c *Client) rpc(ctx context.Context, repoID, method string, params any) (js
 		// The typed sentinels are unchanged and still wrapped with %w: callers branch
 		// on errors.Is, and the detail is additive. A body with nothing to say adds
 		// no separator, so a silent refusal no longer ends in a bare ": ".
-		detail := httpx.ErrorSuffix(resp)
+		// The token this request carried must not survive into the message: a peer
+		// that echoes the Authorization header would otherwise get it written to the
+		// member's stderr. See httpx.Redact.
+		detail := httpx.Redact(httpx.ErrorSuffix(resp), c.Token)
 		switch resp.StatusCode {
 		case http.StatusUnauthorized:
 			return nil, fmt.Errorf("%w%s", ErrUnauthorized, detail)
@@ -211,7 +214,7 @@ func (c *Client) rpc(ctx context.Context, repoID, method string, params any) (js
 		Result json.RawMessage `json:"result"`
 		Error  *jsonrpcError   `json:"error"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := httpx.DecodeJSONBody(resp, &out); err != nil {
 		return nil, fmt.Errorf("hostedbrain: decode %s response: %w", method, err)
 	}
 	if out.Error != nil {

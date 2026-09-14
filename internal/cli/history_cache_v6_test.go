@@ -277,7 +277,10 @@ func TestHistoryCacheEmptyFingerprintsButDoesNotCacheParseLimitFailure(t *testin
 	if want := [][2]int{{0, 1}, {1, 1}}; !reflect.DeepEqual(progress, want) {
 		t.Fatalf("progress = %v, want %v", progress, want)
 	}
-	if want := []string{"bufio.Scanner: token too long"}; !reflect.DeepEqual(source.Warnings, want) {
+	// The warning names the transcript. A whole session drops out of the
+	// projection here, and an unattributed scanner error left no way to tell
+	// which one had gone missing.
+	if want := []string{"history records skipped for sessions/main/20260717T010000Z-oversized.txt: bufio.Scanner: token too long"}; !reflect.DeepEqual(source.Warnings, want) {
 		t.Fatalf("warnings = %v, want %v", source.Warnings, want)
 	}
 	const wantFingerprint = "sha256:999bbc4efb10f491343b79dee94e03b966545c254838a9f00d681e3f3bc04aea"

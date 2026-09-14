@@ -77,10 +77,11 @@ func newVsearchCommand(opts Options) *cobra.Command {
 }
 
 func newQueryCommand(opts Options) *cobra.Command {
-	return newRetrieveCommand(opts, "query", modeHybrid, "Hybrid (lexical+vector, RRF) search across the brain")
+	return newRetrieveCommand(opts, "query", modeHybrid, "Search the brain (hybrid by default)")
 }
 
 func newRetrieveCommand(opts Options, use string, mode retrievalMode, short string) *cobra.Command {
+	var selection querySelection
 	var jsonOut bool
 	var format string
 	var limit int
@@ -102,9 +103,14 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 				return fmt.Errorf("--%s", err.Error())
 			}
 			ropts.IncludeAbstract = includeAbstract
-			return runRetrieve(cmd.Context(), cmd, opts, args[0], mode, limit, branch, ropts, wantJSON, patterns, use)
+			selectedMode, err := selection.mode(mode)
+			if err != nil {
+				return err
+			}
+			return runRetrieve(cmd.Context(), cmd, opts, args[0], selectedMode, limit, branch, ropts, wantJSON, patterns, use)
 		},
 	}
+	configureQueryCommand(cmd, use, &selection, 0)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Maximum results")
 	cmd.Flags().IntVarP(&limit, "number", "n", 10, "Maximum results (QMD-style alias for --limit)")
@@ -804,5 +810,68 @@ func printRetrievalCaveats(out io.Writer, result unifiedResult) {
 		if len(details) > 0 {
 			fmt.Fprintf(out, "      details: %s\n", strings.Join(details, "  "))
 		}
+	}
+}
+
+// querySelection is shared by local and workspace query commands.
+type querySelection struct {
+	text              string
+	keyword, semantic bool
+}
+
+func (s querySelection) mode(fallback retrievalMode) (retrievalMode, error) {
+	if s.keyword && s.semantic {
+		return fallback, fmt.Errorf("--keyword and --semantic are mutually exclusive")
+	}
+	if s.keyword {
+		return modeLexical, nil
+	}
+	if s.semantic {
+		return modeVector, nil
+	}
+	return fallback, nil
+}
+
+func configureQueryCommand(cmd *cobra.Command, use string, selection *querySelection, prefixArgs int) {
+	if use != "query" {
+		cmd.Hidden = true // Keep search/vsearch callable for existing integrations.
+		return
+	}
+	cmd.Use = "query [query]"
+	if prefixArgs == 1 {
+		cmd.Use = "query <workspace> [query]"
+	}
+	cmd.Long = cmd.Short + ". Supply the text positionally or with --query. Flags may appear before or after the text."
+	cmd.Flags().StringVar(&selection.text, "query", "", "Query text (alternative to the positional query)")
+	cmd.Flags().BoolVar(&selection.keyword, "keyword", false, "Match keywords and identifiers only")
+	cmd.Flags().BoolVar(&selection.semantic, "semantic", false, "Match meaning using vector similarity only")
+	cmd.MarkFlagsMutuallyExclusive("keyword", "semantic")
+	cmd.Args = func(cmd *cobra.Command, args []string) error {
+		if cmd.Flags().Changed("query") {
+			if len(args) != prefixArgs {
+				if len(args) < prefixArgs {
+					return fmt.Errorf("workspace is required")
+				}
+				return fmt.Errorf("supply either a positional query or --query, not both")
+			}
+			if strings.TrimSpace(selection.text) == "" {
+				return fmt.Errorf("query must not be empty")
+			}
+		} else {
+			if err := cobra.ExactArgs(prefixArgs+1)(cmd, args); err != nil {
+				return err
+			}
+			if strings.TrimSpace(args[prefixArgs]) == "" {
+				return fmt.Errorf("query must not be empty")
+			}
+		}
+		return nil
+	}
+	run := cmd.RunE
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		if cmd.Flags().Changed("query") {
+			args = append(append([]string(nil), args...), selection.text)
+		}
+		return run(cmd, args)
 	}
 }

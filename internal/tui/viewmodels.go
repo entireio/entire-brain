@@ -116,6 +116,27 @@ type SourceHealth struct {
 	Name    string // Seed, Sessions, Semantic, History, Facts
 	Present bool
 	Detail  string // e.g. "55 symbols · 8 files"
+	// Unreadable marks a source the manifest declares — so Present is true — but
+	// whose store could not actually be read. Without the distinction the Sources
+	// list reported a corrupt semantic snapshot as "Semantic present (8 symbols ·
+	// 18 relations · 2 files)", quoting manifest numbers for a file the very next
+	// line said it had failed to parse. Present says the brain claims it;
+	// Unreadable says the claim could not be honoured.
+	Unreadable bool
+}
+
+// State names a source's condition for display: present, absent, or declared
+// but unreadable. Three states, one place, so the dashboard, the plain summary
+// and the JSON snapshot cannot drift apart.
+func (h SourceHealth) State() string {
+	switch {
+	case h.Unreadable:
+		return "unreadable"
+	case h.Present:
+		return "present"
+	default:
+		return "absent"
+	}
 }
 
 type FreshnessAxis struct {

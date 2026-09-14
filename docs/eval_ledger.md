@@ -1,5 +1,9 @@
 # Eval ledger
 
+> Naming note: recorded `search` and `vsearch` commands remain compatibility
+> aliases. Current usage is `query --keyword` and `query --semantic`; plain
+> `query` remains hybrid. Historical results below retain their original names.
+
 One row per retrieval-quality or agent-outcome measurement that gated a decision. The task sets,
 corpus snapshots, and metrics differ between rows — **numbers are comparable
 only within a row's own baseline**, never across rows. Before claiming a

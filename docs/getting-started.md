@@ -1,5 +1,20 @@
 # Getting Started
 
+## Install and discover agent instructions
+
+Run `entire brain init-agents` in the consuming project to install
+`.entire/brain-agent.md` plus managed pointers in `AGENTS.md` and
+`CLAUDE.md`. Reruns update only Brain's blocks and preserve your own text.
+Use `--repo <path>` for another project. Installation does not build indexes,
+call an agent, or start services.
+
+`entire brain agent-guide` prints the same guide; `guide` remains an alias.
+Use `entire brain capabilities --json` to discover compiled features and their
+requirements without a repository. Use `status --details --json` for the
+current repository's readiness. Graph's language/relation inventory remains
+available through `entire graph capabilities --json`.
+
+
 This guide takes you from nothing to querying a local repository brain. No team
 context is assumed.
 
@@ -367,12 +382,12 @@ Every result carries an `id` you can fetch in full with `get`.
 entire brain overview                          # what the project is: stack, commands, recent decisions
 entire brain brief "add rate limiting to the API"   # a bounded, task-shaped context packet
 entire brain query "how does checkpointing work"    # hybrid lexical + vector search across the brain
-entire brain search "checkpoint"               # exact keyword search
+entire brain query --keyword "checkpoint"               # exact keyword search
 entire brain recall "why did we pick this default"  # durable facts for the current branch
 entire brain get fact:<id>                     # fetch one item in full
 ```
 
-Add `--json` to any of these for machine-readable output. `entire brain guide`
+Add `--json` to any of these for machine-readable output. `entire brain agent-guide`
 prints the recommended command set for a coding agent.
 
 ### Optional: distill durable facts
@@ -650,7 +665,7 @@ indexes.
 
 When the question is "why is this like this?", "what did the previous agent
 try?", or "where did this session leave off?", the agent should search the
-history and facts layers. The normal tools are `brain_query` or `brain_search`,
+history and facts layers. The normal retrieval tool is `brain_query`,
 followed by `brain_get` for specific ids.
 
 This is the main reason Entire capture matters: the original prompt, attempts,
@@ -661,15 +676,29 @@ available to the next agent.
 
 When the question is not tied to one symbol, use the unified retrieval layer.
 `query` is the normal hybrid path over durable facts, indexed history, and docs.
-Use `search` for exact keywords, `vsearch` for semantic matches, and
+Use `query --keyword` for exact keywords, `query --semantic` for semantic matches, and
 `get`/`multi-get` when a result returns an id worth reading in full.
 
 ```sh
 entire brain query "how does checkpointing work" --json
-entire brain search "checkpoint" --json
-entire brain vsearch "preventing data races" --json
+entire brain query --keyword "checkpoint" --json
+entire brain query --semantic "preventing data races" --json
 entire brain get fact:<id> --json
 ```
+
+Use `entire brain query "text"` for default hybrid retrieval. Select keyword
+matching with `--keyword` or semantic matching with `--semantic`; the two
+flags are mutually exclusive and belong only to the query command.
+Text may instead be supplied as `--query "text"`. Flags work before or after
+positional text; combining positional text and `--query` is an error.
+For example: `entire brain query --keyword --query "RetryPolicy" --json`.
+
+Workspace retrieval supports the same forms:
+`entire brain workspace query <workspace> --semantic --query "retry policy"`.
+The old `search` and `vsearch` commands remain hidden compatibility aliases.
+MCP agents should use `brain_query` with optional, mutually exclusive
+`keyword: true` or `semantic: true` arguments; `brain_search` and
+`brain_vsearch` remain compatibility tools.
 
 For durable facts specifically, use `recall`. `recall --expand` is an
 agent-assisted query expansion path, so it belongs behind the same egress

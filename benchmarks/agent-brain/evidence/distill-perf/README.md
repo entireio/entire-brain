@@ -47,6 +47,11 @@ separate local-model contract proof: it exercises fake loopback Ollama with
 `-count=1`, but it is not evidence that any specific Ollama model produces good
 facts.
 
+The retained timed pair is the MEDIAN of five back-to-back `--jobs 1`/`--jobs 4`
+pairs collected on one machine, chosen by that rule before the runs were read.
+The five spanned 2.5747x-2.6284x (median 2.5934x, stdev 0.026) against the
+`min_speedup` floor of 1.25.
+
 Run `mise run distill:evidence` after committing artifacts. The validator fails
 if artifact hashes or command provenance do not match, the dry-run has missing
 transcripts or warnings, branch totals do not add up, run configs differ,

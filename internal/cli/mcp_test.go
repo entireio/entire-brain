@@ -1254,6 +1254,36 @@ func TestMCPQMDRetrievalToolsUseLocalFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	for _, pair := range []struct{ alias, flag string }{{"brain_search", "keyword"}, {"brain_vsearch", "semantic"}} {
+		input := frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":%q,"arguments":{"query":"qmd retrieval alpha","branch":%q}}}`, pair.alias, branch)) +
+			frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_query","arguments":{"query":"qmd retrieval alpha","branch":%q,%q:true}}}`, branch, pair.flag))
+		var out bytes.Buffer
+		if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
+			t.Fatal(err)
+		}
+		responses := readMCPResponses(t, out.String())
+		if len(responses) != 2 {
+			t.Fatalf("responses: %v", responses)
+		}
+		a, _ := json.Marshal(mcpTextJSONPayload(t, responses[0])["results"])
+		b, _ := json.Marshal(mcpTextJSONPayload(t, responses[1])["results"])
+		if string(a) != string(b) {
+			t.Fatalf("%s differs from query %s: %s / %s", pair.alias, pair.flag, a, b)
+		}
+	}
+	for _, modes := range []string{`"keyword":true,"semantic":true`, `"keyword":"yes"`, `"semantic":"yes"`} {
+		input := frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_query","arguments":{"query":"qmd",%s}}}`, modes))
+		var out bytes.Buffer
+		if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
+			t.Fatal(err)
+		}
+		responses := readMCPResponses(t, out.String())
+		result, _ := responses[0]["result"].(map[string]any)
+		if responses[0]["error"] == nil && result["isError"] != true {
+			t.Fatalf("invalid modes accepted: %s: %v", modes, responses)
+		}
+	}
+
 	input := frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"qmd retrieval alpha","limit":1,"branch":%q}}}`, branch)) +
 		frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_vsearch","arguments":{"query":"qmd retrieval beta","limit":1,"branch":%q}}}`, branch)) +
 		frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_query","arguments":{"query":"qmd retrieval alpha","limit":1,"branch":%q}}}`, branch)) +

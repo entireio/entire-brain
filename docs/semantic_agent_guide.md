@@ -1,5 +1,20 @@
 # Semantic Agent Guide
 
+## Install and discover agent instructions
+
+Run `entire brain init-agents` in the consuming project to install
+`.entire/brain-agent.md` plus managed pointers in `AGENTS.md` and
+`CLAUDE.md`. Reruns update only Brain's blocks and preserve your own text.
+Use `--repo <path>` for another project. Installation does not build indexes,
+call an agent, or start services.
+
+`entire brain agent-guide` prints the same guide; `guide` remains an alias.
+Use `entire brain capabilities --json` to discover compiled features and their
+requirements without a repository. Use `status --details --json` for the
+current repository's readiness. Graph's language/relation inventory remains
+available through `entire graph capabilities --json`.
+
+
 Use the local semantic brain as task-specific context. Treat freshness as part
 of the answer, not as decoration.
 
@@ -50,7 +65,7 @@ Recommended intake flow:
    namespace-qualified resource endpoints with short-name fallback, Docker
    Compose service resource-candidate `cross_edges`, and
    a persisted `graph.json` artifact) or
-   `entire brain workspace search|vsearch|query <workspace> <query> --json`
+   `entire brain workspace query <workspace> <query> --json`
    (facts/history/docs, grouped per repo; ids are repo-qualified for
    `workspace get`) only for local workspaces that already list local repo
    path hints.
@@ -66,3 +81,19 @@ Recommended intake flow:
 
 Do not publish semantic artifacts or send semantic context to remote services in
 phase 1.
+
+### Query input and modes
+
+Use `entire brain query "text"` for default hybrid retrieval. Select keyword
+matching with `--keyword` or semantic matching with `--semantic`; the two
+flags are mutually exclusive and belong only to the query command.
+Text may instead be supplied as `--query "text"`. Flags work before or after
+positional text; combining positional text and `--query` is an error.
+For example: `entire brain query --keyword --query "RetryPolicy" --json`.
+
+Workspace retrieval supports the same forms:
+`entire brain workspace query <workspace> --semantic --query "retry policy"`.
+The old `search` and `vsearch` commands remain hidden compatibility aliases.
+MCP agents should use `brain_query` with optional, mutually exclusive
+`keyword: true` or `semantic: true` arguments; `brain_search` and
+`brain_vsearch` remain compatibility tools.

@@ -5,6 +5,26 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `init-agents` installs a shared Brain operating guide and preserves existing
+  AGENTS.md/CLAUDE.md text with managed blocks.
+- `capabilities` reports compiled features and retrieval requirements without
+  requiring a repository, model, or initialized Brain.
+
+
+### Changed
+
+- Renamed `guide` to `agent-guide` (the old name remains an alias) and grouped
+  the agent setup commands together in top-level help.
+
+- Unified retrieval under `query`: hybrid by default, with mutually exclusive
+  `--keyword` and `--semantic` modes. Query text can be positional or passed
+  with `--query`, with flags before or after it. Workspace queries support the
+  same forms. `search` and `vsearch` remain hidden compatibility commands.
+- MCP `brain_query` now accepts `keyword` and `semantic` booleans; existing
+  retrieval tools remain compatible. Updated CLI help, docs, and agent guidance.
+
 ### Fixed
 
 - A repository reached through a symlinked path no longer ends up with two

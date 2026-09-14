@@ -33,6 +33,35 @@ and known failure modes instead of rediscovering them from scratch.
 The plugin binary is named `entire-brain` and is invoked through Entire as
 `entire brain`.
 
+## Agent setup and capability discovery
+
+| Command | Purpose |
+|---|---|
+| `entire brain init-agents [path]` | Install the guide and managed pointers in AGENTS.md/CLAUDE.md |
+| `entire brain agent-guide` | Print the canonical coding-agent operating guide |
+| `entire brain capabilities [--json]` | List compiled features, retrieval sources, requirements, and experimental features |
+| `entire brain refresh index` | Build the semantic index from committed HEAD (use `--worktree` for dirty code) |
+
+`init-agents` accepts `--repo <path>` instead of the positional path and
+`--json` to return a `changed_files` array (empty when already up to date).
+With neither path form it uses the host's repository root, then the current
+directory. It writes `.entire/brain-agent.md` and updates only the
+`<!-- entire-brain:begin -->` / `<!-- entire-brain:end -->` block in each
+instruction file. Existing user text and Graph blocks are preserved. Internal
+instruction symlink aliases are supported; links outside the project,
+non-regular targets, files larger than 4 MiB, and malformed markers are refused.
+The guide file is plugin-managed and replaced on update; edit your own
+instructions outside the managed blocks. No Brain setup or services run.
+
+`guide` remains a compatibility alias for `agent-guide`.
+`capabilities --json` emits schema version 1: `build`, `query`, `sources`,
+`features`, `experimental`, `graph_provider`, and `readiness_command`.
+A source's `semantic_compiled` field reports build support only;
+`semantic_requires` lists additional runtime requirements. No repository,
+provider invocation, or model initialization is needed. This is distinct from
+`status --details --json`, which checks a particular Brain's readiness.
+Language/relation inventories come from `entire graph capabilities --json`.
+
 ## Development source of truth
 
 Entire Brain releases are tagged (`v0.3.0` is the current one), but development
@@ -896,7 +925,7 @@ worktree-backed semantic indexes.
 
 When the question is "why is this like this?", "what did the previous agent
 try?", or "where did this session leave off?", search the history and facts
-layers — `brain_query`/`brain_search`, then `brain_get` for specific ids. This is
+layers — `brain_query`, then `brain_get` for specific ids. This is
 the main reason Entire capture matters: the original prompt, attempts,
 validation, correction, and rationale survive the code diff and become available
 to the next agent.
@@ -905,19 +934,33 @@ to the next agent.
 
 When the question is not tied to one symbol, use the unified retrieval layer.
 `query` is the hybrid path (lexical + vector, RRF) over durable facts, indexed
-history, and docs; `search` for exact keywords, `vsearch` for semantic matches,
+history, and docs; `query --keyword` for exact keywords, `query --semantic` for semantic matches,
 `get`/`multi-get` when a result returns an id. Every result carries an `id`.
 
 ```sh
 entire brain query "how does checkpointing work" --json
-entire brain search "checkpoint" --json
-entire brain vsearch "preventing data races" --json
+entire brain query --keyword "checkpoint" --json
+entire brain query --semantic "preventing data races" --json
 entire brain get fact:<id> --json
 ```
 
-`query`, `search`, and `vsearch` also take `--source` (`all` | `fact` |
+`query` also takes `--source` (`all` | `fact` |
 `history` | `conversation` | `doc`) to restrict retrieval to one layer. The
 default is unchanged (`all` = facts + classified history + docs).
+
+Use `entire brain query "text"` for default hybrid retrieval. Select keyword
+matching with `--keyword` or semantic matching with `--semantic`; the two
+flags are mutually exclusive and belong only to the query command.
+Text may instead be supplied as `--query "text"`. Flags work before or after
+positional text; combining positional text and `--query` is an error.
+For example: `entire brain query --keyword --query "RetryPolicy" --json`.
+
+Workspace retrieval supports the same forms:
+`entire brain workspace query <workspace> --semantic --query "retry policy"`.
+The old `search` and `vsearch` commands remain hidden compatibility aliases.
+MCP agents should use `brain_query` with optional, mutually exclusive
+`keyword: true` or `semantic: true` arguments; `brain_search` and
+`brain_vsearch` remain compatibility tools.
 
 ### Recall prior conversations (experimental, opt-in)
 
@@ -928,7 +971,7 @@ with its exact transcript range:
 
 ```sh
 entire brain query "why did we reject the cache rewrite" --source conversation --json
-entire brain search "SQLITE_BUSY" --source conversation --json
+entire brain query --keyword "SQLITE_BUSY" --source conversation --json
 entire brain get conversation:<id> --json
 ```
 
@@ -966,7 +1009,7 @@ type-specific and error on any other id kind; MCP `brain_get` takes the same
 Exchanges are extracted deterministically and locally (no model calls) and
 never enter default retrieval or published bundles. Lexical BM25 is the
 default and always available. A separate conversation vector store exists for
-explicit `vsearch --source conversation` (semantic-only); it requires the
+explicit `query --semantic --source conversation` (semantic-only); it requires the
 fusion-eligible embedder opt-in (`ENTIRE_BRAIN_EMBEDDER`), the `brain_cgo`
 build, and refresh-built conversation vectors, and returns a structured
 unavailable error naming those requirements when the arm is closed. Fused

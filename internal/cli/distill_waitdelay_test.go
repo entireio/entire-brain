@@ -68,7 +68,7 @@ func TestDistillAgentTimeoutBoundsInheritedPipes(t *testing.T) {
 	if _, err := os.Stat(pidPath); err != nil {
 		t.Fatalf("grandchild probe did not start: %v", err)
 	}
-	if elapsed := time.Since(start); elapsed > commandWaitDelay+5*time.Second {
+	if elapsed := time.Since(start); elapsed > 2*time.Second+distillAgentWaitDelay+3*time.Second {
 		t.Fatalf("inherited pipes extended a 2s timeout to %s", elapsed)
 	}
 }

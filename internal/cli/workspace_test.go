@@ -2927,6 +2927,21 @@ func TestWorkspaceSearchAndGetFanOutWithQualifiedIDs(t *testing.T) {
 		t.Fatalf("search output leaked repo B's unrelated doc:\n%s", searchOut)
 	}
 
+	for _, args := range [][]string{
+		{"workspace", "query", "related", "--keyword", "--query", "checkout", "--json"},
+		{"workspace", "query", "--query", "checkout", "related", "--keyword", "--json"},
+		{"workspace", "query", "--keyword", "related", "checkout", "--json"},
+	} {
+		root := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+		out, err := execute(t, root, args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out != searchOut {
+			t.Fatalf("workspace query keyword differs from search: %s / %s", out, searchOut)
+		}
+	}
+
 	// Text mode prints repo-qualified ids so they can be pasted into `workspace get`.
 	// Fresh root command: cobra flag values (--json) stick across executions.
 	textCmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})

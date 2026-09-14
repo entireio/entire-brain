@@ -177,7 +177,7 @@ func retrieveUnified(repoDir, brainDir, branch, query string, limit int, mode re
 // (ENTIRE_BRAIN_EMBEDDER with a Gemma-class server), the brain_cgo build's
 // vec0 store, and refresh-built conversation vectors. Lexical search and query
 // keep working without any of that.
-var errConversationVectorUnsupported = errors.New(`source "conversation" vector search is unavailable: it requires a fusion-eligible embedder (ENTIRE_BRAIN_EMBEDDER), the brain_cgo build, and conversation vectors built by refresh; use search or query with --source conversation for lexical recall`)
+var errConversationVectorUnsupported = errors.New(`source "conversation" vector search is unavailable: it requires a fusion-eligible embedder (ENTIRE_BRAIN_EMBEDDER), the brain_cgo build, and conversation vectors built by refresh; use query --keyword --source conversation for lexical recall`)
 
 func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {
 	if limit <= 0 {

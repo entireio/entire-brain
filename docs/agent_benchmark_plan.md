@@ -329,10 +329,10 @@ Normal agent entry points:
 ```sh
 entire brain status [repo] --json
 entire brain brief "<task>" --json
-entire brain search "<query>" --json
+entire brain query --keyword "<query>" --json
 entire brain show <id> --json
 entire brain refresh
-entire brain guide
+entire brain agent-guide
 entire brain path [repo]
 ```
 
@@ -347,7 +347,7 @@ Specialist/debug commands live under `inspect`, for example
 ```sh
 entire brain workspace inspect context <name> "<symbol-or-query>" --json
 entire brain workspace inspect impact <name> "<symbol-or-query>" --json
-entire brain workspace search <name> "<query>" --json   # also: vsearch, query, get
+entire brain workspace query --keyword <name> "<query>" --json   # also: query --semantic, query, get
 entire brain workspace refresh <name> --json
 entire brain workspace watch <name>
 ```

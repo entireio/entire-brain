@@ -225,7 +225,7 @@ func TestBrainStatusTextIncludesOnboardingSection(t *testing.T) {
 
 func TestInspectSessionEndHookDetectsRepoSettings(t *testing.T) {
 	repoDir := t.TempDir()
-	t.Setenv("HOME", t.TempDir()) // never consult the developer's real ~/.claude
+	redirectHomeDir(t) // never consult the real ~/.claude -- on ANY platform
 	if state := inspectSessionEndHook(repoDir); state.Installed {
 		t.Fatalf("no settings file means not wired: %+v", state)
 	}
@@ -260,7 +260,7 @@ func TestInspectSessionEndHookDetectsRepoSettings(t *testing.T) {
 // an unrelated tool and would never call us.
 func TestInspectSessionEndHookRejectsAnotherToolsHook(t *testing.T) {
 	repoDir := t.TempDir()
-	t.Setenv("HOME", t.TempDir())
+	redirectHomeDir(t)
 	settings := filepath.Join(repoDir, ".claude", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(settings), 0o700); err != nil {
 		t.Fatal(err)

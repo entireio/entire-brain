@@ -330,8 +330,23 @@ func TestPublishIdempotent(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		captured.count++
 		captured.rawBodie = append(captured.rawBodie, body)
+		// Echo one `stored` entry per artifact, exactly as the endpoint does and as
+		// the stub in TestPublishHappyPath already did. This test only cares that the
+		// two REQUEST bodies are byte-identical, and an empty `stored` was a shortcut
+		// for that — but an empty `stored` against a non-empty upload is the server
+		// saying it kept nothing, which publish now refuses rather than reporting as
+		// a success. A fixture that does not answer like the endpoint cannot pin the
+		// endpoint's behaviour.
+		var decoded wirePublishBody
+		if err := json.Unmarshal(body, &decoded); err != nil {
+			t.Errorf("server could not decode request body: %v", err)
+		}
+		stored := make([]map[string]string, 0, len(decoded.Artifacts))
+		for _, a := range decoded.Artifacts {
+			stored = append(stored, map[string]string{"kind": a.Kind, "ref": a.Ref})
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"status": "published", "stored": []any{}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "published", "stored": stored})
 	}))
 	defer server.Close()
 
