@@ -54,6 +54,21 @@ func readMemoryStateFileRefreshed(brainDir, rel, label string, maxBytes int64, e
 }
 
 func readMemoryStateFileExpected(brainDir, rel, label string, maxBytes int64, expected os.FileInfo) ([]byte, bool, error) {
+	f, present, err := openMemoryStateFileExpected(brainDir, rel, label, expected)
+	if err != nil || !present {
+		return nil, present, err
+	}
+	defer f.Close()
+	data, err := safeReadAll(f, maxBytes, filepath.Join(brainDir, rel))
+	if err != nil {
+		return nil, true, fmt.Errorf("%s: read %s %s: %w", memoryErrStateCorrupt, label, filepath.ToSlash(rel), err)
+	}
+	return data, true, nil
+}
+
+// openMemoryStateFileExpected shares the identity and alias protections with
+// readers that decode directly from the descriptor. The caller closes the file.
+func openMemoryStateFileExpected(brainDir, rel, label string, expected os.FileInfo) (*os.File, bool, error) {
 	clean, err := cleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
 	if err != nil {
 		return nil, false, fmt.Errorf("%s: %s has an unsafe path %q: %w", memoryErrStateUnsafe, label, rel, err)
@@ -79,7 +94,12 @@ func readMemoryStateFileExpected(brainDir, rel, label string, maxBytes int64, ex
 	if err != nil {
 		return nil, true, fmt.Errorf("%s: open %s %s: %w", memoryErrStateUnsafe, label, filepath.ToSlash(clean), err)
 	}
-	defer f.Close()
+	success := false
+	defer func() {
+		if !success {
+			_ = f.Close()
+		}
+	}()
 	opened, err := f.Stat()
 	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
 		return nil, true, fmt.Errorf("%s: %s changed or became unsafe while opening: %s", memoryErrStateUnsafe, label, filepath.ToSlash(clean))
@@ -91,11 +111,8 @@ func readMemoryStateFileExpected(brainDir, rel, label string, maxBytes int64, ex
 	if err := rejectOpenFileAlias(path, f, label); err != nil {
 		return nil, true, fmt.Errorf("%s: validate opened %s %s: %w", memoryErrStateUnsafe, label, filepath.ToSlash(clean), err)
 	}
-	data, err := safeReadAll(f, maxBytes, path)
-	if err != nil {
-		return nil, true, fmt.Errorf("%s: read %s %s: %w", memoryErrStateCorrupt, label, filepath.ToSlash(clean), err)
-	}
-	return data, true, nil
+	success = true
+	return f, true, nil
 }
 
 type memoryStateDirectory struct {

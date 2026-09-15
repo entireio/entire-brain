@@ -7,8 +7,9 @@ document records the size/time ceilings and the defensive policies that keep a
 malformed or hostile input from crashing the process, exhausting memory, or
 escaping its intended scope.
 
-All limits degrade gracefully: a file/record over its ceiling is rejected (or a
-derived cache is rebuilt) rather than silently truncated or allowed to OOM.
+Inputs with a byte ceiling are rejected when they exceed it (or a derived
+cache is rebuilt). Canonical Brain manifests have no byte ceiling; their memory
+behavior is described below.
 
 ## Size ceilings
 
@@ -22,7 +23,8 @@ derived cache is rebuilt) rather than silently truncated or allowed to OOM.
 | Vector KNN neighborhood (brain_cgo) | 4,096 | `vec0KnnMaxK` (`embed_vec_cgo.go`); filtered vector search is approximate past it | — |
 | get / multi-get ids per request | 50 | `maxGetBatchIDs` (`retrieve.go`) | — |
 | Seed / markdown doc (per file) | 32 MiB | `maxSeedDocBytes` | — |
-| JSON manifest / index / cursor | 16 MiB | `maxManifestBytes` | — |
+| Auxiliary JSON state / index / cursor | 16 MiB | `maxManifestBytes` | — |
+| Canonical Brain manifest | No byte ceiling | `readBrainManifestFile`; agent setup `readManifestRecord` | — |
 | Full semantic snapshot (read) | 2 GiB | `defaultMaxSemanticSnapshotBytes` | `ENTIRE_BRAIN_MAX_SNAPSHOT_BYTES` |
 | Gzip cache decompressed output | snapshot cap | `loadCheckpointMetadataCache`, `loadHistoryScanCache` | `ENTIRE_BRAIN_MAX_SNAPSHOT_BYTES` |
 | Per NDJSON record (entire-graph) | 16 MiB | `semanticMaxRecordBytes` | `ENTIRE_BRAIN_MAX_RECORD_BYTES` |
@@ -36,6 +38,29 @@ derived cache is rebuilt) rather than silently truncated or allowed to OOM.
 
 `safeReadFile` / `safeReadAll` (`safe_read.go`) are the shared helpers: they cap a
 read at `max+1` bytes via `io.LimitReader` and error if the source exceeds `max`.
+
+## Canonical manifest loading
+
+Brain's writer and normal readers accept existing manifests larger than 16 MiB.
+No rebuild, deletion, JSON compaction, or record truncation is needed to open
+these manifests. Refresh, status, doctor, and agent initialization use dedicated
+manifest readers; auxiliary state, setup records, configuration, transcripts,
+and snapshot limits are unchanged.
+
+The readers decode directly from safely opened regular files and reject malformed
+or trailing JSON. CLI reads preserve descriptor identity and alias checks.
+Schemas 1–3 remain supported. Normal readers tolerate unknown fields; CLI writers
+still refuse to replace a manifest containing fields they cannot round-trip.
+Loading retained manifests does not require the source repository or Git.
+
+This is **not bounded-memory streaming**. Go's JSON decoder buffers a complete
+JSON value, and CLI readers materialize the manifest structure. Schema validation
+and strict decoding use separate passes over the same descriptor, with another
+pass when unknown fields require a tolerant retry. The writer also materializes
+the encoded JSON before atomic replacement. Memory and processing time grow with
+manifest size; there is no explicit manifest resource budget or recoverable
+out-of-memory guarantee. Very large manifests remain limited by available process
+memory and filesystem performance.
 
 ## Resilience policies
 

@@ -200,36 +200,8 @@ func loadBrainManifestForReplace(outputDir string) (*exportManifest, error) {
 // readBrainManifest also reports whether it dropped fields written by another
 // build, so status and doctor can recommend a refresh instead of staying silent.
 func readBrainManifest(outputDir string, tolerateUnknownFields bool) (*exportManifest, bool, error) {
-	data, present, err := readMemoryStateFile(outputDir, exportManifestFileName, "brain manifest", maxManifestBytes)
-	if err != nil {
-		return nil, false, fmt.Errorf("read brain manifest: %w", err)
-	}
-	if !present {
-		return &exportManifest{SchemaVersion: brainManifestSchemaVersion}, false, nil
-	}
-	var manifest exportManifest
-	version, err := checkedVersionedJSONHeader(data, brainManifestSchemaVersion, "brain manifest")
-	if err != nil {
-		return nil, false, fmt.Errorf("parse brain manifest: %w", err)
-	}
-	droppedUnknownFields, err := decodeVersionedJSONBody(data, &manifest, tolerateUnknownFields)
-	if err != nil {
-		if errors.Is(err, errTrailingJSONData) {
-			return nil, false, fmt.Errorf("parse brain manifest: %s: brain manifest contains trailing JSON data", memoryErrStateCorrupt)
-		}
-		return nil, false, fmt.Errorf("parse brain manifest: %s: brain manifest cannot be parsed: %w", memoryErrStateCorrupt, err)
-	}
-	// Explicit v1-v3 documents are supported; no writer may down-convert a vNext
-	// manifest or silently discard additive fields, and a manifest that declares
-	// no version at all is not a v0 to adapt (see brainManifestMinSchemaVersion).
-	if version < brainManifestMinSchemaVersion {
-		return nil, false, fmt.Errorf("%s: brain manifest declares schema version %d, older than the first supported version %d", memoryErrUnsupportedVersion, version, brainManifestMinSchemaVersion)
-	}
-	if version > brainManifestSchemaVersion {
-		return nil, false, fmt.Errorf("%s: unsupported brain manifest schema version %d", memoryErrUnsupportedVersion, version)
-	}
-	normalizeBrainManifest(&manifest)
-	return &manifest, droppedUnknownFields, nil
+	manifest, _, dropped, _, err := readBrainManifestFile(outputDir, tolerateUnknownFields)
+	return manifest, dropped, err
 }
 
 // errManifestRoundTrips reports a manifest this build can already rewrite, so
@@ -256,29 +228,21 @@ var errManifestRoundTrips = errors.New("manifest round-trips")
 func discardManifestThisBuildCannotRewrite(brainDir string) (bool, error) {
 	unrewritable := false
 	err := withBrainManifestWriteLock(brainDir, func() error {
-		return removeCheckedMemoryStateFile(brainDir, exportManifestFileName, "brain manifest", maxManifestBytes, func(data []byte) error {
-			version, err := checkedVersionedJSONHeader(data, brainManifestSchemaVersion, "brain manifest")
+		return removeCheckedMemoryStateFileValidated(brainDir, exportManifestFileName, "brain manifest", func(before os.FileInfo) (bool, error) {
+			f, present, err := openMemoryStateFileExpected(brainDir, exportManifestFileName, "brain manifest", before)
+			if err != nil || !present {
+				return present, err
+			}
+			defer f.Close()
+			_, _, droppedUnknownFields, err := decodeBrainManifestFile(f, true)
 			if err != nil {
-				return err
-			}
-			// The same range the reader enforces. checkedVersionedJSONHeader only
-			// rejects versions newer than this build, so without this a negative
-			// or otherwise out-of-range version reaches the delete -- state the
-			// reader already calls unsupported, which is exactly the "genuine
-			// corruption stays" case above.
-			if version < 0 || version > brainManifestSchemaVersion {
-				return fmt.Errorf("%s: unsupported brain manifest schema version %d", memoryErrUnsupportedVersion, version)
-			}
-			var manifest exportManifest
-			droppedUnknownFields, decodeErr := decodeVersionedJSONBody(data, &manifest, true)
-			if decodeErr != nil {
-				return fmt.Errorf("%s: brain manifest cannot be parsed: %w", memoryErrStateCorrupt, decodeErr)
+				return true, err
 			}
 			if !droppedUnknownFields {
-				return errManifestRoundTrips
+				return true, errManifestRoundTrips
 			}
 			unrewritable = true
-			return nil
+			return true, nil
 		})
 	})
 	if errors.Is(err, errManifestRoundTrips) {
@@ -440,24 +404,8 @@ func writeBrainManifestAndReadme(outputDir string, manifest exportManifest) erro
 			return fmt.Errorf("encode %s: %w", exportManifestFileName, err)
 		}
 		data = append(data, '\n')
-		// The writer must not exceed what the reader will accept. readBrainManifest
-		// caps the manifest at maxManifestBytes; this side had no cap at all, so a
-		// single unbounded field could -- and did -- produce a manifest the brain
-		// could never read back. A 50,000-commit repository wrote 28 MB of
-		// manifest, and from that moment every command, status and doctor
-		// included, failed with "exceeds maximum size of 16777216 bytes". The
-		// store was bricked by its own successful write, and nothing short of
-		// `reset` recovered it.
-		//
-		// Refusing here fails the stage that produced the oversized record and
-		// leaves the previous manifest -- which is readable by construction,
-		// loadBrainManifestForReplace just read it -- exactly where it was. A
-		// failed refresh over a working brain is a recoverable state; an
-		// unreadable manifest over a 4 GB store is not. This mirrors the guard
-		// writeDocIndexAndSourceLocked already applies to the doc index.
-		if int64(len(data)) > maxManifestBytes {
-			return fmt.Errorf("write %s: %w; the brain kept its previous manifest -- this is a bug in whatever produced an oversized record, please report the repository size that triggered it", exportManifestFileName, &readBoundExceededError{source: exportManifestFileName, max: maxManifestBytes})
-		}
+		// Canonical manifest readers have no byte ceiling; retain every record
+		// and publish the complete document atomically.
 		if err := writeBrainRelativeFileAtomic(outputDir, exportManifestFileName, data, 0o600); err != nil {
 			return fmt.Errorf("write %s: %w", exportManifestFileName, err)
 		}

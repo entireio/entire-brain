@@ -1568,47 +1568,23 @@ func inspectBrainManifestHealth(brainDir string) (*exportManifest, memoryManifes
 		SupportedSchemaVersion: brainManifestSchemaVersion,
 		RecommendedAction:      "run `entire brain refresh` to create the canonical manifest",
 	}
-	data, present, err := readMemoryStateFile(brainDir, exportManifestFileName, "brain manifest", maxManifestBytes)
-	if err != nil {
-		code := memoryErrorCode(err)
-		health.Present = present
-		health.State = "corrupt"
-		if code == memoryErrStateUnsafe {
-			health.State = "unsafe"
-		}
-		health.ErrorCode = code
-		health.RecommendedAction = "inspect the manifest path; status leaves the exact leaf untouched"
-		issue := memoryHealthIssue{Kind: "manifest", Path: exportManifestFileName, Code: code, Action: health.RecommendedAction}
-		return nil, health, &issue
-	}
-	if !present {
+	manifest, version, droppedUnknownFields, present, err := readBrainManifestFile(brainDir, true)
+	if !present && err == nil {
 		// Preserve the established status shape for a not-yet-built Brain while
 		// keeping absence distinct from a current on-disk manifest.
 		return &exportManifest{SchemaVersion: brainManifestSchemaVersion, Sources: &brainSources{}}, health, nil
 	}
-	health.Present = true
-	var manifest exportManifest
-	version, err := checkedVersionedJSONHeader(data, brainManifestSchemaVersion, "brain manifest")
-	// This inspection only reports; it never rewrites the manifest, so a field
-	// another build wrote is skew to surface, not corruption to fail on.
-	var droppedUnknownFields bool
-	if err == nil {
-		droppedUnknownFields, err = decodeVersionedJSONBody(data, &manifest, true)
-		if errors.Is(err, errTrailingJSONData) {
-			err = fmt.Errorf("%s: brain manifest contains trailing JSON data", memoryErrStateCorrupt)
-		} else if err != nil {
-			err = fmt.Errorf("%s: brain manifest cannot be parsed: %w", memoryErrStateCorrupt, err)
-		}
-	}
+	health.Present = present
 	health.SchemaVersion = version
-	if err == nil && version < brainManifestMinSchemaVersion {
-		err = fmt.Errorf("%s: brain manifest declares schema version %d, older than the first supported version %d", memoryErrUnsupportedVersion, version, brainManifestMinSchemaVersion)
-	}
 	if err != nil {
 		code := memoryErrorCode(err)
 		health.ErrorCode = code
 		health.State = "corrupt"
 		health.RecommendedAction = "repair or rebuild the manifest from canonical sources"
+		if code == memoryErrStateUnsafe {
+			health.State = "unsafe"
+			health.RecommendedAction = "inspect the manifest path; status leaves the exact leaf untouched"
+		}
 		if code == memoryErrUnsupportedVersion {
 			health.State = "unsupported"
 			// Which way the version is skewed decides the remedy, and only one
@@ -1625,7 +1601,6 @@ func inspectBrainManifestHealth(brainDir string) (*exportManifest, memoryManifes
 		issue := memoryHealthIssue{Kind: "manifest", Path: exportManifestFileName, Code: code, Version: version, Action: health.RecommendedAction}
 		return nil, health, &issue
 	}
-	normalizeBrainManifest(&manifest)
 	health.State = "current"
 	health.SchemaVersion = manifest.SchemaVersion
 	health.RecommendedAction = "none"
@@ -1639,7 +1614,7 @@ func inspectBrainManifestHealth(brainDir string) (*exportManifest, memoryManifes
 		// this build's supported schema, and callers switch on that string.
 		health.RecommendedAction = "written by a different build and read-only; run `entire brain refresh --force` to rebuild it from canonical sources"
 	}
-	return &manifest, health, nil
+	return manifest, health, nil
 }
 
 func inspectMemoryLockLeaf(brainDir, rel string) map[string]any {

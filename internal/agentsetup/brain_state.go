@@ -52,6 +52,25 @@ func brainDirectory(explicit, override, xdg, fallback string) (string, error) {
 	return filepath.Join(home, fallback, "entire"), nil
 }
 func readRecord(dir, name string) ([]byte, bool, error) {
+	f, present, err := openRecord(dir, name)
+	if err != nil || !present {
+		return nil, present, err
+	}
+	defer f.Close()
+	const limit = 16 << 20
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if len(data) > limit {
+		return nil, false, fmt.Errorf("setup record exceeds size limit")
+	}
+	return data, true, nil
+}
+
+// openRecord preserves setup-state path and file-type checks for both bounded
+// operational records and canonical manifests. The caller closes the file.
+func openRecord(dir, name string) (*os.File, bool, error) {
 	// Validate the raw spelling before any join can erase dot components.
 	if !filepath.IsLocal(name) {
 		return nil, false, fmt.Errorf("invalid setup record path %q", name)
@@ -92,24 +111,45 @@ func readRecord(dir, name string) ([]byte, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	defer f.Close()
+
 	info, err = f.Stat()
 	if err != nil {
+		f.Close()
 		return nil, false, err
 	}
 	if !info.Mode().IsRegular() {
+		f.Close()
 		return nil, false, fmt.Errorf("setup record is not regular")
 	}
-	const limit = 16 << 20
-	data, err := io.ReadAll(io.LimitReader(f, limit+1))
-	if err != nil {
-		return nil, false, err
-	}
-	if len(data) > limit {
-		return nil, false, fmt.Errorf("setup record exceeds size limit")
-	}
-	return data, true, nil
+	return f, true, nil
 }
+
+type brainManifestRecord struct {
+	SchemaVersion int    `json:"schema_version"`
+	RepoKey       string `json:"repo_key"`
+	RepoRoot      string `json:"repo_root"`
+}
+
+// readManifestRecord reads legacy/manual Brain state without imposing setup's
+// size ceiling. Unknown fields remain accepted; the entire JSON document is
+// validated, including its end. The decoder may buffer the complete value.
+func readManifestRecord(dir, name string) (brainManifestRecord, bool, error) {
+	var manifest brainManifestRecord
+	f, present, err := openRecord(dir, name)
+	if err != nil || !present {
+		return manifest, present, err
+	}
+	defer f.Close()
+	decoder := json.NewDecoder(f)
+	if err := decoder.Decode(&manifest); err != nil {
+		return manifest, true, fmt.Errorf("malformed Brain manifest: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return manifest, true, fmt.Errorf("malformed Brain manifest: trailing JSON data")
+	}
+	return manifest, true, nil
+}
+
 func repositoryBrain(repo string, opts Options) (bool, error) {
 	state, err := brainDirectory(opts.StateDir, "ENTIRE_BRAIN_STATE_DIR", "XDG_STATE_HOME", filepath.Join(".local", "state"))
 	if err != nil {
@@ -161,19 +201,11 @@ func repositoryBrain(repo string, opts Options) (bool, error) {
 			continue
 		}
 		// Legacy/manual build and refresh paths can create a Brain without setup.
-		record, present, err = readRecord(data, filepath.Join("repos", filepath.FromSlash(key), "manifest.json"))
+		manifest, present, err := readManifestRecord(data, filepath.Join("repos", filepath.FromSlash(key), "manifest.json"))
 		if err != nil {
 			return false, err
 		}
 		if present {
-			var manifest struct {
-				SchemaVersion int    `json:"schema_version"`
-				RepoKey       string `json:"repo_key"`
-				RepoRoot      string `json:"repo_root"`
-			}
-			if err := json.Unmarshal(record, &manifest); err != nil {
-				return false, fmt.Errorf("malformed Brain manifest: %w", err)
-			}
 			if manifest.SchemaVersion < 1 || manifest.SchemaVersion > 3 {
 				return false, fmt.Errorf("unsupported Brain manifest schema %d", manifest.SchemaVersion)
 			}
