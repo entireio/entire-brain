@@ -1,0 +1,80 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "9f2ac54fe84a",
+  "session_id": "01a0a3cd-839a-7182-942e-e38103c7c557",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-15T07:45:17.042459Z",
+  "branch": "codex/manifest-reader",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "docs/limits.md",
+    "docs/manifest-loading-validation.md",
+    "internal/agentsetup/brain_manifest_test.go",
+    "internal/agentsetup/brain_state.go",
+    "internal/cli/brain.go",
+    "internal/cli/brain_manifest_read.go",
+    "internal/cli/brain_manifest_read_test.go",
+    "internal/cli/brain_manifest_read_unix_test.go",
+    "internal/cli/memory_admin.go",
+    "internal/cli/memory_state_io.go",
+    "internal/cli/safe_read.go",
+    "internal/cli/seed_manifest_scale_test.go",
+    "internal/cli/versioned_state.go",
+    "internal/cli/versioned_state_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "fb397aef4f39",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 223622,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 8705152,
+    "output_tokens": 27505,
+    "api_call_count": 101,
+    "subagent_tokens": {
+      "input_tokens": 97944,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 6601344,
+      "output_tokens": 19644,
+      "api_call_count": 125
+    },
+    "subagent_tokens_complete": true
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-15T07:45:17.007048Z",
+    "agent_lines": 691,
+    "agent_removed": 176,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 691,
+    "total_lines_changed": 867,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "AGENTS.md": 4,
+        "CLAUDE.md": 4
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 699,
+      "agent_lines_removed": 176
+    }
+  ]
+}

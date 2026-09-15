@@ -1,0 +1,51 @@
+Start from current `origin/main`.
+
+### Problem
+
+Brain writes valid manifests that its own readers reject. `internal/cli/safe_read.go` defines `maxManifestBytes = 16 << 20`; two existing Brains have manifests of **18,569,433 bytes** and **17,220,291 bytes**, blocking refresh, status, and doctor.
+
+### Required change
+
+Remove the arbitrary 16 MiB restriction from **Brain manifest loading**, without globally weakening limits for other input types.
+
+- Introduce a dedicated manifest reader and update every relevant caller.
+- Prefer decoding directly from the safely opened file. Preserve file-type protections, malformed-JSON detection, trailing-data rejection, schema compatibility, and existing unknown-field handling.
+- Do not merely increase the constant, compact JSON to squeeze under it, truncate records, or discard manifests.
+- Streaming JSON decoding still materializes the manifest data structure; do not claim bounded memory without demonstrating it.
+- If an explicit resource budget is supported, distinguish resource exhaustion from corrupt data and provide an actionable error.
+- Preserve compatibility with existing manifests. This fix must not require rebuilding or deleting a Brain before it can be opened.
+- Keep unrelated input-size limits unchanged.
+
+Inspect the manifest writer and all consumers, including refresh, status, doctor, and agent initialization. Ensure the writer and normal readers agree about which manifests are supported.
+
+### Scope
+
+Fix manifest loading and its affected consumers. A database/catalog migration, transcript compression, checkpoint-pointer repairs, and broader storage redesign are separate work.
+
+Brain must remain usable without its source repository or Git being available for retained-data reads.
+
+### Validation
+
+Add meaningful regression tests covering:
+
+- Valid manifests matching both observed oversized shapes.
+- A substantially larger synthetic manifest, to demonstrate that the fix does not simply move the same ceiling.
+- Normal manifests, malformed/truncated JSON, trailing JSON, and unsupported schema versions.
+- Existing filesystem protections and preservation of the previous manifest when an operation fails.
+- Writer-to-reader round trips through the actual production paths.
+
+Then validate against the existing 20-repository cohort:
+
+1. Confirm both previously blocked Brains open with their existing manifests.
+2. Refresh them using deterministic processing, then verify status and doctor.
+3. Check the other 18 for regressions.
+4. Confirm coordinated `init-agents` still works.
+5. Report remaining checkpoint-coverage warnings separately from manifest-loading failures.
+
+### Verification privacy
+
+Keep Entire tracking enabled. Delegate real-cohort verification to a helper that returns opaque repository IDs, aggregate counts, and sanitized failures. Keep repository names, source code, transcript contents, and raw diagnostics out of the primary implementation conversation. Implementation source and synthetic fixtures can be inspected normally. This is output minimization, not a requirement to disable session logging.
+
+### Deliverable
+
+Provide the implementation, focused test results, and a sanitized cohort-validation report. Explain memory behavior and any remaining limitations. Preserve user changes; do not use destructive resets, discard retained evidence, run paid inference, install watchers, or publish anything.
