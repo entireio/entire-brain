@@ -2,7 +2,6 @@ package cli
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -197,55 +196,32 @@ func fakeSeedGitLog(n int) string {
 	return b.String()
 }
 
-// TestWriteBrainManifestRefusesWhatItCannotReadBack pins the writer/reader
-// symmetry. readBrainManifest has always capped the manifest at
-// maxManifestBytes; the writer had no cap, so an oversized record was written
-// successfully and every later read -- status and doctor included -- failed. The
-// write must fail instead, and the manifest that was readable a moment ago must
-// still be there afterwards.
-func TestWriteBrainManifestRefusesWhatItCannotReadBack(t *testing.T) {
+// Large retained coverage records written by earlier builds remain readable and
+// rewritable even though new seed projections store coverage more compactly.
+func TestWriteBrainManifestLargeCoverageRoundTrip(t *testing.T) {
 	brainDir := t.TempDir()
-	good := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
-		RepoKey:       "local/example",
-		Sources:       &brainSources{},
+	manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, RepoKey: "local/example", Sources: &brainSources{Seed: &seedSourceManifest{
+		GeneratedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), HistoryCoverage: coverageFixture(50000),
+	}}}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
 	}
-	if err := writeBrainManifestAndReadme(brainDir, good); err != nil {
-		t.Fatalf("write baseline manifest: %v", err)
-	}
-	before, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	info, err := os.Stat(filepath.Join(brainDir, exportManifestFileName))
 	if err != nil {
-		t.Fatalf("read baseline: %v", err)
+		t.Fatal(err)
 	}
-
-	oversized := good
-	oversized.Sources = &brainSources{Seed: &seedSourceManifest{
-		GeneratedAt:     time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
-		HistoryCoverage: coverageFixture(50000),
-	}}
-	err = writeBrainManifestAndReadme(brainDir, oversized)
-	if err == nil {
-		t.Fatal("writing a manifest larger than the read bound must fail")
+	if info.Size() <= maxManifestBytes {
+		t.Fatal("fixture did not exceed old ceiling")
 	}
-	var bound *readBoundExceededError
-	if !errors.As(err, &bound) {
-		t.Fatalf("want a read-bound error naming the size, got %v", err)
-	}
-	// An error the caller cannot act on is only half a refusal.
-	if !strings.Contains(err.Error(), "previous manifest") {
-		t.Fatalf("refusal does not say the previous manifest survived: %v", err)
-	}
-
-	after, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	got, err := loadBrainManifest(brainDir)
 	if err != nil {
-		t.Fatalf("read after refusal: %v", err)
+		t.Fatal(err)
 	}
-	if string(after) != string(before) {
-		t.Fatal("refused write replaced the readable manifest")
+	if len(got.Sources.Seed.HistoryCoverage.UncoveredCommits) != 50000 {
+		t.Fatal("lost coverage records")
 	}
-	// The real assertion: the brain still works.
-	if _, err := loadBrainManifest(brainDir); err != nil {
-		t.Fatalf("manifest unreadable after a refused write: %v", err)
+	if err := writeBrainManifestAndReadme(brainDir, *got); err != nil {
+		t.Fatal(err)
 	}
 }
 

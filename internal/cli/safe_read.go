@@ -29,7 +29,8 @@ const (
 	// maxSeedDocBytes bounds a single seed/markdown document read for chunking.
 	maxSeedDocBytes = 32 << 20 // 32 MiB
 
-	// maxManifestBytes bounds JSON manifest/index/cursor files, which are small.
+	// maxManifestBytes bounds auxiliary JSON state/index/cursor files.
+	// Canonical Brain manifests use the dedicated, uncapped manifest reader.
 	maxManifestBytes = 16 << 20 // 16 MiB
 
 	// defaultMaxSemanticSnapshotBytes bounds a full entire-graph snapshot read. It is

@@ -214,13 +214,15 @@ func TestUnknownFieldErrorTextIsStillStdlibContract(t *testing.T) {
 
 // decodersAllowedToRejectUnknownFields are the only files that may call
 // DisallowUnknownFields directly. Everything reading the brain's own persisted
-// state goes through decodeVersionedJSONBody, which forces each caller to say
+// state goes through decodeVersionedJSONBody or the dedicated file-backed
+// manifest decoder, both of which force each caller to say
 // whether it is guarding a rewrite or only reading — the distinction this
 // package got wrong. Each entry carries its reason at the call site.
 var decodersAllowedToRejectUnknownFields = map[string]string{
-	"export.go":          "user-authored settings, where an unknown key is usually a typo",
-	"memory_abstract.go": "untrusted model output, not state a build of ours wrote",
-	"versioned_state.go": "the shared decoder itself",
+	"brain_manifest_read.go": "dedicated file-backed manifest decoder: strict rewrites, tolerant read retry with unknown-field reporting",
+	"export.go":              "user-authored settings, where an unknown key is usually a typo",
+	"memory_abstract.go":     "untrusted model output, not state a build of ours wrote",
+	"versioned_state.go":     "the shared decoder itself",
 }
 
 func TestPersistedStateDecodersRouteThroughTheSharedDecoder(t *testing.T) {

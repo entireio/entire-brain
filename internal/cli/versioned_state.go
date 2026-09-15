@@ -130,6 +130,16 @@ func decodeStrictVersionedJSON(data []byte, out any, current int, label string) 
 // Brain lock; the identity checks also keep unsafe aliases from turning an
 // authorized cleanup into an unlink of unclassified state.
 func removeCheckedMemoryStateFile(brainDir, rel, label string, maxBytes int64, validate func([]byte) error) error {
+	return removeCheckedMemoryStateFileValidated(brainDir, rel, label, func(before os.FileInfo) (bool, error) {
+		data, present, err := readMemoryStateFileExpected(brainDir, rel, label, maxBytes, before)
+		if err != nil || !present {
+			return present, err
+		}
+		return true, validate(data)
+	})
+}
+
+func removeCheckedMemoryStateFileValidated(brainDir, rel, label string, validate func(os.FileInfo) (bool, error)) error {
 	clean, err := cleanBrainRelativePath(rel)
 	if err != nil {
 		return fmt.Errorf("%s: %s has an unsafe path: %w", memoryErrStateUnsafe, label, err)
@@ -142,15 +152,12 @@ func removeCheckedMemoryStateFile(brainDir, rel, label string, maxBytes int64, v
 		}
 		return fmt.Errorf("%s: inspect %s: %w", memoryErrStateCorrupt, label, err)
 	}
-	data, present, err := readMemoryStateFileExpected(brainDir, rel, label, maxBytes, before)
+	present, err := validate(before)
 	if err != nil {
 		return err
 	}
 	if !present {
 		return nil
-	}
-	if err := validate(data); err != nil {
-		return err
 	}
 	after, err := memoryStateLstat(path)
 	if err != nil {
