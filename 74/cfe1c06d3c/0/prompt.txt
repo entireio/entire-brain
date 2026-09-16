@@ -1,13 +1,1 @@
-Pull from main, build and install the latest version of brain, then review the output of "entire brain help"
-
----
-
-I want you to reorganize this. First section should be setup of the brain and init-agents/agent-guide. Then the remaining sections should reflect how the command is used (for which part of the brain), ending in a section for misc commands. Suggest such structure.
-
----
-
-Doesn't mcp belong into the first section? And what does "bench" do?
-
----
-
-Ok, restructure the commands as discussed.
+commit/push, then open a new trail
