@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "bb26413b59bb",
+  "strategy": "manual-commit",
+  "branch": "codex/strict-agent-guidance",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "docs/agent-coordination.md",
+    "internal/agentsetup/activation.go",
+    "internal/agentsetup/activation_test.go",
+    "internal/agentsetup/coordination_test.go",
+    "internal/agentsetup/guide.go",
+    "internal/agentsetup/preview.go",
+    "internal/agentsetup/strict.go",
+    "internal/agentsetup/strict_test.go",
+    "internal/cli/agent_setup.go",
+    "scripts/test-agent-coordination.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/bb/26413b59bb/0/metadata.json",
+      "transcript": "/bb/26413b59bb/0/full.jsonl",
+      "compact_transcript": "/bb/26413b59bb/0/transcript.jsonl",
+      "content_hash": "/bb/26413b59bb/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 199948,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 7530880,
+    "output_tokens": 28664,
+    "api_call_count": 79
+  }
+}
