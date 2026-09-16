@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "431930977817",
+  "strategy": "manual-commit",
+  "branch": "codex/strict-agent-guidance",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/agent-coordination.md",
+    "internal/agentsetup/strict.go",
+    "internal/agentsetup/strict_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/43/1930977817/0/metadata.json",
+      "transcript": "/43/1930977817/0/full.jsonl",
+      "compact_transcript": "/43/1930977817/0/transcript.jsonl",
+      "content_hash": "/43/1930977817/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 34249,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3078656,
+    "output_tokens": 7975,
+    "api_call_count": 20
+  }
+}
