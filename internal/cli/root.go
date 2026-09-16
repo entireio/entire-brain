@@ -211,23 +211,33 @@ func setRootUsage(root *cobra.Command, commands []*cobra.Command) {
 	})
 }
 
-// Use the output terminal when available, then COLUMNS (also useful through
-// CLI dispatchers), and a readable default for redirected output.
+// Prefer the output terminal. Entire may pipe plugin output, so also consult
+// the controlling terminal for file-backed output. Unknown width means no wrap.
 func helpTerminalWidth(out io.Writer) int {
 	if f, ok := out.(interface{ Fd() uintptr }); ok {
 		if width, _, err := term.GetSize(f.Fd()); err == nil && width > 0 {
 			return width
 		}
+		if tty, err := os.Open("/dev/tty"); err == nil {
+			defer tty.Close()
+			if width, _, err := term.GetSize(tty.Fd()); err == nil && width > 0 {
+				return width
+			}
+		}
 	}
 	if width, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && width > 0 {
 		return width
 	}
-	return 80
+	return 0
 }
 
 func writeHelpCommand(out io.Writer, name, description string, nameWidth, terminalWidth int) {
 	indent := nameWidth + 4
 	prefix := fmt.Sprintf("  %-*s  ", nameWidth, name)
+	if terminalWidth <= 0 || ansi.StringWidth(prefix+description) <= terminalWidth {
+		fmt.Fprintln(out, prefix+description)
+		return
+	}
 	// On very narrow terminals, put the description below the command name.
 	if terminalWidth <= indent {
 		fmt.Fprintf(out, "  %s\n", name)

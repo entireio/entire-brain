@@ -363,10 +363,22 @@ func TestHelpTerminalWidthFallback(t *testing.T) {
 	for _, tc := range []struct {
 		columns string
 		want    int
-	}{{"52", 52}, {"", 80}, {"invalid", 80}, {"0", 80}, {"-1", 80}} {
+	}{{"52", 52}, {"", 0}, {"invalid", 0}, {"0", 0}, {"-1", 0}} {
 		t.Setenv("COLUMNS", tc.columns)
 		if got := helpTerminalWidth(&bytes.Buffer{}); got != tc.want {
 			t.Fatalf("COLUMNS=%q: got %d, want %d", tc.columns, got, tc.want)
+		}
+	}
+}
+
+func TestHelpCommandLeavesFittingOrUnknownWidthUnwrapped(t *testing.T) {
+	description := strings.Repeat("long description ", 10)
+	for _, width := range []int{0, 200} {
+		var out bytes.Buffer
+		writeHelpCommand(&out, "setup", description, 13, width)
+		want := "  setup          " + description + "\n"
+		if out.String() != want {
+			t.Fatalf("width %d: unnecessarily wrapped: %q", width, out.String())
 		}
 	}
 }
