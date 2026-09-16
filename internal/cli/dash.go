@@ -39,7 +39,7 @@ func newDashCommand(opts Options) *cobra.Command {
 	var flags dashFlags
 	cmd := &cobra.Command{
 		Use:   "dash [path]",
-		Short: "Browse the brain in an interactive dashboard (status, facts, sessions, history, semantic)",
+		Short: "Browse the brain in an interactive dashboard",
 		Long: `dash opens an interactive terminal dashboard over the brain: a Home tab
 summarizing source health, freshness, and blind spots, plus explorer tabs that
 browse individual facts, sessions, history records, and semantic symbols, each

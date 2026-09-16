@@ -67,7 +67,7 @@ func newCapabilitiesCommand(opts Options) *cobra.Command {
 	var jsonOut bool
 	cmd := &cobra.Command{
 		Use:   "capabilities",
-		Short: "List supported retrieval sources, features, and build capabilities",
+		Short: "List supported features and retrieval sources",
 		Long:  "List this binary's supported features and their requirements. Does not read repository state, initialize an embedder, invoke Graph, or create a brain. Use status --details for repository readiness; Graph reports its own parsed languages and relation types.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -353,7 +353,8 @@ func newSemanticIndexCommand(opts Options) *cobra.Command {
 func newSemanticRepairCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "repair [path]",
-		Short: "Rebuild local semantic brain derived indexes",
+		Short: "Rebuild derived semantic indexes",
+		Long:  "Rebuild local semantic brain derived indexes",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := "."

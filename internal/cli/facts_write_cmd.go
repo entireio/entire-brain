@@ -23,7 +23,7 @@ func newRememberCommand(opts Options) *cobra.Command {
 	rememberOpts := rememberCommandOptions{agent: "auto"}
 	cmd := &cobra.Command{
 		Use:   "remember <fact>",
-		Short: "Author a durable fact about this repository",
+		Short: "Record a durable fact about this repository",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runRemember(cmd.Context(), cmd, opts, rememberOpts, args[0])

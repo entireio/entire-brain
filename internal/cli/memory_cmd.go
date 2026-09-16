@@ -30,7 +30,8 @@ import (
 func newMemoryCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "memory",
-		Short: "Inspect and drive the durable conversation-projection work record (hints, jobs, receipts)",
+		Short: "Manage conversation indexing and background jobs",
+		Long:  "Inspect and drive the durable conversation-projection work record (hints, jobs, receipts)",
 	}
 	cmd.AddCommand(newMemoryNotifyCommand(opts))
 	cmd.AddCommand(newMemoryStatusCommand(opts))

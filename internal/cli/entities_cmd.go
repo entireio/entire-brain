@@ -100,7 +100,7 @@ type entityIndexView struct {
 func newEntitiesCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "entities",
-		Short: "Query the persisted entity -> checkpoint index (which checkpoints changed a symbol)",
+		Short: "Find checkpoints and sessions that changed a symbol",
 		Long: `entities queries a persisted, git-native index mapping every code entity
 (function, method, class, type) to the commits, checkpoints, and sessions that
 changed it.

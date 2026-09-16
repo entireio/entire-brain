@@ -342,7 +342,8 @@ func excludedTranscriptPaths(manifest *exportManifest, stones sessionTombstones)
 func newPrivacyCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "privacy",
-		Short: "List, exclude, include, and purge captured sessions from the brain's projections",
+		Short: "Control which captured sessions the brain retains",
+		Long:  "List, exclude, include, and purge captured sessions from the brain's projections",
 	}
 	cmd.AddCommand(newSessionsListCommand(opts))
 	cmd.AddCommand(newSessionsExcludeCommand(opts))

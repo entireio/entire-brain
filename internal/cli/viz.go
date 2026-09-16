@@ -63,7 +63,7 @@ func newVizCommand(opts Options) *cobra.Command {
 	var flags vizFlags
 	cmd := &cobra.Command{
 		Use:   "viz [path]",
-		Short: "Explore the brain as a visual graph in your browser (local, offline)",
+		Short: "Explore the brain as a graph in your browser",
 		Long: `viz starts a local, no-egress web interface that renders the brain's
 semantic graph — code entities and their CALLS/IMPORTS relations — as an
 explorable, force-directed graph with search and a symbol inspector.

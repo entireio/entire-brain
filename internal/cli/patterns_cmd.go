@@ -22,7 +22,8 @@ func newPatternsCommand(opts Options) *cobra.Command {
 	var listOpts patternsListOptions
 	cmd := &cobra.Command{
 		Use:     "patterns [path]",
-		Short:   "Inspect and rebuild repeated-work patterns derived from session history",
+		Short:   "Inspect and rebuild recurring patterns from sessions",
+		Long:    "Inspect and rebuild repeated-work patterns derived from session history",
 		GroupID: "create",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

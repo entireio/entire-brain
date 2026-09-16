@@ -572,7 +572,7 @@ func newGetCommand(opts Options) *cobra.Command {
 	var contextBefore, contextAfter, afterTurn, outlineLimit int
 	cmd := &cobra.Command{
 		Use:   "get <id>",
-		Short: "Fetch one item in full by id (fact:… | review:… | history:… | conversation:… | conversation-session:… | doc:… | pattern:… | theme:…)",
+		Short: "Fetch a brain item by ID",
 		Long: `get fetches one item in full by id (fact: | review: | history: | conversation: |
 conversation-session: | doc: | pattern: | theme:).
 
@@ -614,7 +614,7 @@ func newMultiGetCommand(opts Options) *cobra.Command {
 	var branch string
 	cmd := &cobra.Command{
 		Use:   "multi-get <id>...",
-		Short: "Fetch multiple items by id",
+		Short: "Fetch multiple brain items by ID",
 		Long: `multi-get fetches several items by id in one pass.
 
 Exit code: 0 only when EVERY id was found; 1 if any was missing, including a
