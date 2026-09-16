@@ -103,7 +103,7 @@ func TestCapabilitiesWithoutRepository(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Set up your agent:", "init-agents", "agent-guide", "capabilities"} {
+	for _, want := range []string{"Set up the brain & agents:", "init-agents", "agent-guide", "capabilities"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help missing %q", want)
 		}
