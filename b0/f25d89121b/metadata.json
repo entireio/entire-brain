@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "b0f25d89121b",
+  "strategy": "manual-commit",
+  "branch": "codex/strict-agent-guidance",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "AGENTS.md",
+    "CLAUDE.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b0/f25d89121b/0/metadata.json",
+      "transcript": "/b0/f25d89121b/0/full.jsonl",
+      "compact_transcript": "/b0/f25d89121b/0/transcript.jsonl",
+      "content_hash": "/b0/f25d89121b/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": -8050048,
+    "output_tokens": -31326,
+    "api_call_count": 24
+  }
+}
