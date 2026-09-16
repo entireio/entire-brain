@@ -1,0 +1,89 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "74cfe1c06d3c",
+  "session_id": "01a0a9d7-ffce-7c21-8600-aa70aa52d8b3",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-16T17:27:00.195826Z",
+  "branch": "codex/reorganize-brain-help",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [
+    "internal/cli/agent_setup_test.go",
+    "internal/cli/bench.go",
+    "internal/cli/root.go",
+    "internal/cli/root_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "852568f83739",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 1766,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 103680,
+    "output_tokens": 172,
+    "api_call_count": 24,
+    "subagent_tokens_complete": true
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-16T17:27:00.182162Z",
+    "agent_lines": 89,
+    "agent_removed": 70,
+    "human_added": 0,
+    "human_modified": 3,
+    "human_removed": 0,
+    "total_committed": 92,
+    "total_lines_changed": 162,
+    "agent_percentage": 98.14814814814815,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 8,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "AGENTS.md": 4,
+        "CLAUDE.md": 4
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 792,
+      "user_lines_removed": 256,
+      "agent_lines_added": 103,
+      "agent_lines_removed": 73,
+      "user_added_per_file": {
+        "README.md": 10,
+        "docs/agent-coordination.md": 81,
+        "internal/agentsetup/activation.go": 156,
+        "internal/agentsetup/activation_test.go": 119,
+        "internal/agentsetup/coordination_test.go": 31,
+        "internal/agentsetup/guide.go": 6,
+        "internal/agentsetup/preview.go": 12,
+        "internal/agentsetup/strict.go": 141,
+        "internal/agentsetup/strict_test.go": 156,
+        "internal/cli/agent_setup.go": 10,
+        "internal/cli/agent_setup_test.go": 3,
+        "internal/cli/brain_manifest_read_test.go": 4,
+        "scripts/test-agent-coordination.py": 63
+      },
+      "user_removed_per_file": {
+        "README.md": 3,
+        "docs/agent-coordination.md": 62,
+        "internal/agentsetup/coordination_test.go": 120,
+        "internal/agentsetup/guide.go": 4,
+        "internal/agentsetup/preview.go": 37,
+        "internal/cli/agent_setup.go": 1,
+        "internal/cli/agent_setup_test.go": 3,
+        "internal/cli/brain_manifest_read_test.go": 4,
+        "scripts/test-agent-coordination.py": 22
+      }
+    }
+  ]
+}
