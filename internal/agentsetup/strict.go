@@ -30,6 +30,10 @@ Knowing a file or symbol's location permits direct source inspection for that
 location; it NEVER exempts relationship questions from Graph or historical
 questions from Brain. Small edits, follow-ups, read-only reconnaissance, specs,
 and reviews are subject to the same rules for the enabled products.
+Do not re-read files or retrieved records that Graph or Brain already answered for.
+A follow-up read MUST address a specific missing fact, stale result, heuristic
+relationship, or the focused source inspection required before editing. Repeating
+an answered question in source is not verification.
 ` + verificationGuide + `
 Do not silently substitute source inspection, text search, or recollection for
 a required Graph or Brain query. Attempt the required tool first. Record missing
@@ -40,9 +44,26 @@ Do not automatically install, configure, or repair tools.
 `
 
 const strictGraphWorkflow = `Use Graph for code discovery, structural understanding, and semantic change analysis.
+ALWAYS check Graph availability and version once per session, at the first
+structural question or code discovery task, BEFORE querying or using a fallback:
+
+    entire graph version --json
+    entire graph capabilities --json
+
+Validate the output, not just the exit status: version must identify the
+entire-graph provider, and capabilities must report the features and semantic
+coverage needed for the question. Use command help to verify required commands
+when the capability report does not identify them. Record the version, supported
+capabilities, and an available, missing, or unsupported result for the session.
+A dev version is not evidence of an outdated binary; check its capabilities.
+EVERY tool-unavailability fallback MUST trace to this recorded check and be
+explained to the user. A later query failure or coverage gap must be recorded
+separately and only permits a fallback for the affected question. Never skip the
+preflight because a file is known or a grep looks easier.
+
 Start needed code discovery with:
 
-    entire graph query --repo . --profile full --query "<task>"
+    entire graph query --repo . --profile full --head --query "<task>"
 
 Code relationships — callers, callees, dependents, implementors, type consumers,
 routes, and blast radius — MUST be answered with Graph first, ALWAYS, even when
@@ -64,8 +85,10 @@ configuration values, string keys, and package-manifest entries — belong in
 text search. One legitimate text search does not authorize using grep to answer
 a relationship question.
 
-Prefer --head for repeated analysis of committed source. Use working-tree
-queries whenever the answer depends on uncommitted changes. Never present
+ALWAYS use --head for interactive Graph queries by default, including the first
+query. Use the working tree ONLY when the answer depends on uncommitted edits;
+then omit --head. Working-tree queries rebuild the snapshot on every call and
+never cache; --head permits reuse of the committed-tree cache. Never present
 committed-tree results as analysis of edits they do not contain.
 Before several --head queries, prewarm the matching cache variant.
 Ask per-symbol commands before bulk streams. Never dump unfiltered whole-repo
@@ -79,6 +102,22 @@ inspection. State unresolved coverage limits in the answer.
 `
 
 const strictBrainWorkflow = `Use Brain for task context, retained knowledge, and history.
+ALWAYS check Brain availability and version once per session, at the first
+substantive task or historical question, BEFORE the brief or any fallback:
+
+    entire brain version
+    entire brain capabilities --json
+
+Validate the version output and structured capability report, not just the exit
+status. Confirm the required features are supported; use command help when the
+report does not identify a required command. Record the version, supported
+capabilities, and an available, missing, or unsupported result for the session.
+A dev version is not evidence of an outdated binary; check its capabilities.
+EVERY tool-unavailability fallback MUST trace to this recorded check and be
+explained to the user. Capabilities do not prove repository readiness: record
+later query failures or missing-index evidence separately, and limit each
+fallback to the affected question. Never defer the preflight until a query fails.
+
 ALWAYS begin a substantive task with:
 
     entire brain brief "<task>" --json

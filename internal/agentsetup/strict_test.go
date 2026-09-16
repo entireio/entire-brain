@@ -84,7 +84,7 @@ func TestStrictGuidanceContentAndScope(t *testing.T) {
 				t.Errorf("strict guide retains normal exception %q", forbidden)
 			}
 		}
-		for _, required := range []string{"Attempt the required tool first", "Every fallback must trace", "VERIFY before stopping", "untrusted"} {
+		for _, required := range []string{"Attempt the required tool first", "Every fallback must trace", "VERIFY before stopping", "untrusted", "Do not re-read files or retrieved records", "Repeating\nan answered question in source is not verification"} {
 			if !strings.Contains(guide, required) {
 				t.Errorf("strict guide missing %q", required)
 			}
@@ -94,6 +94,34 @@ func TestStrictGuidanceContentAndScope(t *testing.T) {
 		}
 		if strings.Contains(guide, "ALWAYS begin a substantive task") != active["brain"] {
 			t.Error("Brain obligation does not match activation")
+		}
+		for product, requirements := range map[string][]string{
+			"graph": {
+				"ALWAYS check Graph availability and version once per session",
+				"entire graph version --json",
+				"entire graph capabilities --json",
+				"ALWAYS use --head for interactive Graph queries by default, including the first",
+				"Use the working tree ONLY when the answer depends on uncommitted edits",
+				`entire graph query --repo . --profile full --head --query "<task>"`,
+			},
+			"brain": {
+				"ALWAYS check Brain availability and version once per session",
+				"entire brain version\n",
+				"entire brain capabilities --json",
+				"Never defer the preflight until a query fails",
+			},
+		} {
+			for _, required := range requirements {
+				if strings.Contains(guide, required) != active[product] {
+					t.Errorf("%s obligation does not match activation: %q", product, required)
+				}
+			}
+		}
+		if !strings.Contains(guide, "EVERY tool-unavailability fallback MUST trace to this recorded check") {
+			t.Error("strict guide lost mandatory preflight accountability")
+		}
+		if strings.Contains(guide, "Prefer --head for repeated analysis") || strings.Contains(guide, "entire brain version --json") {
+			t.Error("strict guide has weakened cache guidance or an unsupported version flag")
 		}
 		if active["graph"] && active["brain"] && !strings.Contains(guide, "They NEVER replace required neighbors or impact analysis") {
 			t.Error("combined guide lost mandatory coordination")

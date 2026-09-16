@@ -61,7 +61,13 @@ Strict guidance requires Graph for structural questions and impact analysis befo
 exported/shared-code changes (including specs and reviews), and Brain briefs and
 evidence retrieval for context and historical questions. Known locations and
 familiarity do not waive these requirements. Fallbacks require recorded failures
-or coverage limitations. Normal guidance retains the existing discretionary rules.
+or coverage limitations. Each enabled product requires a recorded availability,
+version, and capability check once per session before its first required use.
+Graph interactive queries MUST use `--head` by default, including the first query;
+the working tree is allowed only when uncommitted edits affect the answer.
+Re-reading files or retrieved records to repeat an answered question is prohibited;
+focused reads must address an edit, missing fact, stale result, or heuristic relation.
+Normal guidance retains the existing discretionary rules.
 
 The activation comment stores strict mode as `"mode":"strict"`. An absent mode
 means normal; `"mode":"normal"` is also accepted and canonicalized to omission.
