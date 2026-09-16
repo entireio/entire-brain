@@ -3,53 +3,53 @@
 Both products provide `init-agents` and `agent-guide`, invoked through
 `entire graph` and `entire brain`. Brain also retains `guide` as an alias.
 
-## Generation-time routing
+## Repository activation
 
-| Invoked command | Check | Generated workflow |
-| --- | --- | --- |
-| Graph initializer or preview | Brain appears in `entire plugin list` and this repository has a Brain | Graph and Brain |
-| Graph initializer or preview | Otherwise | Graph only |
-| Brain initializer or preview | Graph appears in `entire plugin list` | Graph and Brain |
-| Brain initializer or preview | Otherwise | Brain only |
+Each `init-agents` enables only the invoking product and preserves products already
+enabled in this repository. Running Graph and Brain initializers in either order
+produces the same combined guide. Installing a plugin globally, creating Brain
+runtime setup, or building an index does not activate its agent guidance.
+Generation does not query the host inventory or invoke another plugin.
 
-`entire plugin list` enumerates managed installations without dispatching plugins.
-The host executable is optional: when `entire` is absent from `PATH`, either
-standalone binary can preview and install its own instructions inside a repository.
-No peer activation is inferred without the host inventory. Regeneration with the
-host available resolves coordination normally. Its current CLI offers text output,
-not JSON; an unexpected listing or failure from a present host is reported
-explicitly. Unmanaged executables that do not appear in that list do not activate
-the peer. No plugin executable is invoked for detection.
+The shared guide contains a versioned machine-readable comment:
 
-Graph determines repository Brain state using safe, bounded local reads. A valid
-`setup.json` written by Brain setup under `<state>/repos/<key>/` establishes setup.
-When that record is absent, a valid `<data>/repos/<key>/manifest.json` recognizes
-Brains created through older build/refresh paths. Missing or stale indexes do not
-change the mode; a setup record is sufficient without reading an index manifest.
-Malformed, unreadable, oversized, nonregular, or unsupported setup records cause
-an error rather than masquerading as absence. Generated guides never count as
-setup records.
+```html
+<!-- entire-agent-activation: {"schema_version":1,"enabled":["graph","brain"]} -->
+```
 
-Repository identity uses the same read-only `git remote get-url origin` lookup as
-Brain, its existing known host mappings, learned custom mappings in `<config>/brain.json`, or the canonical
-local-path hash (also checking Brain's legacy root spellings). Generation never
-creates a custom host mapping. It does not contact Git remotes or run hooks.
-Git includes and URL rewrites are honored so generation finds the same repository identity as Brain. Ambiguous
-canonical/legacy setup records are rejected.
+This record is authoritative. The renderer adds the invoking product, orders the
+enabled list as Graph then Brain, and regenerates the guide and record together
+through the existing atomic file replacement. Malformed metadata, unknown
+products, and unsupported versions fail before writes. There is no separate
+activation file that can diverge from the installed guide.
 
-Default Brain directories match Brain's standalone layout: XDG state/config roots
-under `entire`, and `XDG_DATA_HOME/entire/plugins/data/brain`, with the normal home
-fallbacks. For a Brain configured under custom plugin directories, set the explicit
-coordination overrides `ENTIRE_BRAIN_STATE_DIR`, `ENTIRE_BRAIN_CONFIG_DIR`, and
-`ENTIRE_BRAIN_DATA_DIR` consistently for generation. These are new, read-only lookup
-overrides; they do not change where Brain setup writes. Graph's plugin data/cache
-directory is never mistaken for Brain's data directory.
+For guides without metadata, migration preserves the products represented by
+recognized generated guide headings and validated legacy managed blocks. Legacy
+redirects do not independently activate anything. Existing combined guidance
+remains combined: old output cannot distinguish explicit activation from a peer
+inferred by earlier versions. Unrecognized guides fail without being overwritten.
+Once metadata exists, stale legacy instructions cannot override it.
+
+## Preview and lifecycle
+
+`agent-guide` remains read-only: it previews adding the invoking product to the
+repository activation without persisting that addition. Outside a repository it
+prints the standalone reference without activation metadata.
+
+Runtime data deletion, plugin removal, and temporary tool unavailability do not
+remove repository activation. To explicitly remove a product, remove its name
+from the metadata's enabled list, then regenerate using a remaining enabled
+product. To remove all activation, remove the guide and managed instruction
+pointers (and any legacy redirects). There is no new removal command.
+
+Both binaries must be upgraded to this contract. Older binaries can overwrite
+the metadata or infer activation using their old rules.
 
 ## One installed guide
 
 Either initializer writes `.entire/agent-guide.md`, the only workflow body.
-Both use the same standard-library-only `internal/agentsetup` package, mirrored in
-the two source repositories. There is no dependency on the peer binary and no
+Both use shared standard-library-only activation, rendering, and installer code
+under `internal/agentsetup`, mirrored in the two source repositories. There is no dependency on the peer binary and no
 recursive initialization.
 
 A single `entire-agent:begin` / `entire-agent:end` managed block references the guide
@@ -107,21 +107,8 @@ initializer also accepts a positional path. Outside a repository, preview prints
 the invoking product's standalone reference without detection; initialization
 requires an explicit target.
 
-Upgrade both binaries, then regenerate using the appropriate initializer. Both
-activation orders produce the same guide when a repository Brain exists. Re-running
-either initializer recomputes the mode from current state without creating duplicate
-instructions. In the deliberately asymmetric case where both plugins are installed
-but this repository has no Brain, Graph generates Graph-only guidance and Brain
-generates combined guidance. The most recent initializer owns the single installed
-workflow; their previews differ in this case by design.
-
-Removing the repository Brain's setup record and stored Brain, or removing a managed
-peer plugin, changes the next applicable generation. Deleting only an index is not
-configuration removal. Existing redirects continue to reference the one regenerated
-guide. To remove instruction activation entirely, delete the shared guide and redirects
-and remove the managed pointer blocks. Reload instructions or start a new agent
-session after regeneration. Old binaries can restore old instructions, so upgrading
-both is required.
+Regeneration preserves repository activation and creates no duplicate instructions.
+Reload instructions or start a new agent session after regeneration.
 
 Existing files are replaced from complete, synced temporary files in the same
 directory, so a failed content write preserves the previous file. Managed hard-link
@@ -137,11 +124,15 @@ overwritten files.
 
 ## Tests
 
-`go test ./internal/agentsetup` runs mode, migration, byte-stability, setup-error,
-and filesystem-protection tests without real plugins or state. Brain's CLI tests
-also compare the reader against its actual setup writer and repository identity.
+`go test ./internal/agentsetup` covers explicit activation, both orders in empty
+repositories, migration, byte stability, invalid metadata, and filesystem
+protections. Activation and installer code and tests are mirrored in both
+repositories; historical runtime-detection helpers are no longer used by activation.
+
 `scripts/test-agent-coordination.py --graph-binary <build> --brain-binary <build>`
-in Brain runs the two compiled CLIs in isolated projects and redirected state. Its
-Entire stub accepts only `plugin list`, proving that generation never dispatches
-or installs a plugin. It also checks both activation orders, preview parity,
-configuration removal, failures, preservation, and identical mirrored sources.
+in Brain exercises both compiled CLIs with isolated repositories and runtime
+stores. It checks single-product initialization despite both plugins being
+installed, both orders, read-only preview, migration, metadata errors, runtime
+state independence, context selection, and identical shared activation and
+installer sources. The host
+stub must receive no calls.

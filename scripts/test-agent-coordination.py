@@ -21,6 +21,7 @@ with tempfile.TemporaryDirectory(prefix='agent-coordination-') as tmp:
     stub = root / 'bin'
     stub.mkdir()
     log = root / 'calls'
+    log.write_text('')
     (stub / 'entire').write_text('''#!/bin/sh
 printf '%s\\n' "$*" >> "$TEST_CALLS"
 if [ "$#" != 2 ] || [ "$1" != plugin ] || [ "$2" != list ]; then exit 97; fi
@@ -80,7 +81,7 @@ fi
         (repo / 'CLAUDE.md').write_text('@AGENTS.md\n')
         (repo / '.entire').mkdir()
         for legacy in ('graph-agent.md', 'brain-agent.md'):
-            (repo / '.entire' / legacy).write_text('Your FIRST action must be an old query\n')
+            (repo / '.entire' / legacy).write_text('# Entire repository agent guide — Graph and Brain\n')
         second = 'brain' if first == 'graph' else 'graph'
         before = None
         for product in (first, second, first, second):
@@ -96,8 +97,8 @@ fi
         assert sum('Begin substantive tasks' in p.read_text() for p in (repo / '.entire').glob('*.md')) == 1
         setup.unlink()
         run('graph', repo, 'init-agents')
-        check(repo, 'graph', 'Graph')
-        # The agreed asymmetry: Brain init assumes its own activation, even without setup.
+        check(repo, 'graph', 'Graph and Brain')
+        # Runtime state removal must not remove repository activation.
         run('brain', repo, 'init-agents')
         check(repo, 'brain', 'Graph and Brain')
 
@@ -115,24 +116,36 @@ fi
     assert report['changed_files'] == []
 
     env['TEST_PLUGINS'] = 'graph brain'
-    repo, setup = project('failure', brain=True)
+    for first in ('graph', 'brain'):
+        repo, _ = project('empty-' + first)
+        second = 'brain' if first == 'graph' else 'graph'
+        # Preview must not persist activation.
+        run(second, repo, 'agent-guide')
+        assert snapshot(repo) == {}
+        run(first, repo, 'init-agents')
+        check(repo, first, first.title())
+        run(second, repo, 'init-agents')
+        check(repo, second, 'Graph and Brain')
+        before = snapshot(repo)
+        env['TEST_LIST_FAILURE'] = '1'
+        for product in (first, second):
+            run(product, repo, 'init-agents')
+            assert snapshot(repo) == before
+        del env['TEST_LIST_FAILURE']
+
+    repo, setup = project('runtime-independent', brain=True)
+    setup.write_text('{malformed runtime state')
     run('graph', repo, 'init-agents')
-    for contents in ('{', 'null', '{"schema_version":99}', '{"schema_version":1,"workspace":4}'):
-        setup.write_text(contents)
-        before = snapshot(repo)
-        run('graph', repo, 'init-agents', success=False)
-        run('graph', repo, 'agent-guide', success=False)
-        assert snapshot(repo) == before
-    setup.write_text('{"schema_version":1}')
-    setup.chmod(0)
-    run('graph', repo, 'init-agents', success=False)
-    setup.chmod(0o600)
-    env['TEST_LIST_FAILURE'] = '1'
+    check(repo, 'graph', 'Graph')
+    before = snapshot(repo)
+    guide_path = repo / '.entire/agent-guide.md'
+    guide_path.write_text(guide_path.read_text().replace('"schema_version":1', '"schema_version":99'))
+    damaged = snapshot(repo)
     for product in ('graph', 'brain'):
-        before = snapshot(repo)
         run(product, repo, 'init-agents', success=False)
-        assert snapshot(repo) == before
-    del env['TEST_LIST_FAILURE']
+        run(product, repo, 'agent-guide', success=False)
+        assert snapshot(repo) == damaged
+    guide_path.write_bytes(before['.entire/agent-guide.md'])
 
     # Standalone binaries need neither the host nor any other executable on PATH.
     saved_path = env['PATH']
@@ -155,7 +168,7 @@ fi
     sub = repo / 'sub'
     sub.mkdir()
     run('graph', repo, 'init-agents', explicit=False, cwd=sub)
-    check(repo, 'graph', 'Graph and Brain')
+    check(repo, 'graph', 'Graph')
     env['ENTIRE_REPO_ROOT'] = str(repo)
     assert run('graph', repo, 'agent-guide', explicit=False) == (repo / '.entire/agent-guide.md').read_text()
     del env['ENTIRE_REPO_ROOT']
@@ -164,13 +177,18 @@ fi
         assert run(product, None, 'agent-guide', explicit=False).startswith('# Entire repository agent guide — ' + product.title() + '\n')
         run(product, None, 'init-agents', explicit=False, success=False)
     assert log.read_text() == calls_before
-    assert set(log.read_text().splitlines()) == {'plugin list'}, 'a plugin was dispatched'
+    assert log.read_text() == '', 'agent activation queried or dispatched a plugin'
 
-# The mirrored leaf packages must remain identical, including renderer and protection tests.
+# Activation, rendering, and filesystem protections must remain mirrored.
+# Historical runtime-detection helpers already differ between these repositories
+# and no longer participate in agent activation.
 brain_source = Path(__file__).resolve().parents[1] / 'internal/agentsetup'
 graph_source = Path(__file__).resolve().parents[2] / 'entire-graph/internal/agentsetup'
 if graph_source.exists():
-    for path in brain_source.iterdir():
-        if path.is_file():
-            assert path.read_bytes() == (graph_source / path.name).read_bytes(), path.name
+    legacy_runtime = {'brain_state.go', 'brain_manifest_test.go'}
+    brain_files = {p.name for p in brain_source.iterdir() if p.is_file()} - legacy_runtime
+    graph_files = {p.name for p in graph_source.iterdir() if p.is_file()} - legacy_runtime
+    assert brain_files == graph_files, (brain_files ^ graph_files)
+    for name in sorted(brain_files):
+        assert (brain_source / name).read_bytes() == (graph_source / name).read_bytes(), name
 print('PASS: compiled CLI modes, standalone without host, both orders, migration, regeneration, removal, failures, preview parity, context, byte stability, no plugin dispatch')
