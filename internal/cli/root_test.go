@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ashtom/entire-brain/internal/config"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/spf13/cobra"
 )
 
@@ -97,7 +98,7 @@ func TestRootWithoutCommandShowsHelp(t *testing.T) {
 		"  tests ", "  routes ", "  tools ", "  workflows ",
 		"  index ", "  seed ", "  sessions ", "  history-index ",
 	} {
-		if strings.Contains(out, absent) {
+		if strings.Contains(out, "\n"+absent) {
 			t.Fatalf("root output should not list %q:\n%s", absent, out)
 		}
 	}
@@ -330,5 +331,42 @@ func TestConfigShowTracksLiveConfiguration(t *testing.T) {
 	slugs, ok := report["domain_slugs"].(map[string]any)
 	if !ok || slugs["git.example.invalid"] != "ab" {
 		t.Fatalf("domain_slugs = %v, want the persisted git.example.invalid slug", report["domain_slugs"])
+	}
+}
+
+func TestHelpCommandWrapping(t *testing.T) {
+	for _, width := range []int{16, 40, 80, 120} {
+		var out bytes.Buffer
+		description := "Fetch an item: conversation-session:abcdefghijklmnopqrstuvwxyz 世界 and retained repository context"
+		writeHelpCommand(&out, "get", description, 13, width)
+		lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+		indent := 17
+		if width <= indent {
+			indent = 2
+		}
+		for i, line := range lines {
+			if ansi.StringWidth(line) > width {
+				t.Fatalf("width %d: line exceeds terminal: %q", width, line)
+			}
+			if i > 0 && !strings.HasPrefix(line, strings.Repeat(" ", indent)) {
+				t.Fatalf("width %d: continuation misaligned: %q", width, line)
+			}
+		}
+		compact := func(s string) string { return strings.Join(strings.Fields(s), "") }
+		if compact(out.String()) != "get"+compact(description) {
+			t.Fatalf("wrapped description lost content: %q", out.String())
+		}
+	}
+}
+
+func TestHelpTerminalWidthFallback(t *testing.T) {
+	for _, tc := range []struct {
+		columns string
+		want    int
+	}{{"52", 52}, {"", 80}, {"invalid", 80}, {"0", 80}, {"-1", 80}} {
+		t.Setenv("COLUMNS", tc.columns)
+		if got := helpTerminalWidth(&bytes.Buffer{}); got != tc.want {
+			t.Fatalf("COLUMNS=%q: got %d, want %d", tc.columns, got, tc.want)
+		}
 	}
 }

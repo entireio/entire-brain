@@ -8,9 +8,12 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 )
 
@@ -192,11 +195,12 @@ func setRootUsage(root *cobra.Command, commands []*cobra.Command) {
 				width = len(c.Name())
 			}
 		}
+		terminalWidth := helpTerminalWidth(cmd.OutOrStderr())
 		for _, group := range cmd.Groups() {
 			fmt.Fprintf(&out, "\n%s\n", group.Title)
 			for _, c := range ordered {
 				if c.GroupID == group.ID && !c.Hidden && (c.IsAvailableCommand() || c.Name() == "help") {
-					fmt.Fprintf(&out, "  %-*s  %s\n", width, c.Name(), c.Short)
+					writeHelpCommand(&out, c.Name(), c.Short, width, terminalWidth)
 				}
 			}
 		}
@@ -205,6 +209,33 @@ func setRootUsage(root *cobra.Command, commands []*cobra.Command) {
 		_, err := io.WriteString(cmd.OutOrStderr(), out.String())
 		return err
 	})
+}
+
+// Use the output terminal when available, then COLUMNS (also useful through
+// CLI dispatchers), and a readable default for redirected output.
+func helpTerminalWidth(out io.Writer) int {
+	if f, ok := out.(interface{ Fd() uintptr }); ok {
+		if width, _, err := term.GetSize(f.Fd()); err == nil && width > 0 {
+			return width
+		}
+	}
+	if width, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && width > 0 {
+		return width
+	}
+	return 80
+}
+
+func writeHelpCommand(out io.Writer, name, description string, nameWidth, terminalWidth int) {
+	indent := nameWidth + 4
+	prefix := fmt.Sprintf("  %-*s  ", nameWidth, name)
+	// On very narrow terminals, put the description below the command name.
+	if terminalWidth <= indent {
+		fmt.Fprintf(out, "  %s\n", name)
+		indent = min(2, max(0, terminalWidth-1))
+		prefix = strings.Repeat(" ", indent)
+	}
+	wrapped := ansi.Wrap(description, max(1, terminalWidth-indent), "")
+	fmt.Fprintln(out, prefix+strings.ReplaceAll(wrapped, "\n", "\n"+strings.Repeat(" ", indent)))
 }
 
 type commandJSONError struct {
