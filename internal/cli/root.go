@@ -177,6 +177,16 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 // sorting setting or the default help for subcommands.
 func setRootUsage(root *cobra.Command, commands []*cobra.Command) {
 	defaultUsage := root.UsageFunc()
+	defaultHelp := root.HelpFunc()
+	helpWidth := 0
+	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		// Cobra renders UsageString into a buffer; measure the real output first.
+		if cmd == root {
+			helpWidth = helpTerminalWidth(cmd.OutOrStdout())
+			defer func() { helpWidth = 0 }()
+		}
+		defaultHelp(cmd, args)
+	})
 	root.SetUsageFunc(func(cmd *cobra.Command) error {
 		if cmd != root {
 			return defaultUsage(cmd)
@@ -195,7 +205,10 @@ func setRootUsage(root *cobra.Command, commands []*cobra.Command) {
 				width = len(c.Name())
 			}
 		}
-		terminalWidth := helpTerminalWidth(cmd.OutOrStderr())
+		terminalWidth := helpWidth
+		if terminalWidth == 0 {
+			terminalWidth = helpTerminalWidth(cmd.OutOrStderr())
+		}
 		for _, group := range cmd.Groups() {
 			fmt.Fprintf(&out, "\n%s\n", group.Title)
 			for _, c := range ordered {
