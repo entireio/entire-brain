@@ -87,15 +87,14 @@ func TestBrainManifestObservedShapesRoundTrip(t *testing.T) {
 			if issue != nil || health.State != "current" || len(got.Sessions) != tc.sessions {
 				t.Fatalf("health failed: %+v", health)
 			}
-			// The production writer's document must also activate Graph + Brain
-			// coordination through the no-setup-record initialization fallback.
+			// A stored manifest must not activate Brain agent guidance.
 			setupOpts := agentsetup.Options{DataDir: dataDir, StateDir: t.TempDir(), ConfigDir: t.TempDir(), ListPlugins: func() (string, error) {
 				return "Managed plugin directory: /fixture\n\n  brain v1.0.0 → /fixture/entire-brain\n  graph v1.0.0 → /fixture/entire-graph\n", nil
 			}}
 			render := func() (string, error) { return agentsetup.Preview(repo, "graph", setupOpts) }
 			guide, err := render()
-			if err != nil || guide != agentsetup.CombinedGuide {
-				t.Fatalf("coordinated manifest fallback failed: %v", err)
+			if err != nil || notGraphOnly(guide) {
+				t.Fatalf("manifest affected agent activation: %v", err)
 			}
 			if err := agentsetup.Install(repo, render, io.Discard); err != nil {
 				t.Fatal(err)

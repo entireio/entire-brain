@@ -1,7 +1,6 @@
 package agentsetup
 
 import (
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -35,31 +34,36 @@ func fixtureSetup(t *testing.T, repo string, opts Options, content string) strin
 }
 func TestCoordinationModes(t *testing.T) {
 	for _, product := range []string{"graph", "brain"} {
-		for _, installed := range []bool{false, true} {
+		for _, previous := range []string{"", GraphGuide, BrainGuide(), CombinedGuide} {
 			for _, configured := range []bool{false, true} {
-				t.Run(product+"/installed="+boolText(installed)+"/configured="+boolText(configured), func(t *testing.T) {
+				t.Run(product+"/"+strings.Split(previous, "\n")[0]+"/configured="+boolText(configured), func(t *testing.T) {
 					repo := t.TempDir()
-					var plugins []string
-					if installed {
-						plugins = []string{"graph", "brain"}
-					}
-					opts := fixtureOptions(t, plugins...)
+					opts := fixtureOptions(t, "graph", "brain")
+					opts.ListPlugins = func() (string, error) { t.Fatal("queried global plugin inventory"); return "", nil }
 					if configured {
-						fixtureSetup(t, repo, opts, `{"schema_version":1,"updated_at":"2000-01-01T00:00:00Z"}`)
+						fixtureSetup(t, repo, opts, `{"schema_version":1}`)
+					}
+					if previous != "" {
+						mkdirAllForTest(t, filepath.Join(repo, ".entire"))
+						writeFileForTest(t, filepath.Join(repo, Path), previous)
+					}
+					active := map[string]bool{product: true}
+					if previous == GraphGuide || previous == CombinedGuide {
+						active["graph"] = true
+					}
+					if previous == BrainGuide() || previous == CombinedGuide {
+						active["brain"] = true
 					}
 					guide, err := Preview(repo, product, opts)
-					if err != nil {
-						t.Fatal(err)
+					if err != nil || guide != renderActivation(active) {
+						t.Fatalf("mode: %v; got %q", err, guide)
 					}
-					want := GraphGuide
-					if product == "brain" {
-						want = BrainGuide()
-					}
-					if installed && (product == "brain" || configured) {
-						want = CombinedGuide
-					}
-					if guide != want {
-						t.Fatalf("unexpected mode:\n%s", guide)
+					if previous == "" {
+						if _, err := os.Stat(filepath.Join(repo, Path)); !os.IsNotExist(err) {
+							t.Fatal("preview wrote activation")
+						}
+					} else if got := readFileForTest(t, filepath.Join(repo, Path)); got != previous {
+						t.Fatal("preview changed activation")
 					}
 				})
 			}
@@ -83,7 +87,7 @@ func TestCoordinationActivationOrdersAndStableMigration(t *testing.T) {
 			writeFileForTest(t, filepath.Join(repo, "CLAUDE.md"), "@AGENTS.md\n")
 			for _, legacy := range []string{"graph-agent.md", "brain-agent.md"} {
 				mkdirAllForTest(t, filepath.Join(repo, ".entire"))
-				writeFileForTest(t, filepath.Join(repo, ".entire", legacy), "Your FIRST action must be old retrieval\n")
+				writeFileForTest(t, filepath.Join(repo, ".entire", legacy), "# Entire repository agent guide — Graph and Brain\n")
 			}
 			second := "brain"
 			if first == "brain" {
@@ -99,7 +103,7 @@ func TestCoordinationActivationOrdersAndStableMigration(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if got := readFileForTest(t, filepath.Join(repo, Path)); got != displayed || got != CombinedGuide {
+				if got := readFileForTest(t, filepath.Join(repo, Path)); got != displayed || got != renderActivation(map[string]bool{"graph": true, "brain": true}) {
 					t.Fatal("installed/displayed guides differ")
 				}
 				text := readFileForTest(t, filepath.Join(repo, "AGENTS.md"))
@@ -125,81 +129,10 @@ func TestCoordinationActivationOrdersAndStableMigration(t *testing.T) {
 			if err := Install(repo, func() (string, error) { return Preview(repo, "graph", opts) }, io.Discard); err != nil {
 				t.Fatal(err)
 			}
-			if got := readFileForTest(t, filepath.Join(repo, Path)); got != GraphGuide {
-				t.Fatal("configuration removal was not reconciled")
+			if got := readFileForTest(t, filepath.Join(repo, Path)); got != renderActivation(map[string]bool{"graph": true, "brain": true}) {
+				t.Fatal("runtime removal changed activation")
 			}
 		})
-	}
-}
-func TestCoordinationErrorsBeforeWrites(t *testing.T) {
-	for _, state := range []string{"malformed", "null", "wrong-field-type", "unreadable", "directory", "symlink", "future-schema"} {
-		t.Run(state, func(t *testing.T) {
-			repo := t.TempDir()
-			opts := fixtureOptions(t, "brain")
-			contents := `{"schema_version":1}`
-			switch state {
-			case "malformed":
-				contents = "{"
-			case "null":
-				contents = "null"
-			case "wrong-field-type":
-				contents = `{"schema_version":1,"workspace":4}`
-			case "future-schema":
-				contents = `{"schema_version":2}`
-			}
-			path := fixtureSetup(t, repo, opts, contents)
-			switch state {
-			case "unreadable":
-				if err := os.Chmod(path, 0000); err != nil {
-					t.Fatal(err)
-				}
-				defer os.Chmod(path, 0600)
-				info, err := os.Stat(path)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if info.Mode().Perm()&0444 != 0 {
-					t.Skip("filesystem does not support removing Unix read permission bits")
-				}
-			case "directory":
-				os.Remove(path)
-				os.Mkdir(path, 0700)
-			case "symlink":
-				os.Remove(path)
-				symlinkForTest(t, "missing", path)
-			}
-			if err := Install(repo, func() (string, error) { return Preview(repo, "graph", opts) }, io.Discard); err == nil {
-				t.Fatal("invalid setup state accepted")
-			}
-			if _, err := os.Stat(filepath.Join(repo, Path)); !os.IsNotExist(err) {
-				t.Fatal("partial guide written")
-			}
-		})
-	}
-	repo := t.TempDir()
-	opts := fixtureOptions(t)
-	opts.ListPlugins = func() (string, error) { return "", errors.New("fixture failure") }
-	if err := Install(repo, func() (string, error) { return Preview(repo, "brain", opts) }, io.Discard); err == nil {
-		t.Fatal("listing error ignored")
-	}
-}
-func TestCoordinationBrainManifestWithoutSetup(t *testing.T) {
-	repo := t.TempDir()
-	opts := fixtureOptions(t, "brain")
-	canonical, _ := filepath.EvalSymlinks(repo)
-	key := localKey(canonical)
-	path := filepath.Join(opts.DataDir, "repos", filepath.FromSlash(key), "manifest.json")
-	mkdirAllForTest(t, filepath.Dir(path))
-	writeFileForTest(t, path, `{"schema_version":3,"repo_key":"`+key+`"}`)
-	guide, err := Preview(repo, "graph", opts)
-	if err != nil || guide != CombinedGuide {
-		t.Fatal("manual Brain not recognized", err)
-	}
-	// No index exists: index freshness must not affect setup mode.
-	os.Remove(path)
-	guide, err = Preview(repo, "graph", opts)
-	if err != nil || guide != GraphGuide {
-		t.Fatal("removed Brain still recognized", err)
 	}
 }
 func TestCoordinationNoRuntimeProbes(t *testing.T) {
@@ -306,25 +239,6 @@ func TestCoordinationLegacyAliasesAndProtectedTargets(t *testing.T) {
 	}
 }
 
-func TestCoordinationLegacyRootIdentity(t *testing.T) {
-	base := t.TempDir()
-	real := filepath.Join(base, "real")
-	mkdirAllForTest(t, filepath.Join(real, "repo"))
-	ancestor := filepath.Join(base, "ancestor")
-	symlinkForTest(t, real, ancestor)
-	lexical := filepath.Join(ancestor, "repo")
-	root := filepath.Join(base, "root")
-	symlinkForTest(t, lexical, root)
-	opts := fixtureOptions(t, "brain")
-	record := filepath.Join(opts.StateDir, "repos", filepath.FromSlash(localKey(lexical)), "setup.json")
-	mkdirAllForTest(t, filepath.Dir(record))
-	writeFileForTest(t, record, `{"schema_version":1}`)
-	guide, err := Preview(root, "graph", opts)
-	if err != nil || guide != CombinedGuide {
-		t.Fatal("legacy root setup was missed", err)
-	}
-}
-
 func TestInstallChangedReport(t *testing.T) {
 	repo := t.TempDir()
 	render := func() (string, error) { return "guide\n", nil }
@@ -345,10 +259,7 @@ func TestCoordinationWithoutEntireHost(t *testing.T) {
 		t.Run(product, func(t *testing.T) {
 			repo := t.TempDir()
 			opts := Options{StateDir: t.TempDir(), ConfigDir: t.TempDir(), DataDir: t.TempDir()}
-			want := GraphGuide
-			if product == "brain" {
-				want = BrainGuide()
-			}
+			want := renderActivation(map[string]bool{product: true})
 			render := func() (string, error) { return Preview(repo, product, opts) }
 			got, err := render()
 			if err != nil || got != want {
@@ -368,7 +279,7 @@ func TestCoordinationWithoutEntireHost(t *testing.T) {
 	}
 }
 
-func TestCoordinationExplicitStoreRootsOverrideEnvironment(t *testing.T) {
+func TestCoordinationIgnoresRuntimeStoreRoots(t *testing.T) {
 	for _, key := range []string{"ENTIRE_BRAIN_STATE_DIR", "ENTIRE_BRAIN_CONFIG_DIR", "ENTIRE_BRAIN_DATA_DIR"} {
 		t.Run(key, func(t *testing.T) {
 			// An invalid ambient root must not affect explicit, isolated stores.
@@ -377,8 +288,8 @@ func TestCoordinationExplicitStoreRootsOverrideEnvironment(t *testing.T) {
 			opts := fixtureOptions(t, "brain")
 			fixtureSetup(t, repo, opts, `{"schema_version":1}`)
 			guide, err := Preview(repo, "graph", opts)
-			if err != nil || guide != CombinedGuide {
-				t.Fatalf("explicit store lost precedence: %v", err)
+			if err != nil || guide != renderActivation(map[string]bool{"graph": true}) {
+				t.Fatalf("runtime stores affected activation: %v", err)
 			}
 		})
 	}

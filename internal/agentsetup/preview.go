@@ -3,7 +3,6 @@ package agentsetup
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,58 +12,30 @@ import (
 	"time"
 )
 
-// Options is a test seam and supports explicit Brain store roots. The normal
-// path calls ONLY entire plugin list, never a plugin command to detect availability.
+// Options is retained for compatibility with mirrored callers. Agent activation
+// does not depend on plugin inventory or Brain runtime stores.
 type Options struct {
 	ListPlugins                  func() (string, error)
 	StateDir, ConfigDir, DataDir string
 }
 
+// Preview shows the result of activating product without writing activation.
 func Preview(repo, product string, opts Options) (string, error) {
 	if product != "graph" && product != "brain" {
 		return "", fmt.Errorf("unknown product %q", product)
 	}
-	standalone := GraphGuide
-	if product == "brain" {
-		standalone = BrainGuide()
-	}
 	if repo == "" {
-		return standalone, nil
+		if product == "brain" {
+			return BrainGuide(), nil
+		}
+		return GraphGuide, nil
 	}
-	list := opts.ListPlugins
-	if list == nil {
-		list = pluginList
-	}
-	raw, err := list()
-	// The host is optional for directly invoked standalone binaries. Only an
-	// absent executable permits fallback: a broken host or malformed listing
-	// must not silently downgrade an existing coordinated workflow.
-	if errors.Is(err, exec.ErrNotFound) {
-		return standalone, nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("read entire plugin list: %w", err)
-	}
-	installed, err := parsePluginList(raw)
+	active, err := readActivation(repo)
 	if err != nil {
 		return "", err
 	}
-	if product == "brain" {
-		if installed["graph"] {
-			return CombinedGuide, nil
-		}
-		return BrainGuide(), nil
-	}
-	if installed["brain"] {
-		exists, err := repositoryBrain(repo, opts)
-		if err != nil {
-			return "", err
-		}
-		if exists {
-			return CombinedGuide, nil
-		}
-	}
-	return GraphGuide, nil
+	active[product] = true
+	return renderActivation(active), nil
 }
 
 type limitedBuffer struct {

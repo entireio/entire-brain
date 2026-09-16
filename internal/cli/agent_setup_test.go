@@ -13,7 +13,7 @@ import (
 	"github.com/ashtom/entire-brain/internal/agentsetup"
 )
 
-func TestAgentSetupReadsActualBrainRecords(t *testing.T) {
+func TestAgentSetupDoesNotActivateFromBrainRecords(t *testing.T) {
 	for _, remote := range []string{"", "https://github.com/Team/Repo.git", "git@gitlab.com:team/sub/repo.git", "git@custom.example.com:team/repo.git", "entire://server/gh/team/repo", "git@rewrite:Team/Repo.git"} {
 		t.Run(remote, func(t *testing.T) {
 			repo := t.TempDir()
@@ -48,8 +48,8 @@ func TestAgentSetupReadsActualBrainRecords(t *testing.T) {
 			guide, err := agentsetup.Preview(repo, "graph", agentsetup.Options{StateDir: env.PluginStateDir, ConfigDir: env.PluginConfigDir, DataDir: env.PluginDataDir, ListPlugins: func() (string, error) {
 				return "Managed plugin directory: /fixture\n\n  brain v1 → /fixture/brain\n", nil
 			}})
-			if err != nil || guide != agentsetup.CombinedGuide {
-				t.Fatalf("actual setup record not recognized: %v\n%s", err, guide)
+			if err != nil || notGraphOnly(guide) {
+				t.Fatalf("runtime setup activated Brain: %v\n%s", err, guide)
 			}
 		})
 	}
@@ -114,4 +114,8 @@ func TestCapabilitiesWithoutRepository(t *testing.T) {
 			t.Fatal("old guide name remains in top-level list")
 		}
 	}
+}
+
+func notGraphOnly(guide string) bool {
+	return !strings.HasPrefix(guide, "# Entire repository agent guide — Graph\n") || strings.Contains(guide, "entire brain brief")
 }
