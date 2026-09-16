@@ -147,6 +147,42 @@ fi
         assert snapshot(repo) == damaged
     guide_path.write_bytes(before['.entire/agent-guide.md'])
 
+    # Strict mode is shared and sticky, in either initialization order.
+    for first in ('graph', 'brain'):
+        second = 'brain' if first == 'graph' else 'graph'
+        repo, _ = project('strict-' + first)
+        before = snapshot(repo)
+        preview = run(first, repo, 'agent-guide', extra=('--strict',))
+        assert snapshot(repo) == before
+        run(first, repo, 'init-agents', extra=('--strict',))
+        assert (repo / '.entire/agent-guide.md').read_text() == preview
+        run(second, repo, 'init-agents')
+        strict = (repo / '.entire/agent-guide.md').read_text()
+        assert '"mode":"strict"' in strict
+        assert 'ALWAYS run impact before editing' in strict
+        assert 'ALWAYS begin a substantive task' in strict
+        before = snapshot(repo)
+        for product in (first, second):
+            assert run(product, repo, 'agent-guide') == strict
+            normal = run(product, repo, 'agent-guide', extra=('--normal',))
+            assert '"mode":"strict"' not in normal
+            assert 'Skip ceremonial queries' in normal
+            assert snapshot(repo) == before
+            run(product, repo, 'init-agents')
+            assert snapshot(repo) == before
+            for command in ('init-agents', 'agent-guide'):
+                run(product, repo, command, extra=('--strict', '--normal'), success=False)
+                assert snapshot(repo) == before
+        assert run('brain', repo, 'guide') == strict
+        assert run('brain', repo, 'guide', extra=('--normal',)) == normal
+        run(second, repo, 'init-agents', extra=('--normal',))
+        assert (repo / '.entire/agent-guide.md').read_text() == normal
+        run(first, repo, 'init-agents')
+        assert run(first, repo, 'agent-guide') == normal
+        assert run(second, repo, 'agent-guide') == normal
+        run(first, repo, 'init-agents', extra=('--strict',))
+        assert run(second, repo, 'agent-guide') == strict
+
     # Standalone binaries need neither the host nor any other executable on PATH.
     saved_path = env['PATH']
     no_host = root / 'no-host'
@@ -191,4 +227,4 @@ if graph_source.exists():
     assert brain_files == graph_files, (brain_files ^ graph_files)
     for name in sorted(brain_files):
         assert (brain_source / name).read_bytes() == (graph_source / name).read_bytes(), name
-print('PASS: compiled CLI modes, standalone without host, both orders, migration, regeneration, removal, failures, preview parity, context, byte stability, no plugin dispatch')
+print('PASS: compiled CLI modes, standalone without host, both orders, migration, regeneration, removal, strict/normal persistence, failures, preview parity, context, byte stability, no plugin dispatch')

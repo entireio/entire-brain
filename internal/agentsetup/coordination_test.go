@@ -55,7 +55,7 @@ func TestCoordinationModes(t *testing.T) {
 						active["brain"] = true
 					}
 					guide, err := Preview(repo, product, opts)
-					if err != nil || guide != renderActivation(active) {
+					if err != nil || guide != renderActivation(active, ModeNormal) {
 						t.Fatalf("mode: %v; got %q", err, guide)
 					}
 					if previous == "" {
@@ -103,7 +103,7 @@ func TestCoordinationActivationOrdersAndStableMigration(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if got := readFileForTest(t, filepath.Join(repo, Path)); got != displayed || got != renderActivation(map[string]bool{"graph": true, "brain": true}) {
+				if got := readFileForTest(t, filepath.Join(repo, Path)); got != displayed || got != renderActivation(map[string]bool{"graph": true, "brain": true}, ModeNormal) {
 					t.Fatal("installed/displayed guides differ")
 				}
 				text := readFileForTest(t, filepath.Join(repo, "AGENTS.md"))
@@ -129,7 +129,7 @@ func TestCoordinationActivationOrdersAndStableMigration(t *testing.T) {
 			if err := Install(repo, func() (string, error) { return Preview(repo, "graph", opts) }, io.Discard); err != nil {
 				t.Fatal(err)
 			}
-			if got := readFileForTest(t, filepath.Join(repo, Path)); got != renderActivation(map[string]bool{"graph": true, "brain": true}) {
+			if got := readFileForTest(t, filepath.Join(repo, Path)); got != renderActivation(map[string]bool{"graph": true, "brain": true}, ModeNormal) {
 				t.Fatal("runtime removal changed activation")
 			}
 		})
@@ -259,7 +259,7 @@ func TestCoordinationWithoutEntireHost(t *testing.T) {
 		t.Run(product, func(t *testing.T) {
 			repo := t.TempDir()
 			opts := Options{StateDir: t.TempDir(), ConfigDir: t.TempDir(), DataDir: t.TempDir()}
-			want := renderActivation(map[string]bool{product: true})
+			want := renderActivation(map[string]bool{product: true}, ModeNormal)
 			render := func() (string, error) { return Preview(repo, product, opts) }
 			got, err := render()
 			if err != nil || got != want {
@@ -288,7 +288,7 @@ func TestCoordinationIgnoresRuntimeStoreRoots(t *testing.T) {
 			opts := fixtureOptions(t, "brain")
 			fixtureSetup(t, repo, opts, `{"schema_version":1}`)
 			guide, err := Preview(repo, "graph", opts)
-			if err != nil || guide != renderActivation(map[string]bool{"graph": true}) {
+			if err != nil || guide != renderActivation(map[string]bool{"graph": true}, ModeNormal) {
 				t.Fatalf("runtime stores affected activation: %v", err)
 			}
 		})

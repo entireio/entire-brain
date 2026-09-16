@@ -15,6 +15,7 @@ import (
 // Options is retained for compatibility with mirrored callers. Agent activation
 // does not depend on plugin inventory or Brain runtime stores.
 type Options struct {
+	Mode                         Mode // empty inherits repository mode; explicit modes only affect this preview
 	ListPlugins                  func() (string, error)
 	StateDir, ConfigDir, DataDir string
 }
@@ -24,18 +25,21 @@ func Preview(repo, product string, opts Options) (string, error) {
 	if product != "graph" && product != "brain" {
 		return "", fmt.Errorf("unknown product %q", product)
 	}
+	if opts.Mode != "" && opts.Mode != ModeNormal && opts.Mode != ModeStrict {
+		return "", fmt.Errorf("unknown guidance mode %q", opts.Mode)
+	}
 	if repo == "" {
-		if product == "brain" {
-			return BrainGuide(), nil
-		}
-		return GraphGuide, nil
+		return guideFor(map[string]bool{product: true}, opts.Mode), nil
 	}
 	active, err := readActivation(repo)
 	if err != nil {
 		return "", err
 	}
-	active[product] = true
-	return renderActivation(active), nil
+	active.products[product] = true
+	if opts.Mode != "" {
+		active.mode = opts.Mode
+	}
+	return renderActivation(active.products, active.mode), nil
 }
 
 type limitedBuffer struct {

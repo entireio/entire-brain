@@ -45,6 +45,31 @@ pointers (and any legacy redirects). There is no new removal command.
 Both binaries must be upgraded to this contract. Older binaries can overwrite
 the metadata or infer activation using their old rules.
 
+## Guidance mode
+
+Both commands accept mutually exclusive `--strict` and `--normal` flags.
+`init-agents --strict` persists strict guidance for every enabled product in this
+repository. Subsequent initialization and previews inherit that mode, including
+when the other product is added. `init-agents --normal` persistently resets it.
+New repositories and legacy guides default to normal.
+
+`agent-guide` is always read-only. Its `--strict` and `--normal` flags override
+only the current preview; they never change the repository's saved mode. Outside
+a repository it prints the selected standalone guide, defaulting to normal.
+
+Strict guidance requires Graph for structural questions and impact analysis before
+exported/shared-code changes (including specs and reviews), and Brain briefs and
+evidence retrieval for context and historical questions. Known locations and
+familiarity do not waive these requirements. Fallbacks require recorded failures
+or coverage limitations. Normal guidance retains the existing discretionary rules.
+
+The activation comment stores strict mode as `"mode":"strict"`. An absent mode
+means normal; `"mode":"normal"` is also accepted and canonicalized to omission.
+Unknown modes fail before writes, even with an explicit override. Mode and product
+activation are rendered and installed together; there is no separate state file.
+Upgrade both binaries before using strict mode: older metadata-aware binaries
+reject the new mode field rather than silently discarding it.
+
 ## One installed guide
 
 Either initializer writes `.entire/agent-guide.md`, the only workflow body.
@@ -65,7 +90,10 @@ They contain no duplicate workflow. Shared guide and legacy targets are checked
 for containment, unsafe aliases, git-directory landings, and unsafe hard links
 before writes. All writes retain the existing Graph installer safeguards.
 
-## Workflow
+## Normal workflow
+
+The following discretionary workflow applies to normal guidance. Strict guidance
+uses the mandatory rules described above.
 
 Graph-only discovery begins, when discovery is needed, with:
 
@@ -88,7 +116,7 @@ and durable facts; entities history connects code to checkpoints and sessions.
 Use Brain memory-informed review and workspace capabilities when relevant. Do not
 ask both products the same question without an identified gap.
 
-All modes allow direct source inspection when locations are sufficient and skip
+All normal product combinations allow direct source inspection when locations are sufficient and skip
 ceremonial queries for small edits and follow-ups. Graph interactive queries
 normally inspect the working tree; Brain semantic answers refer to a stored index.
 Current source and executed tests establish present behavior, while historical
