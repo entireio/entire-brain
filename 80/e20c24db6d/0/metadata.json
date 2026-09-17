@@ -1,0 +1,51 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "80e20c24db6d",
+  "session_id": "01a0a9d7-ffce-7c21-8600-aa70aa52d8b3",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-17T11:49:52.468286Z",
+  "branch": "codex/polish-brain-readme",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "README.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "852568f83739",
+  "checkpoint_transcript_start": 193,
+  "transcript_lines_at_start": 193,
+  "compact_transcript_start": 20,
+  "token_usage": {
+    "input_tokens": 6583,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 343552,
+    "output_tokens": 708,
+    "api_call_count": 6,
+    "subagent_tokens_complete": true
+  },
+  "session_metrics": {
+    "turn_count": 3
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-17T11:49:52.453059Z",
+    "agent_lines": 125,
+    "agent_removed": 155,
+    "human_added": 7,
+    "human_modified": 5,
+    "human_removed": 0,
+    "total_committed": 137,
+    "total_lines_changed": 292,
+    "agent_percentage": 95.8904109589041,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
