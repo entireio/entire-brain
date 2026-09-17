@@ -510,6 +510,9 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 	if f := report.Facts; f != nil {
 		identity = append(identity, statusFactsIdentity(f))
 	}
+	if s := report.IssueSource; s != nil {
+		identity = append(identity, fmt.Sprintf("%d issue records (%d stale, %d incomplete)", s.Records, s.Stale, s.Incomplete))
+	}
 	fmt.Fprintf(out, "  %s\n", render.Dim(strings.Join(identity, " "+render.Bullet()+" ")))
 
 	if f := report.Facts; f != nil && f.Integrity != nil {

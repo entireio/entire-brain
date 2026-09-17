@@ -22,6 +22,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ashtom/entire-brain/internal/issues"
 	"github.com/ashtom/entire-brain/internal/tui"
 )
 
@@ -49,6 +50,7 @@ type agentStatusOptions struct {
 }
 
 type brainBriefOptions struct {
+	issue       string
 	json        bool
 	limit       int
 	noSemantic  bool
@@ -71,6 +73,7 @@ type brainShowOptions struct {
 // blind spots — the former `stale` and `semantic-audit` commands), and live
 // workspace state.
 type brainStatusReport struct {
+	IssueSource *issues.Status        `json:"issue_source,omitempty"`
 	GeneratedAt time.Time             `json:"generated_at"`
 	Repo        brainStatusRepo       `json:"repo"`
 	Brain       brainStatusBrain      `json:"brain"`
@@ -215,6 +218,7 @@ type brainLiveState struct {
 }
 
 type brainBriefReport struct {
+	Issues      []unifiedResult    `json:"issues,omitempty"`
 	GeneratedAt time.Time          `json:"generated_at"`
 	Task        string             `json:"task"`
 	Status      brainStatusReport  `json:"status"`
@@ -275,6 +279,7 @@ type brainBriefSemantic struct {
 // text, but JSON callers should not pay for empty semantic fields, fact
 // provenance, coverage histograms, or live symbol records on every task.
 type brainBriefJSONReport struct {
+	Issues             []unifiedResult             `json:"issues,omitempty"`
 	GeneratedAt        time.Time                   `json:"generated_at"`
 	Task               string                      `json:"task"`
 	Status             brainStatusReport           `json:"status"`
@@ -728,6 +733,9 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if handoff {
+				if briefOpts.issue != "" {
+					return errors.New("--issue cannot be combined with --handoff")
+				}
 				if briefOpts.profileJSON != "" {
 					return errors.New("--profile-json is only supported for task briefs, not --handoff")
 				}
@@ -736,6 +744,9 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 				// blocked" for an agent resuming cold (Phase 2 item 3).
 				return runBrainHandoff(cmd.Context(), cmd, opts, handoffSessions, briefOpts.json)
 			}
+			if len(args) == 0 && briefOpts.issue != "" {
+				return runBrainBrief(cmd.Context(), cmd, opts, briefOpts, "")
+			}
 			if len(args) != 1 {
 				return fmt.Errorf("brief requires a <task> argument (or --handoff for a resumption packet)")
 			}
@@ -743,6 +754,7 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&briefOpts.json, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().StringVar(&briefOpts.issue, "issue", "", "Pin cached issue by identifier, URL or UUID; refresh via the agent host first")
 	cmd.Flags().IntVar(&briefOpts.limit, "limit", brainBriefDefaultLimit, "Maximum records per section; raise only when the compact packet is insufficient")
 	cmd.Flags().BoolVar(&briefOpts.noSemantic, "no-semantic", false, "Disable embedding rerank for facts; use lexical ranking only")
 	cmd.Flags().StringVar(&briefOpts.profileJSON, "profile-json", "", "Atomically write a privacy-safe performance profile sidecar (mode 0600)")
@@ -1396,7 +1408,15 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	if err := requirePrivacyDerivedRead(status.Brain.Path); err != nil {
 		return err
 	}
+	task, issueHits, issueErr := issueBriefEvidence(status.Brain.Path, task, briefOpts.issue, briefOpts.limit)
+	if issueErr != nil {
+		return issueErr
+	}
+	if strings.TrimSpace(task) == "" {
+		return errors.New("task required unless --issue supplies it")
+	}
 	report := brainBriefReport{
+		Issues:      issueHits,
 		GeneratedAt: opts.Now().UTC(),
 		Task:        task,
 		Status:      brainBriefOutputStatus(status),
@@ -1407,6 +1427,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			"Inspect full diffs or source files when the task intersects dirty files or when confidence is low.",
 		},
 	}
+	report.Guidance = append(report.Guidance, issueBriefGuidance(issueHits)...)
 	var receiptBranch, receiptSurface string
 	var receiptFactIDs []string
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Semantic != nil {
@@ -1968,6 +1989,13 @@ func brainBriefConversationHits(brainDir, task string, limit int) []brainBriefCo
 
 func brainBriefOutputStatus(status brainStatusReport) brainStatusReport {
 	status.Manifest = nil
+	if status.IssueSource != nil {
+		summary := *status.IssueSource
+		summary.Runs = nil
+		summary.Links = nil
+		summary.Operations = nil
+		status.IssueSource = &summary
+	}
 	if status.Facts != nil {
 		facts := *status.Facts
 		facts.Verification = nil
@@ -2609,6 +2637,7 @@ func brainBriefPromoteSuggestedTestFiles(existing []string, preferred []semantic
 
 func brainBriefJSONProjection(report brainBriefReport) brainBriefJSONReport {
 	out := brainBriefJSONReport{
+		Issues:             report.Issues,
 		GeneratedAt:        report.GeneratedAt,
 		Task:               report.Task,
 		Status:             report.Status,
@@ -4479,6 +4508,12 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		Manifest: manifest,
 		Memory:   memoryHealth,
 		Issues:   healthIssues,
+	}
+	issueStatus, issueStatusErr := issueStore(storage.BrainDir).Status(generatedAt)
+	if issueStatusErr != nil {
+		report.Warnings = append(report.Warnings, "issue source unavailable: "+issueStatusErr.Error())
+	} else if issueStatus.Binding.Workspace != "" {
+		report.IssueSource = &issueStatus
 	}
 	if manifest != nil && !manifest.GeneratedAt.IsZero() {
 		report.Brain.GeneratedAt = manifest.GeneratedAt.Format(time.RFC3339)
