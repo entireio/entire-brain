@@ -19,7 +19,7 @@ Everything runs locally. Nothing leaves your machine unless you explicitly opt i
 - **Durable facts with provenance.** Author facts by hand (`remember`) or distill them from captured sessions (`distill`). Every fact is anchored to real sources, and `verify` re-checks those anchors against what is actually in the repository today.
 - **Hybrid retrieval.** Lexical BM25 (`query --keyword`), vector/semantic (`query --semantic`), and Reciprocal Rank Fusion across both (`query`) — over facts, history, docs, and conversations.
 - **Semantic code navigation.** Symbol-level structure, impact analysis, dead-code detection, and regression radar, backed by the `entire-graph` provider.
-- **An MCP server for agents.** ~36 tools over stdio, so Claude Code, Codex, and any MCP-capable client can read the brain directly. Every response is bounded, so a wide query returns a truncated *answer* rather than blowing the transport.
+- **An MCP server for agents.** 42 tools over stdio, so Claude Code, Codex, and any MCP-capable client can read the brain directly. Every response is bounded, so a wide query returns a truncated *answer* rather than blowing the transport.
 - **Honest health reporting.** `status` and `doctor` distinguish *not built yet* from *broken*, cross-check the manifest's claims against what the store can actually produce, and exit non-zero when something is genuinely wrong — so CI and agent loops can branch on them.
 - **A repository is treated as data, never as trust.** Indexing an untrusted repository does not execute code it carries: `diff.external`, `core.fsmonitor`, `.gitattributes` textconv, `filter.*`, and git hooks are all suppressed at every git invocation.
 - **Offline by default.** `ENTIRE_BRAIN_NO_EGRESS` fails closed. Publishing to hosted Entire is strictly opt-in.
@@ -216,7 +216,7 @@ The same forms work with `entire brain workspace query <workspace>`.
 The old `search` and `vsearch` commands remain hidden compatibility aliases.
 Mode flags appear only in query-command help, not as global flags.
 
-`query` also takes `--source` (`all` | `fact` | `history` | `doc` | `conversation`) to narrow the corpus, and `--json` for machine-readable output:
+`query` also takes `--source` (`all` | `fact` | `history` | `doc` | `conversation` | `issue`) to narrow the corpus, and `--json` for machine-readable output:
 
 ```bash
 entire brain query "auth middleware" --source fact --json | jq '.results[0]'
@@ -243,6 +243,14 @@ entire brain brief "add rate limiting to the upload endpoint"
 ```
 
 ### Serve the brain to an agent over MCP
+
+For Linear-backed work, connect Linear's MCP server in the agent host and follow
+the [host-neutral issue workflow](docs/linear-workflow.md). `issues configure`
+selects projects, `issues import` stores bounded source batches, and
+`brief --issue COR-123` pins an imported issue. Selected evidence joins ordinary
+queries, with exact snapshot citations and freshness/coverage caveats. Remote
+writes remain user-requested host actions; Brain stores their receipts locally.
+No Brain-owned Linear credentials are needed.
 
 ```bash
 entire brain mcp
