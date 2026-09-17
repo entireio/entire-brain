@@ -39,3 +39,11 @@ How come you didn’t know what a trail is? Is this session not connected to you
 ---
 
 Ok, check CI status and fix any errors
+
+---
+
+You wrote, Windows coverage exceeded the 20min timeout. We sharded the Windows jobs in the past. Is this no longer working?
+
+---
+
+Well, you know what to do then
