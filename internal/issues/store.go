@@ -521,6 +521,22 @@ func (s Store) Import(data []byte) (res ImportResult, err error) {
 	return
 }
 func visible(st *State, r Record) bool {
+	if !visibleRecord(st, r) {
+		return false
+	}
+	if r.Kind != "comment" {
+		return true
+	}
+	// Parent identity is typed: a comment must resolve directly to an issue.
+	// Do not traverse arbitrary parent chains, even in malformed in-memory state.
+	parentKey := "issue:" + r.Workspace + ":issue:" + r.Issue
+	p, ok := st.Snapshots[st.Current[parentKey]]
+	return ok && p.Kind == "issue" && p.Key() == parentKey && p.Project == r.Project && visibleRecord(st, p)
+}
+
+// visibleRecord checks only the record, its current revision and its project;
+// it never follows a comment parent or calls visible.
+func visibleRecord(st *State, r Record) bool {
 	if !selected(st, r.Project) || r.Availability == "deleted" || r.Availability == "inaccessible" {
 		return false
 	}
@@ -531,12 +547,8 @@ func visible(st *State, r Record) bool {
 		}
 	}
 	current, ok := st.Snapshots[st.Current[r.Key()]]
-	if !ok || !selected(st, current.Project) || current.Availability == "deleted" || current.Availability == "inaccessible" {
+	if !ok || current.Key() != r.Key() || !selected(st, current.Project) || current.Availability == "deleted" || current.Availability == "inaccessible" {
 		return false
-	}
-	if r.Kind == "comment" {
-		p, ok := st.Snapshots[st.Current["issue:"+r.Workspace+":issue:"+r.Issue]]
-		return ok && visible(st, p) && p.Project == r.Project
 	}
 	return true
 }
