@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "c2639ee3c61d",
+  "strategy": "manual-commit",
+  "branch": "codex/regression-safety-coverage",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "tools/ci-bench/windows-production/prepare.py",
+    "tools/ci-bench/windows-production/tests/test_verify_results.py",
+    "tools/ci-bench/windows-production/verify_results.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/c2/639ee3c61d/0/metadata.json",
+      "transcript": "/c2/639ee3c61d/0/full.jsonl",
+      "compact_transcript": "/c2/639ee3c61d/0/transcript.jsonl",
+      "content_hash": "/c2/639ee3c61d/0/content_hash.txt",
+      "prompt": "/c2/639ee3c61d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 470152,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 9922688,
+    "output_tokens": 19211,
+    "api_call_count": 408,
+    "subagent_tokens_complete": false
+  }
+}
