@@ -1,136 +1,120 @@
 # Entire Brain
 
-**A local, inspectable memory layer for a Git repository — it turns retained agent sessions, checkpoint history, docs, code structure, and durable facts into something you and your coding agents can actually query.**
+Entire Brain lets coding agents search past sessions, recover earlier decisions,
+and reuse project knowledge. It is a memory plugin for the
+[Entire CLI](https://github.com/entireio/cli), accessible through the CLI and an
+MCP server.
 
-[![Release](https://img.shields.io/badge/release-v0.3.1-blue)](https://github.com/entireio/entire-brain/releases/tag/v0.3.1)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Go](https://img.shields.io/badge/go-1.27-00ADD8)](go.mod)
+Brain stores sessions, checkpoint history, documentation, code structure, and
+saved facts in local files and databases you can inspect.
 
-`entire-brain` is an external-command plugin for the [Entire CLI](https://github.com/entireio/cli). Entire captures what happened while you and your agents worked — prompts, transcripts, tool activity, files touched, checkpoints. Entire Brain reads that capture, combines it with your code's structure and your own curated facts, and serves the result back through a CLI and an MCP server.
+## Features
 
-The practical effect: an agent starts a task holding your repository's prior decisions, freshness signals, likely tests, and known failure modes, instead of rediscovering them from scratch.
+- Give an agent relevant decisions, code locations, and suggested tests before it starts a task.
+- Save project facts by hand or extract them from past sessions, then check their source references against the repository.
+- Search facts, history, documentation, and conversations by keyword or meaning.
+- Find code, inspect the impact of a change, and investigate regressions with [Entire Graph](https://github.com/entireio/entire-graph).
+- Connect agents through the CLI or MCP, with response size limits and repository instructions.
+- Browse saved knowledge in a terminal dashboard or an offline graph view.
 
-Everything runs locally. Nothing leaves your machine unless you explicitly opt in.
+Brain reads sessions captured by Entire CLI and uses Entire Graph for code
+analysis. Graph is required for code analysis, but you can use Brain to search
+sessions, docs, and facts without it.
 
----
+## Install
 
-## Key Features
+The source installer requires Go 1.27 or later, Git 2.36 or later, the Entire CLI
+on `PATH`, and a C compiler for Graph's tree-sitter bindings. You also need access
+to the Brain repository.
 
-- **Durable facts with provenance.** Author facts by hand (`remember`) or distill them from captured sessions (`distill`). Every fact is anchored to real sources, and `verify` re-checks those anchors against what is actually in the repository today.
-- **Hybrid retrieval.** Lexical BM25 (`query --keyword`), vector/semantic (`query --semantic`), and Reciprocal Rank Fusion across both (`query`) — over facts, history, docs, and conversations.
-- **Semantic code navigation.** Symbol-level structure, impact analysis, dead-code detection, and regression radar, backed by the `entire-graph` provider.
-- **An MCP server for agents.** ~36 tools over stdio, so Claude Code, Codex, and any MCP-capable client can read the brain directly. Every response is bounded, so a wide query returns a truncated *answer* rather than blowing the transport.
-- **Honest health reporting.** `status` and `doctor` distinguish *not built yet* from *broken*, cross-check the manifest's claims against what the store can actually produce, and exit non-zero when something is genuinely wrong — so CI and agent loops can branch on them.
-- **A repository is treated as data, never as trust.** Indexing an untrusted repository does not execute code it carries: `diff.external`, `core.fsmonitor`, `.gitattributes` textconv, `filter.*`, and git hooks are all suppressed at every git invocation.
-- **Offline by default.** `ENTIRE_BRAIN_NO_EGRESS` fails closed. Publishing to hosted Entire is strictly opt-in.
-- **Inspectable, not a black box.** `dash` browses the brain in a TUI, `viz` renders it as an offline graph in your browser, and every store is a file you can read.
-
----
-
-## Tech Stack & Dependencies
-
-| Layer | Choice |
-|---|---|
-| Language | **Go 1.27** |
-| CLI framework | `spf13/cobra` |
-| Git access | `go-git/go-git/v6` (plus hardened `git` subprocess calls) |
-| Storage | SQLite — `modernc.org/sqlite` (pure Go, default) or `mattn/go-sqlite3` (cgo) |
-| Vector search | `asg017/sqlite-vec-go-bindings` |
-| TUI | `charmbracelet/bubbletea`, `bubbles`, `lipgloss` |
-| Agent interface | Model Context Protocol over stdio (JSON-RPC 2.0, `Content-Length` framing) |
-
-**Companion projects**
-
-- **[Entire CLI](https://github.com/entireio/cli)** — the host. Installs hooks and captures sessions. Required.
-- **[entire-graph](https://github.com/entireio/entire-graph)** — the semantic provider. Parses source locally and emits code-structure records. Required for semantic features.
-
-### Build tags
-
-The default build is pure Go and fully functional.
-
-| Build | Command | What it adds |
-|---|---|---|
-| Default | `go build ./cmd/entire-brain` | Everything except the items below |
-| `brain_cgo` | `go build -tags brain_cgo ./cmd/entire-brain` | Gemma-class embedder; conversation and history join vector search |
-| `sqlite_fts5` | `go build -tags "brain_cgo sqlite_fts5" ./cmd/entire-brain` | SQLite FTS5 full-text index |
-
-> Building without these tags degrades *explicitly* — affected commands say what is unavailable and why. They never silently return empty results.
-
----
-
-## Quick Start
-
-### Prerequisites
-
-1. **Go 1.27 or newer** — `go version`
-2. **Git 2.30 or newer** — `git --version`
-3. **The Entire CLI**, installed and on your `PATH` — `entire --version`
-4. **Repository access.** `entire-brain` is currently a private repository. Confirm access before you start:
-   ```bash
-   git ls-remote https://github.com/entireio/entire-brain.git >/dev/null && echo "access ok"
-   ```
-   If that fails, request access — the steps below cannot work without it.
-
-### Option A — the scripted install (recommended)
-
-This builds `entire-graph` and `entire-brain`, registers both with the Entire CLI, writes the default configuration, and runs a health check. It resolves `entire-graph` automatically and prints which route it used.
-
-```bash
+```sh
 git clone https://github.com/entireio/entire-brain.git
 cd entire-brain
 ./scripts/install.sh
 ```
 
-Verify:
+The installer builds and registers Brain and Graph, writes the default plugin
+configuration, and runs a health check. It does not initialize a repository's
+memory or install the watcher.
 
-```bash
-entire brain version    # -> 0.3.1
-entire brain doctor     # -> findings, exit 0 on a healthy environment
-```
+Confirm the installed build:
 
-### Option B — manual build
-
-```bash
-git clone https://github.com/entireio/entire-brain.git
-cd entire-brain
-
-# Build with the version stamped in; without -ldflags the binary reports "dev".
-go build -ldflags "-X main.version=0.3.1" -o entire-brain ./cmd/entire-brain
-
-# Register it with the Entire CLI.
-entire plugin install ./entire-brain
-
+```sh
 entire brain version
+entire brain doctor
 ```
 
-### Build your first brain
+See [installation options](docs/operations.md#full-install) for choosing a Graph
+checkout, installing offline, or building Brain alone.
 
-From inside any repository you want a brain for:
+## Activate it for your agent
 
-```bash
+Activation is per repository. Start in a local Git repository with at least one
+commit. Commit intended changes before building the code index and seed; those
+components require a clean working tree.
+
+```sh
 cd /path/to/your/repo
 entire brain setup
 ```
 
-`setup` is the one command that takes you from nothing to useful. It:
+By default, `setup` indexes the repository, extracts facts from up to 25 past
+sessions in the background, and installs a watcher to keep the memory updated.
+The watcher runs as a persistent service on macOS and Linux with systemd.
 
-1. builds the brain immediately from what is already on disk,
-2. starts a **background** fact backfill, capped at 25 sessions by default,
-3. installs a watcher that keeps the brain fresh.
+Extracting facts uses an available agent CLI and can send session content to its
+model provider and incur token charges. Without an agent CLI, this step is
+skipped. Configured remote history sources and publishing also use the network;
+see [privacy and egress](docs/reference.md#privacy-and-egress) for controls.
 
-Prefer to spend no tokens and install nothing in the background?
+To build without fact extraction or a background service, use:
 
-```bash
+```sh
 entire brain setup --no-backfill --no-daemon
 ```
 
-Confirm it worked:
+Then install the agent instructions:
 
-```bash
-entire brain status
+```sh
+entire brain init-agents
 ```
 
----
+The command creates or updates these files:
+
+- `.entire/agent-guide.md`: the agent instructions. Rerunning the command replaces this file.
+- `AGENTS.md` and `CLAUDE.md`: references to the guide inside managed blocks. Your text outside those blocks is preserved.
+
+Review the generated files and commit them together when the instructions should
+apply to your team. When Graph is also activated in this repository, the guide
+tells agents to use Brain for prior decisions and Graph to locate and inspect code. Restart your agent or
+reload its repository instructions so it picks up the guide.
+
+For an MCP client, print this repository's configuration:
+
+```sh
+entire brain mcp --print-config
+```
+
+Add that configuration to your client. See the
+[agent integration guide](docs/reference.md#how-agents-use-the-brain) and
+[coordination contract](docs/agent-coordination.md) for setup details.
+
+To include agent conversations, enable session capture through Entire CLI.
+Brain setup does not enable it. Without captured sessions, Brain builds from
+code, docs, and Git history. See [repository onboarding](docs/reference.md#3a-what-setup-needs-first-and-what-it-does-not).
+
+## What to ask
+
+Ask your coding agent in plain language, or run the Brain commands directly.
+
+| Goal | Example prompt | Brain command |
+| --- | --- | --- |
+| Start a task | What should I know before changing the retry policy? | `brief` |
+| Understand the project | Summarize this project's structure and conventions. | `overview` |
+| Recover prior decisions | Why did we remove the queue abstraction? | `query` |
+| Find saved facts | What do we know about retry limits? | `recall` |
+| Check saved facts | Check whether the sources for our saved facts still match the repository. | `verify` |
+| Inspect memory health | Which sources are missing or out of date? | `status` |
 
 ## Usage Examples
 
@@ -292,77 +276,68 @@ entire brain watch            # keep it fresh automatically
 
 ---
 
-## Configuration
+## Stored memory and freshness
 
-Configuration lives in the plugin config directory; `entire brain config init` writes the defaults and `entire brain path` prints where a repository's brain is stored.
+Brain's code index can fall behind your working tree. The watcher updates it
+automatically; run `entire brain refresh` to update it manually. Graph's
+interactive queries normally read the current working tree directly.
 
-### Environment variables
+Run `entire brain verify` to check whether a fact's source references still match
+the repository.
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `ENTIRE_BRAIN_NO_EGRESS` | enabled | Block all outbound network access. **Fails closed** — an unrecognized value is treated as enabled. |
-| `ENTIRE_BRAIN_LOCAL_ONLY` | enabled | Restrict operation to local sources only. |
-| `ENTIRE_BRAIN_ALLOW_HOSTED` | unset | Opt in to hosted Entire features. |
-| `ENTIRE_BRAIN_EMBEDDER` | auto | Embedding backend for vector search. |
-| `ENTIRE_BRAIN_EMBED_URL` | unset | Endpoint for a remote embedder. |
-| `ENTIRE_BRAIN_OLLAMA_URL` | `http://localhost:11434` | Local Ollama endpoint. |
-| `ENTIRE_BRAIN_GRAPH_BINARY` | resolved | Explicit path to the `entire-graph` provider. |
-| `ENTIRE_BRAIN_THEME` | auto | TUI colour theme. |
-| `ENTIRE_BRAIN_MCP_DEBUG_LOG` | unset | Path for MCP protocol debug logging. Records tool names and result metadata, never query text. |
-| `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO` | disabled | Allow MCP tools to read outside the bound repository. |
-| `ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH` | disabled | Disable MCP path containment. **Leave this off.** |
-| `ENTIRE_BRAIN_CONVERSATION_FUSION` | unset | Development flag for the conversation fusion arm of hybrid retrieval. |
-| `ENTIRE_BRAIN_BRIEF_CONVERSATION` | unset | Development flag for including conversation context in `brief`. |
-| `ENTIRE_BRAIN_MAX_SNAPSHOT_BYTES` | bounded | Cap on a single retained snapshot. |
-| `ENTIRE_API_URL` | Entire default | Hosted API endpoint. HTTPS is enforced. |
-| `ENTIRE_API_TOKEN` | unset | Hosted API token. Required only for `publish`. |
-| `ENTIRE_REPO_ROOT` | inferred | Repository root, normally set by the Entire CLI when it dispatches the plugin. |
+`entire brain path` prints where this repository's memory is stored. See
+[storage and configuration](docs/reference.md#storage-and-configuration) to change
+storage locations or search settings.
 
-### Storage locations
+To stop and remove the watcher, run `entire brain setup --uninstall-daemon`.
+See [operations](docs/operations.md#after-the-install-onboard-a-repository) for
+service management.
 
-These follow the XDG base directory specification and are normally set by the host CLI. Override them to isolate a brain completely — useful for testing:
+## Brain health
 
-```bash
-export ENTIRE_PLUGIN_DATA_DIR=/tmp/sandbox/data
-export ENTIRE_PLUGIN_CACHE_DIR=/tmp/sandbox/cache
-export ENTIRE_PLUGIN_STATE_DIR=/tmp/sandbox/state
-export ENTIRE_PLUGIN_CONFIG_DIR=/tmp/sandbox/config
+```sh
+entire brain status
+entire brain status --details --json
+entire brain doctor
 ```
 
----
+`status` shows missing session history, unavailable search backends, Graph errors,
+backfill progress, and watcher state. `doctor` checks the environment and
+configuration.
 
-## Contributing
+Run `entire brain capabilities` to see which features your build supports.
+It works without an initialized repository.
 
-1. **Branch from current `main`.** Tags mark releases on `main`; they are not branches to work from.
-2. **Run the full suite before you push** — it takes about three and a half minutes, so there is no reason to skip it:
-   ```bash
-   go test ./... -count=1
-   gofmt -l -s .
-   go vet ./...
-   ```
-3. **Every fix needs a test that fails without it.** Prove it: revert the fix's behaviour while keeping identifiers compiling, run the test, and put the failure output in the pull request.
-4. **Reproduce before you fix.** Paste the real output of the defect on unpatched `main`, then the output after.
-5. **Re-test combinations after merging.** Two individually-green pull requests can break `main` together.
-6. **Never commit `.env` or `.session` files.** Guard before every commit:
-   ```bash
-   git add -A -n | grep -iE "\.env|\.session" && echo "ABORT"
-   ```
-7. **Re-record release evidence before tagging.** The evidence manifests pin source files by content hash; edits to pinned files mark a lane stale.
+## Limits
 
-Be explicit about what you did *not* verify. A pull request that names its gaps is worth more than one that implies there are none.
+Facts extracted by a model can be wrong. Check the linked sources before relying
+on them; `verify` checks source references, not whether a conclusion is correct.
 
----
+Code analysis inherits Graph's limitations: dynamic calls can go unresolved,
+and parsing support varies by language.
+
+Search support varies by build and source. Check `entire brain capabilities`
+for available retrieval modes and the [conversation recall documentation](docs/recall-evidence.md)
+for experimental features.
+
+See the [recall threat model](docs/recall_threat_model.md) for how Brain handles
+untrusted session content and retained secrets.
+
+## Documentation
+
+- [Complete reference](docs/reference.md)
+- [Installation and operations](docs/operations.md)
+- [Agent activation and coordination](docs/agent-coordination.md)
+- [Semantic features and MCP](docs/semantic_mcp_guide.md)
+- [Storage and configuration](docs/reference.md#storage-and-configuration)
+- [Privacy and egress](docs/reference.md#privacy-and-egress)
+- [Conversation recall and source citations](docs/recall-evidence.md)
+- [Contributing and build options](CONTRIBUTING.md)
+- [Release readiness](docs/release_readiness_audit.md)
+
+Please report problems in [GitHub Issues](https://github.com/entireio/entire-brain/issues)
+or open a pull request.
 
 ## License
 
-[MIT](LICENSE).
-
----
-
-## Further Reading
-
-- **[docs/reference.md](docs/reference.md)** — the complete reference: every command, the capability matrix, architecture, and operational detail.
-- [docs/recall-evidence.md](docs/recall-evidence.md) — experimental deterministic recall of original conversation blocks and source citations.
-- [docs/recall_threat_model.md](docs/recall_threat_model.md) — threat model and privacy posture.
-- [docs/semantic_mcp_guide.md](docs/semantic_mcp_guide.md) — the semantic and MCP surfaces in depth.
-- [docs/release_readiness_audit.md](docs/release_readiness_audit.md) — what must hold before a release is cut.
+Entire Brain is distributed under the [MIT License](LICENSE).
