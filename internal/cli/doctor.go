@@ -104,7 +104,8 @@ func newDoctorCommand(opts Options) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "doctor",
-		Short: "Check the plugin environment and the capture-to-recall chain",
+		Short: "Diagnose environment and brain pipeline problems",
+		Long:  "Check the plugin environment and the capture-to-recall chain",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDoctor(cmd, opts, jsonOut, failOn)
 		},

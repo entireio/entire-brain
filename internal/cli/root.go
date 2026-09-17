@@ -8,9 +8,12 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 )
 
@@ -77,102 +80,81 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	cmd.CompletionOptions.DisableDefaultCmd = true
 
 	cmd.AddGroup(
-		&cobra.Group{ID: "agents", Title: "Set up your agent:"},
-		&cobra.Group{ID: "create", Title: "Create the brain:"},
-		&cobra.Group{ID: "explore", Title: "Explore the brain:"},
-		&cobra.Group{ID: "maintain", Title: "Maintain & share:"},
+		&cobra.Group{ID: "setup", Title: "Set up the brain & agents:"},
+		&cobra.Group{ID: "explore", Title: "Search & explore the brain:"},
+		&cobra.Group{ID: "facts", Title: "Durable facts & patterns:"},
+		&cobra.Group{ID: "memory", Title: "Sessions & conversation memory:"},
+		&cobra.Group{ID: "code", Title: "Code & semantic index:"},
+		&cobra.Group{ID: "maintain", Title: "Brain state & maintenance:"},
+		&cobra.Group{ID: "share", Title: "Workspaces & sharing:"},
+		&cobra.Group{ID: "misc", Title: "Miscellaneous:"},
 	)
 
+	var helpCommands []*cobra.Command
 	addGrouped := func(group string, c *cobra.Command) {
 		c.GroupID = group
 		cmd.AddCommand(c)
+		helpCommands = append(helpCommands, c)
 	}
-	// addHidden registers commands kept out of help but still invocable: the
-	// Entire CLI host / MCP clients drive some programmatically, and the rest
-	// are redundant aliases fully covered by `search` and `inspect <sub>`.
 	addHidden := func(c *cobra.Command) {
 		c.Hidden = true
 		cmd.AddCommand(c)
 	}
 
-	addGrouped("agents", newInitAgentsCommand(opts))
-	addGrouped("agents", newBrainGuideCommand(opts))
-	addGrouped("agents", newCapabilitiesCommand(opts))
+	addGrouped("setup", newSetupCommand(opts))
+	addGrouped("setup", newAddCommand(opts))
+	addGrouped("setup", newInitAgentsCommand(opts))
+	addGrouped("setup", newBrainGuideCommand(opts))
+	addGrouped("setup", newMCPCommand(opts))
+	addGrouped("setup", newConfigCommand(opts.Env))
 
-	// Create the brain — locate it, build/refresh it, manage workspaces.
-	// `setup` leads the group: it is the one command a new user runs.
-	addGrouped("create", newSetupCommand(opts))
-	addGrouped("create", newPathCommand(opts))
-	addGrouped("create", newAddCommand(opts))
-	addGrouped("create", newRefreshCommand(opts))
-	addGrouped("create", newWatchCommand(opts))
-	addGrouped("create", newDistillCommand(opts))
-	addGrouped("create", newRememberCommand(opts))
-	addGrouped("create", newPatternsCommand(opts))
-	addGrouped("create", newAgentStatusCommand(opts))
-	addGrouped("create", newWorkspaceCommand(opts))
-
-	// Explore the brain — task packets, search, records, specialist inspection.
 	addGrouped("explore", newBrainOverviewCommand(opts))
 	addGrouped("explore", newBrainBriefCommand(opts))
-	addGrouped("explore", newBrainInspectCommand(opts))
-	addGrouped("explore", newMCPCommand(opts))
-	addGrouped("explore", newRecallCommand(opts))
-	addGrouped("explore", newVerifyCommand(opts))
-	// qmd-inspired retrieval over the unified text index (facts + history + docs).
-	// Symbol/code search stays at `inspect code`.
 	addGrouped("explore", newQueryCommand(opts))
 	addGrouped("explore", newSearchCommand(opts))
 	addGrouped("explore", newVsearchCommand(opts))
 	addGrouped("explore", newGetCommand(opts))
 	addGrouped("explore", newMultiGetCommand(opts))
-	addGrouped("explore", newEntitiesCommand(opts))
-	addGrouped("explore", newBrainShowCommand(opts))
 	addGrouped("explore", newDashCommand(opts))
-	addGrouped("explore", newVizCommand(opts))
 
-	// Maintain & share — freshness, cleanup, portability, version.
-	// (Build stages live under `refresh`: sessions, index, seed.)
-	addGrouped("maintain", newSemanticBundleCommand(opts))
-	addGrouped("maintain", newPublishCommand(opts))
-	addGrouped("maintain", newBenchmarkCommand(opts))
-	addGrouped("maintain", newFactsCommand(opts))
+	addGrouped("facts", newRecallCommand(opts))
+	addGrouped("facts", newRememberCommand(opts))
+	addGrouped("facts", newDistillCommand(opts))
+	addGrouped("facts", newFactsCommand(opts))
+	addGrouped("facts", newVerifyCommand(opts))
+	addGrouped("facts", newPatternsCommand(opts))
+
+	addGrouped("memory", newMemoryCommand(opts))
+	addGrouped("memory", newPrivacyCommand(opts))
+
+	addGrouped("code", newBrainInspectCommand(opts))
+	addGrouped("code", newBrainShowCommand(opts))
+	addGrouped("code", newEntitiesCommand(opts))
+	addGrouped("code", newVizCommand(opts))
+	addGrouped("code", newSemanticRepairCommand(opts))
+
+	addGrouped("maintain", newAgentStatusCommand(opts))
 	addGrouped("maintain", newStatsCommand(opts))
-	addGrouped("maintain", newPrivacyCommand(opts))
-	addGrouped("maintain", newMemoryCommand(opts))
+	addGrouped("maintain", newRefreshCommand(opts))
+	addGrouped("maintain", newWatchCommand(opts))
 	addGrouped("maintain", newSemanticGCCommand(opts))
-	addGrouped("maintain", newSemanticRepairCommand(opts))
 	addGrouped("maintain", newSemanticResetCommand(opts))
-	// The recovery path for repo_identity_conflict, which otherwise refuses
-	// every repo-scoped command including the deletes that would clear it.
-	addGrouped("maintain", newRepoIdentityCommand(opts))
-	addGrouped("maintain", newVersionCommand(opts.Version))
+
+	addGrouped("share", newWorkspaceCommand(opts))
+	addGrouped("share", newSemanticBundleCommand(opts))
+	addGrouped("share", newPublishCommand(opts))
+
+	addGrouped("misc", newPathCommand(opts))
+	addGrouped("misc", newRepoIdentityCommand(opts))
+	addGrouped("misc", newCapabilitiesCommand(opts))
+	addGrouped("misc", newDoctorCommand(opts))
+	addGrouped("misc", newBenchmarkCommand(opts))
+	addGrouped("misc", newVersionCommand(opts.Version))
 
 	// Hidden: `review` is the machine contract `entire review`'s diff-less mode shells
 	// (`entire-brain review --json`), NOT a human-facing verb — the human
 	// review surface is `entire review` in the cli, not a standalone brain command.
 	addHidden(newBrainReviewCommand(opts))
-
-	// `doctor` and `config` were hidden in June 2026 as "plugin plumbing" --
-	// commands nobody invokes by hand. Both halves of that premise have since
-	// stopped being true, so they are visible again.
-	//
-	// `doctor` is the documented verification step. The README has a section on
-	// it, scripts/install.sh runs it as the last thing it does and its closing
-	// banner tells the reader to re-run it, and v0.3.0 gave it a deliberate
-	// exit-code contract (`--fail-on {error|warn|none}`, default `error`) so it
-	// could be gated on in CI and agent loops. A command whose exit codes were
-	// stabilised for machines to depend on is not an unfinished surface, and a
-	// user who runs it once on the installer's advice and then cannot find it in
-	// `--help` reasonably concludes it was withdrawn.
-	//
-	// `config` is named to the reader by the same three documents that describe
-	// what the installer did on their behalf (`entire brain config init`). Its
-	// subcommands are `path`, `show` and `init` -- inspect where configuration
-	// lives, what is in effect, and write the defaults -- which is exactly what
-	// somebody re-runs when an install half-finished.
-	addGrouped("maintain", newDoctorCommand(opts))
-	addGrouped("maintain", newConfigCommand(opts.Env))
 
 	// Hidden measurement harness for the history retrieval layer (the facts
 	// analog lives under `facts eval`/`eval-gen`; summaries are compatible with
@@ -184,10 +166,99 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	// the harness (Claude Code, Entire CLI), not invoked by humans or agents.
 	addHidden(newHookCommand(opts))
 
-	cmd.SetHelpCommandGroupID("maintain")
+	cmd.SetHelpCommandGroupID("misc")
+	setRootUsage(cmd, helpCommands)
 
 	wrapJSONErrorRendering(cmd)
 	return cmd
+}
+
+// setRootUsage preserves the workflow order without changing Cobra's global
+// sorting setting or the default help for subcommands.
+func setRootUsage(root *cobra.Command, commands []*cobra.Command) {
+	defaultUsage := root.UsageFunc()
+	defaultHelp := root.HelpFunc()
+	helpWidth := 0
+	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		// Cobra renders UsageString into a buffer; measure the real output first.
+		if cmd == root {
+			helpWidth = helpTerminalWidth(cmd.OutOrStdout())
+			defer func() { helpWidth = 0 }()
+		}
+		defaultHelp(cmd, args)
+	})
+	root.SetUsageFunc(func(cmd *cobra.Command) error {
+		if cmd != root {
+			return defaultUsage(cmd)
+		}
+		ordered := append([]*cobra.Command(nil), commands...)
+		for _, c := range cmd.Commands() {
+			if c.Name() == "help" {
+				ordered = append(ordered, c)
+			}
+		}
+		var out strings.Builder
+		fmt.Fprintf(&out, "Usage:\n  %s\n  %s [command]\n", cmd.UseLine(), cmd.CommandPath())
+		width := 0
+		for _, c := range ordered {
+			if !c.Hidden && len(c.Name()) > width {
+				width = len(c.Name())
+			}
+		}
+		terminalWidth := helpWidth
+		if terminalWidth == 0 {
+			terminalWidth = helpTerminalWidth(cmd.OutOrStderr())
+		}
+		for _, group := range cmd.Groups() {
+			fmt.Fprintf(&out, "\n%s\n", group.Title)
+			for _, c := range ordered {
+				if c.GroupID == group.ID && !c.Hidden && (c.IsAvailableCommand() || c.Name() == "help") {
+					writeHelpCommand(&out, c.Name(), c.Short, width, terminalWidth)
+				}
+			}
+		}
+		fmt.Fprintf(&out, "\nFlags:\n%s", cmd.LocalFlags().FlagUsages())
+		fmt.Fprintf(&out, "\nUse %q for more information about a command.\n", cmd.CommandPath()+" [command] --help")
+		_, err := io.WriteString(cmd.OutOrStderr(), out.String())
+		return err
+	})
+}
+
+// Prefer the output terminal. Entire may pipe plugin output, so also consult
+// the controlling terminal for file-backed output. Unknown width means no wrap.
+func helpTerminalWidth(out io.Writer) int {
+	if f, ok := out.(interface{ Fd() uintptr }); ok {
+		if width, _, err := term.GetSize(f.Fd()); err == nil && width > 0 {
+			return width
+		}
+		if tty, err := os.Open("/dev/tty"); err == nil {
+			defer tty.Close()
+			if width, _, err := term.GetSize(tty.Fd()); err == nil && width > 0 {
+				return width
+			}
+		}
+	}
+	if width, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && width > 0 {
+		return width
+	}
+	return 0
+}
+
+func writeHelpCommand(out io.Writer, name, description string, nameWidth, terminalWidth int) {
+	indent := nameWidth + 4
+	prefix := fmt.Sprintf("  %-*s  ", nameWidth, name)
+	if terminalWidth <= 0 || ansi.StringWidth(prefix+description) <= terminalWidth {
+		fmt.Fprintln(out, prefix+description)
+		return
+	}
+	// On very narrow terminals, put the description below the command name.
+	if terminalWidth <= indent {
+		fmt.Fprintf(out, "  %s\n", name)
+		indent = min(2, max(0, terminalWidth-1))
+		prefix = strings.Repeat(" ", indent)
+	}
+	wrapped := ansi.Wrap(description, max(1, terminalWidth-indent), "")
+	fmt.Fprintln(out, prefix+strings.ReplaceAll(wrapped, "\n", "\n"+strings.Repeat(" ", indent)))
 }
 
 type commandJSONError struct {

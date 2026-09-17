@@ -579,7 +579,8 @@ func newDistillCommand(opts Options) *cobra.Command {
 	distillOpts := distillCommandOptions{agent: "auto", timeout: defaultDistillTimeout, maxChunkBytes: defaultDistillChunkSize, confidenceThreshold: defaultFactConfidenceThreshold, concurrency: defaultDistillConcurrency}
 	cmd := &cobra.Command{
 		Use:   "distill [path]",
-		Short: "Distill captured sessions into durable facts (agent-required)",
+		Short: "Extract durable facts from sessions (requires an agent)",
+		Long:  "Distill captured sessions into durable facts (agent-required)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := "."

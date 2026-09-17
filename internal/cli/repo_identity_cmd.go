@@ -52,7 +52,7 @@ func newRepoIdentityCommand(opts Options) *cobra.Command {
 	identityOpts := repoIdentityOptions{}
 	cmd := &cobra.Command{
 		Use:   "repo-identity [path]",
-		Short: "Show, and resolve, the brain stores a repository is split across",
+		Short: "Find and resolve conflicting brain stores",
 		Long: `Repo-identity reports every brain store a local repository resolves to.
 
 A repository normally has exactly one. It has more than one when an older build

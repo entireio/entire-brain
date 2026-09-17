@@ -419,7 +419,7 @@ func newSetupCommand(opts Options) *cobra.Command {
 	setupOpts := defaultSetupOptions()
 	cmd := &cobra.Command{
 		Use:   "setup [path]",
-		Short: "Set the brain up in one command: build it now, backfill facts in the background, keep it fresh",
+		Short: "Build the brain and start background updates",
 		Long: fmt.Sprintf(`setup is the one command that makes a repository's brain useful and keeps it
 that way. It runs three phases:
 

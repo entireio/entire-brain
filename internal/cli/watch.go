@@ -132,7 +132,8 @@ func newWatchCommand(opts Options) *cobra.Command {
 	w := defaultWatchOptions()
 	cmd := &cobra.Command{
 		Use:   "watch [path]",
-		Short: "Keep the brain fresh automatically (deterministic refresh is free; agent steps are gated)",
+		Short: "Keep the brain up to date automatically",
+		Long:  "Keep the brain fresh automatically (deterministic refresh is free; agent steps are gated)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := "."

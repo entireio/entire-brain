@@ -383,7 +383,8 @@ func newAgentStatusCommand(opts Options) *cobra.Command {
 	statusOpts := agentStatusOptions{failOn: semanticAuditFailOnNone}
 	cmd := &cobra.Command{
 		Use:   "status [path]",
-		Short: "Summarize the brain: sources, facts, semantic coverage/freshness/blind spots, and live workspace state",
+		Short: "Show brain coverage, freshness, and workspace state",
+		Long:  "Summarize the brain: sources, facts, semantic coverage/freshness/blind spots, and live workspace state",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := agentSurfaceTarget(opts, args)
@@ -435,7 +436,8 @@ func newBrainOverviewCommand(opts Options) *cobra.Command {
 	var decisions int
 	cmd := &cobra.Command{
 		Use:   "overview [path]",
-		Short: "Summarize what the project is: stack, boundaries, commands, and recent decisions",
+		Short: "Summarize the project, its structure, and decisions",
+		Long:  "Summarize what the project is: stack, boundaries, commands, and recent decisions",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := agentSurfaceTarget(opts, args)
@@ -721,7 +723,8 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "brief <task> | brief --handoff",
-		Short: "Build a bounded task packet from brain context and live state",
+		Short: "Gather relevant context for a task",
+		Long:  "Build a bounded task packet from brain context and live state",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if handoff {
@@ -765,7 +768,7 @@ func newBrainShowCommand(opts Options) *cobra.Command {
 func newBrainInspectCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "inspect",
-		Short: "Run specialist brain inspection commands",
+		Short: "Explore code, dependencies, and change history",
 		Args:  cobra.NoArgs,
 	}
 	// inspect is the specialist fallback for what the unified verbs

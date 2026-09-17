@@ -568,7 +568,8 @@ func newStatsCommand(opts Options) *cobra.Command {
 	var jsonOut bool
 	cmd := &cobra.Command{
 		Use:   "stats",
-		Short: "Report brain counts and ranges by branch, agent, source, completion state, and index version",
+		Short: "Show brain record counts and breakdowns",
+		Long:  "Report brain counts and ranges by branch, agent, source, completion state, and index version",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runBrainStats(cmd.Context(), cmd, opts, jsonOut)
