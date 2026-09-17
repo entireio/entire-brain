@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Iterable
@@ -442,13 +443,15 @@ def prepare(args: argparse.Namespace) -> None:
             environment, package_directory, go_tool_directory
         )
         listing_arguments = direct_listing_arguments(binary_path)
-        listing_process, listing_seconds = run_command(
-            listing_arguments,
-            cwd=package_directory,
-            environment=listing_environment,
-            stdout_path=logs / f"{binary_name}.list.stdout.log",
-            stderr_path=logs / f"{binary_name}.list.stderr.log",
-        )
+        with tempfile.TemporaryDirectory(prefix="entire-brain-inventory-coverage-") as directory:
+            listing_environment["GOCOVERDIR"] = directory
+            listing_process, listing_seconds = run_command(
+                listing_arguments,
+                cwd=package_directory,
+                environment=listing_environment,
+                stdout_path=logs / f"{binary_name}.list.stdout.log",
+                stderr_path=logs / f"{binary_name}.list.stderr.log",
+            )
         operations.append(
             {
                 "phase": "list",

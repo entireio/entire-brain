@@ -349,7 +349,10 @@ class VerifyResultsTests(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
-            self.assertEqual(summary["totals"], {"statements": 11, "covered": 7, "percent": 700 / 11})
+            self.assertEqual(
+                summary["totals"],
+                {"statements": 11, "covered": 7, "percent": 700 / 11},
+            )
             combined = (Path(directory) / "coverage-output" / "combined.out").read_text(
                 encoding="utf-8"
             )

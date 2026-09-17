@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import importlib.util
 import json
 import re
 import sys
@@ -15,8 +16,13 @@ import plan_shards
 
 
 COVERAGE_TOOLS = Path(__file__).resolve().parents[2] / "coverage"
-sys.path.insert(0, str(COVERAGE_TOOLS))
-import report as coverage_report  # noqa: E402
+COVERAGE_REPORT_SPEC = importlib.util.spec_from_file_location(
+    "entire_coverage_report", COVERAGE_TOOLS / "report.py"
+)
+if COVERAGE_REPORT_SPEC is None or COVERAGE_REPORT_SPEC.loader is None:
+    raise ImportError("cannot load tools/coverage/report.py")
+coverage_report = importlib.util.module_from_spec(COVERAGE_REPORT_SPEC)
+COVERAGE_REPORT_SPEC.loader.exec_module(coverage_report)
 
 
 PACKAGE_SCHEMA = "entire-brain.windows-ci.package-inventory.v1"
@@ -27,7 +33,9 @@ REPORT_SCHEMA = "entire-brain.windows-ci.verification.v1"
 TERMINAL_ACTIONS = frozenset({"pass", "fail", "skip"})
 TARGET_ENVIRONMENT = {"CGO_ENABLED": "1", "GOARCH": "amd64", "GOOS": "windows"}
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
-COVERAGE_COORDINATES = re.compile(r"([1-9][0-9]*)\.([1-9][0-9]*),([1-9][0-9]*)\.([1-9][0-9]*)")
+COVERAGE_COORDINATES = re.compile(
+    r"([1-9][0-9]*)\.([1-9][0-9]*),([1-9][0-9]*)\.([1-9][0-9]*)"
+)
 
 
 def read_json(path: Path) -> Any:
@@ -825,7 +833,11 @@ def verify_other(
     if metadata.get("expectedPackages") != expected_packages:
         failures.append("non-heavy metadata package list differs from target-Windows inventory")
     test_arguments = metadata.get("testArguments")
-    coverage_argument = test_arguments[6] if isinstance(test_arguments, list) and len(test_arguments) > 6 else None
+    coverage_argument = (
+        test_arguments[6]
+        if isinstance(test_arguments, list) and len(test_arguments) > 6
+        else None
+    )
     coverage_argument_valid = False
     if isinstance(coverage_argument, str) and coverage_argument.startswith("-coverprofile="):
         command_profile = PureWindowsPath(coverage_argument.removeprefix("-coverprofile="))
