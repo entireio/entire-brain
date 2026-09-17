@@ -8,10 +8,15 @@ import collections
 import json
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Iterable
 
 import plan_shards
+
+
+COVERAGE_TOOLS = Path(__file__).resolve().parents[2] / "coverage"
+sys.path.insert(0, str(COVERAGE_TOOLS))
+import report as coverage_report  # noqa: E402
 
 
 PACKAGE_SCHEMA = "entire-brain.windows-ci.package-inventory.v1"
@@ -21,6 +26,8 @@ OTHER_RUN_SCHEMA = "entire-brain.windows-ci.other-run.v1"
 REPORT_SCHEMA = "entire-brain.windows-ci.verification.v1"
 TERMINAL_ACTIONS = frozenset({"pass", "fail", "skip"})
 TARGET_ENVIRONMENT = {"CGO_ENABLED": "1", "GOARCH": "amd64", "GOOS": "windows"}
+SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
+COVERAGE_COORDINATES = re.compile(r"([1-9][0-9]*)\.([1-9][0-9]*),([1-9][0-9]*)\.([1-9][0-9]*)")
 
 
 def read_json(path: Path) -> Any:
@@ -60,6 +67,222 @@ def write_json(path: Path, value: Any) -> None:
         json.dump(value, handle, indent=2, ensure_ascii=False)
         handle.write("\n")
     temporary.replace(path)
+
+
+def write_text(path: Path, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(value, encoding="utf-8")
+    temporary.replace(path)
+
+
+def validate_atomic_profile(path: Path) -> None:
+    try:
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+    except (OSError, UnicodeError) as error:
+        raise ValueError(f"cannot read profile: {error}") from error
+    if not lines or lines[0] != "mode: atomic":
+        raise ValueError("coverage mode is not atomic")
+    if len(lines) == 1:
+        raise ValueError("coverage profile contains no blocks")
+    for line_number, line in enumerate(lines[1:], 2):
+        try:
+            location, statements_text, count_text = line.rsplit(maxsplit=2)
+            statements = int(statements_text)
+            count = int(count_text)
+            filename, coordinates = location.rsplit(":", 1)
+        except (ValueError, TypeError) as error:
+            raise ValueError(f"line {line_number} is not a coverage block") from error
+        match = COVERAGE_COORDINATES.fullmatch(coordinates)
+        if not filename or match is None:
+            raise ValueError(f"line {line_number} has an invalid source range")
+        start_line, start_column, end_line, end_column = map(int, match.groups())
+        if (end_line, end_column) < (start_line, start_column):
+            raise ValueError(f"line {line_number} has a reversed source range")
+        if statements < 0 or count < 0:
+            raise ValueError(f"line {line_number} has a negative coverage count")
+
+
+def verify_coverage_profile(
+    result_root: Path,
+    relative_path: Any,
+    expected_sha256: Any,
+    label: str,
+    failures: list[str],
+) -> Path | None:
+    """Resolve and authenticate one producer-declared profile below its result root."""
+    if not isinstance(relative_path, str) or not relative_path:
+        failures.append(f"{label} is missing coverageProfile")
+        return None
+    pure_path = PurePosixPath(relative_path)
+    if (
+        pure_path.is_absolute()
+        or relative_path != pure_path.as_posix()
+        or "\\" in relative_path
+        or ":" in relative_path
+        or any(part in {"", ".", ".."} for part in pure_path.parts)
+    ):
+        failures.append(f"{label} has an unsafe coverageProfile path: {relative_path!r}")
+        return None
+    if not isinstance(expected_sha256, str) or SHA256_PATTERN.fullmatch(expected_sha256) is None:
+        failures.append(f"{label} has a malformed coverageSha256")
+        return None
+
+    root = result_root.resolve(strict=True)
+    unresolved = root.joinpath(*pure_path.parts)
+    cursor = root
+    for part in pure_path.parts:
+        cursor /= part
+        if cursor.is_symlink():
+            failures.append(f"{label} coverageProfile traverses a symbolic link")
+            return None
+    try:
+        profile = unresolved.resolve(strict=True)
+    except OSError as error:
+        failures.append(f"{label} coverage profile is missing: {error}")
+        return None
+    if not profile.is_relative_to(root):
+        failures.append(f"{label} coverageProfile escapes its result root")
+        return None
+    if not profile.is_file():
+        failures.append(f"{label} coverageProfile is not a regular file")
+        return None
+    if plan_shards.sha256_file(profile) != expected_sha256:
+        failures.append(f"{label} coverage profile hash differs from metadata")
+        return None
+    try:
+        validate_atomic_profile(profile)
+        coverage_report.read_profiles([profile])
+    except (OSError, UnicodeError, ValueError) as error:
+        failures.append(f"{label} coverage profile is corrupt: {error}")
+        return None
+    return profile
+
+
+def verify_binary_coverage(
+    other_root: Path,
+    plan: dict[str, Any],
+    failures: list[str],
+) -> Path | None:
+    binary_root = other_root / "binary-coverage"
+    environment_path = binary_root / "environment.json"
+    summary_path = binary_root / "summary.json"
+    profile_path = binary_root / "binary.out"
+    for path in (environment_path, summary_path, profile_path):
+        if not path.is_file():
+            failures.append(f"binary coverage report is missing {path.name}")
+    if not all(path.is_file() for path in (environment_path, summary_path, profile_path)):
+        return None
+
+    environment = read_json(environment_path)
+    summary = read_json(summary_path)
+    if not isinstance(environment, dict) or not isinstance(summary, dict):
+        failures.append("binary coverage environment or summary is not an object")
+        return None
+    expected_environment = {
+        "commit": plan.get("repositorySha"),
+        "go_version": plan.get("goVersion"),
+        "tags": "",
+        "race": True,
+        "scope": "instrumented binary contracts",
+        "tests_exit_code": 0,
+        "worktree_status": "",
+    }
+    for key, expected in expected_environment.items():
+        if environment.get(key) != expected:
+            failures.append(f"binary coverage environment differs at {key}")
+    platform = environment.get("platform")
+    if not isinstance(platform, str) or platform.casefold() != "windows/amd64":
+        failures.append("binary coverage platform is not Windows/amd64")
+    if summary.get("environment") != environment:
+        failures.append("binary coverage summary environment differs from environment.json")
+
+    profile = verify_coverage_profile(
+        binary_root,
+        "binary.out",
+        environment.get("profileSha256"),
+        "binary contracts",
+        failures,
+    )
+    if profile is None:
+        return None
+    try:
+        expected_summary = coverage_report.summarize(coverage_report.read_profiles([profile]))
+    except (OSError, UnicodeError, ValueError) as error:
+        failures.append(f"binary coverage profile is corrupt: {error}")
+        return None
+    for key in ("metric", "totals", "files"):
+        if summary.get(key) != expected_summary[key]:
+            failures.append(f"binary coverage summary differs from binary.out at {key}")
+    return profile
+
+
+def merge_coverage_profiles(
+    profiles: list[tuple[str, Path]],
+    plan: dict[str, Any],
+    heavy_process_count: int,
+    failures: list[str],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, tuple[int, bool]]] | None:
+    resolved = [path for _, path in profiles]
+    duplicates = [
+        str(path)
+        for path, count in collections.Counter(resolved).items()
+        if count != 1
+    ]
+    expected_count = heavy_process_count + 2
+    if len(profiles) != expected_count:
+        failures.append(
+            f"found {len(profiles)} authenticated coverage profiles, want {expected_count}"
+        )
+    if duplicates:
+        failures.append("multiple expected runs reference the same coverage profile")
+    if len(profiles) != expected_count or duplicates:
+        return None
+    try:
+        blocks = coverage_report.read_profiles(resolved)
+    except (OSError, UnicodeError, ValueError) as error:
+        failures.append(f"coverage profiles cannot be merged: {error}")
+        return None
+    environment = {
+        "commit": plan.get("repositorySha"),
+        "go_version": plan.get("goVersion"),
+        "platform": "Windows/AMD64",
+        "tags": "",
+        "race": True,
+        "scope": "sharded ./... plus instrumented binary contracts",
+        "tests_exit_code": 0,
+        "profile_count": len(profiles),
+        "heavy_process_profile_count": heavy_process_count,
+        "nonheavy_profile_count": 1,
+        "binary_profile_count": 1,
+    }
+    summary = coverage_report.summarize(blocks)
+    summary["environment"] = environment
+    return summary, environment, blocks
+
+
+def write_coverage_outputs(
+    output: Path,
+    summary: dict[str, Any],
+    environment: dict[str, Any],
+    blocks: dict[str, tuple[int, bool]],
+) -> None:
+    if output.exists():
+        if not output.is_dir():
+            raise ValueError("coverage output exists and is not a directory")
+        if any(output.iterdir()):
+            raise ValueError("coverage output directory must be empty")
+    output.mkdir(parents=True, exist_ok=True)
+    write_json(output / "environment.json", environment)
+    write_json(output / "summary.json", summary)
+    write_text(
+        output / "combined.out",
+        "mode: set\n"
+        + "".join(
+            f"{location} {statements} {int(hit)}\n"
+            for location, (statements, hit) in sorted(blocks.items())
+        ),
+    )
 
 
 def verify_required_zero_exit(
@@ -155,6 +378,11 @@ def validate_plan(
     settings = plan.get("settings")
     if not isinstance(settings, dict) or settings.get("shuffle") != "off":
         failures.append("plan does not preserve shuffle=off semantics")
+    elif (
+        settings.get("coverageMode") != "atomic"
+        or settings.get("coveragePackages") != "./..."
+    ):
+        failures.append("plan does not require atomic cross-package coverage")
     if plan.get("inventorySetSha256") != plan_shards._inventory_digest(inventories):
         failures.append("plan inventory digest does not match compiled inventories")
     plan_packages = plan.get("packages")
@@ -288,6 +516,7 @@ def verify_shards(
     root_details: dict[str, dict[str, str]],
     failures: list[str],
     exit_report: list[dict[str, Any]],
+    coverage_profiles: list[tuple[str, Path]],
 ) -> dict[str, Any]:
     metadata_paths = sorted(root.rglob("shard-metadata.json"))
     shard_count = plan.get("shardCount")
@@ -354,6 +583,9 @@ def verify_shards(
         for key in ("timeout", "shuffle", "testParallel", "goMaxProcs", "commandLineLimit"):
             if metadata.get(key) != plan.get("settings", {}).get(key):
                 failures.append(f"shard {index} metadata setting {key} differs from plan")
+        for key in ("coverageMode", "coveragePackages"):
+            if metadata.get(key) != plan.get("settings", {}).get(key):
+                failures.append(f"shard {index} metadata setting {key} differs from plan")
         expected_assignments = {
             package: assignment
             for (assignment_index, package), assignment in process_assignments.items()
@@ -382,6 +614,20 @@ def verify_shards(
             if expected is None:
                 failures.append(f"shard {index} invoked unexpected package {package}")
                 continue
+            profile = verify_coverage_profile(
+                metadata_path.parent,
+                invocation.get("coverageProfile"),
+                invocation.get("coverageSha256"),
+                f"shard {index} package {package}",
+                failures,
+            )
+            if profile is not None:
+                coverage_profiles.append((f"shard {index} package {package}", profile))
+            expected_profile = f"coverage/shard-{index:03d}-process-{invocation_index:02d}.out"
+            if invocation.get("coverageProfile") != expected_profile:
+                failures.append(
+                    f"shard {index} {package} coverage profile path differs from its process"
+                )
             if invocation.get("binaryName") != expected.get("binaryName"):
                 failures.append(f"shard {index} {package} binary name differs from plan")
             if invocation.get("binarySha256") != expected.get("binarySha256"):
@@ -508,6 +754,7 @@ def verify_other(
     package_inventory_sha256: str,
     failures: list[str],
     exit_report: list[dict[str, Any]],
+    coverage_profiles: list[tuple[str, Path]],
 ) -> dict[str, Any]:
     metadata_paths = sorted(root.rglob("other-metadata.json"))
     event_paths = sorted(root.rglob("other-events.jsonl"))
@@ -529,6 +776,17 @@ def verify_other(
         )
     if metadata.get("errors") != []:
         failures.append("non-heavy metadata contains errors")
+    profile = verify_coverage_profile(
+        metadata_paths[0].parent,
+        metadata.get("coverageProfile"),
+        metadata.get("coverageSha256"),
+        "non-heavy run",
+        failures,
+    )
+    if profile is not None:
+        coverage_profiles.append(("non-heavy run", profile))
+    if metadata.get("coverageProfile") != "coverage/other.out":
+        failures.append("non-heavy coverage profile path differs from coverage/other.out")
     if metadata.get("repositorySha") != plan.get("repositorySha"):
         failures.append("non-heavy repository SHA differs from plan")
     if metadata.get("repositoryShaAfter") != plan.get("repositorySha"):
@@ -550,6 +808,9 @@ def verify_other(
     for key in ("timeout", "shuffle", "testParallel", "goMaxProcs", "commandLineLimit"):
         if metadata.get(key) != plan.get("settings", {}).get(key):
             failures.append(f"non-heavy metadata setting {key} differs from plan")
+    for key in ("coverageMode", "coveragePackages"):
+        if metadata.get(key) != plan.get("settings", {}).get(key):
+            failures.append(f"non-heavy metadata setting {key} differs from plan")
     command_units = metadata.get("commandLineUtf16Units")
     if (
         not isinstance(command_units, int)
@@ -563,12 +824,35 @@ def verify_other(
     )
     if metadata.get("expectedPackages") != expected_packages:
         failures.append("non-heavy metadata package list differs from target-Windows inventory")
-    expected_arguments = ["test", "-race", "-json", "-vet=off",
-                          f"-timeout={plan['settings']['timeout']}", "-shuffle=off"]
+    test_arguments = metadata.get("testArguments")
+    coverage_argument = test_arguments[6] if isinstance(test_arguments, list) and len(test_arguments) > 6 else None
+    coverage_argument_valid = False
+    if isinstance(coverage_argument, str) and coverage_argument.startswith("-coverprofile="):
+        command_profile = PureWindowsPath(coverage_argument.removeprefix("-coverprofile="))
+        coverage_argument_valid = (
+            command_profile.is_absolute()
+            and re.fullmatch(r"[A-Za-z]:", command_profile.drive) is not None
+            and ".." not in command_profile.parts
+            and tuple(part.casefold() for part in command_profile.parts[-2:])
+            == ("coverage", "other.out")
+        )
+    if not coverage_argument_valid:
+        failures.append("non-heavy coverage argument is not an absolute Windows coverage/other.out path")
+    expected_arguments = [
+        "test",
+        "-race",
+        "-json",
+        "-vet=off",
+        "-covermode=atomic",
+        "-coverpkg=./...",
+        coverage_argument,
+        f"-timeout={plan['settings']['timeout']}",
+        "-shuffle=off",
+    ]
     if plan["settings"].get("testParallel") is not None:
         expected_arguments.append(f"-parallel={plan['settings']['testParallel']}")
     expected_arguments.extend(expected_packages)
-    if metadata.get("testArguments") != expected_arguments:
+    if test_arguments != expected_arguments:
         failures.append("non-heavy test arguments do not preserve race coverage and planned packages")
     events = read_jsonl(event_paths[0])
     starts: collections.Counter[str] = collections.Counter()
@@ -642,6 +926,7 @@ def verify_other(
 def verify(args: argparse.Namespace) -> dict[str, Any]:
     failures: list[str] = []
     exit_report: list[dict[str, Any]] = []
+    coverage_profiles: list[tuple[str, Path]] = []
     report: dict[str, Any] = {
         "schema": REPORT_SCHEMA,
         "passed": False,
@@ -769,6 +1054,7 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
         root_details,
         failures,
         exit_report,
+        coverage_profiles,
     )
     report["otherPackages"] = verify_other(
         args.other_results.resolve(strict=True),
@@ -778,6 +1064,18 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
         plan_shards.sha256_file(package_path),
         failures,
         exit_report,
+        coverage_profiles,
+    )
+    binary_profile = verify_binary_coverage(
+        args.other_results.resolve(strict=True), plan, failures
+    )
+    if binary_profile is not None:
+        coverage_profiles.append(("binary contracts", binary_profile))
+    coverage = merge_coverage_profiles(
+        coverage_profiles,
+        plan,
+        len(process_assignments),
+        failures,
     )
     report["inventory"] = {
         "repositorySha": plan.get("repositorySha"),
@@ -792,6 +1090,17 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
     }
     report["exitCodes"] = exit_report
     report["passed"] = not failures
+    if coverage is not None:
+        summary, environment, blocks = coverage
+        report["coverage"] = {
+            "profileCount": environment["profile_count"],
+            "heavyProcessProfileCount": environment["heavy_process_profile_count"],
+            "nonHeavyProfileCount": environment["nonheavy_profile_count"],
+            "binaryProfileCount": environment["binary_profile_count"],
+            "totals": summary["totals"],
+        }
+        if report["passed"]:
+            write_coverage_outputs(args.coverage_output, summary, environment, blocks)
     return report
 
 
@@ -800,6 +1109,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--bundle", type=Path, required=True)
     parser.add_argument("--shard-results", type=Path, required=True)
     parser.add_argument("--other-results", type=Path, required=True)
+    parser.add_argument("--coverage-output", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args(argv)
 

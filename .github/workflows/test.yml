@@ -62,30 +62,6 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: go build ./...
 
-  # The race suite below remains sharded. This separate non-race measurement
-  # includes Windows-only code and uses the same profile/report format as Unix.
-  coverage-windows:
-    runs-on: windows-latest
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v6.0.2
-      - uses: actions/setup-go@v6.4.0
-        with: { go-version: "1.27.1" }
-      - uses: actions/setup-python@v6
-        with: { python-version: "3.12" }
-      - name: Measure Windows source coverage
-        run: python -B tools/coverage/run.py --test-timeout 30m --output "${{ runner.temp }}/brain-coverage"
-      - name: Retain Windows source coverage
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: coverage-default-windows-latest
-          path: |
-            ${{ runner.temp }}/brain-coverage/*.json
-            ${{ runner.temp }}/brain-coverage/*.jsonl
-            ${{ runner.temp }}/brain-coverage/*.out
-            ${{ runner.temp }}/brain-coverage/*.html
-
   test:
     strategy:
       matrix:
@@ -244,6 +220,8 @@ jobs:
             --output $output `
             --expected-repository-sha '${{ github.sha }}'
           exit $LASTEXITCODE
+      - name: Measure instrumented CLI contracts without rerunning the suite
+        run: python -B tools/coverage/run.py --race --binary-only --output "${{ runner.temp }}/windows-test-other/binary-coverage"
       - name: Upload non-heavy package evidence
         if: always()
         uses: actions/upload-artifact@v6
@@ -280,6 +258,9 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - uses: actions/setup-go@v6.4.0
+        with:
+          go-version: "1.27.1"
       - uses: actions/download-artifact@v6
         with:
           name: windows-test-bundle
@@ -298,7 +279,17 @@ jobs:
             --bundle "${{ runner.temp }}/windows-test-bundle" \
             --shard-results "${{ runner.temp }}/windows-test-shards" \
             --other-results "${{ runner.temp }}/windows-test-other" \
+            --coverage-output "${{ runner.temp }}/windows-statement-coverage" \
             --output "${{ runner.temp }}/windows-test-verification.json"
+      - name: Render merged Windows statement coverage
+        run: go tool cover -html="${{ runner.temp }}/windows-statement-coverage/combined.out" -o="${{ runner.temp }}/windows-statement-coverage/coverage.html"
+      - name: Upload Windows statement coverage
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-windows-sharded
+          path: ${{ runner.temp }}/windows-statement-coverage/
+          if-no-files-found: warn
       - name: Upload verification report
         if: always()
         uses: actions/upload-artifact@v6

@@ -124,6 +124,11 @@ def require_race_build(build_info: str) -> None:
         raise RuntimeError("compiled test binary does not prove -race=true")
 
 
+def require_coverage_build(build_info: str) -> None:
+    if not any(line.split() == ["build", "-cover=true"] for line in build_info.splitlines()):
+        raise RuntimeError("compiled test binary does not prove -cover=true")
+
+
 def direct_listing_arguments(binary: Path) -> list[str]:
     return [str(binary), "-test.paniconexit0", "-test.list=."]
 
@@ -389,7 +394,18 @@ def prepare(args: argparse.Namespace) -> None:
             )
         binary_path = (binaries / binary_name).resolve()
         compile_process, compile_seconds = run_command(
-            [go, "test", "-race", "-vet=off", "-c", "-o", str(binary_path), package_argument],
+            [
+                go,
+                "test",
+                "-race",
+                "-vet=off",
+                f"-covermode={plan_shards.COVERAGE_MODE}",
+                f"-coverpkg={plan_shards.COVERAGE_PACKAGES}",
+                "-c",
+                "-o",
+                str(binary_path),
+                package_argument,
+            ],
             cwd=repository,
             environment=environment,
             stdout_path=logs / f"{binary_name}.compile.stdout.log",
@@ -420,6 +436,7 @@ def prepare(args: argparse.Namespace) -> None:
         })
         require_success(build_info, "read compiled race build settings")
         require_race_build(build_info.stdout)
+        require_coverage_build(build_info.stdout)
 
         listing_environment = direct_test_environment(
             environment, package_directory, go_tool_directory
@@ -461,6 +478,9 @@ def prepare(args: argparse.Namespace) -> None:
             "binarySizeBytes": binary_path.stat().st_size,
             "listExitCode": listing_process.returncode,
             "raceEnabled": True,
+            "coverageEnabled": True,
+            "coverageMode": plan_shards.COVERAGE_MODE,
+            "coveragePackages": plan_shards.COVERAGE_PACKAGES,
             "listingContract": {
                 "arguments": listing_arguments[1:],
                 "paniconexit0": True,

@@ -19,6 +19,8 @@ from typing import Any
 PLAN_SCHEMA = "entire-brain.windows-ci.shard-plan.v1"
 RUN_SCHEMA = "entire-brain.windows-ci.shard-run.v1"
 TARGET_ENVIRONMENT = {"CGO_ENABLED": "1", "GOARCH": "amd64", "GOOS": "windows"}
+COVERAGE_MODE = "atomic"
+COVERAGE_PACKAGES = "./..."
 
 
 def read_json(path: Path) -> Any:
@@ -41,6 +43,22 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def coverage_profile_metadata(output: Path, profile: Path) -> tuple[str, str]:
+    output = output.resolve(strict=True)
+    profile = profile.resolve()
+    try:
+        relative = profile.relative_to(output)
+    except ValueError as error:
+        raise ValueError(f"coverage profile escaped result artifact: {profile}") from error
+    if not profile.is_file() or profile.stat().st_size <= len("mode: atomic\n"):
+        raise RuntimeError(f"coverage profile is missing or empty: {profile}")
+    with profile.open(encoding="utf-8", errors="strict") as handle:
+        header = handle.readline().rstrip("\r\n")
+    if header != f"mode: {COVERAGE_MODE}":
+        raise RuntimeError(f"coverage profile has unexpected mode header: {header!r}")
+    return relative.as_posix(), sha256_file(profile)
 
 
 def command_line_utf16_units(executable: str, arguments: list[str]) -> int:
@@ -165,6 +183,7 @@ def shard_command_arguments(
     timeout: str,
     run_regex: str,
     test_parallel: int | None,
+    coverage_profile: Path | None = None,
 ) -> list[str]:
     arguments = [
         "tool",
@@ -178,6 +197,10 @@ def shard_command_arguments(
         f"-test.run={run_regex}",
         "-test.shuffle=off",
     ]
+    if coverage_profile is not None:
+        if not coverage_profile.is_absolute():
+            raise ValueError("coverage profile path must be absolute")
+        arguments.append(f"-test.coverprofile={coverage_profile}")
     if test_parallel is not None:
         arguments.append(f"-test.parallel={test_parallel}")
     arguments.append("-test.v=test2json")
@@ -220,6 +243,11 @@ def run(args: argparse.Namespace, metadata: dict[str, Any]) -> int:
     settings = plan.get("settings")
     if not isinstance(settings, dict) or settings.get("shuffle") != "off":
         raise ValueError("plan does not preserve shuffle=off semantics")
+    if (
+        settings.get("coverageMode") != COVERAGE_MODE
+        or settings.get("coveragePackages") != COVERAGE_PACKAGES
+    ):
+        raise ValueError("plan does not require atomic cross-package coverage")
     timeout = settings.get("timeout")
     command_limit = settings.get("commandLineLimit")
     if not isinstance(timeout, str) or not re.fullmatch(r"[1-9][0-9]*(?:ns|us|µs|ms|s|m|h)", timeout):
@@ -266,10 +294,18 @@ def run(args: argparse.Namespace, metadata: dict[str, Any]) -> int:
             "shuffle": "off",
             "testParallel": settings.get("testParallel"),
             "goMaxProcs": go_max_procs,
+            "coverageMode": COVERAGE_MODE,
+            "coveragePackages": COVERAGE_PACKAGES,
         }
     )
     combined_events = output / "shard-events.jsonl"
     combined_events.write_bytes(b"")
+    coverage_directory = (output / "coverage").resolve()
+    try:
+        coverage_directory.relative_to(output)
+    except ValueError as error:
+        raise ValueError("coverage directory escaped result artifact") from error
+    coverage_directory.mkdir(parents=True, exist_ok=True)
     final_exit = 0
     try:
         clean = subprocess.run(
@@ -328,8 +364,13 @@ def run(args: argparse.Namespace, metadata: dict[str, Any]) -> int:
                 or test_parallel <= 0
             ):
                 raise ValueError("plan has invalid testParallel")
+            coverage_path = (
+                coverage_directory
+                / f"shard-{args.shard_index:03d}-process-{position:02d}.out"
+            )
+            coverage_path.unlink(missing_ok=True)
             command_arguments = shard_command_arguments(
-                package, binary, timeout, run_regex, test_parallel
+                package, binary, timeout, run_regex, test_parallel, coverage_path
             )
             command_units = command_line_utf16_units(go, command_arguments)
             if command_units > command_limit:
@@ -354,6 +395,9 @@ def run(args: argparse.Namespace, metadata: dict[str, Any]) -> int:
                     check=False,
                 )
             duration = time.monotonic() - started
+            coverage_profile, coverage_sha256 = coverage_profile_metadata(
+                output, coverage_path
+            )
             content = stdout_path.read_bytes()
             with combined_events.open("ab") as combined:
                 combined.write(content)
@@ -375,6 +419,8 @@ def run(args: argparse.Namespace, metadata: dict[str, Any]) -> int:
                     os.pathsep, 1
                 )[0]
                 == str(go_tool_directory),
+                "coverageProfile": coverage_profile,
+                "coverageSha256": coverage_sha256,
             }
             metadata["invocations"].append(invocation)
             write_json(output / "shard-metadata.json", metadata)

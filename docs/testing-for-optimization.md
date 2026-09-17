@@ -47,21 +47,31 @@ on a drop greater than 0.01 percentage points. An incompatible baseline must
 not be silently accepted as a regression comparison.
 
 CI collects artifacts in the existing Linux/macOS default and CGO race jobs.
-A separate Windows non-race coverage job measures Windows-only source without
-replacing the existing sharded Windows race checks. Its slower hosted run reached
-the measured 20-minute Go test ceiling while still making progress, so that job
-uses a bounded 30-minute Go deadline within a 40-minute workflow ceiling. The
-configured deadline is retained in `environment.json` for diagnosis, but does
-not make otherwise equivalent coverage baselines incompatible. New reporter unit
-tests run in lint. CI currently publishes measurements; automatic percentage gating
+Windows statement coverage comes from the existing eight race-test shards and
+the non-heavy package run. The CLI test binary is compiled once with atomic
+cross-package coverage; each shard writes its own profile. Instrumented CLI
+contracts run once in the non-heavy job with `--binary-only`, without rerunning
+the suite. The original 20-minute per-process timeout and exact test-root,
+race, commit and binary-integrity checks remain in force.
+
+The verifier requires every expected profile, checks its hash and instrumentation,
+and merges covered blocks only after the existing integrity checks pass. It
+publishes `coverage-windows-sharded` with JSON, a merged Go profile and HTML.
+Missing, corrupt or mismatched evidence fails the aggregate Windows check.
+This replaces the duplicate unsharded Windows coverage job whose first run hit
+the 20-minute deadline; the interim 30-minute workaround is no longer used.
+The Windows measurement now uses race instrumentation, so the earlier non-race
+Windows report is not a compatible baseline. New reporter unit tests run in
+lint. CI currently publishes measurements; automatic percentage gating
 should use validated baselines for each platform/build, rather than reusing a
 local macOS number across every configuration.
 
 A separate Linux job runs all three mutation proofs, so stale mutation anchors
 or tests that stop detecting their intended regression cannot silently pass CI.
 
-Each output contains `environment.json`, `tests.jsonl`, `test-results.json`,
-`summary.json`, raw profiles and `coverage.html`. Failed suites still produce
+The full-suite runner outputs `environment.json`, `tests.jsonl`, `test-results.json`,
+`summary.json`, raw profiles and `coverage.html`; Windows retains per-shard
+execution logs alongside its merged report. Failed suites still produce
 diagnostics and return a failing exit code; a coverage percentage does not
 override the test result.
 
