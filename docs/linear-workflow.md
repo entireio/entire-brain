@@ -52,6 +52,10 @@ are idempotent; reusing an ID for different data is rejected.
 Track issue-list and per-issue comment cursors separately. Inspect `issues status`
 to resume after interruption. Keep the requested window fixed throughout a run.
 Progress merges prior comment cursors; omitted comments are never deleted.
+Every issue batch contributes to run membership, including batches without
+`progress`. Use a separate run UUID for an explicit one-off issue refresh or a
+new window import. Splitting a page across batches cannot bypass its comment
+completion checks.
 Set `complete` only once issue and comment pagination finish. Record inaccessible
 pages, fetch failures, unsupported archived access, and unavailable filters in
 `limitations`. Completion describes the requested window and its limitations,
@@ -176,10 +180,25 @@ UUIDs. Availability: omitted/`available`, `deleted`, `inaccessible`. Completenes
 has optional `missing`, `truncated`, `limitations` string arrays. Equal-source-time
 content changes are reported in `conflicts` without replacing current evidence;
 older revisions are ignored.
+An equal-timestamp refresh may fill explicitly missing fields or replace an
+explicitly truncated field with its full value. Previously complete
+fields still conflict if changed. Completeness observations and a comment's
+validated parent-project membership may change without a source edit.
 
 IDs: `issue:WORKSPACE:KIND:OBJECT`; exact snapshots add `@SHA256`. Content hashes
 exclude observation time and accessibility for cache reuse; snapshot hashes include them. Use the
 returned `snapshot` reference to retrieve the exact observed revision offline.
+Large get/multi-get records return at most 8 KiB of UTF-8 text per page, with
+`issue.offset`, `issue.total_bytes`, and `issue.next_id`. Pass `next_id` unchanged
+to get/brain_get (or multi-get) until it is absent; concatenating page text
+reconstructs the full evidence. Continuation IDs contain the exact snapshot and
+byte offset, so a concurrent refresh cannot mix revisions. Workspace results
+qualify continuation IDs with the repository key as well.
+
+Retrieval checks issue state again under the Brain write lock before output,
+including the outer MCP response. A concurrent scope change or purge causes
+the buffered response to fail with a retry message instead of emitting evidence
+that is no longer available. Concurrent imports may also require a query retry.
 
 Link:
 

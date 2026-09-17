@@ -576,7 +576,9 @@ func newGetCommand(opts Options) *cobra.Command {
 		Use:   "get <id>",
 		Short: "Fetch a brain item by ID",
 		Long: `get fetches one item in full by id (fact: | review: | history: | conversation: |
-conversation-session: | doc: | pattern: | theme:).
+conversation-session: | doc: | issue: | pattern: | theme:).
+Large issue records return a bounded page; pass issue.next_id to get the next
+page of the same immutable snapshot.
 
 Exit code: 0 when the id was found, 1 when it was not. A miss still prints
 ` + "`not found: <id>`" + ` (or a JSON body whose "missing" array names it) before
@@ -798,6 +800,9 @@ func unifiedResultLocation(r unifiedResult) string {
 func printRetrievalCaveats(out io.Writer, result unifiedResult) {
 	if result.Issue != nil {
 		fmt.Fprintf(out, "    snapshot: %s\n    observed: %s\n", result.Issue.Snapshot, result.Issue.ObservedAt.Format("2006-01-02T15:04:05Z07:00"))
+		if result.Issue.NextID != "" {
+			fmt.Fprintf(out, "    next_id: %s\n", result.Issue.NextID)
+		}
 	}
 	for _, caveat := range result.Caveats {
 		fmt.Fprintf(out, "    verify: %s\n", caveat.Message)

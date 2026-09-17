@@ -1408,6 +1408,10 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	if err := requirePrivacyDerivedRead(status.Brain.Path); err != nil {
 		return err
 	}
+	issueIdentity, err := issueVisibilityIdentity(status.Brain.Path)
+	if err != nil {
+		return err
+	}
 	task, issueHits, issueErr := issueBriefEvidence(status.Brain.Path, task, briefOpts.issue, briefOpts.limit)
 	if issueErr != nil {
 		return issueErr
@@ -1817,7 +1821,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	// even on the non-profiling path; emitBrainBriefPacket dispatches text,
 	// legacy JSON, and the compact formats alike, so one wrapper covers all of
 	// them.
-	privacyPolicy := retrievalPrivacyPolicy{BrainDir: status.Brain.Path, Identity: briefPrivacyGuard.policyIdentity}
+	privacyPolicy := retrievalPrivacyPolicy{BrainDir: status.Brain.Path, Identity: briefPrivacyGuard.policyIdentity, IssueIdentity: issueIdentity}
 	privacyPolicy.RequireDerivedClean = true
 	if profile == nil {
 		var packet bytes.Buffer

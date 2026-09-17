@@ -8,8 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ashtom/entire-brain/internal/issues"
 	"github.com/spf13/cobra"
@@ -160,6 +162,70 @@ type issueCitation struct {
 	Completeness issues.Completeness `json:"completeness"`
 	Stale        bool                `json:"stale"`
 	Coverage     []string            `json:"coverage,omitempty"`
+	Offset       int                 `json:"offset,omitempty"`
+	TotalBytes   int                 `json:"total_bytes,omitempty"`
+	NextID       string              `json:"next_id,omitempty"`
+}
+
+// The response boundary compares this identity while holding the same lock as
+// imports, configuration and purge. Include retained references for exact gets,
+// as well as current pointers and scope; no source text enters the identity.
+func issueVisibilityIdentity(brainDir string) (string, error) {
+	st, err := issueStore(brainDir).Load()
+	if err != nil {
+		return "", err
+	}
+	refs := make([]string, 0, len(st.Snapshots))
+	for ref := range st.Snapshots {
+		refs = append(refs, ref)
+	}
+	sort.Strings(refs)
+	b, err := json.Marshal(struct {
+		Binding   issues.Binding
+		Current   map[string]string
+		Snapshots []string
+	}{st.Binding, st.Current, refs})
+	return issues.Hash(b), err
+}
+
+// Continuations are addressable IDs, so CLI/MCP get, multi-get and workspace
+// get all share the same pagination contract without host-specific arguments.
+const issueEvidencePageBytes = 8 * 1024
+const issuePageMarker = "#offset="
+
+func getIssueEvidence(brainDir, id string) (unifiedResult, bool, error) {
+	ref, cursor, paged := strings.Cut(id, issuePageMarker)
+	offset := 0
+	if paged {
+		var err error
+		offset, err = strconv.Atoi(cursor)
+		if err != nil || offset < 0 || !strings.Contains(ref, "@") {
+			return unifiedResult{}, false, errors.New("issue continuation requires an exact snapshot and nonnegative byte offset")
+		}
+	}
+	s, ok, err := issueStore(brainDir).Get(ref)
+	if err != nil || !ok {
+		return unifiedResult{}, ok, err
+	}
+	r := issueUnified(s)
+	if offset > len(r.Text) || offset < len(r.Text) && !utf8.RuneStart(r.Text[offset]) {
+		return unifiedResult{}, false, errors.New("issue offset is outside evidence or splits a UTF-8 character")
+	}
+	if paged || len(r.Text) > issueEvidencePageBytes {
+		r.Issue.Offset = offset
+		r.Issue.TotalBytes = len(r.Text)
+		page, _ := truncateUTF8Bytes(r.Text[offset:], issueEvidencePageBytes)
+		end := offset + len(page)
+		if end < len(r.Text) {
+			r.Issue.NextID = s.Ref + issuePageMarker + strconv.Itoa(end)
+		}
+		r.Text = page
+		r.Truncated = offset != 0 || end < r.Issue.TotalBytes
+		if paged {
+			r.ID = id
+		}
+	}
+	return r, true, nil
 }
 
 func issueUnified(s issues.Snapshot) unifiedResult {
@@ -253,9 +319,22 @@ func retrieveIssues(brainDir, query string, limit int, mode retrievalMode, e Emb
 		lists = append(lists, list)
 	}
 	merged := rrfMergeUnified(lists, len(records))
+	// Ranking (especially embedding) can overlap a disconnect. Never return
+	// candidates that ceased to be current and visible while ranking ran.
+	current, err := issueStore(brainDir).Records()
+	if err != nil {
+		return nil, err
+	}
+	allowed := map[string]bool{}
+	for _, r := range current {
+		allowed[r.Ref] = true
+	}
 	out := []unifiedResult{}
 	groups := map[string]bool{}
 	for _, r := range merged {
+		if !allowed[r.Issue.Snapshot] {
+			continue
+		}
 		g := byID[r.ID].Group()
 		if groups[g] {
 			continue

@@ -1310,10 +1310,10 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 				continue
 			}
 		case strings.HasPrefix(id, "issue:"):
-			if r, ok, issueErr := issueStore(brainDir).Get(id); issueErr != nil {
+			if r, ok, issueErr := getIssueEvidence(brainDir, id); issueErr != nil {
 				return nil, nil, issueErr
 			} else if ok {
-				found = append(found, issueUnified(r))
+				found = append(found, r)
 				continue
 			}
 		case strings.HasPrefix(id, "doc:"):

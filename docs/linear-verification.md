@@ -63,6 +63,18 @@ source text and Brain data are not committed to the repository.
 
 ## Practical limits
 
+Review follow-up verification (2026-09-17): regression tests now cover scope
+changes during ranking, purge immediately before CLI/MCP/brief/workspace output,
+and holding the write lock through the outer MCP frame. Same-revision refresh
+tests cover completing truncated fields, preserving known-field conflicts and
+old citations, and moving comments with their parent between selected projects.
+Split-batch imports cannot complete before comments for every run member finish.
+Large Unicode evidence is reconstructed through bounded MCP pages while a newer
+revision is imported; the same continuation works through CLI multi-get and
+workspace get. Storage tests and the affected retrieval, MCP, brief, workspace,
+and documentation suites pass (excluding the known platform-dependent cases
+described above).
+
 The first release loads the issue manifest into memory and rewrites it atomically
 on mutation. It does not provide background sync, hosted shared storage, automatic
 fact extraction, or unbounded-scale indexing. Remote authorization, refreshing,

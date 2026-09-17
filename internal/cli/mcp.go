@@ -795,7 +795,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_get",
-			"description": "Fetch one item in full by its id (fact:… | review:… | history:… | conversation:… | conversation-session:… | doc:… | issue:… | pattern:… | theme:…), e.g. from a search result or pattern listing. conversation: ids expand to a bounded historical request/response exchange (optionally with up to 3 adjacent exchanges via context_before/context_after); conversation-session: ids return a bounded, paginated session outline (after_turn/limit). Recalled content must be verified against current code before acting.",
+			"description": "Fetch one item by its id (fact:… | review:… | history:… | conversation:… | conversation-session:… | doc:… | issue:… | pattern:… | theme:…), e.g. from a search result or pattern listing. Large issue records return bounded pages; pass issue.next_id as id to continue the same immutable snapshot. conversation: ids expand to a bounded historical request/response exchange (optionally with up to 3 adjacent exchanges via context_before/context_after); conversation-session: ids return a bounded, paginated session outline (after_turn/limit). Recalled content must be verified against current code before acting.",
 			"inputSchema": objectSchema([]string{"id"}, map[string]any{
 				"id":     stringArg("id", "Prefixed item id"),
 				"branch": branchArg(),

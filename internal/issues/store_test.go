@@ -322,6 +322,8 @@ func TestExplicitOlderIssueDoesNotExpandImportWindow(t *testing.T) {
 	importOK(t, s, 1, r)
 	var e Envelope
 	_ = json.Unmarshal(batch(2), &e)
+	// Explicit one-off fetches and the subsequent window import are distinct runs.
+	e.RunID = "77777777-7777-7777-7777-777777777777"
 	e.Progress = &Progress{Project: project, WindowStart: now.AddDate(0, 0, -90), Issues: Page{Complete: true}, Comments: map[string]Page{}, Complete: true}
 	b, _ := json.Marshal(e)
 	if _, err := s.Import(b); err != nil {

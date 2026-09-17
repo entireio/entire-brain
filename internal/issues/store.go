@@ -135,6 +135,7 @@ type State struct {
 	Batches       map[string]string      `json:"batches"`
 	BatchProjects map[string][]string    `json:"batch_projects,omitempty"`
 	Runs          map[string]Progress    `json:"runs"`
+	RunIssues     map[string][]string    `json:"run_issues,omitempty"`
 	Links         []Link                 `json:"links,omitempty"`
 	Operations    map[string][]Operation `json:"operations"`
 }
@@ -286,6 +287,58 @@ type ImportResult struct {
 	Replay    bool     `json:"replay"`
 }
 
+func contains(values []string, value string) bool {
+	for _, v := range values {
+		if v == value {
+			return true
+		}
+	}
+	return false
+}
+
+// Equal source timestamps may acquire better observations, but must not
+// overwrite fields previously observed in full. Parent project membership is
+// validated separately: moving an issue does not edit its comments remotely.
+func compatibleObservation(old, next Record) bool {
+	canComplete := func(names ...string) bool {
+		incomplete := false
+		for _, name := range names {
+			if contains(next.Completeness.Missing, name) || contains(next.Completeness.Truncated, name) {
+				return false
+			}
+			incomplete = incomplete || contains(old.Completeness.Missing, name) || contains(old.Completeness.Truncated, name)
+		}
+		return incomplete
+	}
+	completeText := func(before, after string, names ...string) string {
+		if !canComplete(names...) {
+			return before
+		}
+		// Providers may add ellipses or truncation notices; the available text
+		// need not be a literal prefix of the complete field.
+		return after
+	}
+	old.Text = completeText(old.Text, next.Text, "text", "description", "body")
+	old.Title = completeText(old.Title, next.Title, "title")
+	old.Alias = completeText(old.Alias, next.Alias, "alias", "identifier")
+	old.URL = completeText(old.URL, next.URL, "url", "comment_url")
+	fields := make(map[string]json.RawMessage, len(old.Fields))
+	for key, value := range old.Fields {
+		fields[key] = value
+	}
+	for key, value := range next.Fields {
+		if canComplete("fields", key, "fields."+key) {
+			fields[key] = value
+		}
+	}
+	old.Fields = fields
+	if old.Kind == "comment" {
+		old.Project = next.Project
+	}
+	old.Completeness = next.Completeness
+	return old.ContentHash() == next.ContentHash()
+}
+
 func (s Store) Import(data []byte) (res ImportResult, err error) {
 	var e Envelope
 	if err = Decode(data, &e); err != nil {
@@ -330,11 +383,11 @@ func (s Store) Import(data []byte) (res ImportResult, err error) {
 				res.Ignored++
 				continue
 			}
-			if ok && old.UpdatedAt.Equal(r.UpdatedAt) && old.ContentHash() != r.ContentHash() {
+			if ok && old.UpdatedAt.Equal(r.UpdatedAt) && !compatibleObservation(old, r) {
 				res.Conflicts = append(res.Conflicts, r.Key())
 				continue
 			}
-			if ok && old.ContentHash() == r.ContentHash() && old.ObservedAt.After(r.ObservedAt) {
+			if ok && old.UpdatedAt.Equal(r.UpdatedAt) && old.ObservedAt.After(r.ObservedAt) {
 				res.Ignored++
 				continue
 			}
@@ -355,6 +408,31 @@ func (s Store) Import(data []byte) (res ImportResult, err error) {
 				}
 			}
 		}
+		// Membership belongs to the run, even when a page is split into several
+		// bounded batches and only the final batch carries pagination metadata.
+		if st.RunIssues == nil {
+			st.RunIssues = map[string][]string{}
+		}
+		for _, r := range e.Records {
+			if r.Kind != "issue" {
+				continue
+			}
+			key := e.RunID + ":" + r.Project
+			if !contains(st.RunIssues[key], r.ID) {
+				st.RunIssues[key] = append(st.RunIssues[key], r.ID)
+				sort.Strings(st.RunIssues[key])
+			}
+			if prior, ok := st.Runs[key]; ok {
+				if !contains(prior.IssueIDs, r.ID) {
+					prior.IssueIDs = append(prior.IssueIDs, r.ID)
+					sort.Strings(prior.IssueIDs)
+				}
+				if !prior.Comments[r.ID].Complete {
+					prior.Complete = false
+				}
+				st.Runs[key] = prior
+			}
+		}
 		if p := e.Progress; p != nil {
 			if !selected(st, p.Project) || p.WindowStart.IsZero() {
 				return errors.New("progress requires selected project and requested window")
@@ -366,6 +444,9 @@ func (s Store) Import(data []byte) (res ImportResult, err error) {
 			}
 			merged := map[string]Page{}
 			seenIssues := map[string]bool{}
+			for _, id := range st.RunIssues[key] {
+				seenIssues[id] = true
+			}
 			for _, id := range prior.IssueIDs {
 				seenIssues[id] = true
 			}
@@ -640,6 +721,11 @@ func (s Store) Disconnect(project string, purge bool) error {
 			for id, p := range st.Runs {
 				if p.Project == project {
 					delete(st.Runs, id)
+				}
+			}
+			for key := range st.RunIssues {
+				if strings.HasSuffix(key, ":"+project) {
+					delete(st.RunIssues, key)
 				}
 			}
 			for batch := range st.Batches {
