@@ -163,3 +163,29 @@ The existing [profiling guidance](brain_brief_profiling.md) records why raw-only
 matches must survive faster negative retrieval. The existing
 [benchmark runner](../benchmarks/agent-brain/ci_tests.py) is the source of truth
 for host exclusions and quarantines.
+
+### Follow-up: pattern and skill regression gaps
+
+Added deterministic ranking tests for relevance, strength, stable ties, repeated
+words, limits and empty results. Root-command tests exercise accepted theme,
+lesson and convention skill previews, missing verification and unavailable-agent
+rejections without installations or decision writes. Provider fixtures are local
+native executables, with temporary home directories and explicit repository scope.
+
+Refresh tests cover text output matching the published source, corpus failures
+without success output in either format, and missing transcripts preserving the
+published pattern artifacts and manifest. The warning-output branch currently has
+no producer: the episode builder never populates its warnings slice. No production
+hook was added solely to cover that unreachable branch.
+
+The combined focused suite passed with and without the race detector on macOS
+arm64, Go 1.27.1; independent review also passed three consecutive focused runs.
+Unioning the new non-race profile with the previous full default profile (unchanged
+production code) gives the following cumulative statement coverage. This is not
+a new full-suite run:
+
+| Function | Before | After |
+|---|---:|---:|
+| `rankTaskRelevantPatterns` | 48.3% | 100.0% |
+| `runPatternsSkillsForm` | 41.8% | 73.4% |
+| `runPatternsRefresh` | 46.7% | 86.7% |
