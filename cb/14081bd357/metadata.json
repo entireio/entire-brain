@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "cb14081bd357",
+  "strategy": "manual-commit",
+  "branch": "codex/regression-safety-coverage",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "docs/testing-for-optimization.md",
+    "internal/cli/pattern_ranking_regression_test.go",
+    "internal/cli/pattern_refresh_regression_test.go",
+    "internal/cli/skill_routing_regression_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/cb/14081bd357/0/metadata.json",
+      "transcript": "/cb/14081bd357/0/full.jsonl",
+      "compact_transcript": "/cb/14081bd357/0/transcript.jsonl",
+      "content_hash": "/cb/14081bd357/0/content_hash.txt",
+      "prompt": "/cb/14081bd357/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 85647,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2691584,
+    "output_tokens": 6870,
+    "api_call_count": 500,
+    "subagent_tokens_complete": false
+  }
+}

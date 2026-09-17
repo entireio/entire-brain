@@ -1,0 +1,22 @@
+{
+  "tool_use_id": "01a0b0af-f6c2-7dd0-aa19-dca50ba5d704",
+  "agent_id": "01a0b0af-f6c2-7dd0-aa19-dca50ba5d704",
+  "subagent_type": "default",
+  "files": [
+    "tools/ci-bench/windows-production/plan_shards.py",
+    "tools/ci-bench/windows-production/prepare.py",
+    "tools/ci-bench/windows-production/run_other.py",
+    "tools/ci-bench/windows-production/run_shard.py",
+    "tools/ci-bench/windows-production/tests/test_coverage_producer.py",
+    "tools/ci-bench/windows-production/tests/test_plan_shards.py"
+  ],
+  "token_usage": {
+    "input_tokens": 147824,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5853952,
+    "output_tokens": 20666,
+    "api_call_count": 58
+  },
+  "started_at": "2026-09-17T20:45:19.203522+02:00",
+  "completed_at": "2026-09-17T21:17:57.559207+02:00"
+}
