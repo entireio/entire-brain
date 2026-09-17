@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "e4b02409469d",
+  "strategy": "manual-commit",
+  "branch": "codex/regression-safety-coverage",
+  "checkpoints_count": 4,
+  "files_touched": [
+    ".github/workflows/test.yml",
+    "docs/testing-for-optimization.md",
+    "tools/coverage/run.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e4/b02409469d/0/metadata.json",
+      "transcript": "/e4/b02409469d/0/full.jsonl",
+      "compact_transcript": "/e4/b02409469d/0/transcript.jsonl",
+      "content_hash": "/e4/b02409469d/0/content_hash.txt",
+      "prompt": "/e4/b02409469d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 121953,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 7965568,
+    "output_tokens": 11303,
+    "api_call_count": 286,
+    "subagent_tokens_complete": false
+  }
+}
