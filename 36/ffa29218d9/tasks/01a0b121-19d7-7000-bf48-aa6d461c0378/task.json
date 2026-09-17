@@ -1,0 +1,17 @@
+{
+  "tool_use_id": "01a0b121-19d7-7000-bf48-aa6d461c0378",
+  "agent_id": "01a0b121-19d7-7000-bf48-aa6d461c0378",
+  "subagent_type": "default",
+  "files": [
+    "internal/cli/skill_routing_regression_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 85376,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1202432,
+    "output_tokens": 7376,
+    "api_call_count": 20
+  },
+  "started_at": "2026-09-17T22:48:53.533737+02:00",
+  "completed_at": "2026-09-17T22:55:13.16275+02:00"
+}

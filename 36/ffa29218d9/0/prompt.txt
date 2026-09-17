@@ -1,0 +1,85 @@
+Make sure you have the latest main from origin. Then analyze code coverage of the existing test suite.
+
+---
+
+Hm, wasn't the locally edited README pushed already?
+
+---
+
+Ok, make sure your worktree is clean
+
+---
+
+Make a plan to increase test coverage. Goal is to enable you to optimize the codebase later, but first we need better tests to ensure no regressions happen.
+
+---
+
+Ok ok. Use sub-agent on Luna, Sol or Terra depending on the task. Orchestrate and judge from this main agent. Observe your own progress against plan and ensure you are getting to 100% within reasonable time frame.
+
+---
+
+Push the changes into a new branch
+
+---
+
+What next?
+
+---
+
+Ok, open a trail
+
+---
+
+No, a trail on entire
+
+---
+
+How come you didn’t know what a trail is? Is this session not connected to your entire brain?
+
+---
+
+Ok, check CI status and fix any errors
+
+---
+
+You wrote, Windows coverage exceeded the 20min timeout. We sharded the Windows jobs in the past. Is this no longer working?
+
+---
+
+Well, you know what to do then
+
+---
+
+Any findings on the trail?
+
+---
+
+Any low-hanging fruits left?
+
+---
+
+Ok, close em
+
+---
+
+Did CI pass?
+
+---
+
+What’s code coverage now?
+
+---
+
+Where are the gaps?
+
+---
+
+Why did you not close these gaps?
+
+---
+
+So the original plan did not cover those?
+
+---
+
+Make a new plan, same execution strategy with sub agents.

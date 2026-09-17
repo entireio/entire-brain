@@ -1,0 +1,17 @@
+{
+  "tool_use_id": "01a0b120-ffd7-7a40-97e1-e8e13d0d9de8",
+  "agent_id": "01a0b120-ffd7-7a40-97e1-e8e13d0d9de8",
+  "subagent_type": "default",
+  "files": [
+    "internal/cli/pattern_ranking_regression_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 62301,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 946688,
+    "output_tokens": 5428,
+    "api_call_count": 23
+  },
+  "started_at": "2026-09-17T22:48:46.761841+02:00",
+  "completed_at": "2026-09-17T22:55:13.162745+02:00"
+}
