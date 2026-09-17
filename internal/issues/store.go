@@ -698,6 +698,9 @@ func (s Store) Disconnect(project string, purge bool) error {
 		return errors.New("project UUID required")
 	}
 	return s.mutate(func(st *State) error {
+		if st.Binding.Version != 1 {
+			return errors.New("issue store is not configured")
+		}
 		ps := []string{}
 		for _, p := range st.Binding.Projects {
 			if p != project {

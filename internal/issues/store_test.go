@@ -150,6 +150,45 @@ func TestPartialPaginationResumePreservesComments(t *testing.T) {
 	}
 }
 
+func TestDisconnectBeforeConfigure(t *testing.T) {
+	for _, purge := range []bool{false, true} {
+		t.Run(fmt.Sprintf("purge=%t", purge), func(t *testing.T) {
+			writes, cleanups := 0, 0
+			s := Store{
+				Root: t.TempDir(),
+				Lock: func(fn func() error) error { return fn() },
+				Write: func(p string, b []byte) error {
+					writes++
+					return os.WriteFile(p, b, 0600)
+				},
+				CleanDerived: func() error { cleanups++; return nil },
+			}
+			if err := s.Disconnect(project, purge); err == nil || err.Error() != "issue store is not configured" {
+				t.Errorf("expected unconfigured store error, got %v", err)
+			}
+			if writes != 0 || cleanups != 0 {
+				t.Errorf("unconfigured disconnect caused side effects: writes=%d cleanups=%d", writes, cleanups)
+			}
+			if _, err := os.Stat(filepath.Join(s.Root, "state.json")); !os.IsNotExist(err) {
+				t.Errorf("state file should not exist after disconnect: %v", err)
+			}
+			if _, err := s.Load(); err != nil {
+				t.Errorf("load after disconnect: %v", err)
+			}
+			if err := s.Configure(Binding{Version: 1, Provider: "linear", Workspace: ws, Projects: []string{project}}); err != nil {
+				t.Fatalf("configure after disconnect: %v", err)
+			}
+			st, err := s.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if st.Binding.Version != 1 || st.Binding.Workspace != ws || len(st.Binding.Projects) != 1 || st.Binding.Projects[0] != project {
+				t.Fatalf("unexpected binding after configure: %+v", st.Binding)
+			}
+		})
+	}
+}
+
 func TestRemovalMoveDisconnectAndPurge(t *testing.T) {
 	for _, action := range []string{"deleted", "inaccessible", "moved", "disconnect", "project-deleted", "purge"} {
 		t.Run(action, func(t *testing.T) {
