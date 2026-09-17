@@ -25,7 +25,7 @@ func TestActivationOrders(t *testing.T) {
 				if i > 0 {
 					want[second] = true
 				}
-				if got := readFileForTest(t, filepath.Join(repo, Path)); got != renderActivation(want) {
+				if got := readFileForTest(t, filepath.Join(repo, Path)); got != renderActivation(want, ModeNormal) {
 					t.Fatalf("step %d incorrect guide", i)
 				}
 				if i > 1 && len(changed) != 0 {
@@ -40,10 +40,10 @@ func TestActivationMetadataAuthoritative(t *testing.T) {
 	repo := t.TempDir()
 	mkdirAllForTest(t, filepath.Join(repo, ".entire"))
 	// A leftover legacy marker must not reactivate a product removed in metadata.
-	writeFileForTest(t, filepath.Join(repo, Path), renderActivation(map[string]bool{"graph": true}))
+	writeFileForTest(t, filepath.Join(repo, Path), renderActivation(map[string]bool{"graph": true}, ModeNormal))
 	writeFileForTest(t, filepath.Join(repo, "AGENTS.md"), "<!-- entire-brain:begin -->\nold\n<!-- entire-brain:end -->\n")
 	got, err := Preview(repo, "graph", Options{})
-	if err != nil || got != renderActivation(map[string]bool{"graph": true}) {
+	if err != nil || got != renderActivation(map[string]bool{"graph": true}, ModeNormal) {
 		t.Fatal("legacy overrode metadata", err)
 	}
 }
@@ -58,7 +58,7 @@ func TestActivationRejectsInvalidStateBeforeWrites(t *testing.T) {
 		activationPrefix + `{"schema_version":1,"enabled":["graph"],"extra":true}` + activationSuffix,
 		activationPrefix + "{" + activationSuffix,
 		activationPrefix + `{"schema_version":1,"enabled":["graph"]}`,
-		renderActivation(map[string]bool{"graph": true}) + renderActivation(map[string]bool{"brain": true}),
+		renderActivation(map[string]bool{"graph": true}, ModeNormal) + renderActivation(map[string]bool{"brain": true}, ModeNormal),
 	} {
 		t.Run(value, func(t *testing.T) {
 			repo := t.TempDir()
@@ -89,7 +89,7 @@ func TestActivationLegacyMigration(t *testing.T) {
 			}
 			writeFileForTest(t, filepath.Join(repo, name), content)
 			got, err := Preview(repo, "graph", Options{})
-			if err != nil || got != renderActivation(map[string]bool{"graph": true, "brain": true}) {
+			if err != nil || got != renderActivation(map[string]bool{"graph": true, "brain": true}, ModeNormal) {
 				t.Fatal("lost legacy activation", err)
 			}
 		})
@@ -102,7 +102,7 @@ func TestActivationContainedAlias(t *testing.T) {
 	writeFileForTest(t, filepath.Join(repo, "guide.md"), BrainGuide())
 	symlinkForTest(t, "../guide.md", filepath.Join(repo, Path))
 	got, err := Preview(repo, "graph", Options{})
-	if err != nil || got != renderActivation(map[string]bool{"graph": true, "brain": true}) {
+	if err != nil || got != renderActivation(map[string]bool{"graph": true, "brain": true}, ModeNormal) {
 		t.Fatal(err)
 	}
 }

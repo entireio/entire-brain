@@ -15,28 +15,37 @@ const activationSuffix = " -->"
 type activationRecord struct {
 	SchemaVersion int      `json:"schema_version"`
 	Enabled       []string `json:"enabled"`
+	Mode          Mode     `json:"mode,omitempty"`
 }
 
-func renderActivation(active map[string]bool) string {
-	guide := GraphGuide
-	enabled := []string{"graph"}
-	if active["brain"] {
-		guide, enabled = BrainGuide(), []string{"brain"}
-		if active["graph"] {
-			guide, enabled = CombinedGuide, []string{"graph", "brain"}
+type activationState struct {
+	products map[string]bool
+	mode     Mode
+}
+
+func renderActivation(active map[string]bool, mode Mode) string {
+	enabled := []string{}
+	for _, product := range []string{"graph", "brain"} {
+		if active[product] {
+			enabled = append(enabled, product)
 		}
 	}
-	record, _ := json.Marshal(activationRecord{SchemaVersion: 1, Enabled: enabled})
-	return guide + "\n" + activationPrefix + string(record) + activationSuffix + "\n"
+	// Omit normal mode to retain byte-for-byte compatibility with existing guides.
+	storedMode := mode
+	if storedMode == ModeNormal {
+		storedMode = ""
+	}
+	record, _ := json.Marshal(activationRecord{SchemaVersion: 1, Enabled: enabled, Mode: storedMode})
+	return guideFor(active, mode) + "\n" + activationPrefix + string(record) + activationSuffix + "\n"
 }
 
-func parseActivation(content string) (map[string]bool, bool, error) {
+func parseActivation(content string) (activationState, bool, error) {
 	const marker = "<!-- entire-agent-activation:"
 	if !strings.Contains(content, marker) {
-		return nil, false, nil
+		return activationState{}, false, nil
 	}
-	invalid := func() (map[string]bool, bool, error) {
-		return nil, true, fmt.Errorf("invalid or unsupported agent activation metadata; repair before regenerating")
+	invalid := func() (activationState, bool, error) {
+		return activationState{}, true, fmt.Errorf("invalid or unsupported agent activation metadata; repair before regenerating")
 	}
 	if strings.Count(content, marker) != 1 {
 		return invalid()
@@ -60,7 +69,8 @@ func parseActivation(content string) (map[string]bool, bool, error) {
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return invalid()
 	}
-	if record.SchemaVersion != 1 || len(record.Enabled) == 0 {
+	if record.SchemaVersion != 1 || len(record.Enabled) == 0 ||
+		(record.Mode != "" && record.Mode != ModeNormal && record.Mode != ModeStrict) {
 		return invalid()
 	}
 	active := map[string]bool{}
@@ -70,16 +80,16 @@ func parseActivation(content string) (map[string]bool, bool, error) {
 		}
 		active[product] = true
 	}
-	return active, true, nil
+	return activationState{products: active, mode: record.Mode}, true, nil
 }
 
 // Metadata is authoritative once present. Before migration, preserve products
 // represented by recognized generated guides and legacy managed blocks. A
 // historical combined guide cannot reveal whether both activations were explicit.
-func readActivation(repo string) (map[string]bool, error) {
+func readActivation(repo string) (activationState, error) {
 	root, err := os.OpenRoot(repo)
 	if err != nil {
-		return nil, err
+		return activationState{}, err
 	}
 	defer root.Close()
 	read := func(name string) (string, bool, error) {
@@ -95,7 +105,7 @@ func readActivation(repo string) (map[string]bool, error) {
 	}
 	content, present, err := read(Path)
 	if err != nil {
-		return nil, err
+		return activationState{}, err
 	}
 	if present {
 		active, found, err := parseActivation(content)
@@ -119,19 +129,19 @@ func readActivation(repo string) (map[string]bool, error) {
 		return true
 	}
 	if present && !recognize(content) {
-		return nil, fmt.Errorf("unrecognized agent guide %s; preserve or migrate its content before regenerating", Path)
+		return activationState{}, fmt.Errorf("unrecognized agent guide %s; preserve or migrate its content before regenerating", Path)
 	}
 	for _, name := range []string{".entire/graph-agent.md", ".entire/brain-agent.md", "AGENTS.md", "CLAUDE.md"} {
 		text, exists, err := read(name)
 		if err != nil {
-			return nil, err
+			return activationState{}, err
 		}
 		if !exists {
 			continue
 		}
 		if name == "AGENTS.md" || name == "CLAUDE.md" {
 			if _, err := migrateMarkers([]byte(text)); err != nil {
-				return nil, err
+				return activationState{}, err
 			}
 			for _, product := range []string{"graph", "brain"} {
 				if strings.Contains(text, "<!-- entire-"+product+":begin -->") {
@@ -139,8 +149,8 @@ func readActivation(repo string) (map[string]bool, error) {
 				}
 			}
 		} else if text != legacyRedirect && !recognize(text) {
-			return nil, fmt.Errorf("unrecognized legacy agent guide %s; preserve or migrate its content before regenerating", name)
+			return activationState{}, fmt.Errorf("unrecognized legacy agent guide %s; preserve or migrate its content before regenerating", name)
 		}
 	}
-	return active, nil
+	return activationState{products: active}, nil
 }

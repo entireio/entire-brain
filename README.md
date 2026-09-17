@@ -155,12 +155,19 @@ entire brain agent-guide
 ```
 
 The initializer writes one shared `.entire/agent-guide.md` and managed references
-in `AGENTS.md` and `CLAUDE.md`. When Graph is listed by `entire plugin list`, the
-guide coordinates Brain context with Graph discovery. The preview uses the same
+in `AGENTS.md` and `CLAUDE.md`. When Graph has also been activated in this
+repository with its initializer, the guide coordinates Brain context with Graph
+discovery. Global plugin installation does not activate repository guidance. The preview uses the same
 rules and accepts `--repo <path>`; `guide` remains an alias. Existing user text and
 supported instruction aliases are preserved. Initialization does not build a Brain
 or start services. See [the coordination contract](docs/agent-coordination.md) for
-routing, migration, state directories, and removal.
+routing, migration, and removal.
+
+Add `--strict` to `init-agents` to save mandatory Graph/Brain tool-use rules for
+this repository. Both enabled products share the saved mode and inherit it on
+later runs. Use `init-agents --normal` to reset it. `agent-guide` (also `guide`)
+inherits the saved mode; `--strict` or `--normal` overrides only that read-only
+preview. The flags are mutually exclusive. New repositories default to normal.
 
 `capabilities` works without a repository or an initialized Brain. It reports
 retrieval modes, sources, experimental features, build support, and semantic
