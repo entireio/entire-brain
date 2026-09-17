@@ -48,8 +48,12 @@ not be silently accepted as a regression comparison.
 
 CI collects artifacts in the existing Linux/macOS default and CGO race jobs.
 A separate Windows non-race coverage job measures Windows-only source without
-replacing the existing sharded Windows race checks. New reporter unit tests run
-in lint. CI currently publishes measurements; automatic percentage gating
+replacing the existing sharded Windows race checks. Its slower hosted run reached
+the measured 20-minute Go test ceiling while still making progress, so that job
+uses a bounded 30-minute Go deadline within a 40-minute workflow ceiling. The
+configured deadline is retained in `environment.json` for diagnosis, but does
+not make otherwise equivalent coverage baselines incompatible. New reporter unit
+tests run in lint. CI currently publishes measurements; automatic percentage gating
 should use validated baselines for each platform/build, rather than reusing a
 local macOS number across every configuration.
 

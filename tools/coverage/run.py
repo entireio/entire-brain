@@ -59,6 +59,8 @@ def main():
     parser.add_argument("--tags", default="")
     parser.add_argument("--race", action="store_true")
     parser.add_argument("--baseline")
+    parser.add_argument("--test-timeout", default="20m",
+                        help="Go test deadline per package (default: 20m)")
     args = parser.parse_args()
     output = Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -70,11 +72,12 @@ def main():
         "worktree_status": capture("git", "status", "--porcelain"),
         "go_version": capture("go", "version"),
         "platform": f"{platform.system()}/{platform.machine()}",
-        "tags": args.tags, "race": args.race, "scope": "./... plus instrumented binary contracts",
+        "tags": args.tags, "race": args.race, "test_timeout": args.test_timeout,
+        "scope": "./... plus instrumented binary contracts",
     }
     metadata_path = output / "environment.json"
     metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
-    command = ["go", "test", *flags, "-count=1", "-timeout", "20m", "-covermode=atomic",
+    command = ["go", "test", *flags, "-count=1", "-timeout", args.test_timeout, "-covermode=atomic",
                "-coverpkg=./...", f"-coverprofile={output / 'tests.out'}", "-json", "./..."]
     print("Running full Go suite with cross-package coverage", flush=True)
     with (output / "tests.jsonl").open("w") as log:

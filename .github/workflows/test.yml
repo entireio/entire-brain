@@ -66,7 +66,7 @@ jobs:
   # includes Windows-only code and uses the same profile/report format as Unix.
   coverage-windows:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
@@ -74,7 +74,7 @@ jobs:
       - uses: actions/setup-python@v6
         with: { python-version: "3.12" }
       - name: Measure Windows source coverage
-        run: python -B tools/coverage/run.py --output "${{ runner.temp }}/brain-coverage"
+        run: python -B tools/coverage/run.py --test-timeout 30m --output "${{ runner.temp }}/brain-coverage"
       - name: Retain Windows source coverage
         if: always()
         uses: actions/upload-artifact@v6
