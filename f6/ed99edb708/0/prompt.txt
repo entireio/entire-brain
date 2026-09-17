@@ -15,3 +15,7 @@ Make a plan to increase test coverage. Goal is to enable you to optimize the cod
 ---
 
 Ok ok. Use sub-agent on Luna, Sol or Terra depending on the task. Orchestrate and judge from this main agent. Observe your own progress against plan and ensure you are getting to 100% within reasonable time frame.
+
+---
+
+Push the changes into a new branch
