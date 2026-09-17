@@ -1,0 +1,20 @@
+{
+  "tool_use_id": "01a0af51-360d-7a81-81ac-f62fdf175832",
+  "agent_id": "01a0af51-360d-7a81-81ac-f62fdf175832",
+  "subagent_type": "worker",
+  "files": [
+    "internal/cli/history_retrieval_equivalence_test.go",
+    ".mutation-proof/history_delta.go",
+    ".mutation-proof/overlay.json",
+    ".mutation-proof/agent_surface.go"
+  ],
+  "token_usage": {
+    "input_tokens": 2606,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 515456,
+    "output_tokens": 1585,
+    "api_call_count": 54
+  },
+  "started_at": "2026-09-17T14:22:12.720623+02:00",
+  "completed_at": "2026-09-17T14:57:26.393527+02:00"
+}

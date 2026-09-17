@@ -1,0 +1,97 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "f6ed99edb708",
+  "session_id": "01a0af33-5438-7ef0-9fc8-71ee7de21125",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-17T17:12:39.966902Z",
+  "branch": "codex/regression-safety-coverage",
+  "checkpoints_count": 5,
+  "save_step_count": 3,
+  "files_touched": [
+    ".github/workflows/test.yml",
+    "docs/testing-for-optimization.md",
+    "internal/cli/command_regression_test.go",
+    "internal/cli/history_retrieval_equivalence_test.go",
+    "internal/cli/persistence_optimization_test.go",
+    "internal/cli/viz_optimization_test.go",
+    "tools/coverage/mutation_check.py",
+    "tools/coverage/mutations.json",
+    "tools/coverage/python_run.py",
+    "tools/coverage/report.py",
+    "tools/coverage/run.py",
+    "tools/coverage/test_mutation_check.py",
+    "tools/coverage/test_python_run.py",
+    "tools/coverage/test_report.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "90ff8f556ec2",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 56830,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 110,
+    "api_call_count": 187,
+    "subagent_tokens": {
+      "input_tokens": 430776,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 13648896,
+      "output_tokens": 53686,
+      "api_call_count": 233
+    },
+    "subagent_tokens_complete": true
+  },
+  "session_metrics": {
+    "turn_count": 5
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-17T17:12:39.84346Z",
+    "agent_lines": 1951,
+    "agent_removed": 3,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1951,
+    "total_lines_changed": 1954,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 178,
+      "user_lines_removed": 155,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "CONTRIBUTING.md": 48,
+        "README.md": 130
+      },
+      "user_removed_per_file": {
+        "README.md": 155
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 178,
+      "agent_lines_removed": 155
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1951,
+      "agent_lines_removed": 3
+    }
+  ]
+}

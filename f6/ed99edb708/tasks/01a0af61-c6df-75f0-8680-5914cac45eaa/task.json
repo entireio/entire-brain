@@ -1,0 +1,17 @@
+{
+  "tool_use_id": "01a0af61-c6df-75f0-8680-5914cac45eaa",
+  "agent_id": "01a0af61-c6df-75f0-8680-5914cac45eaa",
+  "subagent_type": "worker",
+  "files": [
+    "internal/cli/viz_optimization_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 114116,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3139072,
+    "output_tokens": 14226,
+    "api_call_count": 33
+  },
+  "started_at": "2026-09-17T14:40:18.061091+02:00",
+  "completed_at": "2026-09-17T14:57:26.393545+02:00"
+}

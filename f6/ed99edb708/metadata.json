@@ -1,0 +1,47 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "f6ed99edb708",
+  "strategy": "manual-commit",
+  "branch": "codex/regression-safety-coverage",
+  "checkpoints_count": 5,
+  "files_touched": [
+    ".github/workflows/test.yml",
+    "docs/testing-for-optimization.md",
+    "internal/cli/command_regression_test.go",
+    "internal/cli/history_retrieval_equivalence_test.go",
+    "internal/cli/persistence_optimization_test.go",
+    "internal/cli/viz_optimization_test.go",
+    "tools/coverage/mutation_check.py",
+    "tools/coverage/mutations.json",
+    "tools/coverage/python_run.py",
+    "tools/coverage/report.py",
+    "tools/coverage/run.py",
+    "tools/coverage/test_mutation_check.py",
+    "tools/coverage/test_python_run.py",
+    "tools/coverage/test_report.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f6/ed99edb708/0/metadata.json",
+      "transcript": "/f6/ed99edb708/0/full.jsonl",
+      "compact_transcript": "/f6/ed99edb708/0/transcript.jsonl",
+      "content_hash": "/f6/ed99edb708/0/content_hash.txt",
+      "prompt": "/f6/ed99edb708/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 56830,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 110,
+    "api_call_count": 187,
+    "subagent_tokens": {
+      "input_tokens": 430776,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 13648896,
+      "output_tokens": 53686,
+      "api_call_count": 233
+    },
+    "subagent_tokens_complete": true
+  }
+}

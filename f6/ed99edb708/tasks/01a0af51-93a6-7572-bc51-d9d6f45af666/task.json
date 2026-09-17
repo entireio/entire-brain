@@ -1,0 +1,17 @@
+{
+  "tool_use_id": "01a0af51-93a6-7572-bc51-d9d6f45af666",
+  "agent_id": "01a0af51-93a6-7572-bc51-d9d6f45af666",
+  "subagent_type": "worker",
+  "files": [
+    "internal/cli/persistence_optimization_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 147560,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5115776,
+    "output_tokens": 20058,
+    "api_call_count": 51
+  },
+  "started_at": "2026-09-17T14:22:36.346932+02:00",
+  "completed_at": "2026-09-17T14:57:26.39354+02:00"
+}
