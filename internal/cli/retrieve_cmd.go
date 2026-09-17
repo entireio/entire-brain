@@ -796,6 +796,9 @@ func unifiedResultLocation(r unifiedResult) string {
 }
 
 func printRetrievalCaveats(out io.Writer, result unifiedResult) {
+	if result.Issue != nil {
+		fmt.Fprintf(out, "    snapshot: %s\n    observed: %s\n", result.Issue.Snapshot, result.Issue.ObservedAt.Format("2006-01-02T15:04:05Z07:00"))
+	}
 	for _, caveat := range result.Caveats {
 		fmt.Fprintf(out, "    verify: %s\n", caveat.Message)
 		details := make([]string, 0, 4)

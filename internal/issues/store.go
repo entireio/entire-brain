@@ -77,6 +77,9 @@ func canonicalJSON(value any) []byte {
 }
 func (r Record) ContentHash() string {
 	r.ObservedAt = time.Time{}
+	// Accessibility is a local observation of this source revision. Remote
+	// deletion/access denial often does not provide a new source update time.
+	r.Availability = ""
 	return Hash(canonicalJSON(r))
 }
 

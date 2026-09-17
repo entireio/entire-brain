@@ -319,8 +319,9 @@ func TestMCPBrainBriefToolDefinitionGolden(t *testing.T) {
 	// enforces: an argument the tool echoes back cannot be trimmed away by
 	// dropping rows, so an oversize scalar is refused rather than blowing the
 	// response budget.
-	if len(got) != 861 {
-		t.Fatalf("brain_brief tool definition bytes = %d, want 861", len(got))
+	// The issue selector and task-or-issue schema add 199 bytes.
+	if len(got) != 1060 {
+		t.Fatalf("brain_brief tool definition bytes = %d, want 1060", len(got))
 	}
 }
 

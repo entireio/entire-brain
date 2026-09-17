@@ -363,3 +363,48 @@ func TestPurgeDoesNotForgetOtherProjectsBatchReceipts(t *testing.T) {
 		t.Fatal("purge erased another project's retry receipt")
 	}
 }
+
+func TestAccessibilityObservationDoesNotInventSourceRevision(t *testing.T) {
+	s := fixture(t)
+	r := rec("issue", issue, "cached source revision")
+	importOK(t, s, 1, r)
+	r.Availability = "inaccessible"
+	r.ObservedAt = now.Add(time.Hour)
+	out := importOK(t, s, 2, r)
+	if len(out.Conflicts) != 0 {
+		t.Fatal("accessibility is not a source text conflict")
+	}
+	rs, _ := s.Records()
+	if len(rs) != 0 {
+		t.Fatal("inaccessible evidence remains visible")
+	}
+	r.Availability = "available"
+	r.ObservedAt = now.Add(2 * time.Hour)
+	importOK(t, s, 3, r)
+	rs, _ = s.Records()
+	if len(rs) != 1 {
+		t.Fatal("confirmed access restoration failed")
+	}
+}
+
+func TestFailedOperationRemainsTerminal(t *testing.T) {
+	s := fixture(t)
+	r := rec("issue", issue, "target")
+	importOK(t, s, 1, r)
+	op := Operation{ID: "88888888-8888-8888-8888-888888888888", Target: r.Key(), Action: "status", PayloadHash: Hash([]byte("update status")), ObservedAt: now, Outcome: "pending"}
+	if err := s.Operation(op); err != nil {
+		t.Fatal(err)
+	}
+	op.Outcome = "failed"
+	op.Detail = "remote rejected invalid status"
+	if err := s.Operation(op); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Operation(op); err != nil {
+		t.Fatal("receipt retry failed", err)
+	}
+	op.Outcome = "pending"
+	if err := s.Operation(op); err == nil {
+		t.Fatal("terminal failure was blindly retried")
+	}
+}

@@ -58,7 +58,9 @@ pages, fetch failures, unsupported archived access, and unavailable filters in
 never all project history. Failed streams must not be marked complete.
 
 Absence never implies deletion. Set `availability` only from explicit deletion
-or inaccessibility evidence. An observed move of an existing issue out of scope
+or inaccessibility evidence. If the provider supplies no new revision, retain
+the cached source fields/update time and attach the new accessibility observation
+and observation time; do not invent a source update timestamp. An observed move of an existing issue out of scope
 suppresses it and its comments without expanding scope. Disconnect immediately
 removes project evidence from retrieval; purge also erases stored revisions,
 work links, receipts, and derived issue indexes.
@@ -176,7 +178,7 @@ content changes are reported in `conflicts` without replacing current evidence;
 older revisions are ignored.
 
 IDs: `issue:WORKSPACE:KIND:OBJECT`; exact snapshots add `@SHA256`. Content hashes
-exclude observation time for cache reuse; snapshot hashes include it. Use the
+exclude observation time and accessibility for cache reuse; snapshot hashes include them. Use the
 returned `snapshot` reference to retrieve the exact observed revision offline.
 
 Link:

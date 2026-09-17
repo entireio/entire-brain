@@ -540,6 +540,11 @@ func qualifyAbstractStatement(repoKey, workspaceName string, statement abstractS
 func qualifyWorkspaceUnifiedResult(repoKey, workspaceName string, result unifiedResult) unifiedResult {
 	qualify := func(id string) string { return qualifyWorkspaceAddressableID(repoKey, workspaceName, id) }
 	result.ID = qualify(result.ID)
+	if result.Issue != nil {
+		citation := *result.Issue
+		citation.Snapshot = qualify(citation.Snapshot)
+		result.Issue = &citation
+	}
 	result.SessionRef = qualify(result.SessionRef)
 	result.TargetID = qualify(result.TargetID)
 	result.RelatedIDs = append([]string(nil), result.RelatedIDs...)

@@ -291,7 +291,7 @@ func issueVectors(brainDir string, records []issues.Snapshot, query string, e Em
 	}
 	path := filepath.Join(brainDir, "issues", "derived", "vectors.json")
 	cache := issueVectorCache{}
-	raw, _ := os.ReadFile(path)
+	raw, _ := issueStore(brainDir).Read(path)
 	_ = json.Unmarshal(raw, &cache)
 	if cache.Model != e.ID() || cache.Dim != e.Dim() {
 		cache = issueVectorCache{Model: e.ID(), Dim: e.Dim()}
