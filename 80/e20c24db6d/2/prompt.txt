@@ -1,0 +1,25 @@
+Review the README of entire-graph and compare it to entire-brain. Ignore the benchmark and example section. What would you change and improve?
+
+---
+
+Ok, but you understood me backwards. I want to polish the Brain README.
+
+---
+
+You are on the right path, but not going far enough. I want the Brain README follow the same structure as Graph where it makes sense.
+
+---
+
+Review the README for AI slop.
+
+---
+
+Make it so
+
+---
+
+Make it so
+
+---
+
+Make it so

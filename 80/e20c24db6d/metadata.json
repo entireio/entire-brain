@@ -3,8 +3,9 @@
   "checkpoint_id": "80e20c24db6d",
   "strategy": "manual-commit",
   "branch": "codex/polish-brain-readme",
-  "checkpoints_count": 2,
+  "checkpoints_count": 8,
   "files_touched": [
+    "CONTRIBUTING.md",
     "README.md"
   ],
   "sessions": [
@@ -21,14 +22,21 @@
       "compact_transcript": "/80/e20c24db6d/1/transcript.jsonl",
       "content_hash": "/80/e20c24db6d/1/content_hash.txt",
       "prompt": "/80/e20c24db6d/1/prompt.txt"
+    },
+    {
+      "metadata": "/80/e20c24db6d/2/metadata.json",
+      "transcript": "/80/e20c24db6d/2/full.jsonl",
+      "compact_transcript": "/80/e20c24db6d/2/transcript.jsonl",
+      "content_hash": "/80/e20c24db6d/2/content_hash.txt",
+      "prompt": "/80/e20c24db6d/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 34324,
+    "input_tokens": 64006,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 370048,
-    "output_tokens": 1055,
-    "api_call_count": 8,
+    "cache_read_tokens": 1783936,
+    "output_tokens": 4140,
+    "api_call_count": 42,
     "subagent_tokens_complete": true
   }
 }

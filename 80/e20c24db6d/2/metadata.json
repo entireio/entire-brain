@@ -1,0 +1,84 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "80e20c24db6d",
+  "session_id": "01a0aee5-4b43-7230-8dbb-7935d95aacfd",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-17T11:49:53.202544Z",
+  "branch": "codex/polish-brain-readme",
+  "checkpoints_count": 6,
+  "save_step_count": 4,
+  "files_touched": [
+    "CONTRIBUTING.md",
+    "README.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "886d0ce1ad7b",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 29682,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1413888,
+    "output_tokens": 3085,
+    "api_call_count": 34,
+    "subagent_tokens_complete": true
+  },
+  "session_metrics": {
+    "turn_count": 6
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-17T11:49:53.169389Z",
+    "agent_lines": 25,
+    "agent_removed": 71,
+    "human_added": 0,
+    "human_modified": 81,
+    "human_removed": 8,
+    "total_committed": 101,
+    "total_lines_changed": 185,
+    "agent_percentage": 51.891891891891895,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 195,
+      "agent_lines_removed": 157
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 69,
+      "user_lines_removed": 84,
+      "agent_lines_added": 195,
+      "agent_lines_removed": 157,
+      "user_added_per_file": {
+        "README.md": 69
+      },
+      "user_removed_per_file": {
+        "README.md": 84
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 178,
+      "agent_lines_removed": 155
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 178,
+      "agent_lines_removed": 155
+    }
+  ]
+}
