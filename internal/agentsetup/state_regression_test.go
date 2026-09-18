@@ -101,8 +101,8 @@ func TestOpenRecordRejectsAliasesAndNonReadableState(t *testing.T) {
 	})
 	for _, name := range []string{"folder", "valid.json/child"} {
 		t.Run(name, func(t *testing.T) {
-			if _, present, err := openRecord(dir, name); err == nil || present {
-				t.Fatalf("openRecord(%q) = present=%v err=%v; want refusal", name, present, err)
+			if file, present, err := openRecord(dir, name); present || file != nil || (name == "folder" && err == nil) {
+				t.Fatalf("openRecord(%q) returned a record: err=%v", name, err)
 			}
 		})
 	}

@@ -11,6 +11,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import run_shard
+import run_other
 
 
 class ShardFailureEvidenceTests(unittest.TestCase):
@@ -93,3 +94,76 @@ class ShardFailureEvidenceTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertTrue(metadata['invocations'][0]['coverageProfile'])
         self.assertNotIn('coverageError', metadata['invocations'][0])
+
+
+class OtherFailureEvidenceTests(unittest.TestCase):
+    def run_fixture(self, exit_code, profile):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        repository, bundle, output = root / 'repo', root / 'bundle', root / 'results'
+        repository.mkdir()
+        bundle.mkdir()
+        go = root / 'go.exe'
+        go.write_bytes(b'fake go')
+        plan = dict(schema=run_other.PLAN_SCHEMA, targetEnvironment=run_other.TARGET_ENVIRONMENT,
+                    repositorySha='a' * 40, goVersion='go fixture', packages=[],
+                    settings=dict(shuffle='off', timeout='20m', commandLineLimit=32767,
+                                  coverageMode='atomic', coveragePackages='./...'))
+        inventory = dict(schema=run_other.PACKAGE_SCHEMA, goos='windows', goarch='amd64',
+                         cgoEnabled='1', repositorySha='a' * 40, goVersion='go fixture',
+                         packages=[dict(importPath='example/other', heavy=False)])
+        (bundle / 'plan.json').write_text(json.dumps(plan))
+        (bundle / 'package-inventory.json').write_text(json.dumps(inventory))
+        def execute(command, **kwargs):
+            if command[1:3] == ['clean', '-testcache']:
+                return subprocess.CompletedProcess(command, 0, b'', b'')
+            kwargs['stdout'].write(b'{"Action":"output","Output":"original panic evidence"}\n')
+            kwargs['stderr'].write(b'original stderr evidence')
+            coverage = next(arg.split('=', 1)[1] for arg in command if arg.startswith('-coverprofile='))
+            if profile is not None:
+                Path(coverage).write_text(profile)
+            return subprocess.CompletedProcess(command, exit_code)
+        args = ['--repository', str(repository), '--bundle', str(bundle), '--output', str(output),
+                '--expected-repository-sha', 'a' * 40, '--go-command', str(go)]
+        with contextlib.ExitStack() as stack:
+            patches = [
+                (run_other.sys, 'platform', 'win32'),
+                (run_other.shutil, 'which', mock.Mock(return_value=str(go))),
+                (run_other, 'checked_output', lambda command, *unused: 'go fixture' if command[1:] == ['version'] else 'a' * 40),
+                (run_other, 'checked_target_environment', mock.Mock(return_value=run_other.TARGET_ENVIRONMENT)),
+                (run_other, 'require_tracked_worktree_clean', mock.Mock()),
+                (run_other.subprocess, 'run', execute),
+            ]
+            for owner, name, value in patches:
+                stack.enter_context(mock.patch.object(owner, name, value))
+            code = run_other.main(args)
+        return code, json.loads((output / 'other-metadata.json').read_text()), output
+
+    def test_failed_process_preserves_original_exit_events_and_metadata(self):
+        for profile in (None, '', 'mode: set\ninvalid\n'):
+            with self.subTest(profile=profile):
+                code, metadata, output = self.run_fixture(66, profile)
+                self.assertEqual(code, 66)
+                self.assertEqual(metadata['exitCode'], 66)
+                self.assertEqual(metadata['testExitCode'], 66)
+                self.assertIsNone(metadata['coverageProfile'])
+                self.assertIsNone(metadata['coverageSha256'])
+                self.assertIn('coverage', metadata['coverageError'])
+                self.assertTrue(metadata['trackedWorktreeCleanAfter'])
+                self.assertIn('original panic evidence', (output / 'other-events.jsonl').read_text())
+                self.assertEqual((output / 'other.stderr.log').read_text(), 'original stderr evidence')
+
+    def test_success_missing_profile_still_fails_integrity(self):
+        code, metadata, _ = self.run_fixture(0, None)
+        self.assertEqual(code, 2)
+        self.assertEqual(metadata['testExitCode'], 0)
+        self.assertTrue(metadata['errors'])
+        self.assertNotIn('coverageError', metadata)
+
+    def test_failed_process_keeps_valid_profile_for_diagnosis(self):
+        code, metadata, _ = self.run_fixture(1, 'mode: atomic\nexample/other/file.go:1.1,1.2 1 1\n')
+        self.assertEqual(code, 1)
+        self.assertEqual(metadata['coverageProfile'], 'coverage/other.out')
+        self.assertTrue(metadata['coverageSha256'])
+        self.assertNotIn('coverageError', metadata)

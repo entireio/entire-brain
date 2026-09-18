@@ -298,7 +298,15 @@ def run(args: argparse.Namespace, metadata: dict[str, Any]) -> int:
             )
         metadata["durationSeconds"] = round(time.monotonic() - started, 6)
         metadata["testExitCode"] = completed.returncode
-        coverage_profile, coverage_sha256 = coverage_profile_metadata(output, coverage_path)
+        try:
+            coverage_profile, coverage_sha256 = coverage_profile_metadata(output, coverage_path)
+        except (OSError, ValueError, RuntimeError) as error:
+            if completed.returncode == 0:
+                raise
+            # A failed process may never flush its profile. Keep the original
+            # exit code and event stream; this is diagnostic, not valid coverage.
+            coverage_profile, coverage_sha256 = None, None
+            metadata["coverageError"] = str(error)
         metadata["coverageProfile"] = coverage_profile
         metadata["coverageSha256"] = coverage_sha256
         return completed.returncode
