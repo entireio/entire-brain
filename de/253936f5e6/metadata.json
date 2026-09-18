@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "de253936f5e6",
+  "strategy": "manual-commit",
+  "branch": "codex/regression-safety-coverage",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/memory_fts_health_regression_test.go",
+    "internal/cli/memory_lifecycle_regression_test.go",
+    "internal/cli/memory_vector_regression_cgo_test.go",
+    "internal/cli/regression_attribution_regression_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/de/253936f5e6/0/metadata.json",
+      "transcript": "/de/253936f5e6/0/full.jsonl",
+      "compact_transcript": "/de/253936f5e6/0/transcript.jsonl",
+      "content_hash": "/de/253936f5e6/0/content_hash.txt",
+      "prompt": "/de/253936f5e6/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 469952,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 27737216,
+    "output_tokens": 61388,
+    "api_call_count": 804,
+    "subagent_tokens_complete": false
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "de253936f5e6",
+  "session_id": "01a0af33-5438-7ef0-9fc8-71ee7de21125",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-18T00:31:32.671686Z",
+  "branch": "codex/regression-safety-coverage",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "internal/cli/memory_fts_health_regression_test.go",
+    "internal/cli/memory_lifecycle_regression_test.go",
+    "internal/cli/memory_vector_regression_cgo_test.go",
+    "internal/cli/regression_attribution_regression_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "edd1f423083f",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 469952,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 27737216,
+    "output_tokens": 61388,
+    "api_call_count": 804,
+    "subagent_tokens_complete": false
+  },
+  "session_metrics": {
+    "turn_count": 21
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-18T00:31:32.307738Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 2060,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 2060,
+    "total_lines_changed": 2061,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}
