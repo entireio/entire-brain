@@ -21,7 +21,7 @@ Focused before/after profiles compare exact production blocks with unchanged den
 | Semantic contracts | 4,432 | 4,432 | 0 |
 | Review/seed contracts | 1,130 | 1,186 | 0 |
 
-The first full CI run also exposed incidental Python warm-cache coverage: three lines and two branches varied without a Python change. An explicit cache recovery/reuse test now covers those paths, verifies the exact baseline commit, and proves successful reuse preserves a sentinel rather than replacing the cache.
+The first full CI run also exposed incidental Python warm-cache coverage: three lines and two branches varied without a Python change. An explicit cache recovery/reuse test now covers those paths, verifies the exact baseline commit, and proves successful reuse preserves a sentinel rather than replacing the cache. A subsequent run exposed one varying comparison-hash rejection branch; a separate valid-fixture test now changes only that hash and asserts the exact audit diagnostic, verified under two Python hash seeds.
 
 These focused groups overlap and must not be added together. Default race checks passed for the root group; focused retrieval synchronization and validation checks also passed with `brain_cgo sqlite_fts5` and the race detector. The other changed packages' focused comparisons retained every production block. An initial native pattern run varied in `semantic_stream.go`; an identical rerun recovered the baseline blocks. This is recorded scheduling variance, not evidence that repeated runs should replace a failing coverage gate.
 

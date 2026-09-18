@@ -6395,6 +6395,19 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             self.assertFalse(report["release_evidence"], report)
             self.assertIn("eval summaries have differing brain_manifest_sha256 values", report["flags"])
 
+    def test_facts_eval_audit_rejects_comparison_brain_hash_mismatch(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            manifest = self._write_facts_eval_fixture(root_path)
+            comparison_path = root_path / "raw-vs-facts.compare.json"
+            comparison = json.loads(comparison_path.read_text())
+            comparison["b_brain_manifest_sha256"] = "sha256:" + "c" * 64
+            comparison_path.write_text(json.dumps(comparison))
+
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+            self.assertFalse(report["release_evidence"], report)
+            self.assertIn("raw_vs_facts: b_brain_manifest_sha256 mismatch", report["flags"])
+
     def test_facts_eval_audit_rejects_unknown_claim_scope(self):
         with tempfile.TemporaryDirectory() as root:
             root_path = pathlib.Path(root)
