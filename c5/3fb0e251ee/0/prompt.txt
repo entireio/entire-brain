@@ -1,0 +1,9 @@
+commit/push to a new branch and open a new trail
+
+---
+
+CI on the trail has failures. Figure out why.
+
+---
+
+Fix the test, so we can merge the trail with green CI
