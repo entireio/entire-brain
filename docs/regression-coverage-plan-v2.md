@@ -1,6 +1,7 @@
 # Regression coverage completion plan
 
-Status: executing residual coverage queue (2026-09-18). This supersedes treating the
+Status: implementation reviewed; final CI acceptance tracked in PR #278 and
+trail #198 (2026-09-18). This supersedes treating the
 previous safety matrix's implemented rows as completion of the broader goal.
 The goal is to make subsequent optimizations reviewable against behavioral
 contracts, while closing the identified coverage gaps.
@@ -147,14 +148,14 @@ and tradeoff explicitly; never silently declare a smaller scope complete.
 
 | Task | Current status | Evidence / outstanding work |
 |---|---|---|
-| A | Baseline frozen; reachability audit continuing | CI 35273669719 profiles retained; selected wave-1 functions below |
-| B | Reviewed locally; final CI pending | Default development union 1129/1411 (80.01%); core/lane CGO aggregate >90%; core filesystem/SQLite failures, takeover, retry and bounded deadline tested |
-| C | Reviewed locally; final CI pending | Initial selected 72/80 statements (90%); full default package run passed at 505/629 file statements (80.3%); membership mutation detected; later-row failure and ceiling tests added |
-| D | Reviewed locally; integration validation pending | Frozen handlers 186/205 (90.7%); root lifecycle, partial/corrupt members, egress, rejection, output failures and limits |
-| E | Reviewed locally; final residual audit pending | Changed-input full/incremental and snapshot/store parity pass; root default/CGO race checks pass |
-| F | Reviewing — Main and Sol | Root output, provenance, privacy, malformed inputs and fusion covered; residual audit remains open |
-| G | Validating — Main, Sol review | Five report and three membership tests pass; existing 28 runner accounting/timeout tests pass; independent review passed; final CI pending |
-| H | Implementing — Main | Measured residual batches in progress; global target, final mutation checks and final CI remain open |
+| A | Complete | Baseline CI 35273669719 retained; frozen functions and final residual audit recorded in regression-coverage-residuals-v2.md |
+| B | Reviewed; final CI pending | Native core/lane 98/100; real SQLite reset faults, progress publication failures and exact retry state; memory file gate established by Linux CI |
+| C | Reviewed; final CI pending | Selected 79/80, retention 32/32; real vector scan failures/ceiling, cache corruption, retention caveats and apply refusal; remaining driver-open invariant documented |
+| D | Reviewed; final CI pending | Frozen handlers 193/205 (94.1%); root lifecycle, partial/corrupt members, egress, rejection, output failures and limits; remaining duplicate checks documented |
+| E | Reviewed; final CI pending | 109/113 local statements plus Linux-only Getwd subprocess; changed-input parity, runtime trace publication rollback/retry, storage and freshness failures |
+| F | Reviewed; final CI pending | 519/531; exact public output, provenance, privacy, cache recovery, impact-only corruption, FTS repair/contention/retry and both fusion fallbacks; all residuals classified |
+| G | Reviewed; final CI pending | Five report and three membership tests pass; existing runner accounting/timeout tests pass; four mutation proofs pass; original three quarantines remain visible |
+| H | Final CI validation — Main | Local default/native race integration passes; exact-head full suite, coverage comparison, trail findings and clean worktree remain acceptance gates |
 
 Frozen wave-1 optimization function set (full statement denominators, no
 post-hoc exclusions):
@@ -166,8 +167,7 @@ post-hoc exclusions):
   `runWorkspaceSkillsList`, `runWorkspaceSkillsForm`.
 
 E's frozen function set: `runSemanticBoundary`, `appendWorktreePathContent`,
-`applyCypherPredicate`, `runtimeTraceWhereSQL`. F will freeze its additional
-function set before implementation starts. Native vector execution is measured
+`applyCypherPredicate`, `runtimeTraceWhereSQL`. F's additional frozen function set is recorded below. Native vector execution is measured
 in the applicable CGO profile; default results remain separately visible.
 Additional lifecycle tests support the memory file gate and do not change B's
 frozen optimization-function denominator.
@@ -253,3 +253,25 @@ benchmark progress also has explicit stderr phase assertions and separate
 passing default/native race runs. The complete-profile development union is
 49,039/57,693 (84.9999%); it is not rounded up to a passing 85% gate.
 Selected E/F residual cases and final full CI remain open.
+
+G closure audit: synthetic benchmark timeout coverage includes the hanging-Go-test
+case in `confirmatory/test_task_negative_control.py`, timeout classification in
+`test_task_negative_control_classification_v1.py`, and product-cycle/report
+accounting tests. Windows harness failure metadata additionally has 42 passing
+synthetic tests. Four mutation proofs detect the intended assertion failures
+(corpus publication, session exclusion, raw-only history, excluded vector IDs).
+The unchanged quarantines are `confirmatory/test_power_analysis.py` (missing
+registered evidence panel), `confirmatory/test_check_protocol.py` (attestation
+hash mismatch), and `confirmatory/test_development_task_symptom_review.py`
+(missing locally generated dataset). They are not counted as passing tests.
+
+Final implementation checkpoint: full CI run 35295346282 passed every test job,
+including native Windows shards and CGO; its formatting-only lint failure is
+corrected. Its measured Linux default coverage is 49,018/57,693 (84.9635%).
+The final closure batch passes combined default and native race checks and adds
+51 hits in the development estimate (49,069/57,693, 85.0519%). That estimate
+combines the prior Linux report with focused local execution; final Linux CI
+must establish the global gate. No source coverage exclusions or denominator
+changes were used. Final run evidence and acceptance are recorded on
+[PR #278](https://github.com/entireio/entire-brain/pull/278) and
+[trail #198](https://entire.io/gh/entireio/entire-brain/trails/198).

@@ -184,7 +184,7 @@ func TestRefreshRejectsInvalidOptionsBeforeMutation(t *testing.T) {
 		path  string
 		force bool
 	}{
-		"existing output": {path: t.TempDir()},
+		"existing output":  {path: t.TempDir()},
 		"forced repo root": {path: opts.Env.RepoRoot, force: true},
 	} {
 		t.Run(name, func(t *testing.T) {
