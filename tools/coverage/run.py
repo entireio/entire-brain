@@ -54,6 +54,22 @@ def binary_contracts(binary, output, cgo, counters):
             raise RuntimeError("read-only binary contracts created persistent state")
 
 
+def emit_test_failure_diagnostics(lines):
+    """Forward Go's original failure output while keeping success output quiet."""
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except ValueError:
+            if line.strip():
+                print(line, flush=True)
+            continue
+        if not isinstance(event, dict) or "Action" not in event:
+            print(line, flush=True)
+            continue
+        if event.get("Action") in ("output", "build-output") and event.get("Output"):
+            print(event["Output"], end="", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True)
@@ -91,18 +107,21 @@ def main():
         test_exit_code = result.returncode
         metadata["tests_exit_code"] = test_exit_code
         metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
+        raw_lines = (output / "tests.jsonl").read_text(encoding="utf-8").splitlines()
         events = []
-        for line in (output / "tests.jsonl").read_text(encoding="utf-8").splitlines():
+        for line in raw_lines:
             try:
                 event = json.loads(line)
             except ValueError:
                 continue
-            if event.get("Action") in ("pass", "skip", "fail"):
+            if isinstance(event, dict) and event.get("Action") in ("pass", "skip", "fail"):
                 events.append({key: event[key] for key in ("Action", "Package", "Test", "Elapsed") if key in event})
         (output / "test-results.json").write_text(json.dumps(events, indent=2) + "\n")
         for event in events:
             if event["Action"] == "fail":
                 print("FAIL:", event.get("Package"), event.get("Test", ""), flush=True)
+        if test_exit_code:
+            emit_test_failure_diagnostics(raw_lines)
         profiles.append(str(output / "tests.out"))
     # Keep executables/counters out of uploaded shard artifacts. Only the
     # validated profile and contract results are needed by the merger.
