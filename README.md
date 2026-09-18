@@ -186,6 +186,8 @@ entire brain dash   # TUI: status, facts, sessions, history, semantic
 entire brain viz    # offline graph in your browser
 ```
 
+<img width="741" height="514" alt="brain-viz" src="https://github.com/user-attachments/assets/9c620612-f316-49e2-be2a-3070c01c452a" />
+
 ### Recover from a split brain
 
 A repository reached through two different paths — a symlink, or `/tmp` on
