@@ -176,7 +176,8 @@ func TestSeedOnAManyCommitRepositoryLeavesAReadableManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read history-gaps.md: %v", err)
 	}
-	if !strings.Contains(string(gaps), shortCommitHash(fmt.Sprintf("%040x", 49999))) {
+	lastCommit := fmt.Sprintf("%08x%032x", 49999, 49999)
+	if !strings.Contains(string(gaps), shortCommitHash(lastCommit)) {
 		t.Fatal("history-gaps.md lost the commits the manifest sampled away")
 	}
 }
@@ -186,9 +187,12 @@ func TestSeedOnAManyCommitRepositoryLeavesAReadableManifest(t *testing.T) {
 func fakeSeedGitLog(n int) string {
 	var b strings.Builder
 	for i := 0; i < n; i++ {
-		fmt.Fprintf(&b, "%040x%s%040x%s%s%sA Long Enough Author Name%sauthor.name@example.com%schurn: adjust the widget retry budget for the transport layer\n\nDecision: bump the deadline because the previous value was too tight under load.%s",
-			i, gitLogFieldSeparator,
-			i-1, gitLogFieldSeparator,
+		parent := ""
+		if i > 0 {
+			parent = fmt.Sprintf("%08x%032x", i-1, i-1)
+		}
+		fmt.Fprintf(&b, "%08x%032x%s%s%s%s%sA Long Enough Author Name%sauthor.name@example.com%schurn: adjust the widget retry budget for the transport layer\n\nDecision: bump the deadline because the previous value was too tight under load.%s",
+			i, i, gitLogFieldSeparator, parent, gitLogFieldSeparator,
 			time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(i)*time.Minute).Format(time.RFC3339), gitLogFieldSeparator,
 			gitLogFieldSeparator, gitLogFieldSeparator,
 			gitLogRecordSeparator)

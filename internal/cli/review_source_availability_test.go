@@ -53,7 +53,10 @@ func TestFactAvailabilityRejectsEmptyCorruptAndSymlinkStores(t *testing.T) {
 			if len(status.Warnings) == 0 {
 				t.Fatalf("%s reported healthy", mode)
 			}
-			manifest, _ := loadBrainManifest(brain)
+			manifest, err := loadBrainManifest(brain)
+			if err != nil {
+				t.Fatalf("load manifest after %s fixture: %v", mode, err)
+			}
 			if integrity := inspectFactStore(brain, manifest.Sources.Facts); integrity.OK() {
 				t.Fatalf("%s reported intact", mode)
 			}

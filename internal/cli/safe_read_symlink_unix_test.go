@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -117,5 +116,3 @@ func TestSafeReadFileRefusesACharacterDevice(t *testing.T) {
 		t.Fatalf("character device error = %v, want it to name the regular-file requirement", err)
 	}
 }
-
-var _ = syscall.Mkfifo

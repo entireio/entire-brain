@@ -52,14 +52,10 @@ func TestRelatedPatternPointers(t *testing.T) {
 	if len(ptrs) == 0 {
 		t.Fatal("expected related pattern pointers for a deploy query")
 	}
-	found := false
 	for _, p := range ptrs {
-		if p.ID != "" && p.Type != "" {
-			found = true
+		if p.ID == "" || p.Type == "" {
+			t.Fatalf("pointer missing id/type: %+v", p)
 		}
-	}
-	if !found {
-		t.Errorf("pointers missing id/type: %+v", ptrs)
 	}
 	// Unrelated query → no pointers (no drowning of facts/history/docs).
 	if p := relatedPatternPointers(brainDir, "rename a css color variable", patternPointerCap); len(p) != 0 {
@@ -78,15 +74,22 @@ func TestHandoffConsolidationsIncludesStaleNotRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	// One stale (kept), then reject it in a second scenario.
-	db.Exec(`UPDATE dossiers SET status='stale'`)
+	if _, err := db.Exec(`UPDATE dossiers SET status='stale'`); err != nil {
+		t.Fatal(err)
+	}
 	db.Close()
 	got := handoffConsolidations(brainDir, 5)
 	if len(got) == 0 {
 		t.Fatal("handoff should include stale consolidations")
 	}
 
-	db2, _ := openPatternCorpusMutableDB(brainDir)
-	db2.Exec(`UPDATE dossiers SET verdict='rejected'`)
+	db2, err := openPatternCorpusMutableDB(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db2.Exec(`UPDATE dossiers SET verdict='rejected'`); err != nil {
+		t.Fatal(err)
+	}
 	db2.Close()
 	if c := handoffConsolidations(brainDir, 5); len(c) != 0 {
 		t.Errorf("handoff must exclude rejected consolidations, got %d", len(c))

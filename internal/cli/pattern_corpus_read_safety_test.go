@@ -94,7 +94,7 @@ func TestPatternCorpusReadRejectsExternalSymlinkWithoutTouchingTarget(t *testing
 	}
 }
 
-func installLatePatternCorpusAlias(t *testing.T, brainDir string) []byte {
+func installLatePatternCorpusAlias(t *testing.T, brainDir string) {
 	t.Helper()
 	corpusPath := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))
 	backupPath := corpusPath + ".before-alias"
@@ -129,7 +129,6 @@ func installLatePatternCorpusAlias(t *testing.T, brainDir string) []byte {
 			t.Errorf("external target changed: got %q want %q", got, want)
 		}
 	})
-	return want
 }
 
 func TestPatternDerivedOutputRejectsLateCorpusAliasWithoutBytes(t *testing.T) {

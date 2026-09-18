@@ -190,7 +190,7 @@ func TestSemanticFailedReplacementPreservesReadableActiveGeneration(t *testing.T
 	}
 }
 
-func TestSemanticIncrementalAndForcedFullIndexHaveSameSymbols(t *testing.T) {
+func TestSemanticWarmReuseAndForcedFullIndexHaveSameSymbols(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
@@ -238,17 +238,14 @@ func TestSemanticIncrementalAndForcedFullIndexHaveSameSymbols(t *testing.T) {
 		if err := rows.Err(); err != nil {
 			t.Fatal(err)
 		}
-		if err := rows.Err(); err != nil {
-			t.Fatal(err)
-		}
 		return symbols
 	}
 
 	initial := readSymbols(index(false))
-	incremental := readSymbols(index(false))
+	warmReuse := readSymbols(index(false))
 	full := readSymbols(index(true))
-	if len(initial) == 0 || !reflect.DeepEqual(incremental, initial) || !reflect.DeepEqual(full, initial) {
-		t.Fatalf("index symbol parity failed: initial=%q incremental=%q full=%q", initial, incremental, full)
+	if len(initial) == 0 || !reflect.DeepEqual(warmReuse, initial) || !reflect.DeepEqual(full, initial) {
+		t.Fatalf("index symbol parity failed: initial=%q warm-reuse=%q full=%q", initial, warmReuse, full)
 	}
 }
 

@@ -115,7 +115,7 @@ func TestSemanticBoundaryRootMissingStaleAndCorruptIndex(t *testing.T) {
 		runner := opts.Runner.(*fakeCommandRunner)
 		runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: "bbb222\n"}
 		out, err := execute(t, NewRootCommand(opts), "inspect", "boundaries", "--kind", "route")
-		if err != nil || !strings.Contains(out, "semantic freshness:") || !strings.Contains(out, "GET /tokens/{id}") {
+		if err != nil || !strings.Contains(out, "semantic freshness: unsafe") || !strings.Contains(out, "GET /tokens/{id}") {
 			t.Fatalf("stale index should label retained results: err=%v output=%q", err, out)
 		}
 	})

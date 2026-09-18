@@ -469,6 +469,21 @@ func TestBundleRoundTripToleratesStreamedSnapshotRecords(t *testing.T) {
 	if report.Severity != "ok" {
 		t.Fatalf("round-trip stale report = %+v", report)
 	}
+	var queryOut bytes.Buffer
+	queryCmd := &cobra.Command{Use: "query"}
+	queryCmd.SetOut(&queryOut)
+	if err := runSemanticQuery(queryCmd.Context(), queryCmd, importOpts, semanticQueryOptions{limit: 10, json: true}, "ValidateToken"); err != nil {
+		t.Fatalf("query round-tripped store: %v", err)
+	}
+	var query struct {
+		Results []semanticRecord `json:"results"`
+	}
+	if err := json.Unmarshal(queryOut.Bytes(), &query); err != nil {
+		t.Fatalf("decode round-trip query: %v\n%s", err, queryOut.String())
+	}
+	if len(query.Results) != 1 || query.Results[0].Name != "ValidateToken" || query.Results[0].FilePath != "internal/auth/token.go" {
+		t.Fatalf("round-trip query results = %+v\n%s", query.Results, queryOut.String())
+	}
 }
 
 // TestStreamSemanticSnapshotFailsOnTruncatedEntireGraphStream proves the

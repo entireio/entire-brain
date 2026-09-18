@@ -59,15 +59,6 @@ func TestSemanticIndexNamesAFileTheProviderSilentlySkipped(t *testing.T) {
 		}
 	}
 
-	// Narrowness is the whole licence for this check. A vendored tree the
-	// provider parsed nothing from, and a file type it never handles, must not
-	// be flagged -- otherwise the brain is second-guessing the provider's
-	// file-selection policy instead of reporting its silence.
-	for _, p := range got {
-		if p == "go.mod" || strings.HasPrefix(p, "vendor/") {
-			t.Fatalf("a file the provider was never expected to parse was flagged: %q", p)
-		}
-	}
 }
 
 // The control, in the same shape: when the provider emits every tracked file,

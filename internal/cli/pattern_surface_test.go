@@ -2,6 +2,7 @@ package cli
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -109,9 +110,31 @@ func TestBriefConsolidationsGracefulWithoutCorpus(t *testing.T) {
 
 func TestStrongestConsolidationsForOverview(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
+	db, err := openPatternCorpusMutableDB(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, confidence := range []float64{0.91, 0.73, 0.55, 0.42} {
+		pid := fmt.Sprintf("pattern:overview-%d", i)
+		cluster := fmt.Sprintf("overview:%d", i)
+		rec := dossierRecord{SchemaVersion: dossierSchemaVersion, PatternID: pid, ClusterKey: cluster, Fingerprint: "sha256:test", Title: cluster, Confidence: confidence}
+		blob, err := json.Marshal(rec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO patterns (id,type,scope,repo_key,cluster_key,title,strength,strength_label,support,fingerprint,status,created_at,updated_at) VALUES (?, 'task','repo','gh/acme/cli',?,?,?,'strong',12,'sha256:test','active','t','t')`, pid, cluster, cluster, confidence); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO dossiers (pattern_id,cluster_key,fingerprint,json_redacted,status,created_at,updated_at) VALUES (?,?, 'sha256:test',?,'current','t','t')`, pid, cluster, string(blob)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
 	got := strongestConsolidations(brainDir, 3)
-	if len(got) == 0 {
-		t.Fatal("expected at least one strong consolidation for the overview")
+	if len(got) != 3 {
+		t.Fatalf("overview returned %d consolidations, want exact cap 3", len(got))
 	}
 	// Ordered by confidence, capped, all current and not rejected.
 	for i := 1; i < len(got); i++ {
@@ -119,12 +142,8 @@ func TestStrongestConsolidationsForOverview(t *testing.T) {
 			t.Errorf("consolidations not ordered by confidence: %v", got)
 		}
 	}
-	if len(got) > 3 {
-		t.Errorf("overview must cap consolidations, got %d", len(got))
-	}
-
 	// Stale dossiers are excluded from the overview (they no longer hold).
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err = openPatternCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

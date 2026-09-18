@@ -35,6 +35,9 @@ func TestRecallEvidenceSourceAnchors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(c.Spans) != 3 {
+		t.Fatalf("expected three source spans, got %+v", c.Spans)
+	}
 	for _, s := range c.Spans {
 		data, err := os.ReadFile(filepath.Join(brain, filepath.FromSlash(s.Path)))
 		if err != nil {
@@ -59,13 +62,19 @@ func TestRecallEvidenceSourceAnchors(t *testing.T) {
 	}
 	old := c.Spans[0].ID
 	p := filepath.Join(brain, filepath.FromSlash(c.Spans[0].Path))
-	data, _ := os.ReadFile(p)
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(p, append(data, '\n'), 0600); err != nil {
 		t.Fatal(err)
 	}
 	changed, err := collectEvidence(context.Background(), brain, "main", "target", 10, 8192)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(changed.Spans) != 3 {
+		t.Fatalf("source mutation lost spans: %+v", changed.Spans)
 	}
 	if changed.Spans[0].ID == old {
 		t.Fatal("changed file retained versioned span ID")

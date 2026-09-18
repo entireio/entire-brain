@@ -11,10 +11,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// semanticMultiRemoteFixtureRunner is semanticFixtureRunner with an arbitrary
-// remote set. remotes is ordered as `git config --get-regexp remote.*.url`
-// reports it; providerRemoteURLs hoists origin, exactly as entire-graph's
-// gitutil.RemoteURLs does.
+// semanticMultiRemoteFixtureRunner is semanticFixtureRunner with the fixture's
+// supported remote names emitted in deterministic Git-config order.
+// providerRemoteURLs hoists origin, exactly as entire-graph's gitutil.RemoteURLs
+// does.
 func semanticMultiRemoteFixtureRunner(repoDir, snapshot string, remotes map[string]string) *fakeCommandRunner {
 	runner := semanticFixtureRunner(repoDir, snapshot)
 	if origin, ok := remotes["origin"]; ok {
@@ -187,11 +187,5 @@ func TestLiveHeaderRepoKeyCheckCannotFail(t *testing.T) {
 	}
 	if res.providerRepoKey != "local/widget" {
 		t.Fatalf("provider repo_key = %q, want the provider's original spelling preserved for the real check", res.providerRepoKey)
-	}
-	// Whatever the provider sent, the header reaching validateLiveSemanticHeader
-	// already carries the storage key -- so a repo_key comparison there is an
-	// identity comparison and can never report anything.
-	if !semanticRepoKeyEqual(res.header.RepoKey, storageKey) {
-		t.Fatal("unreachable: normalization guarantees equality")
 	}
 }

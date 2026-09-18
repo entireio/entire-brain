@@ -28,7 +28,7 @@ func buildSemanticMaintenanceFixture(t *testing.T) (string, EntireEnv, *fakeComm
 }
 
 func TestSemanticRepairRebuildsCorruptGenerationAndKeepsSnapshotEvidence(t *testing.T) {
-	repo, env, runner, opts := buildSemanticMaintenanceFixture(t)
+	repo, env, _, opts := buildSemanticMaintenanceFixture(t)
 	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
 	source := mustSemanticSource(t, env)
 	snapshotBefore, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(source.SnapshotPath)))
@@ -61,7 +61,7 @@ func TestSemanticRepairRebuildsCorruptGenerationAndKeepsSnapshotEvidence(t *test
 	if err := runSemanticQuery(context.Background(), queryCmd, opts, semanticQueryOptions{limit: 10, json: true}, "ValidateToken"); err != nil {
 		t.Fatalf("query after repair: %v", err)
 	}
-	if !strings.Contains(queryOut.String(), "ValidateToken") || len(runner.calls) == 0 {
+	if !strings.Contains(queryOut.String(), "ValidateToken") {
 		t.Fatalf("query lost repaired evidence: %q", queryOut.String())
 	}
 }

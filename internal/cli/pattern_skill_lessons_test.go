@@ -124,8 +124,11 @@ func TestLessonDossierCarriesSourceAnchors(t *testing.T) {
 	now := time.Now()
 	brainDir := t.TempDir()
 	seedCorrectedEpisodes(t, brainDir, "radar:evidence", "mise run release-evidence", 2, now)
-	db, _ := openPatternCorpusMutableDB(brainDir)
-	_, err := proposeSkillLessons(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", stubRunner(lessonProposalJSON), now)
+	db, err := openPatternCorpusMutableDB(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = proposeSkillLessons(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", stubRunner(lessonProposalJSON), now)
 	db.Close()
 	if err != nil {
 		t.Fatal(err)
@@ -153,7 +156,10 @@ func TestProposeSkillLessonsCacheInvalidatesOnContentChange(t *testing.T) {
 	now := time.Now()
 	brainDir := t.TempDir()
 	seedCorrectedEpisodes(t, brainDir, "radar:evidence", "mise run release-evidence", 2, now)
-	db, _ := openPatternCorpusMutableDB(brainDir)
+	db, err := openPatternCorpusMutableDB(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer db.Close()
 	calls := 0
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
@@ -187,7 +193,10 @@ func TestProposeSkillLessonsRejectsGeneric(t *testing.T) {
 	now := time.Now()
 	brainDir := t.TempDir()
 	seedCorrectedEpisodes(t, brainDir, "commit:flow", "git push", 2, now)
-	db, _ := openPatternCorpusMutableDB(brainDir)
+	db, err := openPatternCorpusMutableDB(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	run := stubRunner(`{"lessons":[{"title":"Remember to pull before push","trigger":"pushing","failure":"non-fast-forward","recovery":"git pull","member_keys":["episode:commit:flow0","episode:commit:flow1"],"verdict":"rejected"}]}`)
 	stats, err := proposeSkillLessons(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", run, now)
 	db.Close()
@@ -209,16 +218,19 @@ func TestProposeSkillLessonsEgressGated(t *testing.T) {
 	now := time.Now()
 	brainDir := t.TempDir()
 	seedCorrectedEpisodes(t, brainDir, "radar:evidence", "mise run release-evidence", 2, now)
-	db, _ := openPatternCorpusMutableDB(brainDir)
+	db, err := openPatternCorpusMutableDB(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer db.Close()
 	called := false
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
 		called = true
 		return lessonProposalJSON, nil
 	}
-	_, err := proposeSkillLessons(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", run, now)
-	if err == nil {
-		t.Fatal("expected a no-egress agent to be refused")
+	_, err = proposeSkillLessons(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", run, now)
+	if err == nil || !strings.Contains(err.Error(), "no_egress") {
+		t.Fatalf("expected no_egress refusal, got %v", err)
 	}
 	if called {
 		t.Error("the agent must not be invoked under no-egress")

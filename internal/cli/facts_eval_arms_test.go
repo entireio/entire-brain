@@ -1,14 +1,21 @@
 package cli
 
 import (
+	"reflect"
 	"testing"
 	"time"
 )
 
 func TestSelectRetrievalArm(t *testing.T) {
-	for _, name := range []string{"", "flat", "scoped", "scoped-floor", "outline"} {
-		if _, err := selectRetrievalArm(name); err != nil {
+	for name, want := range map[string]retrievalArm{
+		"": flatArm, "flat": flatArm, "scoped": scopedArm,
+		"scoped-floor": scopedFloorArm, "outline": outlineArm,
+	} {
+		got, err := selectRetrievalArm(name)
+		if err != nil {
 			t.Errorf("selectRetrievalArm(%q) errored: %v", name, err)
+		} else if reflect.ValueOf(got).Pointer() != reflect.ValueOf(want).Pointer() {
+			t.Errorf("selectRetrievalArm(%q) selected the wrong implementation", name)
 		}
 	}
 	if _, err := selectRetrievalArm("bogus"); err == nil {

@@ -80,13 +80,17 @@ func TestDossierOnlyForPromotable(t *testing.T) {
 		t.Fatal(err)
 	}
 	var dossiers int
-	db.QueryRow(`SELECT COUNT(*) FROM dossiers`).Scan(&dossiers)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM dossiers`).Scan(&dossiers); err != nil {
+		t.Fatal(err)
+	}
 	if dossiers != 0 {
 		t.Errorf("no promotable pattern, want 0 dossiers, got %d", dossiers)
 	}
 	// The pattern itself still exists (visible, just capped below threshold).
 	var patterns int
-	db.QueryRow(`SELECT COUNT(*) FROM patterns`).Scan(&patterns)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM patterns`).Scan(&patterns); err != nil {
+		t.Fatal(err)
+	}
 	if patterns == 0 {
 		t.Error("expected the (non-promotable) pattern to still be recorded")
 	}
@@ -155,7 +159,9 @@ func TestDossierStaleWhenEvidenceMovesUnderCachedVerdict(t *testing.T) {
 		t.Fatal(err)
 	}
 	var status, verdict string
-	db.QueryRow(`SELECT status, COALESCE(verdict,'') FROM dossiers WHERE pattern_id=?`, pid).Scan(&status, &verdict)
+	if err := db.QueryRow(`SELECT status, COALESCE(verdict,'') FROM dossiers WHERE pattern_id=?`, pid).Scan(&status, &verdict); err != nil {
+		t.Fatal(err)
+	}
 	if status != "stale" {
 		t.Errorf("dossier status after evidence change = %q, want stale", status)
 	}
@@ -166,8 +172,7 @@ func TestDossierStaleWhenEvidenceMovesUnderCachedVerdict(t *testing.T) {
 
 func dossierFP(t *testing.T, db *sql.DB) string {
 	t.Helper()
-	var fp string
-	db.QueryRow(`SELECT fingerprint FROM dossiers ORDER BY pattern_id LIMIT 1`).Scan(&fp)
+	_, fp := onePromotableDossier(t, db)
 	return fp
 }
 

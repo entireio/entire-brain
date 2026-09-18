@@ -205,8 +205,9 @@ func TestWorkspaceAggregationExcludesRejectedMemberPatterns(t *testing.T) {
 	if err := adb.QueryRow(`SELECT id FROM patterns WHERE type='task' AND intent_sig='deploy:release'`).Scan(&apid); err != nil {
 		t.Fatal(err)
 	}
-	adb.Exec(`INSERT INTO dossiers (pattern_id, cluster_key, fingerprint, json_redacted, verdict, status, created_at, updated_at) VALUES (?,?,?,?, 'rejected','current','t','t')`,
-		apid, "k", "sha256:x", "{}")
+	if _, err := adb.Exec(`INSERT INTO dossiers (pattern_id, cluster_key, fingerprint, json_redacted, verdict, status, created_at, updated_at) VALUES (?,?,?,?, 'rejected','current','t','t')`, apid, "k", "sha256:x", "{}"); err != nil {
+		t.Fatal(err)
+	}
 	adb.Close()
 
 	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
@@ -219,9 +220,12 @@ func TestWorkspaceAggregationExcludesRejectedMemberPatterns(t *testing.T) {
 
 func workspaceHasDeploy(t *testing.T, wsDir string) bool {
 	t.Helper()
-	views, _, ok := loadCorpusPatternViews(wsDir)
+	views, _, ok, err := loadCorpusPatternViewsChecked(wsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok {
-		return false
+		t.Fatal("expected readable workspace corpus")
 	}
 	for _, v := range views {
 		if v.IntentSig == "deploy:release" {
@@ -250,25 +254,37 @@ func TestWorkspaceRebuildClearsStaleVerifierCache(t *testing.T) {
 	}
 	// Inject a stale 'rejected' dossier keyed to the (stable) workspace pattern id.
 	var pid string
-	db.QueryRow(`SELECT id FROM patterns WHERE scope='workspace' LIMIT 1`).Scan(&pid)
-	db.Exec(`INSERT INTO dossiers (pattern_id, cluster_key, fingerprint, json_redacted, verdict, status, created_at, updated_at) VALUES (?,?,?,?, 'rejected','current','t','t')`,
-		pid, "stale", "sha256:stale", "{}")
+	if err := db.QueryRow(`SELECT id FROM patterns WHERE scope='workspace' LIMIT 1`).Scan(&pid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO dossiers (pattern_id, cluster_key, fingerprint, json_redacted, verdict, status, created_at, updated_at) VALUES (?,?,?,?, 'rejected','current','t','t')`, pid, "stale", "sha256:stale", "{}"); err != nil {
+		t.Fatal(err)
+	}
 	// And a stray theme row (no FK to episodes, never populated at workspace scope).
-	db.Exec(`INSERT INTO themes (id, scope, title, fingerprint, status, created_at, updated_at) VALUES ('theme:stale','repo','stale','sha256:t','candidate','t','t')`)
+	if _, err := db.Exec(`INSERT INTO themes (id, scope, title, fingerprint, status, created_at, updated_at) VALUES ('theme:stale','repo','stale','sha256:t','candidate','t','t')`); err != nil {
+		t.Fatal(err)
+	}
 	db.Close()
 
 	// Rebuild must drop the stale verdict (else loadCorpusPatternViews suppresses it).
 	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	db2, _ := openPatternCorpusMutableDB(wsDir)
+	db2, err := openPatternCorpusMutableDB(wsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer db2.Close()
 	var dossiers, themes int
-	db2.QueryRow(`SELECT COUNT(*) FROM dossiers`).Scan(&dossiers)
+	if err := db2.QueryRow(`SELECT COUNT(*) FROM dossiers`).Scan(&dossiers); err != nil {
+		t.Fatal(err)
+	}
 	if dossiers != 0 {
 		t.Errorf("workspace rebuild must clear stale dossiers, got %d", dossiers)
 	}
-	db2.QueryRow(`SELECT COUNT(*) FROM themes`).Scan(&themes)
+	if err := db2.QueryRow(`SELECT COUNT(*) FROM themes`).Scan(&themes); err != nil {
+		t.Fatal(err)
+	}
 	if themes != 0 {
 		t.Errorf("workspace rebuild must clear stray themes, got %d", themes)
 	}

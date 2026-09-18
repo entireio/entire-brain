@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +22,7 @@ func statusFixtureReport(t *testing.T, blindSpotCount int) brainStatusReport {
 	spots := make([]brainBlindSpot, 0, blindSpotCount)
 	warnings := make([]semanticWarning, 0, blindSpotCount)
 	for i := 0; i < blindSpotCount; i++ {
-		path := "benchmarks/agent-brain/mined/entire-cli-" + itoa(i) + ".json"
+		path := "benchmarks/agent-brain/mined/entire-cli-" + strconv.Itoa(i) + ".json"
 		spots = append(spots, brainBlindSpot{
 			Path:   path,
 			Code:   "E_MINIFIED",

@@ -81,6 +81,9 @@ func TestPatternCorpusIdempotentAndExtracts(t *testing.T) {
 	if cmd2 := corpusCount(t, db, "episode_commands"); cmd2 != cmd1 {
 		t.Errorf("episode_commands after re-build = %d, want %d", cmd2, cmd1)
 	}
+	if gram2 := corpusCount(t, db, "grams"); gram2 != gram1 {
+		t.Errorf("grams after re-build = %d, want %d", gram2, gram1)
+	}
 
 	// An indexer-version bump forces a clean re-index (no duplication). Apply
 	// the fixture mutation through the same private-staging publisher used by
@@ -125,6 +128,9 @@ func TestPatternCorpusChangedSessionReplaces(t *testing.T) {
 	}
 	db = openCorpusReadSnapshot(t, brainDir)
 	after := corpusCount(t, db, "episodes")
+	if after != 1 {
+		t.Fatalf("replacement transcript produced %d episodes, want 1", after)
+	}
 	if after >= before {
 		t.Errorf("changed session should replace rows: before=%d after=%d", before, after)
 	}

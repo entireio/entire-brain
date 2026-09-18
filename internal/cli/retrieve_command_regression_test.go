@@ -96,6 +96,15 @@ func mustBrainDirForKey(t *testing.T, env EntireEnv, key string) string {
 
 func TestRetrieveCommandsRejectInvalidContractsBeforeReadingState(t *testing.T) {
 	cmd := &cobra.Command{}
+	wantErrors := map[string]string{
+		"single zero limit":                  "--limit must be greater than 0",
+		"workspace zero limit":               "--limit must be greater than zero",
+		"workspace malformed source":         "source must be one of",
+		"workspace missing manifest":         "missing",
+		"workspace conversation vector":      "vector search is unavailable",
+		"workspace fact conversation filter": "filters require --source conversation",
+		"workspace fact abstract":            "--include-abstract requires --source conversation",
+	}
 	for name, err := range map[string]error{
 		"single zero limit":                  runRetrieve(cmd.Context(), cmd, Options{}, "q", modeLexical, 0, "", retrievalOptions{}, false, false, "search"),
 		"workspace zero limit":               runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 0}, modeLexical, "missing", "q"),
@@ -105,8 +114,8 @@ func TestRetrieveCommandsRejectInvalidContractsBeforeReadingState(t *testing.T) 
 		"workspace fact conversation filter": runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 1, source: retrievalSourceFact, session: "secret-session"}, modeLexical, "missing", "q"),
 		"workspace fact abstract":            runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 1, source: retrievalSourceFact, includeAbstract: true}, modeLexical, "missing", "q"),
 	} {
-		if err == nil {
-			t.Errorf("%s unexpectedly succeeded", name)
+		if err == nil || !strings.Contains(err.Error(), wantErrors[name]) {
+			t.Errorf("%s: got %v, want %q", name, err, wantErrors[name])
 		}
 		if err != nil && strings.Contains(err.Error(), "secret-session") {
 			t.Errorf("%s leaked hidden filter value: %v", name, err)

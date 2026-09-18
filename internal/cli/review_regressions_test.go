@@ -86,11 +86,10 @@ func TestConversationQuerySurvivesUnavailableFTS(t *testing.T) {
 }
 
 // TestLocalRepoPhysicalSpellingRecoversOneBrain locks that a repository reached
-// through a symlinked ANCESTOR resolves to a single brain. The lexical spelling
-// stays the preferred key (an explicit alias keeps addressing its established
-// brain), but a brain already stored under the physical spelling, which is the
-// only spelling a relative invocation from inside the tree can produce, must be
-// recovered in place rather than shadowed by a fresh empty one.
+// through a symlinked ANCESTOR resolves to a single brain. A brain already
+// stored under the physical spelling, which is the spelling a relative
+// invocation from inside the tree can produce, must be recovered in place
+// rather than shadowed by a fresh empty one.
 func TestLocalRepoPhysicalSpellingRecoversOneBrain(t *testing.T) {
 	parent := t.TempDir()
 	realParent := filepath.Join(parent, "real-parent")
@@ -195,18 +194,12 @@ func TestHistoryInventoryReportsMissingSessionsRootAsEmpty(t *testing.T) {
 	}
 }
 
-// TestFailedVectorSyncDoesNotSelfRelaunch locks the worker relaunch signal. The
-// 100ms relaunch exists to continue embedding after a deliberate lane-deadline
-// yield; treating a FAILED sync as pending re-spawned the worker about ten
-// times a second for as long as the failure lasted (embed server down, corrupt
-// progress leaf, privacy-epoch mismatch never self-heal).
-func TestFailedVectorSyncDoesNotSelfRelaunch(t *testing.T) {
+// TestFailedVectorStatsDoNotRequestRelaunch locks the worker status contract.
+// A failed sync remains pending without setting the fast relaunch flag, while a
+// deliberate lane-deadline yield still requests continuation.
+func TestFailedVectorStatsDoNotRequestRelaunch(t *testing.T) {
 	var stats memoryWorkerStats
 	stats.VectorPending = true
-	stats.VectorContinue = false
-	if stats.VectorContinue {
-		t.Fatal("a failed sync must not request the fast relaunch")
-	}
 	// add() must preserve both flags independently, so one lane's clean yield
 	// is not attributed to another lane's failure.
 	var combined memoryWorkerStats
@@ -375,15 +368,22 @@ func TestWriteLockCheckIsOkWhenPresentUnproven(t *testing.T) {
 	}
 	for state, want := range map[string]string{"unsafe": "error", "unavailable": "error", "absent": "ok"} {
 		snapshot.Payload["locks"] = map[string]any{"write": map[string]any{"state": state}}
+		found := false
 		for _, candidate := range memoryDoctorChecks(snapshot) {
-			if candidate.Name == "write_lock" && candidate.State != want {
-				t.Fatalf("write_lock(%s) = %s, want %s", state, candidate.State, want)
+			if candidate.Name == "write_lock" {
+				found = true
+				if candidate.State != want {
+					t.Fatalf("write_lock(%s) = %s, want %s", state, candidate.State, want)
+				}
 			}
+		}
+		if !found {
+			t.Fatalf("write_lock check missing for state %s", state)
 		}
 	}
 }
 
-// TestPartialTranscriptFailureDoesNotDeleteExportedTranscripts locks the
+// TestPartialTranscriptFailureSignalsIncompleteExport locks the
 // export sweep. writeSnapshotSessionTranscripts skips a session whose source
 // blob is unreadable (a promisor-absent blob in a partial clone under no-egress)
 // and drops it from the returned list, and cleanupStaleSessionFiles deletes
@@ -391,7 +391,7 @@ func TestWriteLockCheckIsOkWhenPresentUnproven(t *testing.T) {
 // the copies a previous export had written for exactly those sessions. Only the
 // all-fail case was guarded. Before the skip-and-continue behavior, an
 // unreadable transcript aborted the export and left the brain untouched.
-func TestPartialTranscriptFailureDoesNotDeleteExportedTranscripts(t *testing.T) {
+func TestPartialTranscriptFailureSignalsIncompleteExport(t *testing.T) {
 	const (
 		badID  = "aaa111aaa111"
 		goodID = "bbb222bbb222"
@@ -451,8 +451,8 @@ func TestPartialTranscriptFailureDoesNotDeleteExportedTranscripts(t *testing.T) 
 	if err := cleanupStaleSessionFiles(outputDir, written); err != nil {
 		t.Fatal(err)
 	}
-	if _, statErr := os.Stat(priorFull); statErr == nil {
-		t.Fatal("fixture invalid: the sweep was expected to remove an unclaimed transcript")
+	if _, statErr := os.Stat(priorFull); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("fixture sweep must remove the unclaimed transcript; stat error = %v", statErr)
 	}
 }
 
@@ -727,9 +727,6 @@ func TestLineTranscriptExpansionIsNotBoundedByTheDocumentCap(t *testing.T) {
 	expansion, err := expandConversationExchange(brainDir, record)
 	if err != nil {
 		t.Fatalf("line transcript over the document cap must still stream: %v", err)
-	}
-	if errors.Is(err, errConversationSourceTooLarge) {
-		t.Fatal("line transcript reported as a document size-bound violation")
 	}
 	if !strings.Contains(expansion.Request+expansion.Response, "why did the export fail") {
 		t.Fatalf("expansion lost the requested range: %+v", expansion)

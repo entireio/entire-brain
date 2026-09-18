@@ -18,6 +18,8 @@ import (
 func TestHistorySessionInventoryRejectsFIFOAndSocketWithoutBlocking(t *testing.T) {
 	for _, kind := range []string{"fifo", "socket"} {
 		t.Run(kind, func(t *testing.T) {
+			// Keep the Unix-socket pathname below Darwin's sun_path limit. The
+			// testing temp root can be too long before the fixture suffixes it.
 			brainDir, err := os.MkdirTemp("/tmp", "eb-history-input-")
 			if err != nil {
 				t.Fatal(err)

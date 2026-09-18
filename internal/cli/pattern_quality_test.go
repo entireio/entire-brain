@@ -42,6 +42,9 @@ func TestQualityPromotableHaveAnchorsOrFactBacked(t *testing.T) {
 				rec.Title, len(rec.SourceAnchors))
 		}
 	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
 	if n == 0 {
 		t.Fatal("expected at least one promotable dossier to check")
 	}
@@ -79,10 +82,10 @@ func TestQualityConsolidationRedactionBoundary(t *testing.T) {
 			t.Errorf("dossier JSON leaked %q:\n%s", secret, blob)
 		}
 	}
-	// And the same JSON is what the verifier would receive — redact again
-	// defensively and confirm still clean (the egress path the agent sees).
+	// A second redaction pass over stored JSON must keep both sensitive values
+	// absent. This does not exercise the verifier transport.
 	if got := redactText(blob); strings.Contains(got, "example-user") || strings.Contains(got, "ghp_SECRET") {
-		t.Errorf("verifier input leaked a secret: %s", got)
+		t.Errorf("second redaction pass leaked a secret: %s", got)
 	}
 }
 
@@ -110,7 +113,9 @@ func TestQualityCorpusDeletablePreservesDecisions(t *testing.T) {
 	}
 	// Delete the rebuildable corpus entirely (and its WAL/SHM siblings).
 	for _, suffix := range []string{"", "-wal", "-shm"} {
-		os.Remove(corpusPath + suffix)
+		if err := os.Remove(corpusPath + suffix); err != nil && !(suffix != "" && os.IsNotExist(err)) {
+			t.Fatalf("remove corpus%s: %v", suffix, err)
+		}
 	}
 	if err := buildPatternCorpus(brainDir, now); err != nil {
 		t.Fatalf("corpus must regenerate after deletion: %v", err)
@@ -148,8 +153,12 @@ func TestQualityBranchScopedFactLinks(t *testing.T) {
 	db := openCorpus(t, brainDir)
 
 	var mainLinks, featLinks int
-	db.QueryRow(`SELECT COUNT(*) FROM episode_facts ef JOIN episodes e ON e.id=ef.episode_id WHERE e.branch='main'`).Scan(&mainLinks)
-	db.QueryRow(`SELECT COUNT(*) FROM episode_facts ef JOIN episodes e ON e.id=ef.episode_id WHERE e.branch='feature'`).Scan(&featLinks)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM episode_facts ef JOIN episodes e ON e.id=ef.episode_id WHERE e.branch='main'`).Scan(&mainLinks); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM episode_facts ef JOIN episodes e ON e.id=ef.episode_id WHERE e.branch='feature'`).Scan(&featLinks); err != nil {
+		t.Fatal(err)
+	}
 	if mainLinks == 0 {
 		t.Error("expected the main-branch episode to link the main-branch fact")
 	}

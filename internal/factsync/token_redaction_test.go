@@ -35,7 +35,7 @@ func TestFactSetErrorsDoNotEchoTheBearerToken(t *testing.T) {
 			return err
 		},
 		"GetProposal": func(h *HTTPServer) error {
-			_, err := h.GetProposal(t.Context(), "01HZZPROBE0000000000000000", "main", "p1")
+			_, err := h.GetProposal(t.Context(), "01HZZPROBE0000000000000000", "main", "prop-1234567890abcdef")
 			return err
 		},
 	}

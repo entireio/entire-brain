@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -81,7 +82,10 @@ func TestMultiConceptExactTransportBudgets(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		inner, _ := jsonOutputBytes(payload)
+		inner, err := jsonOutputBytes(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
 		result := map[string]any{"content": []map[string]any{{"type": "text", "text": string(inner)}}}
 		var emitted bytes.Buffer
 		if err := writeMCPMessage(&emitted, mcpMessage{JSONRPC: "2.0", ID: id, Result: result}, mcpFrameContentLength); err != nil {
@@ -111,7 +115,10 @@ func TestMultiConceptExactTransportBudgets(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		actual, _ := jsonOutputBytes(payload)
+		actual, err := jsonOutputBytes(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if len(actual) > conversationConceptResponseMaxBytes || payload["response_truncated"] != true {
 			t.Fatalf("workspace JSON bytes=%d marker=%v", len(actual), payload["response_truncated"])
 		}
@@ -434,6 +441,7 @@ func installConcurrentLockedTombstone(t *testing.T, fixture retrievalEmissionPri
 		}
 		called = true
 		go func() {
+			defer close(result)
 			result <- withBrainWriteLock(fixture.BrainDir, func() error {
 				stones, _, err := loadSessionTombstonesChecked(fixture.BrainDir)
 				if err != nil {
@@ -444,8 +452,47 @@ func installConcurrentLockedTombstone(t *testing.T, fixture retrievalEmissionPri
 			})
 		}()
 	}
-	t.Cleanup(func() { beforeRetrievalResponseWrite = original })
+	t.Cleanup(func() {
+		defer func() { beforeRetrievalResponseWrite = original }()
+		if called {
+			if err := awaitRetrievalResult(t, "tombstone cleanup", result); err != nil {
+				t.Errorf("tombstone cleanup: %v", err)
+			}
+		}
+	})
 	return result
+}
+
+// Each blocked writer is released and joined even when an assertion fails.
+func retrievalWriterCleanup(t *testing.T, release, finished chan struct{}) func() {
+	t.Helper()
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(func() {
+		unblock()
+		awaitRetrievalSignal(t, "writer cleanup", finished)
+	})
+	return unblock
+}
+
+func awaitRetrievalSignal(t *testing.T, name string, signal <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", name)
+	}
+}
+
+func awaitRetrievalResult(t *testing.T, name string, result <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-result:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", name)
+		return nil
+	}
 }
 
 func TestRetrievalWriteLinearizesBeforeConcurrentTombstone(t *testing.T) {
@@ -457,20 +504,23 @@ func TestRetrievalWriteLinearizesBeforeConcurrentTombstone(t *testing.T) {
 	mutation := installConcurrentLockedTombstone(t, fixture)
 	out := &blockingRetrievalWriter{started: make(chan struct{}), release: make(chan struct{})}
 	writeDone := make(chan error, 1)
+	finished := make(chan struct{})
+	unblock := retrievalWriterCleanup(t, out.release, finished)
 	go func() {
+		defer close(finished)
 		writeDone <- writeRetrievalResponseBytes(out, []byte("private response\n"), policy)
 	}()
-	<-out.started
+	awaitRetrievalSignal(t, "response write", out.started)
 	select {
 	case err := <-mutation:
 		t.Fatalf("tombstone linearized while the response write lock was held: %v", err)
 	default:
 	}
-	close(out.release)
-	if err := <-writeDone; err != nil {
+	unblock()
+	if err := awaitRetrievalResult(t, "writeDone", writeDone); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-mutation; err != nil {
+	if err := awaitRetrievalResult(t, "mutation", mutation); err != nil {
 		t.Fatalf("tombstone after response: %v", err)
 	}
 	if got := out.String(); got != "private response\n" {
@@ -491,20 +541,23 @@ func TestMCPRetrievalRetainsPrivacyLockThroughOuterFrameWrite(t *testing.T) {
 	out := &blockingRetrievalWriter{started: make(chan struct{}), release: make(chan struct{})}
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"final privacy gate","source":"conversation"}}}`)
 	runDone := make(chan error, 1)
+	finished := make(chan struct{})
+	unblock := retrievalWriterCleanup(t, out.release, finished)
 	go func() {
+		defer close(finished)
 		runDone <- runMCP(context.Background(), strings.NewReader(input), out, fixture.Options)
 	}()
-	<-out.started
+	awaitRetrievalSignal(t, "response write", out.started)
 	select {
 	case err := <-mutation:
 		t.Fatalf("tombstone linearized before the complete MCP frame write: %v", err)
 	default:
 	}
-	close(out.release)
-	if err := <-runDone; err != nil {
+	unblock()
+	if err := awaitRetrievalResult(t, "runDone", runDone); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-mutation; err != nil {
+	if err := awaitRetrievalResult(t, "mutation", mutation); err != nil {
 		t.Fatalf("tombstone after MCP response: %v", err)
 	}
 	responses := readMCPResponses(t, out.String())
@@ -521,18 +574,23 @@ func requireCommandWriteLinearizesBeforeTombstone(t *testing.T, fixture retrieva
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
 	done := make(chan error, 1)
-	go func() { done <- run(cmd) }()
-	<-out.started
+	finished := make(chan struct{})
+	unblock := retrievalWriterCleanup(t, out.release, finished)
+	go func() {
+		defer close(finished)
+		done <- run(cmd)
+	}()
+	awaitRetrievalSignal(t, "response write", out.started)
 	select {
 	case err := <-mutation:
 		t.Fatalf("tombstone linearized while the command response write lock was held: %v", err)
 	default:
 	}
-	close(out.release)
-	if err := <-done; err != nil {
+	unblock()
+	if err := awaitRetrievalResult(t, "done", done); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-mutation; err != nil {
+	if err := awaitRetrievalResult(t, "mutation", mutation); err != nil {
 		t.Fatalf("tombstone after command response: %v", err)
 	}
 	if out.Len() == 0 {
@@ -766,19 +824,20 @@ func TestVizAPIResponseLinearizesBeforeConcurrentTombstone(t *testing.T) {
 		header: make(http.Header), started: make(chan struct{}), release: make(chan struct{}),
 	}
 	done := make(chan struct{})
+	unblock := retrievalWriterCleanup(t, out.release, done)
 	go func() {
 		handler.ServeHTTP(out, httptest.NewRequest(http.MethodGet, "/api/summary", nil))
 		close(done)
 	}()
-	<-out.started
+	awaitRetrievalSignal(t, "response write", out.started)
 	select {
 	case err := <-mutation:
 		t.Fatalf("tombstone linearized while the HTTP response write lock was held: %v", err)
 	default:
 	}
-	close(out.release)
-	<-done
-	if err := <-mutation; err != nil {
+	unblock()
+	awaitRetrievalSignal(t, "HTTP response", done)
+	if err := awaitRetrievalResult(t, "mutation", mutation); err != nil {
 		t.Fatalf("tombstone after HTTP response: %v", err)
 	}
 	if out.status != http.StatusOK || out.body.Len() == 0 {
