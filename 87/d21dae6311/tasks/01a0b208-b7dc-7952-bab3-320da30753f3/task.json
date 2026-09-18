@@ -1,0 +1,19 @@
+{
+  "tool_use_id": "01a0b208-b7dc-7952-bab3-320da30753f3",
+  "agent_id": "01a0b208-b7dc-7952-bab3-320da30753f3",
+  "subagent_type": "worker",
+  "files": [
+    "internal/cli/watch_command_regression_test.go",
+    "internal/cli/semantic_bench_regression_test.go",
+    "internal/cli/brief_fusion_failure_regression_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 460801,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 17388800,
+    "output_tokens": 45261,
+    "api_call_count": 162
+  },
+  "started_at": "2026-09-18T03:01:52.566298+02:00",
+  "completed_at": "2026-09-18T04:26:30.912647+02:00"
+}

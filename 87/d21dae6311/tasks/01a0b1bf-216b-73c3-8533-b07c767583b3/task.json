@@ -1,0 +1,19 @@
+{
+  "tool_use_id": "01a0b1bf-216b-73c3-8533-b07c767583b3",
+  "agent_id": "01a0b1bf-216b-73c3-8533-b07c767583b3",
+  "subagent_type": "default",
+  "files": [
+    "internal/cli/privacy_verification_regression_test.go",
+    "internal/cli/semantic_graph_regression_test.go",
+    "internal/cli/semantic_index_regression_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 135349,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6372224,
+    "output_tokens": 22261,
+    "api_call_count": 66
+  },
+  "started_at": "2026-09-18T01:41:29.947147+02:00",
+  "completed_at": "2026-09-18T04:26:30.912508+02:00"
+}

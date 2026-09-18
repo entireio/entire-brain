@@ -1,0 +1,22 @@
+{
+  "tool_use_id": "01a0b1d1-dea8-7d23-82f4-1e22bb7139e0",
+  "agent_id": "01a0b1d1-dea8-7d23-82f4-1e22bb7139e0",
+  "subagent_type": "default",
+  "files": [
+    "internal/cli/semantic_graph_regression_test.go",
+    "internal/cli/semantic_index_regression_test.go",
+    "internal/cli/semantic_audit_regression_test.go",
+    "internal/cli/regression_attribution_regression_test.go",
+    "internal/cli/memory_fts_health_regression_test.go",
+    "internal/cli/mcp_dispatch_regression_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 260275,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 17551104,
+    "output_tokens": 41419,
+    "api_call_count": 119
+  },
+  "started_at": "2026-09-18T02:01:58.076908+02:00",
+  "completed_at": "2026-09-18T04:26:30.912533+02:00"
+}

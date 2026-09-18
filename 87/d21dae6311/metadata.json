@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "87d21dae6311",
+  "strategy": "manual-commit",
+  "branch": "codex/regression-safety-coverage",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/agentsetup/path_regression_test.go",
+    "internal/cli/brief_output_regression_test.go",
+    "internal/cli/facts_read_report_regression_test.go",
+    "internal/cli/memory_admin_failure_regression_test.go",
+    "internal/cli/memory_health_regression_test.go",
+    "internal/cli/memory_vector_regression_cgo_test.go",
+    "internal/cli/memory_vector_regression_test.go",
+    "internal/cli/memory_vector_reset_failure_regression_cgo_test.go",
+    "internal/cli/refresh_failure_regression_test.go",
+    "internal/cli/semantic_bench_regression_test.go",
+    "internal/cli/watch_command_regression_test.go",
+    "internal/cli/workspace_pattern_failure_regression_test.go",
+    "internal/cli/workspace_resolution_regression_test.go",
+    "tools/ci-bench/windows-production/tests/test_failure_evidence.py",
+    "tools/ci-bench/windows-production/tests/test_verify_results.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/87/d21dae6311/0/metadata.json",
+      "transcript": "/87/d21dae6311/0/full.jsonl",
+      "compact_transcript": "/87/d21dae6311/0/transcript.jsonl",
+      "content_hash": "/87/d21dae6311/0/content_hash.txt",
+      "prompt": "/87/d21dae6311/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 198943,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5678720,
+    "output_tokens": 12008,
+    "api_call_count": 1314,
+    "subagent_tokens_complete": false
+  }
+}

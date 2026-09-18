@@ -1,0 +1,22 @@
+{
+  "tool_use_id": "01a0b1e2-63b7-7811-906a-231b90645fd3",
+  "agent_id": "01a0b1e2-63b7-7811-906a-231b90645fd3",
+  "subagent_type": "default",
+  "files": [
+    "internal/cli/brief_output_regression_test.go",
+    "internal/cli/workspace_resolution_regression_test.go",
+    "docs/regression-coverage-residuals-v2.md",
+    "internal/cli/workspace_pattern_failure_regression_test.go",
+    "internal/cli/memory_vector_reset_failure_regression_cgo_test.go",
+    "internal/cli/brief_failure_residual_regression_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 862588,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 52390144,
+    "output_tokens": 120453,
+    "api_call_count": 375
+  },
+  "started_at": "2026-09-18T02:20:01.012142+02:00",
+  "completed_at": "2026-09-18T04:26:30.912567+02:00"
+}

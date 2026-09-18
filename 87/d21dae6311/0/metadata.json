@@ -1,0 +1,63 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "87d21dae6311",
+  "session_id": "01a0af33-5438-7ef0-9fc8-71ee7de21125",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-18T08:42:21.412082Z",
+  "branch": "codex/regression-safety-coverage",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "internal/agentsetup/path_regression_test.go",
+    "internal/cli/brief_output_regression_test.go",
+    "internal/cli/facts_read_report_regression_test.go",
+    "internal/cli/memory_admin_failure_regression_test.go",
+    "internal/cli/memory_health_regression_test.go",
+    "internal/cli/memory_vector_regression_cgo_test.go",
+    "internal/cli/memory_vector_regression_test.go",
+    "internal/cli/memory_vector_reset_failure_regression_cgo_test.go",
+    "internal/cli/refresh_failure_regression_test.go",
+    "internal/cli/semantic_bench_regression_test.go",
+    "internal/cli/watch_command_regression_test.go",
+    "internal/cli/workspace_pattern_failure_regression_test.go",
+    "internal/cli/workspace_resolution_regression_test.go",
+    "tools/ci-bench/windows-production/tests/test_failure_evidence.py",
+    "tools/ci-bench/windows-production/tests/test_verify_results.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "2aff3778c91b",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 198943,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5678720,
+    "output_tokens": 12008,
+    "api_call_count": 1314,
+    "subagent_tokens_complete": false
+  },
+  "session_metrics": {
+    "turn_count": 22
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-18T08:42:20.824219Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 57,
+    "human_removed": 61,
+    "total_committed": 0,
+    "total_lines_changed": 118,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

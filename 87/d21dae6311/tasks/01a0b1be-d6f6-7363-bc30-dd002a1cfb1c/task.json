@@ -1,0 +1,23 @@
+{
+  "tool_use_id": "01a0b1be-d6f6-7363-bc30-dd002a1cfb1c",
+  "agent_id": "01a0b1be-d6f6-7363-bc30-dd002a1cfb1c",
+  "subagent_type": "default",
+  "files": [
+    "internal/cli/memory_vector_regression_cgo_test.go",
+    "internal/cli/memory_vector_regression_test.go",
+    "internal/cli/memory_lifecycle_regression_test.go",
+    "internal/cli/retrieve_command_regression_test.go",
+    "internal/cli/memory_abstract_failure_regression_test.go",
+    "internal/cli/eval_command_regression_test.go",
+    "internal/cli/refresh_failure_regression_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 584367,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 40666240,
+    "output_tokens": 115632,
+    "api_call_count": 332
+  },
+  "started_at": "2026-09-18T01:41:10.903755+02:00",
+  "completed_at": "2026-09-18T04:26:30.912475+02:00"
+}

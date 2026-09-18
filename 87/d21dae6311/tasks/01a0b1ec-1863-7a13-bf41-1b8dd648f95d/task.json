@@ -1,0 +1,27 @@
+{
+  "tool_use_id": "01a0b1ec-1863-7a13-bf41-1b8dd648f95d",
+  "agent_id": "01a0b1ec-1863-7a13-bf41-1b8dd648f95d",
+  "subagent_type": "default",
+  "files": [
+    "internal/agentsetup/path_regression_test.go",
+    "internal/agentsetup/state_regression_test.go",
+    "internal/cli/semantic_maintenance_regression_test.go",
+    "internal/cli/lifecycle_report_regression_test.go",
+    "internal/cli/facts_admin_regression_test.go",
+    "internal/cli/memory_admin_failure_regression_test.go",
+    "internal/cli/facts_read_report_regression_test.go",
+    "internal/cli/semantic_boundary_failure_regression_test.go",
+    "internal/cli/semantic_trace_ingest_regression_test.go",
+    "tools/coverage/run.py",
+    "tools/coverage/test_run.py"
+  ],
+  "token_usage": {
+    "input_tokens": 639894,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 37506560,
+    "output_tokens": 88208,
+    "api_call_count": 306
+  },
+  "started_at": "2026-09-18T02:30:36.59534+02:00",
+  "completed_at": "2026-09-18T04:26:30.912621+02:00"
+}

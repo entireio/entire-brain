@@ -1,0 +1,18 @@
+{
+  "tool_use_id": "01a0b1be-f817-7570-99ea-264a81f0a4d9",
+  "agent_id": "01a0b1be-f817-7570-99ea-264a81f0a4d9",
+  "subagent_type": "default",
+  "files": [
+    "internal/cli/workspace_command_regression_test.go",
+    "internal/cli/brief_output_regression_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 249720,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 17791232,
+    "output_tokens": 39173,
+    "api_call_count": 128
+  },
+  "started_at": "2026-09-18T01:41:19.443803+02:00",
+  "completed_at": "2026-09-18T04:26:30.91249+02:00"
+}
