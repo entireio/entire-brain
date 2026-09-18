@@ -632,7 +632,13 @@ def verify_shards(
             if profile is not None:
                 coverage_profiles.append((f"shard {index} package {package}", profile))
             expected_profile = f"coverage/shard-{index:03d}-process-{invocation_index:02d}.out"
-            if invocation.get("coverageProfile") != expected_profile:
+            # A failed process can legitimately omit its profile. The profile
+            # validator above still rejects missing evidence; do not also claim
+            # a path mismatch when there was no path to authenticate.
+            if (
+                invocation.get("coverageProfile") is not None
+                and invocation.get("coverageProfile") != expected_profile
+            ):
                 failures.append(
                     f"shard {index} {package} coverage profile path differs from its process"
                 )

@@ -358,6 +358,28 @@ class VerifyResultsTests(unittest.TestCase):
             )
             self.assertEqual(combined.count("example/shared.go:1.1,2.1"), 1)
 
+    def test_absent_failed_profile_is_not_reported_as_a_path_mismatch(self):
+        for exit_code, profile in ((1, None), (0, None), (1, "coverage/wrong.out")):
+            with self.subTest(exit_code=exit_code, profile=profile), tempfile.TemporaryDirectory() as directory:
+                arguments, output, _, shards_root, _ = self.make_fixture(Path(directory))
+                metadata_path = sorted(shards_root.rglob("shard-metadata.json"))[0]
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                invocation = metadata["invocations"][0]
+                invocation.update(exitCode=exit_code, coverageProfile=profile,
+                                  coverageSha256=None, coverageError="test process produced no valid profile")
+                write_json(metadata_path, metadata)
+                self.assertEqual(self.run_verifier(arguments), 1)
+                report = json.loads(output.read_text(encoding="utf-8"))
+                self.assertFalse(report["passed"])
+                failures = "\n".join(report["failures"])
+                if profile is None:
+                    self.assertIn("is missing coverageProfile", failures)
+                    self.assertNotIn("coverage profile path differs from its process", failures)
+                else:
+                    self.assertIn("coverage profile path differs from its process", failures)
+                if exit_code:
+                    self.assertIn("exitCode", failures)
+
     def test_missing_and_tampered_profiles_fail_closed(self):
         for mutation in ("missing", "tampered"):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
