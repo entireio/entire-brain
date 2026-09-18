@@ -1,6 +1,6 @@
 # Regression coverage completion plan
 
-Status: executing wave 1 (2026-09-18). This supersedes treating the
+Status: executing residual coverage queue (2026-09-18). This supersedes treating the
 previous safety matrix's implemented rows as completion of the broader goal.
 The goal is to make subsequent optimizations reviewable against behavioral
 contracts, while closing the identified coverage gaps.
@@ -151,10 +151,10 @@ and tradeoff explicitly; never silently declare a smaller scope complete.
 | B | Reviewed locally; final CI pending | Default development union 1129/1411 (80.01%); core/lane CGO aggregate >90%; core filesystem/SQLite failures, takeover, retry and bounded deadline tested |
 | C | Reviewed locally; final CI pending | Initial selected 72/80 statements (90%); full default package run passed at 505/629 file statements (80.3%); membership mutation detected; later-row failure and ceiling tests added |
 | D | Reviewed locally; integration validation pending | Frozen handlers 186/205 (90.7%); root lifecycle, partial/corrupt members, egress, rejection, output failures and limits |
-| E | Reviewing — Main and Terra | Root boundary contracts pass at 90.7%; graph/index assertions tightened; changed-input parity still in progress |
-| F | Implementing — Terra | Frozen live output function set below; root-command fixtures |
+| E | Reviewed locally; final residual audit pending | Changed-input full/incremental and snapshot/store parity pass; root default/CGO race checks pass |
+| F | Reviewing — Main and Sol | Root output, provenance, privacy, malformed inputs and fusion covered; residual audit remains open |
 | G | Validating — Main, Sol review | Five report and three membership tests pass; existing 28 runner accounting/timeout tests pass; independent review passed; final CI pending |
-| H | Not started | Global target, independent review and final CI remain open |
+| H | Implementing — Main | Measured residual batches in progress; global target, final mutation checks and final CI remain open |
 
 Frozen wave-1 optimization function set (full statement denominators, no
 post-hoc exclusions):
@@ -223,3 +223,23 @@ previous profiles reaches 48,042/57,693 statements (83.27%); 998 more statements
 would reach 85% on this denominator. This is not final CI coverage. The first
 pushed v2 batch (`8e6313ef`) passed CI run 35290044560; the second batch
 (`86dcbb28`) is running in 35290882149. Final H gates remain open.
+
+Integration checkpoint: commits `86dcbb28` and `c26bb973` passed CI runs
+35290882149 and 35291595987. Later reviewed changes cover agent-state path
+containment, explicit refresh output, workspace retrieval graph/partial failures,
+abstract enqueue retry state, semantic repair/reset and retrieval privacy rechecks.
+The CGO race check of the abstract/maintenance/privacy batch passes (6.8s).
+
+Trail findings exposed missing failure evidence in the Windows harness when a
+failed test produced no valid coverage profile. Commit `5738831b` preserves the
+original exit code, event stream and invocation metadata while still rejecting
+invalid profiles from successful runs. The Python runner also records report
+failures. All 38 Windows harness and 10 coverage tooling tests pass. The three
+related trail findings are resolved with evidence; native Windows still runs
+its eight shards and one union.
+
+Current completed-profile development union: 48,452/57,693 (83.98%), 588
+statements below 85% on this denominator. This is a macOS baseline plus focused
+profiles, not fresh full-suite or Linux CI evidence. The queue now covers public
+evaluation, lifecycle reports and visualization contracts, with further measured
+workspace resolution cases. The original global gate remains unchanged.
