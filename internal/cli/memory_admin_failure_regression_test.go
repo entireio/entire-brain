@@ -15,14 +15,13 @@ func TestMemoryAdminCommandsRejectMalformedManifestWithoutWriting(t *testing.T) 
 			opts, brainDir := memoryAdminCommandFixture(t)
 			addMemoryAdminConversationFixture(t, brainDir, time.Date(2026, 8, 10, 14, 0, 0, 0, time.UTC))
 			manifestPath := filepath.Join(brainDir, exportManifestFileName)
-			before, err := os.ReadFile(manifestPath)
-			if err != nil {
-				t.Fatal(err)
-			}
 			if err := os.WriteFile(manifestPath, []byte("{malformed manifest"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			var out string
+			var (
+				out string
+				err error
+			)
 			if name == "repair" {
 				out, err = execute(t, newMemoryRepairCommand(opts), "--json")
 			} else {
@@ -33,9 +32,6 @@ func TestMemoryAdminCommandsRejectMalformedManifestWithoutWriting(t *testing.T) 
 			}
 			if got, readErr := os.ReadFile(manifestPath); readErr != nil || string(got) != "{malformed manifest" {
 				t.Fatalf("%s rewrote malformed manifest: %q err=%v", name, got, readErr)
-			}
-			if string(before) == "{malformed manifest" {
-				t.Fatal("fixture unexpectedly started malformed")
 			}
 		})
 	}

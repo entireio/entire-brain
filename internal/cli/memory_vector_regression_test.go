@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -108,7 +109,7 @@ func TestRunMemoryVectorLaneSuccessAndFailureHealth(t *testing.T) {
 		t.Fatal(err)
 	}
 	failure := runMemoryVectorLane(context.Background(), failureDir, now, "failure-owner")
-	if failure.VectorContinue || !memoryVectorContainsString(failure.HealthIssues, "memory_vector_sync_failed") {
+	if failure.VectorContinue || !slices.Contains(failure.HealthIssues, "memory_vector_sync_failed") {
 		t.Fatalf("failure stats=%+v", failure)
 	}
 	failureLog, err := os.ReadFile(filepath.Join(failureDir, filepath.FromSlash(memoryWorkerLogRel)))
@@ -124,7 +125,7 @@ func TestRunMemoryVectorLaneSuccessAndFailureHealth(t *testing.T) {
 		t.Fatal(err)
 	}
 	logFailure := runMemoryVectorLane(context.Background(), logFailureDir, now, "log-owner")
-	if !memoryVectorContainsString(logFailure.HealthIssues, "memory_worker_log_write_failed") {
+	if !slices.Contains(logFailure.HealthIssues, "memory_worker_log_write_failed") {
 		t.Fatalf("log failure stats=%+v", logFailure)
 	}
 }
@@ -137,13 +138,4 @@ func (memoryVectorLaneEmbedder) Embed(string) []float32      { return []float32{
 func (memoryVectorLaneEmbedder) historyFusionEligible() bool { return true }
 func (memoryVectorLaneEmbedder) EmbedContext(context.Context, string) []float32 {
 	return []float32{1, 0}
-}
-
-func memoryVectorContainsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }

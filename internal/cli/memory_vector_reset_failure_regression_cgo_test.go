@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -170,7 +171,7 @@ func TestRunMemoryVectorLaneReportsSyncAndLogFailures(t *testing.T) {
 	defaultEmbedderInst = memoryVectorLaneEmbedder{}
 	t.Cleanup(func() { defaultEmbedderInst = original })
 	stats := runMemoryVectorLane(context.Background(), brainDir, now, "dual-failure-owner")
-	if stats.VectorContinue || !memoryVectorContainsString(stats.HealthIssues, "memory_vector_sync_failed") || !memoryVectorContainsString(stats.HealthIssues, "memory_worker_log_write_failed") {
+	if stats.VectorContinue || !slices.Contains(stats.HealthIssues, "memory_vector_sync_failed") || !slices.Contains(stats.HealthIssues, "memory_worker_log_write_failed") {
 		t.Fatalf("stats=%+v", stats)
 	}
 }

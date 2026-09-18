@@ -100,6 +100,7 @@ func TestWorkspacePatternRefreshWriteFailuresPreserveUnrelatedState(t *testing.T
 }
 
 func TestWorkspaceSkillFormRejectsUnreadableFamilyTableBeforeProvider(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	opts, _, manifest := workspaceCommandFixture(t)
 	wsDir, err := workspaceDir(opts.Env, manifest.Name)
 	if err != nil {
@@ -120,7 +121,6 @@ func TestWorkspaceSkillFormRejectsUnreadableFamilyTableBeforeProvider(t *testing
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	fakeCodexProvider(t, "provider must not run")
 	out, err := execute(t, NewRootCommand(opts), "workspace", "patterns", "skills", "form", manifest.Name, "family:any", "--agent", "codex", "--yes")
 	if err == nil || !strings.Contains(err.Error(), "deep_dossiers") {
 		t.Fatalf("form err=%v\n%s", err, out)

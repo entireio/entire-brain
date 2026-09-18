@@ -10,25 +10,27 @@ import (
 )
 
 func TestMemoryVectorHealthReportsPersistedStatesWithoutMutation(t *testing.T) {
+	currentDigest := "sha256:" + strings.Repeat("a", 64)
+	staleDigest := "sha256:" + strings.Repeat("b", 64)
 	for _, tc := range []struct {
 		name                         string
 		pending, reset               bool
 		digest, complete, code, want string
 	}{
-		{name: "pending", pending: true, reset: true, digest: "current", want: "pending"},
-		{name: "reset incomplete", pending: true, digest: "current", complete: "current", want: "pending"},
-		{name: "current", reset: true, digest: "current", complete: "current", want: "current"},
-		{name: "stale", reset: true, digest: "old", complete: "old", want: "stale", code: ""},
-		{name: "degraded overrides current", reset: true, digest: "current", complete: "current", code: "memory_vector_sync_failed", want: "degraded"},
+		{name: "pending", pending: true, reset: true, digest: currentDigest, want: "pending"},
+		{name: "reset incomplete", pending: true, digest: currentDigest, complete: currentDigest, want: "pending"},
+		{name: "current", reset: true, digest: currentDigest, complete: currentDigest, want: "current"},
+		{name: "stale", reset: true, digest: staleDigest, complete: staleDigest, want: "stale"},
+		{name: "degraded overrides current", reset: true, digest: currentDigest, complete: currentDigest, code: "memory_vector_sync_failed", want: "degraded"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			progress := memoryVectorProgress{SchemaVersion: memoryVectorSchema, ModelID: "test-model", SourceDigest: healthRegressionDigest(tc.digest), CompleteSourceDigest: healthRegressionDigest(tc.complete), ResetComplete: tc.reset, Pending: tc.pending, ErrorCode: tc.code, UpdatedAt: time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC)}
+			progress := memoryVectorProgress{SchemaVersion: memoryVectorSchema, ModelID: "test-model", SourceDigest: tc.digest, CompleteSourceDigest: tc.complete, ResetComplete: tc.reset, Pending: tc.pending, ErrorCode: tc.code, UpdatedAt: time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC)}
 			if err := saveMemoryVectorProgress(dir, progress); err != nil {
 				t.Fatal(err)
 			}
 			before := privacyTreeDigest(t, dir)
-			got := memoryVectorProgressHealth(dir, &historySourceManifest{IndexDigest: healthRegressionDigest("current")})
+			got := memoryVectorProgressHealth(dir, &historySourceManifest{IndexDigest: currentDigest})
 			if got["state"] != tc.want || got["schema_state"] != "current" || got["model_id"] != "test-model" || got["pending"] != tc.pending {
 				t.Fatalf("health=%+v want state=%s", got, tc.want)
 			}
@@ -73,14 +75,4 @@ func TestMemoryVectorHealthRejectsInvalidProgressWithoutMutation(t *testing.T) {
 			}
 		})
 	}
-}
-
-func healthRegressionDigest(value string) string {
-	if value == "" {
-		return ""
-	}
-	if value == "current" {
-		return "sha256:" + strings.Repeat("a", 64)
-	}
-	return "sha256:" + strings.Repeat("b", 64)
 }

@@ -49,11 +49,7 @@ func TestRefreshBestEffortReportsHistoryAndDocsFailuresAndPreservesInputs(t *tes
 	replaceRefreshComponentDirWithFile(t, brainDir, historyDirName, historyMarker)
 	replaceRefreshComponentDirWithFile(t, brainDir, docDirName, docsMarker)
 
-	type outcome struct {
-		name string
-		err  error
-	}
-	var outcomes []outcome
+	outcomes := map[string]error{}
 	cmd := &cobra.Command{}
 	var stdout, stderr bytes.Buffer
 	cmd.SetOut(&stdout)
@@ -63,21 +59,17 @@ func TestRefreshBestEffortReportsHistoryAndDocsFailuresAndPreservesInputs(t *tes
 		entireBinary: "entire-test", graphBinary: "entire", scope: exportScopeAll,
 		skipSessions: true, historyIndex: true,
 		seed:      seedCommandOptions{agent: "none"},
-		component: func(name string, err error) { outcomes = append(outcomes, outcome{name: name, err: err}) },
+		component: func(name string, err error) { outcomes[name] = err },
 	})
 	if err != nil {
 		t.Fatalf("best effort returned aggregate error instead of component outcomes: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
 	}
-	byName := map[string]error{}
-	for _, got := range outcomes {
-		byName[got.name] = got.err
-	}
 	for _, name := range []string{brainComponentSeed, brainComponentHistory, brainComponentDocs} {
-		if _, ok := byName[name]; !ok {
+		if _, ok := outcomes[name]; !ok {
 			t.Fatalf("component %q was not reported: %+v", name, outcomes)
 		}
 	}
-	if byName[brainComponentSeed] != nil || byName[brainComponentHistory] == nil || byName[brainComponentDocs] == nil {
+	if outcomes[brainComponentSeed] != nil || outcomes[brainComponentHistory] == nil || outcomes[brainComponentDocs] == nil {
 		t.Fatalf("inaccurate component outcomes: %+v", outcomes)
 	}
 	if !strings.Contains(stderr.String(), "history index") || !strings.Contains(stderr.String(), "doc index") || !strings.Contains(stdout.String(), "refreshed brain:") {

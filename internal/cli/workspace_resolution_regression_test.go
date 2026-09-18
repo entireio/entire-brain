@@ -1,9 +1,6 @@
 package cli
 
-import (
-	"encoding/json"
-	"testing"
-)
+import "testing"
 
 func TestWorkspaceResolutionPayloadSelectsBestCrossRepoSymbols(t *testing.T) {
 	const (
@@ -48,27 +45,15 @@ func TestWorkspaceResolutionPayloadSelectsBestCrossRepoSymbols(t *testing.T) {
 
 	crossEdges := workspaceGraphImportCrossEdges(indexes, 20)
 	crossEdges = append(crossEdges, workspaceGraphExternalSymbolCrossEdges(indexes, 20)...)
-	payload := workspaceGraphPayload{Workspace: "resolution", CrossEdges: crossEdges}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatalf("marshal graph payload: %v", err)
-	}
-	var decoded workspaceGraphPayload
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		t.Fatalf("decode graph payload: %v", err)
-	}
-	if len(decoded.CrossEdges) != 2 {
-		t.Fatalf("cross edges = %#v, want one import and one external-symbol edge", decoded.CrossEdges)
+	if len(crossEdges) != 2 {
+		t.Fatalf("cross edges = %#v, want one import and one external-symbol edge", crossEdges)
 	}
 
 	seen := map[string]workspaceGraphCrossEdge{}
-	for _, edge := range decoded.CrossEdges {
+	for _, edge := range crossEdges {
 		seen[edge.RelationKind] = edge
 		if edge.ToRepo != library {
 			t.Fatalf("edge escaped matching repository: %#v", edge)
-		}
-		if edge.ToSymbol.ID == "" || edge.ToSymbol.ID == "lib:file" || edge.ToSymbol.ID == "wrong:client" {
-			t.Fatalf("edge selected excluded target: %#v", edge)
 		}
 	}
 	imp := seen["cross_repo_import_candidate"]

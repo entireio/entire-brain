@@ -158,7 +158,7 @@ class OtherFailureEvidenceTests(unittest.TestCase):
         code, metadata, _ = self.run_fixture(0, None)
         self.assertEqual(code, 2)
         self.assertEqual(metadata['testExitCode'], 0)
-        self.assertTrue(metadata['errors'])
+        self.assertIn('coverage profile is missing', '\n'.join(metadata['errors']))
         self.assertNotIn('coverageError', metadata)
 
     def test_failed_process_keeps_valid_profile_for_diagnosis(self):

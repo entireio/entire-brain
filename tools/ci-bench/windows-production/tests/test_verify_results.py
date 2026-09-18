@@ -48,7 +48,7 @@ class VerifyResultsTests(unittest.TestCase):
                     value = json.loads(path.read_text())
                     value["testArguments"].remove("-race")
                 write_json(path, value)
-                self.assertNotEqual(self.run_verifier(arguments), 0)
+                self.assertEqual(self.run_verifier(arguments), 1)
 
     def run_verifier(self, arguments):
         with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
@@ -340,7 +340,7 @@ class VerifyResultsTests(unittest.TestCase):
             arguments, output, _, _, _ = self.make_fixture(Path(directory))
             self.assertEqual(self.run_verifier(arguments), 0)
             report = json.loads(output.read_text(encoding="utf-8"))
-            self.assertTrue(report["passed"])
+            self.assertIs(report["passed"], True)
             self.assertEqual(report["inventory"]["runnableRootCount"], 3)
             self.assertEqual(report["inventory"]["excludedBenchmarkCount"], 1)
             self.assertEqual(report["coverage"]["profileCount"], 4)

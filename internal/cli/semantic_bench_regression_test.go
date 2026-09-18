@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -105,14 +106,20 @@ func TestSemanticBenchKeepAndFailureCleanupContracts(t *testing.T) {
 		}
 	}
 	opts.Runner = bad
-	before, _ := filepath.Glob(filepath.Join(os.TempDir(), "entire-brain-graph-bench-*"))
+	before, globErr := filepath.Glob(filepath.Join(os.TempDir(), "entire-brain-graph-bench-*"))
+	if globErr != nil {
+		t.Fatal(globErr)
+	}
 	cmd := &cobra.Command{}
 	cmd.SetOut(io.Discard)
 	if err := runSemanticBench(context.Background(), cmd, opts, semanticBenchOptions{graphBinary: "entire"}, repoDir); err == nil || !strings.Contains(err.Error(), "fixture provider failed") {
 		t.Fatalf("default failure error = %v", err)
 	}
-	after, _ := filepath.Glob(filepath.Join(os.TempDir(), "entire-brain-graph-bench-*"))
-	if len(after) != len(before) {
+	after, globErr := filepath.Glob(filepath.Join(os.TempDir(), "entire-brain-graph-bench-*"))
+	if globErr != nil {
+		t.Fatal(globErr)
+	}
+	if !slices.Equal(after, before) {
 		t.Fatalf("default error retained isolated store: before=%v after=%v", before, after)
 	}
 }

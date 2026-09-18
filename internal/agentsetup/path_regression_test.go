@@ -38,8 +38,8 @@ func TestResolveContainedLandingKeepsAliasesConfined(t *testing.T) {
 	defer root.Close()
 
 	tests := []struct {
-		name, want       string
-		missing, wantErr bool
+		name, want string
+		missing    bool
 	}{
 		{name: "alias/file", want: filepath.Join("dir", "file")},
 		{name: "alias/", want: "dir" + string(filepath.Separator)},
@@ -51,12 +51,6 @@ func TestResolveContainedLandingKeepsAliasesConfined(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := resolveContainedLanding(root, tt.name, tt.missing)
-			if tt.wantErr {
-				if err == nil || !errors.Is(err, errUnresolvableAlias) {
-					t.Fatalf("resolveContainedLanding(%q) error = %v, want traversal error", tt.name, err)
-				}
-				return
-			}
 			if err != nil || got != tt.want {
 				t.Fatalf("resolveContainedLanding(%q, missing=%v) = %q, %v; want %q", tt.name, tt.missing, got, err, tt.want)
 			}
@@ -120,7 +114,7 @@ func TestResolvePathAndCountLinksReportsHopsAndTraversalFailures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err != nil || hops < 2 || resolved != wantResolved {
+	if hops < 2 || resolved != wantResolved {
 		t.Fatalf("resolved=%q hops=%d err=%v; want %q and at least 2 hops", resolved, hops, err, wantResolved)
 	}
 	if _, _, err := resolvePathAndCountLinks(filepath.Join(base, "dir", "file", "child")); err == nil || !errors.Is(err, syscall.ENOTDIR) {

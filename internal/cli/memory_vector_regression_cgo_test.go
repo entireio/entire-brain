@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -591,7 +592,7 @@ func TestRunMemoryVectorLaneParentDeadlineYieldsForContinuation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	stats := runMemoryVectorLane(ctx, brainDir, now, "deadline-owner")
-	if !errors.Is(ctx.Err(), context.DeadlineExceeded) || !stats.VectorPending || !stats.VectorContinue || !memoryVectorContainsString(stats.HealthIssues, "memory_vector_sync_failed") {
+	if !errors.Is(ctx.Err(), context.DeadlineExceeded) || !stats.VectorPending || !stats.VectorContinue || !slices.Contains(stats.HealthIssues, "memory_vector_sync_failed") {
 		t.Fatalf("deadline stats=%+v ctx_err=%v", stats, ctx.Err())
 	}
 }

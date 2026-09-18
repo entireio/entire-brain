@@ -108,7 +108,6 @@ func TestFactsReadReportsOutlineMapTreeExactAndReadOnlyFacts(t *testing.T) {
 func TestFactsRetractRootCommandChangesOnlyExplicitFact(t *testing.T) {
 	f, facts := factsReportFixture(t)
 	target := facts[0]
-	other := facts[1]
 	out, err := execute(t, NewRootCommand(f.opts), "facts", "retract", target.ID, "--json")
 	if err != nil {
 		t.Fatalf("retract: %v\n%s", err, out)
@@ -144,24 +143,12 @@ func TestFactsRetractRootCommandChangesOnlyExplicitFact(t *testing.T) {
 		if !ok {
 			t.Fatalf("retract removed record %s", fact.ID)
 		}
-		want := fact
 		if fact.ID == target.ID {
-			want.Status = factStatusRetracted
-		}
-		if fact.ID != target.ID && !reflect.DeepEqual(got, want) {
-			t.Fatalf("retract changed unselected fact %s: got=%+v want=%+v", fact.ID, got, want)
-		}
-	}
-	for _, fact := range stored {
-		switch fact.ID {
-		case target.ID:
-			if fact.Status != factStatusRetracted {
-				t.Fatalf("target status = %q", fact.Status)
+			if got.Status != factStatusRetracted {
+				t.Fatalf("target status = %q", got.Status)
 			}
-		case other.ID:
-			if fact.Status != factStatusActive {
-				t.Fatalf("unselected fact status = %q", fact.Status)
-			}
+		} else if !reflect.DeepEqual(got, fact) {
+			t.Fatalf("retract changed unselected fact %s: got=%+v want=%+v", fact.ID, got, fact)
 		}
 	}
 }

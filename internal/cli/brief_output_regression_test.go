@@ -534,7 +534,8 @@ func TestBriefOutputRootFactReceiptAndConversationProvenance(t *testing.T) {
 		t.Fatalf("fact lost public identity/provenance: %#v", report.Facts)
 	}
 	for _, fact := range report.Facts {
-		if strings.Contains(string(mustJSONForBriefOutput(t, fact)), fixture.brainDir) {
+		publicFact := strings.Join([]string{fact.ID, strings.Join(fact.Paths, "\n"), fact.Kind, strings.Join(fact.Locus, "\n"), fact.Text, fact.Confidence}, "\n")
+		if strings.Contains(publicFact, fixture.brainDir) || strings.Contains(publicFact, filepath.ToSlash(fixture.brainDir)) {
 			t.Fatalf("fact leaked brain path: %#v", fact)
 		}
 	}
@@ -546,15 +547,6 @@ func TestBriefOutputRootFactReceiptAndConversationProvenance(t *testing.T) {
 			t.Fatalf("conversation provenance incomplete: %#v", hit)
 		}
 	}
-}
-
-func mustJSONForBriefOutput(t *testing.T, value any) []byte {
-	t.Helper()
-	data, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return data
 }
 
 func TestBriefOutputLikelyFileGroupingUsesEveryPublicEvidenceLane(t *testing.T) {

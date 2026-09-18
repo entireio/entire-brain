@@ -13,7 +13,7 @@ import (
 // while keeping every command it can invoke inside the fake runner.  In
 // particular, the semantic snapshot is local fixture data and the default
 // watch flags leave both agent steps disabled.
-func watchCommandFixture(t *testing.T) (Options, string, *fakeCommandRunner, repoStorage, *[]string) {
+func watchCommandFixture(t *testing.T) (Options, string, repoStorage, *[]string) {
 	t.Helper()
 	oldMemoryWorkerLaunch := memoryWorkerLaunch
 	var memoryWorkerLaunches []string
@@ -39,7 +39,7 @@ func watchCommandFixture(t *testing.T) (Options, string, *fakeCommandRunner, rep
 	if err != nil {
 		t.Fatalf("repo storage: %v", err)
 	}
-	return opts, repoDir, runner, storage, &memoryWorkerLaunches
+	return opts, repoDir, storage, &memoryWorkerLaunches
 }
 
 func assertMemoryWorkerLaunches(t *testing.T, launches []string, repoDir string, want int) {
@@ -68,7 +68,7 @@ func assertWatchDefaultDidNotSpend(t *testing.T, cursor watchCursor, output stri
 }
 
 func TestWatchRootCommandOnceRefreshesThenRepeatsAsNoop(t *testing.T) {
-	opts, repoDir, _, storage, launches := watchCommandFixture(t)
+	opts, repoDir, storage, launches := watchCommandFixture(t)
 	cursorPath := filepath.Join(filepath.Dir(storage.HeadPath), "watch.json")
 
 	out, err := execute(t, NewRootCommand(opts), "watch", repoDir, "--once")
@@ -92,7 +92,7 @@ func TestWatchRootCommandOnceRefreshesThenRepeatsAsNoop(t *testing.T) {
 }
 
 func TestWorkspaceWatchCommandOnceUsesMemberCursorWithoutAgent(t *testing.T) {
-	opts, repoDir, _, storage, launches := watchCommandFixture(t)
+	opts, repoDir, storage, launches := watchCommandFixture(t)
 	manifest := workspaceManifest{
 		SchemaVersion: workspaceSchemaVersion,
 		Name:          "watch-fixture",
@@ -115,7 +115,7 @@ func TestWorkspaceWatchCommandOnceUsesMemberCursorWithoutAgent(t *testing.T) {
 }
 
 func TestSupervisedWorkspaceWatchOnceReadsPlanAndRefreshes(t *testing.T) {
-	opts, repoDir, _, storage, launches := watchCommandFixture(t)
+	opts, repoDir, storage, launches := watchCommandFixture(t)
 	manifest := workspaceManifest{
 		SchemaVersion: workspaceSchemaVersion,
 		Name:          "supervised-fixture",
@@ -141,7 +141,7 @@ func TestSupervisedWorkspaceWatchOnceReadsPlanAndRefreshes(t *testing.T) {
 }
 
 func TestWatchRootCommandRejectsMissingTargetBeforeWritingCursor(t *testing.T) {
-	opts, _, _, _, launches := watchCommandFixture(t)
+	opts, _, _, launches := watchCommandFixture(t)
 	missing := filepath.Join(t.TempDir(), "does-not-exist")
 	out, err := execute(t, NewRootCommand(opts), "watch", missing, "--once")
 	if err == nil || !strings.Contains(err.Error(), "requires a local repository path") {
