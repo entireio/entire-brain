@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "7d060d6def7b",
+  "strategy": "manual-commit",
+  "branch": "codex/regression-safety-coverage",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/confirmatory/test_relevance_membership_edges.py",
+    "benchmarks/agent-brain/test_report_contracts.py",
+    "docs/regression-coverage-plan-v2.md",
+    "internal/cli/privacy_verification_regression_test.go",
+    "internal/cli/semantic_boundary_regression_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/7d/060d6def7b/0/metadata.json",
+      "transcript": "/7d/060d6def7b/0/full.jsonl",
+      "compact_transcript": "/7d/060d6def7b/0/transcript.jsonl",
+      "content_hash": "/7d/060d6def7b/0/content_hash.txt",
+      "prompt": "/7d/060d6def7b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 173546,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 15766272,
+    "output_tokens": 35115,
+    "api_call_count": 663,
+    "subagent_tokens_complete": false
+  }
+}
