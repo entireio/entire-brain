@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "4a8a105d6b2b",
+  "session_id": "01a0af33-5438-7ef0-9fc8-71ee7de21125",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-18T00:39:36.755418Z",
+  "branch": "codex/regression-safety-coverage",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "edd1f423083f",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 562860,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 33682432,
+    "output_tokens": 73832,
+    "api_call_count": 840
+  },
+  "session_metrics": {
+    "turn_count": 21
+  }
+}
