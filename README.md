@@ -1,3 +1,5 @@
+![entire-brain theme](docs/images/gh-repo-cover-entire-brain.png "entire-brain cover image")
+
 # Entire Brain
 
 Every developer builds on what came before: code written, ideas discussed, lessons learned, decisions made, feedback received, and failures understood. Our agents are trained on the world’s knowledge, but they lack the memory of how our projects got here. Entire Brain brings that experience forward, giving agents the context they need to start informed and build on prior work.
