@@ -4,7 +4,7 @@ All **534 inventoried test files** were read in full: 444 Go files and 90 Python
 
 The [per-file ledger](test-suite-review-20260918.json) records each file's review rationale, findings, final disposition and whether it changed. Root and Luna/Sol/Terra agents divided the files into disjoint assignments; the root reviewer reconciled all 534 entries, judged the findings and reviewed the edits. The ledger preserves original findings even when later inspection rejected them. Its original inventory line counts and later reread line counts are distinguished.
 
-Compared with `38c32fcb`, this pass changes 59 test files, including removal of one obsolete file whose cases skipped after invalid repository IDs were rejected. There are 533 remaining test files. Existing hosted-client rejection tests retain that security contract.
+Compared with `38c32fcb`, this pass changes 60 test files, including removal of one obsolete file whose cases skipped after invalid repository IDs were rejected. There are 533 remaining test files. Existing hosted-client rejection tests retain that security contract.
 
 The cleanup strengthens exact identities, error diagnostics, nonempty results and database setup checks; replaces assertions of assigned values; corrects names and comments that overstated coverage; and bounds process/channel waits with cleanup on failure. A rebuild test now invokes the command rather than its own stub, and bundle roundtrip verification performs a real query. Duplicate cases, redundant checks and unused helpers were removed where their behavior remained covered.
 
@@ -20,6 +20,8 @@ Focused before/after profiles compare exact production blocks with unchanged den
 | Pattern contracts, native SQLite | 4,834 | 4,836 | 0 |
 | Semantic contracts | 4,432 | 4,432 | 0 |
 | Review/seed contracts | 1,130 | 1,186 | 0 |
+
+The first full CI run also exposed incidental Python warm-cache coverage: three lines and two branches varied without a Python change. An explicit cache recovery/reuse test now covers those paths, verifies the exact baseline commit, and proves successful reuse preserves a sentinel rather than replacing the cache.
 
 These focused groups overlap and must not be added together. Default race checks passed for the root group; focused retrieval synchronization and validation checks also passed with `brain_cgo sqlite_fts5` and the race detector. The other changed packages' focused comparisons retained every production block. An initial native pattern run varied in `semantic_stream.go`; an identical rerun recovered the baseline blocks. This is recorded scheduling variance, not evidence that repeated runs should replace a failing coverage gate.
 

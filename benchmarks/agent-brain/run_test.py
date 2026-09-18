@@ -2879,6 +2879,43 @@ class RunnerAndConditionTests(unittest.TestCase):
                 0,
             )
 
+    def test_filtered_history_cache_rebuilds_when_cached_baseline_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            run.run_cmd(["git", "init"], cwd=source, check=True)
+            (source / "target.txt").write_text("source\n")
+            run.run_cmd(["git", "add", "target.txt"], cwd=source, check=True)
+            run.run_cmd(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "source"],
+                cwd=source,
+                env=run.benchmark_git_env(),
+                check=True,
+            )
+            head = run.run_cmd(["git", "rev-parse", "HEAD"], cwd=source, check=True).stdout.strip()
+            with mock.patch.object(run, "CACHE_DIR", root / "cache"):
+                cache = run.filtered_agent_history_repo(
+                    source, head, list(run.AGENT_HISTORY_PRIVATE_PATHS), paths_present=[]
+                )
+                run.run_cmd(["git", "update-ref", "-d", "refs/heads/baseline"], cwd=cache, check=True)
+                missing = run.run_cmd(["git", "cat-file", "-e", "refs/heads/baseline^{commit}"], cwd=cache)
+                self.assertNotEqual(missing.returncode, 0)
+                rebuilt = run.filtered_agent_history_repo(
+                    source, head, list(run.AGENT_HISTORY_PRIVATE_PATHS), paths_present=[]
+                )
+                sentinel = rebuilt / "reuse-sentinel"
+                sentinel.write_text("warm cache\n")
+                reused = run.filtered_agent_history_repo(
+                    source, head, list(run.AGENT_HISTORY_PRIVATE_PATHS), paths_present=[]
+                )
+            self.assertEqual(reused, rebuilt)
+            self.assertTrue(sentinel.is_file(), "successful warm-cache reuse replaced the cache")
+            self.assertEqual(
+                run.run_cmd(["git", "rev-parse", "refs/heads/baseline"], cwd=rebuilt, check=True).stdout.strip(),
+                head,
+            )
+
     def test_sanitize_brain_history_scrubs_benchmark_scaffolding(self):
         with tempfile.TemporaryDirectory() as tmp:
             plugin = pathlib.Path(tmp) / "plugin"
