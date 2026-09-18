@@ -1,0 +1,22 @@
+{
+  "tool_use_id": "01a0b3a4-8db0-74e0-93d6-c0b69fbdd351",
+  "agent_id": "01a0b3a4-8db0-74e0-93d6-c0b69fbdd351",
+  "files": [
+    "internal/cli/memory_admin_failure_regression_test.go",
+    "internal/cli/memory_health_regression_test.go",
+    "internal/cli/memory_vector_regression_test.go",
+    "internal/cli/memory_vector_regression_cgo_test.go",
+    "internal/cli/memory_vector_reset_failure_regression_cgo_test.go",
+    "internal/cli/facts_vitality_test.go",
+    "internal/agentsetup/coordination_test.go",
+    "internal/factmerge/factmerge_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 511657,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 10030336,
+    "output_tokens": 22902,
+    "api_call_count": 113
+  },
+  "completed_at": "2026-09-18T17:56:17.92939+02:00"
+}
