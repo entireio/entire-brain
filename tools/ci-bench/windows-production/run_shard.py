@@ -395,9 +395,20 @@ def run(args: argparse.Namespace, metadata: dict[str, Any]) -> int:
                     check=False,
                 )
             duration = time.monotonic() - started
-            coverage_profile, coverage_sha256 = coverage_profile_metadata(
-                output, coverage_path
-            )
+            coverage_error = None
+            try:
+                coverage_profile, coverage_sha256 = coverage_profile_metadata(
+                    output, coverage_path
+                )
+            except (OSError, ValueError, RuntimeError) as error:
+                if completed.returncode == 0:
+                    raise
+                # Crashes, race-runtime exits and timeouts can bypass Go's
+                # profile flush. Preserve their actual failure and events, and
+                # still execute the remaining packages assigned to this shard.
+                # A null profile is diagnostic evidence, never valid coverage.
+                coverage_profile, coverage_sha256 = None, None
+                coverage_error = str(error)
             content = stdout_path.read_bytes()
             with combined_events.open("ab") as combined:
                 combined.write(content)
@@ -422,6 +433,8 @@ def run(args: argparse.Namespace, metadata: dict[str, Any]) -> int:
                 "coverageProfile": coverage_profile,
                 "coverageSha256": coverage_sha256,
             }
+            if coverage_error is not None:
+                invocation["coverageError"] = coverage_error
             metadata["invocations"].append(invocation)
             write_json(output / "shard-metadata.json", metadata)
             if completed.returncode != 0 and final_exit == 0:

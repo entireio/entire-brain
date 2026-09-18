@@ -48,5 +48,41 @@ class PythonCoverageRunnerTests(unittest.TestCase):
             self.assertTrue((output / "html/index.html").exists())
 
 
+class PythonCoverageFailureReportingTests(unittest.TestCase):
+    def test_reporting_failures_preserve_suite_result_and_write_outcomes(self):
+        for suite_exit, combine_exit, json_exit, html_exit, expected in (
+            (7, 0, 2, 2, 7),
+            (0, 0, 0, 9, 9),
+            (0, 3, 2, 2, 3),
+            (7, 3, 2, 2, 7),
+        ):
+            with self.subTest(codes=(suite_exit, combine_exit, json_exit, html_exit)):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    output = root / "report"
+                    calls = []
+                    def run(command, **kwargs):
+                        operation = command[4]
+                        calls.append(operation)
+                        if operation == "run":
+                            kwargs["stdout"].write("FAIL fixture.py\n" if suite_exit else "ok fixture.py\n")
+                            if combine_exit:
+                                (output / ".coverage.child").write_bytes(b"invalid coverage fragment")
+                        code = {"run": suite_exit, "combine": combine_exit,
+                                "json": json_exit, "html": html_exit}[operation]
+                        self.assertFalse(kwargs.get("check", False), "report failure must not bypass outcome writing")
+                        return subprocess.CompletedProcess(command, code)
+                    with contextlib.redirect_stdout(io.StringIO()), mock.patch.object(runner, "ROOT", root), mock.patch(
+                        "sys.argv", ["python_run.py", "--output", str(output)]
+                    ), mock.patch.object(runner.subprocess, "check_output", side_effect=["fixture-sha", "Coverage fixture"]), mock.patch.object(
+                        runner.subprocess, "run", side_effect=run
+                    ):
+                        self.assertEqual(runner.main(), expected)
+                    outcomes = json.loads((output / "test-results.json").read_text())
+                    self.assertEqual(outcomes["exit_code"], suite_exit)
+                    self.assertEqual(outcomes["modules"], ["FAIL fixture.py" if suite_exit else "ok fixture.py"])
+                    self.assertEqual(calls, ["run", *(["combine"] if combine_exit else []), "json", "html"])
+
+
 if __name__ == "__main__":
     unittest.main()

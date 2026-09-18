@@ -40,16 +40,19 @@ def main():
     # Report even when a real test fails. Keep the original failure as the exit status.
     # New coverage versions combine automatically; explicitly consume any
     # remaining shards so report generation does not depend on that behavior.
+    combine_exit = 0
     if list(output.glob(".coverage.*")):
-        subprocess.run([*base, "combine", f"--rcfile={config}", "--keep"], cwd=ROOT, check=True)
+        combine_exit = subprocess.run(
+            [*base, "combine", f"--rcfile={config}", "--keep"], cwd=ROOT
+        ).returncode
     report_result = subprocess.run([*base, "json", f"--rcfile={config}",
                                     "-o", str(output / "coverage.json")], cwd=ROOT)
-    subprocess.run([*base, "html", f"--rcfile={config}", "-d", str(output / "html")], cwd=ROOT, check=True)
+    html_result = subprocess.run([*base, "html", f"--rcfile={config}", "-d", str(output / "html")], cwd=ROOT)
     lines = (output / "tests.log").read_text().splitlines()
     summary = [line for line in lines if line.startswith(("ok ", "FAIL ", "quarantined ", "skipped ", "UNEXPECTED PASS", "failing test module:", "stale quarantine"))]
     (output / "test-results.json").write_text(json.dumps({"exit_code": result.returncode, "modules": summary}, indent=2) + "\n")
     print("\n".join(summary))
-    return result.returncode or report_result.returncode
+    return result.returncode or combine_exit or report_result.returncode or html_result.returncode
 
 
 if __name__ == "__main__":
