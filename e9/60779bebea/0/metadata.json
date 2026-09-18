@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "e960779bebea",
+  "session_id": "01a0af33-5438-7ef0-9fc8-71ee7de21125",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-18T00:43:22.929946Z",
+  "branch": "codex/regression-safety-coverage",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "internal/cli/retrieve_command_regression_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "edd1f423083f",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 580972,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 36662784,
+    "output_tokens": 78479,
+    "api_call_count": 857,
+    "subagent_tokens_complete": false
+  },
+  "session_metrics": {
+    "turn_count": 21
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-18T00:43:22.636604Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 339,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 339,
+    "total_lines_changed": 339,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}
