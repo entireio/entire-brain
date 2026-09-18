@@ -243,3 +243,13 @@ statements below 85% on this denominator. This is a macOS baseline plus focused
 profiles, not fresh full-suite or Linux CI evidence. The queue now covers public
 evaluation, lifecycle reports and visualization contracts, with further measured
 workspace resolution cases. The original global gate remains unchanged.
+
+Reviewed closure batch: `88519f77` passed every CI job in run 35293569629,
+including the eight Windows shards and merged evidence verification. Actual
+Linux default coverage is 48,667/57,693 (84.36%). New command/report, workspace,
+privacy-cache, watch, document-expansion and native reset-failure tests pass a
+combined focused default run (14.2s) and native-tag race run (24.4s). Semantic
+benchmark progress also has explicit stderr phase assertions and separate
+passing default/native race runs. The complete-profile development union is
+49,039/57,693 (84.9999%); it is not rounded up to a passing 85% gate.
+Selected E/F residual cases and final full CI remain open.

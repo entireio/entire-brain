@@ -81,7 +81,7 @@ func TestVizNodePublicResponseAgreesAcrossSQLiteAndSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &vizServer{brainDir: dir, repoDir: repo, manifest: manifest, provider: "gh", owner: "example", repo: "repo"}
+	s := &vizServer{brainDir: dir, repoDir: repo, branch: "main", manifest: manifest, provider: "gh", owner: "example", repo: "repo"}
 	id := "target"
 	request := func(id string, wantStatus int) vizNodeResp {
 		t.Helper()
@@ -99,6 +99,23 @@ func TestVizNodePublicResponseAgreesAcrossSQLiteAndSnapshot(t *testing.T) {
 	store := request(id, http.StatusOK)
 	if store.Symbol.ID != id || len(store.Neighbors) != 1 || len(store.Relations) != 1 || len(store.Warnings) != 0 || store.Link == "" {
 		t.Fatalf("node=%+v", store)
+	}
+	manifest.Sources.Facts = &factSourceManifest{Branches: []string{"main"}, Facts: 1}
+	if err := writeBrainManifestAndReadme(dir, *manifest); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFacts(dir, "main", []factRecord{{ID: "fact:token", Branch: "main", Text: "ValidateToken checks token expiry", Status: factStatusActive}}); err != nil {
+		t.Fatal(err)
+	}
+	s.branch = "main"
+	search := httptest.NewRecorder()
+	s.handleSearch(search, httptest.NewRequest(http.MethodGet, "/api/search?q=ValidateToken&limit=999999", nil))
+	var results vizSearchResp
+	if err := json.Unmarshal(search.Body.Bytes(), &results); err != nil {
+		t.Fatal(err)
+	}
+	if search.Code != http.StatusOK || len(results.Hits) != 2 || results.Hits[0].ID != "target" || results.Hits[0].Source != "symbol" || results.Hits[0].Path != "internal/auth/token.go" || results.Hits[0].Line != 10 || results.Hits[1].ID != "fact:token" {
+		t.Fatalf("search lost order/identity/provenance: status=%d %+v", search.Code, results)
 	}
 	missing := request("nonexistent", http.StatusNotFound)
 	if missing.Symbol.ID != "" || len(missing.Neighbors) != 0 || len(missing.Relations) != 0 {
