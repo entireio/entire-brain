@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "64bc96528f85",
+  "strategy": "manual-commit",
+  "branch": "codex/regression-safety-coverage",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/semantic_audit_regression_test.go",
+    "internal/cli/semantic_graph_regression_test.go",
+    "internal/cli/semantic_index_regression_test.go",
+    "internal/cli/workspace_command_regression_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/64/bc96528f85/0/metadata.json",
+      "transcript": "/64/bc96528f85/0/full.jsonl",
+      "compact_transcript": "/64/bc96528f85/0/transcript.jsonl",
+      "content_hash": "/64/bc96528f85/0/content_hash.txt",
+      "prompt": "/64/bc96528f85/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 255996,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 20702208,
+    "output_tokens": 48329,
+    "api_call_count": 738,
+    "subagent_tokens_complete": false
+  }
+}
