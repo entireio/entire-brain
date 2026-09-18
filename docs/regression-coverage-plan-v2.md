@@ -1,6 +1,6 @@
 # Regression coverage completion plan
 
-Status: planned; implementation has not started. This supersedes treating the
+Status: executing wave 1 (2026-09-18). This supersedes treating the
 previous safety matrix's implemented rows as completion of the broader goal.
 The goal is to make subsequent optimizations reviewable against behavioral
 contracts, while closing the identified coverage gaps.
@@ -142,3 +142,41 @@ reassesses the approach or reassigns the task. Infrastructure work is separately
 accounted for and must not consume a whole wave without explanation. If targets
 prove disproportionate or require a scope change, report the remaining cases
 and tradeoff explicitly; never silently declare a smaller scope complete.
+
+## Execution ledger — 2026-09-18
+
+| Task | Current status | Evidence / outstanding work |
+|---|---|---|
+| A | Baseline frozen; reachability audit continuing | CI 35273669719 profiles retained; selected wave-1 functions below |
+| B | Implementing — Sol | New memory/vector regression files; core and worker paths |
+| C | Reviewed locally; final CI pending | Initial selected 72/80 statements (90%); full default package run passed at 505/629 file statements (80.3%); membership mutation detected; later-row failure and ceiling tests added |
+| D | Implementing — Terra | New workspace command regression file |
+| E | Implementing — Main and Sol | Root boundary contracts pass at 90.7%; index/graph cases in progress |
+| F | Not started | Brief output batch follows first-wave review |
+| G | Validating — Main, Sol review | Five report and three membership tests pass; existing 28 runner accounting/timeout tests pass; independent review passed; final CI pending |
+| H | Not started | Global target, independent review and final CI remain open |
+
+Frozen wave-1 optimization function set (full statement denominators, no
+post-hoc exclusions):
+
+- B: `syncMemoryProjectionVectorsWithEmbedder`, `runMemoryVectorLane`.
+- C: `inspectPrivacyVectorIDsSnapshot`, `newPrivacyVerifyCommand`, `runPrivacyRetention`.
+- D: `runWorkspacePatternsVerify`, `runWorkspacePatternsRefresh`,
+  `runWorkspacePatternsList`, `runWorkspacePatternsStatus`,
+  `runWorkspaceSkillsList`, `runWorkspaceSkillsForm`.
+
+E's frozen function set: `runSemanticBoundary`, `appendWorktreePathContent`,
+`applyCypherPredicate`, `runtimeTraceWhereSQL`. F will freeze its additional
+function set before implementation starts. Native vector execution is measured
+in the applicable CGO profile; default results remain separately visible.
+Additional lifecycle tests support the memory file gate and do not change B's
+frozen optimization-function denominator.
+The G report tests use real file loading, filtering, aggregation and table output
+with synthetic records. Plotting imports are replaced with non-drawing placeholders;
+these tests do not establish chart-rendering coverage or correctness.
+
+C residual audit: a constant-size recursive SQLite view exercises the 2,000,001-row
+ceiling in about 1.2 seconds locally without storing those rows. A separate view
+raises an integer-overflow error after a readable row to prove scan failures
+cannot report a clean partial result. Both focused tests pass. The JSON violation
+contract now parses stdout strictly, separately from stderr.

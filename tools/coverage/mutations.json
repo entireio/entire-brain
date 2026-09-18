@@ -22,5 +22,13 @@
     "replacement": "_ = rawProfile\n\t\t\trawMatches, rawErr := []brainTextMatch(nil), error(nil)",
     "test": "TestRawHistoryFallbackRetainsFallbackOnlyMatch",
     "diagnostic": "end-to-end brief lost fallback-only match"
+  },
+  {
+    "name": "privacy verification must detect excluded vector IDs",
+    "file": "internal/cli/session_privacy_verify.go",
+    "original": "\t\tif _, current := wanted[id]; !current {",
+    "replacement": "\t\tif _, current := wanted[id]; !current && false {",
+    "test": "TestPrivacyVectorSnapshotInspectsRealSQLiteMembership",
+    "diagnostic": "want the excluded real SQLite record only"
   }
 ]
