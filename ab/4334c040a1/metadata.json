@@ -1,0 +1,24 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "ab4334c040a1",
+  "strategy": "manual-commit",
+  "branch": "codex/regression-safety-coverage",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/ab/4334c040a1/0/metadata.json",
+      "transcript": "/ab/4334c040a1/0/full.jsonl",
+      "compact_transcript": "/ab/4334c040a1/0/transcript.jsonl",
+      "content_hash": "/ab/4334c040a1/0/content_hash.txt",
+      "prompt": "/ab/4334c040a1/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 775010,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 44322304,
+    "output_tokens": 96526,
+    "api_call_count": 938
+  }
+}
