@@ -129,13 +129,17 @@ func TestRiskCandidatesFromFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM patterns WHERE type='risk' AND intent_sig='migrate:schema'`).Scan(&n)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM patterns WHERE type='risk' AND intent_sig='migrate:schema'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
 	if n == 0 {
 		t.Error("expected a risk candidate from repeated corrected episodes")
 	}
 	// Risk evidence cites the corrected episodes.
 	var ev int
-	db.QueryRow(`SELECT COUNT(*) FROM pattern_evidence pe JOIN patterns p ON p.id=pe.pattern_id WHERE p.type='risk'`).Scan(&ev)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pattern_evidence pe JOIN patterns p ON p.id=pe.pattern_id WHERE p.type='risk'`).Scan(&ev); err != nil {
+		t.Fatal(err)
+	}
 	if ev == 0 {
 		t.Error("expected risk pattern_evidence anchors")
 	}
@@ -153,6 +157,9 @@ func TestCandidatesRebuildNotDuplicated(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := corpusCount(t, db, "patterns")
+	if first == 0 {
+		t.Fatal("fixture produced no candidates, so rebuild idempotence would be vacuous")
+	}
 	if err := buildPatternCandidates(db, "gh/acme/cli", now); err != nil {
 		t.Fatal(err)
 	}

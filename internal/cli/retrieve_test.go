@@ -515,11 +515,12 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 				var compat struct {
 					Results []compactUnifiedResult `json:"results"`
 				}
-				if err := json.Unmarshal([]byte(out), &compat); err == nil {
-					for _, result := range compat.Results {
-						if result.Excerpt != "" && result.Excerpt == strings.Join(strings.Fields(result.Text), " ") {
-							t.Fatalf("excerpt duplicates text byte for byte: %q", result.Excerpt)
-						}
+				if err := json.Unmarshal([]byte(out), &compat); err != nil {
+					t.Fatalf("decode compact results: %v", err)
+				}
+				for _, result := range compat.Results {
+					if result.Excerpt != "" && result.Excerpt == strings.Join(strings.Fields(result.Text), " ") {
+						t.Fatalf("excerpt duplicates text byte for byte: %q", result.Excerpt)
 					}
 				}
 			}
@@ -928,13 +929,20 @@ func TestGetAndMultiGetExitNonzeroOnAMissingID(t *testing.T) {
 
 func TestQueryInputAndHelpContracts(t *testing.T) {
 	for _, prefix := range [][]string{{"query"}, {"workspace", "query", "example"}} {
-		for _, input := range [][]string{
-			{}, {"--query", ""}, {"--query", " "}, {"text", "--query", "text"},
-			{"text", "extra"}, {"text", "--keyword", "--semantic"},
+		for _, tc := range []struct {
+			input []string
+			want  string
+		}{
+			{nil, "arg(s)"},
+			{[]string{"--query", ""}, "query must not be empty"},
+			{[]string{"--query", " "}, "query must not be empty"},
+			{[]string{"text", "--query", "text"}, "supply either a positional query or --query"},
+			{[]string{"text", "extra"}, "arg(s)"},
+			{[]string{"text", "--keyword", "--semantic"}, "[keyword semantic]"},
 		} {
-			args := append(append([]string(nil), prefix...), input...)
-			if _, err := execute(t, NewRootCommand(Options{Version: "test"}), args...); err == nil {
-				t.Fatalf("%v should fail", args)
+			args := append(append([]string(nil), prefix...), tc.input...)
+			if _, err := execute(t, NewRootCommand(Options{Version: "test"}), args...); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("%v: got %v, want %q", args, err, tc.want)
 			}
 		}
 	}

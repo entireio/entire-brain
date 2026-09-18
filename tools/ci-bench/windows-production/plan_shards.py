@@ -19,6 +19,8 @@ WEIGHTS_SCHEMA = "entire-brain.windows-ci.historical-weights.v1"
 INVENTORY_SCHEMA = "entire-brain.windows-ci.compiled-inventory.v1"
 PLAN_SCHEMA = "entire-brain.windows-ci.shard-plan.v1"
 ROOT_KINDS = ("Test", "Example", "Fuzz")
+COVERAGE_MODE = "atomic"
+COVERAGE_PACKAGES = "./..."
 _TIMEOUT = re.compile(r"^[1-9][0-9]*(?:ns|us|µs|ms|s|m|h)$")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -255,6 +257,12 @@ def load_inventories(paths: Iterable[Path]) -> list[dict[str, Any]]:
             )
         if value.get("raceEnabled") is not True:
             raise ValueError(f"{path}: compiled inventory does not prove race instrumentation")
+        if value.get("coverageEnabled") is not True:
+            raise ValueError(f"{path}: compiled inventory does not prove coverage instrumentation")
+        if value.get("coverageMode") != COVERAGE_MODE:
+            raise ValueError(f"{path}: compiled inventory does not use atomic coverage")
+        if value.get("coveragePackages") != COVERAGE_PACKAGES:
+            raise ValueError(f"{path}: compiled inventory does not use cross-package coverage")
         listing_contract = value.get("listingContract")
         if listing_contract != {
             "arguments": ["-test.paniconexit0", "-test.list=."],
@@ -331,6 +339,9 @@ def load_inventories(paths: Iterable[Path]) -> list[dict[str, Any]]:
                 "targetEnvironment": dict(TARGET_ENVIRONMENT),
                 "listingContract": dict(listing_contract),
                 "raceEnabled": True,
+                "coverageEnabled": True,
+                "coverageMode": COVERAGE_MODE,
+                "coveragePackages": COVERAGE_PACKAGES,
                 "roots": sorted(normalized_roots, key=lambda item: item["name"]),
                 "excludedBenchmarks": sorted(benchmarks),
                 "testMainDeclarations": sorted(
@@ -513,6 +524,8 @@ def create_plan(
             "testParallel": settings["testParallel"],
             "goMaxProcs": settings["goMaxProcs"],
             "defaultWeightSeconds": settings["defaultWeightSeconds"],
+            "coverageMode": COVERAGE_MODE,
+            "coveragePackages": COVERAGE_PACKAGES,
         },
         "historicalWeights": {
             **weight_metadata,

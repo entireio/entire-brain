@@ -187,8 +187,12 @@ func TestPatternCorpusFailedStagingPublishPreservesLiveCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = f.WriteString("\n" + themeProposalTranscript)
-	_ = f.Close()
+	if _, err := f.WriteString("\n" + themeProposalTranscript); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 	wantErr := errors.New("injected publication failure")
 	original := beforePatternCorpusPublish
 	beforePatternCorpusPublish = func() error { return wantErr }

@@ -24,6 +24,12 @@ def write_jsonl(path, values):
     path.write_text("".join(json.dumps(value) + "\n" for value in values), encoding="utf-8")
 
 
+def write_profile(path, lines):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("mode: atomic\n" + "".join(f"{line}\n" for line in lines), encoding="utf-8")
+    return plan_shards.sha256_file(path)
+
+
 class VerifyResultsTests(unittest.TestCase):
     def test_race_evidence_is_required_for_compiled_and_other_packages(self):
         for component in ("inventory", "prepare", "other"):
@@ -42,7 +48,7 @@ class VerifyResultsTests(unittest.TestCase):
                     value = json.loads(path.read_text())
                     value["testArguments"].remove("-race")
                 write_json(path, value)
-                self.assertNotEqual(self.run_verifier(arguments), 0)
+                self.assertEqual(self.run_verifier(arguments), 1)
 
     def run_verifier(self, arguments):
         with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
@@ -53,6 +59,7 @@ class VerifyResultsTests(unittest.TestCase):
         shards_root = root / "shards"
         other_root = root / "other"
         output = root / "verification.json"
+        coverage_output = root / "coverage-output"
         binary = bundle / "binaries" / "heavy.test.exe"
         binary.parent.mkdir(parents=True)
         binary.write_bytes(b"compiled-windows-test-binary")
@@ -109,6 +116,9 @@ class VerifyResultsTests(unittest.TestCase):
             "binarySizeBytes": binary.stat().st_size,
             "listExitCode": 0,
             "raceEnabled": True,
+            "coverageEnabled": True,
+            "coverageMode": "atomic",
+            "coveragePackages": "./...",
             "roots": [
                 {"name": "TestA", "kind": "Test"},
                 {"name": "ExampleB", "kind": "Example"},
@@ -171,7 +181,7 @@ class VerifyResultsTests(unittest.TestCase):
             directory = shards_root / f"windows-test-shard-{index}"
             invocations = []
             events = []
-            for assignment in shard["assignments"]:
+            for position, assignment in enumerate(shard["assignments"]):
                 package = assignment["importPath"]
                 events.append({"Action": "start", "Package": package})
                 for root_entry in assignment["roots"]:
@@ -180,6 +190,14 @@ class VerifyResultsTests(unittest.TestCase):
                     action = "skip" if name.startswith("Example") else "pass"
                     events.append({"Action": action, "Package": package, "Test": name})
                 events.append({"Action": "pass", "Package": package})
+                coverage_relative = f"coverage/shard-{index:03d}-process-{position:02d}.out"
+                coverage_sha256 = write_profile(
+                    directory / coverage_relative,
+                    [
+                        "example/shared.go:1.1,2.1 2 1" if index == 0 else "example/shared.go:1.1,2.1 2 0",
+                        f"example/shard{index}.go:3.1,4.1 1 1",
+                    ],
+                )
                 invocations.append(
                     {
                         "package": package,
@@ -192,6 +210,8 @@ class VerifyResultsTests(unittest.TestCase):
                         "workingDirectoryRelative": assignment["packageDirectoryRelative"],
                         "pwdMatchesPackageDirectory": True,
                         "goToolDirectoryPrependedToPath": True,
+                        "coverageProfile": coverage_relative,
+                        "coverageSha256": coverage_sha256,
                     }
                 )
             write_jsonl(directory / "shard-events.jsonl", events)
@@ -217,6 +237,8 @@ class VerifyResultsTests(unittest.TestCase):
                     "shuffle": "off",
                     "testParallel": None,
                     "goMaxProcs": None,
+                    "coverageMode": "atomic",
+                    "coveragePackages": "./...",
                     "invocations": invocations,
                 },
             )
@@ -230,6 +252,15 @@ class VerifyResultsTests(unittest.TestCase):
                 {"Action": "pass", "Package": "example/other"},
                 {"Action": "start", "Package": "example/no-tests"},
                 {"Action": "skip", "Package": "example/no-tests"},
+            ],
+        )
+        other_coverage_relative = "coverage/other.out"
+        other_coverage_sha256 = write_profile(
+            other_root / other_coverage_relative,
+            [
+                "example/shared.go:1.1,2.1 2 0",
+                "example/other.go:5.1,6.1 3 1",
+                "example/generated.go:9.4,9.4 0 0",
             ],
         )
         write_json(
@@ -252,13 +283,44 @@ class VerifyResultsTests(unittest.TestCase):
                 "shuffle": "off",
                 "testParallel": None,
                 "goMaxProcs": None,
+                "coverageMode": "atomic",
+                "coveragePackages": "./...",
                 "commandLineLimit": 30000,
                 "commandLineUtf16Units": 500,
-                "testArguments": ["test", "-race", "-json", "-vet=off", "-timeout=30m", "-shuffle=off", "example/no-tests", "example/other"],
+                "testArguments": ["test", "-race", "-json", "-vet=off", "-covermode=atomic", "-coverpkg=./...", "-coverprofile=C:\\runner\\coverage\\other.out", "-timeout=30m", "-shuffle=off", "example/no-tests", "example/other"],
                 "cleanTestCacheExitCode": 0,
                 "testExitCode": 0,
+                "coverageProfile": other_coverage_relative,
+                "coverageSha256": other_coverage_sha256,
             },
         )
+        binary_root = other_root / "binary-coverage"
+        binary_profile = binary_root / "binary.out"
+        binary_profile_sha256 = write_profile(
+            binary_profile,
+            [
+                "example/shared.go:1.1,2.1 2 1",
+                "example/cmd.go:7.1,8.1 4 0",
+            ],
+        )
+        binary_environment = {
+            "commit": repository_sha,
+            "worktree_status": "",
+            "go_version": go_version,
+            "platform": "Windows/AMD64",
+            "tags": "",
+            "race": True,
+            "test_timeout": "20m",
+            "scope": "instrumented binary contracts",
+            "tests_exit_code": 0,
+            "profileSha256": binary_profile_sha256,
+        }
+        write_json(binary_root / "environment.json", binary_environment)
+        binary_summary = verify_results.coverage_report.summarize(
+            verify_results.coverage_report.read_profiles([binary_profile])
+        )
+        binary_summary["environment"] = binary_environment
+        write_json(binary_root / "summary.json", binary_summary)
         arguments = [
             "--bundle",
             str(bundle),
@@ -266,6 +328,8 @@ class VerifyResultsTests(unittest.TestCase):
             str(shards_root),
             "--other-results",
             str(other_root),
+            "--coverage-output",
+            str(coverage_output),
             "--output",
             str(output),
         ]
@@ -276,9 +340,116 @@ class VerifyResultsTests(unittest.TestCase):
             arguments, output, _, _, _ = self.make_fixture(Path(directory))
             self.assertEqual(self.run_verifier(arguments), 0)
             report = json.loads(output.read_text(encoding="utf-8"))
-            self.assertTrue(report["passed"])
+            self.assertIs(report["passed"], True)
             self.assertEqual(report["inventory"]["runnableRootCount"], 3)
             self.assertEqual(report["inventory"]["excludedBenchmarkCount"], 1)
+            self.assertEqual(report["coverage"]["profileCount"], 4)
+            summary = json.loads(
+                (Path(directory) / "coverage-output" / "summary.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                summary["totals"],
+                {"statements": 11, "covered": 7, "percent": 700 / 11},
+            )
+            combined = (Path(directory) / "coverage-output" / "combined.out").read_text(
+                encoding="utf-8"
+            )
+            self.assertEqual(combined.count("example/shared.go:1.1,2.1"), 1)
+
+    def test_absent_failed_profile_is_not_reported_as_a_path_mismatch(self):
+        for exit_code, profile in ((1, None), (0, None), (1, "coverage/wrong.out")):
+            with self.subTest(exit_code=exit_code, profile=profile), tempfile.TemporaryDirectory() as directory:
+                arguments, output, _, shards_root, _ = self.make_fixture(Path(directory))
+                metadata_path = sorted(shards_root.rglob("shard-metadata.json"))[0]
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                invocation = metadata["invocations"][0]
+                invocation.update(exitCode=exit_code, coverageProfile=profile,
+                                  coverageSha256=None, coverageError="test process produced no valid profile")
+                write_json(metadata_path, metadata)
+                self.assertEqual(self.run_verifier(arguments), 1)
+                report = json.loads(output.read_text(encoding="utf-8"))
+                self.assertFalse(report["passed"])
+                failures = "\n".join(report["failures"])
+                if profile is None:
+                    self.assertIn("is missing coverageProfile", failures)
+                    self.assertNotIn("coverage profile path differs from its process", failures)
+                else:
+                    self.assertIn("coverage profile path differs from its process", failures)
+                if exit_code:
+                    self.assertIn("exitCode", failures)
+
+    def test_missing_and_tampered_profiles_fail_closed(self):
+        for mutation in ("missing", "tampered"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
+                arguments, output, _, shards_root, _ = self.make_fixture(Path(directory))
+                metadata_path = sorted(shards_root.rglob("shard-metadata.json"))[0]
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                profile = metadata_path.parent / metadata["invocations"][0]["coverageProfile"]
+                if mutation == "missing":
+                    profile.unlink()
+                else:
+                    with profile.open("a", encoding="utf-8") as handle:
+                        handle.write("example/tampered.go:1.1,2.1 1 1\n")
+                self.assertEqual(self.run_verifier(arguments), 1)
+                failures = "\n".join(json.loads(output.read_text())["failures"])
+                self.assertIn("coverage profile", failures)
+
+    def test_profile_mode_schema_and_malformed_coordinates_fail_closed(self):
+        for mutation in ("mode", "coordinates"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
+                arguments, output, _, shards_root, _ = self.make_fixture(Path(directory))
+                metadata_path = sorted(shards_root.rglob("shard-metadata.json"))[0]
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                invocation = metadata["invocations"][0]
+                profile = metadata_path.parent / invocation["coverageProfile"]
+                if mutation == "mode":
+                    profile.write_text(
+                        profile.read_text(encoding="utf-8").replace("mode: atomic", "mode: count", 1),
+                        encoding="utf-8",
+                    )
+                else:
+                    profile.write_text("mode: atomic\ngarbage 1 1\n", encoding="utf-8")
+                invocation["coverageSha256"] = plan_shards.sha256_file(profile)
+                write_json(metadata_path, metadata)
+                self.assertEqual(self.run_verifier(arguments), 1)
+                failures = "\n".join(json.loads(output.read_text())["failures"])
+                self.assertIn("coverage profile", failures)
+
+    def test_unsafe_profile_path_and_binary_report_mismatch_fail_closed(self):
+        for mutation in ("unsafe-path", "binary-summary"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
+                arguments, output, _, shards_root, other_root = self.make_fixture(Path(directory))
+                if mutation == "unsafe-path":
+                    metadata_path = sorted(shards_root.rglob("shard-metadata.json"))[0]
+                    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                    metadata["invocations"][0]["coverageProfile"] = "../outside.out"
+                    write_json(metadata_path, metadata)
+                else:
+                    summary_path = other_root / "binary-coverage" / "summary.json"
+                    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                    summary["totals"]["covered"] += 1
+                    write_json(summary_path, summary)
+                self.assertEqual(self.run_verifier(arguments), 1)
+                failures = "\n".join(json.loads(output.read_text())["failures"])
+                self.assertIn("coverage", failures)
+
+    def test_orphan_profile_is_not_accepted_or_merged_as_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            arguments, output, _, shards_root, _ = self.make_fixture(Path(directory))
+            write_profile(
+                shards_root / "orphan" / "coverage.out",
+                ["example/orphan.go:1.1,2.1 100 1"],
+            )
+            self.assertEqual(self.run_verifier(arguments), 0)
+            summary = json.loads(
+                (Path(directory) / "coverage-output" / "summary.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertNotIn("example/orphan.go", summary["files"])
+            self.assertEqual(summary["environment"]["profile_count"], 4)
 
     def test_package_less_build_output_is_accepted_and_counted(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -92,17 +92,12 @@ func TestScanSemanticStreamFilteredArtifactIsValidNDJSON(t *testing.T) {
 		if err := json.Unmarshal([]byte(line), &obj); err != nil {
 			t.Fatalf("line %d is not valid JSON: %v\n%s", i+1, err, line)
 		}
-	}
-	// First line is the header (no record_type); last line is the summary.
-	var first map[string]any
-	_ = json.Unmarshal([]byte(lines[0]), &first)
-	if _, ok := first["record_type"]; ok {
-		t.Fatalf("first line should be the header, got %s", lines[0])
-	}
-	var last map[string]any
-	_ = json.Unmarshal([]byte(lines[len(lines)-1]), &last)
-	if last["record_type"] != "summary" {
-		t.Fatalf("last line should be the summary, got %s", lines[len(lines)-1])
+		if _, ok := obj["record_type"]; i == 0 && ok {
+			t.Fatalf("first line should be the header, got %s", line)
+		}
+		if i == len(lines)-1 && obj["record_type"] != "summary" {
+			t.Fatalf("last line should be the summary, got %s", line)
+		}
 	}
 }
 
@@ -473,6 +468,21 @@ func TestBundleRoundTripToleratesStreamedSnapshotRecords(t *testing.T) {
 	}
 	if report.Severity != "ok" {
 		t.Fatalf("round-trip stale report = %+v", report)
+	}
+	var queryOut bytes.Buffer
+	queryCmd := &cobra.Command{Use: "query"}
+	queryCmd.SetOut(&queryOut)
+	if err := runSemanticQuery(queryCmd.Context(), queryCmd, importOpts, semanticQueryOptions{limit: 10, json: true}, "ValidateToken"); err != nil {
+		t.Fatalf("query round-tripped store: %v", err)
+	}
+	var query struct {
+		Results []semanticRecord `json:"results"`
+	}
+	if err := json.Unmarshal(queryOut.Bytes(), &query); err != nil {
+		t.Fatalf("decode round-trip query: %v\n%s", err, queryOut.String())
+	}
+	if len(query.Results) != 1 || query.Results[0].Name != "ValidateToken" || query.Results[0].FilePath != "internal/auth/token.go" {
+		t.Fatalf("round-trip query results = %+v\n%s", query.Results, queryOut.String())
 	}
 }
 

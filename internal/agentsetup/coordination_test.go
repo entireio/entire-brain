@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -36,7 +37,7 @@ func TestCoordinationModes(t *testing.T) {
 	for _, product := range []string{"graph", "brain"} {
 		for _, previous := range []string{"", GraphGuide, BrainGuide(), CombinedGuide} {
 			for _, configured := range []bool{false, true} {
-				t.Run(product+"/"+strings.Split(previous, "\n")[0]+"/configured="+boolText(configured), func(t *testing.T) {
+				t.Run(product+"/"+strings.Split(previous, "\n")[0]+"/configured="+strconv.FormatBool(configured), func(t *testing.T) {
 					repo := t.TempDir()
 					opts := fixtureOptions(t, "graph", "brain")
 					opts.ListPlugins = func() (string, error) { t.Fatal("queried global plugin inventory"); return "", nil }
@@ -69,12 +70,6 @@ func TestCoordinationModes(t *testing.T) {
 			}
 		}
 	}
-}
-func boolText(v bool) string {
-	if v {
-		return "true"
-	}
-	return "false"
 }
 func TestCoordinationActivationOrdersAndStableMigration(t *testing.T) {
 	for _, first := range []string{"graph", "brain"} {

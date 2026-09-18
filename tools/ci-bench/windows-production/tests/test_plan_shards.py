@@ -32,6 +32,10 @@ def normalized_inventory(package, binary, roots):
             "pwdMatchesPackageDirectory": True,
             "goToolDirectoryPrependedToPath": True,
         },
+        "raceEnabled": True,
+        "coverageEnabled": True,
+        "coverageMode": "atomic",
+        "coveragePackages": "./...",
         "testMainDeclarations": [],
         "roots": roots,
         "excludedBenchmarks": ["BenchmarkNotRun"],
@@ -112,6 +116,8 @@ class PlanShardTests(unittest.TestCase):
         self.assertEqual(assigned[("example/heavy", "TestSlow")]["weightSource"], "historical-windows")
         self.assertEqual(assigned[("example/heavy", "TestNew")]["weightSource"], "default-current-inventory")
         self.assertEqual(first["historicalWeights"]["defaultedCount"], 3)
+        self.assertEqual(first["settings"]["coverageMode"], "atomic")
+        self.assertEqual(first["settings"]["coveragePackages"], "./...")
 
     def test_compressed_regex_selects_exact_roots(self):
         names = ["TestParser", "TestParserDepth", "ExampleParser", "FuzzParser"]

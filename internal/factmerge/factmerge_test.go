@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 )
@@ -24,15 +25,6 @@ func factFor(t *testing.T, text string, paths []string, now time.Time) Record {
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
-}
-
-func contains(values []string, target string) bool {
-	for _, v := range values {
-		if v == target {
-			return true
-		}
-	}
-	return false
 }
 
 // knownTops returns a GC predicate whose known top-levels are the given set.
@@ -265,7 +257,7 @@ func TestApplyActionsHighConfidenceSupersede(t *testing.T) {
 	if gotNew.Confidence != "0.95" {
 		t.Fatalf("action confidence should be stamped on the record, got %q", gotNew.Confidence)
 	}
-	if !contains(gotNew.RelatedIDs, old.ID) {
+	if !slices.Contains(gotNew.RelatedIDs, old.ID) {
 		t.Fatalf("replacement should relate to the superseded fact")
 	}
 	if len(proposals) != 0 {
@@ -297,7 +289,7 @@ func TestApplyActionsLowConfidenceQueuesProposal(t *testing.T) {
 	if p.Action != ActionSupersede || p.CandidateID != cand.ID || p.TargetID != target.ID {
 		t.Fatalf("proposal fields wrong: %+v", p)
 	}
-	if !contains(out[0].RelatedIDs, out[1].ID) && !contains(out[1].RelatedIDs, out[0].ID) {
+	if !slices.Contains(out[0].RelatedIDs, out[1].ID) && !slices.Contains(out[1].RelatedIDs, out[0].ID) {
 		t.Fatalf("conflicting facts not cross-linked")
 	}
 }
@@ -366,7 +358,7 @@ func TestApplyProposalMerge(t *testing.T) {
 	if len(out[0].Provenance) != 2 {
 		t.Fatalf("merge should union provenance, got %d", len(out[0].Provenance))
 	}
-	if contains(out[0].RelatedIDs, cand.ID) {
+	if slices.Contains(out[0].RelatedIDs, cand.ID) {
 		t.Fatalf("conflict link should be cleared")
 	}
 }

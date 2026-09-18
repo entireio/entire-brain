@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func TestSeedWritesDeterministicBrain(t *testing.T) {
+func TestSeedWritesExpectedBrainBaseline(t *testing.T) {
 	repoDir := seedFixtureRepo(t)
 	dataDir := filepath.Join(t.TempDir(), "data")
 	stateDir := filepath.Join(t.TempDir(), "state")

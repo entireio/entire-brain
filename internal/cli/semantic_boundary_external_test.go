@@ -60,7 +60,7 @@ func TestSemanticBoundaryCommandsResolveExternalNodes(t *testing.T) {
 	if b := routes.Boundary.Boundaries[0]; b.Kind != "route" || b.Name != "/tokens/{id}" || b.FilePath != "" {
 		t.Fatalf("unexpected route boundary: %+v", b)
 	}
-	if len(routes.Boundary.Handlers) != 1 || !strings.Contains(routes.Boundary.Handlers[0].Name, "ValidateToken") {
+	if len(routes.Boundary.Handlers) != 1 || routes.Boundary.Handlers[0].Name != "ValidateToken" {
 		t.Fatalf("routes handlers = %+v", routes.Boundary.Handlers)
 	}
 	if len(routes.Boundary.Relations) != 1 {
@@ -76,7 +76,7 @@ func TestSemanticBoundaryCommandsResolveExternalNodes(t *testing.T) {
 	if b := tools.Boundary.Boundaries[0]; b.Kind != "tool" || b.Name != "brain refresh" {
 		t.Fatalf("unexpected tool boundary: %+v", b)
 	}
-	if len(tools.Boundary.Handlers) != 1 || !strings.Contains(tools.Boundary.Handlers[0].Name, "Refresh") {
+	if len(tools.Boundary.Handlers) != 1 || tools.Boundary.Handlers[0].Name != "Refresh" {
 		t.Fatalf("tools handlers = %+v", tools.Boundary.Handlers)
 	}
 

@@ -33,7 +33,7 @@ func TestFactsFTSScores(t *testing.T) {
 	}
 
 	// Absent terms: searchable query, no matches.
-	if scores, ok := factsFTSScores(facts, "xylophone zebra quokka"); ok && len(scores) != 0 {
-		t.Fatalf("expected no matches for absent terms, got %v", scores)
+	if scores, ok := factsFTSScores(facts, "xylophone zebra quokka"); !ok || len(scores) != 0 {
+		t.Fatalf("absent-term query = scores:%v ok:%t, want searchable empty result", scores, ok)
 	}
 }

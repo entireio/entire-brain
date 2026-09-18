@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func TestFactRecordIDStableAcrossPathOrder(t *testing.T) {
+func TestFactRecordIDStableForCanonicalPaths(t *testing.T) {
 	a := factRecordID("Use tabs, not spaces", []string{"preferences.coding.style", "project.tooling.stack"})
 	b := factRecordID("Use tabs, not spaces", []string{"preferences.coding.style", "project.tooling.stack"})
 	if a != b {

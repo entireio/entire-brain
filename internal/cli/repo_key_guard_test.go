@@ -135,9 +135,7 @@ func TestHeadPathForKeyAppliesTheSameGuardsAsBrainDirForKey(t *testing.T) {
 		t.Fatalf("headPathForKey accepted a reserved repo key: %s", head)
 	}
 	// Traversal out of the head store, with the store root already on disk.
-	// (With the root absent the shared guard still fails open on a bare "..";
-	// that is the lexical hole audit/sec-dotdot-path-guard closes, and this
-	// test deliberately does not duplicate it.)
+	// The absent-root case is covered separately in path_guard_dotdot_test.go.
 	if err := os.MkdirAll(filepath.Join(stateDir, repoStoreDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}

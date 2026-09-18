@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 )
 
@@ -18,9 +19,8 @@ func procEpisode(id, author, branch, reinf string, commands ...string) episodeRe
 }
 
 func findProcedure(procs []procedureRecord, commands ...string) *procedureRecord {
-	key := fmt.Sprint(commands)
 	for i := range procs {
-		if fmt.Sprint(procs[i].Commands) == key {
+		if slices.Equal(procs[i].Commands, commands) {
 			return &procs[i]
 		}
 	}

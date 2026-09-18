@@ -1,16 +1,13 @@
 package cli
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
 )
 
-// SR6: quality gates on what skill synthesis actually receives/produces — not
-// just plumbing. The synthesis INPUT is the lever that makes a real agent produce
-// a good (or generic) skill, so these assert on the input the agent is handed and
-// on the NOT_A_SKILL / gating behaviors.
+// These tests pin the evidence passed to the external synthesizer and the local
+// gates around it. They do not evaluate the quality of an agent's judgment.
 
 // (a) An accepted release/check workflow's skill input carries the exact command
 // AND a verification step.
@@ -42,35 +39,28 @@ func TestSkillQualityCorrectedEpisodeBecomesFailureMode(t *testing.T) {
 	}
 }
 
-// (c) A generic git workflow returns NOT_A_SKILL.
-func TestSkillQualityGenericGitNotASkill(t *testing.T) {
-	in := deepSkillInput{rec: deepDossierRecord{
-		Title: "commit:push — git add ▷ git push", Trigger: "recurring intent: commit:push",
-		Workflow: []string{"git add", "git push"},
-	}}
-	run := stubRunner("NOT_A_SKILL: generic git add/push, nothing repo-specific")
-	res, err := synthesizeSkillFromDossier(context.Background(), t.TempDir(), in, "codex", "", "", run)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.IsSkill {
-		t.Error("a generic git dossier must return NOT_A_SKILL")
-	}
-}
-
-// (d) A shallow-only candidate (promotable, no accepted deep dossier) is not
+// (c) A shallow-only candidate (promotable, no accepted deep dossier) is not
 // formable.
 func TestSkillQualityShallowOnlyNotFormable(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, _ := openPatternCorpusMutableDB(brainDir)
+	db, err := openPatternCorpusMutableDB(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var pid string
-	db.QueryRow(`SELECT id FROM patterns WHERE type='task' AND intent_sig='deploy:release'`).Scan(&pid)
+	if err := db.QueryRow(`SELECT id FROM patterns WHERE type='task' AND intent_sig='deploy:release'`).Scan(&pid); err != nil {
+		t.Fatal(err)
+	}
 	db.Close()
 	// It is promotable (resolvable) but has no accepted deep dossier → not formable.
 	if _, ok := loadAcceptedDeepDossier(brainDir, pid); ok {
 		t.Fatal("setup: expected no accepted deep dossier")
 	}
-	if props, _ := loadSkillProposals(brainDir); len(props) != 0 {
+	props, present := loadSkillProposals(brainDir)
+	if !present {
+		t.Fatal("expected the pattern corpus to be readable")
+	}
+	if len(props) != 0 {
 		t.Errorf("a shallow-only candidate must not be a formable proposal, got %d", len(props))
 	}
 }
@@ -79,10 +69,15 @@ func TestSkillQualityShallowOnlyNotFormable(t *testing.T) {
 // intent_sig.
 func TestSkillQualityThemeCitesPracticeNotIntentSig(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, _ := openPatternCorpusMutableDB(brainDir)
+	db, err := openPatternCorpusMutableDB(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// An accepted theme with an agent description (no intent_sig label).
-	db.Exec(`INSERT INTO themes (id, scope, title, description, shape, member_keys, support, fingerprint, strength, status, verdict, created_at, updated_at)
-		VALUES ('theme:rev','repo','reviewing the current branch','recurring practice of auditing branch changes for regressions','conversation','[]',5,'sha256:t',0.7,'active','accepted','t','t')`)
+	if _, err := db.Exec(`INSERT INTO themes (id, scope, title, description, shape, member_keys, support, fingerprint, strength, status, verdict, created_at, updated_at)
+		VALUES ('theme:rev','repo','reviewing the current branch','recurring practice of auditing branch changes for regressions','conversation','[]',5,'sha256:t',0.7,'active','accepted','t','t')`); err != nil {
+		t.Fatal(err)
+	}
 	db.Close()
 	in, ok := loadAcceptedThemeAsDeep(brainDir, "theme:rev")
 	if !ok {

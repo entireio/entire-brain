@@ -254,8 +254,8 @@ func TestFactsReviewBulkSkipsSharedButSettlesPrivate(t *testing.T) {
 		t.Fatal(loadErr)
 	}
 	// Private settled...
-	if ti := indexOfFact(facts, privTarget.ID); ti >= 0 && facts[ti].Status != factStatusSuperseded {
-		t.Fatalf("private proposal was not settled locally: %+v", facts[ti])
+	if ti := indexOfFact(facts, privTarget.ID); ti < 0 || facts[ti].Status != factStatusSuperseded {
+		t.Fatalf("private proposal was not settled locally: %+v", facts)
 	}
 	// ...shared untouched.
 	if ti := indexOfFact(facts, target.ID); ti < 0 || facts[ti].Status != factStatusActive {

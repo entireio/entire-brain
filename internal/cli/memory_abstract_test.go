@@ -530,7 +530,7 @@ func TestMemoryAdminScopedAndResumeFlags(t *testing.T) {
 }
 
 func TestMemoryRebuildFailurePreservesVectorStores(t *testing.T) {
-	brainDir := t.TempDir()
+	opts, brainDir := memoryAdminCommandFixture(t)
 	vectorRel := filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, historyVecStoreFileNamePortable))
 	vectorPath := filepath.Join(brainDir, filepath.FromSlash(vectorRel))
 	if err := os.MkdirAll(filepath.Dir(vectorPath), 0o700); err != nil {
@@ -543,8 +543,9 @@ func TestMemoryRebuildFailurePreservesVectorStores(t *testing.T) {
 	oldRebuild := rebuildMemoryProjection
 	defer func() { rebuildMemoryProjection = oldRebuild }()
 	rebuildMemoryProjection = func(string, time.Time) error { return errors.New("injected build failure") }
-	if err := rebuildMemoryProjection(brainDir, time.Now()); err == nil {
-		t.Fatal("expected injected rebuild failure")
+	out, err := execute(t, newMemoryRebuildCommand(opts), "--all")
+	if err == nil || !strings.Contains(err.Error(), "injected build failure") {
+		t.Fatalf("rebuild error = %v, want injected failure\n%s", err, out)
 	}
 	got, err := os.ReadFile(vectorPath)
 	if err != nil || string(got) != string(want) {

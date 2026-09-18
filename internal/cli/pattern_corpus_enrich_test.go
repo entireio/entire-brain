@@ -23,13 +23,12 @@ func TestCorpusEpisodeOpsCodex(t *testing.T) {
 	if len(files) != 1 || files[0].path != "internal/x.go" || files[0].action != "edit" {
 		t.Errorf("files = %+v, want internal/x.go edit", files)
 	}
-	if len(tools) != 4 { // function_call, apply_patch... only tool-bearing payloads count
-		// function_call(exec), custom_tool_call(apply_patch) are tools; outputs are not.
+	if len(tools) != 2 { // function_call(exec), custom_tool_call(apply_patch); outputs are not tools.
 		var names []string
 		for _, x := range tools {
 			names = append(names, x.name)
 		}
-		t.Logf("tool names: %v", names)
+		t.Fatalf("tools = %d (%v), want 2 (exec_command, apply_patch)", len(tools), names)
 	}
 }
 
@@ -107,7 +106,9 @@ func TestCorpusEnrichmentIntegration(t *testing.T) {
 	db := openCorpus(t, brainDir)
 
 	var fails int
-	db.QueryRow(`SELECT COUNT(*) FROM episode_commands WHERE failed=1`).Scan(&fails)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM episode_commands WHERE failed=1`).Scan(&fails); err != nil {
+		t.Fatal(err)
+	}
 	if fails < 1 {
 		t.Error("expected a failed command recorded")
 	}
@@ -118,13 +119,17 @@ func TestCorpusEnrichmentIntegration(t *testing.T) {
 		t.Error("expected an episode_facts link to the worktree-fingerprint fact")
 	}
 	var metaLoop int
-	db.QueryRow(`SELECT COUNT(*) FROM meta_hits WHERE meta_id='validation_loop'`).Scan(&metaLoop)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM meta_hits WHERE meta_id='validation_loop'`).Scan(&metaLoop); err != nil {
+		t.Fatal(err)
+	}
 	if metaLoop < 1 {
 		t.Error("expected validation_loop meta hit (go test ran)")
 	}
 	// Redaction: the bearer token must not be stored in the corpus.
 	var blob string
-	db.QueryRow(`SELECT group_concat(raw_redacted, '||') FROM episode_commands`).Scan(&blob)
+	if err := db.QueryRow(`SELECT group_concat(raw_redacted, '||') FROM episode_commands`).Scan(&blob); err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(blob, "ghp_SECRETTOKEN0123456789abcdef") {
 		t.Errorf("corpus leaked a secret in raw_redacted: %s", blob)
 	}

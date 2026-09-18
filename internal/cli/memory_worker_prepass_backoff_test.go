@@ -219,20 +219,36 @@ func TestLongDelayedWorkerDoesNotHoldTheCoordinatorWhileWaiting(t *testing.T) {
 	// held for all of it; with the fix, for its last 50ms.
 	const delay = 3 * time.Second
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan struct{})
+	done := make(chan error, 1)
+	workerDone := false
+	t.Cleanup(func() {
+		cancel()
+		if workerDone {
+			return
+		}
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Errorf("delayed worker did not stop during cleanup")
+		}
+	})
 	go func() {
-		defer close(done)
 		cmd := newMemoryWorkerCommand(opts)
 		cmd.SetContext(ctx)
 		cmd.SetArgs([]string{"--once", "--delay", delay.String()})
 		cmd.SetOut(io.Discard)
 		cmd.SetErr(io.Discard)
-		_ = cmd.Execute()
+		done <- cmd.Execute()
 	}()
-	// Long enough that a worker which acquires immediately (the old behavior)
-	// certainly holds the lease by now, and far short of the delay.
+	// Give the worker time to enter its wait path while remaining far short of
+	// the configured delay; the contender below supplies the behavioral proof.
 	time.Sleep(500 * time.Millisecond)
+	select {
+	case err := <-done:
+		workerDone = true
+		t.Fatalf("delayed worker exited before its wait path was exercised: %v", err)
+	default:
+	}
 
 	// The contender must win well before the delay elapses. Under the old
 	// design it could not win until the sleeper woke.
@@ -254,5 +270,13 @@ func TestLongDelayedWorkerDoesNotHoldTheCoordinatorWhileWaiting(t *testing.T) {
 	}
 	acquired.close(now.Add(time.Second), "complete")
 	cancel()
-	<-done
+	select {
+	case err := <-done:
+		workerDone = true
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancel delayed worker: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("delayed worker did not stop after cancellation")
+	}
 }

@@ -20,6 +20,8 @@ PLAN_SCHEMA = "entire-brain.windows-ci.shard-plan.v1"
 PACKAGE_SCHEMA = "entire-brain.windows-ci.package-inventory.v1"
 RUN_SCHEMA = "entire-brain.windows-ci.other-run.v1"
 TARGET_ENVIRONMENT = {"CGO_ENABLED": "1", "GOARCH": "amd64", "GOOS": "windows"}
+COVERAGE_MODE = "atomic"
+COVERAGE_PACKAGES = "./..."
 
 
 def read_json(path: Path) -> Any:
@@ -42,6 +44,22 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def coverage_profile_metadata(output: Path, profile: Path) -> tuple[str, str]:
+    output = output.resolve(strict=True)
+    profile = profile.resolve()
+    try:
+        relative = profile.relative_to(output)
+    except ValueError as error:
+        raise ValueError(f"coverage profile escaped result artifact: {profile}") from error
+    if not profile.is_file() or profile.stat().st_size <= len("mode: atomic\n"):
+        raise RuntimeError(f"coverage profile is missing or empty: {profile}")
+    with profile.open(encoding="utf-8", errors="strict") as handle:
+        header = handle.readline().rstrip("\r\n")
+    if header != f"mode: {COVERAGE_MODE}":
+        raise RuntimeError(f"coverage profile has unexpected mode header: {header!r}")
+    return relative.as_posix(), sha256_file(profile)
 
 
 def command_line_utf16_units(executable: str, arguments: list[str]) -> int:
@@ -134,6 +152,11 @@ def run(args: argparse.Namespace, metadata: dict[str, Any]) -> int:
     settings = plan.get("settings")
     if not isinstance(settings, dict) or settings.get("shuffle") != "off":
         raise ValueError("plan does not preserve shuffle=off semantics")
+    if (
+        settings.get("coverageMode") != COVERAGE_MODE
+        or settings.get("coveragePackages") != COVERAGE_PACKAGES
+    ):
+        raise ValueError("plan does not require atomic cross-package coverage")
     timeout = settings.get("timeout")
     command_limit = settings.get("commandLineLimit")
     if not isinstance(timeout, str) or not re.fullmatch(r"[1-9][0-9]*(?:ns|us|µs|ms|s|m|h)", timeout):
@@ -209,6 +232,8 @@ def run(args: argparse.Namespace, metadata: dict[str, Any]) -> int:
             "testParallel": settings.get("testParallel"),
             "goMaxProcs": go_max_procs,
             "commandLineLimit": command_limit,
+            "coverageMode": COVERAGE_MODE,
+            "coveragePackages": COVERAGE_PACKAGES,
         }
     )
 
@@ -227,11 +252,22 @@ def run(args: argparse.Namespace, metadata: dict[str, Any]) -> int:
         if clean.returncode != 0:
             return clean.returncode
 
+        coverage_directory = (output / "coverage").resolve()
+        try:
+            coverage_directory.relative_to(output)
+        except ValueError as error:
+            raise ValueError("coverage directory escaped result artifact") from error
+        coverage_directory.mkdir(parents=True, exist_ok=True)
+        coverage_path = coverage_directory / "other.out"
+        coverage_path.unlink(missing_ok=True)
         command_arguments = [
             "test",
             "-race",
             "-json",
             "-vet=off",
+            f"-covermode={COVERAGE_MODE}",
+            f"-coverpkg={COVERAGE_PACKAGES}",
+            f"-coverprofile={coverage_path}",
             f"-timeout={timeout}",
             "-shuffle=off",
         ]
@@ -262,6 +298,17 @@ def run(args: argparse.Namespace, metadata: dict[str, Any]) -> int:
             )
         metadata["durationSeconds"] = round(time.monotonic() - started, 6)
         metadata["testExitCode"] = completed.returncode
+        try:
+            coverage_profile, coverage_sha256 = coverage_profile_metadata(output, coverage_path)
+        except (OSError, ValueError, RuntimeError) as error:
+            if completed.returncode == 0:
+                raise
+            # A failed process may never flush its profile. Keep the original
+            # exit code and event stream; this is diagnostic, not valid coverage.
+            coverage_profile, coverage_sha256 = None, None
+            metadata["coverageError"] = str(error)
+        metadata["coverageProfile"] = coverage_profile
+        metadata["coverageSha256"] = coverage_sha256
         return completed.returncode
     finally:
         require_tracked_worktree_clean(repository, environment, "tracked worktree postcondition")
@@ -292,6 +339,8 @@ def main(argv: list[str] | None = None) -> int:
         "trackedWorktreeCleanBefore": None,
         "trackedWorktreeCleanAfter": None,
         "repositoryShaAfter": None,
+        "coverageProfile": None,
+        "coverageSha256": None,
     }
     try:
         exit_code = run(args, metadata)
