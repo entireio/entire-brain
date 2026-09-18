@@ -148,11 +148,11 @@ and tradeoff explicitly; never silently declare a smaller scope complete.
 | Task | Current status | Evidence / outstanding work |
 |---|---|---|
 | A | Baseline frozen; reachability audit continuing | CI 35273669719 profiles retained; selected wave-1 functions below |
-| B | Implementing — Sol | New memory/vector regression files; core and worker paths |
+| B | Implementing — Sol | Development profile union 1105/1411 file statements (78.3%); file gate and residual audit remain open |
 | C | Reviewed locally; final CI pending | Initial selected 72/80 statements (90%); full default package run passed at 505/629 file statements (80.3%); membership mutation detected; later-row failure and ceiling tests added |
-| D | Implementing — Terra | New workspace command regression file |
-| E | Implementing — Main and Sol | Root boundary contracts pass at 90.7%; index/graph cases in progress |
-| F | Not started | Brief output batch follows first-wave review |
+| D | Reviewed locally; integration validation pending | Frozen handlers 186/205 (90.7%); root lifecycle, partial/corrupt members, egress, rejection, output failures and limits |
+| E | Reviewing — Main and Terra | Root boundary contracts pass at 90.7%; graph/index assertions tightened; changed-input parity still in progress |
+| F | Implementing — Terra | Frozen live output function set below; root-command fixtures |
 | G | Validating — Main, Sol review | Five report and three membership tests pass; existing 28 runner accounting/timeout tests pass; independent review passed; final CI pending |
 | H | Not started | Global target, independent review and final CI remain open |
 
@@ -180,3 +180,32 @@ ceiling in about 1.2 seconds locally without storing those rows. A separate view
 raises an integer-overflow error after a readable row to prove scan failures
 cannot report a clean partial result. Both focused tests pass. The JSON violation
 contract now parses stdout strictly, separately from stderr.
+
+F frozen set (before implementation): `runBrainBrief`,
+`runBrainBriefWithRawHistoryMatcher`, `brainBriefJSONProjection`,
+`brainBriefLikelyFileGroupsForRepoAndFilenameCounts`,
+`brainBriefMetadataStringActions`, `brainBriefMetadataStringActionsForFile`,
+`brainBriefPreviousResponseActions`, `brainBriefPreviousResponseActionsForFile`.
+
+Reviewed privacy/boundary/report batch committed and pushed as `8e6313ef`.
+Focused privacy and boundary tests pass with the race detector in default and
+`brain_cgo sqlite_fts5` configurations. These are focused checks, not final full
+suite evidence. Additional live fact-GC and session-purge command contracts
+are being implemented for the global coverage queue; the 85% gate remains open.
+
+Wave checkpoint: the macOS baseline plus completed focused default profiles
+covers 47,706/57,693 statements (82.69%), an increase of 571 over the macOS
+baseline. This development union predates the latest memory and audit additions
+and is not a fresh full-suite result. Workspace's file union is 419/462 (90.7%);
+privacy verification's is 512/629 (81.4%). Global coverage remains below target.
+
+E now tests changed HEAD/input (old symbol deleted, new symbol added) against a
+fresh full rebuild, plus snapshot/store query parity. Graph runtime limits use
+two matching records so ignoring the limit breaks the assertion. Selected E
+helpers cover 68/70 statements; the boundary handler separately covers 90.7%.
+The remaining helper returns concern `filepath.Rel` and path validation for
+WalkDir-emitted descendants, which cannot fail under those path invariants.
+
+Residual discovery found no callers for `loadCheckpointSnapshotFromGitDirPolicy`
+in Graph, and a focused Go-source search found only its declaration. It is not
+being exercised solely to increase coverage; its denominator is unchanged.
