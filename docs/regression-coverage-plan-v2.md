@@ -148,7 +148,7 @@ and tradeoff explicitly; never silently declare a smaller scope complete.
 | Task | Current status | Evidence / outstanding work |
 |---|---|---|
 | A | Baseline frozen; reachability audit continuing | CI 35273669719 profiles retained; selected wave-1 functions below |
-| B | Implementing — Sol | Development profile union 1105/1411 file statements (78.3%); file gate and residual audit remain open |
+| B | Reviewed locally; final CI pending | Default development union 1129/1411 (80.01%); core/lane CGO aggregate >90%; core filesystem/SQLite failures, takeover, retry and bounded deadline tested |
 | C | Reviewed locally; final CI pending | Initial selected 72/80 statements (90%); full default package run passed at 505/629 file statements (80.3%); membership mutation detected; later-row failure and ceiling tests added |
 | D | Reviewed locally; integration validation pending | Frozen handlers 186/205 (90.7%); root lifecycle, partial/corrupt members, egress, rejection, output failures and limits |
 | E | Reviewing — Main and Terra | Root boundary contracts pass at 90.7%; graph/index assertions tightened; changed-input parity still in progress |
@@ -209,3 +209,17 @@ WalkDir-emitted descendants, which cannot fail under those path invariants.
 Residual discovery found no callers for `loadCheckpointSnapshotFromGitDirPolicy`
 in Graph, and a focused Go-source search found only its declaration. It is not
 being exercised solely to increase coverage; its denominator is unchanged.
+
+Memory review checkpoint: sync core CGO 94.8%, vector lane 91.3%. Added real
+filesystem progress-write failures, SQLite mutation failure, forward-version
+takeover, conversation-only embedding failure, and repair/retry proofs. A short
+parent deadline exercises continuation without a 20-second wait. Main tightened
+post-failure vector assertions to compare complete expected ID sets and extended
+the deadline allowance for loaded CI. Focused CGO race validation passes (25.7s).
+
+Additional reviewed residual batches cover vector and FTS health, deletion
+attribution, hook recovery and handoff output. Their development union with the
+previous profiles reaches 48,042/57,693 statements (83.27%); 998 more statements
+would reach 85% on this denominator. This is not final CI coverage. The first
+pushed v2 batch (`8e6313ef`) passed CI run 35290044560; the second batch
+(`86dcbb28`) is running in 35290882149. Final H gates remain open.
