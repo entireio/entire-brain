@@ -68,7 +68,7 @@ func TestConversationQuerySurvivesUnavailableFTS(t *testing.T) {
 	// indexable, which is one of rankHistoryViaFTSFiltered's (nil,false,false)
 	// unavailability returns. The in-memory scorer must still answer.
 	if expr := historyFTSMatchExpr("cursor"); expr == "" {
-		t.Skip("query unexpectedly unindexable; the fallback path needs a different probe")
+		t.Fatal("fixture query must be indexable")
 	}
 	results, err := retrieveConversation(brainDir, "cursor", 5, modeLexical, retrievalOptions{})
 	if err != nil {
