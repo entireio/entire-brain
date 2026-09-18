@@ -1,0 +1,18 @@
+{
+  "tool_use_id": "01a0b3a4-e850-7641-a0be-a685b804a63d",
+  "agent_id": "01a0b3a4-e850-7641-a0be-a685b804a63d",
+  "subagent_type": "worker",
+  "files": [
+    "tools/ci-bench/windows-production/tests/test_failure_evidence.py",
+    "tools/ci-bench/windows-production/tests/test_verify_results.py"
+  ],
+  "token_usage": {
+    "input_tokens": 117618,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2528512,
+    "output_tokens": 11741,
+    "api_call_count": 36
+  },
+  "started_at": "2026-09-18T10:32:07.107445+02:00",
+  "completed_at": "2026-09-18T11:32:14.094511+02:00"
+}
