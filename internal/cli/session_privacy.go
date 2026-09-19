@@ -476,19 +476,39 @@ func newSessionsListCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
+// excludedTranscriptPathsChecked extends the manifest with durable transaction
+// paths so refresh cannot reopen or reindex an excluded export it no longer names.
+func excludedTranscriptPathsChecked(brainDir string, manifest *exportManifest, stones sessionTombstones) (map[string]string, error) {
+	paths := excludedTranscriptPaths(manifest, stones)
+	for id := range stones.Excluded {
+		tx, _, err := loadPrivacyTransactionChecked(brainDir, id)
+		if err != nil {
+			return nil, err
+		}
+		durable, err := privacyTransactionTranscriptPaths(tx)
+		if err != nil {
+			return nil, err
+		}
+		for _, rel := range durable {
+			paths[rel] = id
+		}
+	}
+	return paths, nil
+}
+
 // sessionReadGuard is the retrieval-time tombstone view: every
 // conversation/history/fact retrieval boundary consults it so an excluded
 // session becomes unreadable the moment its tombstone lands, without waiting
 // for the derived rebuild. Defense in depth, not a substitute for cleanup.
 type sessionReadGuard struct {
 	ids            map[string]sessionTombstone
-	paths          map[string]string // excluded transcript rel -> session id, from the manifest
+	paths          map[string]string // excluded transcript rel -> session id, from manifest and durable scope
 	policyIdentity string            // exact checked tombstone bytes used to build the guard
 }
 
-// loadSessionReadGuard builds the guard from the tombstone set and, when a
-// manifest is supplied, the excluded sessions' transcript paths (records that
-// lost their session id still resolve by path). Invalid present state is a
+// loadSessionReadGuard builds the guard from tombstones, durable transaction
+// paths, and any supplied manifest. Records that lost their session id still
+// resolve by path. Invalid present state is a
 // typed error; serving must stop rather than silently restore excluded data.
 func loadSessionReadGuard(brainDir string, manifest *exportManifest) (sessionReadGuard, error) {
 	stones, state, err := loadSessionTombstonesChecked(brainDir)
@@ -500,8 +520,9 @@ func loadSessionReadGuard(brainDir string, manifest *exportManifest) (sessionRea
 		return guard, nil
 	}
 	guard.ids = stones.Excluded
-	if manifest != nil {
-		guard.paths = excludedTranscriptPaths(manifest, stones)
+	guard.paths, err = excludedTranscriptPathsChecked(brainDir, manifest, stones)
+	if err != nil {
+		return sessionReadGuard{}, err
 	}
 	return guard, nil
 }
@@ -1176,6 +1197,24 @@ func factAnchorMatchesSession(anchor factAnchor, sessionID string, transcriptRel
 	return rel != "" && transcriptRels[rel]
 }
 
+// privacyTransactionTranscriptPaths recovers the content-free transcript scope
+// captured before cleanup. Validate persisted paths before classifying them so
+// traversal cannot silently discard scope or turn a transcript into another
+// artifact. Transactions written by cleanup use canonical brain-relative paths.
+func privacyTransactionTranscriptPaths(tx privacyTransaction) ([]string, error) {
+	var paths []string
+	for _, artifact := range tx.Artifacts {
+		clean, err := cleanBrainRelativePath(artifact.Path)
+		if err != nil || filepath.ToSlash(clean) != artifact.Path {
+			return nil, fmt.Errorf("%s: unsafe privacy transaction artifact path %q", memoryErrStateUnsafe, artifact.Path)
+		}
+		if strings.HasPrefix(artifact.Path, exportSessionsDirectory+"/") {
+			paths = append(paths, artifact.Path)
+		}
+	}
+	return paths, nil
+}
+
 func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error) {
 	plan := sessionPurgePlan{SessionID: sessionID}
 	manifest, err := loadBrainManifest(brainDir)
@@ -1193,26 +1232,34 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 		}
 	}
 	transcriptRels := map[string]bool{}
+	priorPaths, err := privacyTransactionTranscriptPaths(priorTx)
+	if err != nil {
+		return plan, err
+	}
+	for _, rel := range priorPaths {
+		transcriptRels[rel] = true
+	}
 	if manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		for _, session := range manifest.Sources.Sessions.Sessions {
-			if strings.TrimSpace(session.SessionID) != sessionID {
-				continue
+			if strings.TrimSpace(session.SessionID) == sessionID {
+				if rel := normalizePrivacyTranscriptPath(session.TranscriptPath); rel != "" {
+					transcriptRels[rel] = true
+				}
 			}
-			rel := normalizePrivacyTranscriptPath(session.TranscriptPath)
-			if rel == "" || transcriptRels[rel] {
-				continue
-			}
-			transcriptRels[rel] = true
-			artifact := purgeArtifact{Path: rel}
-			info, present, statErr := privacyArtifactInfo(brainDir, rel, "session transcript")
-			if statErr != nil {
-				return plan, statErr
-			}
-			if present {
-				artifact.Bytes = info.Size()
-			}
-			plan.Transcripts = append(plan.Transcripts, artifact)
 		}
+	}
+	// Keep missing paths in the durable scope too: a later re-export must
+	// remain detectable even after the manifest has forgotten this session.
+	for rel := range transcriptRels {
+		artifact := purgeArtifact{Path: rel}
+		info, present, statErr := privacyArtifactInfo(brainDir, rel, "session transcript")
+		if statErr != nil {
+			return plan, statErr
+		}
+		if present {
+			artifact.Bytes = info.Size()
+		}
+		plan.Transcripts = append(plan.Transcripts, artifact)
 	}
 	sort.Slice(plan.Transcripts, func(i, j int) bool { return plan.Transcripts[i].Path < plan.Transcripts[j].Path })
 	if manifest.Sources != nil && manifest.Sources.History != nil {
