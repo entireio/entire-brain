@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -100,19 +101,22 @@ var repoFilterCache sync.Map // repoDir -> repoFilterCacheEntry
 // while a steady repository costs one `git config` for the whole process. That
 // matters: history indexing runs thousands of git commands, and a fork per
 // command would be a visible slowdown.
-func repoFilterDriverOverrides(ctx context.Context, repoDir string) []gitConfigOverride {
+func repoFilterDriverOverrides(ctx context.Context, repoDir string) ([]gitConfigOverride, error) {
 	if strings.TrimSpace(repoDir) == "" {
-		return nil
+		return nil, nil
 	}
 	signature := repoConfigSignature(repoDir)
 	if cached, ok := repoFilterCache.Load(repoDir); ok {
 		if entry := cached.(repoFilterCacheEntry); entry.signature == signature {
-			return entry.overrides
+			return entry.overrides, nil
 		}
 	}
-	overrides := enumerateRepoFilterDrivers(ctx, repoDir)
+	overrides, err := enumerateRepoFilterDrivers(ctx, repoDir)
+	if err != nil {
+		return nil, err
+	}
 	repoFilterCache.Store(repoDir, repoFilterCacheEntry{signature: signature, overrides: overrides})
-	return overrides
+	return overrides, nil
 }
 
 // enumerateRepoFilterDrivers asks git which filter.* keys the repository itself
@@ -130,7 +134,7 @@ func repoFilterDriverOverrides(ctx context.Context, repoDir string) []gitConfigO
 // post-index-change today; the flags are applied because "every git spawn is
 // hardened" is a cheaper invariant to keep than a per-call-site argument about
 // which hooks a subcommand can reach.
-func enumerateRepoFilterDrivers(ctx context.Context, repoDir string) []gitConfigOverride {
+func enumerateRepoFilterDrivers(ctx context.Context, repoDir string) ([]gitConfigOverride, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -144,10 +148,16 @@ func enumerateRepoFilterDrivers(ctx context.Context, repoDir string) []gitConfig
 	cmd.Dir = repoDir
 	out, err := cmd.Output()
 	if err != nil {
-		// Exit status 1 simply means "no matching keys", which is the norm.
-		// Any other failure leaves us without an enumeration; there is nothing
-		// safe to invent, and the three other vectors remain neutralized.
-		return nil
+		if runCtx.Err() != nil {
+			return nil, fmt.Errorf("enumerate repository filter drivers: %w", runCtx.Err())
+		}
+		// Git reports no matching keys with exit 1 and no output. Any other
+		// failure must block the protected command and must not enter the cache.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && len(out) == 0 && len(exitErr.Stderr) == 0 {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("enumerate repository filter drivers: %w", err)
 	}
 	fields := strings.Split(string(out), "\x00")
 	seen := map[string]bool{}
@@ -170,7 +180,7 @@ func enumerateRepoFilterDrivers(ctx context.Context, repoDir string) []gitConfig
 			overrides = append(overrides, gitConfigOverride{Key: "filter." + driver + "." + k.suffix, Value: k.value})
 		}
 	}
-	return overrides
+	return overrides, nil
 }
 
 // filterDriverFromConfigKey pulls "na=me" out of "filter.na=me.clean". The
