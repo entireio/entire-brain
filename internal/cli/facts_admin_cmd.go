@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/factsync"
+	"github.com/entireio/entire-brain/internal/factsync"
 
 	"github.com/spf13/cobra"
 )

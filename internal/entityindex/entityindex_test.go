@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/factgitmeta"
-	"github.com/ashtom/entire-brain/internal/factgitmeta/gitmeta"
+	"github.com/entireio/entire-brain/internal/factgitmeta"
+	"github.com/entireio/entire-brain/internal/factgitmeta/gitmeta"
 )
 
 // fakeRunner scripts `git` and `entire graph diff` responses by command key, so

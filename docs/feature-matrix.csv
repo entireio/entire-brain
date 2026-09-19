@@ -1,0 +1,32 @@
+Category,Feature,Entire Graph,Entire Brain,Graphify,mem0,cognee,supermemory,codebase-memory-mcp,Notes
+SOURCING,Parses code structure locally (tree-sitter),Yes,Via Graph,Yes,No,Partial,No,Yes,"Graph: 36 semantic languages, 149 inventory"
+SOURCING,Indexes agent session transcripts,No,Yes,No,Yes,Yes,Yes,No,Brain: 2375 sessions on the entireio/cli brain
+SOURCING,Indexes commit / checkpoint history,No,Yes,No,No,No,No,No,Brain: 807186 history records on the same brain
+SOURCING,Indexes repository documentation,No,Yes,Yes,No,Yes,No,Partial,Brain source `doc` is on by default
+SOURCING,Durable hand-authored facts,No,Yes,No,Yes,Yes,Yes,No,Brain source `fact` is on by default
+RETRIEVAL,Ranked code search from plain language,Yes,Via Graph,Yes,No,Partial,No,Yes,
+RETRIEVAL,Keyword / lexical retrieval,Yes,Yes,Yes,Partial,Yes,Yes,Yes,Brain modes: hybrid keyword semantic
+RETRIEVAL,Vector / semantic retrieval,No,Yes,Yes,Yes,Yes,Yes,No,Brain: needs the brain_cgo build for the embedder
+RETRIEVAL,Hybrid retrieval (lexical + vector fused),No,Yes,Unknown,Unknown,Unknown,Unknown,No,Brain default_mode is hybrid (RRF)
+RETRIEVAL,Task-scoped context packet,No,Yes,No,No,No,No,No,`entire brain brief` — bounded packet for one task
+STRUCTURE,Callers / callees / inheritance,Yes,Via Graph,Yes,No,Partial,No,Yes,
+STRUCTURE,Change blast radius,Yes,Via Graph,Unknown,No,No,No,Unknown,`entire graph impact`
+STRUCTURE,Entity-level semantic diff between revisions,Yes,Via Graph,No,No,No,No,No,`entire graph diff`
+STRUCTURE,Symbol to checkpoint index,No,Yes,No,No,No,No,No,`entire brain entities`
+OPERATION,Runs fully local,Yes,Yes,Partial,No,Partial,No,Yes,"Graphify uses an LLM pass for docs/media; mem0 and supermemory are hosted"
+OPERATION,Zero LLM tokens to build the index,Yes,Yes,Partial,No,No,No,Yes,"mem0 measured at 50.85M index-time tokens; cognee 12.35M"
+OPERATION,No network calls on the default build,Yes,Yes,No,No,No,No,Yes,Brain: `doctor` reports memory_provider_egress
+OPERATION,No API key required,Yes,Yes,No,No,No,No,Yes,
+OPERATION,Pure-Go binary (no toolchain for the user),No,Yes,No,No,No,No,No,"Graph needs CGO for tree-sitter; Brain default build is pure Go"
+INTERFACE,MCP server,Yes,Yes,Yes,Yes,Yes,Yes,Yes,
+INTERFACE,CLI,Yes,Yes,Yes,Partial,Yes,Partial,Yes,
+INTERFACE,Installs agent instructions into the repo,Yes,Yes,Yes,No,No,No,No,"init-agents writes AGENTS.md / CLAUDE.md managed blocks"
+INTERFACE,Visual graph explorer,No,Yes,Yes,No,Yes,No,No,`entire brain viz` — local browser UI
+INTERFACE,Terminal dashboard,No,Yes,No,No,No,No,No,`entire brain dash`
+TRUST,Answers cite their supporting evidence,Yes,Yes,Partial,No,Partial,No,Partial,
+TRUST,Reports coverage gaps and blind spots,Yes,Yes,No,No,No,No,No,Brain `status` names blind spots explicitly
+TRUST,Reports index freshness / staleness,Yes,Yes,No,No,No,No,No,Brain `doctor` freshness checks
+TRUST,Redacts secrets from retrieved evidence,No,Yes,Unknown,Unknown,Unknown,Unknown,Unknown,"Tokens JWTs private keys home paths; mitigation not guarantee"
+DISTRIBUTION,One-line install,Yes,Yes,Yes,Yes,Yes,Yes,Yes,"Brain: entire plugin install brain; or a self-contained curl"
+DISTRIBUTION,Prebuilt binaries for linux/macos/windows,Yes,Yes,No,No,No,No,No,Both: amd64 and arm64
+DISTRIBUTION,Nightly channel,Yes,Yes,No,No,No,No,No,Both: 06:00 UTC

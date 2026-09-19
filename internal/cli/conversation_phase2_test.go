@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	entirebrain "github.com/ashtom/entire-brain"
+	entirebrain "github.com/entireio/entire-brain"
 	"github.com/spf13/cobra"
 )
 

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factmerge"
 )
 
 // The OPEN-PROPOSAL SET is the second hosted surface of the cross-member model.

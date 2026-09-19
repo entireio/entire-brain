@@ -1,4 +1,4 @@
-module github.com/ashtom/entire-brain
+module github.com/entireio/entire-brain
 
 go 1.27
 

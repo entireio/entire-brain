@@ -1,5 +1,17 @@
 # Agent Brain Benchmark Harness
 
+> **Status: internal working records, not product claims.**
+>
+> This directory is the harness and its retained runs, kept so results stay
+> auditable and reproducible. Much of what is retained here records what could
+> *not* be substantiated: runs marked `no_release_claim`, comparisons rejected
+> for confounds, and claims that were demoted after review.
+>
+> That is deliberate. Keeping a failed or withdrawn measurement is how the next
+> person avoids repeating it. **None of it is a performance claim about Entire
+> Brain**, and the product documentation deliberately makes no benchmark claims.
+> `mise run release:matrix` prints which tracks are citable and which are not.
+
 This directory contains a repeatable harness for comparing Codex and Claude Code
 with and without Entire Brain.
 

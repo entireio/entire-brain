@@ -1,0 +1,100 @@
+name: nightly
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # 06:00 UTC daily, matching entire-graph
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  # Only cut a nightly when main actually moved. A dated prerelease per day that
+  # nothing changed is noise, and it makes "which nightly has the fix" harder to
+  # answer, not easier.
+  changed:
+    name: has main moved
+    runs-on: ubuntu-24.04
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse --short HEAD)"
+          base="$(grep -oE '^## +\[?v?[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md 2>/dev/null \
+                    | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)"
+          [[ "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || base="0.1.0"
+          version="v${base}-nightly.$(date -u +%Y%m%d%H%M).${sha}"
+
+          # Skip when the newest prerelease already points at this commit.
+          latest="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 \
+                     --json tagName --jq '.[0].tagName // ""' 2>/dev/null || true)"
+          if [[ "$latest" == *".${sha}" ]]; then
+            echo "main has not moved since $latest — skipping"
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: nightly build
+    needs: changed
+    if: needs.changed.outputs.should_release == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.x"
+
+      - name: Build every target
+        env:
+          VERSION: ${{ needs.changed.outputs.version }}
+        run: |
+          set -euo pipefail
+          bare="${VERSION#v}"
+          mkdir -p dist
+          for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            goos="${t%/*}"; goarch="${t#*/}"
+            out="entire-brain"; [[ "$goos" == windows ]] && out="entire-brain.exe"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -trimpath -ldflags "-s -w -X main.version=${bare}" \
+              -o "dist/$out" ./cmd/entire-brain
+            asset="entire-brain_${bare}_${goos}_${goarch}"
+            if [[ "$goos" == windows ]]; then
+              (cd dist && zip -q "${asset}.zip" "$out" && rm "$out")
+            else
+              (cd dist && tar -czf "${asset}.tar.gz" "$out" && rm "$out")
+            fi
+          done
+          (cd dist && sha256sum * > checksums.txt)
+
+      - name: Publish the prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.changed.outputs.version }}
+        run: |
+          set -euo pipefail
+          mapfile -t assets < <(find dist -type f | sort)
+          gh release create "$VERSION" "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$VERSION" \
+            --prerelease \
+            --generate-notes

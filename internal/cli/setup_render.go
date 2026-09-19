@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/tui"
+	"github.com/entireio/entire-brain/internal/tui"
 )
 
 // setup_render.go is the presentation half of `setup`. It is deliberately
