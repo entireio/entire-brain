@@ -21,7 +21,27 @@ Through the CLI and MCP, agents can retrieve earlier decisions, revisit past att
 
 ## Install
 
-The source installer requires Go 1.27 or later, Git 2.36 or later, the Entire CLI on `PATH`, and a C compiler for Graph's tree-sitter bindings. You also need access to the Brain repository.
+```sh
+curl -fsSL https://entire.io/brain.sh | bash
+```
+
+That downloads the release binary for your platform, verifies it against the
+release checksums, and registers it with the Entire CLI. Brain's default build
+is pure Go, so there is no Go toolchain and no C compiler to install.
+
+Add `--nightly` for the nightly channel, or `--version vX.Y.Z` to pin.
+
+Confirm the installed build:
+
+```sh
+entire brain version
+```
+
+<details>
+<summary>Building from source instead</summary>
+
+Needs Go 1.27 or later, Git 2.36 or later, the Entire CLI on `PATH`, and a C
+compiler for Graph's tree-sitter bindings.
 
 ```sh
 git clone https://github.com/entireio/entire-brain.git
@@ -33,11 +53,7 @@ The installer builds and registers Brain and Graph, writes the default plugin
 configuration, and runs a health check. It does not initialize a repository's
 memory or install the watcher.
 
-Confirm the installed build:
-
-```sh
-entire brain version
-```
+</details>
 
 See [installation options](docs/operations.md#full-install) for choosing a Graph checkout, installing offline, or building Brain alone.
 
