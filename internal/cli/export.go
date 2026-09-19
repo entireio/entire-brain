@@ -228,7 +228,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		// cleanup would hide retained sessions from the manifest and index.
 		// Explicit one-shot exports may still publish the readable subset.
 		if !metadataComplete && !outputExplicit {
-			return fmt.Errorf("%s: routed checkpoint metadata was incomplete; refusing to replace the persistent brain; retry when all metadata is readable", checkpointScopeIncompleteCode)
+			return fmt.Errorf("%s: routed checkpoint metadata was incomplete; refusing to replace the persistent brain; repair unreadable checkpoint metadata and retry, or use --output with a separate directory to export the readable subset; details: %s", checkpointScopeIncompleteCode, strings.Join(routedWarnings, "; "))
 		}
 		selected = routedSelected
 	}

@@ -79,6 +79,13 @@ func TestRoutedExportPartialMetadataPreservesPublishedBrain(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), checkpointScopeIncompleteCode) {
 				t.Errorf("partial persistent export should fail with scope-incomplete error: %v %s", err, out)
 			}
+			if err != nil {
+				for _, want := range []string{"skipped checkpoint aaa111aaa111", "--output"} {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("partial export diagnostic missing %q: %v", want, err)
+					}
+				}
+			}
 			for path, want := range before {
 				got, readErr := os.ReadFile(path)
 				if readErr != nil {
