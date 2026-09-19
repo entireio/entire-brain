@@ -83,28 +83,32 @@ curl -fsSL -o "${tmp}/${asset}" "${base}/${asset}" \
   || error "no build for ${os}/${arch} in ${version}
   Available assets: https://github.com/${GITHUB_REPO}/releases/tag/${version}"
 
-# The checksum file is the only integrity signal we have, so a failure to fetch
-# it is a warning and a failure to match it is fatal.
-if curl -fsSL -o "${tmp}/checksums.txt" "${base}/checksums.txt" 2>/dev/null; then
-  if command -v sha256sum >/dev/null; then
-    have="$(cd "$tmp" && sha256sum "$asset" | awk '{print $1}')"
-  elif command -v shasum >/dev/null; then
-    have="$(cd "$tmp" && shasum -a 256 "$asset" | awk '{print $1}')"
-  else
-    have=""
-    warn "no sha256sum or shasum available; skipping checksum verification"
-  fi
-  if [ -n "$have" ]; then
-    want="$(grep " ${asset}\$" "${tmp}/checksums.txt" | awk '{print $1}' | head -1)"
-    [ -n "$want" ] || error "checksums.txt has no entry for ${asset}"
-    [ "$have" = "$want" ] || error "checksum mismatch for ${asset}
+# The checksum is the only integrity signal this script has, and the README and
+# SECURITY.md both promise the download is verified against it. So every way of
+# not verifying is fatal: a checksums.txt we cannot fetch, a checksums.txt with
+# no entry for this asset, no tool to hash with, and of course a mismatch.
+# Failing open here would quietly downgrade a curl | bash install to nothing.
+curl -fsSL -o "${tmp}/checksums.txt" "${base}/checksums.txt" 2>/dev/null \
+  || error "could not fetch checksums.txt for ${version}
+  Refusing to install an unverified binary. Every release publishes this file,
+  so a missing one means the download path is not trustworthy right now.
+  Assets: https://github.com/${GITHUB_REPO}/releases/tag/${version}"
+
+if command -v sha256sum >/dev/null; then
+  have="$(cd "$tmp" && sha256sum "$asset" | awk '{print $1}')"
+elif command -v shasum >/dev/null; then
+  have="$(cd "$tmp" && shasum -a 256 "$asset" | awk '{print $1}')"
+else
+  error "no sha256sum or shasum on PATH, so the download cannot be verified.
+  Install coreutils (Linux) or use the system shasum (macOS), then re-run."
+fi
+
+want="$(grep " ${asset}\$" "${tmp}/checksums.txt" | awk '{print $1}' | head -1)"
+[ -n "$want" ] || error "checksums.txt has no entry for ${asset}"
+[ "$have" = "$want" ] || error "checksum mismatch for ${asset}
   expected ${want}
   got      ${have}"
-    info "checksum verified"
-  fi
-else
-  warn "could not fetch checksums.txt; installing without verification"
-fi
+info "checksum verified"
 
 tar -xzf "${tmp}/${asset}" -C "$tmp"
 [ -f "${tmp}/entire-brain" ] || error "archive did not contain entire-brain"

