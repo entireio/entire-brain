@@ -121,6 +121,11 @@ if command -v entire >/dev/null; then
     echo
     entire brain version 2>/dev/null || true
     echo
+    if ! entire graph version >/dev/null 2>&1; then
+      warn "Entire Graph is not installed. Brain uses it for code analysis, and
+  setup will report the semantic index as unavailable without it:
+  entire plugin install graph"
+    fi
     printf '%sNext:%s  entire brain setup     (in a Git repository)\n' "$BOLD" "$NC"
   else
     warn "could not register the plugin automatically. Run:

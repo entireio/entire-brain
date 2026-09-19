@@ -28,16 +28,21 @@ it:
 curl -fsSL https://entire.io/install.sh | bash
 ```
 
-Then install Brain the same way you would install Graph:
+Then install Brain, and Graph alongside it:
 
 ```sh
+entire plugin install graph
 entire plugin install brain
 ```
 
-Confirm the installed build:
+Graph supplies the code analysis Brain builds on. Brain runs without it — you
+can still search sessions, documentation, and facts — but `setup` will report
+the semantic index as unavailable until Graph is installed.
+
+Confirm both:
 
 ```sh
-entire brain version
+entire brain version && entire graph version
 ```
 
 <details>
