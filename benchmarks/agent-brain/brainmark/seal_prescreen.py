@@ -1075,6 +1075,19 @@ def run(args) -> dict:
             "would show text the candidates were not mined from."
         )
 
+    # Keep judgments and the materials they refer to together. Even when only
+    # sheets are requested, a changed slate must not replace an active packet.
+    existing_reviews = sorted(
+        p.name for p in out_root.glob("REVIEW-*.json")
+        if p.name != "REVIEW-TEMPLATE.json"
+    )
+    if existing_reviews:
+        raise SystemExit(
+            "REFUSING to replace existing human review packet: "
+            + ", ".join(existing_reviews)
+            + ". Use a new --out-dir for a new packet, or --summary-only to inspect."
+        )
+
     out_root.mkdir(parents=True, exist_ok=True)
     sheets_dir = out_root / "sheets"
 
