@@ -2,8 +2,7 @@
   "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
   "checkpoint_id": "5313a094c071",
   "strategy": "manual-commit",
-  "branch": "codex/audit-f76-respect-review-exclusions",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "internal/cli/regression.go",
     "internal/cli/regression_privacy_test.go",
@@ -17,14 +16,21 @@
       "compact_transcript": "/53/13a094c071/0/transcript.jsonl",
       "content_hash": "/53/13a094c071/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/53/13a094c071/1/metadata.json",
+      "transcript": "/53/13a094c071/1/full.jsonl",
+      "compact_transcript": "/53/13a094c071/1/transcript.jsonl",
+      "content_hash": "/53/13a094c071/1/content_hash.txt",
+      "prompt": "/53/13a094c071/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 94304,
+    "input_tokens": 165846,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 6118656,
-    "output_tokens": 6904,
-    "api_call_count": 1170,
+    "cache_read_tokens": 9186688,
+    "output_tokens": 17371,
+    "api_call_count": 1214,
     "subagent_tokens_complete": false
   }
 }
