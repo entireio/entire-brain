@@ -121,3 +121,44 @@ func TestGitFilterProbeAllowsInitOutsideRepository(t *testing.T) {
 		})
 	}
 }
+
+func TestGitFilterProbeFailureEvictsPreviousSuccess(t *testing.T) {
+	gitHardenSkipUnsupported(t)
+	repo, _ := gitHardenFilterRepo(t, "probe", "clean")
+	t.Cleanup(func() { repoFilterCache.Delete(repo) })
+	if _, err := repoFilterDriverOverrides(context.Background(), repo); err != nil {
+		t.Fatal(err)
+	}
+	config := filepath.Join(repo, ".git", "config")
+	original, err := os.ReadFile(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config, append(original, []byte("\n[invalid\n")...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repoFilterDriverOverrides(context.Background(), repo); err == nil {
+		t.Fatal("invalid config probe should fail")
+	}
+	if _, cached := repoFilterCache.Load(repo); cached {
+		t.Error("failed probe retained the previous successful cache entry")
+	}
+	if err := os.WriteFile(config, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(config, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := repoFilterDriverOverrides(ctx, repo); err == nil {
+		t.Fatal("restored stat signature reused stale cache instead of probing")
+	}
+	if overrides, err := repoFilterDriverOverrides(context.Background(), repo); err != nil || len(overrides) == 0 {
+		t.Fatalf("healthy retry: overrides=%v err=%v", overrides, err)
+	}
+}

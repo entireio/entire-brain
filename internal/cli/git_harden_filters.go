@@ -113,6 +113,7 @@ func repoFilterDriverOverrides(ctx context.Context, repoDir string) ([]gitConfig
 	}
 	overrides, err := enumerateRepoFilterDrivers(ctx, repoDir)
 	if err != nil {
+		repoFilterCache.Delete(repoDir)
 		return nil, err
 	}
 	repoFilterCache.Store(repoDir, repoFilterCacheEntry{signature: signature, overrides: overrides})
