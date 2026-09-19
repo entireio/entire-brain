@@ -2,8 +2,7 @@
   "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
   "checkpoint_id": "d6534d22a8a2",
   "strategy": "manual-commit",
-  "branch": "codex/audit-f58-preserve-purge-retry-scope",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "internal/cli/history.go",
     "internal/cli/history_delta.go",
@@ -19,13 +18,20 @@
       "compact_transcript": "/d6/534d22a8a2/0/transcript.jsonl",
       "content_hash": "/d6/534d22a8a2/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/d6/534d22a8a2/1/metadata.json",
+      "transcript": "/d6/534d22a8a2/1/full.jsonl",
+      "compact_transcript": "/d6/534d22a8a2/1/transcript.jsonl",
+      "content_hash": "/d6/534d22a8a2/1/content_hash.txt",
+      "prompt": "/d6/534d22a8a2/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 10203,
+    "input_tokens": 96761,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 767104,
-    "output_tokens": 1516,
-    "api_call_count": 14
+    "cache_read_tokens": 6707712,
+    "output_tokens": 16340,
+    "api_call_count": 88
   }
 }
