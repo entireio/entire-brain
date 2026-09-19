@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/entireio/entire-brain/internal/config"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/entireio/entire-brain/internal/config"
 	"github.com/spf13/cobra"
 )
 
