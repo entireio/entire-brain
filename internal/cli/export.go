@@ -219,10 +219,16 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		warnings = append(warnings, discoverWarnings...)
 		checkpointsScanned = len(checkpoints)
 
-		routedSelected, routedWarnings, selectErr := selectRoutedCheckpointSessions(ctx, opts.Runner, repoDir, exportOpts.entireBinary, checkpoints, branchDestinations, exportOpts.progress)
+		routedSelected, routedWarnings, metadataComplete, selectErr := selectRoutedCheckpointSessions(ctx, opts.Runner, repoDir, exportOpts.entireBinary, checkpoints, branchDestinations, exportOpts.progress)
 		warnings = append(warnings, routedWarnings...)
 		if selectErr != nil {
 			return selectErr
+		}
+		// An incomplete catalog cannot replace durable history: even skipping
+		// cleanup would hide retained sessions from the manifest and index.
+		// Explicit one-shot exports may still publish the readable subset.
+		if !metadataComplete && !outputExplicit {
+			return fmt.Errorf("%s: routed checkpoint metadata was incomplete; refusing to replace the persistent brain; retry when all metadata is readable", checkpointScopeIncompleteCode)
 		}
 		selected = routedSelected
 	}
@@ -2833,9 +2839,10 @@ func checkpointDetail(ctx context.Context, runner CommandRunner, repoDir, entire
 	return detail, nil
 }
 
-func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, checkpoints []checkpointListEntry, branchDestinations checkpointBranchDestinations, progress func(exportProgress)) (map[string]selectedSession, []string, error) {
+func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, checkpoints []checkpointListEntry, branchDestinations checkpointBranchDestinations, progress func(exportProgress)) (map[string]selectedSession, []string, bool, error) {
 	selected := make(map[string]selectedSession)
 	var warnings []string
+	complete := true
 	requestedCheckpointDetails := 0
 	readableCheckpointDetails := 0
 	for i, checkpoint := range checkpoints {
@@ -2845,6 +2852,7 @@ func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, r
 			continue
 		}
 		if checkpoint.CheckpointID == "" {
+			complete = false
 			warnings = append(warnings, "skipped checkpoint list entry with no checkpoint_id")
 			continue
 		}
@@ -2852,6 +2860,7 @@ func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, r
 		requestedCheckpointDetails++
 		detail, detailErr := checkpointDetail(ctx, runner, repoDir, entireBinary, checkpoint.CheckpointID)
 		if detailErr != nil {
+			complete = false
 			warnings = append(warnings, fmt.Sprintf("%s: skipped checkpoint %s because its routed detail metadata was unreadable", checkpointScopeIncompleteCode, checkpoint.CheckpointID))
 			continue
 		}
@@ -2859,10 +2868,12 @@ func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, r
 
 		for _, session := range detail.Sessions {
 			if session.Error != "" {
+				complete = false
 				warnings = append(warnings, fmt.Sprintf("skipped checkpoint %s session %d: %s", detail.CheckpointID, session.Index, session.Error))
 				continue
 			}
 			if session.SessionID == "" {
+				complete = false
 				warnings = append(warnings, fmt.Sprintf("skipped checkpoint %s session %d: missing session_id", detail.CheckpointID, session.Index))
 				continue
 			}
@@ -2894,9 +2905,9 @@ func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, r
 		reportExportProgress(progress, i+1, len(checkpoints), len(selected))
 	}
 	if requestedCheckpointDetails > 0 && readableCheckpointDetails == 0 {
-		return nil, warnings, fmt.Errorf("%s: none of %d listed checkpoints had readable detail metadata", checkpointScopeIncompleteCode, requestedCheckpointDetails)
+		return nil, warnings, false, fmt.Errorf("%s: none of %d listed checkpoints had readable detail metadata", checkpointScopeIncompleteCode, requestedCheckpointDetails)
 	}
-	return selected, warnings, nil
+	return selected, warnings, complete, nil
 }
 
 func shouldReplaceSession(current, candidate selectedSession) bool {

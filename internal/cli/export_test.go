@@ -504,8 +504,8 @@ func TestSelectRoutedCheckpointSessionsSkipsUnreadableDetailSibling(t *testing.T
 			stdout: `{"checkpoint_id":"bbb222bbb222","branch":"main","sessions":[{"index":0,"session_id":"readable-session","branch":"main"}]}`,
 		},
 	}}
-	selected, warnings, err := selectRoutedCheckpointSessions(context.Background(), runner, "/repo", "entire-test", checkpoints, checkpointBranchDestinations{}, nil)
-	if err != nil || len(selected) != 1 {
+	selected, warnings, complete, err := selectRoutedCheckpointSessions(context.Background(), runner, "/repo", "entire-test", checkpoints, checkpointBranchDestinations{}, nil)
+	if err != nil || len(selected) != 1 || complete {
 		t.Fatalf("partial routed detail selection = selected:%+v warnings:%v err:%v", selected, warnings, err)
 	}
 	if !strings.Contains(strings.Join(warnings, "\n"), checkpointScopeIncompleteCode+": skipped checkpoint aaa111aaa111") {
@@ -515,8 +515,8 @@ func TestSelectRoutedCheckpointSessionsSkipsUnreadableDetailSibling(t *testing.T
 		t.Fatalf("backend content leaked through warning: %v", warnings)
 	}
 
-	selected, warnings, err = selectRoutedCheckpointSessions(context.Background(), runner, "/repo", "entire-test", checkpoints[:1], checkpointBranchDestinations{}, nil)
-	if err == nil || len(selected) != 0 || !strings.Contains(err.Error(), checkpointScopeIncompleteCode) {
+	selected, warnings, complete, err = selectRoutedCheckpointSessions(context.Background(), runner, "/repo", "entire-test", checkpoints[:1], checkpointBranchDestinations{}, nil)
+	if err == nil || complete || len(selected) != 0 || !strings.Contains(err.Error(), checkpointScopeIncompleteCode) {
 		t.Fatalf("all-unreadable routed details = selected:%+v warnings:%v err:%v", selected, warnings, err)
 	}
 	if strings.Contains(err.Error(), "private transcript text") {
