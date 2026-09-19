@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "60ceb1167db5",
+  "strategy": "manual-commit",
+  "branch": "codex/audit-f61-respect-publish-exclusions",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/publish.go",
+    "internal/cli/publish_privacy_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/60/ceb1167db5/0/metadata.json",
+      "transcript": "/60/ceb1167db5/0/full.jsonl",
+      "compact_transcript": "/60/ceb1167db5/0/transcript.jsonl",
+      "content_hash": "/60/ceb1167db5/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 13857,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2402176,
+    "output_tokens": 4239,
+    "api_call_count": 34,
+    "subagent_tokens_complete": false
+  }
+}
