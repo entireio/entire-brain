@@ -27,6 +27,6 @@ TRUST,Answers cite their supporting evidence,Yes,Yes,Partial,No,Partial,No,Parti
 TRUST,Reports coverage gaps and blind spots,Yes,Yes,No,No,No,No,No,Brain `status` names blind spots explicitly
 TRUST,Reports index freshness / staleness,Yes,Yes,No,No,No,No,No,Brain `doctor` freshness checks
 TRUST,Redacts secrets from retrieved evidence,No,Yes,Unknown,Unknown,Unknown,Unknown,Unknown,"Tokens JWTs private keys home paths; mitigation not guarantee"
-DISTRIBUTION,One-line install,Yes,Yes,Yes,Yes,Yes,Yes,Yes,"Brain: curl -fsSL https://entire.io/brain.sh | bash"
+DISTRIBUTION,One-line install,Yes,Yes,Yes,Yes,Yes,Yes,Yes,"Brain: entire plugin install brain; or a self-contained curl"
 DISTRIBUTION,Prebuilt binaries for linux/macos/windows,Yes,Yes,No,No,No,No,No,Both: amd64 and arm64
 DISTRIBUTION,Nightly channel,Yes,Yes,No,No,No,No,No,Both: 06:00 UTC

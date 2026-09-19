@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-line installer for Entire Brain.
 #
-#   curl -fsSL https://entire.io/brain.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/entireio/entire-brain/main/scripts/get-brain.sh | bash
 #
 # Downloads a released binary for this platform, verifies it against the
 # release checksums, and registers it with the Entire CLI. No Go toolchain and

@@ -21,21 +21,43 @@ Through the CLI and MCP, agents can retrieve earlier decisions, revisit past att
 
 ## Install
 
+Brain is a plugin for the Entire CLI. Install the CLI first if you do not have
+it:
+
 ```sh
-curl -fsSL https://entire.io/brain.sh | bash
+curl -fsSL https://entire.io/install.sh | bash
 ```
 
-That downloads the release binary for your platform, verifies it against the
-release checksums, and registers it with the Entire CLI. Brain's default build
-is pure Go, so there is no Go toolchain and no C compiler to install.
+Then install Brain the same way you would install Graph:
 
-Add `--nightly` for the nightly channel, or `--version vX.Y.Z` to pin.
+```sh
+entire plugin install brain
+```
 
 Confirm the installed build:
 
 ```sh
 entire brain version
 ```
+
+<details>
+<summary>Installing without the plugin index</summary>
+
+One self-contained command. It downloads the release binary for your platform,
+verifies it against the release checksums, installs it to `~/.local/bin`, and
+registers it with the CLI. Brain's default build is pure Go, so there is no Go
+toolchain and no C compiler to install.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/entireio/entire-brain/main/scripts/get-brain.sh | bash
+```
+
+Add `--nightly` for the nightly channel, `--version vX.Y.Z` to pin a release,
+or `--dir <path>` to install somewhere other than `~/.local/bin`. Windows users
+can download the `.zip` from the
+[latest release](https://github.com/entireio/entire-brain/releases/latest).
+
+</details>
 
 <details>
 <summary>Building from source instead</summary>
