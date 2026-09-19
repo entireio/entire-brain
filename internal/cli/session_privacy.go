@@ -1205,7 +1205,7 @@ func privacyTransactionTranscriptPaths(tx privacyTransaction) ([]string, error) 
 	var paths []string
 	for _, artifact := range tx.Artifacts {
 		clean, err := cleanBrainRelativePath(artifact.Path)
-		if err != nil || filepath.ToSlash(clean) != artifact.Path {
+		if err != nil || !fs.ValidPath(artifact.Path) || filepath.ToSlash(clean) != artifact.Path {
 			return nil, fmt.Errorf("%s: unsafe privacy transaction artifact path %q", memoryErrStateUnsafe, artifact.Path)
 		}
 		if strings.HasPrefix(artifact.Path, exportSessionsDirectory+"/") {
