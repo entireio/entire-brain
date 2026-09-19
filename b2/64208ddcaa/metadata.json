@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "b264208ddcaa",
+  "strategy": "manual-commit",
+  "branch": "codex/audit-f62-contain-publish-paths",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "internal/cli/publish.go",
+    "internal/cli/publish_paths_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b2/64208ddcaa/0/metadata.json",
+      "transcript": "/b2/64208ddcaa/0/full.jsonl",
+      "compact_transcript": "/b2/64208ddcaa/0/transcript.jsonl",
+      "content_hash": "/b2/64208ddcaa/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 444957,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 9173504,
+    "output_tokens": 18360,
+    "api_call_count": 66
+  }
+}
