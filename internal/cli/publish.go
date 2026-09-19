@@ -735,7 +735,7 @@ func readBrainBlob(brainDir, rel string) ([]byte, bool, error) {
 	}
 	defer f.Close()
 	max := semanticSnapshotMaxBytes()
-	path := filepath.Join(brainDir, rel)
+	path := f.Name()
 	if info, err := f.Stat(); err != nil {
 		return nil, false, err
 	} else if info.Size() > max {
