@@ -2,8 +2,7 @@
   "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
   "checkpoint_id": "3f97a439d58a",
   "strategy": "manual-commit",
-  "branch": "codex/audit-f80-preserve-partial-export",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "internal/cli/export.go",
     "internal/cli/export_partial_metadata_test.go",
@@ -16,14 +15,21 @@
       "compact_transcript": "/3f/97a439d58a/0/transcript.jsonl",
       "content_hash": "/3f/97a439d58a/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/3f/97a439d58a/1/metadata.json",
+      "transcript": "/3f/97a439d58a/1/full.jsonl",
+      "compact_transcript": "/3f/97a439d58a/1/transcript.jsonl",
+      "content_hash": "/3f/97a439d58a/1/content_hash.txt",
+      "prompt": "/3f/97a439d58a/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 4856,
+    "input_tokens": 104154,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 526976,
-    "output_tokens": 1112,
-    "api_call_count": 10,
+    "cache_read_tokens": 4374656,
+    "output_tokens": 11054,
+    "api_call_count": 62,
     "subagent_tokens_complete": false
   }
 }
