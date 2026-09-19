@@ -231,7 +231,15 @@ entire brain dash   # TUI: status, facts, sessions, history, semantic
 entire brain viz    # offline graph in your browser
 ```
 
-<img width="741" height="514" alt="brain-viz" src="https://github.com/user-attachments/assets/9c620612-f316-49e2-be2a-3070c01c452a" />
+<img alt="entire brain viz — a walkthrough of the five sections of a brain"
+     src="docs/images/brain-viz.gif" width="760">
+
+`viz` opens the whole brain as one graph and lets you walk into each part of it:
+**semantic** (functions, types and calls), **facts** (decisions, gotchas and
+rules), **sessions** (agents, turns and work), **history** (commits and
+checkpoints) and **docs** (seed, guides and context). The recording above is a
+real brain — 20,478 symbols, 807,186 history records, 2,375 sessions — and it
+runs entirely on your machine: no network, no model calls, read-only.
 
 ### Recover from a split brain
 
