@@ -21,8 +21,27 @@ REPO = Path(__file__).resolve().parents[2]
 WORKFLOWS = REPO / ".github" / "workflows"
 INSTALLER = REPO / "scripts" / "get-brain.sh"
 
-# A run: block, and the indented body that belongs to it.
-RUN_BLOCK = re.compile(r"^(?P<indent> +)run: \|\s*\n(?P<body>(?:(?P=indent) .*\n|[ \t]*\n)*)", re.M)
+# Every form a run: script can take. Matching only "run: |" left the single
+# line form, the chomping forms and folded scalars unscanned — which is most of
+# the run: keys in test.yml, and exactly where a new one would be added.
+RUN_BLOCK = re.compile(
+    r"^(?P<indent> +)run:[ \t]*(?:"
+    r"(?P<inline>[^|>\n][^\n]*)\n"                       # run: echo ...
+    r"|[|>][+-]?[ \t]*\n(?P<body>(?:(?P=indent) .*\n|[ \t]*\n)*)"  # run: | / |- / > / >-
+    r")",
+    re.M,
+)
+
+
+def run_script_lines(source):
+    """Yield (line_number, text) for every line of every run: script."""
+    for block in RUN_BLOCK.finditer(source):
+        start = source[: block.start()].count("\n") + 1
+        if block.group("inline"):
+            yield start, block.group("inline")
+        else:
+            for offset, line in enumerate((block.group("body") or "").splitlines()):
+                yield start + offset + 1, line
 
 
 # Contexts whose value someone outside the repository can influence. These are
@@ -44,11 +63,9 @@ class WorkflowExpressionHygiene(unittest.TestCase):
         offenders: list[str] = []
         for workflow in sorted(WORKFLOWS.glob("*.yml")):
             source = workflow.read_text()
-            for block in RUN_BLOCK.finditer(source):
-                start = source[: block.start()].count("\n") + 1
-                for offset, line in enumerate(block.group("body").splitlines()):
-                    if UNTRUSTED_CONTEXTS.search(line):
-                        offenders.append(f"{workflow.name}:{start + offset + 1}: {line.strip()}")
+            for line_no, line in run_script_lines(source):
+                if UNTRUSTED_CONTEXTS.search(line):
+                    offenders.append(f"{workflow.name}:{line_no}: {line.strip()}")
 
         self.assertEqual(
             offenders,
@@ -57,16 +74,49 @@ class WorkflowExpressionHygiene(unittest.TestCase):
             "env: rather than interpolated into a run: script:\n  " + "\n  ".join(offenders),
         )
 
-    def test_release_version_shape_is_validated(self) -> None:
-        """A dispatched version reaches tag names, file names and release titles,
-        so the workflow pins its shape instead of trusting the input."""
+    def test_every_job_that_consumes_the_version_validates_its_shape(self) -> None:
+        """A dispatched version reaches tag names, asset file names and release
+        titles. Grepping for the error message proves nothing — this finds the
+        guard in each job and runs its regex, so a weakened pattern fails here
+        rather than in a release."""
         source = (WORKFLOWS / "release.yml").read_text()
         self.assertIn("VERSION_INPUT", source)
-        self.assertRegex(
-            source,
-            r"refusing to (build|publish) an unrecognised version",
-            "release.yml no longer rejects a version that is not vX.Y.Z",
+
+        # Split into jobs so a guard in one cannot vouch for the other.
+        jobs = dict(re.findall(r"^  (\w[\w-]*):\n(.*?)(?=^  \w[\w-]*:\n|\Z)",
+                               source, re.M | re.S))
+        for job in ("build", "publish"):
+            self.assertIn(job, jobs, f"release.yml has no {job} job")
+            guards = re.findall(r'\[\[ ! "\$version" =~ (\S+) \]\]', jobs[job])
+            self.assertEqual(
+                len(guards), 1,
+                f"the {job} job must validate the version exactly once; found {len(guards)}",
+            )
+            self._assert_regex_is_strict(guards[0], job)
+
+    ACCEPT = ["v0.1.0", "v1.2.3", "v10.20.30",
+              "v1.2.3-nightly.202609192059.abc1234", "v0.0.0-dev.f9838c0", "v0.1.0+build.5"]
+    REJECT = ["0.1.0", "v1.2", "v1", "", "v1.2.3.4", "v1.2.3-",
+              "v1.2.3; rm -rf /", "v1.2.3$(id)", "v1.2.3 && echo pwned",
+              "v1.2.3`id`", "../../etc/passwd", "v1.2.3\nv9.9.9"]
+
+    def _assert_regex_is_strict(self, pattern: str, job: str) -> None:
+        """Run the workflow's own regex in bash, the way the workflow does."""
+        script = (
+            'shopt -s nocasematch 2>/dev/null; '
+            f'if [[ "$1" =~ {pattern} ]]; then echo ACCEPT; else echo REJECT; fi'
         )
+        def verdict(value: str) -> str:
+            return subprocess.run(["bash", "-c", script, "bash", value],
+                                  capture_output=True, text=True,
+                                  timeout=30).stdout.strip()
+
+        for good in self.ACCEPT:
+            self.assertEqual(verdict(good), "ACCEPT",
+                             f"{job}: version {good!r} should be accepted by {pattern}")
+        for bad in self.REJECT:
+            self.assertEqual(verdict(bad), "REJECT",
+                             f"{job}: version {bad!r} MUST be rejected by {pattern}")
 
 
 class InstallerFailsClosed(unittest.TestCase):
@@ -118,7 +168,10 @@ class InstallerFailsClosed(unittest.TestCase):
                   esac
                 done
                 case "$url" in
-                  *checksums.txt) exit {1 if checksums_status else 0} ;;
+                  *checksums.txt)
+                    {"echo 'deadbeef  some-other-file.tar.gz' > \"$out\"; exit 0"
+                     if checksums_status == 2 else
+                     f"exit {1 if checksums_status else 0}"} ;;
                   *releases/latest) echo '{{"tag_name": "v9.9.9"}}'; exit 0 ;;
                   *.tar.gz) cp "{tmp / 'asset.tar.gz'}" "$out"; exit 0 ;;
                 esac
@@ -127,6 +180,14 @@ class InstallerFailsClosed(unittest.TestCase):
             )
         )
         fake_curl.chmod(fake_curl.stat().st_mode | stat.S_IEXEC)
+
+        # Stub `entire` too. The installer's success path runs
+        # `entire plugin install --force`, which would repoint the developer's
+        # real Brain plugin at this temp dir and then delete it on cleanup.
+        # No test takes that path today; one added later must not break the host.
+        fake_entire = fake_curl.parent / "entire"
+        fake_entire.write_text("#!/usr/bin/env bash\nexit 0\n")
+        fake_entire.chmod(fake_entire.stat().st_mode | stat.S_IEXEC)
 
         env = dict(os.environ)
         env["PATH"] = f"{fake_curl.parent}:{env['PATH']}"
@@ -150,6 +211,15 @@ class InstallerFailsClosed(unittest.TestCase):
             f"stdout={result.stdout}\nstderr={result.stderr}",
         )
         self.assertIn("checksums.txt", result.stderr)
+
+    def test_a_checksums_file_missing_this_asset_says_so(self) -> None:
+        """pipefail would kill the script at the grep assignment, making the
+        dedicated error unreachable and leaving a curl | bash user with a bare
+        exit 1 and no diagnostic."""
+        result = self._run_with_fake_curl(checksums_status=2)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no entry for", result.stderr,
+                      f"expected a diagnostic, got stderr={result.stderr!r}")
 
     def test_nothing_is_installed_when_verification_is_impossible(self) -> None:
         result, install_dir = self._run_with_fake_curl(checksums_status=1, want_dir=True)

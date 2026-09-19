@@ -20,7 +20,11 @@ permissions:
 # A tag push and a nightly dispatch can target the same version. Serialize them
 # so the second completes the existing release in place instead of racing it.
 concurrency:
-  group: release-${{ github.ref_name }}
+  # Key on the version being released, not on ref_name: for a tag push
+  # ref_name is the tag, but for a dispatch it is the branch, so the two runs
+  # this is meant to serialize would land in different groups and race to
+  # create the same release.
+  group: release-${{ inputs.version || github.ref_name }}
   cancel-in-progress: false
 
 jobs:

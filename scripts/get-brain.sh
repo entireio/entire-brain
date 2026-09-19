@@ -122,8 +122,12 @@ else
   Install coreutils (Linux) or use the system shasum (macOS), then re-run."
 fi
 
-want="$(grep " ${asset}\$" "${tmp}/checksums.txt" | awk '{print $1}' | head -1)"
-[ -n "$want" ] || error "checksums.txt has no entry for ${asset}"
+# pipefail would make a no-match grep (exit 1) kill the script at this
+# assignment, so the error below would never print. Contain it here.
+want="$({ grep " ${asset}\$" "${tmp}/checksums.txt" || true; } | awk '{print $1}' | head -1)"
+[ -n "$want" ] || error "checksums.txt has no entry for ${asset}
+  The release may have been published with different asset names.
+  Assets: https://github.com/${GITHUB_REPO}/releases/tag/${version}"
 [ "$have" = "$want" ] || error "checksum mismatch for ${asset}
   expected ${want}
   got      ${have}"
