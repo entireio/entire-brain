@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "58d551ba3cee",
+  "strategy": "manual-commit",
+  "branch": "codex/audit-f88-preserve-human-reviews",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/brainmark/seal_prescreen.py",
+    "benchmarks/agent-brain/brainmark/tests/test_prescreen_rerun.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/58/d551ba3cee/0/metadata.json",
+      "transcript": "/58/d551ba3cee/0/full.jsonl",
+      "compact_transcript": "/58/d551ba3cee/0/transcript.jsonl",
+      "content_hash": "/58/d551ba3cee/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 12175,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1434368,
+    "output_tokens": 4153,
+    "api_call_count": 16
+  }
+}
