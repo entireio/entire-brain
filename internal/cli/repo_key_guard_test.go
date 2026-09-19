@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/config"
+	"github.com/entireio/entire-brain/internal/config"
 )
 
 // A repo key is untrusted input that becomes a filesystem path, and the rules

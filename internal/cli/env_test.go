@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/config"
+	"github.com/entireio/entire-brain/internal/config"
 )
 
 func TestEnvFromOS(t *testing.T) {

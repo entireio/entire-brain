@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ashtom/entire-brain/internal/tui"
+	"github.com/entireio/entire-brain/internal/tui"
 )
 
 // status_render.go owns the TEXT rendering of `entire-brain status`. Nothing

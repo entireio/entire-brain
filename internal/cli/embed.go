@@ -10,7 +10,7 @@ import (
 	"sync"
 	"unicode"
 
-	entirebrain "github.com/ashtom/entire-brain"
+	entirebrain "github.com/entireio/entire-brain"
 )
 
 // Embedder turns text into a unit-length vector for semantic recall. It is the

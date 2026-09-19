@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factmerge"
 )
 
 // ErrConflict is what a Server.Advance returns when the head moved under it (a

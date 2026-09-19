@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/factsync"
+	"github.com/entireio/entire-brain/internal/factsync"
 )
 
 // localOnlyServer implements ONLY the fact-set head seam — what internal/factgitmeta's

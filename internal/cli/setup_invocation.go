@@ -3,7 +3,7 @@ package cli
 import (
 	"strings"
 
-	"github.com/ashtom/entire-brain/internal/tui"
+	"github.com/entireio/entire-brain/internal/tui"
 )
 
 const (

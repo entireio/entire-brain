@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/agentsetup"
 )
 
 func TestAgentSetupDoesNotActivateFromBrainRecords(t *testing.T) {

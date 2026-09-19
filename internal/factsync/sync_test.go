@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factmerge"
 )
 
 // fakeServer mirrors entire-api's FactSetStore semantics in-memory: a content-addressed

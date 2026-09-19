@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/factmerge"
-	"github.com/ashtom/entire-brain/internal/factsync"
+	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factsync"
 )
 
 // Cross-member review from the hosted brain client. The MCP surface in client.go is

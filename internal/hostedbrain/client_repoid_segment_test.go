@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/repoid"
+	"github.com/entireio/entire-brain/internal/repoid"
 )
 
 // TestRPCRejectsRepoIDThatIsNotOneSafeSegment is the assertion url.PathEscape alone

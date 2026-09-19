@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factmerge"
 )
 
 // compile-time: HTTPServer satisfies the Server seam Sync/Resolve are written against.

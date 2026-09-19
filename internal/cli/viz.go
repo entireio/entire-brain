@@ -23,7 +23,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	entirebrain "github.com/ashtom/entire-brain"
+	entirebrain "github.com/entireio/entire-brain"
 )
 
 // vizGraphMaxView is a safety ceiling on rendered nodes — NOT a feature cap. It's
