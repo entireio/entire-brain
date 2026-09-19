@@ -22,12 +22,31 @@ info()  { printf '%s==>%s %s\n' "$GREEN" "$NC" "$*"; }
 warn()  { printf '%s!%s   %s\n' "$YELLOW" "$NC" "$*" >&2; }
 error() { printf '%serror:%s %s\n' "$RED" "$NC" "$*" >&2; exit 1; }
 
+usage() {
+  # Kept inline rather than read back out of $0: the documented invocation is
+  # curl | bash, where $0 is "bash" and there is no script file to read.
+  cat <<'USAGE'
+Install Entire Brain.
+
+  curl -fsSL https://raw.githubusercontent.com/entireio/entire-brain/main/scripts/get-brain.sh | bash
+
+Options:
+  --nightly          Install the newest nightly prerelease instead of stable
+  --version vX.Y.Z   Install a specific release
+  --dir <path>       Install somewhere other than ~/.local/bin
+  -h, --help         Show this message
+
+The download is verified against the release checksums. Brain's default build
+is pure Go, so no Go toolchain and no C compiler are needed.
+USAGE
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --nightly) CHANNEL="nightly"; shift ;;
     --version) WANT_VERSION="${2:?--version needs a value}"; shift 2 ;;
     --dir)     DEFAULT_INSTALL_DIR="${2:?--dir needs a path}"; shift 2 ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    -h|--help) usage; exit 0 ;;
     *) error "unknown option: $1" ;;
   esac
 done

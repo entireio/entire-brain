@@ -162,5 +162,35 @@ class InstallerFailsClosed(unittest.TestCase):
         )
 
 
+class InstallerRunsWhenPiped(unittest.TestCase):
+    """The documented invocation is curl | bash, where $0 is "bash" and the
+    script has no file to read itself back out of. Anything that reads $0 works
+    when the script is run as a file and breaks the way it is actually used."""
+
+    def test_help_works_when_the_script_is_piped_into_bash(self) -> None:
+        result = subprocess.run(
+            ["bash", "-s", "--", "--help"],
+            input=INSTALLER.read_text(),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"--help failed when piped, which is how the README documents it:\n"
+            f"stdout={result.stdout}\nstderr={result.stderr}",
+        )
+        self.assertIn("--nightly", result.stdout)
+        self.assertNotIn("No such file", result.stderr)
+
+    def test_the_script_does_not_read_itself_from_argv_zero(self) -> None:
+        self.assertNotIn(
+            '"$0"',
+            INSTALLER.read_text(),
+            'the script must not read $0: under curl | bash it is "bash", not a path',
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
