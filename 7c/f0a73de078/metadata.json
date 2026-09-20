@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "7cf0a73de078",
+  "strategy": "manual-commit",
+  "branch": "codex/audit2-runtime",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/env.go",
+    "internal/cli/path.go",
+    "internal/cli/path_readonly_host_test.go",
+    "internal/cli/path_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/7c/f0a73de078/0/metadata.json",
+      "transcript": "/7c/f0a73de078/0/full.jsonl",
+      "compact_transcript": "/7c/f0a73de078/0/transcript.jsonl",
+      "content_hash": "/7c/f0a73de078/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 7645,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 78848,
+    "output_tokens": 225,
+    "api_call_count": 1
+  }
+}
