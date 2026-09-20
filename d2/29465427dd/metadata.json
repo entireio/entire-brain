@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "d229465427dd",
+  "strategy": "manual-commit",
+  "branch": "codex/audit2-facts",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/facts_eval_compare.go",
+    "internal/cli/facts_eval_silver_compare_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d2/29465427dd/0/metadata.json",
+      "transcript": "/d2/29465427dd/0/full.jsonl",
+      "compact_transcript": "/d2/29465427dd/0/transcript.jsonl",
+      "content_hash": "/d2/29465427dd/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 9736,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 992640,
+    "output_tokens": 1666,
+    "api_call_count": 10
+  }
+}
