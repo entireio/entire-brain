@@ -2,8 +2,7 @@
   "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
   "checkpoint_id": "9c5b230fb444",
   "strategy": "manual-commit",
-  "branch": "codex/audit2-runtime",
-  "checkpoints_count": 4,
+  "checkpoints_count": 5,
   "files_touched": [
     "internal/cli/seed.go",
     "internal/cli/seed_limit_regression_test.go"
@@ -15,13 +14,20 @@
       "compact_transcript": "/9c/5b230fb444/0/transcript.jsonl",
       "content_hash": "/9c/5b230fb444/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/9c/5b230fb444/1/metadata.json",
+      "transcript": "/9c/5b230fb444/1/full.jsonl",
+      "compact_transcript": "/9c/5b230fb444/1/transcript.jsonl",
+      "content_hash": "/9c/5b230fb444/1/content_hash.txt",
+      "prompt": "/9c/5b230fb444/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 4851,
+    "input_tokens": 488961,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 670848,
-    "output_tokens": 1814,
-    "api_call_count": 3
+    "cache_read_tokens": 20110464,
+    "output_tokens": 75311,
+    "api_call_count": 174
   }
 }
