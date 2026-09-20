@@ -264,6 +264,9 @@ func missingEvalTaskIDs(aByID, bByID map[string]evalTaskResult) ([]string, []str
 // Conflating grade with truth made eval-compare hard-error on its own default
 // eval-gen output and on every history-eval summary.
 func evalRelevanceSourcesComparable(a, b evalTaskResult) bool {
+	if a.RelevanceSource == evalRelevanceSilverLabel && b.RelevanceSource == evalRelevanceSilverLabel {
+		return a.LabelSource == evalLabelSourceProvenanceSilver && b.LabelSource == evalLabelSourceProvenanceSilver
+	}
 	if !a.Labeled || !b.Labeled {
 		return false
 	}
