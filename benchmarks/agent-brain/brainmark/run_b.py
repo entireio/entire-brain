@@ -89,6 +89,7 @@ import hashlib
 import json
 import os
 import pathlib
+import shutil
 import sys
 import tempfile
 from typing import Any
@@ -625,10 +626,24 @@ def run_pair(
     pair_root = root / pair["pair_id"]
     pair_root.mkdir(parents=True, exist_ok=True)
 
+    brain_repo = pair_root / "brain-repo"
+    if "full_brain" in arms:
+        # Preparation needs the same pinned, filtered repository history as a
+        # measured agent. A linked worktree would expose future cache objects.
+        cache = _repo.cache_dir_for(pathlib.Path(config["repo_cache"]), pair["repo"])
+        prepared = _harness.harness().create_worktree({
+            "id": pair["pair_id"], "repo_path": str(cache),
+            "base_commit": pair["b"]["base_commit"],
+        }, pair_root)
+        if brain_repo.exists():
+            shutil.rmtree(brain_repo)
+        prepared.rename(brain_repo)
+        prepared.parent.rmdir()
+
     packets = build_packets(
         config, pair, query, transcript_bytes, arms,
         a_created_at=a_meta.get("created_at") or "2026-01-01T00:00:00Z",
-        brain_repo=pair_root / "brain-repo",
+        brain_repo=brain_repo,
         brain_data_root=pair_root / "brain-data",
         force_empty_packet=force_empty_packet,
         sealed_pairs=sealed_pairs,
