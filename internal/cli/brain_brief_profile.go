@@ -58,6 +58,7 @@ type brainBriefProfileHistory struct {
 }
 
 type brainBriefProfileRawHistory struct {
+	SharedScan       bool                               `json:"shared_scan,omitempty"`
 	Invoked          bool                               `json:"invoked"`
 	DurationNS       int64                              `json:"duration_ns"`
 	QueryCount       int                                `json:"query_count"`

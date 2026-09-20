@@ -669,12 +669,12 @@ func expandConversationExchangeContext(ctx context.Context, brainDir string, rec
 	// materialized). Line transcripts stay bounded per line and by the
 	// requested range.
 	hasher := sha256.New()
-	br := bufio.NewReaderSize(io.TeeReader(contextCheckingReader{ctx: ctx, r: f}, hasher), 64*1024)
+	br := bufio.NewReaderSize(io.TeeReader(contextCheckingReader{ctx: ctx, r: f}, hasher), historyMaxLineBytes)
 
-	// Bounded probe for the transcript dialect, mirroring index-time scanning:
+	// Probe through a complete supported JSONL line before choosing a dialect:
 	// a first line that starts with "{" but is not one valid JSON object marks
 	// a document-form transcript.
-	probe, probeErr := br.Peek(4096)
+	probe, probeErr := br.Peek(historyMaxLineBytes)
 	if probeErr != nil && probeErr != io.EOF && probeErr != bufio.ErrBufferFull {
 		return conversationExpansion{}, probeErr
 	}
