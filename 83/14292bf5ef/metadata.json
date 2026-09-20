@@ -2,8 +2,7 @@
   "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
   "checkpoint_id": "8314292bf5ef",
   "strategy": "manual-commit",
-  "branch": "codex/audit2-benchmark-runner",
-  "checkpoints_count": 6,
+  "checkpoints_count": 7,
   "files_touched": [
     ".github/workflows/test.yml"
   ],
@@ -14,13 +13,20 @@
       "compact_transcript": "/83/14292bf5ef/0/transcript.jsonl",
       "content_hash": "/83/14292bf5ef/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/83/14292bf5ef/1/metadata.json",
+      "transcript": "/83/14292bf5ef/1/full.jsonl",
+      "compact_transcript": "/83/14292bf5ef/1/transcript.jsonl",
+      "content_hash": "/83/14292bf5ef/1/content_hash.txt",
+      "prompt": "/83/14292bf5ef/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 583,
+    "input_tokens": 892468,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 212608,
-    "output_tokens": 324,
-    "api_call_count": 1
+    "cache_read_tokens": 49941760,
+    "output_tokens": 138735,
+    "api_call_count": 434
   }
 }
