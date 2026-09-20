@@ -67,7 +67,7 @@ Language/relation inventories come from `entire graph capabilities --json`.
 
 ## Development source of truth
 
-Entire Brain releases are tagged (`v0.3.0` is the current one), but development
+Entire Brain releases are tagged (the public line starts at `0.1.0`), but development
 still starts from the locally fetched current mainline — a tag is a marker on
 main, not a branch to work from. Do not resume an old WIP/integration checkout
 or use an older Brain binary as a benchmark control. The Agent Brain harness
@@ -165,14 +165,14 @@ If none of the three can work, the installer fails naming all three and how to
 satisfy each. `ENTIRE_INSTALL_OFFLINE=1` disables route 3 for an air-gapped
 machine.
 
-**There is deliberately no `curl … | sh` one-liner.** It could not work and
-would buy nothing if it could: `entireio/entire-brain` is a *private*
-repository, so `raw.githubusercontent.com` answers 404 without a token and a
-piped installer would fail for exactly the people it is aimed at; installing
-means building from source, so the clone has to happen anyway and a pipe would
-replace one command with another rather than remove one; and cloning first puts
-the script that builds and registers your plugins on disk, at a reviewable
-commit, before any of it runs. `scripts/bootstrap.sh` is the equivalent for a
+**This is the source-build path, and it is not the only one.**
+`scripts/get-brain.sh` is a `curl | bash` installer that fetches a released
+binary for your platform, verifies it against the release `checksums.txt`, and
+registers it -- no clone, no Go toolchain, no C compiler, because Brain's
+default build is pure Go. It fails closed rather than installing something it
+could not verify. `entire plugin install brain` does the same through the plugin
+index. Build from source when you intend to change Brain, or when you want the
+`brain_cgo` build; otherwise install a release. `scripts/bootstrap.sh` is the equivalent for a
 machine with nothing at all — it clones `entire-brain` when it is not already
 there (falling back to `gh` for the private-repo credentials) and then runs
 `install.sh`.

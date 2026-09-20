@@ -108,3 +108,71 @@ func TestIsGitCheckout(t *testing.T) {
 		t.Errorf("a dir with a .git directory is a checkout")
 	}
 }
+
+func TestRunBrainAddHonorsNoEgress(t *testing.T) {
+	for _, toggle := range []string{"ENTIRE_BRAIN_NO_EGRESS", "ENTIRE_BRAIN_LOCAL_ONLY"} {
+		for _, existing := range []bool{false, true} {
+			t.Run(toggle+map[bool]string{false: "/clone", true: "/fetch"}[existing], func(t *testing.T) {
+				t.Setenv(toggle, "1")
+				dir := t.TempDir()
+				if existing {
+					if err := os.MkdirAll(filepath.Join(dir, "acme_widget", ".git"), 0700); err != nil {
+						t.Fatal(err)
+					}
+				}
+				rr := &recordingRunner{}
+				err := runBrainAdd(newAddTestCmd(), Options{Runner: rr}, addFlags{dir: dir}, "https://example.invalid/acme/widget")
+				if err == nil || !strings.Contains(err.Error(), "no_egress") {
+					t.Errorf("expected no-egress error: %v", err)
+				}
+				if len(rr.calls) != 0 {
+					t.Errorf("no-egress invoked git: %v", rr.calls)
+				}
+			})
+		}
+	}
+}
+
+type addOriginRunner struct {
+	recordingRunner
+	origin string
+}
+
+func (r *addOriginRunner) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	r.recordingRunner.Run(ctx, dir, name, args...)
+	if strings.Join(args, " ") == "remote get-url origin" {
+		return []byte(r.origin), nil, nil
+	}
+	return nil, nil, nil
+}
+func TestRunBrainAddChecksExistingOrigin(t *testing.T) {
+	for _, tc := range []struct {
+		name, origin string
+		wantError    bool
+	}{
+		{"different-host", "https://first.invalid/acme/widget", true},
+		{"different-parent", "https://second.invalid/other/acme/widget", true},
+		{"missing-origin", "", true},
+		{"matching", "https://second.invalid/acme/widget.git", false},
+		{"matching-ssh", "git@second.invalid:acme/widget.git", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
+			t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
+			dir := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(dir, "acme_widget", ".git"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			rr := &addOriginRunner{origin: tc.origin}
+			err := runBrainAdd(newAddTestCmd(), Options{Runner: rr}, addFlags{dir: dir}, "https://second.invalid/acme/widget")
+			if (err != nil) != tc.wantError {
+				t.Errorf("add error=%v, wantError=%v", err, tc.wantError)
+			}
+			for _, call := range rr.calls {
+				if tc.wantError && strings.Contains(strings.Join(call, " "), " fetch ") {
+					t.Errorf("fetched colliding checkout: %v", call)
+				}
+			}
+		})
+	}
+}

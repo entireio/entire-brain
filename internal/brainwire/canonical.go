@@ -69,6 +69,9 @@ const CanonicalTimeLayout = "2006-01-02T15:04:05Z"
 // logical content MUST produce identical bytes, which makes the output safe to
 // sign or content-hash across implementations.
 func CanonicalMarshal(a BrainArtifact) ([]byte, error) {
+	if err := validateArtifactStrings(a); err != nil {
+		return nil, err
+	}
 	// Serialize with Go's encoder purely as a structural bridge (HTML escaping
 	// off per rule 1), then run the same normalizer foreign bytes take. Having
 	// exactly one normalization path is what guarantees
@@ -90,6 +93,9 @@ func CanonicalMarshal(a BrainArtifact) ([]byte, error) {
 // meaning: malformed JSON, a non-object artifact, a known field with the wrong
 // JSON type, a non-integer number, or an unparseable generated_at.
 func Canonicalize(raw []byte) ([]byte, error) {
+	if err := validateRawUnicode(raw); err != nil {
+		return nil, err
+	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 
@@ -680,4 +686,79 @@ func jsonKindOf(v any) string {
 	default:
 		return fmt.Sprintf("%T", v)
 	}
+}
+
+// validateArtifactStrings runs before encoding/json can replace malformed Go
+// strings with U+FFFD. Every string in the typed wire schema must survive intact.
+func validateArtifactStrings(a BrainArtifact) error {
+	values := []string{a.Manifest.RepoKey, a.Manifest.DefaultBranch,
+		a.Manifest.BrainSchemaVersion, a.Manifest.Provider,
+		a.Manifest.ProviderVersion, a.Manifest.ProviderSchemaVersion}
+	content := func(ref ContentRef) {
+		values = append(values, ref.Digest, ref.MediaType, ref.Path)
+	}
+	for _, ref := range a.Snapshots {
+		values = append(values, ref.Commit, ref.Tree)
+		content(ref.Content)
+	}
+	for _, ref := range a.Overlays {
+		values = append(values, ref.BaseCommit, ref.HeadCommit, ref.Branch)
+		content(ref.Content)
+	}
+	for _, ref := range a.Facts {
+		values = append(values, ref.Branch)
+		content(ref.Content)
+	}
+	for _, value := range values {
+		if !utf8.ValidString(value) {
+			return errors.New("brainwire: artifact string is not valid UTF-8")
+		}
+	}
+	return nil
+}
+
+// validateRawUnicode rejects inputs encoding/json would decode lossily. JSON
+// syntax remains the decoder's responsibility; this checks raw UTF-8 and pairs
+// escaped UTF-16 surrogates inside strings, including unknown keys and values.
+func validateRawUnicode(raw []byte) error {
+	if !utf8.Valid(raw) {
+		return errors.New("brainwire: artifact is not valid UTF-8")
+	}
+	inString := false
+	for i := 0; i < len(raw); i++ {
+		if raw[i] == '"' {
+			inString = !inString
+			continue
+		}
+		if !inString || raw[i] != '\\' {
+			continue
+		}
+		i++
+		if i >= len(raw) || raw[i] != 'u' {
+			continue
+		}
+		if i+4 >= len(raw) {
+			return errors.New("brainwire: incomplete Unicode escape")
+		}
+		code, err := strconv.ParseUint(string(raw[i+1:i+5]), 16, 16)
+		if err != nil {
+			return errors.New("brainwire: invalid Unicode escape")
+		}
+		i += 4
+		if code >= 0xDC00 && code <= 0xDFFF {
+			return errors.New("brainwire: unpaired Unicode surrogate")
+		}
+		if code < 0xD800 || code > 0xDBFF {
+			continue
+		}
+		if i+6 >= len(raw) || raw[i+1] != '\\' || raw[i+2] != 'u' {
+			return errors.New("brainwire: unpaired Unicode surrogate")
+		}
+		low, err := strconv.ParseUint(string(raw[i+3:i+7]), 16, 16)
+		if err != nil || low < 0xDC00 || low > 0xDFFF {
+			return errors.New("brainwire: unpaired Unicode surrogate")
+		}
+		i += 6
+	}
+	return nil
 }

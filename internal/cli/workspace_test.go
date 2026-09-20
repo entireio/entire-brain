@@ -3009,6 +3009,7 @@ func TestWorkspaceSearchAndGetIncludesPersistedGraphEdges(t *testing.T) {
 		RelationKind: "cross_repo_graphql_call",
 	}
 	if _, err := writeWorkspaceGraphPayload(env, workspaceGraphPayload{
+		Generation:  workspaceGraphTestGeneration(t, env, manifest),
 		Workspace:   manifest.Name,
 		GeneratedAt: time.Now(),
 		CrossEdges:  []workspaceGraphCrossEdge{edge},
@@ -3336,6 +3337,7 @@ func TestWorkspaceConversationSourceIsolationAndBranchPropagation(t *testing.T) 
 		RelationKind: "cross_repo_http_call",
 	}
 	if _, err := writeWorkspaceGraphPayload(env, workspaceGraphPayload{
+		Generation:  workspaceGraphTestGeneration(t, env, manifest),
 		Workspace:   manifest.Name,
 		GeneratedAt: now,
 		CrossEdges:  []workspaceGraphCrossEdge{edge},

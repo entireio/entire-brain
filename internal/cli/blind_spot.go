@@ -5,21 +5,16 @@ import (
 	"time"
 )
 
-// blind_spot.go is Phase 2 item 6 (agent-utility plan): blind spots on every
-// empty. An empty retrieval result reads as "nothing exists", but what the
-// agent needs to know is whether nothing is *indexed* — "no facts; last
-// distill 3 days ago; 12 sessions undigested" is actionable (run distill, or
-// trust the empty), while bare silence is ambiguous. The line rides only on
-// EMPTY results: a result set that found something needs no apology.
-
-// distillCoverage reports when facts were last distilled and how many
-// captured sessions postdate that (their insights are not yet in the fact
-// store). ok=false when the brain has no facts source at all.
+// distillCoverage reports the last recorded distillation and sessions created
+// since it. Older sessions may also be unprocessed; timestamps do not prove coverage.
 func distillCoverage(manifest *exportManifest) (last time.Time, undigested int, ok bool) {
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Facts == nil {
 		return time.Time{}, 0, false
 	}
-	last = manifest.Sources.Facts.GeneratedAt
+	last = manifest.Sources.Facts.LastDistilledAt
+	if last.IsZero() {
+		return time.Time{}, 0, false
+	}
 	if manifest.Sources.Sessions != nil {
 		for _, s := range manifest.Sources.Sessions.Sessions {
 			if s.CreatedAt.After(last) {
@@ -61,14 +56,14 @@ func emptyResultBlindSpot(brainDir string) string {
 	last, undigested, ok := distillCoverage(manifest)
 	if !ok {
 		if manifest.Sources.Sessions != nil && len(manifest.Sources.Sessions.Sessions) > 0 {
-			return fmt.Sprintf("note: %d captured session(s) have never been distilled; run `entire brain distill`", len(manifest.Sources.Sessions.Sessions))
+			return fmt.Sprintf("note: distillation coverage is unknown for %d captured session(s); run `entire brain distill`", len(manifest.Sources.Sessions.Sessions))
 		}
-		return "note: the brain has no distilled facts; run `entire brain refresh`, then `distill`"
+		return "note: no distillation timestamp is recorded; run `entire brain refresh`, then `distill`"
 	}
 	if undigested > 0 {
-		return fmt.Sprintf("note: facts last distilled %s; %d session(s) captured since are not yet distilled", last.Format("2006-01-02"), undigested)
+		return fmt.Sprintf("note: last distillation %s; %d session(s) captured since; coverage of older sessions is unknown", last.Format("2006-01-02"), undigested)
 	}
-	return fmt.Sprintf("note: facts last distilled %s and all captured sessions are distilled — the answer may genuinely not be in the brain", last.Format("2006-01-02"))
+	return fmt.Sprintf("note: last distillation %s; complete session coverage is unknown, so this empty result is not evidence of absence", last.Format("2006-01-02"))
 }
 
 // noBrainBlindSpot is the note for a repository whose brain does not exist or

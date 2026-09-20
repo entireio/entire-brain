@@ -124,6 +124,11 @@ func preserveFactDistillEvidence(source, previous *factSourceManifest) {
 	if source == nil || previous == nil {
 		return
 	}
+	source.LastDistilledAt = previous.LastDistilledAt
+	if previous.TokenUsage != nil {
+		usage := *previous.TokenUsage
+		source.TokenUsage = &usage
+	}
 	source.ChunksScanned = previous.ChunksScanned
 	source.ChunksDistilled = previous.ChunksDistilled
 	source.CacheHits = previous.CacheHits

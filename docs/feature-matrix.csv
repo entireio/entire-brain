@@ -1,32 +1,52 @@
-Category,Feature,Entire Graph,Entire Brain,Graphify,mem0,cognee,supermemory,codebase-memory-mcp,Notes
-SOURCING,Parses code structure locally (tree-sitter),Yes,Via Graph,Yes,No,Partial,No,Yes,"Graph: 36 semantic languages, 149 inventory"
-SOURCING,Indexes agent session transcripts,No,Yes,No,Yes,Yes,Yes,No,Brain: 2375 sessions on the entireio/cli brain
-SOURCING,Indexes commit / checkpoint history,No,Yes,No,No,No,No,No,Brain: 807186 history records on the same brain
-SOURCING,Indexes repository documentation,No,Yes,Yes,No,Yes,No,Partial,Brain source `doc` is on by default
-SOURCING,Durable hand-authored facts,No,Yes,No,Yes,Yes,Yes,No,Brain source `fact` is on by default
-RETRIEVAL,Ranked code search from plain language,Yes,Via Graph,Yes,No,Partial,No,Yes,
-RETRIEVAL,Keyword / lexical retrieval,Yes,Yes,Yes,Partial,Yes,Yes,Yes,Brain modes: hybrid keyword semantic
-RETRIEVAL,Vector / semantic retrieval,No,Yes,Yes,Yes,Yes,Yes,No,Brain: needs the brain_cgo build for the embedder
-RETRIEVAL,Hybrid retrieval (lexical + vector fused),No,Yes,Unknown,Unknown,Unknown,Unknown,No,Brain default_mode is hybrid (RRF)
-RETRIEVAL,Task-scoped context packet,No,Yes,No,No,No,No,No,`entire brain brief` — bounded packet for one task
-STRUCTURE,Callers / callees / inheritance,Yes,Via Graph,Yes,No,Partial,No,Yes,
-STRUCTURE,Change blast radius,Yes,Via Graph,Unknown,No,No,No,Unknown,`entire graph impact`
-STRUCTURE,Entity-level semantic diff between revisions,Yes,Via Graph,No,No,No,No,No,`entire graph diff`
-STRUCTURE,Symbol to checkpoint index,No,Yes,No,No,No,No,No,`entire brain entities`
-OPERATION,Runs fully local,Yes,Yes,Partial,No,Partial,No,Yes,"Graphify uses an LLM pass for docs/media; mem0 and supermemory are hosted"
-OPERATION,Zero LLM tokens to build the index,Yes,Yes,Partial,No,No,No,Yes,"mem0 measured at 50.85M index-time tokens; cognee 12.35M"
-OPERATION,No network calls on the default build,Yes,Yes,No,No,No,No,Yes,Brain: `doctor` reports memory_provider_egress
-OPERATION,No API key required,Yes,Yes,No,No,No,No,Yes,
-OPERATION,Pure-Go binary (no toolchain for the user),No,Yes,No,No,No,No,No,"Graph needs CGO for tree-sitter; Brain default build is pure Go"
-INTERFACE,MCP server,Yes,Yes,Yes,Yes,Yes,Yes,Yes,
-INTERFACE,CLI,Yes,Yes,Yes,Partial,Yes,Partial,Yes,
-INTERFACE,Installs agent instructions into the repo,Yes,Yes,Yes,No,No,No,No,"init-agents writes AGENTS.md / CLAUDE.md managed blocks"
-INTERFACE,Visual graph explorer,No,Yes,Yes,No,Yes,No,No,`entire brain viz` — local browser UI
-INTERFACE,Terminal dashboard,No,Yes,No,No,No,No,No,`entire brain dash`
-TRUST,Answers cite their supporting evidence,Yes,Yes,Partial,No,Partial,No,Partial,
-TRUST,Reports coverage gaps and blind spots,Yes,Yes,No,No,No,No,No,Brain `status` names blind spots explicitly
-TRUST,Reports index freshness / staleness,Yes,Yes,No,No,No,No,No,Brain `doctor` freshness checks
-TRUST,Redacts secrets from retrieved evidence,No,Yes,Unknown,Unknown,Unknown,Unknown,Unknown,"Tokens JWTs private keys home paths; mitigation not guarantee"
-DISTRIBUTION,One-line install,Yes,Yes,Yes,Yes,Yes,Yes,Yes,"Brain: entire plugin install brain; or a self-contained curl"
-DISTRIBUTION,Prebuilt binaries for linux/macos/windows,Yes,Yes,No,No,No,No,No,Both: amd64 and arm64
-DISTRIBUTION,Nightly channel,Yes,Yes,No,No,No,No,No,Both: 06:00 UTC
+Category,Feature,Entire Graph,Entire Brain,Graphify,mem0,cognee,supermemory,codebase-memory-mcp,Notes,Source
+SOURCING,Parses code structure locally (tree-sitter),Yes,Via Graph,Yes,No,Partial,No,Yes,THEY DO IT BETTER — we cover 36 semantic of 185 languages; codebase-memory-mcp ships 162 with an embedded LSP pass and no API keys,https://deusdata.github.io/codebase-memory-mcp/
+SOURCING,Indexes agent session transcripts,No,Yes,No,Yes,Yes,Yes,No,Brain: 2375 sessions on the entireio/cli brain,verified: capabilities --json
+SOURCING,Indexes commit / checkpoint history,No,Yes,No,No,No,No,No,Brain: 807186 history records on the same brain,verified: capabilities --json
+SOURCING,Indexes repository documentation,No,Yes,Yes,No,Yes,No,Partial,Brain source `doc` is on by default,verified: capabilities --json
+SOURCING,Durable hand-authored facts,No,Yes,No,Yes,Yes,Yes,No,Brain source `fact` is on by default,verified: capabilities --json
+SOURCING,"Ingest non-code documents (PDF, Office, images)",No,No,Yes,No,Yes,Yes,No,"REAL GAP — Graphify parses PDFs, Office files and live Postgres schemas with tree-sitter, locally. Deterministic parsers cost zero tokens, so local-only is no excuse.",https://github.com/Graphify-Labs/graphify
+SOURCING,"Ingest from external services (Slack, Notion, Drive)",No,No,Unknown,Yes,Yes,Yes,No,"TRADE-OFF — Genuinely needs network and OAuth. The honest sub-gap is issues and PRs, which are git-adjacent and reachable offline from a fetched remote.",https://supermemory.ai/connectors/
+SOURCING,Capture beyond a single repository,No,No,Unknown,Yes,Yes,Yes,No,"REAL GAP — Sharpest one. Pieces is local-first, on-device, and still not repo-scoped. Our repo scoping is a product choice being defended as a privacy consequence.",https://docs.pieces.app/products/core-dependencies/pieces-os/long-term-memory
+RETRIEVAL,Ranked code search from plain language,Yes,Via Graph,Yes,No,Partial,No,Yes,,
+RETRIEVAL,Keyword / lexical retrieval,Yes,Yes,Yes,Partial,Yes,Yes,Yes,Brain modes: hybrid keyword semantic,verified: capabilities --json
+RETRIEVAL,Vector / semantic retrieval,No,Yes,Yes,Yes,Yes,Yes,No,Brain: needs the brain_cgo build for the embedder,verified: capabilities --json
+RETRIEVAL,Hybrid retrieval (lexical + vector fused),No,Yes,Unknown,Unknown,Unknown,Unknown,No,Brain default_mode is hybrid (RRF),verified: capabilities --json
+RETRIEVAL,Task-scoped context packet,No,Yes,No,No,No,No,No,`entire brain brief` — bounded packet for one task,verified: capabilities --json
+RETRIEVAL,Recency decay / time-weighted ranking,No,No,Unknown,Yes,Unknown,Unknown,Unknown,"REAL GAP — No excuse available. Verified directly: pure scoring math, explicitly a soft ranking bias and never a filter, zero LLM. Plus TTL via expiration_date. We have retract and gc but no time-weighting.",https://docs.mem0.ai/platform/features/memory-decay
+RETRIEVAL,Cross-user / multi-tenant memory scoping,No,No,No,Yes,Yes,Yes,No,"TRADE-OFF — Fair for a single-machine tool, but it blocks every memory-for-my-product's-users case outright.",https://supermemory.ai/docs/concepts/container-tags
+RETRIEVAL,Scales to 100M-line codebases,Unknown,Unknown,Unknown,No,No,No,Unknown,"REAL GAP (unverified on our side) — Augment indexes 100M lines in 250MB with sub-200ms search and Zoekt does sub-50ms over ~2GB multi-repo. We have not measured Brain or Graph at that scale, so our cells are Unknown rather than a claim either way.",https://www.augmentcode.com/blog/repo-scale-100M-line-codebase-quantized-vector-search
+STRUCTURE,Callers / callees / inheritance,Yes,Via Graph,Yes,No,Partial,No,Yes,Serena does real LSP goto-def/find-refs across 40+ languages,https://github.com/oraios/serena
+STRUCTURE,Change blast radius,Yes,Via Graph,Unknown,No,No,No,Unknown,`entire graph impact`,verified: capabilities --json
+STRUCTURE,Entity-level semantic diff between revisions,Yes,Via Graph,No,No,No,No,No,`entire graph diff`,verified: capabilities --json
+STRUCTURE,Symbol to checkpoint index,No,Yes,No,No,No,No,No,`entire brain entities`,verified: capabilities --json
+STRUCTURE,Compiler-accurate navigation (LSP or SCIP),Partial,No,Unknown,No,No,No,Yes,"PARTLY REAL — Precision costs a build step they accept and we don't. But we already ship scip_snapshot_experimental, so the ceiling is a roadmap choice, not a design law.",https://sourcegraph.com/docs/code-search/code-navigation/precise_code_navigation
+STRUCTURE,Typed ontology / user-declared schema,No,No,Unknown,Unknown,Yes,Unknown,Unknown,"PARTLY REAL — Auto-classification needs an LLM, which is a fair exclusion. A user-declared schema our deterministic extractor validates against does not.",https://help.getzep.com/entity-types
+STRUCTURE,Edge provenance (extracted vs inferred),No,No,Yes,No,No,No,No,REAL GAP — Graphify tags every edge EXTRACTED / INFERRED / AMBIGUOUS. Purely deterministic; nothing about our design prevents it.,https://github.com/Graphify-Labs/graphify
+STRUCTURE,Automatic fact merge and supersede,Partial,Partial,Unknown,Yes,Unknown,Unknown,Unknown,THEY DO IT BETTER — ours is a gated agent run that costs tokens; mem0 Dream is always-on and automatic,https://docs.mem0.ai/platform/features/dream
+OPERATION,Runs fully local,Yes,Yes,Partial,No,Partial,No,Yes,Graphify uses an LLM pass for docs/media; mem0 and supermemory are hosted,verified: capabilities --json
+OPERATION,Zero LLM tokens to build the index,Yes,Yes,Partial,No,No,No,Yes,mem0 measured at 50.85M index-time tokens; cognee 12.35M,verified: capabilities --json
+OPERATION,No network calls on the default build,Yes,Yes,No,No,No,No,Yes,Brain: `doctor` reports memory_provider_egress,verified: capabilities --json
+OPERATION,No API key required,Yes,Yes,No,No,No,No,Yes,,
+OPERATION,Pure-Go binary (no toolchain for the user),No,Yes,No,No,No,No,No,Graph needs CGO for tree-sitter; Brain default build is pure Go,verified: capabilities --json
+OPERATION,Agent can author a durable fact at runtime (MCP),No,No,Unknown,Yes,Yes,Yes,Yes,"REAL GAP — Brain's MCP surface has 36 tools and 4 of them write, but all write derived state: brain_index_repository, brain_refresh, brain_ingest_traces, brain_delete_project. None authors a fact. `remember` is CLI-only, so an agent mid-session cannot record what it learned.",https://docs.letta.com/guides/agents/memory-blocks/
+OPERATION,"Team-wide index built once, server-side",No,No,No,Yes,Unknown,Yes,No,"TRADE-OFF — Real cost though: every developer rebuilds, and workspaces need a local clone and local build per repo, so org-scale is impractical.",https://docs.github.com/en/enterprise-cloud@latest/copilot/concepts/context/repository-indexing
+OPERATION,Hosted / managed offering,No,No,No,Yes,Yes,Yes,No,"TRADE-OFF — the deliberate opposite of our pitch, and the reason several rows above read No.",https://supermemory.ai/docs/concepts/container-tags
+INTERFACE,MCP server,Yes,Yes,Yes,Yes,Yes,Yes,Yes,,
+INTERFACE,CLI,Yes,Yes,Yes,Partial,Yes,Partial,Yes,,
+INTERFACE,Installs agent instructions into the repo,Yes,Yes,Yes,No,No,No,No,init-agents writes AGENTS.md / CLAUDE.md managed blocks,verified: capabilities --json
+INTERFACE,Visual graph explorer,No,Yes,Yes,No,Yes,No,No,cognee offers 4 views including an embedding projection,https://docs.cognee.ai/guides/graph-visualization
+INTERFACE,Terminal dashboard,No,Yes,No,No,No,No,No,`entire brain dash`,verified: capabilities --json
+INTERFACE,Remote MCP over HTTP or SSE,No,No,Unknown,Yes,Yes,Yes,Unknown,"REAL GAP — `brain mcp` is stdio-only, so no cloud agent, teammate, or second machine can reach a brain.",https://mem0.ai/blog/introducing-openmemory-mcp
+INTERFACE,REST/HTTP API and client SDKs,No,No,Unknown,Yes,Yes,Yes,No,REAL GAP — Pieces is local-first and still serves localhost with Python and TS SDKs. Local-only does not imply CLI-only. We ship no HTTP server at all.,https://github.com/pieces-app/pieces-os-client-sdk-for-python
+INTERFACE,Framework integrations and webhooks,No,No,Unknown,Yes,Unknown,Yes,No,"REAL GAP — Packaging, not design. 20+ integrations versus our zero; mem0 has 8 webhook event types.",https://docs.mem0.ai/integrations
+INTERFACE,Memory as plain files you can grep and edit,No,No,Unknown,No,Unknown,Yes,Unknown,"REAL GAP — Cheap, and ideologically on-brand for us. SMFS mounts the container as a POSIX filesystem.",https://github.com/supermemoryai/smfs
+TRUST,Answers cite their supporting evidence,Yes,Yes,Partial,No,Partial,No,Partial,,
+TRUST,Reports coverage gaps and blind spots,Yes,Yes,No,No,No,No,No,Brain `status` names blind spots explicitly,verified: capabilities --json
+TRUST,Reports index freshness / staleness,Yes,Yes,No,No,No,No,No,Brain `doctor` freshness checks,verified: capabilities --json
+TRUST,Redacts secrets from retrieved evidence,No,Yes,Unknown,Unknown,Unknown,Unknown,Unknown,Tokens JWTs private keys home paths; mitigation not guarantee,verified: capabilities --json
+TRUST,Published head-to-head benchmark numbers,No,No,Unknown,Yes,Yes,Yes,Unknown,"REAL GAP — Self-inflicted. We have a better eval harness than most of them and publish nothing, so buyers cannot compare us at all.",https://supermemory.ai/docs/memorybench/overview
+TRUST,"Enterprise controls (SSO, RBAC, audit log)",No,No,No,Unknown,Unknown,Unknown,No,"TRADE-OFF — Fair for a single binary, but it is the wall in any enterprise deal, and zero-network answers residency only, not audit or RBAC.",https://cursor.com/docs/enterprise
+DISTRIBUTION,One-line install,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Brain: entire plugin install brain; or a self-contained curl,verified: capabilities --json
+DISTRIBUTION,Prebuilt binaries for linux/macos/windows,Yes,Yes,No,No,No,No,No,Both: amd64 and arm64,verified: capabilities --json
+DISTRIBUTION,Nightly channel,Yes,Yes,No,No,No,No,No,Both: 06:00 UTC,verified: capabilities --json
+DISTRIBUTION,Import from other memory tools,No,No,Unknown,Unknown,Yes,Unknown,Unknown,"REAL GAP — cognee imports mem0/Letta/Zep/Graphiti. Our bundle is proprietary and one-way, which is exactly the friction a switcher hits.",https://github.com/topoteretes/cognee

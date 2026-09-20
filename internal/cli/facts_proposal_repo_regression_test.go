@@ -1,0 +1,94 @@
+package cli
+
+import (
+	"fmt"
+	"testing"
+)
+
+func TestHostedOtherRepoDoesNotMutateLocalFacts(t *testing.T) {
+	f, fake, proposal := newHostedProposalsFixture(t)
+	f.writeFacts(t, "main", fake.headFacts(t))
+	out, err := execute(t, NewRootCommand(f.opts), "facts", "proposals", "apply", proposal.ID, "--repo-id", "a-different-repository")
+	if err != nil {
+		t.Fatalf("resolve: %v %s", err, out)
+	}
+	facts, err := loadFacts(f.storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fact := range facts {
+		if fact.Status != factStatusActive {
+			t.Errorf("another repo changed local fact: %s status=%s", fact.ID, fact.Status)
+		}
+	}
+}
+
+func TestHostedSettlementRequiresMatchingLocalBinding(t *testing.T) {
+	for _, tc := range []struct{ name, repo, host string }{
+		{"missing", "", ""},
+		{"different repo", "other-repo", "same"},
+		{"different API", "repo-01HZZ", "https://other.example"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, fake, proposal := newHostedProposalsFixture(t)
+			f.writeFacts(t, "main", fake.headFacts(t))
+			if err := writeFactProposals(f.storage.BrainDir, "main", []factProposal{proposal.Proposal}); err != nil {
+				t.Fatal(err)
+			}
+			if tc.repo != "" {
+				host := tc.host
+				if host == "same" {
+					host = publishFlagOrEnv("", envAPIBaseURL)
+				}
+				if err := writeHostedFactsBinding(f.storage.BrainDir, "main", tc.repo, host); err != nil {
+					t.Fatal(err)
+				}
+			}
+			out, err := execute(t, NewRootCommand(f.opts), "facts", "proposals", "apply", proposal.ID)
+			if err != nil {
+				t.Fatalf("hosted settlement: %v %s", err, out)
+			}
+			facts, err := loadFacts(f.storage.BrainDir, "main")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, fact := range facts {
+				if fact.Status != factStatusActive {
+					t.Errorf("unbound settlement changed local fact %s", fact.ID)
+				}
+			}
+			queue, err := loadFactProposals(f.storage.BrainDir, "main")
+			if err != nil || len(queue) != 1 {
+				t.Fatalf("unbound settlement pruned local queue: %+v %v", queue, err)
+			}
+		})
+	}
+}
+
+func TestHostedBindingSurvivesProposalListFailure(t *testing.T) {
+	for _, status := range []int{404, 503} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			f, fake, proposal := newHostedProposalsFixture(t)
+			f.writeFacts(t, "main", fake.headFacts(t))
+			fake.failList = status
+			if out, err := execute(t, NewRootCommand(f.opts), "facts", "sync", "--facts-backend", "http"); err != nil {
+				t.Fatalf("facts head sync: %v %s", err, out)
+			}
+			fake.failList = 0
+			if err := checkHostedFactsBinding(f.storage.BrainDir, "main", "repo-01HZZ", publishFlagOrEnv("", envAPIBaseURL)); err != nil {
+				t.Fatalf("successful fact sync lost binding after queue failure: %v", err)
+			}
+			if out, err := execute(t, NewRootCommand(f.opts), "facts", "proposals", "apply", proposal.ID); err != nil {
+				t.Fatalf("apply after queue recovery: %v %s", err, out)
+			}
+			facts, err := loadFacts(f.storage.BrainDir, "main")
+			if err != nil {
+				t.Fatal(err)
+			}
+			target := indexOfFact(facts, proposal.Proposal.TargetID)
+			if target < 0 || facts[target].Status != factStatusSuperseded {
+				t.Fatalf("settlement was not mirrored after successful fact sync: %+v", facts)
+			}
+		})
+	}
+}
