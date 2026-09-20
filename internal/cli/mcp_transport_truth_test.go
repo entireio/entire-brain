@@ -225,19 +225,9 @@ func TestBrainIngestTracesStaysInsideTheBoundRepository(t *testing.T) {
 	}
 }
 
-// TestTraceContainmentHoldsForAnUnboundServer pins the gap a live probe found
-// after the containment landed: it was enforced against env.RepoRoot alone, so
-// a server started by cd-ing into a repository -- no ENTIRE_REPO_ROOT -- read
-// any absolute path and still answered the two failures differently.
-//
-//	UNBOUND  /etc/hosts -> "invalid character '#' looking for beginning of value"
-//	BOUND    /etc/hosts -> "... is scoped to the MCP server's bound repository"
-//
-// The oracle stayed open in a launch mode this surface endorses: mcpRepoLocalStorage
-// exists precisely so a cwd launch answers brain_list_projects. The root is now
-// resolved by the caller, so both launches enforce the same scope. A process that
-// is genuinely not inside a repository still has no scope to enforce.
-func TestTraceContainmentHoldsForAnUnboundServer(t *testing.T) {
+// TestTracePathContainmentPolicy tests the path helper with a resolved repository root.
+// Server startup and cwd root discovery are separate integration boundaries.
+func TestTracePathContainmentPolicy(t *testing.T) {
 	root := t.TempDir()
 	inside := filepath.Join(root, "traces.json")
 	if err := os.WriteFile(inside, []byte(`{"traces":[]}`), 0o600); err != nil {
@@ -245,16 +235,16 @@ func TestTraceContainmentHoldsForAnUnboundServer(t *testing.T) {
 	}
 
 	// The resolved cwd repository stands in for what mcpConfigRepoRoot returns
-	// for an unbound server: the same value, reached without ENTIRE_REPO_ROOT.
+	// for an path policy: the same value, reached without ENTIRE_REPO_ROOT.
 	for _, path := range []string{"/etc/hosts", filepath.Join(t.TempDir(), "absent.json")} {
 		if _, err := mcpResolveTracePath(root, "brain_ingest_traces", path); err == nil {
-			t.Errorf("unbound server accepted %q", path)
+			t.Errorf("path policy accepted %q", path)
 		} else if strings.Contains(err.Error(), "no such file") || strings.Contains(err.Error(), "invalid character") {
 			t.Errorf("unbound refusal for %q leaks existence or parseability: %v", path, err)
 		}
 	}
 	if _, err := mcpResolveTracePath(root, "brain_ingest_traces", inside); err != nil {
-		t.Errorf("unbound server refused a path inside its own repository: %v", err)
+		t.Errorf("path policy refused a path inside its own repository: %v", err)
 	}
 
 	// No repository at all is the one remaining latitude, matching
@@ -264,13 +254,7 @@ func TestTraceContainmentHoldsForAnUnboundServer(t *testing.T) {
 	}
 }
 
-// TestAnOversizeStringArgumentIsRefusedBeforeItIsEchoed.
-//
-// The response budget sheds ROWS, so a call at the schema's integer maximum
-// always returns an answer. It cannot shed a scalar the tool echoes back: a 1 MB
-// query produced a 1,000,201 byte result that "could not be reduced by dropping
-// result rows" and hard -32000'd, so the guarantee held for limits and not for
-// strings.
+// Scalar arguments are validated before execution; row trimming cannot reduce them.
 func TestAnOversizeStringArgumentIsRefusedBeforeItIsEchoed(t *testing.T) {
 	t.Parallel()
 
@@ -450,7 +434,7 @@ func TestBrainListProjectsResolvesItsRepositoryLikeEveryOtherTool(t *testing.T) 
 		t.Fatalf("unbound resolution from inside a repository failed: %v", err)
 	}
 	if !resolved {
-		t.Fatal("an unbound server inside a repository refused to resolve it; brain_list_projects is dead on a cwd launch")
+		t.Fatal("an path policy inside a repository refused to resolve it; brain_list_projects is dead on a cwd launch")
 	}
 	if fromCwd.Key != bound.Key {
 		t.Errorf("cwd resolution picked %q, bound picks %q", fromCwd.Key, bound.Key)

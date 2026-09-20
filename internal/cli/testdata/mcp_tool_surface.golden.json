@@ -45,7 +45,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "description": "Maximum records per section (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum records per section (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -145,7 +145,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum results (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum results (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -251,7 +251,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum results (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum results (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -352,7 +352,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum results (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum results (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -484,7 +484,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum symbols (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum symbols (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -510,7 +510,7 @@
       "additionalProperties": false,
       "properties": {
         "depth": {
-          "description": "Relation depth (over-budget results drop tail rows and set response_truncated)",
+          "description": "Relation depth (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "depth",
@@ -522,7 +522,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum symbols (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum symbols (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -548,7 +548,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "description": "Maximum symbols (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum symbols (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -570,7 +570,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum results (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum results (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -681,7 +681,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum results (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum results (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -707,7 +707,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "description": "Maximum results (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum results (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -740,7 +740,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "description": "Maximum relations (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum relations (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -801,7 +801,7 @@
       "additionalProperties": false,
       "properties": {
         "depth": {
-          "description": "Maximum relation depth (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum relation depth (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "depth",
@@ -834,7 +834,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "description": "Maximum symbols (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum symbols (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -851,7 +851,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "description": "Maximum symbols (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum symbols (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -901,7 +901,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum test suggestions (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum test suggestions (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -941,7 +941,7 @@
           "type": "string"
         },
         "limit": {
-          "description": "Maximum boundary symbols (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum boundary symbols (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -963,7 +963,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum suspected regressions (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum suspected regressions (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -999,7 +999,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum findings (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum findings (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -1035,7 +1035,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum suspected regressions per repo (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum suspected regressions per repo (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -1073,7 +1073,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "description": "Maximum contracts/cross_edges (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum contracts/cross_edges (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -1104,7 +1104,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum findings per repo (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum findings per repo (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -1142,7 +1142,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "description": "Maximum patterns to return (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum patterns to return (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -1188,7 +1188,7 @@
           "type": "string"
         },
         "limit": {
-          "description": "Maximum matching entities (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum matching entities (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",

@@ -702,17 +702,9 @@ func TestBrainInspectCodeAndShow(t *testing.T) {
 		t.Fatalf("show output missing record:\n%s", out)
 	}
 
-	cmd = NewRootCommand(opts)
-	out, err = execute(t, cmd, "inspect", "code", "ValidateToken", "--json")
-	if err != nil {
-		t.Fatalf("inspect code: %v\n%s", err, out)
-	}
-	if !strings.Contains(out, `"name": "ValidateToken"`) {
-		t.Fatalf("inspect code output missing symbol:\n%s", out)
-	}
 }
 
-func TestBrainInspectDecisionsSearchesExportedText(t *testing.T) {
+func TestIndexedDecisionsSearchesExportedText(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))

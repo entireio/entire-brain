@@ -12,19 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// A degenerate repository already exited 1, which was right. What it printed was
-// the first git subprocess that happened to notice, verbatim:
-//
-//	resolve HEAD for semantic index: git [-c core.fsmonitor=false rev-parse HEAD]:
-//	exit status 128: fatal: ambiguous argument 'HEAD': unknown revision or path
-//	not in the working tree.
-//	Use '--' to separate paths from revisions, like this:
-//	'git <command> [<revision>...] -- [<file>...]'
-//
-// Three things are wrong with that. It does not name the condition ("no commits
-// yet"), it names no way out, and `-c core.fsmonitor=false` is an argument this
-// binary adds for hardening and the reader never typed -- so the one concrete
-// detail in the message is about our internals.
+// Degenerate repositories must report an actionable diagnosis instead of raw Git errors.
 
 // gitAt runs real git, because these conditions are properties of an actual
 // repository on disk and a scripted runner cannot express them: the fake keys on

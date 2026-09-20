@@ -6,12 +6,7 @@ import (
 	"testing"
 )
 
-// fuseTieDigests is an 8-way exact tie. sort.SliceStable leaves
-// comparator-equal elements in input order, and the input order of
-// fuseScoredRankLists is a Go map range, which is re-randomized on every
-// iteration. With an incomplete comparator a single call therefore has a
-// 1/8! (~1 in 40,320) chance of landing on the sorted order, so the assertion
-// below fails on effectively every run and certainly within the loop.
+// Equal-score records must sort deterministically regardless of map iteration order.
 var fuseTieDigests = []string{"d01", "d02", "d03", "d04", "d05", "d06", "d07", "d08"}
 
 func fuseTieLists(records []historyRecord) [][]scoredHistoryRecord {

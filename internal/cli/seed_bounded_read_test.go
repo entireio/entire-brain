@@ -43,9 +43,7 @@ func writeLargeDoc(t *testing.T, path string, n int) string {
 	return "sha256:" + hex.EncodeToString(hasher.Sum(nil))
 }
 
-// allocatedBy reports how many bytes fn allocated in total. TotalAlloc is cumulative
-// and never decreases, so it measures the peak demand a slurp places on the
-// allocator even when the garbage collector reclaims it immediately after.
+// allocatedBy measures cumulative bytes allocated during fn, not peak live memory.
 func allocatedBy(t *testing.T, fn func()) uint64 {
 	t.Helper()
 	var before, after runtime.MemStats

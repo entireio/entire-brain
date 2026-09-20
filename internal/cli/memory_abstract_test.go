@@ -531,6 +531,29 @@ func TestMemoryAdminScopedAndResumeFlags(t *testing.T) {
 
 func TestMemoryRebuildFailurePreservesVectorStores(t *testing.T) {
 	opts, brainDir := memoryAdminCommandFixture(t)
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Sources == nil {
+		manifest.Sources = &brainSources{}
+	}
+	fixtureDir, transcriptRel, _ := historyProjectionFixture(t)
+	fixtureManifest, err := loadBrainManifest(fixtureDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transcript, err := os.ReadFile(filepath.Join(fixtureDir, filepath.FromSlash(transcriptRel)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeBrainRelativeFileAtomic(brainDir, transcriptRel, transcript, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest.Sources.Sessions = fixtureManifest.Sources.Sessions
+	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
+		t.Fatal(err)
+	}
 	vectorRel := filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, historyVecStoreFileNamePortable))
 	vectorPath := filepath.Join(brainDir, filepath.FromSlash(vectorRel))
 	if err := os.MkdirAll(filepath.Dir(vectorPath), 0o700); err != nil {
@@ -540,12 +563,19 @@ func TestMemoryRebuildFailurePreservesVectorStores(t *testing.T) {
 	if err := os.WriteFile(vectorPath, want, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	oldRebuild := rebuildMemoryProjection
-	defer func() { rebuildMemoryProjection = oldRebuild }()
-	rebuildMemoryProjection = func(string, time.Time) error { return errors.New("injected build failure") }
+	originalWrite := historyProjectionWriteFile
+	defer func() { historyProjectionWriteFile = originalWrite }()
+	stageWrites := 0
+	historyProjectionWriteFile = func(dir, rel string, data []byte, mode os.FileMode) error {
+		stageWrites++
+		return errors.New("injected stage write failure")
+	}
 	out, err := execute(t, newMemoryRebuildCommand(opts), "--all")
-	if err == nil || !strings.Contains(err.Error(), "injected build failure") {
+	if err == nil || !strings.Contains(err.Error(), "injected stage write failure") {
 		t.Fatalf("rebuild error = %v, want injected failure\n%s", err, out)
+	}
+	if stageWrites == 0 {
+		t.Fatal("real rebuild never reached the projection write boundary")
 	}
 	got, err := os.ReadFile(vectorPath)
 	if err != nil || string(got) != string(want) {

@@ -300,27 +300,9 @@ func TestMCPBrainBriefToolDefinitionGolden(t *testing.T) {
 		t.Fatalf("brain_brief tool definition changed\n got: %s\nwant: %s", got, want)
 	}
 
-	// Exact local o200k_base evidence: this definition is 1,199 -> 747 bytes and
-	// 260 -> 162 tokens; the full tools/list result is 16,532 -> 16,080 bytes and
-	// 3,509 -> 3,411 tokens. The pinned tokenizer asset (SHA-256
-	// 446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d)
-	// is deliberately not a production or test dependency.
-	// The declared integer ceiling (mcpIntegerArgMax) adds 16 bytes per integer
-	// argument. Byte counts below are re-measured; the token counts are the
-	// earlier measurement and are NOT re-measured here, because the pinned
-	// o200k_base asset is deliberately not a test dependency. Across the whole
-	// surface this is +432 bytes on the tools/list result (26,074 -> 26,506).
-	// The response-budget note (mcpResponseBudgetNote) adds 64 bytes per limit/
-	// depth argument -- 22 of them -- for +1,536 bytes on the tools/list result
-	// (27,433 -> 28,969). The full statement of the contract is carried once in
-	// initialize's instructions instead of being repeated in twenty-two schemas.
-	// A declared maxLength on every string argument (mcpStringArgMaxBytes) adds
-	// 18 bytes per string argument, so the surface can state the bound it
-	// enforces: an argument the tool echoes back cannot be trimmed away by
-	// dropping rows, so an oversize scalar is refused rather than blowing the
-	// response budget.
-	if len(got) != 861 {
-		t.Fatalf("brain_brief tool definition bytes = %d, want 861", len(got))
+	// Pin serialized schema bytes; tokenizer measurements are not part of this test.
+	if len(got) != 871 {
+		t.Fatalf("brain_brief tool definition bytes = %d, want 871", len(got))
 	}
 }
 

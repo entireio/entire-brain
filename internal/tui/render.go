@@ -59,13 +59,6 @@ func DetectCaps(w io.Writer) Caps { return DetectCapsWithEnv(w, os.LookupEnv) }
 // DetectCapsWithEnv is DetectCaps with the environment injected, so the
 // TTY/NO_COLOR/locale matrix is testable without mutating process state.
 func DetectCapsWithEnv(w io.Writer, lookup EnvLookup) Caps {
-	if lookup == nil {
-		lookup = func(string) (string, bool) { return "", false }
-	}
-	getenv := func(key string) string {
-		value, _ := lookup(key)
-		return value
-	}
 	file, ok := w.(*os.File)
 	if !ok || file == nil {
 		return PlainCaps()
@@ -74,19 +67,27 @@ func DetectCapsWithEnv(w io.Writer, lookup EnvLookup) Caps {
 	if !isatty.IsTerminal(fd) && !isatty.IsCygwinTerminal(fd) {
 		return PlainCaps()
 	}
-	caps := Caps{TTY: true}
-	// NO_COLOR is honoured by PRESENCE, per no-color.org: an empty value still
-	// means "no colour". TERM=dumb and an unset TERM describe a terminal that
-	// cannot be trusted with escape sequences at all, so they disable the
-	// in-place repaint too, not just the colour.
+	caps := terminalCaps(lookup)
+	if caps.TTY {
+		caps.Width = terminalWidth(fd, func(key string) string { value, _ := lookup(key); return value })
+	}
+	return caps
+}
+
+// terminalCaps resolves environment policy after the caller verifies a terminal.
+func terminalCaps(lookup EnvLookup) Caps {
+	if lookup == nil {
+		lookup = func(string) (string, bool) { return "", false }
+	}
+	getenv := func(key string) string { value, _ := lookup(key); return value }
 	if !SupportsFullScreen(getenv) {
 		return PlainCaps()
 	}
+	caps := Caps{TTY: true, Unicode: localeIsUTF8(getenv)}
+	// NO_COLOR is defined by presence, including an empty value.
 	if _, noColor := lookup("NO_COLOR"); !noColor {
 		caps.Color = true
 	}
-	caps.Unicode = localeIsUTF8(getenv)
-	caps.Width = terminalWidth(fd, getenv)
 	return caps
 }
 

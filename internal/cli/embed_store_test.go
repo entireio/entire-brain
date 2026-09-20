@@ -148,15 +148,12 @@ func TestRerankerDiskCacheReusesVectors(t *testing.T) {
 	}
 }
 
-func TestRerankerFlushDropsInvalidCachedVectorWhenRepairFails(t *testing.T) {
+func TestRerankerFlushRejectsInvalidCachedVectorWhenRepairFails(t *testing.T) {
 	dir := t.TempDir()
 	fact := factRecord{ID: "fact:invalid", Text: "durable checkpoint policy", Status: factStatusActive}
 	e := &fakeFusionEmbedder{fail: func(text string) bool { return text == factEmbeddingText(fact) }}
 	store := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim())
-	present := map[string]struct{}{fact.ID: {}}
-	if err := store.savePresent(map[string][]float32{fact.ID: {0, 0}}, present); err != nil {
-		t.Fatal(err)
-	}
+	seedPersistedZeroVector(t, store, fact.ID, e.Dim())
 
 	rr := newSemanticRerankerForBranch(e, dir, "main")
 	if vector := rr.factVector(fact); vector != nil {
@@ -166,7 +163,7 @@ func TestRerankerFlushDropsInvalidCachedVectorWhenRepairFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, ok := store.load()[fact.ID]; ok {
-		t.Fatal("flush resurrected the invalid persisted vector")
+		t.Fatal("invalid persisted vector became readable after failed repair")
 	}
 }
 

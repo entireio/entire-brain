@@ -7,48 +7,9 @@ import (
 	"testing"
 )
 
-// The README's own examples must be executable.
-//
-// Written 2026-09-11, scoring the whole command surface for release readiness.
-// There are 34 top-level commands, and eleven were named in the README with no
-// test behind them at all:
-//
-//	bench, inspect blame, inspect dead-code, inspect graph-schema,
-//	inspect graph-ui, inspect ingest-traces, inspect trace-path,
-//	facts map, facts promote, facts retract, facts eval-compare
-//
-// That gap is what makes "is it stable?" unanswerable. A documented command
-// with no test is a promise nobody has checked, and the promise that matters is
-// not deep behaviour — it is the first thing a new user does. They read the
-// README, paste a line from it against a brain that does not exist yet, and
-// find out from the result whether this project is finished.
-//
-// So every invocation below is COPIED FROM THE README, at the line noted, with
-// only the angle-bracket placeholders filled in. That is the point: this is a
-// contract test on the documentation, not an independent guess at how these
-// commands are called. Writing the table by hand instead is how the first draft
-// of this file "found" a bug that was mine — it invented `facts promote --to`,
-// which does not exist, while README line 378 correctly documents `--from`.
-//
-// The contract is narrow on purpose:
-//
-//  1. THE README'S INVOCATION IS ACCEPTED. Not "unknown command", not "unknown
-//     flag". A renamed flag or a subcommand moved under a different parent
-//     silently turns a documented example into a dead end, and nothing else in
-//     this repo would notice.
-//
-//  2. IT DOES NOT PANIC. A panic on an empty brain is the worst first
-//     impression available, and most of these read stores, graphs and manifests
-//     that are simply absent before the first refresh.
-//
-//  3. IT SAYS SOMETHING. Success or a real error, never silence. On an empty
-//     brain most of these SHOULD fail; what they must not do is fail blankly.
-//
-// Deliberately NOT asserted: the shape of a successful result. These eleven
-// span benchmarking, graph traversal and fact lifecycle, and pinning their
-// output here would be a worse test than none — it would break on every honest
-// change and teach people to delete it. Behaviour belongs in each command's own
-// test. This is the floor beneath all of them.
+// These retained example invocations must be accepted without panics and produce
+// output or an actionable error on an empty brain. The historical line numbers
+// identify their source; this test does not parse current documentation.
 
 // documentedCommand is one README example: the command path, the operands and
 // flags that follow it, and the README line it was taken from.

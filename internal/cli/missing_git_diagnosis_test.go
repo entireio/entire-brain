@@ -84,8 +84,7 @@ func TestMissingGitIsNotReportedAsMissingRepository(t *testing.T) {
 	})
 }
 
-// The four gates that refuse a non-repository must all route through the
-// diagnosis, or the bug survives in whichever one was missed.
+// Path resolution and refresh must distinguish missing Git from a missing repository.
 func TestRepoNessGatesDiagnoseMissingGit(t *testing.T) {
 	ctx := context.Background()
 	opts := Options{Runner: gitAbsentRunner{}, Env: EntireEnv{}}

@@ -3961,14 +3961,17 @@ func brainBriefLikelyFileBonus(path string) int {
 }
 
 func brainBriefLikelyTestFile(path string) bool {
-	lower := strings.ToLower(path)
-	base := filepath.Base(lower)
-	return strings.Contains(lower, "/test/") ||
-		strings.Contains(lower, "/tests/") ||
-		strings.Contains(base, ".test.") ||
-		strings.Contains(base, ".spec.") ||
-		strings.HasSuffix(base, "_test.go") ||
-		strings.HasSuffix(base, "_test.py")
+	lower := strings.ToLower(strings.ReplaceAll(path, `\`, "/"))
+	parts := strings.Split(lower, "/")
+	for _, part := range parts[:len(parts)-1] {
+		if part == "test" || part == "tests" || part == "__tests__" {
+			return true
+		}
+	}
+	base := parts[len(parts)-1]
+	return strings.Contains(base, ".test.") || strings.Contains(base, ".spec.") ||
+		strings.HasSuffix(base, "_test.go") || strings.HasSuffix(base, "_test.py") ||
+		strings.HasPrefix(base, "test_") && strings.HasSuffix(base, ".py")
 }
 
 func extractBrainBriefPaths(text string) []string {

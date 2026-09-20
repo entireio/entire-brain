@@ -172,10 +172,7 @@ func TestFactsVectorRankedRepairsInvalidCachedVector(t *testing.T) {
 		factEmbeddingText(fact): {1, 0},
 	}}
 	store := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim())
-	present := map[string]struct{}{fact.ID: {}}
-	if err := store.savePresent(map[string][]float32{fact.ID: {0, 0}}, present); err != nil {
-		t.Fatal(err)
-	}
+	seedPersistedZeroVector(t, store, fact.ID, e.Dim())
 
 	out := factsVectorRanked(dir, "main", []factRecord{fact}, "repair query", e, 1)
 	if len(out) != 1 || out[0].ID != fact.ID {
@@ -189,7 +186,7 @@ func TestFactsVectorRankedRepairsInvalidCachedVector(t *testing.T) {
 	}
 }
 
-func TestFactsVectorRankedDropsInvalidCachedVectorWhenRepairFails(t *testing.T) {
+func TestFactsVectorRankedRejectsInvalidCachedVectorWhenRepairFails(t *testing.T) {
 	dir := t.TempDir()
 	fact := factRecord{ID: "fact:invalid", Text: "durable checkpoint policy", Status: factStatusActive}
 	e := &fakeFusionEmbedder{
@@ -197,16 +194,13 @@ func TestFactsVectorRankedDropsInvalidCachedVectorWhenRepairFails(t *testing.T) 
 		fail: func(text string) bool { return text == factEmbeddingText(fact) },
 	}
 	store := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim())
-	present := map[string]struct{}{fact.ID: {}}
-	if err := store.savePresent(map[string][]float32{fact.ID: {0, 0}}, present); err != nil {
-		t.Fatal(err)
-	}
+	seedPersistedZeroVector(t, store, fact.ID, e.Dim())
 
 	if out := factsVectorRanked(dir, "main", []factRecord{fact}, "repair query", e, 1); len(out) != 0 {
 		t.Fatalf("failed repair returned an invalid semantic hit: %+v", out)
 	}
 	if _, ok := store.load()[fact.ID]; ok {
-		t.Fatal("failed repair left the invalid fact vector on disk")
+		t.Fatal("failed repair exposed an invalid fact vector")
 	}
 }
 
@@ -218,10 +212,7 @@ func TestDocsVectorRankedRepairsInvalidCachedVector(t *testing.T) {
 		doc.Text:       {1, 0},
 	}}
 	store := newDocEmbedStore(dir, e.ID(), e.Dim())
-	present := map[string]struct{}{doc.ID: {}}
-	if err := store.savePresent(map[string][]float32{doc.ID: {0, 0}}, present); err != nil {
-		t.Fatal(err)
-	}
+	seedPersistedZeroVector(t, store, doc.ID, e.Dim())
 
 	out := docsVectorRanked(dir, docIndex{Records: []docRecord{doc}}, "repair query", e, 1, false, nil)
 	if len(out.ranked) != 1 || out.ranked[0].ID != "doc:"+doc.ID {
@@ -235,7 +226,7 @@ func TestDocsVectorRankedRepairsInvalidCachedVector(t *testing.T) {
 	}
 }
 
-func TestDocsVectorRankedDropsInvalidCachedVectorWhenRepairFails(t *testing.T) {
+func TestDocsVectorRankedRejectsInvalidCachedVectorWhenRepairFails(t *testing.T) {
 	dir := t.TempDir()
 	doc := docRecord{ID: "invalid", Text: "durable checkpoint policy"}
 	e := &fakeFusionEmbedder{
@@ -243,16 +234,13 @@ func TestDocsVectorRankedDropsInvalidCachedVectorWhenRepairFails(t *testing.T) {
 		fail: func(text string) bool { return text == doc.Text },
 	}
 	store := newDocEmbedStore(dir, e.ID(), e.Dim())
-	present := map[string]struct{}{doc.ID: {}}
-	if err := store.savePresent(map[string][]float32{doc.ID: {0, 0}}, present); err != nil {
-		t.Fatal(err)
-	}
+	seedPersistedZeroVector(t, store, doc.ID, e.Dim())
 
 	if out := docsVectorRanked(dir, docIndex{Records: []docRecord{doc}}, "repair query", e, 1, false, nil); len(out.ranked) != 0 {
 		t.Fatalf("failed repair returned an invalid semantic hit: %+v", out.ranked)
 	}
 	if _, ok := store.load()[doc.ID]; ok {
-		t.Fatal("failed repair left the invalid doc vector on disk")
+		t.Fatal("failed repair exposed an invalid doc vector")
 	}
 }
 
