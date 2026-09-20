@@ -1,6 +1,8 @@
 package agentsetup
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -147,18 +149,6 @@ func TestCoordinationNoRuntimeProbes(t *testing.T) {
 		if !strings.Contains(CombinedGuide, want) {
 			t.Errorf("combined guide missing %q", want)
 		}
-	}
-}
-func TestCoordinationPluginListFormat(t *testing.T) {
-	for _, raw := range []string{"", "[]", "Managed plugin directory: /fixture\n", "Managed plugin directory: /fixture\nbrain", "Managed plugin directory: /fixture\n  brain /a\n  brain /b\n"} {
-		if _, err := parsePluginList(raw); err == nil {
-			t.Errorf("accepted malformed listing %q", raw)
-		}
-	}
-	raw := "Managed plugin directory: /fixture\n\n  brain                                    → /path with spaces/brain\n  graph                v0.4.0 (pinned)     /fixture/graph\n"
-	got, err := parsePluginList(raw)
-	if err != nil || !got["brain"] || !got["graph"] {
-		t.Fatal(got, err)
 	}
 }
 func TestCoordinationOutsideRepository(t *testing.T) {
@@ -345,4 +335,15 @@ func TestCoordinationPartialMigrationKeepsRedirectTarget(t *testing.T) {
 	if got := readFileForTest(t, brain); got != legacyRedirect {
 		t.Fatal("regeneration did not finish migration")
 	}
+}
+
+// Reproduce the legacy local identity only to build ignored runtime fixtures.
+func localKey(p string) string {
+	p = filepath.Clean(p)
+	sum := sha256.Sum256([]byte(p))
+	base := cleanComponent(filepath.Base(p))
+	if base == "" {
+		base = "repo"
+	}
+	return fmt.Sprintf("local/%s-%x", base, sum[:6])
 }

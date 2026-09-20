@@ -273,9 +273,9 @@ func TestWatchPlanEntryCarriesTheBudgetSetupReported(t *testing.T) {
 	if entry.Agent != "claude" {
 		t.Fatalf("the daemon must use the agent setup resolved and paid the backfill with: %+v", entry)
 	}
-	// "auto" and "none" are resolutions, not agents: writing either into the
-	// plan would make the daemon pass a nonsense --agent value forever.
-	for _, sentinel := range []string{"auto", "none", ""} {
+	// Unresolved automatic selection keeps the daemon default. Explicit
+	// "none" is retained and disables distillation when the plan is applied.
+	for _, sentinel := range []string{"auto", ""} {
 		opts.agent = sentinel
 		if got := setupWatchPlanEntryFor(opts, time.Unix(0, 0)).Agent; got != "" {
 			t.Fatalf("agent %q must not reach the plan, got %q", sentinel, got)
