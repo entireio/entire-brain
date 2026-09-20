@@ -16,8 +16,8 @@ The profile covers:
 - semantic context, runtime trace, and test lookup;
 - history index load (when the verified JSON fallback or semantic arm needs it)
   and indexed rank;
-- raw-history fallback totals plus one numeric row per executed query (at most
-  eight), including files and bytes scanned, matches, truncation, and errors;
+- raw-history fallback totals from the same single filesystem scan used without
+  profiling, plus one numeric row per evaluated query (at most eight);
 - facts load, vector-cache load, embedding calls, rank, and cache flush;
 - likely-file and action-checklist synthesis;
 - patterns, consolidations, and themes; and
@@ -72,3 +72,10 @@ degraded or truncated result instead of silently implying a complete negative.
 Any optimization must retain fixtures proving that valid fallback-only matches
 are not lost. This open work is tracked with the other current limitations in
 `docs/semantic_brain_plan.md`.
+
+Raw fallback profiles set `shared_scan: true`. Aggregate duration, file, byte,
+and error counts describe physical work once. Query rows report candidate matches
+and truncation; their duration, file, byte, and error fields are zero because the
+scan is shared and those costs cannot be attributed to one query. Aggregate I/O
+counts therefore are not sums of query rows in this mode. The older multi-scan
+implementation remains only as a test and benchmark reference.

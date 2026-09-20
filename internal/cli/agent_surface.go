@@ -1479,6 +1479,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		historyEmbedder := defaultEmbedder()
 		fusionEnabled := historySemanticEmbedder(historyEmbedder) != nil
 		var scoredHistory []scoredHistoryRecord
+		var rankedHistoryIndex *historyIndex
 		var historyErr error
 
 		if !fusionEnabled {
@@ -1506,6 +1507,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 				var index historyIndex
 				var legacyIdentity *historyLegacyIdentity
 				index, legacyIdentity, historyErr = loadBrainHistoryIndexWithLegacyIdentity(status.Brain.Path, source)
+				rankedHistoryIndex = &index
 				if profile != nil {
 					historyErrors := 0
 					if historyErr != nil {
@@ -1547,6 +1549,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			indexLoadStarted := profile.start()
 			var index historyIndex
 			index, historyErr = loadBrainHistoryIndex(status.Brain.Path, source)
+			rankedHistoryIndex = &index
 			if profile != nil {
 				historyErrors := 0
 				if historyErr != nil {
@@ -1579,13 +1582,21 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			if !briefGuard.empty() {
 				briefGuardPred = func(r historyRecord) bool { return !briefGuard.blocksRecord(r) }
 			}
-			if len(freshOverlay.overlay) > 0 {
-				// The closure ignores its argument and returns the ranking
-				// already computed from the LONG-TERM tier, so the on-disk BM25
-				// store never sees a merged record set (Bugbot PR #77).
-				scoredHistory = rankFreshHistory(freshOverlay, "history", task, briefOpts.limit, briefGuardPred, func(historyIndex) ([]scoredHistoryRecord, bool) {
-					return scoredHistory, true
-				})
+			if len(freshOverlay.overlay) > 0 || len(freshOverlay.replaced) > 0 {
+				if rankedHistoryIndex != nil {
+					// Reuse the truth already loaded by the fused or legacy arm.
+					freshOverlay.index = *rankedHistoryIndex
+					scoredHistory = rankFreshHistory(freshOverlay, "history", task, briefOpts.limit, briefGuardPred, func(index historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
+						return rankHistoryFusedFiltered(status.Brain.Path, index, "history", task, briefOpts.limit, historyEmbedder, eligible)
+					})
+				} else {
+					// A validated payload ranking does not need JSON truth. Apply
+					// replacement/privacy eligibility in that same payload path.
+					scoredHistory, _, _, historyErr = rankFreshHistoryLexicalFromSource(status.Brain.Path, source, "history", task, briefOpts.limit, briefGuardPred)
+					if historyErr != nil {
+						report.Warnings = append(report.Warnings, "history context unavailable: "+historyErr.Error())
+					}
+				}
 			}
 			if briefGuardPred != nil {
 				kept := scoredHistory[:0:0]
@@ -4986,16 +4997,11 @@ func brainBriefRawHistoryMatches(brainDir, task string, existing []brainTextMatc
 }
 
 func brainBriefRawHistoryMatchesObserved(brainDir, task string, existing []brainTextMatch, limit int, profile *brainBriefProfileRawHistory) ([]brainTextMatch, error) {
-	if profile == nil {
-		return brainBriefRawHistoryMatchesSingleScan(brainDir, task, existing, limit)
-	}
-	return brainBriefRawHistoryMatchesMultiScan(brainDir, task, existing, limit, profile)
+	return brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task, existing, limit, profile)
 }
 
-// brainBriefRawHistoryMatchesMultiScan preserves the observation contract for
-// opt-in profiling: each query has its own measured filesystem walk and byte
-// count. The default product path uses brainBriefRawHistoryMatchesSingleScan,
-// which produces the same ordered matches with one walk.
+// brainBriefRawHistoryMatchesMultiScan is the retained reference for parity
+// tests and benchmarks. Product profiling observes the shared single scan.
 func brainBriefRawHistoryMatchesMultiScan(brainDir, task string, existing []brainTextMatch, limit int, profile *brainBriefProfileRawHistory) ([]brainTextMatch, error) {
 	var profileStarted time.Time
 	if profile != nil {
@@ -5094,6 +5100,22 @@ type brainBriefRawHistoryQuery struct {
 // query n can request at most limit-len(matches) hits, and the legacy scanner
 // stops before deduplication at precisely that prefix length.
 func brainBriefRawHistoryMatchesSingleScan(brainDir, task string, existing []brainTextMatch, limit int) ([]brainTextMatch, error) {
+	return brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task, existing, limit, nil)
+}
+
+func brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task string, existing []brainTextMatch, limit int, profile *brainBriefProfileRawHistory) (out []brainTextMatch, returnErr error) {
+	if profile != nil {
+		profile.Invoked = true
+		profile.SharedScan = true
+		started := time.Now()
+		defer func() {
+			profile.DurationNS = max(0, time.Since(started).Nanoseconds())
+			if returnErr != nil {
+				profile.ErrorCount++
+			}
+		}()
+	}
+
 	if limit <= 0 {
 		return nil, nil
 	}
@@ -5119,9 +5141,24 @@ func brainBriefRawHistoryMatchesSingleScan(brainDir, task string, existing []bra
 		return nil, nil
 	}
 
+	if profile != nil {
+		defer func() {
+			for i, query := range queries {
+				truncated := len(query.matches) >= limit
+				profile.Queries = append(profile.Queries, brainBriefProfileRawHistoryQuery{
+					Ordinal: i + 1, MatchCount: len(query.matches), Truncated: truncated,
+				})
+				profile.MatchCount += len(query.matches)
+				if truncated {
+					profile.TruncationCount++
+				}
+			}
+			profile.QueryCount = len(queries)
+		}()
+	}
+
 	// Exclusion guard, identical to inspectBrainRawText's. This is the
-	// DEFAULT product path (the profiling path routes through
-	// inspectBrainRawTextObserved and is guarded there), so without this a
+	// shared product and profiling path, so without this a
 	// tombstoned session's transcript would be scanned here and its lines
 	// merged straight into report.History.Matches. rawGuard.paths is the only
 	// exclusion mechanism available in a raw file walk, and it is populated
@@ -5141,6 +5178,9 @@ func brainBriefRawHistoryMatchesSingleScan(brainDir, task string, existing []bra
 	scanBuffer := make([]byte, 64*1024)
 	err := filepath.WalkDir(brainDir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if profile != nil {
+				profile.ErrorCount++
+			}
 			return nil
 		}
 		if d.IsDir() {
@@ -5172,11 +5212,22 @@ func brainBriefRawHistoryMatchesSingleScan(brainDir, task string, existing []bra
 			return nil
 		}
 		scannedFiles++
+		if profile != nil {
+			profile.ScannedFileCount++
+		}
 		f, openErr := os.Open(path)
 		if openErr != nil {
+			if profile != nil {
+				profile.ErrorCount++
+			}
 			return nil
 		}
-		scanner := bufio.NewScanner(f)
+		var reader io.Reader = f
+		counting := &brainBriefCountingReader{reader: f}
+		if profile != nil {
+			reader = counting
+		}
+		scanner := bufio.NewScanner(reader)
 		scanner.Buffer(scanBuffer, brainInspectHistoryMaxLine)
 		lineNo := 0
 		for scanner.Scan() {
@@ -5216,6 +5267,12 @@ func brainBriefRawHistoryMatchesSingleScan(brainDir, task string, existing []bra
 			}
 			if fullQueries == len(queries) {
 				break
+			}
+		}
+		if profile != nil {
+			profile.ScannedByteCount += counting.bytes
+			if scanner.Err() != nil {
+				profile.ErrorCount++
 			}
 		}
 		_ = f.Close()
@@ -5344,10 +5401,7 @@ func historyRawLineExcerpt(line, query string) string {
 	}
 	if idx == -1 {
 		// The full query was not a literal substring. Locate the first significant
-		// query token directly in `lower` so the resulting offset stays valid for
-		// `text`. (Using an offset from normalizeHistorySearchText, which collapses
-		// punctuation/case and splits camelCase, would index a differently-sized
-		// string and misalign the window.)
+		// query token in the case-folded text; map its position back below.
 		for _, tok := range strings.Fields(query) {
 			if len(tok) < 3 {
 				continue
@@ -5362,9 +5416,23 @@ func historyRawLineExcerpt(line, query string) string {
 	if idx == -1 {
 		return strings.TrimSpace(truncateString(text, 700))
 	}
-	start := max(0, idx-280)
-	end := min(len(text), idx+matchLen+620)
-	// Snap the window to rune boundaries so the slice is valid UTF-8.
+	// Lowercasing can change UTF-8 byte widths. Convert the folded offsets
+	// through rune positions before taking a byte-bounded original window.
+	firstRune := utf8.RuneCountInString(lower[:idx])
+	lastRune := utf8.RuneCountInString(lower[:idx+matchLen])
+	firstByte, lastByte, ordinal := len(text), len(text), 0
+	for offset := range text {
+		if ordinal == firstRune {
+			firstByte = offset
+		}
+		if ordinal == lastRune {
+			lastByte = offset
+			break
+		}
+		ordinal++
+	}
+	start := max(0, firstByte-280)
+	end := min(len(text), lastByte+620)
 	for start > 0 && !utf8.RuneStart(text[start]) {
 		start--
 	}
@@ -5416,8 +5484,8 @@ func brainBriefFocusedHistoryMatches(brainDir string, fresh freshHistory, primar
 	// rankFreshHistory keeps the FTS/fused arm on the on-disk long-term index
 	// and fuses the short-term overlay in memory (Bugbot PR #77: passing a
 	// merged index here rebuilt or misresolved the BM25 store).
-	scored := rankFreshHistory(fresh, "history", query, candidateLimit, fGuardPred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
-		return rankHistoryFused(brainDir, longTerm, "history", query, candidateLimit, defaultEmbedder())
+	scored := rankFreshHistory(fresh, "history", query, candidateLimit, fGuardPred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
+		return rankHistoryFusedFiltered(brainDir, longTerm, "history", query, candidateLimit, defaultEmbedder(), eligible)
 	})
 	records := make([]historyRecord, 0, len(scored))
 	for _, item := range scored {

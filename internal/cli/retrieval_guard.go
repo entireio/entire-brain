@@ -44,6 +44,9 @@ type factReviewGroup struct {
 // stale queue entries remain available to the review command but cannot hide or
 // relabel an otherwise independent fact.
 func buildFactReviewGroups(facts []factRecord, proposals []factProposal) []factReviewGroup {
+	if len(proposals) == 0 {
+		return nil
+	}
 	active := make(map[string]factRecord, len(facts))
 	for _, fact := range facts {
 		if fact.Status == factStatusActive {
@@ -160,17 +163,21 @@ func indexFactReviewGroups(groups []factReviewGroup) (map[string]factReviewGroup
 // more rows cannot improve the guarded top-N, and ranking the whole fact corpus
 // creates avoidable conversions and allocations when no review is pending.
 func guardedFactCandidateLimit(facts []factRecord, proposals []factProposal, limit int) int {
-	if limit <= 0 || len(facts) == 0 {
+	return guardedFactCandidateLimitForGroups(len(facts), buildFactReviewGroups(facts, proposals), limit)
+}
+
+func guardedFactCandidateLimitForGroups(factCount int, groups []factReviewGroup, limit int) int {
+	if limit <= 0 || factCount == 0 {
 		return 0
 	}
-	if limit >= len(facts) {
-		return len(facts)
+	if limit >= factCount {
+		return factCount
 	}
 	reserve := 0
-	for _, group := range buildFactReviewGroups(facts, proposals) {
+	for _, group := range groups {
 		reserve += len(group.Facts) - 1
-		if reserve >= len(facts)-limit {
-			return len(facts)
+		if reserve >= factCount-limit {
+			return factCount
 		}
 	}
 	return limit + reserve
@@ -181,6 +188,10 @@ func guardedFactCandidateLimit(facts []factRecord, proposals []factProposal, lim
 // first ranked position and best score of each component, then backfills from
 // the expanded candidate set up to limit.
 func guardUnifiedFactResults(repoDir string, facts []factRecord, proposals []factProposal, ranked []unifiedResult, limit int) []unifiedResult {
+	return guardUnifiedFactResultsWithGroups(repoDir, facts, buildFactReviewGroups(facts, proposals), ranked, limit)
+}
+
+func guardUnifiedFactResultsWithGroups(repoDir string, facts []factRecord, groups []factReviewGroup, ranked []unifiedResult, limit int) []unifiedResult {
 	if limit <= 0 || len(ranked) == 0 {
 		return ranked
 	}
@@ -188,7 +199,12 @@ func guardUnifiedFactResults(repoDir string, facts []factRecord, proposals []fac
 	for _, fact := range facts {
 		factByID[fact.ID] = fact
 	}
-	_, reviewByFactID := indexFactReviewGroups(buildFactReviewGroups(facts, proposals))
+	reviewByFactID := make(map[string]factReviewGroup)
+	for _, group := range groups {
+		for _, fact := range group.Facts {
+			reviewByFactID[fact.ID] = group
+		}
+	}
 	bestReviewScore := make(map[string]float64)
 	for _, result := range ranked {
 		if group, ok := reviewByFactID[result.ID]; ok && result.Score > bestReviewScore[group.ID] {
