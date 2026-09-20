@@ -379,7 +379,7 @@ func boundedRetrievalJSONPayload(ctx context.Context, query, branch string, resu
 	count := len(allRows)
 	anythingTruncated := false
 	for {
-		rows := append([]compactUnifiedResult(nil), allRows[:count]...)
+		rows := append([]compactUnifiedResult{}, allRows[:count]...)
 		truncated := anythingTruncated || count != len(allRows)
 		payload := buildRetrievalJSONPayload(query, branch, rows, extras, truncated)
 		size, err := retrievalSerializedSize(ctx, payload, surface)

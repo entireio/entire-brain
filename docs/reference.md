@@ -76,9 +76,9 @@ builds from the active checkout and refuses to run unless `HEAD` contains local
 delivery.
 
 GraphMark owns cross-product benchmark evidence and split integrity. See
-[`benchmarks/agent-brain/CONDITIONS.md`](benchmarks/agent-brain/CONDITIONS.md)
+[`benchmarks/agent-brain/CONDITIONS.md`](../benchmarks/agent-brain/CONDITIONS.md)
 for the normative condition and comparison contract, and
-[`benchmarks/agent-brain/README.md`](benchmarks/agent-brain/README.md) for
+[`benchmarks/agent-brain/README.md`](../benchmarks/agent-brain/README.md) for
 harness operation and the retired-corpus notice.
 
 ## Install
@@ -237,7 +237,7 @@ Other install paths:
 - `mise install && mise run check && mise run build && entire plugin install ./entire-brain` — the same, with the full check suite in front of it.
 - `scripts/release.sh` — local release archives with `SHA256SUMS`.
 
-See [docs/operations.md](docs/operations.md) for target, cgo, and shared
+See [docs/operations.md](operations.md) for target, cgo, and shared
 baseline details.
 
 ### 3. Onboard a repository: `entire brain setup`
@@ -313,7 +313,7 @@ Four gates bound it, and none of them is a quota you have to remember:
   spend costs — setup installs the watcher with the same per-pass session cap it
   gave the backfill, so a window can never quietly distill the whole remaining
   corpus.
-- The distill cache means a session is never distilled twice, across every entry
+- The distill cache reuses unchanged sessions unless forced, across every entry
   point.
 - `--model` / `--effort` keep each call cheap; the daemon uses whatever the
   setup for *that workspace* was given.
@@ -442,7 +442,7 @@ covers, so you can see you are still in there.
 
 ### 3b. The manual path: `entire brain refresh`
 
-`setup` is the recommended route and the one the rest of this README assumes.
+`setup` is the recommended route and the one the rest of this reference assumes.
 `refresh` is the same deterministic build on its own, with no backfill, no
 workspace registration and no watcher — useful when you want the brain and
 nothing else, or when you are scripting a build:
@@ -671,7 +671,7 @@ git add .entire .claude && git commit -m "chore: enable Entire session capture"
 
 # 4. once per repository — build the brain, backfill facts, install the watcher
 entire brain setup                         # --no-backfill --no-daemon spends
-                                           # nothing and installs nothing
+                                           # no model tokens; builds local memory
 
 # 5. work — the hooks capture the session; your commit writes the checkpoint
 #    (there is no command to run here; this is just using your agent)
@@ -812,7 +812,7 @@ Some MCP tools write local state (for example `brain_ingest_traces` persists
 runtime edges as `RUNTIME_TRACE` facts); pattern MCP tools are read-only. The
 MCP and CLI surfaces are intentionally close but not perfect mirrors — prefer the
 native surface your agent client has, then translate only when needed. See
-[docs/semantic_mcp_guide.md](docs/semantic_mcp_guide.md) for the full tool surface.
+[docs/semantic_mcp_guide.md](semantic_mcp_guide.md) for the full tool surface.
 
 ### 2. Intake instructions are the file-based fallback
 
@@ -1101,7 +1101,7 @@ flags suspected regressions (`file:line`, expected vs current, confidence,
 provenance). Prefer `--location-only` first for a fair investigation: it points
 to suspected files and lines without handing over the expected answer text.
 `entire brain review --json` emits a versioned `reviewReport` contract; see
-[docs/diffless_review_seam.md](docs/diffless_review_seam.md).
+[docs/diffless_review_seam.md](diffless_review_seam.md).
 
 ### Connect runtime evidence to source
 
@@ -1261,7 +1261,7 @@ violations otherwise; a re-purge repairs them), and `privacy retention
 --max-age <dur> [--branch b]
 [--purge] [--dry-run]` applies an age-based policy in one command. The full
 prompt-injection and secret-retention threat model lives in
-[docs/recall_threat_model.md](docs/recall_threat_model.md).
+[docs/recall_threat_model.md](recall_threat_model.md).
 Tombstones are brain-local and survive re-export: a purged session that the
 capture layer re-exports stays un-indexed until an explicit `include`. Note the
 canonical capture in Entire's configured checkpoint backend is the capture
@@ -1351,7 +1351,7 @@ Linux, macOS, and Windows.
 
 ## Further reading
 
-- [docs/operations.md](docs/operations.md) — build targets, cgo, shared baseline
-- [docs/semantic_mcp_guide.md](docs/semantic_mcp_guide.md) — the full MCP tool surface
-- [docs/diffless_review_seam.md](docs/diffless_review_seam.md) — the diff-less review contract
-- [docs/durable_facts_plan.md](docs/durable_facts_plan.md) — durable-facts design and eval
+- [docs/operations.md](operations.md) — build targets, cgo, shared baseline
+- [docs/semantic_mcp_guide.md](semantic_mcp_guide.md) — the full MCP tool surface
+- [docs/diffless_review_seam.md](diffless_review_seam.md) — the diff-less review contract
+- [docs/durable_facts_plan.md](durable_facts_plan.md) — durable-facts design and eval

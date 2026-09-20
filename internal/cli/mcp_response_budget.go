@@ -9,34 +9,10 @@ import (
 	"strings"
 )
 
-// The MCP tool surface used to advertise `"maximum": 10000` on every limit and
-// depth argument so a schema-validating client could "plan valid calls", and
-// then refuse the call it had just been told was legal. On a real repository
-// (~48k symbols, ~155k relations) a call at that advertised ceiling hard-failed
-// for ten of the seventeen limit-taking tools: brain_impact built 33 MB,
-// brain_brief 7 MB after burning 34 seconds, brain_query_graph 8 MB — each one
-// refused at the frame boundary with an error that named the tool and the limit
-// but never the limit that *would* have worked, so recovery was a binary search.
-//
-// The refusal itself was not the defect. The contract was: a ceiling nothing
-// could satisfy. This file makes the two agree by making the ceiling reachable
-// — a call at the advertised maximum now returns a bounded answer that says, in
-// the document, exactly which rows were dropped and how many there were.
-//
-// The idiom is the retrieval surface's (boundedRetrievalJSONPayload): drop
-// whole tail rows, re-measure the exact bytes the peer will receive, and keep
-// the response_truncated marker present during every size check so the marker
-// can never be what pushes the document over budget.
+// MCP results drop whole tail rows to fit the exact serialized budget.
+// Truncation markers participate in every size check; unreducible envelopes fail.
 const (
-	// mcpToolResponseMaxBytes is the budget for a complete MCP tool result.
-	//
-	// Deliberately far below maxMCPFrameBytes. The frame limit is a transport
-	// fact; it is not a sane amount of context to hand an agent. brain_dead_code
-	// at the advertised limit returned 3,401,455 bytes — roughly 850k tokens —
-	// as a *success*, unflagged. This is the same 128 KiB the multi-concept
-	// retrieval surface already holds itself to (conversationConceptResponseMaxBytes),
-	// so the two agent-facing surfaces answer to one number; every tool's
-	// default-limit response measured well under it.
+	// Bound agent context below the transport frame limit, matching retrieval.
 	mcpToolResponseMaxBytes = 128 * 1024
 
 	// mcpResponseTruncatedKey / mcpResponseTruncationKey are the envelope
@@ -57,77 +33,33 @@ const (
 	// pathological document fails loudly instead of spinning.
 	mcpResponseTrimMaxProbes = 128
 
-	// mcpResponseTrimFairRows is the row count every list keeps before any list
-	// is allowed a larger share.
-	//
-	// A single shared width was the whole allocation, and that is what made
-	// raising a limit return LESS: brain_context at limit=50 fits whole and
-	// returns 200 relations beside 50 symbols, but at limit=200 the shared width
-	// clamps all three sibling lists to 90 rows each, so the naturally widest
-	// list loses 55% of its rows for asking for more. A shared width also spends
-	// the budget badly — it buys the same number of expensive symbol rows as
-	// cheap relation rows.
-	//
-	// 64 is the floor because it covers the short sections whole: a brief's
-	// guidance (5 rows), likely_files (12), provider capabilities (4), a
-	// context's neighbours (24 at the default limit). Those are never where the
-	// bytes are, and trimming them buys nothing while costing the caller a whole
-	// section. Lists longer than the floor are the ones that actually compete,
-	// and above the floor they compete in proportion to how many rows they have,
-	// so a list that is naturally four times wider keeps roughly four times the
-	// rows instead of being cut to its narrowest sibling's width.
-	//
-	// When even the floor does not fit — a brief with thirteen lists, an impact
-	// answer at the advertised ceiling — the allocation falls back to the shared
-	// width, which is what protects those documents from starving a section.
+	// Reserve this many rows per list before sharing remaining space proportionally.
+	// If the floor does not fit, use one shared width across all lists.
 	mcpResponseTrimFairRows = 64
 
-	// mcpResponseTrimArrayKey is where the rows of an ARRAY-rooted document move
-	// when such a document has to be truncated.
-	//
-	// The marker used to be stamped onto the array's last surviving row, which
-	// put two foreign keys (response_truncated, response_truncation) inside a
-	// data record: brain_patterns returned 208 of 2,389 rows and row [207] was a
-	// Pattern carrying the server's bookkeeping. A client reading the document
-	// root found no marker at all, a typed []Pattern decoder either dropped it
-	// silently or failed strict decode, and one record was corrupted — which
-	// defeats the machine-readable contract the server's instructions promise.
-	//
-	// A truncated array root is therefore wrapped in an object: the rows move
-	// under this key and the marker sits beside them at the root, where a client
-	// reading the document root finds it. The UNtruncated shape is left exactly
-	// as the tool emits it, so the normal path of every array-rooted tool is
-	// unchanged and the shape only moves in the case that was already broken —
-	// where it now moves loudly (an object where an array was) instead of
-	// silently corrupting a row.
+	// Truncated array roots move under this key so markers stay outside data rows.
+	// Untruncated roots keep their original shape.
 	mcpResponseTrimArrayKey = "items"
 )
 
 // mcpResponseBudgetNote is appended to every size-bounding integer argument's
 // description, so the half of the contract that is not expressible as a JSON
 // Schema bound is still on the schema a client plans against.
-const mcpResponseBudgetNote = " (over-budget results drop tail rows and set response_truncated)"
+const mcpResponseBudgetNote = " (removable rows may be trimmed with response_truncated; otherwise errors)"
 
 // mcpServerInstructions states the surface-wide half of the contract once, in
 // the place MCP defines for it, rather than paying for it in every tool's
 // schema. The per-argument note above is the short form a client reads while
 // planning a call at the ceiling; this is the full one.
-var mcpServerInstructions = fmt.Sprintf("Tool results are bounded: a response over %d bytes "+
-	"drops whole tail rows rather than failing, sets %q: true, and reports each shortened list "+
-	"as {path, returned, total} under %q. A limit or depth argument therefore caps the work "+
-	"requested, not the bytes returned; a call at the schema maximum always returns an answer, "+
-	"and the answer says how much of it was dropped. Read `total` as the rows THIS CALL "+
-	"PRODUCED before trimming -- already capped by the limit you sent -- not the number that "+
-	"exist: if you asked for 100 and see {returned: 57, total: 100}, 43 rows were dropped for "+
-	"size and an unknown further number were never gathered. Raise the limit to learn the real "+
-	"count. Every list keeps its first %d rows where the budget allows, and rows above that are "+
-	"shared in proportion to how many rows each list has. When even that does not fit, the "+
-	"fallback holds every list to one shared width instead, so on a wide document a long list "+
-	"CAN be cut to a short list's length -- equal row counts across lists of very different "+
-	"sizes are the signature of that fallback, not of the data. Counts "+
-	"beside a shortened list (pagination.count and friends) are rewritten to the rows actually "+
-	"returned. A result whose JSON root is an array is wrapped in {%q: [...]} when it is "+
-	"truncated, so the marker is always at the document root and never inside a data row.",
+var mcpServerInstructions = fmt.Sprintf("Tool results are bounded to %d bytes. Oversize JSON results with removable row lists "+
+	"drop whole tail rows and set %q: true; each shortened list reports {path, returned, total} under %q. "+
+	"A result that cannot be reduced to the budget returns an error asking you to narrow the request. "+
+	"Limit and depth arguments bound requested work, not serialized bytes. The total is the number of rows "+
+	"produced by this call before trimming, already capped by its limit; it is not the corpus count. "+
+	"Raising the limit may retrieve more candidates but does not establish the total available. "+
+	"Each list keeps its first %d rows when space allows; remaining space is shared proportionally. "+
+	"If that floor does not fit, lists use a shared width. Matching pagination counts are updated to returned rows. "+
+	"Truncated array roots are wrapped in {%q: [...]} so markers remain at the document root.",
 	mcpToolResponseMaxBytes, mcpResponseTruncatedKey, mcpResponseTruncationKey,
 	mcpResponseTrimFairRows, mcpResponseTrimArrayKey)
 
@@ -208,42 +140,11 @@ func mcpBoundedToolText(ctx context.Context, tool, text string) (string, error) 
 		tool, size, mcpToolResponseMaxBytes, maxMCPFrameBytes)
 }
 
-// mcpTrimToolResponseRows drops whole tail rows until the exact frame fits.
-//
-// Row removal is the only edit: no row is rewritten, no field is summarized. A
-// caller therefore reads real rows or none, never an abridged one. ok is false
-// when the text is not a JSON document, when it holds no row list, or when even
-// an empty one does not fit -- the caller refuses instead.
-//
-// THE ALLOCATION. Every list used to be held to ONE shared row width, because
-// filling greedily starves the sections that matter: brain_impact at the
-// advertised ceiling has 66k relations beside 9k symbols, and giving the widest
-// list its maximum first left the other with zero rows. A shared width fixes
-// that, and breaks something else — it cuts a naturally wide list down to its
-// narrowest sibling's size, so asking for MORE returns LESS. brain_context at
-// limit=50 fits whole and returns 200 relations; at limit=200 the shared width
-// clamped every sibling to 90 and the relations list lost 55% of its rows for
-// the crime of a larger limit.
-//
-// Both properties are now held at once, in two phases:
-//
-//  1. Every list keeps its first mcpResponseTrimFairRows rows (or all of them,
-//     when it is shorter). Nothing can be starved below that floor. Short
-//     sections — a brief's guidance, a context's neighbours — are covered whole
-//     and stop competing.
-//  2. Above the floor, the remaining budget is shared IN PROPORTION to how many
-//     rows each list actually has, bisected on the widest list's row count. A
-//     list with four times the rows keeps roughly four times the rows.
-//
-// When the floor itself does not fit -- a brief carries thirteen lists, and 64
-// rows of each is far past the budget -- the allocation degenerates to the old
-// shared width, which is exactly the behaviour that protects those documents.
-// So the wide-document case is never worse than it was, and the case that was
-// broken is fixed.
-//
-// Measured over 12 tools at 7 limits each against a real 48k-symbol index, this
-// cuts rows lost to non-monotonicity from 247 to 83, the worst single loss from
-// 56% to 23%, and returns 238 more rows overall.
+// mcpTrimToolResponseRows drops complete tail rows and measures the exact frame.
+// It first reserves mcpResponseTrimFairRows per list, then shares space in
+// proportion to original list lengths. If the floor cannot fit, lists share
+// one width. No row contents are rewritten. Non-JSON results, documents with
+// no row lists, and envelopes that remain oversized return false.
 func mcpTrimToolResponseRows(ctx context.Context, text string, size int) (string, bool) {
 	doc, ok := mcpDecodeJSONDocument(text)
 	if !ok {
@@ -477,25 +378,10 @@ func mcpCollectRowLists(node map[string]any, path string, depth int, ancestors [
 	}
 }
 
-// mcpRowCountRepair binds the sibling fields that counted this list -- brain_code's
-// pagination.count, for one -- so every probe rewrites them to the rows actually
-// kept. The fields are identified once, against the untouched document, because
-// after the first probe their value no longer matches the original row count and
-// a field found by matching would silently stop being repaired.
-//
-// THE SEARCH GOES UP. It used to look only at the list's own object and that
-// object's "pagination" child, which is why brain_code was repaired and
-// brain_context was not: brain_context's rows live under "context" while its
-// pagination sits beside it at the ROOT, one level up. So pagination.count kept
-// saying 4559 (the total available, which is what len(symbols) was before the
-// trim) beside 94 returned rows, and at limit=200 it said 200 (the requested
-// limit) beside 90 — the field changed meaning the moment the trimmer fired,
-// twice, in two different directions. Walking the ancestor chain finds it.
-//
-// Only a field whose value still equals the pre-trim row count is bound, so a
-// field counting something else is left alone. Two lists with the same length
-// can bind the same field; that is safe because the allocation is a function of
-// a list's length, so same-length lists always keep the same number of rows.
+// mcpRowCountRepair binds matching row-count fields in the owner, its ancestors,
+// and their pagination objects before trimming. Each probe updates those same
+// fields; unrelated counts stay unchanged. Equal-length lists share allocations,
+// so they can safely bind the same counter.
 func mcpRowCountRepair(owner map[string]any, ancestors []map[string]any, before int) func(int) {
 	var fields []map[string]any
 	var keys []string
