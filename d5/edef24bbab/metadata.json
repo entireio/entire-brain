@@ -2,8 +2,7 @@
   "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
   "checkpoint_id": "d5edef24bbab",
   "strategy": "manual-commit",
-  "branch": "codex/audit2-history",
-  "checkpoints_count": 4,
+  "checkpoints_count": 5,
   "files_touched": [
     "internal/cli/history_fts.go",
     "internal/cli/history_payload_ceiling_regression_test.go"
@@ -15,14 +14,21 @@
       "compact_transcript": "/d5/edef24bbab/0/transcript.jsonl",
       "content_hash": "/d5/edef24bbab/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/d5/edef24bbab/1/metadata.json",
+      "transcript": "/d5/edef24bbab/1/full.jsonl",
+      "compact_transcript": "/d5/edef24bbab/1/transcript.jsonl",
+      "content_hash": "/d5/edef24bbab/1/content_hash.txt",
+      "prompt": "/d5/edef24bbab/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 17102,
+    "input_tokens": 713195,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 3398016,
-    "output_tokens": 6722,
-    "api_call_count": 25,
+    "cache_read_tokens": 40293760,
+    "output_tokens": 120686,
+    "api_call_count": 369,
     "subagent_tokens_complete": false
   }
 }
