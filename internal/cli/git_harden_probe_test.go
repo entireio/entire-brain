@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGitFilterProbeFailureDoesNotRunOrPoisonCache(t *testing.T) {
@@ -160,5 +161,70 @@ func TestGitFilterProbeFailureEvictsPreviousSuccess(t *testing.T) {
 	}
 	if overrides, err := repoFilterDriverOverrides(context.Background(), repo); err != nil || len(overrides) == 0 {
 		t.Fatalf("healthy retry: overrides=%v err=%v", overrides, err)
+	}
+}
+
+func TestGitFilterFailedProbePreservesConcurrentSuccess(t *testing.T) {
+	gitHardenSkipUnsupported(t)
+	for _, primed := range []bool{false, true} {
+		t.Run(map[bool]string{false: "empty-cache", true: "stale-cache"}[primed], func(t *testing.T) {
+			repo, _ := gitHardenFilterRepo(t, "probe", "clean")
+			t.Cleanup(func() { repoFilterCache.Delete(repo) })
+			if primed {
+				if _, err := repoFilterDriverOverrides(context.Background(), repo); err != nil {
+					t.Fatal(err)
+				}
+				config := filepath.Join(repo, ".git", "config")
+				data, err := os.ReadFile(config)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(config, append(data, '\n'), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			realGit, err := exec.LookPath("git")
+			if err != nil {
+				t.Fatal(err)
+			}
+			bin := t.TempDir()
+			started := filepath.Join(bin, "started")
+			quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
+			// Hold the first probe until cancellation; let the second run real Git.
+			script := "#!/bin/sh\nif [ ! -f " + quote(started) + " ]; then\n touch " + quote(started) + "\n exec sleep 30\nfi\nexec " + quote(realGit) + " \"$@\"\n"
+			if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			failed := make(chan error, 1)
+			go func() { _, err := repoFilterDriverOverrides(ctx, repo); failed <- err }()
+			deadline := time.Now().Add(3 * time.Second)
+			for {
+				if _, err := os.Stat(started); err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					cancel()
+					<-failed
+					t.Fatal("first probe did not start")
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			overrides, err := repoFilterDriverOverrides(context.Background(), repo)
+			if err != nil || len(overrides) == 0 {
+				cancel()
+				<-failed
+				t.Fatalf("concurrent successful probe: %v, %v", overrides, err)
+			}
+			cancel()
+			if err := <-failed; err == nil {
+				t.Fatal("cancelled probe unexpectedly succeeded")
+			}
+			if _, ok := repoFilterCache.Load(repo); !ok {
+				t.Fatal("failed probe evicted concurrent successful result")
+			}
+		})
 	}
 }

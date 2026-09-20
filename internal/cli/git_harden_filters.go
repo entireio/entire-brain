@@ -90,7 +90,7 @@ type repoFilterCacheEntry struct {
 	overrides []gitConfigOverride
 }
 
-var repoFilterCache sync.Map // repoDir -> repoFilterCacheEntry
+var repoFilterCache sync.Map // repoDir -> *repoFilterCacheEntry
 
 // repoFilterDriverOverrides returns the config overrides that disarm every
 // filter driver the REPOSITORY configures. The common case -- no repo-local
@@ -106,17 +106,20 @@ func repoFilterDriverOverrides(ctx context.Context, repoDir string) ([]gitConfig
 		return nil, nil
 	}
 	signature := repoConfigSignature(repoDir)
-	if cached, ok := repoFilterCache.Load(repoDir); ok {
-		if entry := cached.(repoFilterCacheEntry); entry.signature == signature {
+	cached, ok := repoFilterCache.Load(repoDir)
+	if ok {
+		if entry := cached.(*repoFilterCacheEntry); entry.signature == signature {
 			return entry.overrides, nil
 		}
 	}
 	overrides, err := enumerateRepoFilterDrivers(ctx, repoDir)
 	if err != nil {
-		repoFilterCache.Delete(repoDir)
+		if ok {
+			repoFilterCache.CompareAndDelete(repoDir, cached)
+		}
 		return nil, err
 	}
-	repoFilterCache.Store(repoDir, repoFilterCacheEntry{signature: signature, overrides: overrides})
+	repoFilterCache.Store(repoDir, &repoFilterCacheEntry{signature: signature, overrides: overrides})
 	return overrides, nil
 }
 
