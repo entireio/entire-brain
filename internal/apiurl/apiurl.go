@@ -68,22 +68,8 @@ func Validate(raw string) (string, error) {
 	}
 	u, err := url.Parse(trimmed)
 	if err != nil {
-		return "", fmt.Errorf("invalid_api_url: %q is not a valid URL: %w", trimmed, err)
-	}
-	scheme := strings.ToLower(u.Scheme)
-	if scheme == "" || u.Host == "" {
-		return "", fmt.Errorf("invalid_api_url: %q is not an absolute URL; want an origin like https://api.entire.io", trimmed)
-	}
-	switch scheme {
-	case "https":
-	case "http":
-		if !IsLoopbackHost(u.Hostname()) && !allowInsecure() {
-			return "", fmt.Errorf(
-				"insecure_api_url: refusing to send brain content and the API token in plaintext to %q; nothing was sent. Use https://, or set %s=1 to override for a non-loopback http:// endpoint you control (http:// is always allowed for loopback hosts)",
-				trimmed, EnvAllowInsecure)
-		}
-	default:
-		return "", fmt.Errorf("invalid_api_url: unsupported URL scheme %q in %q; the hosted API is HTTP(S) — want https:// (or http:// on loopback)", u.Scheme, trimmed)
+		// Parse errors can embed the original URL, including malformed userinfo.
+		return "", fmt.Errorf("invalid_api_url: API base URL is malformed; want an origin like https://api.entire.io")
 	}
 	// Credentials must not live in the base URL. Three separate reasons, any one of
 	// which is enough:
@@ -102,11 +88,28 @@ func Validate(raw string) (string, error) {
 	//     URL with userinfo silently egresses a DIFFERENT credential than the one the
 	//     member configured.
 	//
-	// The refusal quotes u.Redacted(), not the raw string: an error about a leaked
-	// password must not be the thing that leaks it.
+	// Strip all userinfo before rendering the refusal, including a token supplied
+	// as a username without a password.
 	if u.User != nil {
-		return "", fmt.Errorf("invalid_api_url: %s carries credentials in the URL; the hosted API authenticates with a bearer token — remove the user:password@ from the base URL and pass the token with --token or ENTIRE_API_TOKEN", u.Redacted())
+		u.User = nil
+		return "", fmt.Errorf("invalid_api_url: %s carries credentials in the URL; the hosted API authenticates with a bearer token — remove the user:password@ from the base URL and pass the token with --token or ENTIRE_API_TOKEN", u.String())
 	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("invalid_api_url: %q is not an absolute URL; want an origin like https://api.entire.io", trimmed)
+	}
+	switch scheme {
+	case "https":
+	case "http":
+		if !IsLoopbackHost(u.Hostname()) && !allowInsecure() {
+			return "", fmt.Errorf(
+				"insecure_api_url: refusing to send brain content and the API token in plaintext to %q; nothing was sent. Use https://, or set %s=1 to override for a non-loopback http:// endpoint you control (http:// is always allowed for loopback hosts)",
+				trimmed, EnvAllowInsecure)
+		}
+	default:
+		return "", fmt.Errorf("invalid_api_url: unsupported URL scheme %q in %q; the hosted API is HTTP(S) — want https:// (or http:// on loopback)", u.Scheme, trimmed)
+	}
+
 	return strings.TrimRight(trimmed, "/"), nil
 }
 

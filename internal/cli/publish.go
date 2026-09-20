@@ -521,14 +521,15 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 		if !ok {
 			continue
 		}
-		branch := firstFactBranch(data)
+		branch, err := firstFactBranch(data)
+		if err != nil {
+			return nil, fmt.Errorf("read facts %s: %w", dir, err)
+		}
 		if branch == "" {
 			continue
 		}
 		if _, dup := seen[branch]; dup {
-			// Two on-disk streams collapsing to one branch would be a duplicate
-			// coordinate the server rejects; keep the first deterministically.
-			continue
+			return nil, fmt.Errorf("read facts %s: duplicate branch stream %q", dir, branch)
 		}
 		seen[branch] = struct{}{}
 		streams = append(streams, factStream{branch: branch, data: data})
@@ -679,7 +680,23 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 		// of the two it is rather than guessing on the member's behalf.
 		if len(body.Artifacts) > 0 && len(result.Stored) == 0 {
 			return publishResult{}, fmt.Errorf("publish_unacknowledged: the server answered HTTP 200 but acknowledged storing 0 of the %d artifact(s) sent%s; the brain was NOT published — check that %s is the hosted Entire API and not a proxy in front of it",
-				len(body.Artifacts), publishStatusDetail(result.Status), endpoint)
+				len(body.Artifacts), publishStatusDetail(result.Status, token), endpoint)
+		}
+		// Stored coordinates must cover exactly the submitted set, once each.
+		expected := make(map[[2]string]bool, len(body.Artifacts))
+		for _, artifact := range body.Artifacts {
+			expected[[2]string{artifact.Kind, artifact.Ref}] = true
+		}
+		complete := len(result.Stored) == len(body.Artifacts)
+		for _, stored := range result.Stored {
+			key := [2]string{stored.Kind, stored.Ref}
+			if !expected[key] {
+				complete = false
+			}
+			delete(expected, key)
+		}
+		if !complete || len(expected) != 0 {
+			return publishResult{}, fmt.Errorf("publish_unacknowledged: the server did not acknowledge every submitted artifact exactly once%s; check the hosted publish response before retrying", publishStatusDetail(result.Status, token))
 		}
 		return result, nil
 	case http.StatusUnauthorized, http.StatusForbidden:
@@ -704,8 +721,8 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 // acknowledged-nothing refusal, as " (status \"...\")", or "" when it said nothing.
 // It goes through the same terminal-safety cleaning as every other server string
 // this command prints.
-func publishStatusDetail(status string) string {
-	cleaned := httpx.ErrorDetailFromBody([]byte(status))
+func publishStatusDetail(status, token string) string {
+	cleaned := httpx.Redact(httpx.ErrorDetailFromBody([]byte(status)), token)
 	if cleaned == "" {
 		return ""
 	}
@@ -778,24 +795,24 @@ func subdirNames(entries []os.DirEntry) []string {
 	return names
 }
 
-// firstFactBranch recovers the logical branch from a facts.ndjson stream by
-// reading the branch of its first record. It returns "" when no branch can be
-// read (advisory recovery, so a parse error is not fatal to the caller).
-func firstFactBranch(data []byte) string {
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		var record struct {
-			Branch string `json:"branch"`
-		}
-		if err := json.Unmarshal([]byte(line), &record); err != nil {
-			return ""
-		}
-		return strings.TrimSpace(record.Branch)
+// firstFactBranch validates the entire stream before choosing its branch. Empty
+// streams are optional; malformed records and mixed branch coordinates are not.
+func firstFactBranch(data []byte) (string, error) {
+	records, err := factmerge.ParseNDJSON(bytes.NewReader(data))
+	if err != nil {
+		return "", fmt.Errorf("invalid fact stream: %w", err)
 	}
-	return ""
+	branch := ""
+	for i, record := range records {
+		if strings.TrimSpace(record.Branch) == "" {
+			return "", fmt.Errorf("fact record %d has no branch", i+1)
+		}
+		if i > 0 && record.Branch != branch {
+			return "", fmt.Errorf("fact stream contains multiple branches")
+		}
+		branch = record.Branch
+	}
+	return branch, nil
 }
 
 // overlayBranchName reads the advisory "branch" field from an overlay payload.
