@@ -634,7 +634,7 @@ def run_pair(
         prepared = _harness.harness().create_worktree({
             "id": pair["pair_id"], "repo_path": str(cache),
             "base_commit": pair["b"]["base_commit"],
-        }, pair_root)
+        }, pair_root, agent_baseline=False)
         if brain_repo.exists():
             shutil.rmtree(brain_repo)
         prepared.rename(brain_repo)

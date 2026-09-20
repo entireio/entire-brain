@@ -2185,7 +2185,9 @@ def build_record_provenance(
     return payload
 
 
-def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path:
+def create_worktree(
+    task: dict[str, Any], run_dir: pathlib.Path, *, agent_baseline: bool = True,
+) -> pathlib.Path:
     source = resolve_repo_path(task["repo_path"])
     base = task.get("_resolved_base_commit") or task.get("base_commit") or git_head(source)
     # Keep fixture/task IDs out of the agent-visible cwd. Run artifacts retain
@@ -2251,12 +2253,15 @@ def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path
                 f"setup command failed ({proc.returncode}): {command}\n"
                 f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
             )
-    commit_agent_baseline(
-        worktree,
-        f"Benchmark agent baseline for {task['id']}",
-        include_current_changes=True,
-        private_paths=private_paths,
-    )
+    # Packet preparation must index the filtered source ancestry directly.
+    # Measured agent workspaces retain the synthetic setup-hiding baseline.
+    if agent_baseline:
+        commit_agent_baseline(
+            worktree,
+            f"Benchmark agent baseline for {task['id']}",
+            include_current_changes=True,
+            private_paths=private_paths,
+        )
     return worktree
 
 
