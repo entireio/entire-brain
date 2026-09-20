@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "b682a222d7db",
+  "strategy": "manual-commit",
+  "branch": "codex/audit2-refresh",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/refresh_privacy_regression_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b6/82a222d7db/0/metadata.json",
+      "transcript": "/b6/82a222d7db/0/full.jsonl",
+      "compact_transcript": "/b6/82a222d7db/0/transcript.jsonl",
+      "content_hash": "/b6/82a222d7db/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1977,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 49536,
+    "output_tokens": 263,
+    "api_call_count": 1
+  }
+}
