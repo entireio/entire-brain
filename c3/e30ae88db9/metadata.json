@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "c3e30ae88db9",
+  "strategy": "manual-commit",
+  "branch": "codex/audit2-entities",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/workspace.go",
+    "internal/cli/workspace_graph_review_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/c3/e30ae88db9/0/metadata.json",
+      "transcript": "/c3/e30ae88db9/0/full.jsonl",
+      "compact_transcript": "/c3/e30ae88db9/0/transcript.jsonl",
+      "content_hash": "/c3/e30ae88db9/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1687,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 449024,
+    "output_tokens": 1058,
+    "api_call_count": 4
+  }
+}
