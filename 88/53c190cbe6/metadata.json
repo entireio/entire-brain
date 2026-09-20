@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "8853c190cbe6",
+  "strategy": "manual-commit",
+  "branch": "codex/audit2-refresh",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_generation_error_test.go",
+    "internal/cli/semantic_graph.go",
+    "internal/cli/semantic_snapshot_current_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/88/53c190cbe6/0/metadata.json",
+      "transcript": "/88/53c190cbe6/0/full.jsonl",
+      "compact_transcript": "/88/53c190cbe6/0/transcript.jsonl",
+      "content_hash": "/88/53c190cbe6/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 19824,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 740480,
+    "output_tokens": 1315,
+    "api_call_count": 5
+  }
+}
