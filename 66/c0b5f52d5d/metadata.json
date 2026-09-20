@@ -2,8 +2,7 @@
   "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
   "checkpoint_id": "66c0b5f52d5d",
   "strategy": "manual-commit",
-  "branch": "codex/audit2-benchmark-runner",
-  "checkpoints_count": 6,
+  "checkpoints_count": 7,
   "files_touched": [
     "benchmarks/agent-brain/brainmark/tests/test_runner_audit.py",
     "benchmarks/agent-brain/brainmark/vendor/graphmark_metrics.py"
@@ -15,14 +14,21 @@
       "compact_transcript": "/66/c0b5f52d5d/0/transcript.jsonl",
       "content_hash": "/66/c0b5f52d5d/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/66/c0b5f52d5d/1/metadata.json",
+      "transcript": "/66/c0b5f52d5d/1/full.jsonl",
+      "compact_transcript": "/66/c0b5f52d5d/1/transcript.jsonl",
+      "content_hash": "/66/c0b5f52d5d/1/content_hash.txt",
+      "prompt": "/66/c0b5f52d5d/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 39595,
+    "input_tokens": 954880,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 6962176,
-    "output_tokens": 14813,
-    "api_call_count": 78,
+    "cache_read_tokens": 60224384,
+    "output_tokens": 157303,
+    "api_call_count": 529,
     "subagent_tokens_complete": false
   }
 }
