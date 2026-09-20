@@ -2,8 +2,7 @@
   "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
   "checkpoint_id": "16f9661e1ae6",
   "strategy": "manual-commit",
-  "branch": "codex/audit2-clarity-ui",
-  "checkpoints_count": 6,
+  "checkpoints_count": 7,
   "files_touched": [
     ".github/workflows/test.yml",
     ".gitignore",
@@ -19,13 +18,20 @@
       "compact_transcript": "/16/f9661e1ae6/0/transcript.jsonl",
       "content_hash": "/16/f9661e1ae6/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/16/f9661e1ae6/1/metadata.json",
+      "transcript": "/16/f9661e1ae6/1/full.jsonl",
+      "compact_transcript": "/16/f9661e1ae6/1/transcript.jsonl",
+      "content_hash": "/16/f9661e1ae6/1/content_hash.txt",
+      "prompt": "/16/f9661e1ae6/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 4973,
+    "input_tokens": 836906,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 624768,
-    "output_tokens": 676,
-    "api_call_count": 3
+    "cache_read_tokens": 40651776,
+    "output_tokens": 122386,
+    "api_call_count": 374
   }
 }
