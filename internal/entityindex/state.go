@@ -16,7 +16,8 @@ type stateKey struct {
 // state per mutation and finds list values by linear scan, so folding it over a
 // backfill is O(mutations x state) — quadratic on exactly the workload this
 // package exists for (thousands of commits x thousands of entities). applyBatch
-// is the same semantics with position maps: one clone, O(1) per mutation.
+// uses one clone and position maps. List append and timestamp lookup are O(1);
+// tombstone filtering and set-collision checks still scan their collections.
 // TestApplyBatchMatchesReferenceApply pins the equivalence.
 //
 // Only the two operations this index writes are supported (set and list:push);
@@ -35,6 +36,7 @@ func applyBatch(st gitmeta.State, muts []gitmeta.Mutation) gitmeta.State {
 	}
 
 	stringAt, listAt := positionMaps(out)
+	listMax := listMaxTimestamps(out)
 
 	for _, m := range muts {
 		id := stateKey{m.Target, m.Key}
@@ -57,6 +59,7 @@ func applyBatch(st gitmeta.State, muts []gitmeta.Mutation) gitmeta.State {
 			if _, hasList := listAt[id]; hasList || hasSet(out, id) {
 				out = out.Apply(m)
 				stringAt, listAt = positionMaps(out)
+				listMax = listMaxTimestamps(out)
 				continue
 			}
 			out.Strings = append(out.Strings, gitmeta.StringVal{Target: m.Target, Key: m.Key, Value: m.Value})
@@ -70,16 +73,20 @@ func applyBatch(st gitmeta.State, muts []gitmeta.Mutation) gitmeta.State {
 				listAt[id] = idx
 			}
 			ts := m.NowMS
-			if max := maxTimestamp(out.Lists[idx].Entries); ts <= max {
+			if max := listMax[id]; ts <= max {
 				ts = max + 1 // keep appended entries ordered after existing ones
 			}
 			out.Lists[idx].Entries = append(out.Lists[idx].Entries, gitmeta.ListEntry{Value: m.Value, Timestamp: ts})
+			if ts > listMax[id] {
+				listMax[id] = ts
+			}
 			out.Tombstones = dropKeyTombstone(out.Tombstones, m.Target, m.Key)
 		default:
 			// Unmodelled op: fall back to the reference implementation and
 			// rebuild the position maps, correctness over speed.
 			out = out.Apply(m)
 			stringAt, listAt = positionMaps(out)
+			listMax = listMaxTimestamps(out)
 		}
 	}
 	return out
@@ -127,4 +134,12 @@ func maxTimestamp(entries []gitmeta.ListEntry) int64 {
 		}
 	}
 	return max
+}
+
+func listMaxTimestamps(st gitmeta.State) map[stateKey]int64 {
+	out := make(map[stateKey]int64, len(st.Lists))
+	for _, list := range st.Lists {
+		out[stateKey{list.Target, list.Key}] = maxTimestamp(list.Entries)
+	}
+	return out
 }

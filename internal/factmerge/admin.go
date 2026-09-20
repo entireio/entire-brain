@@ -6,8 +6,8 @@ import (
 )
 
 // errStaleProposal is returned when a proposal references a fact that no longer
-// exists (e.g. pruned or already resolved).
-var errStaleProposal = errors.New("proposal references a fact that no longer exists")
+// exists or is no longer active.
+var errStaleProposal = errors.New("proposal references a missing or inactive fact")
 
 // removeFactByID returns facts with the record of the given id removed.
 func removeFactByID(facts []Record, id string) []Record {
@@ -23,13 +23,18 @@ func removeFactByID(facts []Record, id string) []Record {
 // ApplyProposal resolves a queued proposal by performing its merge/supersede.
 // Merge consolidates the candidate's provenance into the target and removes the
 // now-redundant candidate record; supersede marks the target superseded by the
-// candidate, which stays active. Returns an error if either fact is gone (a
-// stale proposal).
+// candidate, which stays active. Both records must be distinct and active.
 func ApplyProposal(facts []Record, p Proposal, now time.Time) ([]Record, error) {
 	ci := IndexOf(facts, p.CandidateID)
 	ti := IndexOf(facts, p.TargetID)
-	if ci < 0 || ti < 0 {
+	if ci < 0 || ti < 0 || facts[ci].Status != StatusActive || facts[ti].Status != StatusActive {
 		return facts, errStaleProposal
+	}
+	if ci == ti {
+		return facts, errors.New("proposal must reference two distinct facts")
+	}
+	if p.Action != ActionMerge && p.Action != ActionSupersede {
+		return facts, errors.New("proposal action must be merge or supersede")
 	}
 	facts = clearConflictLink(facts, p.CandidateID, p.TargetID)
 	ci = IndexOf(facts, p.CandidateID)
