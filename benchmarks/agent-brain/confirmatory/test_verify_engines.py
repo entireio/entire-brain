@@ -730,19 +730,27 @@ class EngineVerificationRunnerTest(unittest.TestCase):
                 self.assertTrue(any("invalid EBV1 vector artifact" in error for error in errors))
 
     def test_recall_must_remain_active_through_during_health_request(self) -> None:
+        during_started = VERIFY.threading.Event()
         embedding_returned = VERIFY.threading.Event()
+        recall_workers: list[VERIFY.threading.Thread] = []
         self.embedding_delay_seconds = 0
 
         def instant_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
             completed = self.fake_run(command, **kwargs)
             env = kwargs["env"]
             if env["ENTIRE_BRAIN_EMBEDDER"] == "ollama":
+                recall_workers.append(VERIFY.threading.current_thread())
+                self.assertTrue(during_started.wait(timeout=5))
                 embedding_returned.set()
             return completed
 
         def await_completion() -> None:
-            self.assertTrue(embedding_returned.wait(timeout=1))
-            time.sleep(0.01)
+            # Keep recall active until the health request enters, then make it
+            # finish before that request returns. No scheduler timing assumption.
+            during_started.set()
+            self.assertTrue(embedding_returned.wait(timeout=5))
+            recall_workers[0].join(timeout=5)
+            self.assertFalse(recall_workers[0].is_alive())
 
         self.during_observe_hook = await_completion
         with self.assertRaisesRegex(VERIFY.VerificationError, "did not remain active"):
