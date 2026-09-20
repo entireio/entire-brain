@@ -44,10 +44,9 @@ surfaces that agents and humans query. Everything it builds stays on your machin
   dispatches `entire brain`, and it is what captures the sessions the brain
   learns from.
 - Git.
-- A Go toolchain (1.27 or newer). It is not optional: every install path here
-  builds from source. There is no prebuilt archive to download -- the tagged
-  releases carry release notes and no binaries -- and there is no `go install`
-  path yet; see "Versioned install status" below.
+- A Go toolchain (1.27 or newer), **only if you build from source**. The
+  released binaries need no toolchain at all: Brain's default build is pure Go,
+  so the published archives run as-is. See "Installing a release" below.
 - The `entire-graph` semantic provider, invoked as `entire graph`. The brain shells
   out to it (`entire graph snapshot`, `entire graph doctor`) to build the semantic
   code graph. Building `entire-graph` from source needs a cgo-capable C compiler,
@@ -95,25 +94,34 @@ goes away is having to arrange directories before you start.
 
 `scripts/bootstrap.sh` is the same flow for a machine with nothing on it: it
 clones `entire-brain` when it is not already present and then runs
-`scripts/install.sh`. There is no `curl | sh` form, because
-`entireio/entire-brain` is a private repository -- `raw.githubusercontent.com`
-returns 404 for it without a token -- and because installing means building from
-source, so the clone has to happen either way.
+`scripts/install.sh`. Build from source when you intend to change Brain, or when
+you want the `brain_cgo` build. For simply using it, install a release instead.
 
-### Versioned install status
+### Installing a release
 
-There is no versioned install today. `entire-brain` is tagged -- `v0.3.0` is the
-current release -- but a tag here is release notes and nothing else: the releases
-carry **no binaries and no source archive**, so there is nothing to download and
-run. The `v0.1.0` tags additionally predate the Graph rename (the provider tag
-builds `entire-sem` and the brain tag invokes `entire sem`), so do not combine
-them with the `entire graph` commands in this guide.
+Releases carry prebuilt binaries for Linux, macOS and Windows on both amd64 and
+arm64, with a `checksums.txt` beside them. Two ways to get one:
 
-A versioned `go install` path is not available either, and will not be until
-matching Graph-based release tags exist in both repositories. This section will
-gain copy-paste commands when they do. Until then the source install above --
-`scripts/install.sh` against a checkout -- is the only way to install this, which
-is why the Go toolchain is a hard requirement rather than a conditional one.
+```sh
+# Through the Entire CLI, the way Graph installs.
+entire plugin install brain
+
+# Or one self-contained command, no CLI and no toolchain first.
+curl -fsSL https://raw.githubusercontent.com/entireio/entire-brain/main/scripts/get-brain.sh | bash
+```
+
+The script resolves the release for your platform, verifies the download against
+`checksums.txt`, installs to `~/.local/bin`, and registers the plugin. It fails
+closed: a checksum that cannot be fetched or does not match aborts the install
+rather than continuing. `--nightly` takes the nightly channel, `--version vX.Y.Z`
+pins a release, `--dir` changes where it lands.
+
+Versions restart at `0.1.0`, which is the first release of the public line. Tags
+older than that predate the Graph rename -- the provider tag builds `entire-sem`
+and the brain tag invokes `entire sem` -- so do not combine them with the
+`entire graph` commands in this guide.
+
+A versioned `go install` path is still not available.
 
 `entire plugin install` currently supports local executable paths only. It does
 not fetch from a git URL or a GitHub release, and it does not auto-install the
