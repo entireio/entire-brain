@@ -388,13 +388,19 @@ func TestCleanFilterWithAnEqualsInItsDriverNameIsNeutralized(t *testing.T) {
 func TestGlobalFilterDriversAreLeftAlone(t *testing.T) {
 	gitHardenSkipUnsupported(t)
 	repo := gitHardenRepo(t)
-	overrides := repoFilterDriverOverrides(context.Background(), repo)
+	overrides, err := repoFilterDriverOverrides(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(overrides) != 0 {
 		t.Fatalf("a repository with no local filter driver produced overrides: %v", overrides)
 	}
 
 	gitHardenRun(t, repo, "config", "--local", "filter.local-one.clean", "cat")
-	overrides = repoFilterDriverOverrides(context.Background(), repo)
+	overrides, err = repoFilterDriverOverrides(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var keys []string
 	for _, o := range overrides {
 		keys = append(keys, o.Key)
