@@ -2,8 +2,7 @@
   "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
   "checkpoint_id": "1e86efc7a91e",
   "strategy": "manual-commit",
-  "branch": "codex/audit2-facts",
-  "checkpoints_count": 4,
+  "checkpoints_count": 5,
   "files_touched": [
     "internal/cli/facts_proposal_repo_regression_test.go",
     "internal/cli/facts_sync_cmd.go"
@@ -15,13 +14,20 @@
       "compact_transcript": "/1e/86efc7a91e/0/transcript.jsonl",
       "content_hash": "/1e/86efc7a91e/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/1e/86efc7a91e/1/metadata.json",
+      "transcript": "/1e/86efc7a91e/1/full.jsonl",
+      "compact_transcript": "/1e/86efc7a91e/1/transcript.jsonl",
+      "content_hash": "/1e/86efc7a91e/1/content_hash.txt",
+      "prompt": "/1e/86efc7a91e/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 5119,
+    "input_tokens": 701212,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 604672,
-    "output_tokens": 2185,
-    "api_call_count": 6
+    "cache_read_tokens": 37500416,
+    "output_tokens": 116149,
+    "api_call_count": 350
   }
 }
