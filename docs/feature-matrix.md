@@ -1,83 +1,54 @@
 # How Brain compares
 
-`feature-matrix.csv` sits beside this file and opens in Excel, Numbers or
-Sheets. It puts Entire Graph and Entire Brain against five alternatives across
-51 capabilities: Graphify, mem0, cognee, supermemory, and codebase-memory-mcp.
+`feature-matrix.csv` opens in Excel, Numbers or Sheets: 51 capabilities across
+Entire Graph, Entire Brain, Graphify, mem0, cognee, supermemory and
+codebase-memory-mcp.
 
-Read the two caveats first. They are the difference between a useful document
-and a sales sheet.
+## Two caveats
 
-## Our columns are measured; the others are not
+**Our columns are measured; the others are not.** Graph and Brain are read from
+the shipped binaries — mostly `entire graph capabilities --json` and
+`entire brain capabilities --json` — so you can reproduce them. The five
+competitor columns come from public documentation. Nothing was installed or
+benchmarked. Every claim about another product cites a page in `Source`, and
+`Unknown` means unknown, never "no".
 
-The **Entire Graph** and **Entire Brain** columns are read from the shipped
-binaries, mostly from `entire graph capabilities --json` and
-`entire brain capabilities --json`. You can reproduce any of them.
+**We chose the rows.** The first version had 31 and Graph or Brain answered Yes
+to all of them, which is what happens when the people who build the product pick
+the questions. It now has 51, and **20 are rows where neither of ours answers
+Yes**. Graph answers Yes to 19 of 51; Brain to 26, delegating 5 more to Graph —
+counted separately, because delegating is not having.
 
-The five competitor columns come from those projects' public documentation.
-**Nothing was installed and nothing was benchmarked.** Every claim about
-another product cites a page in the `Source` column, and where we could not
-find an answer the cell reads `Unknown` — which means unknown, and never "no".
+## Labels in the Notes column
 
-If you are making a decision that turns on one of those cells, verify it
-yourself. We would rather you did.
-
-## The rows are a bias surface, and we got this wrong first
-
-The first version of this matrix had 31 rows, and Graph or Brain answered "Yes"
-to every single one. That is not a finding. It is what happens when the people
-who build the product also choose the questions.
-
-Someone asked the obvious question — *what do the others have that you don't?* —
-and the matrix now carries 51 rows. **Twenty of them are rows where neither
-Graph nor Brain answers Yes**, which is the count that matters and the reason
-they were added.
-
-Graph answers Yes to **19 of 51**. Brain answers Yes to **26 of 51**, and
-delegates a further 5 to Graph — the `Via Graph` cells, which are counted
-separately here because delegating a capability is not the same as having it.
-Those numbers are more useful than the old ones precisely because they are
-worse.
-
-The `Notes` column labels each of those rows:
-
-| label | meaning |
-|---|---|
-| **REAL GAP** | We lack it, and our local-only, zero-LLM design does not explain why. 12 rows, one of which is unverified on our side. |
-| **TRADE-OFF** | We lack it as a direct cost of that design. 5 rows. |
-| **PARTLY REAL** | Part of the absence is excused by the design and part is not. It describes the *verdict*, not a partial capability — such a row can still read `No` in both our columns. 2 rows. |
-| **THEY DO IT BETTER** | We demonstrably have it and someone does it further. Only used where our own cells are not `Unknown`. 2 rows. |
+| label | meaning | rows |
+|---|---|---|
+| **REAL GAP** | We lack it, and local-only + zero-LLM does not explain why | 12 |
+| **TRADE-OFF** | We lack it as a direct cost of that design | 5 |
+| **PARTLY REAL** | Part of the absence is excused, part is not. Describes the verdict, not a partial capability — such a row can read `No` in both our columns | 2 |
+| **THEY DO IT BETTER** | We demonstrably have it and someone goes further. Not used where our cells are `Unknown` | 2 |
 
 ## What the gaps say
 
-The pattern worth internalising is that **"we are local" explains fewer of our
-absences than it first appears.** Three local-first tools each break that
-defence on their own:
+"We are local" explains fewer absences than it appears. Three local-first tools
+break that defence on their own: **codebase-memory-mcp** ships 162 languages
+with an embedded language-server pass and no API keys against our 36 semantic of
+185; **Pieces** stores everything on-device and still captures across every
+application rather than one repository; **Graphify** parses PDFs, Office files
+and live Postgres schemas with tree-sitter.
 
-- **codebase-memory-mcp** ships 162 languages with an embedded language-server
-  pass and no API keys. We cover 36 semantic languages of 185 detected.
-- **Pieces** stores everything on-device and still captures across every
-  application rather than one repository — so Brain's per-repository scope is a
-  product decision, not a privacy consequence.
-- **Graphify** parses PDFs, Office files and live Postgres schemas with
-  tree-sitter, locally. Deterministic parsers cost no tokens.
+The sharpest gap is what an agent can write. Brain's MCP surface has 36 tools
+and four write — `brain_index_repository`, `brain_refresh`,
+`brain_ingest_traces`, `brain_delete_project` — all of them derived state. None
+authors a durable fact, so an agent cannot record what it just learned;
+`entire brain remember` is a CLI command.
 
-The sharpest single gap concerns what an agent can write. Brain's MCP surface
-has 36 tools and four of them write — `brain_index_repository`, `brain_refresh`,
-`brain_ingest_traces` and `brain_delete_project` — but every one of those writes
-*derived* state. **None of them authors a durable fact.** So
-an agent mid-session cannot record what it just learned; `entire brain remember`
-is a CLI command. Every competitor surveyed has a fact-write path.
+## Tools cited without a column
 
-## Tools cited but not given a column
+`Notes` and `Source` sometimes cite Pieces, Letta, Zep, Serena, Augment, Zoekt,
+Cursor, Sourcegraph, Copilot or Windsurf, where the best evidence came from
+outside the five. They are named where relevant but not assessed across all 51
+rows.
 
-The `Notes` and `Source` columns sometimes cite tools that are not columns,
-because the best evidence for a gap came from outside the five: Pieces, Letta,
-Zep, Serena, Augment, Zoekt, Cursor, Sourcegraph, Copilot and Windsurf. They are
-named where they are relevant rather than hidden, but they have not been
-assessed across all 51 rows.
-
-## Keeping it honest
-
-If you change a cell in our two columns, cite the command that shows it. If you
-change a competitor cell, cite the page. If a row only exists because it
-flatters us, delete it.
+If you change one of our cells, cite the command. If you change a competitor
+cell, cite the page. If a row only exists because it flatters us, delete it.

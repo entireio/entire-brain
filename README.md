@@ -21,50 +21,31 @@ Through the CLI and MCP, agents can retrieve earlier decisions, revisit past att
 
 ## Install
 
-Brain is a plugin for the Entire CLI. Install the CLI first if you do not have
-it:
-
 ```sh
-curl -fsSL https://entire.io/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/entireio/entire-brain/main/scripts/get-brain.sh | bash
 ```
 
-Then install Brain, and Graph alongside it:
+Downloads the release binary for your platform, verifies it against the release
+checksums, installs it to `~/.local/bin`, and registers it with the Entire CLI.
+No Go toolchain, no C compiler. `--nightly`, `--version vX.Y.Z` and `--dir` all
+work; Windows users take the `.zip` from the
+[latest release](https://github.com/entireio/entire-brain/releases/latest).
+
+Or through the CLI, the way Graph installs:
 
 ```sh
 entire plugin install graph
 entire plugin install brain
 ```
 
-Graph supplies the code analysis Brain builds on. Brain runs without it — you
-can still search sessions, documentation, and facts — but `setup` will report
-the semantic index as unavailable until Graph is installed.
-
-Confirm both:
-
-```sh
-entire brain version && entire graph version
-```
-
-### Or one command, without the CLI
-
-If you would rather not install the CLI first, this does the whole thing on its
-own — downloads the release binary for your platform, verifies it against the
-release checksums, installs it to `~/.local/bin`, and registers it:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/entireio/entire-brain/main/scripts/get-brain.sh | bash
-```
-
-Brain's default build is pure Go, so there is no Go toolchain and no C compiler
-to install. Add `--nightly` for the nightly channel, `--version vX.Y.Z` to pin a
-release, or `--dir <path>` to install elsewhere. Windows users can take the
-`.zip` from the [latest release](https://github.com/entireio/entire-brain/releases/latest).
+Graph supplies the code analysis Brain builds on. Without it `setup` reports the
+semantic index as unavailable; sessions, docs and facts still work.
 
 <details>
-<summary>Building from source instead</summary>
+<summary>Building from source</summary>
 
-Needs Go 1.27 or later, Git 2.36 or later, the Entire CLI on `PATH`, and a C
-compiler for Graph's tree-sitter bindings.
+Needs Go 1.27+, Git 2.36+, the Entire CLI on `PATH`, and a C compiler for
+Graph's tree-sitter bindings.
 
 ```sh
 git clone https://github.com/entireio/entire-brain.git
@@ -72,13 +53,18 @@ cd entire-brain
 ./scripts/install.sh
 ```
 
-The installer builds and registers Brain and Graph, writes the default plugin
-configuration, and runs a health check. It does not initialize a repository's
+Builds and registers Brain and Graph. It does not initialize a repository's
 memory or install the watcher.
 
 </details>
 
 See [installation options](docs/operations.md#full-install) for choosing a Graph checkout, installing offline, or building Brain alone.
+
+### How Brain compares
+
+[`docs/feature-matrix.md`](docs/feature-matrix.md) — 51 capabilities against five
+alternatives, including the 20 rows where neither Graph nor Brain answers Yes.
+Our columns are read from the binaries; the competitor columns are not.
 
 ## Activate it for your agent
 
@@ -170,26 +156,13 @@ entire brain recall "retry policy"
 entire brain verify
 ```
 
-Durable facts are Brain's episodic memory: what was decided, what bit you, and
-what must stay true, carried across sessions and branches rather than
-re-derived.
+`remember` infers where the fact belongs using a coding agent on `PATH`. Without
+one, pass it yourself: `--path constraints.retry.policy`, shaped
+`category.subcategory.type`, from `architecture`, `constraints`, `preferences`,
+`project`, `workflow`.
 
-`remember` classifies the fact for you, which needs one of the supported coding
-agents on `PATH`. Without one it stops and asks you to say where the fact
-belongs instead:
-
-```bash
-entire brain remember "Retries are capped at 3; the 4th failure must page." \
-  --path constraints.retry.policy
-```
-
-The path is `category.subcategory.type`, and the categories are `architecture`,
-`constraints`, `preferences`, `project` and `workflow`.
-
-A fact you wrote by hand has no source anchor in the repository, so `verify`
-reports it as `unverifiable-here` rather than verified. That is the expected
-result, not a failure — it separates what you asserted from what Brain can still
-find evidence for.
+`verify` reports hand-written facts as `unverifiable-here` — they have no source
+anchor in the repository. Expected, not a failure.
 
 ### Search
 
