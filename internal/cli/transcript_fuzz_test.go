@@ -13,8 +13,8 @@ import (
 // the brain reads on every distill, and the existing FuzzParseDocumentConversation
 // covers only the document parser in isolation. These harnesses drive the whole
 // dispatcher (probe -> document-or-line decision -> scan) and the distill
-// pre-processor, asserting the three properties an ingest path owes: never panic,
-// never hang, never allocate without bound.
+// pre-processor, checking parser panics, digest determinism and valid source ranges.
+// Cooperative deadlines and bounded seeds do not measure peak allocation.
 //
 //	go test ./internal/cli -run xxx -fuzz FuzzName
 

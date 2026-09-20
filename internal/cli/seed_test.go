@@ -297,7 +297,7 @@ func TestSeedAgentClaudePhaseUsesPATHStdinAndWritesArtifacts(t *testing.T) {
 	assertFakeSeedAgentLog(t, logDir, "claude", "deep", input, []string{"--print", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt"})
 }
 
-func TestValidateSeedAgentOutputRequiresSuccessSchema(t *testing.T) {
+func TestValidateSeedAgentOutputAcceptsSuccessStatuses(t *testing.T) {
 	tests := []struct {
 		name string
 		out  seedAgentOutput

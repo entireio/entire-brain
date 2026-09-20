@@ -1,55 +1,9 @@
 #!/bin/sh
-# One command that lets a human WATCH `entire-brain setup` work.
-#
-#   scripts/demo-setup.sh
-#
-# This is not scripts/trial-setup.sh. That one is the safety harness: it proves
-# setup refuses a non-repository, survives being offline, is idempotent, and
-# leaks nothing. It answers "is this safe". This one answers "what does it look
-# like", and the two must not be merged: the trial deliberately runs setup
-# against a tiny synthetic tree with no sessions and no semantic provider, which
-# is the fastest way to check behaviour and the worst way to see it.
-#
-# The difference that matters is that this script never pipes, captures or tees
-# the run. `setup` renders a single in-place line -- a spinner, a determinate
-# bar that colour-ramps as it fills, a tick row of components landing one by one
-# -- and every one of those is gated on the destination being a terminal
-# (internal/tui/render.go, Caps.TTY / Caps.Color). Pipe it and you get the
-# deliberate degraded fallback: whole lines, ASCII, no colour. Every previous
-# demo of this feature was piped, which is why it always looked unbuilt.
-#
-# The three things this arranges that a bare `setup` in a scratch directory does
-# not:
-#
-#   1. A repository with real substance. The brain's own checkout is cloned
-#      (~1200 tracked files, the full commit history), so the semantic index has
-#      enough to chew on that the spinner and the in-place repaints are visible
-#      for a minute rather than 500ms.
-#   2. A working entire-graph provider, installed INTO THE SANDBOX. Without it
-#      the semantic component fails and the run ends on a red x. `entire plugin
-#      install` honours the sandboxed HOME, so this registers a provider the
-#      sandbox can see and the real machine cannot.
-#   3. Captured sessions, and a stub agent to distill them with. The facts bar
-#      is `distilled/total sessions`; with no sessions it is an empty grey track
-#      that never moves. Sessions are seeded into the repo's checkpoint ref in
-#      the same shape `entire` itself writes, then distilled in paced batches so
-#      the bar is watched filling and colour-ramping red -> amber -> green
-#      instead of jumping from nothing to done.
-#
-# NO TOKENS ARE SPENT. The distill agent is a stub shell script that reads the
-# transcript on stdin and prints fixed fact lines. It never calls a model.
-#
-# Everything the binary can write is redirected into a scratch directory under
-# the checkout -- HOME, all four XDG_*, all four ENTIRE_PLUGIN_*,
-# ENTIRE_BRAIN_DAEMON_DIR -- and ENTIRE_BRAIN_DAEMON_NO_REGISTER=1 keeps
-# launchctl/systemctl away from your real session. Teardown proves it by diffing
-# the machine's service state against a snapshot taken before the run.
-#
-# NOTHING HAS TO BE ARRANGED FIRST. The semantic provider is the one thing this
-# demo needs that does not live in this repository, and rather than requiring a
-# second checkout parked in a particular place beside this one, the script finds
-# a local entire-graph if there is one and otherwise clones it. A demo that only
-# runs in the directory it was written in is not a demo.
+# Demonstrate setup rendering on a terminal using a scratch clone, a semantic
+# provider and seeded sessions distilled by a token-free stub. Provider discovery
+# may clone a checkout unless ENTIRE_INSTALL_OFFLINE=1. Keep stdout on the terminal
+# to see progress rendering; use trial-setup.sh for the separate safety harness.
+# Sandbox environment roots isolate writes, and teardown compares service listings.
 #
 # Environment:
 #   DEMO_DIR=<path>          put the sandbox somewhere else (default: .demo-setup/)
@@ -547,9 +501,8 @@ if [ -n "$counter" ]; then
 	)
 fi
 
-# Most chunks yield nothing. That is the documented default in the distill
-# prompt, and a stub that emitted a fact every single time would misrepresent
-# how the real thing behaves.
+# This deterministic fixture emits a fact for three of every four invocations;
+# it illustrates progress, not a measured distribution of real distillation.
 case $((n % 4)) in
 0) printf 'convention\tworkflow.testing.scope\tFocused package tests run while iterating; the full suite runs exactly once before the branch is pushed.\n' ;;
 1) printf 'gotcha\tproject.indexing.cache\tThe semantic index cache is keyed by tree, so a repo whose key changed after its first index is served a stale snapshot until the cache is cleared.\n' ;;
@@ -603,7 +556,7 @@ if ! diff -u "$demo_dir/services.before" "$demo_dir/services.after" >"$demo_dir/
 	cat "$demo_dir/services.diff"
 	leaked=1
 else
-	printf '   ok    launchd/systemd state is byte-identical to before the run\n'
+	printf '   ok    service-name and unit-file listings match the pre-run snapshot\n'
 fi
 
 if command -v launchctl >/dev/null 2>&1; then
@@ -650,4 +603,4 @@ fi
 
 printf '\n'
 [ "$leaked" -eq 0 ] || die 'the demo leaked state outside its sandbox (see LEAK lines above)'
-printf 'demo-setup: OK -- setup built every component, the facts bar filled %s/%s, and nothing leaked.\n' "$sessions" "$sessions"
+printf 'demo-setup: OK -- setup completed with %s seeded sessions; sandbox checks passed.\n' "$sessions"

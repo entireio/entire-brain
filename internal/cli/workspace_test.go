@@ -2431,7 +2431,11 @@ func TestWorkspaceReviewFlagsRegressedRepoOnly(t *testing.T) {
 	for _, r := range payload.Results {
 		byKey[r.RepoKey] = r
 	}
-	a, b := byKey[keyA], byKey[keyB]
+	a, okA := byKey[keyA]
+	b, okB := byKey[keyB]
+	if !okA || !okB {
+		t.Fatalf("missing workspace results: %v", byKey)
+	}
 	// changed-findings are "medium" (hedged "could be a rename"), not "high" — see regressionSeverity.
 	if len(a.Findings) != 1 || a.Findings[0].Severity != "medium" || !strings.Contains(a.Findings[0].File, "review_context.go") {
 		t.Fatalf("repoa findings wrong: %+v", a)
@@ -2528,7 +2532,10 @@ func TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain(t *testing.T) {
 		t.Fatalf("--location-only must blank expected/current: %+v", a.Anomalies[0])
 	}
 	// The missing-brain repo must not abort the run; it just yields no anomalies.
-	m := byKey[missingKey]
+	m, ok := byKey[missingKey]
+	if !ok {
+		t.Fatalf("missing-brain repo omitted from results: %v", byKey)
+	}
 	if len(m.Anomalies) != 0 {
 		t.Fatalf("missing-brain repo should yield no anomalies: %+v", m)
 	}

@@ -102,6 +102,9 @@ func TestAParseErrorNamesItsCause(t *testing.T) {
 			if !strings.Contains(body, "-32700") {
 				t.Fatalf("no parse error for %q:\n%s", tc.frame, body)
 			}
+			if !strings.Contains(body, tc.want) {
+				t.Fatalf("parse error lacks cause %q: %s", tc.want, body)
+			}
 			if strings.Contains(body, `"message":"parse error"`) {
 				t.Fatalf("%q reported the bare \"parse error\" with no cause:\n%s", tc.frame, body)
 			}

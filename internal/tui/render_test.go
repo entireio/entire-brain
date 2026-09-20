@@ -55,7 +55,7 @@ func TestDetectCapsRespectsEnvironment(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			caps := detectCapsForFakeTerminal(tc.env)
+			caps := terminalCaps(envFrom(tc.env))
 			if tc.wantPlain {
 				if caps != PlainCaps() {
 					t.Fatalf("caps = %+v, want plain", caps)
@@ -73,24 +73,6 @@ func TestDetectCapsRespectsEnvironment(t *testing.T) {
 			}
 		})
 	}
-}
-
-// detectCapsForFakeTerminal runs the environment half of DetectCaps with the
-// terminal half forced true. Opening a real PTY per case would make this test
-// platform-dependent for no gain: the TTY branch is covered above.
-func detectCapsForFakeTerminal(env map[string]string) Caps {
-	lookup := envFrom(env)
-	getenv := func(key string) string { value, _ := lookup(key); return value }
-	term := strings.TrimSpace(getenv("TERM"))
-	if term == "" || term == "dumb" {
-		return PlainCaps()
-	}
-	caps := Caps{TTY: true}
-	if _, noColor := lookup("NO_COLOR"); !noColor {
-		caps.Color = true
-	}
-	caps.Unicode = localeIsUTF8(getenv)
-	return caps
 }
 
 func testRenderer(caps Caps) *Renderer {

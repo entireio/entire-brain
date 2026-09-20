@@ -1,58 +1,8 @@
 #!/bin/sh
-# The loop that makes the brain worth having, run end to end for real.
-#
-#   scripts/demo-agent-session.sh
-#
-# scripts/demo-setup.sh answers "what does `entire-brain setup` LOOK like". It
-# gets there by writing checkpoint refs into the demo repository itself with git
-# plumbing, which proves setup can read a checkpoint ref and nothing else. The
-# four components that have to cooperate before setup ever sees one --
-#
-#   entire enable -> an agent session runs -> the session-end hook fires
-#                 -> a checkpoint ref is written -> entire-brain setup finds it
-#                 -> distill -> the brain answers
-#
-# -- and the three seams between them are exactly what a synthesised ref skips.
-# Every bug this feature has shipped lived on one of those seams: the 'U' bug
-# was brain shelling out to the host CLI and choking on its stdout banner; the
-# dirty-worktree refusal below is caused by the command the docs put immediately
-# before setup. This script runs the whole chain against the real `entire` CLI
-# and ASSERTS at each seam, so it fails loudly rather than printing a green
-# summary over a broken link.
-#
-# ---------------------------------------------------------------- what is real
-#
-# Real, and running here: `entire enable`; the git hooks and agent hook settings
-# it installs; the host CLI's own lifecycle hook verbs (`entire hooks
-# claude-code session-start|user-prompt-submit|stop|session-end`); the session
-# state machine behind them; the post-commit git hook that writes the persistent
-# checkpoint; the checkpoint ref itself; `entire checkpoint list`;
-# `entire-brain setup`, `distill`, `status`, `overview` and `brief`.
-#
-# Substituted, and the ONLY substitution: the model. A live agent would call an
-# API and spend tokens, so this script writes the session transcript (a Claude
-# Code JSONL file) itself and then hands it to the real hooks exactly as the
-# agent host would. Nothing downstream can tell the difference -- the hook
-# contract is a JSON object on stdin naming a transcript path -- but the
-# sentences in that transcript were typed here, not generated. Zero tokens are
-# spent by this script, at any step.
-#
-# The org's closest thing to a tokenless agent is `e2e/vogon` in the entireio/cli
-# checkout: a deterministic binary that drives these same hook verbs. It is not
-# used here because it needs a second checkout to build, and because `entire
-# enable` refuses it by design (agent.IsTestOnly). Driving the hook verbs
-# directly needs nothing but the `entire` binary a user already installed.
-#
-# ------------------------------------------------------------------- the state
-#
-# Everything the binaries can write goes into a scratch directory under the
-# checkout: HOME, all four XDG_*, all four ENTIRE_PLUGIN_*,
-# ENTIRE_BRAIN_DAEMON_DIR, and ENTIRE_CONFIG_DIR (the Entire CLI's own store).
-# ENTIRE_BRAIN_DAEMON_NO_REGISTER=1 keeps launchctl/systemctl away from the real
-# session. This matters more here than in demo-setup.sh, because `entire enable`
-# WRITES: git hooks, .entire/settings.json and the agent's settings.json. All of
-# it lands in the scratch repository and the sandbox home; teardown proves it by
-# diffing the machine's service state against a snapshot taken before the run.
+# Exercise enable, lifecycle hooks, checkpoint capture and Brain setup in a
+# scratch repository. Transcripts and distillation are scripted; no model is called.
+# The real CLI and hooks run with sandboxed home/config/data/state roots and daemon
+# registration disabled. Teardown compares service and config path listings.
 #
 # Environment:
 #   DEMO_DIR=<path>          put the sandbox somewhere else (default: .demo-agent-session/)
@@ -568,7 +518,7 @@ if ! diff -u "$demo_dir/services.before" "$demo_dir/services.after" >"$demo_dir/
 	cat "$demo_dir/services.diff"
 	leaked=1
 else
-	printf '   ok    launchd/systemd state is byte-identical to before the run\n'
+	printf '   ok    service-name and unit-file listings match the pre-run snapshot\n'
 fi
 
 if command -v launchctl >/dev/null 2>&1; then
@@ -600,7 +550,7 @@ fi
 # would write login contexts into the developer's real store.
 real_config_state >"$demo_dir/entire-config.after"
 if diff -u "$demo_dir/entire-config.before" "$demo_dir/entire-config.after" >"$demo_dir/entire-config.diff" 2>&1; then
-	printf '   ok    %s is unchanged (entire enable wrote only inside the sandbox)\n' "$real_config_dir"
+	printf '   ok    %s path listing is unchanged\n' "$real_config_dir"
 else
 	printf '   LEAK  the real Entire config store changed:\n'
 	cat "$demo_dir/entire-config.diff"
