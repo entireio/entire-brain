@@ -11,6 +11,8 @@ cd "$(dirname "$0")"
 
 AGENT="${1:?usage: run_cli_parallel.sh <codex|claude> <maxjobs>}"
 MAXJOBS="${2:?maxjobs}"
+[[ "$MAXJOBS" =~ ^[1-9][0-9]*$ ]] || { echo "maxjobs must be a positive integer" >&2; exit 2; }
+pids=()
 CONDS="no_brain,semantic_history_cli_compact,mcp_history"
 REPS=3
 CKPT=200
@@ -61,7 +63,9 @@ run_one() {
     --pricing-file pricing.json \
     --suite-name "$sn" \
     >> "/tmp/cliproof-job-${sn}.log" 2>&1
-  echo "[$(date '+%H:%M:%S')] END   $sn rc=$?"
+  local rc=$?
+  echo "[$(date '+%H:%M:%S')] END   $sn rc=$rc"
+  return "$rc"
 }
 
 running() { jobs -r -p | wc -l | tr -d ' '; }
@@ -70,7 +74,12 @@ for runner in "${RUNNERS[@]}"; do
   for task in "${TASKS[@]}"; do
     while [ "$(running)" -ge "$MAXJOBS" ]; do sleep 5; done
     run_one "$runner" "$task" &
+    pids+=("$!")
   done
 done
-wait
+failed=0
+for pid in "${pids[@]}"; do
+  if ! wait "$pid"; then failed=1; fi
+done
+[ "$failed" -eq 0 ] || exit 1
 echo "[$(date '+%H:%M:%S')] PARALLEL PASS COMPLETE for $AGENT (jobs=$MAXJOBS)"

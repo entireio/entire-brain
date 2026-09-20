@@ -27,6 +27,7 @@ counters (input / cache_read / cache_creation) are DISJOINT.
 
 from __future__ import annotations
 
+import json
 import pathlib
 from typing import Any
 
@@ -34,8 +35,10 @@ if __package__ in (None, ""):  # pragma: no cover
     import sys
 
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+    from brainmark import _harness
     from brainmark.agents.base import AgentAdapter, iter_ndjson  # type: ignore[no-redef]
 else:
+    from .. import _harness
     from .base import AgentAdapter, iter_ndjson
 
 #: run.py:7006 argv, minus MCP (BrainMark delivers memory through the prompt
@@ -107,10 +110,11 @@ class ClaudeAdapter(AgentAdapter):
         if returncode != 0 or not result:
             result = {**result, "type": "result", "subtype": "error_process_exit",
                       "is_error": True, "returncode": returncode}
+        tokens = _tokens(result)
         usage = {
             "backend": "claude",
             "model": model,
-            "tokens": _tokens(result),
+            "tokens": tokens,
             "usd": result.get("total_cost_usd"),
             "estimated": False,
             "usd_source": "provider_total_cost_usd",
@@ -118,40 +122,19 @@ class ClaudeAdapter(AgentAdapter):
             "duration_ms": result.get("duration_ms"),
             "subtype": result.get("subtype"),
             "is_error": bool(result.get("is_error")),
-            "complete": returncode == 0 and not result.get("is_error", False),
+            "complete": returncode == 0 and not result.get("is_error", False) and tokens["complete"],
         }
         return result, usage, session_id
 
 
 def _tokens(result: dict) -> dict[str, Any]:
-    """modelUsage first (run.py:7505 makes the same choice), else `usage`."""
-    totals = {"input_tokens": 0, "output_tokens": 0,
-              "cache_read_tokens": 0, "cache_creation_tokens": 0}
-    aliases = {
-        "input_tokens": ("input_tokens",),
-        "output_tokens": ("output_tokens",),
-        "cache_read_tokens": ("cache_read_input_tokens", "cache_read_tokens"),
-        "cache_creation_tokens": ("cache_creation_input_tokens", "cache_creation_tokens"),
+    """Reuse the harness's authoritative provider aliases and ambiguity checks."""
+    usage = _harness.harness().extract_usage("claude", json.dumps(result), "")
+    fields = ("input_tokens", "output_tokens", "cache_read_tokens",
+              "cache_creation_tokens", "total_tokens")
+    return {
+        **{field: usage.get(field) for field in fields},
+        "source": usage["usage_report"].get("selected_source"),
+        "complete": usage["usage_report"].get("complete") is True
+                    and usage.get("total_tokens") is not None,
     }
-    model_usage = result.get("modelUsage")
-    source = None
-    rows: list[dict] = []
-    if isinstance(model_usage, dict) and model_usage:
-        source = "modelUsage"
-        rows = [row for row in model_usage.values() if isinstance(row, dict)]
-    elif isinstance(result.get("usage"), dict):
-        source = "usage"
-        rows = [result["usage"]]
-    for row in rows:
-        for canonical, keys in aliases.items():
-            for key in keys:
-                value = row.get(key)
-                if isinstance(value, (int, float)) and not isinstance(value, bool):
-                    totals[canonical] += int(value)
-                    break
-    totals["total_tokens"] = sum(
-        totals[k] for k in ("input_tokens", "output_tokens",
-                            "cache_read_tokens", "cache_creation_tokens")
-    )
-    totals["source"] = source
-    return totals

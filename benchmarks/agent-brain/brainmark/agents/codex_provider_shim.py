@@ -52,9 +52,11 @@ if __package__ in (None, ""):  # pragma: no cover
 
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
     from brainmark import _harness  # type: ignore[no-redef]
+    from brainmark.agents.codex_adapter import CodexAdapter
     from brainmark.agents.base import AgentBackendError  # type: ignore[no-redef]
 else:
     from .. import _harness
+    from .codex_adapter import CodexAdapter
     from .base import AgentBackendError
 
 SHIM_NAME = "codex"
@@ -89,31 +91,13 @@ shift
 
 export {key_env}={key_env_value}
 export {marker}=1
-# NOTE the asymmetry, which is a real TOML rule and not a typo: the provider key
-# is a BARE key inside the dotted path (model_providers.azure.name) but a QUOTED
-# string as the value of model_provider. Quoting the path segment produces
-# model_providers."azure".name, which codex does not match to the provider it
-# was told to use -- and it fails by falling back, not by erroring.
-exec "$REAL" exec \\
-  --config model_provider={provider_key_value} \\
-  --config model_providers.{provider_key}.name={provider_name} \\
-  --config model_providers.{provider_key}.base_url={base_url} \\
-  --config model_providers.{provider_key}.env_key={key_env_quoted} \\
-  --config model_providers.{provider_key}.wire_api={wire_api} \\
-  "$@"
+exec "$REAL" exec {provider_args} "$@"
 """
 
 
 def _shell_quote(value: str) -> str:
     """Single-quote for bash, escaping any embedded single quote."""
     return "'" + str(value).replace("'", "'\\''") + "'"
-
-
-def _toml_quote(value: str) -> str:
-    """A TOML basic string. Matches codex_adapter.toml_quote."""
-    import json
-
-    return json.dumps(str(value))
 
 
 def find_real_codex(shim_dir: pathlib.Path,
@@ -168,13 +152,8 @@ def write_shim(shim_dir: pathlib.Path, azure: dict[str, Any],
         )
     body = _TEMPLATE.format(
         real=_shell_quote(str(real)),
-        provider_key=provider_key,
-        provider_key_value=_shell_quote(_toml_quote(provider_key)),
-        provider_name=_shell_quote(_toml_quote("Azure OpenAI")),
-        base_url=_shell_quote(_toml_quote(azure["base_url"])),
-        wire_api=_shell_quote(_toml_quote(azure["wire_api"])),
+        provider_args=" ".join(_shell_quote(arg) for arg in CodexAdapter({}).azure_config_args(azure)),
         key_env=key_env,
-        key_env_quoted=_shell_quote(_toml_quote(key_env)),
         key_env_value=_shell_quote(str(azure["api_key"])),
         marker=MARKER_ENV,
     )

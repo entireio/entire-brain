@@ -8,6 +8,8 @@
 set -u
 cd "$(dirname "$0")"
 MAXJOBS="${1:-5}"
+[[ "$MAXJOBS" =~ ^[1-9][0-9]*$ ]] || { echo "maxjobs must be a positive integer" >&2; exit 2; }
+pids=()
 CONDS="no_brain,semantic_history_cli_compact,mcp_history"; REPS=3; CKPT=200; CBUDGET=25; EXPECTED=9
 EFFORTS=(low medium high xhigh)
 TASKS=(entireio-cli-transcript-reresolve entireio-cli-review-base-flag-scope)
@@ -22,12 +24,19 @@ run_one(){
   python3 run.py run --tasks "${task}*" --runners "claude:opus:$eff" --conditions "$CONDS" \
     --repetitions "$REPS" --checkpoint-limit "$CKPT" --claude-budget "$CBUDGET" \
     --pricing-file pricing.json --suite-name "$sn" >> "/tmp/opusfix-$sn.log" 2>&1
-  echo "[$(date '+%H:%M:%S')] END   $sn rc=$?"
+  local rc=$?
+  echo "[$(date '+%H:%M:%S')] END   $sn rc=$rc"
+  return "$rc"
 }
 running(){ jobs -r -p | wc -l | tr -d ' '; }
 for eff in "${EFFORTS[@]}"; do for task in "${TASKS[@]}"; do
   while [ "$(running)" -ge "$MAXJOBS" ]; do sleep 5; done
   run_one "$eff" "$task" &
+  pids+=("$!")
 done; done
-wait
+failed=0
+for pid in "${pids[@]}"; do
+  if ! wait "$pid"; then failed=1; fi
+done
+[ "$failed" -eq 0 ] || exit 1
 echo "[$(date '+%H:%M:%S')] OPUS MATRIX COMPLETE"
