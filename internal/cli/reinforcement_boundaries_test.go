@@ -33,3 +33,18 @@ func TestReinforcementConversationalPrefixesPreserveCorrections(t *testing.T) {
 		}
 	}
 }
+
+func TestReinforcementStandaloneRevertRequests(t *testing.T) {
+	for _, text := range []string{"Revert", "revert!", "Please revert.", "Can you revert?", "Could you please revert?", "Now revert", "Revert, please", "Roll back.", "Please rollback"} {
+		for _, committed := range []bool{false, true} {
+			if got := classifyReinforcement(reinforcementSignal{FeedbackText: text, WorkCommitted: committed}); got != reinforcementCorrected {
+				t.Errorf("%q committed=%v: got %s, want corrected", text, committed, got)
+			}
+		}
+	}
+	for _, text := range []string{"Do not revert", "Please don't revert", "Can you not revert?", "No need to revert", "Now add revert support", "Please document revert", "Can you add a revert button?", "The command is revert", "Revert support is useful", "Should I revert?"} {
+		if got := classifyReinforcement(reinforcementSignal{FeedbackText: text}); got != reinforcementNeutral {
+			t.Errorf("%q: got %s, want neutral", text, got)
+		}
+	}
+}

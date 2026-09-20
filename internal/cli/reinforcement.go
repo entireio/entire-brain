@@ -155,6 +155,13 @@ func hasCorrectionCue(normalized string) bool {
 	if normalized == "no" || normalized == "nope" || normalized == "wrong" {
 		return true
 	}
+	// Bare imperative requests refer to the preceding work. Match the complete
+	// request so mentions such as "add revert support" cannot become corrections.
+	request := strings.Trim(normalized, " .!?,")
+	request = strings.Trim(strings.TrimSuffix(request, " please"), " ,")
+	if request == "revert" || request == "roll back" || request == "rollback" {
+		return true
+	}
 	if strings.HasPrefix(normalized, "no problem") || strings.HasPrefix(normalized, "no worries") {
 		return false
 	}
