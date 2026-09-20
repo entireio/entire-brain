@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "df46caa390d3",
+  "strategy": "manual-commit",
+  "branch": "codex/audit-f23-fail-closed-filter-probes",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/git_harden_filters.go",
+    "internal/cli/git_harden_probe_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/df/46caa390d3/0/metadata.json",
+      "transcript": "/df/46caa390d3/0/full.jsonl",
+      "compact_transcript": "/df/46caa390d3/0/transcript.jsonl",
+      "content_hash": "/df/46caa390d3/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 6439,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": -6789888,
+    "output_tokens": -2629,
+    "api_call_count": 8
+  }
+}
