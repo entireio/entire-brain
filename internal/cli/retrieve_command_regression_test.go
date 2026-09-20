@@ -201,7 +201,7 @@ func TestWorkspaceRetrieveGraphGroupSuccessAndMalformedState(t *testing.T) {
 		ToSymbol:     workspaceGraphSymbolRef{RepoKey: manifest.Repos[1].RepoKey, ID: "symbol:beta.serveNebula", Kind: "function", Name: "serveNebula", FilePath: "beta/server.go"},
 		RelationKind: "cross_repo_route_call", SharedCount: 3,
 	}
-	if _, err := writeWorkspaceGraphPayload(opts.Env, workspaceGraphPayload{Workspace: manifest.Name, GeneratedAt: opts.Now(), CrossEdges: []workspaceGraphCrossEdge{edge}}); err != nil {
+	if _, err := writeWorkspaceGraphPayload(opts.Env, workspaceGraphPayload{Generation: workspaceGraphTestGeneration(t, opts.Env, manifest), Workspace: manifest.Name, GeneratedAt: opts.Now(), CrossEdges: []workspaceGraphCrossEdge{edge}}); err != nil {
 		t.Fatal(err)
 	}
 	cmd := &cobra.Command{}
