@@ -8,11 +8,6 @@ import (
 	"github.com/entireio/entire-brain/internal/factgitmeta/gitmeta"
 )
 
-// maxAliasHops bounds transitive alias resolution. Renames chain (A -> B -> C)
-// and a pathological history could, in principle, produce a cycle; a hop budget
-// makes resolution total instead of hanging.
-const maxAliasHops = 16
-
 // Snapshot is the materialized, read-side view of the git-meta entity index:
 // the reverse map (entity key -> commits, in index order), the rename/move alias
 // map, the per-commit forward documents, and the per-branch indexed windows.
@@ -411,46 +406,30 @@ func rankEntity(needle, key, path, name string) (int, bool) {
 	}
 }
 
-// resolveAlias follows a rename/move chain with a hop budget, so a cycle can
-// never hang resolution.
-//
-// A cycle is not merely a pathological safety valve here: a rename-BACK (A
-// renamed to B, and later B renamed back to A) genuinely produces one. Each
-// rename writes ONE alias record keyed by its OLD spelling
-// (AliasRecordKey(oldKey) = newKey), so after A -> B -> A the store holds BOTH
-// "A -> B" (from the first rename, now stale) and "B -> A" (from the second,
-// current) forever — nothing ever retracts the first edge, because the second
-// rename touches a different key. Chasing the chain from "A" therefore visits
-// "A -> B -> A" and closes a real 2-cycle; returning the pre-repeat node
-// (the old behavior) answers with "B", a spelling nothing in the tree is
-// called any more.
-//
-// The alias map alone cannot tell which edge is stale: both are ordinary,
-// individually-valid rename records with no "this one is newer" bit. The
-// reverse index does carry that signal, though — every entry is stamped from
-// the commit that produced it — so lastTouch (latest reverse-index entry per
-// key, see Snapshot.lastTouch) breaks the tie: whichever of the two keys that
-// closed the cycle was touched by a LATER commit is the one actually live in
-// the tree. A nil or incomplete lastTouch degrades to the old "return the
-// pre-repeat node" behavior rather than panicking.
+// resolveAlias follows the complete chain and selects the most recently touched
+// member of a rename cycle. Only cycle members participate in the tie-break.
 func resolveAlias(aliases map[string]string, lastTouch map[string]int64, entityKey string) string {
-	seen := map[string]struct{}{entityKey: {}}
+	seen := map[string]int{entityKey: 0}
+	chain := []string{entityKey}
 	current := entityKey
-	for hop := 0; hop < maxAliasHops; hop++ {
+	for {
 		next, ok := aliases[current]
 		if !ok || next == current {
 			return current
 		}
-		if _, cycle := seen[next]; cycle {
-			if lastTouch[next] > lastTouch[current] {
-				return next
+		if start, cycle := seen[next]; cycle {
+			best := current
+			for _, key := range chain[start:] {
+				if lastTouch[key] > lastTouch[best] || (lastTouch[key] == lastTouch[best] && key < best) {
+					best = key
+				}
 			}
-			return current
+			return best
 		}
-		seen[next] = struct{}{}
+		seen[next] = len(chain)
+		chain = append(chain, next)
 		current = next
 	}
-	return current
 }
 
 // Delta returns a commit's stored delta document.
