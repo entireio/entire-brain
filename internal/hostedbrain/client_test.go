@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/brainwire"
+	"github.com/entireio/entire-brain/internal/brainwire"
 )
 
 // hostedMCPServer stands up an httptest server that speaks entire-api's brain MCP

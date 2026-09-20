@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ashtom/entire-brain/internal/cli"
+	"github.com/entireio/entire-brain/internal/cli"
 )
 
 var version = "dev"

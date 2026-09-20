@@ -7,9 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ashtom/entire-brain/internal/apiurl"
-	"github.com/ashtom/entire-brain/internal/factsync"
-	"github.com/ashtom/entire-brain/internal/hostedbrain"
+	"github.com/entireio/entire-brain/internal/apiurl"
+	"github.com/entireio/entire-brain/internal/factsync"
+	"github.com/entireio/entire-brain/internal/hostedbrain"
 )
 
 // `facts proposals` is the user-facing surface for the CROSS-MEMBER review queue: the

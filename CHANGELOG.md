@@ -5,6 +5,25 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-19
+
+First numbered release of the public line. Work that shipped as 0.2.0 and 0.3.0
+during private development is folded in here; numbering restarts at 0.1.0 so the
+public history begins at the beginning.
+
+### Added
+
+- Automated release workflow: tag-triggered cross-platform builds for
+  linux/darwin/windows on amd64 and arm64 with `checksums.txt`, matching the
+  process `entire-graph` already uses.
+- Nightly prereleases at 06:00 UTC, skipped on days main has not moved.
+
+### Changed
+
+- Go module path is now `github.com/entireio/entire-brain`, matching
+  `entire-graph` and `entire-judge`.
+
+
 ### Added
 
 - `init-agents` installs a shared Brain operating guide and preserves existing

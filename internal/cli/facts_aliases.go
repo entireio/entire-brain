@@ -3,7 +3,7 @@ package cli
 import (
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factmerge"
 )
 
 // This file is the thin compatibility shim between internal/cli and the

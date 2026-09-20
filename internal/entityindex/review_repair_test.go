@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/factgitmeta/gitmeta"
+	"github.com/entireio/entire-brain/internal/factgitmeta/gitmeta"
 )
 
 type unavailableGraphRunner struct{ gitRunner }
