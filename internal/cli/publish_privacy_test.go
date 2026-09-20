@@ -93,7 +93,11 @@ func TestPublishPrivacySerializesExclusionAndUpload(t *testing.T) {
 					w.WriteHeader(http.StatusBadRequest)
 					return
 				}
-				_, _ = io.WriteString(w, `{"status":"ok","stored":[{"kind":"manifest","ref":"head"}]}`)
+				stored := make([]map[string]string, 0, len(body.Artifacts))
+				for _, artifact := range body.Artifacts {
+					stored = append(stored, map[string]string{"kind": artifact.Kind, "ref": artifact.Ref})
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "stored": stored})
 			}))
 			defer srv.Close()
 			// Exclusion owns the serialization boundary before publishing starts.
