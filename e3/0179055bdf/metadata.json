@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "e30179055bdf",
+  "strategy": "manual-commit",
+  "branch": "codex/audit2-patterns",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "benchmarks/agent-brain/confirmatory/test_verify_engines.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e3/0179055bdf/0/metadata.json",
+      "transcript": "/e3/0179055bdf/0/full.jsonl",
+      "compact_transcript": "/e3/0179055bdf/0/transcript.jsonl",
+      "content_hash": "/e3/0179055bdf/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 11158,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 903040,
+    "output_tokens": 1972,
+    "api_call_count": 14,
+    "subagent_tokens_complete": false
+  }
+}
