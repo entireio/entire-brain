@@ -364,6 +364,9 @@ func TestFactsProposalsApplyMirrorsIntoLocalFactsImmediately(t *testing.T) {
 		Branch: "main", Origin: factOriginDistilled, Status: factStatusActive, CreatedAt: f.now, UpdatedAt: f.now,
 	}
 	f.writeFacts(t, "main", []factRecord{target, candidate})
+	if _, err := execute(t, NewRootCommand(f.opts), "facts", "sync", "--facts-backend", "http"); err != nil {
+		t.Fatalf("establish hosted binding: %v", err)
+	}
 
 	out, err := execute(t, NewRootCommand(f.opts), "facts", "proposals", "apply", open.ID,
 		"--repo-id", "repo-01HZZ", "--branch", "main")

@@ -180,16 +180,17 @@ type seedFileIndexEntry struct {
 }
 
 type seedScanResult struct {
-	RepoDir     string
-	RepoKey     string
-	Commit      string
-	Files       []seedFileIndexEntry
-	Docs        []seedDocument
-	Entrypoints []string
-	Commands    []seedCommand
-	Coverage    *seedHistoryCoverage
-	Warnings    []string
-	Fingerprint string
+	MaxFileBytes int
+	RepoDir      string
+	RepoKey      string
+	Commit       string
+	Files        []seedFileIndexEntry
+	Docs         []seedDocument
+	Entrypoints  []string
+	Commands     []seedCommand
+	Coverage     *seedHistoryCoverage
+	Warnings     []string
+	Fingerprint  string
 }
 
 func newSeedCommand(opts Options) *cobra.Command {
@@ -439,7 +440,7 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 		paths = paths[:opts.maxFiles]
 	}
 	commit := strings.TrimSpace(string(runGitOutput(ctx, runner, repoDir, "rev-parse", "HEAD")))
-	result := seedScanResult{RepoDir: repoDir, RepoKey: repoKey, Commit: commit, Warnings: warnings}
+	result := seedScanResult{MaxFileBytes: opts.maxFileBytes, RepoDir: repoDir, RepoKey: repoKey, Commit: commit, Warnings: warnings}
 	for _, rel := range paths {
 		entry := inspectSeedFile(repoDir, rel, opts)
 		result.Files = append(result.Files, entry)
@@ -814,10 +815,15 @@ func writeSeedArtifacts(outputDir string, scan seedScanResult) error {
 }
 
 // writeSeedDocs copies the selected high-signal docs into the seed, truncating each
-// to defaultSeedMaxFileBytes. Split out of writeSeedArtifacts so the bound on the
-// per-document read is directly testable.
+// to the configured maximum source bytes. The copy updates document metadata
+// to describe the bytes actually read, excluding any truncation marker.
 func writeSeedDocs(outputDir string, scan seedScanResult) error {
-	for _, doc := range scan.Docs {
+	limit := scan.MaxFileBytes
+	if limit <= 0 {
+		limit = defaultSeedMaxFileBytes
+	}
+	for i := range scan.Docs {
+		doc := &scan.Docs[i]
 		cleanSrc := filepath.Clean(filepath.FromSlash(doc.Path))
 		if filepath.IsAbs(cleanSrc) || cleanSrc == "." || strings.HasPrefix(cleanSrc, ".."+string(filepath.Separator)) {
 			continue
@@ -843,10 +849,12 @@ func writeSeedDocs(outputDir string, scan seedScanResult) error {
 		// detect that truncation is needed. Slurping the whole file first made
 		// the peak allocation the SOURCE file's size, which for a doc that is
 		// kept precisely because it is oversized is pure waste.
-		data, truncated, err := readFilePrefix(src, defaultSeedMaxFileBytes)
+		data, truncated, err := readFilePrefix(src, limit)
 		if err != nil {
 			continue
 		}
+		doc.Bytes = int64(len(data))
+		doc.Truncated = truncated
 		if truncated {
 			data = append(data, []byte("\n\n[truncated]\n")...)
 		}

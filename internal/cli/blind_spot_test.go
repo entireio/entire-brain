@@ -12,7 +12,7 @@ func TestEmptyResultBlindSpot(t *testing.T) {
 	// Sessions captured, never distilled.
 	brainDir := writeDistillFixture(t, now)
 	note := emptyResultBlindSpot(brainDir)
-	if !strings.Contains(note, "never been distilled") || !strings.Contains(note, "2") {
+	if !strings.Contains(note, "coverage is unknown") || !strings.Contains(note, "2") {
 		t.Fatalf("undistilled brain should say so with the session count, got %q", note)
 	}
 
@@ -23,7 +23,7 @@ func TestEmptyResultBlindSpot(t *testing.T) {
 	}
 	// Fixture sessions are created at now-2h and now-1h; a distill 90 minutes
 	// ago leaves exactly the newer one undigested.
-	manifest.Sources.Facts = &factSourceManifest{GeneratedAt: now.Add(-90 * time.Minute)}
+	manifest.Sources.Facts = &factSourceManifest{LastDistilledAt: now.Add(-90 * time.Minute)}
 	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 		t.Fatal(err)
 	}
@@ -32,14 +32,14 @@ func TestEmptyResultBlindSpot(t *testing.T) {
 		t.Fatalf("expected the undigested-session count, got %q", note)
 	}
 
-	// Fully digested: the empty is honest — say that too.
-	manifest.Sources.Facts = &factSourceManifest{GeneratedAt: now}
+	// A recent run does not establish complete coverage.
+	manifest.Sources.Facts = &factSourceManifest{LastDistilledAt: now}
 	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 		t.Fatal(err)
 	}
 	note = emptyResultBlindSpot(brainDir)
-	if !strings.Contains(note, "may genuinely not be in the brain") {
-		t.Fatalf("fully-digested brain should vouch for the empty, got %q", note)
+	if !strings.Contains(note, "complete session coverage is unknown") {
+		t.Fatalf("recent distillation should preserve coverage uncertainty, got %q", note)
 	}
 
 	// No manifest at all: the case that MOST needs saying, not the one to

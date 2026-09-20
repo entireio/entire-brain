@@ -74,7 +74,9 @@ func loadExpansionCache(path string) *expansionCache {
 		return c
 	}
 	if data, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(data, &c.terms)
+		if err := json.Unmarshal(data, &c.terms); err != nil || c.terms == nil {
+			c.terms = map[string]string{}
+		}
 	}
 	return c
 }

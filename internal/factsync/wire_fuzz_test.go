@@ -21,6 +21,8 @@ import (
 //
 //	go test ./internal/factsync -run xxx -fuzz FuzzName
 
+const fuzzOrigin = "https://fuzz.invalid"
+
 // fuzzTransport answers every request in-process from a fixed status and body.
 //
 // A real httptest server per execution — or even one shared server — is
@@ -73,7 +75,7 @@ func FuzzHTTPServerResponses(f *testing.F) {
 		if status < 100 || status > 599 {
 			return // net/http refuses to write a non-status code
 		}
-		h := &HTTPServer{BaseURL: "http://fuzz.invalid", Token: "t", Client: fuzzClient(status, body)}
+		h := &HTTPServer{BaseURL: fuzzOrigin, Token: "t", Client: fuzzClient(status, body)}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
@@ -105,7 +107,7 @@ func FuzzSyncAgainstHostileHead(f *testing.F) {
 	f.Add([]byte(`{"found":true,"ref":"r","data":""}`))
 	f.Add([]byte(`{"found":true,"ref":"r","data":"AAAA"}`))
 	f.Fuzz(func(t *testing.T, body []byte) {
-		h := &HTTPServer{BaseURL: "http://fuzz.invalid", Client: fuzzClient(200, body)}
+		h := &HTTPServer{BaseURL: fuzzOrigin, Client: fuzzClient(200, body)}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		_, _ = Sync(ctx, h, "repo", "main", "member", nil, time.Unix(0, 0).UTC())
@@ -157,4 +159,12 @@ func FuzzParseDecision(f *testing.F) {
 			t.Fatalf("decision round trip broke: %q -> %v -> %q -> %v (%v)", s, d, d.String(), again, err)
 		}
 	})
+}
+
+func TestFuzzOriginReachesFactDecoder(t *testing.T) {
+	h := &HTTPServer{BaseURL: fuzzOrigin, Client: fuzzClient(200, []byte(`{"found":true,"ref":"decoded-marker","data":"aGk="}`))}
+	ref, data, found, err := h.Current(context.Background(), "repo", "main")
+	if err != nil || !found || ref != "decoded-marker" || string(data) != "hi" {
+		t.Fatalf("fuzz harness did not decode seed: %q %q %v %v", data, ref, found, err)
+	}
 }

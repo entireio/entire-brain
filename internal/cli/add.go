@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,10 +51,17 @@ func runBrainAdd(cmd *cobra.Command, opts Options, flags addFlags, repoURL strin
 	if strings.HasPrefix(repoURL, "-") {
 		return fmt.Errorf("invalid_repo_url: %q must not start with '-'", repoURL)
 	}
+	if brainNoEgressMode() {
+		return fmt.Errorf("no_egress: add requires cloning or fetching repository history; unset ENTIRE_BRAIN_NO_EGRESS/ENTIRE_BRAIN_LOCAL_ONLY to allow it")
+	}
 	dest := filepath.Join(flags.dir, name)
 
 	// 1. Clone (skip if the checkout already exists).
 	if isGitCheckout(dest) {
+		origin, _, err := opts.Runner.Run(ctx, dest, "git", "remote", "get-url", "origin")
+		if err != nil || !sameCloneOrigin(repoURL, strings.TrimSpace(string(origin))) {
+			return fmt.Errorf("repository_collision: %s already exists with a different or unreadable origin; choose another --dir", dest)
+		}
 		fmt.Fprintf(out, "clone: %s already present, skipping\n", dest)
 	} else {
 		fmt.Fprintf(out, "clone: %s -> %s\n", repoURL, dest)
@@ -148,4 +156,26 @@ func repoDirName(repoURL string) string {
 func isGitCheckout(dir string) bool {
 	info, err := os.Stat(filepath.Join(dir, ".git"))
 	return err == nil && (info.IsDir() || info.Mode().IsRegular())
+}
+
+// Compare complete host/path identities without the lossy directory-name or
+// store-key sanitization. HTTPS and ordinary SCP-style SSH URLs may name the
+// same repository; non-default ports and path case remain significant.
+func sameCloneOrigin(want, got string) bool {
+	if got == "" {
+		return false
+	}
+	identity := func(remote string) string {
+		remote = strings.TrimSpace(remote)
+		host, path := "", ""
+		if u, err := url.Parse(remote); err == nil && u.Host != "" && u.Scheme != "" {
+			host, path = strings.ToLower(u.Host), u.EscapedPath()
+		} else if m := repoRemoteSCPRegex.FindStringSubmatch(remote); len(m) == 3 {
+			host, path = strings.ToLower(m[1]), m[2]
+		} else {
+			return strings.TrimSuffix(strings.TrimSuffix(remote, "/"), ".git")
+		}
+		return host + "/" + strings.TrimSuffix(strings.Trim(path, "/"), ".git")
+	}
+	return identity(want) == identity(got)
 }

@@ -67,6 +67,10 @@ here.`,
 }
 
 func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pathCommandOptions, target string) error {
+	slugForHost := lookupRepoDomainSlug
+	if pathOpts.ensure {
+		slugForHost = repoDomainSlug
+	}
 	dirs, err := resolvePluginDirs(opts.Env)
 	if err != nil {
 		return err
@@ -77,7 +81,7 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 		if looksLikeWindowsDriveTargetPath(target) {
 			return err
 		}
-		key, ok, keyErr := repoKeyFromRemote(dirs.Config, target)
+		key, ok, keyErr := repoKeyFromRemoteWithSlug(dirs.Config, target, slugForHost)
 		if keyErr != nil {
 			return keyErr
 		}
@@ -92,10 +96,14 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 		return nil
 	}
 	if local {
-		storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+		set, err := resolveRepoStorageSetWithSlug(ctx, opts.Runner, opts.Env, repoDir, slugForHost)
 		if err != nil {
 			return err
 		}
+		if err := set.conflictError(); err != nil {
+			return err
+		}
+		storage := set.Active()
 		if err := checkPathTargetIsAddressable(ctx, opts, storage, repoDir); err != nil {
 			return err
 		}
@@ -114,7 +122,7 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 	if looksLikeWindowsDriveTargetPath(target) {
 		return fmt.Errorf("target is neither an existing path nor a supported repo URL: %s", target)
 	}
-	key, ok, err := repoKeyFromRemote(dirs.Config, target)
+	key, ok, err := repoKeyFromRemoteWithSlug(dirs.Config, target, slugForHost)
 	if err != nil {
 		return err
 	}

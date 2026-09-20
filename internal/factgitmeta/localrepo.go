@@ -1,10 +1,12 @@
 package factgitmeta
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/go-git/go-billy/v6/osfs"
 	git "github.com/go-git/go-git/v6"
@@ -110,5 +112,34 @@ func releaseFunc(f *os.File) func() {
 	return func() {
 		_ = unlockFile(f)
 		_ = f.Close()
+	}
+}
+
+// lockContext waits for the same advisory lock as lock, but cancellation can
+// interrupt contention. Check again after acquisition to avoid starting a
+// write when cancellation and lock availability happen together.
+func (r *localRepo) lockContext(ctx context.Context) (func(), error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		unlock, ok, err := r.tryLock()
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			if err := ctx.Err(); err != nil {
+				unlock()
+				return nil, err
+			}
+			return unlock, nil
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
 	}
 }
