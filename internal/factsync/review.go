@@ -5,7 +5,7 @@ import (
 
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factmerge"
 )
 
 // Decision is how a member resolves a cross-member review Proposal.

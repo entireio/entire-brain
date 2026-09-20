@@ -1,7 +1,7 @@
 package entityindex
 
 import (
-	"github.com/ashtom/entire-brain/internal/factgitmeta/gitmeta"
+	"github.com/entireio/entire-brain/internal/factgitmeta/gitmeta"
 )
 
 // stateKey identifies one (target, key) record slot.

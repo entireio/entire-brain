@@ -19,12 +19,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ashtom/entire-brain/internal/apiurl"
-	"github.com/ashtom/entire-brain/internal/brainwire"
-	"github.com/ashtom/entire-brain/internal/factmerge"
-	"github.com/ashtom/entire-brain/internal/factsync"
-	"github.com/ashtom/entire-brain/internal/httpx"
-	"github.com/ashtom/entire-brain/internal/repoid"
+	"github.com/entireio/entire-brain/internal/apiurl"
+	"github.com/entireio/entire-brain/internal/brainwire"
+	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factsync"
+	"github.com/entireio/entire-brain/internal/httpx"
+	"github.com/entireio/entire-brain/internal/repoid"
 )
 
 // Hosted brain publish (P1.M1.5, client half). This command is the ONLY path in
@@ -219,6 +219,15 @@ func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOp
 	if !brainExportExists(storage.BrainDir) {
 		return fmt.Errorf("publish: no brain found for this repo; run 'entire brain refresh' first")
 	}
+
+	// Exclusion and purge use the same boundary. Hold it from collection through
+	// the completed HTTP exchange so a checked bundle cannot become private
+	// between its policy read and its last outgoing byte.
+	privacyUnlock, err := acquireBrainPrivacySideEffectLock(storage.BrainDir)
+	if err != nil {
+		return fmt.Errorf("publish: %w", err)
+	}
+	defer privacyUnlock()
 
 	body, repoKey, err := buildPublishBundle(ctx, opts, storage, repoDir)
 	if err != nil {
@@ -479,6 +488,14 @@ func collectOverlayArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]p
 // logical branch from the records (the on-disk slug is lossy), and registers a
 // FactsRef on art. Streams are keyed by branch and emitted in branch order.
 func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publishArtifact, error) {
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return nil, fmt.Errorf("load facts privacy manifest: %w", err)
+	}
+	guard, err := loadSessionReadGuard(brainDir, manifest)
+	if err != nil {
+		return nil, fmt.Errorf("load facts privacy policy: %w", err)
+	}
 	entries, _, err := readPrivacyDirectory(brainDir, factsDirName, "publish facts")
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -523,7 +540,7 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 		// REDACT before the bytes become an artifact. The digest and the manifest
 		// ContentRef must describe what actually leaves, so the redaction has to
 		// happen ahead of both.
-		data, err := redactFactsForEgress(stream.data)
+		data, err := redactFactsForEgress(stream.data, guard)
 		if err != nil {
 			return nil, fmt.Errorf("read facts %s: %w", stream.branch, err)
 		}
@@ -563,11 +580,14 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 // A stream that will not parse is an ERROR, not a stream to ship unredacted. It is
 // also not a new class of failure: `facts sync` already refuses the same file, so a
 // brain that cannot publish here could not sync either.
-func redactFactsForEgress(data []byte) ([]byte, error) {
+func redactFactsForEgress(data []byte, guard sessionReadGuard) ([]byte, error) {
 	records, err := factmerge.ParseNDJSON(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("cannot redact local-only provenance before upload: %w", err)
 	}
+	// Filter before sanitizing: transcript coordinates are needed to recognize
+	// excluded provenance when an anchor has no session ID.
+	records = guardFactRecords(guard, records)
 	var buf bytes.Buffer
 	if err := factmerge.WriteNDJSON(&buf, factsync.SanitizeForEgress(records)); err != nil {
 		return nil, fmt.Errorf("cannot redact local-only provenance before upload: %w", err)

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factmerge"
 )
 
 // Two proposal endpoints address a proposal by id in the REQUEST TARGET:

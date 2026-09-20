@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/brainwire"
+	"github.com/entireio/entire-brain/internal/brainwire"
 )
 
 func TestPublishArtifactPathsRejectSymlinks(t *testing.T) {

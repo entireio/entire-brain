@@ -560,11 +560,12 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 			for _, ref := range tx.SessionRefs {
 				refsBySession[id][ref] = true
 			}
-			for _, artifact := range tx.Artifacts {
-				rel := normalizePrivacyTranscriptPath(artifact.Path)
-				if strings.HasPrefix(rel, exportSessionsDirectory+"/") {
-					pathsBySession[id][rel] = true
-				}
+			paths, scopeErr := privacyTransactionTranscriptPaths(tx)
+			if scopeErr != nil {
+				return report, scopeErr
+			}
+			for _, rel := range paths {
+				pathsBySession[id][rel] = true
 			}
 		}
 	}

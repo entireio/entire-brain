@@ -9,7 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	entirebrain "github.com/ashtom/entire-brain"
+	entirebrain "github.com/entireio/entire-brain"
 )
 
 const (

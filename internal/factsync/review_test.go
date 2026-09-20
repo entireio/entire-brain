@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factmerge"
 )
 
 // advanceResolved pushes a resolved fact set to the head under CAS (what a reviewer's

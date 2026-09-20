@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/repoid"
+	"github.com/entireio/entire-brain/internal/repoid"
 )
 
 // The fact-set and proposal transports interpolate the repo id into the request

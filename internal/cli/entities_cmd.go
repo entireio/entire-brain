@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/entityindex"
-	"github.com/ashtom/entire-brain/internal/factgitmeta"
+	"github.com/entireio/entire-brain/internal/entityindex"
+	"github.com/entireio/entire-brain/internal/factgitmeta"
 
 	"github.com/spf13/cobra"
 )

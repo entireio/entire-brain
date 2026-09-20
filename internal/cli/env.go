@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ashtom/entire-brain/internal/config"
+	"github.com/entireio/entire-brain/internal/config"
 )
 
 const (
