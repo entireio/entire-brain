@@ -2357,6 +2357,21 @@ func keepWorkspaceGraphEdge(edges []workspaceGraphCrossEdge, limit int, edge wor
 	if len(edges) == limit && !workspaceGraphEdgeLess(edge, edges[len(edges)-1]) {
 		return edges
 	}
+	// Ranking includes the occurrence count; identity does not. Canonical routes
+	// and channels can contribute the same pair with different counts. Keep its
+	// strongest candidate without allowing duplicates to consume the limit.
+	for i, existing := range edges {
+		if existing.RelationKind == edge.RelationKind && existing.Type == edge.Type && existing.Endpoint == edge.Endpoint &&
+			existing.FromRepo == edge.FromRepo && existing.ToRepo == edge.ToRepo &&
+			existing.FromSymbol.ID == edge.FromSymbol.ID && existing.ToSymbol.ID == edge.ToSymbol.ID {
+			if !workspaceGraphEdgeLess(edge, existing) {
+				return edges
+			}
+			copy(edges[i:], edges[i+1:])
+			edges = edges[:len(edges)-1]
+			break
+		}
+	}
 	at := sort.Search(len(edges), func(i int) bool { return !workspaceGraphEdgeLess(edges[i], edge) })
 	if at < len(edges) && !workspaceGraphEdgeLess(edge, edges[at]) {
 		return edges
@@ -3913,8 +3928,9 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 // which readers reject even if that builder overwrites a newer cache file.
 func workspaceGraphGeneration(env EntireEnv, manifest workspaceManifest) (string, error) {
 	type memberSource struct {
-		Repo     workspaceRepo   `json:"repo"`
-		Manifest *exportManifest `json:"manifest"`
+		Repo        workspaceRepo   `json:"repo"`
+		Manifest    *exportManifest `json:"manifest"`
+		Unavailable bool            `json:"unavailable,omitempty"`
 	}
 	members := make([]memberSource, 0, len(manifest.Repos))
 	for _, repo := range manifest.Repos {
@@ -3923,10 +3939,9 @@ func workspaceGraphGeneration(env EntireEnv, manifest workspaceManifest) (string
 			return "", err
 		}
 		source, err := loadBrainManifest(brainDir)
-		if err != nil {
-			return "", err
-		}
-		members = append(members, memberSource{repo, source})
+		// The builder reports source failures per member and still serves healthy
+		// repositories. Bind that degraded state too, so recovery invalidates it.
+		members = append(members, memberSource{Repo: repo, Manifest: source, Unavailable: err != nil})
 	}
 	sort.Slice(members, func(i, j int) bool { return members[i].Repo.RepoKey < members[j].Repo.RepoKey })
 	data, err := json.Marshal(members)
