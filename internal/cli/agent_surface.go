@@ -1479,6 +1479,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		historyEmbedder := defaultEmbedder()
 		fusionEnabled := historySemanticEmbedder(historyEmbedder) != nil
 		var scoredHistory []scoredHistoryRecord
+		var rankedHistoryIndex *historyIndex
 		var historyErr error
 
 		if !fusionEnabled {
@@ -1506,6 +1507,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 				var index historyIndex
 				var legacyIdentity *historyLegacyIdentity
 				index, legacyIdentity, historyErr = loadBrainHistoryIndexWithLegacyIdentity(status.Brain.Path, source)
+				rankedHistoryIndex = &index
 				if profile != nil {
 					historyErrors := 0
 					if historyErr != nil {
@@ -1547,6 +1549,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			indexLoadStarted := profile.start()
 			var index historyIndex
 			index, historyErr = loadBrainHistoryIndex(status.Brain.Path, source)
+			rankedHistoryIndex = &index
 			if profile != nil {
 				historyErrors := 0
 				if historyErr != nil {
@@ -1580,14 +1583,19 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 				briefGuardPred = func(r historyRecord) bool { return !briefGuard.blocksRecord(r) }
 			}
 			if len(freshOverlay.overlay) > 0 || len(freshOverlay.replaced) > 0 {
-				freshOverlay.index, historyErr = loadBrainHistoryIndex(status.Brain.Path, source)
-				if historyErr != nil {
-					scoredHistory = nil
-					report.Warnings = append(report.Warnings, "history context unavailable: "+historyErr.Error())
-				} else {
+				if rankedHistoryIndex != nil {
+					// Reuse the truth already loaded by the fused or legacy arm.
+					freshOverlay.index = *rankedHistoryIndex
 					scoredHistory = rankFreshHistory(freshOverlay, "history", task, briefOpts.limit, briefGuardPred, func(index historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
 						return rankHistoryFusedFiltered(status.Brain.Path, index, "history", task, briefOpts.limit, historyEmbedder, eligible)
 					})
+				} else {
+					// A validated payload ranking does not need JSON truth. Apply
+					// replacement/privacy eligibility in that same payload path.
+					scoredHistory, _, _, historyErr = rankFreshHistoryLexicalFromSource(status.Brain.Path, source, "history", task, briefOpts.limit, briefGuardPred)
+					if historyErr != nil {
+						report.Warnings = append(report.Warnings, "history context unavailable: "+historyErr.Error())
+					}
 				}
 			}
 			if briefGuardPred != nil {

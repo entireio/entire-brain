@@ -462,9 +462,13 @@ func loadFreshHistoryOverlay(brainDir string, source *historySourceManifest) fre
 // rankFreshHistoryLexicalFromSource preserves the direct FTS payload path for
 // the long-term tier, then overlays short-term records without forcing a full
 // index.json load on the common BM25-only path.
-func rankFreshHistoryLexicalFromSource(brainDir string, source *historySourceManifest, kind, query string, limit int) ([]scoredHistoryRecord, string, int, error) {
+func rankFreshHistoryLexicalFromSource(brainDir string, source *historySourceManifest, kind, query string, limit int, predicates ...func(historyRecord) bool) ([]scoredHistoryRecord, string, int, error) {
+	var pred func(historyRecord) bool
+	if len(predicates) > 0 {
+		pred = predicates[0]
+	}
 	fresh := loadFreshHistoryOverlay(brainDir, source)
-	if len(fresh.replaced) == 0 && len(fresh.overlay) == 0 {
+	if len(fresh.replaced) == 0 && len(fresh.overlay) == 0 && pred == nil {
 		return rankHistoryLexicalFromSource(brainDir, source, kind, query, limit)
 	}
 	// Filter before the payload reader deduplicates or limits candidates. This
@@ -478,7 +482,7 @@ func rankFreshHistoryLexicalFromSource(brainDir string, source *historySourceMan
 		overlayByKey[key] = r
 	}
 	eligible := func(r historyRecord) bool {
-		if fresh.replaced[r.Path] {
+		if fresh.replaced[r.Path] || (pred != nil && !pred(r)) {
 			return false
 		}
 		if replacement, ok := overlayByKey[recordReplacementKey(r)]; ok {
@@ -495,7 +499,7 @@ func rankFreshHistoryLexicalFromSource(brainDir string, source *historySourceMan
 		for _, hit := range lex {
 			fresh.index.Records = append(fresh.index.Records, hit.Record)
 		}
-		ranked := rankFreshHistory(fresh, kind, query, limit, nil, func(historyIndex, func(historyRecord) bool) ([]scoredHistoryRecord, bool) { return lex, true })
+		ranked := rankFreshHistory(fresh, kind, query, limit, pred, func(historyIndex, func(historyRecord) bool) ([]scoredHistoryRecord, bool) { return lex, true })
 		return ranked, historyIndexAccessFTSPayload, source.Records + len(fresh.overlay), nil
 	}
 	index, err := loadBrainHistoryIndex(brainDir, source)
@@ -504,7 +508,7 @@ func rankFreshHistoryLexicalFromSource(brainDir string, source *historySourceMan
 	}
 	fresh.index = index
 	repaired := !derivedCorrupt || rebuildHistoryFTSFromTruth(brainDir, index) == nil
-	ranked := rankFreshHistory(fresh, kind, query, limit, nil, func(index historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
+	ranked := rankFreshHistory(fresh, kind, query, limit, pred, func(index historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
 		if !repaired {
 			return nil, false
 		}
