@@ -222,6 +222,12 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 		}
 	}
 
+	if hosted, ok := srv.(*factsync.HTTPServer); ok && pubErr == nil {
+		if err := writeHostedFactsBinding(storage.BrainDir, branch, repoID, hosted.BaseURL); err != nil {
+			return fmt.Errorf("facts sync: record hosted target: %w", err)
+		}
+	}
+
 	if syncOpts.jsonOut {
 		payload := map[string]any{
 			"branch":             branch,
