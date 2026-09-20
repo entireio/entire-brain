@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "6167bda96f95",
+  "strategy": "manual-commit",
+  "branch": "codex/audit2-benchmark-runner",
+  "checkpoints_count": 6,
+  "files_touched": [
+    ".github/workflows/test.yml",
+    "benchmarks/agent-brain/test_full_brain_integration.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/61/67bda96f95/0/metadata.json",
+      "transcript": "/61/67bda96f95/0/full.jsonl",
+      "compact_transcript": "/61/67bda96f95/0/transcript.jsonl",
+      "content_hash": "/61/67bda96f95/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 18877,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3223808,
+    "output_tokens": 5356,
+    "api_call_count": 18,
+    "subagent_tokens_complete": false
+  }
+}

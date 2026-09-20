@@ -1,0 +1,51 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "6167bda96f95",
+  "session_id": "01a0b6ce-e2ad-7853-bb2f-19731062a2c9",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-20T21:27:31.830981Z",
+  "branch": "codex/audit2-benchmark-runner",
+  "checkpoints_count": 6,
+  "files_touched": [
+    ".github/workflows/test.yml",
+    "benchmarks/agent-brain/test_full_brain_integration.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "59c6462e60db",
+  "checkpoint_transcript_start": 15411,
+  "transcript_lines_at_start": 15411,
+  "compact_transcript_start": 1863,
+  "token_usage": {
+    "input_tokens": 18877,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3223808,
+    "output_tokens": 5356,
+    "api_call_count": 18,
+    "subagent_tokens_complete": false
+  },
+  "session_metrics": {
+    "turn_count": 20
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-20T21:27:29.227884Z",
+    "agent_lines": 240,
+    "agent_removed": 3,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 240,
+    "total_lines_changed": 243,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
