@@ -1,0 +1,54 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "8b27470b63f1",
+  "session_id": "01a0b6ce-e2ad-7853-bb2f-19731062a2c9",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-20T15:23:55.164603Z",
+  "branch": "codex/audit2-benchmark-runner",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "benchmarks/agent-brain/brainmark/agents/claude_adapter.py",
+    "benchmarks/agent-brain/brainmark/agents/codex_provider_shim.py",
+    "benchmarks/agent-brain/brainmark/run_b.py",
+    "benchmarks/agent-brain/brainmark/tests/test_run_b_dryrun.py",
+    "benchmarks/agent-brain/brainmark/tests/test_runner_audit.py",
+    "benchmarks/agent-brain/brainmark/vendor/graphmark_metrics.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "c3bdb7ffd211",
+  "checkpoint_transcript_start": 12180,
+  "transcript_lines_at_start": 12180,
+  "compact_transcript_start": 1495,
+  "token_usage": {
+    "input_tokens": 4195,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 773376,
+    "output_tokens": 2029,
+    "api_call_count": 4
+  },
+  "session_metrics": {
+    "turn_count": 14
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-20T15:23:49.192841Z",
+    "agent_lines": 166,
+    "agent_removed": 73,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 166,
+    "total_lines_changed": 239,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
