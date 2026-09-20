@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"syscall"
 	"testing"
 )
 
@@ -44,26 +47,60 @@ func TestSkillReplacementRejectsSwappedDirectory(t *testing.T) {
 	if err := os.WriteFile(sentinel, []byte("outside"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	originalParent, err := os.Stat(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	swapBlocked := false
 	err = writeSkillFileBeforeReplace(d, []byte("replacement"), func() {
 		if err := os.Rename(parent, parent+"-moved"); err != nil {
+			// Windows refuses to rename the directory held open by os.Root.
+			// ERROR_SHARING_VIOLATION is 32; all other fixture errors still fail.
+			if runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(32)) {
+				swapBlocked = true
+				return
+			}
 			t.Fatal(err)
 		}
 		if err := os.Symlink(outside, parent); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if err == nil {
+	if swapBlocked {
+		if err != nil {
+			t.Fatalf("OS blocked swap, but original destination publication failed: %v", err)
+		}
+		currentParent, statErr := os.Stat(parent)
+		if statErr != nil || !os.SameFile(originalParent, currentParent) {
+			t.Fatalf("blocked swap changed original directory: %v", statErr)
+		}
+		if _, statErr := os.Lstat(parent + "-moved"); !os.IsNotExist(statErr) {
+			t.Fatalf("blocked swap created moved directory: %v", statErr)
+		}
+		got, readErr := os.ReadFile(d.Path)
+		if readErr != nil || string(got) != "replacement" {
+			t.Fatalf("original destination not published: %q %v", got, readErr)
+		}
+	} else if err == nil {
 		t.Fatal("directory swap accepted")
 	}
 	got, readErr := os.ReadFile(sentinel)
 	if readErr != nil || string(got) != "outside" {
 		t.Fatalf("outside changed: %q %v", got, readErr)
 	}
-	entries, err := os.ReadDir(parent + "-moved")
+	cleanupDir := parent + "-moved"
+	if swapBlocked {
+		cleanupDir = parent
+	}
+	entries, err := os.ReadDir(cleanupDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 0 {
+	if swapBlocked {
+		if len(entries) != 1 || entries[0].Name() != "SKILL.md" {
+			t.Fatalf("unexpected files after valid publication: %v", entries)
+		}
+	} else if len(entries) != 0 {
 		t.Fatalf("temporary files leaked: %v", entries)
 	}
 }
