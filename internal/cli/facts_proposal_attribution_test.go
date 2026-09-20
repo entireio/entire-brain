@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/factsync"
+	"github.com/entireio/entire-brain/internal/factsync"
 )
 
 // distill's private review backlog and a cross-member conflict raised by

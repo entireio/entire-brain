@@ -1074,7 +1074,10 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 	}
 	contentIdentity := ""
 	if includeContents {
-		excludedByPath := excludedTranscriptPaths(manifest, stones)
+		excludedByPath, err := excludedTranscriptPathsChecked(outputDir, manifest, stones)
+		if err != nil {
+			return historyProjectionIdentity{}, nil, sessionTombstones{}, err
+		}
 		contentCache := historyScanCache{Files: make(map[string]historyScanCacheEntry, len(inventory.files))}
 		for _, file := range inventory.files {
 			if _, excluded := excludedByPath[file.Rel]; excluded {
@@ -1199,7 +1202,10 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 	// Session tombstones (Phase 4): excluded sessions are understood BEFORE
 	// derived indexing; their transcripts are skipped entirely (no records,
 	// no exchanges, no cache entry), counted without retaining content.
-	excludedByPath := excludedTranscriptPaths(manifest, stones)
+	excludedByPath, err := excludedTranscriptPathsChecked(outputDir, manifest, stones)
+	if err != nil {
+		return index, nil, historyScanCache{}, err
+	}
 	repoKey := ""
 	if manifest != nil {
 		repoKey = manifest.RepoKey

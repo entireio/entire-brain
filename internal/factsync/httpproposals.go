@@ -9,8 +9,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/ashtom/entire-brain/internal/factmerge"
-	"github.com/ashtom/entire-brain/internal/httpx"
+	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/httpx"
 )
 
 // HTTPServer also drives the OPEN-PROPOSAL SET endpoints, symmetric with the fact-set

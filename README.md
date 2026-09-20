@@ -21,7 +21,54 @@ Through the CLI and MCP, agents can retrieve earlier decisions, revisit past att
 
 ## Install
 
-The source installer requires Go 1.27 or later, Git 2.36 or later, the Entire CLI on `PATH`, and a C compiler for Graph's tree-sitter bindings. You also need access to the Brain repository.
+Brain is a plugin for the Entire CLI. Install the CLI first if you do not have
+it:
+
+```sh
+curl -fsSL https://entire.io/install.sh | bash
+```
+
+Then install Brain, and Graph alongside it:
+
+```sh
+entire plugin install graph
+entire plugin install brain
+```
+
+Graph supplies the code analysis Brain builds on. Brain runs without it — you
+can still search sessions, documentation, and facts — but `setup` will report
+the semantic index as unavailable until Graph is installed.
+
+Confirm both:
+
+```sh
+entire brain version && entire graph version
+```
+
+<details>
+<summary>Installing without the plugin index</summary>
+
+One self-contained command. It downloads the release binary for your platform,
+verifies it against the release checksums, installs it to `~/.local/bin`, and
+registers it with the CLI. Brain's default build is pure Go, so there is no Go
+toolchain and no C compiler to install.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/entireio/entire-brain/main/scripts/get-brain.sh | bash
+```
+
+Add `--nightly` for the nightly channel, `--version vX.Y.Z` to pin a release,
+or `--dir <path>` to install somewhere other than `~/.local/bin`. Windows users
+can download the `.zip` from the
+[latest release](https://github.com/entireio/entire-brain/releases/latest).
+
+</details>
+
+<details>
+<summary>Building from source instead</summary>
+
+Needs Go 1.27 or later, Git 2.36 or later, the Entire CLI on `PATH`, and a C
+compiler for Graph's tree-sitter bindings.
 
 ```sh
 git clone https://github.com/entireio/entire-brain.git
@@ -33,11 +80,7 @@ The installer builds and registers Brain and Graph, writes the default plugin
 configuration, and runs a health check. It does not initialize a repository's
 memory or install the watcher.
 
-Confirm the installed build:
-
-```sh
-entire brain version
-```
+</details>
 
 See [installation options](docs/operations.md#full-install) for choosing a Graph checkout, installing offline, or building Brain alone.
 
@@ -188,7 +231,15 @@ entire brain dash   # TUI: status, facts, sessions, history, semantic
 entire brain viz    # offline graph in your browser
 ```
 
-<img width="741" height="514" alt="brain-viz" src="https://github.com/user-attachments/assets/9c620612-f316-49e2-be2a-3070c01c452a" />
+<img alt="entire brain viz — a walkthrough of the five sections of a brain"
+     src="docs/images/brain-viz.gif" width="760">
+
+`viz` opens the whole brain as one graph and lets you walk into each part of it:
+**semantic** (functions, types and calls), **facts** (decisions, gotchas and
+rules), **sessions** (agents, turns and work), **history** (commits and
+checkpoints) and **docs** (seed, guides and context). The recording above is a
+real brain — 20,478 symbols, 807,186 history records, 2,375 sessions — and it
+runs entirely on your machine: no network, no model calls, read-only.
 
 ### Recover from a split brain
 

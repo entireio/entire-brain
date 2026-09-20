@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/entityindex"
-	"github.com/ashtom/entire-brain/internal/factgitmeta"
+	"github.com/entireio/entire-brain/internal/entityindex"
+	"github.com/entireio/entire-brain/internal/factgitmeta"
 )
 
 // entityIndexFixture wires a fake repository whose git and `entire graph diff`

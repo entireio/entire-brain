@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ashtom/entire-brain/internal/factgitmeta/gitmeta"
+	"github.com/entireio/entire-brain/internal/factgitmeta/gitmeta"
 )
 
 // maxAliasHops bounds transitive alias resolution. Renames chain (A -> B -> C)

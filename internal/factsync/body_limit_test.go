@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/httpx"
+	"github.com/entireio/entire-brain/internal/httpx"
 )
 
 // Every fact-set and proposal 200 used to be read with

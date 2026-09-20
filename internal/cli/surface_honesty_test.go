@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/tui"
+	"github.com/entireio/entire-brain/internal/tui"
 )
 
 // surface_honesty_test.go covers one defect class across the human-facing

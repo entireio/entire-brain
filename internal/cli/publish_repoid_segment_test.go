@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/repoid"
+	"github.com/entireio/entire-brain/internal/repoid"
 )
 
 // `brain publish` concatenates the repo id into its upload target and attaches the

@@ -46,3 +46,7 @@ The default build is pure Go. Optional build tags enable additional indexing and
 
 See the [development reference](docs/reference.md#development) for mise tasks
 and [installation options](docs/operations.md#local-install-brain-only) for local builds.
+
+For how a release is actually cut — the tag-triggered build, the nightly
+channel, and what the readiness gate permits you to claim — see
+[docs/releasing.md](docs/releasing.md).

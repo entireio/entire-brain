@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factmerge"
 )
 
 // anchoredFact builds a fact whose single provenance anchor carries BOTH opaque

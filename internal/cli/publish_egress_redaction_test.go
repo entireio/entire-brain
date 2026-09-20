@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/brainwire"
+	"github.com/entireio/entire-brain/internal/brainwire"
 
-	"github.com/ashtom/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factmerge"
 )
 
 // A distilled fact's anchor carries two LOCAL-ONLY coordinates: the brain-relative

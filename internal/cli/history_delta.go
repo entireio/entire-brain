@@ -284,7 +284,10 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 	files := inventory.files
 	cache := loadHistoryScanCache(outputDir)
 	previous := loadHistoryShortTerm(outputDir, source)
-	excludedByPath := excludedTranscriptPaths(manifest, stones)
+	excludedByPath, err := excludedTranscriptPathsChecked(outputDir, manifest, stones)
+	if err != nil {
+		return stats, err
+	}
 	branchByPath := historyBranchByTranscriptPath(manifest)
 	sessionByPath := historySessionByTranscriptPath(manifest)
 	repoKey := ""

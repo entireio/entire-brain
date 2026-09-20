@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/factgitmeta"
-	"github.com/ashtom/entire-brain/internal/factgitmeta/gitmeta"
+	"github.com/entireio/entire-brain/internal/factgitmeta"
+	"github.com/entireio/entire-brain/internal/factgitmeta/gitmeta"
 )
 
 // Migrate carries indexed commits into the selected parser namespace. Provider

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/factmerge"
-	"github.com/ashtom/entire-brain/internal/factsync"
+	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factsync"
 )
 
 // hostedHead re-serializes a fact set as the hosted head blob, so a test can

@@ -86,7 +86,7 @@ Build episodes from exported session transcripts. An episode is the normalized u
 ```json
 {
   "id": "episode:...",
-  "repo_key": "gh/ashtom/entire-brain",
+  "repo_key": "gh/entireio/entire-brain",
   "workspace": "platform",
   "session_id": "...",
   "checkpoint_id": "...",
