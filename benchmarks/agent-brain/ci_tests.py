@@ -34,10 +34,6 @@ import sys
 DARWIN_ONLY: dict[str, str] = {
     "test_isolation_repairs.py": "needs /usr/bin/sandbox-exec for the read-isolation profile",
     "confirmatory/test_negative_control_darwin_capacity_v1.py": "shells /usr/bin/xcrun",
-    "confirmatory/test_negative_control_owner_approval_v1.py": (
-        "pins the sha256 of the host ssh-keygen, and the recorded hash is the "
-        "macOS system binary"
-    ),
     "confirmatory/test_restricted_replay_attestation.py": (
         "requires a temporary directory that is not group- or world-writable; "
         "the default tempdir is /tmp (1777) on Linux and a private "
@@ -48,7 +44,7 @@ DARWIN_ONLY: dict[str, str] = {
 ROOT = pathlib.Path(__file__).resolve().parent
 
 # Modules that do not pass on a clean checkout today. Each entry states why, so the
-# exclusion is a visible debt rather than an invisible gap. A quarantined module that
+# debt is visible and its failures still block the gate. A quarantined module that
 # starts passing is also an error: that is how the list stays honest instead of
 # outliving its reasons.
 QUARANTINE: dict[str, str] = {
@@ -108,11 +104,14 @@ def main() -> int:
             continue
         ok, output = run(path)
         if rel in QUARANTINE:
-            # A quarantined module's failure output is expected and noisy; only the
-            # surprise is worth printing.
-            print(f"{'UNEXPECTED PASS ' if ok else 'quarantined     '}{rel}", flush=True)
+            # Historical debt is diagnostic context, never permission to accept
+            # arbitrary failures (including syntax errors or new regressions).
+            print(f"{'UNEXPECTED PASS ' if ok else 'known failure   '}{rel}", flush=True)
             if ok:
                 unexpected_pass.append(rel)
+            else:
+                sys.stdout.write(output)
+                failed.append(rel)
             continue
         print(f"{'ok              ' if ok else 'FAIL            '}{rel}", flush=True)
         if not ok:

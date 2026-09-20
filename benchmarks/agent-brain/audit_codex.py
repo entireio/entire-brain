@@ -735,6 +735,10 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         notes.append(f"N:mcp_call_count_mismatch(record={mcp_calls},server_log={slog})")
 
     if cond == "no_brain":
+        if slog is not None and slog > 0:
+            flags.append(f"A:no_brain_server_tool_calls({slog})")
+        if slog_names and not slog:
+            flags.append("A:no_brain_server_tool_names")
         if mcp_calls > 0:
             flags.append(f"A:no_brain_used_mcp({mcp_calls})")
         if cli_calls > 0:

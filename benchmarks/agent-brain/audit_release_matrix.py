@@ -168,10 +168,25 @@ def audit_manifest(manifest_file: pathlib.Path) -> dict[str, Any]:
         else:
             release_detail = "B1 retained query-hint/task-hash confound is detected; clean replay-lab reruns are required before citing agent lift"
     else:
-        for scope in manifest.get("required_release_proof_scopes", []):
+        if release_claim_policy != "proof_required":
+            release_flags.append("unknown release claim policy")
+        if release_gate.get("status") != "pass":
+            release_flags.append("release proof audit gate is not passing")
+        if release_gate.get("release_evidence") is not True:
+            release_flags.append("release proof evidence is not confirmed")
+        if int(release_totals.get("proof_ready_comparisons") or 0) <= 0:
+            release_flags.append("release has no proof-ready comparisons")
+        required_scopes = {}
+        for field in ("required_release_proof_scopes", "required_named_tool_proof_scopes"):
+            values = manifest.get(field)
+            if not isinstance(values, list) or not values or not all(isinstance(v, str) and v.strip() for v in values):
+                release_flags.append(f"{field} must be an explicit nonempty string list")
+                values = []
+            required_scopes[field] = values
+        for scope in required_scopes["required_release_proof_scopes"]:
             if int(scopes.get(scope) or 0) <= 0:
                 release_flags.append(f"missing retained release proof scope {scope}")
-        for scope in manifest.get("required_named_tool_proof_scopes", []):
+        for scope in required_scopes["required_named_tool_proof_scopes"]:
             if int(named_scopes.get(scope) or 0) <= 0:
                 release_flags.append(f"missing named-tool retained proof scope {scope}")
         if int(release_totals.get("hard_flags") or 0) != 0:

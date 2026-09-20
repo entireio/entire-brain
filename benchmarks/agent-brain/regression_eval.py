@@ -47,10 +47,17 @@ def run_detect(bd, query, extra):
                 "ENTIRE_PLUGIN_CACHE_DIR": str(CACHE / "plugin" / "cache")})
     out = subprocess.run([str(bd / "entire-brain"), "inspect", "regressions", query, *extra, "--json"],
                          env=env, capture_output=True, text=True)
+    if out.returncode != 0:
+        raise RuntimeError(f"detector exited {out.returncode}: {out.stderr.strip()}")
     try:
-        return json.loads(out.stdout).get("anomalies") or []
-    except Exception:
-        return []
+        result = json.loads(out.stdout)
+    except json.JSONDecodeError as exc:
+        raise ValueError("detector returned invalid JSON") from exc
+    if not isinstance(result, dict) or not isinstance(result.get("anomalies"), list):
+        raise ValueError("detector result must contain an anomalies array")
+    if not all(isinstance(anomaly, dict) for anomaly in result["anomalies"]):
+        raise ValueError("detector anomalies must be objects")
+    return result["anomalies"]
 
 
 def with_mutation(rel, old, new, fn):
@@ -103,7 +110,7 @@ def main():
         d = f"{h['file'].split('/')[-1]}:{h['line']} [{h['kind']}]" if h else "-"
         print(f"   {label:12} {'HIT' if ok else 'MISS':5} {d}")
 
-    fa = sum(n for _, n in corpus)
+    fa = sum(n > 0 for _, n in corpus)
     print(f"\nFALSE-ALARM CORPUS ({len(corpus)} held-out negative cases; want 0 each):")
     for label, n in corpus:
         print(f"   {label:28} {n} {'<-- FALSE ALARM' if n else ''}")
