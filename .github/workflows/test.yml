@@ -568,3 +568,31 @@ jobs:
             echo "::error::$failures release-evidence check(s) failed"
             exit 1
           fi
+
+  benchmark-real-components:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v6.0.0
+        with: { python-version: "3.14" }
+      - uses: actions/setup-go@v6.4.0
+        with: { go-version-file: go.mod }
+      - name: Check out the fixed Graph integration dependency
+        uses: actions/checkout@v6.0.2
+        with:
+          repository: entireio/entire-graph
+          ref: 91f9a05ad02aa779b858e9f641e5a8fa2ecf7103
+          path: .integration-graph
+          persist-credentials: false
+      - name: Build the real preparation components
+        run: |
+          go build -o "${{ runner.temp }}/entire-brain" ./cmd/entire-brain
+          cd .integration-graph
+          go build -o "${{ runner.temp }}/entire-graph" ./cmd/entire-graph
+      - name: Exercise public benchmark preparation with local provider output
+        env:
+          ENTIRE_BENCHMARK_REQUIRE_COMPONENTS: "1"
+          ENTIRE_BENCHMARK_BRAIN_BINARY: ${{ runner.temp }}/entire-brain
+          ENTIRE_BENCHMARK_GRAPH_BINARY: ${{ runner.temp }}/entire-graph
+        run: python3 -B benchmarks/agent-brain/test_full_brain_integration.py -v
