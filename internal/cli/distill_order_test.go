@@ -158,19 +158,24 @@ func TestRunDistillMaxSessionsDefersRatherThanSkips(t *testing.T) {
 
 	var first []string
 	var progress []distillProgress
+	deferred := -1
 	opts := distillCommandOptions{
-		agent:         "command",
-		agentCommand:  []string{"fake"},
-		run:           recordingDistillRunner(&first),
-		maxChunkBytes: defaultDistillChunkSize,
-		timeout:       time.Minute,
-		newestFirst:   true,
-		maxSessions:   2,
-		progress:      func(p distillProgress) { progress = append(progress, p) },
+		agent:              "command",
+		agentCommand:       []string{"fake"},
+		run:                recordingDistillRunner(&first),
+		maxChunkBytes:      defaultDistillChunkSize,
+		timeout:            time.Minute,
+		newestFirst:        true,
+		maxSessions:        2,
+		progress:           func(p distillProgress) { progress = append(progress, p) },
+		onDeferredSessions: func(n int) { deferred = n },
 	}
 	source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
 	if err != nil {
 		t.Fatalf("runDistillForBrain: %v", err)
+	}
+	if deferred != 1 {
+		t.Fatalf("deferred=%d, want 1", deferred)
 	}
 	if got := strings.Join(first, ","); got != "new,mid" {
 		t.Fatalf("--max-sessions 2 must spend on exactly the two newest sessions, visited %s", got)
@@ -193,6 +198,9 @@ func TestRunDistillMaxSessionsDefersRatherThanSkips(t *testing.T) {
 	opts.maxSessions = 0
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
 		t.Fatalf("second runDistillForBrain: %v", err)
+	}
+	if deferred != 0 {
+		t.Fatalf("deferred=%d, want 0", deferred)
 	}
 	if got := strings.Join(second, ","); got != "old" {
 		t.Fatalf("the follow-up run must distill only the deferred session, visited %s", got)

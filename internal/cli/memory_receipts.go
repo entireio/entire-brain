@@ -360,12 +360,12 @@ func validateProjectionStatePath(rel string) (string, error) {
 	return clean, nil
 }
 
-// receiptFor finds one session's receipt.
+// receiptFor searches receipts ordered by SessionRef. Builders sort this slice,
+// and the checked loader rejects unsorted or duplicate persisted receipts.
 func (s projectionState) receiptFor(sessionRef string) (projectionReceipt, bool) {
-	for _, receipt := range s.Sessions {
-		if receipt.SessionRef == sessionRef {
-			return receipt, true
-		}
+	i := sort.Search(len(s.Sessions), func(i int) bool { return s.Sessions[i].SessionRef >= sessionRef })
+	if i < len(s.Sessions) && s.Sessions[i].SessionRef == sessionRef {
+		return s.Sessions[i], true
 	}
 	return projectionReceipt{}, false
 }

@@ -58,8 +58,9 @@ func TestRefreshBestEffortReportsHistoryAndDocsFailuresAndPreservesInputs(t *tes
 		outputDir: defaultExportDir, checkpointLimit: defaultCheckpointLimit,
 		entireBinary: "entire-test", graphBinary: "entire", scope: exportScopeAll,
 		skipSessions: true, historyIndex: true,
-		seed:      seedCommandOptions{agent: "none"},
-		component: func(name string, err error) { outcomes[name] = err },
+		seed:       seedCommandOptions{agent: "none"},
+		bestEffort: true,
+		component:  func(name string, err error) { outcomes[name] = err },
 	})
 	if err != nil {
 		t.Fatalf("best effort returned aggregate error instead of component outcomes: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
@@ -99,7 +100,8 @@ func TestRefreshStrictHistoryFailureStopsBeforeSuccess(t *testing.T) {
 		outputDir: defaultExportDir, checkpointLimit: defaultCheckpointLimit,
 		entireBinary: "entire-test", graphBinary: "entire", scope: exportScopeAll,
 		skipSessions: true, historyIndex: true,
-		seed: seedCommandOptions{agent: "none"},
+		seed:      seedCommandOptions{agent: "none"},
+		component: func(string, error) {},
 	})
 	if err == nil || !strings.Contains(err.Error(), historyDirName) {
 		t.Fatalf("strict history error=%v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
@@ -139,7 +141,8 @@ func TestRefreshBestEffortReportsFactsFailure(t *testing.T) {
 		outputDir: defaultExportDir, checkpointLimit: defaultCheckpointLimit,
 		entireBinary: "entire-test", graphBinary: "entire", scope: exportScopeAll,
 		historyIndex: false, seed: seedCommandOptions{agent: "none"},
-		component: func(name string, err error) { reported[name] = err },
+		bestEffort: true,
+		component:  func(name string, err error) { reported[name] = err },
 	})
 	if err != nil {
 		t.Fatalf("best effort facts/patterns: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
@@ -204,12 +207,26 @@ func TestRefreshBestEffortReportsMissingSemanticProvider(t *testing.T) {
 		outputDir: defaultExportDir, checkpointLimit: defaultCheckpointLimit,
 		entireBinary: "entire-test", graphBinary: "definitely-missing-entire-graph", scope: exportScopeAll,
 		skipSessions: true, semantic: true, seed: seedCommandOptions{agent: "none"},
-		component: func(name string, err error) { reported[name] = err },
+		bestEffort: true,
+		component:  func(name string, err error) { reported[name] = err },
 	})
 	if err != nil {
 		t.Fatalf("missing semantic provider should be component-scoped: %v\n%s", err, stderr.String())
 	}
 	if reported[brainComponentSemantic] == nil || !strings.Contains(stderr.String(), "semantic") || !strings.Contains(stdout.String(), "refreshed brain:") {
 		t.Fatalf("semantic outcome/report missing: %#v\nstdout=%s\nstderr=%s", reported, stdout.String(), stderr.String())
+	}
+}
+
+func TestRefreshBestEffortDoesNotRequireObserver(t *testing.T) {
+	opts, brainDir := refreshFailureFixture(t)
+	replaceRefreshComponentDirWithFile(t, brainDir, historyDirName, "blocked-history")
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	err := runRefresh(context.Background(), cmd, opts, refreshCommandOptions{outputDir: defaultExportDir, checkpointLimit: defaultCheckpointLimit, entireBinary: "entire-test", graphBinary: "entire", scope: exportScopeAll, skipSessions: true, historyIndex: true, seed: seedCommandOptions{agent: "none"}, bestEffort: true})
+	if err != nil || !strings.Contains(out.String(), "doc index") || !strings.Contains(out.String(), "refreshed brain:") {
+		t.Fatalf("explicit best effort did not continue: %v\n%s", err, out.String())
 	}
 }

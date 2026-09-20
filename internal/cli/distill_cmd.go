@@ -429,6 +429,8 @@ type distillCommandOptions struct {
 	// process is doing the work), but a caller that RESERVED a spend window
 	// before calling has to be able to give it back.
 	onPassSkipped func()
+	// onDeferredSessions reports work left by a successfully persisted capped pass.
+	onDeferredSessions func(int)
 	// maxSessions caps how many UNCACHED sessions one run distills (0 =
 	// unlimited). Paired with newestFirst it is "distill the N newest sessions
 	// that still need it", the token budget for a backfill pass; the remaining
@@ -1293,6 +1295,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	})
 	if err != nil {
 		return nil, err
+	}
+	if distillOpts.onDeferredSessions != nil {
+		distillOpts.onDeferredSessions(budgetDeferred)
 	}
 	return source, nil
 }

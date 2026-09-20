@@ -1112,7 +1112,10 @@ func stageSemanticTraceGeneration(env semanticEnv, report semanticTraceIngestRep
 		return "", "", "", err
 	}
 	base := filepath.Base(generationRel) + "-traces"
-	generationID := semanticAvailableGenerationID(generationsRoot, base, semanticGenerationContentSuffix(payload))
+	generationID, err := semanticAvailableGenerationID(generationsRoot, base, semanticGenerationContentSuffix(payload))
+	if err != nil {
+		return "", "", "", err
+	}
 	staging, err := os.MkdirTemp(generationsRoot, ".tmp-"+generationID+"-*")
 	if err != nil {
 		return "", "", "", err

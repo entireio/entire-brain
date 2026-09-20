@@ -1526,28 +1526,57 @@ func memoryAbstractHealth(brainDir string) map[string]any {
 	if configErr != nil {
 		health["error_code"] = configState
 	}
+	validated := false
+	prerequisiteIssue := memoryStateIssue{Kind: "manifest", File: exportManifestFileName, Code: "unverifiable"}
 	manifest, manifestErr := loadBrainManifest(brainDir)
 	if manifestErr == nil && manifest.Sources != nil && manifest.Sources.History != nil {
 		fresh, freshErr := loadFreshHistory(brainDir, manifest.Sources.History)
 		guard, guardErr := loadSessionReadGuard(brainDir, manifest)
+		prerequisiteIssue = memoryStateIssue{Kind: "history", File: manifest.Sources.History.IndexPath, Code: "unverifiable"}
+		var tombstoneErr *sessionTombstoneLoadError
+		if errors.As(guardErr, &tombstoneErr) {
+			prerequisiteIssue = memoryStateIssue{Kind: "tombstones", File: sessionTombstonesPath, Code: "unverifiable"}
+		}
 		if freshErr == nil && guardErr == nil {
+			validated = true
 			views := buildConversationSessionViews(fresh, manifest.RepoKey, manifest, guard)
-			for _, entry := range inventory.ByDigest {
+			for digest, entry := range inventory.ByDigest {
 				if entry.State != sessionAbstractCurrent {
 					continue
 				}
 				view, ok := views[entry.Artifact.SessionRef]
 				if !ok || entry.Artifact.SessionDigest != sessionViewDigest(view) {
 					health["stale"] = health["stale"].(int) + 1
+					currentAbstracts--
+					inventory.recordIssue(memoryStateIssue{Kind: "abstract", File: filepath.Base(abstractRel(digest)), Code: "stale"})
 					continue
 				}
 				if err := validateSessionAbstract(entry.Artifact, view); err != nil {
 					health["corrupt"] = health["corrupt"].(int) + 1
+					currentAbstracts--
+					inventory.recordIssue(memoryStateIssue{Kind: "abstract", File: filepath.Base(abstractRel(digest)), Code: memoryErrStateCorrupt})
 				}
 			}
 		}
 	}
+	if !validated && currentAbstracts > 0 {
+		health["unverifiable"] = currentAbstracts
+		currentAbstracts = 0
+		inventory.recordIssue(prerequisiteIssue)
+	}
+	health["current_artifacts"] = currentAbstracts
+	health["issue_count"] = inventory.IssueCount
+	health["issues_truncated"] = inventory.IssueCount > len(inventory.Issues)
 	if len(inventory.Issues) > 0 {
+		if health["schema_state"] == "current" && health["corrupt"] == 0 {
+			if !validated {
+				health["state"] = "unverifiable"
+			} else {
+				health["state"] = "stale"
+			}
+		} else {
+			health["state"], _ = memoryInventoryIssueState(inventory.Issues)
+		}
 		health["issues"] = memoryHealthIssues(inventory.Issues)
 	}
 	return health
