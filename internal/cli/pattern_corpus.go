@@ -70,7 +70,7 @@ const (
 	// Bump when the parser/extractor output changes in a way that requires
 	// re-indexing already-indexed sessions. v2: Phase 2 enrichment (exit codes,
 	// files, meta-hits, fact links).
-	patternIndexerVersion = 8
+	patternIndexerVersion = 9
 )
 
 // patternCorpusSchema is the full target schema (additive). Tables not yet
@@ -1276,8 +1276,10 @@ func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel
 		}
 
 		startLine := seg.Request.Line
-		endLine := max(startLine, endOfTranscript)
-		if ord+1 < len(segments) && segments[ord+1].Request.Line > startLine {
+		endLine := startLine
+		if ord+1 == len(segments) {
+			endLine = max(startLine, endOfTranscript)
+		} else if segments[ord+1].Request.Line > startLine {
 			endLine = segments[ord+1].Request.Line - 1
 		}
 

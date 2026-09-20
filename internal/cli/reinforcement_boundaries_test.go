@@ -48,3 +48,18 @@ func TestReinforcementStandaloneRevertRequests(t *testing.T) {
 		}
 	}
 }
+
+func TestReinforcementTaskRequestPreservesLaterCorrection(t *testing.T) {
+	for _, text := range []string{"Please implement caching properly, this still doesn't work", "Add the missing cache; that's wrong", "Write the handler again. You missed the fallback", "Create the replacement, it does not work", "Document the fix, still failing", "Please implement caching properly because this still doesn’t work", "Please implement caching, and this still does not work", "Please implement caching\nthis still does not work"} {
+		for _, committed := range []bool{false, true} {
+			if got := classifyReinforcement(reinforcementSignal{FeedbackText: text, WorkCommitted: committed}); got != reinforcementCorrected {
+				t.Errorf("%q committed=%v: got %s", text, committed, got)
+			}
+		}
+	}
+	for _, text := range []string{"Add a button, label it try again", "Write docs, explain why the example says it doesn't work", "Implement the message 'this still doesn't work'", "Add caching, this is not a reason to revert that", "Document the example, do not revert that", "Add a test, this should never say it works", `Add the label "retry, and this still does not work"`, "Add the label 'retry, and this still doesn't work'", "Implement an example because this should not say it works"} {
+		if got := classifyReinforcement(reinforcementSignal{FeedbackText: text}); got != reinforcementNeutral {
+			t.Errorf("task mention/negation %q: got %s", text, got)
+		}
+	}
+}

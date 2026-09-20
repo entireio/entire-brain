@@ -119,6 +119,23 @@ func classifyReinforcement(sig reinforcementSignal) string {
 	// A request to add or describe a cue is not feedback about prior work.
 	for _, prefix := range []string{"add ", "implement ", "write ", "create ", "document "} {
 		if strings.HasPrefix(feedback, prefix) {
+			// A later clause can explicitly correct prior work even when the
+			// opening clause requests implementation. Require a referential
+			// opener so labels/examples mentioning cues remain task content.
+			clausesText := normalizeFeedback(strings.ReplaceAll(sig.FeedbackText, "\n", "; "))
+			clausesText = unquotedFeedback(clausesText)
+			clausesText = strings.NewReplacer(" because ", ";", " and ", ";", " but ", ";").Replace(clausesText)
+			clauses := strings.FieldsFunc(clausesText, func(r rune) bool {
+				return strings.ContainsRune(",;.!?", r)
+			})
+			for _, clause := range clauses[1:] {
+				clause = strings.TrimSpace(clause)
+				for _, reference := range []string{"this ", "that ", "that's ", "it ", "you ", "still "} {
+					if strings.HasPrefix(clause, reference) && hasCorrectionCue(clause) {
+						return reinforcementCorrected
+					}
+				}
+			}
 			feedback = ""
 			break
 		}
@@ -133,6 +150,30 @@ func classifyReinforcement(sig reinforcementSignal) string {
 		return reinforcementSuccess
 	}
 	return reinforcementNeutral
+}
+
+// unquotedFeedback excludes task labels/examples while retaining apostrophes
+// inside words such as "doesn't". Unclosed quoted text stays conservatively out.
+func unquotedFeedback(text string) string {
+	runes := []rune(text)
+	var out strings.Builder
+	var quote rune
+	for i, r := range runes {
+		apostrophe := r == '\'' && i > 0 && i+1 < len(runes) && unicode.IsLetter(runes[i-1]) && unicode.IsLetter(runes[i+1])
+		if quote != 0 {
+			if r == quote && !apostrophe {
+				quote = 0
+			}
+			continue
+		}
+		if (r == '\'' && !apostrophe) || r == '"' || r == '`' {
+			quote = r
+			out.WriteByte(' ')
+			continue
+		}
+		out.WriteRune(r)
+	}
+	return out.String()
 }
 
 // reinforcementSignal is the minimal evidence the classifier needs about one
