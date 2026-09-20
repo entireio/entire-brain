@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "8f2ddf1ee33d",
+  "strategy": "manual-commit",
+  "branch": "codex/audit2-history",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/brief_overlay_payload_regression_test.go",
+    "internal/cli/history_delta.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/8f/2ddf1ee33d/0/metadata.json",
+      "transcript": "/8f/2ddf1ee33d/0/full.jsonl",
+      "compact_transcript": "/8f/2ddf1ee33d/0/transcript.jsonl",
+      "content_hash": "/8f/2ddf1ee33d/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 16649,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2205568,
+    "output_tokens": 3409,
+    "api_call_count": 18,
+    "subagent_tokens_complete": false
+  }
+}
