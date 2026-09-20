@@ -115,7 +115,7 @@ Then register it with an MCP-capable client, for example for Claude Code:
 claude mcp add entire-brain -- entire brain mcp
 ```
 
-Add that configuration to your client. See the [agent integration guide](docs/reference.md#how-agents-use-the-brain) and [coordination contract](docs/agent-coordination.md) for setup details.
+See the [agent integration guide](docs/reference.md#how-agents-use-the-brain) and [coordination contract](docs/agent-coordination.md) for more setup details.
 
 ### Brain without fact extraction
 
