@@ -1,0 +1,69 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "132bb4d10d37",
+  "session_id": "01a0b6ce-e2ad-7853-bb2f-19731062a2c9",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-20T16:02:10.43727Z",
+  "branch": "codex/audit2-patterns",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/command_regression_test.go",
+    "internal/cli/deep_acceptance_binding_test.go",
+    "internal/cli/deep_recovery_evidence_test.go",
+    "internal/cli/dossier_evidence_binding_test.go",
+    "internal/cli/pattern_corpus.go",
+    "internal/cli/pattern_deep.go",
+    "internal/cli/pattern_dossier.go",
+    "internal/cli/pattern_episode_range_test.go",
+    "internal/cli/pattern_fact_freshness_test.go",
+    "internal/cli/pattern_skill_conventions.go",
+    "internal/cli/pattern_skill_deep.go",
+    "internal/cli/pattern_skill_deep_test.go",
+    "internal/cli/pattern_skill_lessons.go",
+    "internal/cli/pattern_verify.go",
+    "internal/cli/pattern_workspace.go",
+    "internal/cli/pattern_workspace_semantic.go",
+    "internal/cli/pattern_workspace_semantic_test.go",
+    "internal/cli/reinforcement.go",
+    "internal/cli/reinforcement_boundaries_test.go",
+    "internal/cli/skill_routing_regression_test.go",
+    "internal/cli/workspace_family_membership_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "c3bdb7ffd211",
+  "checkpoint_transcript_start": 13201,
+  "transcript_lines_at_start": 13201,
+  "compact_transcript_start": 1614,
+  "token_usage": {
+    "input_tokens": 915,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 355968,
+    "output_tokens": 355,
+    "api_call_count": 4
+  },
+  "session_metrics": {
+    "turn_count": 14
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-20T16:01:49.660328Z",
+    "agent_lines": 1320,
+    "agent_removed": 105,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1320,
+    "total_lines_changed": 1425,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

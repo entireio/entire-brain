@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "132bb4d10d37",
+  "strategy": "manual-commit",
+  "branch": "codex/audit2-patterns",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/command_regression_test.go",
+    "internal/cli/deep_acceptance_binding_test.go",
+    "internal/cli/deep_recovery_evidence_test.go",
+    "internal/cli/dossier_evidence_binding_test.go",
+    "internal/cli/pattern_corpus.go",
+    "internal/cli/pattern_deep.go",
+    "internal/cli/pattern_dossier.go",
+    "internal/cli/pattern_episode_range_test.go",
+    "internal/cli/pattern_fact_freshness_test.go",
+    "internal/cli/pattern_skill_conventions.go",
+    "internal/cli/pattern_skill_deep.go",
+    "internal/cli/pattern_skill_deep_test.go",
+    "internal/cli/pattern_skill_lessons.go",
+    "internal/cli/pattern_verify.go",
+    "internal/cli/pattern_workspace.go",
+    "internal/cli/pattern_workspace_semantic.go",
+    "internal/cli/pattern_workspace_semantic_test.go",
+    "internal/cli/reinforcement.go",
+    "internal/cli/reinforcement_boundaries_test.go",
+    "internal/cli/skill_routing_regression_test.go",
+    "internal/cli/workspace_family_membership_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/13/2bb4d10d37/0/metadata.json",
+      "transcript": "/13/2bb4d10d37/0/full.jsonl",
+      "compact_transcript": "/13/2bb4d10d37/0/transcript.jsonl",
+      "content_hash": "/13/2bb4d10d37/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 915,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 355968,
+    "output_tokens": 355,
+    "api_call_count": 4
+  }
+}
