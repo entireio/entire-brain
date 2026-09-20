@@ -402,8 +402,7 @@ func projectedPublishBodyBytes(body publishRequestBody) int64 {
 // collectSnapshotArtifacts reads semantic/snapshots/<commit>/snapshot.ndjson,
 // keying each by its commit, and registers a SnapshotRef on art.
 func collectSnapshotArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publishArtifact, error) {
-	root := filepath.Join(brainDir, semanticDirName, semanticSnapshotsDir)
-	entries, err := os.ReadDir(root)
+	entries, _, err := readPrivacyDirectory(brainDir, filepath.Join(semanticDirName, semanticSnapshotsDir), "publish snapshots")
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -416,7 +415,7 @@ func collectSnapshotArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]
 	var out []publishArtifact
 	for _, commit := range commits {
 		rel := filepath.ToSlash(filepath.Join(semanticDirName, semanticSnapshotsDir, commit, semanticSnapshotName))
-		data, ok, err := readBrainBlob(filepath.Join(brainDir, filepath.FromSlash(rel)))
+		data, ok, err := readBrainBlob(brainDir, rel)
 		if err != nil {
 			return nil, fmt.Errorf("read snapshot %s: %w", commit, err)
 		}
@@ -437,8 +436,7 @@ func collectSnapshotArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]
 // each by "base..head", and registers an OverlayRef on art. The all-branches.json
 // refresh report is not a (base,head) overlay and is skipped.
 func collectOverlayArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publishArtifact, error) {
-	root := filepath.Join(brainDir, semanticDirName, "overlays")
-	entries, err := os.ReadDir(root)
+	entries, _, err := readPrivacyDirectory(brainDir, filepath.Join(semanticDirName, "overlays"), "publish overlays")
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -467,7 +465,7 @@ func collectOverlayArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]p
 		ref := strings.TrimSuffix(name, ".json")
 		base, head, _ := strings.Cut(ref, "..")
 		rel := filepath.ToSlash(filepath.Join(semanticDirName, "overlays", name))
-		data, ok, err := readBrainBlob(filepath.Join(brainDir, filepath.FromSlash(rel)))
+		data, ok, err := readBrainBlob(brainDir, rel)
 		if err != nil {
 			return nil, fmt.Errorf("read overlay %s: %w", ref, err)
 		}
@@ -498,8 +496,7 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 	if err != nil {
 		return nil, fmt.Errorf("load facts privacy policy: %w", err)
 	}
-	root := filepath.Join(brainDir, factsDirName)
-	entries, err := os.ReadDir(root)
+	entries, _, err := readPrivacyDirectory(brainDir, factsDirName, "publish facts")
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -517,7 +514,7 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 	var streams []factStream
 	seen := make(map[string]struct{})
 	for _, dir := range dirs {
-		data, ok, err := readBrainBlob(filepath.Join(root, dir, factsFileName))
+		data, ok, err := readBrainBlob(brainDir, filepath.Join(factsDirName, dir, factsFileName))
 		if err != nil {
 			return nil, fmt.Errorf("read facts %s: %w", dir, err)
 		}
@@ -748,20 +745,23 @@ func semanticSourceOf(manifest *exportManifest) *semanticSourceManifest {
 	return manifest.Sources.Semantic
 }
 
-// readBrainBlob reads a brain payload file, returning ok=false (not an error) for
-// a missing file or a non-regular entry (a symlink is not followed).
-func readBrainBlob(path string) ([]byte, bool, error) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, false, nil
-		}
+// readBrainBlob binds a payload to its brain-relative path, rejecting symlinks
+// in every component and validating the opened regular-file descriptor. Missing
+// files remain optional; unsafe files fail the bundle instead of being omitted.
+func readBrainBlob(brainDir, rel string) ([]byte, bool, error) {
+	f, present, err := openMemoryStateFileExpected(brainDir, rel, "publish artifact", nil)
+	if err != nil || !present {
 		return nil, false, err
 	}
-	if !info.Mode().IsRegular() {
-		return nil, false, nil
+	defer f.Close()
+	max := semanticSnapshotMaxBytes()
+	path := f.Name()
+	if info, err := f.Stat(); err != nil {
+		return nil, false, err
+	} else if info.Size() > max {
+		return nil, false, &readBoundExceededError{source: path, max: max}
 	}
-	data, err := safeReadFile(path, semanticSnapshotMaxBytes())
+	data, err := safeReadAll(f, max, path)
 	if err != nil {
 		return nil, false, err
 	}
