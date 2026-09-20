@@ -186,7 +186,7 @@ func setupWatchPlanEntryFor(setupOpts setupCommandOptions, now time.Time) setupW
 	if setupOpts.distillEvery > 0 {
 		entry.DistillEvery = setupOpts.distillEvery.String()
 	}
-	if agent := strings.TrimSpace(setupOpts.agent); agent != "" && agent != "auto" && agent != "none" {
+	if agent := strings.TrimSpace(setupOpts.agent); agent != "" && agent != "auto" {
 		entry.Agent = agent
 	}
 	return entry
@@ -205,6 +205,9 @@ func applyWatchPlanEntry(base watchCommandOptions, entry setupWatchPlanEntry) wa
 	}
 	if agent := strings.TrimSpace(entry.Agent); agent != "" {
 		w.distillAgent = agent
+		if agent == "none" {
+			w.distill = false
+		}
 	}
 	if model := strings.TrimSpace(entry.Model); model != "" {
 		w.model = model

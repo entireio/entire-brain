@@ -446,8 +446,8 @@ func TestFactStoreIntegrityEmptyBrainReportsNoLoss(t *testing.T) {
 	if got.Warning() != "" {
 		t.Fatalf("empty brain produced a warning: %q", got.Warning())
 	}
-	if note := emptyResultBlindSpot(brainDir); !strings.Contains(note, "may genuinely not be in the brain") {
-		t.Fatalf("an empty brain must still vouch for its empty result, got %q", note)
+	if note := emptyResultBlindSpot(brainDir); !strings.Contains(note, "coverage is unknown") {
+		t.Fatalf("an intact empty store must not imply complete session coverage, got %q", note)
 	}
 }
 

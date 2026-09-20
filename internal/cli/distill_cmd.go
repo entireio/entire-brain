@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -633,7 +634,7 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	// "use the default" for every in-process caller (runDistillForBrain reads
 	// threshold <= 0 that way), so the library contract has to stay intact while
 	// the flag stops silently swallowing a value it cannot honour.
-	if cmd.Flags().Changed("confidence") && (distillOpts.confidenceThreshold <= 0 || distillOpts.confidenceThreshold > 1) {
+	if cmd.Flags().Changed("confidence") && (math.IsNaN(distillOpts.confidenceThreshold) || distillOpts.confidenceThreshold <= 0 || distillOpts.confidenceThreshold > 1) {
 		return fmt.Errorf("--confidence must be greater than 0 and at most 1 (agent confidence is a probability); got %g", distillOpts.confidenceThreshold)
 	}
 	if cmd.Flags().Changed("jobs") {
@@ -766,6 +767,9 @@ func distillProgressLabel(p distillProgress) string {
 // into per-branch stores, and records the fact source on the brain manifest.
 // repoDir is the working directory the agent runs in (sandboxed read-only).
 func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOpts distillCommandOptions, now time.Time) (*factSourceManifest, error) {
+	if math.IsNaN(distillOpts.confidenceThreshold) || math.IsInf(distillOpts.confidenceThreshold, 0) || distillOpts.confidenceThreshold > 1 {
+		return nil, errors.New("confidence must be finite and at most 1")
+	}
 	runStarted := time.Now()
 	ctx, usageCollector := withDistillUsageCollector(ctx)
 	manifest, err := loadBrainManifest(brainDir)
@@ -951,6 +955,14 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	// facts silently lost. A force run therefore writes newCache only, and an
 	// interrupted force run re-distills the sessions it never reached.
 	flushFactStoresLocked := func(final bool) error {
+		priorByBranch := make(map[string][]factProposal, len(dirtyBranches))
+		for branch := range dirtyBranches {
+			prior, err := loadFactProposals(brainDir, branch)
+			if err != nil {
+				return fmt.Errorf("load proposals for %s: %w", branch, err)
+			}
+			priorByBranch[branch] = prior
+		}
 		for branch := range dirtyBranches {
 			// Rebase onto the current on-disk set before writing. The in-memory
 			// set was loaded when the branch was first seen, which for a run that
@@ -983,9 +995,8 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			// never regenerates those, so dropping them silently deleted conflicts
 			// nobody had reviewed. Retain the attributed ones across a force rebuild.
 			var prior []factProposal
-			if loadedProposals, loadErr := loadFactProposals(brainDir, branch); loadErr != nil {
-				warnings = append(warnings, fmt.Sprintf("load proposals for %s: %v", branch, loadErr))
-			} else if distillOpts.force && final {
+			loadedProposals := priorByBranch[branch]
+			if distillOpts.force && final {
 				for _, p := range loadedProposals {
 					if strings.TrimSpace(p.ProposedBy) != "" {
 						prior = append(prior, p)
@@ -1223,6 +1234,10 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	writeStarted := time.Now()
 	var source *factSourceManifest
 	err = withBrainWriteLock(brainDir, func() error {
+		manifest, err := loadBrainManifest(brainDir)
+		if err != nil {
+			return err
+		}
 		if err := flushFactStoresLocked(true); err != nil {
 			return err
 		}
@@ -1246,6 +1261,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		totalProposals := countFactProposals(brainDir, branchNames)
 
 		source = summarizeFactSource(now, allBranches, chunksScanned, chunksDistilled, totalProposals, warnings)
+		source.LastDistilledAt = now
 		source.CacheHits = cacheHits
 		source.FailedChunks = failedChunks
 		source.PreprocessedBytes = preprocessedBytes
@@ -2176,7 +2192,7 @@ func readBrainRelativeStateFile(brainDir, rel string) (string, error) {
 // run simply re-distills everything.
 func loadDistillCache(brainDir string) distillCache {
 	empty := distillCache{Version: distillCacheVersion, Sessions: map[string]string{}}
-	data, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(distillCachePath)))
+	data, _, err := readMemoryStateFile(brainDir, distillCachePath, "distill cache", defaultMaxReadBytes)
 	if err != nil {
 		return empty
 	}

@@ -322,7 +322,7 @@ func runFactsProposalsResolve(cmd *cobra.Command, opts Options, pOpts factsPropo
 	// and the pending-review guard stop listing a proposal a member just
 	// settled — and so a stale local apply cannot later override this
 	// resolution. Best-effort: the hosted resolution has already succeeded.
-	if pruneErr := pruneLocalProposalCopy(ctx, opts, target.branch, decision, res.Proposal); pruneErr != nil {
+	if pruneErr := pruneLocalProposalCopy(ctx, opts, target.branch, target.repoID, target.baseURL, decision, res.Proposal); pruneErr != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: resolved on the hosted queue, but the local review-queue copy was not pruned: %v\n", pruneErr)
 	}
 	if pOpts.jsonOut {
@@ -356,7 +356,7 @@ func runFactsProposalsResolve(cmd *cobra.Command, opts Options, pOpts factsPropo
 // just ran `facts proposals apply` would keep seeing the pre-settlement state in
 // `facts list`/recall until their next sync — their local view contradicting the
 // decision they had just made.
-func pruneLocalProposalCopy(ctx context.Context, opts Options, branch string, decision factsync.Decision, settled factsync.OpenProposal) error {
+func pruneLocalProposalCopy(ctx context.Context, opts Options, branch, repoID, baseURL string, decision factsync.Decision, settled factsync.OpenProposal) error {
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil))
 	if err != nil || !local {
 		return err
@@ -379,6 +379,12 @@ func pruneLocalProposalCopy(ctx context.Context, opts Options, branch string, de
 		facts, factsErr := loadFacts(storage.BrainDir, branch)
 		if factsErr != nil {
 			return factsErr
+		}
+		if len(facts) == 0 && len(queue) == 0 {
+			return nil
+		}
+		if err := checkHostedFactsBinding(storage.BrainDir, branch, repoID, baseURL); err != nil {
+			return err
 		}
 		now := opts.Now().UTC()
 		if updated, changed := applySettlementLocally(facts, settled.Proposal, decision == factsync.Accept, now); changed {

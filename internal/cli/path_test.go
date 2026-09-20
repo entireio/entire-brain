@@ -37,11 +37,15 @@ func TestPathPrintsBrainDirForRepoURL(t *testing.T) {
 }
 
 func TestPathPrintsBrainDirForOneLetterSCPHostAlias(t *testing.T) {
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "brain.json"), []byte(`{"domain_slugs":{"g":"ssh"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
 	dataDir := filepath.Join(t.TempDir(), "data")
 	cmd := NewRootCommand(Options{
 		Version: "test-version",
 		Env: EntireEnv{
-			PluginConfigDir: t.TempDir(),
+			PluginConfigDir: configDir,
 			PluginDataDir:   dataDir,
 			PluginStateDir:  t.TempDir(),
 			PluginCacheDir:  t.TempDir(),

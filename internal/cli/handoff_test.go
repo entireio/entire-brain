@@ -17,7 +17,7 @@ func TestBuildHandoffPacket(t *testing.T) {
 	}
 	// Fixture sessions are created at 10:00 (s1) and 11:00 (s2) on the
 	// fixture's own clock; a distill at 10:30 leaves exactly s2 undigested.
-	manifest.Sources.Facts = &factSourceManifest{GeneratedAt: time.Date(2026, 6, 10, 10, 30, 0, 0, time.UTC)}
+	manifest.Sources.Facts = &factSourceManifest{LastDistilledAt: time.Date(2026, 6, 10, 10, 30, 0, 0, time.UTC)}
 
 	p := buildHandoffPacket(manifest, index, facts, "main", 5, now, sessionReadGuard{})
 

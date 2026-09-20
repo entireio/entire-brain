@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const fuzzOrigin = "https://fuzz.invalid"
+
 // fuzzTransport answers every request in-process from a fixed status and body.
 //
 // A real httptest server is socket-bound here: the client abandons a connection
@@ -71,7 +73,7 @@ func FuzzClientResponses(f *testing.F) {
 		t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 		t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
 
-		c := &Client{BaseURL: "http://fuzz.invalid", Token: "t", HTTP: fuzzClient(status, body)}
+		c := &Client{BaseURL: fuzzOrigin, Token: "t", HTTP: fuzzClient(status, body)}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
