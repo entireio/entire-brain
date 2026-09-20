@@ -15,6 +15,7 @@ from typing import Any
 
 HERE = pathlib.Path(__file__).resolve().parent
 BENCH = HERE.parent
+sys.path.insert(0, str(BENCH))
 HARNESS_PATH = BENCH / "run.py"
 HARNESS_SPEC = importlib.util.spec_from_file_location("temporal_memory_sealed_harness", HARNESS_PATH)
 if HARNESS_SPEC is None or HARNESS_SPEC.loader is None:
@@ -117,10 +118,13 @@ def row_from_record(
     recorded_hash = str((((record.get("provenance") or {}).get("task") or {}).get("config_sha256") or ""))
     if recorded_hash != expected_hash:
         findings.append(f"record task hash mismatch: {recorded_hash} != {expected_hash}")
-    if not (record.get("validation") or {}).get("ok"):
-        findings.append("hidden validation failed")
-    if record.get("ok") is not True:
-        findings.append("record is not marked ok")
+    # Correctness is an outcome, including the failed baseline needed for
+    # headroom. Missing validation or an execution/setup error is not an outcome.
+    validation = record.get("validation") or {}
+    if type(validation.get("ok")) is not bool or validation.get("error"):
+        findings.append("hidden validation missing or errored")
+    if (record.get("agent_info") or {}).get("returncode") != 0 or record.get("error"):
+        findings.append("agent execution failed or is missing")
     if not protocol.get("ok"):
         findings.append(f"protocol audit failed: {protocol.get('findings', [])}")
     if not (record.get("agent_leak_audit") or {}).get("ok"):

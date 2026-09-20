@@ -16,6 +16,7 @@ from typing import Any
 
 HERE = pathlib.Path(__file__).resolve().parent
 BENCH = HERE.parent
+sys.path.insert(0, str(BENCH))
 ROOT = BENCH.parents[1]
 CACHE = BENCH / "cache"
 HARNESS_PATH = BENCH / "run.py"

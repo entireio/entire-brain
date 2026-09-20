@@ -21,9 +21,19 @@ CHECK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CHECK)
 
 import restricted_replay_attestation as ATTEST
+from power_test_fixture import patch_archived_calibration
 
 
 class ProtocolCheckTest(unittest.TestCase):
+    def setUp(self):
+        if self._testMethodName in {
+            "test_power_artifact_is_derived_and_uncalibrated_decision_stays_pending",
+            "test_synchronized_power_contract_tampering_fails_closed",
+        }:
+            patcher = patch_archived_calibration(CHECK.power_analysis)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     @staticmethod
     def _write_json(path: pathlib.Path, value: object) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -320,6 +330,8 @@ class ProtocolCheckTest(unittest.TestCase):
                 "source_artifacts[13]: content hash mismatch: internal/cli/embed_vec_cgo.go",
                 "source_artifacts[15]: content hash mismatch: benchmarks/agent-brain/analysis/evidence.py",
                 "source_artifacts[17]: content hash mismatch: benchmarks/agent-brain/analysis/confirmatory.py",
+                "analyzer files[3]: content hash mismatch: benchmarks/agent-brain/analysis/evidence.py",
+                "cannot derive power-analysis.json: calibration file does not exist: benchmarks/agent-brain/evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260618T195058Z/records.ndjson",
             ],
         )
 

@@ -7494,8 +7494,11 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
         (root / "matrix").mkdir()
 
         (root / "reports" / "release.json").write_text(json.dumps({
+            "gate_status": {"status": "pass", "release_evidence": True,
+                            "claim_policy": "proof_required"},
             "totals": {
                 "hard_flags": 0,
+                "proof_ready_comparisons": 3,
                 "proof_ready_comparisons_by_scope": {
                     "history": 1,
                     "mcp": 1,
