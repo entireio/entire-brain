@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -191,6 +192,11 @@ func skillFileExists(destPath string) bool {
 // untrusted checkout can ship ".claude -> $HOME/.claude" and turn a repo-scope
 // install into a write to the user's real home agent config.
 func writeSkillFile(d skillDestination, data []byte) error {
+	return writeSkillFileBeforeReplace(d, data, nil)
+}
+
+// beforeReplace is a deterministic directory-swap test seam; production passes nil.
+func writeSkillFileBeforeReplace(d skillDestination, data []byte, beforeReplace func()) error {
 	base := skillFilePath(d.base)
 	rel := filepath.FromSlash(d.rel)
 	if err := rejectSymlinkedBrainRoot(base); err != nil {
@@ -211,7 +217,58 @@ func writeSkillFile(d skillDestination, data []byte) error {
 	if err := rejectExistingSymlinkPathComponents(base, rel); err != nil {
 		return fmt.Errorf("refusing to write skill to %s: %w", d.Path, err)
 	}
-	if err := os.WriteFile(abs, data, 0o644); err != nil {
+	parent := filepath.Dir(abs)
+	expected, err := os.Lstat(parent)
+	if err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(parent)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	opened, err := root.Stat(".")
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(expected, opened) {
+		return fmt.Errorf("skill destination directory changed")
+	}
+	// A fresh inode replaces the named leaf, leaving any hard-linked aliases intact.
+	name := ".skill-" + rand.Text() + ".tmp"
+	tmp, err := root.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer root.Remove(name)
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if beforeReplace != nil {
+		beforeReplace()
+	}
+	if err := rejectSymlinkedBrainRoot(base); err != nil {
+		return err
+	}
+	if err := rejectExistingSymlinkPathComponents(base, rel); err != nil {
+		return err
+	}
+	current, err := os.Lstat(parent)
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(expected, current) {
+		return fmt.Errorf("skill destination directory changed")
+	}
+	if err := root.Rename(name, filepath.Base(abs)); err != nil {
 		return fmt.Errorf("write skill: %w", err)
 	}
 	return nil

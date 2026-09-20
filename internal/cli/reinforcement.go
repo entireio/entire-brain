@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Reinforcement classification (Pattern Consolidation, Phase 0 spike).
@@ -70,7 +72,7 @@ var correctionCues = []string{
 	"doesn't work", "does not work", "didn't work", "did not work",
 	"still failing", "still broken", "still doesn't", "still does not", "still not working",
 	"you broke", "that broke", "broke the build", "broke the tests",
-	"revert", "undo that", "undo the", "roll back", "rollback",
+	"revert that", "revert this", "revert it", "revert the change", "undo that", "undo the", "roll back that", "rollback that",
 	"try again", "redo ", "that's a regression", "introduced a regression",
 	"you missed", "you forgot", "that's incomplete",
 }
@@ -80,7 +82,7 @@ var correctionCues = []string{
 // whitespace-collapsed) feedback. "no problem"/"no worries" are deliberately
 // excluded so a polite acknowledgement is not read as a correction.
 var correctionPrefixes = []string{
-	"no,", "no.", "no it", "no that", "no this", "no don", "no the", "no -", "no the",
+	"no,", "no.", "no it", "no that", "no this", "no don", "no the", "no -",
 	"nope", "wrong,", "stop,", "stop.", "stop ", "ugh", "argh",
 }
 
@@ -100,6 +102,44 @@ var approvalCues = []string{
 // Deterministic and allocation-light; safe to call per episode during refresh.
 func classifyReinforcement(sig reinforcementSignal) string {
 	feedback := normalizeFeedback(sig.FeedbackText)
+	// Conversational introductions can precede either corrections or new tasks.
+	// Remove only the introduction, preserving referential feedback that follows.
+	for {
+		previous := feedback
+		for _, prefix := range []string{"now ", "now, ", "next ", "next, ", "can you ", "could you ", "please "} {
+			if strings.HasPrefix(feedback, prefix) {
+				feedback = strings.TrimPrefix(feedback, prefix)
+				break
+			}
+		}
+		if feedback == previous {
+			break
+		}
+	}
+	// A request to add or describe a cue is not feedback about prior work.
+	for _, prefix := range []string{"add ", "implement ", "write ", "create ", "document "} {
+		if strings.HasPrefix(feedback, prefix) {
+			// A later clause can explicitly correct prior work even when the
+			// opening clause requests implementation. Require a referential
+			// opener so labels/examples mentioning cues remain task content.
+			clausesText := normalizeFeedback(strings.ReplaceAll(sig.FeedbackText, "\n", "; "))
+			clausesText = unquotedFeedback(clausesText)
+			clausesText = strings.NewReplacer(" because ", ";", " and ", ";", " but ", ";").Replace(clausesText)
+			clauses := strings.FieldsFunc(clausesText, func(r rune) bool {
+				return strings.ContainsRune(",;.!?", r)
+			})
+			for _, clause := range clauses[1:] {
+				clause = strings.TrimSpace(clause)
+				for _, reference := range []string{"this ", "that ", "that's ", "it ", "you ", "still "} {
+					if strings.HasPrefix(clause, reference) && hasCorrectionCue(clause) {
+						return reinforcementCorrected
+					}
+				}
+			}
+			feedback = ""
+			break
+		}
+	}
 	if hasCorrectionCue(feedback) {
 		return reinforcementCorrected
 	}
@@ -112,6 +152,30 @@ func classifyReinforcement(sig reinforcementSignal) string {
 	return reinforcementNeutral
 }
 
+// unquotedFeedback excludes task labels/examples while retaining apostrophes
+// inside words such as "doesn't". Unclosed quoted text stays conservatively out.
+func unquotedFeedback(text string) string {
+	runes := []rune(text)
+	var out strings.Builder
+	var quote rune
+	for i, r := range runes {
+		apostrophe := r == '\'' && i > 0 && i+1 < len(runes) && unicode.IsLetter(runes[i-1]) && unicode.IsLetter(runes[i+1])
+		if quote != 0 {
+			if r == quote && !apostrophe {
+				quote = 0
+			}
+			continue
+		}
+		if (r == '\'' && !apostrophe) || r == '"' || r == '`' {
+			quote = r
+			out.WriteByte(' ')
+			continue
+		}
+		out.WriteRune(r)
+	}
+	return out.String()
+}
+
 // reinforcementSignal is the minimal evidence the classifier needs about one
 // episode. The episode layer populates it: FeedbackText from the next substantive
 // user turn, WorkCommitted from a git commit confirmation in this episode's work
@@ -122,7 +186,7 @@ type reinforcementSignal struct {
 }
 
 func normalizeFeedback(text string) string {
-	return strings.ToLower(strings.Join(strings.Fields(text), " "))
+	return strings.ToLower(strings.Join(strings.Fields(strings.ReplaceAll(text, "’", "'")), " "))
 }
 
 func hasCorrectionCue(normalized string) bool {
@@ -132,16 +196,23 @@ func hasCorrectionCue(normalized string) bool {
 	if normalized == "no" || normalized == "nope" || normalized == "wrong" {
 		return true
 	}
+	// Bare imperative requests refer to the preceding work. Match the complete
+	// request so mentions such as "add revert support" cannot become corrections.
+	request := strings.Trim(normalized, " .!?,")
+	request = strings.Trim(strings.TrimSuffix(request, " please"), " ,")
+	if request == "revert" || request == "roll back" || request == "rollback" {
+		return true
+	}
 	if strings.HasPrefix(normalized, "no problem") || strings.HasPrefix(normalized, "no worries") {
 		return false
 	}
 	for _, p := range correctionPrefixes {
-		if strings.HasPrefix(normalized, p) {
+		if strings.HasPrefix(normalized, p) && feedbackPhrasePresent(normalized, p) {
 			return true
 		}
 	}
 	for _, c := range correctionCues {
-		if strings.Contains(normalized, c) {
+		if feedbackPhrasePresent(normalized, c) {
 			return true
 		}
 	}
@@ -149,21 +220,66 @@ func hasCorrectionCue(normalized string) bool {
 }
 
 func hasApprovalCue(normalized string) bool {
+	// Approval with a caveat is ambiguous; explicit correction was checked first.
+	if feedbackPhrasePresent(normalized, "but") || feedbackPhrasePresent(normalized, "however") {
+		return false
+	}
 	for _, c := range approvalCues {
-		if strings.Contains(normalized, c) {
+		if feedbackPhrasePresent(normalized, c) {
 			return true
 		}
 	}
 	return false
 }
 
-// reinforcementSignalsFromTranscript derives one signal per episode boundary in a
-// single-session transcript: each substantive user turn is feedback on the work
-// that followed the previous one, so the signals are the user turns after the
-// first. AgentErrored is left false here — it is a per-checkpoint signal joined in
-// by the real pipeline; this helper exists for the deterministic next-user-turn
-// path and for fixtures. Supports the Codex, Claude, pi and opencode shapes via
-// the same dialect helpers distill/history use.
+// feedbackPhrasePresent requires whole words and rejects negated or hypothetical
+// cues in the same clause. Uncertain language remains neutral.
+func feedbackPhrasePresent(text, phrase string) bool {
+	phrase = strings.TrimSpace(phrase)
+	for offset := 0; offset < len(text); {
+		at := strings.Index(text[offset:], phrase)
+		if at < 0 {
+			return false
+		}
+		at += offset
+		end := at + len(phrase)
+		offset = end
+		word := func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' }
+		if at > 0 {
+			r, _ := utf8.DecodeLastRuneInString(text[:at])
+			if word(r) {
+				continue
+			}
+		}
+		if end < len(text) {
+			r, _ := utf8.DecodeRuneInString(text[end:])
+			if word(r) {
+				continue
+			}
+		}
+		before := text[:at]
+		if sep := strings.LastIndexAny(before, ".,;!?\n"); sep >= 0 {
+			before = before[sep+1:]
+		}
+		negated := false
+		for _, token := range strings.Fields(before) {
+			switch strings.Trim(token, "\"'()") {
+			case "not", "never", "cannot", "can't", "don't", "doesn't", "isn't", "wasn't", "shouldn't", "wouldn't", "without", "if", "whether":
+				negated = true
+			}
+		}
+		if strings.Contains(before, "no need") || strings.Contains(before, "no reason") || strings.Contains(before, "do not") {
+			negated = true
+		}
+		if !negated {
+			return true
+		}
+	}
+	return false
+}
+
+// reinforcementSignalsFromTranscript derives feedback from the next substantive
+// user turn. Work-commit evidence is joined separately by the episode pipeline.
 func reinforcementSignalsFromTranscript(transcript string) []reinforcementSignal {
 	turns := substantiveUserTurns(transcript)
 	if len(turns) < 2 {

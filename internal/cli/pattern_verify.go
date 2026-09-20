@@ -193,15 +193,17 @@ func verifyDeepDossiers(ctx context.Context, db *sql.DB, brainDir, repoDir, agen
 			stats.Failed++
 			continue
 		}
-		var cachedFP, cachedVerdict string
-		_ = db.QueryRow(`SELECT fingerprint, COALESCE(verdict,'') FROM deep_dossiers WHERE pattern_id=?`, pid).Scan(&cachedFP, &cachedVerdict)
+		var cachedFP, cachedVerdict, cachedVerifier string
+		_ = db.QueryRow(`SELECT fingerprint, COALESCE(verdict,''), COALESCE(verifier_json_redacted,'') FROM deep_dossiers WHERE pattern_id=?`, pid).Scan(&cachedFP, &cachedVerdict, &cachedVerifier)
 		blob, err := json.Marshal(deep)
 		if err != nil {
 			stats.Failed++
 			continue
 		}
 		jsonRedacted := redactText(string(blob))
-		if cachedFP == deep.Fingerprint && cachedVerdict != "" {
+		var prior dossierVerdict
+		cacheBound := json.Unmarshal([]byte(cachedVerifier), &prior) == nil && prior.Verdict == cachedVerdict && prior.EvidenceFingerprint == deep.Fingerprint
+		if cachedFP == deep.Fingerprint && cachedVerdict != "" && cacheBound {
 			// Refresh the deterministic export but keep the cached verdict.
 			if _, err := db.Exec(`UPDATE deep_dossiers SET json_redacted=?, status='current', updated_at=? WHERE pattern_id=?`,
 				jsonRedacted, ts, pid); err != nil {
@@ -234,12 +236,13 @@ func runDeepVerifier(ctx context.Context, repoDir string, args []string, deepJSO
 	if err != nil {
 		return dossierVerdict{}, "", fmt.Errorf("deep verifier agent: %w", err)
 	}
-	v, raw, err := parseDossierVerdict(out)
+	v, _, err := parseDossierVerdict(out)
 	if err != nil {
 		return dossierVerdict{}, "", err
 	}
 	v.EvidenceFingerprint = fingerprint
-	return v, raw, nil
+	raw, err := json.Marshal(v)
+	return v, string(raw), err
 }
 
 func runDossierVerifier(ctx context.Context, repoDir string, args []string, dossierJSON, fingerprint string, run distillAgentRunner) (dossierVerdict, string, error) {

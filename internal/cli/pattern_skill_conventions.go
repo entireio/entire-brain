@@ -82,7 +82,7 @@ func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir,
 	// corroboration count), so editing a fact's text or its episode corroboration
 	// invalidates the cache even when the set of fact ids is unchanged.
 	payload, _ := json.Marshal(map[string]any{"facts": sample})
-	sampleFP := proposalSampleFingerprint(payload)
+	sampleFP := knowledgeSampleFingerprint(payload)
 	if corpusMeta(db, "conventions_sample_fingerprint") == sampleFP && count() > 0 {
 		stats.Cached = count()
 		stats.Considered = stats.Cached
@@ -129,6 +129,7 @@ func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir,
 		// Retain episode corroboration anchors (where available): the episodes that
 		// referenced these facts, so the dossier carries real source provenance.
 		rec.SourceAnchors = conventionSourceAnchors(db, brainDir, members)
+		rec.Fingerprint = knowledgeDossierFingerprint(rec, sampleFP)
 		blob, _ := json.Marshal(rec)
 		if _, err := db.Exec(`INSERT OR REPLACE INTO deep_dossiers
 			(pattern_id, fingerprint, json_redacted, verdict, status, created_at, updated_at)

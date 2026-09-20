@@ -93,6 +93,9 @@ func twoRepoWorkspace(t *testing.T, a, aIntent string, aHeads []string, b, bInte
 	seedPromotableMember(t, aDir, a, aIntent, aHeads...)
 	seedPromotableMember(t, bDir, b, bIntent, bHeads...)
 	manifest := workspaceManifest{Name: "plat", Repos: []workspaceRepo{{RepoKey: a}, {RepoKey: b}}}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
 		t.Fatal(err)
 	}

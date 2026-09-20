@@ -15,7 +15,7 @@ func seedAcceptedDeepDossier(t *testing.T, db *sql.DB, patternID string, rec dee
 	t.Helper()
 	rec.PatternID = patternID
 	blob, _ := json.Marshal(rec)
-	verdict := dossierVerdict{Verdict: "accepted", Reason: "coherent repo-specific task", RequiredEdits: requiredEdits}
+	verdict := dossierVerdict{Verdict: "accepted", Reason: "coherent repo-specific task", RequiredEdits: requiredEdits, EvidenceFingerprint: rec.Fingerprint}
 	vblob, _ := json.Marshal(verdict)
 	if _, err := db.Exec(`INSERT INTO deep_dossiers (pattern_id, fingerprint, json_redacted, verifier_json_redacted, verdict, status, created_at, updated_at)
 		VALUES (?,?,?,?, 'accepted','current','t','t')`, patternID, rec.Fingerprint, string(blob), string(vblob)); err != nil {
@@ -85,7 +85,11 @@ func TestAcceptedDeepDossierLoadsAndDrivesSynthesis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seedAcceptedDeepDossier(t, db2, pid, deployDeepDossier(), nil)
+	current, err := buildDeepDossier(db2, brainDir, pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedAcceptedDeepDossier(t, db2, pid, current, nil)
 	db2.Close()
 	in, ok := loadAcceptedDeepDossier(brainDir, pid)
 	if !ok {
@@ -103,7 +107,7 @@ func TestAcceptedDeepDossierLoadsAndDrivesSynthesis(t *testing.T) {
 	if !res.IsSkill {
 		t.Errorf("expected a skill from the accepted dossier, got NOT_A_SKILL: %s", res.Reason)
 	}
-	if !strings.Contains(gotInput, "VERIFIED SKILL DOSSIER") || !strings.Contains(gotInput, "ZEBRA_GOTCHA") {
+	if !strings.Contains(gotInput, "VERIFIED SKILL DOSSIER") || !strings.Contains(gotInput, "mise deploy") {
 		t.Errorf("synthesis input was not the verified dossier:\n%s", gotInput)
 	}
 }

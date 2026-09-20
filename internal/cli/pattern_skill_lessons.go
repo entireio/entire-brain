@@ -74,7 +74,7 @@ func proposeSkillLessons(ctx context.Context, db *sql.DB, brainDir, repoDir, age
 	// command + intent + excerpt), so editing the recovery/excerpt of an episode
 	// invalidates the cache even when the set of episode keys is unchanged.
 	payload, _ := json.Marshal(map[string]any{"episodes": sample})
-	sampleFP := proposalSampleFingerprint(payload)
+	sampleFP := knowledgeSampleFingerprint(payload)
 	countLessons := func() int {
 		return corpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'lesson:%'`)
 	}
@@ -124,6 +124,7 @@ func proposeSkillLessons(ctx context.Context, db *sql.DB, brainDir, repoDir, age
 		// Retain provenance: the selected episodes' source anchors + redacted
 		// excerpts, so the dossier carries real evidence, not just the summary.
 		rec.SourceAnchors = lessonSourceAnchors(db, brainDir, members)
+		rec.Fingerprint = knowledgeDossierFingerprint(rec, sampleFP)
 		blob, _ := json.Marshal(rec)
 		if _, err := db.Exec(`INSERT OR REPLACE INTO deep_dossiers
 			(pattern_id, fingerprint, json_redacted, verdict, status, created_at, updated_at)

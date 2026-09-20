@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Forming must route the three verifier-backed skill sources through their
@@ -14,6 +16,7 @@ import (
 func TestRootCommandPatternsSkillsFormRoutesAcceptedKnowledgeSources(t *testing.T) {
 	opts, repoDir, brainDir := commandRegressionFixture(t)
 	newCorpusAtDir(t, brainDir)
+	lessonID, conventionID := seedRoutingKnowledge(t, brainDir)
 
 	db, err := openPatternCorpusMutableDB(brainDir)
 	if err != nil {
@@ -24,15 +27,13 @@ func TestRootCommandPatternsSkillsFormRoutesAcceptedKnowledgeSources(t *testing.
 		db.Close()
 		t.Fatal(err)
 	}
-	seedAcceptedDeepDossier(t, db, "lesson:release-evidence", deployDeepDossier(), nil)
-	seedAcceptedDeepDossier(t, db, "convention:release-evidence", deployDeepDossier(), nil)
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
 	fakeCodexProvider(t, regressionSkill)
 	isolateSkillFormHome(t)
 
-	for _, taskID := range []string{"theme:review", "lesson:release-evidence", "convention:release-evidence"} {
+	for _, taskID := range []string{"theme:review", lessonID, conventionID} {
 		t.Run(taskID, func(t *testing.T) {
 			out, stderr, err := executeSplit(t, NewRootCommand(opts), "patterns", "skills", "form", taskID, repoDir, "--scope", "repo", "--agent", "codex", "--draft-only", "--json")
 			if err != nil {
@@ -60,6 +61,7 @@ func TestRootCommandPatternsSkillsFormRoutesAcceptedKnowledgeSources(t *testing.
 func TestRootCommandPatternsSkillsFormRejectsMissingProposalAndAgentNoneWithoutWrites(t *testing.T) {
 	opts, repoDir, brainDir := commandRegressionFixture(t)
 	newCorpusAtDir(t, brainDir)
+	lessonID, _ := seedRoutingKnowledge(t, brainDir)
 
 	db, err := openPatternCorpusMutableDB(brainDir)
 	if err != nil {
@@ -70,7 +72,6 @@ func TestRootCommandPatternsSkillsFormRejectsMissingProposalAndAgentNoneWithoutW
 		db.Close()
 		t.Fatal(err)
 	}
-	seedAcceptedDeepDossier(t, db, "lesson:available", deployDeepDossier(), nil)
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +106,7 @@ func TestRootCommandPatternsSkillsFormRejectsMissingProposalAndAgentNoneWithoutW
 		},
 		{
 			name:    "lesson with no synthesis agent",
-			args:    []string{"patterns", "skills", "form", "lesson:available", repoDir, "--scope", "repo", "--agent", "none", "--yes"},
+			args:    []string{"patterns", "skills", "form", lessonID, repoDir, "--scope", "repo", "--agent", "none", "--yes"},
 			wantErr: "skill synthesis requires an agent",
 		},
 		{
@@ -145,4 +146,35 @@ func assertNoSkillFormWrites(t *testing.T, brainDir, repoDir string) {
 	if _, err := os.Stat(filepath.Join(repoDir, ".agents", "skills")); !os.IsNotExist(err) {
 		t.Fatalf("rejected form created skill files: %v", err)
 	}
+}
+
+// Build accepted knowledge through the production proposal path, so routing
+// fixtures carry the same evidence binding as real proposals.
+func seedRoutingKnowledge(t *testing.T, brainDir string) (string, string) {
+	t.Helper()
+	now := time.Now()
+	seedCorrectedEpisodes(t, brainDir, "radar:evidence", "go test", 2, now)
+	seedCapabilityFactsFile(t, brainDir, []factRecord{
+		{ID: "fact:pinned", Kind: "convention", Branch: "main", Status: "active", Text: "radar source files are hash-pinned", Locus: []string{"mcp.go"}},
+		{ID: "fact:audit", Kind: "gotcha", Branch: "main", Status: "active", Text: "audit also diffs committed reports", Locus: []string{"reports/"}},
+	})
+	db, err := openPatternCorpusMutableDB(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := proposeSkillLessons(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", stubRunner(lessonProposalJSON), now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := proposeSkillConventions(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", stubRunner(conventionProposalJSON), now); err != nil {
+		t.Fatal(err)
+	}
+	var lesson, convention string
+	if err := db.QueryRow(`SELECT pattern_id FROM deep_dossiers WHERE pattern_id LIKE 'lesson:%'`).Scan(&lesson); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT pattern_id FROM deep_dossiers WHERE pattern_id LIKE 'convention:%'`).Scan(&convention); err != nil {
+		t.Fatal(err)
+	}
+	return lesson, convention
 }
