@@ -45,24 +45,20 @@ Confirm both:
 entire brain version && entire graph version
 ```
 
-<details>
-<summary>Installing without the plugin index</summary>
+### Or one command, without the CLI
 
-One self-contained command. It downloads the release binary for your platform,
-verifies it against the release checksums, installs it to `~/.local/bin`, and
-registers it with the CLI. Brain's default build is pure Go, so there is no Go
-toolchain and no C compiler to install.
+If you would rather not install the CLI first, this does the whole thing on its
+own — downloads the release binary for your platform, verifies it against the
+release checksums, installs it to `~/.local/bin`, and registers it:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/entireio/entire-brain/main/scripts/get-brain.sh | bash
 ```
 
-Add `--nightly` for the nightly channel, `--version vX.Y.Z` to pin a release,
-or `--dir <path>` to install somewhere other than `~/.local/bin`. Windows users
-can download the `.zip` from the
-[latest release](https://github.com/entireio/entire-brain/releases/latest).
-
-</details>
+Brain's default build is pure Go, so there is no Go toolchain and no C compiler
+to install. Add `--nightly` for the nightly channel, `--version vX.Y.Z` to pin a
+release, or `--dir <path>` to install elsewhere. Windows users can take the
+`.zip` from the [latest release](https://github.com/entireio/entire-brain/releases/latest).
 
 <details>
 <summary>Building from source instead</summary>
