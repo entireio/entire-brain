@@ -2,8 +2,7 @@
   "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
   "checkpoint_id": "132bb4d10d37",
   "strategy": "manual-commit",
-  "branch": "codex/audit2-patterns",
-  "checkpoints_count": 4,
+  "checkpoints_count": 5,
   "files_touched": [
     "internal/cli/command_regression_test.go",
     "internal/cli/deep_acceptance_binding_test.go",
@@ -34,13 +33,20 @@
       "compact_transcript": "/13/2bb4d10d37/0/transcript.jsonl",
       "content_hash": "/13/2bb4d10d37/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/13/2bb4d10d37/1/metadata.json",
+      "transcript": "/13/2bb4d10d37/1/full.jsonl",
+      "compact_transcript": "/13/2bb4d10d37/1/transcript.jsonl",
+      "content_hash": "/13/2bb4d10d37/1/content_hash.txt",
+      "prompt": "/13/2bb4d10d37/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 915,
+    "input_tokens": 712447,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 355968,
-    "output_tokens": 355,
-    "api_call_count": 4
+    "cache_read_tokens": 30914944,
+    "output_tokens": 111242,
+    "api_call_count": 290
   }
 }
