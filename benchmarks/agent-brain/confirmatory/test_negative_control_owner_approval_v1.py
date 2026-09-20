@@ -107,9 +107,19 @@ class SyntheticApprovalFixture:
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()  # type: ignore[misc]
+        if not approval.SSH_KEYGEN_PATH.is_file():
+            raise unittest.SkipTest("synthetic signature tests require ssh-keygen")
+        # Supply the checked identity only inside synthetic signature fixtures.
+        # Exact-host attestation is tested separately below.
+        checked = json.loads(approval.VERIFIER_CONTRACT_PATH.read_text())
+        patcher = mock.patch.object(approval, "_system_ssh_keygen_identity",
+                                    return_value=checked["implementation"]["system_ssh_keygen"])
+        patcher.start()
+        cls.addClassCleanup(patcher.stop)
         cls.temporary = tempfile.TemporaryDirectory(
             prefix="negative-control-owner-approval-tests-"
         )
+        cls.addClassCleanup(cls.temporary.cleanup)
         cls.fixture_root = pathlib.Path(cls.temporary.name)
         cls.private_key = cls.fixture_root / "fixture-owner-ed25519"
         subprocess.run(
@@ -291,7 +301,31 @@ class SyntheticApprovalFixture:
         )
 
 
+class HostAttestationTest(unittest.TestCase):
+    def test_production_identity_still_rejects_an_unpinned_binary(self) -> None:
+        if not approval.SSH_KEYGEN_PATH.is_file():
+            self.skipTest("ssh-keygen unavailable")
+        with mock.patch.object(approval, "CHECKED_SSH_KEYGEN_SHA256", "0" * 64):
+            with self.assertRaises(approval.ApprovalVerificationError):
+                approval._system_ssh_keygen_identity()
+
+    def test_exact_host_attestation_when_supported(self) -> None:
+        path = approval.SSH_KEYGEN_PATH
+        if not path.is_file() or approval._sha256(path.read_bytes()) != approval.CHECKED_SSH_KEYGEN_SHA256:
+            self.skipTest("host ssh-keygen does not match the historical attestation")
+        identity = approval._system_ssh_keygen_identity()
+        self.assertEqual(identity["sha256"], approval.CHECKED_SSH_KEYGEN_SHA256)
+        self.assertEqual(identity["size_bytes"], approval.CHECKED_SSH_KEYGEN_SIZE)
+
+
 class CheckedVerifierContractTest(unittest.TestCase):
+    def setUp(self) -> None:
+        checked = json.loads(approval.VERIFIER_CONTRACT_PATH.read_text())
+        identity = checked["implementation"]["system_ssh_keygen"]
+        patcher = mock.patch.object(approval, "_system_ssh_keygen_identity", return_value=identity)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_checked_contract_is_a_deterministic_exact_build(self) -> None:
         checked, checked_raw = approval._read_json(
             approval.VERIFIER_CONTRACT_PATH,
