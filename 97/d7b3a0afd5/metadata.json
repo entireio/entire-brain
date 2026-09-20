@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "97d7b3a0afd5",
+  "strategy": "manual-commit",
+  "branch": "codex/audit2-refresh",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/abstract_health_validation_test.go",
+    "internal/cli/memory_admin.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/97/d7b3a0afd5/0/metadata.json",
+      "transcript": "/97/d7b3a0afd5/0/full.jsonl",
+      "compact_transcript": "/97/d7b3a0afd5/0/transcript.jsonl",
+      "content_hash": "/97/d7b3a0afd5/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 4363,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 940800,
+    "output_tokens": 1978,
+    "api_call_count": 9
+  }
+}
