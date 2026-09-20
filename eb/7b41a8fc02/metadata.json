@@ -1,0 +1,49 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "eb7b41a8fc02",
+  "strategy": "manual-commit",
+  "branch": "codex/audit2-clarity-ui",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/agent_ux_test.go",
+    "internal/cli/brain_test.go",
+    "internal/cli/degenerate_repo_test.go",
+    "internal/cli/demo_scripts_test.go",
+    "internal/cli/documented_commands_test.go",
+    "internal/cli/embed_store_test.go",
+    "internal/cli/history_fusion_tiebreak_test.go",
+    "internal/cli/live_e2e_test.go",
+    "internal/cli/mcp_frame_error_test.go",
+    "internal/cli/mcp_transport_truth_test.go",
+    "internal/cli/memory_abstract_test.go",
+    "internal/cli/missing_git_diagnosis_test.go",
+    "internal/cli/retrieve_test.go",
+    "internal/cli/seed_bounded_read_test.go",
+    "internal/cli/seed_test.go",
+    "internal/cli/setup_daemon_concurrency_test.go",
+    "internal/cli/setup_spawn_unix_test.go",
+    "internal/cli/transcript_fuzz_test.go",
+    "internal/cli/vector_cache_fixture_test.go",
+    "internal/cli/workspace_test.go",
+    "internal/tui/render.go",
+    "internal/tui/render_test.go",
+    "scripts/demo-agent-session.sh",
+    "scripts/demo-setup.sh"
+  ],
+  "sessions": [
+    {
+      "metadata": "/eb/7b41a8fc02/0/metadata.json",
+      "transcript": "/eb/7b41a8fc02/0/full.jsonl",
+      "compact_transcript": "/eb/7b41a8fc02/0/transcript.jsonl",
+      "content_hash": "/eb/7b41a8fc02/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 6686,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 579456,
+    "output_tokens": 1249,
+    "api_call_count": 7
+  }
+}
