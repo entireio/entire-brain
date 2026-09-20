@@ -18,3 +18,18 @@ func TestReinforcementRejectsFalseCues(t *testing.T) {
 		t.Logf("%q => %s", x.text, got)
 	}
 }
+
+func TestReinforcementConversationalPrefixesPreserveCorrections(t *testing.T) {
+	for _, text := range []string{"Now that's wrong", "Now that’s wrong", "Can you revert that?", "Could you undo that change?", "Next, please try again", "Can you now revert this commit?"} {
+		for _, committed := range []bool{false, true} {
+			if got := classifyReinforcement(reinforcementSignal{FeedbackText: text, WorkCommitted: committed}); got != reinforcementCorrected {
+				t.Errorf("%q committed=%v: got %s, want corrected", text, committed, got)
+			}
+		}
+	}
+	for _, text := range []string{"Can you add a try again button?", "Could you document how it works?", "Now please add rollback support", "Next add a test for it works", "Can you not revert that?", "Now do not undo that change"} {
+		if got := classifyReinforcement(reinforcementSignal{FeedbackText: text}); got != reinforcementNeutral {
+			t.Errorf("%q: got %s, want neutral", text, got)
+		}
+	}
+}

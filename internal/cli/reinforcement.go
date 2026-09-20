@@ -102,8 +102,22 @@ var approvalCues = []string{
 // Deterministic and allocation-light; safe to call per episode during refresh.
 func classifyReinforcement(sig reinforcementSignal) string {
 	feedback := normalizeFeedback(sig.FeedbackText)
+	// Conversational introductions can precede either corrections or new tasks.
+	// Remove only the introduction, preserving referential feedback that follows.
+	for {
+		previous := feedback
+		for _, prefix := range []string{"now ", "now, ", "next ", "next, ", "can you ", "could you ", "please "} {
+			if strings.HasPrefix(feedback, prefix) {
+				feedback = strings.TrimPrefix(feedback, prefix)
+				break
+			}
+		}
+		if feedback == previous {
+			break
+		}
+	}
 	// A request to add or describe a cue is not feedback about prior work.
-	for _, prefix := range []string{"now ", "next ", "add ", "please add ", "can you ", "could you ", "implement ", "write ", "create ", "document "} {
+	for _, prefix := range []string{"add ", "implement ", "write ", "create ", "document "} {
 		if strings.HasPrefix(feedback, prefix) {
 			feedback = ""
 			break
@@ -131,7 +145,7 @@ type reinforcementSignal struct {
 }
 
 func normalizeFeedback(text string) string {
-	return strings.ToLower(strings.Join(strings.Fields(text), " "))
+	return strings.ToLower(strings.Join(strings.Fields(strings.ReplaceAll(text, "’", "'")), " "))
 }
 
 func hasCorrectionCue(normalized string) bool {
