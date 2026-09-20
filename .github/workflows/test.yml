@@ -571,6 +571,7 @@ jobs:
 
   benchmark-real-components:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6.0.2
         with: { fetch-depth: 0 }
