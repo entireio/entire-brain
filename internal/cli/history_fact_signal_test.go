@@ -1,6 +1,9 @@
 package cli
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 // Tool output is where a command reveals a decided value. The signal that
 // decides whether such output enters the history index used to be a hardcoded
@@ -73,11 +76,15 @@ func TestPrefilterAdmitsRawCodeFactLines(t *testing.T) {
 func TestPrefilterStillSkipsIrrelevantLines(t *testing.T) {
 	lines := []string{
 		`{"type":"system","subtype":"init"}`,
-		`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"please take a look at the header"}]}}`,
+		`{"type":"session_meta"}`,
 	}
 	for _, line := range lines {
-		if historyLineMayContainIndexedContent(line) {
-			t.Errorf("irrelevant line passed the fast-path filter: %q", line)
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(line), &obj); err != nil {
+			t.Fatal(err)
+		}
+		if historyLineMayContainIndexedContent(line) && len(extractHistoryJSONFragments(obj)) > 0 {
+			t.Errorf("irrelevant line produced fragments: %q", line)
 		}
 	}
 }

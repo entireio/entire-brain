@@ -270,23 +270,36 @@ func rankSemanticFilteredKinds(
 // rankHistoryViaFTS — same list, same ok contract — so call sites need no
 // fallback of their own beyond what they already have.
 func rankHistoryFused(brainDir string, index historyIndex, kind, query string, limit int, e Embedder) ([]scoredHistoryRecord, bool) {
+	return rankHistoryFusedFiltered(brainDir, index, kind, query, limit, e, nil)
+}
+
+func rankHistoryFusedFiltered(brainDir string, index historyIndex, kind, query string, limit int, e Embedder, pred func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
+	semIndex := index
+	if pred != nil {
+		semIndex.Records = filterHistoryRecords(index.Records, pred)
+	}
+
 	scores := historySemanticScores(brainDir, historySemanticEmbedder(e), query, limit, true)
 	if len(scores) == 0 {
-		return rankHistoryViaFTS(brainDir, index, kind, query, limit)
+		ranked, complete, ok := rankHistoryViaFTSFiltered(brainDir, index, kind, query, limit, historyFTSRelevanceCutoff, pred)
+		return ranked, ok && complete
 	}
-	lex, lexOK := rankHistoryViaFTS(brainDir, index, kind, query, limit*4)
+	lex, complete, lexOK := rankHistoryViaFTSFiltered(brainDir, index, kind, query, limit*4, historyFTSRelevanceCutoff, pred)
+	if lexOK && !complete {
+		return nil, false
+	}
 	if !lexOK {
 		// FTS down but vectors up: rank on the semantic arm alone rather than
 		// reporting the whole indexed path unavailable (which would drop the
 		// caller to the substring scorer the eval retired).
-		sem := rankHistorySemanticRelevant(index, scores, limit)
+		sem := rankHistorySemanticRelevant(semIndex, scores, limit)
 		return sem, len(sem) > 0
 	}
 	lexicalIDs := make(map[string]struct{}, len(lex))
 	for _, scored := range lex {
 		lexicalIDs[scored.Record.ID] = struct{}{}
 	}
-	sem := rankHistorySemanticHybridRanks(index, scores, limit*4, lexicalIDs)
+	sem := rankHistorySemanticHybridRanks(semIndex, scores, limit*4, lexicalIDs)
 	return fuseScoredRankLists([][]scoredHistoryRecord{lex, sem.ranked, sem.calibratedSemanticOnly}, limit), true
 }
 
