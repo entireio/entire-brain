@@ -45,24 +45,20 @@ Confirm both:
 entire brain version && entire graph version
 ```
 
-<details>
-<summary>Installing without the plugin index</summary>
+### Or one command, without the CLI
 
-One self-contained command. It downloads the release binary for your platform,
-verifies it against the release checksums, installs it to `~/.local/bin`, and
-registers it with the CLI. Brain's default build is pure Go, so there is no Go
-toolchain and no C compiler to install.
+If you would rather not install the CLI first, this does the whole thing on its
+own — downloads the release binary for your platform, verifies it against the
+release checksums, installs it to `~/.local/bin`, and registers it:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/entireio/entire-brain/main/scripts/get-brain.sh | bash
 ```
 
-Add `--nightly` for the nightly channel, `--version vX.Y.Z` to pin a release,
-or `--dir <path>` to install somewhere other than `~/.local/bin`. Windows users
-can download the `.zip` from the
-[latest release](https://github.com/entireio/entire-brain/releases/latest).
-
-</details>
+Brain's default build is pure Go, so there is no Go toolchain and no C compiler
+to install. Add `--nightly` for the nightly channel, `--version vX.Y.Z` to pin a
+release, or `--dir <path>` to install elsewhere. Windows users can take the
+`.zip` from the [latest release](https://github.com/entireio/entire-brain/releases/latest).
 
 <details>
 <summary>Building from source instead</summary>
@@ -83,6 +79,13 @@ memory or install the watcher.
 </details>
 
 See [installation options](docs/operations.md#full-install) for choosing a Graph checkout, installing offline, or building Brain alone.
+
+### How Brain compares
+
+[`docs/feature-matrix.md`](docs/feature-matrix.md) puts Graph and Brain against
+five alternatives across 51 capabilities, including the 20 rows where neither of
+ours answers Yes. Our two columns are read from the shipped binaries; the
+competitor columns come from public documentation and are unverified.
 
 ## Activate it for your agent
 
@@ -161,7 +164,7 @@ entire brain status --verbose
 entire brain overview
 ```
 
-### Record and retrieve facts
+### Record and retrieve facts (episodic memory)
 
 ```bash
 # Author a durable fact about this repository.
@@ -173,6 +176,27 @@ entire brain recall "retry policy"
 # Re-check every fact's anchors against the current tree.
 entire brain verify
 ```
+
+Durable facts are Brain's episodic memory: what was decided, what bit you, and
+what must stay true, carried across sessions and branches rather than
+re-derived.
+
+`remember` classifies the fact for you, which needs one of the supported coding
+agents on `PATH`. Without one it stops and asks you to say where the fact
+belongs instead:
+
+```bash
+entire brain remember "Retries are capped at 3; the 4th failure must page." \
+  --path constraints.retry.policy
+```
+
+The path is `category.subcategory.type`, and the categories are `architecture`,
+`constraints`, `preferences`, `project` and `workflow`.
+
+A fact you wrote by hand has no source anchor in the repository, so `verify`
+reports it as `unverifiable-here` rather than verified. That is the expected
+result, not a failure — it separates what you asserted from what Brain can still
+find evidence for.
 
 ### Search
 

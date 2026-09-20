@@ -37,13 +37,14 @@ under `==> entire-graph semantic provider`:
 an explanation naming all three routes rather than blocking on a clone.
 
 `scripts/bootstrap.sh` wraps this for a machine with nothing: it clones
-`entire-brain` when it is not already present -- falling back to `gh repo clone`
-for the private-repo credentials -- and then execs `scripts/install.sh`. There is
-deliberately no `curl | sh` form: `entireio/entire-brain` is private, so
-`raw.githubusercontent.com` serves 404 for it without a token; the source has to
-be cloned regardless because the install is a source build; and cloning first
-puts the script that registers your plugins on disk at a reviewable commit
-before it runs.
+`entire-brain` when it is not already present and then execs
+`scripts/install.sh`.
+
+That path is for building Brain, not for using it. To install a release instead,
+`entire plugin install brain` goes through the plugin index, and
+`scripts/get-brain.sh` is a self-contained `curl | bash` that needs neither the
+CLI nor a toolchain. Both install a prebuilt binary; the curl form verifies it
+against the release `checksums.txt` and aborts if it cannot.
 
 ### After the install: onboard a repository
 
