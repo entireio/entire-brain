@@ -588,7 +588,7 @@ func rankHistoryViaFreshFTSCutoffOnce(brainDir string, source *historySourceMani
 	sb.WriteString(" ORDER BY bm25(history_fts) LIMIT ?")
 	scanLimit := limit * 4
 	if pred != nil {
-		scanLimit = identity.RecordCount
+		scanLimit = min(identity.RecordCount, historyFTSFilteredScanCeiling)
 	}
 	args = append(args, scanLimit)
 
@@ -603,8 +603,11 @@ func rankHistoryViaFreshFTSCutoffOnce(brainDir string, source *historySourceMani
 	seen := map[string]struct{}{}
 	seenOrders := map[int]struct{}{}
 	var topScore float64
+	scanned := 0
+	cutoffReached := false
 	valid := true
 	for rows.Next() {
+		scanned++
 		var rec historyRecord
 		var ftsRowID int
 		var order int
@@ -639,6 +642,7 @@ func rankHistoryViaFreshFTSCutoffOnce(brainDir string, source *historySourceMani
 		if topScore == 0 {
 			topScore = score
 		} else if score < cutoff*topScore {
+			cutoffReached = true
 			break
 		}
 		key := normalizeHistorySearchText(rec.Summary)
@@ -662,6 +666,13 @@ func rankHistoryViaFreshFTSCutoffOnce(brainDir string, source *historySourceMani
 			return nil, false, historyFTSDirectWaitForPublication, nil
 		}
 		return nil, false, historyFTSDirectNoRetry, errHistoryFTSPayloadCorrupt
+	}
+	if pred != nil && scanLimit < identity.RecordCount && scanned >= scanLimit && len(out) < limit && !cutoffReached {
+		// A filtered candidate window is not a complete answer. Discard it and
+		// let the caller load verified JSON truth for exhaustive eligibility
+		// scoring, instead of losing eligible records beyond this resource bound.
+		// seenOrders and hydrated payloads are bounded by the same ceiling.
+		return nil, false, historyFTSDirectNoRetry, nil
 	}
 	if err := tx.Commit(); err != nil {
 		if !sizeMatches {
