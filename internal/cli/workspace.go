@@ -3644,6 +3644,10 @@ func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regres
 	if ro.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
+	privacyPolicies, _, err := captureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
+	if err != nil {
+		return err
+	}
 	var results []workspaceRegressionResult
 	for _, f := range skipped {
 		results = append(results, workspaceRegressionResult{
@@ -3669,59 +3673,62 @@ func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regres
 		}
 		results = append(results, result)
 	}
-	if ro.json {
-		return writeJSON(cmd, struct {
-			Workspace     string                      `json:"workspace"`
-			SchemaVersion int                         `json:"schema_version"`
-			Results       []workspaceRegressionResult `json:"results"`
-		}{Workspace: manifest.Name, SchemaVersion: reviewReportSchemaVersion, Results: results})
-	}
-	out := cmd.OutOrStdout()
-	total := 0
-	scanned := 0
-	for _, result := range results {
-		if result.Checked {
-			scanned++
+	render := func() error {
+		if ro.json {
+			return writeJSON(cmd, struct {
+				Workspace     string                      `json:"workspace"`
+				SchemaVersion int                         `json:"schema_version"`
+				Results       []workspaceRegressionResult `json:"results"`
+			}{Workspace: manifest.Name, SchemaVersion: reviewReportSchemaVersion, Results: results})
 		}
-		// Surface per-repo freshness so a stale/degraded pairing is never silently trusted.
-		state := result.Freshness.State
-		if state == "" {
-			state = "unknown"
-		}
-		if workspaceRepoBlockNeedsHeader(state, len(result.Anomalies), len(result.Warnings), result.Error) {
-			fmt.Fprintf(out, "%s [%s]\n", result.RepoKey, state)
-		}
-		if result.Error != "" {
-			fmt.Fprintf(out, "  %s\n", result.Error)
-		}
-		for _, w := range result.Warnings {
-			fmt.Fprintf(out, "  warning: %s\n", w)
-		}
-		for _, a := range result.Anomalies {
-			total++
-			fmt.Fprintf(out, "  %s:%d [%s, conf %.2f] %s\n", a.File, a.Line, a.Kind, a.Confidence, a.Identifier)
-			if a.Expected != "" {
-				fmt.Fprintf(out, "    expected: %s\n    current:  %s\n", a.Expected, a.Current)
+		out := cmd.OutOrStdout()
+		total := 0
+		scanned := 0
+		for _, result := range results {
+			if result.Checked {
+				scanned++
+			}
+			// Surface per-repo freshness so a stale/degraded pairing is never silently trusted.
+			state := result.Freshness.State
+			if state == "" {
+				state = "unknown"
+			}
+			if workspaceRepoBlockNeedsHeader(state, len(result.Anomalies), len(result.Warnings), result.Error) {
+				fmt.Fprintf(out, "%s [%s]\n", result.RepoKey, state)
+			}
+			if result.Error != "" {
+				fmt.Fprintf(out, "  %s\n", result.Error)
+			}
+			for _, w := range result.Warnings {
+				fmt.Fprintf(out, "  warning: %s\n", w)
+			}
+			for _, a := range result.Anomalies {
+				total++
+				fmt.Fprintf(out, "  %s:%d [%s, conf %.2f] %s\n", a.File, a.Line, a.Kind, a.Confidence, a.Identifier)
+				if a.Expected != "" {
+					fmt.Fprintf(out, "    expected: %s\n    current:  %s\n", a.Expected, a.Current)
+				}
 			}
 		}
-	}
-	if total == 0 {
-		// COVERAGE, not membership. The count used to be len(results), so a
-		// workspace whose members were skipped unsafe or never resolved still
-		// reported "No suspected regressions across 6 repo(s)" -- a clean bill of
-		// health over repos nothing ever looked at.
-		switch {
-		case scanned == 0:
-			fmt.Fprintf(out, "INCONCLUSIVE: no file in any of %d repo(s) in %q was compared — this is not a clean result. See the warnings above.\n",
-				len(results), manifest.Name)
-		case scanned == len(results):
-			fmt.Fprintf(out, "No suspected regressions across %d repo(s) in %q.\n", scanned, manifest.Name)
-		default:
-			fmt.Fprintf(out, "No suspected regressions across %d of %d repo(s) in %q; %d not scanned (see the per-repo lines above).\n",
-				scanned, len(results), manifest.Name, len(results)-scanned)
+		if total == 0 {
+			// COVERAGE, not membership. The count used to be len(results), so a
+			// workspace whose members were skipped unsafe or never resolved still
+			// reported "No suspected regressions across 6 repo(s)" -- a clean bill of
+			// health over repos nothing ever looked at.
+			switch {
+			case scanned == 0:
+				fmt.Fprintf(out, "INCONCLUSIVE: no file in any of %d repo(s) in %q was compared — this is not a clean result. See the warnings above.\n",
+					len(results), manifest.Name)
+			case scanned == len(results):
+				fmt.Fprintf(out, "No suspected regressions across %d repo(s) in %q.\n", scanned, manifest.Name)
+			default:
+				fmt.Fprintf(out, "No suspected regressions across %d of %d repo(s) in %q; %d not scanned (see the per-repo lines above).\n",
+					scanned, len(results), manifest.Name, len(results)-scanned)
+			}
 		}
+		return nil
 	}
-	return nil
+	return bufferRetrievalCommandOutput(cmd, privacyPolicies, render)
 }
 
 // workspaceReviewSummary is the per-repo verdict for a repo that produced no
@@ -3762,6 +3769,10 @@ func runWorkspaceReview(cmd *cobra.Command, opts Options, ro regressionDetectorO
 func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, manifest workspaceManifest, query string, skipped []workspaceRepoFreshness) error {
 	if ro.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
+	}
+	privacyPolicies, _, err := captureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
+	if err != nil {
+		return err
 	}
 	var results []workspaceReviewResult
 	reposWithFindings := 0
@@ -3832,42 +3843,45 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 	case reviewed != len(results):
 		summary += fmt.Sprintf(" %d of %d member(s) were not reviewed.", len(results)-reviewed, len(results))
 	}
-	if ro.json {
-		return writeJSON(cmd, struct {
-			Workspace     string                  `json:"workspace"`
-			SchemaVersion int                     `json:"schema_version"`
-			Mode          string                  `json:"mode"`
-			Summary       string                  `json:"summary"`
-			Results       []workspaceReviewResult `json:"results"`
-		}{Workspace: manifest.Name, SchemaVersion: reviewReportSchemaVersion, Mode: "diff-less (brain memory vs current tree)", Summary: summary, Results: results})
+	render := func() error {
+		if ro.json {
+			return writeJSON(cmd, struct {
+				Workspace     string                  `json:"workspace"`
+				SchemaVersion int                     `json:"schema_version"`
+				Mode          string                  `json:"mode"`
+				Summary       string                  `json:"summary"`
+				Results       []workspaceReviewResult `json:"results"`
+			}{Workspace: manifest.Name, SchemaVersion: reviewReportSchemaVersion, Mode: "diff-less (brain memory vs current tree)", Summary: summary, Results: results})
+		}
+		out := cmd.OutOrStdout()
+		fmt.Fprintln(out, summary)
+		for _, result := range results {
+			// Surface per-repo freshness so a stale/degraded or skipped pairing is visible, not silent.
+			state := result.Freshness.State
+			if state == "" {
+				state = "unknown"
+			}
+			if len(result.Findings) == 0 && result.Error == "" && len(result.Warnings) == 0 && state == "ok" {
+				continue
+			}
+			label := result.RepoKey
+			if result.Name != "" {
+				label = result.Name + " (" + result.RepoKey + ")"
+			}
+			fmt.Fprintf(out, "\n%s [%s]\n", label, state)
+			if result.Error != "" {
+				fmt.Fprintf(out, "  error: %s\n", result.Error)
+				continue
+			}
+			for _, w := range result.Warnings {
+				fmt.Fprintf(out, "  warning: %s\n", w)
+			}
+			for _, f := range result.Findings {
+				fmt.Fprintf(out, "  [%s] %s\n    %s:%d\n    %s\n    evidence: %s\n",
+					strings.ToUpper(f.Severity), f.Title, f.File, f.Line, f.Detail, f.Evidence)
+			}
+		}
+		return nil
 	}
-	out := cmd.OutOrStdout()
-	fmt.Fprintln(out, summary)
-	for _, result := range results {
-		// Surface per-repo freshness so a stale/degraded or skipped pairing is visible, not silent.
-		state := result.Freshness.State
-		if state == "" {
-			state = "unknown"
-		}
-		if len(result.Findings) == 0 && result.Error == "" && len(result.Warnings) == 0 && state == "ok" {
-			continue
-		}
-		label := result.RepoKey
-		if result.Name != "" {
-			label = result.Name + " (" + result.RepoKey + ")"
-		}
-		fmt.Fprintf(out, "\n%s [%s]\n", label, state)
-		if result.Error != "" {
-			fmt.Fprintf(out, "  error: %s\n", result.Error)
-			continue
-		}
-		for _, w := range result.Warnings {
-			fmt.Fprintf(out, "  warning: %s\n", w)
-		}
-		for _, f := range result.Findings {
-			fmt.Fprintf(out, "  [%s] %s\n    %s:%d\n    %s\n    evidence: %s\n",
-				strings.ToUpper(f.Severity), f.Title, f.File, f.Line, f.Detail, f.Evidence)
-		}
-	}
-	return nil
+	return bufferRetrievalCommandOutput(cmd, privacyPolicies, render)
 }
