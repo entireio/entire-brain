@@ -82,6 +82,10 @@ def check_integrity(results: pathlib.Path, arms: list[str],
             if not cell.is_dir():
                 continue
 
+            for name in ("packet.txt", "packet.sha256", "prompt.txt", "prompt_sym.sha256", "stream.jsonl", "meta.json"):
+                if not (cell / name).is_file():
+                    problems.append(f"{pair_dir.name}/{arm}: missing {name}")
+
             packet = cell / "packet.txt"
             pinned = cell / "packet.sha256"
             if packet.is_file() and pinned.is_file():
@@ -96,7 +100,31 @@ def check_integrity(results: pathlib.Path, arms: list[str],
             prompt_file = cell / "prompt.txt"
             if prompt_file.is_file():
                 # RE-DERIVE, never trust the recorded sha.
-                shas[arm] = prompts.symmetry_sha(prompt_file.read_text(encoding="utf-8"))
+                prompt_text = prompt_file.read_text(encoding="utf-8")
+                shas[arm] = prompts.symmetry_sha(prompt_text)
+                if packet.is_file():
+                    packet_text = packet.read_text(encoding="utf-8")
+                    delivered = "--- MEMORY ---\n" + prompts.render_packet_block(packet_text) + "\n"
+                    if not prompt_text.endswith(delivered):
+                        problems.append(f"{pair_dir.name}/{arm}: packet differs from prompt")
+                symmetry_pin = cell / "prompt_sym.sha256"
+                if symmetry_pin.is_file() and symmetry_pin.read_text().strip() != shas[arm]:
+                    problems.append(f"{pair_dir.name}/{arm}: prompt_sym.sha256 mismatch")
+                meta_path = cell / "meta.json"
+                if meta_path.is_file():
+                    try:
+                        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                        expected_hashes = {
+                            "prompt_sha256": _harness.sha256_file(prompt_file),
+                            "prompt_sym_sha256": shas[arm],
+                        }
+                        if packet.is_file():
+                            expected_hashes["packet_sha256"] = _harness.sha256_file(packet)
+                        for name, digest in expected_hashes.items():
+                            if meta.get(name) != digest:
+                                problems.append(f"{pair_dir.name}/{arm}: meta {name} mismatch")
+                    except (ValueError, AttributeError) as exc:
+                        problems.append(f"{pair_dir.name}/{arm}: invalid meta.json: {exc}")
 
         if len(set(shas.values())) > 1:
             groups: dict[str, list[str]] = {}

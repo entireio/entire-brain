@@ -44,7 +44,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
-from brainmark import _harness, grade, report  # noqa: E402
+from brainmark import _harness, grade, prompts, report  # noqa: E402
 
 ARMS = ["no_brain", "full_brain"]
 
@@ -72,8 +72,14 @@ def _write_cell(cell: pathlib.Path, instance_id: str, locate: int) -> None:
         f"TASK\n\n--- MEMORY ---\n<frozen-memory-packet>\n{packet}\n</frozen-memory-packet>\n",
         encoding="utf-8")
     (cell / "patch.diff").write_text("diff --git a/x b/x\n", encoding="utf-8")
+    prompt = (cell / "prompt.txt").read_text(encoding="utf-8")
+    (cell / "prompt_sym.sha256").write_text(prompts.symmetry_sha(prompt) + "\n", encoding="utf-8")
+    (cell / "stream.jsonl").write_text('{"type":"result","subtype":"success"}\n', encoding="utf-8")
     (cell / "meta.json").write_text(_harness.pretty_json({
         "instance_id": instance_id,
+        "packet_sha256": _harness.sha256_text(packet),
+        "prompt_sha256": _harness.sha256_text(prompt),
+        "prompt_sym_sha256": prompts.symmetry_sha(prompt),
         "result_event": {"total_cost_usd": 0.1, "subtype": "success"},
         "mechmetrics": {"locate_calls_pre_edit": locate, "tokens": {"total_tokens": 100}},
     }), encoding="utf-8")
