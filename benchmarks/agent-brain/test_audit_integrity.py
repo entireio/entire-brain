@@ -29,7 +29,7 @@ def load(name, path):
 
 class IntegrityTest(unittest.TestCase):
     def test_quarantine_does_not_accept_arbitrary_process_failure(self):
-        relative = next(iter(ci_tests.QUARANTINE))
+        relative = 'confirmatory/test_check_protocol.py'
         for output in ('SyntaxError: broken source\n', 'new unrelated assertion failure\n'):
             with self.subTest(output=output), mock.patch.object(ci_tests, 'modules', return_value=[ci_tests.ROOT / relative]), mock.patch.object(ci_tests, 'run', return_value=(False, output)), contextlib.redirect_stdout(io.StringIO()) as stdout, contextlib.redirect_stderr(io.StringIO()):
                 self.assertEqual(ci_tests.main(), 1)

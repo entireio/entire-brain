@@ -43,32 +43,6 @@ DARWIN_ONLY: dict[str, str] = {
 
 ROOT = pathlib.Path(__file__).resolve().parent
 
-# Modules that do not pass on a clean checkout today. Each entry states why, so the
-# debt is visible and its failures still block the gate. A quarantined module that
-# starts passing is also an error: that is how the list stays honest instead of
-# outliving its reasons.
-QUARANTINE: dict[str, str] = {
-    "confirmatory/test_power_analysis.py": (
-        "power-calibration-exploratory-v1.json names "
-        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260618T195058Z/records.ndjson, "
-        "a panel that was replaced by the 20260816T084152Z panel and deleted. "
-        "power_analysis.build_report() raises on the missing file, so 38 of its 23 "
-        "tests error out. Repointing the calibration source is a change to a pre-registered "
-        "statistical contract and is left to the owner of that contract."
-    ),
-    "confirmatory/test_check_protocol.py": (
-        "the committed analyzer manifest disagrees with the analyzer sources it "
-        "hashes ('analyzer files[3]: content hash mismatch'); re-recording the hashes "
-        "is a change to the protocol attestation, not a test fix."
-    ),
-    "confirmatory/test_development_task_symptom_review.py": (
-        "requires confirmatory/development-relevance-queries-v1.json, which is "
-        "gitignored and generated locally, so it cannot run on a clean checkout. It "
-        "should skip rather than fail; until it does, it cannot gate."
-    ),
-}
-
-
 # Both spellings are in use: `test_*.py` for the module-per-concern files and
 # `*_test.py` for run_test.py, which alone holds 313 tests of which CI ran 3.
 PATTERNS = ("test_*.py", "*_test.py")
@@ -96,40 +70,20 @@ def run(path: pathlib.Path) -> tuple[bool, str]:
 
 def main() -> int:
     failed: list[str] = []
-    unexpected_pass: list[str] = []
     for path in modules():
         rel = path.relative_to(ROOT).as_posix()
         if rel in DARWIN_ONLY and sys.platform != "darwin":
             print(f"skipped (host)  {rel}", flush=True)
             continue
         ok, output = run(path)
-        if rel in QUARANTINE:
-            # Historical debt is diagnostic context, never permission to accept
-            # arbitrary failures (including syntax errors or new regressions).
-            print(f"{'UNEXPECTED PASS ' if ok else 'known failure   '}{rel}", flush=True)
-            if ok:
-                unexpected_pass.append(rel)
-            else:
-                sys.stdout.write(output)
-                failed.append(rel)
-            continue
         print(f"{'ok              ' if ok else 'FAIL            '}{rel}", flush=True)
         if not ok:
             sys.stdout.write(output)
             failed.append(rel)
 
-    for rel in sorted(set(QUARANTINE) - {p.relative_to(ROOT).as_posix() for p in modules()}):
-        print(f"stale quarantine entry, module is gone: {rel}", file=sys.stderr)
-        failed.append(rel)
-
     for rel in failed:
         print(f"failing test module: {rel}", file=sys.stderr)
-    for rel in unexpected_pass:
-        print(
-            f"quarantined module now passes, remove it from QUARANTINE: {rel}",
-            file=sys.stderr,
-        )
-    return 1 if failed or unexpected_pass else 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
