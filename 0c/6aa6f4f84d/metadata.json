@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "0c6aa6f4f84d",
+  "strategy": "manual-commit",
+  "branch": "codex/audit2-clarity-ui",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "docs/reference.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_brief_compact.go",
+    "internal/cli/brain_brief_compact_test.go",
+    "internal/cli/mcp_harness_launch_test.go",
+    "internal/cli/mcp_response_budget.go",
+    "internal/cli/mcp_test.go",
+    "internal/cli/retrieval_transport.go",
+    "internal/cli/status_render.go",
+    "internal/cli/status_truth_test.go",
+    "internal/cli/surface_contract_test.go",
+    "internal/cli/testdata/mcp_brain_brief_tool.golden.json",
+    "internal/cli/testdata/mcp_brain_review_tool.golden.json",
+    "internal/cli/testdata/mcp_brain_workspace_review_tool.golden.json",
+    "internal/cli/testdata/mcp_tool_surface.golden.json",
+    "internal/cli/unrunnable_remedy_test.go",
+    "internal/factsync/httpserver.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0c/6aa6f4f84d/0/metadata.json",
+      "transcript": "/0c/6aa6f4f84d/0/full.jsonl",
+      "compact_transcript": "/0c/6aa6f4f84d/0/transcript.jsonl",
+      "content_hash": "/0c/6aa6f4f84d/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 30464,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1176704,
+    "output_tokens": 2178,
+    "api_call_count": 12
+  }
+}
