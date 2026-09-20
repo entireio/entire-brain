@@ -181,6 +181,23 @@ entire brain recall "retry policy"
 entire brain verify
 ```
 
+`remember` classifies the fact for you, which needs one of the supported coding
+agents on `PATH`. Without one it stops and asks you to say where the fact
+belongs instead:
+
+```bash
+entire brain remember "Retries are capped at 3; the 4th failure must page." \
+  --path constraints.retry.policy
+```
+
+The path is `category.subcategory.type`, and the categories are `architecture`,
+`constraints`, `preferences`, `project` and `workflow`.
+
+A fact you wrote by hand has no source anchor in the repository, so `verify`
+reports it as `unverifiable-here` rather than verified. That is the expected
+result, not a failure — it separates what you asserted from what Brain can still
+find evidence for.
+
 ### Search
 
 ```bash

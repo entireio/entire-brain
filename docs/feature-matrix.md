@@ -55,9 +55,12 @@ defence on their own:
 - **Graphify** parses PDFs, Office files and live Postgres schemas with
   tree-sitter, locally. Deterministic parsers cost no tokens.
 
-The sharpest single gap is that **Brain's MCP tools are read-only.** An agent
-mid-session cannot persist what it just learned; `entire brain remember` is a
-CLI command. Every competitor surveyed has a write path.
+The sharpest single gap concerns what an agent can write. Brain's MCP surface
+has 36 tools and five of them do write — `brain_index_repository`,
+`brain_refresh`, `brain_ingest_traces` and `brain_delete_project` — but every
+one of those writes *derived* state. **None of them authors a durable fact.** So
+an agent mid-session cannot record what it just learned; `entire brain remember`
+is a CLI command. Every competitor surveyed has a fact-write path.
 
 ## Tools cited but not given a column
 

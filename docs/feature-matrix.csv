@@ -28,7 +28,7 @@ OPERATION,Zero LLM tokens to build the index,Yes,Yes,Partial,No,No,No,Yes,mem0 m
 OPERATION,No network calls on the default build,Yes,Yes,No,No,No,No,Yes,Brain: `doctor` reports memory_provider_egress,verified: capabilities --json
 OPERATION,No API key required,Yes,Yes,No,No,No,No,Yes,,
 OPERATION,Pure-Go binary (no toolchain for the user),No,Yes,No,No,No,No,No,Graph needs CGO for tree-sitter; Brain default build is pure Go,verified: capabilities --json
-OPERATION,Agent can write memory at runtime (MCP write tool),No,No,Unknown,Yes,Yes,Yes,Yes,"REAL GAP — All 36 of our MCP tools are read-only. `remember` is CLI-only, so an agent mid-session cannot persist what it just learned. Universal among competitors.",https://docs.letta.com/guides/agents/memory-blocks/
+OPERATION,Agent can author a durable fact at runtime (MCP),No,No,Unknown,Yes,Yes,Yes,Yes,"REAL GAP — Brain's MCP surface has 36 tools and 5 of them write, but all write derived state: brain_index_repository, brain_refresh, brain_ingest_traces, brain_delete_project. None authors a fact. `remember` is CLI-only, so an agent mid-session cannot record what it learned.",https://docs.letta.com/guides/agents/memory-blocks/
 OPERATION,"Team-wide index built once, server-side",No,No,No,Yes,Unknown,Yes,No,"TRADE-OFF — Real cost though: every developer rebuilds, and workspaces need a local clone and local build per repo, so org-scale is impractical.",https://docs.github.com/en/enterprise-cloud@latest/copilot/concepts/context/repository-indexing
 OPERATION,Hosted / managed offering,No,No,No,Yes,Yes,Yes,No,"TRADE-OFF — the deliberate opposite of our pitch, and the reason several rows above read No.",https://supermemory.ai/docs/concepts/container-tags
 INTERFACE,MCP server,Yes,Yes,Yes,Yes,Yes,Yes,Yes,,
