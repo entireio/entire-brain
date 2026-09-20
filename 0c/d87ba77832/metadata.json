@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "0cd87ba77832",
+  "strategy": "manual-commit",
+  "branch": "codex/audit2-history",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "docs/brain_brief_profiling.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_brief_profile.go",
+    "internal/cli/brain_brief_profile_test.go",
+    "internal/cli/conversation.go",
+    "internal/cli/conversation_multiconcept.go",
+    "internal/cli/history.go",
+    "internal/cli/history_audit_regression_test.go",
+    "internal/cli/history_cache_safety_unix_test.go",
+    "internal/cli/history_delta.go",
+    "internal/cli/history_delta_test.go",
+    "internal/cli/history_eval.go",
+    "internal/cli/history_fact_signal_test.go",
+    "internal/cli/history_fts.go",
+    "internal/cli/history_vec.go",
+    "internal/cli/retrieval_guard.go",
+    "internal/cli/retrieve.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0c/d87ba77832/0/metadata.json",
+      "transcript": "/0c/d87ba77832/0/full.jsonl",
+      "compact_transcript": "/0c/d87ba77832/0/transcript.jsonl",
+      "content_hash": "/0c/d87ba77832/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 3786,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 144000,
+    "output_tokens": 1256,
+    "api_call_count": 3
+  }
+}
