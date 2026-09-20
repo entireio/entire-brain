@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "a058abaa2d37",
+  "strategy": "manual-commit",
+  "branch": "codex/audit2-transport",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/apiurl/apiurl.go",
+    "internal/apiurl/diagnostic_redaction_test.go",
+    "internal/brainwire/canonical.go",
+    "internal/brainwire/canonical_unicode_test.go",
+    "internal/cli/publish.go",
+    "internal/cli/publish_correctness_test.go",
+    "internal/cli/publish_privacy_test.go",
+    "internal/factsync/wire_fuzz_test.go",
+    "internal/hostedbrain/client.go",
+    "internal/hostedbrain/client_errors_test.go",
+    "internal/hostedbrain/client_fuzz_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a0/58abaa2d37/0/metadata.json",
+      "transcript": "/a0/58abaa2d37/0/full.jsonl",
+      "compact_transcript": "/a0/58abaa2d37/0/transcript.jsonl",
+      "content_hash": "/a0/58abaa2d37/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8342,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 361344,
+    "output_tokens": 1564,
+    "api_call_count": 6
+  }
+}
