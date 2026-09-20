@@ -164,7 +164,7 @@ entire brain status --verbose
 entire brain overview
 ```
 
-### Record and retrieve facts
+### Record and retrieve facts (episodic memory)
 
 ```bash
 # Author a durable fact about this repository.
@@ -176,6 +176,8 @@ entire brain recall "retry policy"
 # Re-check every fact's anchors against the current tree.
 entire brain verify
 ```
+
+Durable facts are Brain's episodic memory: what was decided, what bit you, and what must stay true, carried across sessions and branches rather than re-derived.
 
 `remember` classifies the fact for you, which needs one of the supported coding
 agents on `PATH`. Without one it stops and asks you to say where the fact
