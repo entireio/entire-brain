@@ -4385,7 +4385,7 @@ def brain_cache_payload(
         "setup_replacements": task.get("setup_replacements", []),
         "setup_commands": task.get("setup_commands", []),
         "brain_sha256": file_sha256(tools["brain"]),
-        "graph_sha256": file_sha256(tools["graph"]),
+        "graph_sha256": file_sha256(tools["graph"]) if task.get("prepare_semantic", True) else None,
     }
 
 
@@ -7160,6 +7160,7 @@ def aggregate_agent_attempt_usage(
     for field in (
         "turns",
         "input_tokens",
+        "total_input_tokens",
         "output_tokens",
         "total_tokens",
         "cache_read_tokens",
@@ -7178,8 +7179,22 @@ def aggregate_agent_attempt_usage(
         for value in costs
     ):
         result["cost_usd"] = sum(float(value) for value in costs)
+    identity_fields = ("accounting_version", "accounting_source", "accounting_rule")
+    identities = [tuple(usage.get(field) for field in identity_fields)
+                  for usage in usages if isinstance(usage, dict)]
+    identity_ok = bool(identities) and len(identities) == len(usages) and all(
+        identity == identities[0] and all(value is not None and value != "" for value in identity)
+        for identity in identities
+    )
+    if identity_ok:
+        result.update(zip(identity_fields, identities[0]))
+    else:
+        # Counters with different definitions cannot be summed into one measure.
+        for field in ("input_tokens", "total_input_tokens", "output_tokens", "total_tokens",
+                      "cache_read_tokens", "cache_creation_tokens", "reasoning_tokens"):
+            result[field] = None
     result["usage_report"] = {
-        "complete": len(complete_attempts) == len(attempts) and bool(attempts),
+        "complete": len(complete_attempts) == len(attempts) and bool(attempts) and identity_ok,
         "parser": "provider_attempt_sum_v1",
         "accounting_basis": "sum_per_isolated_provider_invocation_attempt_total",
         "source_events": len(attempts),
@@ -7195,7 +7210,8 @@ def aggregate_agent_attempt_usage(
             for usage in usages
         ],
         "error": (
-            None
+            "provider invocations have missing or incompatible accounting identities"
+            if not identity_ok else None
             if len(complete_attempts) == len(attempts) and attempts
             else "one or more provider invocations lacks unambiguous usage"
         ),
@@ -8561,14 +8577,14 @@ def benchmark_private_path(path: str) -> bool:
 
 
 def changed_files(worktree: pathlib.Path) -> list[str]:
-    tracked = run_cmd(["git", "diff", "--name-only"], cwd=worktree).stdout.splitlines()
+    tracked = run_cmd(["git", "diff", "HEAD", "--name-only"], cwd=worktree).stdout.splitlines()
     untracked = run_cmd(["git", "ls-files", "--others", "--exclude-standard"], cwd=worktree).stdout.splitlines()
     return sorted({x.strip() for x in [*tracked, *untracked] if x.strip() and not benchmark_private_path(x)})
 
 
 def diff_stat(worktree: pathlib.Path) -> dict[str, Any]:
-    stat = run_cmd(["git", "diff", "--shortstat"], cwd=worktree).stdout.strip()
-    diff = run_cmd(["git", "diff", "--", "."], cwd=worktree).stdout
+    stat = run_cmd(["git", "diff", "HEAD", "--shortstat"], cwd=worktree).stdout.strip()
+    diff = run_cmd(["git", "diff", "HEAD", "--", "."], cwd=worktree).stdout
     untracked = [
         rel
         for rel in run_cmd(["git", "ls-files", "--others", "--exclude-standard"], cwd=worktree).stdout.splitlines()
@@ -8590,7 +8606,7 @@ def diff_stat(worktree: pathlib.Path) -> dict[str, Any]:
 def capture_agent_patch(worktree: pathlib.Path) -> tuple[str, dict[str, Any]]:
     tracked = [
         rel
-        for rel in run_cmd(["git", "diff", "--name-only"], cwd=worktree).stdout.splitlines()
+        for rel in run_cmd(["git", "diff", "HEAD", "--name-only"], cwd=worktree).stdout.splitlines()
         if rel.strip() and not benchmark_private_path(rel)
     ]
     untracked = [
@@ -8601,7 +8617,7 @@ def capture_agent_patch(worktree: pathlib.Path) -> tuple[str, dict[str, Any]]:
     parts: list[str] = []
     if tracked:
         tracked_diff = run_cmd(
-            ["git", "diff", "--binary", "--no-ext-diff", "--", *tracked],
+            ["git", "diff", "HEAD", "--binary", "--no-ext-diff", "--", *tracked],
             cwd=worktree,
             check=True,
         )
