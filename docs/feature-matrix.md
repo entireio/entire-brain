@@ -28,18 +28,24 @@ to every single one. That is not a finding. It is what happens when the people
 who build the product also choose the questions.
 
 Someone asked the obvious question — *what do the others have that you don't?* —
-and the matrix now carries 51 rows, 20 of which exist because a competitor has
-something we lack. Graph answers Yes to 19 of 51 and Brain to 31 of 51. Those
-numbers are more useful than the old ones precisely because they are worse.
+and the matrix now carries 51 rows. **Twenty of them are rows where neither
+Graph nor Brain answers Yes**, which is the count that matters and the reason
+they were added.
+
+Graph answers Yes to **19 of 51**. Brain answers Yes to **26 of 51**, and
+delegates a further 5 to Graph — the `Via Graph` cells, which are counted
+separately here because delegating a capability is not the same as having it.
+Those numbers are more useful than the old ones precisely because they are
+worse.
 
 The `Notes` column labels each of those rows:
 
 | label | meaning |
 |---|---|
-| **REAL GAP** | We lack it, and our local-only, zero-LLM design does not explain why. 11 rows. |
+| **REAL GAP** | We lack it, and our local-only, zero-LLM design does not explain why. 12 rows, one of which is unverified on our side. |
 | **TRADE-OFF** | We lack it as a direct cost of that design. 5 rows. |
-| **PARTLY REAL** | Some of each. 2 rows. |
-| **THEY DO IT BETTER** | We have it; someone does it further. 3 rows. |
+| **PARTLY REAL** | Part of the absence is excused by the design and part is not. It describes the *verdict*, not a partial capability — such a row can still read `No` in both our columns. 2 rows. |
+| **THEY DO IT BETTER** | We demonstrably have it and someone does it further. Only used where our own cells are not `Unknown`. 2 rows. |
 
 ## What the gaps say
 
@@ -56,9 +62,9 @@ defence on their own:
   tree-sitter, locally. Deterministic parsers cost no tokens.
 
 The sharpest single gap concerns what an agent can write. Brain's MCP surface
-has 36 tools and five of them do write — `brain_index_repository`,
-`brain_refresh`, `brain_ingest_traces` and `brain_delete_project` — but every
-one of those writes *derived* state. **None of them authors a durable fact.** So
+has 36 tools and four of them write — `brain_index_repository`, `brain_refresh`,
+`brain_ingest_traces` and `brain_delete_project` — but every one of those writes
+*derived* state. **None of them authors a durable fact.** So
 an agent mid-session cannot record what it just learned; `entire brain remember`
 is a CLI command. Every competitor surveyed has a fact-write path.
 

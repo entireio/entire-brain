@@ -83,8 +83,8 @@ See [installation options](docs/operations.md#full-install) for choosing a Graph
 ### How Brain compares
 
 [`docs/feature-matrix.md`](docs/feature-matrix.md) puts Graph and Brain against
-five alternatives across 51 capabilities, including the 20 where a competitor
-has something we do not. Our columns are read from the shipped binaries; the
+five alternatives across 51 capabilities, including the 20 rows where neither of
+ours answers Yes. Our two columns are read from the shipped binaries; the
 competitor columns come from public documentation and are unverified.
 
 ## Activate it for your agent
