@@ -268,8 +268,10 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	// Facts.
 	if includeFacts && len(active) > 0 {
 		factLimit := min(len(active), candidateLimit)
+		var reviewGroups []factReviewGroup
 		if proposalsErr == nil {
-			factLimit = guardedFactCandidateLimit(active, proposals, candidateLimit)
+			reviewGroups = buildFactReviewGroups(active, proposals)
+			factLimit = guardedFactCandidateLimitForGroups(len(active), reviewGroups, candidateLimit)
 		}
 		var factResults []unifiedResult
 		switch mode {
@@ -295,9 +297,9 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 			}
 		}
 		if proposalsErr == nil {
-			factResults = guardUnifiedFactResults(repoDir, all, proposals, factResults, candidateLimit)
+			factResults = guardUnifiedFactResultsWithGroups(repoDir, all, reviewGroups, factResults, candidateLimit)
 		} else {
-			factResults = guardUnifiedFactResults(repoDir, all, nil, factResults, candidateLimit)
+			factResults = guardUnifiedFactResultsWithGroups(repoDir, all, nil, factResults, candidateLimit)
 			factResults = annotateProposalStateUnavailable(factResults)
 		}
 		if len(factResults) > 0 {
@@ -368,9 +370,9 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 					index = historyIndex{GeneratedAt: index.GeneratedAt, Records: filterHistoryRecords(index.Records, guardPred)}
 				}
 				if mode != modeVector {
-					scored := rankFreshHistory(fresh, "history", query, historyCandidateLimit, guardPred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
-						lex, _, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, "history", query, historyCandidateLimit, historyFTSRelevanceCutoff, guardPred)
-						return lex, ok
+					scored := rankFreshHistory(fresh, "history", query, historyCandidateLimit, guardPred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
+						lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, "history", query, historyCandidateLimit, historyFTSRelevanceCutoff, eligible)
+						return lex, ok && complete
 					})
 					scored = filterHistoryRetrievalSelfEchoes(scored, query)
 					if len(scored) > candidateLimit {
@@ -783,23 +785,23 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 		// fusion. Same discipline as historyFusionEligible: the fused arm
 		// ships dark behind a development flag until an eval-ledger row
 		// validates it (see docs/eval_ledger.md).
-		scored = rankFreshHistory(fresh, conversationKind, query, candidateLimit, pred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+		scored = rankFreshHistory(fresh, conversationKind, query, candidateLimit, pred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
 			if envBool("ENTIRE_BRAIN_CONVERSATION_FUSION") {
-				fused, complete, ok := rankConversationFused(brainDir, longTerm, query, candidateLimit, defaultEmbedder(), pred)
+				fused, complete, ok := rankConversationFused(brainDir, longTerm, query, candidateLimit, defaultEmbedder(), eligible)
 				if ok && !complete {
 					scanComplete = false
 				}
 				return fused, ok
 			}
-			lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, conversationKind, query, candidateLimit, historyFTSRelevanceCutoff, pred)
+			lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, conversationKind, query, candidateLimit, historyFTSRelevanceCutoff, eligible)
 			if ok && !complete {
 				scanComplete = false
 			}
 			return lex, ok
 		})
 	default:
-		scored = rankFreshHistory(fresh, conversationKind, query, candidateLimit, pred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
-			lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, conversationKind, query, candidateLimit, historyFTSRelevanceCutoff, pred)
+		scored = rankFreshHistory(fresh, conversationKind, query, candidateLimit, pred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
+			lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, conversationKind, query, candidateLimit, historyFTSRelevanceCutoff, eligible)
 			if ok && !complete {
 				scanComplete = false
 			}
@@ -1203,6 +1205,10 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		case err == nil:
 			for _, r := range index.Records {
 				docByID[r.ID] = r
+			}
+		case os.IsNotExist(err):
+			if defect := inspectBrainDeclaredIndex(brainDir, declaredIndexDocs); !defect.OK() {
+				return nil, nil, defect
 			}
 		case !os.IsNotExist(err):
 			return nil, nil, fmt.Errorf("load doc index: %w", err)

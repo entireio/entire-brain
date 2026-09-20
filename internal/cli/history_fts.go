@@ -456,18 +456,24 @@ func rankHistoryViaFreshFTSCutoff(brainDir string, source *historySourceManifest
 	return out, used, err
 }
 
-func rankHistoryViaFreshFTSCutoffDetailed(brainDir string, source *historySourceManifest, kind, query string, limit int, cutoff float64) ([]scoredHistoryRecord, bool, error) {
-	out, used, retry, err := rankHistoryViaFreshFTSCutoffOnce(brainDir, source, kind, query, limit, cutoff)
-	if err != nil || retry == historyFTSDirectNoRetry {
+func rankHistoryViaFreshFTSCutoffDetailed(brainDir string, source *historySourceManifest, kind, query string, limit int, cutoff float64, predicates ...func(historyRecord) bool) ([]scoredHistoryRecord, bool, error) {
+	out, used, retry, err := rankHistoryViaFreshFTSCutoffOnce(brainDir, source, kind, query, limit, cutoff, predicates...)
+	var defect declaredIndexDefect
+	missing := errors.Is(err, os.ErrNotExist) || (errors.As(err, &defect) && defect.Absent)
+	if !missing && (err != nil || retry == historyFTSDirectNoRetry) {
 		return out, used, err
 	}
+	sourceErr := err
 	current, err := currentHistorySource(brainDir)
 	if err != nil {
 		return nil, false, err
 	}
 	if !sameHistoryDirectSource(source, current) {
-		out, used, _, err = rankHistoryViaFreshFTSCutoffOnce(brainDir, current, kind, query, limit, cutoff)
+		out, used, _, err = rankHistoryViaFreshFTSCutoffOnce(brainDir, current, kind, query, limit, cutoff, predicates...)
 		return out, used, err
+	}
+	if missing {
+		return nil, false, sourceErr
 	}
 	if retry == historyFTSDirectReloadManifest {
 		return nil, false, nil // ordinary stale/corrupt derived cache
@@ -488,7 +494,7 @@ func rankHistoryViaFreshFTSCutoffDetailed(brainDir string, source *historySource
 		return nil, false, err
 	}
 	if !sameHistoryDirectSource(source, current) {
-		out, used, _, err = rankHistoryViaFreshFTSCutoffOnce(brainDir, current, kind, query, limit, cutoff)
+		out, used, _, err = rankHistoryViaFreshFTSCutoffOnce(brainDir, current, kind, query, limit, cutoff, predicates...)
 		return out, used, err
 	}
 	return nil, false, errors.New("history index size does not match manifest; run `entire brain refresh history` to rebuild it")
@@ -525,7 +531,7 @@ func historyBrainWriteInProgress(brainDir string) (bool, error) {
 	return false, err
 }
 
-func rankHistoryViaFreshFTSCutoffOnce(brainDir string, source *historySourceManifest, kind, query string, limit int, cutoff float64) ([]scoredHistoryRecord, bool, historyFTSDirectRetry, error) {
+func rankHistoryViaFreshFTSCutoffOnce(brainDir string, source *historySourceManifest, kind, query string, limit int, cutoff float64, predicates ...func(historyRecord) bool) ([]scoredHistoryRecord, bool, historyFTSDirectRetry, error) {
 	if limit <= 0 {
 		return nil, false, historyFTSDirectNoRetry, nil
 	}
@@ -569,6 +575,10 @@ func rankHistoryViaFreshFTSCutoffOnce(brainDir string, source *historySourceMani
 		}
 	}
 
+	var pred func(historyRecord) bool
+	if len(predicates) > 0 {
+		pred = predicates[0]
+	}
 	args := []any{expr}
 	var sb strings.Builder
 	sb.WriteString(`SELECT r.fts_rowid, r.rec_order, r.id, r.kind, r.branch, r.path, r.line, r.summary, r.terms_json, bm25(history_fts)
@@ -576,7 +586,11 @@ func rankHistoryViaFreshFTSCutoffOnce(brainDir string, source *historySourceMani
 		WHERE history_fts MATCH ?`)
 	appendHistoryFTSKindFilter(&sb, &args, kind, "r.kind")
 	sb.WriteString(" ORDER BY bm25(history_fts) LIMIT ?")
-	args = append(args, limit*4)
+	scanLimit := limit * 4
+	if pred != nil {
+		scanLimit = min(identity.RecordCount, historyFTSFilteredScanCeiling)
+	}
+	args = append(args, scanLimit)
 
 	rows, err := tx.Query(sb.String(), args...)
 	if err != nil {
@@ -589,8 +603,11 @@ func rankHistoryViaFreshFTSCutoffOnce(brainDir string, source *historySourceMani
 	seen := map[string]struct{}{}
 	seenOrders := map[int]struct{}{}
 	var topScore float64
+	scanned := 0
+	cutoffReached := false
 	valid := true
 	for rows.Next() {
+		scanned++
 		var rec historyRecord
 		var ftsRowID int
 		var order int
@@ -618,10 +635,14 @@ func rankHistoryViaFreshFTSCutoffOnce(brainDir string, source *historySourceMani
 				rec.Terms = nil
 			}
 		}
+		if pred != nil && !pred(rec) {
+			continue
+		}
 		score := -bm
 		if topScore == 0 {
 			topScore = score
 		} else if score < cutoff*topScore {
+			cutoffReached = true
 			break
 		}
 		key := normalizeHistorySearchText(rec.Summary)
@@ -645,6 +666,13 @@ func rankHistoryViaFreshFTSCutoffOnce(brainDir string, source *historySourceMani
 			return nil, false, historyFTSDirectWaitForPublication, nil
 		}
 		return nil, false, historyFTSDirectNoRetry, errHistoryFTSPayloadCorrupt
+	}
+	if pred != nil && scanLimit < identity.RecordCount && scanned >= scanLimit && len(out) < limit && !cutoffReached {
+		// A filtered candidate window is not a complete answer. Discard it and
+		// let the caller load verified JSON truth for exhaustive eligibility
+		// scoring, instead of losing eligible records beyond this resource bound.
+		// seenOrders and hydrated payloads are bounded by the same ceiling.
+		return nil, false, historyFTSDirectNoRetry, nil
 	}
 	if err := tx.Commit(); err != nil {
 		if !sizeMatches {
@@ -793,6 +821,8 @@ const (
 	historyExhaustiveRankRawScanOverflow
 )
 
+var openHistoryFTSForRanking = openHistoryFTS
+
 // rankHistoryViaFTSFiltered pushes a structured-filter predicate into
 // candidate generation: a matching row that fails pred is skipped
 // before the relevance cutoff, the summary dedup, and the limit apply, so an
@@ -813,11 +843,19 @@ func rankHistoryViaFTSFiltered(brainDir string, index historyIndex, kind, query 
 	if expr == "" {
 		return nil, false, false
 	}
-	db, err := openHistoryFTS(brainDir, index)
+	db, err := openHistoryFTSForRanking(brainDir, index)
 	if err != nil {
 		return nil, false, false
 	}
 	defer db.Close()
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, false, false
+	}
+	defer tx.Rollback()
+	if !historyFTSFreshIdentity(tx, historyFTSIdentityFromIndex(index)) {
+		return nil, false, false
+	}
 
 	args := []any{expr}
 	var sb strings.Builder
@@ -834,7 +872,7 @@ func rankHistoryViaFTSFiltered(brainDir string, index historyIndex, kind, query 
 	}
 	args = append(args, scanLimit)
 
-	rows, err := db.Query(sb.String(), args...)
+	rows, err := tx.Query(sb.String(), args...)
 	if err != nil {
 		return nil, false, false
 	}
@@ -902,11 +940,19 @@ func rankHistoryViaFTSExhaustiveFiltered(brainDir string, index historyIndex, ki
 	if expr == "" {
 		return nil, historyExhaustiveRankComplete, false, 0
 	}
-	db, err := openHistoryFTS(brainDir, index)
+	db, err := openHistoryFTSForRanking(brainDir, index)
 	if err != nil {
 		return nil, historyExhaustiveRankComplete, false, 0
 	}
 	defer db.Close()
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, historyExhaustiveRankComplete, false, 0
+	}
+	defer tx.Rollback()
+	if !historyFTSFreshIdentity(tx, historyFTSIdentityFromIndex(index)) {
+		return nil, historyExhaustiveRankComplete, false, 0
+	}
 
 	args := []any{expr}
 	var sb strings.Builder
@@ -916,7 +962,7 @@ func rankHistoryViaFTSExhaustiveFiltered(brainDir string, index historyIndex, ki
 	appendHistoryFTSKindFilter(&sb, &args, kind, "r.kind")
 	sb.WriteString(" ORDER BY bm25(history_fts), r.rec_order")
 
-	rows, err := db.Query(sb.String(), args...)
+	rows, err := tx.Query(sb.String(), args...)
 	if err != nil {
 		return nil, historyExhaustiveRankComplete, false, 0
 	}

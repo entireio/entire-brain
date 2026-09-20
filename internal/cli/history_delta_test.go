@@ -388,7 +388,7 @@ func TestShortTermSupersedesLongTermRecordsOfChangedFiles(t *testing.T) {
 	}
 	// And ranking must not duplicate: the original decision exists in both
 	// tiers (same content), but only the overlay copy may surface.
-	scored := rankFreshHistory(fresh, "history", "lock timeout windows", 20, nil, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+	scored := rankFreshHistory(fresh, "history", "lock timeout windows", 20, nil, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
 		return rankHistoryViaFTS(brainDir, longTerm, "history", "lock timeout windows", 20)
 	})
 	seen := map[string]int{}
@@ -490,7 +490,7 @@ func TestShortTermEmptyOverlayPreservesRankingExactly(t *testing.T) {
 	if !ok {
 		t.Fatal("fts unavailable")
 	}
-	wrapped := rankFreshHistory(fresh, "history", "flaky lock test", 10, nil, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+	wrapped := rankFreshHistory(fresh, "history", "flaky lock test", 10, nil, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
 		return rankHistoryViaFTS(brainDir, longTerm, "history", "flaky lock test", 10)
 	})
 	if len(direct) != len(wrapped) {
@@ -825,7 +825,7 @@ func TestTwoTierStableIDReconciliation(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Search: exactly one copy per ID, and it is the newer source both ways.
-	scored := rankFreshHistory(fresh, conversationKind, "decision copy", 10, nil, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+	scored := rankFreshHistory(fresh, conversationKind, "decision copy", 10, nil, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
 		return rankHistoryViaFTS(brainDir, longTerm, conversationKind, "decision copy", 10)
 	})
 	paths := map[string][]string{}

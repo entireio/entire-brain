@@ -450,7 +450,7 @@ func (f *historyFusedRanker) recordVector(r historyRecord) []float32 {
 		return v
 	}
 	v := f.e.Embed(r.Summary)
-	if d := f.e.Dim(); d > 0 && len(v) == d {
+	if validSemanticEmbedding(v, f.e.Dim()) {
 		f.vecs[r.ID] = v // cache only full vectors so a transient failure retries
 	}
 	return v
@@ -473,7 +473,7 @@ func (f *historyFusedRanker) rank(query string, k int) ([]historyRecord, error) 
 	} else {
 		qvec = f.e.Embed(query)
 	}
-	if len(qvec) == 0 {
+	if !validSemanticEmbedding(qvec, f.e.Dim()) {
 		return nil, fmt.Errorf("fused arm: query embedding unavailable")
 	}
 
@@ -495,7 +495,11 @@ func (f *historyFusedRanker) rank(query string, k int) ([]historyRecord, error) 
 			continue
 		}
 		seen[key] = struct{}{}
-		cands = append(cands, cand{rec: r, cos: cosineFloat32(qvec, f.recordVector(r))})
+		vector := f.recordVector(r)
+		if !validSemanticEmbedding(vector, f.e.Dim()) {
+			return nil, fmt.Errorf("fused arm: candidate embedding unavailable for %q", r.ID)
+		}
+		cands = append(cands, cand{rec: r, cos: cosineFloat32(qvec, vector)})
 	}
 
 	// Semantic ranks over the full candidate set (reachability is the point),
