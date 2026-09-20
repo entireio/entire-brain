@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "e931d1054a53",
+  "strategy": "manual-commit",
+  "branch": "codex/audit2-patterns",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/reinforcement.go",
+    "internal/cli/reinforcement_boundaries_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e9/31d1054a53/0/metadata.json",
+      "transcript": "/e9/31d1054a53/0/full.jsonl",
+      "compact_transcript": "/e9/31d1054a53/0/transcript.jsonl",
+      "content_hash": "/e9/31d1054a53/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 25968,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 744064,
+    "output_tokens": 3296,
+    "api_call_count": 18,
+    "subagent_tokens_complete": false
+  }
+}
