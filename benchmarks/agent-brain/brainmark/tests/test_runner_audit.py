@@ -51,6 +51,20 @@ class ProviderVersionAuditTest(unittest.TestCase):
 
 
 class LeaveOneOutAuditTest(unittest.TestCase):
+    def test_result_schema_is_stable_for_small_and_undefined_samples(self):
+        expected_keys = {'full', 'min', 'max', 'sign_holds', 'n',
+                         'worst_idx', 'valid', 'undefined'}
+        for values, aggregate, worst in (
+            ([], lambda rows: None, None),
+            ([2], sum, None),
+            ([1, 2], lambda rows: None, None),
+            ([1, 2], sum, 1),
+        ):
+            with self.subTest(values=values, worst=worst):
+                result = metrics.loo_range(values, aggregate)
+                self.assertEqual(set(result), expected_keys)
+                self.assertEqual(result['worst_idx'], worst)
+
     def test_undefined_deletions_are_reported_and_not_sorted_against_numbers(self):
         with tempfile.TemporaryDirectory() as raw:
             ids = ['p1', 'p2', 'p3']

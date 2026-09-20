@@ -319,7 +319,7 @@ def loo_range(values: list, agg) -> dict:
     full = agg(values)
     if n < 2:
         return {"full": full, "min": full, "max": full, "sign_holds": full is not None, "n": n,
-                "worst_id": None, "valid": 0, "undefined": 0}
+                "worst_idx": None, "valid": 0, "undefined": 0}
     outs = [(agg(values[:i] + values[i + 1:]), i) for i in range(n)]
     valid = [(value, i) for value, i in outs
              if value is not None and math.isfinite(value)]
