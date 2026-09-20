@@ -10,7 +10,7 @@
   "heavyPackages": [
     {
       "argument": "./internal/cli",
-      "importPath": "github.com/ashtom/entire-brain/internal/cli",
+      "importPath": "github.com/entireio/entire-brain/internal/cli",
       "binaryName": "cli.test.exe",
       "expectedTestMainDeclarations": [
         {

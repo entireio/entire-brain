@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factmerge"
 )
 
 const (

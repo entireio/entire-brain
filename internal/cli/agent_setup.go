@@ -3,7 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/ashtom/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/agentsetup"
 	"github.com/spf13/cobra"
 )
 

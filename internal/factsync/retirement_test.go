@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factmerge"
 )
 
 func headFacts(t *testing.T, srv *fakeServer) []factmerge.Record {

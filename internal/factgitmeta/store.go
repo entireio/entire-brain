@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/factgitmeta/gitmeta"
+	"github.com/entireio/entire-brain/internal/factgitmeta/gitmeta"
 
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/object"

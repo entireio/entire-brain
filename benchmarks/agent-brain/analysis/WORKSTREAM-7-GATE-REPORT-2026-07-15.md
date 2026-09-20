@@ -116,7 +116,7 @@ python3 -m unittest benchmarks/agent-brain/analysis/test_ranking_diagnostics.py
 # Ran 3 tests ... OK
 
 go test ./internal/cli -run 'TestRankFactsClosedNegativeOutranksPeers' -count=1
-# ok github.com/ashtom/entire-brain/internal/cli
+# ok github.com/entireio/entire-brain/internal/cli
 
 (cd benchmarks/agent-brain && python3 run_test.py -k collect_frozen_facts)
 # Ran 2 tests ... OK

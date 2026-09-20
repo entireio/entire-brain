@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/agentsetup"
 )
 
 // Only aggregate shape information comes from the cohort. Every value below is

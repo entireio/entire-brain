@@ -19,12 +19,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ashtom/entire-brain/internal/apiurl"
-	"github.com/ashtom/entire-brain/internal/brainwire"
-	"github.com/ashtom/entire-brain/internal/factmerge"
-	"github.com/ashtom/entire-brain/internal/factsync"
-	"github.com/ashtom/entire-brain/internal/httpx"
-	"github.com/ashtom/entire-brain/internal/repoid"
+	"github.com/entireio/entire-brain/internal/apiurl"
+	"github.com/entireio/entire-brain/internal/brainwire"
+	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factsync"
+	"github.com/entireio/entire-brain/internal/httpx"
+	"github.com/entireio/entire-brain/internal/repoid"
 )
 
 // Hosted brain publish (P1.M1.5, client half). This command is the ONLY path in
