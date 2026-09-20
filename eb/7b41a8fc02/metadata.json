@@ -2,8 +2,7 @@
   "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
   "checkpoint_id": "eb7b41a8fc02",
   "strategy": "manual-commit",
-  "branch": "codex/audit2-clarity-ui",
-  "checkpoints_count": 4,
+  "checkpoints_count": 5,
   "files_touched": [
     "internal/cli/agent_ux_test.go",
     "internal/cli/brain_test.go",
@@ -37,13 +36,20 @@
       "compact_transcript": "/eb/7b41a8fc02/0/transcript.jsonl",
       "content_hash": "/eb/7b41a8fc02/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/eb/7b41a8fc02/1/metadata.json",
+      "transcript": "/eb/7b41a8fc02/1/full.jsonl",
+      "compact_transcript": "/eb/7b41a8fc02/1/transcript.jsonl",
+      "content_hash": "/eb/7b41a8fc02/1/content_hash.txt",
+      "prompt": "/eb/7b41a8fc02/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 6686,
+    "input_tokens": 637263,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 579456,
-    "output_tokens": 1249,
-    "api_call_count": 7
+    "cache_read_tokens": 39417984,
+    "output_tokens": 112037,
+    "api_call_count": 365
   }
 }
