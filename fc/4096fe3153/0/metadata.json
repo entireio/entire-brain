@@ -1,0 +1,54 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "fc4096fe3153",
+  "session_id": "01a0b6ce-e2ad-7853-bb2f-19731062a2c9",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-20T15:04:50.823416Z",
+  "branch": "codex/audit2-benchmark-integrity",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "benchmarks/agent-brain/ci_tests.py",
+    "benchmarks/agent-brain/confirmatory/power_test_fixture.py",
+    "benchmarks/agent-brain/confirmatory/test_check_protocol.py",
+    "benchmarks/agent-brain/confirmatory/test_development_task_symptom_review.py",
+    "benchmarks/agent-brain/confirmatory/test_power_analysis.py",
+    "benchmarks/agent-brain/test_audit_integrity.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "c3bdb7ffd211",
+  "checkpoint_transcript_start": 11725,
+  "transcript_lines_at_start": 11725,
+  "compact_transcript_start": 1438,
+  "token_usage": {
+    "input_tokens": 1372,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 110848,
+    "output_tokens": 1210,
+    "api_call_count": 1
+  },
+  "session_metrics": {
+    "turn_count": 14
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-20T15:04:44.303358Z",
+    "agent_lines": 219,
+    "agent_removed": 52,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 219,
+    "total_lines_changed": 271,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

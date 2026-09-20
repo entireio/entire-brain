@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "fc4096fe3153",
+  "strategy": "manual-commit",
+  "branch": "codex/audit2-benchmark-integrity",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "benchmarks/agent-brain/ci_tests.py",
+    "benchmarks/agent-brain/confirmatory/power_test_fixture.py",
+    "benchmarks/agent-brain/confirmatory/test_check_protocol.py",
+    "benchmarks/agent-brain/confirmatory/test_development_task_symptom_review.py",
+    "benchmarks/agent-brain/confirmatory/test_power_analysis.py",
+    "benchmarks/agent-brain/test_audit_integrity.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/fc/4096fe3153/0/metadata.json",
+      "transcript": "/fc/4096fe3153/0/full.jsonl",
+      "compact_transcript": "/fc/4096fe3153/0/transcript.jsonl",
+      "content_hash": "/fc/4096fe3153/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1372,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 110848,
+    "output_tokens": 1210,
+    "api_call_count": 1
+  }
+}
