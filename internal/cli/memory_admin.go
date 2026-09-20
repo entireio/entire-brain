@@ -1527,10 +1527,16 @@ func memoryAbstractHealth(brainDir string) map[string]any {
 		health["error_code"] = configState
 	}
 	validated := false
+	prerequisiteIssue := memoryStateIssue{Kind: "manifest", File: exportManifestFileName, Code: "unverifiable"}
 	manifest, manifestErr := loadBrainManifest(brainDir)
 	if manifestErr == nil && manifest.Sources != nil && manifest.Sources.History != nil {
 		fresh, freshErr := loadFreshHistory(brainDir, manifest.Sources.History)
 		guard, guardErr := loadSessionReadGuard(brainDir, manifest)
+		prerequisiteIssue = memoryStateIssue{Kind: "history", File: manifest.Sources.History.IndexPath, Code: "unverifiable"}
+		var tombstoneErr *sessionTombstoneLoadError
+		if errors.As(guardErr, &tombstoneErr) {
+			prerequisiteIssue = memoryStateIssue{Kind: "tombstones", File: sessionTombstonesPath, Code: "unverifiable"}
+		}
 		if freshErr == nil && guardErr == nil {
 			validated = true
 			views := buildConversationSessionViews(fresh, manifest.RepoKey, manifest, guard)
@@ -1556,12 +1562,11 @@ func memoryAbstractHealth(brainDir string) map[string]any {
 	if !validated && currentAbstracts > 0 {
 		health["unverifiable"] = currentAbstracts
 		currentAbstracts = 0
-		inventory.recordIssue(memoryStateIssue{Kind: "abstract_directory", File: abstractsDirRel, Code: "unverifiable"})
+		inventory.recordIssue(prerequisiteIssue)
 	}
 	health["current_artifacts"] = currentAbstracts
 	health["issue_count"] = inventory.IssueCount
 	health["issues_truncated"] = inventory.IssueCount > len(inventory.Issues)
-	health["scan_degraded"] = inventory.Degraded
 	if len(inventory.Issues) > 0 {
 		if health["schema_state"] == "current" && health["corrupt"] == 0 {
 			if !validated {

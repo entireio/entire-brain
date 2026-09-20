@@ -19,7 +19,9 @@ func TestAbstractHealthRejectsInvalidCitations(t *testing.T) {
 	}
 	writeAbstractBytesForTest(t, b, d, data)
 	h := memoryAbstractHealth(b)
-	t.Logf("health=%v", h)
+	if h["scan_degraded"] != false {
+		t.Fatalf("validation must not degrade successful scan: %v", h)
+	}
 	issues := h["issues"].([]memoryHealthIssue)
 	if len(issues) != 1 || issues[0].Path != abstractRel(d) {
 		t.Fatalf("wrong issue path: %+v", issues)
@@ -53,6 +55,15 @@ func TestAbstractHealthSeparatesSchemaFromUsability(t *testing.T) {
 				}
 			}
 			h := memoryAbstractHealth(b)
+			if h["scan_degraded"] != false {
+				t.Fatalf("validation must not degrade successful scan: %v", h)
+			}
+			if kind == "unverifiable" {
+				issues := h["issues"].([]memoryHealthIssue)
+				if len(issues) != 1 || issues[0].Kind != "tombstones" || issues[0].Path != sessionTombstonesPath {
+					t.Fatalf("wrong prerequisite issue: %+v", issues)
+				}
+			}
 			wantState, wantCurrent := "current", 1
 			if kind != "valid" {
 				wantState = kind
