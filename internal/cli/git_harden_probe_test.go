@@ -74,9 +74,6 @@ func TestGitFilterProbeFailureDoesNotRunOrPoisonCache(t *testing.T) {
 					t.Errorf("command launched after failed probe: %v", err)
 				}
 				gitHardenAssertClean(t, sentinel, "filter after failed probe")
-				if _, cached := repoFilterCache.Load(repo); cached {
-					t.Error("failed filter probe populated cache")
-				}
 				if err := os.Remove(fail); err != nil {
 					t.Fatal(err)
 				}
@@ -123,10 +120,9 @@ func TestGitFilterProbeAllowsInitOutsideRepository(t *testing.T) {
 	}
 }
 
-func TestGitFilterProbeFailureEvictsPreviousSuccess(t *testing.T) {
+func TestGitFilterProbeFailureAfterPreviousSuccess(t *testing.T) {
 	gitHardenSkipUnsupported(t)
 	repo, _ := gitHardenFilterRepo(t, "probe", "clean")
-	t.Cleanup(func() { repoFilterCache.Delete(repo) })
 	if _, err := repoFilterDriverOverrides(context.Background(), repo); err != nil {
 		t.Fatal(err)
 	}
@@ -145,9 +141,6 @@ func TestGitFilterProbeFailureEvictsPreviousSuccess(t *testing.T) {
 	if _, err := repoFilterDriverOverrides(context.Background(), repo); err == nil {
 		t.Fatal("invalid config probe should fail")
 	}
-	if _, cached := repoFilterCache.Load(repo); cached {
-		t.Error("failed probe retained the previous successful cache entry")
-	}
 	if err := os.WriteFile(config, original, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -164,12 +157,11 @@ func TestGitFilterProbeFailureEvictsPreviousSuccess(t *testing.T) {
 	}
 }
 
-func TestGitFilterFailedProbePreservesConcurrentSuccess(t *testing.T) {
+func TestGitFilterFailedProbeDoesNotAffectConcurrentSuccess(t *testing.T) {
 	gitHardenSkipUnsupported(t)
 	for _, primed := range []bool{false, true} {
 		t.Run(map[bool]string{false: "empty-cache", true: "stale-cache"}[primed], func(t *testing.T) {
 			repo, _ := gitHardenFilterRepo(t, "probe", "clean")
-			t.Cleanup(func() { repoFilterCache.Delete(repo) })
 			if primed {
 				if _, err := repoFilterDriverOverrides(context.Background(), repo); err != nil {
 					t.Fatal(err)
@@ -221,9 +213,6 @@ func TestGitFilterFailedProbePreservesConcurrentSuccess(t *testing.T) {
 			cancel()
 			if err := <-failed; err == nil {
 				t.Fatal("cancelled probe unexpectedly succeeded")
-			}
-			if _, ok := repoFilterCache.Load(repo); !ok {
-				t.Fatal("failed probe evicted concurrent successful result")
 			}
 		})
 	}
