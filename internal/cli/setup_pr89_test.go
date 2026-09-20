@@ -231,6 +231,7 @@ func TestBestEffortRefreshReportsTheSeedProbeFailure(t *testing.T) {
 		graphBinary:     "entire",
 		scope:           exportScopeAll,
 		semantic:        true,
+		bestEffort:      true,
 		component:       func(name string, _ error) { reported = append(reported, name) },
 	})
 	if err != nil && len(reported) == 0 {

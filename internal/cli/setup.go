@@ -1258,7 +1258,7 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 				sub.SetErr(io.Discard)
 			}
 			var components []setupComponent
-			err := watchDeterministicRefreshComponents(ctx, sub, opts, repoDir, setupBuildsHistoryProjection, func(name string, err error) {
+			err := watchDeterministicRefreshComponents(ctx, sub, opts, repoDir, setupBuildsHistoryProjection, true, func(name string, err error) {
 				component := newSetupComponent(name, err, brainCmd)
 				components = append(components, component)
 				steps.observeComponent.notify(component)

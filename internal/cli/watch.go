@@ -60,6 +60,8 @@ type watchCommandOptions struct {
 // watchCursor persists across restarts so the daemon never re-refreshes unchanged state and never
 // re-runs the gated agent work within --distill-every after a restart.
 type watchCursor struct {
+	PendingSeed      bool      `json:"pending_seed,omitempty"`
+	PendingDistill   bool      `json:"pending_distill,omitempty"`
 	LastFingerprint  string    `json:"last_fingerprint"`
 	LastRefreshAt    time.Time `json:"last_refresh_at,omitempty"`
 	LastAgentSpendAt time.Time `json:"last_agent_spend_at,omitempty"`
@@ -268,7 +270,7 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 	cursor := loadWatchCursor(cursorPath)
 	fp := steps.fingerprint(ctx)
 	changed := fp != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero()
-	if !changed {
+	if !changed && !(cursor.PendingSeed && w.seedAgent != "none" || cursor.PendingDistill && w.distill) {
 		fmt.Fprintln(out, "[watch] no change; nothing to do")
 		return
 	}
@@ -286,7 +288,7 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 	// completeness is at risk, and a successful consolidation clears the
 	// overlay, so it cannot repeat the way a failing delta can. The first ever
 	// refresh always runs.
-	if w.consolidateEvery > 0 && !cursor.LastRefreshAt.IsZero() && !bufferFull {
+	if changed && w.consolidateEvery > 0 && !cursor.LastRefreshAt.IsZero() && !bufferFull {
 		wait := w.consolidateEvery
 		state := "short-term memory is current"
 		if !deltaHealthy {
@@ -299,19 +301,22 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 			return
 		}
 	}
-	if err := steps.refresh(ctx); err != nil {
-		// Refresh failed: do NOT spend tokens on an unrefreshed brain, and do NOT advance the cursor.
-		// The next tick retries the (free) refresh; the gated agent work only ever runs on a brain that
-		// was actually refreshed this tick — so a persistent refresh failure can never re-spend.
-		fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
-		return
+	if changed {
+		if err := steps.refresh(ctx); err != nil {
+			// Refresh failed: do NOT spend tokens on an unrefreshed brain, and do NOT advance the cursor.
+			// The next tick retries the free refresh before attempting pending agent work.
+			fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
+			return
+		}
 	}
 	reserved, reason, err := reserveWatchAgentSpend(cursorPath, fp, w, agentCalls, steps.now().UTC(), !deltaHealthy)
 	if err != nil {
 		fmt.Fprintf(out, "[watch] cursor update failed (skipping agent work this tick): %v\n", err)
 		return
 	}
-	fmt.Fprintln(out, "[watch] refreshed (deterministic, no agent tokens)")
+	if changed {
+		fmt.Fprintln(out, "[watch] refreshed (deterministic, no agent tokens)")
+	}
 
 	if !w.agentWorkEnabled() {
 		return
@@ -324,16 +329,19 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 	// counted against --budget. A transient failure of one step is intentionally best-effort: we still
 	// advance the spend cursor + budget below so a failed step retries on the NEXT interval, not every
 	// tick (and a step that already burned tokens before failing can't be re-run for free).
+	pending := loadWatchCursor(cursorPath)
+	seedDone, distillDone := false, false
 	seedAttempted := false
-	if w.seedAgent != "none" {
+	if w.seedAgent != "none" && pending.PendingSeed {
 		seedAttempted = true
 		if err := steps.seed(ctx); err != nil {
 			fmt.Fprintf(out, "[watch] seed synthesis failed: %v\n", err)
 		} else {
+			seedDone = true
 			fmt.Fprintln(out, "[watch] synthesized seed (agent step; spent tokens)")
 		}
 	}
-	if w.distill {
+	if w.distill && pending.PendingDistill {
 		switch err := steps.distill(ctx); {
 		case errors.Is(err, errDistillPassBusy):
 			// When distill was the only agent step, nothing was spent, so nothing
@@ -350,11 +358,30 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 				releaseWatchAgentSpend(cursorPath, cursor.LastAgentSpendAt, agentCalls)
 				fmt.Fprintln(out, "[watch] distill skipped: another pass holds this brain; the spend window was NOT consumed")
 			}
+		case errors.Is(err, errDistillDeferred):
+			fmt.Fprintln(out, "[watch] distilled capped batch; remaining sessions pending for the next spend window")
 		case err != nil:
 			fmt.Fprintf(out, "[watch] distill failed: %v\n", err)
 		default:
+			distillDone = true
 			fmt.Fprintln(out, "[watch] distilled facts (agent step; spent tokens)")
 		}
+	}
+	if err := withWatchCursorLock(cursorPath, func() error {
+		current := loadWatchCursor(cursorPath)
+		// A newer refresh owns its own pending work.
+		if current.LastFingerprint != pending.LastFingerprint || !current.LastRefreshAt.Equal(pending.LastRefreshAt) {
+			return nil
+		}
+		if seedDone {
+			current.PendingSeed = false
+		}
+		if distillDone {
+			current.PendingDistill = false
+		}
+		return saveWatchCursor(cursorPath, current)
+	}); err != nil {
+		fmt.Fprintf(out, "[watch] completion cursor update failed: %v\n", err)
 	}
 }
 
@@ -468,6 +495,8 @@ func reserveWatchAgentSpend(cursorPath, fingerprint string, w watchCommandOption
 		cursor = loadWatchCursor(cursorPath)
 		changed := fingerprint != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero()
 		if changed {
+			cursor.PendingSeed = cursor.PendingSeed || w.seedAgent != "none"
+			cursor.PendingDistill = cursor.PendingDistill || w.distill
 			cursor.LastFingerprint = fingerprint
 			cursor.LastRefreshAt = now
 			if repair {
@@ -541,15 +570,11 @@ func watchFingerprint(ctx context.Context, runner CommandRunner, repoDir string)
 // The coordinator owns projection publication, retries, and crash recovery;
 // watch only nudges it. Agent seed synthesis remains a separate gated step.
 func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string) error {
-	return watchDeterministicRefreshComponents(ctx, cmd, opts, repoDir, watchTickBuildsHistoryProjection, nil)
+	return watchDeterministicRefreshComponents(ctx, cmd, opts, repoDir, watchTickBuildsHistoryProjection, false, nil)
 }
 
-// watchDeterministicRefreshComponents is the same free path with an optional
-// per-component reporter. With a reporter the refresh is BEST-EFFORT: every
-// component is attempted and its outcome reported (err == nil means built)
-// instead of the first failure aborting the build. `setup` uses it so a single
-// broken source degrades the brain rather than killing first-run onboarding;
-// callers that pass nil keep the strict all-or-nothing behaviour.
+// watchDeterministicRefreshComponents runs the free refresh with explicit failure
+// policy and an optional outcome observer. Setup chooses best effort; ticks fail fast.
 //
 // historyIndex separates the two callers that were previously identical. A
 // watch TICK passes false: it runs every few minutes, the per-tick delta
@@ -590,11 +615,12 @@ func watchDeterministicRefreshOptions(historyIndex bool) refreshCommandOptions {
 	}
 }
 
-func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string, historyIndex bool, component func(name string, err error)) error {
+func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string, historyIndex, bestEffort bool, component func(name string, err error)) error {
 	perRepo := opts
 	perRepo.Env.RepoRoot = repoDir
 	refreshOpts := watchDeterministicRefreshOptions(historyIndex)
 	refreshOpts.component = component
+	refreshOpts.bestEffort = bestEffort
 	sub := &cobra.Command{}
 	sub.SetContext(ctx)
 	sub.SetOut(cmd.OutOrStdout())
@@ -623,6 +649,8 @@ func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command
 	}
 	if component != nil {
 		component(brainComponentMemory, err)
+	}
+	if bestEffort {
 		return nil
 	}
 	return err
@@ -662,9 +690,14 @@ func watchSeed(ctx context.Context, cmd *cobra.Command, opts Options, w watchCom
 // installing a watcher that ticks immediately after.
 var errDistillPassBusy = errors.New("another distill pass holds this brain")
 
+// errDistillDeferred retains pending work after a capped successful pass.
+var errDistillDeferred = errors.New("distill has budget-deferred sessions")
+
 func watchDistill(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, repoDir string) error {
 	distillOpts := watchDistillOptions(w)
 	busy := false
+	deferred := false
+	distillOpts.onDeferredSessions = func(n int) { deferred = n > 0 }
 	distillOpts.onPassSkipped = func() { busy = true }
 	sub := &cobra.Command{}
 	sub.SetContext(ctx)
@@ -675,6 +708,9 @@ func watchDistill(ctx context.Context, cmd *cobra.Command, opts Options, w watch
 	}
 	if busy {
 		return errDistillPassBusy
+	}
+	if deferred {
+		return errDistillDeferred
 	}
 	return nil
 }
