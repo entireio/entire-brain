@@ -179,6 +179,9 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 		Short: "Show facts as a navigable hierarchy with progressive disclosure",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if leaves < 0 {
+				return fmt.Errorf("--leaves must be nonnegative")
+			}
 			if err := validateScopeFlag(scope); err != nil {
 				return err
 			}

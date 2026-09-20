@@ -2,13 +2,7 @@ package cli
 
 import "regexp"
 
-// Redaction (Pattern Consolidation, Priority 4).
-//
-// "No secrets" is an active boundary, not a passive rule: any evidence that
-// leaves the brain — the synthesis agent's input, rendered cards, transcript
-// excerpts, generated drafts, and JSON that includes evidence text — passes
-// through redactText first. Patterns are deliberately high-precision; a missed
-// false negative is worse than an occasional over-redaction.
+// Redaction covers recognized credential formats and home-directory usernames.
 
 var (
 	rePrivateKey = regexp.MustCompile(`(?s)-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----`)
@@ -16,7 +10,7 @@ var (
 	reGitHubTok  = regexp.MustCompile(`gh[pousr]_[A-Za-z0-9]{20,}`)
 	reBearer     = regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9._~+/=-]{10,}`)
 	// Secret-looking env assignment: NAME containing TOKEN/SECRET/KEY/PASSWORD = value.
-	reSecretEnv = regexp.MustCompile(`(?i)\b([A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY)[A-Za-z0-9_]*)\s*[=:]\s*["']?[^\s"']{6,}`)
+	reSecretEnv = regexp.MustCompile(`(?i)\b([A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY)[A-Za-z0-9_]*)["']?\s*[=:]\s*(?:"(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$)|[^\s"']{6,})`)
 	// Absolute home paths: keep the path shape, drop the username. Two cases.
 	//
 	// Canonical home roots are unambiguous home directories wherever they appear —
