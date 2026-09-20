@@ -149,8 +149,20 @@ func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspaceManifest
 		mdb.Close()
 	}
 
+	membershipFP := workspaceMembershipFingerprint(manifest)
+	membershipChanged := corpusMeta(db, "workspace_families_membership") != membershipFP
 	tx, err := db.Begin()
 	if err != nil {
+		return counts, err
+	}
+	if membershipChanged {
+		if _, err := tx.Exec(`UPDATE deep_dossiers SET status='stale' WHERE pattern_id LIKE 'family:%'`); err != nil {
+			tx.Rollback()
+			return counts, err
+		}
+	}
+	if _, err := tx.Exec(`INSERT INTO meta(key,value) VALUES('workspace_families_membership',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, membershipFP); err != nil {
+		tx.Rollback()
 		return counts, err
 	}
 	// Rebuildable: clear all prior workspace corpus content, including the
@@ -164,8 +176,9 @@ func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspaceManifest
 	// NOT pattern rows (loadAcceptedWorkspaceFamilies reads them directly, never via
 	// a pattern-id join), so the stale-join hazard above does not apply. They are an
 	// expensive agent result keyed by their own member-evidence fingerprint, so a
-	// deterministic rebuild preserves them; `workspace patterns verify` invalidates
-	// and re-proposes them when that content fingerprint changes.
+	// deterministic rebuild preserves them while membership remains unchanged.
+	// Membership changes mark them stale; explicit verification re-proposes them
+	// when the member-evidence fingerprint changes.
 	for _, stmt := range []string{`DELETE FROM patterns`, `DELETE FROM episodes`, `DELETE FROM workspace_pattern_repos`, `DELETE FROM dossiers`, `DELETE FROM deep_dossiers WHERE pattern_id NOT LIKE 'family:%'`, `DELETE FROM themes`} {
 		if _, err := tx.Exec(stmt); err != nil {
 			tx.Rollback()

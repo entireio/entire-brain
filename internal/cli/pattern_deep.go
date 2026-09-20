@@ -2,9 +2,9 @@ package cli
 
 import (
 	"database/sql"
+	"encoding/json"
 	"math"
 	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -229,14 +229,28 @@ func deepFailureModes(db *sql.DB, episodes []deepEpisode) []deepFailureMode {
 			break
 		}
 		var failure, recovery string
-		forEachCommand(db, []string{e.id}, func(head, raw string, failed bool) {
-			if failed && failure == "" {
-				failure = "failed: " + head
+		rows, err := db.Query(`SELECT head, failed, exit_code FROM episode_commands WHERE episode_id=? ORDER BY ord`, e.id)
+		if err == nil {
+			for rows.Next() {
+				var head string
+				var failed bool
+				var exit sql.NullInt64
+				if rows.Scan(&head, &failed, &exit) != nil {
+					continue
+				}
+				if failed {
+					if failure == "" {
+						failure = "failed: " + head
+					}
+					recovery = ""
+					continue
+				}
+				if failure != "" && validationCommandHeads[head] && exit.Valid && exit.Int64 == 0 && recovery == "" {
+					recovery = "validated with " + head + " after failure"
+				}
 			}
-			if validationCommandHeads[head] && recovery == "" {
-				recovery = "re-ran " + head + " to verify"
-			}
-		})
+			rows.Close()
+		}
 		if failure == "" {
 			failure = "outcome " + e.outcome
 		}
@@ -312,28 +326,22 @@ func inPlaceholders(ids []string) (string, []any) {
 	return strings.Join(ph, ","), args
 }
 
-// deepFingerprint covers the full backing-set identity (every episode_key +
-// outcome) plus facts, verification, and the confidence (strength) bucket, so it
-// differs from the shallow fingerprint and invalidates the cached deep verdict
-// whenever any backing episode moves or the pattern re-tiers.
+// deepFingerprint binds the complete redacted verifier payload and backing set.
+// The fingerprint field itself is excluded to avoid self-reference.
 func deepFingerprint(rec deepDossierRecord, episodes []deepEpisode, strength float64) string {
-	var b strings.Builder
-	b.WriteString("deep\x00")
-	b.WriteString(rec.PatternID)
-	b.WriteByte('\x00')
-	b.WriteString(strconv.Itoa(int(math.Round(strength * 100))))
-	b.WriteByte('\x00')
+	rec.Fingerprint = ""
 	keys := make([]string, 0, len(episodes))
 	for _, e := range episodes {
 		keys = append(keys, e.episodeKey+":"+e.outcome)
 	}
 	sort.Strings(keys)
-	b.WriteString(strings.Join(keys, "|"))
-	b.WriteByte('\x00')
-	facts := append([]string(nil), rec.Facts...)
-	sort.Strings(facts)
-	b.WriteString(strings.Join(facts, "|"))
-	b.WriteByte('\x00')
-	b.WriteString(strings.Join(rec.Verification, ","))
-	return "sha256:" + hexSHA(b.String())
+	payload, err := json.Marshal(struct {
+		Dossier  deepDossierRecord
+		Episodes []string
+		Strength float64
+	}{rec, keys, strength})
+	if err != nil {
+		return ""
+	}
+	return "sha256:" + hexSHA("deep/v2\x00"+redactText(string(payload)))
 }

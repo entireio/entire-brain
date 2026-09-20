@@ -42,10 +42,10 @@ func loadAcceptedDeepDossierChecked(brainDir, patternID string) (deepSkillInput,
 	if ok, err := patternCorpusHasTable(db.DB, "deep_dossiers"); err != nil || !ok {
 		return deepSkillInput{}, false, err
 	}
-	var jsonRedacted, verifierJSON, verdict string
-	err = db.QueryRow(`SELECT json_redacted, COALESCE(verifier_json_redacted,''), COALESCE(verdict,'')
-		FROM deep_dossiers WHERE pattern_id=?`, patternID).Scan(&jsonRedacted, &verifierJSON, &verdict)
-	if err != nil || verdict != "accepted" {
+	var jsonRedacted, verifierJSON, verdict, fingerprint, status string
+	err = db.QueryRow(`SELECT json_redacted, COALESCE(verifier_json_redacted,''), COALESCE(verdict,''), fingerprint, status
+		FROM deep_dossiers WHERE pattern_id=?`, patternID).Scan(&jsonRedacted, &verifierJSON, &verdict, &fingerprint, &status)
+	if err != nil || verdict != "accepted" || status != "current" {
 		if err != nil && err != sql.ErrNoRows {
 			return deepSkillInput{}, false, err
 		}
@@ -55,9 +55,70 @@ func loadAcceptedDeepDossierChecked(brainDir, patternID string) (deepSkillInput,
 	if json.Unmarshal([]byte(jsonRedacted), &in.rec) != nil {
 		return deepSkillInput{}, false, nil
 	}
-	_ = json.Unmarshal([]byte(verifierJSON), &in.verdict) // best-effort: required_edits etc.
-	in.verdict.Verdict = verdict
+	if in.rec.PatternID != patternID || fingerprint == "" || in.rec.Fingerprint != fingerprint {
+		return deepSkillInput{}, false, nil
+	}
+	if strings.HasPrefix(patternID, "lesson:") || strings.HasPrefix(patternID, "convention:") {
+		sampleFP, ok := currentKnowledgeSampleFingerprint(db.DB, brainDir, patternID)
+		if !ok || knowledgeDossierFingerprint(in.rec, sampleFP) != fingerprint {
+			return deepSkillInput{}, false, nil
+		}
+		in.verdict = dossierVerdict{Verdict: verdict, EvidenceFingerprint: fingerprint}
+	} else {
+		if json.Unmarshal([]byte(verifierJSON), &in.verdict) != nil || in.verdict.Verdict != verdict || in.verdict.EvidenceFingerprint != fingerprint {
+			return deepSkillInput{}, false, nil
+		}
+		current, err := buildDeepDossier(db.DB, brainDir, patternID)
+		if err == sql.ErrNoRows {
+			return deepSkillInput{}, false, nil
+		}
+		if err != nil {
+			return deepSkillInput{}, false, err
+		}
+		storedJSON, _ := json.Marshal(in.rec)
+		currentJSON, _ := json.Marshal(current)
+		if current.Fingerprint != fingerprint || redactText(string(storedJSON)) != redactText(string(currentJSON)) {
+			return deepSkillInput{}, false, nil
+		}
+	}
 	return in, true, nil
+}
+
+// Knowledge proposals are bound to both their rendered evidence and the exact
+// source sample used by the accepting proposal pass.
+func knowledgeDossierFingerprint(rec deepDossierRecord, sampleFP string) string {
+	rec.Fingerprint = ""
+	payload, err := json.Marshal(rec)
+	if err != nil {
+		return ""
+	}
+	return "sha256:" + hexSHA("knowledge/v2\x00"+sampleFP+"\x00"+redactText(string(payload)))
+}
+
+func knowledgeSampleFingerprint(payload []byte) string {
+	return proposalSampleFingerprint(append([]byte("knowledge/v2\x00"), payload...))
+}
+
+func currentKnowledgeSampleFingerprint(db *sql.DB, brainDir, patternID string) (string, bool) {
+	var payload []byte
+	var key string
+	if strings.HasPrefix(patternID, "lesson:") {
+		sample, _ := sampleCorrectedEpisodes(db, brainDir)
+		if len(sample) < lessonMinMembers {
+			return "", false
+		}
+		payload, _ = json.Marshal(map[string]any{"episodes": sample})
+		key = "lessons_sample_fingerprint"
+	} else {
+		sample, _, _ := sampleCapabilityFacts(db, brainDir)
+		if len(sample) == 0 {
+			return "", false
+		}
+		payload, _ = json.Marshal(map[string]any{"facts": sample})
+		key = "conventions_sample_fingerprint"
+	}
+	fp := knowledgeSampleFingerprint(payload)
+	return fp, fp == corpusMeta(db, key)
 }
 
 const deepSkillSynthesisSystemPrompt = `You convert a VERIFIED skill dossier into a SKILL.md for THIS repository. The dossier was assembled from real session evidence and already PASSED an adversarial verifier (verdict: accepted). Your job is to render it faithfully — NOT to invent or infer new content.

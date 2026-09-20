@@ -80,7 +80,11 @@ func seedRegressionDeepDossier(t *testing.T, brainDir, taskID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seedAcceptedDeepDossier(t, db, taskID, deployDeepDossier(), nil)
+	current, err := buildDeepDossier(db, brainDir, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedAcceptedDeepDossier(t, db, taskID, current, nil)
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}

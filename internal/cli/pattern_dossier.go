@@ -4,8 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"math"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -291,30 +289,17 @@ func dossierFacts(db *sql.DB, patternID string) ([]string, error) {
 	return out, rows.Err()
 }
 
-// dossierFingerprint is the evidence fingerprint: stable while the consolidated
-// evidence is unchanged, different the moment anchors, facts, verification, or
-// confidence-bucket move. Drives verifier cache invalidation.
+// dossierFingerprint binds all redacted verifier inputs, excluding its own field.
 func dossierFingerprint(rec dossierRecord, strength float64) string {
-	var b strings.Builder
-	b.WriteString(rec.PatternID)
-	b.WriteByte('\x00')
-	b.WriteString(strconv.Itoa(int(math.Round(strength * 100))))
-	b.WriteByte('\x00')
-	anchors := make([]string, 0, len(rec.SourceAnchors))
-	for _, a := range rec.SourceAnchors {
-		anchors = append(anchors, a.SessionID+":"+strconv.Itoa(a.StartLine)+":"+a.Outcome)
+	rec.Fingerprint = ""
+	payload, err := json.Marshal(struct {
+		Dossier  dossierRecord
+		Strength float64
+	}{rec, strength})
+	if err != nil {
+		return ""
 	}
-	sort.Strings(anchors)
-	b.WriteString(strings.Join(anchors, "|"))
-	b.WriteByte('\x00')
-	facts := append([]string(nil), rec.Facts...)
-	sort.Strings(facts)
-	b.WriteString(strings.Join(facts, "|"))
-	b.WriteByte('\x00')
-	verif := append([]string(nil), rec.Verification...)
-	sort.Strings(verif)
-	b.WriteString(strings.Join(verif, "|"))
-	return "sha256:" + hexSHA(b.String())
+	return "sha256:" + hexSHA("dossier/v2\x00"+redactText(string(payload)))
 }
 
 func upsertDossier(db *sql.DB, rec dossierRecord, jsonRedacted, ts string) error {
