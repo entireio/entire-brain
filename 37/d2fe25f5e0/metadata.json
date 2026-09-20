@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "37d2fe25f5e0",
+  "strategy": "manual-commit",
+  "branch": "codex/audit2-entities",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/retrieve_command_regression_test.go",
+    "internal/cli/workspace.go",
+    "internal/cli/workspace_cache_regression_test.go",
+    "internal/cli/workspace_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/37/d2fe25f5e0/0/metadata.json",
+      "transcript": "/37/d2fe25f5e0/0/full.jsonl",
+      "compact_transcript": "/37/d2fe25f5e0/0/transcript.jsonl",
+      "content_hash": "/37/d2fe25f5e0/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 6193,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 26880,
+    "output_tokens": 52,
+    "api_call_count": 1
+  }
+}
