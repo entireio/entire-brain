@@ -402,8 +402,16 @@ func extractOfficeText(data []byte, selectParts officePartSelector) (string, err
 		return "", fmt.Errorf("the archive contains no document body")
 	}
 	var out strings.Builder
+	// One allowance for the whole package, drawn down per part. A fixed budget
+	// per part is not a bound: an archive may hold maxExtractZipEntries parts,
+	// and each could expand to the full cap before the aggregate output check
+	// below ever runs — the same unbounded-aggregate problem the PDF reader
+	// has a document budget for.
 	budget := maxExtractOutputBytes
 	for _, part := range parts {
+		if budget <= 0 {
+			break
+		}
 		raw, err := readZipPart(reader, part, budget)
 		if err != nil {
 			// One unreadable note or slide must not lose the whole document.
@@ -420,6 +428,7 @@ func extractOfficeText(data []byte, selectParts officePartSelector) (string, err
 			out.WriteString("\n\n")
 		}
 		out.WriteString(text)
+		budget -= len(raw)
 		if out.Len() >= maxExtractOutputBytes {
 			break
 		}
@@ -562,11 +571,18 @@ func extractXlsxText(data []byte) (string, error) {
 	}
 
 	var out strings.Builder
+	// One allowance across every sheet, for the same reason as the other Office
+	// formats: a workbook may declare thousands of sheets.
+	budget := maxExtractOutputBytes
 	for _, s := range sheets {
-		raw, err := readZipPart(reader, s.part, maxExtractOutputBytes)
+		if budget <= 0 {
+			break
+		}
+		raw, err := readZipPart(reader, s.part, budget)
 		if err != nil {
 			continue
 		}
+		budget -= len(raw)
 		body := xlsxSheetText(raw, shared)
 		if strings.TrimSpace(body) == "" {
 			continue

@@ -877,6 +877,22 @@ func writeSeedArtifacts(outputDir string, scan *seedScanResult) error {
 	return nil
 }
 
+// dropSeedDocument records that a selected document did not make it into the
+// seed, everywhere a reader would look: on the document, in the file index, and
+// in the warnings the refresh prints.
+//
+// One function because there are several ways to fail here and they were not
+// reported consistently — a failed extraction warned, an unreadable file did
+// not, and a rejected path said nothing at all. A document that is selected and
+// then silently dropped is the failure this whole area exists to prevent.
+func dropSeedDocument(scan *seedScanResult, doc *seedDocument, reason string) {
+	doc.Reason = reason
+	doc.SeedPath = ""
+	doc.Extracted = false
+	scan.Warnings = append(scan.Warnings, fmt.Sprintf("document not indexed: %s: %s", doc.Path, reason))
+	markSeedFileNotIndexed(scan, doc.Path, reason)
+}
+
 // markSeedFileNotIndexed corrects the file index for a document that was
 // selected and then could not be read.
 //
@@ -908,10 +924,17 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 	for i := range scan.Docs {
 		doc := &scan.Docs[i]
 		cleanSrc := filepath.Clean(filepath.FromSlash(doc.Path))
+		// Every branch that drops a document says so. These two used to
+		// `continue` in silence, so a document selected during the scan and
+		// rejected here vanished with no warning and no entry in the file
+		// index — the same optimistic answer the rest of this function was
+		// changed to stop giving.
 		if filepath.IsAbs(cleanSrc) || cleanSrc == "." || strings.HasPrefix(cleanSrc, ".."+string(filepath.Separator)) {
+			dropSeedDocument(scan, doc, "unsafe source path")
 			continue
 		}
 		if err := rejectSymlinkPathComponents(scan.RepoDir, cleanSrc); err != nil {
+			dropSeedDocument(scan, doc, fmt.Sprintf("not read: %v", err))
 			continue
 		}
 		cleanDst := filepath.Clean(filepath.FromSlash(doc.SeedPath))
@@ -935,9 +958,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 			// is bounded instead, by extractDocumentText.
 			data, err := safeReadFile(src, maxExtractDocumentBytes)
 			if err != nil {
-				doc.Reason = fmt.Sprintf("not read: %v", err)
-				doc.Extracted = false
-				doc.SeedPath = ""
+				dropSeedDocument(scan, doc, fmt.Sprintf("not read: %v", err))
 				continue
 			}
 			text, err := extractDocumentText(doc.Path, data)
@@ -946,11 +967,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 				// fail the refresh, and it must not be silently absent either:
 				// the reason lands in the seed's file index and the warning
 				// list, where `status` and the overview surface it.
-				doc.Reason = documentExtractionReason(err)
-				doc.SeedPath = ""
-				doc.Extracted = false
-				scan.Warnings = append(scan.Warnings, fmt.Sprintf("document not indexed: %s", err))
-				markSeedFileNotIndexed(scan, doc.Path, doc.Reason)
+				dropSeedDocument(scan, doc, documentExtractionReason(err))
 				continue
 			}
 			rendered := renderExtractedDocument(doc.Path, text)

@@ -458,3 +458,131 @@ func TestPDFStopsReadingPagesOnceTheBudgetIsGone(t *testing.T) {
 		t.Fatal("the budget was never spent; decompression is not being accounted for")
 	}
 }
+
+// A font is resolved once per page, so a /ToUnicode stream that is a
+// decompression bomb would be inflated once per page — thousands of times
+// inside a document whose content streams are properly bounded. Font streams
+// have to spend from the same allowance.
+func TestFontStreamsSpendFromTheDocumentBudget(t *testing.T) {
+	b := &pdfBuilder{}
+	b.add("<< /Type /Catalog /Pages 2 0 R >>")
+	b.add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.add("<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>")
+	b.addStream(t, "", "BT /F1 12 Tf (x) Tj ET")
+	b.add("<< /Type /Font /Subtype /Type0 /BaseFont /AAAAAA+Test /Encoding /Identity-H /ToUnicode 6 0 R >>")
+	// A large, highly compressible ToUnicode stream.
+	b.addStream(t, "", "begincmap\n"+strings.Repeat("% filler filler filler filler\n", 20000)+"endcmap\n")
+	data := b.build()
+
+	objects := scanPDFObjects(data)
+	pages := pdfPages(objects)
+	if len(pages) != 1 {
+		t.Fatalf("fixture has %d pages", len(pages))
+	}
+
+	budget := newPDFDecodeBudget()
+	before := budget.remaining
+	pdfPageFonts(objects, pages[0], budget)
+	if budget.remaining == before {
+		t.Fatal("resolving a font's ToUnicode stream spent nothing from the document budget")
+	}
+
+	// And an exhausted budget must stop font resolution decoding at all.
+	spent := &pdfDecodeBudget{remaining: 0}
+	spent.spend(1) // drive it negative
+	fonts := pdfPageFonts(objects, pages[0], spent)
+	for name, font := range fonts {
+		if len(font.toUnicode) > 0 {
+			t.Fatalf("font %s decoded its ToUnicode stream with the budget exhausted", name)
+		}
+	}
+}
+
+// A fixed budget per archive part is not a bound on the archive: it may hold
+// maxExtractZipEntries parts, each able to expand to the full cap before the
+// aggregate output check ever runs.
+func TestOfficePartsDrawDownOneAllowance(t *testing.T) {
+	// Slides whose XML is large and yields little text, so the output check
+	// does not end the loop — the shape that defeats a per-part budget.
+	filler := strings.Repeat("<a:p><a:r><a:t> </a:t></a:r></a:p>", 30000)
+	parts := map[string]string{}
+	for i := 1; i <= 40; i++ {
+		parts[fmt.Sprintf("ppt/slides/slide%d.xml", i)] =
+			`<?xml version="1.0"?><p:sld xmlns:a="a" xmlns:p="p"><p:cSld><p:spTree><p:sp><p:txBody>` +
+				filler + `<a:p><a:r><a:t>Slide ` + fmt.Sprint(i) + ` text.</a:t></a:r></a:p>` +
+				`</p:txBody></p:sp></p:spTree></p:cSld></p:sld>`
+	}
+	data := zipFile(t, parts)
+
+	text, err := extractOfficeText(data, pptxTextParts)
+	if err != nil {
+		t.Fatalf("extract: %v", err)
+	}
+	// The allowance runs out partway, so later slides are not read. If every
+	// part got a fresh budget, all forty would be.
+	read := strings.Count(text, " text.")
+	if read == 40 {
+		t.Fatal("every part was read; the allowance is not shared across parts")
+	}
+	if read == 0 {
+		t.Fatal("no part was read; the allowance is too small to make progress")
+	}
+}
+
+// A document whose bytes cannot be read is as absent as one whose extraction
+// fails, and must reach the file index and the warnings the same way.
+func TestUnreadableDocumentBytesAreReportedLikeAFailedExtraction(t *testing.T) {
+	repoDir := t.TempDir()
+	outputDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoDir, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(repoDir, "docs", "spec.pdf")
+	if err := os.WriteFile(path, simplePDF(t, "BT /F1 12 Tf (x) Tj ET"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	entry := inspectSeedFile(repoDir, "docs/spec.pdf", seedCommandOptions{maxFileBytes: 1 << 20})
+	if !entry.Included {
+		t.Fatalf("setup: %q", entry.Reason)
+	}
+	// Unreadable, but still present — so this reaches safeReadFile rather than
+	// tripping the path checks above it. A directory where a file is expected
+	// is the portable way to do that; removing the file would exercise a
+	// different branch, which is how the first version of this test passed
+	// against a build that had not fixed this one.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	scan := seedScanResult{
+		RepoDir:      repoDir,
+		MaxFileBytes: 1 << 20,
+		Files:        []seedFileIndexEntry{entry},
+		Docs: []seedDocument{{
+			Path:      "docs/spec.pdf",
+			SeedPath:  extractedSeedDocPath(filepath.ToSlash(filepath.Join(seedDirName, seedDocsDirName, "docs", "spec.pdf"))),
+			Extracted: true,
+		}},
+	}
+	if err := writeSeedArtifacts(outputDir, &scan); err != nil {
+		t.Fatalf("writeSeedArtifacts: %v", err)
+	}
+
+	if len(scan.Warnings) == 0 {
+		t.Fatal("an unreadable document produced no warning")
+	}
+	data, err := os.ReadFile(filepath.Join(outputDir, seedDirName, "file-index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var index []seedFileIndexEntry
+	if err := json.Unmarshal(data, &index); err != nil {
+		t.Fatal(err)
+	}
+	if len(index) != 1 || index[0].Included {
+		t.Fatalf("file-index.json still reports an unreadable document as included: %+v", index)
+	}
+}

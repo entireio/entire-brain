@@ -97,7 +97,7 @@ func extractPDFTextWithin(data []byte, budget *pdfDecodeBudget) (string, error) 
 			// the document's text as far as it goes.
 			break
 		}
-		fonts := pdfPageFonts(objects, page)
+		fonts := pdfPageFonts(objects, page, budget)
 		content := pdfPageContent(objects, page, budget)
 		if len(content) == 0 {
 			continue
@@ -134,7 +134,7 @@ func extractPDFTextWithin(data []byte, budget *pdfDecodeBudget) (string, error) 
 	// in the document. It loses page order and can mix two fonts' encodings, so
 	// it is a last resort rather than the main path; the prose gate decides
 	// whether what comes back is usable.
-	merged := pdfAllToUnicode(objects)
+	merged := pdfAllToUnicode(objects, budget)
 	for _, key := range pdfSortedKeys(objects) {
 		object := objects[key]
 		if len(object.stream) == 0 {
@@ -752,7 +752,7 @@ type pdfFont struct {
 
 // pdfPageFonts resolves /Resources /Font into a map keyed by the name the
 // content stream uses with Tf.
-func pdfPageFonts(objects map[pdfObjectKey]*pdfObject, page map[string]pdfValue) map[string]*pdfFont {
+func pdfPageFonts(objects map[pdfObjectKey]*pdfObject, page map[string]pdfValue, budget *pdfDecodeBudget) map[string]*pdfFont {
 	fonts := map[string]*pdfFont{}
 	resources, _ := pdfResolve(objects, page["Resources"]).(map[string]pdfValue)
 	if resources == nil {
@@ -775,7 +775,11 @@ func pdfPageFonts(objects map[pdfObjectKey]*pdfObject, page map[string]pdfValue)
 		}
 		if ref, isRef := dict["ToUnicode"].(pdfRef); isRef {
 			if object, ok := objects[pdfObjectKey{ref.number, ref.generation}]; ok {
-				if data, err := pdfDecodeStream(objects, object); err == nil {
+				// Through the budget: a font is resolved once per page, so a
+				// ToUnicode stream that is a decompression bomb would otherwise
+				// be inflated thousands of times inside a document whose
+				// content streams are properly bounded.
+				if data, err := pdfDecodeStreamWithin(objects, object, budget); err == nil {
 					font.toUnicode = parsePDFToUnicode(data)
 				}
 			}
@@ -788,7 +792,7 @@ func pdfPageFonts(objects map[pdfObjectKey]*pdfObject, page map[string]pdfValue)
 // pdfAllToUnicode merges every ToUnicode map in the document, for the fallback
 // path where fonts could not be attributed to a page. Conflicting codes resolve
 // to whichever was seen first, which is a real limitation of that path.
-func pdfAllToUnicode(objects map[pdfObjectKey]*pdfObject) map[uint32]string {
+func pdfAllToUnicode(objects map[pdfObjectKey]*pdfObject, budget *pdfDecodeBudget) map[uint32]string {
 	merged := map[uint32]string{}
 	for _, key := range pdfSortedKeys(objects) {
 		object := objects[key]
@@ -803,7 +807,7 @@ func pdfAllToUnicode(objects map[pdfObjectKey]*pdfObject) map[uint32]string {
 				}
 			}
 		}
-		data, err := pdfDecodeStream(objects, object)
+		data, err := pdfDecodeStreamWithin(objects, object, budget)
 		if err != nil {
 			continue
 		}
