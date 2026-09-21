@@ -29,7 +29,10 @@ func benchmarksDoc(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("read docs/benchmarks.md: %v", err)
 	}
-	return string(data)
+	// Normalise line endings. Git checks the file out with CRLF on Windows, so
+	// every check below that spans a line break — and every prefix match on a
+	// line — would otherwise fail there and only there.
+	return strings.ReplaceAll(string(data), "\r\n", "\n")
 }
 
 // documentedBrainCommands pulls every `entire brain ...` invocation out of the
