@@ -589,3 +589,45 @@ func TestImportDoesNotSilentlyFailToSupersedeAnExistingFact(t *testing.T) {
 		t.Fatalf("the unapplied supersession was not reported: %q", out.String())
 	}
 }
+
+// A source id appearing twice cannot identify anything. Resolving a
+// replaced_by through it picks whichever memory happened to be last in the
+// file — a supersession pointed at an arbitrary fact, which is worse than none
+// because it looks deliberate.
+func TestImportRefusesToResolveSupersessionThroughADuplicateID(t *testing.T) {
+	facts, report := memoriesToFacts([]importedMemory{
+		{ForeignID: "m1", Text: "Old approach.", ReplacedBy: "dup"},
+		{ForeignID: "dup", Text: "First candidate."},
+		{ForeignID: "dup", Text: "Second candidate."},
+	}, 0, "mem0", "", "main", time.Now().UTC())
+	if len(facts) != 3 {
+		t.Fatalf("got %d facts", len(facts))
+	}
+	if facts[0].SupersededBy != "" {
+		t.Fatalf("supersession resolved through a duplicated id to %q", facts[0].SupersededBy)
+	}
+	joined := strings.Join(report.Unsupported, " | ")
+	if !strings.Contains(joined, "duplicate source ids") {
+		t.Fatalf("the duplicated ids were not reported: %q", joined)
+	}
+	if !strings.Contains(joined, "ambiguous") {
+		t.Fatalf("the unresolvable supersession was not reported: %q", joined)
+	}
+}
+
+// And a unique id must still resolve — the duplicate check must scope the
+// resolution rather than disable it.
+func TestImportStillResolvesUnambiguousSupersessionAlongsideDuplicates(t *testing.T) {
+	facts, _ := memoriesToFacts([]importedMemory{
+		{ForeignID: "m1", Text: "Old approach.", ReplacedBy: "m2"},
+		{ForeignID: "m2", Text: "New approach."},
+		{ForeignID: "dup", Text: "First."},
+		{ForeignID: "dup", Text: "Second."},
+	}, 0, "mem0", "", "main", time.Now().UTC())
+	if len(facts) != 4 {
+		t.Fatalf("got %d facts", len(facts))
+	}
+	if facts[0].SupersededBy != facts[1].ID {
+		t.Fatalf("an unambiguous supersession was not resolved: %q", facts[0].SupersededBy)
+	}
+}

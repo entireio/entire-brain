@@ -261,6 +261,7 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 	// replaced by one that appears later in the export and every fact needs
 	// its id before any reference to it can be written.
 	byForeignID := make(map[string]int, len(memories))
+	duplicateForeignIDs := map[string]bool{}
 	replaces := make([]string, 0, len(memories))
 	for _, mem := range memories {
 		paths := importedFactPaths(prefix, mem.Categories)
@@ -292,7 +293,17 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 			CreatedAt:  created,
 			UpdatedAt:  updated,
 		})
-		byForeignID[mem.ForeignID] = len(facts) - 1
+		if mem.ForeignID != "" {
+			if _, seen := byForeignID[mem.ForeignID]; seen {
+				// A source id that appears twice cannot identify anything. Left
+				// alone, the last occurrence wins and any replaced_by naming
+				// that id resolves to whichever memory happened to be last in
+				// the file — a supersession pointed at an arbitrary fact, which
+				// is worse than no supersession because it looks deliberate.
+				duplicateForeignIDs[mem.ForeignID] = true
+			}
+			byForeignID[mem.ForeignID] = len(facts) - 1
+		}
 		replaces = append(replaces, mem.ReplacedBy)
 		for _, note := range mem.Unsupported {
 			unsupported[note] = true
@@ -305,8 +316,15 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 	// imported too, the reference is real; where it was not, the link cannot be
 	// represented and is reported rather than invented.
 	danglingSupersessions := 0
+	ambiguousSupersessions := 0
 	for i, foreignReplacement := range replaces {
 		if foreignReplacement == "" {
+			continue
+		}
+		if duplicateForeignIDs[foreignReplacement] {
+			// Ambiguous: the id names more than one memory, so there is no
+			// right answer and picking one would invent a relationship.
+			ambiguousSupersessions++
 			continue
 		}
 		target, ok := byForeignID[foreignReplacement]
@@ -315,6 +333,16 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 			continue
 		}
 		facts[i].SupersededBy = facts[target].ID
+	}
+	if len(duplicateForeignIDs) > 0 {
+		unsupported[fmt.Sprintf(
+			"duplicate source ids (%d id(s) name more than one memory, so any supersession referring to them is ambiguous)",
+			len(duplicateForeignIDs))] = true
+	}
+	if ambiguousSupersessions > 0 {
+		unsupported[fmt.Sprintf(
+			"supersession target is ambiguous (%d fact(s) name a duplicated source id and are left with no successor)",
+			ambiguousSupersessions)] = true
 	}
 	if danglingSupersessions > 0 {
 		unsupported[fmt.Sprintf(
