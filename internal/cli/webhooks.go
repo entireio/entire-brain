@@ -332,6 +332,34 @@ func deliverWebhook(ctx context.Context, endpoint string, event webhookEvent) er
 	return nil
 }
 
+// notifyFactWebhook is what the fact write paths call.
+//
+// It checks whether webhooks are on BEFORE resolving anything, because
+// resolving the repository identity shells out to git. Building the event
+// eagerly and letting emitWebhook discard it put a subprocess on every
+// `remember` and every `facts retract` for people who have never configured a
+// webhook — which is the opposite of the promise that an unconfigured webhook
+// costs nothing, on a path the rest of this file notes is called by agents,
+// often.
+func notifyFactWebhook(ctx context.Context, errOut io.Writer, opts Options, event, branch string, record factRecord, now time.Time) {
+	if _, ok, _ := webhookEndpoint(); !ok {
+		return
+	}
+	notifyWebhook(ctx, errOut, newFactWebhookEvent(event, webhookRepoIdentity(ctx, opts), branch, record, now))
+}
+
+// notifyBrainWebhook is the same short-circuit for events that carry no fact.
+func notifyBrainWebhook(ctx context.Context, errOut io.Writer, opts Options, event string, now time.Time) {
+	if _, ok, _ := webhookEndpoint(); !ok {
+		return
+	}
+	notifyWebhook(ctx, errOut, webhookEvent{
+		Event:     event,
+		Timestamp: now.UTC().Format(time.RFC3339),
+		Repo:      webhookRepoIdentity(ctx, opts),
+	})
+}
+
 // notifyWebhook is what the write paths call. It never returns an error,
 // because no fact should fail to be recorded over a webhook — but it does
 // block, for up to the timeout, and calling it "fire and forget" was wrong.

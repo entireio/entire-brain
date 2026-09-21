@@ -780,3 +780,47 @@ func TestWebhookRepoIdentityIsStableAcrossPathSpellings(t *testing.T) {
 		t.Fatalf("identity = %q, want the repository's directory name %q", got, filepath.Base(repoDir))
 	}
 }
+
+// An unconfigured webhook must cost nothing. Resolving the repository identity
+// shells out to git, so building the event eagerly and letting emitWebhook
+// discard it put a subprocess on every `remember` for people who have never
+// configured one — on the path this file itself notes is called by agents,
+// often.
+func TestUnconfiguredWebhookSpawnsNoSubprocess(t *testing.T) {
+	t.Setenv(webhookURLEnv, "")
+	repoDir := t.TempDir()
+	runner := semanticFixtureRunner(repoDir, "")
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: runner, Now: testNow}
+
+	before := len(runner.calls)
+	notifyFactWebhook(context.Background(), &bytes.Buffer{}, opts, WebhookFactRecorded, "main", sampleFact(), testNow())
+	notifyBrainWebhook(context.Background(), &bytes.Buffer{}, opts, WebhookBrainRefreshed, testNow())
+
+	if after := len(runner.calls); after != before {
+		var names []string
+		for _, call := range runner.calls[before:] {
+			names = append(names, call.name+" "+strings.Join(call.args, " "))
+		}
+		t.Fatalf("an unconfigured webhook ran %d command(s): %v", after-before, names)
+	}
+}
+
+// And a configured one must still resolve the identity, or the short-circuit
+// has disabled the feature rather than skipping its cost.
+func TestConfiguredWebhookStillResolvesTheRepository(t *testing.T) {
+	rec := webhookEndpointServer(t)
+	repoDir := t.TempDir()
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: semanticFixtureRunner(repoDir, ""), Now: testNow}
+
+	notifyFactWebhook(context.Background(), &bytes.Buffer{}, opts, WebhookFactRecorded, "main", sampleFact(), testNow())
+	if rec.count() != 1 {
+		t.Fatalf("a configured webhook delivered %d event(s)", rec.count())
+	}
+	var payload webhookEvent
+	if err := json.Unmarshal(rec.last(t).body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Repo == "" {
+		t.Fatal("the delivered event carries no repository name")
+	}
+}

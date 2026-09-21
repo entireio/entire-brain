@@ -88,8 +88,7 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 			// changed nothing, and a subscriber that fired on it would act on
 			// news that is not news.
 			if changed {
-				notifyWebhook(cmd.Context(), cmd.ErrOrStderr(),
-					newFactWebhookEvent(WebhookFactRetracted, webhookRepoIdentity(cmd.Context(), opts), resolvedBranch, retracted, now))
+				notifyFactWebhook(cmd.Context(), cmd.ErrOrStderr(), opts, WebhookFactRetracted, resolvedBranch, retracted, now)
 			}
 			if jsonOut {
 				return writeJSON(cmd, map[string]any{"id": factID, "branch": resolvedBranch, "status": factStatusRetracted, "changed": changed})
