@@ -114,21 +114,34 @@ type mcpResponseTransport struct {
 type mcpResponseTransportContextKey struct{}
 
 func newMCPCommand(opts Options) *cobra.Command {
-	var printConfig bool
+	var (
+		printConfig bool
+		httpAddr    string
+		allowRemote bool
+	)
 	cmd := &cobra.Command{
 		Use:   "mcp",
-		Short: "Serve local brain tools over MCP stdio",
+		Short: "Serve local brain tools over MCP (stdio by default, or HTTP with --http)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if printConfig {
 				return printMCPServerConfig(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), opts)
 			}
 			nudgeMemoryAtStartup(cmd.Context(), opts)
+			if strings.TrimSpace(httpAddr) != "" {
+				return runMCPHTTP(cmd.Context(), cmd.OutOrStdout(), opts, httpAddr, allowRemote)
+			}
 			return runMCP(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), opts)
 		},
 	}
 	cmd.Flags().BoolVar(&printConfig, "print-config", false,
 		"Print an MCP server entry that launches this binary directly, for a host agent's config")
+	// Absent by default: with no --http there is no listener and no network,
+	// which is what SECURITY.md promises about the default build.
+	cmd.Flags().StringVar(&httpAddr, "http", "",
+		"Also serve MCP over HTTP on this address (e.g. 127.0.0.1:7777). A bare port binds loopback. Always requires a bearer token")
+	cmd.Flags().BoolVar(&allowRemote, "http-allow-remote", false,
+		"Permit --http to bind a non-loopback address. The brain holds source, transcripts and prompts; put TLS in front of it")
 	return cmd
 }
 
