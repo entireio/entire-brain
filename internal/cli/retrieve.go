@@ -486,7 +486,14 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		if halfLife <= 0 {
 			halfLife = defaultRecencyHalfLife
 		}
-		applyRecency(fused, now, halfLife)
+		if dated := applyRecency(fused, now, halfLife); dated == 0 {
+			for i := range fused {
+				fused[i].Caveats = append(fused[i].Caveats, retrievalCaveat{
+					Kind:    "recency_unavailable",
+					Message: "Recency weighting was requested, but none of the returned results has a usable timestamp; scores are unchanged.",
+				})
+			}
+		}
 	}
 	return fused, nil
 }

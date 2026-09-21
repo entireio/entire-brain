@@ -87,9 +87,8 @@ func recencyMultiplierFor(recordedAt string, now time.Time, halfLife time.Durati
 }
 
 // applyRecency reweights fused results in place and re-sorts them. It returns
-// the number of results that carried a usable timestamp, which is what the
-// caller reports so a user can tell "recency had no effect because everything
-// is fresh" from "recency had no effect because nothing is dated".
+// the number of results that carried a usable timestamp, so the caller can
+// report when weighting could not run because nothing is dated.
 func applyRecency(results []unifiedResult, now time.Time, halfLife time.Duration) int {
 	dated := 0
 	for i := range results {
