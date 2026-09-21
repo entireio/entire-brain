@@ -351,3 +351,38 @@ func TestBothTransportsDispatchThroughTheSharedHelper(t *testing.T) {
 		}
 	}
 }
+
+// A response that fails partway leaves the client reading a truncated body
+// under a 200, because the status line is long gone. Nothing can be done about
+// that at this point — but swallowing the error left no trace anywhere, so a
+// client-side parse failure could not be accounted for from this side.
+func TestFailedHTTPDeliveryIsReported(t *testing.T) {
+	opts := httpTestOptions(t)
+	msg := mcpMessage{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "tools/list"}
+
+	_, err := deliverMCPResponse(context.Background(), opts, msg, func(context.Context, mcpMessage) error {
+		return errDeliveryFailed
+	})
+	if err == nil {
+		t.Fatal("deliverMCPResponse discarded the delivery error; the handler has nothing to report")
+	}
+	if !errors.Is(err, errDeliveryFailed) {
+		t.Fatalf("the delivery error was replaced rather than returned: %v", err)
+	}
+}
+
+// The handler must actually consult that error rather than discarding it with
+// `_, _ =`, which is what it did.
+func TestHTTPHandlerDoesNotDiscardTheDeliveryError(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(".", "mcp_http.go"))
+	if err != nil {
+		t.Fatalf("read mcp_http.go: %v", err)
+	}
+	source := string(data)
+	if strings.Contains(source, "_, _ = deliverMCPResponse(") {
+		t.Fatal("mcp_http.go discards the delivery error; a truncated response would leave no trace")
+	}
+	if !strings.Contains(source, "not fully written") {
+		t.Fatal("mcp_http.go does not report a failed delivery")
+	}
+}

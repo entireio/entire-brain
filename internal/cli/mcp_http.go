@@ -178,7 +178,7 @@ func newMCPHTTPHandler(opts Options, cfg mcpHTTPConfig) http.Handler {
 		// as they once did — whether the retrieval privacy lock is held until
 		// the response has actually been delivered.
 		var notification bool
-		_, _ = deliverMCPResponse(r.Context(), opts, msg, func(_ context.Context, response mcpMessage) error {
+		_, deliverErr := deliverMCPResponse(r.Context(), opts, msg, func(_ context.Context, response mcpMessage) error {
 			if response.ID == nil && response.Method == "" {
 				// A notification has no reply. 204 says "understood, nothing to
 				// return" rather than sending an empty JSON body a client would
@@ -191,6 +191,14 @@ func newMCPHTTPHandler(opts Options, cfg mcpHTTPConfig) http.Handler {
 			return json.NewEncoder(w).Encode(response)
 		})
 		_ = notification
+		if deliverErr != nil {
+			// The status line and headers are already sent, so the client will
+			// read a truncated body under a 200. Nothing can be done about that
+			// here — but swallowing the error entirely left no trace anywhere
+			// that the response was malformed, which makes a client-side parse
+			// failure impossible to account for from this side.
+			fmt.Fprintf(os.Stderr, "warning: mcp http response for %s not fully written: %v\n", msg.Method, deliverErr)
+		}
 	})
 	return mux
 }
