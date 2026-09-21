@@ -150,7 +150,12 @@ func mcpHTTPAuthorized(header, token string) bool {
 // peers present the same token.
 func newMCPHTTPHandler(opts Options, cfg mcpHTTPConfig) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	// The REST resources share this listener, and therefore share its auth and
+	// its binding rules. Two ports with two auth configurations is two chances
+	// to get it wrong.
+	authed := http.NewServeMux()
+	registerRESTRoutes(authed, opts)
+	authed.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Authorise before anything else, including method and path checks, so
 		// an unauthenticated caller cannot map the surface by probing.
 		if !mcpHTTPAuthorized(r.Header.Get("Authorization"), cfg.Token) {
@@ -185,6 +190,17 @@ func newMCPHTTPHandler(opts Options, cfg mcpHTTPConfig) http.Handler {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(response)
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// One authentication check, before routing, for every surface on this
+		// listener. Checking it here rather than per-route means a new endpoint
+		// cannot be added unauthenticated by omission.
+		if !mcpHTTPAuthorized(r.Header.Get("Authorization"), cfg.Token) {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="entire-brain"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		authed.ServeHTTP(w, r)
 	})
 	return mux
 }
