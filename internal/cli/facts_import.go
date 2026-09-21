@@ -380,13 +380,29 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 			report.File = file
 			report.DryRun = dryRun
 
+			keptActive := 0
 			if !dryRun {
 				if err := withBrainWriteLock(brainDir, func() error {
 					existing, loadErr := loadFacts(brainDir, resolvedBranch)
 					if loadErr != nil {
 						return loadErr
 					}
+					// upsertFact unions provenance and never moves a status,
+					// which is right for a re-distill and wrong here: a memory
+					// the source retired, already present locally as active,
+					// would be imported and stay active with the report saying
+					// it was superseded.
+					//
+					// The local status is KEPT rather than overwritten — a fact
+					// asserted in this repository is not retired by a foreign
+					// export — and the divergence is counted, so it is visible
+					// instead of silently on either side.
 					for _, fact := range facts {
+						if fact.Status == factStatusSuperseded {
+							if i := indexOfFact(existing, fact.ID); i >= 0 && existing[i].Status == factStatusActive {
+								keptActive++
+							}
+						}
 						existing = upsertFact(existing, fact)
 					}
 					if err := writeFacts(brainDir, resolvedBranch, existing); err != nil {
@@ -401,6 +417,13 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 					return updateFactSourceManifestLocked(brainDir, opts.Now().UTC())
 				}); err != nil {
 					return err
+				}
+				if keptActive > 0 {
+					report.Unsupported = append(report.Unsupported, fmt.Sprintf(
+						"supersession not applied to %d fact(s) already active in this brain "+
+							"(a local assertion is not retired by an export; retract them explicitly if the source is right)",
+						keptActive))
+					sort.Strings(report.Unsupported)
 				}
 			}
 			if jsonOut {

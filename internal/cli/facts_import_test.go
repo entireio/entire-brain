@@ -524,3 +524,68 @@ func TestImportRefusesAnOversizedStdinExport(t *testing.T) {
 		t.Fatal("reading oversized stdin did not terminate")
 	}
 }
+
+// upsertFact unions provenance and never moves a status — right for a
+// re-distill, wrong for an import. A memory the source retired that is already
+// present locally as active would be imported and stay active, with the report
+// claiming it was superseded.
+//
+// The local status is kept: a fact asserted in this repository is not retired
+// by a foreign export. What must not happen is the divergence being invisible.
+func TestImportDoesNotSilentlyFailToSupersedeAnExistingFact(t *testing.T) {
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	opts, brainDir, branch := rememberReviveEnv(t, now)
+
+	text := "The queue abstraction was removed."
+	// The same statement already active in this brain.
+	local := factRecord{
+		ID: factRecordID(text, []string{"project.imported.general"}), Paths: []string{"project.imported.general"},
+		Text: text, Branch: branch, Status: factStatusActive, Origin: factOriginAuthored,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := withBrainWriteLock(brainDir, func() error {
+		return writeFacts(brainDir, branch, []factRecord{local})
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	export := filepath.Join(t.TempDir(), "mem0.json")
+	payload := `{"results":[{"id":"m1","memory":"` + text + `","replaced_by":"m2"}]}`
+	if err := os.WriteFile(export, []byte(payload), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newFactsImportCommand(opts)
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetContext(context.Background())
+	if err := cmd.Flags().Set("file", export); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.RunE(cmd, nil); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+
+	stored, err := loadFacts(brainDir, branch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *factRecord
+	for i := range stored {
+		if stored[i].Text == text {
+			found = &stored[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("the fact is gone: %+v", stored)
+	}
+	if found.Status != factStatusActive {
+		t.Fatalf("a local assertion was retired by an export: status = %q", found.Status)
+	}
+	// And the divergence has to be reported, or the import claims a
+	// supersession that did not happen.
+	if !strings.Contains(out.String(), "supersession not applied") {
+		t.Fatalf("the unapplied supersession was not reported: %q", out.String())
+	}
+}
