@@ -282,3 +282,105 @@ func TestExportRefusesTwoFactsThatWouldShareAFile(t *testing.T) {
 		}
 	}
 }
+
+// A symlink planted at a path component redirects a write or a delete out of
+// --dir entirely. No string check catches it: every component is a plain name
+// and the escape happens in the filesystem. This is the guard every other
+// place in this codebase that writes under a user-named directory applies.
+func TestExportRefusesToWriteThroughASymlinkedComponent(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(root, "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "export")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The first taxonomy segment is a symlink pointing out of the export.
+	if err := os.Symlink(outside, filepath.Join(dir, "architecture")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	fact := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports start at 8000.", Status: factStatusActive}
+	_, err := writeFactFiles(dir, []factRecord{fact})
+	if err == nil {
+		t.Fatal("the export wrote through a symlinked path component")
+	}
+
+	// And nothing may have landed outside.
+	entries, readErr := os.ReadDir(outside)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("the export wrote %d entr(ies) outside --dir", len(entries))
+	}
+}
+
+// The same for deletes: a manifest entry whose parent is a symlink would
+// otherwise redirect os.Remove outside the export root.
+func TestPruneRefusesToDeleteThroughASymlinkedComponent(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(root, "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	victim := filepath.Join(outside, "fact-deadbeef1234.md")
+	if err := os.WriteFile(victim, []byte("somebody else's file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "export")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "architecture")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	// A manifest naming a path that resolves through the symlink. Every
+	// component is a plain name, so the textual checks admit it.
+	manifest := `{"files":["architecture/fact-deadbeef1234.md"]}`
+	if err := os.WriteFile(filepath.Join(dir, factFilesManifestName), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := writeFactFiles(dir, nil); err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	if _, err := os.Stat(victim); err != nil {
+		t.Fatal("the prune deleted a file outside --dir through a symlinked component")
+	}
+}
+
+// The directory guard checks the taxonomy components; it does not check the
+// file. A symlink planted at the fact file itself is a separate escape, and
+// os.WriteFile follows it — writing a fact's contents over whatever it points
+// at, outside --dir.
+func TestExportRefusesToWriteThroughASymlinkedFile(t *testing.T) {
+	root := t.TempDir()
+	victim := filepath.Join(root, "victim.md")
+	if err := os.WriteFile(victim, []byte("somebody else's file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "export")
+	fact := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports start at 8000.", Status: factStatusActive}
+	nested := filepath.Join(dir, "architecture", "api", "ports")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Every directory component is real; only the leaf is a symlink.
+	if err := os.Symlink(victim, filepath.Join(nested, factFileName(fact.ID))); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	if _, err := writeFactFiles(dir, []factRecord{fact}); err == nil {
+		t.Fatal("the export wrote through a symlinked fact file")
+	}
+	data, err := os.ReadFile(victim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "somebody else's file" {
+		t.Fatalf("the export overwrote a file outside --dir: %q", data)
+	}
+}

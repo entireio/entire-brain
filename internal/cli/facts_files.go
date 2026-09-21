@@ -188,11 +188,16 @@ func pruneStaleFactFiles(dir string, previous factFilesManifest, written map[str
 		if written[rel] {
 			continue
 		}
-		// Defence in depth: the manifest lives inside the directory a user
-		// could edit, so a path escaping the export root is refused rather
-		// than trusted.
+		// The manifest lives inside a directory the user can edit, so its
+		// entries are input. Two different escapes have to be refused: a path
+		// that climbs out textually, and a path whose components are all plain
+		// names but whose parent is a symlink — the second is invisible to any
+		// string check and is what redirects a delete outside --dir.
 		clean := filepath.Clean(rel)
 		if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, "..") {
+			continue
+		}
+		if err := rejectExistingSymlinkPathComponents(dir, clean); err != nil {
 			continue
 		}
 		if err := os.Remove(filepath.Join(dir, clean)); err != nil {
@@ -209,6 +214,9 @@ func pruneStaleFactFiles(dir string, previous factFilesManifest, written map[str
 	sort.Sort(sort.Reverse(sort.StringSlice(dirs)))
 	for _, rel := range dirs {
 		for current := rel; current != "."; current = filepath.Dir(current) {
+			if err := rejectExistingSymlinkPathComponents(dir, current); err != nil {
+				break
+			}
 			if err := os.Remove(filepath.Join(dir, current)); err != nil {
 				break
 			}
@@ -237,6 +245,15 @@ func writeFactFiles(dir string, facts []factRecord) (factFilesResult, error) {
 	claimed := make(map[string]string, len(facts))
 	for _, fact := range facts {
 		relDir := factFileDir(fact.Paths)
+		// A symlink planted at any component of the taxonomy path redirects the
+		// write out of --dir entirely. The `..` and absolute-path checks
+		// elsewhere in this file do not catch that: every component is a plain
+		// name and the escape happens in the filesystem, not in the string.
+		// Every other place in this codebase that writes under a user-named
+		// output directory checks this first.
+		if err := rejectExistingSymlinkPathComponents(dir, relDir); err != nil {
+			return result, fmt.Errorf("refusing to write into %s: %w", relDir, err)
+		}
 		absDir := filepath.Join(dir, relDir)
 		if err := os.MkdirAll(absDir, 0o755); err != nil {
 			return result, fmt.Errorf("create %s: %w", relDir, err)
@@ -246,6 +263,9 @@ func writeFactFiles(dir string, facts []factRecord) (factFilesResult, error) {
 			return result, fmt.Errorf("facts %s and %s both map to %s; one would silently replace the other", owner, fact.ID, rel)
 		}
 		claimed[rel] = fact.ID
+		if err := rejectExistingSymlinkPathComponents(dir, rel); err != nil {
+			return result, fmt.Errorf("refusing to write %s: %w", rel, err)
+		}
 		if err := os.WriteFile(filepath.Join(dir, rel), []byte(renderFactFile(fact)), 0o644); err != nil {
 			return result, fmt.Errorf("write %s: %w", rel, err)
 		}
