@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -239,5 +242,112 @@ func TestMCPHTTPTokenComparisonIsConstantTime(t *testing.T) {
 	}
 	if !mcpHTTPAuthorized("Bearer exact", "exact") {
 		t.Fatal("the correct token was rejected")
+	}
+}
+
+// The retrieval privacy lock must be held until the response has actually been
+// delivered. A retrieval command checks its output against the exclusion state;
+// a tombstone landing between that check and the client receiving the bytes
+// would deliver content that should already have been excluded.
+//
+// The stdio loop had this ordering and the HTTP handler did not, so the two
+// transports disagreed about whether the window was closed. They now share one
+// helper, and these tests hold both halves of what it guarantees.
+func TestDeliveryHoldsThePrivacyLockUntilTheResponseIsOut(t *testing.T) {
+	opts := httpTestOptions(t)
+	msg := mcpMessage{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "tools/list"}
+
+	var (
+		created            *mcpResponsePrivacyState
+		releasedAtDelivery bool
+		released           bool
+	)
+	original := newMCPResponsePrivacyState
+	newMCPResponsePrivacyState = func() *mcpResponsePrivacyState {
+		created = &mcpResponsePrivacyState{unlock: func() { released = true }}
+		return created
+	}
+	t.Cleanup(func() { newMCPResponsePrivacyState = original })
+
+	var seededDuringDelivery *mcpResponsePrivacyState
+	if _, err := deliverMCPResponse(context.Background(), opts, msg, func(ctx context.Context, _ mcpMessage) error {
+		releasedAtDelivery = released
+		// The state has to be ON the context handling ran under. The tool
+		// output buffer reads it by key and silently takes the
+		// immediate-unlock path when it is absent, so a state that exists but
+		// never reached the context closes nothing.
+		seededDuringDelivery, _ = ctx.Value(mcpResponsePrivacyContextKey{}).(*mcpResponsePrivacyState)
+		return nil
+	}); err != nil {
+		t.Fatalf("deliver: %v", err)
+	}
+
+	if created == nil {
+		t.Fatal("no privacy state was created; the lock-until-delivered window is open")
+	}
+	if seededDuringDelivery != created {
+		t.Fatalf("the privacy state was not seeded on the request context (got %p, want %p); the tool buffer would never see it",
+			seededDuringDelivery, created)
+	}
+	if releasedAtDelivery {
+		t.Fatal("the privacy lock was released before the response was delivered")
+	}
+	if !released {
+		t.Fatal("the privacy lock was never released; it would be held for the life of the process")
+	}
+}
+
+// Delivery failing must still release the lock, or a client that hangs up
+// mid-response leaves the brain write lock held until the process exits.
+func TestDeliveryReleasesThePrivacyLockWhenDeliveryFails(t *testing.T) {
+	opts := httpTestOptions(t)
+	msg := mcpMessage{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "tools/list"}
+
+	released := false
+	original := newMCPResponsePrivacyState
+	newMCPResponsePrivacyState = func() *mcpResponsePrivacyState {
+		return &mcpResponsePrivacyState{unlock: func() { released = true }}
+	}
+	t.Cleanup(func() { newMCPResponsePrivacyState = original })
+
+	_, err := deliverMCPResponse(context.Background(), opts, msg, func(context.Context, mcpMessage) error {
+		return errDeliveryFailed
+	})
+	if err == nil {
+		t.Fatal("a failed delivery was reported as successful")
+	}
+	if !released {
+		t.Fatal("a failed delivery left the privacy lock held")
+	}
+}
+
+var errDeliveryFailed = errors.New("client hung up")
+
+// Both transports must obtain the ordering from the shared helper rather than
+// reimplementing it. This is a source check on purpose: the defect it guards
+// was a call site that looked correct in isolation and disagreed with the other
+// transport, which no behavioural test of either one alone would surface.
+func TestBothTransportsDispatchThroughTheSharedHelper(t *testing.T) {
+	for _, file := range []string{"mcp.go", "mcp_http.go"} {
+		data, err := os.ReadFile(filepath.Join(".", file))
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		source := string(data)
+		if !strings.Contains(source, "deliverMCPResponse(") {
+			t.Fatalf("%s does not dispatch through deliverMCPResponse; the transports can disagree about the privacy window again", file)
+		}
+		for _, line := range strings.Split(source, "\n") {
+			if !strings.Contains(line, "handleMCPMessage(") {
+				continue
+			}
+			trimmed := strings.TrimSpace(line)
+			// The declaration, and the one call inside the helper itself.
+			if strings.HasPrefix(trimmed, "func handleMCPMessage") ||
+				strings.HasPrefix(trimmed, "response := handleMCPMessage(ctx, opts, msg)") {
+				continue
+			}
+			t.Fatalf("%s calls handleMCPMessage outside the helper:\n  %s\nuse deliverMCPResponse so the privacy lock spans delivery", file, trimmed)
+		}
 	}
 }

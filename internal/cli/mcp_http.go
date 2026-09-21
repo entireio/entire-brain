@@ -173,18 +173,24 @@ func newMCPHTTPHandler(opts Options, cfg mcpHTTPConfig) http.Handler {
 			writeMCPHTTPParseError(w)
 			return
 		}
-		// Same dispatch as stdio. The transports must not be able to disagree
-		// about which tools exist or what they do.
-		response := handleMCPMessage(r.Context(), opts, msg)
-		if response.ID == nil && response.Method == "" {
-			// A notification has no reply. 204 says "understood, nothing to
-			// return" rather than sending an empty JSON body a client would
-			// try to parse.
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(response)
+		// Same dispatch as stdio, through the same helper. The transports must
+		// not be able to disagree about which tools exist, what they do, or —
+		// as they once did — whether the retrieval privacy lock is held until
+		// the response has actually been delivered.
+		var notification bool
+		_, _ = deliverMCPResponse(r.Context(), opts, msg, func(_ context.Context, response mcpMessage) error {
+			if response.ID == nil && response.Method == "" {
+				// A notification has no reply. 204 says "understood, nothing to
+				// return" rather than sending an empty JSON body a client would
+				// try to parse.
+				notification = true
+				w.WriteHeader(http.StatusNoContent)
+				return nil
+			}
+			w.Header().Set("Content-Type", "application/json")
+			return json.NewEncoder(w).Encode(response)
+		})
+		_ = notification
 	})
 	return mux
 }
