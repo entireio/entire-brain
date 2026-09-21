@@ -257,6 +257,11 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 	report := factImportReport{Source: source, Read: len(memories) + skipped, SkippedText: skipped}
 	unsupported := map[string]bool{}
 	facts := make([]factRecord, 0, len(memories))
+	// Supersession is resolved after the loop, because a memory can be
+	// replaced by one that appears later in the export and every fact needs
+	// its id before any reference to it can be written.
+	byForeignID := make(map[string]int, len(memories))
+	replaces := make([]string, 0, len(memories))
 	for _, mem := range memories {
 		paths := importedFactPaths(prefix, mem.Categories)
 		created, updated := mem.CreatedAt, mem.UpdatedAt
@@ -267,27 +272,19 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 			updated = created
 		}
 		status := factStatusActive
-		supersededBy := ""
 		if mem.ReplacedBy != "" {
 			// The source already superseded this memory. Importing it as
 			// active would resurrect something its owner retired.
 			status = factStatusSuperseded
-			// And carry the lineage. Every other place that sets this status
-			// pairs it with the id that replaced it, and the reconciliation and
-			// display paths read that field — a superseded fact with no
-			// successor is exactly the kind of information this import
-			// otherwise goes out of its way to preserve or name as lost.
-			supersededBy = source + ":" + mem.ReplacedBy
 			report.Superseded++
 		}
 		facts = append(facts, factRecord{
-			ID:           factRecordID(mem.Text, paths),
-			Paths:        paths,
-			Text:         mem.Text,
-			Branch:       branch,
-			Origin:       factOriginImported,
-			Status:       status,
-			SupersededBy: supersededBy,
+			ID:     factRecordID(mem.Text, paths),
+			Paths:  paths,
+			Text:   mem.Text,
+			Branch: branch,
+			Origin: factOriginImported,
+			Status: status,
 			// The anchor names where this came from. It is not evidence from
 			// this repository and must not read like it: verify will report
 			// these as unverifiable-here, correctly.
@@ -295,10 +292,36 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 			CreatedAt:  created,
 			UpdatedAt:  updated,
 		})
+		byForeignID[mem.ForeignID] = len(facts) - 1
+		replaces = append(replaces, mem.ReplacedBy)
 		for _, note := range mem.Unsupported {
 			unsupported[note] = true
 		}
 	}
+	// SupersededBy has to name a fact in THIS store. Writing the foreign id
+	// would leave a reference that reconciliation and display look up and never
+	// find — a dangling pointer dressed as lineage, which is worse than no
+	// lineage because it reads as though it resolves. Where the replacement was
+	// imported too, the reference is real; where it was not, the link cannot be
+	// represented and is reported rather than invented.
+	danglingSupersessions := 0
+	for i, foreignReplacement := range replaces {
+		if foreignReplacement == "" {
+			continue
+		}
+		target, ok := byForeignID[foreignReplacement]
+		if !ok {
+			danglingSupersessions++
+			continue
+		}
+		facts[i].SupersededBy = facts[target].ID
+	}
+	if danglingSupersessions > 0 {
+		unsupported[fmt.Sprintf(
+			"supersession target outside this export (%d fact(s) are marked superseded with no successor in the store)",
+			danglingSupersessions)] = true
+	}
+
 	for note := range unsupported {
 		report.Unsupported = append(report.Unsupported, note)
 	}

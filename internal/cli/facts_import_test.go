@@ -201,21 +201,50 @@ func TestImportedFactIDMatchesItsStoredPaths(t *testing.T) {
 // A superseded fact with no successor drops the lineage the import otherwise
 // goes out of its way to preserve, and the reconciliation and display paths
 // read that field.
-func TestImportedSupersededFactCarriesItsSuccessor(t *testing.T) {
-	facts, report := memoriesToFacts(
-		[]importedMemory{{ForeignID: "m1", Text: "Old approach.", ReplacedBy: "m2"}},
-		0, "mem0", "", "main", time.Now().UTC())
-	if len(facts) != 1 || facts[0].Status != factStatusSuperseded {
-		t.Fatalf("got %+v", facts)
+func TestImportedSupersededFactPointsAtARealFact(t *testing.T) {
+	// SupersededBy has to name a fact in THIS store. A foreign id would be
+	// looked up by reconciliation and display and never found — a dangling
+	// pointer dressed as lineage, which is worse than none because it reads as
+	// though it resolves.
+	facts, report := memoriesToFacts([]importedMemory{
+		{ForeignID: "m1", Text: "Old approach.", ReplacedBy: "m2"},
+		{ForeignID: "m2", Text: "New approach."},
+	}, 0, "mem0", "", "main", time.Now().UTC())
+	if len(facts) != 2 {
+		t.Fatalf("got %d facts", len(facts))
 	}
-	if facts[0].SupersededBy == "" {
-		t.Fatal("a superseded fact was imported with no successor; the lineage is gone")
+	old, replacement := facts[0], facts[1]
+	if old.Status != factStatusSuperseded {
+		t.Fatalf("the replaced memory is %q, want superseded", old.Status)
 	}
-	if !strings.Contains(facts[0].SupersededBy, "m2") {
-		t.Fatalf("SupersededBy = %q, which does not name the replacement", facts[0].SupersededBy)
+	if old.SupersededBy != replacement.ID {
+		t.Fatalf("SupersededBy = %q, want the imported successor's id %q", old.SupersededBy, replacement.ID)
+	}
+	if strings.Contains(old.SupersededBy, "m2") || strings.Contains(old.SupersededBy, "mem0:") {
+		t.Fatalf("SupersededBy carries a foreign reference rather than a fact id: %q", old.SupersededBy)
 	}
 	if report.Superseded != 1 {
 		t.Fatalf("report.Superseded = %d", report.Superseded)
+	}
+}
+
+// A replacement the export does not contain cannot be represented. Reporting
+// it beats inventing a reference that resolves to nothing.
+func TestImportReportsASupersessionItCannotResolve(t *testing.T) {
+	facts, report := memoriesToFacts([]importedMemory{
+		{ForeignID: "m1", Text: "Old approach.", ReplacedBy: "m99-not-in-this-export"},
+	}, 0, "mem0", "", "main", time.Now().UTC())
+	if len(facts) != 1 {
+		t.Fatalf("got %d facts", len(facts))
+	}
+	if facts[0].Status != factStatusSuperseded {
+		t.Fatalf("status = %q, want superseded", facts[0].Status)
+	}
+	if facts[0].SupersededBy != "" {
+		t.Fatalf("SupersededBy = %q, but the successor is not in this export", facts[0].SupersededBy)
+	}
+	if !strings.Contains(strings.Join(report.Unsupported, " | "), "supersession") {
+		t.Fatalf("the unresolvable supersession was not reported: %v", report.Unsupported)
 	}
 }
 
