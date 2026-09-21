@@ -157,23 +157,72 @@ func importTaxonomyPath(prefix string, categories []string) string {
 	return prefix + "." + segment
 }
 
+// importedFactPaths normalises the taxonomy path the way every other
+// fact-construction path does.
+//
+// A path that does not equal its own normalisation violates the identity
+// invariant VerifyIdentity enforces and `facts sync` relies on, so a record
+// built from a mixed-case --path-prefix would be rejected downstream by the
+// very check meant to protect it. Normalising here — before the id is derived
+// from the paths — means the id matches the path that is actually stored.
+func importedFactPaths(prefix string, categories []string) []string {
+	paths := normalizeFactPaths([]string{importTaxonomyPath(prefix, categories)})
+	if len(paths) == 0 {
+		// Unreachable while the prefix is validated up front and the sanitiser
+		// emits only taxonomy-legal characters — both of which this file now
+		// guarantees, so there is no test that reaches this line. It stays
+		// because an unpathed fact is unfindable, and a future change to either
+		// of those two guarantees should not be able to produce one silently.
+		paths = normalizeFactPaths([]string{importTaxonomyPath("", nil)})
+	}
+	return paths
+}
+
+// validateImportPrefix rejects a --path-prefix that cannot survive
+// normalisation, up front and by name.
+//
+// Failing here beats importing a thousand memories under a path the rest of the
+// system will not accept, and beats silently rewriting what the user typed into
+// something they did not ask for.
+func validateImportPrefix(prefix string) error {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return nil // the default is used instead
+	}
+	normalized := normalizeFactPaths([]string{prefix + ".general"})
+	if len(normalized) != 1 {
+		return fmt.Errorf("--path-prefix %q is not a usable taxonomy prefix (expected category.subcategory)", prefix)
+	}
+	// Compared against what the user typed, not a lowercased copy of it:
+	// lowercasing first would accept "Mixed.Case" and then quietly store
+	// something else, which is the substitution this check exists to refuse.
+	if normalized[0] != prefix+".general" {
+		return fmt.Errorf("--path-prefix %q is not in normal form; use %q",
+			prefix, strings.TrimSuffix(normalized[0], ".general"))
+	}
+	return nil
+}
+
 // sanitizeImportSegment keeps a foreign category to characters usable in a
 // taxonomy segment. Categories are free text from another tool, so they are
 // normalised rather than trusted.
+// sanitizeImportSegment reduces a foreign category to one taxonomy segment.
+//
+// The output has to satisfy the taxonomy pattern, which admits only [a-z0-9_]
+// — a hyphen is not allowed, so a category like "work-notes" produced a path
+// that normalisation silently dropped, leaving the record with no paths at all.
 func sanitizeImportSegment(segment string) string {
-	segment = strings.TrimSpace(segment)
+	segment = strings.ToLower(strings.TrimSpace(segment))
 	var b strings.Builder
 	for _, r := range segment {
 		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-		case r == '-', r == '_':
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_':
 			b.WriteRune(r)
 		default:
-			b.WriteRune('-')
+			b.WriteRune('_')
 		}
 	}
-	return strings.Trim(b.String(), "-")
+	return strings.Trim(b.String(), "_")
 }
 
 type factImportReport struct {
@@ -197,7 +246,7 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 	unsupported := map[string]bool{}
 	facts := make([]factRecord, 0, len(memories))
 	for _, mem := range memories {
-		paths := []string{importTaxonomyPath(prefix, mem.Categories)}
+		paths := importedFactPaths(prefix, mem.Categories)
 		created, updated := mem.CreatedAt, mem.UpdatedAt
 		if created.IsZero() {
 			created = now
@@ -206,19 +255,27 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 			updated = created
 		}
 		status := factStatusActive
+		supersededBy := ""
 		if mem.ReplacedBy != "" {
 			// The source already superseded this memory. Importing it as
 			// active would resurrect something its owner retired.
 			status = factStatusSuperseded
+			// And carry the lineage. Every other place that sets this status
+			// pairs it with the id that replaced it, and the reconciliation and
+			// display paths read that field — a superseded fact with no
+			// successor is exactly the kind of information this import
+			// otherwise goes out of its way to preserve or name as lost.
+			supersededBy = source + ":" + mem.ReplacedBy
 			report.Superseded++
 		}
 		facts = append(facts, factRecord{
-			ID:     factRecordID(mem.Text, paths),
-			Paths:  paths,
-			Text:   mem.Text,
-			Branch: branch,
-			Origin: factOriginImported,
-			Status: status,
+			ID:           factRecordID(mem.Text, paths),
+			Paths:        paths,
+			Text:         mem.Text,
+			Branch:       branch,
+			Origin:       factOriginImported,
+			Status:       status,
+			SupersededBy: supersededBy,
 			// The anchor names where this came from. It is not evidence from
 			// this repository and must not read like it: verify will report
 			// these as unverifiable-here, correctly.
@@ -275,6 +332,9 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 				return fmt.Errorf("unknown --source %q (supported: mem0)", source)
 			}
 			if err != nil {
+				return err
+			}
+			if err := validateImportPrefix(prefix); err != nil {
 				return err
 			}
 			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)

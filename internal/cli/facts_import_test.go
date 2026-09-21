@@ -137,15 +137,100 @@ func TestImportedFactsAreFiledSomewhereObvious(t *testing.T) {
 			t.Fatalf("%s filed at %q, outside the import prefix", fact.ID, fact.Paths[0])
 		}
 	}
-	// "Team Process" has to survive as a usable segment.
+	// "Team Process" has to survive as a usable segment. Underscore, not
+	// hyphen: the taxonomy pattern admits only [a-z0-9_], so the hyphenated
+	// form this test originally expected was a path normalisation would drop,
+	// leaving the record with no paths at all.
 	found := false
 	for _, fact := range facts {
-		if fact.Paths[0] == "project.imported.team-process" {
+		if fact.Paths[0] == "project.imported.team_process" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatal(`category "Team Process" did not become project.imported.team-process`)
+		t.Fatalf(`category "Team Process" did not become project.imported.team_process: %q`, facts[0].Paths)
+	}
+}
+
+// A record whose paths do not equal their own normalisation violates the
+// identity invariant VerifyIdentity enforces and `facts sync` relies on, so it
+// would be rejected downstream by the check meant to protect it. Categories
+// arrive from a foreign system and can contain anything.
+func TestImportedPathsSurviveNormalisation(t *testing.T) {
+	for _, category := range []string{
+		"Team Process", "work-notes", "UPPER", "spaces and more", "emoji 🎉 here",
+		"punctuation!@#", "  padded  ", "", "---", "_",
+	} {
+		facts, _ := memoriesToFacts(
+			[]importedMemory{{ForeignID: "m1", Text: "A fact.", Categories: []string{category}}},
+			0, "mem0", "", "main", time.Now().UTC())
+		if len(facts) != 1 {
+			t.Fatalf("category %q produced %d facts", category, len(facts))
+		}
+		paths := facts[0].Paths
+		if len(paths) == 0 {
+			t.Fatalf("category %q left the fact with no paths; it would be unfindable", category)
+		}
+		normalized := normalizeFactPaths(paths)
+		if len(normalized) != len(paths) {
+			t.Fatalf("category %q produced %q, which normalisation drops", category, paths)
+		}
+		for i := range paths {
+			if paths[i] != normalized[i] {
+				t.Fatalf("category %q produced %q, normal form is %q", category, paths[i], normalized[i])
+			}
+		}
+	}
+}
+
+// The id is derived from the paths, so it has to be derived from the paths that
+// are actually stored. Normalising after the id is computed would produce a
+// record whose id does not match its own content.
+func TestImportedFactIDMatchesItsStoredPaths(t *testing.T) {
+	facts, _ := memoriesToFacts(
+		[]importedMemory{{ForeignID: "m1", Text: "A fact.", Categories: []string{"Team Process"}}},
+		0, "mem0", "", "main", time.Now().UTC())
+	if len(facts) != 1 {
+		t.Fatalf("got %d facts", len(facts))
+	}
+	if want := factRecordID(facts[0].Text, facts[0].Paths); facts[0].ID != want {
+		t.Fatalf("id %s does not match its stored text and paths (want %s)", facts[0].ID, want)
+	}
+}
+
+// A superseded fact with no successor drops the lineage the import otherwise
+// goes out of its way to preserve, and the reconciliation and display paths
+// read that field.
+func TestImportedSupersededFactCarriesItsSuccessor(t *testing.T) {
+	facts, report := memoriesToFacts(
+		[]importedMemory{{ForeignID: "m1", Text: "Old approach.", ReplacedBy: "m2"}},
+		0, "mem0", "", "main", time.Now().UTC())
+	if len(facts) != 1 || facts[0].Status != factStatusSuperseded {
+		t.Fatalf("got %+v", facts)
+	}
+	if facts[0].SupersededBy == "" {
+		t.Fatal("a superseded fact was imported with no successor; the lineage is gone")
+	}
+	if !strings.Contains(facts[0].SupersededBy, "m2") {
+		t.Fatalf("SupersededBy = %q, which does not name the replacement", facts[0].SupersededBy)
+	}
+	if report.Superseded != 1 {
+		t.Fatalf("report.Superseded = %d", report.Superseded)
+	}
+}
+
+// A prefix that cannot survive normalisation is rejected by name, rather than
+// importing a thousand memories under a path the rest of the system refuses.
+func TestImportRejectsAnUnusablePathPrefix(t *testing.T) {
+	for _, bad := range []string{"Mixed.Case", "one", "a.b.c.d", "has-hyphen.here"} {
+		if err := validateImportPrefix(bad); err == nil {
+			t.Fatalf("--path-prefix %q was accepted", bad)
+		}
+	}
+	for _, good := range []string{"", "project.imported", "architecture.storage"} {
+		if err := validateImportPrefix(good); err != nil {
+			t.Fatalf("--path-prefix %q was rejected: %v", good, err)
+		}
 	}
 }
 
@@ -242,5 +327,42 @@ func TestImportUsesTheSupersededConstant(t *testing.T) {
 	}
 	if report.Superseded != 1 {
 		t.Fatalf("report.Superseded = %d", report.Superseded)
+	}
+}
+
+// The command must reject an unusable prefix before it writes anything.
+// Validating the function is not the same as calling it: an earlier version of
+// this change had the check written and never invoked.
+func TestImportCommandRejectsAnUnusablePathPrefixBeforeWriting(t *testing.T) {
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	opts, brainDir, branch := rememberReviveEnv(t, now)
+
+	export := filepath.Join(t.TempDir(), "mem0.json")
+	payload := `{"results":[{"id":"m1","memory":"Retries stop after three attempts."}]}`
+	if err := os.WriteFile(export, []byte(payload), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newFactsImportCommand(opts)
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetContext(context.Background())
+	if err := cmd.Flags().Set("file", export); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Flags().Set("path-prefix", "Mixed.Case"); err != nil {
+		t.Fatal(err)
+	}
+	err := cmd.RunE(cmd, nil)
+	if err == nil {
+		t.Fatal("the command accepted a prefix that is not in normal form")
+	}
+	if !strings.Contains(err.Error(), "path-prefix") {
+		t.Fatalf("the error does not name the flag: %v", err)
+	}
+	// And nothing may have been written.
+	facts, loadErr := loadFacts(brainDir, branch)
+	if loadErr == nil && len(facts) > 0 {
+		t.Fatalf("the rejected import still wrote %d fact(s)", len(facts))
 	}
 }
