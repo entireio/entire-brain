@@ -32,9 +32,11 @@ curl -fsSL https://raw.githubusercontent.com/entireio/entire-brain/main/scripts/
 entire plugin install graph
 ```
 
-Brain is a plugin for the CLI. The install script verifies the download against
-the release checksums; no Go toolchain, no C compiler. It takes `--nightly`,
-`--version vX.Y.Z` and `--dir`.
+The script downloads a prebuilt binary for your platform, checks it against the
+release checksums, and registers it with the CLI as the `entire brain` plugin.
+There is nothing to compile. Pin a release with `--version vX.Y.Z`, take the
+current prerelease with `--nightly`, or install somewhere other than
+`~/.local/bin` with `--dir`.
 
 Without Graph, `setup` reports the semantic index as unavailable; sessions, docs
 and facts still work. Without the CLI there are no sessions to read, and Brain
