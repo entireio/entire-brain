@@ -631,3 +631,60 @@ func TestImportStillResolvesUnambiguousSupersessionAlongsideDuplicates(t *testin
 		t.Fatalf("an unambiguous supersession was not resolved: %q", facts[0].SupersededBy)
 	}
 }
+
+// Two memories whose text and category normalise to the same thing are the same
+// fact under a content-addressed id, and upsert correctly folds them into one.
+// The count must agree: reporting two imported when the store holds one makes
+// the numbers disagree with reality and explains nothing.
+func TestImportCountsMergedDuplicatesOnce(t *testing.T) {
+	facts, report := memoriesToFacts([]importedMemory{
+		{ForeignID: "m1", Text: "Retries stop after three attempts."},
+		{ForeignID: "m2", Text: "Retries stop after three attempts."},
+		{ForeignID: "m3", Text: "A different fact entirely."},
+	}, 0, "mem0", "", "main", time.Now().UTC())
+
+	distinct := map[string]bool{}
+	for _, fact := range facts {
+		distinct[fact.ID] = true
+	}
+	if len(distinct) != 2 {
+		t.Fatalf("expected 2 distinct facts, got %d", len(distinct))
+	}
+	if report.Imported != 2 {
+		t.Fatalf("report.Imported = %d, but only %d distinct facts exist", report.Imported, len(distinct))
+	}
+	if !strings.Contains(strings.Join(report.Unsupported, " | "), "merged into one fact") {
+		t.Fatalf("the merge was not reported: %v", report.Unsupported)
+	}
+}
+
+// `facts status` shows origins as line items under a total. An origin with no
+// bucket makes the parts visibly fail to sum to the whole, with nothing
+// accounting for the difference.
+func TestImportedFactsAppearInTheStatusOriginTally(t *testing.T) {
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	opts, brainDir, branch := rememberReviveEnv(t, now)
+
+	facts := []factRecord{
+		{ID: "a", Paths: []string{"architecture.api.ports"}, Text: "Distilled.", Branch: branch, Origin: factOriginDistilled, Status: factStatusActive, CreatedAt: now, UpdatedAt: now},
+		{ID: "b", Paths: []string{"architecture.api.ports"}, Text: "Authored.", Branch: branch, Origin: factOriginAuthored, Status: factStatusActive, CreatedAt: now, UpdatedAt: now},
+		{ID: "c", Paths: []string{"architecture.api.ports"}, Text: "Imported.", Branch: branch, Origin: factOriginImported, Status: factStatusActive, CreatedAt: now, UpdatedAt: now},
+	}
+	if err := withBrainWriteLock(brainDir, func() error {
+		return writeFacts(brainDir, branch, facts)
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	counts, countsErr := factsStatusCountsForBranch(brainDir, branch, facts)
+	if countsErr != nil {
+		t.Fatalf("counts: %v", countsErr)
+	}
+	if counts.Imported != 1 {
+		t.Fatalf("Imported = %d, want 1", counts.Imported)
+	}
+	if got := counts.Distilled + counts.Authored + counts.Imported; got != 3 {
+		t.Fatalf("the origin buckets sum to %d of 3 facts; the difference is unaccounted for", got)
+	}
+	_ = opts
+}

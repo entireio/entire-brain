@@ -84,6 +84,7 @@ type factsStatusCounts struct {
 	Retracted         int `json:"retracted"`
 	Distilled         int `json:"distilled"`
 	Authored          int `json:"authored"`
+	Imported          int `json:"imported"`
 	Proposals         int `json:"proposals"`
 	ProvenanceAnchors int `json:"provenance_anchors"`
 	VerifiedAnchors   int `json:"verified_anchors"`
@@ -223,6 +224,8 @@ func factsStatusCountsForBranch(brainDir, branch string, facts []factRecord) (fa
 			counts.Distilled++
 		case factOriginAuthored:
 			counts.Authored++
+		case factOriginImported:
+			counts.Imported++
 		}
 		for _, anchor := range fact.Provenance {
 			counts.ProvenanceAnchors++

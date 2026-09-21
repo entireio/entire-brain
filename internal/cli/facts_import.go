@@ -350,11 +350,24 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 			danglingSupersessions)] = true
 	}
 
+	// Two memories whose text and category normalise to the same thing are the
+	// same fact under a content-addressed id, and upsert correctly folds them
+	// into one. What was wrong was the count: report.Imported said two, so the
+	// numbers disagreed with the store and nothing explained why.
+	distinct := map[string]bool{}
+	for _, fact := range facts {
+		distinct[fact.ID] = true
+	}
+	if collapsed := len(facts) - len(distinct); collapsed > 0 {
+		unsupported[fmt.Sprintf(
+			"%d memor(ies) are identical to another under the same category and were merged into one fact",
+			collapsed)] = true
+	}
 	for note := range unsupported {
 		report.Unsupported = append(report.Unsupported, note)
 	}
 	sort.Strings(report.Unsupported)
-	report.Imported = len(facts)
+	report.Imported = len(distinct)
 	return facts, report
 }
 
