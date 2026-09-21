@@ -1,6 +1,10 @@
 package cli
 
 import (
+	"bytes"
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -158,5 +162,85 @@ func TestImportTimestampsFallBackToImportTime(t *testing.T) {
 	}
 	if got := parseImportTime("not a time"); !got.IsZero() {
 		t.Fatalf("unparseable timestamp became %v, want the zero value", got)
+	}
+}
+
+// Every fact mutator refreshes the source manifest under the same write lock.
+// `facts status`, the integrity checks and the freshness report read their
+// counts and generation time from it, so an import that skipped the refresh
+// left all three describing the brain as it was before the import — and said
+// nothing about it.
+func TestImportRefreshesTheFactSourceManifest(t *testing.T) {
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	opts, brainDir, branch := rememberReviveEnv(t, now)
+
+	// A brain with a manifest that predates the import.
+	if err := os.MkdirAll(brainDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := withBrainWriteLock(brainDir, func() error {
+		return updateFactSourceManifestLocked(brainDir, now.Add(-72*time.Hour))
+	}); err != nil {
+		t.Fatalf("seed manifest: %v", err)
+	}
+	before, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+
+	export := filepath.Join(t.TempDir(), "mem0.json")
+	payload := `{"results":[{"id":"m1","memory":"Retries stop after three attempts.","created_at":"2026-09-01T00:00:00Z"}]}`
+	if err := os.WriteFile(export, []byte(payload), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newFactsImportCommand(opts)
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetContext(context.Background())
+	if err := cmd.Flags().Set("file", export); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.RunE(cmd, nil); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+
+	facts, err := loadFacts(brainDir, branch)
+	if err != nil || len(facts) == 0 {
+		t.Fatalf("the import wrote no facts: %v %+v", err, facts)
+	}
+	after, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+	if after == nil || after.Sources == nil || after.Sources.Facts == nil {
+		t.Fatal("the manifest has no fact source after an import that wrote facts")
+	}
+	if before != nil && before.Sources != nil && before.Sources.Facts != nil {
+		if !after.Sources.Facts.GeneratedAt.After(before.Sources.Facts.GeneratedAt) {
+			t.Fatalf("the fact source was not refreshed: still generated at %s",
+				after.Sources.Facts.GeneratedAt)
+		}
+	}
+}
+
+// A status value written as a bare string diverges silently the day the
+// constant changes, and a fact stuck on a status nothing matches is invisible
+// to every filter that uses the constant.
+func TestImportUsesTheSupersededConstant(t *testing.T) {
+	memories := []importedMemory{{
+		ForeignID:  "m1",
+		Text:       "The queue abstraction was removed.",
+		ReplacedBy: "m2",
+	}}
+	facts, report := memoriesToFacts(memories, 0, "mem0", "", "main", time.Now().UTC())
+	if len(facts) != 1 {
+		t.Fatalf("got %d facts", len(facts))
+	}
+	if facts[0].Status != factStatusSuperseded {
+		t.Fatalf("status = %q, want the factStatusSuperseded constant (%q)", facts[0].Status, factStatusSuperseded)
+	}
+	if report.Superseded != 1 {
+		t.Fatalf("report.Superseded = %d", report.Superseded)
 	}
 }

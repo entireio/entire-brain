@@ -209,7 +209,7 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 		if mem.ReplacedBy != "" {
 			// The source already superseded this memory. Importing it as
 			// active would resurrect something its owner retired.
-			status = "superseded"
+			status = factStatusSuperseded
 			report.Superseded++
 		}
 		facts = append(facts, factRecord{
@@ -294,7 +294,16 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 					for _, fact := range facts {
 						existing = upsertFact(existing, fact)
 					}
-					return writeFacts(brainDir, resolvedBranch, existing)
+					if err := writeFacts(brainDir, resolvedBranch, existing); err != nil {
+						return err
+					}
+					// Every other fact mutator refreshes the source manifest
+					// under the same lock, and import must too: `facts status`,
+					// the integrity checks and the freshness report all read
+					// their counts and generation time from it, so an import
+					// that skipped this left them describing the brain as it
+					// was before the import — stale, and silently so.
+					return updateFactSourceManifestLocked(brainDir, opts.Now().UTC())
 				}); err != nil {
 					return err
 				}
