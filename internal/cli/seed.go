@@ -338,7 +338,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	}
 	var seedManifest *seedSourceManifest
 	commitSeed := func() error {
-		if err := writeSeedArtifacts(outputDir, scan); err != nil {
+		if err := writeSeedArtifacts(outputDir, &scan); err != nil {
 			return err
 		}
 
@@ -831,8 +831,21 @@ func seedFingerprint(scan seedScanResult) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-func writeSeedArtifacts(outputDir string, scan seedScanResult) error {
+// writeSeedArtifacts takes the scan by POINTER because writing the documents
+// corrects it: a document whose extraction fails loses its seed path and gains
+// a reason, and a warning is appended. Taking it by value silently discarded
+// every one of those corrections, so the durable manifest recorded an encrypted
+// or scanned PDF as extracted, with a seed path that was never written, and the
+// "document not indexed" warning never reached anybody.
+func writeSeedArtifacts(outputDir string, scan *seedScanResult) error {
 	if err := os.MkdirAll(filepath.Join(outputDir, seedDirName, seedDocsDirName), 0o700); err != nil {
+		return err
+	}
+	// Documents are written FIRST, because doing so is what discovers which of
+	// them could not be read. file-index.json is the documented place to see
+	// why a file was included or skipped; writing it before extraction was
+	// attempted meant it could only ever report the optimistic answer.
+	if err := writeSeedDocs(outputDir, scan); err != nil {
 		return err
 	}
 	fileIndexData, err := json.MarshalIndent(scan.Files, "", "  ")
@@ -843,28 +856,45 @@ func writeSeedArtifacts(outputDir string, scan seedScanResult) error {
 	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "file-index.json")), fileIndexData, 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "repo-overview.md")), []byte(renderSeedOverview(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "repo-overview.md")), []byte(renderSeedOverview(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "architecture.md")), []byte(renderSeedArchitecture(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "architecture.md")), []byte(renderSeedArchitecture(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "commands.md")), []byte(renderSeedCommands(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "commands.md")), []byte(renderSeedCommands(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "conventions.md")), []byte(renderSeedConventions(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "conventions.md")), []byte(renderSeedConventions(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "risks.md")), []byte(renderSeedRisks(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "risks.md")), []byte(renderSeedRisks(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "history-gaps.md")), []byte(renderSeedHistoryGaps(scan)), 0o600); err != nil {
-		return err
-	}
-	if err := writeSeedDocs(outputDir, &scan); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "history-gaps.md")), []byte(renderSeedHistoryGaps(*scan)), 0o600); err != nil {
 		return err
 	}
 	return nil
+}
+
+// markSeedFileNotIndexed corrects the file index for a document that was
+// selected and then could not be read.
+//
+// inspectSeedFile marks an extractable document included before extraction is
+// attempted — it cannot know whether a PDF has a text layer without opening it
+// — so the index records the optimistic answer and this is where it is
+// corrected. Leaving it uncorrected reports a scanned PDF as successfully
+// included in the one file people are told to consult for exactly that.
+func markSeedFileNotIndexed(scan *seedScanResult, path, reason string) {
+	path = filepath.ToSlash(path)
+	for i := range scan.Files {
+		if filepath.ToSlash(scan.Files[i].Path) != path {
+			continue
+		}
+		scan.Files[i].Included = false
+		scan.Files[i].Reason = reason
+		return
+	}
 }
 
 // writeSeedDocs copies the selected high-signal docs into the seed, truncating each
@@ -920,6 +950,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 				doc.SeedPath = ""
 				doc.Extracted = false
 				scan.Warnings = append(scan.Warnings, fmt.Sprintf("document not indexed: %s", err))
+				markSeedFileNotIndexed(scan, doc.Path, doc.Reason)
 				continue
 			}
 			rendered := renderExtractedDocument(doc.Path, text)

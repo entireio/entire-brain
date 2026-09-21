@@ -51,11 +51,29 @@ const (
 	maxPDFObjects      = 200000
 	maxPDFStreamBytes  = 64 << 20
 	maxPDFContentBytes = 32 << 20
+
+	// maxPDFTotalDecodedBytes bounds decompression across the WHOLE document,
+	// not just per stream.
+	//
+	// The per-stream cap alone is not a bound: a page tree may hold thousands
+	// of pages, each page's content stream may inflate to the per-stream cap,
+	// and a page that decodes to 32 MiB of drawing operators and almost no text
+	// does not advance the output-size check that ends the loop. A small file
+	// can therefore ask for hundreds of gigabytes of inflation while producing
+	// nothing. Documents are untrusted input, and the work has to be bounded by
+	// what was done rather than by what came out of it.
+	maxPDFTotalDecodedBytes = 256 << 20
 )
 
 // extractPDFText is the entry point. It returns the document's text in reading
 // order per page, or an error naming why it could not.
 func extractPDFText(data []byte) (string, error) {
+	return extractPDFTextWithin(data, newPDFDecodeBudget())
+}
+
+// extractPDFTextWithin is extractPDFText with the document-wide decompression
+// allowance supplied, so a test can set one small enough to be reached.
+func extractPDFTextWithin(data []byte, budget *pdfDecodeBudget) (string, error) {
 	if !bytes.HasPrefix(bytes.TrimLeft(data[:min(len(data), 1024)], "\x00 \t\r\n"), []byte("%PDF-")) {
 		return "", fmt.Errorf("not a PDF (no %%PDF- header)")
 	}
@@ -71,8 +89,16 @@ func extractPDFText(data []byte) (string, error) {
 	var out strings.Builder
 	readAnyContent := false
 	for _, page := range pages {
+		if budget.exhausted() {
+			// A short-circuit, not the guard. The guard is in the decoder,
+			// which refuses once the budget is gone, so a document with 20,000
+			// pages would already produce no further text — this just stops
+			// walking them. What was read before the budget ran out is still
+			// the document's text as far as it goes.
+			break
+		}
 		fonts := pdfPageFonts(objects, page)
-		content := pdfPageContent(objects, page)
+		content := pdfPageContent(objects, page, budget)
 		if len(content) == 0 {
 			continue
 		}
@@ -114,7 +140,7 @@ func extractPDFText(data []byte) (string, error) {
 		if len(object.stream) == 0 {
 			continue
 		}
-		content, err := pdfDecodeStream(objects, object)
+		content, err := pdfDecodeStreamWithin(objects, object, budget)
 		if err != nil || !bytes.Contains(content, []byte("BT")) {
 			continue
 		}
@@ -352,7 +378,40 @@ func pdfIsEncrypted(data []byte, objects map[pdfObjectKey]*pdfObject) bool {
 
 // --- filters -----------------------------------------------------------------
 
+// pdfDecodeBudget is the document-wide decompression allowance, shared by every
+// stream decoded while reading one file.
+type pdfDecodeBudget struct{ remaining int64 }
+
+func newPDFDecodeBudget() *pdfDecodeBudget {
+	return &pdfDecodeBudget{remaining: maxPDFTotalDecodedBytes}
+}
+
+// spend reports whether n bytes of decoded output are still affordable. A nil
+// budget is unlimited, so callers that legitimately have no document context
+// (tests, one-off decodes) are unaffected.
+func (b *pdfDecodeBudget) spend(n int) bool {
+	if b == nil {
+		return true
+	}
+	b.remaining -= int64(n)
+	return b.remaining >= 0
+}
+
+func (b *pdfDecodeBudget) exhausted() bool {
+	return b != nil && b.remaining < 0
+}
+
 func pdfDecodeStream(objects map[pdfObjectKey]*pdfObject, object *pdfObject) ([]byte, error) {
+	return pdfDecodeStreamWithin(objects, object, nil)
+}
+
+func pdfDecodeStreamWithin(objects map[pdfObjectKey]*pdfObject, object *pdfObject, budget *pdfDecodeBudget) ([]byte, error) {
+	// The accounting that actually bounds the work is the spend at the end of
+	// this function; refusing up front only avoids inflating one more stream
+	// whose output would be rejected anyway.
+	if budget.exhausted() {
+		return nil, fmt.Errorf("document decompression budget exhausted")
+	}
 	data := object.stream
 	if len(data) == 0 {
 		return nil, fmt.Errorf("empty stream")
@@ -389,6 +448,9 @@ func pdfDecodeStream(objects map[pdfObjectKey]*pdfObject, object *pdfObject) ([]
 		if dict, ok := parms.(map[string]pdfValue); ok {
 			data = pdfApplyPredictor(data, dict)
 		}
+	}
+	if !budget.spend(len(data)) {
+		return nil, fmt.Errorf("document decompression budget exhausted")
 	}
 	return data, nil
 }
@@ -649,7 +711,7 @@ func pdfPages(objects map[pdfObjectKey]*pdfObject) []map[string]pdfValue {
 // pdfPageContent concatenates a page's content streams. /Contents may be one
 // stream or an array of them, and the array case is not exotic — producers split
 // a page across streams routinely, and reading only the first loses most of it.
-func pdfPageContent(objects map[pdfObjectKey]*pdfObject, page map[string]pdfValue) []byte {
+func pdfPageContent(objects map[pdfObjectKey]*pdfObject, page map[string]pdfValue, budget *pdfDecodeBudget) []byte {
 	var refs []pdfValue
 	switch v := page["Contents"].(type) {
 	case pdfRef:
@@ -669,7 +731,7 @@ func pdfPageContent(objects map[pdfObjectKey]*pdfObject, page map[string]pdfValu
 		if !ok || len(object.stream) == 0 {
 			continue
 		}
-		decoded, err := pdfDecodeStream(objects, object)
+		decoded, err := pdfDecodeStreamWithin(objects, object, budget)
 		if err != nil {
 			continue
 		}

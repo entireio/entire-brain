@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -269,5 +270,191 @@ func TestSeedStillCopiesMarkdownUnchanged(t *testing.T) {
 	}
 	if strings.HasSuffix(scan.Docs[0].SeedPath, ".md.md") {
 		t.Fatalf("markdown gained a second extension: %q", scan.Docs[0].SeedPath)
+	}
+}
+
+// The corrections writeSeedDocs makes when extraction fails have to survive the
+// trip back to the caller. writeSeedArtifacts took the scan BY VALUE, so every
+// one of them — the cleared seed path, the reason, the warning — was written to
+// a copy and thrown away. The durable manifest then recorded an unreadable
+// document as extracted, with a path that was never written.
+//
+// This goes through writeSeedArtifacts on purpose. The earlier test called
+// writeSeedDocs directly and passed the whole time the bug was live.
+func TestSeedArtifactsCarryBackWhatExtractionDiscovered(t *testing.T) {
+	repoDir := t.TempDir()
+	outputDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoDir, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A PDF with no text layer: parses, contains nothing.
+	b := &pdfBuilder{}
+	b.add("<< /Type /Catalog /Pages 2 0 R >>")
+	b.add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.add("<< /Type /Page /Parent 2 0 R /Resources << >> /Contents 4 0 R >>")
+	b.addStream(t, "", "q 600 0 0 800 0 0 cm /Im0 Do Q")
+	if err := os.WriteFile(filepath.Join(repoDir, "docs", "scan.pdf"), b.build(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	entry := inspectSeedFile(repoDir, "docs/scan.pdf", seedCommandOptions{maxFileBytes: 1 << 20})
+	scan := seedScanResult{
+		RepoDir:      repoDir,
+		MaxFileBytes: 1 << 20,
+		Files:        []seedFileIndexEntry{entry},
+		Docs: []seedDocument{{
+			Path:      "docs/scan.pdf",
+			SeedPath:  extractedSeedDocPath(filepath.ToSlash(filepath.Join(seedDirName, seedDocsDirName, "docs", "scan.pdf"))),
+			Extracted: true,
+		}},
+	}
+	if err := writeSeedArtifacts(outputDir, &scan); err != nil {
+		t.Fatalf("writeSeedArtifacts: %v", err)
+	}
+
+	if scan.Docs[0].Extracted {
+		t.Fatal("the caller's scan still records an unreadable document as extracted")
+	}
+	if scan.Docs[0].SeedPath != "" {
+		t.Fatalf("the caller's scan still carries a seed path that was never written: %q", scan.Docs[0].SeedPath)
+	}
+	if len(scan.Warnings) == 0 {
+		t.Fatal("the caller's scan carries no warning; `document not indexed` never reaches anybody")
+	}
+	if !strings.Contains(strings.Join(scan.Warnings, " "), "scan.pdf") {
+		t.Fatalf("the warning does not name the document: %v", scan.Warnings)
+	}
+}
+
+// file-index.json is the documented place to see why a file was included or
+// skipped. inspectSeedFile marks an extractable document included before
+// extraction is attempted — it cannot know whether a PDF has a text layer
+// without opening it — so the index must be written after extraction, with the
+// answer extraction found.
+func TestFileIndexReportsADocumentThatCouldNotBeRead(t *testing.T) {
+	repoDir := t.TempDir()
+	outputDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoDir, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	b := &pdfBuilder{}
+	b.add("<< /Type /Catalog /Pages 2 0 R >>")
+	b.add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.add("<< /Type /Page /Parent 2 0 R /Resources << >> /Contents 4 0 R >>")
+	b.addStream(t, "", "q 600 0 0 800 0 0 cm /Im0 Do Q")
+	if err := os.WriteFile(filepath.Join(repoDir, "docs", "scan.pdf"), b.build(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	entry := inspectSeedFile(repoDir, "docs/scan.pdf", seedCommandOptions{maxFileBytes: 1 << 20})
+	if !entry.Included {
+		t.Fatalf("setup: the document was not selected (%q)", entry.Reason)
+	}
+	scan := seedScanResult{
+		RepoDir:      repoDir,
+		MaxFileBytes: 1 << 20,
+		Files:        []seedFileIndexEntry{entry},
+		Docs: []seedDocument{{
+			Path:      "docs/scan.pdf",
+			SeedPath:  extractedSeedDocPath(filepath.ToSlash(filepath.Join(seedDirName, seedDocsDirName, "docs", "scan.pdf"))),
+			Extracted: true,
+		}},
+	}
+	if err := writeSeedArtifacts(outputDir, &scan); err != nil {
+		t.Fatalf("writeSeedArtifacts: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(outputDir, seedDirName, "file-index.json"))
+	if err != nil {
+		t.Fatalf("read file index: %v", err)
+	}
+	var index []seedFileIndexEntry
+	if err := json.Unmarshal(data, &index); err != nil {
+		t.Fatalf("decode file index: %v", err)
+	}
+	if len(index) != 1 {
+		t.Fatalf("file index has %d entries", len(index))
+	}
+	if index[0].Included {
+		t.Fatal("file-index.json reports an unreadable document as successfully included")
+	}
+	if !strings.Contains(index[0].Reason, "not indexed") {
+		t.Fatalf("file-index.json does not say why: %q", index[0].Reason)
+	}
+}
+
+// A per-stream cap is not a bound on a document. Thousands of pages, each
+// inflating to the per-stream cap and producing almost no text, advance nothing
+// that ends the loop — so a small file can ask for an unbounded amount of
+// decompression work.
+func TestPDFDecompressionIsBoundedAcrossTheWholeDocument(t *testing.T) {
+	budget := newPDFDecodeBudget()
+	if !budget.spend(maxPDFTotalDecodedBytes / 2) {
+		t.Fatal("half the budget was refused")
+	}
+	if budget.exhausted() {
+		t.Fatal("the budget reported exhaustion with half of it left")
+	}
+	if budget.spend(maxPDFTotalDecodedBytes) {
+		t.Fatal("a spend past the document budget was allowed")
+	}
+	if !budget.exhausted() {
+		t.Fatal("the budget did not record exhaustion")
+	}
+	// A nil budget is unlimited, so callers with no document context are
+	// unaffected rather than silently capped at zero.
+	var none *pdfDecodeBudget
+	if !none.spend(1 << 30) {
+		t.Fatal("a nil budget refused a spend")
+	}
+	if none.exhausted() {
+		t.Fatal("a nil budget reported exhaustion")
+	}
+}
+
+func TestPDFStopsReadingPagesOnceTheBudgetIsGone(t *testing.T) {
+	// A per-stream cap is not a bound on a document: thousands of pages, each
+	// inflating to that cap and producing almost no text, advance nothing that
+	// ends the loop. The budget is what ends it, and this proves the loop
+	// actually consults it by giving it one too small to finish the document.
+	const pages = 20
+	// Each page carries a distinct sentence and a lot of drawing operators, so
+	// pages that were read are identifiable and decoded bytes far exceed text.
+	filler := strings.Repeat("1 0 0 1 0 0 cm ", 4000)
+	b := &pdfBuilder{}
+	b.add("<< /Type /Catalog /Pages 2 0 R >>")
+	kids := make([]string, 0, pages)
+	for i := 0; i < pages; i++ {
+		kids = append(kids, fmt.Sprintf("%d 0 R", 3+i*2))
+	}
+	b.add(fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", strings.Join(kids, " "), pages))
+	for i := 0; i < pages; i++ {
+		b.add(fmt.Sprintf("<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 %d 0 R >> >> /Contents %d 0 R >>",
+			3+pages*2, 4+i*2))
+		b.addStream(t, "", fmt.Sprintf("q %s Q BT /F1 12 Tf (Sentence number %d appears here.) Tj ET", filler, i))
+	}
+	b.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+	data := b.build()
+
+	full, err := extractPDFTextWithin(data, newPDFDecodeBudget())
+	if err != nil {
+		t.Fatalf("unbounded extraction: %v", err)
+	}
+	fullPages := strings.Count(full, "appears here.")
+	if fullPages != pages {
+		t.Fatalf("the fixture is wrong: %d of %d pages read with a full budget", fullPages, pages)
+	}
+
+	// A budget that runs out partway through the document.
+	small := &pdfDecodeBudget{remaining: int64(len(filler))}
+	limited, err := extractPDFTextWithin(data, small)
+	if err != nil {
+		t.Fatalf("bounded extraction: %v", err)
+	}
+	limitedPages := strings.Count(limited, "appears here.")
+	if limitedPages >= fullPages {
+		t.Fatalf("the budget did not stop the page loop: %d of %d pages still read", limitedPages, fullPages)
+	}
+	if !small.exhausted() {
+		t.Fatal("the budget was never spent; decompression is not being accounted for")
 	}
 }
