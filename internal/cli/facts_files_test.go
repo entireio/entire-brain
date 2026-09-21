@@ -403,15 +403,23 @@ func TestManifestIsNotWrittenThroughASymlink(t *testing.T) {
 	}
 
 	fact := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports start at 8000.", Status: factStatusActive}
-	if _, err := writeFactFiles(dir, []factRecord{fact}); err != nil {
-		t.Fatalf("export: %v", err)
-	}
-	data, err := os.ReadFile(victim)
-	if err != nil {
-		t.Fatal(err)
+	_, writeErr := writeFactFiles(dir, []factRecord{fact})
+
+	data, readErr := os.ReadFile(victim)
+	if readErr != nil {
+		t.Fatal(readErr)
 	}
 	if string(data) != "somebody else's file" {
 		t.Fatalf("the manifest was written through a symlink, overwriting %s: %q", victim, data)
+	}
+	// And it has to be reported. The facts were written, but with no manifest
+	// this export can never be reconciled — proceeding in silence would leave
+	// every file it wrote permanently orphaned.
+	if writeErr == nil {
+		t.Fatal("a manifest that could not be written was not reported; the export is unreconcilable and says nothing")
+	}
+	if !strings.Contains(writeErr.Error(), factFilesManifestName) {
+		t.Fatalf("the error does not name the manifest: %v", writeErr)
 	}
 }
 
@@ -601,5 +609,77 @@ func TestExportRefusesAnOutputPathThatIsAFile(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not a directory") {
 		t.Fatalf("the error does not say why: %v", err)
+	}
+}
+
+// The directory check has to describe the state actually written into, not the
+// state a moment earlier. Checking before MkdirAll leaves a window in which dir
+// can be replaced by a symlink, and every path check after that point is
+// relative to dir and would follow it.
+//
+// The window itself is not reproducible from a test without instrumenting the
+// syscall, so this pins the property that closes it: the check runs against a
+// directory that already exists, which is the post-creation state.
+func TestExportChecksTheDirectoryItWillActuallyWriteInto(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	// A symlink that already exists is what MkdirAll leaves untouched — it
+	// succeeds on a link to an existing directory — so a check placed only
+	// before it would be the one that mattered, and one placed after it must
+	// still catch this.
+	fact := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports start at 8000.", Status: factStatusActive}
+	_, err := writeFactFiles(link, []factRecord{fact})
+	if err == nil {
+		t.Fatal("the export wrote into a symlinked directory that MkdirAll had accepted")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("the error does not say why: %v", err)
+	}
+	entries, readErr := os.ReadDir(real)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("the refused export wrote %d entr(ies) through the link", len(entries))
+	}
+}
+
+// A manifest failure during error recovery must not be swallowed: the files are
+// on disk and nothing records them, which is the silent-orphan failure this
+// file has been bitten by twice.
+func TestPartialExportReportsAFailedManifestWrite(t *testing.T) {
+	dir := t.TempDir()
+	// Plant a symlinked manifest so recording the partial export fails, and
+	// force a partial export with a filename collision.
+	victim := filepath.Join(t.TempDir(), "victim.json")
+	if err := os.WriteFile(victim, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(dir, factFilesManifestName)); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	good := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports.", Status: factStatusActive}
+	a := factRecord{ID: "fact:bbbbbbbbbbbbAAAA", Paths: []string{"constraints.retry.policy"}, Text: "A.", Status: factStatusActive}
+	b := factRecord{ID: "fact:bbbbbbbbbbbbBBBB", Paths: []string{"constraints.retry.policy"}, Text: "B.", Status: factStatusActive}
+
+	_, err := writeFactFiles(dir, []factRecord{good, a, b})
+	if err == nil {
+		t.Fatal("the colliding export reported success")
+	}
+	// Both halves have to survive: the reason the export failed, and the fact
+	// that its files are now untracked.
+	if !strings.Contains(err.Error(), "both map to") {
+		t.Fatalf("the original failure was lost: %v", err)
+	}
+	if !strings.Contains(err.Error(), "not tracked") {
+		t.Fatalf("the manifest failure was swallowed, so the orphaned files are unreported: %v", err)
 	}
 }

@@ -251,22 +251,30 @@ func pruneStaleFactFiles(dir string, previous factFilesManifest, written map[str
 // export ever run.
 func writeFactFiles(dir string, facts []factRecord) (factFilesResult, error) {
 	result := factFilesResult{Dir: dir}
-	// The export root itself, before anything inside it. Every path check in
-	// this function is relative to `dir`, so a symlink AT dir is invisible to
-	// all of them — and this function both writes and deletes. `export`
-	// applies the same rule to its output directory; the wording is borrowed
-	// from it deliberately, because two commands refusing the same thing for
-	// the same reason should say so the same way.
-	if info, err := os.Lstat(dir); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			return result, fmt.Errorf("output directory must not be a symlink: %s", dir)
-		}
-		if !info.IsDir() {
-			return result, fmt.Errorf("output path exists and is not a directory: %s", dir)
-		}
-	}
+	// The export root itself is checked below, AFTER MkdirAll rather than
+	// before. Every path check in this function is relative to `dir`, so a
+	// symlink AT dir is invisible to all of them — and this function both
+	// writes and deletes. `export` applies the same rule to its output
+	// directory; the wording is borrowed from it deliberately, because two
+	// commands refusing the same thing for the same reason should say so the
+	// same way.
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return result, fmt.Errorf("create export directory: %w", err)
+	}
+	// Re-check after creating it. The check above is a time-of-check and this
+	// is the time-of-use: between them, dir can be replaced by a symlink, and
+	// every path check after this point is relative to dir and would follow it.
+	// Checking the state we are actually about to write into is the only order
+	// that means anything.
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return result, fmt.Errorf("stat export directory: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return result, fmt.Errorf("output directory must not be a symlink: %s", dir)
+	}
+	if !info.IsDir() {
+		return result, fmt.Errorf("output path exists and is not a directory: %s", dir)
 	}
 	previous, err := readFactFilesManifest(dir)
 	if err != nil {
@@ -288,27 +296,27 @@ func writeFactFiles(dir string, facts []factRecord) (factFilesResult, error) {
 		// Every other place in this codebase that writes under a user-named
 		// output directory checks this first.
 		if err := rejectExistingSymlinkPathComponents(dir, relDir); err != nil {
-			recordPartialExport(dir, previous, result.Files)
-			return result, fmt.Errorf("refusing to write into %s: %w", relDir, err)
+			manifestErr := recordPartialExport(dir, previous, result.Files)
+			return result, withManifestFailure(fmt.Errorf("refusing to write into %s: %w", relDir, err), manifestErr)
 		}
 		absDir := filepath.Join(dir, relDir)
 		if err := os.MkdirAll(absDir, 0o755); err != nil {
-			recordPartialExport(dir, previous, result.Files)
-			return result, fmt.Errorf("create %s: %w", relDir, err)
+			manifestErr := recordPartialExport(dir, previous, result.Files)
+			return result, withManifestFailure(fmt.Errorf("create %s: %w", relDir, err), manifestErr)
 		}
 		rel := filepath.Join(relDir, factFileName(fact.ID))
 		if owner, taken := claimed[rel]; taken {
-			recordPartialExport(dir, previous, result.Files)
-			return result, fmt.Errorf("facts %s and %s both map to %s; one would silently replace the other", owner, fact.ID, rel)
+			manifestErr := recordPartialExport(dir, previous, result.Files)
+			return result, withManifestFailure(fmt.Errorf("facts %s and %s both map to %s; one would silently replace the other", owner, fact.ID, rel), manifestErr)
 		}
 		claimed[rel] = fact.ID
 		if err := rejectExistingSymlinkPathComponents(dir, rel); err != nil {
-			recordPartialExport(dir, previous, result.Files)
-			return result, fmt.Errorf("refusing to write %s: %w", rel, err)
+			manifestErr := recordPartialExport(dir, previous, result.Files)
+			return result, withManifestFailure(fmt.Errorf("refusing to write %s: %w", rel, err), manifestErr)
 		}
 		if err := os.WriteFile(filepath.Join(dir, rel), []byte(renderFactFile(fact)), 0o644); err != nil {
-			recordPartialExport(dir, previous, result.Files)
-			return result, fmt.Errorf("write %s: %w", rel, err)
+			manifestErr := recordPartialExport(dir, previous, result.Files)
+			return result, withManifestFailure(fmt.Errorf("write %s: %w", rel, err), manifestErr)
 		}
 		result.Files = append(result.Files, rel)
 	}
@@ -320,7 +328,12 @@ func writeFactFiles(dir string, facts []factRecord) (factFilesResult, error) {
 		written[rel] = true
 	}
 	pruneStaleFactFiles(dir, previous, written)
-	writeFactFilesManifest(dir, result.Files)
+	if err := writeFactFilesManifest(dir, result.Files); err != nil {
+		// The files are written; only the record of them failed. Returning it
+		// matters because without the manifest the next export cannot
+		// reconcile, and silence here would make that undiagnosable.
+		return result, fmt.Errorf("export written, but recording it failed: %w", err)
+	}
 	return result, nil
 }
 
@@ -330,18 +343,31 @@ func writeFactFiles(dir string, facts []factRecord) (factFilesResult, error) {
 // Failure to write it is not returned: the export itself succeeded, and the
 // cost of a missing manifest is that the next run prunes nothing, which is the
 // safe direction.
-func writeFactFilesManifest(dir string, files []string) {
+func writeFactFilesManifest(dir string, files []string) error {
 	if err := rejectExistingSymlinkPathComponents(dir, factFilesManifestName); err != nil {
 		// The manifest is a file like any other, in a directory somebody could
 		// have planted a symlink in. Without this check it is the one write in
 		// this function that could still be redirected out of --dir.
-		return
+		return fmt.Errorf("refusing to write %s: %w", factFilesManifestName, err)
 	}
 	data, err := json.MarshalIndent(factFilesManifest{Files: files}, "", "  ")
 	if err != nil {
-		return
+		return err
 	}
-	_ = os.WriteFile(filepath.Join(dir, factFilesManifestName), append(data, '\n'), 0o644)
+	return os.WriteFile(filepath.Join(dir, factFilesManifestName), append(data, '\n'), 0o644)
+}
+
+// withManifestFailure keeps both halves of a failed export.
+//
+// When an export fails partway, the record of what it wrote can fail too — a
+// full disk fails both. Discarding the second leaves the files orphaned with no
+// manifest naming them and nothing saying so, which is the silent-orphan
+// failure this file has now been bitten by twice.
+func withManifestFailure(err, manifestErr error) error {
+	if manifestErr == nil {
+		return err
+	}
+	return fmt.Errorf("%w (and the partial export could not be recorded, so its files are not tracked: %w)", err, manifestErr)
 }
 
 // recordPartialExport keeps the manifest honest when an export fails partway.
@@ -352,7 +378,7 @@ func writeFactFilesManifest(dir string, files []string) {
 // manifest, so no later run would ever remove them. The manifest now covers the
 // union — what a previous run left, plus what this one managed to write —
 // which is exactly the set the next export needs to reconcile.
-func recordPartialExport(dir string, previous factFilesManifest, writtenSoFar []string) {
+func recordPartialExport(dir string, previous factFilesManifest, writtenSoFar []string) error {
 	seen := make(map[string]bool, len(previous.Files)+len(writtenSoFar))
 	union := make([]string, 0, len(previous.Files)+len(writtenSoFar))
 	for _, rel := range append(append([]string{}, previous.Files...), writtenSoFar...) {
@@ -363,7 +389,7 @@ func recordPartialExport(dir string, previous factFilesManifest, writtenSoFar []
 		union = append(union, rel)
 	}
 	sort.Strings(union)
-	writeFactFilesManifest(dir, union)
+	return writeFactFilesManifest(dir, union)
 }
 
 func newFactsFilesCommand(opts Options) *cobra.Command {
