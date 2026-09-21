@@ -454,19 +454,37 @@ func newFactsGCCommand(opts Options) *cobra.Command {
 		force   bool
 		retain  time.Duration
 		jsonOut bool
+		global  bool
 	)
 	cmd := &cobra.Command{
 		Use:   "gc",
 		Short: "Prune retracted and old superseded facts; report orphans",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			var (
+				brainDir       string
+				resolvedBranch string
+				err            error
+			)
+			// Without this the global store is write-only in one direction:
+			// facts can be retracted there and never pruned, so it grows
+			// without bound and the documented promise that global facts get
+			// the same lifecycle as repository ones is not kept.
+			if global {
+				if strings.TrimSpace(branch) != "" {
+					return fmt.Errorf("--global and --branch cannot be combined: a global fact is not on a branch")
+				}
+				brainDir, resolvedBranch, err = resolveGlobalFactsTarget(opts.Env)
+			} else {
+				_, brainDir, resolvedBranch, err = resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			}
 			if err != nil {
 				return err
 			}
 			return runFactsGC(cmd, opts, brainDir, resolvedBranch, force, retain, jsonOut)
 		},
 	}
+	cmd.Flags().BoolVar(&global, "global", false, "Prune the global fact store rather than this repository's")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch to gc (default: current branch)")
 	cmd.Flags().BoolVar(&force, "force", false, "Actually prune (default: dry-run reporting what would be pruned)")
 	cmd.Flags().DurationVar(&retain, "retain", defaultFactRetention, "Retain superseded facts updated within this window")

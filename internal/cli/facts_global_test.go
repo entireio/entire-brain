@@ -515,3 +515,72 @@ func TestLocusDriftSkipsGlobalFacts(t *testing.T) {
 		t.Fatalf("a repository fact with a missing locus was not flagged: %+v", drift)
 	}
 }
+
+// A store that can be written and retracted but never pruned grows without
+// bound, and the reference documents global facts as getting "the same
+// retraction and garbage collection" as repository ones. `facts retract
+// --global` shipped without its counterpart, so that promise was not kept.
+func TestGlobalFactsCanBeGarbageCollected(t *testing.T) {
+	opts, _ := globalTestOptions(t)
+	rememberGlobal(t, opts, "The staging cluster is in eu-west-1.")
+
+	facts, err := loadGlobalFacts(opts.Env)
+	if err != nil || len(facts) != 1 {
+		t.Fatalf("setup: %v %+v", err, facts)
+	}
+	id := facts[0].ID
+
+	retract := newFactsRetractCommand(opts)
+	retract.SetOut(&bytes.Buffer{})
+	retract.SetErr(&bytes.Buffer{})
+	retract.SetContext(context.Background())
+	if err := retract.Flags().Set("global", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := retract.RunE(retract, []string{id}); err != nil {
+		t.Fatalf("retract --global: %v", err)
+	}
+
+	gc := newFactsGCCommand(opts)
+	out := &bytes.Buffer{}
+	gc.SetOut(out)
+	gc.SetErr(&bytes.Buffer{})
+	gc.SetContext(context.Background())
+	if err := gc.Flags().Set("global", "true"); err != nil {
+		t.Fatalf("`facts gc` has no --global flag, so a retracted global fact can never be pruned: %v", err)
+	}
+	if err := gc.Flags().Set("force", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := gc.RunE(gc, nil); err != nil {
+		t.Fatalf("gc --global: %v", err)
+	}
+
+	after, err := loadGlobalFacts(opts.Env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fact := range after {
+		if fact.ID == id {
+			t.Fatalf("the retracted global fact survived gc: %+v", fact)
+		}
+	}
+}
+
+func TestGlobalGCRefusesABranch(t *testing.T) {
+	// A global fact is not on a branch; accepting both would prune something
+	// other than what was asked for.
+	opts, _ := globalTestOptions(t)
+	gc := newFactsGCCommand(opts)
+	gc.SetOut(&bytes.Buffer{})
+	gc.SetErr(&bytes.Buffer{})
+	gc.SetContext(context.Background())
+	for _, flag := range [][2]string{{"global", "true"}, {"branch", "main"}} {
+		if err := gc.Flags().Set(flag[0], flag[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := gc.RunE(gc, nil); err == nil {
+		t.Fatal("--global --branch was accepted")
+	}
+}
