@@ -351,7 +351,7 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 			}
 			// Locus drift (Phase 2 item 4): flag surfaced facts whose code
 			// locus left the worktree, so the agent knows which to re-verify.
-			drift := factsLocusDrift(repoDir, matches)
+			drift := factsLocusDrift(repoDir, factsEligibleForLocusDrift(matches, globalIDs))
 			// Live trust state: a surfaced fact with a pending merge/supersede
 			// proposal is annotated (not collapsed — recall keeps its record
 			// shape), matching the guard the unified query/search/get path
@@ -546,6 +546,27 @@ func newInspectBlameCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch the fact belongs to (default: current branch)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	return cmd
+}
+
+// factsEligibleForLocusDrift drops global facts before the drift check.
+//
+// Locus drift asks whether a fact's code locus still exists in THIS worktree.
+// A global fact was never scoped to this repository, so the answer is
+// meaningless and always alarming: any path it mentions would be reported as a
+// stale locus in every repository except the one it was written in. Global
+// facts are excluded here for the same reason they are kept out of this
+// repository's semantic cache.
+func factsEligibleForLocusDrift(matches []factRecord, globalIDs map[string]bool) []factRecord {
+	if len(globalIDs) == 0 {
+		return matches
+	}
+	eligible := make([]factRecord, 0, len(matches))
+	for _, fact := range matches {
+		if !globalIDs[fact.ID] {
+			eligible = append(eligible, fact)
+		}
+	}
+	return eligible
 }
 
 // printGlobalFactLine renders a fact that came from the global store rather than

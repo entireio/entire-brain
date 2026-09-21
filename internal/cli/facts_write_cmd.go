@@ -80,9 +80,18 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 	// because "you are not in a repository" is a reason to pick a different
 	// store, not a reason to discard what somebody just typed.
 	global := rememberOpts.global
-	if !global && strings.TrimSpace(rememberOpts.branch) == "" && !inARepository(ctx, opts) {
-		global = true
-		fmt.Fprintln(cmd.ErrOrStderr(), globalFactNotice(false))
+	if !global && strings.TrimSpace(rememberOpts.branch) == "" {
+		here, err := inARepository(ctx, opts)
+		if err != nil {
+			// An undecidable repository identity is not an invitation to file
+			// the fact somewhere else. Surfacing it is the whole point of the
+			// guard that raised it.
+			return err
+		}
+		if !here {
+			global = true
+			fmt.Fprintln(cmd.ErrOrStderr(), globalFactNotice(false))
+		}
 	}
 
 	var (

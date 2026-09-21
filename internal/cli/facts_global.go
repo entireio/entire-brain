@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -153,16 +154,26 @@ func resolveGlobalFactsTarget(env EntireEnv) (brainDir, branch string, err error
 // recorded in ~/Desktop would be filed to a repository that does not exist, on
 // a branch nobody is on, and never seen again — which is worse than the refusal
 // this was meant to replace, because it looks like it worked.
-func inARepository(ctx context.Context, opts Options) bool {
+// It returns an error for the case that is neither: a repository whose identity
+// cannot be decided. resolveFactsTarget refuses to guess when state exists under
+// two keys, and treating that refusal as "not in a repository" would swallow the
+// guard and quietly file a repo-scoped fact globally — defeating the exact
+// protection it was raised to provide. "No repository here" and "I cannot tell
+// which repository this is" call for opposite responses.
+func inARepository(ctx context.Context, opts Options) (bool, error) {
 	repoDir, _, _, err := resolveFactsTarget(ctx, opts, agentSurfaceTarget(opts, nil), "")
 	if err != nil {
-		return false
+		var conflict *localRepoIdentityConflictError
+		if errors.As(err, &conflict) {
+			return false, err
+		}
+		return false, nil
 	}
 	inside, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "--is-inside-work-tree")
 	if err != nil {
-		return false
+		return false, nil
 	}
-	return strings.TrimSpace(inside) == "true"
+	return strings.TrimSpace(inside) == "true", nil
 }
 
 // globalFactNotice is what the user sees when a fact was filed globally without

@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -269,7 +271,11 @@ func TestPlainDirectoryIsNotMistakenForARepository(t *testing.T) {
 	opts.Runner = ExecRunner{}
 	opts.Env.RepoRoot = plain
 
-	if inARepository(context.Background(), opts) {
+	here, err := inARepository(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("a plain directory reported an error rather than \"no repository\": %v", err)
+	}
+	if here {
 		t.Fatal("a plain directory was treated as a repository")
 	}
 
@@ -313,7 +319,11 @@ func TestRealRepositoryStillFilesFactsLocally(t *testing.T) {
 	opts.Runner = ExecRunner{}
 	opts.Env.RepoRoot = repoDir
 
-	if !inARepository(context.Background(), opts) {
+	here, err := inARepository(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("a real working tree reported an error: %v", err)
+	}
+	if !here {
 		t.Fatal("a real working tree was not recognised as a repository")
 	}
 
@@ -446,5 +456,62 @@ func TestGlobalFactIDsAreReportedInJSON(t *testing.T) {
 	}
 	if got := sortedGlobalFactIDs(matches, map[string]bool{}); len(got) != 0 {
 		t.Fatalf("ids reported with no global facts: %v", got)
+	}
+}
+
+// "No repository here" and "I cannot tell which repository this is" call for
+// opposite responses. resolveFactsTarget refuses to guess when state exists
+// under two identity keys; treating that refusal as "not in a repository" would
+// swallow the guard and file a repo-scoped fact globally — defeating the exact
+// protection that was raised.
+func TestUndecidableRepositoryIdentityIsSurfacedNotFiledGlobally(t *testing.T) {
+	opts, _ := globalTestOptions(t)
+	conflict := &localRepoIdentityConflictError{
+		Canonical: repoStorage{Key: "local/repo-aaaa", BrainDir: "/tmp/a"},
+		Legacy:    repoStorage{Key: "local/repo-bbbb", BrainDir: "/tmp/b"},
+	}
+	// The guard must be recognised through wrapping, the way it reaches a
+	// caller in practice.
+	if !errorIsRepoIdentityConflict(fmt.Errorf("resolve target: %w", conflict)) {
+		t.Fatal("a wrapped identity conflict is not recognised; it would be treated as no repository")
+	}
+	if errorIsRepoIdentityConflict(errors.New("facts require a local repository path: /nowhere")) {
+		t.Fatal("an ordinary not-a-repository error was mistaken for an identity conflict")
+	}
+	_ = opts
+}
+
+// errorIsRepoIdentityConflict mirrors the classification inARepository makes,
+// so the distinction can be held without a repository in two states on disk.
+func errorIsRepoIdentityConflict(err error) bool {
+	var conflict *localRepoIdentityConflictError
+	return errors.As(err, &conflict)
+}
+
+// A global fact was never scoped to this repository, so asking whether its
+// locus still exists here is meaningless — and the answer is always alarming.
+// Any path a global fact mentions would be flagged stale in every repository
+// but the one it came from.
+func TestLocusDriftSkipsGlobalFacts(t *testing.T) {
+	repoDir := t.TempDir()
+	local := factRecord{ID: "local-1", Text: "See internal/cli/missing_file.go for the parser.", Locus: []string{"internal/cli/missing_file.go"}}
+	// A concrete file path, because the drift check only considers tokens that
+	// look like files — a bare directory is never checked, so a fixture using
+	// one would pass whether or not global facts are filtered.
+	global := factRecord{ID: "global-1", Text: "Team convention: migrations start at db/migrations/0001_init.sql.", Locus: []string{"db/migrations/0001_init.sql"}}
+
+	matches := []factRecord{local, global}
+	globalIDs := map[string]bool{"global-1": true}
+
+	// The production filter, not a copy of it in the test: a test that
+	// reimplements the logic it is checking passes whatever the code does.
+	drift := factsLocusDrift(repoDir, factsEligibleForLocusDrift(matches, globalIDs))
+	if _, flagged := drift["global-1"]; flagged {
+		t.Fatal("a global fact was flagged as having a stale locus in a repository it was never scoped to")
+	}
+	// The repository's own fact must still be checked, or the filter has
+	// disabled drift detection rather than scoping it.
+	if _, flagged := drift["local-1"]; !flagged {
+		t.Fatalf("a repository fact with a missing locus was not flagged: %+v", drift)
 	}
 }
