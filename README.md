@@ -22,24 +22,23 @@ Through the CLI and MCP, agents can retrieve earlier decisions, revisit past att
 ## Install
 
 ```sh
+# Entire CLI — captures the agent sessions Brain learns from.
+curl -fsSL https://entire.io/install.sh | bash
+
+# Brain.
 curl -fsSL https://raw.githubusercontent.com/entireio/entire-brain/main/scripts/get-brain.sh | bash
-```
 
-Downloads the release binary for your platform, verifies it against the release
-checksums, installs it to `~/.local/bin`, and registers it with the Entire CLI.
-No Go toolchain, no C compiler. `--nightly`, `--version vX.Y.Z` and `--dir` all
-work; Windows users take the `.zip` from the
-[latest release](https://github.com/entireio/entire-brain/releases/latest).
-
-Or through the CLI, the way Graph installs:
-
-```sh
+# Graph — the code analysis Brain builds on.
 entire plugin install graph
-entire plugin install brain
 ```
 
-Graph supplies the code analysis Brain builds on. Without it `setup` reports the
-semantic index as unavailable; sessions, docs and facts still work.
+Brain is a plugin for the CLI. The install script verifies the download against
+the release checksums; no Go toolchain, no C compiler. It takes `--nightly`,
+`--version vX.Y.Z` and `--dir`.
+
+Without Graph, `setup` reports the semantic index as unavailable; sessions, docs
+and facts still work. Without the CLI there are no sessions to read, and Brain
+falls back to code, docs and Git history.
 
 <details>
 <summary>Building from source</summary>
