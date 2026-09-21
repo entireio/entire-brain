@@ -221,6 +221,29 @@ func signWebhook(body []byte) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+// redactWebhookURL removes the endpoint from a transport error.
+//
+// For many receivers the URL IS the credential — a Slack or Discord incoming
+// webhook is a secret path, and plenty of others carry a token in the query.
+// http.Client.Do returns a *url.Error whose message embeds the whole thing, and
+// this error is printed to stderr on every transient failure: into CI logs,
+// agent transcripts and error monitoring. The host is enough to diagnose a
+// delivery problem; the rest is a secret with no reason to be in a log.
+func redactWebhookURL(err error) error {
+	var urlErr *url.Error
+	if !errors.As(err, &urlErr) {
+		return err
+	}
+	host := "the configured endpoint"
+	if parsed, parseErr := url.Parse(urlErr.URL); parseErr == nil && parsed.Host != "" {
+		host = parsed.Scheme + "://" + parsed.Host
+	}
+	// Rebuilt rather than string-replaced: the unwrapped cause carries the
+	// reason (timeout, connection refused, TLS failure) and does not contain
+	// the URL, so this keeps everything diagnostic and drops only the secret.
+	return fmt.Errorf("%s %s: %w", urlErr.Op, host, urlErr.Unwrap())
+}
+
 // errWebhookRedirect is returned rather than followed. See the header comment:
 // the payload and its signature must not be delivered to a host the user did
 // not configure.
@@ -278,7 +301,7 @@ func deliverWebhook(ctx context.Context, endpoint string, event webhookEvent) er
 		if errors.Is(err, errWebhookRedirect) {
 			return errWebhookRedirect
 		}
-		return fmt.Errorf("deliver webhook: %w", err)
+		return fmt.Errorf("deliver webhook: %w", redactWebhookURL(err))
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))

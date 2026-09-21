@@ -695,3 +695,39 @@ func TestDefaultWebhookTimeoutStaysABudget(t *testing.T) {
 			defaultWebhookTimeout)
 	}
 }
+
+// For many receivers the URL is the credential — a Slack or Discord incoming
+// webhook is a secret path. The transport error embeds the whole URL and is
+// printed to stderr on every transient failure, into CI logs, agent transcripts
+// and error monitoring. The host is enough to diagnose; the rest is a secret.
+func TestDeliveryFailureDoesNotLeakTheEndpoint(t *testing.T) {
+	const secretPath = "/services/T00000000/B00000000/XXXXXXXXXXXXsecrettoken"
+	// A port nothing is listening on, so the POST fails at the transport.
+	t.Setenv(webhookURLEnv, "http://127.0.0.1:1"+secretPath+"?token=alsosecret")
+
+	err := emitWebhook(context.Background(), webhookEvent{Event: WebhookTest})
+	if err == nil {
+		t.Fatal("delivery to a dead port reported success")
+	}
+	message := err.Error()
+	for _, secret := range []string{secretPath, "secrettoken", "alsosecret"} {
+		if strings.Contains(message, secret) {
+			t.Fatalf("the delivery error leaks the endpoint: %q", message)
+		}
+	}
+	// And the same through the path the write commands actually use.
+	errOut := &bytes.Buffer{}
+	notifyWebhook(context.Background(), errOut, webhookEvent{Event: WebhookTest})
+	for _, secret := range []string{secretPath, "secrettoken", "alsosecret"} {
+		if strings.Contains(errOut.String(), secret) {
+			t.Fatalf("the stderr warning leaks the endpoint: %q", errOut.String())
+		}
+	}
+	// It still has to be diagnosable: the host and the reason must survive.
+	if !strings.Contains(message, "127.0.0.1") {
+		t.Fatalf("redaction removed the host, leaving nothing to diagnose: %q", message)
+	}
+	if !strings.Contains(strings.ToLower(message), "refused") && !strings.Contains(strings.ToLower(message), "connect") {
+		t.Fatalf("redaction removed the reason: %q", message)
+	}
+}
