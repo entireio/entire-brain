@@ -386,3 +386,52 @@ func TestHTTPHandlerDoesNotDiscardTheDeliveryError(t *testing.T) {
 		t.Fatal("mcp_http.go does not report a failed delivery")
 	}
 }
+
+// The stdio loop skips dispatch entirely for a message with no id. The HTTP
+// handler dispatched it anyway and discarded the response as a 204 — so an
+// authenticated client could run a state-mutating tools/call by omitting the
+// id, with the only evidence thrown away. The transports must not disagree
+// about what they execute.
+func TestHTTPDoesNotExecuteNotifications(t *testing.T) {
+	opts := httpTestOptions(t)
+	cfg := mcpHTTPConfig{Addr: "127.0.0.1:0", Token: "right-token", Loopback: true}
+	server := httptest.NewServer(newMCPHTTPHandler(opts, cfg))
+	t.Cleanup(server.Close)
+
+	// A tools/call with no id. If it is dispatched, the tool runs.
+	body := `{"jsonrpc":"2.0","method":"tools/call","params":{"name":"brain_refresh","arguments":{}}}`
+	req, _ := http.NewRequest(http.MethodPost, server.URL+"/", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer right-token")
+	resp, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("a notification returned %d, want 204", resp.StatusCode)
+	}
+
+	// The observable consequence: dispatch must not have happened. A refresh
+	// would have created the brain directory for this repository.
+	if _, err := os.Stat(opts.Env.PluginDataDir); err == nil {
+		entries, _ := os.ReadDir(opts.Env.PluginDataDir)
+		if len(entries) > 0 {
+			t.Fatalf("a notification executed the tool: %d entr(ies) written under the data dir", len(entries))
+		}
+	}
+}
+
+// Both transports must make the same decision about notifications, from the
+// same check. The drift this guards was a handler that looked correct on its
+// own and disagreed with the other transport.
+func TestBothTransportsSkipNotifications(t *testing.T) {
+	for _, file := range []string{"mcp.go", "mcp_http.go"} {
+		data, err := os.ReadFile(filepath.Join(".", file))
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		if !strings.Contains(string(data), "msg.ID == nil") {
+			t.Fatalf("%s has no notification check; the transports can disagree about what they execute", file)
+		}
+	}
+}

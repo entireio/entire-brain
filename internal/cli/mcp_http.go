@@ -177,20 +177,19 @@ func newMCPHTTPHandler(opts Options, cfg mcpHTTPConfig) http.Handler {
 		// not be able to disagree about which tools exist, what they do, or —
 		// as they once did — whether the retrieval privacy lock is held until
 		// the response has actually been delivered.
-		var notification bool
+		if msg.ID == nil {
+			// A JSON-RPC notification. The stdio loop skips dispatch entirely
+			// for these, and the two transports must not disagree about what
+			// they execute: dispatching here meant an authenticated HTTP client
+			// could run a state-mutating tools/call by omitting the id, and
+			// have the only evidence discarded as a 204.
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		_, deliverErr := deliverMCPResponse(r.Context(), opts, msg, func(_ context.Context, response mcpMessage) error {
-			if response.ID == nil && response.Method == "" {
-				// A notification has no reply. 204 says "understood, nothing to
-				// return" rather than sending an empty JSON body a client would
-				// try to parse.
-				notification = true
-				w.WriteHeader(http.StatusNoContent)
-				return nil
-			}
 			w.Header().Set("Content-Type", "application/json")
 			return json.NewEncoder(w).Encode(response)
 		})
-		_ = notification
 		if deliverErr != nil {
 			// The status line and headers are already sent, so the client will
 			// read a truncated body under a 200. Nothing can be done about that
