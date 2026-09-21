@@ -91,6 +91,16 @@ const (
 type retrievalOptions struct {
 	// Source selects the layer(s) to rank: "" or "all" is the default set.
 	Source string
+	// Recency turns on time-weighted ranking: a soft multiplier on the fused
+	// score, never a filter. Off by default because switching it on silently
+	// would reorder every existing caller's results for a reason they never
+	// asked about. RecencyHalfLife overrides the default; zero uses it.
+	// See recency.go.
+	Recency         bool
+	RecencyHalfLife time.Duration
+	// Now is the clock recency measures age against. Zero means time.Now;
+	// tests set it so a ranking assertion is not a race with the wall clock.
+	Now time.Time
 	// Structured conversation-source filters (Phase 2). Zero values mean no
 	// filter. After/Before bound the session time (After inclusive, Before
 	// exclusive); records without a session time are excluded whenever a time
@@ -466,7 +476,19 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		return nil, fmt.Errorf("load doc index: %w", derr)
 	}
 
-	return rrfMergeUnified(lists, limit), nil
+	fused := rrfMergeUnified(lists, limit)
+	if opts.Recency {
+		now := opts.Now
+		if now.IsZero() {
+			now = time.Now()
+		}
+		halfLife := opts.RecencyHalfLife
+		if halfLife <= 0 {
+			halfLife = defaultRecencyHalfLife
+		}
+		applyRecency(fused, now, halfLife)
+	}
+	return fused, nil
 }
 
 func filterHistoryRetrievalSelfEchoes(scored []scoredHistoryRecord, query string) []scoredHistoryRecord {
@@ -688,6 +710,12 @@ func factsToUnified(facts []factRecord) []unifiedResult {
 	out := make([]unifiedResult, len(facts))
 	for i, f := range facts {
 		out[i] = unifiedResult{Source: "fact", ID: f.ID, Path: strings.Join(f.Paths, ","), Heading: factKindOrInferred(f), Text: f.Text}
+		// UpdatedAt, not CreatedAt: a fact revised last week is current
+		// regardless of when it was first written, and revision is exactly
+		// the signal recency weighting should follow.
+		if !f.UpdatedAt.IsZero() {
+			out[i].CreatedAt = f.UpdatedAt.UTC().Format(time.RFC3339)
+		}
 	}
 	return out
 }
@@ -979,6 +1007,9 @@ func historyToUnified(scored []scoredHistoryRecord) []unifiedResult {
 	out := make([]unifiedResult, len(scored))
 	for i, s := range scored {
 		out[i] = unifiedResult{Source: "history", ID: s.Record.ID, Path: s.Record.Path, Line: s.Record.Line, Heading: s.Record.Kind, Text: s.Record.Summary}
+		// Classic history records carry no time. Leaving CreatedAt empty is
+		// the honest answer: recency treats undated records as neutral, not old.
+		out[i].CreatedAt = s.Record.CreatedAt
 	}
 	return out
 }
@@ -1021,16 +1052,23 @@ func rrfMergeUnified(lists [][]unifiedResult, limit int) []unifiedResult {
 		r.Score = fused[id]
 		out = append(out, r)
 	}
+	sortUnifiedByScore(out)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+// sortUnifiedByScore orders by score descending, breaking ties on id so the
+// order is stable across runs. Recency reweighting re-sorts with the same
+// comparison, so a reweighted list and a fused list are ordered by one rule.
+func sortUnifiedByScore(out []unifiedResult) {
 	sort.Slice(out, func(a, b int) bool {
 		if out[a].Score != out[b].Score {
 			return out[a].Score > out[b].Score
 		}
 		return out[a].ID < out[b].ID
 	})
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	return out
 }
 
 // getUnifiedBatch resolves prefixed ids (fact:/review:/history:/doc:/pattern:/theme:) to full records,
