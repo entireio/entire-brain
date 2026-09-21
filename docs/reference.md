@@ -1214,6 +1214,80 @@ Model2Vec with a one-line stderr notice. Switching embedders re-namespaces the
 vector cache, so the two never mix. Changing the embedder changes retrieval
 behavior, not the underlying source of truth.
 
+## Documents
+
+Brain indexes markdown from `docs/` and, alongside it, the documents that are
+not code: PDF, Word, Excel and PowerPoint. A design doc somebody wrote in Word
+and a spec that arrived as a PDF are project knowledge exactly like a `.md`
+file, and were previously invisible to every query.
+
+```sh
+entire brain docs formats                 # what this build reads
+entire brain docs extract docs/spec.pdf   # the text it gets out of one file
+entire brain docs extract docs/spec.pdf --json
+```
+
+Extraction runs during `refresh`, with the rest of the seed. It is fully
+deterministic and local — no model, no network, no external binaries — so it
+costs no tokens and works offline.
+
+### What is read
+
+| Format | Read | Not read |
+| --- | --- | --- |
+| `.pdf` | the text layer, page by page | scans (no text layer), encrypted files |
+| `.docx` | body, footnotes, endnotes; tables as tab-separated rows | headers and footers, which repeat on every page |
+| `.xlsx` | every sheet, labelled with its own name; shared strings resolved | charts, formulas (the computed value is read) |
+| `.pptx` | slides in deck order, then speaker notes | slide masters and layouts |
+
+Legacy `.doc`, `.xls` and `.ppt` are a different format (OLE compound files),
+not a variant of the above, and are not read. Images are not read: that needs
+OCR, which would mean shipping a native dependency.
+
+### Where they are read from
+
+`docs/`, the same place markdown is taken from — not the whole tree. A `.xlsx`
+under test fixtures or a vendored PDF manual is data rather than documentation,
+and indexing those would bury the documents somebody meant to be read.
+
+Extracted text is written into the brain as `seed/docs/<path>.md` with a header
+naming the source, so it is inspectable as plain text and it is obvious the file
+is derived. The original document is never modified.
+
+### When a document cannot be read
+
+Brain reports it and continues; the refresh still succeeds. The reason lands in
+the seed's file index and in the refresh warnings:
+
+```
+warning: document not indexed: docs/scanned-form.pdf: the PDF has no text layer
+  (it is probably a scan; OCR is out of scope for this build)
+```
+
+Nothing is written for that document. An empty markdown file in the seed would
+be indexed as a document that exists and says nothing, which is worse than an
+absence somebody can see.
+
+Three failures are reported rather than guessed at, because each would otherwise
+produce a plausible-looking result that is wrong:
+
+- **A scan** has no text layer at all. Indexing it as an empty document would
+  count as a successful ingest.
+- **An encrypted PDF** cannot be read without its key.
+- **A font this build cannot map.** Modern PDFs embed subset fonts whose bytes
+  are glyph indices rather than characters; Brain decodes them through the
+  font's `/ToUnicode` map, and where that is missing or unusable it refuses
+  rather than emit text that reads like language and matches no query.
+
+### Untrusted input
+
+A document is untrusted input and is treated as such: file size, decompressed
+size, and archive entry count are all capped before parsing starts, so a
+compression bomb costs a bounded read. Extracted text is stripped of control
+characters and is never executed or interpreted — it is indexed as text, and the
+[recall threat model](recall_threat_model.md) covers how retrieved content is
+handled from there.
+
 ## Privacy And Egress
 
 Default brain artifacts are local and inspectable. Deterministic refresh,
