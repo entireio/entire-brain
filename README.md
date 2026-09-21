@@ -261,6 +261,8 @@ Facts extracted by a model can be wrong. Check the linked sources before relying
 
 Code analysis inherits Graph's limitations: dynamic calls can go unresolved, and parsing support varies by language.
 
+Brain's index and its query latency both grow linearly with the size of the codebase: measured at 4.8M lines, the index is 1.2 GB and a code search takes about 12 seconds. It is comfortable on repositories of a few hundred thousand lines and is not built for the very largest monorepos. The numbers, the command that produces them, and what they are compared against are in [scale](docs/scale.md).
+
 Search support varies by build and source. Check `entire brain capabilities` for available retrieval modes and the [conversation recall documentation](docs/recall-evidence.md) for experimental features.
 
 See the [recall threat model](docs/recall_threat_model.md) for how Brain handles untrusted session content and retained secrets.
@@ -272,6 +274,7 @@ See the [recall threat model](docs/recall_threat_model.md) for how Brain handles
 - [Agent activation and coordination](docs/agent-coordination.md)
 - [Semantic features and MCP](docs/semantic_mcp_guide.md)
 - [Storage and configuration](docs/reference.md#storage-and-configuration)
+- [Scale: index size and query latency, measured](docs/scale.md)
 - [Privacy and egress](docs/reference.md#privacy-and-egress)
 - [Conversation recall and source citations](docs/recall-evidence.md)
 - [Contributing and build options](CONTRIBUTING.md)
