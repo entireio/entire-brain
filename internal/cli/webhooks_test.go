@@ -614,3 +614,24 @@ func TestRememberSendsNothingUnderNoEgress(t *testing.T) {
 		t.Fatalf("the fact was not recorded under no-egress: %v", err)
 	}
 }
+
+// The endpoint has exactly one source: an environment variable. This is the
+// property the decision not to filter private addresses rests on, so it is
+// worth holding — if a config file or any second-party input ever reaches this,
+// the address filtering belongs back on the list.
+func TestWebhookEndpointComesOnlyFromTheEnvironment(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(".", "webhooks.go"))
+	if err != nil {
+		t.Fatalf("read webhooks.go: %v", err)
+	}
+	source := string(data)
+	for _, forbidden := range []string{"os.ReadFile", "os.Open", "loadBrainManifest", "settings"} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("webhooks.go references %q; the endpoint may no longer be operator-only input, "+
+				"which is what the absence of private-address filtering depends on", forbidden)
+		}
+	}
+	if strings.Count(source, "os.Getenv(webhookURLEnv)") != 1 {
+		t.Fatal("the endpoint is read from somewhere other than the one environment variable")
+	}
+}

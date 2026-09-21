@@ -151,6 +151,22 @@ func webhookEndpoint() (endpoint string, ok bool, reason string) {
 	// Scheme before host, deliberately: file:///tmp/x parses with an empty host,
 	// so checking the host first reports it as a malformed URL when the real
 	// objection — and the one the user needs to read — is the scheme.
+	// No filtering of loopback, link-local or private addresses, deliberately.
+	//
+	// SSRF is a confused-deputy problem: it matters when an attacker supplies a
+	// URL that a MORE privileged component fetches. This URL has exactly one
+	// source — an environment variable the operator sets — and no config file,
+	// discovery or remote input can reach it. Anyone who can set it already
+	// runs code as that user and does not need a webhook to reach the network.
+	//
+	// Blocking loopback would also break the primary local use: a receiver on
+	// 127.0.0.1 is the obvious way to consume these on a machine that is the
+	// point of a local-first tool.
+	//
+	// What would change this: if the endpoint ever became settable from a
+	// config file, a repository-local file, or anything a second party can
+	// write, it stops being operator input and the address filtering belongs
+	// back on the list.
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		// A file:// or unix:// "webhook" is not a webhook, and admitting one
 		// turns an environment variable into a write primitive.
