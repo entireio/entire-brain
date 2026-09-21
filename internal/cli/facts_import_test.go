@@ -408,3 +408,90 @@ func TestImportDoesNotInventLosses(t *testing.T) {
 		t.Fatalf("a plain memory reported losses: %v", report.Unsupported)
 	}
 }
+
+// An export is bounded input like any other. Unbounded reads are a
+// memory-exhaustion problem whether the size was chosen deliberately or by
+// mistake, and a FIFO at the path blocks forever rather than failing — which is
+// why every other untrusted-input surface here uses the safe helpers.
+func TestImportRefusesAnOversizedExport(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "huge.json")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Sparse: the size is what matters, not the bytes.
+	if err := f.Truncate(maxManifestBytes + 1); err != nil {
+		f.Close()
+		t.Skipf("cannot create a sparse file: %v", err)
+	}
+	f.Close()
+
+	if _, err := readImportFile(path); err == nil {
+		t.Fatalf("an export over the %d-byte limit was read in full", int64(maxManifestBytes))
+	}
+}
+
+func TestImportRefusesAFileThatIsNotARegularFile(t *testing.T) {
+	// A FIFO blocks forever on read. Failing is the only terminating outcome.
+	dir := t.TempDir()
+	fifo := filepath.Join(dir, "export.json")
+	if err := makeTestFIFO(fifo); err != nil {
+		t.Skipf("cannot create a FIFO: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := readImportFile(fifo)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a FIFO was accepted as an export")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("reading a FIFO did not terminate")
+	}
+}
+
+// `--file -` reads stdin, which is the least bounded input of all: a pipe can
+// produce data forever. This drives the real stdin path, because the
+// oversized-file test covers only the path branch.
+func TestImportRefusesAnOversizedStdinExport(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() {
+		os.Stdin = original
+		r.Close()
+	})
+
+	// Write past the limit. The reader stops early, so the writer will block on
+	// a full pipe and be abandoned — closing the read end in cleanup releases
+	// it, and the write errors are expected rather than checked.
+	go func() {
+		defer w.Close()
+		chunk := make([]byte, 1<<20)
+		for i := 0; i < (maxManifestBytes>>20)+2; i++ {
+			if _, err := w.Write(chunk); err != nil {
+				return
+			}
+		}
+	}()
+
+	done := make(chan error, 1)
+	go func() {
+		_, readErr := readImportFile("-")
+		done <- readErr
+	}()
+	select {
+	case readErr := <-done:
+		if readErr == nil {
+			t.Fatalf("stdin past the %d-byte limit was read in full", int64(maxManifestBytes))
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("reading oversized stdin did not terminate")
+	}
+}

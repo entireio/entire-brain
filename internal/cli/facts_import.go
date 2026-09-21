@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"sort"
 	"strings"
@@ -410,11 +409,19 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
+// readImportFile reads an export, bounded.
+//
+// The file is named by the operator, but that is not a reason to read it
+// unboundedly: a 16 GiB export is a memory-exhaustion problem whether it was
+// chosen deliberately or by mistake, and a FIFO or device file at that path
+// blocks forever rather than failing. safeReadFile and safeReadAll are what
+// every other untrusted-input surface here uses, for exactly these two
+// reasons.
 func readImportFile(path string) ([]byte, error) {
 	if strings.TrimSpace(path) == "-" {
-		return io.ReadAll(os.Stdin)
+		return safeReadAll(os.Stdin, maxManifestBytes, "import file from stdin")
 	}
-	data, err := os.ReadFile(path)
+	data, err := safeReadFile(path, maxManifestBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read export: %w", err)
 	}
