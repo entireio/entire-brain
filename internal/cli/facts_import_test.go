@@ -366,3 +366,45 @@ func TestImportCommandRejectsAnUnusablePathPrefixBeforeWriting(t *testing.T) {
 		t.Fatalf("the rejected import still wrote %d fact(s)", len(facts))
 	}
 }
+
+// This file's contract is that anything the source expresses and Brain cannot
+// represent is named in the report rather than dropped — it is the reason
+// somebody would trust an import enough to switch. metadata and
+// structured_attributes were decoded and then silently discarded.
+func TestImportNamesEveryFieldItCannotRepresent(t *testing.T) {
+	payload := `{"results":[{
+		"id":"m1",
+		"memory":"Retries stop after three attempts.",
+		"metadata":{"team":"platform","ticket":"ENG-412"},
+		"structured_attributes":{"severity":"high"},
+		"expiration_date":"2027-01-01",
+		"user_id":"u-1"
+	}]}`
+	memories, skipped, err := parseMem0([]byte(payload))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	_, report := memoriesToFacts(memories, skipped, "mem0", "", "main", time.Now().UTC())
+
+	joined := strings.Join(report.Unsupported, " | ")
+	for _, field := range []string{"metadata", "structured_attributes", "expiration_date", "user_id"} {
+		if !strings.Contains(joined, field) {
+			t.Fatalf("%s was dropped without being named: %q", field, joined)
+		}
+	}
+}
+
+// And a memory carrying none of them must not be reported as losing something.
+// A report that names fields the export did not use is noise, and noise is how
+// a report stops being read.
+func TestImportDoesNotInventLosses(t *testing.T) {
+	payload := `{"results":[{"id":"m1","memory":"Retries stop after three attempts."}]}`
+	memories, skipped, err := parseMem0([]byte(payload))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	_, report := memoriesToFacts(memories, skipped, "mem0", "", "main", time.Now().UTC())
+	if len(report.Unsupported) != 0 {
+		t.Fatalf("a plain memory reported losses: %v", report.Unsupported)
+	}
+}

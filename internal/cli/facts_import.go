@@ -110,6 +110,19 @@ func parseMem0(data []byte) ([]importedMemory, int, error) {
 		}
 		// Brain has no TTL. Dropping an expiry without saying so would turn a
 		// memory its owner scheduled to disappear into one that never does.
+		if len(m.Metadata) > 0 {
+			// Named, not dropped. A mem0 export can carry meaningful content
+			// in metadata, and this file's own contract is that anything the
+			// source expresses and Brain cannot represent is reported rather
+			// than lost quietly — which is the whole reason somebody would
+			// trust an import enough to switch.
+			mem.Unsupported = append(mem.Unsupported,
+				"metadata (Brain facts carry taxonomy paths and provenance, not arbitrary key/value pairs)")
+		}
+		if len(m.Structured) > 0 {
+			mem.Unsupported = append(mem.Unsupported,
+				"structured_attributes (Brain has no structured-attribute model; the fact text is imported without them)")
+		}
 		if strings.TrimSpace(m.ExpirationDate) != "" {
 			mem.Unsupported = append(mem.Unsupported, "expiration_date (Brain has no TTL; the fact is imported without one)")
 		}
