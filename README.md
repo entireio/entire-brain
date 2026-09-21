@@ -65,6 +65,8 @@ See [installation options](docs/operations.md#full-install) for choosing a Graph
 alternatives, including the 20 rows where neither Graph nor Brain answers Yes.
 Our columns are read from the binaries; the competitor columns are not.
 
+Every number we publish, how to reproduce it, and what we deliberately do not claim: [benchmarks](docs/benchmarks.md).
+
 ## Activate it for your agent
 
 Brain is set up is per [repository](docs/reference.md#3a-what-setup-needs-first-and-what-it-does-not). Start in a local Git repository with at least one commit:
@@ -274,6 +276,7 @@ See the [recall threat model](docs/recall_threat_model.md) for how Brain handles
 - [Agent activation and coordination](docs/agent-coordination.md)
 - [Semantic features and MCP](docs/semantic_mcp_guide.md)
 - [Storage and configuration](docs/reference.md#storage-and-configuration)
+- [Benchmarks: what we measure, what we found, what we do not claim](docs/benchmarks.md)
 - [Scale: index size and query latency, measured](docs/scale.md)
 - [Privacy and egress](docs/reference.md#privacy-and-egress)
 - [Conversation recall and source citations](docs/recall-evidence.md)
