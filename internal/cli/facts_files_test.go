@@ -556,3 +556,50 @@ func TestEmptyManifestIsNotTreatedAsCorrupt(t *testing.T) {
 		}
 	}
 }
+
+// Every path check in the export is relative to --dir, so a symlink AT --dir is
+// invisible to all of them — and this command both writes and deletes. `export`
+// refuses a symlinked output directory for the same reason.
+func TestExportRefusesASymlinkedOutputDirectory(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	fact := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports start at 8000.", Status: factStatusActive}
+	_, err := writeFactFiles(link, []factRecord{fact})
+	if err == nil {
+		t.Fatal("the export wrote into a symlinked output directory")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("the error does not say why: %v", err)
+	}
+	entries, readErr := os.ReadDir(real)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("the refused export still wrote %d entr(ies)", len(entries))
+	}
+}
+
+// A file where the export directory should be is a mistake worth naming rather
+// than a confusing MkdirAll failure.
+func TestExportRefusesAnOutputPathThatIsAFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notadir")
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := writeFactFiles(path, nil)
+	if err == nil {
+		t.Fatal("a file was accepted as the export directory")
+	}
+	if !strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("the error does not say why: %v", err)
+	}
+}

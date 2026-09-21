@@ -251,6 +251,20 @@ func pruneStaleFactFiles(dir string, previous factFilesManifest, written map[str
 // export ever run.
 func writeFactFiles(dir string, facts []factRecord) (factFilesResult, error) {
 	result := factFilesResult{Dir: dir}
+	// The export root itself, before anything inside it. Every path check in
+	// this function is relative to `dir`, so a symlink AT dir is invisible to
+	// all of them — and this function both writes and deletes. `export`
+	// applies the same rule to its output directory; the wording is borrowed
+	// from it deliberately, because two commands refusing the same thing for
+	// the same reason should say so the same way.
+	if info, err := os.Lstat(dir); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return result, fmt.Errorf("output directory must not be a symlink: %s", dir)
+		}
+		if !info.IsDir() {
+			return result, fmt.Errorf("output path exists and is not a directory: %s", dir)
+		}
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return result, fmt.Errorf("create export directory: %w", err)
 	}
