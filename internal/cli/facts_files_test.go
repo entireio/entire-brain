@@ -160,3 +160,125 @@ func TestFactFileRenderSurvivesAwkwardTaxonomySegments(t *testing.T) {
 		}
 	}
 }
+
+// A retracted fact's file must not survive the next export. `facts files`
+// documents that "the directory is rewritten on each run"; if stale files
+// linger, a grep over the export returns things the brain no longer believes
+// and presents them as current — which is worse than not having the export,
+// because it looks authoritative.
+func TestExportRemovesAFactThatIsNoLongerCurrent(t *testing.T) {
+	dir := t.TempDir()
+	keep := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports are numbered from 8000.", Status: factStatusActive}
+	drop := factRecord{ID: "fact:bbbb2222", Paths: []string{"constraints.retry.policy"}, Text: "Retries stop after three attempts.", Status: factStatusActive}
+
+	first, err := writeFactFiles(dir, []factRecord{keep, drop})
+	if err != nil {
+		t.Fatalf("first export: %v", err)
+	}
+	if first.Written != 2 {
+		t.Fatalf("first export wrote %d files", first.Written)
+	}
+	stale := filepath.Join(dir, "constraints", "retry", "policy", factFileName(drop.ID))
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	// The second fact was retracted, so it is no longer in the input.
+	if _, err := writeFactFiles(dir, []factRecord{keep}); err != nil {
+		t.Fatalf("second export: %v", err)
+	}
+	if _, err := os.Stat(stale); err == nil {
+		t.Fatal("a fact removed from the brain still has a file in the export")
+	}
+	// And the fact that is still current must survive.
+	live := filepath.Join(dir, "architecture", "api", "ports", factFileName(keep.ID))
+	if _, err := os.Stat(live); err != nil {
+		t.Fatalf("a current fact's file was removed: %v", err)
+	}
+}
+
+// The export directory is chosen by the user with --dir. Clearing it would be
+// the obvious fix and a destructive one: pointed at a directory holding
+// anything else, it would delete work that has nothing to do with the brain.
+// Only files a previous export recorded writing may be removed.
+func TestExportNeverRemovesAFileItDidNotWrite(t *testing.T) {
+	dir := t.TempDir()
+	mine := filepath.Join(dir, "NOTES.md")
+	if err := os.WriteFile(mine, []byte("my own notes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(dir, "architecture", "api", "ports")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A file that sits exactly where an exported fact would, and is not one.
+	theirs := filepath.Join(nested, "fact-deadbeef9999.md")
+	if err := os.WriteFile(theirs, []byte("not ours"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fact := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports are numbered from 8000.", Status: factStatusActive}
+	if _, err := writeFactFiles(dir, []factRecord{fact}); err != nil {
+		t.Fatalf("first export: %v", err)
+	}
+	if _, err := writeFactFiles(dir, nil); err != nil {
+		t.Fatalf("second export: %v", err)
+	}
+
+	for _, path := range []string{mine, theirs} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("the export deleted %s, which it did not write", filepath.Base(path))
+		}
+	}
+}
+
+// The manifest is a JSON file sitting inside a directory the user controls, so
+// its contents are input, not a trusted record. An entry pointing outside the
+// export root would turn the next export into a delete of whatever it names.
+func TestExportEscapingManifestEntryIsRefused(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(root, "outside.md")
+	if err := os.WriteFile(outside, []byte("not in the export"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "export")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"files":["../outside.md","` + filepath.Join("..", "..", "etc", "hosts") + `","/etc/hosts"]}`
+	if err := os.WriteFile(filepath.Join(dir, factFilesManifestName), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := writeFactFiles(dir, nil); err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Fatalf("a manifest entry escaped the export root and deleted %s", outside)
+	}
+}
+
+// Filenames use a 12-character prefix of the fact id. A collision inside one
+// taxonomy directory is improbable; silently losing a fact to it is not
+// acceptable at any probability, because the export would report both as
+// written and one of them would simply not be there.
+func TestExportRefusesTwoFactsThatWouldShareAFile(t *testing.T) {
+	dir := t.TempDir()
+	// Same first 12 characters after the prefix, same taxonomy directory.
+	a := factRecord{ID: "fact:abcdef012345AAAA", Paths: []string{"architecture.api.ports"}, Text: "First.", Status: factStatusActive}
+	b := factRecord{ID: "fact:abcdef012345BBBB", Paths: []string{"architecture.api.ports"}, Text: "Second.", Status: factStatusActive}
+	if factFileName(a.ID) != factFileName(b.ID) {
+		t.Fatalf("the fixture does not collide: %s vs %s", factFileName(a.ID), factFileName(b.ID))
+	}
+
+	result, err := writeFactFiles(dir, []factRecord{a, b})
+	if err == nil {
+		t.Fatalf("a colliding export reported success, writing %d file(s) for 2 facts", result.Written)
+	}
+	// The error has to name both facts, or nobody can act on it.
+	for _, id := range []string{a.ID, b.ID} {
+		if !strings.Contains(err.Error(), id) {
+			t.Fatalf("the error does not name %s: %v", id, err)
+		}
+	}
+}

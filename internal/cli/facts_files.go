@@ -3,6 +3,7 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -150,13 +151,90 @@ type factFilesResult struct {
 	Files   []string `json:"files"`
 }
 
+// factFilesManifestName records what the previous export wrote.
+//
+// It is what makes "rewritten on each run" safe to implement. The obvious way
+// to honour that promise is to clear the directory first, and --dir points
+// wherever the user says — at a notes folder, at a repository, at a home
+// directory — so clearing it would delete work that has nothing to do with the
+// brain. With a manifest, an export can only ever remove a file that a previous
+// export recorded writing.
+const factFilesManifestName = ".entire-fact-files.json"
+
+type factFilesManifest struct {
+	Files []string `json:"files"`
+}
+
+func readFactFilesManifest(dir string) factFilesManifest {
+	var manifest factFilesManifest
+	data, err := os.ReadFile(filepath.Join(dir, factFilesManifestName))
+	if err != nil {
+		// No manifest means either a first run or a directory this command has
+		// never written to. Removing nothing is the only safe reading of both.
+		return manifest
+	}
+	_ = json.Unmarshal(data, &manifest)
+	return manifest
+}
+
+// pruneStaleFactFiles removes files the last export wrote and this one did not.
+//
+// A fact that was retracted, or whose taxonomy path moved, leaves a file behind
+// otherwise — and a grep over the export then returns something the brain no
+// longer believes, presented exactly like something it does.
+func pruneStaleFactFiles(dir string, previous factFilesManifest, written map[string]bool) {
+	var dirs []string
+	for _, rel := range previous.Files {
+		if written[rel] {
+			continue
+		}
+		// Defence in depth: the manifest lives inside the directory a user
+		// could edit, so a path escaping the export root is refused rather
+		// than trusted.
+		clean := filepath.Clean(rel)
+		if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, "..") {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, clean)); err != nil {
+			continue
+		}
+		if parent := filepath.Dir(clean); parent != "." {
+			dirs = append(dirs, parent)
+		}
+	}
+	// Prune directories the removals emptied, deepest first, so a whole
+	// taxonomy branch that no longer has facts does not linger as empty
+	// folders. os.Remove refuses a non-empty directory, which is exactly the
+	// guard wanted here.
+	sort.Sort(sort.Reverse(sort.StringSlice(dirs)))
+	for _, rel := range dirs {
+		for current := rel; current != "."; current = filepath.Dir(current) {
+			if err := os.Remove(filepath.Join(dir, current)); err != nil {
+				break
+			}
+		}
+	}
+}
+
 // writeFactFiles materialises facts under dir. Returns the relative paths
 // written, sorted, so the caller can print or diff them deterministically.
+//
+// Files a previous export wrote and this one does not are removed, so the
+// directory reflects the brain as it is now rather than the union of every
+// export ever run.
 func writeFactFiles(dir string, facts []factRecord) (factFilesResult, error) {
 	result := factFilesResult{Dir: dir}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return result, fmt.Errorf("create export directory: %w", err)
 	}
+	previous := readFactFilesManifest(dir)
+	// Two facts whose ids share a 12-character prefix inside one taxonomy
+	// directory would land on the same filename. It takes an improbable
+	// collision to happen at all, and the cost if it does is the part worth
+	// guarding: the second write silently replaces the first while the result
+	// still counts both, so a fact disappears from the projection and the
+	// export reports success.
+	claimed := make(map[string]string, len(facts))
 	for _, fact := range facts {
 		relDir := factFileDir(fact.Paths)
 		absDir := filepath.Join(dir, relDir)
@@ -164,6 +242,10 @@ func writeFactFiles(dir string, facts []factRecord) (factFilesResult, error) {
 			return result, fmt.Errorf("create %s: %w", relDir, err)
 		}
 		rel := filepath.Join(relDir, factFileName(fact.ID))
+		if owner, taken := claimed[rel]; taken {
+			return result, fmt.Errorf("facts %s and %s both map to %s; one would silently replace the other", owner, fact.ID, rel)
+		}
+		claimed[rel] = fact.ID
 		if err := os.WriteFile(filepath.Join(dir, rel), []byte(renderFactFile(fact)), 0o644); err != nil {
 			return result, fmt.Errorf("write %s: %w", rel, err)
 		}
@@ -171,6 +253,19 @@ func writeFactFiles(dir string, facts []factRecord) (factFilesResult, error) {
 	}
 	sort.Strings(result.Files)
 	result.Written = len(result.Files)
+
+	written := make(map[string]bool, len(result.Files))
+	for _, rel := range result.Files {
+		written[rel] = true
+	}
+	pruneStaleFactFiles(dir, previous, written)
+
+	// The manifest is written last: if anything above failed, the previous
+	// manifest still describes what is actually on disk, and the next run
+	// reconciles from a true record rather than an optimistic one.
+	if data, err := json.MarshalIndent(factFilesManifest{Files: result.Files}, "", "  "); err == nil {
+		_ = os.WriteFile(filepath.Join(dir, factFilesManifestName), append(data, '\n'), 0o644)
+	}
 	return result, nil
 }
 
