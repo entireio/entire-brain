@@ -195,8 +195,19 @@ func restSearch(w http.ResponseWriter, r *http.Request, opts Options) {
 		return
 	}
 	repoDir := opts.Env.RepoRoot
+	// Through the same parser the CLI and MCP use. Passed raw, an unrecognised
+	// value — "facts" for "fact" — turns every include flag off downstream and
+	// returns 200 with zero results: an empty search presented as a complete
+	// answer, where the same typo on the CLI is an error.
+	source, err := parseRetrievalSource(r.URL.Query().Get("source"))
+	if err != nil {
+		// parseRetrievalSource already names the valid values, so the hint
+		// shows the shape of a working call instead of repeating them.
+		writeRESTError(w, http.StatusBadRequest, err.Error(), "GET /v1/search?q=retry+policy&source=fact")
+		return
+	}
 	results, err := retrieveUnifiedWithOptions(repoDir, brainDir, branch, query, limit, modeHybrid,
-		retrievalOptions{Source: strings.TrimSpace(r.URL.Query().Get("source"))})
+		retrievalOptions{Source: source})
 	if err != nil {
 		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
 		return

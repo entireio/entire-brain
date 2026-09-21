@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -157,5 +158,30 @@ func TestRESTDidNotDisturbTheMCPEndpoint(t *testing.T) {
 	}
 	if len(payload.Result.Tools) == 0 {
 		t.Fatal("MCP tools/list came back empty after REST was mounted")
+	}
+}
+
+// An unrecognised source turns every include flag off downstream, so the raw
+// value produced 200 with zero results — an empty search presented as a
+// complete answer, where the same typo on the CLI is an error. The REST surface
+// has to give the same answer as the CLI and MCP for the same mistake.
+func TestRESTRejectsAnUnknownSource(t *testing.T) {
+	server, token := restServer(t)
+	for _, bad := range []string{"facts", "histories", "nonsense", "fac"} {
+		status, body := restGet(t, server, token, "/v1/search?q=x&source="+url.QueryEscape(bad))
+		if status != http.StatusBadRequest {
+			t.Fatalf("source=%q returned %d, want 400 — an empty result is not an answer", bad, status)
+		}
+		if !strings.Contains(string(body), "source") {
+			t.Fatalf("source=%q: the error should name the parameter: %s", bad, body)
+		}
+	}
+	// The valid ones, including the empty default, must still work.
+	// Trimmed and case-folded, because the shared parser does that and the
+	// point of routing through it is that REST answers exactly as the CLI does.
+	for _, good := range []string{"", "all", "fact", "history", "doc", "FACT", " fact "} {
+		if status, body := restGet(t, server, token, "/v1/search?q=x&source="+url.QueryEscape(good)); status != http.StatusOK {
+			t.Fatalf("source=%q was refused with %d: %s", good, status, body)
+		}
 	}
 }
