@@ -158,6 +158,11 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 	}
 
 	record.Kind = storedKind // report what was actually persisted
+	// After the write, never before: a subscriber must not be told about a fact
+	// that failed to persist. Delivery cannot fail this command — the fact is
+	// already on disk and the author's write must not be undone by an
+	// unreachable endpoint.
+	notifyWebhook(ctx, cmd.ErrOrStderr(), newFactWebhookEvent(WebhookFactRecorded, repoDir, branch, record, now))
 	if rememberOpts.json {
 		return writeJSON(cmd, record)
 	}
