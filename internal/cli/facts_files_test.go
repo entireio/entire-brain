@@ -384,3 +384,119 @@ func TestExportRefusesToWriteThroughASymlinkedFile(t *testing.T) {
 		t.Fatalf("the export overwrote a file outside --dir: %q", data)
 	}
 }
+
+// The manifest is a file in the export directory like any other, so it can be
+// redirected by a planted symlink the same way a fact file can. It was the one
+// write left unguarded after the others were fixed.
+func TestManifestIsNotWrittenThroughASymlink(t *testing.T) {
+	root := t.TempDir()
+	victim := filepath.Join(root, "victim.json")
+	if err := os.WriteFile(victim, []byte("somebody else's file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "export")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(dir, factFilesManifestName)); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	fact := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports start at 8000.", Status: factStatusActive}
+	if _, err := writeFactFiles(dir, []factRecord{fact}); err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	data, err := os.ReadFile(victim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "somebody else's file" {
+		t.Fatalf("the manifest was written through a symlink, overwriting %s: %q", victim, data)
+	}
+}
+
+// An export that fails partway leaves files on disk. If the manifest does not
+// cover them, no later run can ever remove them — they are orphaned forever,
+// and a grep over the export keeps returning them.
+func TestPartialExportStillRecordsWhatItWrote(t *testing.T) {
+	dir := t.TempDir()
+	good := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports start at 8000.", Status: factStatusActive}
+	// Two facts colliding on one filename: the first is written, then the
+	// export fails — the exact partial-failure shape.
+	collideA := factRecord{ID: "fact:bbbbbbbbbbbbAAAA", Paths: []string{"constraints.retry.policy"}, Text: "First.", Status: factStatusActive}
+	collideB := factRecord{ID: "fact:bbbbbbbbbbbbBBBB", Paths: []string{"constraints.retry.policy"}, Text: "Second.", Status: factStatusActive}
+
+	if _, err := writeFactFiles(dir, []factRecord{good, collideA, collideB}); err == nil {
+		t.Fatal("the colliding export reported success")
+	}
+	orphan := filepath.Join(dir, "architecture", "api", "ports", factFileName(good.ID))
+	if _, err := os.Stat(orphan); err != nil {
+		t.Fatalf("setup: the first fact was not written: %v", err)
+	}
+
+	// The manifest must now cover the file the failed run left behind, so the
+	// next export removes it.
+	manifest := readFactFilesManifest(dir)
+	found := false
+	for _, rel := range manifest.Files {
+		if strings.Contains(rel, factFileName(good.ID)) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the failed export left %s on disk and out of the manifest: %v", orphan, manifest.Files)
+	}
+
+	// And the next successful export with no facts removes it.
+	if _, err := writeFactFiles(dir, nil); err != nil {
+		t.Fatalf("second export: %v", err)
+	}
+	if _, err := os.Stat(orphan); err == nil {
+		t.Fatal("the orphaned file survived the next export")
+	}
+}
+
+// A partial failure must not make the export forget what earlier runs wrote.
+// Recording only the files this run managed to write drops the previous
+// entries, and everything a successful earlier export left behind becomes
+// unremovable.
+func TestPartialExportDoesNotForgetEarlierFiles(t *testing.T) {
+	dir := t.TempDir()
+	first := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports start at 8000.", Status: factStatusActive}
+	if _, err := writeFactFiles(dir, []factRecord{first}); err != nil {
+		t.Fatalf("first export: %v", err)
+	}
+	firstFile := filepath.Join(dir, "architecture", "api", "ports", factFileName(first.ID))
+	if _, err := os.Stat(firstFile); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	// A second export that writes one new file and then fails.
+	second := factRecord{ID: "fact:cccc3333", Paths: []string{"conventions.style.naming"}, Text: "Names are lower case.", Status: factStatusActive}
+	collideA := factRecord{ID: "fact:dddddddddddd1111", Paths: []string{"constraints.retry.policy"}, Text: "A.", Status: factStatusActive}
+	collideB := factRecord{ID: "fact:dddddddddddd2222", Paths: []string{"constraints.retry.policy"}, Text: "B.", Status: factStatusActive}
+	if _, err := writeFactFiles(dir, []factRecord{second, collideA, collideB}); err == nil {
+		t.Fatal("the colliding export reported success")
+	}
+
+	// Both the earlier file and the one this run wrote must be reconcilable.
+	manifest := readFactFilesManifest(dir)
+	for _, want := range []string{factFileName(first.ID), factFileName(second.ID)} {
+		found := false
+		for _, rel := range manifest.Files {
+			if strings.Contains(rel, want) {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("%s is on disk and missing from the manifest: %v", want, manifest.Files)
+		}
+	}
+
+	if _, err := writeFactFiles(dir, nil); err != nil {
+		t.Fatalf("third export: %v", err)
+	}
+	if _, err := os.Stat(firstFile); err == nil {
+		t.Fatal("a file from the first export survived; the partial record forgot it")
+	}
+}
