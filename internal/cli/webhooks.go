@@ -52,8 +52,34 @@ const (
 	webhookURLEnv         = "ENTIRE_BRAIN_WEBHOOK_URL"
 	webhookSecretEnv      = "ENTIRE_BRAIN_WEBHOOK_SECRET"
 	webhookIncludeTextEnv = "ENTIRE_BRAIN_WEBHOOK_INCLUDE_TEXT"
-	webhookTimeout        = 5 * time.Second
+	webhookTimeoutEnv     = "ENTIRE_BRAIN_WEBHOOK_TIMEOUT"
+
+	// Delivery is synchronous and therefore on the critical path of every
+	// command that triggers it, so this is a latency budget rather than a
+	// generous ceiling. Two seconds is long enough for a local or same-region
+	// receiver and short enough that an unresponsive one does not make
+	// `remember` feel broken — it is called by agents, often.
+	//
+	// It cannot be made asynchronous by moving it to a goroutine: these are
+	// short-lived CLI processes, and a detached send is killed when the command
+	// returns, which is not "fire and forget" but "usually do not fire".
+	defaultWebhookTimeout = 2 * time.Second
 )
+
+// webhookTimeout is the per-delivery deadline, overridable for a receiver that
+// is legitimately slow.
+func webhookTimeout() time.Duration {
+	raw := strings.TrimSpace(os.Getenv(webhookTimeoutEnv))
+	if raw == "" {
+		return defaultWebhookTimeout
+	}
+	parsed, err := time.ParseDuration(raw)
+	if err != nil || parsed <= 0 {
+		fmt.Fprintf(os.Stderr, "warning: %s is not a positive duration; using %s\n", webhookTimeoutEnv, defaultWebhookTimeout)
+		return defaultWebhookTimeout
+	}
+	return parsed
+}
 
 // The events that exist. Every name here is emitted by real code in this
 // package; the list is deliberately not padded with events a consumer could
@@ -200,9 +226,14 @@ func signWebhook(body []byte) string {
 // not configure.
 var errWebhookRedirect = errors.New("webhook endpoint redirected; point " + webhookURLEnv + " at the final URL instead")
 
+// Two bounds, deliberately: the client timeout covers the request and the
+// context covers the whole operation. They are mutually redundant today —
+// removing either alone leaves the other enforcing — so the test asserts the
+// property (a stalled endpoint costs about the timeout and no more) rather than
+// either mechanism. Removing both turns it red.
 func newWebhookClient() *http.Client {
 	return &http.Client{
-		Timeout: webhookTimeout,
+		Timeout: webhookTimeout(),
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return errWebhookRedirect
 		},
@@ -228,7 +259,7 @@ func deliverWebhook(ctx context.Context, endpoint string, event webhookEvent) er
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(ctx, webhookTimeout)
+	ctx, cancel := context.WithTimeout(ctx, webhookTimeout())
 	defer cancel()
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
@@ -259,9 +290,11 @@ func deliverWebhook(ctx context.Context, endpoint string, event webhookEvent) er
 	return nil
 }
 
-// notifyWebhook is what the write paths call: fire and forget, with a warning
-// so a silently broken endpoint is still discoverable. It must never return an
-// error, because no fact should fail to be recorded over this.
+// notifyWebhook is what the write paths call. It never returns an error,
+// because no fact should fail to be recorded over a webhook — but it does
+// block, for up to the timeout, and calling it "fire and forget" was wrong.
+// A slow endpoint slows the command; ENTIRE_BRAIN_WEBHOOK_TIMEOUT is how that
+// is bounded.
 func notifyWebhook(ctx context.Context, errOut io.Writer, event webhookEvent) {
 	if err := emitWebhook(ctx, event); err != nil && errOut != nil {
 		fmt.Fprintf(errOut, "warning: webhook %s not delivered: %v\n", event.Event, err)

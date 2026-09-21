@@ -635,3 +635,63 @@ func TestWebhookEndpointComesOnlyFromTheEnvironment(t *testing.T) {
 		t.Fatal("the endpoint is read from somewhere other than the one environment variable")
 	}
 }
+
+// Delivery is on the critical path of every command that triggers it, and
+// `remember` is called by agents often. The timeout is therefore a latency
+// budget, and a slow endpoint must cost about that and not more.
+func TestASlowEndpointCostsAtMostTheTimeout(t *testing.T) {
+	stall := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-stall // accept the connection, then never respond
+	}))
+	// Cleanups run last-registered-first, so the stall must be released AFTER
+	// this is registered: Close waits for outstanding handlers, and releasing
+	// second would deadlock the test rather than the product.
+	t.Cleanup(server.Close)
+	t.Cleanup(func() { close(stall) })
+	t.Setenv(webhookURLEnv, server.URL)
+	t.Setenv(webhookTimeoutEnv, "300ms")
+
+	start := time.Now()
+	err := emitWebhook(context.Background(), webhookEvent{Event: WebhookTest})
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("a stalled endpoint was reported as a successful delivery")
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("a stalled endpoint blocked for %s; the timeout is not bounding it", elapsed)
+	}
+	if elapsed < 250*time.Millisecond {
+		t.Fatalf("delivery gave up after %s, well before the configured timeout", elapsed)
+	}
+}
+
+func TestWebhookTimeoutIsConfigurableAndFailsSafe(t *testing.T) {
+	t.Setenv(webhookTimeoutEnv, "")
+	if got := webhookTimeout(); got != defaultWebhookTimeout {
+		t.Fatalf("default = %s, want %s", got, defaultWebhookTimeout)
+	}
+	t.Setenv(webhookTimeoutEnv, "7s")
+	if got := webhookTimeout(); got != 7*time.Second {
+		t.Fatalf("configured = %s, want 7s", got)
+	}
+	// Nonsense and non-positive values fall back rather than disabling the
+	// bound — a zero or negative deadline would make every delivery fail
+	// instantly, which looks exactly like an unreachable endpoint.
+	for _, bad := range []string{"soon", "0", "-5s", "5"} {
+		t.Setenv(webhookTimeoutEnv, bad)
+		if got := webhookTimeout(); got != defaultWebhookTimeout {
+			t.Fatalf("%q gave %s, want the default", bad, got)
+		}
+	}
+}
+
+// The default has to stay a budget. Raising it silently would put seconds back
+// onto every `remember` that has a webhook configured.
+func TestDefaultWebhookTimeoutStaysABudget(t *testing.T) {
+	if defaultWebhookTimeout > 2*time.Second {
+		t.Fatalf("the default timeout is %s; delivery is synchronous, so this is charged to every triggering command",
+			defaultWebhookTimeout)
+	}
+}
