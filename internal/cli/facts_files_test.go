@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,7 +37,7 @@ func TestFactFilesAreGreppableAndReadable(t *testing.T) {
 		factFixture("fact:57e03e4afc229b3c", "Retries are capped at 3; the 4th failure must page.", []string{"constraints.retry.policy"}),
 		factFixture("fact:e07be9baabcc1122", "The upload endpoint rejects payloads over 25 MB.", []string{"constraints.upload.limits"}),
 	}
-	result, err := writeFactFiles(dir, facts)
+	result, err := writeFactFiles(dir, "main", facts)
 	if err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -79,7 +81,7 @@ func TestFactFilesStayUnderTheExportDirectory(t *testing.T) {
 		factFixture("fact:bbb2", "escape via separators", []string{"a/../../b.c"}),
 		factFixture("fact:ccc3", "absolute", []string{"/etc/passwd"}),
 	}
-	result, err := writeFactFiles(dir, hostile)
+	result, err := writeFactFiles(dir, "main", hostile)
 	if err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -102,7 +104,7 @@ func TestFactFilesPutUnfiledFactsSomewhereVisible(t *testing.T) {
 	dir := t.TempDir()
 	// A fact with no taxonomy path must not land in the export root: the root
 	// is the category list, and an unfiled fact mixed into it is invisible.
-	result, err := writeFactFiles(dir, []factRecord{
+	result, err := writeFactFiles(dir, "main", []factRecord{
 		factFixture("fact:nopath", "A fact filed nowhere.", nil),
 		factFixture("fact:blank", "A fact with a blank path.", []string{"   "}),
 	})
@@ -121,11 +123,11 @@ func TestFactFilesAreDeterministic(t *testing.T) {
 		factFixture("fact:bbb", "second", []string{"b.b.b"}),
 		factFixture("fact:aaa", "first", []string{"a.a.a"}),
 	}
-	first, err := writeFactFiles(t.TempDir(), facts)
+	first, err := writeFactFiles(t.TempDir(), "main", facts)
 	if err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	second, err := writeFactFiles(t.TempDir(), facts)
+	second, err := writeFactFiles(t.TempDir(), "main", facts)
 	if err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -171,7 +173,7 @@ func TestExportRemovesAFactThatIsNoLongerCurrent(t *testing.T) {
 	keep := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports are numbered from 8000.", Status: factStatusActive}
 	drop := factRecord{ID: "fact:bbbb2222", Paths: []string{"constraints.retry.policy"}, Text: "Retries stop after three attempts.", Status: factStatusActive}
 
-	first, err := writeFactFiles(dir, []factRecord{keep, drop})
+	first, err := writeFactFiles(dir, "main", []factRecord{keep, drop})
 	if err != nil {
 		t.Fatalf("first export: %v", err)
 	}
@@ -184,7 +186,7 @@ func TestExportRemovesAFactThatIsNoLongerCurrent(t *testing.T) {
 	}
 
 	// The second fact was retracted, so it is no longer in the input.
-	if _, err := writeFactFiles(dir, []factRecord{keep}); err != nil {
+	if _, err := writeFactFiles(dir, "main", []factRecord{keep}); err != nil {
 		t.Fatalf("second export: %v", err)
 	}
 	if _, err := os.Stat(stale); err == nil {
@@ -218,10 +220,10 @@ func TestExportNeverRemovesAFileItDidNotWrite(t *testing.T) {
 	}
 
 	fact := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports are numbered from 8000.", Status: factStatusActive}
-	if _, err := writeFactFiles(dir, []factRecord{fact}); err != nil {
+	if _, err := writeFactFiles(dir, "main", []factRecord{fact}); err != nil {
 		t.Fatalf("first export: %v", err)
 	}
-	if _, err := writeFactFiles(dir, nil); err != nil {
+	if _, err := writeFactFiles(dir, "main", nil); err != nil {
 		t.Fatalf("second export: %v", err)
 	}
 
@@ -250,7 +252,7 @@ func TestExportEscapingManifestEntryIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := writeFactFiles(dir, nil); err != nil {
+	if _, err := writeFactFiles(dir, "main", nil); err != nil {
 		t.Fatalf("export: %v", err)
 	}
 	if _, err := os.Stat(outside); err != nil {
@@ -271,7 +273,7 @@ func TestExportRefusesTwoFactsThatWouldShareAFile(t *testing.T) {
 		t.Fatalf("the fixture does not collide: %s vs %s", factFileName(a.ID), factFileName(b.ID))
 	}
 
-	result, err := writeFactFiles(dir, []factRecord{a, b})
+	result, err := writeFactFiles(dir, "main", []factRecord{a, b})
 	if err == nil {
 		t.Fatalf("a colliding export reported success, writing %d file(s) for 2 facts", result.Written)
 	}
@@ -303,7 +305,7 @@ func TestExportRefusesToWriteThroughASymlinkedComponent(t *testing.T) {
 	}
 
 	fact := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports start at 8000.", Status: factStatusActive}
-	_, err := writeFactFiles(dir, []factRecord{fact})
+	_, err := writeFactFiles(dir, "main", []factRecord{fact})
 	if err == nil {
 		t.Fatal("the export wrote through a symlinked path component")
 	}
@@ -344,7 +346,7 @@ func TestPruneRefusesToDeleteThroughASymlinkedComponent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := writeFactFiles(dir, nil); err != nil {
+	if _, err := writeFactFiles(dir, "main", nil); err != nil {
 		t.Fatalf("export: %v", err)
 	}
 	if _, err := os.Stat(victim); err != nil {
@@ -373,7 +375,7 @@ func TestExportRefusesToWriteThroughASymlinkedFile(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	if _, err := writeFactFiles(dir, []factRecord{fact}); err == nil {
+	if _, err := writeFactFiles(dir, "main", []factRecord{fact}); err == nil {
 		t.Fatal("the export wrote through a symlinked fact file")
 	}
 	data, err := os.ReadFile(victim)
@@ -403,7 +405,7 @@ func TestManifestIsNotWrittenThroughASymlink(t *testing.T) {
 	}
 
 	fact := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports start at 8000.", Status: factStatusActive}
-	_, writeErr := writeFactFiles(dir, []factRecord{fact})
+	_, writeErr := writeFactFiles(dir, "main", []factRecord{fact})
 
 	data, readErr := os.ReadFile(victim)
 	if readErr != nil {
@@ -434,7 +436,7 @@ func TestPartialExportStillRecordsWhatItWrote(t *testing.T) {
 	collideA := factRecord{ID: "fact:bbbbbbbbbbbbAAAA", Paths: []string{"constraints.retry.policy"}, Text: "First.", Status: factStatusActive}
 	collideB := factRecord{ID: "fact:bbbbbbbbbbbbBBBB", Paths: []string{"constraints.retry.policy"}, Text: "Second.", Status: factStatusActive}
 
-	if _, err := writeFactFiles(dir, []factRecord{good, collideA, collideB}); err == nil {
+	if _, err := writeFactFiles(dir, "main", []factRecord{good, collideA, collideB}); err == nil {
 		t.Fatal("the colliding export reported success")
 	}
 	orphan := filepath.Join(dir, "architecture", "api", "ports", factFileName(good.ID))
@@ -459,7 +461,7 @@ func TestPartialExportStillRecordsWhatItWrote(t *testing.T) {
 	}
 
 	// And the next successful export with no facts removes it.
-	if _, err := writeFactFiles(dir, nil); err != nil {
+	if _, err := writeFactFiles(dir, "main", nil); err != nil {
 		t.Fatalf("second export: %v", err)
 	}
 	if _, err := os.Stat(orphan); err == nil {
@@ -474,7 +476,7 @@ func TestPartialExportStillRecordsWhatItWrote(t *testing.T) {
 func TestPartialExportDoesNotForgetEarlierFiles(t *testing.T) {
 	dir := t.TempDir()
 	first := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports start at 8000.", Status: factStatusActive}
-	if _, err := writeFactFiles(dir, []factRecord{first}); err != nil {
+	if _, err := writeFactFiles(dir, "main", []factRecord{first}); err != nil {
 		t.Fatalf("first export: %v", err)
 	}
 	firstFile := filepath.Join(dir, "architecture", "api", "ports", factFileName(first.ID))
@@ -486,7 +488,7 @@ func TestPartialExportDoesNotForgetEarlierFiles(t *testing.T) {
 	second := factRecord{ID: "fact:cccc3333", Paths: []string{"conventions.style.naming"}, Text: "Names are lower case.", Status: factStatusActive}
 	collideA := factRecord{ID: "fact:dddddddddddd1111", Paths: []string{"constraints.retry.policy"}, Text: "A.", Status: factStatusActive}
 	collideB := factRecord{ID: "fact:dddddddddddd2222", Paths: []string{"constraints.retry.policy"}, Text: "B.", Status: factStatusActive}
-	if _, err := writeFactFiles(dir, []factRecord{second, collideA, collideB}); err == nil {
+	if _, err := writeFactFiles(dir, "main", []factRecord{second, collideA, collideB}); err == nil {
 		t.Fatal("the colliding export reported success")
 	}
 
@@ -507,7 +509,7 @@ func TestPartialExportDoesNotForgetEarlierFiles(t *testing.T) {
 		}
 	}
 
-	if _, err := writeFactFiles(dir, nil); err != nil {
+	if _, err := writeFactFiles(dir, "main", nil); err != nil {
 		t.Fatalf("third export: %v", err)
 	}
 	if _, err := os.Stat(firstFile); err == nil {
@@ -522,7 +524,7 @@ func TestPartialExportDoesNotForgetEarlierFiles(t *testing.T) {
 func TestCorruptManifestIsRefusedNotIgnored(t *testing.T) {
 	dir := t.TempDir()
 	fact := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports start at 8000.", Status: factStatusActive}
-	if _, err := writeFactFiles(dir, []factRecord{fact}); err != nil {
+	if _, err := writeFactFiles(dir, "main", []factRecord{fact}); err != nil {
 		t.Fatalf("first export: %v", err)
 	}
 	written := filepath.Join(dir, "architecture", "api", "ports", factFileName(fact.ID))
@@ -533,7 +535,7 @@ func TestCorruptManifestIsRefusedNotIgnored(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, factFilesManifestName), []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := writeFactFiles(dir, nil)
+	_, err := writeFactFiles(dir, "main", nil)
 	if err == nil {
 		t.Fatal("a corrupt manifest was treated as empty; the previously exported file is now unremovable")
 	}
@@ -580,7 +582,7 @@ func TestExportRefusesASymlinkedOutputDirectory(t *testing.T) {
 	}
 
 	fact := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports start at 8000.", Status: factStatusActive}
-	_, err := writeFactFiles(link, []factRecord{fact})
+	_, err := writeFactFiles(link, "main", []factRecord{fact})
 	if err == nil {
 		t.Fatal("the export wrote into a symlinked output directory")
 	}
@@ -603,7 +605,7 @@ func TestExportRefusesAnOutputPathThatIsAFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := writeFactFiles(path, nil)
+	_, err := writeFactFiles(path, "main", nil)
 	if err == nil {
 		t.Fatal("a file was accepted as the export directory")
 	}
@@ -636,7 +638,7 @@ func TestExportChecksTheDirectoryItWillActuallyWriteInto(t *testing.T) {
 	// before it would be the one that mattered, and one placed after it must
 	// still catch this.
 	fact := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports start at 8000.", Status: factStatusActive}
-	_, err := writeFactFiles(link, []factRecord{fact})
+	_, err := writeFactFiles(link, "main", []factRecord{fact})
 	if err == nil {
 		t.Fatal("the export wrote into a symlinked directory that MkdirAll had accepted")
 	}
@@ -670,7 +672,7 @@ func TestPartialExportReportsAFailedManifestWrite(t *testing.T) {
 	a := factRecord{ID: "fact:bbbbbbbbbbbbAAAA", Paths: []string{"constraints.retry.policy"}, Text: "A.", Status: factStatusActive}
 	b := factRecord{ID: "fact:bbbbbbbbbbbbBBBB", Paths: []string{"constraints.retry.policy"}, Text: "B.", Status: factStatusActive}
 
-	_, err := writeFactFiles(dir, []factRecord{good, a, b})
+	_, err := writeFactFiles(dir, "main", []factRecord{good, a, b})
 	if err == nil {
 		t.Fatal("the colliding export reported success")
 	}
@@ -681,5 +683,97 @@ func TestPartialExportReportsAFailedManifestWrite(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not tracked") {
 		t.Fatalf("the manifest failure was swallowed, so the orphaned files are unreported: %v", err)
+	}
+}
+
+// The manifest is keyed by --dir, and the facts come from the current branch.
+// Exporting one branch and then another into the same directory made the second
+// run treat the first branch's files as stale and delete them — destroying an
+// export silently, on the workflow this file's header advertises.
+func TestExportDoesNotDeleteAnotherBranchesFiles(t *testing.T) {
+	dir := t.TempDir()
+	onMain := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports start at 8000.", Status: factStatusActive}
+	onFeature := factRecord{ID: "fact:bbbb2222", Paths: []string{"constraints.retry.policy"}, Text: "Retries stop at three.", Status: factStatusActive}
+
+	if _, err := writeFactFiles(dir, "main", []factRecord{onMain}); err != nil {
+		t.Fatalf("main export: %v", err)
+	}
+	mainFile := filepath.Join(dir, "architecture", "api", "ports", factFileName(onMain.ID))
+	if _, err := os.Stat(mainFile); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	result, err := writeFactFiles(dir, "feature", []factRecord{onFeature})
+	if err != nil {
+		t.Fatalf("feature export: %v", err)
+	}
+	if _, err := os.Stat(mainFile); err != nil {
+		t.Fatal("exporting a second branch into the same directory deleted the first branch's files")
+	}
+	// Silence would be worse than the deletion in one way: the directory now
+	// holds two branches' facts and nothing says so.
+	if len(result.Warnings) == 0 {
+		t.Fatal("the directory now holds two branches' exports and nothing said so")
+	}
+	if !strings.Contains(strings.Join(result.Warnings, " "), "main") {
+		t.Fatalf("the warning does not name the other branch: %v", result.Warnings)
+	}
+}
+
+// And re-exporting the SAME branch must still reconcile, or the branch check
+// has disabled pruning rather than scoping it.
+func TestExportStillPrunesWithinOneBranch(t *testing.T) {
+	dir := t.TempDir()
+	keep := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports start at 8000.", Status: factStatusActive}
+	drop := factRecord{ID: "fact:bbbb2222", Paths: []string{"constraints.retry.policy"}, Text: "Retries stop at three.", Status: factStatusActive}
+
+	if _, err := writeFactFiles(dir, "main", []factRecord{keep, drop}); err != nil {
+		t.Fatalf("first export: %v", err)
+	}
+	stale := filepath.Join(dir, "constraints", "retry", "policy", factFileName(drop.ID))
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if _, err := writeFactFiles(dir, "main", []factRecord{keep}); err != nil {
+		t.Fatalf("second export: %v", err)
+	}
+	if _, err := os.Stat(stale); err == nil {
+		t.Fatal("a retracted fact's file survived a same-branch re-export")
+	}
+}
+
+// A warning on the result is only useful if the command prints it.
+func TestFactsFilesCommandPrintsCrossBranchWarnings(t *testing.T) {
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	opts, brainDir, branch := rememberReviveEnv(t, now)
+	dir := t.TempDir()
+
+	// A previous export recorded for a different branch.
+	if _, err := writeFactFiles(dir, "some-other-branch", []factRecord{
+		{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "From elsewhere.", Status: factStatusActive},
+	}); err != nil {
+		t.Fatalf("seed export: %v", err)
+	}
+	if err := withBrainWriteLock(brainDir, func() error {
+		return writeFacts(brainDir, branch, []factRecord{
+			{ID: "fact:bbbb2222", Paths: []string{"constraints.retry.policy"}, Text: "Here.", Branch: branch, Status: factStatusActive, CreatedAt: now, UpdatedAt: now},
+		})
+	}); err != nil {
+		t.Fatalf("seed facts: %v", err)
+	}
+
+	cmd := newFactsFilesCommand(opts)
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetContext(context.Background())
+	if err := cmd.Flags().Set("dir", dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.RunE(cmd, nil); err != nil {
+		t.Fatalf("facts files: %v", err)
+	}
+	if !strings.Contains(errOut.String(), "some-other-branch") {
+		t.Fatalf("the command did not report that the directory holds another branch's export: %q", errOut.String())
 	}
 }

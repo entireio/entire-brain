@@ -147,9 +147,10 @@ func renderFactFile(fact factRecord) string {
 }
 
 type factFilesResult struct {
-	Dir     string   `json:"dir"`
-	Written int      `json:"written"`
-	Files   []string `json:"files"`
+	Dir      string   `json:"dir"`
+	Written  int      `json:"written"`
+	Files    []string `json:"files"`
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // factFilesManifestName records what the previous export wrote.
@@ -163,7 +164,13 @@ type factFilesResult struct {
 const factFilesManifestName = ".entire-fact-files.json"
 
 type factFilesManifest struct {
-	Files []string `json:"files"`
+	// Branch is what the manifest was written for. Without it, exporting one
+	// branch and then another into the same --dir made the second run treat
+	// the first branch's files as stale and delete them — destroying an export
+	// silently, on the very workflow this file's header advertises (diffing two
+	// branches).
+	Branch string   `json:"branch,omitempty"`
+	Files  []string `json:"files"`
 }
 
 func readFactFilesManifest(dir string) (factFilesManifest, error) {
@@ -249,7 +256,7 @@ func pruneStaleFactFiles(dir string, previous factFilesManifest, written map[str
 // Files a previous export wrote and this one does not are removed, so the
 // directory reflects the brain as it is now rather than the union of every
 // export ever run.
-func writeFactFiles(dir string, facts []factRecord) (factFilesResult, error) {
+func writeFactFiles(dir, branch string, facts []factRecord) (factFilesResult, error) {
 	result := factFilesResult{Dir: dir}
 	// The export root itself is checked below, AFTER MkdirAll rather than
 	// before. Every path check in this function is relative to `dir`, so a
@@ -296,26 +303,26 @@ func writeFactFiles(dir string, facts []factRecord) (factFilesResult, error) {
 		// Every other place in this codebase that writes under a user-named
 		// output directory checks this first.
 		if err := rejectExistingSymlinkPathComponents(dir, relDir); err != nil {
-			manifestErr := recordPartialExport(dir, previous, result.Files)
+			manifestErr := recordPartialExport(dir, branch, previous, result.Files)
 			return result, withManifestFailure(fmt.Errorf("refusing to write into %s: %w", relDir, err), manifestErr)
 		}
 		absDir := filepath.Join(dir, relDir)
 		if err := os.MkdirAll(absDir, 0o755); err != nil {
-			manifestErr := recordPartialExport(dir, previous, result.Files)
+			manifestErr := recordPartialExport(dir, branch, previous, result.Files)
 			return result, withManifestFailure(fmt.Errorf("create %s: %w", relDir, err), manifestErr)
 		}
 		rel := filepath.Join(relDir, factFileName(fact.ID))
 		if owner, taken := claimed[rel]; taken {
-			manifestErr := recordPartialExport(dir, previous, result.Files)
+			manifestErr := recordPartialExport(dir, branch, previous, result.Files)
 			return result, withManifestFailure(fmt.Errorf("facts %s and %s both map to %s; one would silently replace the other", owner, fact.ID, rel), manifestErr)
 		}
 		claimed[rel] = fact.ID
 		if err := rejectExistingSymlinkPathComponents(dir, rel); err != nil {
-			manifestErr := recordPartialExport(dir, previous, result.Files)
+			manifestErr := recordPartialExport(dir, branch, previous, result.Files)
 			return result, withManifestFailure(fmt.Errorf("refusing to write %s: %w", rel, err), manifestErr)
 		}
 		if err := os.WriteFile(filepath.Join(dir, rel), []byte(renderFactFile(fact)), 0o644); err != nil {
-			manifestErr := recordPartialExport(dir, previous, result.Files)
+			manifestErr := recordPartialExport(dir, branch, previous, result.Files)
 			return result, withManifestFailure(fmt.Errorf("write %s: %w", rel, err), manifestErr)
 		}
 		result.Files = append(result.Files, rel)
@@ -327,8 +334,18 @@ func writeFactFiles(dir string, facts []factRecord) (factFilesResult, error) {
 	for _, rel := range result.Files {
 		written[rel] = true
 	}
-	pruneStaleFactFiles(dir, previous, written)
-	if err := writeFactFilesManifest(dir, result.Files); err != nil {
+	// Prune only what this branch's own previous export wrote. A manifest from
+	// a different branch describes files that are not stale — they are another
+	// branch's export, and deleting them is what made this destructive.
+	if previous.Branch == branch {
+		pruneStaleFactFiles(dir, previous, written)
+	} else if len(previous.Files) > 0 {
+		result.Warnings = append(result.Warnings, fmt.Sprintf(
+			"%s was last exported for branch %q; its %d file(s) were left in place. "+
+				"Use a separate --dir per branch to keep exports apart.",
+			dir, previous.Branch, len(previous.Files)))
+	}
+	if err := writeFactFilesManifest(dir, branch, result.Files); err != nil {
 		// The files are written; only the record of them failed. Returning it
 		// matters because without the manifest the next export cannot
 		// reconcile, and silence here would make that undiagnosable.
@@ -343,14 +360,14 @@ func writeFactFiles(dir string, facts []factRecord) (factFilesResult, error) {
 // Failure to write it is not returned: the export itself succeeded, and the
 // cost of a missing manifest is that the next run prunes nothing, which is the
 // safe direction.
-func writeFactFilesManifest(dir string, files []string) error {
+func writeFactFilesManifest(dir, branch string, files []string) error {
 	if err := rejectExistingSymlinkPathComponents(dir, factFilesManifestName); err != nil {
 		// The manifest is a file like any other, in a directory somebody could
 		// have planted a symlink in. Without this check it is the one write in
 		// this function that could still be redirected out of --dir.
 		return fmt.Errorf("refusing to write %s: %w", factFilesManifestName, err)
 	}
-	data, err := json.MarshalIndent(factFilesManifest{Files: files}, "", "  ")
+	data, err := json.MarshalIndent(factFilesManifest{Branch: branch, Files: files}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -378,10 +395,16 @@ func withManifestFailure(err, manifestErr error) error {
 // manifest, so no later run would ever remove them. The manifest now covers the
 // union — what a previous run left, plus what this one managed to write —
 // which is exactly the set the next export needs to reconcile.
-func recordPartialExport(dir string, previous factFilesManifest, writtenSoFar []string) error {
-	seen := make(map[string]bool, len(previous.Files)+len(writtenSoFar))
-	union := make([]string, 0, len(previous.Files)+len(writtenSoFar))
-	for _, rel := range append(append([]string{}, previous.Files...), writtenSoFar...) {
+func recordPartialExport(dir, branch string, previous factFilesManifest, writtenSoFar []string) error {
+	carried := writtenSoFar
+	if previous.Branch == branch {
+		// Only this branch's own previous files are ours to reconcile; another
+		// branch's belong to its export.
+		carried = append(append([]string{}, previous.Files...), writtenSoFar...)
+	}
+	seen := make(map[string]bool, len(carried))
+	union := make([]string, 0, len(carried))
+	for _, rel := range carried {
 		if seen[rel] {
 			continue
 		}
@@ -389,7 +412,7 @@ func recordPartialExport(dir string, previous factFilesManifest, writtenSoFar []
 		union = append(union, rel)
 	}
 	sort.Strings(union)
-	return writeFactFilesManifest(dir, union)
+	return writeFactFilesManifest(dir, branch, union)
 }
 
 func newFactsFilesCommand(opts Options) *cobra.Command {
@@ -428,7 +451,7 @@ func newFactsFilesCommand(opts Options) *cobra.Command {
 				}
 				facts = active
 			}
-			result, err := writeFactFiles(dir, facts)
+			result, err := writeFactFiles(dir, resolvedBranch, facts)
 			if err != nil {
 				return err
 			}
@@ -438,6 +461,12 @@ func newFactsFilesCommand(opts Options) *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "wrote %d facts to %s\n", result.Written, result.Dir)
 			for _, file := range result.Files {
 				fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", file)
+			}
+			// A directory holding two branches' exports is a thing the reader
+			// has to know about — it is the difference between grepping this
+			// branch's facts and grepping a mixture.
+			for _, warning := range result.Warnings {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
 			}
 			return nil
 		},
