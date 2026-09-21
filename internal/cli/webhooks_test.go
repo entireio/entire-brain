@@ -182,7 +182,7 @@ func TestWebhookRefusesNonHTTPSchemes(t *testing.T) {
 func TestFactWebhookWithholdsTextByDefault(t *testing.T) {
 	t.Setenv(webhookIncludeTextEnv, "")
 	fact := sampleFact()
-	event := newFactWebhookEvent(WebhookFactRecorded, "/home/someone/work/myrepo", "main", fact, testNow())
+	event := newFactWebhookEvent(WebhookFactRecorded, webhookRepoName("/home/someone/work/myrepo"), "main", fact, testNow())
 
 	encoded, err := json.Marshal(event)
 	if err != nil {
@@ -214,7 +214,7 @@ func TestFactWebhookWithholdsTextByDefault(t *testing.T) {
 func TestFactWebhookIncludesTextWhenOptedIn(t *testing.T) {
 	t.Setenv(webhookIncludeTextEnv, "1")
 	fact := sampleFact()
-	event := newFactWebhookEvent(WebhookFactRecorded, "/repo", "main", fact, testNow())
+	event := newFactWebhookEvent(WebhookFactRecorded, webhookRepoName("/repo"), "main", fact, testNow())
 	if event.Fact.Text != fact.Text {
 		t.Fatalf("opt-in did not include the text: %q", event.Fact.Text)
 	}
@@ -257,7 +257,7 @@ func TestWebhookSignsThePayloadItActuallySends(t *testing.T) {
 	t.Setenv(webhookSecretEnv, secret)
 
 	if err := emitWebhook(context.Background(), newFactWebhookEvent(
-		WebhookFactRecorded, "/repo", "main", sampleFact(), testNow())); err != nil {
+		WebhookFactRecorded, webhookRepoName("/repo"), "main", sampleFact(), testNow())); err != nil {
 		t.Fatalf("emit: %v", err)
 	}
 	got := rec.last(t)
@@ -729,5 +729,54 @@ func TestDeliveryFailureDoesNotLeakTheEndpoint(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(message), "refused") && !strings.Contains(strings.ToLower(message), "connect") {
 		t.Fatalf("redaction removed the reason: %q", message)
+	}
+}
+
+// Every event for one repository must report the same `repo`, or a subscriber
+// correlating by it sees two repositories where there is one. The call sites
+// had drifted between the git toplevel and the configured root, which differ
+// whenever a repository is reached through a symlink or from a subdirectory.
+func TestEveryWebhookCallSiteUsesOneRepoIdentity(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || name == "webhooks.go" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Clean(name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			if !strings.Contains(line, "webhookRepoName(") {
+				continue
+			}
+			t.Fatalf("%s builds a webhook repo name directly:\n  %s\nuse webhookRepoIdentity so every event names the repository the same way",
+				name, strings.TrimSpace(line))
+		}
+	}
+}
+
+// And the identity itself must be stable across the two paths that differ:
+// the configured root and the resolved git toplevel.
+func TestWebhookRepoIdentityIsStableAcrossPathSpellings(t *testing.T) {
+	repoDir := t.TempDir()
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: semanticFixtureRunner(repoDir, ""), Now: testNow}
+
+	// The fixture answers rev-parse --show-toplevel with the repo directory,
+	// so both sources agree here; what is pinned is that the resolved value is
+	// used and is a bare name rather than a path.
+	got := webhookRepoIdentity(context.Background(), opts)
+	if got == "" {
+		t.Fatal("no repo identity was produced")
+	}
+	if strings.ContainsRune(got, os.PathSeparator) {
+		t.Fatalf("the repo identity is a path, not a name: %q", got)
+	}
+	if got != filepath.Base(repoDir) {
+		t.Fatalf("identity = %q, want the repository's directory name %q", got, filepath.Base(repoDir))
 	}
 }

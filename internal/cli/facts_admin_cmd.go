@@ -89,7 +89,7 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 			// news that is not news.
 			if changed {
 				notifyWebhook(cmd.Context(), cmd.ErrOrStderr(),
-					newFactWebhookEvent(WebhookFactRetracted, opts.Env.RepoRoot, resolvedBranch, retracted, now))
+					newFactWebhookEvent(WebhookFactRetracted, webhookRepoIdentity(cmd.Context(), opts), resolvedBranch, retracted, now))
 			}
 			if jsonOut {
 				return writeJSON(cmd, map[string]any{"id": factID, "branch": resolvedBranch, "status": factStatusRetracted, "changed": changed})

@@ -531,7 +531,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	notifyWebhook(ctx, cmd.ErrOrStderr(), webhookEvent{
 		Event:     WebhookBrainRefreshed,
 		Timestamp: opts.Now().UTC().Format(time.RFC3339),
-		Repo:      webhookRepoName(repoDir),
+		Repo:      webhookRepoIdentity(ctx, opts),
 	})
 	printAroundLiveLine(cmd.OutOrStdout(), "refreshed brain: %s\n", brainDir)
 	if refreshOpts.statusAfter && !outputExplicit {

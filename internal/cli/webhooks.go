@@ -141,11 +141,30 @@ func webhookRepoName(repoDir string) string {
 	return filepath.Base(filepath.Clean(repoDir))
 }
 
+// webhookRepoIdentity resolves the name every event for one repository reports.
+//
+// It must be one source for all of them. Call sites had drifted between the
+// git-toplevel path and the configured repo root, which differ whenever a
+// repository is reached through a symlink or from a subdirectory — so
+// fact.recorded and fact.retracted could name the same physical repository
+// differently, and a subscriber correlating by `repo` would see two.
+//
+// The git toplevel is the one that is stable under both, and it falls back to
+// the configured root when git cannot answer.
+func webhookRepoIdentity(ctx context.Context, opts Options) string {
+	if top, err := gitScalar(ctx, opts.Runner, opts.Env.RepoRoot, "rev-parse", "--show-toplevel"); err == nil {
+		if name := webhookRepoName(strings.TrimSpace(top)); name != "" {
+			return name
+		}
+	}
+	return webhookRepoName(opts.Env.RepoRoot)
+}
+
 // newFactWebhookEvent builds a fact event and is the ONLY place that decides
 // whether fact text leaves the machine. Callers pass the whole record and get
 // back a payload already redacted, so forgetting to redact is not something a
 // call site can do.
-func newFactWebhookEvent(name, repoDir, branch string, record factRecord, now time.Time) webhookEvent {
+func newFactWebhookEvent(name, repoName, branch string, record factRecord, now time.Time) webhookEvent {
 	fact := &webhookFact{ID: record.ID, Kind: record.Kind, Paths: record.Paths}
 	if envBool(webhookIncludeTextEnv) {
 		fact.Text = record.Text
@@ -153,7 +172,7 @@ func newFactWebhookEvent(name, repoDir, branch string, record factRecord, now ti
 	return webhookEvent{
 		Event:     name,
 		Timestamp: now.UTC().Format(time.RFC3339),
-		Repo:      webhookRepoName(repoDir),
+		Repo:      repoName,
 		Branch:    branch,
 		Fact:      fact,
 	}

@@ -113,7 +113,7 @@ func newWebhookTestCommand(opts Options) *cobra.Command {
 			event := webhookEvent{
 				Event:     WebhookTest,
 				Timestamp: opts.Now().UTC().Format(time.RFC3339),
-				Repo:      webhookRepoName(opts.Env.RepoRoot),
+				Repo:      webhookRepoIdentity(cmd.Context(), opts),
 			}
 			if err := deliverWebhook(cmd.Context(), endpoint, event); err != nil {
 				return err
