@@ -225,6 +225,7 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 		sessionDatesPath      string
 		excludeSessionIDs     []string
 		readOnlySemanticCache bool
+		noGlobal              bool
 	)
 	cmd := &cobra.Command{
 		Use:   "recall <query>",
@@ -260,6 +261,23 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 			allFacts, err := loadFacts(brainDir, resolvedBranch)
 			if err != nil {
 				return err
+			}
+			// Facts that are not about this repository — preferences, team
+			// conventions, environment details — merge in here, so something
+			// recorded once applies everywhere. They go through every filter
+			// and the same ranking as repository facts; the only difference is
+			// that they are labelled, because acting on a global convention as
+			// though this repo had declared it is a different thing.
+			globalIDs := map[string]bool{}
+			if globalFactsEnabled(noGlobal) {
+				globalFacts, globalErr := loadGlobalFacts(opts.Env)
+				if globalErr != nil {
+					// A damaged global store must not take recall down with it;
+					// the repository's own facts are the answer to most queries.
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: global facts unavailable: %v\n", globalErr)
+				} else {
+					allFacts, globalIDs = mergeGlobalFacts(allFacts, globalFacts)
+				}
 			}
 			var storeWarning string
 			manifest, manifestErr := loadBrainManifest(brainDir)
@@ -315,7 +333,20 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 			}
 			matches := rankFactsFused(facts, effectiveQuery, limit, includeAll, rr)
 			if rr != nil && !readOnlySemanticCache {
-				rr.retain(allFacts) // keep every present fact's vector; prune only departed facts
+				// Retain only this repository's facts. The cache is keyed by
+				// (brainDir, branch), so retaining merged-in global facts would
+				// file their vectors under this repo's key and prune them from
+				// every other repo's view on the next recall.
+				retained := allFacts
+				if len(globalIDs) > 0 {
+					retained = make([]factRecord, 0, len(allFacts))
+					for _, fact := range allFacts {
+						if !globalIDs[fact.ID] {
+							retained = append(retained, fact)
+						}
+					}
+				}
+				rr.retain(retained) // keep every present fact's vector; prune only departed facts
 				_ = rr.flush()      // best-effort cache persist
 			}
 			// Locus drift (Phase 2 item 4): flag surfaced facts whose code
@@ -349,6 +380,13 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 				// `facts_locus_drift` to disambiguate. This per-surface split is
 				// intentional and kept as-is; we do not unify the keys.
 				out := map[string]any{"branch": resolvedBranch, "query": query, "facts": matches}
+				// A consumer that renders these has to be able to tell which
+				// facts came from outside this repository; the ids are the
+				// smallest way to say so without changing the fact shape that
+				// every existing reader binds to.
+				if ids := sortedGlobalFactIDs(matches, globalIDs); len(ids) > 0 {
+					out["global_fact_ids"] = ids
+				}
 				engine := recallRetrievalIdentity(!noSemantic, readOnlySemanticCache, rr)
 				out["retrieval_engine"] = engine
 				if engine.EffectiveEngine != "" {
@@ -403,7 +441,14 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 					fmt.Fprintf(out, "⚠ %s\n", factReviewQueueUnavailableWarning)
 				}
 				for _, f := range matches {
-					printFactLine(out, f)
+					if globalIDs[f.ID] {
+						// Without this a global convention is indistinguishable
+						// from something this repository declared, and an agent
+						// would cite it as a property of the codebase.
+						printGlobalFactLine(out, f)
+					} else {
+						printFactLine(out, f)
+					}
 					if gone := drift[f.ID]; len(gone) > 0 {
 						fmt.Fprintf(out, "  ⚠ stale locus (no longer in worktree): %s\n", strings.Join(gone, ", "))
 					}
@@ -436,6 +481,7 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 	cmd.Flags().StringVar(&sessionDatesPath, "session-dates", "", "JSON map of session IDs to provenance timestamps for --eligible-before")
 	cmd.Flags().StringArrayVar(&excludeSessionIDs, "exclude-session-id", nil, "Exclude facts anchored to this session (repeatable)")
 	cmd.Flags().BoolVar(&readOnlySemanticCache, "read-only-semantic-cache", false, "Do not persist or prune semantic vectors during recall")
+	cmd.Flags().BoolVar(&noGlobal, "no-global", false, "Exclude global facts, recalling only this repository's")
 	return cmd
 }
 
@@ -500,6 +546,31 @@ func newInspectBlameCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch the fact belongs to (default: current branch)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	return cmd
+}
+
+// printGlobalFactLine renders a fact that came from the global store rather than
+// this repository.
+func printGlobalFactLine(out io.Writer, f factRecord) {
+	marker := ""
+	switch f.Status {
+	case factStatusSuperseded:
+		marker = " (superseded)"
+	case factStatusRetracted:
+		marker = " (retracted)"
+	}
+	fmt.Fprintf(out, "%s %s [%s] (global)%s\n  %s\n", f.ID, factKindOrInferred(f), strings.Join(f.Paths, ","), marker, f.Text)
+}
+
+// sortedGlobalFactIDs returns the ids of the surfaced facts that are global, in
+// the order they were surfaced, so JSON output is stable across runs.
+func sortedGlobalFactIDs(matches []factRecord, globalIDs map[string]bool) []string {
+	var ids []string
+	for _, f := range matches {
+		if globalIDs[f.ID] {
+			ids = append(ids, f.ID)
+		}
+	}
+	return ids
 }
 
 // printFactLine renders a fact for human-readable listings.
