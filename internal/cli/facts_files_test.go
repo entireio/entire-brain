@@ -436,7 +436,10 @@ func TestPartialExportStillRecordsWhatItWrote(t *testing.T) {
 
 	// The manifest must now cover the file the failed run left behind, so the
 	// next export removes it.
-	manifest := readFactFilesManifest(dir)
+	manifest, manifestErr := readFactFilesManifest(dir)
+	if manifestErr != nil {
+		t.Fatalf("read manifest: %v", manifestErr)
+	}
 	found := false
 	for _, rel := range manifest.Files {
 		if strings.Contains(rel, factFileName(good.ID)) {
@@ -480,7 +483,10 @@ func TestPartialExportDoesNotForgetEarlierFiles(t *testing.T) {
 	}
 
 	// Both the earlier file and the one this run wrote must be reconcilable.
-	manifest := readFactFilesManifest(dir)
+	manifest, manifestErr := readFactFilesManifest(dir)
+	if manifestErr != nil {
+		t.Fatalf("read manifest: %v", manifestErr)
+	}
 	for _, want := range []string{factFileName(first.ID), factFileName(second.ID)} {
 		found := false
 		for _, rel := range manifest.Files {
@@ -498,5 +504,55 @@ func TestPartialExportDoesNotForgetEarlierFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(firstFile); err == nil {
 		t.Fatal("a file from the first export survived; the partial record forgot it")
+	}
+}
+
+// Treating a corrupt manifest as empty permanently orphans everything a
+// previous export wrote: nothing can reconcile against a record that has been
+// silently discarded, and the directory quietly stops meaning what the command
+// says it means. Refusing is recoverable in one step.
+func TestCorruptManifestIsRefusedNotIgnored(t *testing.T) {
+	dir := t.TempDir()
+	fact := factRecord{ID: "fact:aaaa1111", Paths: []string{"architecture.api.ports"}, Text: "Ports start at 8000.", Status: factStatusActive}
+	if _, err := writeFactFiles(dir, []factRecord{fact}); err != nil {
+		t.Fatalf("first export: %v", err)
+	}
+	written := filepath.Join(dir, "architecture", "api", "ports", factFileName(fact.ID))
+	if _, err := os.Stat(written); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, factFilesManifestName), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := writeFactFiles(dir, nil)
+	if err == nil {
+		t.Fatal("a corrupt manifest was treated as empty; the previously exported file is now unremovable")
+	}
+	// The error has to name the file and the way out, or the user is stuck.
+	if !strings.Contains(err.Error(), factFilesManifestName) {
+		t.Fatalf("the error does not name the manifest: %v", err)
+	}
+	if !strings.Contains(err.Error(), "delete") {
+		t.Fatalf("the error does not say how to recover: %v", err)
+	}
+	// And it must not have destroyed anything on the way out.
+	if _, err := os.Stat(written); err != nil {
+		t.Fatal("the refused export removed a file")
+	}
+}
+
+// An empty or whitespace-only manifest is not corruption — it is what a
+// truncated write leaves — and must read as "nothing recorded" rather than
+// blocking every future export.
+func TestEmptyManifestIsNotTreatedAsCorrupt(t *testing.T) {
+	dir := t.TempDir()
+	for _, content := range []string{"", "   \n"} {
+		if err := os.WriteFile(filepath.Join(dir, factFilesManifestName), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := readFactFilesManifest(dir); err != nil {
+			t.Fatalf("an empty manifest was refused: %v", err)
+		}
 	}
 }

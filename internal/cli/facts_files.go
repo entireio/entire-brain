@@ -3,6 +3,7 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -165,16 +166,34 @@ type factFilesManifest struct {
 	Files []string `json:"files"`
 }
 
-func readFactFilesManifest(dir string) factFilesManifest {
+func readFactFilesManifest(dir string) (factFilesManifest, error) {
 	var manifest factFilesManifest
+	// The read follows symlinks just as the write would, so a link planted at
+	// the manifest would feed this export a reconciliation record from outside
+	// --dir — and then act on it, deleting whatever it named. A symlinked
+	// manifest reads as no manifest, which prunes nothing.
+	if err := rejectExistingSymlinkPathComponents(dir, factFilesManifestName); err != nil {
+		return manifest, nil
+	}
 	data, err := os.ReadFile(filepath.Join(dir, factFilesManifestName))
 	if err != nil {
 		// No manifest means either a first run or a directory this command has
 		// never written to. Removing nothing is the only safe reading of both.
-		return manifest
+		return manifest, nil
 	}
-	_ = json.Unmarshal(data, &manifest)
-	return manifest
+	if len(bytes.TrimSpace(data)) == 0 {
+		return manifest, nil
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		// Treating a corrupt manifest as empty is the worst option available:
+		// every file a previous export wrote becomes permanently unremovable,
+		// nothing says so, and the directory quietly stops meaning what the
+		// command says it means. Refusing is recoverable in one step, and the
+		// error says which step.
+		return manifest, fmt.Errorf("%s is unreadable (%w); delete it to start a fresh export, "+
+			"which will leave any files a previous run wrote in place", factFilesManifestName, err)
+	}
+	return manifest, nil
 }
 
 // pruneStaleFactFiles removes files the last export wrote and this one did not.
@@ -235,7 +254,10 @@ func writeFactFiles(dir string, facts []factRecord) (factFilesResult, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return result, fmt.Errorf("create export directory: %w", err)
 	}
-	previous := readFactFilesManifest(dir)
+	previous, err := readFactFilesManifest(dir)
+	if err != nil {
+		return result, err
+	}
 	// Two facts whose ids share a 12-character prefix inside one taxonomy
 	// directory would land on the same filename. It takes an improbable
 	// collision to happen at all, and the cost if it does is the part worth
