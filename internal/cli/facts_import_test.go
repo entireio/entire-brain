@@ -1,0 +1,162 @@
+package cli
+
+import (
+	"strings"
+	"testing"
+	"time"
+)
+
+// Brain could export and could not import, which is the friction a switcher
+// hits: everything they already recorded stays where it is. These tests hold
+// the importer to the part that is easy to get wrong — being honest about what
+// crossed, what did not, and what was refused.
+
+const mem0Export = `{"results":[
+ {"id":"f4cbdb08","memory":"Alex is planning a trip to San Francisco","created_at":"2024-07-01T12:00:00Z","updated_at":"2024-07-01T12:00:00Z","categories":["travel"]},
+ {"id":"aaa-111","memory":"The team deploys on Thursdays, never Fridays.","created_at":"2025-03-04T09:30:00Z","categories":["Team Process"],"user_id":"alex"},
+ {"id":"bbb-222","memory":"Old rule, replaced.","created_at":"2024-01-01T00:00:00Z","replaced_by":"aaa-111","expiration_date":"2026-12-01"},
+ {"id":"ccc-333","memory":"   "}
+]}`
+
+func TestMem0ImportCountsWhatItDropped(t *testing.T) {
+	memories, skipped, err := parseMem0([]byte(mem0Export))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(memories) != 3 || skipped != 1 {
+		t.Fatalf("got %d memories and %d skipped, want 3 and 1", len(memories), skipped)
+	}
+	// The export held four. Reporting "3 of 3" would hide the drop, which is
+	// the bug this count exists to prevent.
+	_, report := memoriesToFacts(memories, skipped, "mem0", "project.imported", "main", time.Now())
+	if report.Read != 4 {
+		t.Fatalf("read = %d, want 4 — the file's count, not the survivors'", report.Read)
+	}
+	if report.Imported != 3 || report.SkippedText != 1 {
+		t.Fatalf("imported/skipped = %d/%d, want 3/1", report.Imported, report.SkippedText)
+	}
+}
+
+func TestMem0ImportRefusesAFileThatIsNotAnExport(t *testing.T) {
+	// Unmarshalling into a struct succeeds for ANY JSON object, leaving the
+	// field nil — so decoding alone cannot tell "an export with no memories"
+	// from "not an export". Without an explicit presence check this returned
+	// success and imported nothing, which is worse than failing.
+	for _, notAnExport := range []string{`{"nope":true}`, `{}`, `"a string"`, `42`} {
+		if _, _, err := parseMem0([]byte(notAnExport)); err == nil {
+			t.Fatalf("%s was accepted as a mem0 export", notAnExport)
+		}
+	}
+	// A genuinely empty export is valid and must still parse.
+	memories, skipped, err := parseMem0([]byte(`{"results":[]}`))
+	if err != nil {
+		t.Fatalf("an empty export is still an export: %v", err)
+	}
+	if len(memories) != 0 || skipped != 0 {
+		t.Fatalf("empty export produced %d memories, %d skipped", len(memories), skipped)
+	}
+	// And a bare array, which is what the list endpoint returns.
+	if _, _, err := parseMem0([]byte(`[{"id":"z","memory":"bare"}]`)); err != nil {
+		t.Fatalf("bare array rejected: %v", err)
+	}
+}
+
+func TestImportedFactsDoNotFabricateLocalProvenance(t *testing.T) {
+	memories, skipped, err := parseMem0([]byte(mem0Export))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	facts, _ := memoriesToFacts(memories, skipped, "mem0", "project.imported", "main", time.Now())
+
+	for _, fact := range facts {
+		// An imported memory was recorded against another tool, not against
+		// this repository. Giving it a commit anchor would launder a foreign
+		// assertion into local evidence.
+		if fact.Origin != factOriginImported {
+			t.Fatalf("%s: origin = %q, want %q", fact.ID, fact.Origin, factOriginImported)
+		}
+		if len(fact.Provenance) != 1 {
+			t.Fatalf("%s: want exactly one anchor naming the source", fact.ID)
+		}
+		anchor := fact.Provenance[0]
+		if anchor.Commit != "" || anchor.CheckpointID != "" {
+			t.Fatalf("%s: imported fact claims local evidence: commit=%q checkpoint=%q",
+				fact.ID, anchor.Commit, anchor.CheckpointID)
+		}
+		if !strings.HasPrefix(anchor.SessionID, "mem0:") {
+			t.Fatalf("%s: anchor %q should name the source tool and foreign id", fact.ID, anchor.SessionID)
+		}
+	}
+}
+
+func TestImportPreservesSupersessionAndReportsWhatCannotCross(t *testing.T) {
+	memories, skipped, err := parseMem0([]byte(mem0Export))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	facts, report := memoriesToFacts(memories, skipped, "mem0", "project.imported", "main", time.Now())
+
+	// The source had already replaced one memory. Importing it as active would
+	// resurrect something its owner retired.
+	superseded := 0
+	for _, fact := range facts {
+		if fact.Status == "superseded" {
+			superseded++
+		}
+	}
+	if superseded != 1 || report.Superseded != 1 {
+		t.Fatalf("superseded = %d (report %d), want 1", superseded, report.Superseded)
+	}
+
+	// Brain has no TTL and does not scope by user. Both must be named, not
+	// quietly discarded: an expiry that silently vanishes turns a memory its
+	// owner scheduled to disappear into one that never does.
+	joined := strings.Join(report.Unsupported, " | ")
+	for _, want := range []string{"expiration_date", "user_id"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("report does not mention %q: %v", want, report.Unsupported)
+		}
+	}
+}
+
+func TestImportedFactsAreFiledSomewhereObvious(t *testing.T) {
+	memories, skipped, err := parseMem0([]byte(mem0Export))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	facts, _ := memoriesToFacts(memories, skipped, "mem0", "project.imported", "main", time.Now())
+	for _, fact := range facts {
+		// Foreign categories are free text and cannot be trusted to land under
+		// a known top level, so everything stays under the prefix until a human
+		// reclassifies it.
+		if !strings.HasPrefix(fact.Paths[0], "project.imported.") {
+			t.Fatalf("%s filed at %q, outside the import prefix", fact.ID, fact.Paths[0])
+		}
+	}
+	// "Team Process" has to survive as a usable segment.
+	found := false
+	for _, fact := range facts {
+		if fact.Paths[0] == "project.imported.team-process" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal(`category "Team Process" did not become project.imported.team-process`)
+	}
+}
+
+func TestImportTimestampsFallBackToImportTime(t *testing.T) {
+	// A memory with no usable timestamp must be dated at import, not at the
+	// zero value — a year-1 fact would sort last forever and read as ancient.
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	facts, _ := memoriesToFacts([]importedMemory{{ForeignID: "x", Text: "undated"}}, 0, "mem0", "project.imported", "main", now)
+	if !facts[0].CreatedAt.Equal(now) || !facts[0].UpdatedAt.Equal(now) {
+		t.Fatalf("undated memory got %v/%v, want both %v", facts[0].CreatedAt, facts[0].UpdatedAt, now)
+	}
+	if got := parseImportTime("2024-07-01T12:00:00Z"); got.IsZero() {
+		t.Fatal("RFC3339 timestamp failed to parse")
+	}
+	if got := parseImportTime("not a time"); !got.IsZero() {
+		t.Fatalf("unparseable timestamp became %v, want the zero value", got)
+	}
+}
