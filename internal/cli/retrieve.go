@@ -476,7 +476,17 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		return nil, fmt.Errorf("load doc index: %w", derr)
 	}
 
-	fused := rrfMergeUnified(lists, limit)
+	fusionLimit := limit
+	if opts.Recency {
+		// Retain every candidate through weighting: a fresh result below the
+		// raw RRF cutoff may belong in the final page. The sum is an upper
+		// bound on the number of distinct results after fusion.
+		fusionLimit = 0
+		for _, list := range lists {
+			fusionLimit += len(list)
+		}
+	}
+	fused := rrfMergeUnified(lists, fusionLimit)
 	if opts.Recency {
 		now := opts.Now
 		if now.IsZero() {
@@ -494,6 +504,9 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 				})
 			}
 		}
+	}
+	if len(fused) > limit {
+		fused = fused[:limit]
 	}
 	return fused, nil
 }

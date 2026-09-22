@@ -9,6 +9,39 @@ import (
 	"time"
 )
 
+func TestRetrievalRecencyPromotesCandidateBelowCutoff(t *testing.T) {
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	brainDir := t.TempDir()
+	facts := []factRecord{
+		{ID: "fact:old", Text: "alpha beta retrieval", Status: factStatusActive, UpdatedAt: now.Add(-3 * 365 * 24 * time.Hour)},
+		{ID: "fact:fresh", Text: "alpha retrieval", Status: factStatusActive, UpdatedAt: now},
+	}
+	if err := writeFacts(brainDir, "main", facts); err != nil {
+		t.Fatal(err)
+	}
+	for _, enabled := range []bool{false, true} {
+		opts := retrievalOptions{Source: retrievalSourceFact, Recency: enabled, Now: now}
+		full, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha beta", 2, modeLexical, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "fact:old"
+		if enabled {
+			want = "fact:fresh"
+		}
+		if len(full) != 2 || full[0].ID != want {
+			t.Fatalf("recency=%v: unexpected full ranking: %+v", enabled, full)
+		}
+		page, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha beta", 1, modeLexical, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page) != 1 || page[0].ID != want || page[0].Score != full[0].Score {
+			t.Fatalf("recency=%v: limit=1 must return the top weighted candidate %s, got %+v", enabled, want, page)
+		}
+	}
+}
+
 func TestRetrievalRecencyReportsUndatedResults(t *testing.T) {
 	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
 	for _, tc := range []struct {
