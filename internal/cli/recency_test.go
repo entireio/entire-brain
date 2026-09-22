@@ -42,6 +42,38 @@ func TestRetrievalRecencyPromotesCandidateBelowCutoff(t *testing.T) {
 	}
 }
 
+// A dated candidate can lose its place to an undated result because weighting
+// worked. The absence of dates on the final page does not mean it was unavailable.
+func TestRetrievalRecencyDemotesDatedCandidateOutsidePage(t *testing.T) {
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	brainDir := t.TempDir()
+	facts := []factRecord{
+		{ID: "fact:old", Text: "alpha beta retrieval", Status: factStatusActive, UpdatedAt: now.Add(-3 * 365 * 24 * time.Hour)},
+		{ID: "fact:undated", Text: "alpha retrieval", Status: factStatusActive},
+	}
+	if err := writeFacts(brainDir, "main", facts); err != nil {
+		t.Fatal(err)
+	}
+	for _, enabled := range []bool{false, true} {
+		results, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha beta", 1, modeLexical, retrievalOptions{Source: retrievalSourceFact, Recency: enabled, Now: now})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "fact:old"
+		if enabled {
+			want = "fact:undated"
+		}
+		if len(results) != 1 || results[0].ID != want {
+			t.Fatalf("recency=%v results=%+v", enabled, results)
+		}
+		for _, caveat := range results[0].Caveats {
+			if caveat.Kind == "recency_unavailable" {
+				t.Fatal("weighting changed page membership; must not report unavailable")
+			}
+		}
+	}
+}
+
 func TestRetrievalRecencyReportsUndatedResults(t *testing.T) {
 	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
 	for _, tc := range []struct {
@@ -108,7 +140,7 @@ func TestRetrievalRecencyReportsUndatedResults(t *testing.T) {
 				}
 				var out bytes.Buffer
 				printRetrievalCaveats(&out, results[0])
-				if !strings.Contains(out.String(), "none of the returned results has a usable timestamp") {
+				if !strings.Contains(out.String(), "none of the retrieved candidates has a usable timestamp") {
 					t.Fatalf("text lost caveat: %s", out.String())
 				}
 			}
