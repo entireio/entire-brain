@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "ae945287b872",
+  "strategy": "manual-commit",
+  "branch": "codex/trail-224-fix",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/semantic_mcp_guide.md",
+    "internal/cli/recency.go",
+    "internal/cli/retrieve.go",
+    "internal/cli/retrieve_cmd.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ae/945287b872/0/metadata.json",
+      "transcript": "/ae/945287b872/0/full.jsonl",
+      "compact_transcript": "/ae/945287b872/0/transcript.jsonl",
+      "content_hash": "/ae/945287b872/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 15401,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2803712,
+    "output_tokens": 3533,
+    "api_call_count": 20
+  }
+}
