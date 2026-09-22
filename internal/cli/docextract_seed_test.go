@@ -685,3 +685,46 @@ func TestObjectStreamExpansionSpendsTheDocumentBudget(t *testing.T) {
 			len(payload), tiny.remaining)
 	}
 }
+
+// Colors, BitsPerComponent and Columns come out of the document and their
+// product decides make([]byte, rowLen). A file could ask for an allocation far
+// larger than anything it actually contained.
+func TestPredictorRefusesParametersThatWouldOverAllocate(t *testing.T) {
+	data := []byte("short stream")
+	for _, tc := range []struct {
+		name  string
+		parms map[string]pdfValue
+	}{
+		{"absurd column count", map[string]pdfValue{
+			"Predictor": float64(12), "Columns": float64(1 << 40),
+		}},
+		{"more colour components than CMYK", map[string]pdfValue{
+			"Predictor": float64(12), "Colors": float64(1 << 20), "Columns": float64(8),
+		}},
+		{"impossible sample size", map[string]pdfValue{
+			"Predictor": float64(12), "BitsPerComponent": float64(1 << 20), "Columns": float64(8),
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := pdfApplyPredictor(data, tc.parms)
+			// Refused means handed back untouched, never a giant buffer.
+			if len(got) > len(data) {
+				t.Fatalf("predictor produced %d bytes from %d: the parameters were trusted",
+					len(got), len(data))
+			}
+		})
+	}
+}
+
+// A legal predictor must still work, or the bounds above would have closed the
+// feature rather than the hole.
+func TestPredictorStillAppliesForLegalParameters(t *testing.T) {
+	// Two PNG-Up rows (tag 2), one byte wide: 1, then +2 => 3.
+	raw := []byte{2, 1, 2, 2}
+	got := pdfApplyPredictor(raw, map[string]pdfValue{
+		"Predictor": float64(12), "Colors": float64(1), "BitsPerComponent": float64(8), "Columns": float64(1),
+	})
+	if len(got) != 2 || got[0] != 1 || got[1] != 3 {
+		t.Fatalf("a legal PNG-Up predictor was not applied: %v", got)
+	}
+}

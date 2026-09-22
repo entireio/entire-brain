@@ -452,6 +452,12 @@ func pdfDecodeStreamWithin(objects map[pdfObjectKey]*pdfObject, object *pdfObjec
 	if parms := pdfResolve(objects, object.dict["DecodeParms"]); parms != nil {
 		if dict, ok := parms.(map[string]pdfValue); ok {
 			data = pdfApplyPredictor(data, dict)
+			// The per-stream cap above was applied to the filtered bytes; the
+			// predictor runs after it and before the budget is charged, so
+			// without this an expansion here would be paid for by neither.
+			if len(data) > maxPDFContentBytes {
+				return nil, fmt.Errorf("stream expands past the %d-byte limit after predictor", maxPDFContentBytes)
+			}
 		}
 	}
 	if !budget.spend(len(data)) {
@@ -586,18 +592,34 @@ func pdfASCII85Decode(data []byte) ([]byte, error) {
 // pdfApplyPredictor undoes PNG row prediction. Streams written with /Predictor
 // 12 decode to correct-looking bytes that are actually row deltas, so skipping
 // this step produces plausible garbage rather than an obvious failure.
+// pdfMaxPredictorColors is the PDF specification's ceiling on colour
+// components (CMYK). A stream declaring more is malformed, not merely large.
+const pdfMaxPredictorColors = 4
+
 func pdfApplyPredictor(data []byte, parms map[string]pdfValue) []byte {
 	predictor, _ := pdfInt(parms["Predictor"])
 	if predictor < 10 {
 		return data
 	}
+	// Colors, BitsPerComponent and Columns come out of the document, and their
+	// product decides an allocation. The spec bounds the first two — at most
+	// four colour components, and a power-of-two sample size — so a value
+	// outside that is not a stream this reader should try to repair.
 	colors, ok := pdfInt(parms["Colors"])
 	if !ok || colors <= 0 {
 		colors = 1
 	}
+	if colors > pdfMaxPredictorColors {
+		return data
+	}
 	bpc, ok := pdfInt(parms["BitsPerComponent"])
 	if !ok || bpc <= 0 {
 		bpc = 8
+	}
+	switch bpc {
+	case 1, 2, 4, 8, 16:
+	default:
+		return data
 	}
 	columns, ok := pdfInt(parms["Columns"])
 	if !ok || columns <= 0 {
@@ -605,7 +627,10 @@ func pdfApplyPredictor(data []byte, parms map[string]pdfValue) []byte {
 	}
 	bpp := max(1, colors*bpc/8)
 	rowLen := (columns*colors*bpc + 7) / 8
-	if rowLen <= 0 {
+	// A row longer than everything that was decoded cannot describe it, so this
+	// bounds the allocation by the input rather than by what the file asked
+	// for. It also catches a product large enough to have overflowed.
+	if rowLen <= 0 || rowLen > len(data) {
 		return data
 	}
 	var out []byte
