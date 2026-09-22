@@ -1276,7 +1276,9 @@ repository.
 
 ### Turning them off
 
-`--no-global` on a single recall, or `ENTIRE_BRAIN_NO_GLOBAL_FACTS=1` for a
+Use `--no-global` on a single `recall`, `search`, `query`, or `vsearch` request,
+or `no_global: true` with `brain_search`, `brain_query`, or `brain_vsearch` over MCP.
+Set `ENTIRE_BRAIN_NO_GLOBAL_FACTS=1` for a
 machine where repository answers must not be influenced by anything outside the
 repository. The variable is fail-closed like the other guards: an unrecognised
 value disables global facts rather than leaving them on.

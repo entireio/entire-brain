@@ -724,6 +724,7 @@ func mcpToolDefinitions() []map[string]any {
 			"items":       map[string]any{"type": "string"},
 			"description": "Conversation source only: additional concepts (up to 4). Returns conversation-session: results covering the query AND every concept, with evidence_ids naming the supporting exchanges.",
 		}
+		args["no_global"] = boolArg("no_global", "Exclude global facts from this request")
 		args["include_abstract"] = boolArg("include_abstract", "Conversation source only: include bounded evidence-linked session previews; never changes ranking or invokes a provider")
 		args["recency"] = boolArg("recency", "Prefer recent dated results; default false, not supported for source conversation")
 		args["recency_half_life"] = stringArg("recency_half_life", "Positive Go duration, e.g. 720h; default 2160h (90 days); requires recency=true")
@@ -1628,6 +1629,10 @@ func mcpRetrievalOptions(args map[string]any, branch string) (retrievalOptions, 
 		}
 	}
 	ropts, err := buildRetrievalOptions(source, after, before, sessionID, agent, branch, concepts)
+	if err != nil {
+		return retrievalOptions{}, err
+	}
+	ropts.NoGlobalFacts, err = mcpBool(args, "no_global")
 	if err != nil {
 		return retrievalOptions{}, err
 	}

@@ -984,3 +984,61 @@ func TestUnifiedRetrievalChecksOnlyLocalLoci(t *testing.T) {
 		}
 	}
 }
+
+func TestRetrievalCommandsCanExcludeGlobalFactsPerRequest(t *testing.T) {
+	opts, _ := retrievalSurfaceFixture(t)
+	for _, use := range []string{"search", "query", "vsearch"} {
+		for _, noGlobal := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/no-global=%v", use, noGlobal), func(t *testing.T) {
+				mode := modeLexical
+				if use == "query" {
+					mode = modeHybrid
+				}
+				if use == "vsearch" {
+					mode = modeVector
+				}
+				cmd := newRetrieveCommand(opts, use, mode, "test")
+				var out bytes.Buffer
+				cmd.SetOut(&out)
+				cmd.SetErr(&bytes.Buffer{})
+				cmd.SetArgs([]string{"orion", "--source=fact", "--branch=feature", "--json", fmt.Sprintf("--no-global=%v", noGlobal)})
+				if err := cmd.Execute(); err != nil {
+					t.Fatal(err)
+				}
+				hasGlobal := strings.Contains(out.String(), "global convention applies everywhere")
+				if hasGlobal == noGlobal || !strings.Contains(out.String(), "local retrieval fact") {
+					t.Fatalf("wrong scope: %s", out.String())
+				}
+			})
+		}
+	}
+}
+
+func TestMCPRetrievalCanExcludeGlobalFactsPerRequest(t *testing.T) {
+	opts, _ := retrievalSurfaceFixture(t)
+	for _, name := range []string{"brain_search", "brain_query", "brain_vsearch"} {
+		for _, noGlobal := range []bool{false, true} {
+			params, err := json.Marshal(mcpToolCallParams{Name: name, Arguments: map[string]any{
+				"query": "orion", "source": "fact", "branch": "feature", "no_global": noGlobal,
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			response := handleMCPMessage(context.Background(), opts, mcpMessage{JSONRPC: "2.0", ID: 1, Method: "tools/call", Params: params})
+			if response.Error != nil {
+				t.Fatalf("%s: %+v", name, response.Error)
+			}
+			encoded, err := json.Marshal(response.Result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hasGlobal := strings.Contains(string(encoded), "global convention applies everywhere")
+			if hasGlobal == noGlobal || !strings.Contains(string(encoded), "local retrieval fact") {
+				t.Fatalf("%s no_global=%v: wrong scope: %s", name, noGlobal, encoded)
+			}
+		}
+	}
+	if _, err := mcpRetrievalOptions(map[string]any{"no_global": "true"}, "feature"); err == nil {
+		t.Fatal("no_global accepted a string instead of a boolean")
+	}
+}

@@ -86,7 +86,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	var format string
 	var limit int
 	var branch string
-	var patterns, includeAbstract bool
+	var patterns, includeAbstract, noGlobal bool
 	var source, after, before, session, agent string
 	var concepts []string
 	var recency bool
@@ -105,6 +105,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 				return fmt.Errorf("--%s", err.Error())
 			}
 			ropts.IncludeAbstract = includeAbstract
+			ropts.NoGlobalFacts = noGlobal
 			ropts, err = withRecencyOptions(ropts, recency, recencyHalfLife)
 			if err != nil {
 				return err
@@ -122,6 +123,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	cmd.Flags().IntVarP(&limit, "number", "n", 10, "Maximum results (QMD-style alias for --limit)")
 	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current); with --source conversation also filters exchanges to that captured branch")
+	cmd.Flags().BoolVar(&noGlobal, "no-global", false, "Exclude global facts from this request")
 	cmd.Flags().BoolVar(&patterns, "patterns", false, "Also surface relevant pattern:/theme: pointers (does not change facts/history/docs ranking)")
 	cmd.Flags().StringVar(&source, "source", "", "Restrict retrieval to one source: all, fact, history, conversation, or doc (default all; conversation is experimental opt-in)")
 	cmd.Flags().StringVar(&after, "after", "", "Conversation source only: sessions at or after this time (RFC3339 or YYYY-MM-DD)")
