@@ -360,28 +360,32 @@ func officeZipNames(reader *zip.Reader) []string {
 
 // readZipPart decompresses one entry under a hard output cap, so a zip bomb
 // costs a bounded read rather than the machine's memory.
-func readZipPart(reader *zip.Reader, name string, budget int) ([]byte, error) {
+// The second return is how many bytes were decompressed, reported even when the
+// part is refused: discovering that a part is over the cap costs the whole
+// remaining allowance, and a caller that charges only on success lets a package
+// of over-cap parts pay nothing and repeat for every entry it holds.
+func readZipPart(reader *zip.Reader, name string, budget int) ([]byte, int, error) {
 	for _, f := range reader.File {
 		if f.Name != name {
 			continue
 		}
 		rc, err := f.Open()
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		defer rc.Close()
 		// One byte past the budget, so hitting the cap is distinguishable from
 		// a part that happens to be exactly that size.
 		data, err := io.ReadAll(io.LimitReader(rc, int64(budget)+1))
 		if err != nil {
-			return nil, err
+			return nil, len(data), err
 		}
 		if len(data) > budget {
-			return nil, fmt.Errorf("%s expands past the %d-byte limit", name, budget)
+			return nil, len(data), fmt.Errorf("%s expands past the %d-byte limit", name, budget)
 		}
-		return data, nil
+		return data, len(data), nil
 	}
-	return nil, fmt.Errorf("%s is missing", name)
+	return nil, 0, fmt.Errorf("%s is missing", name)
 }
 
 // extractOfficeText pulls the text out of the selected parts of a WordprocessingML
@@ -412,7 +416,13 @@ func extractOfficeText(data []byte, selectParts officePartSelector) (string, err
 		if budget <= 0 {
 			break
 		}
-		raw, err := readZipPart(reader, part, budget)
+		raw, read, err := readZipPart(reader, part, budget)
+		// Charged where the work happened, not where it succeeded. Deducting
+		// only on a part that yields text let a package whose parts each
+		// decompress to the cap and contain none spend the allowance over and
+		// over -- and an over-cap part costs the whole remaining allowance to
+		// discover, so it is charged too.
+		budget -= read
 		if err != nil {
 			// One unreadable note or slide must not lose the whole document.
 			continue
@@ -428,7 +438,6 @@ func extractOfficeText(data []byte, selectParts officePartSelector) (string, err
 			out.WriteString("\n\n")
 		}
 		out.WriteString(text)
-		budget -= len(raw)
 		if out.Len() >= maxExtractOutputBytes {
 			break
 		}
@@ -578,11 +587,14 @@ func extractXlsxText(data []byte) (string, error) {
 		if budget <= 0 {
 			break
 		}
-		raw, err := readZipPart(reader, s.part, budget)
+		raw, read, err := readZipPart(reader, s.part, budget)
+		// An over-cap sheet costs the whole remaining allowance to discover, so
+		// it is charged like a successful read rather than retried free of
+		// charge for every sheet the workbook declares.
+		budget -= read
 		if err != nil {
 			continue
 		}
-		budget -= len(raw)
 		body := xlsxSheetText(raw, shared)
 		if strings.TrimSpace(body) == "" {
 			continue
@@ -600,7 +612,7 @@ func extractXlsxText(data []byte) (string, error) {
 }
 
 func xlsxSharedStrings(reader *zip.Reader) []string {
-	raw, err := readZipPart(reader, "xl/sharedStrings.xml", maxExtractOutputBytes)
+	raw, _, err := readZipPart(reader, "xl/sharedStrings.xml", maxExtractOutputBytes)
 	if err != nil {
 		return nil // a workbook of pure numbers has no shared strings, which is fine
 	}
@@ -655,7 +667,7 @@ type xlsxSheetRef struct {
 // them rather than as sheet1/sheet2.
 func xlsxSheetNames(reader *zip.Reader) []xlsxSheetRef {
 	rels := map[string]string{} // rId -> part path
-	if raw, err := readZipPart(reader, "xl/_rels/workbook.xml.rels", maxExtractOutputBytes); err == nil {
+	if raw, _, err := readZipPart(reader, "xl/_rels/workbook.xml.rels", maxExtractOutputBytes); err == nil {
 		decoder := xml.NewDecoder(bytes.NewReader(raw))
 		decoder.Strict = false
 		for {
@@ -688,7 +700,7 @@ func xlsxSheetNames(reader *zip.Reader) []xlsxSheetRef {
 		}
 	}
 
-	raw, err := readZipPart(reader, "xl/workbook.xml", maxExtractOutputBytes)
+	raw, _, err := readZipPart(reader, "xl/workbook.xml", maxExtractOutputBytes)
 	if err != nil {
 		return nil
 	}

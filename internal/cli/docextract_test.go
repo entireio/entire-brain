@@ -531,3 +531,36 @@ func TestMalformedInputTerminates(t *testing.T) {
 		<-done
 	}
 }
+
+// The per-package allowance is drawn down per part. Deducting it only on a part
+// that yielded text meant a package whose parts each decompress to the cap and
+// contain none never spent it — so an archive of up to maxExtractZipEntries
+// such parts could force that many near-full decompressions, which is exactly
+// the aggregate this budget exists to bound.
+//
+// Asserted on what the reader returns rather than on how long it took. Parts
+// are read in a fixed order (document.xml, then endnotes, then footnotes), so a
+// run of textless endnotes that spends the allowance must stop the walk before
+// the footnote at the end — and the sentence in it must not come back.
+func TestTextlessOfficePartsSpendTheBudget(t *testing.T) {
+	filler := "<w:document><w:body>" + strings.Repeat("<w:p><w:r></w:r></w:p>", 30000) + "</w:body></w:document>"
+	parts := map[string]string{
+		"word/document.xml": "<w:document><w:body><w:p><w:r><w:t>Opening line.</w:t></w:r></w:p></w:body></w:document>",
+		"word/footnotes99.xml": "<w:document><w:body><w:p><w:r><w:t>SENTINEL past the allowance.</w:t></w:r>" +
+			"</w:p></w:body></w:document>",
+	}
+	for i := 0; i < 10; i++ {
+		parts[fmt.Sprintf("word/endnotes%02d.xml", i)] = filler
+	}
+
+	text, err := extractDocumentText("big.docx", zipFile(t, parts))
+	if err != nil {
+		t.Fatalf("extract: %v", err)
+	}
+	if !strings.Contains(text, "Opening line.") {
+		t.Fatalf("the body was lost entirely: %q", text)
+	}
+	if strings.Contains(text, "SENTINEL") {
+		t.Fatal("textless parts spent none of the allowance, so the walk ran past it")
+	}
+}

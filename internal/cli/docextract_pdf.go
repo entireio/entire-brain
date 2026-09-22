@@ -77,7 +77,7 @@ func extractPDFTextWithin(data []byte, budget *pdfDecodeBudget) (string, error) 
 	if !bytes.HasPrefix(bytes.TrimLeft(data[:min(len(data), 1024)], "\x00 \t\r\n"), []byte("%PDF-")) {
 		return "", fmt.Errorf("not a PDF (no %%PDF- header)")
 	}
-	objects := scanPDFObjects(data)
+	objects := scanPDFObjects(data, budget)
 	if len(objects) == 0 {
 		return "", fmt.Errorf("no PDF objects could be read; the file may be damaged")
 	}
@@ -168,7 +168,7 @@ func extractPDFTextWithin(data []byte, budget *pdfDecodeBudget) (string, error) 
 // on a file that is otherwise perfectly readable, and the objects themselves are
 // self-describing. Objects inside object streams (/Type /ObjStm) are expanded
 // afterwards, because in a modern PDF the page tree usually lives there.
-func scanPDFObjects(data []byte) map[pdfObjectKey]*pdfObject {
+func scanPDFObjects(data []byte, budget *pdfDecodeBudget) map[pdfObjectKey]*pdfObject {
 	objects := make(map[pdfObjectKey]*pdfObject)
 	for offset := 0; offset < len(data) && len(objects) < maxPDFObjects; {
 		index := bytes.Index(data[offset:], []byte("obj"))
@@ -205,7 +205,7 @@ func scanPDFObjects(data []byte) map[pdfObjectKey]*pdfObject {
 		}
 		objects[pdfObjectKey{number, generation}] = object
 	}
-	expandPDFObjectStreams(objects)
+	expandPDFObjectStreams(objects, budget)
 	return objects
 }
 
@@ -280,13 +280,18 @@ func pdfObjectHeaderBefore(data []byte, objIndex int) (number, generation int, o
 // expandPDFObjectStreams parses /Type /ObjStm containers. In a PDF 1.5+ file the
 // page tree and font dictionaries usually live inside one, so a reader that
 // ignores them sees a file with streams and no structure.
-func expandPDFObjectStreams(objects map[pdfObjectKey]*pdfObject) {
+// Object streams decompress before any page is walked, so they have to spend
+// the same document-wide budget as everything else. Passing nil here made ObjStm
+// expansion unlimited — each stream capped only at maxPDFContentBytes, up to
+// maxPDFObjects of them — which is the decompression bomb the budget exists to
+// stop, reachable before the first page is read.
+func expandPDFObjectStreams(objects map[pdfObjectKey]*pdfObject, budget *pdfDecodeBudget) {
 	for _, key := range pdfSortedKeys(objects) {
 		object := objects[key]
 		if name, _ := object.dict["Type"].(pdfName); name != "ObjStm" {
 			continue
 		}
-		data, err := pdfDecodeStream(objects, object)
+		data, err := pdfDecodeStreamWithin(objects, object, budget)
 		if err != nil {
 			continue
 		}

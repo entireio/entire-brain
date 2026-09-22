@@ -474,7 +474,7 @@ func TestFontStreamsSpendFromTheDocumentBudget(t *testing.T) {
 	b.addStream(t, "", "begincmap\n"+strings.Repeat("% filler filler filler filler\n", 20000)+"endcmap\n")
 	data := b.build()
 
-	objects := scanPDFObjects(data)
+	objects := scanPDFObjects(data, nil)
 	pages := pdfPages(objects)
 	if len(pages) != 1 {
 		t.Fatalf("fixture has %d pages", len(pages))
@@ -657,5 +657,31 @@ func TestPDFFallbackDoesNotDecodeCMapStreamsTwice(t *testing.T) {
 	cmapBytes := int64(400 * len("begincmap endcmap\n"))
 	if ceiling := cmapBytes + cmapBytes/2; spent > ceiling {
 		t.Fatalf("decoding spent %d bytes against a ceiling of %d; the CMap stream is being decoded twice", spent, ceiling)
+	}
+}
+
+// Object streams decompress during the initial object scan, before any page is
+// walked. Passing a nil budget there made that expansion unlimited -- each
+// stream capped only per-stream, up to maxPDFObjects of them -- which is the
+// decompression bomb the document-wide budget exists to stop, reachable before
+// the first page is read.
+func TestObjectStreamExpansionSpendsTheDocumentBudget(t *testing.T) {
+	b := &pdfBuilder{}
+	b.add("<< /Type /Catalog >>")
+	// A highly compressible object stream: small on disk, large decompressed.
+	payload := strings.Repeat("0 0 ", 2000)
+	b.addStream(t, "/Type /ObjStm /N 1 /First 4", payload)
+	pdf := b.build()
+
+	// A budget far below the decompressed size must stop the expansion rather
+	// than let it run to completion.
+	tiny := &pdfDecodeBudget{remaining: 64}
+	objects := scanPDFObjects(pdf, tiny)
+	if len(objects) == 0 {
+		t.Fatal("the fixture produced no objects at all")
+	}
+	if !tiny.exhausted() {
+		t.Fatalf("a %d-byte object stream expanded under a 64-byte budget without exhausting it (remaining %d)",
+			len(payload), tiny.remaining)
 	}
 }
