@@ -1,9 +1,29 @@
 package cli
 
 import (
+	"fmt"
 	"math"
 	"time"
 )
+
+// withRecencyOptions validates the same opt-in contract for CLI and MCP.
+func withRecencyOptions(opts retrievalOptions, enabled bool, halfLife string) (retrievalOptions, error) {
+	opts.Recency = enabled
+	if halfLife != "" {
+		if !enabled {
+			return retrievalOptions{}, fmt.Errorf("recency half-life requires recency to be enabled")
+		}
+		duration, err := time.ParseDuration(halfLife)
+		if err != nil || duration <= 0 {
+			return retrievalOptions{}, fmt.Errorf("recency half-life must be a positive Go duration (for example 720h)")
+		}
+		opts.RecencyHalfLife = duration
+	}
+	if enabled && opts.Source == retrievalSourceConversation {
+		return retrievalOptions{}, fmt.Errorf("recency is not supported for source conversation")
+	}
+	return opts, nil
+}
 
 // Recency weighting for retrieval.
 //

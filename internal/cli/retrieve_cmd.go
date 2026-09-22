@@ -89,6 +89,8 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	var patterns, includeAbstract bool
 	var source, after, before, session, agent string
 	var concepts []string
+	var recency bool
+	var recencyHalfLife string
 	cmd := &cobra.Command{
 		Use:   use + " <query>",
 		Short: short,
@@ -103,6 +105,10 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 				return fmt.Errorf("--%s", err.Error())
 			}
 			ropts.IncludeAbstract = includeAbstract
+			ropts, err = withRecencyOptions(ropts, recency, recencyHalfLife)
+			if err != nil {
+				return err
+			}
 			selectedMode, err := selection.mode(mode)
 			if err != nil {
 				return err
@@ -124,6 +130,8 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	cmd.Flags().StringVar(&agent, "agent", "", "Conversation source only: exchanges captured by this agent/harness (e.g. \"Claude Code\", \"Codex\")")
 	cmd.Flags().StringArrayVar(&concepts, "concept", nil, "Conversation source only: additional concept (repeatable, up to 4); sessions must match the query AND every concept")
 	cmd.Flags().BoolVar(&includeAbstract, "include-abstract", false, "Conversation source only: include bounded evidence-linked session previews (never affects ranking)")
+	cmd.Flags().BoolVar(&recency, "recency", false, "Prefer recent dated results (not supported for source conversation)")
+	cmd.Flags().StringVar(&recencyHalfLife, "recency-half-life", "", "Recency half-life as a positive Go duration, e.g. 720h (default 2160h; requires --recency)")
 	return cmd
 }
 

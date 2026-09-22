@@ -66,6 +66,16 @@ All three return ids you can pass to `brain_get`/`brain_multi_get` for full
 records. (The earlier `brain_history` tool was
 removed — history is now one source within the unified lexical/hybrid verbs.)
 
+Recency weighting is opt-in on all three retrieval tools: set `recency: true`
+to weight dated candidates before the result limit. Optionally set
+`recency_half_life: "720h"` for a 30-day half-life; the default is `2160h`
+(90 days). The CLI equivalents are `--recency` and
+`--recency-half-life 720h` on `query`, `search`, and `vsearch`. A custom
+half-life requires recency to be enabled and must be a positive Go duration
+(hours are supported; use `720h`, not `30d`). Undated records retain neutral
+weight; when no candidate has a usable timestamp, results carry a
+`recency_unavailable` caveat. Recency is not supported for `source: "conversation"`.
+
 ### Conversation exchanges (experimental, opt-in)
 
 `brain_query` and `brain_search` accept an optional enum-valued `source`

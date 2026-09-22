@@ -201,6 +201,9 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		return nil, fmt.Errorf(`include_abstract requires source "conversation" (got %q)`, source)
 	}
 	if source == retrievalSourceConversation {
+		if opts.Recency {
+			return nil, fmt.Errorf("recency is not supported for source conversation")
+		}
 		if len(opts.Concepts) > 0 {
 			return retrieveConversationMultiConcept(brainDir, query, limit, mode, opts)
 		}
