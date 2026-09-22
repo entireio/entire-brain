@@ -247,12 +247,11 @@ func restSearch(w http.ResponseWriter, r *http.Request, opts Options) {
 		writeRESTError(w, http.StatusBadRequest, err.Error(), fmt.Sprintf("limit is 1..%d", restMaxLimit))
 		return
 	}
-	brainDir, branch, err := restResolveTarget(r, opts)
+	repoDir, brainDir, branch, err := resolveFactsTarget(r.Context(), opts, agentSurfaceTarget(opts, nil), strings.TrimSpace(r.URL.Query().Get("branch")))
 	if err != nil {
 		writeRESTError(w, http.StatusBadRequest, err.Error(), "")
 		return
 	}
-	repoDir := opts.Env.RepoRoot
 	// Through the same parser the CLI and MCP use. Passed raw, an unrecognised
 	// value — "facts" for "fact" — turns every include flag off downstream and
 	// returns 200 with zero results: an empty search presented as a complete
@@ -288,9 +287,8 @@ func restSearch(w http.ResponseWriter, r *http.Request, opts Options) {
 		return
 	}
 	// The identity the rows were cleared under, matching every other retrieval
-	// surface. Handing the write boundary the pre-ranking snapshot makes it
-	// refuse a response it has already cleaned, which reaches the client as a
-	// 200 with an empty body because the status line is written first.
+	// surface. The pre-ranking snapshot could refuse a response whose rows
+	// have already been revalidated under a newer, clean policy.
 	writeRESTRetrieval(w, map[string]any{"branch": branch, "query": query, "count": len(results), "results": results},
 		retrievalPrivacyPolicy{BrainDir: brainDir, Identity: policyAfter})
 }
