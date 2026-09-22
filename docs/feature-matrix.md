@@ -36,10 +36,11 @@ measured loss, and head-to-head benchmarks are still not head-to-head.
 ## What the gaps said, and what happened
 
 "We are local" explained fewer absences than it appeared to, and the twelve rows
-where it explained nothing were closed one at a time. Ten of those cells moved
+where it explained nothing were closed one at a time. Nine of those cells moved
 to Yes: document ingest, global facts, recency, edge provenance, MCP fact
-writes, HTTP MCP, REST and SDKs, plain-file export, mem0 import, and webhooks
-(Partial — the events ship, the integration count does not).
+writes, HTTP MCP, REST and SDKs, plain-file export, and mem0 import. Webhooks
+moved to Partial rather than Yes — the events ship, the integration count does
+not.
 
 **Two did not become wins, and they are the interesting ones.**
 

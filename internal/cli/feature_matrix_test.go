@@ -15,6 +15,12 @@ import (
 // comparison table whose own summary is wrong is worse than no table — this is
 // the document that invites people to check our claims.
 
+// featureMatrixColumns is the matrix's shape: Category, Feature, the seven
+// products, Notes, Source. encoding/csv already rejects a row whose field count
+// differs from the header's, so this guards the header itself from drifting —
+// which is what would silently move the column a test reads by index.
+const featureMatrixColumns = 11
+
 func featureMatrixRows(t *testing.T) [][]string {
 	t.Helper()
 	f, err := os.Open(filepath.Join("..", "..", "docs", "feature-matrix.csv"))
@@ -28,6 +34,9 @@ func featureMatrixRows(t *testing.T) [][]string {
 	}
 	if len(rows) < 2 {
 		t.Fatal("the matrix has no rows")
+	}
+	if len(rows[0]) != featureMatrixColumns {
+		t.Fatalf("the matrix header has %d columns, want %d: %v", len(rows[0]), featureMatrixColumns, rows[0])
 	}
 	return rows[1:]
 }
@@ -47,8 +56,8 @@ func TestFeatureMatrixProseMatchesTheData(t *testing.T) {
 
 	var graphYes, brainYes, viaGraph, neither int
 	for _, row := range rows {
-		if len(row) < 10 {
-			t.Fatalf("short row: %v", row)
+		if len(row) != featureMatrixColumns {
+			t.Fatalf("row has %d columns, want %d: %v", len(row), featureMatrixColumns, row)
 		}
 		if row[2] == "Yes" {
 			graphYes++
@@ -121,6 +130,67 @@ func TestClosedGapRowsSayWhatShipped(t *testing.T) {
 		}
 		if row[2] == "No" && row[3] == "No" {
 			t.Fatalf("row %q is marked as closed but both our columns still say No", row[1])
+		}
+	}
+}
+
+// The prose claims a count of gap cells that "moved to Yes" and then enumerates
+// them. Nothing checked that claim against the data, and it was wrong: a cell
+// that moved to Partial was listed among the ones that moved to Yes, and the
+// stated total counted it. A number stated in prose beside a list is the kind of
+// claim that rots first, so it is derived here rather than trusted.
+func TestFeatureMatrixMovedToYesCountMatchesTheData(t *testing.T) {
+	rows := featureMatrixRows(t)
+	prose := featureMatrixProse(t)
+
+	movedToYes, wasGap := 0, 0
+	for _, row := range rows {
+		if !strings.Contains(row[9], "Was REAL GAP") {
+			continue
+		}
+		wasGap++
+		// Either product closing the gap counts: edge provenance was closed in
+		// Graph, everything else in Brain.
+		if row[2] == "Yes" || row[3] == "Yes" {
+			movedToYes++
+		}
+	}
+	if wasGap == 0 {
+		t.Fatal("no rows are labelled Was REAL GAP; this test would pass vacuously")
+	}
+
+	m := regexp.MustCompile(`(?i)\b([A-Za-z]+) of those cells moved\s+to Yes`).FindStringSubmatch(prose)
+	if m == nil {
+		t.Fatal("feature-matrix.md no longer states how many cells moved to Yes")
+	}
+	words := map[string]int{
+		"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+		"seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+	}
+	stated, ok := words[strings.ToLower(m[1])]
+	if !ok {
+		t.Fatalf("cannot read the stated count %q", m[1])
+	}
+	if stated != movedToYes {
+		t.Fatalf("feature-matrix.md says %d cell(s) moved to Yes; the CSV has %d", stated, movedToYes)
+	}
+
+	// And a cell that did not reach Yes must not be sitting inside that list.
+	sentence := regexp.MustCompile(`(?s)of those cells moved\s+to Yes:(.*?)\.\s`).FindStringSubmatch(prose)
+	if sentence == nil {
+		t.Fatal("the moved-to-Yes sentence no longer enumerates the cells")
+	}
+	for _, row := range rows {
+		if row[3] != "Partial" || !strings.Contains(row[9], "Was REAL GAP") {
+			continue
+		}
+		for _, word := range strings.Fields(strings.ToLower(row[1])) {
+			if len(word) < 8 {
+				continue
+			}
+			if strings.Contains(strings.ToLower(sentence[1]), strings.Trim(word, "(),")) {
+				t.Fatalf("%q is Partial but appears in the moved-to-Yes list: %q", row[1], sentence[1])
+			}
 		}
 	}
 }
