@@ -127,7 +127,9 @@ the repository in lines — the terms large-codebase claims are usually stated i
 
 It builds the index in an isolated store, so it neither reads nor disturbs the
 brain for this repository, and reports bytes per thousand lines alongside query
-latency per retrieval mode.
+latency per retrieval mode. --skip-index is the exception: measuring an index
+that already exists means measuring the real brain, and a run that does is
+labelled as such in its own output.
 
 The result describes the machine it ran on and the repository it was given.
 Nothing is extrapolated: a number measured at one size is not a claim about a
@@ -150,7 +152,8 @@ larger one.`),
 	cmd.Flags().IntVar(&benchOpts.repeats, "repeats", 5, "Timed runs per query")
 	cmd.Flags().StringVar(&benchOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().StringVar(&benchOpts.profile, "profile", "syntax-only", "Semantic provider snapshot profile")
-	cmd.Flags().BoolVar(&benchOpts.skipIndex, "skip-index", false, "Measure an existing brain rather than building one")
+	cmd.Flags().BoolVar(&benchOpts.skipIndex, "skip-index", false,
+		"Measure this repository's real brain instead of building an isolated one (the only mode that touches it)")
 	return cmd
 }
 
@@ -192,7 +195,10 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 	report.Warnings = append(report.Warnings, corpusWarnings...)
 
 	// An isolated store, so the benchmark neither reads nor disturbs the brain
-	// somebody actually uses for this repository.
+	// somebody actually uses for this repository. --skip-index is the one
+	// exception and cannot avoid being one: it exists to measure an index that
+	// already exists, which only the real brain has. That run is announced in
+	// the report rather than left to this comment.
 	tempRoot, err := os.MkdirTemp("", "entire-brain-scale-bench-*")
 	if err != nil {
 		return err
@@ -210,7 +216,13 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 
 	if benchOpts.skipIndex {
 		report.IndexSkipped = true
-		benchRun = opts // measure the real brain instead
+		// Measuring an existing index means measuring the brain that holds it.
+		// A report whose numbers silently came from somewhere other than the
+		// isolated store would be the wrong kind of surprise, so it says so.
+		benchRun = opts
+		report.Warnings = append(report.Warnings,
+			"--skip-index measured the real brain for this repository, not an isolated store: "+
+				"queries read it, and retrieval may write its caches")
 	} else {
 		indexCmd := &cobra.Command{Use: "bench scale"}
 		indexCmd.SetOut(io.Discard)

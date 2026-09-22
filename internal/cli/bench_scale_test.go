@@ -304,3 +304,29 @@ func TestScaleBenchRequiresARepeatCount(t *testing.T) {
 		t.Fatal("--repeats 0 was accepted; the distribution would be empty")
 	}
 }
+
+// The command's headline promise is that it "neither reads nor disturbs the
+// brain for this repository". --skip-index cannot keep that promise: measuring
+// an index that already exists means measuring the brain that holds it. The
+// promise and the exception have to travel together, or the one mode that
+// touches the real brain is the one nobody was warned about.
+func TestSkipIndexDeclaresThatItTouchesTheRealBrain(t *testing.T) {
+	cmd := newScaleBenchCommand(Options{Version: "test"})
+
+	flag := cmd.Flags().Lookup("skip-index")
+	if flag == nil {
+		t.Fatal("--skip-index is gone")
+	}
+	if !strings.Contains(strings.ToLower(flag.Usage), "real brain") {
+		t.Fatalf("--skip-index help does not say it measures the real brain: %q", flag.Usage)
+	}
+
+	// The long help makes the isolation claim, so it is where the exception
+	// has to be stated: a reader who stops at the promise is the one misled.
+	if !strings.Contains(cmd.Long, "neither reads nor disturbs") {
+		t.Fatal("the isolation claim is gone; this test guards its exception")
+	}
+	if !strings.Contains(cmd.Long, "--skip-index") {
+		t.Fatalf("the long help promises isolation without naming the exception:\n%s", cmd.Long)
+	}
+}
