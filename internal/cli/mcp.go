@@ -725,6 +725,8 @@ func mcpToolDefinitions() []map[string]any {
 			"description": "Conversation source only: additional concepts (up to 4). Returns conversation-session: results covering the query AND every concept, with evidence_ids naming the supporting exchanges.",
 		}
 		args["include_abstract"] = boolArg("include_abstract", "Conversation source only: include bounded evidence-linked session previews; never changes ranking or invokes a provider")
+		args["recency"] = boolArg("recency", "Prefer recent dated results; default false, not supported for source conversation")
+		args["recency_half_life"] = stringArg("recency_half_life", "Positive Go duration, e.g. 720h; default 2160h (90 days); requires recency=true")
 		return args
 	}
 	objectSchema := func(required []string, properties map[string]any) map[string]any {
@@ -1626,7 +1628,15 @@ func mcpRetrievalOptions(args map[string]any, branch string) (retrievalOptions, 
 	if err != nil {
 		return retrievalOptions{}, err
 	}
-	return ropts, nil
+	recency, err := mcpBool(args, "recency")
+	if err != nil {
+		return retrievalOptions{}, err
+	}
+	halfLife, err := mcpOptionalString(args, "recency_half_life")
+	if err != nil {
+		return retrievalOptions{}, err
+	}
+	return withRecencyOptions(ropts, recency, halfLife)
 }
 
 type mcpProjectSummary struct {
