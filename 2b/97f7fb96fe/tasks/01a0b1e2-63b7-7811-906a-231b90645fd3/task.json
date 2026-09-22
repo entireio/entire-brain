@@ -1,0 +1,42 @@
+{
+  "tool_use_id": "01a0b1e2-63b7-7811-906a-231b90645fd3",
+  "agent_id": "01a0b1e2-63b7-7811-906a-231b90645fd3",
+  "files": [
+    "internal/cli/brief_output_regression_test.go",
+    "internal/cli/workspace_resolution_regression_test.go",
+    "docs/regression-coverage-residuals-v2.md",
+    "internal/cli/workspace_pattern_failure_regression_test.go",
+    "internal/cli/memory_vector_reset_failure_regression_cgo_test.go",
+    "internal/cli/brief_failure_residual_regression_test.go",
+    "internal/cli/git_harden_security_test.go",
+    "internal/cli/history_input_unix_test.go",
+    "internal/cli/history_semantic_calib_test.go",
+    "internal/cli/facts_admin_test.go",
+    "internal/cli/facts_eval_arms_test.go",
+    "internal/cli/facts_eval_test.go",
+    "internal/cli/facts_fts_test.go",
+    "internal/cli/facts_merge_test.go",
+    "internal/cli/facts_settlement_test.go",
+    "internal/cli/facts_test.go",
+    "internal/cli/memory_abstract_test.go",
+    "internal/cli/memory_worker_prepass_backoff_test.go",
+    "internal/cli/semantic_coverage_test.go",
+    "internal/cli/semantic_index_regression_test.go",
+    "internal/cli/semantic_maintenance_regression_test.go",
+    "internal/cli/semantic_repokey_consolidated_test.go",
+    "internal/cli/semantic_schema_skew_test.go",
+    "internal/cli/semantic_stream_test.go",
+    "internal/cli/semantic_boundary_external_test.go",
+    "internal/cli/semantic_boundary_regression_test.go",
+    "internal/cli/facts_reclassify_lock_test.go",
+    "internal/cli/semantic_audit_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 1387458,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 75899136,
+    "output_tokens": 162728,
+    "api_call_count": 572
+  },
+  "completed_at": "2026-09-18T19:55:42.284709+02:00"
+}

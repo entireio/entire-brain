@@ -1,0 +1,16 @@
+{
+  "tool_use_id": "01a0b3a4-c015-7d02-ad1f-248997e5c0ac",
+  "agent_id": "01a0b3a4-c015-7d02-ad1f-248997e5c0ac",
+  "files": [
+    "internal/cli/brief_output_regression_test.go",
+    "internal/cli/semantic_bench_regression_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 459570,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 7666176,
+    "output_tokens": 24049,
+    "api_call_count": 72
+  },
+  "completed_at": "2026-09-18T19:55:42.284889+02:00"
+}
