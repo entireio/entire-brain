@@ -12,7 +12,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -213,6 +215,8 @@ func writeMCPHTTPParseError(w http.ResponseWriter) {
 
 // runMCPHTTP starts the listener and serves until the context is cancelled.
 func runMCPHTTP(ctx context.Context, out io.Writer, opts Options, addr string, allowRemote bool) error {
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	cfg, err := buildMCPHTTPConfig(addr, allowRemote)
 	if err != nil {
 		return err

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -301,6 +302,90 @@ func TestRESTSearchSurvivesACleanPolicyMoveDuringRanking(t *testing.T) {
 	for _, want := range []string{`"query"`, `"count"`, `"branch"`} {
 		if !strings.Contains(string(body), want) {
 			t.Fatalf("response is missing %s, so the payload was withheld: %s", want, body)
+		}
+	}
+}
+
+func TestRESTRetrievalPrivacyRefusalIsNotSuccess(t *testing.T) {
+	response := httptest.NewRecorder()
+	writeRESTRetrieval(response, map[string]string{"secret": "withheld content"},
+		retrievalPrivacyPolicy{BrainDir: t.TempDir(), Identity: "outdated-policy"})
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("privacy refusal returned HTTP %d: %s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "withheld content") {
+		t.Fatal("refused content leaked")
+	}
+	var body restError
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Error == "" {
+		t.Fatalf("missing REST error: %q (%v)", response.Body.String(), err)
+	}
+}
+
+type partialRESTResponseWriter struct {
+	*httptest.ResponseRecorder
+	calls int
+}
+
+func (w *partialRESTResponseWriter) Write(data []byte) (int, error) {
+	w.calls++
+	n, _ := w.ResponseRecorder.Write(data[:len(data)/2])
+	return n, io.ErrClosedPipe
+}
+
+func TestRESTRetrievalDoesNotAppendErrorAfterPartialWrite(t *testing.T) {
+	response := &partialRESTResponseWriter{ResponseRecorder: httptest.NewRecorder()}
+	writeRESTRetrieval(response, map[string]string{"result": "some content"})
+	if response.calls != 1 || response.Code != http.StatusOK {
+		t.Fatalf("attempted a second response after delivery began: writes=%d status=%d", response.calls, response.Code)
+	}
+}
+
+func TestRESTSearchUsesResolvedRepositoryForLocusChecks(t *testing.T) {
+	opts := httpTestOptions(t)
+	repoDir := opts.Env.RepoRoot
+	present := "internal/present.go"
+	if err := os.MkdirAll(filepath.Join(repoDir, "internal"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, present), []byte("package example\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/v1/search?q=orion&source=fact", nil)
+	brainDir, branch, err := restResolveTarget(request, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := []factRecord{
+		{ID: "fact:present", Text: "orion uses internal/present.go", Status: factStatusActive, Branch: branch},
+		{ID: "fact:missing", Text: "orion uses internal/missing.go", Status: factStatusActive, Branch: branch},
+	}
+	if err := writeFacts(brainDir, branch, facts); err != nil {
+		t.Fatal(err)
+	}
+	// Git resolves the configured subdirectory to the repository root.
+	opts.Env.RepoRoot = filepath.Join(repoDir, "subdir")
+	if err := os.MkdirAll(opts.Env.RepoRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	restSearch(response, request, opts)
+	if response.Code != http.StatusOK {
+		t.Fatalf("HTTP %d: %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Results []unifiedResult `json:"results"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Results) != 2 {
+		t.Fatalf("missing facts: %s", response.Body.String())
+	}
+	for _, result := range body.Results {
+		wantStale := result.ID == "fact:missing"
+		if result.VerificationRequired != wantStale {
+			t.Fatalf("wrong locus trust for %s: %+v", result.ID, result)
 		}
 	}
 }
