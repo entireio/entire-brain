@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "4b6248caab30",
+  "strategy": "manual-commit",
+  "branch": "codex/trail-231-review",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/reference.md",
+    "internal/cli/facts_global_test.go",
+    "internal/cli/mcp.go",
+    "internal/cli/retrieve_cmd.go",
+    "internal/cli/testdata/mcp_tool_surface.golden.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/4b/6248caab30/0/metadata.json",
+      "transcript": "/4b/6248caab30/0/full.jsonl",
+      "compact_transcript": "/4b/6248caab30/0/transcript.jsonl",
+      "content_hash": "/4b/6248caab30/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 22408,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3212288,
+    "output_tokens": 5151,
+    "api_call_count": 16
+  }
+}

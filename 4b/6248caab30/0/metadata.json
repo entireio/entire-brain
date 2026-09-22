@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "4b6248caab30",
+  "session_id": "01a0c9d8-f28c-7563-8177-b5311be1f2a9",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-22T16:22:36.11603Z",
+  "branch": "codex/trail-231-review",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/reference.md",
+    "internal/cli/facts_global_test.go",
+    "internal/cli/mcp.go",
+    "internal/cli/retrieve_cmd.go",
+    "internal/cli/testdata/mcp_tool_surface.golden.json"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "4dea6d8b6105",
+  "checkpoint_transcript_start": 584,
+  "transcript_lines_at_start": 584,
+  "compact_transcript_start": 65,
+  "token_usage": {
+    "input_tokens": 22408,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3212288,
+    "output_tokens": 5151,
+    "api_call_count": 16
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-22T16:22:36.015665Z",
+    "agent_lines": 1184,
+    "agent_removed": 16,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1184,
+    "total_lines_changed": 1200,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
