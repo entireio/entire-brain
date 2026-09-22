@@ -1,0 +1,50 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "d9bbda03e1cb",
+  "session_id": "01a0c5f4-72b9-7f21-a010-1fa6ac4c83a0",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-22T05:16:01.519142Z",
+  "branch": "codex/trail-224-fix",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/recency_test.go",
+    "internal/cli/retrieve.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "36937a27069c",
+  "checkpoint_transcript_start": 174,
+  "transcript_lines_at_start": 174,
+  "compact_transcript_start": 20,
+  "token_usage": {
+    "input_tokens": 9696,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": -285440,
+    "output_tokens": -1662,
+    "api_call_count": 14
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-22T05:16:01.462696Z",
+    "agent_lines": 47,
+    "agent_removed": 1,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 47,
+    "total_lines_changed": 48,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
