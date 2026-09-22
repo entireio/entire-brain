@@ -27,13 +27,14 @@ type unifiedResult struct {
 	Caveats              []retrievalCaveat `json:"caveats,omitempty"`
 	RelatedIDs           []string          `json:"related_ids,omitempty"`
 
-	// Conversation-exchange provenance (experimental, additive; empty for every
-	// other source).
+	// Source provenance; available fields vary by source. Fact timestamps
+	// retain their distinct creation and revision meanings.
 	EndLine   int    `json:"end_line,omitempty"` // inclusive 1-based source range end
 	Branch    string `json:"branch,omitempty"`
 	SessionID string `json:"session_id,omitempty"`
 	Agent     string `json:"agent,omitempty"`
 	CreatedAt string `json:"created_at,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
 	Truncated bool   `json:"truncated,omitempty"` // expanded/projected text is bounded, not complete
 	// MatchedTerms lists the query tokens that actually hit this record, so a
 	// weak match is diagnosable instead of opaque (conversation search only).
@@ -735,11 +736,11 @@ func factsToUnified(facts []factRecord) []unifiedResult {
 	out := make([]unifiedResult, len(facts))
 	for i, f := range facts {
 		out[i] = unifiedResult{Source: "fact", ID: f.ID, Path: strings.Join(f.Paths, ","), Heading: factKindOrInferred(f), Text: f.Text}
-		// UpdatedAt, not CreatedAt: a fact revised last week is current
-		// regardless of when it was first written, and revision is exactly
-		// the signal recency weighting should follow.
+		if !f.CreatedAt.IsZero() {
+			out[i].CreatedAt = f.CreatedAt.UTC().Format(time.RFC3339)
+		}
 		if !f.UpdatedAt.IsZero() {
-			out[i].CreatedAt = f.UpdatedAt.UTC().Format(time.RFC3339)
+			out[i].UpdatedAt = f.UpdatedAt.UTC().Format(time.RFC3339)
 		}
 	}
 	return out

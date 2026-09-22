@@ -21,8 +21,8 @@ func TestRecencyPublicRetrievalSurfaces(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	facts := []factRecord{
-		{ID: "fact:old", Text: "alpha beta retrieval", Branch: "feature", Status: factStatusActive, UpdatedAt: now.Add(-3 * 365 * 24 * time.Hour)},
-		{ID: "fact:fresh", Text: "alpha retrieval", Branch: "feature", Status: factStatusActive, UpdatedAt: now.Add(-24 * time.Hour)},
+		{ID: "fact:old", Text: "alpha beta retrieval", Branch: "feature", Status: factStatusActive, CreatedAt: now.Add(-4 * 365 * 24 * time.Hour), UpdatedAt: now.Add(-3 * 365 * 24 * time.Hour)},
+		{ID: "fact:fresh", Text: "alpha retrieval", Branch: "feature", Status: factStatusActive, CreatedAt: now.Add(-4 * 365 * 24 * time.Hour), UpdatedAt: now.Add(-24 * time.Hour)},
 	}
 	if err := writeFacts(storage.BrainDir, "feature", facts); err != nil {
 		t.Fatal(err)
@@ -53,6 +53,14 @@ func TestRecencyPublicRetrievalSurfaces(t *testing.T) {
 			if len(payload.Results) != 1 || payload.Results[0].ID != want {
 				t.Fatalf("CLI %s recency=%v: %s", verb, enabled, out)
 			}
+
+			selected := facts[0]
+			if enabled {
+				selected = facts[1]
+			}
+			if payload.Results[0].CreatedAt != selected.CreatedAt.Format(time.RFC3339) || payload.Results[0].UpdatedAt != selected.UpdatedAt.Format(time.RFC3339) {
+				t.Fatalf("CLI lost timestamp semantics: %+v", payload.Results[0])
+			}
 			margs := map[string]any{"query": "alpha beta", "source": "fact", "limit": 1}
 			if verb == "query" {
 				margs["keyword"] = true
@@ -79,6 +87,10 @@ func TestRecencyPublicRetrievalSurfaces(t *testing.T) {
 			}
 			mp := mcpTextJSONPayload(t, response)
 			row := firstPayloadObject(t, mp, "results")
+
+			if row["created_at"] != selected.CreatedAt.Format(time.RFC3339) || row["updated_at"] != selected.UpdatedAt.Format(time.RFC3339) {
+				t.Fatalf("MCP lost timestamp semantics: %+v", row)
+			}
 			if row["id"] != want {
 				t.Fatalf("MCP %s recency=%v: %+v", verb, enabled, mp)
 			}

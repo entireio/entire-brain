@@ -75,6 +75,9 @@ half-life requires recency to be enabled and must be a positive Go duration
 (hours are supported; use `720h`, not `30d`). Undated records retain neutral
 weight; when no candidate has a usable timestamp, results carry a
 `recency_unavailable` caveat. Recency is not supported for `source: "conversation"`.
+Fact results expose `created_at` and `updated_at` separately. Recency uses
+`updated_at` when present, falling back to `created_at` for unrevised facts;
+other dated sources use `created_at`.
 
 ### Conversation exchanges (experimental, opt-in)
 

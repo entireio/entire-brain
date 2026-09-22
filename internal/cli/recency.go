@@ -112,7 +112,13 @@ func recencyMultiplierFor(recordedAt string, now time.Time, halfLife time.Durati
 func applyRecency(results []unifiedResult, now time.Time, halfLife time.Duration) int {
 	dated := 0
 	for i := range results {
-		multiplier, ok := recencyMultiplierFor(results[i].CreatedAt, now, halfLife)
+		stamp := results[i].CreatedAt
+		// A revised fact is current regardless of when it was created, but
+		// its public created_at field must still mean creation time.
+		if results[i].Source == retrievalSourceFact && results[i].UpdatedAt != "" {
+			stamp = results[i].UpdatedAt
+		}
+		multiplier, ok := recencyMultiplierFor(stamp, now, halfLife)
 		if ok {
 			dated++
 		}

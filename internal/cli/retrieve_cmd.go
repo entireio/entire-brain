@@ -34,13 +34,13 @@ type compactUnifiedResult struct {
 	Caveats              []retrievalCaveat `json:"caveats,omitempty"`
 	RelatedIDs           []string          `json:"related_ids,omitempty"`
 
-	// Conversation-exchange provenance (experimental, additive; empty for
-	// every other source).
+	// Source provenance; available fields vary by source.
 	EndLine      int      `json:"end_line,omitempty"`
 	Branch       string   `json:"branch,omitempty"`
 	SessionID    string   `json:"session_id,omitempty"`
 	Agent        string   `json:"agent,omitempty"`
 	CreatedAt    string   `json:"created_at,omitempty"`
+	UpdatedAt    string   `json:"updated_at,omitempty"`
 	Truncated    bool     `json:"truncated,omitempty"`
 	MatchedTerms []string `json:"matched_terms,omitempty"`
 	// SessionRef names the virtual session so a caller can fetch the
@@ -475,7 +475,7 @@ func compactUnifiedResults(results []unifiedResult, query string) []compactUnifi
 			Text: result.Text, Excerpt: distinctRetrievalExcerpt(result.Text, query), Score: result.Score,
 			VerificationRequired: result.VerificationRequired, Caveats: result.Caveats, RelatedIDs: result.RelatedIDs,
 			EndLine: result.EndLine, Branch: result.Branch, SessionID: result.SessionID,
-			Agent: result.Agent, CreatedAt: result.CreatedAt, Truncated: result.Truncated,
+			Agent: result.Agent, CreatedAt: result.CreatedAt, UpdatedAt: result.UpdatedAt, Truncated: result.Truncated,
 			MatchedTerms: result.MatchedTerms, SessionRef: result.SessionRef,
 			Concepts: result.Concepts, ConceptMatches: result.ConceptMatches,
 			EvidenceIDs: result.EvidenceIDs, WorstRank: result.WorstRank, RankSum: result.RankSum,
