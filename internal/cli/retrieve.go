@@ -298,7 +298,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		factLimit := min(len(active), candidateLimit)
 		var reviewGroups []factReviewGroup
 		if proposalsErr == nil {
-			reviewGroups = buildFactReviewGroups(active, proposals)
+			reviewGroups = buildFactReviewGroups(factsEligibleForLocusDrift(active, globalFactIDs), proposals)
 			factLimit = guardedFactCandidateLimitForGroups(len(active), reviewGroups, candidateLimit)
 		}
 		var factResults []unifiedResult
@@ -325,10 +325,17 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 				_ = rr.flush()
 			}
 		}
+		// Repository proposals and locus checks apply only to repository facts.
+		localFacts := factsEligibleForLocusDrift(all, globalFactIDs)
+		for i := range factResults {
+			if globalFactIDs[factResults[i].ID] {
+				factResults[i].Heading += " (global)"
+			}
+		}
 		if proposalsErr == nil {
-			factResults = guardUnifiedFactResultsWithGroups(repoDir, all, reviewGroups, factResults, candidateLimit)
+			factResults = guardUnifiedFactResultsWithGroups(repoDir, localFacts, reviewGroups, factResults, candidateLimit)
 		} else {
-			factResults = guardUnifiedFactResultsWithGroups(repoDir, all, nil, factResults, candidateLimit)
+			factResults = guardUnifiedFactResultsWithGroups(repoDir, localFacts, nil, factResults, candidateLimit)
 			factResults = annotateProposalStateUnavailable(factResults)
 		}
 		if len(factResults) > 0 {

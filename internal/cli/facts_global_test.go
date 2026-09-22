@@ -876,3 +876,111 @@ func TestVectorModeRanksGlobalFactsWithoutCachingThem(t *testing.T) {
 		t.Fatal("vector mode stopped caching the repository's own fact")
 	}
 }
+
+func TestBriefLabelsGlobalFactsAndChecksOnlyLocalLoci(t *testing.T) {
+	opts, brainDir := retrievalSurfaceFixture(t)
+	rememberGlobal(t, opts, "orion convention uses db/migrations/global.sql")
+	globalID := factRecordID("orion convention uses db/migrations/global.sql", normalizeFactPaths([]string{"preferences.coding.style"}))
+	local, err := loadFacts(brainDir, "feature")
+	if err != nil {
+		t.Fatal(err)
+	}
+	local[0].Text = "orion local fact uses db/migrations/local.sql"
+	if err := writeFacts(brainDir, "feature", local); err != nil {
+		t.Fatal(err)
+	}
+	for _, jsonOutput := range []bool{true, false} {
+		cmd := &cobra.Command{}
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&bytes.Buffer{})
+		if err := runBrainBrief(context.Background(), cmd, opts, brainBriefOptions{limit: 10, json: jsonOutput}, "orion"); err != nil {
+			t.Fatal(err)
+		}
+		if jsonOutput {
+			var report brainBriefJSONReport
+			if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, id := range report.GlobalFactIDs {
+				if id == globalID {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("missing global label: %s", out.String())
+			}
+			if len(report.FactsLocusDrift[globalID]) != 0 {
+				t.Fatalf("global drift: %v", report.FactsLocusDrift)
+			}
+			if len(report.FactsLocusDrift[local[0].ID]) == 0 {
+				t.Fatalf("local drift lost: %s", out.String())
+			}
+		} else if !strings.Contains(out.String(), "(global) orion convention") {
+			t.Fatalf("missing text label: %s", out.String())
+		}
+	}
+}
+
+func TestCompactBriefLabelsGlobalFacts(t *testing.T) {
+	opts, _ := retrievalSurfaceFixture(t)
+	for _, format := range []brainBriefPacketFormat{brainBriefPacketCompactV1, brainBriefPacketCompactV2, brainBriefPacketCompactV3} {
+		cmd := &cobra.Command{}
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&bytes.Buffer{})
+		if err := runBrainBrief(context.Background(), cmd, opts, brainBriefOptions{limit: 10, packetFormat: format}, "orion"); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out.String(), "Facts from the global store") {
+			t.Fatalf("%s lost global scope: %s", format, out.String())
+		}
+	}
+}
+
+func TestUnifiedRetrievalChecksOnlyLocalLoci(t *testing.T) {
+	opts, brainDir := retrievalSurfaceFixture(t)
+	rememberGlobal(t, opts, "orion convention uses db/migrations/global.sql")
+	globalID := factRecordID("orion convention uses db/migrations/global.sql", normalizeFactPaths([]string{"preferences.coding.style"}))
+	globals, err := loadGlobalFacts(opts.Env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, err := loadFacts(brainDir, "feature")
+	if err != nil {
+		t.Fatal(err)
+	}
+	local[0].Text = "orion local fact uses db/migrations/local.sql"
+	if err := writeFacts(brainDir, "feature", local); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []retrievalMode{modeLexical, modeHybrid, modeVector} {
+		results, err := retrieveUnifiedWithOptions(opts.Env.RepoRoot, brainDir, "feature", "orion", 10, mode,
+			retrievalOptions{Source: retrievalSourceFact, GlobalFacts: globals})
+		if err != nil {
+			t.Fatal(err)
+		}
+		foundGlobal, foundLocal := false, false
+		for _, result := range results {
+			if result.ID == globalID {
+				foundGlobal = true
+				if result.VerificationRequired || len(result.Caveats) != 0 {
+					t.Fatalf("mode %d: global fact falsely stale: %+v", mode, result)
+				}
+				if !strings.Contains(result.Heading, "(global)") {
+					t.Fatalf("mode %d: global label missing: %+v", mode, result)
+				}
+			}
+			if result.ID == local[0].ID {
+				foundLocal = true
+				if !result.VerificationRequired {
+					t.Fatalf("mode %d: local drift lost: %+v", mode, result)
+				}
+			}
+		}
+		if !foundGlobal || !foundLocal {
+			t.Fatalf("mode %d: missing facts: %+v", mode, results)
+		}
+	}
+}
