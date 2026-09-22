@@ -389,3 +389,72 @@ func TestRESTSearchUsesResolvedRepositoryForLocusChecks(t *testing.T) {
 		}
 	}
 }
+
+// Every other facts-reading surface runs loadFacts through the session read
+// guard — dash.go, handoff.go, agent_surface.go all do. REST did not, so a fact
+// whose only provenance is an excluded session was served over HTTP while the
+// same fact was correctly hidden everywhere else. An exclusion that holds on
+// four surfaces and not the fifth is not an exclusion.
+func TestRESTWithholdsFactsFromExcludedSessions(t *testing.T) {
+	opts := httpTestOptions(t)
+	cfg := mcpHTTPConfig{Addr: "127.0.0.1:0", Token: "right-token", Loopback: true}
+	server := httptest.NewServer(newMCPHTTPHandler(opts, cfg))
+	t.Cleanup(server.Close)
+
+	brainDir, branch, err := restResolveTarget(httptest.NewRequest(http.MethodGet, "/v1/facts", nil), opts)
+	if err != nil {
+		t.Fatalf("resolve brain: %v", err)
+	}
+
+	private := factRecord{
+		ID: "fact:private", Text: "PRIVATE-CANARY from an excluded session",
+		Status: factStatusActive, Branch: branch,
+		Provenance: []factAnchor{{SessionID: "excluded-session"}},
+	}
+	public := factRecord{
+		ID: "fact:public", Text: "Public fact with no session provenance",
+		Status: factStatusActive, Branch: branch,
+	}
+	if err := writeFacts(brainDir, branch, []factRecord{private, public}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Both visible before the exclusion, or the test proves nothing.
+	status, body := restGet(t, server, "right-token", "/v1/facts")
+	if status != http.StatusOK || !strings.Contains(string(body), "PRIVATE-CANARY") {
+		t.Fatalf("fixture never served the fact, so the exclusion proves nothing: %d %s", status, body)
+	}
+
+	stones := loadSessionTombstones(brainDir)
+	stones.Excluded["excluded-session"] = sessionTombstone{At: opts.Now(), Reason: "privacy test"}
+	if err := saveSessionTombstones(brainDir, stones); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body = restGet(t, server, "right-token", "/v1/facts")
+	if status != http.StatusOK {
+		t.Fatalf("GET /v1/facts after exclusion returned %d: %s", status, body)
+	}
+	if strings.Contains(string(body), "PRIVATE-CANARY") {
+		t.Fatalf("a fact from an excluded session was served over REST:\n%s", body)
+	}
+	if !strings.Contains(string(body), "Public fact") {
+		t.Fatalf("the exclusion also hid an unrelated fact:\n%s", body)
+	}
+
+	// The aggregate counts must not leak it either.
+	status, body = restGet(t, server, "right-token", "/v1/status")
+	if status != http.StatusOK {
+		t.Fatalf("GET /v1/status returned %d: %s", status, body)
+	}
+	var payload struct {
+		Facts struct {
+			Active int `json:"active"`
+			Total  int `json:"total"`
+		} `json:"facts"`
+	}
+	if err := json.Unmarshal(body, &payload); err == nil && payload.Facts.Total > 1 {
+		t.Fatalf("status counted %d facts; the excluded one is still in the aggregate:\n%s",
+			payload.Facts.Total, body)
+	}
+}

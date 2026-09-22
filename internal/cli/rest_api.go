@@ -159,13 +159,34 @@ func restResolveTarget(r *http.Request, opts Options) (brainDir, branch string, 
 	return brainDir, branch, err
 }
 
+// restGuardedFacts loads this branch's facts with the session read guard
+// applied, the way every other facts-reading surface does (dash.go,
+// handoff.go, agent_surface.go). Without it a fact derived from a session the
+// user excluded is served over HTTP: the exclusion holds everywhere else and
+// would have held here only by accident.
+func restGuardedFacts(brainDir, branch string) ([]factRecord, error) {
+	facts, err := loadFacts(brainDir, branch)
+	if err != nil {
+		return nil, err
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return nil, err
+	}
+	guard, err := loadSessionReadGuard(brainDir, manifest)
+	if err != nil {
+		return nil, err
+	}
+	return guardFactRecords(guard, facts), nil
+}
+
 func restStatus(w http.ResponseWriter, r *http.Request, opts Options) {
 	brainDir, branch, err := restResolveTarget(r, opts)
 	if err != nil {
 		writeRESTError(w, http.StatusBadRequest, err.Error(), "")
 		return
 	}
-	facts, err := loadFacts(brainDir, branch)
+	facts, err := restGuardedFacts(brainDir, branch)
 	if err != nil {
 		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
 		return
@@ -205,7 +226,7 @@ func restFacts(w http.ResponseWriter, r *http.Request, opts Options) {
 		writeRESTError(w, http.StatusBadRequest, err.Error(), "")
 		return
 	}
-	facts, err := loadFacts(brainDir, branch)
+	facts, err := restGuardedFacts(brainDir, branch)
 	if err != nil {
 		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
 		return
