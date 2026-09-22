@@ -356,3 +356,28 @@ func TestBenchEnvironmentTargetsTheRepositoryBeingMeasured(t *testing.T) {
 		t.Fatalf("the isolated store was lost: %q", benchEnv.PluginDataDir)
 	}
 }
+
+// --skip-index measures an existing index, which lives in the real plugin
+// store — but the repository being measured is still the one that was asked
+// for. Assigning the caller's options back wholesale carried the ambient
+// RepoRoot with them, so the numbers came from whichever repo the shell was in
+// while the report was labelled with the one on the command line.
+func TestSkipIndexKeepsTheRealStoreButTheRequestedRepository(t *testing.T) {
+	ambient := t.TempDir()
+	target := t.TempDir()
+	realStore := t.TempDir()
+
+	env := benchExistingBrainEnv(EntireEnv{RepoRoot: ambient, PluginDataDir: realStore}, target)
+
+	resolved, err := exportRepoDir(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != target {
+		t.Fatalf("queries would resolve against %q, but the report names %q", resolved, target)
+	}
+	// The point of --skip-index is the real store; it must survive.
+	if env.PluginDataDir != realStore {
+		t.Fatalf("--skip-index lost the real plugin store: %q", env.PluginDataDir)
+	}
+}

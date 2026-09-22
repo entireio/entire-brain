@@ -215,7 +215,13 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 		// Measuring an existing index means measuring the brain that holds it.
 		// A report whose numbers silently came from somewhere other than the
 		// isolated store would be the wrong kind of surprise, so it says so.
+		// The real plugin store, because that is where the existing index is
+		// — but still the repository that was asked for. Assigning opts back
+		// wholesale would take the ambient RepoRoot with it and time queries
+		// against whichever repo the shell is in, which is the same defect
+		// this environment was built to prevent.
 		benchRun = opts
+		benchRun.Env = benchExistingBrainEnv(opts.Env, repoDir)
 		report.Warnings = append(report.Warnings,
 			"--skip-index measured the real brain for this repository, not an isolated store: "+
 				"queries read it, and retrieval may write its caches")
@@ -380,6 +386,16 @@ func benchIsolatedEnv(env EntireEnv, tempRoot, repoDir string) EntireEnv {
 	env.PluginDataDir = filepath.Join(tempRoot, "data")
 	env.PluginStateDir = filepath.Join(tempRoot, "state")
 	env.PluginCacheDir = filepath.Join(tempRoot, "cache")
+	return env
+}
+
+// benchExistingBrainEnv is the --skip-index counterpart of benchIsolatedEnv:
+// the real plugin store, because that is where an existing index lives, but
+// still the repository that was asked for. Assigning the caller's options back
+// wholesale would carry the ambient RepoRoot with them and time queries against
+// whichever repository the shell is in.
+func benchExistingBrainEnv(env EntireEnv, repoDir string) EntireEnv {
+	env.RepoRoot = repoDir
 	return env
 }
 
