@@ -740,3 +740,30 @@ func TestImportKeepsARetirementWhenADuplicateDisagrees(t *testing.T) {
 		t.Fatalf("the status conflict was not reported: %q", joined)
 	}
 }
+
+// Two memories that normalise to one fact but name DIFFERENT replacements are
+// ambiguous in the same way a duplicated source id is: there is no right
+// answer, and taking whichever came first would invent a lineage out of export
+// order. The retirement-conflict resolution kept the first and overwrote the
+// second silently.
+func TestImportRefusesConflictingSupersessionTargets(t *testing.T) {
+	facts, report := memoriesToFacts([]importedMemory{
+		{ForeignID: "a", Text: "We deploy on Thursdays.", ReplacedBy: "x"},
+		{ForeignID: "b", Text: "We deploy on Thursdays.", ReplacedBy: "y"},
+		{ForeignID: "x", Text: "We deploy on Fridays."},
+		{ForeignID: "y", Text: "We deploy on Mondays."},
+	}, 0, "mem0", "", "main", time.Now().UTC())
+
+	for _, fact := range facts {
+		if fact.Text != "We deploy on Thursdays." {
+			continue
+		}
+		if fact.SupersededBy != "" {
+			t.Fatalf("a successor was invented from export order: %q", fact.SupersededBy)
+		}
+	}
+	joined := strings.Join(report.Unsupported, " | ")
+	if !strings.Contains(joined, "disagrees between duplicates") {
+		t.Fatalf("the conflicting targets were not reported: %q", joined)
+	}
+}

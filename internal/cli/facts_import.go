@@ -375,13 +375,28 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 	// Losing a retirement is the worse direction, so the retirement is applied
 	// to every copy before the merge and the conflict is reported.
 	retirement := map[string]string{}
+	conflictingRetirement := map[string]bool{}
 	for _, fact := range facts {
-		if fact.SupersededBy != "" && retirement[fact.ID] == "" {
+		if fact.SupersededBy == "" {
+			continue
+		}
+		switch existing := retirement[fact.ID]; {
+		case existing == "":
 			retirement[fact.ID] = fact.SupersededBy
+		case existing != fact.SupersededBy:
+			// Two copies of one fact naming different successors. There is no
+			// right answer and taking the first would invent a relationship
+			// out of export order, which is what the duplicate-source-id case
+			// already refuses to do.
+			conflictingRetirement[fact.ID] = true
 		}
 	}
 	statusConflicts := 0
 	for i := range facts {
+		if conflictingRetirement[facts[i].ID] {
+			facts[i].SupersededBy = ""
+			continue
+		}
 		successor := retirement[facts[i].ID]
 		if successor == "" || facts[i].SupersededBy == successor {
 			continue
@@ -391,6 +406,11 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 		}
 		facts[i].SupersededBy = successor
 		facts[i].Status = factStatusSuperseded
+	}
+	if len(conflictingRetirement) > 0 {
+		unsupported[fmt.Sprintf(
+			"supersession target disagrees between duplicates (%d fact(s) are named with more than one replacement and are left with no successor)",
+			len(conflictingRetirement))] = true
 	}
 	if statusConflicts > 0 {
 		unsupported[fmt.Sprintf(
