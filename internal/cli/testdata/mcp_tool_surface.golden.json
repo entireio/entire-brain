@@ -157,6 +157,17 @@
           "title": "query",
           "type": "string"
         },
+        "recency": {
+          "description": "Prefer recent dated results; default false, not supported for source conversation",
+          "title": "recency",
+          "type": "boolean"
+        },
+        "recency_half_life": {
+          "description": "Positive Go duration, e.g. 720h; default 2160h (90 days); requires recency=true",
+          "maxLength": 8192,
+          "title": "recency_half_life",
+          "type": "string"
+        },
         "semantic": {
           "description": "Match meaning using vector similarity only; mutually exclusive with keyword",
           "title": "semantic",
@@ -263,6 +274,17 @@
           "title": "query",
           "type": "string"
         },
+        "recency": {
+          "description": "Prefer recent dated results; default false, not supported for source conversation",
+          "title": "recency",
+          "type": "boolean"
+        },
+        "recency_half_life": {
+          "description": "Positive Go duration, e.g. 720h; default 2160h (90 days); requires recency=true",
+          "maxLength": 8192,
+          "title": "recency_half_life",
+          "type": "string"
+        },
         "session_id": {
           "description": "Conversation source only: exchanges from this session id (disables the per-session diversity cap)",
           "maxLength": 8192,
@@ -362,6 +384,17 @@
           "description": "Natural-language or keyword query",
           "maxLength": 8192,
           "title": "query",
+          "type": "string"
+        },
+        "recency": {
+          "description": "Prefer recent dated results; default false, not supported for source conversation",
+          "title": "recency",
+          "type": "boolean"
+        },
+        "recency_half_life": {
+          "description": "Positive Go duration, e.g. 720h; default 2160h (90 days); requires recency=true",
+          "maxLength": 8192,
+          "title": "recency_half_life",
           "type": "string"
         },
         "session_id": {
