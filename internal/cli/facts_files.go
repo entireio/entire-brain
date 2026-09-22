@@ -219,6 +219,11 @@ func pruneStaleFactFiles(dir string, previous factFilesManifest, written map[str
 		// that climbs out textually, and a path whose components are all plain
 		// names but whose parent is a symlink — the second is invisible to any
 		// string check and is what redirects a delete outside --dir.
+		//
+		// The two checks overlap on the textual case (the symlink guard also
+		// refuses ".."), so the test asserts the property rather than either
+		// one: removing both lets a manifest entry delete outside --dir,
+		// removing either alone does not.
 		clean := filepath.Clean(rel)
 		if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, "..") {
 			continue
@@ -265,6 +270,12 @@ func writeFactFiles(dir, branch string, facts []factRecord) (factFilesResult, er
 	// directory; the wording is borrowed from it deliberately, because two
 	// commands refusing the same thing for the same reason should say so the
 	// same way.
+	// Checked before MkdirAll as well as after, for the message rather than the
+	// safety: MkdirAll's wording for "there is a file in the way" differs
+	// between platforms, and this is a condition worth naming ourselves.
+	if info, err := os.Lstat(dir); err == nil && !info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
+		return result, fmt.Errorf("output path exists and is not a directory: %s", dir)
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return result, fmt.Errorf("create export directory: %w", err)
 	}

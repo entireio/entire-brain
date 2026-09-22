@@ -247,7 +247,11 @@ func TestExportEscapingManifestEntryIsRefused(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"files":["../outside.md","` + filepath.Join("..", "..", "etc", "hosts") + `","/etc/hosts"]}`
+	// Slash-separated literals, not filepath.Join: on Windows Join emits
+	// backslashes, which are invalid JSON escapes — the manifest would be
+	// corrupt rather than escaping, and the test would exercise the
+	// corrupt-manifest path instead of the containment check.
+	manifest := `{"branch":"main","files":["../outside.md","../../etc/hosts","/etc/hosts","..\\..\\windows\\system32\\drivers\\etc\\hosts"]}`
 	if err := os.WriteFile(filepath.Join(dir, factFilesManifestName), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -609,6 +613,9 @@ func TestExportRefusesAnOutputPathThatIsAFile(t *testing.T) {
 	if err == nil {
 		t.Fatal("a file was accepted as the export directory")
 	}
+	// Our message, not the platform's: MkdirAll's wording for "there is a file
+	// there" differs between Unix and Windows, so relying on it made this test
+	// pass on one and fail on the other.
 	if !strings.Contains(err.Error(), "not a directory") {
 		t.Fatalf("the error does not say why: %v", err)
 	}
