@@ -1,0 +1,1 @@
+Review all open trails except 197. Address any findings (dismiss them when invalid), make sure CI is green and the trail is mergable against main. Loop until all trails are clear or you need a decision from me.
