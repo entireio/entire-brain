@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -182,6 +184,70 @@ func TestRESTRejectsAnUnknownSource(t *testing.T) {
 	for _, good := range []string{"", "all", "fact", "history", "doc", "FACT", " fact "} {
 		if status, body := restGet(t, server, token, "/v1/search?q=x&source="+url.QueryEscape(good)); status != http.StatusOK {
 			t.Fatalf("source=%q was refused with %d: %s", good, status, body)
+		}
+	}
+}
+
+// Every retrieval surface buffers its response and revalidates the
+// session-exclusion guard immediately before emitting a byte, because ranking
+// is slow enough for a concurrent tombstone to land after the first snapshot.
+// This endpoint wrote straight to the socket and skipped it — over the network,
+// and optionally beyond loopback.
+//
+// A source check, because the defect was an endpoint that looked fine in
+// isolation and disagreed with every other surface; no response-level test of
+// this handler alone would have surfaced it.
+func TestRESTRetrievalGoesThroughThePrivacyWriteBoundary(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(".", "rest_api.go"))
+	if err != nil {
+		t.Fatalf("read rest_api.go: %v", err)
+	}
+	source := string(data)
+
+	for _, required := range []string{
+		"captureRetrievalPrivacyPolicy(",
+		"revalidateRetrievalResponsePrivacy(",
+		"writeRetrievalResponseBytes(",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("rest_api.go does not call %s; brain content can be served after an exclusion lands", required)
+		}
+	}
+
+	// And no brain read may bypass it. Each of these handlers reads a brain,
+	// so each must emit through the retrieval boundary rather than writeRESTJSON.
+	for _, handler := range []string{"func restSearch(", "func restFacts(", "func restStatus("} {
+		start := strings.Index(source, handler)
+		if start < 0 {
+			t.Fatalf("%s is gone; this test no longer covers what it claims", handler)
+		}
+		body := source[start:]
+		if end := strings.Index(body[1:], "\nfunc "); end >= 0 {
+			body = body[:end]
+		}
+		if strings.Contains(body, "writeRESTJSON(") {
+			t.Fatalf("%s emits brain content with writeRESTJSON, bypassing the privacy write boundary", handler)
+		}
+		if !strings.Contains(body, "writeRESTRetrieval(") {
+			t.Fatalf("%s does not emit through writeRESTRetrieval", handler)
+		}
+	}
+}
+
+// The response has to be buffered before the guard runs: a policy change
+// partway through a streamed encode would emit a half-written stale body, which
+// is why the shared helper takes bytes rather than a writer.
+func TestRESTRetrievalBuffersBeforeWriting(t *testing.T) {
+	server, token := restServer(t)
+	// A normal read must still work end to end through the new boundary.
+	for _, path := range []string{"/v1/status", "/v1/facts", "/v1/search?q=retry"} {
+		status, body := restGet(t, server, token, path)
+		if status != http.StatusOK {
+			t.Fatalf("%s returned %d: %s", path, status, body)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("%s returned a body that is not complete JSON (%v): %s", path, err, body)
 		}
 	}
 }

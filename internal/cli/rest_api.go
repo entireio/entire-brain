@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -44,6 +46,36 @@ func writeRESTJSON(w http.ResponseWriter, value any) {
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	_ = encoder.Encode(value)
+}
+
+// writeRESTRetrieval is the write boundary for anything read out of a brain.
+//
+// Every other retrieval surface — the CLI, the MCP tools, workspace, patterns —
+// buffers its response and revalidates the session-exclusion guard immediately
+// before emitting a byte, because ranking is slow enough for a concurrent
+// tombstone to land after the first guard snapshot. This endpoint wrote results
+// straight to the socket and skipped that entirely, so it could serve content
+// that had been excluded in the race window — over the network, and optionally
+// beyond loopback.
+//
+// The response is encoded into a buffer first so a policy change cannot produce
+// a half-written stale body, which is the same reason the shared helper demands
+// a buffered payload.
+func writeRESTRetrieval(w http.ResponseWriter, value any, policies ...retrievalPrivacyPolicy) {
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(value); err != nil {
+		writeRESTError(w, http.StatusInternalServerError, "encode response", "")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := writeRetrievalResponseBytes(w, buf.Bytes(), policies...); err != nil {
+		// The guard refused, or the write failed. Either way the body is not
+		// safe to emit, and the status line is already out — so this is
+		// reported rather than dressed up as a successful empty response.
+		fmt.Fprintf(os.Stderr, "warning: rest retrieval response withheld: %v\n", err)
+	}
 }
 
 // restLimit reads a bounded limit. An unbounded limit on an endpoint that
@@ -133,12 +165,17 @@ func restStatus(w http.ResponseWriter, r *http.Request, opts Options) {
 			retracted++
 		}
 	}
-	writeRESTJSON(w, map[string]any{
+	policy, err := captureRetrievalPrivacyPolicy(brainDir)
+	if err != nil {
+		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
+		return
+	}
+	writeRESTRetrieval(w, map[string]any{
 		"branch": branch,
 		"facts": map[string]int{
 			"active": active, "superseded": superseded, "retracted": retracted, "total": len(facts),
 		},
-	})
+	}, policy)
 }
 
 func restFacts(w http.ResponseWriter, r *http.Request, opts Options) {
@@ -175,7 +212,12 @@ func restFacts(w http.ResponseWriter, r *http.Request, opts Options) {
 			"created_at": fact.CreatedAt, "updated_at": fact.UpdatedAt,
 		})
 	}
-	writeRESTJSON(w, map[string]any{"branch": branch, "count": len(out), "limit": limit, "facts": out})
+	policy, err := captureRetrievalPrivacyPolicy(brainDir)
+	if err != nil {
+		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
+		return
+	}
+	writeRESTRetrieval(w, map[string]any{"branch": branch, "count": len(out), "limit": limit, "facts": out}, policy)
 }
 
 func restSearch(w http.ResponseWriter, r *http.Request, opts Options) {
@@ -206,11 +248,24 @@ func restSearch(w http.ResponseWriter, r *http.Request, opts Options) {
 		writeRESTError(w, http.StatusBadRequest, err.Error(), "GET /v1/search?q=retry+policy&source=fact")
 		return
 	}
+	policyBefore, err := captureRetrievalPrivacyPolicy(brainDir)
+	if err != nil {
+		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
+		return
+	}
 	results, err := retrieveUnifiedWithOptions(repoDir, brainDir, branch, query, limit, modeHybrid,
 		retrievalOptions{Source: source})
 	if err != nil {
 		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
 		return
 	}
-	writeRESTJSON(w, map[string]any{"branch": branch, "query": query, "count": len(results), "results": results})
+	// Ranking may be slow enough for a concurrent exclusion to land after the
+	// snapshot above, so the rows are revalidated before transport assembly —
+	// the same order every other retrieval surface uses.
+	results, _, err = revalidateRetrievalResponsePrivacy(brainDir, results)
+	if err != nil {
+		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
+		return
+	}
+	writeRESTRetrieval(w, map[string]any{"branch": branch, "query": query, "count": len(results), "results": results}, policyBefore)
 }
