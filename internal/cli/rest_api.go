@@ -248,8 +248,12 @@ func restSearch(w http.ResponseWriter, r *http.Request, opts Options) {
 		writeRESTError(w, http.StatusBadRequest, err.Error(), "GET /v1/search?q=retry+policy&source=fact")
 		return
 	}
-	policyBefore, err := captureRetrievalPrivacyPolicy(brainDir)
-	if err != nil {
+	// Read the policy before the slow phase so an unreadable tombstone file
+	// fails the request up front instead of after a full retrieval. The
+	// identity captured here deliberately does not govern the write: a clean
+	// exclusion landing during ranking legitimately moves it, and the rows are
+	// re-cleared against the fresh guard below.
+	if _, err := captureRetrievalPrivacyPolicy(brainDir); err != nil {
 		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
 		return
 	}
@@ -262,10 +266,15 @@ func restSearch(w http.ResponseWriter, r *http.Request, opts Options) {
 	// Ranking may be slow enough for a concurrent exclusion to land after the
 	// snapshot above, so the rows are revalidated before transport assembly —
 	// the same order every other retrieval surface uses.
-	results, _, err = revalidateRetrievalResponsePrivacy(brainDir, results)
+	results, policyAfter, err := revalidateRetrievalResponsePrivacy(brainDir, results)
 	if err != nil {
 		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
 		return
 	}
-	writeRESTRetrieval(w, map[string]any{"branch": branch, "query": query, "count": len(results), "results": results}, policyBefore)
+	// The identity the rows were cleared under, matching every other retrieval
+	// surface. Handing the write boundary the pre-ranking snapshot makes it
+	// refuse a response it has already cleaned, which reaches the client as a
+	// 200 with an empty body because the status line is written first.
+	writeRESTRetrieval(w, map[string]any{"branch": branch, "query": query, "count": len(results), "results": results},
+		retrievalPrivacyPolicy{BrainDir: brainDir, Identity: policyAfter})
 }

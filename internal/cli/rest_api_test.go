@@ -251,3 +251,56 @@ func TestRESTRetrievalBuffersBeforeWriting(t *testing.T) {
 		}
 	}
 }
+
+// A concurrent exclusion that completes cleanly moves the privacy policy
+// identity without leaving the derived state dirty. revalidateRetrievalResponsePrivacy
+// re-filters the rows against the fresh guard and hands back the identity those
+// rows were cleared under; the final write boundary must be given that identity.
+// Handing it the pre-ranking snapshot instead makes the boundary refuse a
+// response it has already cleaned, and because the status line is written
+// before the body, the refusal reaches the client as 200 with an empty body —
+// an empty answer presented as a complete one.
+func TestRESTSearchSurvivesACleanPolicyMoveDuringRanking(t *testing.T) {
+	opts := httpTestOptions(t)
+	cfg := mcpHTTPConfig{Addr: "127.0.0.1:0", Token: "right-token", Loopback: true}
+	server := httptest.NewServer(newMCPHTTPHandler(opts, cfg))
+	t.Cleanup(server.Close)
+
+	brainDir, _, err := restResolveTarget(httptest.NewRequest(http.MethodGet, "/v1/search?q=x", nil), opts)
+	if err != nil {
+		t.Fatalf("resolve brain: %v", err)
+	}
+
+	original := beforeRetrievalResponsePrivacyRecheck
+	t.Cleanup(func() { beforeRetrievalResponsePrivacyRecheck = original })
+	moved := false
+	beforeRetrievalResponsePrivacyRecheck = func() {
+		if moved {
+			return
+		}
+		moved = true
+		// A session this brain never derived anything from: verification stays
+		// clean, so the only thing this exclusion changes is the identity.
+		stones := loadSessionTombstones(brainDir)
+		stones.Excluded["session-never-indexed"] = sessionTombstone{At: opts.Now(), Reason: "clean policy move"}
+		if err := saveSessionTombstones(brainDir, stones); err != nil {
+			panic(err)
+		}
+	}
+
+	status, body := restGet(t, server, "right-token", "/v1/search?q=x&source=fact")
+	if !moved {
+		t.Fatal("the recheck seam never fired, so this test proved nothing")
+	}
+	if status != http.StatusOK {
+		t.Fatalf("a clean policy move returned %d, want 200: %s", status, body)
+	}
+	if len(body) == 0 {
+		t.Fatal("the write boundary refused a response it had already re-filtered: 200 with an empty body")
+	}
+	for _, want := range []string{`"query"`, `"count"`, `"branch"`} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("response is missing %s, so the payload was withheld: %s", want, body)
+		}
+	}
+}
