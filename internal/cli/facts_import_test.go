@@ -688,3 +688,55 @@ func TestImportedFactsAppearInTheStatusOriginTally(t *testing.T) {
 	}
 	_ = opts
 }
+
+// A memory naming itself as its own replacement resolves through byForeignID to
+// itself, which would write SupersededBy == its own ID: a fact retired with
+// nowhere to go, and a lineage that can never be followed. The dangling and
+// ambiguous cases were both reported; this one was written silently.
+func TestImportRefusesSelfReferentialSupersession(t *testing.T) {
+	facts, report := memoriesToFacts([]importedMemory{
+		{ForeignID: "m1", Text: "It replaces itself.", ReplacedBy: "m1"},
+	}, 0, "mem0", "", "main", time.Now().UTC())
+	if len(facts) != 1 {
+		t.Fatalf("got %d facts", len(facts))
+	}
+	if facts[0].SupersededBy == facts[0].ID {
+		t.Fatalf("fact is superseded by itself: %s", facts[0].SupersededBy)
+	}
+	if facts[0].SupersededBy != "" {
+		t.Fatalf("a self-reference invented a successor: %q", facts[0].SupersededBy)
+	}
+	joined := strings.Join(report.Unsupported, " | ")
+	if !strings.Contains(joined, "the memory itself") {
+		t.Fatalf("the self-reference was dropped silently: %q", joined)
+	}
+}
+
+// Two memories that normalise to one fact but disagree on status used to be
+// resolved by export order: Upsert keeps the first copy's Status, so a memory
+// the source had retired could land second and lose its retirement, surfacing
+// here as Active. Losing a retirement is the worse direction.
+func TestImportKeepsARetirementWhenADuplicateDisagrees(t *testing.T) {
+	// The retired copy second — the order that used to drop it.
+	facts, report := memoriesToFacts([]importedMemory{
+		{ForeignID: "a", Text: "We deploy on Thursdays."},
+		{ForeignID: "b", Text: "We deploy on Thursdays.", ReplacedBy: "c"},
+		{ForeignID: "c", Text: "We deploy on Fridays."},
+	}, 0, "mem0", "", "main", time.Now().UTC())
+
+	for _, fact := range facts {
+		if fact.Text != "We deploy on Thursdays." {
+			continue
+		}
+		if fact.SupersededBy == "" {
+			t.Fatalf("the retirement was dropped on export order: %+v", fact)
+		}
+		if fact.Status != factStatusSuperseded {
+			t.Fatalf("status = %q, want superseded: %+v", fact.Status, fact)
+		}
+	}
+	joined := strings.Join(report.Unsupported, " | ")
+	if !strings.Contains(joined, "duplicate a retired memory") {
+		t.Fatalf("the status conflict was not reported: %q", joined)
+	}
+}

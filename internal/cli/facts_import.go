@@ -317,6 +317,7 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 	// represented and is reported rather than invented.
 	danglingSupersessions := 0
 	ambiguousSupersessions := 0
+	selfSupersessions := 0
 	for i, foreignReplacement := range replaces {
 		if foreignReplacement == "" {
 			continue
@@ -332,12 +333,25 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 			danglingSupersessions++
 			continue
 		}
+		if facts[target].ID == facts[i].ID {
+			// A memory naming itself as its own replacement, either directly
+			// or through two memories that normalize to one fact. Writing it
+			// would mark the fact superseded by itself: a lineage that can
+			// never be followed and reads as retired with nowhere to go.
+			selfSupersessions++
+			continue
+		}
 		facts[i].SupersededBy = facts[target].ID
 	}
 	if len(duplicateForeignIDs) > 0 {
 		unsupported[fmt.Sprintf(
 			"duplicate source ids (%d id(s) name more than one memory, so any supersession referring to them is ambiguous)",
 			len(duplicateForeignIDs))] = true
+	}
+	if selfSupersessions > 0 {
+		unsupported[fmt.Sprintf(
+			"supersession target is the memory itself (%d fact(s) name their own id as the replacement and are left with no successor)",
+			selfSupersessions)] = true
 	}
 	if ambiguousSupersessions > 0 {
 		unsupported[fmt.Sprintf(
@@ -354,6 +368,36 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 	// same fact under a content-addressed id, and upsert correctly folds them
 	// into one. What was wrong was the count: report.Imported said two, so the
 	// numbers disagreed with the store and nothing explained why.
+	// Duplicates that disagree on status are the dangerous half of the merge.
+	// Upsert keeps the first copy's Status/SupersededBy, so which one won
+	// depended on export order: a memory the source had retired could come
+	// second and have its retirement silently dropped, leaving it Active here.
+	// Losing a retirement is the worse direction, so the retirement is applied
+	// to every copy before the merge and the conflict is reported.
+	retirement := map[string]string{}
+	for _, fact := range facts {
+		if fact.SupersededBy != "" && retirement[fact.ID] == "" {
+			retirement[fact.ID] = fact.SupersededBy
+		}
+	}
+	statusConflicts := 0
+	for i := range facts {
+		successor := retirement[facts[i].ID]
+		if successor == "" || facts[i].SupersededBy == successor {
+			continue
+		}
+		if facts[i].SupersededBy == "" {
+			statusConflicts++
+		}
+		facts[i].SupersededBy = successor
+		facts[i].Status = factStatusSuperseded
+	}
+	if statusConflicts > 0 {
+		unsupported[fmt.Sprintf(
+			"%d memor(ies) duplicate a retired memory without its replacement; the retirement was kept rather than dropped on export order",
+			statusConflicts)] = true
+	}
+
 	distinct := map[string]bool{}
 	for _, fact := range facts {
 		distinct[fact.ID] = true
