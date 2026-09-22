@@ -732,6 +732,13 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 			return nil, err
 		}
 	}
+	// An id that query or search just handed back and get reports missing is a
+	// worse seam than not returning it at all.
+	if globalFacts, globalErr := globalFactsForRead(opts.Env, false); globalErr != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: global facts unavailable: %v\n", globalErr)
+	} else {
+		gopts.GlobalFacts = globalFacts
+	}
 	found, missing, err := getUnifiedBatchOptions(repoDir, brainDir, resolvedBranch, ids, gopts)
 	if err != nil {
 		return nil, err

@@ -1042,3 +1042,36 @@ func TestMCPRetrievalCanExcludeGlobalFactsPerRequest(t *testing.T) {
 		t.Fatal("no_global accepted a string instead of a boolean")
 	}
 }
+
+// query and search return global facts, so the documented agent workflow —
+// query, then get the interesting id — has to work for them. Before this, get
+// reported an id it had just been handed as missing.
+func TestGetResolvesAGlobalFactID(t *testing.T) {
+	opts, _ := globalTestOptions(t)
+	rememberGlobal(t, opts, "The staging cluster is in eu-west-1.")
+	global, err := loadGlobalFacts(opts.Env)
+	if err != nil || len(global) == 0 {
+		t.Fatalf("fixture: %v (%d facts)", err, len(global))
+	}
+	id := global[0].ID
+
+	cmd := &cobra.Command{}
+	out, errOut := &strings.Builder{}, &strings.Builder{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	missing, err := runGet(context.Background(), cmd, opts, []string{id}, "", true, getOptions{}, "get")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(missing) > 0 {
+		t.Fatalf("get reported an id that query/search return as missing: %v", missing)
+	}
+	if !strings.Contains(out.String(), "eu-west-1") {
+		t.Fatalf("get did not return the global fact:\n%s", out.String())
+	}
+	// And it must say the fact is not this repository's, the same way the
+	// ranked surfaces do.
+	if !strings.Contains(out.String(), "(global)") {
+		t.Fatalf("get returned a global fact unlabelled:\n%s", out.String())
+	}
+}

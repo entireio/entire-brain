@@ -1213,6 +1213,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		}
 	}
 	factByID := map[string]factRecord{}
+	globalGetIDs := globalFactIDs(gopts.GlobalFacts)
 	var reviewByID map[string]factReviewGroup
 	var reviewByFactID map[string]factReviewGroup
 	var proposalStateUnavailable bool
@@ -1221,6 +1222,11 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		facts, ferr := loadFacts(brainDir, branch)
 		if ferr != nil {
 			return nil, nil, ferr
+		}
+		if len(gopts.GlobalFacts) > 0 {
+			// query and search return global facts, so their ids have to
+			// resolve here too. The repository's copy still wins on a collision.
+			facts, _ = mergeGlobalFacts(facts, gopts.GlobalFacts)
 		}
 		facts = guardFactRecords(guard, facts)
 		for _, f := range facts {
@@ -1322,7 +1328,13 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 				if group, pending := reviewByFactID[id]; pending {
 					r = annotateExplicitFactReview(r, group)
 				}
-				r = annotateFactLocusTrust(repoDir, f, r)
+				if globalGetIDs[f.ID] {
+					// Not scoped to this repository, so locus drift cannot
+					// answer for it; labelled the way the ranked surfaces are.
+					r.Heading += " (global)"
+				} else {
+					r = annotateFactLocusTrust(repoDir, f, r)
+				}
 				if proposalStateUnavailable {
 					r = annotateProposalStateUnavailable([]unifiedResult{r})[0]
 				}
