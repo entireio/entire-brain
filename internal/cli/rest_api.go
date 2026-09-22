@@ -70,12 +70,28 @@ func writeRESTRetrieval(w http.ResponseWriter, value any, policies ...retrievalP
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	if err := writeRetrievalResponseBytes(w, buf.Bytes(), policies...); err != nil {
-		// The guard refused, or the write failed. Either way the body is not
-		// safe to emit, and the status line is already out — so this is
-		// reported rather than dressed up as a successful empty response.
+	tracked := &restRetrievalWriter{ResponseWriter: w}
+	if err := writeRetrievalResponseBytes(tracked, buf.Bytes(), policies...); err != nil {
+		if !tracked.started {
+			// A guard refusal precedes every socket write, so the client can
+			// still receive a truthful status without any withheld content.
+			writeRESTError(w, http.StatusServiceUnavailable, "retrieval response withheld", "Retry the request after privacy cleanup completes.")
+			return
+		}
+		// Once Write was attempted the status may already be committed. Do
+		// not append a JSON error to a partially delivered response.
 		fmt.Fprintf(os.Stderr, "warning: rest retrieval response withheld: %v\n", err)
 	}
+}
+
+type restRetrievalWriter struct {
+	http.ResponseWriter
+	started bool
+}
+
+func (w *restRetrievalWriter) Write(data []byte) (int, error) {
+	w.started = true
+	return w.ResponseWriter.Write(data)
 }
 
 // restLimit reads a bounded limit. An unbounded limit on an endpoint that

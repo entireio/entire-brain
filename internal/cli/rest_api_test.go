@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -302,5 +303,40 @@ func TestRESTSearchSurvivesACleanPolicyMoveDuringRanking(t *testing.T) {
 		if !strings.Contains(string(body), want) {
 			t.Fatalf("response is missing %s, so the payload was withheld: %s", want, body)
 		}
+	}
+}
+
+func TestRESTRetrievalPrivacyRefusalIsNotSuccess(t *testing.T) {
+	response := httptest.NewRecorder()
+	writeRESTRetrieval(response, map[string]string{"secret": "withheld content"},
+		retrievalPrivacyPolicy{BrainDir: t.TempDir(), Identity: "outdated-policy"})
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("privacy refusal returned HTTP %d: %s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "withheld content") {
+		t.Fatal("refused content leaked")
+	}
+	var body restError
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Error == "" {
+		t.Fatalf("missing REST error: %q (%v)", response.Body.String(), err)
+	}
+}
+
+type partialRESTResponseWriter struct {
+	*httptest.ResponseRecorder
+	calls int
+}
+
+func (w *partialRESTResponseWriter) Write(data []byte) (int, error) {
+	w.calls++
+	n, _ := w.ResponseRecorder.Write(data[:len(data)/2])
+	return n, io.ErrClosedPipe
+}
+
+func TestRESTRetrievalDoesNotAppendErrorAfterPartialWrite(t *testing.T) {
+	response := &partialRESTResponseWriter{ResponseRecorder: httptest.NewRecorder()}
+	writeRESTRetrieval(response, map[string]string{"result": "some content"})
+	if response.calls != 1 || response.Code != http.StatusOK {
+		t.Fatalf("attempted a second response after delivery began: writes=%d status=%d", response.calls, response.Code)
 	}
 }
