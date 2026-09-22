@@ -330,3 +330,29 @@ func TestSkipIndexDeclaresThatItTouchesTheRealBrain(t *testing.T) {
 		t.Fatalf("the long help promises isolation without naming the exception:\n%s", cmd.Long)
 	}
 }
+
+// The benchmark indexes the repository it was given and then times queries
+// against it. The query path resolves its repo from the environment, not from
+// an argument — runSemanticQuery calls exportRepoDir, which returns
+// env.RepoRoot or falls back to os.Getwd. So an isolated environment that
+// overrides only the plugin directories leaves `bench scale <path>`, the
+// documented form, indexing one repo and timing another.
+func TestBenchEnvironmentTargetsTheRepositoryBeingMeasured(t *testing.T) {
+	ambient := t.TempDir()
+	target := t.TempDir()
+
+	benchEnv := benchIsolatedEnv(EntireEnv{RepoRoot: ambient}, t.TempDir(), target)
+
+	resolved, err := exportRepoDir(benchEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != target {
+		t.Fatalf("queries would resolve against %q, but the index was built for %q", resolved, target)
+	}
+	// The plugin directories must still be the isolated ones, or the benchmark
+	// would be reading the brain somebody actually uses.
+	if strings.HasPrefix(benchEnv.PluginDataDir, ambient) || benchEnv.PluginDataDir == "" {
+		t.Fatalf("the isolated store was lost: %q", benchEnv.PluginDataDir)
+	}
+}

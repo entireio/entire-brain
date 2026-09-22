@@ -206,11 +206,7 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 	if !benchOpts.keep {
 		defer os.RemoveAll(tempRoot)
 	}
-	benchEnv := opts.Env
-	benchEnv.PluginConfigDir = filepath.Join(tempRoot, "config")
-	benchEnv.PluginDataDir = filepath.Join(tempRoot, "data")
-	benchEnv.PluginStateDir = filepath.Join(tempRoot, "state")
-	benchEnv.PluginCacheDir = filepath.Join(tempRoot, "cache")
+	benchEnv := benchIsolatedEnv(opts.Env, tempRoot, repoDir)
 	benchRun := opts
 	benchRun.Env = benchEnv
 
@@ -366,6 +362,25 @@ func isCountableSourcePath(rel string) bool {
 		return false
 	}
 	return true
+}
+
+// benchIsolatedEnv builds the environment the benchmark runs under: an isolated
+// plugin store so it neither reads nor disturbs the brain somebody actually
+// uses, pointed at the repository being measured.
+//
+// RepoRoot matters as much as the store directories. The query path resolves
+// its repo from the environment rather than from an argument
+// (runSemanticQuery -> exportRepoDir -> env.RepoRoot, else os.Getwd), so
+// leaving it as the ambient repo would index the repository the command was
+// given and then time queries against whichever one the shell was in — and
+// `bench scale <path>` is the documented form.
+func benchIsolatedEnv(env EntireEnv, tempRoot, repoDir string) EntireEnv {
+	env.RepoRoot = repoDir
+	env.PluginConfigDir = filepath.Join(tempRoot, "config")
+	env.PluginDataDir = filepath.Join(tempRoot, "data")
+	env.PluginStateDir = filepath.Join(tempRoot, "state")
+	env.PluginCacheDir = filepath.Join(tempRoot, "cache")
+	return env
 }
 
 func countFileLines(path string) (lines, bytes int64, err error) {

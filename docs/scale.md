@@ -108,7 +108,9 @@ entire brain bench scale --json > result.json
 
 The worktree must be clean — the indexer refuses uncommitted content — and the
 repository must be a git repository, since the line count comes from
-`git ls-files`.
+`git ls-files`. `bench scale <path>` measures a repository other than the one
+you are standing in; the numbers in this document were taken with the form
+above, from inside each repository.
 
 `--repeats` changes the timed runs per query, `--query` replaces the query set,
 and `--keep` leaves the isolated store behind for inspection.
