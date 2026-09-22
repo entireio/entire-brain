@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "dc4bbbd1f6ab",
+  "strategy": "manual-commit",
+  "branch": "codex/trail-228-review",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/rest_api.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/dc/4bbbd1f6ab/0/metadata.json",
+      "transcript": "/dc/4bbbd1f6ab/0/full.jsonl",
+      "compact_transcript": "/dc/4bbbd1f6ab/0/transcript.jsonl",
+      "content_hash": "/dc/4bbbd1f6ab/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 32928,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3506816,
+    "output_tokens": 5839,
+    "api_call_count": 20
+  }
+}
