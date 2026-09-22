@@ -900,6 +900,27 @@ func mcpToolDefinitions() []map[string]any {
 			"inputSchema": objectSchema([]string{"confirm"}, map[string]any{"repo_key": stringArg("repo_key", "Repository key to delete (default: current repo)"), "confirm": boolArg("confirm", "Must be true; acknowledges that the project's exported history and indexes are erased irreversibly")}),
 		},
 		{
+			"name": "brain_remember",
+			// The one write an agent actually needs. Every other writing tool
+			// here rebuilds derived state; this is the only way to record
+			// something learned, and without it a session's conclusions die
+			// with the session while `entire brain remember` sits in the CLI
+			// where no agent can reach it.
+			//
+			// path is required rather than inferred. The CLI can classify a
+			// fact by shelling out to a coding agent, and doing that from an
+			// MCP call would spend model tokens the caller never asked for,
+			// inside a tool whose whole point is that it is deterministic.
+			// The caller already knows what it learned.
+			"description": "Record a durable fact about this repository so it survives the session. The only tool here that writes memory rather than derived state; read the result back with brain_query source=fact, or brain_get by id. path is a taxonomy path shaped category.subcategory.type, e.g. constraints.retry.policy; a path outside this repository's taxonomy is refused with the valid categories named (by default architecture, constraints, preferences, project, workflow). Facts are stored per branch and anchored to the current commit.",
+			"inputSchema": objectSchema([]string{"fact", "path"}, map[string]any{
+				"fact":   stringArg("fact", "The durable fact, as one self-contained sentence"),
+				"path":   stringArg("path", "Taxonomy path: category.subcategory.type, comma-separated for several"),
+				"kind":   enumArg("kind", "Fact kind; inferred when omitted", []string{"decision", "invariant", "gotcha", "preference", "convention"}),
+				"branch": branchArg(),
+			}),
+		},
+		{
 			"name":        "brain_search_code",
 			"description": "Alias for brain_code; search indexed source symbols with compact records by default. Set details=true for full provider records.",
 			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol name or text query"), "limit": integerArg("limit", "Maximum results"), "details": boolArg("details", "Include full semantic records with provider metadata")}),
@@ -1138,6 +1159,46 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		}
 	case "brain_list_projects":
 		err = runMCPListProjects(ctx, cmd, opts)
+	case "brain_remember":
+		factText, factErr := mcpOptionalString(params.Arguments, "fact")
+		if factErr != nil {
+			err = factErr
+			break
+		}
+		if strings.TrimSpace(factText) == "" {
+			err = mcpRequiredArg("fact")
+			break
+		}
+		taxonomyPath, pathErr := mcpOptionalString(params.Arguments, "path")
+		if pathErr != nil {
+			err = pathErr
+			break
+		}
+		if strings.TrimSpace(taxonomyPath) == "" {
+			// Required rather than inferred, and refused rather than guessed:
+			// the CLI's fallback classifies by shelling out to a coding agent,
+			// and an MCP call must not spend model tokens its caller did not
+			// ask for. The schema and description carry the shape.
+			err = mcpRequiredArg("path")
+			break
+		}
+		factKind, kindErr := mcpOptionalString(params.Arguments, "kind")
+		if kindErr != nil {
+			err = kindErr
+			break
+		}
+		factBranch, branchErr := mcpOptionalString(params.Arguments, "branch")
+		if branchErr != nil {
+			err = branchErr
+			break
+		}
+		err = runRemember(ctx, cmd, opts, rememberCommandOptions{
+			path:   strings.TrimSpace(taxonomyPath),
+			kind:   strings.TrimSpace(factKind),
+			branch: strings.TrimSpace(factBranch),
+			agent:  "none",
+			json:   true,
+		}, factText)
 	case "brain_delete_project":
 		repoKey, stringErr := mcpOptionalString(params.Arguments, "repo_key")
 		if stringErr != nil {
