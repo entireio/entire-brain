@@ -586,3 +586,76 @@ func TestUnreadableDocumentBytesAreReportedLikeAFailedExtraction(t *testing.T) {
 		t.Fatalf("file-index.json still reports an unreadable document as included: %+v", index)
 	}
 }
+
+// The scan fingerprint exists so a packet can tell whether its inputs changed.
+// Extractable documents return early from inspectSeedFile to skip the NUL-byte
+// check — every PDF and Office file fails it by construction — and that early
+// return also skipped the content hash, so editing a PDF under docs/ left the
+// fingerprint identical and the packet looked fresh when it was not.
+func TestEditingAnExtractableDocumentChangesItsHash(t *testing.T) {
+	repoDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoDir, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(repoDir, "docs", "spec.pdf")
+
+	write := func(text string) seedFileIndexEntry {
+		if err := os.WriteFile(path, simplePDF(t, "BT /F1 12 Tf ("+text+") Tj ET"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return inspectSeedFile(repoDir, "docs/spec.pdf", seedCommandOptions{maxFileBytes: 1 << 20})
+	}
+
+	before := write("The retry budget is thirty seconds.")
+	if !before.Included {
+		t.Fatalf("the PDF was excluded as %q", before.Reason)
+	}
+	if before.Hash == "" {
+		t.Fatal("an included document carries no content hash, so the fingerprint cannot move with it")
+	}
+
+	after := write("The retry budget is ninety seconds.")
+	if after.Hash == before.Hash {
+		t.Fatalf("editing the document left its hash unchanged (%s); the fingerprint would report it fresh", after.Hash)
+	}
+
+	// Rewriting identical content must not churn the hash either, or every
+	// scan would look like a change.
+	again := write("The retry budget is ninety seconds.")
+	if again.Hash != after.Hash {
+		t.Fatalf("identical content produced a different hash: %s vs %s", again.Hash, after.Hash)
+	}
+}
+
+// The fallback scan and the ToUnicode merge both walk every stream. The merge
+// runs first and decodes the CMap streams; the scan must not decode them again,
+// because the decode budget is document-wide and this is the path taken by the
+// degraded files where it is most likely to bind.
+//
+// The document below has no page tree, so the page path yields nothing and the
+// fallback runs — with a CMap stream present for it to re-decode.
+func TestPDFFallbackDoesNotDecodeCMapStreamsTwice(t *testing.T) {
+	b := &pdfBuilder{}
+	b.add("<< /Type /Catalog >>") // no /Pages: forces the fallback
+	b.addStream(t, "/Type /CMap", strings.Repeat("begincmap endcmap\n", 400))
+	b.addStream(t, "", "BT /F1 12 Tf (The retry budget is thirty seconds.) Tj ET")
+	pdf := b.build()
+
+	full := &pdfDecodeBudget{remaining: 1 << 20}
+	text, err := extractPDFTextWithin(pdf, full)
+	if err != nil || !strings.Contains(text, "retry budget") {
+		t.Skipf("this document does not reach the fallback: %q %v", text, err)
+	}
+	spent := (1 << 20) - full.remaining
+	t.Logf("budget spent: %d bytes", spent)
+
+	// The bound is absolute, derived from the fixture rather than from the
+	// measurement: a budget computed off the observed spend scales with the
+	// bug and can never fail. The CMap body is the dominant stream, so one
+	// honest pass costs a little over its size and a second decode costs about
+	// that again. Measured: 7,256 bytes with the skip, 14,456 without.
+	cmapBytes := int64(400 * len("begincmap endcmap\n"))
+	if ceiling := cmapBytes + cmapBytes/2; spent > ceiling {
+		t.Fatalf("decoding spent %d bytes against a ceiling of %d; the CMap stream is being decoded twice", spent, ceiling)
+	}
+}

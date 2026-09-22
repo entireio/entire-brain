@@ -593,6 +593,15 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 	// PDF and every Office file fails the latter by construction. The bytes are
 	// never indexed directly; writeSeedDocs converts them first.
 	if isExtractableSeedDocument(rel) {
+		// The NUL check below would reject every PDF and Office file by
+		// construction, which is why this returns early — but the content hash
+		// is what makes the scan fingerprint move when a file changes, so take
+		// the digest and discard the binary verdict rather than skipping both.
+		// Without it, editing a PDF under docs/ leaves the fingerprint
+		// identical and the packet looks fresh when it is not.
+		if sum, _, hashErr := hashFileDetectingNUL(filepath.Join(repoDir, clean)); hashErr == nil {
+			entry.Hash = sum
+		}
 		entry.Reason = "included as an extracted document"
 		return entry
 	}

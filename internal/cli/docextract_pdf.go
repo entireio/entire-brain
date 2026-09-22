@@ -134,10 +134,10 @@ func extractPDFTextWithin(data []byte, budget *pdfDecodeBudget) (string, error) 
 	// in the document. It loses page order and can mix two fonts' encodings, so
 	// it is a last resort rather than the main path; the prose gate decides
 	// whether what comes back is usable.
-	merged := pdfAllToUnicode(objects, budget)
+	merged, consumed := pdfAllToUnicode(objects, budget)
 	for _, key := range pdfSortedKeys(objects) {
 		object := objects[key]
-		if len(object.stream) == 0 {
+		if len(object.stream) == 0 || consumed[key] {
 			continue
 		}
 		content, err := pdfDecodeStreamWithin(objects, object, budget)
@@ -792,8 +792,14 @@ func pdfPageFonts(objects map[pdfObjectKey]*pdfObject, page map[string]pdfValue,
 // pdfAllToUnicode merges every ToUnicode map in the document, for the fallback
 // path where fonts could not be attributed to a page. Conflicting codes resolve
 // to whichever was seen first, which is a real limitation of that path.
-func pdfAllToUnicode(objects map[pdfObjectKey]*pdfObject, budget *pdfDecodeBudget) map[uint32]string {
+// The second return names the streams this consumed. They are CMaps, so they
+// cannot hold page content, and the fallback scan below must not decode them a
+// second time: the decode budget is document-wide, and spending it twice on the
+// same bytes is spent where it matters most — the degraded file that needed the
+// fallback in the first place.
+func pdfAllToUnicode(objects map[pdfObjectKey]*pdfObject, budget *pdfDecodeBudget) (map[uint32]string, map[pdfObjectKey]bool) {
 	merged := map[uint32]string{}
+	consumed := map[pdfObjectKey]bool{}
 	for _, key := range pdfSortedKeys(objects) {
 		object := objects[key]
 		if len(object.stream) == 0 {
@@ -811,13 +817,14 @@ func pdfAllToUnicode(objects map[pdfObjectKey]*pdfObject, budget *pdfDecodeBudge
 		if err != nil {
 			continue
 		}
+		consumed[key] = true
 		for code, text := range parsePDFToUnicode(data) {
 			if _, exists := merged[code]; !exists {
 				merged[code] = text
 			}
 		}
 	}
-	return merged
+	return merged, consumed
 }
 
 // parsePDFToUnicode reads the bfchar/bfrange sections of a ToUnicode CMap.

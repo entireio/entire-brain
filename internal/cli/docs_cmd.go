@@ -3,8 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -42,14 +40,12 @@ func newDocsExtractCommand() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := args[0]
-			info, err := os.Stat(path)
-			if err != nil {
-				return err
-			}
-			if info.IsDir() {
-				return fmt.Errorf("%s is a directory", path)
-			}
-			data, err := os.ReadFile(filepath.Clean(path))
+			// Through the same bounded, regular-file-checked read the seed
+			// path uses for caller-supplied documents. os.Stat follows
+			// symlinks and says nothing about FIFOs, and a plain ReadFile on
+			// one blocks forever with no writer; an oversized file is refused
+			// on its stated size rather than after paying for it.
+			data, err := safeReadFile(path, maxExtractDocumentBytes)
 			if err != nil {
 				return err
 			}
@@ -58,7 +54,7 @@ func newDocsExtractCommand() *cobra.Command {
 				payload := map[string]any{
 					"path":        path,
 					"format":      string(documentFormatFor(path)),
-					"source_size": info.Size(),
+					"source_size": int64(len(data)),
 					"extracted":   extractErr == nil,
 				}
 				if extractErr != nil {
@@ -82,7 +78,7 @@ func newDocsExtractCommand() *cobra.Command {
 			// The header goes to stderr so the text can be piped somewhere
 			// without it: `docs extract spec.pdf > spec.txt` should produce the
 			// document, not the document plus a banner.
-			fmt.Fprintf(cmd.ErrOrStderr(), "%s: %d characters from %d bytes\n", path, len(text), info.Size())
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s: %d characters from %d bytes\n", path, len(text), len(data))
 			fmt.Fprintln(cmd.OutOrStdout(), text)
 			return nil
 		},
