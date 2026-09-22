@@ -1665,8 +1665,9 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		if factsErr != nil {
 			report.Warnings = append(report.Warnings, "facts unavailable: "+factsErr.Error())
 		} else {
+			var briefGlobalIDs map[string]bool
 			if len(briefGlobalFacts) > 0 {
-				facts, _ = mergeGlobalFacts(facts, briefGlobalFacts)
+				facts, briefGlobalIDs = mergeGlobalFacts(facts, briefGlobalFacts)
 			}
 			// Exclusion guard: the brief's fact context honors
 			// tombstones at read time like every retrieval surface.
@@ -1682,6 +1683,9 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 					}
 					cacheLoadStarted := profile.start()
 					rr = newSemanticRerankerForBranch(e, status.Brain.Path, branch)
+					// Global facts rank here but belong to no single repository,
+					// so they must not be filed under this one's cache key.
+					rr.markForeign(briefGlobalIDs)
 					if profile != nil {
 						profile.finishStage(&profile.Facts.VectorCacheLoad, cacheLoadStarted, 1, rr.loaded, 0)
 					}

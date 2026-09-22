@@ -250,6 +250,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	// loadFacts surfaces corrupt NDJSON as a hard error; propagate it rather than
 	// presenting a broken store as "no results".
 	var all []factRecord
+	var globalFactIDs map[string]bool
 	var active []factRecord
 	var proposals []factProposal
 	var proposalsErr error
@@ -260,7 +261,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 			return nil, err
 		}
 		if len(opts.GlobalFacts) > 0 {
-			all, _ = mergeGlobalFacts(all, opts.GlobalFacts)
+			all, globalFactIDs = mergeGlobalFacts(all, opts.GlobalFacts)
 		}
 		all = guardFactRecords(guard, all)
 		active = make([]factRecord, 0, len(all))
@@ -295,13 +296,14 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 				// Pass the full set: factsVectorRanked ranks active facts but caches
 				// (and prunes) every present fact, matching the reranker's shared store.
 				factResults = factsToUnified(factsVectorRanked(
-					brainDir, branch, all, query, e, factLimit,
+					brainDir, branch, all, query, e, factLimit, globalFactIDs,
 				))
 			}
 		case modeHybrid:
 			var rr *semanticReranker
 			if e != nil {
 				rr = newSemanticRerankerForBranch(e, brainDir, branch)
+				rr.markForeign(globalFactIDs)
 			}
 			factResults = factsToUnified(rankFactsFused(active, query, factLimit, false, rr))
 			if rr != nil {
@@ -509,12 +511,16 @@ func filterHistoryRetrievalSelfEchoes(scored []scoredHistoryRecord, query string
 // (all statuses): active facts are ranked, but every present fact is embedded and
 // retained in the shared cache so this path keeps the same vectors the recall/brief
 // reranker does — and departed facts are pruned so the on-disk cache stays bounded.
+// foreign ids are ranked but never enter this repository's vector store: the
+// store is keyed by (brainDir, branch), and a global fact belongs to every
+// repository rather than to this one.
 func factsVectorRanked(
 	brainDir, branch string,
 	facts []factRecord,
 	query string,
 	e Embedder,
 	limit int,
+	foreign map[string]bool,
 ) []factRecord {
 	// An empty query vector means the embedder is unavailable (e.g. Ollama down).
 	// Return no semantic results rather than an arbitrary top-N: every cosine
@@ -535,6 +541,16 @@ func factsVectorRanked(
 	}
 	scored := make([]sc, 0, len(facts))
 	for _, f := range facts {
+		if foreign[f.ID] {
+			if f.Status != factStatusActive {
+				continue
+			}
+			fv := e.Embed(factEmbeddingText(f))
+			if len(fv) == len(qv) && vectorHasMagnitude(fv) {
+				scored = append(scored, sc{rec: f, cos: cosineFloat32(qv, fv)})
+			}
+			continue
+		}
 		present[f.ID] = struct{}{}
 		v, ok := cache[f.ID]
 		if ok && (len(v) != len(qv) || !vectorHasMagnitude(v)) {

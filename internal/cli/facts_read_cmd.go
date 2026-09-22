@@ -329,24 +329,22 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 			if !noSemantic {
 				if e := resolveEmbedder(); e != nil {
 					rr = newSemanticRerankerForBranch(e, brainDir, resolvedBranch)
+					// One mechanism for this, shared with query/search and
+					// brief: the reranker itself refuses to cache or retain a
+					// fact that belongs to every repository. The manual filter
+					// at retain below only covered half of it — factVector
+					// caches and marks a fact touched while ranking, before
+					// retain is ever reached.
+					rr.markForeign(globalIDs)
 				}
 			}
 			matches := rankFactsFused(facts, effectiveQuery, limit, includeAll, rr)
 			if rr != nil && !readOnlySemanticCache {
-				// Retain only this repository's facts. The cache is keyed by
-				// (brainDir, branch), so retaining merged-in global facts would
-				// file their vectors under this repo's key and prune them from
-				// every other repo's view on the next recall.
-				retained := allFacts
-				if len(globalIDs) > 0 {
-					retained = make([]factRecord, 0, len(allFacts))
-					for _, fact := range allFacts {
-						if !globalIDs[fact.ID] {
-							retained = append(retained, fact)
-						}
-					}
-				}
-				rr.retain(retained) // keep every present fact's vector; prune only departed facts
+				// Retain only this repository's facts: the cache is keyed by
+				// (brainDir, branch), so a merged-in global fact would be filed
+				// under this repo's key. markForeign above makes retain skip
+				// them, so the full set can be passed here.
+				rr.retain(allFacts) // keep every present fact's vector; prune only departed facts
 				_ = rr.flush()      // best-effort cache persist
 			}
 			// Locus drift (Phase 2 item 4): flag surfaced facts whose code
