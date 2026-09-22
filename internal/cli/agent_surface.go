@@ -1624,7 +1624,20 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	} else if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Sessions != nil {
 		report.Warnings = append(report.Warnings, "history index missing; run `entire brain refresh`")
 	}
-	if status.Sources.Facts {
+	// Facts recorded outside any repository reach the brief — the surface the
+	// agent guide mandates as the first call of every task. Loaded before the
+	// gate because a repository that has never recorded a fact of its own has
+	// no fact source, and that is exactly the case global facts exist for: a
+	// preference recorded once, in a repo that has never been told it. A
+	// damaged global store degrades to a warning rather than taking the brief
+	// down.
+	var briefGlobalFacts []factRecord
+	if globalFacts, globalErr := globalFactsForRead(opts.Env, false); globalErr != nil {
+		report.Warnings = append(report.Warnings, "global facts unavailable: "+globalErr.Error())
+	} else {
+		briefGlobalFacts = globalFacts
+	}
+	if status.Sources.Facts || len(briefGlobalFacts) > 0 {
 		branch := status.Live.Branch
 		if branch == "" {
 			branch = distillDefaultBranch
@@ -1634,7 +1647,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		// yields fewer facts than the manifest declares. The manifest can:
 		// warn before the packet reports a healthy facts source that
 		// contributed less than it claims.
-		if status.Manifest != nil && status.Manifest.Sources != nil {
+		if status.Sources.Facts && status.Manifest != nil && status.Manifest.Sources != nil {
 			if warning := missingFactStoreWarningForBranch(status.Brain.Path, status.Manifest.Sources.Facts, branch); warning != "" {
 				report.Warnings = append(report.Warnings, warning)
 
@@ -1652,6 +1665,9 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		if factsErr != nil {
 			report.Warnings = append(report.Warnings, "facts unavailable: "+factsErr.Error())
 		} else {
+			if len(briefGlobalFacts) > 0 {
+				facts, _ = mergeGlobalFacts(facts, briefGlobalFacts)
+			}
 			// Exclusion guard: the brief's fact context honors
 			// tombstones at read time like every retrieval surface.
 			facts = guardFactRecords(briefPrivacyGuard, facts)

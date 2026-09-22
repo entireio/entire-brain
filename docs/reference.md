@@ -1228,6 +1228,19 @@ entire brain facts global --all --json
 entire brain facts retract <fact-id> --global
 ```
 
+An MCP-connected agent records one the same way, through `brain_remember`:
+
+```json
+{"name": "brain_remember", "arguments": {
+  "fact": "We deploy on Thursdays.",
+  "path": "project.deployment.convention",
+  "global": true
+}}
+```
+
+`global` cannot be combined with `branch`: a fact that applies everywhere has no
+branch to belong to.
+
 Global facts live in their own store beside the per-repo ones — `global/` next
 to `repos/` under the plugin data directory, which `entire brain facts global`
 prints. They are ordinary facts: the same format, the same taxonomy, the same
@@ -1235,8 +1248,12 @@ retraction and garbage collection.
 
 ### How they surface
 
-`recall` merges them into every repository's results. They go through the same
-filters and ranking as repository facts, and are labelled:
+Every read surface merges them into the repository's results: `recall`,
+`query`, `search`, `vsearch` and `brief` on the CLI, and `brain_query`,
+`brain_search`, `brain_vsearch` and `brain_brief` over MCP. `brief` surfaces
+them even in a repository that has no facts of its own — a repo that has never
+been told the statement is the case global facts exist for. They go through the
+same guard, filters and ranking as repository facts, and are labelled:
 
 ```
 fact:76aa6fd6 decision [architecture.deployment.convention] (global)
@@ -1250,6 +1267,12 @@ tell the difference. `--json` reports the same distinction as `global_fact_ids`.
 Where a repository records the same statement, the repository's copy wins —
 fact ids are content-derived, so it is the same fact, and the local one carries
 that repository's provenance, which is the evidence somebody would check.
+
+Only a live repository fact wins that way. Once the local copy is retracted or
+superseded it makes no claim, so the global statement becomes visible again
+rather than staying hidden behind a fact nobody can read: retracting a local
+duplicate falls back to the global one instead of silently losing it in that
+repository.
 
 ### Turning them off
 

@@ -872,6 +872,7 @@ func mcpToolDefinitions() []map[string]any {
 				"path":   stringArg("path", "Taxonomy path: category.subcategory.type, comma-separated for several"),
 				"kind":   enumArg("kind", "Fact kind; inferred when omitted", []string{"decision", "invariant", "gotcha", "preference", "convention"}),
 				"branch": branchArg(),
+				"global": boolArg("global", "Record outside every repository so the fact applies everywhere (a preference, a team convention, an environment detail). Cannot be combined with branch."),
 			}),
 		},
 		{
@@ -1146,12 +1147,18 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = branchErr
 			break
 		}
+		factGlobal, globalErr := mcpBool(params.Arguments, "global")
+		if globalErr != nil {
+			err = globalErr
+			break
+		}
 		err = runRemember(ctx, cmd, opts, rememberCommandOptions{
 			path:   strings.TrimSpace(taxonomyPath),
 			kind:   strings.TrimSpace(factKind),
 			branch: strings.TrimSpace(factBranch),
 			agent:  "none",
 			json:   true,
+			global: factGlobal,
 		}, factText)
 	case "brain_delete_project":
 		repoKey, stringErr := mcpOptionalString(params.Arguments, "repo_key")

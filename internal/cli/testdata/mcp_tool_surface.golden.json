@@ -687,6 +687,11 @@
           "title": "fact",
           "type": "string"
         },
+        "global": {
+          "description": "Record outside every repository so the fact applies everywhere (a preference, a team convention, an environment detail). Cannot be combined with branch.",
+          "title": "global",
+          "type": "boolean"
+        },
         "kind": {
           "description": "Fact kind; inferred when omitted",
           "enum": [

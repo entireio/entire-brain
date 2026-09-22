@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -582,5 +583,219 @@ func TestGlobalGCRefusesABranch(t *testing.T) {
 	}
 	if err := gc.RunE(gc, nil); err == nil {
 		t.Fatal("--global --branch was accepted")
+	}
+}
+
+func TestARetractedRepositoryFactDoesNotHideAnActiveGlobalOne(t *testing.T) {
+	// Shadowing is justified by the local copy being "the more specific claim
+	// [that] carries that repo's provenance". A retracted fact makes no claim,
+	// so there is nothing for it to shadow with — and because ids are
+	// content-derived, retracting a local duplicate is exactly how a user would
+	// expect to fall back to the global statement, not to lose it silently.
+	retracted := factRecord{ID: "same-id", Text: "We deploy on Thursdays.", Status: factStatusRetracted, Branch: "main"}
+	global := factRecord{ID: "same-id", Text: "We deploy on Thursdays.", Status: factStatusActive, Branch: globalFactBranch}
+
+	merged, globalIDs := mergeGlobalFacts([]factRecord{retracted}, []factRecord{global})
+	if len(merged) != 2 {
+		t.Fatalf("the active global fact was suppressed by a retracted local one: %+v", merged)
+	}
+	if !globalIDs["same-id"] {
+		t.Fatalf("the global fact must still be labelled global: %+v", globalIDs)
+	}
+	var sawGlobal bool
+	for _, fact := range merged {
+		if fact.Branch == globalFactBranch && fact.Status == factStatusActive {
+			sawGlobal = true
+		}
+	}
+	if !sawGlobal {
+		t.Fatalf("the surviving global copy is not present: %+v", merged)
+	}
+}
+
+func TestASupersededRepositoryFactDoesNotHideAnActiveGlobalOne(t *testing.T) {
+	superseded := factRecord{ID: "same-id", Text: "We deploy on Thursdays.", Status: factStatusSuperseded, Branch: "main"}
+	global := factRecord{ID: "same-id", Text: "We deploy on Thursdays.", Status: factStatusActive, Branch: globalFactBranch}
+
+	merged, globalIDs := mergeGlobalFacts([]factRecord{superseded}, []factRecord{global})
+	if len(merged) != 2 || !globalIDs["same-id"] {
+		t.Fatalf("a superseded local fact suppressed the global one: %+v %+v", merged, globalIDs)
+	}
+}
+
+// The three tests below exist because merging worked while no surface an agent
+// actually uses called it. mergeGlobalFacts had exactly one caller — the recall
+// command — so a fact recorded once reached the CLI and nothing else.
+
+func TestMCPRememberCanRecordAGlobalFact(t *testing.T) {
+	// brain_remember is how an MCP-connected agent writes memory. Without a
+	// global argument it could only ever write repository-scoped facts, so the
+	// primary consumer of the feature could not use it at all.
+	opts, _ := globalTestOptions(t)
+	params, err := json.Marshal(mcpToolCallParams{Name: "brain_remember", Arguments: map[string]any{
+		"fact":   "The staging cluster is in eu-west-1.",
+		"path":   "preferences.coding.style",
+		"global": true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := handleMCPMessage(context.Background(), opts, mcpMessage{JSONRPC: "2.0", ID: 1, Method: "tools/call", Params: params})
+	if response.Error != nil {
+		t.Fatalf("brain_remember global: %+v", response.Error)
+	}
+	global, loadErr := loadGlobalFacts(opts.Env)
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	for _, fact := range global {
+		if strings.Contains(fact.Text, "eu-west-1") {
+			return
+		}
+	}
+	t.Fatalf("the fact was not written to the global store: %+v", global)
+}
+
+func TestMCPRememberStillDefaultsToThisRepository(t *testing.T) {
+	// The new argument must not change what an omitted argument does.
+	opts, _ := globalTestOptions(t)
+	params, err := json.Marshal(mcpToolCallParams{Name: "brain_remember", Arguments: map[string]any{
+		"fact": "Compaction runs above eight segments.",
+		"path": "preferences.coding.style",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := handleMCPMessage(context.Background(), opts, mcpMessage{JSONRPC: "2.0", ID: 1, Method: "tools/call", Params: params})
+	if response.Error != nil {
+		t.Fatalf("brain_remember: %+v", response.Error)
+	}
+	global, loadErr := loadGlobalFacts(opts.Env)
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	for _, fact := range global {
+		if strings.Contains(fact.Text, "Compaction") {
+			t.Fatalf("a repository fact was written to the global store: %+v", fact)
+		}
+	}
+}
+
+func TestBrainRememberAdvertisesGlobal(t *testing.T) {
+	// An argument the schema does not advertise is one no agent will send.
+	response := handleMCPMessage(context.Background(), Options{Version: "test"}, mcpMessage{
+		JSONRPC: "2.0", ID: 1, Method: "tools/list",
+	})
+	if response.Error != nil {
+		t.Fatalf("tools/list: %+v", response.Error)
+	}
+	encoded, err := json.Marshal(response.Result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listing struct {
+		Tools []struct {
+			Name        string `json:"name"`
+			InputSchema struct {
+				Properties map[string]any `json:"properties"`
+			} `json:"inputSchema"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(encoded, &listing); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range listing.Tools {
+		if tool.Name != "brain_remember" {
+			continue
+		}
+		if _, ok := tool.InputSchema.Properties["global"]; !ok {
+			t.Fatalf("brain_remember does not advertise global: %v", tool.InputSchema.Properties)
+		}
+		return
+	}
+	t.Fatal("brain_remember is not in tools/list")
+}
+
+// retrievalSurfaceFixture is a repository brain holding one local fact, with a
+// global store holding one global fact. It is the shape every recall surface
+// sees in practice: a repo that has never been told the global statement.
+func retrievalSurfaceFixture(t *testing.T) (Options, string) {
+	t.Helper()
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time {
+		return time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	}}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := normalizeFactPaths([]string{"architecture/retrieval.go"})
+	local := factRecord{
+		ID: factRecordID("orion local retrieval fact", paths), Text: "orion local retrieval fact",
+		Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: opts.Now(),
+	}
+	if err := writeFacts(storage.BrainDir, "feature", []factRecord{local}); err != nil {
+		t.Fatal(err)
+	}
+	rememberGlobal(t, opts, "orion global convention applies everywhere")
+	return opts, storage.BrainDir
+}
+
+func TestQueryAndSearchSurfaceGlobalFacts(t *testing.T) {
+	// brain_query, brain_search and brain_vsearch all run through runRetrieve.
+	// Before this, a fact recorded once reached `recall` and no other surface.
+	opts, _ := retrievalSurfaceFixture(t)
+	cmd := &cobra.Command{}
+	var out strings.Builder
+	cmd.SetOut(&out)
+	cmd.SetErr(&strings.Builder{})
+	if err := runRetrieve(context.Background(), cmd, opts, "orion", modeLexical, 10, "feature",
+		retrievalOptions{Source: retrievalSourceFact}, true, false, "mcp:brain_query"); err != nil {
+		t.Fatalf("runRetrieve: %v", err)
+	}
+	if !strings.Contains(out.String(), "global convention applies everywhere") {
+		t.Fatalf("the global fact did not reach the query surface:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "local retrieval fact") {
+		t.Fatalf("merging global facts dropped the repository's own:\n%s", out.String())
+	}
+}
+
+func TestQueryRespectsTheGlobalOffSwitch(t *testing.T) {
+	// An operator who turns global facts off must not get them anyway.
+	opts, _ := retrievalSurfaceFixture(t)
+	t.Setenv("ENTIRE_BRAIN_NO_GLOBAL_FACTS", "1")
+	cmd := &cobra.Command{}
+	var out strings.Builder
+	cmd.SetOut(&out)
+	cmd.SetErr(&strings.Builder{})
+	if err := runRetrieve(context.Background(), cmd, opts, "orion", modeLexical, 10, "feature",
+		retrievalOptions{Source: retrievalSourceFact}, true, false, "mcp:brain_query"); err != nil {
+		t.Fatalf("runRetrieve: %v", err)
+	}
+	if strings.Contains(out.String(), "global convention applies everywhere") {
+		t.Fatalf("ENTIRE_BRAIN_NO_GLOBAL_FACTS did not suppress the global fact:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "local retrieval fact") {
+		t.Fatalf("turning global facts off also hid the repository's own:\n%s", out.String())
+	}
+}
+
+func TestBriefSurfacesGlobalFacts(t *testing.T) {
+	// The agent guide mandates brief as the first call of every task, so a
+	// preference recorded once has to reach it or the feature is invisible
+	// exactly where it matters most.
+	opts, _ := retrievalSurfaceFixture(t)
+	cmd := &cobra.Command{}
+	var out strings.Builder
+	cmd.SetOut(&out)
+	cmd.SetErr(&strings.Builder{})
+	if err := runBrainBrief(context.Background(), cmd, opts, brainBriefOptions{limit: 10, json: true}, "orion"); err != nil {
+		t.Fatalf("runBrainBrief: %v", err)
+	}
+	if !strings.Contains(out.String(), "global convention applies everywhere") {
+		t.Fatalf("the global fact did not reach the brief:\n%s", out.String())
 	}
 }

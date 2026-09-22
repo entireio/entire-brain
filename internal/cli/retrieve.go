@@ -111,6 +111,16 @@ type retrievalOptions struct {
 	// IncludeAbstract adds a bounded top-level preview envelope after ranking.
 	// It never changes rank and never invokes a provider.
 	IncludeAbstract bool
+	// GlobalFacts are facts recorded outside any repository. They are merged
+	// into the fact layer before ranking and go through every filter and the
+	// same scoring as repository facts, so a preference recorded once applies
+	// everywhere rather than only on the CLI surface that loaded it. Callers
+	// that should not see them (--no-global, ENTIRE_BRAIN_NO_GLOBAL_FACTS)
+	// simply leave this nil.
+	GlobalFacts []factRecord
+	// NoGlobalFacts is the per-request off switch, matching recall's
+	// --no-global. The environment switch is checked alongside it.
+	NoGlobalFacts bool
 }
 
 // hasConversationOnlyFilters reports filters that have no meaning outside the
@@ -248,6 +258,9 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		all, err = loadFacts(brainDir, branch)
 		if err != nil {
 			return nil, err
+		}
+		if len(opts.GlobalFacts) > 0 {
+			all, _ = mergeGlobalFacts(all, opts.GlobalFacts)
 		}
 		all = guardFactRecords(guard, all)
 		active = make([]factRecord, 0, len(all))

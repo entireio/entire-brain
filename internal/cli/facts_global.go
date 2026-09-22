@@ -95,9 +95,17 @@ func globalFactIDs(facts []factRecord) map[string]bool {
 // is the more specific claim and carries that repo's provenance, which is the
 // evidence somebody would check.
 func mergeGlobalFacts(repoFacts, global []factRecord) ([]factRecord, map[string]bool) {
+	// Only a live repository fact shadows. The precedence above is justified by
+	// the local copy being the more specific claim carrying checkable
+	// provenance; a retracted or superseded fact makes no claim, so it has
+	// nothing to shadow with. Letting it shadow anyway would mean retracting a
+	// local duplicate silently removed the global statement from this one repo.
 	seen := make(map[string]bool, len(repoFacts))
 	for _, fact := range repoFacts {
-		seen[fact.ID] = true
+		switch fact.Status {
+		case "", factStatusActive:
+			seen[fact.ID] = true
+		}
 	}
 	merged := repoFacts
 	globalIDs := map[string]bool{}
@@ -125,6 +133,17 @@ func globalFactsEnabled(noGlobalFlag bool) bool {
 		return false
 	}
 	return !securityToggleEnabled("ENTIRE_BRAIN_NO_GLOBAL_FACTS")
+}
+
+// globalFactsForRead loads the global store for a read surface, honouring the
+// off switches. A damaged global store must not take retrieval down with it, so
+// the error comes back for the caller to warn about rather than to propagate:
+// the repository's own facts are still the answer to most queries.
+func globalFactsForRead(env EntireEnv, noGlobal bool) ([]factRecord, error) {
+	if !globalFactsEnabled(noGlobal) {
+		return nil, nil
+	}
+	return loadGlobalFacts(env)
 }
 
 // resolveGlobalFactsTarget is the global counterpart of resolveFactsTarget, for

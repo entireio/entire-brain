@@ -204,6 +204,15 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 			return err
 		}
 	}
+	// Facts recorded outside any repository merge into the fact layer before
+	// ranking, so a preference recorded once applies on every retrieval surface
+	// rather than only on the one command that happened to load them. They go
+	// through the same guard, filters and scoring as repository facts.
+	if globalFacts, globalErr := globalFactsForRead(opts.Env, ropts.NoGlobalFacts); globalErr != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: global facts unavailable: %v\n", globalErr)
+	} else {
+		ropts.GlobalFacts = globalFacts
+	}
 	results, err := retrieveUnifiedWithOptions(repoDir, brainDir, resolvedBranch, query, limit, mode, ropts)
 	if err != nil {
 		return err
