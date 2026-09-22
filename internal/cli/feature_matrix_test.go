@@ -180,17 +180,72 @@ func TestFeatureMatrixMovedToYesCountMatchesTheData(t *testing.T) {
 	if sentence == nil {
 		t.Fatal("the moved-to-Yes sentence no longer enumerates the cells")
 	}
+	if offender := partialGapNamedInYesList(rows, sentence[1]); offender != "" {
+		t.Fatalf("%q is Partial but appears in the moved-to-Yes list: %q", offender, sentence[1])
+	}
+}
+
+// partialGapNamedInYesList returns the first former-gap feature that reached
+// only Partial yet is named inside the moved-to-Yes enumeration, or "".
+//
+// Either product column counts: edge provenance was closed in Graph, so a gap
+// that lands on Partial there is just as wrongly placed in that list as one
+// that lands on Partial in Brain.
+func partialGapNamedInYesList(rows [][]string, sentence string) string {
+	lower := strings.ToLower(sentence)
 	for _, row := range rows {
-		if row[3] != "Partial" || !strings.Contains(row[9], "Was REAL GAP") {
+		if !strings.Contains(row[9], "Was REAL GAP") {
+			continue
+		}
+		if row[2] != "Partial" && row[3] != "Partial" {
 			continue
 		}
 		for _, word := range strings.Fields(strings.ToLower(row[1])) {
 			if len(word) < 8 {
 				continue
 			}
-			if strings.Contains(strings.ToLower(sentence[1]), strings.Trim(word, "(),")) {
-				t.Fatalf("%q is Partial but appears in the moved-to-Yes list: %q", row[1], sentence[1])
+			if strings.Contains(lower, strings.Trim(word, "(),")) {
+				return row[1]
 			}
 		}
 	}
+	return ""
+}
+
+// The real CSV has no Graph-Partial gap row, so widening the check to that
+// column would otherwise be a branch no data exercises.
+func TestPartialGapDetectionCoversBothProductColumns(t *testing.T) {
+	const sentence = " document ingest, edge provenance, and mem0 import."
+	for _, tc := range []struct {
+		name  string
+		graph string
+		brain string
+		want  string
+	}{
+		{"partial in Brain", "No", "Partial", "Edge provenance (extracted vs inferred)"},
+		{"partial in Graph", "Partial", "No", "Edge provenance (extracted vs inferred)"},
+		{"yes in both", "Yes", "Yes", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rows := [][]string{{
+				"Retrieval", "Edge provenance (extracted vs inferred)", tc.graph, tc.brain,
+				"No", "No", "No", "No", "No", "Was REAL GAP. Closed.", "src",
+			}}
+			if got := partialGapDetectionFixture(rows, sentence); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+	// A Partial row that is NOT named in the sentence must not be reported.
+	rows := [][]string{{
+		"Retrieval", "Scales to 100M-line codebases", "Partial", "No",
+		"No", "No", "No", "No", "No", "Was REAL GAP. Measured loss.", "src",
+	}}
+	if got := partialGapDetectionFixture(rows, sentence); got != "" {
+		t.Fatalf("a Partial row absent from the list was reported: %q", got)
+	}
+}
+
+func partialGapDetectionFixture(rows [][]string, sentence string) string {
+	return partialGapNamedInYesList(rows, sentence)
 }
