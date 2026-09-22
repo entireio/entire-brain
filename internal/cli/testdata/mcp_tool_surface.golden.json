@@ -671,6 +671,51 @@
     "name": "brain_delete_project"
   },
   {
+    "description": "Record a durable fact about this repository so it survives the session. The only tool here that writes memory rather than derived state; read the result back with brain_query source=fact, or brain_get by id. path is a taxonomy path shaped category.subcategory.type, e.g. constraints.retry.policy; a path outside this repository's taxonomy is refused with the valid categories named (by default architecture, constraints, preferences, project, workflow). Facts are stored per branch and anchored to the current commit.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "description": "Branch for facts (default: current)",
+          "maxLength": 8192,
+          "title": "branch",
+          "type": "string"
+        },
+        "fact": {
+          "description": "The durable fact, as one self-contained sentence",
+          "maxLength": 8192,
+          "title": "fact",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Fact kind; inferred when omitted",
+          "enum": [
+            "decision",
+            "invariant",
+            "gotcha",
+            "preference",
+            "convention"
+          ],
+          "maxLength": 8192,
+          "title": "kind",
+          "type": "string"
+        },
+        "path": {
+          "description": "Taxonomy path: category.subcategory.type, comma-separated for several",
+          "maxLength": 8192,
+          "title": "path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fact",
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "brain_remember"
+  },
+  {
     "description": "Alias for brain_code; search indexed source symbols with compact records by default. Set details=true for full provider records.",
     "inputSchema": {
       "additionalProperties": false,

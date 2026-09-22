@@ -10,6 +10,11 @@ Available tools:
 - Project/index management: `brain_refresh`, `brain_index_repository`,
   `brain_list_projects`, `brain_delete_project`
 - `brain_brief`
+- Durable facts: `brain_remember` — the only tool here that writes memory rather
+  than derived state. Takes `fact` and a taxonomy `path` shaped
+  `category.subcategory.type`; `path` is required rather than inferred, because
+  the CLI infers it by shelling out to a coding agent and an MCP call must not
+  spend model tokens its caller did not ask for.
 - Unified retrieval: `brain_query` (hybrid by default; optional mutually exclusive
   `keyword: true` or `semantic: true`), `brain_get`, `brain_multi_get`.
   Compatibility tools: `brain_search` (lexical), `brain_vsearch` (vector).
