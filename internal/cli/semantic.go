@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -2882,7 +2883,7 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 		axes["snapshot"] = staleAxis{State: "unsafe", Detail: err.Error()}
 	} else {
 		snapshotPath := filepath.Join(storage.BrainDir, filepath.FromSlash(source.SnapshotPath))
-		snapshotHeader, snapshotCounts, snapshotErr := readSemanticSnapshotSummary(snapshotPath, storage.Key)
+		snapshotHeader, snapshotCounts, snapshotErr := verifiedSnapshotSummary(snapshotPath, storage.Key)
 		if snapshotErr != nil {
 			axes["snapshot"] = staleAxis{State: "unsafe", Detail: snapshotErr.Error()}
 		} else if err := validateSemanticSourceMatchesSnapshot(source, snapshotHeader, snapshotCounts); err != nil {
@@ -2900,7 +2901,7 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 			axes["store"] = staleAxis{State: "unsafe", Detail: err.Error()}
 		} else if err := rejectSymlinkPathComponents(storage.BrainDir, storePath); err != nil {
 			axes["store"] = staleAxis{State: "unsafe", Detail: err.Error()}
-		} else if err := validateSemanticSQLiteStore(filepath.Join(storage.BrainDir, storePath), source.Symbols, source.Relations); err != nil {
+		} else if err := verifiedSQLiteStore(filepath.Join(storage.BrainDir, storePath), source.Symbols, source.Relations); err != nil {
 			axes["store"] = staleAxis{State: "unsafe", Detail: err.Error()}
 		} else {
 			axes["store"] = staleAxis{State: "ok", Detail: source.StorePath}
@@ -7322,6 +7323,69 @@ func semanticBundleGenerationRelAllowed(source *semanticSourceManifest, rel stri
 
 func validateSnapshotFileSchema(path, repoKey string) error {
 	_, _, err := readSemanticSnapshotSummary(path, repoKey)
+	return err
+}
+
+// The integrity checks over a generation — that the snapshot still matches the
+// manifest, and that the store holds the rows the manifest declares — answer
+// the same way for as long as the files do not change. Generations are
+// content-keyed and indexing writes a new one rather than mutating an existing
+// one, but a file can still be truncated, rewritten or corrupted underneath a
+// running process, and that must not go unnoticed.
+//
+// They were being re-run per query, and they are not cheap: on a 747k-line
+// repository the store validation counts rows in a 128 MB SQLite file (436 ms)
+// and the snapshot check JSON-parses an 81 MB file (164 ms), together about
+// half of a 1.2 s search. A process issuing several searches paid that for each
+// one, to re-derive an answer that could not have changed.
+//
+// So the memo key carries the file's size and modification time, taken from a
+// stat that costs microseconds against a check that costs hundreds of
+// milliseconds. A file that changes gets re-verified in full; one that has not
+// is not re-read. The first search in a process always performs both checks,
+// and a one-shot CLI invocation is unchanged.
+//
+// The residual hole is a corruption that preserves size and mtime exactly. That
+// is the ordinary limit of stat-based invalidation, and it is narrower than
+// re-reading nothing — but it is a hole, not an absence of one.
+var semanticIntegrityMemo sync.Map
+
+type semanticSnapshotVerdict struct {
+	header semanticHeader
+	counts semanticCounts
+	err    error
+}
+
+// fileIdentity returns a stat-derived fingerprint for cache keying. An
+// unreadable file yields a distinct marker so it is never confused with a
+// previously readable one.
+func fileIdentity(path string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "missing:" + err.Error()
+	}
+	return fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
+}
+
+func verifiedSnapshotSummary(path, repoKey string) (semanticHeader, semanticCounts, error) {
+	key := "snapshot\x00" + path + "\x00" + repoKey + "\x00" + fileIdentity(path)
+	if cached, ok := semanticIntegrityMemo.Load(key); ok {
+		verdict := cached.(semanticSnapshotVerdict)
+		return verdict.header, verdict.counts, verdict.err
+	}
+	header, counts, err := readSemanticSnapshotSummary(path, repoKey)
+	semanticIntegrityMemo.Store(key, semanticSnapshotVerdict{header: header, counts: counts, err: err})
+	return header, counts, err
+}
+
+func verifiedSQLiteStore(path string, symbols, relations int) error {
+	key := fmt.Sprintf("store\x00%s\x00%d\x00%d\x00%s", path, symbols, relations, fileIdentity(path))
+	if cached, ok := semanticIntegrityMemo.Load(key); ok {
+		verdict, _ := cached.(error)
+		return verdict
+	}
+	err := validateSemanticSQLiteStore(path, symbols, relations)
+	semanticIntegrityMemo.Store(key, err)
 	return err
 }
 
