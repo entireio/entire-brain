@@ -784,3 +784,44 @@ func TestFactsFilesCommandPrintsCrossBranchWarnings(t *testing.T) {
 		t.Fatalf("the command did not report that the directory holds another branch's export: %q", errOut.String())
 	}
 }
+
+func TestExportRetainsManifestAfterPruneFailure(t *testing.T) {
+	dir := t.TempDir()
+	fact := factFixture("fact:123456789abc", "Old fact", []string{"policy"})
+	first, err := writeFactFiles(dir, "main", []factRecord{fact})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(dir, first.Files[0])
+	if err := os.Remove(stale); err != nil {
+		t.Fatal(err)
+	}
+	// A nonempty directory at the former file path reliably makes Remove fail
+	// on every supported platform, without relying on user permissions.
+	if err := os.Mkdir(stale, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	child := filepath.Join(stale, "keep.txt")
+	if err := os.WriteFile(child, []byte("user data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeFactFiles(dir, "main", nil); err == nil {
+		t.Fatal("export reported success although stale output could not be removed")
+	}
+	manifest, err := readFactFilesManifest(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Files) != 1 || manifest.Files[0] != first.Files[0] {
+		t.Fatalf("failed cleanup was forgotten: %+v", manifest)
+	}
+	if err := os.Remove(child); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeFactFiles(dir, "main", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("retry did not remove stale output: %v", err)
+	}
+}

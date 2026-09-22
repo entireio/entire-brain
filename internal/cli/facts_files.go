@@ -208,7 +208,7 @@ func readFactFilesManifest(dir string) (factFilesManifest, error) {
 // A fact that was retracted, or whose taxonomy path moved, leaves a file behind
 // otherwise — and a grep over the export then returns something the brain no
 // longer believes, presented exactly like something it does.
-func pruneStaleFactFiles(dir string, previous factFilesManifest, written map[string]bool) {
+func pruneStaleFactFiles(dir string, previous factFilesManifest, written map[string]bool) error {
 	var dirs []string
 	for _, rel := range previous.Files {
 		if written[rel] {
@@ -232,7 +232,10 @@ func pruneStaleFactFiles(dir string, previous factFilesManifest, written map[str
 			continue
 		}
 		if err := os.Remove(filepath.Join(dir, clean)); err != nil {
-			continue
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("remove stale fact file %s: %w", clean, err)
 		}
 		if parent := filepath.Dir(clean); parent != "." {
 			dirs = append(dirs, parent)
@@ -253,6 +256,7 @@ func pruneStaleFactFiles(dir string, previous factFilesManifest, written map[str
 			}
 		}
 	}
+	return nil
 }
 
 // writeFactFiles materialises facts under dir. Returns the relative paths
@@ -349,7 +353,11 @@ func writeFactFiles(dir, branch string, facts []factRecord) (factFilesResult, er
 	// a different branch describes files that are not stale — they are another
 	// branch's export, and deleting them is what made this destructive.
 	if previous.Branch == branch {
-		pruneStaleFactFiles(dir, previous, written)
+		if err := pruneStaleFactFiles(dir, previous, written); err != nil {
+			// Keep failed deletions tracked, along with files written this run,
+			// so a later export can retry instead of orphaning stale facts.
+			return result, withManifestFailure(err, recordPartialExport(dir, branch, previous, result.Files))
+		}
 	} else if len(previous.Files) > 0 {
 		result.Warnings = append(result.Warnings, fmt.Sprintf(
 			"%s was last exported for branch %q; its %d file(s) were left in place. "+
@@ -368,9 +376,7 @@ func writeFactFiles(dir, branch string, facts []factRecord) (factFilesResult, er
 // writeFactFilesManifest records what is on disk, so the next export can
 // reconcile against a true record.
 //
-// Failure to write it is not returned: the export itself succeeded, and the
-// cost of a missing manifest is that the next run prunes nothing, which is the
-// safe direction.
+// The caller reports failures so an unrecorded export is never silent.
 func writeFactFilesManifest(dir, branch string, files []string) error {
 	if err := rejectExistingSymlinkPathComponents(dir, factFilesManifestName); err != nil {
 		// The manifest is a file like any other, in a directory somebody could
