@@ -423,21 +423,43 @@ func countFileLines(path string) (lines, bytes int64, err error) {
 	if !info.Mode().IsRegular() {
 		return 0, 0, fmt.Errorf("not a regular file")
 	}
-	data, err := os.ReadFile(path)
+	// Streamed rather than read whole. A tracked file large enough to matter
+	// here is unusual but entirely possible — a generated source file, a
+	// minified bundle, a data file that passed the extension filter — and
+	// os.ReadFile would hold all of it to count newlines in it.
+	//
+	// A size ceiling would be the other way to bound this, and it would be
+	// worse: skipping a file shrinks the line count that every ratio in this
+	// report divides by, and a denominator that quietly excludes things makes
+	// the numbers look better than they are. Streaming counts every tracked
+	// file whatever its size, in a fixed 64 KiB.
+	f, err := os.Open(path)
 	if err != nil {
 		return 0, 0, err
 	}
-	bytes = int64(len(data))
+	defer f.Close()
+	buf := make([]byte, 64<<10)
+	var last byte
+	for {
+		n, readErr := f.Read(buf)
+		if n > 0 {
+			bytes += int64(n)
+			chunk := buf[:n]
+			lines += int64(strings.Count(string(chunk), "\n"))
+			last = chunk[n-1]
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return 0, 0, readErr
+		}
+	}
 	if bytes == 0 {
 		return 0, 0, nil
 	}
-	for _, b := range data {
-		if b == '\n' {
-			lines++
-		}
-	}
 	// A final line without a trailing newline is still a line.
-	if data[len(data)-1] != '\n' {
+	if last != '\n' {
 		lines++
 	}
 	return lines, bytes, nil

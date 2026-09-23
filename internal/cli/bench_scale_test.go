@@ -471,3 +471,67 @@ func TestLatencyRunsOnlyReportsACountEveryModeShares(t *testing.T) {
 		}
 	}
 }
+
+// countFileLines used to read whole files to count newlines in them, so a large
+// tracked file was held entirely in memory. It now streams in a fixed buffer.
+// The counts must be byte-for-byte what the read-whole version produced --
+// especially across the buffer boundary, where a naive chunked count drops or
+// doubles the line a newline straddles.
+func TestStreamedLineCountMatchesReadingWhole(t *testing.T) {
+	readWhole := func(t *testing.T, path string) (int64, int64) {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(data) == 0 {
+			return 0, 0
+		}
+		var lines int64
+		for _, b := range data {
+			if b == '\n' {
+				lines++
+			}
+		}
+		if data[len(data)-1] != '\n' {
+			lines++
+		}
+		return lines, int64(len(data))
+	}
+
+	cases := map[string]string{
+		"empty":                  "",
+		"no trailing newline":    "alpha\nbeta",
+		"trailing newline":       "alpha\nbeta\n",
+		"only newlines":          "\n\n\n",
+		"single line no newline": "x",
+		// Straddles the 64 KiB buffer: the newline lands just past the boundary.
+		"across the buffer":   strings.Repeat("a", (64<<10)-1) + "\n" + strings.Repeat("b", 10) + "\n",
+		"newline on boundary": strings.Repeat("a", (64<<10)-1) + "\nb",
+		"larger than buffer":  strings.Repeat("line\n", 40000),
+		// Exactly one buffer, so the last read that returns data fills it
+		// completely and the read after it returns only EOF. An implementation
+		// that tracks the final byte on partial reads alone misses the last
+		// line here.
+		"exactly one buffer, no trailing newline":  strings.Repeat("a", (64<<10)-1) + "x",
+		"exactly one buffer, trailing newline":     strings.Repeat("a", (64<<10)-1) + "\n",
+		"exactly two buffers, no trailing newline": strings.Repeat("a", (128<<10)-1) + "x",
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "f.txt")
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			wantLines, wantBytes := readWhole(t, path)
+			gotLines, gotBytes, err := countFileLines(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if gotLines != wantLines || gotBytes != wantBytes {
+				t.Fatalf("streamed %d lines/%d bytes, reading whole gives %d/%d",
+					gotLines, gotBytes, wantLines, wantBytes)
+			}
+		})
+	}
+}
