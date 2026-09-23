@@ -245,6 +245,7 @@ type factImportReport struct {
 	SkippedText int      `json:"skipped_empty_text"`
 	Superseded  int      `json:"marked_superseded"`
 	Unsupported []string `json:"unsupported,omitempty"`
+	Warnings    []string `json:"warnings,omitempty"`
 	DryRun      bool     `json:"dry_run"`
 }
 
@@ -431,6 +432,10 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 		report.Unsupported = append(report.Unsupported, note)
 	}
 	sort.Strings(report.Unsupported)
+	if report.Superseded > 0 {
+		report.Warnings = append(report.Warnings,
+			"Superseded facts keep source timestamps; facts gc may prune them immediately if they are older than its retention window. Preview facts gc without --force and adjust --retain before deleting imported history.")
+	}
 	report.Imported = len(distinct)
 	return facts, report
 }
@@ -575,6 +580,9 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 			}
 			if report.Superseded > 0 {
 				fmt.Fprintf(cmd.OutOrStdout(), "  %d already superseded at the source; imported as superseded\n", report.Superseded)
+			}
+			for _, warning := range report.Warnings {
+				fmt.Fprintf(cmd.OutOrStdout(), "  warning: %s\n", warning)
 			}
 			for _, note := range report.Unsupported {
 				fmt.Fprintf(cmd.OutOrStdout(), "  not carried over: %s\n", note)

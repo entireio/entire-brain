@@ -1028,3 +1028,58 @@ func TestImportDryRunSurfacesFactStoreErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestImportReportsSupersededRetention(t *testing.T) {
+	for _, jsonOut := range []bool{false, true} {
+		for _, dryRun := range []bool{false, true} {
+			t.Run(fmt.Sprintf("json=%t/dry-run=%t", jsonOut, dryRun), func(t *testing.T) {
+				repoDir := t.TempDir()
+				now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+				opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: semanticFixtureRunner(repoDir, ""), Now: func() time.Time { return now }}
+				export := `[{"id":"old","memory":"Old rule","updated_at":"2020-01-01T00:00:00Z","replaced_by":"new"},{"id":"new","memory":"New rule"}]`
+				path := filepath.Join(t.TempDir(), "export.json")
+				if err := os.WriteFile(path, []byte(export), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				args := []string{"facts", "import", "--source", "mem0", "--file", path}
+				if dryRun {
+					args = append(args, "--dry-run")
+				}
+				if jsonOut {
+					args = append(args, "--json")
+				}
+				out, err := execute(t, NewRootCommand(opts), args...)
+				if err != nil {
+					t.Fatalf("import: %v\n%s", err, out)
+				}
+				for _, want := range []string{"source timestamps", "facts gc", "immediately", "--retain"} {
+					if !strings.Contains(out, want) {
+						t.Fatalf("missing retention warning %q: %s", want, out)
+					}
+				}
+				if !dryRun {
+					_, brainDir, branch, err := resolveFactsTarget(context.Background(), opts, agentSurfaceTarget(opts, nil), "")
+					if err != nil {
+						t.Fatal(err)
+					}
+					facts, err := loadFacts(brainDir, branch)
+					if err != nil {
+						t.Fatal(err)
+					}
+					found := false
+					for _, fact := range facts {
+						if fact.Text == "Old rule" {
+							found = true
+							if fact.Status != factStatusSuperseded || fact.UpdatedAt.Format(time.RFC3339) != "2020-01-01T00:00:00Z" {
+								t.Fatalf("source retirement or timestamp changed: %+v", fact)
+							}
+						}
+					}
+					if !found {
+						t.Fatal("missing imported retired fact")
+					}
+				}
+			})
+		}
+	}
+}
