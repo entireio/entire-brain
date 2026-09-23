@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -805,5 +806,71 @@ func TestConflictingRetirementStaysRetiredWithoutASuccessor(t *testing.T) {
 	}
 	if joined := strings.Join(report.Unsupported, " | "); !strings.Contains(joined, "disagrees between duplicates") {
 		t.Fatalf("the ambiguity was not reported to the caller: %q", joined)
+	}
+}
+
+// An imported fact's provenance anchor names a session in the system it came
+// from. Run through the exported-session checks it comes back "orphaned" --
+// which reads as "this fact's evidence is gone" -- when the truth is that its
+// evidence was never in this repository. After importing a few hundred
+// memories that is a screen of alarming verdicts describing nothing wrong.
+func TestVerifyReportsAnImportedFactAsUnverifiableRatherThanOrphaned(t *testing.T) {
+	facts, _ := memoriesToFacts([]importedMemory{
+		{ForeignID: "abc123", Text: "The staging cluster is in eu-west-1."},
+	}, 0, "mem0", "", "main", time.Now().UTC())
+	if len(facts) != 1 {
+		t.Fatalf("fixture produced %d facts", len(facts))
+	}
+	if facts[0].Origin != factOriginImported {
+		t.Fatalf("fixture is not marked imported: %q", facts[0].Origin)
+	}
+	if len(facts[0].Provenance) == 0 || facts[0].Provenance[0].SessionID == "" {
+		t.Fatal("fixture has no session anchor, so the orphaned path is not reached")
+	}
+
+	// A context with no exported sessions: exactly what a repository looks like
+	// after importing from elsewhere.
+	vctx := &verifyContext{branch: "main"}
+	result := vctx.verifyFact(facts[0])
+
+	if result.Verdict == verifyVerdictOrphaned {
+		t.Fatalf("an imported fact was reported orphaned: %s", result.Reason)
+	}
+	if result.Verdict != verifyVerdictUnverifiableHere {
+		t.Fatalf("verdict = %q, want %q (%s)", result.Verdict, verifyVerdictUnverifiableHere, result.Reason)
+	}
+	if !strings.Contains(result.Reason, "imported") {
+		t.Fatalf("the reason does not say why it cannot be verified: %q", result.Reason)
+	}
+}
+
+// factsStatusCounts.add rolls per-branch counts into the --all-branches totals,
+// field by field. A field added to the struct and forgotten here does not fail
+// anywhere: the totals just report zero for it, which reads as "there are none"
+// rather than "nobody counted". Imported was added and missed exactly that way.
+//
+// Reflection rather than a list, so the next field is covered the day it is
+// added rather than the day someone notices the total is wrong.
+func TestFactsStatusCountsRollUpEveryField(t *testing.T) {
+	var one factsStatusCounts
+	v := reflect.ValueOf(&one).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		if field := v.Field(i); field.CanSet() && field.Kind() == reflect.Int {
+			field.SetInt(int64(i + 1))
+		}
+	}
+
+	var total factsStatusCounts
+	total.add(one)
+
+	sum := reflect.ValueOf(total)
+	for i := 0; i < sum.NumField(); i++ {
+		field := sum.Type().Field(i)
+		if sum.Field(i).Kind() != reflect.Int {
+			continue
+		}
+		if sum.Field(i).Int() == 0 {
+			t.Errorf("%s is not rolled into the --all-branches totals; it will always report zero", field.Name)
+		}
 	}
 }

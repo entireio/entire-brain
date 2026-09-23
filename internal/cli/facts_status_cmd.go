@@ -251,6 +251,7 @@ func (counts *factsStatusCounts) add(other factsStatusCounts) {
 	counts.Retracted += other.Retracted
 	counts.Distilled += other.Distilled
 	counts.Authored += other.Authored
+	counts.Imported += other.Imported
 	counts.Proposals += other.Proposals
 	counts.ProvenanceAnchors += other.ProvenanceAnchors
 	counts.VerifiedAnchors += other.VerifiedAnchors

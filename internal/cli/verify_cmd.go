@@ -307,6 +307,17 @@ func (v *verifyContext) verifyFact(fact factRecord) verifyFactResult {
 		result.Reason = "fact has no retained source anchor"
 		return result
 	}
+	if fact.Origin == factOriginImported {
+		// An imported fact's anchor names a session in the system it came from,
+		// not one this repository ever exported. Run through the session checks
+		// it would be reported orphaned — "its evidence is gone" — when the
+		// truth is that its evidence was never here to begin with. That is a
+		// different answer and a much more alarming one, particularly after an
+		// import of any size.
+		result.Verdict = verifyVerdictUnverifiableHere
+		result.Reason = "fact was imported; its source is not this repository"
+		return result
+	}
 	factBranch := fact.Branch
 	if factBranch == "" {
 		factBranch = v.branch
