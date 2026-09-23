@@ -2392,12 +2392,21 @@ func execOllamaDistillAgent(ctx context.Context, dir string, args []string, inpu
 		return "", fmt.Errorf("ollama request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, distillMaxOutputBytes+1))
+	// /api/generate echoes a `context` token array proportional to the prompt we
+	// sent, so the JSON envelope is several times larger than the generated text.
+	// Bounding the envelope by distillMaxOutputBytes therefore rejects responses on
+	// prompt size rather than output size: a 48 KiB chunk produces a ~123 KiB
+	// envelope even when the model answers in two bytes, so chunks much past that
+	// fail with an error that blames output the model never produced. Scale the
+	// envelope allowance off the request we control, and keep
+	// distillMaxOutputBytes as the bound on the text we actually consume.
+	envelopeLimit := int64(distillMaxOutputBytes) + int64(len(body))*distillOllamaEnvelopeFactor + distillOllamaEnvelopeSlack
+	data, err := io.ReadAll(io.LimitReader(resp.Body, envelopeLimit+1))
 	if err != nil {
 		return "", err
 	}
-	if len(data) > distillMaxOutputBytes {
-		return "", fmt.Errorf("ollama output exceeds %d bytes", distillMaxOutputBytes)
+	if int64(len(data)) > envelopeLimit {
+		return "", fmt.Errorf("ollama response envelope exceeds %d bytes", envelopeLimit)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("ollama returned HTTP %d: %s", resp.StatusCode, truncateAgentWarning(string(data)))
@@ -2410,6 +2419,9 @@ func execOllamaDistillAgent(ctx context.Context, dir string, args []string, inpu
 	}
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		return "", fmt.Errorf("parse ollama response: %w", err)
+	}
+	if len(parsed.Response) > distillMaxOutputBytes {
+		return "", fmt.Errorf("ollama output exceeds %d bytes", distillMaxOutputBytes)
 	}
 	if (parsed.PromptEvalCount != nil && *parsed.PromptEvalCount < 0) || (parsed.EvalCount != nil && *parsed.EvalCount < 0) {
 		return "", errors.New("ollama returned negative token counts")

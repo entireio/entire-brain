@@ -13,9 +13,15 @@ import (
 )
 
 const (
-	distillTemplateName             = "templates/entire-brain-distill.md"
-	distillTaxonomyMarker           = "${TAXONOMY_BLOCK}"
-	distillMaxOutputBytes           = 256 * 1024
+	distillTemplateName   = "templates/entire-brain-distill.md"
+	distillTaxonomyMarker = "${TAXONOMY_BLOCK}"
+	distillMaxOutputBytes = 256 * 1024
+	// Ollama /api/generate echoes the prompt back as a `context` token array the
+	// distiller never reads. Measured at ~3x the prompt bytes for dense ASCII;
+	// 8x leaves headroom for tokenizers that split finer, while keeping the read
+	// bounded by a request size we control.
+	distillOllamaEnvelopeFactor     = 8
+	distillOllamaEnvelopeSlack      = 64 * 1024
 	distillMaxStructuredOutputBytes = 4 * 1024 * 1024
 	distillFactMaxTextSize          = 2000
 )
