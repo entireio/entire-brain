@@ -21,13 +21,23 @@ Apple M-series laptop, macOS, `syntax-only` profile, entire-graph
 each after one untimed warm-up. Every figure below came from running the command
 above; nothing is estimated.
 
-| Repository | kLOC | Files | Symbols | Index | KB / kLOC | Index vs source | Build | Throughput | Peak RSS |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| entire-api | 174 | 746 | 12.6k | 40 MB | 237 | 585% | 7.2s | 24k lines/s | 41 MB |
-| entire.io | 485 | 1,835 | 29.1k | 103 MB | 218 | 655% | 22.7s | 21k lines/s | 48 MB |
-| entiredb | 628 | 2,596 | 35.9k | 112 MB | 183 | 536% | 25.6s | 25k lines/s | 49 MB |
-| entire-brain | 746 | 1,777 | 50.3k | 193 MB | 265 | 363% | 19.8s | 38k lines/s | 70 MB |
-| **kubernetes** | **4,786** | **15,921** | **325.1k** | **1,171 MB** | **251** | **654%** | **219s** | **22k lines/s** | **162 MB** |
+| Repository | kLOC | Files | Symbols | Index | KB / kLOC | Index vs source | Build | Throughput |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| entire-api | 174 | 746 | 12.6k | 40 MB | 237 | 585% | 7.2s | 24k lines/s |
+| entire.io | 485 | 1,835 | 29.1k | 103 MB | 218 | 655% | 22.7s | 21k lines/s |
+| entiredb | 628 | 2,596 | 35.9k | 112 MB | 183 | 536% | 25.6s | 25k lines/s |
+| entire-brain | 746 | 1,777 | 50.3k | 193 MB | 265 | 363% | 19.8s | 38k lines/s |
+| **kubernetes** | **4,786** | **15,921** | **325.1k** | **1,171 MB** | **251** | **654%** | **219s** | **22k lines/s** |
+
+**Peak memory is withdrawn from this table rather than restated.** The figures
+published here were read from `RUSAGE_SELF`, which never includes a child
+process — and indexing runs in an external provider, so they measured the
+harness rather than the work. Re-measured on entire-brain with the corrected
+reading, the peak was **203 MB against the 70 MB this table used to report**,
+2.8x higher. The other rows are wrong in the same direction by an unknown
+factor, and restating them would mean re-running every repository, so the column
+is gone until someone does. `brain bench scale --json` reports the corrected
+`max_rss_bytes` today.
 
 Code-search latency, against the semantic index:
 
