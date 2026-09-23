@@ -922,3 +922,59 @@ func TestKeptActiveIgnoresAFactAlreadySupersededLocally(t *testing.T) {
 		t.Fatalf("counted %d when both sides already agree", got)
 	}
 }
+
+// The "supersession not applied" note is the reason to run --dry-run before an
+// import: it says which local facts the export disagrees with. Computing it for
+// the dry run was not enough -- the code that turned the count into a report
+// entry stayed inside the write branch, so the preview still said nothing.
+//
+// Driven through the command rather than the counter, because the counter was
+// already right when this was broken.
+func TestDryRunReportsTheSupersessionItWouldNotApply(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	opts := Options{Version: "test", Env: env, Runner: semanticFixtureRunner(repoDir, ""), Now: time.Now}
+	_, brainDir, branch, err := resolveFactsTarget(context.Background(), opts, agentSurfaceTarget(opts, nil), "")
+	if err != nil {
+		t.Skipf("no repository target: %v", err)
+	}
+
+	// A fact this repository asserts, active.
+	local := factRecord{
+		ID:   factRecordID("We deploy on Thursdays.", normalizeFactPaths([]string{"project.imported.general"})),
+		Text: "We deploy on Thursdays.", Paths: normalizeFactPaths([]string{"project.imported.general"}),
+		Status: factStatusActive, Branch: branch,
+	}
+	if err := writeFacts(brainDir, branch, []factRecord{local}); err != nil {
+		t.Fatal(err)
+	}
+
+	// An export that retired the same statement.
+	export := `{"results":[
+	  {"id":"a","memory":"We deploy on Thursdays.","replaced_by":"b"},
+	  {"id":"b","memory":"We deploy on Fridays."}
+	]}`
+	path := filepath.Join(t.TempDir(), "export.json")
+	if err := os.WriteFile(path, []byte(export), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := execute(t, NewRootCommand(opts), "facts", "import", "--source", "mem0",
+		"--file", path, "--dry-run", "--json")
+	if err != nil {
+		t.Fatalf("dry-run import: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "supersession not applied") {
+		t.Fatalf("the dry run did not report the divergence a real run would:\n%s", out)
+	}
+	// And it must still be a preview: the local fact stays active.
+	after, err := loadFacts(brainDir, branch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fact := range after {
+		if fact.ID == local.ID && fact.Status != factStatusActive {
+			t.Fatalf("--dry-run modified the brain: %+v", fact)
+		}
+	}
+}

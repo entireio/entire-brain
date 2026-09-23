@@ -549,13 +549,16 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 				}); err != nil {
 					return err
 				}
-				if keptActive > 0 {
-					report.Unsupported = append(report.Unsupported, fmt.Sprintf(
-						"supersession not applied to %d fact(s) already active in this brain "+
-							"(a local assertion is not retired by an export; retract them explicitly if the source is right)",
-						keptActive))
-					sort.Strings(report.Unsupported)
-				}
+			}
+			// Outside the write branch: a dry run computes this too, and a
+			// preview that reports less than the run it previews is the one
+			// thing a preview must not do.
+			if keptActive > 0 {
+				report.Unsupported = append(report.Unsupported, fmt.Sprintf(
+					"supersession not applied to %d fact(s) already active in this brain "+
+						"(a local assertion is not retired by an export; retract them explicitly if the source is right)",
+					keptActive))
+				sort.Strings(report.Unsupported)
 			}
 			if jsonOut {
 				return writeIndentedJSON(cmd.OutOrStdout(), report)
