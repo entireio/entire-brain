@@ -874,3 +874,51 @@ func TestFactsStatusCountsRollUpEveryField(t *testing.T) {
 		}
 	}
 }
+
+// The import note says how many facts the source retired that are still active
+// here. It counted once per memory, and memories that normalise to the same
+// content-addressed fact collapse into one -- so a fact whose duplicates were
+// both superseded was counted twice and the note claimed more diverging facts
+// than the brain contains. The retirement-across-duplicates behaviour makes
+// both copies superseded, which is exactly when this happens.
+func TestKeptActiveCountsEachFactOnce(t *testing.T) {
+	// Two memories, one fact: same text and category, so the same id.
+	imported, _ := memoriesToFacts([]importedMemory{
+		{ForeignID: "a", Text: "We deploy on Thursdays.", ReplacedBy: "x"},
+		{ForeignID: "b", Text: "We deploy on Thursdays.", ReplacedBy: "x"},
+		{ForeignID: "x", Text: "We deploy on Fridays."},
+	}, 0, "mem0", "", "main", time.Now().UTC())
+
+	var id string
+	superseded := 0
+	for _, fact := range imported {
+		if fact.Status == factStatusSuperseded {
+			superseded++
+			id = fact.ID
+		}
+	}
+	if superseded < 2 {
+		t.Skipf("fixture produced %d superseded copies; the double count needs two", superseded)
+	}
+
+	existing := []factRecord{{ID: id, Text: "We deploy on Thursdays.", Status: factStatusActive}}
+	if got := countKeptActiveFacts(imported, existing); got != 1 {
+		t.Fatalf("counted %d diverging facts; the brain holds one", got)
+	}
+}
+
+func TestKeptActiveIgnoresAFactTheBrainDoesNotHave(t *testing.T) {
+	imported := []factRecord{{ID: "fact:absent", Status: factStatusSuperseded}}
+	if got := countKeptActiveFacts(imported, nil); got != 0 {
+		t.Fatalf("counted %d for a fact this brain never had", got)
+	}
+}
+
+func TestKeptActiveIgnoresAFactAlreadySupersededLocally(t *testing.T) {
+	// No divergence: both sides agree it is retired.
+	imported := []factRecord{{ID: "fact:x", Status: factStatusSuperseded}}
+	existing := []factRecord{{ID: "fact:x", Status: factStatusSuperseded}}
+	if got := countKeptActiveFacts(imported, existing); got != 0 {
+		t.Fatalf("counted %d when both sides already agree", got)
+	}
+}

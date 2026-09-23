@@ -435,6 +435,28 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 	return facts, report
 }
 
+// countKeptActiveFacts reports how many imported-superseded facts are still
+// active in this brain, which is the divergence the import note describes.
+//
+// Counted per distinct fact id rather than per memory. Duplicates collapse into
+// one content-addressed fact, so a fact whose duplicates are both superseded
+// would otherwise be counted once per copy and the note would claim more
+// diverging facts than the brain contains.
+func countKeptActiveFacts(imported, existing []factRecord) int {
+	counted := map[string]bool{}
+	kept := 0
+	for _, fact := range imported {
+		if fact.Status != factStatusSuperseded || counted[fact.ID] {
+			continue
+		}
+		counted[fact.ID] = true
+		if i := indexOfFact(existing, fact.ID); i >= 0 && existing[i].Status == factStatusActive {
+			kept++
+		}
+	}
+	return kept
+}
+
 func newFactsImportCommand(opts Options) *cobra.Command {
 	var (
 		source  string
@@ -486,6 +508,14 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 			report.DryRun = dryRun
 
 			keptActive := 0
+			if dryRun {
+				// A dry run that cannot report this says less than the real run
+				// it is supposed to preview, which is the one thing a preview
+				// must not do. Reading the current facts needs no write lock.
+				if existing, loadErr := loadFacts(brainDir, resolvedBranch); loadErr == nil {
+					keptActive = countKeptActiveFacts(facts, existing)
+				}
+			}
 			if !dryRun {
 				if err := withBrainWriteLock(brainDir, func() error {
 					existing, loadErr := loadFacts(brainDir, resolvedBranch)
@@ -502,12 +532,8 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 					// asserted in this repository is not retired by a foreign
 					// export — and the divergence is counted, so it is visible
 					// instead of silently on either side.
+					keptActive = countKeptActiveFacts(facts, existing)
 					for _, fact := range facts {
-						if fact.Status == factStatusSuperseded {
-							if i := indexOfFact(existing, fact.ID); i >= 0 && existing[i].Status == factStatusActive {
-								keptActive++
-							}
-						}
 						existing = upsertFact(existing, fact)
 					}
 					if err := writeFacts(brainDir, resolvedBranch, existing); err != nil {
