@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -975,6 +976,55 @@ func TestDryRunReportsTheSupersessionItWouldNotApply(t *testing.T) {
 	for _, fact := range after {
 		if fact.ID == local.ID && fact.Status != factStatusActive {
 			t.Fatalf("--dry-run modified the brain: %+v", fact)
+		}
+	}
+}
+
+func TestImportDryRunSurfacesFactStoreErrors(t *testing.T) {
+	for _, jsonOut := range []bool{false, true} {
+		for _, dryRun := range []bool{false, true} {
+			t.Run(fmt.Sprintf("json=%t/dry-run=%t", jsonOut, dryRun), func(t *testing.T) {
+				repoDir := t.TempDir()
+				opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: semanticFixtureRunner(repoDir, ""), Now: time.Now}
+				_, brainDir, branch, err := resolveFactsTarget(context.Background(), opts, agentSurfaceTarget(opts, nil), "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				storePath := filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath(branch)))
+				if err := os.MkdirAll(filepath.Dir(storePath), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				corrupt := []byte("{invalid json}\n")
+				if err := os.WriteFile(storePath, corrupt, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				_, loadErr := loadFacts(brainDir, branch)
+				if loadErr == nil {
+					t.Fatal("expected corrupt store to fail loading")
+				}
+				exportPath := filepath.Join(t.TempDir(), "export.json")
+				if err := os.WriteFile(exportPath, []byte(mem0Export), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				args := []string{"facts", "import", "--source", "mem0", "--file", exportPath}
+				if dryRun {
+					args = append(args, "--dry-run")
+				}
+				if jsonOut {
+					args = append(args, "--json")
+				}
+				out, err := execute(t, NewRootCommand(opts), args...)
+				if err == nil || err.Error() != loadErr.Error() {
+					t.Fatalf("expected load error %v, got %v; output: %s", loadErr, err, out)
+				}
+				if strings.Contains(out, "would import") || strings.Contains(out, "imported ") || strings.Contains(out, `"imported":`) {
+					t.Fatalf("failed import emitted a success report: %s", out)
+				}
+				after, err := os.ReadFile(storePath)
+				if err != nil || !bytes.Equal(after, corrupt) {
+					t.Fatalf("failed import changed fact store: %q, %v", after, err)
+				}
+			})
 		}
 	}
 }

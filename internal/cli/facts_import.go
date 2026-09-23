@@ -512,9 +512,11 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 				// A dry run that cannot report this says less than the real run
 				// it is supposed to preview, which is the one thing a preview
 				// must not do. Reading the current facts needs no write lock.
-				if existing, loadErr := loadFacts(brainDir, resolvedBranch); loadErr == nil {
-					keptActive = countKeptActiveFacts(facts, existing)
+				existing, loadErr := loadFacts(brainDir, resolvedBranch)
+				if loadErr != nil {
+					return loadErr
 				}
+				keptActive = countKeptActiveFacts(facts, existing)
 			}
 			if !dryRun {
 				if err := withBrainWriteLock(brainDir, func() error {
