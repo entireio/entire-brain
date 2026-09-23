@@ -20,6 +20,7 @@ func newFactsCommand(opts Options) *cobra.Command {
 		Args:  cobra.NoArgs,
 	}
 	cmd.AddCommand(newFactsTreeCommand(opts))
+	cmd.AddCommand(newFactsFilesCommand(opts))
 	cmd.AddCommand(newFactsStatusCommand(opts))
 	cmd.AddCommand(newFactsSyncCommand(opts))
 	cmd.AddCommand(newFactsVitalityCommand(opts))
