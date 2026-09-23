@@ -436,3 +436,38 @@ func TestSkipIndexRefusesARepositoryWithNoIndex(t *testing.T) {
 		t.Fatalf("the error does not name the remedy: %v", err)
 	}
 }
+
+// The header claims "N runs each", which is a statement about every mode. It
+// was read from whichever key Go's randomised map iteration reached first, so
+// with modes that disagree the same report could print different numbers on
+// successive runs — and name a count belonging to a mode the reader was not
+// looking at.
+func TestLatencyRunsOnlyReportsACountEveryModeShares(t *testing.T) {
+	agreeing := scaleBenchReport{
+		Queries: []string{"a", "b"},
+		Latency: map[string]latencyStats{
+			"code_search":       {Samples: 6},
+			"knowledge_lexical": {Samples: 6},
+			"knowledge_hybrid":  {Samples: 6},
+		},
+	}
+	if runs := latencyRuns(agreeing); runs != 3 {
+		t.Fatalf("agreeing modes reported %d runs per query, want 3", runs)
+	}
+
+	// One mode short: some queries failed there and not elsewhere.
+	disagreeing := scaleBenchReport{
+		Queries: []string{"a", "b"},
+		Latency: map[string]latencyStats{
+			"code_search":       {Samples: 6},
+			"knowledge_lexical": {Samples: 4},
+			"knowledge_hybrid":  {Samples: 6},
+		},
+	}
+	// Run it repeatedly: a map-order-dependent answer passes once and fails later.
+	for i := 0; i < 64; i++ {
+		if runs := latencyRuns(disagreeing); runs != 0 {
+			t.Fatalf("disagreeing modes reported %d runs each on attempt %d; the claim is not true of every mode", runs, i)
+		}
+	}
+}

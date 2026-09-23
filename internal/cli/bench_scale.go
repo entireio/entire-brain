@@ -665,7 +665,13 @@ func printScaleBenchReport(out io.Writer, r scaleBenchReport) {
 		fmt.Fprintf(out, "    %-14s %s\n", component.Name, humanBytes(component.Bytes))
 	}
 
-	fmt.Fprintf(out, "\nquery latency (%d queries, %d runs each)\n", len(r.Queries), latencyRuns(r))
+	if runs := latencyRuns(r); runs > 0 {
+		fmt.Fprintf(out, "\nquery latency (%d queries, %d runs each)\n", len(r.Queries), runs)
+	} else {
+		// The modes did not all run the same number of times, so there is no
+		// "each" to report; the per-mode sample counts below still are.
+		fmt.Fprintf(out, "\nquery latency (%d queries)\n", len(r.Queries))
+	}
 	fmt.Fprintf(out, "  code_search runs against the semantic index (%s symbols).\n", humanCount(int64(r.Symbols)))
 	fmt.Fprintf(out, "  knowledge_* run against facts/history/docs (%s records), which do not grow with the codebase.\n", humanCount(int64(r.KnowledgeRecords)))
 	modes := make([]string, 0, len(r.Latency))
@@ -689,16 +695,37 @@ func printScaleBenchReport(out io.Writer, r scaleBenchReport) {
 
 // latencyRuns reports the repeats per query, derived from the samples actually
 // collected so the header cannot claim a number of runs that did not happen.
+// latencyRuns reports the timed runs per query, and only when every mode ran
+// the same number. The header says "runs each", which is a claim about all of
+// them; reading it from whichever key Go's randomised map iteration happened to
+// visit first meant the same report could print different numbers on successive
+// runs, describing a mode the reader was not looking at.
+//
+// Modes disagree when queries fail in one and not another. That is already
+// named in the warnings, so 0 here drops the claim from the header rather than
+// picking a winner and stating it as though it held everywhere.
 func latencyRuns(r scaleBenchReport) int {
 	if len(r.Queries) == 0 {
 		return 0
 	}
+	runs := -1
 	for _, stats := range r.Latency {
-		if stats.Samples > 0 {
-			return stats.Samples / len(r.Queries)
+		if stats.Samples <= 0 {
+			continue
+		}
+		perQuery := stats.Samples / len(r.Queries)
+		if runs < 0 {
+			runs = perQuery
+			continue
+		}
+		if runs != perQuery {
+			return 0
 		}
 	}
-	return 0
+	if runs < 0 {
+		return 0
+	}
+	return runs
 }
 
 func humanCount(n int64) string {
