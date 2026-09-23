@@ -1,9 +1,1 @@
-After merging 225, 226 has merge conflicts. Resolve them.
-
----
-
-Ok, and 226 is clear of findings?
-
----
-
 Fix it then
