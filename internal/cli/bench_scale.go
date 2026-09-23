@@ -249,10 +249,24 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 		return err
 	}
 	brainDir := storage.BrainDir
+	indexed := false
 	if manifest, merr := loadBrainManifest(brainDir); merr == nil && manifest != nil && manifest.Sources != nil && manifest.Sources.Semantic != nil {
+		indexed = true
 		report.IndexedFiles = manifest.Sources.Semantic.Files
 		report.Symbols = manifest.Sources.Semantic.Symbols
 		report.Relations = manifest.Sources.Semantic.Relations
+	}
+	if benchOpts.skipIndex && !indexed {
+		// --skip-index measures an index that already exists. Without one there
+		// is nothing to measure, and every size figure below would come back
+		// zero: measureBrainSize walks a directory that is not there and
+		// reports 0 bytes rather than failing. A report of
+		// "index_bytes: 0, symbols: 0" reads as a measurement of a very small
+		// brain instead of the absence of one, which is the confusion this
+		// whole command exists to avoid.
+		return fmt.Errorf(
+			"--skip-index found no semantic index for %s; run `entire brain index` first, or drop --skip-index to build one",
+			repoDir)
 	}
 
 	// Size on disk, which is the figure the comparison is actually about.

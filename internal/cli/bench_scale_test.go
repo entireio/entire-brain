@@ -1,10 +1,14 @@
 package cli
 
 import (
+	"context"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode"
 )
 
@@ -379,5 +383,56 @@ func TestSkipIndexKeepsTheRealStoreButTheRequestedRepository(t *testing.T) {
 	// The point of --skip-index is the real store; it must survive.
 	if env.PluginDataDir != realStore {
 		t.Fatalf("--skip-index lost the real plugin store: %q", env.PluginDataDir)
+	}
+}
+
+// --skip-index measures an index that already exists. Pointed at a repository
+// with none, measureBrainSize walks a directory that is not there and reports
+// 0 bytes rather than failing, so the report came back "index_bytes: 0,
+// symbols: 0" — which reads as a measurement of a very small brain rather than
+// the absence of one. That is the confusion this command exists to avoid.
+func TestSkipIndexRefusesARepositoryWithNoIndex(t *testing.T) {
+	repoDir := t.TempDir()
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repoDir}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Skipf("git %v unavailable: %v %s", args, err, out)
+		}
+	}
+	runGit("init", "-q")
+	if err := os.WriteFile(filepath.Join(repoDir, "a.go"), []byte("package a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "-A")
+	runGit("commit", "-qm", "seed")
+
+	opts := Options{Version: "test", Env: EntireEnv{
+		RepoRoot:        repoDir,
+		PluginConfigDir: filepath.Join(t.TempDir(), "config"),
+		PluginDataDir:   filepath.Join(t.TempDir(), "data"),
+		PluginStateDir:  filepath.Join(t.TempDir(), "state"),
+		PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
+	}, Runner: ExecRunner{}, Now: time.Now}
+
+	cmd := newScaleBenchCommand(opts)
+	cmd.SetContext(context.Background())
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	if err := cmd.Flags().Set("skip-index", "true"); err != nil {
+		t.Fatal(err)
+	}
+	err := cmd.RunE(cmd, []string{repoDir})
+	if err == nil {
+		t.Fatal("a repository with no index was measured and reported as zeros")
+	}
+	if !strings.Contains(err.Error(), "no semantic index") {
+		t.Fatalf("the error does not name the cause: %v", err)
+	}
+	// And it must say what to do about it.
+	if !strings.Contains(err.Error(), "entire brain index") {
+		t.Fatalf("the error does not name the remedy: %v", err)
 	}
 }
