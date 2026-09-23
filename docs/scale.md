@@ -109,6 +109,14 @@ are steady-state figures for a live process, not `time entire brain search`.
 There is no process-level cache between searches: repeated identical queries in
 one process do not get faster, which is why the numbers track index size.
 
+**It does not exclude the subprocesses a search spawns.** Every search resolves
+its repository and checks index freshness through `git`, so each timed sample
+pays for several process spawns — around 30-50 ms here, measured with
+`rev-parse` at 10 ms, `branch --show-current` at 7 ms and the worktree-dirty
+check at 14 ms. That is a real cost a caller pays and it belongs in the figure,
+but it is not retrieval, and at the small end of this table it is a visible
+share of the total rather than a rounding error.
+
 ## Reproducing it
 
 ```sh
