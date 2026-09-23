@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1",
+  "checkpoint_id": "29729a910982",
+  "strategy": "manual-commit",
+  "branch": "codex/trail-226-conflict",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/facts_import.go",
+    "internal/cli/facts_import_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/29/729a910982/0/metadata.json",
+      "transcript": "/29/729a910982/0/full.jsonl",
+      "compact_transcript": "/29/729a910982/0/transcript.jsonl",
+      "content_hash": "/29/729a910982/0/content_hash.txt",
+      "prompt": "/29/729a910982/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 15186,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 959360,
+    "output_tokens": 2516,
+    "api_call_count": 14
+  }
+}
