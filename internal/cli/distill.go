@@ -20,8 +20,11 @@ const (
 	// distiller never reads. Measured at ~3x the prompt bytes for dense ASCII;
 	// 8x leaves headroom for tokenizers that split finer, while keeping the read
 	// bounded by a request size we control.
-	distillOllamaEnvelopeFactor     = 8
-	distillOllamaEnvelopeSlack      = 64 * 1024
+	distillOllamaEnvelopeFactor = 8
+	distillOllamaEnvelopeSlack  = 64 * 1024
+	// Conservative floor for detecting a truncated prompt: real transcript text
+	// measures ~3.65 chars/token, so 5 leaves margin before we call truncation.
+	distillOllamaMinCharsPerToken   = 5
 	distillMaxStructuredOutputBytes = 4 * 1024 * 1024
 	distillFactMaxTextSize          = 2000
 )

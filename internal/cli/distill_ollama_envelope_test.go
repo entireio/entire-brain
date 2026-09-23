@@ -75,3 +75,48 @@ func TestOllamaDistillAgentRejectsOversizedGeneratedText(t *testing.T) {
 		t.Fatalf("error must name the generated output, got: %v", err)
 	}
 }
+
+// Ollama truncates a prompt that exceeds the context window the model was
+// loaded with, and reports the truncation only as a prompt_eval_count smaller
+// than the prompt warrants. Distilling part of a chunk while reporting success
+// puts partial extraction into a store that is read as authoritative.
+func TestOllamaDistillAgentRejectsSilentlyTruncatedPrompt(t *testing.T) {
+	prompt := strings.Repeat("real transcript text that tokenises normally. ", 4000)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The server read far fewer tokens than a prompt this size contains.
+		fmt.Fprintf(w, `{"response":"kind\tpath\tfact\n","prompt_eval_count":32768,"eval_count":8}`)
+	}))
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
+
+	_, err := execOllamaDistillAgent(context.Background(), t.TempDir(),
+		[]string{"ollama", "gemma4:12b", "system prompt"}, []byte(prompt), 30*time.Second)
+	if err == nil {
+		t.Fatalf("a %d-byte prompt read as only 32768 tokens is truncated and must not report success", len(prompt))
+	}
+	if !strings.Contains(err.Error(), "truncated") {
+		t.Fatalf("error must name truncation, got: %v", err)
+	}
+}
+
+// A prompt the server read in full must pass, including dense input that
+// tokenises far below the nominal ratio — the floor exists to avoid exactly
+// this false positive.
+func TestOllamaDistillAgentAcceptsFullyReadPrompt(t *testing.T) {
+	prompt := strings.Repeat("dense", 2000) // 10000 bytes
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 2500 tokens for 10000 bytes is 4 chars/token — normal, not truncated.
+		fmt.Fprint(w, `{"response":"kind\tpath\tfact\n","prompt_eval_count":2500,"eval_count":8}`)
+	}))
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
+
+	got, err := execOllamaDistillAgent(context.Background(), t.TempDir(),
+		[]string{"ollama", "gemma4:12b", "sys"}, []byte(prompt), 30*time.Second)
+	if err != nil {
+		t.Fatalf("fully-read prompt must be accepted: %v", err)
+	}
+	if !strings.Contains(got, "fact") {
+		t.Fatalf("response text = %q", got)
+	}
+}

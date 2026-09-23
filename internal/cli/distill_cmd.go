@@ -2426,6 +2426,22 @@ func execOllamaDistillAgent(ctx context.Context, dir string, args []string, inpu
 	if (parsed.PromptEvalCount != nil && *parsed.PromptEvalCount < 0) || (parsed.EvalCount != nil && *parsed.EvalCount < 0) {
 		return "", errors.New("ollama returned negative token counts")
 	}
+	// Ollama silently truncates a prompt that exceeds the context window the
+	// model was loaded with (gemma4:12b loads at num_ctx 32768 by default), so a
+	// chunk past roughly 116 KB is distilled in part and nothing says so. A fact
+	// store is read as authoritative, so partial extraction must fail loudly
+	// rather than quietly produce fewer facts.
+	//
+	// prompt_eval_count is the server's own count of the tokens it actually
+	// read, which makes this a measurement rather than a prediction. Real
+	// transcript text measures ~3.65 chars/token; dividing by
+	// distillOllamaMinCharsPerToken (5) keeps the expected floor conservative so
+	// dense or heavily tokenised input cannot trip it on its own.
+	if parsed.PromptEvalCount != nil {
+		if floor := int64(len(input)+len(args[2])) / distillOllamaMinCharsPerToken; *parsed.PromptEvalCount < floor {
+			return "", fmt.Errorf("ollama read only %d tokens of a %d-byte prompt: the model's context window truncated it, so this chunk would be distilled in part; lower --max-chunk-bytes or load the model with a larger num_ctx", *parsed.PromptEvalCount, len(input))
+		}
+	}
 	usage := distillProviderUsage{Source: distillUsageSourceOllama}
 	if parsed.PromptEvalCount != nil {
 		usage.Reported = true
