@@ -767,3 +767,43 @@ func TestImportRefusesConflictingSupersessionTargets(t *testing.T) {
 		t.Fatalf("the conflicting targets were not reported: %q", joined)
 	}
 }
+
+// A conflicting retirement leaves a fact superseded with no successor, and that
+// is deliberate. Both halves are true: the source did retire the memory, and
+// which memory replaced it cannot be determined. Resetting the status to active
+// would be the harmful repair -- memoriesToFacts marks these superseded because
+// "importing it as active would resurrect something its owner retired", and an
+// ambiguous successor is not evidence that the retirement did not happen.
+//
+// Nothing enforces "superseded implies a successor": printFactLine renders the
+// marker, the counters count it, and facts_sync_cmd simply matches no proposal,
+// which is correct when no successor is known.
+func TestConflictingRetirementStaysRetiredWithoutASuccessor(t *testing.T) {
+	facts, report := memoriesToFacts([]importedMemory{
+		{ForeignID: "a", Text: "We deploy on Thursdays.", ReplacedBy: "x"},
+		{ForeignID: "b", Text: "We deploy on Thursdays.", ReplacedBy: "y"},
+		{ForeignID: "x", Text: "We deploy on Fridays."},
+		{ForeignID: "y", Text: "We deploy on Mondays."},
+	}, 0, "mem0", "", "main", time.Now().UTC())
+
+	var seen bool
+	for _, fact := range facts {
+		if fact.Text != "We deploy on Thursdays." {
+			continue
+		}
+		seen = true
+		if fact.SupersededBy != "" {
+			t.Fatalf("a successor was invented from export order: %q", fact.SupersededBy)
+		}
+		if fact.Status != factStatusSuperseded {
+			t.Fatalf("status = %q: a memory the source retired came back as %q",
+				fact.Status, fact.Status)
+		}
+	}
+	if !seen {
+		t.Fatal("the duplicated memory vanished entirely")
+	}
+	if joined := strings.Join(report.Unsupported, " | "); !strings.Contains(joined, "disagrees between duplicates") {
+		t.Fatalf("the ambiguity was not reported to the caller: %q", joined)
+	}
+}
