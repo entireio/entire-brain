@@ -159,6 +159,9 @@ func restResolveTarget(r *http.Request, opts Options) (brainDir, branch string, 
 	return brainDir, branch, err
 }
 
+// beforeRESTFactsPrivacyFilter simulates a completed exclusion before loading the guard.
+var beforeRESTFactsPrivacyFilter = func() {}
+
 // afterRESTFactsPrivacyFilter is a deterministic race seam for exclusions
 // arriving after facts have been filtered but before the response is delivered.
 var afterRESTFactsPrivacyFilter = func() {}
@@ -167,23 +170,26 @@ var afterRESTFactsPrivacyFilter = func() {}
 // applied, the way every other facts-reading surface does (dash.go,
 // handoff.go, agent_surface.go). Without it a fact derived from a session the
 // user excluded is served over HTTP: the exclusion holds everywhere else and
-// would have held here only by accident.
-func restGuardedFacts(brainDir, branch string) ([]factRecord, error) {
+// would have held here only by accident. The returned policy belongs to the exact
+// guard that filtered these facts; a separate capture could bless stale data or
+// reject an already-clean response when an exclusion lands between reads.
+func restGuardedFacts(brainDir, branch string) ([]factRecord, retrievalPrivacyPolicy, error) {
 	facts, err := loadFacts(brainDir, branch)
 	if err != nil {
-		return nil, err
+		return nil, retrievalPrivacyPolicy{}, err
 	}
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
-		return nil, err
+		return nil, retrievalPrivacyPolicy{}, err
 	}
+	beforeRESTFactsPrivacyFilter()
 	guard, err := loadSessionReadGuard(brainDir, manifest)
 	if err != nil {
-		return nil, err
+		return nil, retrievalPrivacyPolicy{}, err
 	}
 	facts = guardFactRecords(guard, facts)
 	afterRESTFactsPrivacyFilter()
-	return facts, nil
+	return facts, retrievalPrivacyPolicy{BrainDir: brainDir, Identity: guard.policyIdentity}, nil
 }
 
 func restStatus(w http.ResponseWriter, r *http.Request, opts Options) {
@@ -192,13 +198,7 @@ func restStatus(w http.ResponseWriter, r *http.Request, opts Options) {
 		writeRESTError(w, http.StatusBadRequest, err.Error(), "")
 		return
 	}
-	// Capture before filtering so an exclusion during assembly invalidates the write.
-	policy, err := captureRetrievalPrivacyPolicy(brainDir)
-	if err != nil {
-		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
-		return
-	}
-	facts, err := restGuardedFacts(brainDir, branch)
+	facts, policy, err := restGuardedFacts(brainDir, branch)
 	if err != nil {
 		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
 		return
@@ -233,13 +233,7 @@ func restFacts(w http.ResponseWriter, r *http.Request, opts Options) {
 		writeRESTError(w, http.StatusBadRequest, err.Error(), "")
 		return
 	}
-	// Capture before filtering so an exclusion during assembly invalidates the write.
-	policy, err := captureRetrievalPrivacyPolicy(brainDir)
-	if err != nil {
-		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
-		return
-	}
-	facts, err := restGuardedFacts(brainDir, branch)
+	facts, policy, err := restGuardedFacts(brainDir, branch)
 	if err != nil {
 		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
 		return

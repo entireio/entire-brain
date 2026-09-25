@@ -524,3 +524,60 @@ func TestRESTRejectsExclusionBetweenFactFilteringAndDelivery(t *testing.T) {
 		})
 	}
 }
+
+func TestRESTUsesThePolicyThatFilteredFacts(t *testing.T) {
+	for _, path := range []string{"/v1/facts", "/v1/status"} {
+		t.Run(path, func(t *testing.T) {
+			opts := httpTestOptions(t)
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			brainDir, branch, err := restResolveTarget(req, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			facts := []factRecord{
+				{ID: "fact:private", Text: "PRIVATE-CANARY", Status: factStatusActive, Branch: branch, Provenance: []factAnchor{{SessionID: "excluded-session"}}},
+				{ID: "fact:public", Text: "Public fact", Status: factStatusActive, Branch: branch},
+			}
+			if err := writeFacts(brainDir, branch, facts); err != nil {
+				t.Fatal(err)
+			}
+			original := beforeRESTFactsPrivacyFilter
+			t.Cleanup(func() { beforeRESTFactsPrivacyFilter = original })
+			called := false
+			beforeRESTFactsPrivacyFilter = func() {
+				called = true
+				stones := loadSessionTombstones(brainDir)
+				stones.Excluded["excluded-session"] = sessionTombstone{At: opts.Now(), Reason: "exclusion before filtering"}
+				if err := saveSessionTombstones(brainDir, stones); err != nil {
+					t.Fatal(err)
+				}
+			}
+			response := httptest.NewRecorder()
+			if path == "/v1/facts" {
+				restFacts(response, req, opts)
+			} else {
+				restStatus(response, req, opts)
+			}
+			if !called {
+				t.Fatal("exclusion hook was not reached")
+			}
+			if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "PRIVATE-CANARY") {
+				t.Fatalf("expected a clean response under the filtering policy: %d %s", response.Code, response.Body)
+			}
+			if path == "/v1/facts" {
+				if !strings.Contains(response.Body.String(), "Public fact") {
+					t.Fatalf("missing public fact: %s", response.Body)
+				}
+			} else {
+				var payload struct {
+					Facts struct {
+						Total int `json:"total"`
+					} `json:"facts"`
+				}
+				if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil || payload.Facts.Total != 1 {
+					t.Fatalf("wrong filtered count: %s (%v)", response.Body, err)
+				}
+			}
+		})
+	}
+}
