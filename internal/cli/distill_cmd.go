@@ -2442,7 +2442,10 @@ func execOllamaDistillAgent(ctx context.Context, dir string, args []string, inpu
 	// tokenizer term in it at all.
 	if parsed.PromptEvalCount != nil {
 		if window := ollamaLoadedContextWindow(ctx, u, model); window > 0 && *parsed.PromptEvalCount >= window {
-			return "", fmt.Errorf("ollama read %d tokens of a %d-byte prompt, filling the model's %d-token context window: the prompt was truncated and this chunk would be distilled in part; lower --max-chunk-bytes or load %s with a larger num_ctx", *parsed.PromptEvalCount, len(input), window, model)
+			// Report the chunk and the system prompt separately: the request
+			// carries both, but --max-chunk-bytes only moves the chunk, so a
+			// single total would misdirect anyone sizing it down.
+			return "", fmt.Errorf("ollama read %d tokens of a %d-byte prompt (%d-byte chunk plus %d-byte system prompt), filling the model's %d-token context window: the prompt was truncated and this chunk would be distilled in part; lower --max-chunk-bytes or load %s with a larger num_ctx", *parsed.PromptEvalCount, len(input)+len(args[2]), len(input), len(args[2]), window, model)
 		}
 	}
 	usage := distillProviderUsage{Source: distillUsageSourceOllama}

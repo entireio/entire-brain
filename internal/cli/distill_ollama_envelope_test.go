@@ -110,6 +110,19 @@ func TestOllamaDistillAgentRejectsSilentlyTruncatedPrompt(t *testing.T) {
 	if !strings.Contains(err.Error(), "truncated") {
 		t.Fatalf("error must name truncation, got: %v", err)
 	}
+	// The request carries the chunk and the system prompt, but --max-chunk-bytes
+	// only moves the chunk, so the message must separate them rather than report
+	// one figure the caller cannot act on.
+	sys := "system prompt"
+	for _, want := range []string{
+		fmt.Sprintf("%d-byte prompt", len(prompt)+len(sys)),
+		fmt.Sprintf("%d-byte chunk", len(prompt)),
+		fmt.Sprintf("%d-byte system prompt", len(sys)),
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error must report %q so the caller can size --max-chunk-bytes; got: %v", want, err)
+		}
+	}
 }
 
 // A prompt read in full sits below the window and must pass. This is the case
