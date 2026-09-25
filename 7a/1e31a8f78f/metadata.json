@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.11.3-nightly.202609230619.4e2e839c2",
+  "checkpoint_id": "7a1e31a8f78f",
+  "strategy": "manual-commit",
+  "branch": "codex/trail-228-review",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "SECURITY.md",
+    "docs/reference.md",
+    "internal/cli/facts_admin_cmd.go",
+    "internal/cli/facts_files.go",
+    "internal/cli/facts_files_test.go",
+    "internal/cli/facts_write_cmd.go",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_http.go",
+    "internal/cli/mcp_http_test.go",
+    "internal/cli/refresh.go",
+    "internal/cli/root.go",
+    "internal/cli/webhooks.go",
+    "internal/cli/webhooks_cmd.go",
+    "internal/cli/webhooks_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/7a/1e31a8f78f/0/metadata.json",
+      "transcript": "/7a/1e31a8f78f/0/full.jsonl",
+      "compact_transcript": "/7a/1e31a8f78f/0/transcript.jsonl",
+      "content_hash": "/7a/1e31a8f78f/0/content_hash.txt",
+      "prompt": "/7a/1e31a8f78f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 126764,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": -353152,
+    "output_tokens": -202,
+    "api_call_count": 7
+  }
+}

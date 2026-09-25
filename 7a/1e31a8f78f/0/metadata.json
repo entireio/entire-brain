@@ -1,0 +1,63 @@
+{
+  "cli_version": "0.11.3-nightly.202609230619.4e2e839c2",
+  "checkpoint_id": "7a1e31a8f78f",
+  "session_id": "01a0c9d8-f28c-7563-8177-b5311be1f2a9",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-25T04:13:45.943447Z",
+  "branch": "codex/trail-228-review",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "SECURITY.md",
+    "docs/reference.md",
+    "internal/cli/facts_admin_cmd.go",
+    "internal/cli/facts_files.go",
+    "internal/cli/facts_files_test.go",
+    "internal/cli/facts_write_cmd.go",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_http.go",
+    "internal/cli/mcp_http_test.go",
+    "internal/cli/refresh.go",
+    "internal/cli/root.go",
+    "internal/cli/webhooks.go",
+    "internal/cli/webhooks_cmd.go",
+    "internal/cli/webhooks_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "f501c36ee456",
+  "checkpoint_transcript_start": 1882,
+  "transcript_lines_at_start": 1882,
+  "compact_transcript_start": 226,
+  "token_usage": {
+    "input_tokens": 126764,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": -353152,
+    "output_tokens": -202,
+    "api_call_count": 7
+  },
+  "session_metrics": {
+    "turn_count": 11
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-25T04:13:45.75253Z",
+    "agent_lines": 764,
+    "agent_removed": 7,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 764,
+    "total_lines_changed": 771,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
