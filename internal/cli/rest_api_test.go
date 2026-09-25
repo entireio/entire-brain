@@ -458,3 +458,69 @@ func TestRESTWithholdsFactsFromExcludedSessions(t *testing.T) {
 			payload.Facts.Total, body)
 	}
 }
+
+func TestRESTRejectsExclusionBetweenFactFilteringAndDelivery(t *testing.T) {
+	for _, path := range []string{"/v1/facts", "/v1/status"} {
+		t.Run(path, func(t *testing.T) {
+			opts := httpTestOptions(t)
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			brainDir, branch, err := restResolveTarget(req, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			facts := []factRecord{
+				{ID: "fact:private", Text: "PRIVATE-CANARY", Status: factStatusActive, Branch: branch, Provenance: []factAnchor{{SessionID: "excluded-session"}}},
+				{ID: "fact:public", Text: "Public fact", Status: factStatusActive, Branch: branch},
+			}
+			if err := writeFacts(brainDir, branch, facts); err != nil {
+				t.Fatal(err)
+			}
+			handler := restFacts
+			if path == "/v1/status" {
+				handler = restStatus
+			}
+			before := httptest.NewRecorder()
+			handler(before, req, opts)
+			if before.Code != http.StatusOK {
+				t.Fatalf("baseline: %d %s", before.Code, before.Body)
+			}
+			original := afterRESTFactsPrivacyFilter
+			t.Cleanup(func() { afterRESTFactsPrivacyFilter = original })
+			called := false
+			afterRESTFactsPrivacyFilter = func() {
+				called = true
+				stones := loadSessionTombstones(brainDir)
+				stones.Excluded["excluded-session"] = sessionTombstone{At: opts.Now(), Reason: "concurrent REST exclusion"}
+				if err := saveSessionTombstones(brainDir, stones); err != nil {
+					t.Fatal(err)
+				}
+			}
+			response := httptest.NewRecorder()
+			handler(response, req, opts)
+			if !called {
+				t.Fatal("exclusion hook was not reached")
+			}
+			if response.Code != http.StatusServiceUnavailable || strings.Contains(response.Body.String(), "PRIVATE-CANARY") {
+				t.Fatalf("stale response escaped: %d %s", response.Code, response.Body)
+			}
+			afterRESTFactsPrivacyFilter = original
+			retry := httptest.NewRecorder()
+			handler(retry, req, opts)
+			if retry.Code != http.StatusOK || strings.Contains(retry.Body.String(), "PRIVATE-CANARY") {
+				t.Fatalf("retry failed to filter exclusion: %d %s", retry.Code, retry.Body)
+			}
+			if path == "/v1/status" {
+				var payload struct {
+					Facts struct {
+						Total int `json:"total"`
+					} `json:"facts"`
+				}
+				if err := json.Unmarshal(retry.Body.Bytes(), &payload); err != nil || payload.Facts.Total != 1 {
+					t.Fatalf("wrong filtered count: %s (%v)", retry.Body, err)
+				}
+			} else if !strings.Contains(retry.Body.String(), "Public fact") {
+				t.Fatalf("retry lost public fact: %s", retry.Body)
+			}
+		})
+	}
+}
