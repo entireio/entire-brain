@@ -192,3 +192,34 @@ func TestOllamaDistillAgentEnvelopeAllowanceIsCeilinged(t *testing.T) {
 			served, distillOllamaMaxEnvelopeBytes)
 	}
 }
+
+// The generate call runs under the whole-call timeout, and a chunk near the
+// context window — the case the truncation guard exists to catch — spends most
+// of that budget generating. If the /api/ps probe reuses the same context it
+// gets no time, reports "cannot tell", and the guard stands down exactly when
+// it is needed. The probe must carry its own budget.
+func TestOllamaDistillAgentProbesTheWindowOnAFreshBudget(t *testing.T) {
+	const callTimeout = 2 * time.Second
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/api/ps") {
+			// Longer than whatever the generate call left on the shared context,
+			// well inside the probe's own budget.
+			time.Sleep(1200 * time.Millisecond)
+			fmt.Fprint(w, `{"models":[{"name":"gemma4:12b","model":"gemma4:12b","context_length":32768}]}`)
+			return
+		}
+		time.Sleep(callTimeout - 300*time.Millisecond) // burn nearly the whole call budget
+		fmt.Fprint(w, `{"response":"kind\tpath\tfact\n","prompt_eval_count":32768,"eval_count":8}`)
+	}))
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
+
+	_, err := execOllamaDistillAgent(context.Background(), t.TempDir(),
+		[]string{"ollama", "gemma4:12b", "sys"}, []byte("a large chunk"), callTimeout)
+	if err == nil {
+		t.Fatal("truncation must still be detected when the generate call consumed the call budget")
+	}
+	if !strings.Contains(err.Error(), "truncated") {
+		t.Fatalf("the window probe must run on its own budget; got: %v", err)
+	}
+}

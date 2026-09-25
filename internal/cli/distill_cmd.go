@@ -2441,7 +2441,7 @@ func execOllamaDistillAgent(ctx context.Context, dir string, args []string, inpu
 	// another, leaving a 2% margin against a divisor of 5. This comparison has no
 	// tokenizer term in it at all.
 	if parsed.PromptEvalCount != nil {
-		if window := ollamaLoadedContextWindow(runCtx, u, model); window > 0 && *parsed.PromptEvalCount >= window {
+		if window := ollamaLoadedContextWindow(ctx, u, model); window > 0 && *parsed.PromptEvalCount >= window {
 			return "", fmt.Errorf("ollama read %d tokens of a %d-byte prompt, filling the model's %d-token context window: the prompt was truncated and this chunk would be distilled in part; lower --max-chunk-bytes or load %s with a larger num_ctx", *parsed.PromptEvalCount, len(input), window, model)
 		}
 	}
@@ -2601,6 +2601,14 @@ func mergeDistillRelatedIDs(baseline, disk, local []string) []string {
 // the model is not resident, or the payload does not carry the field. Callers
 // treat 0 as "cannot tell" and skip the check rather than guessing.
 func ollamaLoadedContextWindow(ctx context.Context, generateURL *url.URL, model string) int64 {
+	// Derive a fresh budget from the caller's context rather than reusing the
+	// one the generate call ran under. That context carries the whole-call
+	// timeout, and a chunk near the context window — the case this probe exists
+	// to catch — spends most of it generating. Reusing it would leave the probe
+	// no time, return 0 for "cannot tell", and stand the truncation guard down
+	// precisely when it is needed.
+	ctx, cancel := context.WithTimeout(ctx, ollamaContextProbeTimeout)
+	defer cancel()
 	psURL := *generateURL
 	psURL.Path = strings.TrimSuffix(strings.TrimSuffix(psURL.Path, "/api/generate"), "/") + "/api/ps"
 	psURL.RawQuery = ""
@@ -2612,7 +2620,7 @@ func ollamaLoadedContextWindow(ctx context.Context, generateURL *url.URL, model 
 		return 0
 	}
 	tr := &http.Transport{Proxy: nil, DialContext: loopbackOnlyDialContext}
-	client := &http.Client{Timeout: 10 * time.Second, Transport: tr,
+	client := &http.Client{Timeout: ollamaContextProbeTimeout, Transport: tr,
 		CheckRedirect: func(r *http.Request, _ []*http.Request) error {
 			if !isLoopbackHTTPURL(r.URL) {
 				return fmt.Errorf("ollama redirect must stay loopback-only: %s", r.URL.String())

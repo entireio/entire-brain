@@ -28,7 +28,10 @@ const (
 	// larger read than the old fixed cap ever permitted. 32 MiB is far above any
 	// workable chunk size (a usable chunk is tens of KiB) while keeping the read
 	// bounded no matter what is configured.
-	distillOllamaMaxEnvelopeBytes   = 32 * 1024 * 1024
+	distillOllamaMaxEnvelopeBytes = 32 * 1024 * 1024
+	// Budget for the /api/ps context-window probe, independent of the generate
+	// call's own timeout so a long generation cannot starve it.
+	ollamaContextProbeTimeout       = 10 * time.Second
 	distillMaxStructuredOutputBytes = 4 * 1024 * 1024
 	distillFactMaxTextSize          = 2000
 )
