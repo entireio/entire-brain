@@ -180,18 +180,31 @@ func newMCPHTTPHandler(opts Options, cfg mcpHTTPConfig) http.Handler {
 			writeMCPHTTPParseError(w)
 			return
 		}
-		// Same dispatch as stdio. The transports must not be able to disagree
-		// about which tools exist or what they do.
-		response := handleMCPMessage(r.Context(), opts, msg)
-		if response.ID == nil && response.Method == "" {
-			// A notification has no reply. 204 says "understood, nothing to
-			// return" rather than sending an empty JSON body a client would
-			// try to parse.
+		// Same dispatch as stdio, through the same helper. The transports must
+		// not be able to disagree about which tools exist, what they do, or —
+		// as they once did — whether the retrieval privacy lock is held until
+		// the response has actually been delivered.
+		if msg.ID == nil {
+			// A JSON-RPC notification. The stdio loop skips dispatch entirely
+			// for these, and the two transports must not disagree about what
+			// they execute: dispatching here meant an authenticated HTTP client
+			// could run a state-mutating tools/call by omitting the id, and
+			// have the only evidence discarded as a 204.
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(response)
+		_, deliverErr := deliverMCPResponse(r.Context(), opts, msg, func(_ context.Context, response mcpMessage) error {
+			w.Header().Set("Content-Type", "application/json")
+			return json.NewEncoder(w).Encode(response)
+		})
+		if deliverErr != nil {
+			// The status line and headers are already sent, so the client will
+			// read a truncated body under a 200. Nothing can be done about that
+			// here — but swallowing the error entirely left no trace anywhere
+			// that the response was malformed, which makes a client-side parse
+			// failure impossible to account for from this side.
+			fmt.Fprintf(os.Stderr, "warning: mcp http response for %s not fully written: %v\n", msg.Method, deliverErr)
+		}
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// One authentication check, before routing, for every surface on this
