@@ -106,6 +106,7 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	addGrouped("setup", newInitAgentsCommand(opts))
 	addGrouped("setup", newBrainGuideCommand(opts))
 	addGrouped("setup", newMCPCommand(opts))
+	addGrouped("setup", newWebhookCommand(opts))
 	addGrouped("setup", newConfigCommand(opts.Env))
 
 	addGrouped("explore", newBrainOverviewCommand(opts))
