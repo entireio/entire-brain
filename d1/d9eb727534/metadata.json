@@ -1,0 +1,56 @@
+{
+  "cli_version": "0.11.3-nightly.202609230619.4e2e839c2",
+  "checkpoint_id": "d1d9eb727534",
+  "strategy": "manual-commit",
+  "branch": "codex/trail-230-review",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/workflows/test.yml",
+    "README.md",
+    "SECURITY.md",
+    "docs/reference.md",
+    "internal/cli/docextract.go",
+    "internal/cli/docextract_pdf.go",
+    "internal/cli/docextract_review_test.go",
+    "internal/cli/facts_admin_cmd.go",
+    "internal/cli/facts_files.go",
+    "internal/cli/facts_files_test.go",
+    "internal/cli/facts_write_cmd.go",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_http.go",
+    "internal/cli/mcp_http_signal_test.go",
+    "internal/cli/mcp_http_test.go",
+    "internal/cli/refresh.go",
+    "internal/cli/rest_api.go",
+    "internal/cli/rest_api_test.go",
+    "internal/cli/root.go",
+    "internal/cli/seed.go",
+    "internal/cli/webhooks.go",
+    "internal/cli/webhooks_cmd.go",
+    "internal/cli/webhooks_test.go",
+    "sdk/python/README.md",
+    "sdk/python/entire_brain.py",
+    "sdk/python/integrations/__init__.py",
+    "sdk/python/integrations/core.py",
+    "sdk/python/integrations/langchain.py",
+    "sdk/python/integrations/llamaindex.py",
+    "sdk/python/tests/test_integrations.py",
+    "sdk/typescript/entire-brain.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d1/d9eb727534/0/metadata.json",
+      "transcript": "/d1/d9eb727534/0/full.jsonl",
+      "compact_transcript": "/d1/d9eb727534/0/transcript.jsonl",
+      "content_hash": "/d1/d9eb727534/0/content_hash.txt",
+      "prompt": "/d1/d9eb727534/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 151456,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3500416,
+    "output_tokens": 13872,
+    "api_call_count": 37
+  }
+}
