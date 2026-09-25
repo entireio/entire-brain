@@ -55,6 +55,9 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 			}
 			now := opts.Now().UTC()
 			changed := false
+			// Seeded with the id so the event is still identifiable if the
+			// record cannot be re-read after the mutation.
+			retracted := factRecord{ID: factID}
 			if err := withBrainWriteLock(brainDir, func() error {
 				facts, err := loadFacts(brainDir, resolvedBranch)
 				if err != nil {
@@ -68,12 +71,25 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 				if !changed {
 					return nil
 				}
+				// Captured under the lock so the webhook reports the kind and
+				// paths of the fact that was actually retracted, rather than an
+				// id a subscriber would have to look up through an API that only
+				// listens on loopback.
+				if i := indexOfFact(facts, factID); i >= 0 {
+					retracted = facts[i]
+				}
 				if err := writeFacts(brainDir, resolvedBranch, facts); err != nil {
 					return err
 				}
 				return updateFactSourceManifestLocked(brainDir, now)
 			}); err != nil {
 				return err
+			}
+			// Only on a real transition: re-retracting an already-retracted fact
+			// changed nothing, and a subscriber that fired on it would act on
+			// news that is not news.
+			if changed {
+				notifyFactWebhook(cmd.Context(), cmd.ErrOrStderr(), opts, WebhookFactRetracted, resolvedBranch, retracted, now)
 			}
 			if jsonOut {
 				return writeJSON(cmd, map[string]any{"id": factID, "branch": resolvedBranch, "status": factStatusRetracted, "changed": changed})

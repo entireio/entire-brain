@@ -23,7 +23,7 @@ func TestSeedDocumentUsesConfiguredCopyLimit(t *testing.T) {
 		if len(scan.Docs) != 1 {
 			t.Fatalf("scan docs: %+v", scan.Docs)
 		}
-		if err := writeSeedArtifacts(out, scan); err != nil {
+		if err := writeSeedArtifacts(out, &scan); err != nil {
 			t.Fatal(err)
 		}
 		data, err := os.ReadFile(filepath.Join(out, scan.Docs[0].SeedPath))
