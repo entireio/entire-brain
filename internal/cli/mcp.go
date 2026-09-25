@@ -114,21 +114,34 @@ type mcpResponseTransport struct {
 type mcpResponseTransportContextKey struct{}
 
 func newMCPCommand(opts Options) *cobra.Command {
-	var printConfig bool
+	var (
+		printConfig bool
+		httpAddr    string
+		allowRemote bool
+	)
 	cmd := &cobra.Command{
 		Use:   "mcp",
-		Short: "Serve local brain tools over MCP stdio",
+		Short: "Serve local brain tools over MCP (stdio by default, or HTTP with --http)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if printConfig {
 				return printMCPServerConfig(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), opts)
 			}
 			nudgeMemoryAtStartup(cmd.Context(), opts)
+			if strings.TrimSpace(httpAddr) != "" {
+				return runMCPHTTP(cmd.Context(), cmd.OutOrStdout(), opts, httpAddr, allowRemote)
+			}
 			return runMCP(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), opts)
 		},
 	}
 	cmd.Flags().BoolVar(&printConfig, "print-config", false,
 		"Print an MCP server entry that launches this binary directly, for a host agent's config")
+	// Absent by default: with no --http there is no listener and no network,
+	// which is what SECURITY.md promises about the default build.
+	cmd.Flags().StringVar(&httpAddr, "http", "",
+		"Also serve MCP over HTTP on this address (e.g. 127.0.0.1:7777). A bare port binds loopback. Always requires a bearer token")
+	cmd.Flags().BoolVar(&allowRemote, "http-allow-remote", false,
+		"Permit --http to bind a non-loopback address. The brain holds source, transcripts and prompts; put TLS in front of it")
 	return cmd
 }
 
@@ -420,12 +433,10 @@ func runMCP(ctx context.Context, in io.Reader, out io.Writer, opts Options) erro
 		if msg.ID == nil {
 			continue
 		}
-		privacyState := &mcpResponsePrivacyState{}
 		requestCtx := context.WithValue(ctx, mcpResponseTransportContextKey{}, mcpResponseTransport{ID: msg.ID, FrameMode: frameMode})
-		requestCtx = context.WithValue(requestCtx, mcpResponsePrivacyContextKey{}, privacyState)
-		response := handleMCPMessage(requestCtx, opts, msg)
-		writeErr := writeMCPMessage(out, response, frameMode)
-		privacyState.release()
+		response, writeErr := deliverMCPResponse(requestCtx, opts, msg, func(_ context.Context, response mcpMessage) error {
+			return writeMCPMessage(out, response, frameMode)
+		})
 		if writeErr != nil {
 			mcpDebugLog(debugLog, "write_error: "+writeErr.Error())
 			return writeErr
@@ -433,6 +444,41 @@ func runMCP(ctx context.Context, in io.Reader, out io.Writer, opts Options) erro
 		mcpDebugLog(debugLog, "response: "+msg.Method)
 		mcpDebugLogToolResult(debugLog, msg, response)
 	}
+}
+
+// deliverMCPResponse runs one request and delivers its response with the
+// retrieval privacy lock held until delivery has finished.
+//
+// The lock-until-delivered ordering is the whole point and is easy to lose: a
+// retrieval command checks its output against the exclusion state, and a
+// tombstone landing between that check and the response reaching the client
+// would deliver content that should already have been excluded. Holding the
+// lock across delivery closes that window.
+//
+// It lives here, shared, because the ordering was originally written into the
+// stdio loop and the HTTP transport did not reproduce it — the two transports
+// silently disagreed about whether the window was closed. A transport now gets
+// the behaviour by calling this rather than by remembering to.
+// deliver receives the request context — the same one handling ran under, with
+// the privacy state on it — so a transport can honour cancellation and so the
+// seeding is observable rather than taken on faith.
+func deliverMCPResponse(ctx context.Context, opts Options, msg mcpMessage, deliver func(context.Context, mcpMessage) error) (mcpMessage, error) {
+	privacyState := newMCPResponsePrivacyState()
+	ctx = context.WithValue(ctx, mcpResponsePrivacyContextKey{}, privacyState)
+	response := handleMCPMessage(ctx, opts, msg)
+	err := deliver(ctx, response)
+	// After delivery, always — including when delivery failed, or the lock
+	// would be held for the life of the process.
+	privacyState.release()
+	return response, err
+}
+
+// newMCPResponsePrivacyState is a variable so a test can observe the state a
+// delivery created and when it was released. Production always returns a fresh
+// zero state; the ordering it guards is not otherwise observable from outside,
+// and an untestable ordering is one that silently comes undone.
+var newMCPResponsePrivacyState = func() *mcpResponsePrivacyState {
+	return &mcpResponsePrivacyState{}
 }
 
 type mcpResponsePrivacyContextKey struct{}
