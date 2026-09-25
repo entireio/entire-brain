@@ -102,7 +102,7 @@ func TestWriteSeedDocsReadIsBounded(t *testing.T) {
 	}
 
 	var err error
-	used := allocatedBy(t, func() { err = writeSeedDocs(outputDir, scan) })
+	used := allocatedBy(t, func() { err = writeSeedDocs(outputDir, &scan) })
 	if err != nil {
 		t.Fatalf("writeSeedDocs: %v", err)
 	}
