@@ -2400,7 +2400,8 @@ func execOllamaDistillAgent(ctx context.Context, dir string, args []string, inpu
 	// fail with an error that blames output the model never produced. Scale the
 	// envelope allowance off the request we control, and keep
 	// distillMaxOutputBytes as the bound on the text we actually consume.
-	envelopeLimit := int64(distillMaxOutputBytes) + int64(len(body))*distillOllamaEnvelopeFactor + distillOllamaEnvelopeSlack
+	envelopeLimit := min(int64(distillMaxOutputBytes)+int64(len(body))*distillOllamaEnvelopeFactor+distillOllamaEnvelopeSlack,
+		int64(distillOllamaMaxEnvelopeBytes))
 	data, err := io.ReadAll(io.LimitReader(resp.Body, envelopeLimit+1))
 	if err != nil {
 		return "", err
@@ -2432,14 +2433,16 @@ func execOllamaDistillAgent(ctx context.Context, dir string, args []string, inpu
 	// store is read as authoritative, so partial extraction must fail loudly
 	// rather than quietly produce fewer facts.
 	//
-	// prompt_eval_count is the server's own count of the tokens it actually
-	// read, which makes this a measurement rather than a prediction. Real
-	// transcript text measures ~3.65 chars/token; dividing by
-	// distillOllamaMinCharsPerToken (5) keeps the expected floor conservative so
-	// dense or heavily tokenised input cannot trip it on its own.
+	// The test is prompt_eval_count — the server's own count of tokens it read —
+	// against the window the model is actually loaded with. A truncated prompt
+	// fills the window exactly, so the count pins to it. An estimate from prompt
+	// bytes was tried first and rejected: it needs a chars-per-token assumption,
+	// and measured text ran 3.65 chars/token on one tokenizer and 4.89 on
+	// another, leaving a 2% margin against a divisor of 5. This comparison has no
+	// tokenizer term in it at all.
 	if parsed.PromptEvalCount != nil {
-		if floor := int64(len(input)+len(args[2])) / distillOllamaMinCharsPerToken; *parsed.PromptEvalCount < floor {
-			return "", fmt.Errorf("ollama read only %d tokens of a %d-byte prompt: the model's context window truncated it, so this chunk would be distilled in part; lower --max-chunk-bytes or load the model with a larger num_ctx", *parsed.PromptEvalCount, len(input))
+		if window := ollamaLoadedContextWindow(runCtx, u, model); window > 0 && *parsed.PromptEvalCount >= window {
+			return "", fmt.Errorf("ollama read %d tokens of a %d-byte prompt, filling the model's %d-token context window: the prompt was truncated and this chunk would be distilled in part; lower --max-chunk-bytes or load %s with a larger num_ctx", *parsed.PromptEvalCount, len(input), window, model)
 		}
 	}
 	usage := distillProviderUsage{Source: distillUsageSourceOllama}
@@ -2586,4 +2589,65 @@ func mergeDistillRelatedIDs(baseline, disk, local []string) []string {
 		}
 	}
 	return out
+}
+
+// ollamaLoadedContextWindow reports the context window the named model is
+// currently loaded with, via /api/ps. This is deliberately not /api/show: show
+// reports the model's architectural maximum (262144 for gemma4:12b) while ps
+// reports what it was actually loaded with (32768 by default), and only the
+// latter is the size a prompt gets truncated to.
+//
+// Returns 0 when the window cannot be determined — the endpoint is unreachable,
+// the model is not resident, or the payload does not carry the field. Callers
+// treat 0 as "cannot tell" and skip the check rather than guessing.
+func ollamaLoadedContextWindow(ctx context.Context, generateURL *url.URL, model string) int64 {
+	psURL := *generateURL
+	psURL.Path = strings.TrimSuffix(strings.TrimSuffix(psURL.Path, "/api/generate"), "/") + "/api/ps"
+	psURL.RawQuery = ""
+	if !isLoopbackHTTPURL(&psURL) {
+		return 0
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, psURL.String(), nil)
+	if err != nil {
+		return 0
+	}
+	tr := &http.Transport{Proxy: nil, DialContext: loopbackOnlyDialContext}
+	client := &http.Client{Timeout: 10 * time.Second, Transport: tr,
+		CheckRedirect: func(r *http.Request, _ []*http.Request) error {
+			if !isLoopbackHTTPURL(r.URL) {
+				return fmt.Errorf("ollama redirect must stay loopback-only: %s", r.URL.String())
+			}
+			return nil
+		}}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return 0
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return 0
+	}
+	var parsed struct {
+		Models []struct {
+			Name          string `json:"name"`
+			Model         string `json:"model"`
+			ContextLength int64  `json:"context_length"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return 0
+	}
+	for _, m := range parsed.Models {
+		if m.Name == model || m.Model == model {
+			if m.ContextLength > 0 {
+				return m.ContextLength
+			}
+			return 0
+		}
+	}
+	return 0
 }

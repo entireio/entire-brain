@@ -22,9 +22,13 @@ const (
 	// bounded by a request size we control.
 	distillOllamaEnvelopeFactor = 8
 	distillOllamaEnvelopeSlack  = 64 * 1024
-	// Conservative floor for detecting a truncated prompt: real transcript text
-	// measures ~3.65 chars/token, so 5 leaves margin before we call truncation.
-	distillOllamaMinCharsPerToken   = 5
+	// The envelope allowance scales off a request size the caller chooses, and
+	// --max-chunk-bytes has no upper bound, so without a ceiling a hostile or
+	// malfunctioning loopback endpoint could amplify a large chunk into a much
+	// larger read than the old fixed cap ever permitted. 32 MiB is far above any
+	// workable chunk size (a usable chunk is tens of KiB) while keeping the read
+	// bounded no matter what is configured.
+	distillOllamaMaxEnvelopeBytes   = 32 * 1024 * 1024
 	distillMaxStructuredOutputBytes = 4 * 1024 * 1024
 	distillFactMaxTextSize          = 2000
 )

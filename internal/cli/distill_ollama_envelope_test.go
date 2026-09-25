@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -76,38 +77,48 @@ func TestOllamaDistillAgentRejectsOversizedGeneratedText(t *testing.T) {
 	}
 }
 
-// Ollama truncates a prompt that exceeds the context window the model was
-// loaded with, and reports the truncation only as a prompt_eval_count smaller
-// than the prompt warrants. Distilling part of a chunk while reporting success
-// puts partial extraction into a store that is read as authoritative.
+// ollamaServerWithPS serves /api/generate with the given body and /api/ps
+// advertising the model loaded at window tokens, which is what the truncation
+// check reads.
+func ollamaServerWithPS(t *testing.T, model string, window int64, generate string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/api/ps") {
+			fmt.Fprintf(w, `{"models":[{"name":%q,"model":%q,"context_length":%d}]}`, model, model, window)
+			return
+		}
+		fmt.Fprint(w, generate)
+	}))
+}
+
+// A truncated prompt fills the loaded window exactly, so prompt_eval_count pins
+// to it. Distilling part of a chunk while reporting success puts partial
+// extraction into a store that is read as authoritative.
 func TestOllamaDistillAgentRejectsSilentlyTruncatedPrompt(t *testing.T) {
 	prompt := strings.Repeat("real transcript text that tokenises normally. ", 4000)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// The server read far fewer tokens than a prompt this size contains.
-		fmt.Fprintf(w, `{"response":"kind\tpath\tfact\n","prompt_eval_count":32768,"eval_count":8}`)
-	}))
+	server := ollamaServerWithPS(t, "gemma4:12b", 32768,
+		`{"response":"kind\tpath\tfact\n","prompt_eval_count":32768,"eval_count":8}`)
 	defer server.Close()
 	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
 
 	_, err := execOllamaDistillAgent(context.Background(), t.TempDir(),
 		[]string{"ollama", "gemma4:12b", "system prompt"}, []byte(prompt), 30*time.Second)
 	if err == nil {
-		t.Fatalf("a %d-byte prompt read as only 32768 tokens is truncated and must not report success", len(prompt))
+		t.Fatalf("a %d-byte prompt whose token count pins to the 32768 window is truncated and must not report success", len(prompt))
 	}
 	if !strings.Contains(err.Error(), "truncated") {
 		t.Fatalf("error must name truncation, got: %v", err)
 	}
 }
 
-// A prompt the server read in full must pass, including dense input that
-// tokenises far below the nominal ratio — the floor exists to avoid exactly
-// this false positive.
+// A prompt read in full sits below the window and must pass. This is the case
+// a chars-per-token estimate got wrong: measured text ran 4.89 chars/token
+// against a divisor of 5, so ordinary input sat 2% from a spurious failure.
+// The window comparison has no tokenizer term, so a dense prompt is fine.
 func TestOllamaDistillAgentAcceptsFullyReadPrompt(t *testing.T) {
 	prompt := strings.Repeat("dense", 2000) // 10000 bytes
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 2500 tokens for 10000 bytes is 4 chars/token — normal, not truncated.
-		fmt.Fprint(w, `{"response":"kind\tpath\tfact\n","prompt_eval_count":2500,"eval_count":8}`)
-	}))
+	server := ollamaServerWithPS(t, "gemma4:12b", 32768,
+		`{"response":"kind\tpath\tfact\n","prompt_eval_count":2500,"eval_count":8}`)
 	defer server.Close()
 	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
 
@@ -118,5 +129,66 @@ func TestOllamaDistillAgentAcceptsFullyReadPrompt(t *testing.T) {
 	}
 	if !strings.Contains(got, "fact") {
 		t.Fatalf("response text = %q", got)
+	}
+}
+
+// When the window cannot be determined the check must stand down rather than
+// guess, or an ollama build without the field would fail every chunk.
+func TestOllamaDistillAgentSkipsTruncationCheckWithoutAWindow(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/api/ps") {
+			fmt.Fprint(w, `{"models":[]}`) // model not resident: window unknown
+			return
+		}
+		fmt.Fprint(w, `{"response":"kind\tpath\tfact\n","prompt_eval_count":32768,"eval_count":8}`)
+	}))
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
+
+	if _, err := execOllamaDistillAgent(context.Background(), t.TempDir(),
+		[]string{"ollama", "gemma4:12b", "sys"}, []byte("short"), 30*time.Second); err != nil {
+		t.Fatalf("an undeterminable window must skip the check, not fail: %v", err)
+	}
+}
+
+// The envelope allowance scales off a request size the caller chooses and
+// --max-chunk-bytes has no upper bound, so the scaling needs an absolute
+// ceiling or a hostile loopback endpoint could amplify a large chunk into an
+// unbounded read.
+func TestOllamaDistillAgentEnvelopeAllowanceIsCeilinged(t *testing.T) {
+	// A prompt whose unclamped allowance (8x + slack) would exceed the ceiling.
+	oversized := distillOllamaMaxEnvelopeBytes/distillOllamaEnvelopeFactor + (1 << 20)
+	unclamped := int64(distillMaxOutputBytes) + int64(oversized)*distillOllamaEnvelopeFactor + distillOllamaEnvelopeSlack
+	if unclamped <= int64(distillOllamaMaxEnvelopeBytes) {
+		t.Fatalf("fixture must exceed the ceiling: unclamped %d <= ceiling %d", unclamped, distillOllamaMaxEnvelopeBytes)
+	}
+
+	var served int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Stream past the ceiling; a correct client stops reading at it.
+		chunk := strings.Repeat("a", 1<<20)
+		w.Header().Set("Content-Type", "application/json")
+		for served < int64(distillOllamaMaxEnvelopeBytes)+(8<<20) {
+			n, err := io.WriteString(w, chunk)
+			served += int64(n)
+			if err != nil {
+				return
+			}
+		}
+	}))
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
+
+	_, err := execOllamaDistillAgent(context.Background(), t.TempDir(),
+		[]string{"ollama", "gemma4:12b", "sys"}, make([]byte, oversized), 60*time.Second)
+	if err == nil {
+		t.Fatal("an endpoint streaming past the ceiling must be refused")
+	}
+	if !strings.Contains(err.Error(), "envelope exceeds") {
+		t.Fatalf("error must name the envelope bound, got: %v", err)
+	}
+	if served > int64(distillOllamaMaxEnvelopeBytes)+(4<<20) {
+		t.Fatalf("read %d bytes, must stop near the %d ceiling rather than following the stream",
+			served, distillOllamaMaxEnvelopeBytes)
 	}
 }
