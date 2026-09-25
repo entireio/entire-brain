@@ -608,7 +608,7 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&distillOpts.dryRun, "dry-run", false, "Estimate distill work without calling an agent or writing facts")
 	cmd.Flags().IntVar(&distillOpts.concurrency, "concurrency", defaultDistillConcurrency, "Distill agent calls to run in flight at once, shared across sessions (1 = strictly sequential; higher values may add one concurrent reconcile call)")
 	cmd.Flags().IntVar(&distillOpts.jobs, "jobs", 0, "Compatibility alias for --concurrency")
-	cmd.Flags().IntVar(&distillOpts.maxChunkBytes, "max-chunk-bytes", defaultDistillChunkSize, "Transcript chunk size in bytes; larger chunks mean fewer agent calls per session (long-context models handle 128-192KB comfortably)")
+	cmd.Flags().IntVar(&distillOpts.maxChunkBytes, "max-chunk-bytes", defaultDistillChunkSize, "Transcript chunk size in bytes; larger chunks mean fewer agent calls per session, but a chunk must fit the model's context window — transcript text runs ~3.65 chars/token, so a 32K-context model (ollama's default for many local models) truncates past roughly 116KB")
 	cmd.Flags().BoolVar(&distillOpts.newestFirst, "newest-first", false, "Distill the most recent sessions first so the most useful facts land early (default: oldest first)")
 	cmd.Flags().IntVar(&distillOpts.maxSessions, "max-sessions", 0, "Cap how many not-yet-distilled sessions this run processes (0 = no cap); pairs with --newest-first as a backfill budget")
 	return cmd
