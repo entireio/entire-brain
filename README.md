@@ -17,6 +17,7 @@ Through the CLI and MCP, agents can retrieve earlier decisions, revisit past att
 - Connect agents through the CLI or MCP, with response size limits and repository instructions.
 - Browse saved knowledge in a terminal dashboard or an offline graph view.
 - Read the documents that are not code: PDFs, Word, Excel and PowerPoint files under `docs/`.
+- Notify CI, a chat channel, or an index with signed webhooks when the brain changes.
 - Brain reads sessions captured by Entire CLI and uses Entire Graph for code analysis. Without captured sessions, Brain builds from code, docs, and Git history.
 - Graph is required for code analysis, but you can use Brain to search sessions, docs, and facts without it.
 
@@ -255,6 +256,25 @@ checkpoints) and **docs** (seed, guides and context). The recording above is a
 real brain — 20,478 symbols, 807,186 history records, 2,375 sessions — and it
 runs entirely on your machine: no network, no model calls, read-only.
 
+### Notify another service when the brain changes
+
+Point Brain at an HTTP endpoint and it posts a small JSON event when a fact is
+recorded or retracted, or the brain is refreshed — so a CI job, a chat channel,
+or an index can react without polling.
+
+```bash
+export ENTIRE_BRAIN_WEBHOOK_URL=https://hooks.example.com/entire
+export ENTIRE_BRAIN_WEBHOOK_SECRET=a-long-random-string
+
+entire brain webhook test     # prove the endpoint works
+entire brain webhook events   # fact.recorded, fact.retracted, brain.refreshed
+```
+
+Events carry the fact's id, kind, and taxonomy paths — not its text, unless you
+set `ENTIRE_BRAIN_WEBHOOK_INCLUDE_TEXT=1`. With a secret set, each POST is
+signed with HMAC-SHA256 in `X-Entire-Signature-256`. Unset the URL and nothing
+is sent. See [webhooks](docs/reference.md#webhooks).
+
 ### Recover from a split brain
 
 A repository reached through two different paths — a symlink, or `/tmp` on
@@ -299,6 +319,7 @@ See the [recall threat model](docs/recall_threat_model.md) for how Brain handles
 - [Storage and configuration](docs/reference.md#storage-and-configuration)
 - [Documents (PDF, Word, Excel, PowerPoint)](docs/reference.md#documents)
 - [Privacy and egress](docs/reference.md#privacy-and-egress)
+- [Webhooks](docs/reference.md#webhooks)
 - [Conversation recall and source citations](docs/recall-evidence.md)
 - [Contributing and build options](CONTRIBUTING.md)
 - [Release readiness](docs/release_readiness_audit.md)

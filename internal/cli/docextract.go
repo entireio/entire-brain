@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -138,7 +139,7 @@ func extractDocumentText(path string, data []byte) (string, error) {
 	case formatXlsx:
 		text, err = extractXlsxText(data)
 	case formatPptx:
-		text, err = extractOfficeText(data, pptxTextParts)
+		text, err = extractPptxText(data)
 	}
 	if err != nil {
 		if _, ok := err.(*documentExtractionError); ok {
@@ -401,7 +402,10 @@ func extractOfficeText(data []byte, selectParts officePartSelector) (string, err
 	if err != nil {
 		return "", err
 	}
-	parts := selectParts(officeZipNames(reader))
+	return extractOfficeParts(reader, selectParts(officeZipNames(reader)), maxExtractOutputBytes)
+}
+
+func extractOfficeParts(reader *zip.Reader, parts []string, budget int) (string, error) {
 	if len(parts) == 0 {
 		return "", fmt.Errorf("the archive contains no document body")
 	}
@@ -411,7 +415,6 @@ func extractOfficeText(data []byte, selectParts officePartSelector) (string, err
 	// and each could expand to the full cap before the aggregate output check
 	// below ever runs — the same unbounded-aggregate problem the PDF reader
 	// has a document budget for.
-	budget := maxExtractOutputBytes
 	for _, part := range parts {
 		if budget <= 0 {
 			break
@@ -454,13 +457,13 @@ func officeXMLText(raw []byte) (string, error) {
 	decoder.Strict = false
 
 	var (
-		out       strings.Builder
+		out       bytes.Buffer
 		inText    bool
 		textBuf   strings.Builder
 		cellDepth int
 	)
 	flushParagraph := func() {
-		if out.Len() > 0 && !strings.HasSuffix(out.String(), "\n") {
+		if out.Len() > 0 && !bytes.HasSuffix(out.Bytes(), []byte("\n")) {
 			out.WriteString("\n")
 		}
 	}
@@ -505,7 +508,7 @@ func officeXMLText(raw []byte) (string, error) {
 				// Inside a cell a paragraph is a soft break; outside one it is
 				// the real thing.
 				if cellDepth > 0 {
-					if out.Len() > 0 && !strings.HasSuffix(out.String(), " ") && !strings.HasSuffix(out.String(), "\t") {
+					if out.Len() > 0 && !bytes.HasSuffix(out.Bytes(), []byte(" ")) && !bytes.HasSuffix(out.Bytes(), []byte("\t")) {
 						out.WriteString(" ")
 					}
 				} else {
@@ -518,15 +521,11 @@ func officeXMLText(raw []byte) (string, error) {
 				// Separate columns so a row does not run together into one
 				// unreadable word, dropping the soft break the cell's last
 				// paragraph left behind.
-				trimmed := strings.TrimRight(out.String(), " ")
-				out.Reset()
-				out.WriteString(trimmed)
+				out.Truncate(len(bytes.TrimRight(out.Bytes(), " ")))
 				out.WriteString("\t")
 			case "tr":
 				// Drop the tab the last cell left, then end the row.
-				trimmed := strings.TrimRight(out.String(), " \t")
-				out.Reset()
-				out.WriteString(trimmed)
+				out.Truncate(len(bytes.TrimRight(out.Bytes(), " \t")))
 				flushParagraph()
 			}
 		}
@@ -744,8 +743,10 @@ func xlsxSheetText(raw []byte, shared []string) string {
 	decoder.Strict = false
 	var (
 		out      strings.Builder
-		row      []string
+		row      strings.Builder
 		cellType string
+		cells    int
+		column   int
 		inValue  bool
 		inInline bool
 		value    strings.Builder
@@ -759,12 +760,19 @@ func xlsxSheetText(raw []byte, shared []string) string {
 		case xml.StartElement:
 			switch t.Name.Local {
 			case "row":
-				row = row[:0]
+				row.Reset()
+				cells = 0
 			case "c":
 				cellType = ""
+				column = cells + 1
 				for _, attr := range t.Attr {
 					if attr.Name.Local == "t" {
 						cellType = attr.Value
+					}
+					if attr.Name.Local == "r" {
+						if n := xlsxColumnNumber(attr.Value); n > cells {
+							column = n
+						}
 					}
 				}
 				value.Reset()
@@ -788,12 +796,24 @@ func xlsxSheetText(raw []byte, shared []string) string {
 			case "is":
 				inInline = false
 			case "c":
-				row = append(row, xlsxCellText(cellType, value.String(), shared))
+				separators := column - cells
+				if cells == 0 {
+					separators--
+				}
+				for j := 0; j < separators; j++ {
+					writeExtractedText(&row, "\t", maxExtractOutputBytes-out.Len())
+				}
+				cells = column
+				writeExtractedText(&row, xlsxCellText(cellType, value.String(), shared), maxExtractOutputBytes-out.Len())
+				if row.Len()+out.Len() >= maxExtractOutputBytes {
+					out.WriteString(row.String())
+					return out.String()
+				}
 			case "row":
-				line := strings.TrimRight(strings.Join(row, "\t"), "\t")
+				line := strings.TrimRight(row.String(), "\t")
 				if strings.TrimSpace(line) != "" {
 					out.WriteString(line)
-					out.WriteString("\n")
+					writeExtractedText(&out, "\n", maxExtractOutputBytes)
 				}
 			}
 		}
@@ -815,4 +835,116 @@ func xlsxCellText(cellType, value string, shared []string) string {
 		return shared[index]
 	}
 	return value
+}
+
+// writeExtractedText enforces the byte cap before an expanding representation
+// is appended. Keep complete UTF-8 characters when the source is UTF-8.
+func writeExtractedText(out *strings.Builder, text string, limit int) {
+	remaining := limit - out.Len()
+	if remaining <= 0 {
+		return
+	}
+	if len(text) > remaining {
+		end := remaining
+		for end > 0 && !utf8.RuneStart(text[end]) {
+			end--
+		}
+		text = text[:end]
+	}
+	out.WriteString(text)
+}
+
+// XLSX omits empty cells. Their coordinates preserve the column associations.
+func xlsxColumnNumber(ref string) int {
+	n := 0
+	for _, c := range ref {
+		if c < 'A' || c > 'Z' {
+			break
+		}
+		n = n*26 + int(c-'A') + 1
+		if n > 16384 {
+			return 0
+		} // Excel's XFD column limit; also bounds overflow.
+	}
+	return n
+}
+
+func extractPptxText(data []byte) (string, error) {
+	reader, err := openOfficeZip(data)
+	if err != nil {
+		return "", err
+	}
+	names := officeZipNames(reader)
+	hasPresentation := false
+	for _, name := range names {
+		if name == "ppt/presentation.xml" {
+			hasPresentation = true
+		}
+	}
+	if !hasPresentation {
+		return extractOfficeParts(reader, pptxTextParts(names), maxExtractOutputBytes)
+	}
+	budget := maxExtractOutputBytes
+	raw, read, err := readZipPart(reader, "ppt/presentation.xml", budget)
+	budget -= read
+	if err != nil {
+		return "", err
+	}
+	var presentation struct {
+		Slides []struct {
+			Attrs []xml.Attr `xml:",any,attr"`
+		} `xml:"sldIdLst>sldId"`
+	}
+	if err := xml.Unmarshal(raw, &presentation); err != nil {
+		return "", err
+	}
+	raw, read, err = readZipPart(reader, "ppt/_rels/presentation.xml.rels", budget)
+	budget -= read
+	if err != nil {
+		return "", err
+	}
+	var relationships struct {
+		Items []struct {
+			ID     string `xml:"Id,attr"`
+			Target string `xml:"Target,attr"`
+			Mode   string `xml:"TargetMode,attr"`
+		} `xml:"Relationship"`
+	}
+	if err := xml.Unmarshal(raw, &relationships); err != nil {
+		return "", err
+	}
+	targets := map[string]string{}
+	for _, rel := range relationships.Items {
+		if rel.Mode == "External" {
+			continue
+		}
+		target := path.Clean(path.Join("ppt", rel.Target))
+		if strings.HasPrefix(rel.Target, "/") {
+			target = strings.TrimPrefix(path.Clean(rel.Target), "/")
+		}
+		if strings.HasPrefix(target, "ppt/slides/") {
+			targets[rel.ID] = target
+		}
+	}
+	var parts []string
+	for _, slide := range presentation.Slides {
+		for _, attr := range slide.Attrs {
+			if attr.Name.Local == "id" && attr.Name.Space != "" {
+				target := targets[attr.Value]
+				if target == "" {
+					return "", fmt.Errorf("unresolved presentation slide %s", attr.Value)
+				}
+				parts = append(parts, target)
+				break
+			}
+		}
+	}
+	// The presentation's relationship order survives user reordering and
+	// excludes orphan slide parts. Numeric filenames do neither.
+	for _, name := range pptxTextParts(names) {
+		if strings.HasPrefix(name, "ppt/notesSlides/") {
+			parts = append(parts, name)
+		}
+	}
+	return extractOfficeParts(reader, parts, budget)
 }

@@ -445,6 +445,16 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 	}
 	commit := strings.TrimSpace(string(runGitOutput(ctx, runner, repoDir, "rev-parse", "HEAD")))
 	result := seedScanResult{MaxFileBytes: opts.maxFileBytes, RepoDir: repoDir, RepoKey: repoKey, Commit: commit, Warnings: warnings}
+	// Reserve source paths and their directories before allocating derived
+	// names: spec.pdf.md may itself be an authored document (or a directory).
+	reserved := map[string]bool{}
+	for _, rel := range paths {
+		name := filepath.ToSlash(filepath.Join(seedDirName, seedDocsDirName, rel))
+		for name != "." {
+			reserved[strings.ToLower(name)] = true
+			name = filepath.ToSlash(filepath.Dir(name))
+		}
+	}
 	for _, rel := range paths {
 		entry := inspectSeedFile(repoDir, rel, opts)
 		result.Files = append(result.Files, entry)
@@ -456,6 +466,10 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 			extracted := isExtractableSeedDocument(rel)
 			if extracted {
 				seedPath = extractedSeedDocPath(seedPath)
+				for reserved[strings.ToLower(seedPath)] {
+					seedPath += ".md"
+				}
+				reserved[strings.ToLower(seedPath)] = true
 			}
 			result.Docs = append(result.Docs, seedDocument{
 				Path:      filepath.ToSlash(rel),

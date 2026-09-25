@@ -784,7 +784,17 @@ type pdfFont struct {
 // content stream uses with Tf.
 func pdfPageFonts(objects map[pdfObjectKey]*pdfObject, page map[string]pdfValue, budget *pdfDecodeBudget) map[string]*pdfFont {
 	fonts := map[string]*pdfFont{}
-	resources, _ := pdfResolve(objects, page["Resources"]).(map[string]pdfValue)
+	var resources map[string]pdfValue
+	node := page
+	for depth := 0; node != nil && depth < 64; depth++ {
+		if value, exists := node["Resources"]; exists {
+			resources, _ = pdfResolve(objects, value).(map[string]pdfValue)
+			break
+		}
+		// Resources are inheritable page-tree attributes. The depth bound
+		// handles malformed Parent cycles without recursing.
+		node, _ = pdfResolve(objects, node["Parent"]).(map[string]pdfValue)
+	}
 	if resources == nil {
 		return fonts
 	}
@@ -862,6 +872,18 @@ func pdfAllToUnicode(objects map[pdfObjectKey]*pdfObject, budget *pdfDecodeBudge
 // subset-embedded font's glyph indices are extracted as if they were characters.
 func parsePDFToUnicode(data []byte) map[uint32]string {
 	out := map[uint32]string{}
+	remaining, entries := maxExtractOutputBytes, 65536
+	add := func(code uint32, text string) bool {
+		// Charge every mapping, including overwritten ones, to bound work as
+		// well as the live map. Decompression limits do not bound CMap expansion.
+		if entries == 0 || len(text) > remaining {
+			return false
+		}
+		entries--
+		remaining -= len(text)
+		out[code] = text
+		return true
+	}
 	text := string(data)
 
 	for _, section := range pdfCMapSections(text, "beginbfchar", "endbfchar") {
@@ -876,7 +898,9 @@ func parsePDFToUnicode(data []byte) map[uint32]string {
 			if !ok1 || !ok2 {
 				break
 			}
-			out[pdfCodeOf(src)] = pdfUTF16BEToString(dst)
+			if !add(pdfCodeOf(src), pdfUTF16BEToString(dst)) {
+				return nil
+			}
 		}
 	}
 
@@ -904,8 +928,13 @@ func parsePDFToUnicode(data []byte) map[uint32]string {
 			if parser.pos < len(parser.data) && parser.data[parser.pos] == '[' {
 				items, _ := parser.parseValue().([]pdfValue)
 				for i, item := range items {
+					if uint32(i) > highCode-lowCode {
+						break
+					}
 					if s, ok := item.(string); ok {
-						out[lowCode+uint32(i)] = pdfUTF16BEToString(s)
+						if !add(lowCode+uint32(i), pdfUTF16BEToString(s)) {
+							return nil
+						}
 					}
 				}
 				continue
@@ -916,15 +945,17 @@ func parsePDFToUnicode(data []byte) map[uint32]string {
 			}
 			base := pdfUTF16BEToString(dst)
 			runes := []rune(base)
-			for code := lowCode; code <= highCode; code++ {
+			for offset := uint32(0); offset <= highCode-lowCode; offset++ {
 				if len(runes) == 0 {
 					break
 				}
 				// Only the last character advances across a range, per the spec.
 				next := make([]rune, len(runes))
 				copy(next, runes)
-				next[len(next)-1] += rune(code - lowCode)
-				out[code] = string(next)
+				next[len(next)-1] += rune(offset)
+				if !add(lowCode+offset, string(next)) {
+					return nil
+				}
 			}
 		}
 	}
@@ -992,7 +1023,7 @@ func pdfContentText(content []byte, fonts map[string]*pdfFont) string {
 		haveY    bool
 	)
 	newline := func() {
-		if out.Len() > 0 && !strings.HasSuffix(out.String(), "\n") {
+		if out.Len() > 0 && out.Len() < maxExtractOutputBytes && !strings.HasSuffix(out.String(), "\n") {
 			out.WriteByte('\n')
 		}
 	}
@@ -1001,7 +1032,7 @@ func pdfContentText(content []byte, fonts map[string]*pdfFont) string {
 		if !ok {
 			return
 		}
-		out.WriteString(pdfDecodeShownString(s, font))
+		writeExtractedText(&out, pdfDecodeShownString(s, font), maxExtractOutputBytes)
 	}
 	for out.Len() < maxExtractOutputBytes {
 		parser.skipSpace()
@@ -1033,9 +1064,12 @@ func pdfContentText(content []byte, fonts map[string]*pdfFont) string {
 				if len(operands) >= 1 {
 					items, _ := operands[len(operands)-1].([]pdfValue)
 					for _, item := range items {
+						if out.Len() >= maxExtractOutputBytes {
+							break
+						}
 						switch v := item.(type) {
 						case string:
-							out.WriteString(pdfDecodeShownString(v, font))
+							show(v)
 						case float64:
 							// Kerning is in thousandths of an em, negative to
 							// move right. Anything past a fifth of an em is a
@@ -1101,13 +1135,13 @@ func pdfDecodeShownString(s string, font *pdfFont) string {
 	if font.twoByte {
 		width = 2
 	}
-	for i := 0; i+width <= len(s); i += width {
+	for i := 0; i+width <= len(s) && b.Len() < maxExtractOutputBytes; i += width {
 		var code uint32
 		for j := 0; j < width; j++ {
 			code = code<<8 | uint32(s[i+j])
 		}
 		if text, ok := font.toUnicode[code]; ok {
-			b.WriteString(text)
+			writeExtractedText(&b, text, maxExtractOutputBytes)
 			continue
 		}
 		// An unmapped code in a font that HAS a ToUnicode map is a glyph the
@@ -1126,6 +1160,7 @@ type pdfParser struct {
 	data  []byte
 	pos   int
 	stuck bool
+	depth int
 }
 
 func (p *pdfParser) skipSpace() {
@@ -1194,6 +1229,14 @@ func (p *pdfParser) parseOperator() (string, bool) {
 }
 
 func (p *pdfParser) parseValue() pdfValue {
+	// Arrays and dictionaries recurse through this single entry point. Stop
+	// parsing a malformed part before nesting can exhaust the Go stack.
+	if p.depth >= 128 {
+		p.pos = len(p.data)
+		return nil
+	}
+	p.depth++
+	defer func() { p.depth-- }()
 	p.skipSpace()
 	if p.pos >= len(p.data) {
 		return nil
