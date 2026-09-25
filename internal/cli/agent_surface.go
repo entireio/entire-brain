@@ -1736,7 +1736,8 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 				if proposals, proposalsErr := loadFactProposals(status.Brain.Path, branch); proposalsErr != nil {
 					report.Warnings = append(report.Warnings, factReviewQueueUnavailableWarning)
 				} else {
-					report.FactsPendingReview = factsPendingReview(facts, proposals, report.Facts)
+					localFacts := factsEligibleForLocusDrift(facts, briefGlobalIDs)
+					report.FactsPendingReview = factsPendingReview(localFacts, proposals, report.Facts)
 				}
 			}
 		}

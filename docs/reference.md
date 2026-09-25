@@ -1262,7 +1262,9 @@ fact:76aa6fd6 decision [architecture.deployment.convention] (global)
 
 The label matters: acting on a general convention as though this repository had
 declared it is a different thing, and an agent reading unlabelled output cannot
-tell the difference. `--json` reports the same distinction as `global_fact_ids`.
+tell the difference. `recall` and `brief` report the same distinction as
+`global_fact_ids` in JSON. Unified `query`, `search`, `vsearch`, and `get` results
+include `(global)` in each global fact's heading.
 
 Where a repository records the same statement, the repository's copy wins —
 fact ids are content-derived, so it is the same fact, and the local one carries
@@ -1438,6 +1440,10 @@ fact itself in your channel.
 
 `repo` is the repository's directory name, never its path, so an event does not
 disclose the layout of your filesystem.
+
+Global fact events carry `"global": true` and omit `repo` and `branch`: the
+current checkout does not own a global fact. The same text-redaction and
+no-egress settings apply to both scopes.
 
 ### Verifying the sender
 

@@ -211,7 +211,11 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 	// that failed to persist. Delivery cannot fail this command — the fact is
 	// already on disk and the author's write must not be undone by an
 	// unreachable endpoint.
-	notifyFactWebhook(ctx, cmd.ErrOrStderr(), opts, WebhookFactRecorded, branch, record, now)
+	if global {
+		notifyGlobalFactWebhook(ctx, cmd.ErrOrStderr(), WebhookFactRecorded, record, now)
+	} else {
+		notifyFactWebhook(ctx, cmd.ErrOrStderr(), opts, WebhookFactRecorded, branch, record, now)
+	}
 	if rememberOpts.json {
 		return writeJSON(cmd, record)
 	}

@@ -1075,3 +1075,105 @@ func TestGetResolvesAGlobalFactID(t *testing.T) {
 		t.Fatalf("get returned a global fact unlabelled:\n%s", out.String())
 	}
 }
+
+func TestGetPreservesScopeOfDuplicateGlobalFacts(t *testing.T) {
+	for _, status := range []string{factStatusActive, factStatusRetracted, factStatusSuperseded} {
+		t.Run(status, func(t *testing.T) {
+			opts, brainDir := retrievalSurfaceFixture(t)
+			text := "orion convention uses db/migrations/shared.sql"
+			rememberGlobal(t, opts, text)
+			globals, err := loadGlobalFacts(opts.Env)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var local factRecord
+			for _, f := range globals {
+				if f.Text == text {
+					local = f
+				}
+			}
+			if local.ID == "" {
+				t.Fatal("missing fixture fact")
+			}
+			local.Branch, local.Status = "feature", status
+			if err := writeFacts(brainDir, "feature", []factRecord{local}); err != nil {
+				t.Fatal(err)
+			}
+			found, missing, err := getUnifiedBatchOptions(opts.Env.RepoRoot, brainDir, "feature", []string{local.ID}, getOptions{GlobalFacts: globals})
+			if err != nil || len(missing) != 0 || len(found) != 1 {
+				t.Fatalf("get: found=%+v missing=%v err=%v", found, missing, err)
+			}
+			wantGlobal := status != factStatusActive
+			if strings.Contains(found[0].Heading, "(global)") != wantGlobal {
+				t.Fatalf("wrong fact scope: %+v", found[0])
+			}
+			if found[0].VerificationRequired == wantGlobal {
+				t.Fatalf("drift check did not follow the winning fact's scope: %+v", found[0])
+			}
+		})
+	}
+}
+
+func TestGlobalFactsDoNotReviveRepositoryProposals(t *testing.T) {
+	opts, brainDir := retrievalSurfaceFixture(t)
+	globals, err := loadGlobalFacts(opts.Env)
+	if err != nil || len(globals) != 1 {
+		t.Fatalf("global fixture: %v, %v", globals, err)
+	}
+	local, err := loadFacts(brainDir, "feature")
+	if err != nil {
+		t.Fatal(err)
+	}
+	retired := globals[0]
+	retired.Branch, retired.Status = "feature", factStatusRetracted
+	local = append(local, retired)
+	if err := writeFacts(brainDir, "feature", local); err != nil {
+		t.Fatal(err)
+	}
+	proposal := factProposal{Action: factActionMerge, CandidateID: local[0].ID, TargetID: retired.ID, Confidence: 0.6, Branch: "feature"}
+	if err := writeFactProposals(brainDir, "feature", []factProposal{proposal}); err != nil {
+		t.Fatal(err)
+	}
+	found, missing, err := getUnifiedBatchOptions(opts.Env.RepoRoot, brainDir, "feature", []string{retired.ID, local[0].ID}, getOptions{GlobalFacts: globals})
+	if err != nil || len(missing) != 0 || len(found) != 2 {
+		t.Fatalf("get: found=%+v missing=%v err=%v", found, missing, err)
+	}
+	for _, result := range found {
+		for _, caveat := range result.Caveats {
+			if caveat.Kind == retrievalCaveatUnresolvedReview {
+				t.Fatalf("global fallback revived a retired repository proposal: %+v", result)
+			}
+		}
+	}
+	for _, surface := range []string{"recall", "brief"} {
+		t.Run(surface, func(t *testing.T) {
+			cmd := &cobra.Command{}
+			var out bytes.Buffer
+			if surface == "recall" {
+				cmd = newRecallCommandWithEmbedder(opts, func() Embedder { return nil })
+			}
+			cmd.SetOut(&out)
+			cmd.SetErr(&bytes.Buffer{})
+			if surface == "recall" {
+				cmd.SetArgs([]string{"orion", "--branch=feature", "--json"})
+				err = cmd.Execute()
+			} else {
+				err = runBrainBrief(context.Background(), cmd, opts, brainBriefOptions{limit: 10, json: true}, "orion")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var report struct {
+				Facts        []json.RawMessage           `json:"facts"`
+				Pending      map[string]factReviewNotice `json:"pending_reviews"`
+				BriefPending map[string]factReviewNotice `json:"facts_pending_review"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+				t.Fatal(err)
+			}
+			if len(report.Facts) == 0 || len(report.Pending) != 0 || len(report.BriefPending) != 0 {
+				t.Fatalf("global fallback revived a repository proposal: %s", out.String())
+			}
+		})
+	}
+}

@@ -363,7 +363,8 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 			if len(matches) > 0 {
 				proposals, proposalsErr = loadFactProposals(brainDir, resolvedBranch)
 				if proposalsErr == nil {
-					pendingReviews = factsPendingReview(allFacts, proposals, matches)
+					localFacts := factsEligibleForLocusDrift(allFacts, globalIDs)
+					pendingReviews = factsPendingReview(localFacts, proposals, matches)
 				}
 			}
 			recordReceipt := func() {

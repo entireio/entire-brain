@@ -1213,7 +1213,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		}
 	}
 	factByID := map[string]factRecord{}
-	globalGetIDs := globalFactIDs(gopts.GlobalFacts)
+	var globalGetIDs map[string]bool
 	var reviewByID map[string]factReviewGroup
 	var reviewByFactID map[string]factReviewGroup
 	var proposalStateUnavailable bool
@@ -1226,7 +1226,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		if len(gopts.GlobalFacts) > 0 {
 			// query and search return global facts, so their ids have to
 			// resolve here too. The repository's copy still wins on a collision.
-			facts, _ = mergeGlobalFacts(facts, gopts.GlobalFacts)
+			facts, globalGetIDs = mergeGlobalFacts(facts, gopts.GlobalFacts)
 		}
 		facts = guardFactRecords(guard, facts)
 		for _, f := range facts {
@@ -1237,7 +1237,8 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			return nil, nil, perr
 		}
 		if perr == nil {
-			reviewByID, reviewByFactID = indexFactReviewGroups(buildFactReviewGroups(facts, proposals))
+			localFacts := factsEligibleForLocusDrift(facts, globalGetIDs)
+			reviewByID, reviewByFactID = indexFactReviewGroups(buildFactReviewGroups(localFacts, proposals))
 		} else {
 			proposalStateUnavailable = true
 		}
