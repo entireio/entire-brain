@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -163,14 +164,17 @@ func TestOllamaDistillAgentEnvelopeAllowanceIsCeilinged(t *testing.T) {
 		t.Fatalf("fixture must exceed the ceiling: unclamped %d <= ceiling %d", unclamped, distillOllamaMaxEnvelopeBytes)
 	}
 
-	var served int64
+	// Written by the handler goroutine and read by the test goroutine, so it
+	// must be synchronised or -race fails the test on the accounting rather
+	// than on the behaviour under test.
+	var served atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Stream past the ceiling; a correct client stops reading at it.
 		chunk := strings.Repeat("a", 1<<20)
 		w.Header().Set("Content-Type", "application/json")
-		for served < int64(distillOllamaMaxEnvelopeBytes)+(8<<20) {
+		for served.Load() < int64(distillOllamaMaxEnvelopeBytes)+(8<<20) {
 			n, err := io.WriteString(w, chunk)
-			served += int64(n)
+			served.Add(int64(n))
 			if err != nil {
 				return
 			}
@@ -187,9 +191,9 @@ func TestOllamaDistillAgentEnvelopeAllowanceIsCeilinged(t *testing.T) {
 	if !strings.Contains(err.Error(), "envelope exceeds") {
 		t.Fatalf("error must name the envelope bound, got: %v", err)
 	}
-	if served > int64(distillOllamaMaxEnvelopeBytes)+(4<<20) {
+	if got := served.Load(); got > int64(distillOllamaMaxEnvelopeBytes)+(4<<20) {
 		t.Fatalf("read %d bytes, must stop near the %d ceiling rather than following the stream",
-			served, distillOllamaMaxEnvelopeBytes)
+			got, distillOllamaMaxEnvelopeBytes)
 	}
 }
 
