@@ -240,3 +240,44 @@ func TestOllamaDistillAgentProbesTheWindowOnAFreshBudget(t *testing.T) {
 		t.Fatalf("the window probe must run on its own budget; got: %v", err)
 	}
 }
+
+// Every failure path below the parse still describes a call the model was paid
+// for, and TotalAgentCalls counts failed attempts, so provider-reported usage
+// must survive the failure or cost accounting understates exactly the calls
+// that cost the most. Truncation is the worst case: it burns a full context
+// window.
+func TestOllamaDistillAgentRecordsUsageOnTruncationFailure(t *testing.T) {
+	server := ollamaServerWithPS(t, "gemma4:12b", 32768,
+		`{"response":"kind\tpath\tfact\n","prompt_eval_count":32768,"eval_count":9}`)
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
+
+	ctx, collector := withDistillUsageCollector(context.Background())
+	if _, err := execOllamaDistillAgent(ctx, t.TempDir(),
+		[]string{"ollama", "gemma4:12b", "sys"}, []byte(strings.Repeat("x", 200000)), 30*time.Second); err == nil {
+		t.Fatal("expected the truncation failure")
+	}
+	summary := collector.summary(1)
+	if summary.InputTokens != 32768 || summary.OutputTokens != 9 {
+		t.Fatalf("a truncated call burns a full context window and must still be accounted; summary = %+v", summary)
+	}
+}
+
+// Same invariant for the oversized-output path.
+func TestOllamaDistillAgentRecordsUsageOnOversizedOutputFailure(t *testing.T) {
+	huge := strings.Repeat("x", distillMaxOutputBytes+1)
+	server := ollamaServerWithPS(t, "gemma4:12b", 32768,
+		fmt.Sprintf(`{"response":%q,"prompt_eval_count":700,"eval_count":65000}`, huge))
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
+
+	ctx, collector := withDistillUsageCollector(context.Background())
+	if _, err := execOllamaDistillAgent(ctx, t.TempDir(),
+		[]string{"ollama", "gemma4:12b", "sys"}, []byte("chunk"), 30*time.Second); err == nil {
+		t.Fatal("expected the oversized-output failure")
+	}
+	summary := collector.summary(1)
+	if summary.InputTokens != 700 || summary.OutputTokens != 65000 {
+		t.Fatalf("an oversized response was still generated and must be accounted; summary = %+v", summary)
+	}
+}

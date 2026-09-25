@@ -2421,11 +2421,30 @@ func execOllamaDistillAgent(ctx context.Context, dir string, args []string, inpu
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		return "", fmt.Errorf("parse ollama response: %w", err)
 	}
-	if len(parsed.Response) > distillMaxOutputBytes {
-		return "", fmt.Errorf("ollama output exceeds %d bytes", distillMaxOutputBytes)
-	}
 	if (parsed.PromptEvalCount != nil && *parsed.PromptEvalCount < 0) || (parsed.EvalCount != nil && *parsed.EvalCount < 0) {
 		return "", errors.New("ollama returned negative token counts")
+	}
+	// Recorded before the checks below, not after. Each of them fails a call the
+	// model has already been paid for, and truncation is the costliest of all —
+	// it burns a full context window. Recording after them dropped exactly the
+	// most expensive calls from accounting, while TotalAgentCalls still counted
+	// them, so the two disagreed.
+	usage := distillProviderUsage{Source: distillUsageSourceOllama}
+	if parsed.PromptEvalCount != nil {
+		usage.Reported = true
+		usage.InputReported = true
+		usage.InputTokens = *parsed.PromptEvalCount
+	}
+	if parsed.EvalCount != nil {
+		usage.Reported = true
+		usage.OutputReported = true
+		usage.OutputTokens = *parsed.EvalCount
+	}
+	// Error responses may still consume model tokens; TotalAgentCalls also
+	// counts failed attempts, so retain provider-reported usage before failing.
+	recordDistillProviderUsage(ctx, usage)
+	if len(parsed.Response) > distillMaxOutputBytes {
+		return "", fmt.Errorf("ollama output exceeds %d bytes", distillMaxOutputBytes)
 	}
 	// Ollama silently truncates a prompt that exceeds the context window the
 	// model was loaded with (gemma4:12b loads at num_ctx 32768 by default), so a
@@ -2448,20 +2467,6 @@ func execOllamaDistillAgent(ctx context.Context, dir string, args []string, inpu
 			return "", fmt.Errorf("ollama read %d tokens of a %d-byte prompt (%d-byte chunk plus %d-byte system prompt), filling the model's %d-token context window: the prompt was truncated and this chunk would be distilled in part; lower --max-chunk-bytes or load %s with a larger num_ctx", *parsed.PromptEvalCount, len(input)+len(args[2]), len(input), len(args[2]), window, model)
 		}
 	}
-	usage := distillProviderUsage{Source: distillUsageSourceOllama}
-	if parsed.PromptEvalCount != nil {
-		usage.Reported = true
-		usage.InputReported = true
-		usage.InputTokens = *parsed.PromptEvalCount
-	}
-	if parsed.EvalCount != nil {
-		usage.Reported = true
-		usage.OutputReported = true
-		usage.OutputTokens = *parsed.EvalCount
-	}
-	// Error responses may still consume model tokens; TotalAgentCalls also
-	// counts failed attempts, so retain provider-reported usage before failing.
-	recordDistillProviderUsage(ctx, usage)
 	if parsed.Error != "" {
 		return "", fmt.Errorf("ollama error: %s", parsed.Error)
 	}
