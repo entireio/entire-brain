@@ -1,0 +1,583 @@
+package cli
+
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// MCP is the right protocol for an agent and the wrong one for everything else.
+// A dashboard, a CI check or a notebook had to speak JSON-RPC or parse CLI
+// output. These tests cover the resource endpoints and, more importantly, that
+// adding them did not open a hole in the listener they share.
+
+func restServer(t *testing.T) (*httptest.Server, string) {
+	t.Helper()
+	opts := httpTestOptions(t)
+	cfg := mcpHTTPConfig{Addr: "127.0.0.1:0", Token: "right-token", Loopback: true}
+	server := httptest.NewServer(newMCPHTTPHandler(opts, cfg))
+	t.Cleanup(server.Close)
+	return server, "right-token"
+}
+
+func restGet(t *testing.T, server *httptest.Server, token, path string) (int, []byte) {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, server.URL+path, nil)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", path, err)
+	}
+	defer resp.Body.Close()
+	body := make([]byte, 0, 4096)
+	buf := make([]byte, 4096)
+	for {
+		n, err := resp.Body.Read(buf)
+		body = append(body, buf[:n]...)
+		if err != nil {
+			break
+		}
+	}
+	return resp.StatusCode, body
+}
+
+func TestRESTEndpointsAreBehindTheSameAuthAsMCP(t *testing.T) {
+	server, token := restServer(t)
+	// The whole reason REST shares the MCP listener is that one auth path
+	// cannot drift from another. If a new endpoint could be reached without a
+	// token, sharing the listener bought nothing.
+	for _, path := range []string{"/v1/", "/v1/status", "/v1/facts", "/v1/search?q=x", "/v1/nonexistent"} {
+		if status, _ := restGet(t, server, "", path); status != http.StatusUnauthorized {
+			t.Fatalf("%s without a token returned %d, want 401", path, status)
+		}
+		if status, _ := restGet(t, server, "wrong", path); status != http.StatusUnauthorized {
+			t.Fatalf("%s with a wrong token returned %d, want 401", path, status)
+		}
+	}
+	if status, _ := restGet(t, server, token, "/v1/"); status != http.StatusOK {
+		t.Fatalf("the correct token was refused: %d", status)
+	}
+}
+
+func TestRESTRootListsWhatExists(t *testing.T) {
+	server, token := restServer(t)
+	status, body := restGet(t, server, token, "/v1/")
+	if status != http.StatusOK {
+		t.Fatalf("status %d", status)
+	}
+	var payload struct {
+		Endpoints []struct {
+			Method string `json:"method"`
+			Path   string `json:"path"`
+		} `json:"endpoints"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// An API discoverable from its root is one fewer document to keep in sync.
+	seen := map[string]bool{}
+	for _, e := range payload.Endpoints {
+		seen[e.Path] = true
+	}
+	for _, want := range []string{"/v1/status", "/v1/facts", "/v1/search"} {
+		if !seen[want] {
+			t.Fatalf("the root does not list %s: %s", want, body)
+		}
+	}
+}
+
+func TestRESTRefusesUnboundedAndNonsenseLimits(t *testing.T) {
+	server, token := restServer(t)
+	// An unbounded limit on an endpoint that serialises records turns one
+	// request into all of memory.
+	for _, bad := range []string{"0", "-1", "abc", "100000"} {
+		status, body := restGet(t, server, token, "/v1/facts?limit="+bad)
+		if status != http.StatusBadRequest {
+			t.Fatalf("limit=%s returned %d, want 400", bad, status)
+		}
+		if !strings.Contains(string(body), "limit") {
+			t.Fatalf("limit=%s: the error should name the parameter: %s", bad, body)
+		}
+	}
+	if status, _ := restGet(t, server, token, "/v1/facts?limit=5"); status != http.StatusOK {
+		t.Fatalf("a valid limit was refused: %d", status)
+	}
+}
+
+func TestRESTSearchRequiresAQueryAndSaysSo(t *testing.T) {
+	server, token := restServer(t)
+	status, body := restGet(t, server, token, "/v1/search")
+	if status != http.StatusBadRequest {
+		t.Fatalf("a search with no q returned %d, want 400", status)
+	}
+	// An error that shows the shape of a working call is worth more than one
+	// that states a rule.
+	if !strings.Contains(string(body), "/v1/search?q=") {
+		t.Fatalf("the error should show a working example: %s", body)
+	}
+}
+
+func TestRESTUnknownPathIsA404ThatPointsSomewhere(t *testing.T) {
+	server, token := restServer(t)
+	status, body := restGet(t, server, token, "/v1/nope")
+	if status != http.StatusNotFound {
+		t.Fatalf("unknown path returned %d, want 404", status)
+	}
+	if !strings.Contains(string(body), "/v1/") {
+		t.Fatalf("a 404 should point at the discovery endpoint: %s", body)
+	}
+}
+
+func TestRESTDidNotDisturbTheMCPEndpoint(t *testing.T) {
+	server, token := restServer(t)
+	// Mounting REST on this listener must not have shadowed the JSON-RPC POST
+	// that was already there.
+	req, _ := http.NewRequest(http.MethodPost, server.URL+"/",
+		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatalf("POST /: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("MCP POST returned %d after REST was added", resp.StatusCode)
+	}
+	var payload struct {
+		Result struct {
+			Tools []struct{ Name string } `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(payload.Result.Tools) == 0 {
+		t.Fatal("MCP tools/list came back empty after REST was mounted")
+	}
+}
+
+// An unrecognised source turns every include flag off downstream, so the raw
+// value produced 200 with zero results — an empty search presented as a
+// complete answer, where the same typo on the CLI is an error. The REST surface
+// has to give the same answer as the CLI and MCP for the same mistake.
+func TestRESTRejectsAnUnknownSource(t *testing.T) {
+	server, token := restServer(t)
+	for _, bad := range []string{"facts", "histories", "nonsense", "fac"} {
+		status, body := restGet(t, server, token, "/v1/search?q=x&source="+url.QueryEscape(bad))
+		if status != http.StatusBadRequest {
+			t.Fatalf("source=%q returned %d, want 400 — an empty result is not an answer", bad, status)
+		}
+		if !strings.Contains(string(body), "source") {
+			t.Fatalf("source=%q: the error should name the parameter: %s", bad, body)
+		}
+	}
+	// The valid ones, including the empty default, must still work.
+	// Trimmed and case-folded, because the shared parser does that and the
+	// point of routing through it is that REST answers exactly as the CLI does.
+	for _, good := range []string{"", "all", "fact", "history", "doc", "FACT", " fact "} {
+		if status, body := restGet(t, server, token, "/v1/search?q=x&source="+url.QueryEscape(good)); status != http.StatusOK {
+			t.Fatalf("source=%q was refused with %d: %s", good, status, body)
+		}
+	}
+}
+
+// Every retrieval surface buffers its response and revalidates the
+// session-exclusion guard immediately before emitting a byte, because ranking
+// is slow enough for a concurrent tombstone to land after the first snapshot.
+// This endpoint wrote straight to the socket and skipped it — over the network,
+// and optionally beyond loopback.
+//
+// A source check, because the defect was an endpoint that looked fine in
+// isolation and disagreed with every other surface; no response-level test of
+// this handler alone would have surfaced it.
+func TestRESTRetrievalGoesThroughThePrivacyWriteBoundary(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(".", "rest_api.go"))
+	if err != nil {
+		t.Fatalf("read rest_api.go: %v", err)
+	}
+	source := string(data)
+
+	for _, required := range []string{
+		"captureRetrievalPrivacyPolicy(",
+		"revalidateRetrievalResponsePrivacy(",
+		"writeRetrievalResponseBytes(",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("rest_api.go does not call %s; brain content can be served after an exclusion lands", required)
+		}
+	}
+
+	// And no brain read may bypass it. Each of these handlers reads a brain,
+	// so each must emit through the retrieval boundary rather than writeRESTJSON.
+	for _, handler := range []string{"func restSearch(", "func restFacts(", "func restStatus("} {
+		start := strings.Index(source, handler)
+		if start < 0 {
+			t.Fatalf("%s is gone; this test no longer covers what it claims", handler)
+		}
+		body := source[start:]
+		if end := strings.Index(body[1:], "\nfunc "); end >= 0 {
+			body = body[:end]
+		}
+		if strings.Contains(body, "writeRESTJSON(") {
+			t.Fatalf("%s emits brain content with writeRESTJSON, bypassing the privacy write boundary", handler)
+		}
+		if !strings.Contains(body, "writeRESTRetrieval(") {
+			t.Fatalf("%s does not emit through writeRESTRetrieval", handler)
+		}
+	}
+}
+
+// The response has to be buffered before the guard runs: a policy change
+// partway through a streamed encode would emit a half-written stale body, which
+// is why the shared helper takes bytes rather than a writer.
+func TestRESTRetrievalBuffersBeforeWriting(t *testing.T) {
+	server, token := restServer(t)
+	// A normal read must still work end to end through the new boundary.
+	for _, path := range []string{"/v1/status", "/v1/facts", "/v1/search?q=retry"} {
+		status, body := restGet(t, server, token, path)
+		if status != http.StatusOK {
+			t.Fatalf("%s returned %d: %s", path, status, body)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("%s returned a body that is not complete JSON (%v): %s", path, err, body)
+		}
+	}
+}
+
+// A concurrent exclusion that completes cleanly moves the privacy policy
+// identity without leaving the derived state dirty. revalidateRetrievalResponsePrivacy
+// re-filters the rows against the fresh guard and hands back the identity those
+// rows were cleared under; the final write boundary must be given that identity.
+// Handing it the pre-ranking snapshot instead makes the boundary refuse a
+// response it has already cleaned, and because the status line is written
+// before the body, the refusal reaches the client as 200 with an empty body —
+// an empty answer presented as a complete one.
+func TestRESTSearchSurvivesACleanPolicyMoveDuringRanking(t *testing.T) {
+	opts := httpTestOptions(t)
+	cfg := mcpHTTPConfig{Addr: "127.0.0.1:0", Token: "right-token", Loopback: true}
+	server := httptest.NewServer(newMCPHTTPHandler(opts, cfg))
+	t.Cleanup(server.Close)
+
+	brainDir, _, err := restResolveTarget(httptest.NewRequest(http.MethodGet, "/v1/search?q=x", nil), opts)
+	if err != nil {
+		t.Fatalf("resolve brain: %v", err)
+	}
+
+	original := beforeRetrievalResponsePrivacyRecheck
+	t.Cleanup(func() { beforeRetrievalResponsePrivacyRecheck = original })
+	moved := false
+	beforeRetrievalResponsePrivacyRecheck = func() {
+		if moved {
+			return
+		}
+		moved = true
+		// A session this brain never derived anything from: verification stays
+		// clean, so the only thing this exclusion changes is the identity.
+		stones := loadSessionTombstones(brainDir)
+		stones.Excluded["session-never-indexed"] = sessionTombstone{At: opts.Now(), Reason: "clean policy move"}
+		if err := saveSessionTombstones(brainDir, stones); err != nil {
+			panic(err)
+		}
+	}
+
+	status, body := restGet(t, server, "right-token", "/v1/search?q=x&source=fact")
+	if !moved {
+		t.Fatal("the recheck seam never fired, so this test proved nothing")
+	}
+	if status != http.StatusOK {
+		t.Fatalf("a clean policy move returned %d, want 200: %s", status, body)
+	}
+	if len(body) == 0 {
+		t.Fatal("the write boundary refused a response it had already re-filtered: 200 with an empty body")
+	}
+	for _, want := range []string{`"query"`, `"count"`, `"branch"`} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("response is missing %s, so the payload was withheld: %s", want, body)
+		}
+	}
+}
+
+func TestRESTRetrievalPrivacyRefusalIsNotSuccess(t *testing.T) {
+	response := httptest.NewRecorder()
+	writeRESTRetrieval(response, map[string]string{"secret": "withheld content"},
+		retrievalPrivacyPolicy{BrainDir: t.TempDir(), Identity: "outdated-policy"})
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("privacy refusal returned HTTP %d: %s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "withheld content") {
+		t.Fatal("refused content leaked")
+	}
+	var body restError
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Error == "" {
+		t.Fatalf("missing REST error: %q (%v)", response.Body.String(), err)
+	}
+}
+
+type partialRESTResponseWriter struct {
+	*httptest.ResponseRecorder
+	calls int
+}
+
+func (w *partialRESTResponseWriter) Write(data []byte) (int, error) {
+	w.calls++
+	n, _ := w.ResponseRecorder.Write(data[:len(data)/2])
+	return n, io.ErrClosedPipe
+}
+
+func TestRESTRetrievalDoesNotAppendErrorAfterPartialWrite(t *testing.T) {
+	response := &partialRESTResponseWriter{ResponseRecorder: httptest.NewRecorder()}
+	writeRESTRetrieval(response, map[string]string{"result": "some content"})
+	if response.calls != 1 || response.Code != http.StatusOK {
+		t.Fatalf("attempted a second response after delivery began: writes=%d status=%d", response.calls, response.Code)
+	}
+}
+
+func TestRESTSearchUsesResolvedRepositoryForLocusChecks(t *testing.T) {
+	opts := httpTestOptions(t)
+	repoDir := opts.Env.RepoRoot
+	present := "internal/present.go"
+	if err := os.MkdirAll(filepath.Join(repoDir, "internal"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, present), []byte("package example\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/v1/search?q=orion&source=fact", nil)
+	brainDir, branch, err := restResolveTarget(request, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := []factRecord{
+		{ID: "fact:present", Text: "orion uses internal/present.go", Status: factStatusActive, Branch: branch},
+		{ID: "fact:missing", Text: "orion uses internal/missing.go", Status: factStatusActive, Branch: branch},
+	}
+	if err := writeFacts(brainDir, branch, facts); err != nil {
+		t.Fatal(err)
+	}
+	// Git resolves the configured subdirectory to the repository root.
+	opts.Env.RepoRoot = filepath.Join(repoDir, "subdir")
+	if err := os.MkdirAll(opts.Env.RepoRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	restSearch(response, request, opts)
+	if response.Code != http.StatusOK {
+		t.Fatalf("HTTP %d: %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Results []unifiedResult `json:"results"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Results) != 2 {
+		t.Fatalf("missing facts: %s", response.Body.String())
+	}
+	for _, result := range body.Results {
+		wantStale := result.ID == "fact:missing"
+		if result.VerificationRequired != wantStale {
+			t.Fatalf("wrong locus trust for %s: %+v", result.ID, result)
+		}
+	}
+}
+
+// Every other facts-reading surface runs loadFacts through the session read
+// guard — dash.go, handoff.go, agent_surface.go all do. REST did not, so a fact
+// whose only provenance is an excluded session was served over HTTP while the
+// same fact was correctly hidden everywhere else. An exclusion that holds on
+// four surfaces and not the fifth is not an exclusion.
+func TestRESTWithholdsFactsFromExcludedSessions(t *testing.T) {
+	opts := httpTestOptions(t)
+	cfg := mcpHTTPConfig{Addr: "127.0.0.1:0", Token: "right-token", Loopback: true}
+	server := httptest.NewServer(newMCPHTTPHandler(opts, cfg))
+	t.Cleanup(server.Close)
+
+	brainDir, branch, err := restResolveTarget(httptest.NewRequest(http.MethodGet, "/v1/facts", nil), opts)
+	if err != nil {
+		t.Fatalf("resolve brain: %v", err)
+	}
+
+	private := factRecord{
+		ID: "fact:private", Text: "PRIVATE-CANARY from an excluded session",
+		Status: factStatusActive, Branch: branch,
+		Provenance: []factAnchor{{SessionID: "excluded-session"}},
+	}
+	public := factRecord{
+		ID: "fact:public", Text: "Public fact with no session provenance",
+		Status: factStatusActive, Branch: branch,
+	}
+	if err := writeFacts(brainDir, branch, []factRecord{private, public}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Both visible before the exclusion, or the test proves nothing.
+	status, body := restGet(t, server, "right-token", "/v1/facts")
+	if status != http.StatusOK || !strings.Contains(string(body), "PRIVATE-CANARY") {
+		t.Fatalf("fixture never served the fact, so the exclusion proves nothing: %d %s", status, body)
+	}
+
+	stones := loadSessionTombstones(brainDir)
+	stones.Excluded["excluded-session"] = sessionTombstone{At: opts.Now(), Reason: "privacy test"}
+	if err := saveSessionTombstones(brainDir, stones); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body = restGet(t, server, "right-token", "/v1/facts")
+	if status != http.StatusOK {
+		t.Fatalf("GET /v1/facts after exclusion returned %d: %s", status, body)
+	}
+	if strings.Contains(string(body), "PRIVATE-CANARY") {
+		t.Fatalf("a fact from an excluded session was served over REST:\n%s", body)
+	}
+	if !strings.Contains(string(body), "Public fact") {
+		t.Fatalf("the exclusion also hid an unrelated fact:\n%s", body)
+	}
+
+	// The aggregate counts must not leak it either.
+	status, body = restGet(t, server, "right-token", "/v1/status")
+	if status != http.StatusOK {
+		t.Fatalf("GET /v1/status returned %d: %s", status, body)
+	}
+	var payload struct {
+		Facts struct {
+			Active int `json:"active"`
+			Total  int `json:"total"`
+		} `json:"facts"`
+	}
+	if err := json.Unmarshal(body, &payload); err == nil && payload.Facts.Total > 1 {
+		t.Fatalf("status counted %d facts; the excluded one is still in the aggregate:\n%s",
+			payload.Facts.Total, body)
+	}
+}
+
+func TestRESTRejectsExclusionBetweenFactFilteringAndDelivery(t *testing.T) {
+	for _, path := range []string{"/v1/facts", "/v1/status"} {
+		t.Run(path, func(t *testing.T) {
+			opts := httpTestOptions(t)
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			brainDir, branch, err := restResolveTarget(req, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			facts := []factRecord{
+				{ID: "fact:private", Text: "PRIVATE-CANARY", Status: factStatusActive, Branch: branch, Provenance: []factAnchor{{SessionID: "excluded-session"}}},
+				{ID: "fact:public", Text: "Public fact", Status: factStatusActive, Branch: branch},
+			}
+			if err := writeFacts(brainDir, branch, facts); err != nil {
+				t.Fatal(err)
+			}
+			handler := restFacts
+			if path == "/v1/status" {
+				handler = restStatus
+			}
+			before := httptest.NewRecorder()
+			handler(before, req, opts)
+			if before.Code != http.StatusOK {
+				t.Fatalf("baseline: %d %s", before.Code, before.Body)
+			}
+			original := afterRESTFactsPrivacyFilter
+			t.Cleanup(func() { afterRESTFactsPrivacyFilter = original })
+			called := false
+			afterRESTFactsPrivacyFilter = func() {
+				called = true
+				stones := loadSessionTombstones(brainDir)
+				stones.Excluded["excluded-session"] = sessionTombstone{At: opts.Now(), Reason: "concurrent REST exclusion"}
+				if err := saveSessionTombstones(brainDir, stones); err != nil {
+					t.Fatal(err)
+				}
+			}
+			response := httptest.NewRecorder()
+			handler(response, req, opts)
+			if !called {
+				t.Fatal("exclusion hook was not reached")
+			}
+			if response.Code != http.StatusServiceUnavailable || strings.Contains(response.Body.String(), "PRIVATE-CANARY") {
+				t.Fatalf("stale response escaped: %d %s", response.Code, response.Body)
+			}
+			afterRESTFactsPrivacyFilter = original
+			retry := httptest.NewRecorder()
+			handler(retry, req, opts)
+			if retry.Code != http.StatusOK || strings.Contains(retry.Body.String(), "PRIVATE-CANARY") {
+				t.Fatalf("retry failed to filter exclusion: %d %s", retry.Code, retry.Body)
+			}
+			if path == "/v1/status" {
+				var payload struct {
+					Facts struct {
+						Total int `json:"total"`
+					} `json:"facts"`
+				}
+				if err := json.Unmarshal(retry.Body.Bytes(), &payload); err != nil || payload.Facts.Total != 1 {
+					t.Fatalf("wrong filtered count: %s (%v)", retry.Body, err)
+				}
+			} else if !strings.Contains(retry.Body.String(), "Public fact") {
+				t.Fatalf("retry lost public fact: %s", retry.Body)
+			}
+		})
+	}
+}
+
+func TestRESTUsesThePolicyThatFilteredFacts(t *testing.T) {
+	for _, path := range []string{"/v1/facts", "/v1/status"} {
+		t.Run(path, func(t *testing.T) {
+			opts := httpTestOptions(t)
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			brainDir, branch, err := restResolveTarget(req, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			facts := []factRecord{
+				{ID: "fact:private", Text: "PRIVATE-CANARY", Status: factStatusActive, Branch: branch, Provenance: []factAnchor{{SessionID: "excluded-session"}}},
+				{ID: "fact:public", Text: "Public fact", Status: factStatusActive, Branch: branch},
+			}
+			if err := writeFacts(brainDir, branch, facts); err != nil {
+				t.Fatal(err)
+			}
+			original := beforeRESTFactsPrivacyFilter
+			t.Cleanup(func() { beforeRESTFactsPrivacyFilter = original })
+			called := false
+			beforeRESTFactsPrivacyFilter = func() {
+				called = true
+				stones := loadSessionTombstones(brainDir)
+				stones.Excluded["excluded-session"] = sessionTombstone{At: opts.Now(), Reason: "exclusion before filtering"}
+				if err := saveSessionTombstones(brainDir, stones); err != nil {
+					t.Fatal(err)
+				}
+			}
+			response := httptest.NewRecorder()
+			if path == "/v1/facts" {
+				restFacts(response, req, opts)
+			} else {
+				restStatus(response, req, opts)
+			}
+			if !called {
+				t.Fatal("exclusion hook was not reached")
+			}
+			if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "PRIVATE-CANARY") {
+				t.Fatalf("expected a clean response under the filtering policy: %d %s", response.Code, response.Body)
+			}
+			if path == "/v1/facts" {
+				if !strings.Contains(response.Body.String(), "Public fact") {
+					t.Fatalf("missing public fact: %s", response.Body)
+				}
+			} else {
+				var payload struct {
+					Facts struct {
+						Total int `json:"total"`
+					} `json:"facts"`
+				}
+				if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil || payload.Facts.Total != 1 {
+					t.Fatalf("wrong filtered count: %s (%v)", response.Body, err)
+				}
+			}
+		})
+	}
+}
