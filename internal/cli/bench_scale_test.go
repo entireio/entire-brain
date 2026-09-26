@@ -535,3 +535,72 @@ func TestStreamedLineCountMatchesReadingWhole(t *testing.T) {
 		})
 	}
 }
+
+func TestPercentileUsesCeilingForNearestRank(t *testing.T) {
+	values := make([]float64, 31)
+	for i := range values {
+		values[i] = float64(i + 1)
+	}
+	if got := percentile(values, .95); got != 30 {
+		t.Fatalf("p95 of 31 samples = %v, want rank 30", got)
+	}
+}
+
+func TestBrainSizeRejectsMissingStore(t *testing.T) {
+	if _, _, err := measureBrainSize(filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Fatal("missing store reported as a zero-byte measurement")
+	}
+}
+
+func TestLatencyRunsRejectsPartialAndEmptyModes(t *testing.T) {
+	for _, samples := range []int{0, 5, 7} {
+		r := scaleBenchReport{
+			Queries: []string{"a", "b"},
+			Latency: map[string]latencyStats{
+				"code_search":       {Samples: 6},
+				"knowledge_lexical": {Samples: samples},
+			},
+		}
+		if got := latencyRuns(r); got != 0 {
+			t.Fatalf("6 and %d samples reported %d runs each", samples, got)
+		}
+	}
+}
+
+func TestScaleKnowledgeCountIncludesHistory(t *testing.T) {
+	index := ftsTestIndex()
+	brainDir, _ := writeDirectHistoryFTSFixture(t, index)
+	got, err := countScaleKnowledgeRecords(brainDir, "main")
+	if err != nil || got != len(index.Records) {
+		t.Fatalf("history-only corpus: count=%d err=%v, want %d", got, err, len(index.Records))
+	}
+}
+
+func TestScaleCorpusPreservesWhitespaceInTrackedPaths(t *testing.T) {
+	dir := t.TempDir()
+	name := " leading.go"
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("package main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"init", "-q"}, {"add", "--", name}} {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git: %v: %s", err, out)
+		}
+	}
+	got, warnings, err := measureCorpus(context.Background(), Options{Runner: ExecRunner{}}, dir)
+	if err != nil || len(warnings) != 0 || got.files != 1 || got.lines != 1 {
+		t.Fatalf("corpus=%+v warnings=%v err=%v", got, warnings, err)
+	}
+}
+
+func TestScaleReportShowsSamplesAndSuppressesRunsOnFailure(t *testing.T) {
+	r := scaleBenchReport{Queries: []string{"a", "b"},
+		Latency:  map[string]latencyStats{"code_search": {Samples: 6}},
+		Warnings: []string{"code_search: 2 search(es) failed and are not in the distribution"}}
+	var out strings.Builder
+	printScaleBenchReport(&out, r)
+	if strings.Contains(out.String(), "runs each") || !strings.Contains(out.String(), "samples") {
+		t.Fatalf("failed queries misrepresented: %s", out.String())
+	}
+}

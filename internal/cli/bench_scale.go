@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -334,14 +335,13 @@ func measureCorpus(ctx context.Context, opts Options, repoDir string) (corpusSiz
 	var size corpusSize
 	var warnings []string
 
-	out, err := gitScalar(ctx, opts.Runner, repoDir, "ls-files", "-z")
+	out, _, err := opts.Runner.Run(ctx, repoDir, "git", "ls-files", "-z")
 	if err != nil {
 		return size, nil, fmt.Errorf("list tracked files (the scale benchmark needs a git repository): %w", err)
 	}
-	paths := strings.Split(strings.TrimRight(out, "\x00"), "\x00")
+	paths := strings.Split(strings.TrimRight(string(out), "\x00"), "\x00")
 	skipped := 0
 	for _, rel := range paths {
-		rel = strings.TrimSpace(rel)
 		if rel == "" {
 			continue
 		}
@@ -472,19 +472,19 @@ func measureBrainSize(brainDir string) (int64, []scaleComponent, error) {
 	byComponent := map[string]int64{}
 	err := filepath.WalkDir(brainDir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return nil // an unreadable entry must not fail the measurement
+			return fmt.Errorf("measure index size at %s: %w", path, walkErr)
 		}
 		if d.IsDir() {
 			return nil
 		}
 		info, err := d.Info()
 		if err != nil {
-			return nil
+			return fmt.Errorf("measure index size at %s: %w", path, err)
 		}
 		total += info.Size()
 		rel, relErr := filepath.Rel(brainDir, path)
 		if relErr != nil {
-			return nil
+			return relErr
 		}
 		component := strings.SplitN(filepath.ToSlash(rel), "/", 2)[0]
 		byComponent[component] += info.Size()
@@ -576,12 +576,10 @@ func measureKnowledgeLatency(repoDir, brainDir, branch string, queries []string,
 	stats := map[string]latencyStats{}
 	var warnings []string
 
-	records := 0
-	if facts, err := loadFacts(brainDir, branch); err == nil {
-		records += len(facts)
-	}
-	if index, err := loadDocIndex(brainDir); err == nil {
-		records += len(index.Records)
+	records, countErr := countScaleKnowledgeRecords(brainDir, branch)
+	if countErr != nil {
+		records = -1 // Unknown must not be presented as an empty corpus.
+		warnings = append(warnings, "knowledge corpus size unavailable: "+countErr.Error())
 	}
 
 	for _, mode := range []retrievalMode{modeLexical, modeHybrid} {
@@ -612,6 +610,38 @@ func measureKnowledgeLatency(repoDir, brainDir, branch string, queries []string,
 	return stats, records, warnings
 }
 
+// Count stored records before query-specific ranking and filtering. History
+// includes the reconciled short-term overlay, just as retrieval does.
+func countScaleKnowledgeRecords(brainDir, branch string) (int, error) {
+	facts, err := loadFacts(brainDir, branch)
+	if err != nil {
+		return 0, err
+	}
+	records := len(facts)
+	index, err := loadDocIndex(brainDir)
+	if err == nil {
+		records += len(index.Records)
+	} else if !os.IsNotExist(err) {
+		return 0, err
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return 0, err
+	}
+	if manifest.Sources != nil && manifest.Sources.History != nil {
+		fresh, err := loadFreshHistory(brainDir, manifest.Sources.History)
+		if err != nil {
+			return 0, err
+		}
+		for _, record := range fresh.reconciledRecords() {
+			if record.Kind != conversationKind {
+				records++
+			}
+		}
+	}
+	return records, nil
+}
+
 func summarizeLatency(samples []float64) latencyStats {
 	if len(samples) == 0 {
 		return latencyStats{}
@@ -640,7 +670,7 @@ func percentile(sorted []float64, p float64) float64 {
 	if len(sorted) == 0 {
 		return 0
 	}
-	rank := int(float64(len(sorted))*p + 0.5)
+	rank := int(math.Ceil(float64(len(sorted)) * p))
 	if rank < 1 {
 		rank = 1
 	}
@@ -687,7 +717,7 @@ func printScaleBenchReport(out io.Writer, r scaleBenchReport) {
 		fmt.Fprintf(out, "    %-14s %s\n", component.Name, humanBytes(component.Bytes))
 	}
 
-	if runs := latencyRuns(r); runs > 0 {
+	if runs := latencyRuns(r); runs > 0 && len(r.Warnings) == 0 {
 		fmt.Fprintf(out, "\nquery latency (%d queries, %d runs each)\n", len(r.Queries), runs)
 	} else {
 		// The modes did not all run the same number of times, so there is no
@@ -695,20 +725,24 @@ func printScaleBenchReport(out io.Writer, r scaleBenchReport) {
 		fmt.Fprintf(out, "\nquery latency (%d queries)\n", len(r.Queries))
 	}
 	fmt.Fprintf(out, "  code_search runs against the semantic index (%s symbols).\n", humanCount(int64(r.Symbols)))
-	fmt.Fprintf(out, "  knowledge_* run against facts/history/docs (%s records), which do not grow with the codebase.\n", humanCount(int64(r.KnowledgeRecords)))
+	knowledgeCount := humanCount(int64(r.KnowledgeRecords))
+	if r.KnowledgeRecords < 0 {
+		knowledgeCount = "unknown"
+	}
+	fmt.Fprintf(out, "  knowledge_* run against facts/history/docs (%s records before retrieval filters), which do not grow with the codebase.\n", knowledgeCount)
 	modes := make([]string, 0, len(r.Latency))
 	for mode := range r.Latency {
 		modes = append(modes, mode)
 	}
 	sort.Strings(modes)
-	fmt.Fprintf(out, "  %-10s %8s %8s %8s %8s\n", "mode", "p50", "p95", "p99", "max")
+	fmt.Fprintf(out, "  %-18s %8s %8s %8s %8s %8s\n", "mode", "samples", "p50", "p95", "p99", "max")
 	for _, mode := range modes {
 		s := r.Latency[mode]
 		if s.Samples == 0 {
-			fmt.Fprintf(out, "  %-10s %8s\n", mode, "n/a")
+			fmt.Fprintf(out, "  %-18s %8d %8s\n", mode, 0, "n/a")
 			continue
 		}
-		fmt.Fprintf(out, "  %-10s %7.1fms %7.1fms %7.1fms %7.1fms\n", mode, s.P50MS, s.P95MS, s.P99MS, s.MaxMS)
+		fmt.Fprintf(out, "  %-18s %8d %7.1fms %7.1fms %7.1fms %7.1fms\n", mode, s.Samples, s.P50MS, s.P95MS, s.P99MS, s.MaxMS)
 	}
 	for _, warning := range r.Warnings {
 		fmt.Fprintf(out, "\nwarning: %s\n", warning)
@@ -732,8 +766,8 @@ func latencyRuns(r scaleBenchReport) int {
 	}
 	runs := -1
 	for _, stats := range r.Latency {
-		if stats.Samples <= 0 {
-			continue
+		if stats.Samples <= 0 || stats.Samples%len(r.Queries) != 0 {
+			return 0
 		}
 		perQuery := stats.Samples / len(r.Queries)
 		if runs < 0 {

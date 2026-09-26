@@ -328,7 +328,7 @@ Facts extracted by a model can be wrong. Check the linked sources before relying
 
 Code analysis inherits Graph's limitations: dynamic calls can go unresolved, and parsing support varies by language.
 
-Brain's index and its query latency both grow linearly with the size of the codebase: measured at 4.8M lines, the index is 1.2 GB and a code search takes about 12 seconds. It is comfortable on repositories of a few hundred thousand lines and is not built for the very largest monorepos. The numbers, the command that produces them, and what they are compared against are in [scale](docs/scale.md).
+The historical scale benchmark measured a 1.2 GB index and roughly 12-second median code search on one 4.8M-line repository. Those runs do not establish a scaling law or performance at 100M lines. See [scale](docs/scale.md) for the measurements, their limits, and the command to benchmark a current build.
 
 Search support varies by build and source. Check `entire brain capabilities` for available retrieval modes and the [conversation recall documentation](docs/recall-evidence.md) for experimental features.
 
