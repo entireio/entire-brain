@@ -47,13 +47,14 @@ type scaleBenchOptions struct {
 }
 
 type latencyStats struct {
-	Samples int     `json:"samples"`
-	MinMS   float64 `json:"min_ms"`
-	P50MS   float64 `json:"p50_ms"`
-	P95MS   float64 `json:"p95_ms"`
-	P99MS   float64 `json:"p99_ms"`
-	MaxMS   float64 `json:"max_ms"`
-	MeanMS  float64 `json:"mean_ms"`
+	Samples  int     `json:"samples"`
+	Failures int     `json:"failed_calls,omitempty"` // Includes failed warm-up calls.
+	MinMS    float64 `json:"min_ms"`
+	P50MS    float64 `json:"p50_ms"`
+	P95MS    float64 `json:"p95_ms"`
+	P99MS    float64 `json:"p99_ms"`
+	MaxMS    float64 `json:"max_ms"`
+	MeanMS   float64 `json:"mean_ms"`
 }
 
 type scaleBenchReport struct {
@@ -549,7 +550,9 @@ func measureCodeSearchLatency(ctx context.Context, opts Options, queries []strin
 		// for the workload, so the count is reported beside it.
 		warnings = append(warnings, fmt.Sprintf("code_search: %d search(es) failed and are not in the distribution", failures))
 	}
-	return summarizeLatency(samples), warnings
+	stats := summarizeLatency(samples)
+	stats.Failures = failures
+	return stats, warnings
 }
 
 // retrievalModeName exists because retrievalMode is an int. string(mode) on it
@@ -605,7 +608,9 @@ func measureKnowledgeLatency(repoDir, brainDir, branch string, queries []string,
 		if failures > 0 {
 			warnings = append(warnings, fmt.Sprintf("%s: %d retrieval(s) failed and are not in the distribution", name, failures))
 		}
-		stats[name] = summarizeLatency(samples)
+		summary := summarizeLatency(samples)
+		summary.Failures = failures
+		stats[name] = summary
 	}
 	return stats, records, warnings
 }
@@ -717,7 +722,7 @@ func printScaleBenchReport(out io.Writer, r scaleBenchReport) {
 		fmt.Fprintf(out, "    %-14s %s\n", component.Name, humanBytes(component.Bytes))
 	}
 
-	if runs := latencyRuns(r); runs > 0 && len(r.Warnings) == 0 {
+	if runs := latencyRuns(r); runs > 0 {
 		fmt.Fprintf(out, "\nquery latency (%d queries, %d runs each)\n", len(r.Queries), runs)
 	} else {
 		// The modes did not all run the same number of times, so there is no
@@ -749,8 +754,6 @@ func printScaleBenchReport(out io.Writer, r scaleBenchReport) {
 	}
 }
 
-// latencyRuns reports the repeats per query, derived from the samples actually
-// collected so the header cannot claim a number of runs that did not happen.
 // latencyRuns reports the timed runs per query, and only when every mode ran
 // the same number. The header says "runs each", which is a claim about all of
 // them; reading it from whichever key Go's randomised map iteration happened to
@@ -766,7 +769,7 @@ func latencyRuns(r scaleBenchReport) int {
 	}
 	runs := -1
 	for _, stats := range r.Latency {
-		if stats.Samples <= 0 || stats.Samples%len(r.Queries) != 0 {
+		if stats.Failures > 0 || stats.Samples <= 0 || stats.Samples%len(r.Queries) != 0 {
 			return 0
 		}
 		perQuery := stats.Samples / len(r.Queries)

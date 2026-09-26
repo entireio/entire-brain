@@ -596,11 +596,45 @@ func TestScaleCorpusPreservesWhitespaceInTrackedPaths(t *testing.T) {
 
 func TestScaleReportShowsSamplesAndSuppressesRunsOnFailure(t *testing.T) {
 	r := scaleBenchReport{Queries: []string{"a", "b"},
-		Latency:  map[string]latencyStats{"code_search": {Samples: 6}},
+		Latency:  map[string]latencyStats{"code_search": {Samples: 6, Failures: 2}},
 		Warnings: []string{"code_search: 2 search(es) failed and are not in the distribution"}}
 	var out strings.Builder
 	printScaleBenchReport(&out, r)
 	if strings.Contains(out.String(), "runs each") || !strings.Contains(out.String(), "samples") {
 		t.Fatalf("failed queries misrepresented: %s", out.String())
+	}
+}
+
+func TestScaleReportRetainsRunCountWithInformationalWarnings(t *testing.T) {
+	r := scaleBenchReport{Queries: []string{"a", "b"},
+		Latency:  map[string]latencyStats{"code_search": {Samples: 6}},
+		Warnings: []string{"the knowledge corpus is empty"}}
+	var out strings.Builder
+	printScaleBenchReport(&out, r)
+	if !strings.Contains(out.String(), "3 runs each") {
+		t.Fatalf("informational warning hid successful run count: %s", out.String())
+	}
+}
+
+func TestScaleLatencyFailuresAreStructured(t *testing.T) {
+	queries := []string{"first query", "second query"}
+	stats, warnings := measureCodeSearchLatency(context.Background(), Options{
+		Env: EntireEnv{RepoRoot: t.TempDir()}, Runner: ExecRunner{},
+	}, queries, 3)
+	if stats.Samples != 0 || stats.Failures != len(queries) || len(warnings) == 0 {
+		t.Fatalf("failed code warm-ups: stats=%+v warnings=%v", stats, warnings)
+	}
+	brainDir, source := writeDirectHistoryFTSFixture(t, ftsTestIndex())
+	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(source.IndexPath))); err != nil {
+		t.Fatal(err)
+	}
+	modes, records, warnings := measureKnowledgeLatency(t.TempDir(), brainDir, "main", queries, 3)
+	if records != -1 || len(warnings) == 0 {
+		t.Fatalf("unreadable knowledge corpus: records=%d warnings=%v", records, warnings)
+	}
+	for mode, stats := range modes {
+		if stats.Samples != 0 || stats.Failures != len(queries) {
+			t.Fatalf("%s failed warm-ups: %+v", mode, stats)
+		}
 	}
 }
