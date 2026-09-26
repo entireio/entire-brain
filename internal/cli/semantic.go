@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -4262,7 +4263,11 @@ func validateSemanticDeclaredStore(brainDir string, source *semanticSourceManife
 		return "", err
 	}
 	fullPath := filepath.Join(brainDir, storePath)
-	if err := validateSemanticSQLiteStore(fullPath, source.Symbols, source.Relations); err != nil {
+	// Through the memo, not the raw validator. This is the dominant path: every
+	// semantic query subcommand calls semanticStaleReport for freshness and then
+	// comes here, so leaving this call unmemoized meant each query still paid the
+	// full integrity scan once — the very cost this memo exists to remove.
+	if err := verifiedSQLiteStore(fullPath, source.Symbols, source.Relations); err != nil {
 		return "", err
 	}
 	return fullPath, nil
@@ -7350,6 +7355,32 @@ func validateSnapshotFileSchema(path, repoKey string) error {
 // re-reading nothing — but it is a hole, not an absence of one.
 var semanticIntegrityMemo sync.Map
 
+// semanticIntegrityMemoCount tracks distinct keys so the memo can be bounded.
+// Keys embed file identity (size and mtime), so every reindex mints a fresh set
+// and the old ones are never looked up again. In a short CLI invocation that is
+// harmless, but the MCP server's serve loop is long-lived and fields calls
+// across many repos and reindex cycles, where an unbounded map grows for the
+// life of the process.
+//
+// Dropping the whole memo when it gets too large is safe and deliberately
+// simple: every entry is a pure function of a file version, so a miss costs one
+// re-validation and never a wrong answer. An LRU would buy a slightly better
+// hit rate for materially more machinery.
+var semanticIntegrityMemoCount atomic.Int64
+
+const semanticIntegrityMemoMaxEntries = 1024
+
+// rememberSemanticIntegrity stores a verdict and bounds the memo.
+func rememberSemanticIntegrity(key string, verdict any) {
+	if _, loaded := semanticIntegrityMemo.LoadOrStore(key, verdict); loaded {
+		return
+	}
+	if semanticIntegrityMemoCount.Add(1) > semanticIntegrityMemoMaxEntries {
+		semanticIntegrityMemo.Clear()
+		semanticIntegrityMemoCount.Store(0)
+	}
+}
+
 type semanticSnapshotVerdict struct {
 	header semanticHeader
 	counts semanticCounts
@@ -7374,7 +7405,7 @@ func verifiedSnapshotSummary(path, repoKey string) (semanticHeader, semanticCoun
 		return verdict.header, verdict.counts, verdict.err
 	}
 	header, counts, err := readSemanticSnapshotSummary(path, repoKey)
-	semanticIntegrityMemo.Store(key, semanticSnapshotVerdict{header: header, counts: counts, err: err})
+	rememberSemanticIntegrity(key, semanticSnapshotVerdict{header: header, counts: counts, err: err})
 	return header, counts, err
 }
 
@@ -7385,7 +7416,7 @@ func verifiedSQLiteStore(path string, symbols, relations int) error {
 		return verdict
 	}
 	err := validateSemanticSQLiteStore(path, symbols, relations)
-	semanticIntegrityMemo.Store(key, err)
+	rememberSemanticIntegrity(key, err)
 	return err
 }
 

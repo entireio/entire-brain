@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
 	"os"
@@ -128,5 +129,103 @@ func TestVerifiedSnapshotSummaryRecheckesASnapshotThatChangedOnDisk(t *testing.T
 	}
 	if _, _, err := verifiedSnapshotSummary(path, "gh/example/repo"); err == nil {
 		t.Fatal("a snapshot corrupted after it was verified still passed from cache")
+	}
+}
+
+// validateSemanticDeclaredStore is the path every semantic query subcommand
+// takes: each one calls semanticStaleReport for freshness and then comes here
+// before running the query. Memoizing only the freshness axis left this call
+// paying the full integrity scan on every query — the dominant cost the memo
+// exists to remove — so the speedup did not reach the dominant codepath.
+//
+// The proof mutates the store while holding size and mtime fixed, which is
+// exactly what the memo key cannot distinguish. A memoized call keeps its
+// earlier verdict; an unmemoized one re-reads and notices.
+func TestValidateSemanticDeclaredStoreUsesTheIntegrityMemo(t *testing.T) {
+	brainDir := t.TempDir()
+	generationRel := filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir, "gen1"))
+	storeRel := filepath.ToSlash(filepath.Join(generationRel, semanticSQLiteName))
+	if err := os.MkdirAll(filepath.Join(brainDir, filepath.FromSlash(generationRel)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	built := newMemoStoreFixture(t, 3, 2)
+	blob, err := os.ReadFile(built)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := filepath.Join(brainDir, filepath.FromSlash(storeRel))
+	if err := os.WriteFile(full, blob, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source := &semanticSourceManifest{GenerationPath: generationRel, StorePath: storeRel, Symbols: 3, Relations: 2}
+
+	if _, err := validateSemanticDeclaredStore(brainDir, source); err != nil {
+		t.Fatalf("a healthy declared store was rejected: %v", err)
+	}
+
+	info, err := os.Stat(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Same length, same mtime: indistinguishable to the memo key, obvious to a
+	// real read.
+	if err := os.WriteFile(full, bytes.Repeat([]byte{0}, len(blob)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(full, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := validateSemanticDeclaredStore(brainDir, source); err != nil {
+		t.Fatalf("the declared-store path re-read a file whose size and mtime were unchanged, so it is not going through the memo: %v", err)
+	}
+}
+
+// Keys embed file identity, so every reindex mints a fresh set that is never
+// looked up again. A short CLI run does not care; the MCP server's serve loop
+// is long-lived and fields calls across many repos and reindex cycles, where an
+// unbounded map grows for the life of the process.
+func TestSemanticIntegrityMemoIsBounded(t *testing.T) {
+	semanticIntegrityMemo.Clear()
+	semanticIntegrityMemoCount.Store(0)
+	t.Cleanup(func() {
+		semanticIntegrityMemo.Clear()
+		semanticIntegrityMemoCount.Store(0)
+	})
+
+	for i := 0; i < semanticIntegrityMemoMaxEntries*3; i++ {
+		rememberSemanticIntegrity(fmt.Sprintf("store\x00/tmp/s%d\x000\x000\x00x", i), error(nil))
+	}
+	live := 0
+	semanticIntegrityMemo.Range(func(_, _ any) bool { live++; return true })
+	if live > semanticIntegrityMemoMaxEntries {
+		t.Fatalf("memo holds %d entries after %d distinct keys; it must stay at or under %d",
+			live, semanticIntegrityMemoMaxEntries*3, semanticIntegrityMemoMaxEntries)
+	}
+
+	// Re-storing an existing key must not inflate the count, or the memo would
+	// clear itself far sooner than the cap implies.
+	semanticIntegrityMemo.Clear()
+	semanticIntegrityMemoCount.Store(0)
+	for i := 0; i < 50; i++ {
+		rememberSemanticIntegrity("store\x00/tmp/same\x000\x000\x00x", error(nil))
+	}
+	if got := semanticIntegrityMemoCount.Load(); got != 1 {
+		t.Fatalf("repeated stores of one key counted %d times, want 1", got)
+	}
+}
+
+// Dropping the memo must never change an answer, only cost a re-validation.
+func TestSemanticIntegrityMemoStaysCorrectAcrossAnEviction(t *testing.T) {
+	store := newMemoStoreFixture(t, 3, 2)
+	if err := verifiedSQLiteStore(store, 3, 2); err != nil {
+		t.Fatalf("healthy store rejected: %v", err)
+	}
+	semanticIntegrityMemo.Clear()
+	semanticIntegrityMemoCount.Store(0)
+	if err := verifiedSQLiteStore(store, 3, 2); err != nil {
+		t.Fatalf("after eviction the same store must re-validate, not fail: %v", err)
+	}
+	if err := verifiedSQLiteStore(store, 99, 99); err == nil {
+		t.Fatal("after eviction a wrong declared count must still be caught")
 	}
 }
