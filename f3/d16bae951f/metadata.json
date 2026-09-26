@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.11.3-nightly.202609230619.4e2e839c2",
+  "checkpoint_id": "f3d16bae951f",
+  "strategy": "manual-commit",
+  "branch": "feat/scale-benchmark",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "docs/scale.md",
+    "internal/cli/bench_scale.go",
+    "internal/cli/bench_scale_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f3/d16bae951f/0/metadata.json",
+      "transcript": "/f3/d16bae951f/0/full.jsonl",
+      "compact_transcript": "/f3/d16bae951f/0/transcript.jsonl",
+      "content_hash": "/f3/d16bae951f/0/content_hash.txt",
+      "prompt": "/f3/d16bae951f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 136496,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3330432,
+    "output_tokens": 9427,
+    "api_call_count": 37
+  }
+}
