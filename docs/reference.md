@@ -1214,6 +1214,167 @@ Model2Vec with a one-line stderr notice. Switching embedders re-namespaces the
 vector cache, so the two never mix. Changing the embedder changes retrieval
 behavior, not the underlying source of truth.
 
+## Documents
+
+Brain indexes markdown from `docs/` and, alongside it, the documents that are
+not code: PDF, Word, Excel and PowerPoint. A design doc somebody wrote in Word
+and a spec that arrived as a PDF are project knowledge exactly like a `.md`
+file, and were previously invisible to every query.
+
+```sh
+entire brain docs formats                 # what this build reads
+entire brain docs extract docs/spec.pdf   # the text it gets out of one file
+entire brain docs extract docs/spec.pdf --json
+```
+
+Extraction runs during `refresh`, with the rest of the seed. It is fully
+deterministic and local — no model, no network, no external binaries — so it
+costs no tokens and works offline.
+
+### What is read
+
+| Format | Read | Not read |
+| --- | --- | --- |
+| `.pdf` | the text layer, page by page | scans (no text layer), encrypted files |
+| `.docx` | body, footnotes, endnotes; tables as tab-separated rows | headers and footers, which repeat on every page |
+| `.xlsx` | every sheet, labelled with its own name; shared strings resolved | charts, formulas (the computed value is read) |
+| `.pptx` | slides in deck order, then speaker notes | slide masters and layouts |
+
+Legacy `.doc`, `.xls` and `.ppt` are a different format (OLE compound files),
+not a variant of the above, and are not read. Images are not read: that needs
+OCR, which would mean shipping a native dependency.
+
+### Where they are read from
+
+`docs/`, the same place markdown is taken from — not the whole tree. A `.xlsx`
+under test fixtures or a vendored PDF manual is data rather than documentation,
+and indexing those would bury the documents somebody meant to be read.
+
+Extracted text is written into the brain as `seed/docs/<path>.md` with a header
+naming the source, so it is inspectable as plain text and it is obvious the file
+is derived. If that path belongs to an existing source file or directory, more
+`.md` suffixes are added until the derived path is free. The original document
+is never modified.
+
+### When a document cannot be read
+
+Brain reports it and continues; the refresh still succeeds. The reason lands in
+the seed's file index and in the refresh warnings:
+
+```
+warning: document not indexed: docs/scanned-form.pdf: the PDF has no text layer
+  (it is probably a scan; OCR is out of scope for this build)
+```
+
+Nothing is written for that document. An empty markdown file in the seed would
+be indexed as a document that exists and says nothing, which is worse than an
+absence somebody can see.
+
+Three failures are reported rather than guessed at, because each would otherwise
+produce a plausible-looking result that is wrong:
+
+- **A scan** has no text layer at all. Indexing it as an empty document would
+  count as a successful ingest.
+- **An encrypted PDF** cannot be read without its key.
+- **A font this build cannot map.** Modern PDFs embed subset fonts whose bytes
+  are glyph indices rather than characters; Brain decodes them through the
+  font's `/ToUnicode` map, and where that is missing or unusable it refuses
+  rather than emit text that reads like language and matches no query.
+
+### Untrusted input
+
+A document is untrusted input and is treated as such: file size, decompressed
+size, and archive entry count are all capped before parsing starts, so a
+compression bomb costs a bounded read. Extracted text is stripped of control
+characters and is never executed or interpreted — it is indexed as text, and the
+[recall threat model](recall_threat_model.md) covers how retrieved content is
+handled from there.
+
+## Webhooks
+
+A brain's knowledge is only visible to whoever runs a command against it.
+Webhooks let something else react instead: a CI job that re-runs when a new
+invariant is recorded, a channel that shows decisions as they are made, an index
+that rebuilds when the brain refreshes.
+
+Point it at an endpoint and it is on:
+
+```sh
+export ENTIRE_BRAIN_WEBHOOK_URL=https://hooks.example.com/entire
+export ENTIRE_BRAIN_WEBHOOK_SECRET=a-long-random-string   # recommended
+entire brain webhook test        # prove the endpoint works before trusting it
+entire brain webhook status      # what is on, and why it is off when it is
+entire brain webhook events      # what this brain sends
+```
+
+Unset `ENTIRE_BRAIN_WEBHOOK_URL` and nothing is sent and no connection is made.
+There is no config file and no default endpoint.
+
+### Events
+
+| Event | Sent when |
+| --- | --- |
+| `fact.recorded` | `remember` records a durable fact |
+| `fact.retracted` | `facts retract` marks a fact no longer true |
+| `brain.refreshed` | `refresh` completes |
+| `webhook.test` | only by `webhook test` |
+
+A `fact.recorded` POST looks like this:
+
+```json
+{
+  "event": "fact.recorded",
+  "timestamp": "2026-09-21T10:00:00Z",
+  "repo": "entire-brain",
+  "branch": "main",
+  "fact": {
+    "id": "b3f1c2d4",
+    "kind": "invariant",
+    "paths": ["architecture.storage.invariant"]
+  }
+}
+```
+
+### What is and is not sent
+
+**Fact text is withheld by default.** The payload carries the id, kind and
+taxonomy paths — enough to trigger work, not enough to turn one environment
+variable into a feed of everything the brain has learned. Set
+`ENTIRE_BRAIN_WEBHOOK_INCLUDE_TEXT=1` to add a `text` field when you want the
+fact itself in your channel.
+
+`repo` is the repository's directory name, never its path, so an event does not
+disclose the layout of your filesystem.
+
+### Verifying the sender
+
+With `ENTIRE_BRAIN_WEBHOOK_SECRET` set, each POST carries
+`X-Entire-Signature-256: sha256=<hex>`, the HMAC-SHA256 of the exact request
+body. Compute the same over the raw body and compare in constant time:
+
+```python
+import hashlib, hmac
+expected = "sha256=" + hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+if not hmac.compare_digest(expected, request.headers["X-Entire-Signature-256"]):
+    abort(401)
+```
+
+Without a secret no signature header is sent at all, rather than one computed
+over an empty key — which would verify for anyone who guessed the key was empty.
+
+### Limits worth knowing
+
+- **Redirects are refused, not followed.** A 307 preserves the method and body,
+  so following one would deliver the payload and its signature to a host you did
+  not configure. Point `ENTIRE_BRAIN_WEBHOOK_URL` at the final URL.
+- **`http` and `https` only.** Other schemes are rejected.
+- **Delivery never fails the command.** If the endpoint is down, the fact is
+  still recorded and a warning goes to stderr. There is no retry queue: this is
+  a notification channel, not a delivery guarantee. Treat a missed event as
+  possible and re-read state through `/v1/facts` or the CLI when it matters.
+- **`ENTIRE_BRAIN_NO_EGRESS` and `ENTIRE_BRAIN_LOCAL_ONLY` win.** Either one
+  silences webhooks whatever else is configured.
+
 ## Privacy And Egress
 
 Default brain artifacts are local and inspectable. Deterministic refresh,
@@ -1235,6 +1396,13 @@ model or by fetching over the network:
 - `publish` uploads the serialized local brain (manifest, semantic snapshots,
   branch overlays, durable facts) to hosted Entire; opt-in and off by default,
   requiring both the command and `ENTIRE_BRAIN_ALLOW_HOSTED=1`
+- webhooks POST a small JSON event to `ENTIRE_BRAIN_WEBHOOK_URL` when a fact is
+  recorded or retracted or the brain is refreshed; off until that variable is
+  set. The payload carries the fact id, kind and taxonomy paths and the
+  repository's directory name — not its path, and not the fact text unless
+  `ENTIRE_BRAIN_WEBHOOK_INCLUDE_TEXT` is set. Redirects are refused rather than
+  followed, so the payload cannot be delivered to a host you did not configure.
+  See [Webhooks](#webhooks).
 
 Use `--agent none`, `--dry-run`, local loopback Ollama, or
 `ENTIRE_BRAIN_NO_EGRESS=1` / `ENTIRE_BRAIN_LOCAL_ONLY=1` when the repo must stay

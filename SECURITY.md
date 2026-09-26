@@ -24,9 +24,12 @@ plainly:
 - **It keeps that material on your machine.** The brain lives under the plugin
   data directory; `entire brain path` prints the location for a repository.
 - **The default build makes no network calls.** `entire brain doctor` reports
-  the effective egress policy under `memory_provider_egress`. Agent-dependent
-  commands — `distill`, and anything invoking a hosted model — are the
-  exceptions, and they are opt-in.
+  the effective egress policy under `memory_provider_egress`. The exceptions are
+  opt-in: agent-dependent commands — `distill`, and anything invoking a hosted
+  model — and webhooks, which stay off until `ENTIRE_BRAIN_WEBHOOK_URL` is set
+  and send fact ids, kinds and taxonomy paths but not fact text unless
+  `ENTIRE_BRAIN_WEBHOOK_INCLUDE_TEXT` is also set. Both respect
+  `ENTIRE_BRAIN_NO_EGRESS` / `ENTIRE_BRAIN_LOCAL_ONLY`.
 
 Because transcripts and source can carry credentials that were never meant to
 be retained, Brain applies a redaction pass to synthesised evidence, rendered
