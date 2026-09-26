@@ -122,6 +122,16 @@ type retrievalOptions struct {
 	// IncludeAbstract adds a bounded top-level preview envelope after ranking.
 	// It never changes rank and never invokes a provider.
 	IncludeAbstract bool
+	// GlobalFacts are facts recorded outside any repository. They are merged
+	// into the fact layer before ranking and go through every filter and the
+	// same scoring as repository facts, so a preference recorded once applies
+	// everywhere rather than only on the CLI surface that loaded it. Callers
+	// that should not see them (--no-global, ENTIRE_BRAIN_NO_GLOBAL_FACTS)
+	// simply leave this nil.
+	GlobalFacts []factRecord
+	// NoGlobalFacts is the per-request off switch, matching recall's
+	// --no-global. The environment switch is checked alongside it.
+	NoGlobalFacts bool
 }
 
 // hasConversationOnlyFilters reports filters that have no meaning outside the
@@ -254,6 +264,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	// loadFacts surfaces corrupt NDJSON as a hard error; propagate it rather than
 	// presenting a broken store as "no results".
 	var all []factRecord
+	var globalFactIDs map[string]bool
 	var active []factRecord
 	var proposals []factProposal
 	var proposalsErr error
@@ -262,6 +273,9 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		all, err = loadFacts(brainDir, branch)
 		if err != nil {
 			return nil, err
+		}
+		if len(opts.GlobalFacts) > 0 {
+			all, globalFactIDs = mergeGlobalFacts(all, opts.GlobalFacts)
 		}
 		all = guardFactRecords(guard, all)
 		active = make([]factRecord, 0, len(all))
@@ -284,7 +298,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		factLimit := min(len(active), candidateLimit)
 		var reviewGroups []factReviewGroup
 		if proposalsErr == nil {
-			reviewGroups = buildFactReviewGroups(active, proposals)
+			reviewGroups = buildFactReviewGroups(factsEligibleForLocusDrift(active, globalFactIDs), proposals)
 			factLimit = guardedFactCandidateLimitForGroups(len(active), reviewGroups, candidateLimit)
 		}
 		var factResults []unifiedResult
@@ -296,13 +310,14 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 				// Pass the full set: factsVectorRanked ranks active facts but caches
 				// (and prunes) every present fact, matching the reranker's shared store.
 				factResults = factsToUnified(factsVectorRanked(
-					brainDir, branch, all, query, e, factLimit,
+					brainDir, branch, all, query, e, factLimit, globalFactIDs,
 				))
 			}
 		case modeHybrid:
 			var rr *semanticReranker
 			if e != nil {
 				rr = newSemanticRerankerForBranch(e, brainDir, branch)
+				rr.markForeign(globalFactIDs)
 			}
 			factResults = factsToUnified(rankFactsFused(active, query, factLimit, false, rr))
 			if rr != nil {
@@ -310,10 +325,17 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 				_ = rr.flush()
 			}
 		}
+		// Repository proposals and locus checks apply only to repository facts.
+		localFacts := factsEligibleForLocusDrift(all, globalFactIDs)
+		for i := range factResults {
+			if globalFactIDs[factResults[i].ID] {
+				factResults[i].Heading += " (global)"
+			}
+		}
 		if proposalsErr == nil {
-			factResults = guardUnifiedFactResultsWithGroups(repoDir, all, reviewGroups, factResults, candidateLimit)
+			factResults = guardUnifiedFactResultsWithGroups(repoDir, localFacts, reviewGroups, factResults, candidateLimit)
 		} else {
-			factResults = guardUnifiedFactResultsWithGroups(repoDir, all, nil, factResults, candidateLimit)
+			factResults = guardUnifiedFactResultsWithGroups(repoDir, localFacts, nil, factResults, candidateLimit)
 			factResults = annotateProposalStateUnavailable(factResults)
 		}
 		if len(factResults) > 0 {
@@ -544,12 +566,16 @@ func filterHistoryRetrievalSelfEchoes(scored []scoredHistoryRecord, query string
 // (all statuses): active facts are ranked, but every present fact is embedded and
 // retained in the shared cache so this path keeps the same vectors the recall/brief
 // reranker does — and departed facts are pruned so the on-disk cache stays bounded.
+// foreign ids are ranked but never enter this repository's vector store: the
+// store is keyed by (brainDir, branch), and a global fact belongs to every
+// repository rather than to this one.
 func factsVectorRanked(
 	brainDir, branch string,
 	facts []factRecord,
 	query string,
 	e Embedder,
 	limit int,
+	foreign map[string]bool,
 ) []factRecord {
 	// An empty query vector means the embedder is unavailable (e.g. Ollama down).
 	// Return no semantic results rather than an arbitrary top-N: every cosine
@@ -570,6 +596,16 @@ func factsVectorRanked(
 	}
 	scored := make([]sc, 0, len(facts))
 	for _, f := range facts {
+		if foreign[f.ID] {
+			if f.Status != factStatusActive {
+				continue
+			}
+			fv := e.Embed(factEmbeddingText(f))
+			if len(fv) == len(qv) && vectorHasMagnitude(fv) {
+				scored = append(scored, sc{rec: f, cos: cosineFloat32(qv, fv)})
+			}
+			continue
+		}
 		present[f.ID] = struct{}{}
 		v, ok := cache[f.ID]
 		if ok && (len(v) != len(qv) || !vectorHasMagnitude(v)) {
@@ -1177,6 +1213,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		}
 	}
 	factByID := map[string]factRecord{}
+	var globalGetIDs map[string]bool
 	var reviewByID map[string]factReviewGroup
 	var reviewByFactID map[string]factReviewGroup
 	var proposalStateUnavailable bool
@@ -1185,6 +1222,11 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		facts, ferr := loadFacts(brainDir, branch)
 		if ferr != nil {
 			return nil, nil, ferr
+		}
+		if len(gopts.GlobalFacts) > 0 {
+			// query and search return global facts, so their ids have to
+			// resolve here too. The repository's copy still wins on a collision.
+			facts, globalGetIDs = mergeGlobalFacts(facts, gopts.GlobalFacts)
 		}
 		facts = guardFactRecords(guard, facts)
 		for _, f := range facts {
@@ -1195,7 +1237,8 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			return nil, nil, perr
 		}
 		if perr == nil {
-			reviewByID, reviewByFactID = indexFactReviewGroups(buildFactReviewGroups(facts, proposals))
+			localFacts := factsEligibleForLocusDrift(facts, globalGetIDs)
+			reviewByID, reviewByFactID = indexFactReviewGroups(buildFactReviewGroups(localFacts, proposals))
 		} else {
 			proposalStateUnavailable = true
 		}
@@ -1286,7 +1329,13 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 				if group, pending := reviewByFactID[id]; pending {
 					r = annotateExplicitFactReview(r, group)
 				}
-				r = annotateFactLocusTrust(repoDir, f, r)
+				if globalGetIDs[f.ID] {
+					// Not scoped to this repository, so locus drift cannot
+					// answer for it; labelled the way the ranked surfaces are.
+					r.Heading += " (global)"
+				} else {
+					r = annotateFactLocusTrust(repoDir, f, r)
+				}
 				if proposalStateUnavailable {
 					r = annotateProposalStateUnavailable([]unifiedResult{r})[0]
 				}

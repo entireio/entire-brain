@@ -126,6 +126,7 @@ type webhookEvent struct {
 	Timestamp string         `json:"timestamp"`
 	Repo      string         `json:"repo,omitempty"`
 	Branch    string         `json:"branch,omitempty"`
+	Global    bool           `json:"global,omitempty"`
 	Fact      *webhookFact   `json:"fact,omitempty"`
 	Counts    map[string]int `json:"counts,omitempty"`
 }
@@ -346,6 +347,17 @@ func notifyFactWebhook(ctx context.Context, errOut io.Writer, opts Options, even
 		return
 	}
 	notifyWebhook(ctx, errOut, newFactWebhookEvent(event, webhookRepoIdentity(ctx, opts), branch, record, now))
+}
+
+// Global mutations belong to no repository, including the current checkout.
+// Keep the same redaction and delivery policy without resolving a repo identity.
+func notifyGlobalFactWebhook(ctx context.Context, errOut io.Writer, event string, record factRecord, now time.Time) {
+	if _, ok, _ := webhookEndpoint(); !ok {
+		return
+	}
+	payload := newFactWebhookEvent(event, "", "", record, now)
+	payload.Global = true
+	notifyWebhook(ctx, errOut, payload)
 }
 
 // notifyBrainWebhook is the same short-circuit for events that carry no fact.

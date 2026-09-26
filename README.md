@@ -16,6 +16,7 @@ Through the CLI and MCP, agents can retrieve earlier decisions, revisit past att
 - Find code, inspect the impact of a change, and investigate regressions with [Entire Graph](https://github.com/entireio/entire-graph).
 - Connect agents through the CLI or MCP, with response size limits and repository instructions.
 - Browse saved knowledge in a terminal dashboard or an offline graph view.
+- Record facts globally, not just per repository, so a preference or team convention applies everywhere.
 - Read the documents that are not code: PDFs, Word, Excel and PowerPoint files under `docs/`.
 - Notify CI, a chat channel, or an index with signed webhooks when the brain changes.
 - Brain reads sessions captured by Entire CLI and uses Entire Graph for code analysis. Without captured sessions, Brain builds from code, docs, and Git history.
@@ -164,6 +165,27 @@ one, pass it yourself: `--path constraints.retry.policy`, shaped
 
 `verify` reports hand-written facts as `unverifiable-here` — they have no source
 anchor in the repository. Expected, not a failure.
+
+### Remember something that is not about one repository
+
+Most facts belong to a codebase. Some — a preference, a team convention, where
+the staging cluster lives — are true in every repository you work in, and had
+nowhere to live but one repo's brain.
+
+```bash
+entire brain remember "The staging cluster is in eu-west-1." --global
+entire brain facts global                  # everything recorded globally
+entire brain facts retract <id> --global
+```
+
+Global facts are recalled from every repository and labelled `(global)` when
+they surface, so a general convention is never mistaken for something this
+codebase declared. `--no-global`, or `ENTIRE_BRAIN_NO_GLOBAL_FACTS=1`, leaves
+them out.
+
+Running `remember` outside a checkout records the fact globally instead of
+failing — which is usually where you are when the thing you want to write down
+is not about one repo.
 
 ### Search
 
@@ -317,6 +339,7 @@ See the [recall threat model](docs/recall_threat_model.md) for how Brain handles
 - [Agent activation and coordination](docs/agent-coordination.md)
 - [Semantic features and MCP](docs/semantic_mcp_guide.md)
 - [Storage and configuration](docs/reference.md#storage-and-configuration)
+- [Global facts](docs/reference.md#global-facts)
 - [Documents (PDF, Word, Excel, PowerPoint)](docs/reference.md#documents)
 - [Privacy and egress](docs/reference.md#privacy-and-egress)
 - [Webhooks](docs/reference.md#webhooks)

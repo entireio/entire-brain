@@ -770,6 +770,7 @@ func mcpToolDefinitions() []map[string]any {
 			"items":       map[string]any{"type": "string"},
 			"description": "Conversation source only: additional concepts (up to 4). Returns conversation-session: results covering the query AND every concept, with evidence_ids naming the supporting exchanges.",
 		}
+		args["no_global"] = boolArg("no_global", "Exclude global facts from this request")
 		args["include_abstract"] = boolArg("include_abstract", "Conversation source only: include bounded evidence-linked session previews; never changes ranking or invokes a provider")
 		args["recency"] = boolArg("recency", "Prefer recent dated results; default false, not supported for source conversation")
 		args["recency_half_life"] = stringArg("recency_half_life", "Positive Go duration, e.g. 720h; default 2160h (90 days); requires recency=true")
@@ -920,6 +921,7 @@ func mcpToolDefinitions() []map[string]any {
 				"path":   stringArg("path", "Taxonomy path: category.subcategory.type, comma-separated for several"),
 				"kind":   enumArg("kind", "Fact kind; inferred when omitted", []string{"decision", "invariant", "gotcha", "preference", "convention"}),
 				"branch": branchArg(),
+				"global": boolArg("global", "Record outside every repository so the fact applies everywhere (a preference, a team convention, an environment detail). Cannot be combined with branch."),
 			}),
 		},
 		{
@@ -1194,12 +1196,18 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = branchErr
 			break
 		}
+		factGlobal, globalErr := mcpBool(params.Arguments, "global")
+		if globalErr != nil {
+			err = globalErr
+			break
+		}
 		err = runRemember(ctx, cmd, opts, rememberCommandOptions{
 			path:   strings.TrimSpace(taxonomyPath),
 			kind:   strings.TrimSpace(factKind),
 			branch: strings.TrimSpace(factBranch),
 			agent:  "none",
 			json:   true,
+			global: factGlobal,
 		}, factText)
 	case "brain_delete_project":
 		repoKey, stringErr := mcpOptionalString(params.Arguments, "repo_key")
@@ -1667,6 +1675,10 @@ func mcpRetrievalOptions(args map[string]any, branch string) (retrievalOptions, 
 		}
 	}
 	ropts, err := buildRetrievalOptions(source, after, before, sessionID, agent, branch, concepts)
+	if err != nil {
+		return retrievalOptions{}, err
+	}
+	ropts.NoGlobalFacts, err = mcpBool(args, "no_global")
 	if err != nil {
 		return retrievalOptions{}, err
 	}
