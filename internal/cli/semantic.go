@@ -7370,8 +7370,18 @@ var semanticIntegrityMemoCount atomic.Int64
 
 const semanticIntegrityMemoMaxEntries = 1024
 
+// semanticIntegrityMemoWrites linearizes insertion against the count and the
+// eviction. LoadOrStore and Add are each atomic but not atomic together, so
+// without this an insert could land between another goroutine's Clear and its
+// Store(0): the entry stays live while its increment is wiped, the count drifts
+// below the true size, and the bound stops holding. Reads still go through
+// sync.Map's lock-free path; only the write side takes this.
+var semanticIntegrityMemoWrites sync.Mutex
+
 // rememberSemanticIntegrity stores a verdict and bounds the memo.
 func rememberSemanticIntegrity(key string, verdict any) {
+	semanticIntegrityMemoWrites.Lock()
+	defer semanticIntegrityMemoWrites.Unlock()
 	if _, loaded := semanticIntegrityMemo.LoadOrStore(key, verdict); loaded {
 		return
 	}

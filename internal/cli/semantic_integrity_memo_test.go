@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -227,5 +228,45 @@ func TestSemanticIntegrityMemoStaysCorrectAcrossAnEviction(t *testing.T) {
 	}
 	if err := verifiedSQLiteStore(store, 99, 99); err == nil {
 		t.Fatal("after eviction a wrong declared count must still be caught")
+	}
+}
+
+// LoadOrStore and Add are each atomic but not atomic together. Without
+// linearizing them, an insert can land between another goroutine's Clear and its
+// Store(0): the entry stays live while its increment is wiped, so the count
+// drifts below the true size and the bound stops holding. Many concurrent
+// writers crossing several eviction cycles is where that shows up.
+func TestSemanticIntegrityMemoBoundHoldsUnderConcurrentWriters(t *testing.T) {
+	semanticIntegrityMemo.Clear()
+	semanticIntegrityMemoCount.Store(0)
+	t.Cleanup(func() {
+		semanticIntegrityMemo.Clear()
+		semanticIntegrityMemoCount.Store(0)
+	})
+
+	const writers = 16
+	// Enough distinct keys per writer to cross the cap many times over.
+	const perWriter = semanticIntegrityMemoMaxEntries
+	var wg sync.WaitGroup
+	for w := 0; w < writers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := 0; i < perWriter; i++ {
+				rememberSemanticIntegrity(fmt.Sprintf("store\x00/tmp/w%d-%d\x000\x000\x00x", w, i), error(nil))
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	live := 0
+	semanticIntegrityMemo.Range(func(_, _ any) bool { live++; return true })
+	if int64(live) != semanticIntegrityMemoCount.Load() {
+		t.Fatalf("count drifted from the map: %d live entries vs count %d — insertion is not linearized against eviction",
+			live, semanticIntegrityMemoCount.Load())
+	}
+	if live > semanticIntegrityMemoMaxEntries {
+		t.Fatalf("memo holds %d entries after %d concurrent writes; the bound is %d",
+			live, writers*perWriter, semanticIntegrityMemoMaxEntries)
 	}
 }
