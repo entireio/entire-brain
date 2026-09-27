@@ -35,9 +35,11 @@ curl -fsSL https://raw.githubusercontent.com/entireio/entire-brain/main/scripts/
 entire plugin install graph
 ```
 
-Brain is a plugin for the CLI. The install script verifies the download against
-the release checksums; no Go toolchain, no C compiler. It takes `--nightly`,
-`--version vX.Y.Z` and `--dir`.
+The script downloads a prebuilt binary for your platform, checks it against the
+release checksums, and registers it with the CLI as the `entire brain` plugin.
+There is nothing to compile. Pin a release with `--version vX.Y.Z`, take the
+current prerelease with `--nightly`, or install somewhere other than
+`~/.local/bin` with `--dir`.
 
 Without Graph, `setup` reports the semantic index as unavailable; sessions, docs
 and facts still work. Without the CLI there are no sessions to read, and Brain
@@ -67,6 +69,8 @@ See [installation options](docs/operations.md#full-install) for choosing a Graph
 [`docs/feature-matrix.md`](docs/feature-matrix.md) — 51 capabilities against five
 alternatives, including the 15 rows where neither Graph nor Brain answers Yes.
 Our columns are read from the binaries; the competitor columns are not.
+
+Every number we publish, how to reproduce it, and what we deliberately do not claim: [benchmarks](docs/benchmarks.md).
 
 ## Activate it for your agent
 
@@ -341,6 +345,7 @@ See the [recall threat model](docs/recall_threat_model.md) for how Brain handles
 - [Agent activation and coordination](docs/agent-coordination.md)
 - [Semantic features and MCP](docs/semantic_mcp_guide.md)
 - [Storage and configuration](docs/reference.md#storage-and-configuration)
+- [Benchmarks: what we measure, what we found, what we do not claim](docs/benchmarks.md)
 - [Scale: index size and query latency, measured](docs/scale.md)
 - [Global facts](docs/reference.md#global-facts)
 - [Documents (PDF, Word, Excel, PowerPoint)](docs/reference.md#documents)
