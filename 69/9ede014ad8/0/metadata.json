@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.11.3-nightly.202609230619.4e2e839c2",
+  "checkpoint_id": "699ede014ad8",
+  "session_id": "01a0e0b3-eca4-7b82-8578-a8281f55abc4",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-27T02:41:55.127573Z",
+  "branch": "codex/review-trail-235",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "docs/feature-matrix.csv",
+    "docs/feature-matrix.md",
+    "internal/cli/feature_matrix_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "23aced613f04",
+  "checkpoint_transcript_start": 257,
+  "transcript_lines_at_start": 257,
+  "compact_transcript_start": 20,
+  "token_usage": {
+    "input_tokens": 30724,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2467328,
+    "output_tokens": 6523,
+    "api_call_count": 14
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-27T02:41:55.027762Z",
+    "agent_lines": 405,
+    "agent_removed": 75,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 405,
+    "total_lines_changed": 480,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}

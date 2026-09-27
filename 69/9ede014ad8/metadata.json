@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.11.3-nightly.202609230619.4e2e839c2",
+  "checkpoint_id": "699ede014ad8",
+  "strategy": "manual-commit",
+  "branch": "codex/review-trail-235",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "docs/feature-matrix.csv",
+    "docs/feature-matrix.md",
+    "internal/cli/feature_matrix_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/69/9ede014ad8/0/metadata.json",
+      "transcript": "/69/9ede014ad8/0/full.jsonl",
+      "compact_transcript": "/69/9ede014ad8/0/transcript.jsonl",
+      "content_hash": "/69/9ede014ad8/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 30724,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2467328,
+    "output_tokens": 6523,
+    "api_call_count": 14
+  }
+}
