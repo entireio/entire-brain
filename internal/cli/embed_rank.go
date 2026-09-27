@@ -48,8 +48,15 @@ type semanticReranker struct {
 	cache   map[string][]float32
 	store   vectorStore     // nil => in-memory only (eval, tests)
 	touched map[string]bool // ids seen this run; nil unless disk-backed
-	dirty   bool            // a new vector was embedded this run
-	loaded  int             // full-dimension vectors loaded from the store
+	// foreign holds ids that are ranked here but do not belong to this store.
+	// Global facts are the case: the store is keyed by (brainDir, branch), so a
+	// fact that belongs to every repository must not be filed under one
+	// repository's key — it would be written into that repo's cache and pruned
+	// out of it again the moment the same query runs with global facts off.
+	// They are embedded per run and ranked; they are never cached or retained.
+	foreign map[string]bool
+	dirty   bool // a new vector was embedded this run
+	loaded  int  // full-dimension vectors loaded from the store
 
 	// lastRun is observation-only instrumentation for callers that must report
 	// the effective retrieval engine. It records what rankFactsFused actually
@@ -101,12 +108,36 @@ func newSemanticRerankerForBranch(e Embedder, brainDir, branch string) *semantic
 // the KNN path serves cosines straight from the store, bypassing factVector,
 // but flush must still know the fact is alive or it would prune its vector.
 func (s *semanticReranker) markTouched(id string) {
+	if s.foreign[id] {
+		return
+	}
 	if s.touched != nil {
 		s.touched[id] = true
 	}
 }
 
+// markForeign records ids that are ranked through this reranker but belong to
+// another store. Safe on a nil reranker so callers do not have to guard.
+func (s *semanticReranker) markForeign(ids map[string]bool) {
+	if s == nil || len(ids) == 0 {
+		return
+	}
+	if s.foreign == nil {
+		s.foreign = make(map[string]bool, len(ids))
+	}
+	for id := range ids {
+		if ids[id] {
+			s.foreign[id] = true
+		}
+	}
+}
+
 func (s *semanticReranker) factVector(f factRecord) []float32 {
+	if s.foreign[f.ID] {
+		// Ranked, never persisted: embedding it each run costs one call and
+		// keeps a fact that belongs everywhere out of one repository's store.
+		return s.e.Embed(factEmbeddingText(f))
+	}
 	if s.touched != nil {
 		s.touched[f.ID] = true
 	}
@@ -156,6 +187,9 @@ func (s *semanticReranker) retain(facts []factRecord) {
 		return
 	}
 	for _, f := range facts {
+		if s.foreign[f.ID] {
+			continue
+		}
 		s.touched[f.ID] = true
 	}
 }
