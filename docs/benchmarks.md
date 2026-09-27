@@ -1,7 +1,7 @@
 # Benchmarks
 
-Everything Brain measures about itself, what it found, and the commands to run
-it yourself. Including the parts that go against us.
+Selected measurements of Brain, their limits, and commands for evaluating your
+own repository. Historical results include both gains and closed negatives.
 
 **What this page is not:** a head-to-head against another memory product. We
 have not run one under conditions we would defend, and [saying so](#head-to-head-against-other-products)
@@ -35,9 +35,13 @@ labels. It calls an agent only if you pass `--judge`, which asks a model to
 label relevance instead — that costs tokens, and it is opt-in for exactly that
 reason.
 
-## Scale: we lose this one
+## Scale: historical measurements
 
-Measured across five repositories from 174k to 4.8M lines.
+These September 2026 summaries cover five repositories from 174k to 4.8M lines
+on one Apple M-series laptop, using the `syntax-only` profile. They describe the
+original benchmark, not the current build. Raw per-query samples and exact
+corpus revisions were not retained; these rows cannot be independently
+reproduced byte-for-byte.
 
 | Repository | kLOC | Index | KB/kLOC | code search p50 |
 | --- | ---: | ---: | ---: | ---: |
@@ -47,14 +51,14 @@ Measured across five repositories from 174k to 4.8M lines.
 | entire-brain | 746 | 193 MB | 265 | 1,315 / 1,945 ms |
 | kubernetes | 4,786 | 1,171 MB | 251 | 12,294 ms |
 
-Index size and query latency both grow **linearly**. Augment publishes 100M
-lines in 250 MB with sub-200 ms search; per line, that index is ~100x smaller
-than ours. Carrying our measured cost to 100M lines gives a 24 GB index and a
-four-minute search.
+The largest tested repository had a 1,171 MB index and a 12.3-second median
+code search. The two entire-brain runs differed by 48%, so read the order of
+magnitude rather than the digits. These observations do not establish a scaling
+law, a capacity limit, or an advantage over a competitor.
 
-**Brain is built for repositories of a few hundred thousand lines and does not
-scale to the largest monorepos.** Full method, variance and caveats in
-[scale](scale.md).
+**100M lines has not been measured.** No competitor implementation was run
+under this workload. Full method, variance and caveats are in [scale](scale.md).
+Re-run the benchmark to evaluate your current build and corpus.
 
 ## Retrieval quality: what moved the numbers
 
@@ -63,7 +67,7 @@ the same corpus and task set. They are not comparisons with other products.
 
 | Finding | Evidence | Outcome |
 | --- | --- | --- |
-| BM25 over substring matching on history | 2.7x–5.1x useful/1k across strata, three repositories | BM25 is the no-embedder default |
+| BM25 over substring matching on history | 2.7x–5.1x useful/1k across strata on entire-cli; BM25 gains also observed on two other repositories | BM25 is the no-embedder default |
 | EmbeddingGemma fusion over BM25 | +13% useful/1k (t=7.08) and precision +0.016 (t=7.68) at 418k records / 2,584 tasks; replicated at +12.5% (t=5.09) on a second repo | Fused history arm ships, gated on a configured Gemma-class embedder |
 | Semantic fusion on facts | +0.459 useful/1k (p=0.005, Holm-significant), precision +0.025, no token cost, n=121 | Fusion default-on for `recall` and `brief` |
 | Locus-scoped retrieval | +59% useful/1k (p=0.027 raw, marginal under Holm), −112 tokens (p<0.001), recall −0.029 | Scoped retrieval shipped; outline kept as a map, not a ranker |
@@ -76,20 +80,24 @@ Retrieval metrics measure retrieval. Whether a brain changes what an agent
 *does* is a different question, and a much harder one to answer honestly.
 
 **One measurement has passed our proof gate.** A correctness task whose decided
-value exists only in retained history, run four times per side:
+value exists only in retained history, run five times per side with
+`claude:sonnet:high` in the retained August 2026 panel:
 
 | Condition | Validation pass rate |
 | --- | ---: |
-| no brain | **0 / 4** |
-| full brain (history channel) | **4 / 4** |
+| no brain | **0 / 5** |
+| semantic_history_brain (history channel) | **5 / 5** |
 
 `proof_ready=true` — the lift survives drop-one — with **0 hard integrity flags**
-and 16/16 records provenance-backed. Without the brain the agent cannot recover
+and 20/20 records provenance-backed across the two tasks in the panel. Without the brain the agent cannot recover
 the exact decided value; with it, it reads it from history and restores it.
 
 This flipped the history-channel correctness scope from no-claim to claimable.
-It is one task on one repository with n=4 per side. It is the only agent-outcome
-claim we make.
+It is one task on one repository with n=5 per side, scoped to this runner and
+history channel. The other task saturated at 5/5 in both arms and is not proof
+of lift. The [retained audit](../benchmarks/agent-brain/evidence/replay-lab-clean/codex-audit-report.md)
+and its manifest are checked by `mise run clean-proof:evidence`. This narrow
+result does not establish MCP, Radar, codex-runner, or efficiency agent lift.
 
 ## What we deliberately do not claim
 
@@ -110,8 +118,9 @@ So the MCP, Radar, codex-runner and efficiency scopes have numbers, and we do
 not cite them. They have not passed the gate. The retained artifacts are kept
 specifically so an auditor can see why they are not citable yet.
 
-This is the honest reason nothing was published before — not that nothing was
-measured, but that the bar for publishing had never been cleared.
+A clean no-claim audit validates the disclosure; it does not establish an
+agent-quality improvement. The separate history-channel lane above has its own
+proof-required gate.
 
 ## Closed negatives
 
@@ -143,7 +152,8 @@ experiments and call it a comparison.
 
 What we can say from measurement rather than assertion:
 
-- **On scale we lose**, and by how much is [above](#scale-we-lose-this-one).
+- **Historical scale costs are substantial**, as [above](#scale-historical-measurements);
+  a comparison against another implementation remains unmeasured.
 - **Ingest is deterministic and uses no model**, so indexing cost is wall-clock
   and disk rather than tokens. `bench scale` reports both; there is no API bill
   to compare against.
@@ -151,14 +161,14 @@ What we can say from measurement rather than assertion:
   repository and get your numbers rather than ours.
 
 If you are evaluating Brain against something else, the commands at the top of
-this page run against your codebase in minutes. That is the comparison that
+this page let you measure your codebase; runtime depends on its size. That is the comparison that
 should decide it.
 
 ## Method notes
 
-- Every number on this page came from a command in this repository. Nothing is
-  estimated, and numbers that are arithmetic on a measurement rather than a
-  measurement are labelled where they appear.
+- The scale and retrieval rows are historical summaries, not fresh measurements
+  of the current build. The scale source states which reproduction artifacts
+  are missing; the eval ledger identifies the retrieval corpora and task sets.
 - Results are comparable only within a row's own baseline. Task sets, corpus
   snapshots and metrics differ between rows; the eval ledger states this and it
   applies here too.

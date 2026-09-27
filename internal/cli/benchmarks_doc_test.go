@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -142,7 +144,11 @@ func TestBenchmarksPageKeepsItsDisclosures(t *testing.T) {
 		"the claim policy state":                           "claim_policy: no_release_claim",
 		"that the policy blocks citation":                  "have not passed the gate",
 		"that the gate is enforced by a command":           "mise run release:evidence",
-		"that we lose on scale":                            "does not\nscale to the largest monorepos",
+		"that large-scale extrapolation is unmeasured":     "100M lines has not been measured",
+		"that historical samples are unavailable":          "Raw per-query samples and exact",
+		"that scale does not establish a scaling law":      "do not establish a scaling",
+		"the agent runner scope":                           "claude:sonnet:high",
+		"the separate agent proof gate":                    "mise run clean-proof:evidence",
 		"the closed negatives section":                     "## Closed negatives",
 		"that internal A/B is not a competitor comparison": "not comparisons with other products",
 	} {
@@ -207,5 +213,60 @@ func TestBenchmarkCommandsAreRunnableWithoutAnAgent(t *testing.T) {
 			t.Fatalf("`%s` grew an --agent flag; the benchmarks page claims it needs no model",
 				cmd.CommandPath())
 		}
+	}
+}
+
+// Tie the published pass counts to the retained comparison rather than an
+// older ledger row; the proof panel has changed its sample size before.
+func TestBenchmarksAgentOutcomeMatchesRetainedEvidence(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "benchmarks", "agent-brain", "evidence", "replay-lab-clean", "panel-p01-clean-proof-claude-20260816T084152Z", "summary.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var summary struct {
+		Comparisons []struct {
+			TaskID        string  `json:"task_id"`
+			Baseline      string  `json:"baseline"`
+			Condition     string  `json:"condition"`
+			NBaseline     int     `json:"n_baseline"`
+			NCondition    int     `json:"n_condition"`
+			PassBaseline  float64 `json:"pass_rate_baseline"`
+			PassCondition float64 `json:"pass_rate_condition"`
+			ProofReady    bool    `json:"proof_ready"`
+		} `json:"comparisons"`
+		Provenance struct {
+			Records  int `json:"records"`
+			Verified int `json:"records_with_provenance"`
+		} `json:"provenance"`
+	}
+	if err := json.Unmarshal(data, &summary); err != nil {
+		t.Fatal(err)
+	}
+	doc := benchmarksDoc(t)
+	found := false
+	for _, c := range summary.Comparisons {
+		if c.TaskID != "entire-brain-clean-default-fact-merge-confidence" {
+			continue
+		}
+		found = true
+		if !c.ProofReady {
+			t.Fatal("published agent comparison is no longer proof-ready")
+		}
+		for _, needle := range []string{
+			fmt.Sprintf("| no brain | **%.0f / %d** |", c.PassBaseline*float64(c.NBaseline), c.NBaseline),
+			fmt.Sprintf("| %s (history channel) | **%.0f / %d** |", c.Condition, c.PassCondition*float64(c.NCondition), c.NCondition),
+			fmt.Sprintf("n=%d per side", c.NBaseline),
+			fmt.Sprintf("%d/%d records provenance-backed", summary.Provenance.Verified, summary.Provenance.Records),
+		} {
+			if !strings.Contains(doc, needle) {
+				t.Errorf("published outcome does not match retained evidence: missing %q", needle)
+			}
+		}
+		if c.NBaseline != c.NCondition || c.Baseline != "no_brain" {
+			t.Fatal("published paired baseline description is stale")
+		}
+	}
+	if !found {
+		t.Fatal("published agent comparison is absent from retained evidence")
 	}
 }
