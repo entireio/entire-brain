@@ -65,7 +65,7 @@ See [installation options](docs/operations.md#full-install) for choosing a Graph
 ### How Brain compares
 
 [`docs/feature-matrix.md`](docs/feature-matrix.md) — 51 capabilities against five
-alternatives, including the 20 rows where neither Graph nor Brain answers Yes.
+alternatives, including the 15 rows where neither Graph nor Brain answers Yes.
 Our columns are read from the binaries; the competitor columns are not.
 
 ## Activate it for your agent

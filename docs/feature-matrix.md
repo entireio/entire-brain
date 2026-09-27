@@ -6,56 +6,59 @@ codebase-memory-mcp.
 
 ## Two caveats
 
-**Our columns are measured; the others are not.** Graph and Brain are read from
-the shipped binaries — mostly `entire graph capabilities --json` and
-`entire brain capabilities --json` — so you can reproduce them. The five
+**Our columns are checked against source and capabilities.** Brain is checked
+against this branch; Graph uses the installed provider and its capability
+report. `entire graph capabilities --json` and `entire brain capabilities --json`
+cover only part of the surface; command help and the linked source documents
+cover the rest. A Yes describes an available capability, not a claim that every
+released binary already includes it. The five
 competitor columns come from public documentation. Nothing was installed or
 benchmarked. Every claim about another product cites a page in `Source`, and
 `Unknown` means unknown, never "no".
 
 **We chose the rows.** The first version had 31 and Graph or Brain answered Yes
 to all of them, which is what happens when the people who build the product pick
-the questions. It now has 51, and **11 are rows where neither of ours answers
-Yes** — down from 20, because the twelve rows labelled REAL GAP were built
-rather than argued with. Graph answers Yes to 20 of 51; Brain to 34, delegating
+the questions. It now has 51, and **15 are rows where neither of ours answers
+Yes** — down from 20 after checking the original twelve REAL GAP rows against
+current source. Graph answers Yes to 19 of 51; Brain to 31, delegating
 5 more to Graph — counted separately, because delegating is not having.
 
 ## Labels in the Notes column
 
 | label | meaning | rows |
 |---|---|---|
-| **REAL GAP** | We lacked it, and local-only + zero-LLM did not explain why | 0 (was 12) |
+| **REAL GAP** | We lacked it, and local-only + zero-LLM did not explain why | 2 (was 12) |
 | **TRADE-OFF** | We lack it as a direct cost of that design | 5 |
 | **PARTLY REAL** | Part of the absence is excused, part is not. Describes the verdict, not a partial capability — such a row can read `No` in both our columns | 2 |
 | **THEY DO IT BETTER** | We demonstrably have it and someone goes further. Not used where our cells are `Unknown` | 2 |
 
-Each former REAL GAP row now opens with "Was REAL GAP" and says what shipped,
-what did not, and who still does more. Two of them are not wins: scale is a
-measured loss, and head-to-head benchmarks are still not head-to-head.
+Rows that were re-scored open with "Was REAL GAP" and state both the available
+capability and its limits. Two REAL GAP rows remain open: edge provenance labels
+in [Graph PR #264](https://github.com/entireio/entire-graph/pull/264), and mem0
+import in [Brain PR #306](https://github.com/entireio/entire-brain/pull/306).
+Neither unmerged proposal is counted as shipped.
 
 ## What the gaps said, and what happened
 
-"We are local" explained fewer absences than it appeared to, and the twelve rows
-where it explained nothing were closed one at a time. Nine of those cells moved
-to Yes: document ingest, global facts, recency, edge provenance, MCP fact
-writes, HTTP MCP, REST and SDKs, plain-file export, and mem0 import. Webhooks
-moved to Partial rather than Yes — the events ship, the integration count does
-not.
+Five of those cells moved
+to Yes: global facts, recency, MCP fact writes, HTTP MCP, and REST and SDKs.
+Document ingest remains Partial because images and OCR are unsupported.
+Plain-file memory is Partial because export can be searched but edits do not
+round-trip into the store. Webhooks and the two framework adapters are Partial
+because integration coverage remains limited.
 
-**Two did not become wins, and they are the interesting ones.**
+**Scale remains Unknown at 100M lines.** The historical scale summaries reach
+4.8M lines, with a 1,171 MB index and 12.3-second median code search. They do not
+establish a scaling law, a capacity limit, or competitor superiority. Raw
+per-query samples and exact corpus revisions were not retained; these are not
+current-build measurements. `entire brain bench scale` measures a new corpus;
+[scale](scale.md) states the method and limits.
 
-**Scale is now a measured loss rather than an Unknown.** Index size and query
-latency both grow linearly: 1.17 GB and 12.3 s p50 at 4.8M lines, roughly 100x
-larger per line than Augment's published index. Brain suits repositories of a
-few hundred thousand lines and does not reach the largest monorepos.
-`entire brain bench scale` reproduces it; [scale](scale.md) has the method.
-
-**Published benchmarks are Partial, not Yes.** [benchmarks](benchmarks.md) now
-publishes the measured numbers, the statistics behind the retrieval decisions,
-the one agent-outcome result that passed our proof gate, and the closed
-negatives — with the commands to re-run them. It is still not a head-to-head
-against another product, because we have not run one under conditions we would
-defend, and the page says so in its second paragraph.
+**Published benchmarks are Partial, not Yes.** The [eval ledger](eval_ledger.md)
+and [scale measurements](scale.md) publish internal results and limitations.
+The dedicated overview is in [PR #313](https://github.com/entireio/entire-brain/pull/313).
+No head-to-head against another product has been run. These existing sources
+support Partial independently of whether that overview merges first.
 
 **One cell was simply wrong.** "Capture beyond a single repository" read No/No
 while `entire brain workspace` had shipped multi-repo brains. The real gap was

@@ -73,17 +73,37 @@ func TestFeatureMatrixProseMatchesTheData(t *testing.T) {
 		}
 	}
 
-	for what, want := range map[string]int{
-		"capability count":            len(rows),
-		"Graph Yes":                   graphYes,
-		"Brain Yes":                   brainYes,
-		"rows delegated to Graph":     viaGraph,
-		"rows where neither says Yes": neither,
+	for _, claim := range []struct {
+		name, pattern string
+		want          int
+	}{
+		{"capability count", `([0-9]+) capabilities across`, len(rows)},
+		{"Graph Yes", `Graph answers Yes to ([0-9]+) of`, graphYes},
+		{"Brain Yes", `Brain to ([0-9]+), delegating`, brainYes},
+		{"rows delegated to Graph", `delegating\s+([0-9]+) more to Graph`, viaGraph},
+		{"rows where neither says Yes", `\*\*([0-9]+) are rows where neither`, neither},
 	} {
-		if !strings.Contains(prose, strconv.Itoa(want)) {
-			t.Fatalf("feature-matrix.md never states the %s (%d); the prose and the data have drifted", what, want)
+		match := regexp.MustCompile(claim.pattern).FindStringSubmatch(prose)
+		if match == nil {
+			t.Fatalf("missing %s claim", claim.name)
+		}
+		got, err := strconv.Atoi(match[1])
+		if err != nil || got != claim.want {
+			t.Errorf("%s: prose says %s; data says %d", claim.name, match[1], claim.want)
 		}
 	}
+	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	match := regexp.MustCompile(`including the ([0-9]+) rows where neither`).FindStringSubmatch(string(readme))
+	if match == nil {
+		t.Fatal("README is missing the matrix count")
+	}
+	if got, err := strconv.Atoi(match[1]); err != nil || got != neither {
+		t.Errorf("README matrix count is %s; data says %d", match[1], neither)
+	}
+
 }
 
 // The label counts in the prose table are derived from the Notes column.
@@ -100,11 +120,9 @@ func TestFeatureMatrixLabelCountsAreCorrect(t *testing.T) {
 			}
 		}
 	}
-	// Every gap the campaign closed is built, so none may remain.
-	if counts["REAL GAP"] != 0 {
-		t.Fatalf("%d row(s) still labelled REAL GAP; every one was meant to be closed or re-scored", counts["REAL GAP"])
-	}
-	for _, label := range []string{"TRADE-OFF", "PARTLY REAL", "THEY DO IT BETTER"} {
+	// Open gaps must remain countable; a test must not force unshipped
+	// proposals to be described as complete.
+	for _, label := range []string{"REAL GAP", "TRADE-OFF", "PARTLY REAL", "THEY DO IT BETTER"} {
 		row := regexp.MustCompile(`(?m)^\| \*\*` + regexp.QuoteMeta(label) + `\*\* \|[^|]*\| ([0-9]+)`)
 		m := row.FindStringSubmatch(prose)
 		if m == nil {
@@ -248,4 +266,40 @@ func TestPartialGapDetectionCoversBothProductColumns(t *testing.T) {
 
 func partialGapDetectionFixture(rows [][]string, sentence string) string {
 	return partialGapNamedInYesList(rows, sentence)
+}
+
+func TestFeatureMatrixDocumentationLinksResolve(t *testing.T) {
+	for _, m := range regexp.MustCompile(`\]\(([^)]+\.md)(?:#[^)]*)?\)`).FindAllStringSubmatch(featureMatrixProse(t), -1) {
+		if strings.Contains(m[1], "://") {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join("..", "..", "docs", m[1])); err != nil {
+			t.Errorf("broken matrix source %q: %v", m[1], err)
+		}
+	}
+}
+
+func TestFeatureMatrixShippedBrainCommandsExist(t *testing.T) {
+	// These commands back the re-scored rows. Their existence is necessary
+	// evidence; limitations such as OCR and export-only editing remain Partial.
+	root := NewRootCommand(Options{Version: "test"})
+	for _, tc := range []struct {
+		path []string
+		flag string
+	}{
+		{[]string{"remember"}, "global"},
+		{[]string{"query"}, "recency-half-life"},
+		{[]string{"mcp"}, "http"},
+		{[]string{"facts", "files"}, ""},
+		{[]string{"bench", "scale"}, ""},
+		{[]string{"webhook", "events"}, ""},
+	} {
+		cmd, rest, err := root.Find(tc.path)
+		if err != nil || len(rest) != 0 || cmd.Name() != tc.path[len(tc.path)-1] {
+			t.Fatalf("missing matrix command %v: %v", tc.path, err)
+		}
+		if tc.flag != "" && cmd.Flags().Lookup(tc.flag) == nil {
+			t.Errorf("matrix command %v lacks --%s", tc.path, tc.flag)
+		}
+	}
 }
