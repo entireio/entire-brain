@@ -328,6 +328,8 @@ Facts extracted by a model can be wrong. Check the linked sources before relying
 
 Code analysis inherits Graph's limitations: dynamic calls can go unresolved, and parsing support varies by language.
 
+The historical scale benchmark measured a 1.2 GB index and roughly 12-second median code search on one 4.8M-line repository. Those runs do not establish a scaling law or performance at 100M lines. See [scale](docs/scale.md) for the measurements, their limits, and the command to benchmark a current build.
+
 Search support varies by build and source. Check `entire brain capabilities` for available retrieval modes and the [conversation recall documentation](docs/recall-evidence.md) for experimental features.
 
 See the [recall threat model](docs/recall_threat_model.md) for how Brain handles untrusted session content and retained secrets.
@@ -339,6 +341,7 @@ See the [recall threat model](docs/recall_threat_model.md) for how Brain handles
 - [Agent activation and coordination](docs/agent-coordination.md)
 - [Semantic features and MCP](docs/semantic_mcp_guide.md)
 - [Storage and configuration](docs/reference.md#storage-and-configuration)
+- [Scale: index size and query latency, measured](docs/scale.md)
 - [Global facts](docs/reference.md#global-facts)
 - [Documents (PDF, Word, Excel, PowerPoint)](docs/reference.md#documents)
 - [Privacy and egress](docs/reference.md#privacy-and-egress)
