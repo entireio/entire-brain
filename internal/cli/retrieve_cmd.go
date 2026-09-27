@@ -86,7 +86,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	var format string
 	var limit int
 	var branch string
-	var patterns, includeAbstract bool
+	var patterns, includeAbstract, noGlobal bool
 	var source, after, before, session, agent string
 	var concepts []string
 	var recency bool
@@ -105,6 +105,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 				return fmt.Errorf("--%s", err.Error())
 			}
 			ropts.IncludeAbstract = includeAbstract
+			ropts.NoGlobalFacts = noGlobal
 			ropts, err = withRecencyOptions(ropts, recency, recencyHalfLife)
 			if err != nil {
 				return err
@@ -122,6 +123,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	cmd.Flags().IntVarP(&limit, "number", "n", 10, "Maximum results (QMD-style alias for --limit)")
 	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current); with --source conversation also filters exchanges to that captured branch")
+	cmd.Flags().BoolVar(&noGlobal, "no-global", false, "Exclude global facts from this request")
 	cmd.Flags().BoolVar(&patterns, "patterns", false, "Also surface relevant pattern:/theme: pointers (does not change facts/history/docs ranking)")
 	cmd.Flags().StringVar(&source, "source", "", "Restrict retrieval to one source: all, fact, history, conversation, or doc (default all; conversation is experimental opt-in)")
 	cmd.Flags().StringVar(&after, "after", "", "Conversation source only: sessions at or after this time (RFC3339 or YYYY-MM-DD)")
@@ -211,6 +213,15 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		if err := requirePatternCorpusAvailable(brainDir); err != nil {
 			return err
 		}
+	}
+	// Facts recorded outside any repository merge into the fact layer before
+	// ranking, so a preference recorded once applies on every retrieval surface
+	// rather than only on the one command that happened to load them. They go
+	// through the same guard, filters and scoring as repository facts.
+	if globalFacts, globalErr := globalFactsForRead(opts.Env, ropts.NoGlobalFacts); globalErr != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: global facts unavailable: %v\n", globalErr)
+	} else {
+		ropts.GlobalFacts = globalFacts
 	}
 	results, err := retrieveUnifiedWithOptions(repoDir, brainDir, resolvedBranch, query, limit, mode, ropts)
 	if err != nil {
@@ -720,6 +731,13 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 		if err := requirePatternCorpusAvailable(brainDir); err != nil {
 			return nil, err
 		}
+	}
+	// An id that query or search just handed back and get reports missing is a
+	// worse seam than not returning it at all.
+	if globalFacts, globalErr := globalFactsForRead(opts.Env, false); globalErr != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: global facts unavailable: %v\n", globalErr)
+	} else {
+		gopts.GlobalFacts = globalFacts
 	}
 	found, missing, err := getUnifiedBatchOptions(repoDir, brainDir, resolvedBranch, ids, gopts)
 	if err != nil {
