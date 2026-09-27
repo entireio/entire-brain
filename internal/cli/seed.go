@@ -87,6 +87,10 @@ type seedDocument struct {
 	Bytes     int64  `json:"bytes,omitempty"`
 	Truncated bool   `json:"truncated,omitempty"`
 	Reason    string `json:"reason,omitempty"`
+	// Extracted marks a document whose text was read out of a binary container
+	// (PDF, Office) rather than copied. The seed file is then derived, not a
+	// copy, which matters to anyone reading the brain directory.
+	Extracted bool `json:"extracted,omitempty"`
 }
 
 type seedCommand struct {
@@ -334,7 +338,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	}
 	var seedManifest *seedSourceManifest
 	commitSeed := func() error {
-		if err := writeSeedArtifacts(outputDir, scan); err != nil {
+		if err := writeSeedArtifacts(outputDir, &scan); err != nil {
 			return err
 		}
 
@@ -441,6 +445,16 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 	}
 	commit := strings.TrimSpace(string(runGitOutput(ctx, runner, repoDir, "rev-parse", "HEAD")))
 	result := seedScanResult{MaxFileBytes: opts.maxFileBytes, RepoDir: repoDir, RepoKey: repoKey, Commit: commit, Warnings: warnings}
+	// Reserve source paths and their directories before allocating derived
+	// names: spec.pdf.md may itself be an authored document (or a directory).
+	reserved := map[string]bool{}
+	for _, rel := range paths {
+		name := filepath.ToSlash(filepath.Join(seedDirName, seedDocsDirName, rel))
+		for name != "." {
+			reserved[strings.ToLower(name)] = true
+			name = filepath.ToSlash(filepath.Dir(name))
+		}
+	}
 	for _, rel := range paths {
 		entry := inspectSeedFile(repoDir, rel, opts)
 		result.Files = append(result.Files, entry)
@@ -448,12 +462,22 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 			continue
 		}
 		if isHighSignalDoc(rel) {
+			seedPath := filepath.ToSlash(filepath.Join(seedDirName, seedDocsDirName, rel))
+			extracted := isExtractableSeedDocument(rel)
+			if extracted {
+				seedPath = extractedSeedDocPath(seedPath)
+				for reserved[strings.ToLower(seedPath)] {
+					seedPath += ".md"
+				}
+				reserved[strings.ToLower(seedPath)] = true
+			}
 			result.Docs = append(result.Docs, seedDocument{
 				Path:      filepath.ToSlash(rel),
-				SeedPath:  filepath.ToSlash(filepath.Join(seedDirName, seedDocsDirName, rel)),
+				SeedPath:  seedPath,
 				Bytes:     entry.Bytes,
 				Truncated: entry.Truncated,
 				Reason:    entry.Reason,
+				Extracted: extracted,
 			})
 		}
 		if isEntrypointPath(rel) {
@@ -578,6 +602,23 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 		}
 		entry.Reason = "included truncated"
 	}
+	// An extractable document is binary on disk and text once read, so it must
+	// bypass both the extension denylist and the NUL-byte check below — every
+	// PDF and every Office file fails the latter by construction. The bytes are
+	// never indexed directly; writeSeedDocs converts them first.
+	if isExtractableSeedDocument(rel) {
+		// The NUL check below would reject every PDF and Office file by
+		// construction, which is why this returns early — but the content hash
+		// is what makes the scan fingerprint move when a file changes, so take
+		// the digest and discard the binary verdict rather than skipping both.
+		// Without it, editing a PDF under docs/ leaves the fingerprint
+		// identical and the packet looks fresh when it is not.
+		if sum, _, hashErr := hashFileDetectingNUL(filepath.Join(repoDir, clean)); hashErr == nil {
+			entry.Hash = sum
+		}
+		entry.Reason = "included as an extracted document"
+		return entry
+	}
 	if isLikelyBinaryPath(rel) {
 		entry.Included = false
 		entry.Reason = "binary or media"
@@ -661,7 +702,42 @@ func isHighSignalDoc(path string) bool {
 	if strings.HasPrefix(base, "readme") || base == "claude.md" || base == "agents.md" || base == "contributing.md" || base == "security.md" {
 		return true
 	}
-	return path == ".github/copilot-instructions.md" || strings.HasPrefix(path, "docs/") && strings.HasSuffix(strings.ToLower(path), ".md")
+	if path == ".github/copilot-instructions.md" {
+		return true
+	}
+	if strings.HasPrefix(path, "docs/") && strings.HasSuffix(strings.ToLower(path), ".md") {
+		return true
+	}
+	// Scoping for extracted documents lives in isExtractableSeedDocument alone,
+	// so there is exactly one place it can be got wrong — and exactly one place
+	// a test can hold it.
+	return isExtractableSeedDocument(path)
+}
+
+// isExtractableSeedDocument reports whether a repository file is a non-code
+// document this build can read: a PDF, or a Word/Excel/PowerPoint file.
+//
+// The rule is the same one markdown already obeys — under docs/ — rather than
+// anywhere in the tree. A repository's docs/ directory is where somebody put
+// material meant to be read; a .xlsx under test fixtures or vendor/ is data,
+// and hoovering those into the brain would bury the documents that matter.
+func isExtractableSeedDocument(path string) bool {
+	path = filepath.ToSlash(path)
+	if !strings.HasPrefix(path, "docs/") {
+		return false
+	}
+	return documentFormatFor(path) != formatUnknown
+}
+
+// extractedSeedDocPath is where an extracted document lands in the brain.
+//
+// The `.md` suffix is load-bearing: the doc indexer walks the seed for markdown,
+// so extracted text has to arrive as markdown to be retrievable at all. Keeping
+// the original extension in the name (spec.pdf.md, not spec.md) means the stored
+// file still says what it came from, and two documents that differ only by
+// format cannot collide.
+func extractedSeedDocPath(seedPath string) string {
+	return seedPath + ".md"
 }
 
 func isSelectedUntrackedSeedFile(path string) bool {
@@ -778,8 +854,21 @@ func seedFingerprint(scan seedScanResult) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-func writeSeedArtifacts(outputDir string, scan seedScanResult) error {
+// writeSeedArtifacts takes the scan by POINTER because writing the documents
+// corrects it: a document whose extraction fails loses its seed path and gains
+// a reason, and a warning is appended. Taking it by value silently discarded
+// every one of those corrections, so the durable manifest recorded an encrypted
+// or scanned PDF as extracted, with a seed path that was never written, and the
+// "document not indexed" warning never reached anybody.
+func writeSeedArtifacts(outputDir string, scan *seedScanResult) error {
 	if err := os.MkdirAll(filepath.Join(outputDir, seedDirName, seedDocsDirName), 0o700); err != nil {
+		return err
+	}
+	// Documents are written FIRST, because doing so is what discovers which of
+	// them could not be read. file-index.json is the documented place to see
+	// why a file was included or skipped; writing it before extraction was
+	// attempted meant it could only ever report the optimistic answer.
+	if err := writeSeedDocs(outputDir, scan); err != nil {
 		return err
 	}
 	fileIndexData, err := json.MarshalIndent(scan.Files, "", "  ")
@@ -790,34 +879,67 @@ func writeSeedArtifacts(outputDir string, scan seedScanResult) error {
 	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "file-index.json")), fileIndexData, 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "repo-overview.md")), []byte(renderSeedOverview(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "repo-overview.md")), []byte(renderSeedOverview(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "architecture.md")), []byte(renderSeedArchitecture(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "architecture.md")), []byte(renderSeedArchitecture(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "commands.md")), []byte(renderSeedCommands(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "commands.md")), []byte(renderSeedCommands(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "conventions.md")), []byte(renderSeedConventions(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "conventions.md")), []byte(renderSeedConventions(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "risks.md")), []byte(renderSeedRisks(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "risks.md")), []byte(renderSeedRisks(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "history-gaps.md")), []byte(renderSeedHistoryGaps(scan)), 0o600); err != nil {
-		return err
-	}
-	if err := writeSeedDocs(outputDir, scan); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "history-gaps.md")), []byte(renderSeedHistoryGaps(*scan)), 0o600); err != nil {
 		return err
 	}
 	return nil
 }
 
+// dropSeedDocument records that a selected document did not make it into the
+// seed, everywhere a reader would look: on the document, in the file index, and
+// in the warnings the refresh prints.
+//
+// One function because there are several ways to fail here and they were not
+// reported consistently — a failed extraction warned, an unreadable file did
+// not, and a rejected path said nothing at all. A document that is selected and
+// then silently dropped is the failure this whole area exists to prevent.
+func dropSeedDocument(scan *seedScanResult, doc *seedDocument, reason string) {
+	doc.Reason = reason
+	doc.SeedPath = ""
+	doc.Extracted = false
+	scan.Warnings = append(scan.Warnings, fmt.Sprintf("document not indexed: %s: %s", doc.Path, reason))
+	markSeedFileNotIndexed(scan, doc.Path, reason)
+}
+
+// markSeedFileNotIndexed corrects the file index for a document that was
+// selected and then could not be read.
+//
+// inspectSeedFile marks an extractable document included before extraction is
+// attempted — it cannot know whether a PDF has a text layer without opening it
+// — so the index records the optimistic answer and this is where it is
+// corrected. Leaving it uncorrected reports a scanned PDF as successfully
+// included in the one file people are told to consult for exactly that.
+func markSeedFileNotIndexed(scan *seedScanResult, path, reason string) {
+	path = filepath.ToSlash(path)
+	for i := range scan.Files {
+		if filepath.ToSlash(scan.Files[i].Path) != path {
+			continue
+		}
+		scan.Files[i].Included = false
+		scan.Files[i].Reason = reason
+		return
+	}
+}
+
 // writeSeedDocs copies the selected high-signal docs into the seed, truncating each
 // to the configured maximum source bytes. The copy updates document metadata
 // to describe the bytes actually read, excluding any truncation marker.
-func writeSeedDocs(outputDir string, scan seedScanResult) error {
+func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 	limit := scan.MaxFileBytes
 	if limit <= 0 {
 		limit = defaultSeedMaxFileBytes
@@ -825,10 +947,17 @@ func writeSeedDocs(outputDir string, scan seedScanResult) error {
 	for i := range scan.Docs {
 		doc := &scan.Docs[i]
 		cleanSrc := filepath.Clean(filepath.FromSlash(doc.Path))
+		// Every branch that drops a document says so. These two used to
+		// `continue` in silence, so a document selected during the scan and
+		// rejected here vanished with no warning and no entry in the file
+		// index — the same optimistic answer the rest of this function was
+		// changed to stop giving.
 		if filepath.IsAbs(cleanSrc) || cleanSrc == "." || strings.HasPrefix(cleanSrc, ".."+string(filepath.Separator)) {
+			dropSeedDocument(scan, doc, "unsafe source path")
 			continue
 		}
 		if err := rejectSymlinkPathComponents(scan.RepoDir, cleanSrc); err != nil {
+			dropSeedDocument(scan, doc, fmt.Sprintf("not read: %v", err))
 			continue
 		}
 		cleanDst := filepath.Clean(filepath.FromSlash(doc.SeedPath))
@@ -844,6 +973,32 @@ func writeSeedDocs(outputDir string, scan seedScanResult) error {
 		src := filepath.Join(scan.RepoDir, cleanSrc)
 		if err := rejectExistingSymlinkPathComponents(outputDir, cleanDst); err != nil {
 			return fmt.Errorf("validate seed document path %s: %w", cleanDst, err)
+		}
+		if doc.Extracted {
+			// A container has to be read whole — a PDF's cross-references and a
+			// zip's central directory both live at the end, so the prefix read
+			// below would hand the extractor a file it cannot parse. The output
+			// is bounded instead, by extractDocumentText.
+			data, err := safeReadFile(src, maxExtractDocumentBytes)
+			if err != nil {
+				dropSeedDocument(scan, doc, fmt.Sprintf("not read: %v", err))
+				continue
+			}
+			text, err := extractDocumentText(doc.Path, data)
+			if err != nil {
+				// Record why and move on. A document nobody can read must not
+				// fail the refresh, and it must not be silently absent either:
+				// the reason lands in the seed's file index and the warning
+				// list, where `status` and the overview surface it.
+				dropSeedDocument(scan, doc, documentExtractionReason(err))
+				continue
+			}
+			rendered := renderExtractedDocument(doc.Path, text)
+			doc.Bytes = int64(len(rendered))
+			if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(cleanDst), []byte(rendered), 0o600); err != nil {
+				return err
+			}
+			continue
 		}
 		// Read only what can survive the truncation below, plus one byte to
 		// detect that truncation is needed. Slurping the whole file first made
@@ -863,6 +1018,29 @@ func writeSeedDocs(outputDir string, scan seedScanResult) error {
 		}
 	}
 	return nil
+}
+
+// renderExtractedDocument wraps extracted text as markdown, with a header that
+// says where it came from. Without it a reader of the brain directory finds a
+// .md file with no indication that it is a derived rendering of a PDF — and a
+// retrieved chunk would cite a path that is not the document anybody has.
+func renderExtractedDocument(sourcePath, text string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s\n\n", filepath.Base(sourcePath))
+	fmt.Fprintf(&b, "> Text extracted from `%s`. This file is derived; edit the source document.\n\n", sourcePath)
+	b.WriteString(text)
+	b.WriteString("\n")
+	return b.String()
+}
+
+// documentExtractionReason is the short form for the seed file index, where a
+// full error would crowd out every other entry.
+func documentExtractionReason(err error) string {
+	var extractErr *documentExtractionError
+	if errors.As(err, &extractErr) {
+		return "not indexed: " + extractErr.Reason
+	}
+	return "not indexed"
 }
 
 func renderSeedOverview(scan seedScanResult) string {

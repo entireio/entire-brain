@@ -16,6 +16,9 @@ Through the CLI and MCP, agents can retrieve earlier decisions, revisit past att
 - Find code, inspect the impact of a change, and investigate regressions with [Entire Graph](https://github.com/entireio/entire-graph).
 - Connect agents through the CLI or MCP, with response size limits and repository instructions.
 - Browse saved knowledge in a terminal dashboard or an offline graph view.
+- Record facts globally, not just per repository, so a preference or team convention applies everywhere.
+- Read the documents that are not code: PDFs, Word, Excel and PowerPoint files under `docs/`.
+- Notify CI, a chat channel, or an index with signed webhooks when the brain changes.
 - Brain reads sessions captured by Entire CLI and uses Entire Graph for code analysis. Without captured sessions, Brain builds from code, docs, and Git history.
 - Graph is required for code analysis, but you can use Brain to search sessions, docs, and facts without it.
 
@@ -165,6 +168,27 @@ one, pass it yourself: `--path constraints.retry.policy`, shaped
 `verify` reports hand-written facts as `unverifiable-here` — they have no source
 anchor in the repository. Expected, not a failure.
 
+### Remember something that is not about one repository
+
+Most facts belong to a codebase. Some — a preference, a team convention, where
+the staging cluster lives — are true in every repository you work in, and had
+nowhere to live but one repo's brain.
+
+```bash
+entire brain remember "The staging cluster is in eu-west-1." --global
+entire brain facts global                  # everything recorded globally
+entire brain facts retract <id> --global
+```
+
+Global facts are recalled from every repository and labelled `(global)` when
+they surface, so a general convention is never mistaken for something this
+codebase declared. `--no-global`, or `ENTIRE_BRAIN_NO_GLOBAL_FACTS=1`, leaves
+them out.
+
+Running `remember` outside a checkout records the fact globally instead of
+failing — which is usually where you are when the thing you want to write down
+is not about one repo.
+
 ### Search
 
 ```bash
@@ -194,6 +218,30 @@ The same forms work with `entire brain workspace query <workspace>`.
 ```bash
 entire brain query "auth middleware" --source fact --json | jq '.results[0]'
 ```
+
+### Read documents that are not code
+
+A design doc written in Word, a spec that arrived as a PDF, a requirements
+matrix in a spreadsheet — put them in `docs/` and `refresh` reads them into the
+brain alongside markdown, so they come back from `search` and `brief` like
+anything else.
+
+```bash
+entire brain docs formats              # what this build reads
+entire brain docs extract docs/spec.pdf # what it will get out of one file
+```
+
+Extraction is deterministic and local: no model, no network, no external tools,
+no OCR. A scanned PDF has no text layer, and Brain says so rather than indexing
+an empty document:
+
+```
+docs/scanned-form.pdf: the PDF has no text layer
+  (it is probably a scan; OCR is out of scope for this build)
+```
+
+Fact text from documents is indexed as-is; see [documents](docs/reference.md#documents)
+for what is read from each format and what is left out.
 
 ### Navigate the code semantically
 
@@ -232,6 +280,25 @@ checkpoints) and **docs** (seed, guides and context). The recording above is a
 real brain — 20,478 symbols, 807,186 history records, 2,375 sessions — and it
 runs entirely on your machine: no network, no model calls, read-only.
 
+### Notify another service when the brain changes
+
+Point Brain at an HTTP endpoint and it posts a small JSON event when a fact is
+recorded or retracted, or the brain is refreshed — so a CI job, a chat channel,
+or an index can react without polling.
+
+```bash
+export ENTIRE_BRAIN_WEBHOOK_URL=https://hooks.example.com/entire
+export ENTIRE_BRAIN_WEBHOOK_SECRET=a-long-random-string
+
+entire brain webhook test     # prove the endpoint works
+entire brain webhook events   # fact.recorded, fact.retracted, brain.refreshed
+```
+
+Events carry the fact's id, kind, and taxonomy paths — not its text, unless you
+set `ENTIRE_BRAIN_WEBHOOK_INCLUDE_TEXT=1`. With a secret set, each POST is
+signed with HMAC-SHA256 in `X-Entire-Signature-256`. Unset the URL and nothing
+is sent. See [webhooks](docs/reference.md#webhooks).
+
 ### Recover from a split brain
 
 A repository reached through two different paths — a symlink, or `/tmp` on
@@ -263,6 +330,8 @@ Facts extracted by a model can be wrong. Check the linked sources before relying
 
 Code analysis inherits Graph's limitations: dynamic calls can go unresolved, and parsing support varies by language.
 
+The historical scale benchmark measured a 1.2 GB index and roughly 12-second median code search on one 4.8M-line repository. Those runs do not establish a scaling law or performance at 100M lines. See [scale](docs/scale.md) for the measurements, their limits, and the command to benchmark a current build.
+
 Search support varies by build and source. Check `entire brain capabilities` for available retrieval modes and the [conversation recall documentation](docs/recall-evidence.md) for experimental features.
 
 See the [recall threat model](docs/recall_threat_model.md) for how Brain handles untrusted session content and retained secrets.
@@ -274,7 +343,11 @@ See the [recall threat model](docs/recall_threat_model.md) for how Brain handles
 - [Agent activation and coordination](docs/agent-coordination.md)
 - [Semantic features and MCP](docs/semantic_mcp_guide.md)
 - [Storage and configuration](docs/reference.md#storage-and-configuration)
+- [Scale: index size and query latency, measured](docs/scale.md)
+- [Global facts](docs/reference.md#global-facts)
+- [Documents (PDF, Word, Excel, PowerPoint)](docs/reference.md#documents)
 - [Privacy and egress](docs/reference.md#privacy-and-egress)
+- [Webhooks](docs/reference.md#webhooks)
 - [Conversation recall and source citations](docs/recall-evidence.md)
 - [Contributing and build options](CONTRIBUTING.md)
 - [Release readiness](docs/release_readiness_audit.md)
