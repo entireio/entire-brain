@@ -14,20 +14,34 @@ isolated store so it neither reads nor disturbs the brain you actually use.
 
 **The headline is not flattering, and that is the point of publishing it.**
 
-## Measured results
+## Historical measured results
 
 Apple M-series laptop, macOS, `syntax-only` profile, entire-graph
 `v0.4.1-nightly.202609180615`, 8 fixed natural-language queries, 5 timed runs
 each after one untimed warm-up. Every figure below came from running the command
-above; nothing is estimated.
+above in September 2026; nothing in the tables is extrapolated. These are
+retained summaries from the original benchmark, not measurements of the current
+branch. Raw per-query samples and exact corpus revisions were not retained here,
+so these rows cannot be independently reproduced byte-for-byte. Re-run the
+command to evaluate a current build.
 
-| Repository | kLOC | Files | Symbols | Index | KB / kLOC | Index vs source | Build | Throughput | Peak RSS |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| entire-api | 174 | 746 | 12.6k | 40 MB | 237 | 585% | 7.2s | 24k lines/s | 41 MB |
-| entire.io | 485 | 1,835 | 29.1k | 103 MB | 218 | 655% | 22.7s | 21k lines/s | 48 MB |
-| entiredb | 628 | 2,596 | 35.9k | 112 MB | 183 | 536% | 25.6s | 25k lines/s | 49 MB |
-| entire-brain | 746 | 1,777 | 50.3k | 193 MB | 265 | 363% | 19.8s | 38k lines/s | 70 MB |
-| **kubernetes** | **4,786** | **15,921** | **325.1k** | **1,171 MB** | **251** | **654%** | **219s** | **22k lines/s** | **162 MB** |
+| Repository | kLOC | Files | Symbols | Index | KB / kLOC | Index vs source | Build | Throughput |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| entire-api | 174 | 746 | 12.6k | 40 MB | 237 | 585% | 7.2s | 24k lines/s |
+| entire.io | 485 | 1,835 | 29.1k | 103 MB | 218 | 655% | 22.7s | 21k lines/s |
+| entiredb | 628 | 2,596 | 35.9k | 112 MB | 183 | 536% | 25.6s | 25k lines/s |
+| entire-brain | 746 | 1,777 | 50.3k | 193 MB | 265 | 363% | 19.8s | 38k lines/s |
+| **kubernetes** | **4,786** | **15,921** | **325.1k** | **1,171 MB** | **251** | **654%** | **219s** | **22k lines/s** |
+
+**Peak memory is withdrawn from this table rather than restated.** The figures
+published here were read from `RUSAGE_SELF`, which never includes a child
+process — and indexing runs in an external provider, so they measured the
+harness rather than the work. Re-measured on entire-brain with the corrected
+reading, the peak was **203 MB against the 70 MB this table used to report**,
+2.8x higher. The other rows are wrong in the same direction by an unknown
+factor, and restating them would mean re-running every repository, so the column
+is gone until someone does. `brain bench scale --json` reports the corrected
+`max_rss_bytes` today.
 
 Code-search latency, against the semantic index:
 
@@ -46,36 +60,17 @@ read the order of magnitude and not the digits; the gap between 174k lines and
 
 ## What this says
 
-**Index size grows linearly with the codebase, at 183–265 KB per thousand
-lines** — five to six times the size of the source it indexes. That ratio is
-stable from 174k lines to 4.8M lines, which is the useful finding: there is no
-sublinear behaviour to hope for.
+In these five runs, index size per thousand counted lines ranged from
+183–265 KB. The largest tested repository had a 1,171 MB index and a
+12.3-second median code search. These observations motivate work on index
+size and query cost; they do not establish a scaling law or a capacity limit.
 
-**Query latency grows linearly too.** 299 ms at 174k lines, ~1.5 s at 746k,
-**12.3 s at 4.8M**. Nothing flattens out.
-
-Against the numbers competitors publish:
-
-| | Corpus | Index | Search |
-| --- | --- | --- | --- |
-| Augment (published) | 100M lines | 250 MB | sub-200 ms |
-| Zoekt (published) | ~2 GB, multi-repo | — | sub-50 ms |
-| **Entire Brain (measured)** | **4.8M lines** | **1,171 MB** | **12,294 ms p50** |
-
-At 2.5 KB per thousand lines, Augment's published index is roughly **100x
-smaller per line** than ours, and its published search is roughly **60x faster
-than ours on a corpus 20x smaller**.
-
-Carrying our measured per-line cost to 100M lines gives an index around **24 GB**
-and a search around **four minutes**. That is not a tuning problem.
-
-**So: Brain does not scale to a 100M-line codebase today, it scales linearly in
-both dimensions, and 4.8M lines is where we have actually measured it.** That is
-a worse answer than "Unknown" reads, and a far more useful one — it is a number
-to move rather than a question nobody had asked.
-
-Those competitor figures are their published claims, not something we ran. They
-are not measured here and should not be treated as verified.
+**100M lines has not been measured.** Multiplying a per-line ratio from a
+smaller repository is neither a measured result nor a bound on performance at
+that size. Different languages, profiles, hardware, and index implementations
+can change both size and latency. No competitor implementation was run under
+this workload, so these results do not establish a comparative speed or size
+advantage.
 
 ## What is and is not being measured
 
@@ -96,8 +91,16 @@ would inflate the denominator and make every ratio here look better.
 
 **Latency excludes process start.** One untimed warm-up runs per query, so these
 are steady-state figures for a live process, not `time entire brain search`.
-There is no process-level cache between searches: repeated identical queries in
-one process do not get faster, which is why the numbers track index size.
+Any caches populated by indexing or warm-up remain available to timed calls.
+These figures must not be used as cold-process latency estimates.
+
+**It does not exclude the subprocesses a search spawns.** Every search resolves
+its repository and checks index freshness through `git`, so each timed sample
+pays for several process spawns — around 30-50 ms here, measured with
+`rev-parse` at 10 ms, `branch --show-current` at 7 ms and the worktree-dirty
+check at 14 ms. That is a real cost a caller pays and it belongs in the figure,
+but it is not retrieval, and at the small end of this table it is a visible
+share of the total rather than a rounding error.
 
 ## Reproducing it
 
@@ -108,7 +111,9 @@ entire brain bench scale --json > result.json
 
 The worktree must be clean — the indexer refuses uncommitted content — and the
 repository must be a git repository, since the line count comes from
-`git ls-files`.
+`git ls-files`. `bench scale <path>` measures a repository other than the one
+you are standing in; the numbers in this document were taken with the form
+above, from inside each repository.
 
 `--repeats` changes the timed runs per query, `--query` replaces the query set,
 and `--keep` leaves the isolated store behind for inspection.
@@ -119,9 +124,7 @@ and `--keep` leaves the isolated store behind for inspection.
   and differed by 48%.** Treat differences below about 2x between adjacent rows
   as noise. The 40x spread from entire-api to kubernetes is not.
 - **The largest repository measured is kubernetes at 4.8M lines.** Nothing
-  beyond that is measured. The 100M-line figures above are arithmetic on our
-  measured per-line cost, offered as a bound on what today's architecture could
-  do — not a prediction, and not a run.
+  beyond that is measured; no 100M-line performance conclusion follows.
 - **`syntax-only` profile.** Richer profiles produce more relations and a larger
   index.
 - **Languages the provider cannot parse contribute lines but no symbols**, which

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -46,13 +47,14 @@ type scaleBenchOptions struct {
 }
 
 type latencyStats struct {
-	Samples int     `json:"samples"`
-	MinMS   float64 `json:"min_ms"`
-	P50MS   float64 `json:"p50_ms"`
-	P95MS   float64 `json:"p95_ms"`
-	P99MS   float64 `json:"p99_ms"`
-	MaxMS   float64 `json:"max_ms"`
-	MeanMS  float64 `json:"mean_ms"`
+	Samples  int     `json:"samples"`
+	Failures int     `json:"failed_calls,omitempty"` // Includes failed warm-up calls.
+	MinMS    float64 `json:"min_ms"`
+	P50MS    float64 `json:"p50_ms"`
+	P95MS    float64 `json:"p95_ms"`
+	P99MS    float64 `json:"p99_ms"`
+	MaxMS    float64 `json:"max_ms"`
+	MeanMS   float64 `json:"mean_ms"`
 }
 
 type scaleBenchReport struct {
@@ -127,7 +129,9 @@ the repository in lines — the terms large-codebase claims are usually stated i
 
 It builds the index in an isolated store, so it neither reads nor disturbs the
 brain for this repository, and reports bytes per thousand lines alongside query
-latency per retrieval mode.
+latency per retrieval mode. --skip-index is the exception: measuring an index
+that already exists means measuring the real brain, and a run that does is
+labelled as such in its own output.
 
 The result describes the machine it ran on and the repository it was given.
 Nothing is extrapolated: a number measured at one size is not a claim about a
@@ -150,7 +154,8 @@ larger one.`),
 	cmd.Flags().IntVar(&benchOpts.repeats, "repeats", 5, "Timed runs per query")
 	cmd.Flags().StringVar(&benchOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().StringVar(&benchOpts.profile, "profile", "syntax-only", "Semantic provider snapshot profile")
-	cmd.Flags().BoolVar(&benchOpts.skipIndex, "skip-index", false, "Measure an existing brain rather than building one")
+	cmd.Flags().BoolVar(&benchOpts.skipIndex, "skip-index", false,
+		"Measure this repository's real brain instead of building an isolated one (the only mode that touches it)")
 	return cmd
 }
 
@@ -192,7 +197,10 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 	report.Warnings = append(report.Warnings, corpusWarnings...)
 
 	// An isolated store, so the benchmark neither reads nor disturbs the brain
-	// somebody actually uses for this repository.
+	// somebody actually uses for this repository. --skip-index is the one
+	// exception and cannot avoid being one: it exists to measure an index that
+	// already exists, which only the real brain has. That run is announced in
+	// the report rather than left to this comment.
 	tempRoot, err := os.MkdirTemp("", "entire-brain-scale-bench-*")
 	if err != nil {
 		return err
@@ -200,17 +208,25 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 	if !benchOpts.keep {
 		defer os.RemoveAll(tempRoot)
 	}
-	benchEnv := opts.Env
-	benchEnv.PluginConfigDir = filepath.Join(tempRoot, "config")
-	benchEnv.PluginDataDir = filepath.Join(tempRoot, "data")
-	benchEnv.PluginStateDir = filepath.Join(tempRoot, "state")
-	benchEnv.PluginCacheDir = filepath.Join(tempRoot, "cache")
+	benchEnv := benchIsolatedEnv(opts.Env, tempRoot, repoDir)
 	benchRun := opts
 	benchRun.Env = benchEnv
 
 	if benchOpts.skipIndex {
 		report.IndexSkipped = true
-		benchRun = opts // measure the real brain instead
+		// Measuring an existing index means measuring the brain that holds it.
+		// A report whose numbers silently came from somewhere other than the
+		// isolated store would be the wrong kind of surprise, so it says so.
+		// The real plugin store, because that is where the existing index is
+		// — but still the repository that was asked for. Assigning opts back
+		// wholesale would take the ambient RepoRoot with it and time queries
+		// against whichever repo the shell is in, which is the same defect
+		// this environment was built to prevent.
+		benchRun = opts
+		benchRun.Env = benchExistingBrainEnv(opts.Env, repoDir)
+		report.Warnings = append(report.Warnings,
+			"--skip-index measured the real brain for this repository, not an isolated store: "+
+				"queries read it, and retrieval may write its caches")
 	} else {
 		indexCmd := &cobra.Command{Use: "bench scale"}
 		indexCmd.SetOut(io.Discard)
@@ -235,10 +251,24 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 		return err
 	}
 	brainDir := storage.BrainDir
+	indexed := false
 	if manifest, merr := loadBrainManifest(brainDir); merr == nil && manifest != nil && manifest.Sources != nil && manifest.Sources.Semantic != nil {
+		indexed = true
 		report.IndexedFiles = manifest.Sources.Semantic.Files
 		report.Symbols = manifest.Sources.Semantic.Symbols
 		report.Relations = manifest.Sources.Semantic.Relations
+	}
+	if benchOpts.skipIndex && !indexed {
+		// --skip-index measures an index that already exists. Without one there
+		// is nothing to measure, and every size figure below would come back
+		// zero: measureBrainSize walks a directory that is not there and
+		// reports 0 bytes rather than failing. A report of
+		// "index_bytes: 0, symbols: 0" reads as a measurement of a very small
+		// brain instead of the absence of one, which is the confusion this
+		// whole command exists to avoid.
+		return fmt.Errorf(
+			"--skip-index found no semantic index for %s; run `entire brain index` first, or drop --skip-index to build one",
+			repoDir)
 	}
 
 	// Size on disk, which is the figure the comparison is actually about.
@@ -306,14 +336,13 @@ func measureCorpus(ctx context.Context, opts Options, repoDir string) (corpusSiz
 	var size corpusSize
 	var warnings []string
 
-	out, err := gitScalar(ctx, opts.Runner, repoDir, "ls-files", "-z")
+	out, _, err := opts.Runner.Run(ctx, repoDir, "git", "ls-files", "-z")
 	if err != nil {
 		return size, nil, fmt.Errorf("list tracked files (the scale benchmark needs a git repository): %w", err)
 	}
-	paths := strings.Split(strings.TrimRight(out, "\x00"), "\x00")
+	paths := strings.Split(strings.TrimRight(string(out), "\x00"), "\x00")
 	skipped := 0
 	for _, rel := range paths {
-		rel = strings.TrimSpace(rel)
 		if rel == "" {
 			continue
 		}
@@ -356,6 +385,35 @@ func isCountableSourcePath(rel string) bool {
 	return true
 }
 
+// benchIsolatedEnv builds the environment the benchmark runs under: an isolated
+// plugin store so it neither reads nor disturbs the brain somebody actually
+// uses, pointed at the repository being measured.
+//
+// RepoRoot matters as much as the store directories. The query path resolves
+// its repo from the environment rather than from an argument
+// (runSemanticQuery -> exportRepoDir -> env.RepoRoot, else os.Getwd), so
+// leaving it as the ambient repo would index the repository the command was
+// given and then time queries against whichever one the shell was in — and
+// `bench scale <path>` is the documented form.
+func benchIsolatedEnv(env EntireEnv, tempRoot, repoDir string) EntireEnv {
+	env.RepoRoot = repoDir
+	env.PluginConfigDir = filepath.Join(tempRoot, "config")
+	env.PluginDataDir = filepath.Join(tempRoot, "data")
+	env.PluginStateDir = filepath.Join(tempRoot, "state")
+	env.PluginCacheDir = filepath.Join(tempRoot, "cache")
+	return env
+}
+
+// benchExistingBrainEnv is the --skip-index counterpart of benchIsolatedEnv:
+// the real plugin store, because that is where an existing index lives, but
+// still the repository that was asked for. Assigning the caller's options back
+// wholesale would carry the ambient RepoRoot with them and time queries against
+// whichever repository the shell is in.
+func benchExistingBrainEnv(env EntireEnv, repoDir string) EntireEnv {
+	env.RepoRoot = repoDir
+	return env
+}
+
 func countFileLines(path string) (lines, bytes int64, err error) {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -366,21 +424,43 @@ func countFileLines(path string) (lines, bytes int64, err error) {
 	if !info.Mode().IsRegular() {
 		return 0, 0, fmt.Errorf("not a regular file")
 	}
-	data, err := os.ReadFile(path)
+	// Streamed rather than read whole. A tracked file large enough to matter
+	// here is unusual but entirely possible — a generated source file, a
+	// minified bundle, a data file that passed the extension filter — and
+	// os.ReadFile would hold all of it to count newlines in it.
+	//
+	// A size ceiling would be the other way to bound this, and it would be
+	// worse: skipping a file shrinks the line count that every ratio in this
+	// report divides by, and a denominator that quietly excludes things makes
+	// the numbers look better than they are. Streaming counts every tracked
+	// file whatever its size, in a fixed 64 KiB.
+	f, err := os.Open(path)
 	if err != nil {
 		return 0, 0, err
 	}
-	bytes = int64(len(data))
+	defer f.Close()
+	buf := make([]byte, 64<<10)
+	var last byte
+	for {
+		n, readErr := f.Read(buf)
+		if n > 0 {
+			bytes += int64(n)
+			chunk := buf[:n]
+			lines += int64(strings.Count(string(chunk), "\n"))
+			last = chunk[n-1]
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return 0, 0, readErr
+		}
+	}
 	if bytes == 0 {
 		return 0, 0, nil
 	}
-	for _, b := range data {
-		if b == '\n' {
-			lines++
-		}
-	}
 	// A final line without a trailing newline is still a line.
-	if data[len(data)-1] != '\n' {
+	if last != '\n' {
 		lines++
 	}
 	return lines, bytes, nil
@@ -393,19 +473,19 @@ func measureBrainSize(brainDir string) (int64, []scaleComponent, error) {
 	byComponent := map[string]int64{}
 	err := filepath.WalkDir(brainDir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return nil // an unreadable entry must not fail the measurement
+			return fmt.Errorf("measure index size at %s: %w", path, walkErr)
 		}
 		if d.IsDir() {
 			return nil
 		}
 		info, err := d.Info()
 		if err != nil {
-			return nil
+			return fmt.Errorf("measure index size at %s: %w", path, err)
 		}
 		total += info.Size()
 		rel, relErr := filepath.Rel(brainDir, path)
 		if relErr != nil {
-			return nil
+			return relErr
 		}
 		component := strings.SplitN(filepath.ToSlash(rel), "/", 2)[0]
 		byComponent[component] += info.Size()
@@ -470,7 +550,9 @@ func measureCodeSearchLatency(ctx context.Context, opts Options, queries []strin
 		// for the workload, so the count is reported beside it.
 		warnings = append(warnings, fmt.Sprintf("code_search: %d search(es) failed and are not in the distribution", failures))
 	}
-	return summarizeLatency(samples), warnings
+	stats := summarizeLatency(samples)
+	stats.Failures = failures
+	return stats, warnings
 }
 
 // retrievalModeName exists because retrievalMode is an int. string(mode) on it
@@ -497,12 +579,10 @@ func measureKnowledgeLatency(repoDir, brainDir, branch string, queries []string,
 	stats := map[string]latencyStats{}
 	var warnings []string
 
-	records := 0
-	if facts, err := loadFacts(brainDir, branch); err == nil {
-		records += len(facts)
-	}
-	if index, err := loadDocIndex(brainDir); err == nil {
-		records += len(index.Records)
+	records, countErr := countScaleKnowledgeRecords(brainDir, branch)
+	if countErr != nil {
+		records = -1 // Unknown must not be presented as an empty corpus.
+		warnings = append(warnings, "knowledge corpus size unavailable: "+countErr.Error())
 	}
 
 	for _, mode := range []retrievalMode{modeLexical, modeHybrid} {
@@ -528,9 +608,43 @@ func measureKnowledgeLatency(repoDir, brainDir, branch string, queries []string,
 		if failures > 0 {
 			warnings = append(warnings, fmt.Sprintf("%s: %d retrieval(s) failed and are not in the distribution", name, failures))
 		}
-		stats[name] = summarizeLatency(samples)
+		summary := summarizeLatency(samples)
+		summary.Failures = failures
+		stats[name] = summary
 	}
 	return stats, records, warnings
+}
+
+// Count stored records before query-specific ranking and filtering. History
+// includes the reconciled short-term overlay, just as retrieval does.
+func countScaleKnowledgeRecords(brainDir, branch string) (int, error) {
+	facts, err := loadFacts(brainDir, branch)
+	if err != nil {
+		return 0, err
+	}
+	records := len(facts)
+	index, err := loadDocIndex(brainDir)
+	if err == nil {
+		records += len(index.Records)
+	} else if !os.IsNotExist(err) {
+		return 0, err
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return 0, err
+	}
+	if manifest.Sources != nil && manifest.Sources.History != nil {
+		fresh, err := loadFreshHistory(brainDir, manifest.Sources.History)
+		if err != nil {
+			return 0, err
+		}
+		for _, record := range fresh.reconciledRecords() {
+			if record.Kind != conversationKind {
+				records++
+			}
+		}
+	}
+	return records, nil
 }
 
 func summarizeLatency(samples []float64) latencyStats {
@@ -561,7 +675,7 @@ func percentile(sorted []float64, p float64) float64 {
 	if len(sorted) == 0 {
 		return 0
 	}
-	rank := int(float64(len(sorted))*p + 0.5)
+	rank := int(math.Ceil(float64(len(sorted)) * p))
 	if rank < 1 {
 		rank = 1
 	}
@@ -608,40 +722,69 @@ func printScaleBenchReport(out io.Writer, r scaleBenchReport) {
 		fmt.Fprintf(out, "    %-14s %s\n", component.Name, humanBytes(component.Bytes))
 	}
 
-	fmt.Fprintf(out, "\nquery latency (%d queries, %d runs each)\n", len(r.Queries), latencyRuns(r))
+	if runs := latencyRuns(r); runs > 0 {
+		fmt.Fprintf(out, "\nquery latency (%d queries, %d runs each)\n", len(r.Queries), runs)
+	} else {
+		// The modes did not all run the same number of times, so there is no
+		// "each" to report; the per-mode sample counts below still are.
+		fmt.Fprintf(out, "\nquery latency (%d queries)\n", len(r.Queries))
+	}
 	fmt.Fprintf(out, "  code_search runs against the semantic index (%s symbols).\n", humanCount(int64(r.Symbols)))
-	fmt.Fprintf(out, "  knowledge_* run against facts/history/docs (%s records), which do not grow with the codebase.\n", humanCount(int64(r.KnowledgeRecords)))
+	knowledgeCount := humanCount(int64(r.KnowledgeRecords))
+	if r.KnowledgeRecords < 0 {
+		knowledgeCount = "unknown"
+	}
+	fmt.Fprintf(out, "  knowledge_* run against facts/history/docs (%s records before retrieval filters), which do not grow with the codebase.\n", knowledgeCount)
 	modes := make([]string, 0, len(r.Latency))
 	for mode := range r.Latency {
 		modes = append(modes, mode)
 	}
 	sort.Strings(modes)
-	fmt.Fprintf(out, "  %-10s %8s %8s %8s %8s\n", "mode", "p50", "p95", "p99", "max")
+	fmt.Fprintf(out, "  %-18s %8s %8s %8s %8s %8s\n", "mode", "samples", "p50", "p95", "p99", "max")
 	for _, mode := range modes {
 		s := r.Latency[mode]
 		if s.Samples == 0 {
-			fmt.Fprintf(out, "  %-10s %8s\n", mode, "n/a")
+			fmt.Fprintf(out, "  %-18s %8d %8s\n", mode, 0, "n/a")
 			continue
 		}
-		fmt.Fprintf(out, "  %-10s %7.1fms %7.1fms %7.1fms %7.1fms\n", mode, s.P50MS, s.P95MS, s.P99MS, s.MaxMS)
+		fmt.Fprintf(out, "  %-18s %8d %7.1fms %7.1fms %7.1fms %7.1fms\n", mode, s.Samples, s.P50MS, s.P95MS, s.P99MS, s.MaxMS)
 	}
 	for _, warning := range r.Warnings {
 		fmt.Fprintf(out, "\nwarning: %s\n", warning)
 	}
 }
 
-// latencyRuns reports the repeats per query, derived from the samples actually
-// collected so the header cannot claim a number of runs that did not happen.
+// latencyRuns reports the timed runs per query, and only when every mode ran
+// the same number. The header says "runs each", which is a claim about all of
+// them; reading it from whichever key Go's randomised map iteration happened to
+// visit first meant the same report could print different numbers on successive
+// runs, describing a mode the reader was not looking at.
+//
+// Modes disagree when queries fail in one and not another. That is already
+// named in the warnings, so 0 here drops the claim from the header rather than
+// picking a winner and stating it as though it held everywhere.
 func latencyRuns(r scaleBenchReport) int {
 	if len(r.Queries) == 0 {
 		return 0
 	}
+	runs := -1
 	for _, stats := range r.Latency {
-		if stats.Samples > 0 {
-			return stats.Samples / len(r.Queries)
+		if stats.Failures > 0 || stats.Samples <= 0 || stats.Samples%len(r.Queries) != 0 {
+			return 0
+		}
+		perQuery := stats.Samples / len(r.Queries)
+		if runs < 0 {
+			runs = perQuery
+			continue
+		}
+		if runs != perQuery {
+			return 0
 		}
 	}
-	return 0
+	if runs < 0 {
+		return 0
+	}
+	return runs
 }
 
 func humanCount(n int64) string {

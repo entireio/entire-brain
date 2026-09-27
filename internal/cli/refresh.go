@@ -527,6 +527,8 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	if refreshOpts.semanticWorktreeSkip {
 		printAroundLiveLine(cmd.OutOrStdout(), "%s\n", refreshWorktreeSemanticSkipNote(setupCommandPrefix(os.LookupEnv)))
 	}
+	// The refresh completed; anything watching this brain can now re-read it.
+	notifyBrainWebhook(ctx, cmd.ErrOrStderr(), opts, WebhookBrainRefreshed, opts.Now())
 	printAroundLiveLine(cmd.OutOrStdout(), "refreshed brain: %s\n", brainDir)
 	if refreshOpts.statusAfter && !outputExplicit {
 		statusCmd := &cobra.Command{Use: "status"}

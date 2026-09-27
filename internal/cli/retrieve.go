@@ -27,13 +27,14 @@ type unifiedResult struct {
 	Caveats              []retrievalCaveat `json:"caveats,omitempty"`
 	RelatedIDs           []string          `json:"related_ids,omitempty"`
 
-	// Conversation-exchange provenance (experimental, additive; empty for every
-	// other source).
+	// Source provenance; available fields vary by source. Fact timestamps
+	// retain their distinct creation and revision meanings.
 	EndLine   int    `json:"end_line,omitempty"` // inclusive 1-based source range end
 	Branch    string `json:"branch,omitempty"`
 	SessionID string `json:"session_id,omitempty"`
 	Agent     string `json:"agent,omitempty"`
 	CreatedAt string `json:"created_at,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
 	Truncated bool   `json:"truncated,omitempty"` // expanded/projected text is bounded, not complete
 	// MatchedTerms lists the query tokens that actually hit this record, so a
 	// weak match is diagnosable instead of opaque (conversation search only).
@@ -91,6 +92,16 @@ const (
 type retrievalOptions struct {
 	// Source selects the layer(s) to rank: "" or "all" is the default set.
 	Source string
+	// Recency turns on time-weighted ranking: a soft multiplier on the fused
+	// score, never a filter. Off by default because switching it on silently
+	// would reorder every existing caller's results for a reason they never
+	// asked about. RecencyHalfLife overrides the default; zero uses it.
+	// See recency.go.
+	Recency         bool
+	RecencyHalfLife time.Duration
+	// Now is the clock recency measures age against. Zero means time.Now;
+	// tests set it so a ranking assertion is not a race with the wall clock.
+	Now time.Time
 	// Structured conversation-source filters (Phase 2). Zero values mean no
 	// filter. After/Before bound the session time (After inclusive, Before
 	// exclusive); records without a session time are excluded whenever a time
@@ -111,6 +122,16 @@ type retrievalOptions struct {
 	// IncludeAbstract adds a bounded top-level preview envelope after ranking.
 	// It never changes rank and never invokes a provider.
 	IncludeAbstract bool
+	// GlobalFacts are facts recorded outside any repository. They are merged
+	// into the fact layer before ranking and go through every filter and the
+	// same scoring as repository facts, so a preference recorded once applies
+	// everywhere rather than only on the CLI surface that loaded it. Callers
+	// that should not see them (--no-global, ENTIRE_BRAIN_NO_GLOBAL_FACTS)
+	// simply leave this nil.
+	GlobalFacts []factRecord
+	// NoGlobalFacts is the per-request off switch, matching recall's
+	// --no-global. The environment switch is checked alongside it.
+	NoGlobalFacts bool
 }
 
 // hasConversationOnlyFilters reports filters that have no meaning outside the
@@ -191,6 +212,9 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		return nil, fmt.Errorf(`include_abstract requires source "conversation" (got %q)`, source)
 	}
 	if source == retrievalSourceConversation {
+		if opts.Recency {
+			return nil, fmt.Errorf("recency is not supported for source conversation")
+		}
 		if len(opts.Concepts) > 0 {
 			return retrieveConversationMultiConcept(brainDir, query, limit, mode, opts)
 		}
@@ -240,6 +264,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	// loadFacts surfaces corrupt NDJSON as a hard error; propagate it rather than
 	// presenting a broken store as "no results".
 	var all []factRecord
+	var globalFactIDs map[string]bool
 	var active []factRecord
 	var proposals []factProposal
 	var proposalsErr error
@@ -248,6 +273,9 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		all, err = loadFacts(brainDir, branch)
 		if err != nil {
 			return nil, err
+		}
+		if len(opts.GlobalFacts) > 0 {
+			all, globalFactIDs = mergeGlobalFacts(all, opts.GlobalFacts)
 		}
 		all = guardFactRecords(guard, all)
 		active = make([]factRecord, 0, len(all))
@@ -270,7 +298,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		factLimit := min(len(active), candidateLimit)
 		var reviewGroups []factReviewGroup
 		if proposalsErr == nil {
-			reviewGroups = buildFactReviewGroups(active, proposals)
+			reviewGroups = buildFactReviewGroups(factsEligibleForLocusDrift(active, globalFactIDs), proposals)
 			factLimit = guardedFactCandidateLimitForGroups(len(active), reviewGroups, candidateLimit)
 		}
 		var factResults []unifiedResult
@@ -282,13 +310,14 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 				// Pass the full set: factsVectorRanked ranks active facts but caches
 				// (and prunes) every present fact, matching the reranker's shared store.
 				factResults = factsToUnified(factsVectorRanked(
-					brainDir, branch, all, query, e, factLimit,
+					brainDir, branch, all, query, e, factLimit, globalFactIDs,
 				))
 			}
 		case modeHybrid:
 			var rr *semanticReranker
 			if e != nil {
 				rr = newSemanticRerankerForBranch(e, brainDir, branch)
+				rr.markForeign(globalFactIDs)
 			}
 			factResults = factsToUnified(rankFactsFused(active, query, factLimit, false, rr))
 			if rr != nil {
@@ -296,10 +325,17 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 				_ = rr.flush()
 			}
 		}
+		// Repository proposals and locus checks apply only to repository facts.
+		localFacts := factsEligibleForLocusDrift(all, globalFactIDs)
+		for i := range factResults {
+			if globalFactIDs[factResults[i].ID] {
+				factResults[i].Heading += " (global)"
+			}
+		}
 		if proposalsErr == nil {
-			factResults = guardUnifiedFactResultsWithGroups(repoDir, all, reviewGroups, factResults, candidateLimit)
+			factResults = guardUnifiedFactResultsWithGroups(repoDir, localFacts, reviewGroups, factResults, candidateLimit)
 		} else {
-			factResults = guardUnifiedFactResultsWithGroups(repoDir, all, nil, factResults, candidateLimit)
+			factResults = guardUnifiedFactResultsWithGroups(repoDir, localFacts, nil, factResults, candidateLimit)
 			factResults = annotateProposalStateUnavailable(factResults)
 		}
 		if len(factResults) > 0 {
@@ -466,7 +502,41 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		return nil, fmt.Errorf("load doc index: %w", derr)
 	}
 
-	return rrfMergeUnified(lists, limit), nil
+	fusionLimit := limit
+	if opts.Recency {
+		// Retain every candidate through weighting: a fresh result below the
+		// raw RRF cutoff may belong in the final page. The sum is an upper
+		// bound on the number of distinct results after fusion.
+		fusionLimit = 0
+		for _, list := range lists {
+			fusionLimit += len(list)
+		}
+	}
+	fused := rrfMergeUnified(lists, fusionLimit)
+	if opts.Recency {
+		now := opts.Now
+		if now.IsZero() {
+			now = time.Now()
+		}
+		halfLife := opts.RecencyHalfLife
+		if halfLife <= 0 {
+			halfLife = defaultRecencyHalfLife
+		}
+		// Inspect the full candidate pool: weighting may demote every dated
+		// candidate out of the final page, which is still a successful use.
+		if dated := applyRecency(fused, now, halfLife); dated == 0 {
+			for i := range fused {
+				fused[i].Caveats = append(fused[i].Caveats, retrievalCaveat{
+					Kind:    "recency_unavailable",
+					Message: "Recency weighting was requested, but none of the retrieved candidates has a usable timestamp; scores are unchanged.",
+				})
+			}
+		}
+	}
+	if len(fused) > limit {
+		fused = fused[:limit]
+	}
+	return fused, nil
 }
 
 func filterHistoryRetrievalSelfEchoes(scored []scoredHistoryRecord, query string) []scoredHistoryRecord {
@@ -496,12 +566,16 @@ func filterHistoryRetrievalSelfEchoes(scored []scoredHistoryRecord, query string
 // (all statuses): active facts are ranked, but every present fact is embedded and
 // retained in the shared cache so this path keeps the same vectors the recall/brief
 // reranker does — and departed facts are pruned so the on-disk cache stays bounded.
+// foreign ids are ranked but never enter this repository's vector store: the
+// store is keyed by (brainDir, branch), and a global fact belongs to every
+// repository rather than to this one.
 func factsVectorRanked(
 	brainDir, branch string,
 	facts []factRecord,
 	query string,
 	e Embedder,
 	limit int,
+	foreign map[string]bool,
 ) []factRecord {
 	// An empty query vector means the embedder is unavailable (e.g. Ollama down).
 	// Return no semantic results rather than an arbitrary top-N: every cosine
@@ -522,6 +596,16 @@ func factsVectorRanked(
 	}
 	scored := make([]sc, 0, len(facts))
 	for _, f := range facts {
+		if foreign[f.ID] {
+			if f.Status != factStatusActive {
+				continue
+			}
+			fv := e.Embed(factEmbeddingText(f))
+			if len(fv) == len(qv) && vectorHasMagnitude(fv) {
+				scored = append(scored, sc{rec: f, cos: cosineFloat32(qv, fv)})
+			}
+			continue
+		}
 		present[f.ID] = struct{}{}
 		v, ok := cache[f.ID]
 		if ok && (len(v) != len(qv) || !vectorHasMagnitude(v)) {
@@ -688,6 +772,12 @@ func factsToUnified(facts []factRecord) []unifiedResult {
 	out := make([]unifiedResult, len(facts))
 	for i, f := range facts {
 		out[i] = unifiedResult{Source: "fact", ID: f.ID, Path: strings.Join(f.Paths, ","), Heading: factKindOrInferred(f), Text: f.Text}
+		if !f.CreatedAt.IsZero() {
+			out[i].CreatedAt = f.CreatedAt.UTC().Format(time.RFC3339)
+		}
+		if !f.UpdatedAt.IsZero() {
+			out[i].UpdatedAt = f.UpdatedAt.UTC().Format(time.RFC3339)
+		}
 	}
 	return out
 }
@@ -979,6 +1069,9 @@ func historyToUnified(scored []scoredHistoryRecord) []unifiedResult {
 	out := make([]unifiedResult, len(scored))
 	for i, s := range scored {
 		out[i] = unifiedResult{Source: "history", ID: s.Record.ID, Path: s.Record.Path, Line: s.Record.Line, Heading: s.Record.Kind, Text: s.Record.Summary}
+		// Classic history records carry no time. Leaving CreatedAt empty is
+		// the honest answer: recency treats undated records as neutral, not old.
+		out[i].CreatedAt = s.Record.CreatedAt
 	}
 	return out
 }
@@ -1021,16 +1114,23 @@ func rrfMergeUnified(lists [][]unifiedResult, limit int) []unifiedResult {
 		r.Score = fused[id]
 		out = append(out, r)
 	}
+	sortUnifiedByScore(out)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+// sortUnifiedByScore orders by score descending, breaking ties on id so the
+// order is stable across runs. Recency reweighting re-sorts with the same
+// comparison, so a reweighted list and a fused list are ordered by one rule.
+func sortUnifiedByScore(out []unifiedResult) {
 	sort.Slice(out, func(a, b int) bool {
 		if out[a].Score != out[b].Score {
 			return out[a].Score > out[b].Score
 		}
 		return out[a].ID < out[b].ID
 	})
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	return out
 }
 
 // getUnifiedBatch resolves prefixed ids (fact:/review:/history:/doc:/pattern:/theme:) to full records,
@@ -1113,6 +1213,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		}
 	}
 	factByID := map[string]factRecord{}
+	var globalGetIDs map[string]bool
 	var reviewByID map[string]factReviewGroup
 	var reviewByFactID map[string]factReviewGroup
 	var proposalStateUnavailable bool
@@ -1121,6 +1222,11 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		facts, ferr := loadFacts(brainDir, branch)
 		if ferr != nil {
 			return nil, nil, ferr
+		}
+		if len(gopts.GlobalFacts) > 0 {
+			// query and search return global facts, so their ids have to
+			// resolve here too. The repository's copy still wins on a collision.
+			facts, globalGetIDs = mergeGlobalFacts(facts, gopts.GlobalFacts)
 		}
 		facts = guardFactRecords(guard, facts)
 		for _, f := range facts {
@@ -1131,7 +1237,8 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			return nil, nil, perr
 		}
 		if perr == nil {
-			reviewByID, reviewByFactID = indexFactReviewGroups(buildFactReviewGroups(facts, proposals))
+			localFacts := factsEligibleForLocusDrift(facts, globalGetIDs)
+			reviewByID, reviewByFactID = indexFactReviewGroups(buildFactReviewGroups(localFacts, proposals))
 		} else {
 			proposalStateUnavailable = true
 		}
@@ -1222,7 +1329,13 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 				if group, pending := reviewByFactID[id]; pending {
 					r = annotateExplicitFactReview(r, group)
 				}
-				r = annotateFactLocusTrust(repoDir, f, r)
+				if globalGetIDs[f.ID] {
+					// Not scoped to this repository, so locus drift cannot
+					// answer for it; labelled the way the ranked surfaces are.
+					r.Heading += " (global)"
+				} else {
+					r = annotateFactLocusTrust(repoDir, f, r)
+				}
 				if proposalStateUnavailable {
 					r = annotateProposalStateUnavailable([]unifiedResult{r})[0]
 				}

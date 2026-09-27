@@ -151,10 +151,26 @@
           "title": "limit",
           "type": "integer"
         },
+        "no_global": {
+          "description": "Exclude global facts from this request",
+          "title": "no_global",
+          "type": "boolean"
+        },
         "query": {
           "description": "Natural-language or keyword query",
           "maxLength": 8192,
           "title": "query",
+          "type": "string"
+        },
+        "recency": {
+          "description": "Prefer recent dated results; default false, not supported for source conversation",
+          "title": "recency",
+          "type": "boolean"
+        },
+        "recency_half_life": {
+          "description": "Positive Go duration, e.g. 720h; default 2160h (90 days); requires recency=true",
+          "maxLength": 8192,
+          "title": "recency_half_life",
           "type": "string"
         },
         "semantic": {
@@ -257,10 +273,26 @@
           "title": "limit",
           "type": "integer"
         },
+        "no_global": {
+          "description": "Exclude global facts from this request",
+          "title": "no_global",
+          "type": "boolean"
+        },
         "query": {
           "description": "Natural-language or keyword query",
           "maxLength": 8192,
           "title": "query",
+          "type": "string"
+        },
+        "recency": {
+          "description": "Prefer recent dated results; default false, not supported for source conversation",
+          "title": "recency",
+          "type": "boolean"
+        },
+        "recency_half_life": {
+          "description": "Positive Go duration, e.g. 720h; default 2160h (90 days); requires recency=true",
+          "maxLength": 8192,
+          "title": "recency_half_life",
           "type": "string"
         },
         "session_id": {
@@ -358,10 +390,26 @@
           "title": "limit",
           "type": "integer"
         },
+        "no_global": {
+          "description": "Exclude global facts from this request",
+          "title": "no_global",
+          "type": "boolean"
+        },
         "query": {
           "description": "Natural-language or keyword query",
           "maxLength": 8192,
           "title": "query",
+          "type": "string"
+        },
+        "recency": {
+          "description": "Prefer recent dated results; default false, not supported for source conversation",
+          "title": "recency",
+          "type": "boolean"
+        },
+        "recency_half_life": {
+          "description": "Positive Go duration, e.g. 720h; default 2160h (90 days); requires recency=true",
+          "maxLength": 8192,
+          "title": "recency_half_life",
           "type": "string"
         },
         "session_id": {
@@ -686,6 +734,11 @@
           "maxLength": 8192,
           "title": "fact",
           "type": "string"
+        },
+        "global": {
+          "description": "Record outside every repository so the fact applies everywhere (a preference, a team convention, an environment detail). Cannot be combined with branch.",
+          "title": "global",
+          "type": "boolean"
         },
         "kind": {
           "description": "Fact kind; inferred when omitted",
