@@ -1,0 +1,45 @@
+{
+  "cli_version": "0.11.3-nightly.202609230619.4e2e839c2",
+  "checkpoint_id": "06d74ef32ddc",
+  "session_id": "01a0e0b3-eca4-7b82-8578-a8281f55abc4",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-27T02:37:18.360018Z",
+  "branch": "codex/review-trail-233",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/benchmarks.md",
+    "internal/cli/benchmarks_doc_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "23aced613f04",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 166410,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2471424,
+    "output_tokens": 5876,
+    "api_call_count": 26
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-27T02:37:18.283501Z",
+    "agent_lines": 449,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 449,
+    "total_lines_changed": 449,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

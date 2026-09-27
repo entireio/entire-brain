@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.11.3-nightly.202609230619.4e2e839c2",
+  "checkpoint_id": "06d74ef32ddc",
+  "strategy": "manual-commit",
+  "branch": "codex/review-trail-233",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/benchmarks.md",
+    "internal/cli/benchmarks_doc_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/06/d74ef32ddc/0/metadata.json",
+      "transcript": "/06/d74ef32ddc/0/full.jsonl",
+      "compact_transcript": "/06/d74ef32ddc/0/transcript.jsonl",
+      "content_hash": "/06/d74ef32ddc/0/content_hash.txt",
+      "prompt": "/06/d74ef32ddc/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 166410,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2471424,
+    "output_tokens": 5876,
+    "api_call_count": 26
+  }
+}
