@@ -4751,7 +4751,11 @@ func semanticTestContainsEntrySuffix(entries []string, suffix string) bool {
 func semanticFixtureRunner(repoDir, snapshot string) *fakeCommandRunner {
 	brainignorePath := filepath.Join(repoDir, ".brainignore")
 	return &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("git", "rev-parse", "--show-toplevel"):                                                                                                  {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
+		// The fixture stands in for a real working tree, so it has to answer
+		// every question one would. Leaving this out made the fixture claim a
+		// branch while denying it was a repository at all.
+		fakeCommandKey("git", "rev-parse", "--is-inside-work-tree"):                                                                                            {stdout: "true\n"},
 		fakeCommandKey("git", "remote", "get-url", "origin"):                                                                                                   {stdout: "git@github.com:example/repo.git\n"},
 		fakeCommandKey("git", "rev-parse", "HEAD"):                                                                                                             {stdout: "aaa111\n"},
 		fakeCommandKey("git", "rev-parse", "HEAD^{tree}"):                                                                                                      {stdout: "tree111\n"},

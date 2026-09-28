@@ -215,12 +215,13 @@ type brainLiveState struct {
 }
 
 type brainBriefReport struct {
-	GeneratedAt time.Time          `json:"generated_at"`
-	Task        string             `json:"task"`
-	Status      brainStatusReport  `json:"status"`
-	Semantic    brainBriefSemantic `json:"semantic"`
-	History     brainBriefHistory  `json:"history"`
-	Facts       []factRecord       `json:"facts,omitempty"`
+	GeneratedAt   time.Time          `json:"generated_at"`
+	Task          string             `json:"task"`
+	Status        brainStatusReport  `json:"status"`
+	Semantic      brainBriefSemantic `json:"semantic"`
+	History       brainBriefHistory  `json:"history"`
+	Facts         []factRecord       `json:"facts,omitempty"`
+	GlobalFactIDs []string           `json:"global_fact_ids,omitempty"`
 	// FactsLocusDrift flags surfaced facts whose code locus no longer exists
 	// in the worktree (fact id -> departed locus tokens) — the "re-verify
 	// before trusting" signal (Phase 2 item 4).
@@ -282,6 +283,7 @@ type brainBriefJSONReport struct {
 	History            brainBriefHistory           `json:"history"`
 	Conversation       []brainBriefConversationHit `json:"conversation,omitempty"`
 	Facts              []brainBriefJSONFact        `json:"facts,omitempty"`
+	GlobalFactIDs      []string                    `json:"global_fact_ids,omitempty"`
 	FactsLocusDrift    map[string][]string         `json:"facts_locus_drift,omitempty"`
 	FactsPendingReview map[string]factReviewNotice `json:"facts_pending_review,omitempty"`
 	ActionChecklist    []brainBriefAction          `json:"action_checklist,omitempty"`
@@ -1624,7 +1626,21 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	} else if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Sessions != nil {
 		report.Warnings = append(report.Warnings, "history index missing; run `entire brain refresh`")
 	}
-	if status.Sources.Facts {
+	// Facts recorded outside any repository reach the brief — the surface the
+	// agent guide mandates as the first call of every task. Loaded before the
+	// gate because a repository that has never recorded a fact of its own has
+	// no fact source, and that is exactly the case global facts exist for: a
+	// preference recorded once, in a repo that has never been told it. A
+	// damaged global store degrades to a warning rather than taking the brief
+	// down.
+	var briefGlobalFacts []factRecord
+	var briefGlobalIDs map[string]bool
+	if globalFacts, globalErr := globalFactsForRead(opts.Env, false); globalErr != nil {
+		report.Warnings = append(report.Warnings, "global facts unavailable: "+globalErr.Error())
+	} else {
+		briefGlobalFacts = globalFacts
+	}
+	if status.Sources.Facts || len(briefGlobalFacts) > 0 {
 		branch := status.Live.Branch
 		if branch == "" {
 			branch = distillDefaultBranch
@@ -1634,7 +1650,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		// yields fewer facts than the manifest declares. The manifest can:
 		// warn before the packet reports a healthy facts source that
 		// contributed less than it claims.
-		if status.Manifest != nil && status.Manifest.Sources != nil {
+		if status.Sources.Facts && status.Manifest != nil && status.Manifest.Sources != nil {
 			if warning := missingFactStoreWarningForBranch(status.Brain.Path, status.Manifest.Sources.Facts, branch); warning != "" {
 				report.Warnings = append(report.Warnings, warning)
 
@@ -1652,6 +1668,9 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		if factsErr != nil {
 			report.Warnings = append(report.Warnings, "facts unavailable: "+factsErr.Error())
 		} else {
+			if len(briefGlobalFacts) > 0 {
+				facts, briefGlobalIDs = mergeGlobalFacts(facts, briefGlobalFacts)
+			}
 			// Exclusion guard: the brief's fact context honors
 			// tombstones at read time like every retrieval surface.
 			facts = guardFactRecords(briefPrivacyGuard, facts)
@@ -1666,6 +1685,9 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 					}
 					cacheLoadStarted := profile.start()
 					rr = newSemanticRerankerForBranch(e, status.Brain.Path, branch)
+					// Global facts rank here but belong to no single repository,
+					// so they must not be filed under this one's cache key.
+					rr.markForeign(briefGlobalIDs)
 					if profile != nil {
 						profile.finishStage(&profile.Facts.VectorCacheLoad, cacheLoadStarted, 1, rr.loaded, 0)
 					}
@@ -1677,6 +1699,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			}
 			factsRankStarted := profile.start()
 			report.Facts = rankFactsFused(facts, task, brainBriefFactsCount(briefOpts.limit), false, rr)
+			report.GlobalFactIDs = sortedGlobalFactIDs(report.Facts, briefGlobalIDs)
 			if profile != nil {
 				profile.finishStage(&profile.Facts.Rank, factsRankStarted, len(facts), len(report.Facts), 0)
 				embedDuringRank := profile.Facts.Embed.DurationNS - embedBefore
@@ -1713,13 +1736,17 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 				if proposals, proposalsErr := loadFactProposals(status.Brain.Path, branch); proposalsErr != nil {
 					report.Warnings = append(report.Warnings, factReviewQueueUnavailableWarning)
 				} else {
-					report.FactsPendingReview = factsPendingReview(facts, proposals, report.Facts)
+					localFacts := factsEligibleForLocusDrift(facts, briefGlobalIDs)
+					report.FactsPendingReview = factsPendingReview(localFacts, proposals, report.Facts)
 				}
 			}
 		}
 	}
 	likelyFilesStarted := profile.start()
-	report.FactsLocusDrift = factsLocusDrift(status.Repo.Root, report.Facts)
+	report.FactsLocusDrift = factsLocusDrift(status.Repo.Root, factsEligibleForLocusDrift(report.Facts, briefGlobalIDs))
+	if len(report.GlobalFactIDs) > 0 {
+		report.Guidance = append(report.Guidance, "Facts from the global store (not scoped to this repository): "+strings.Join(report.GlobalFactIDs, ", "))
+	}
 	// A non-current semantic index is still useful for intent and graph shape,
 	// but its repository loci must cross the live worktree boundary before the
 	// packet can present them as current context. The durable index is unchanged.
@@ -1893,7 +1920,14 @@ func emitBrainBriefReport(cmd *cobra.Command, report brainBriefReport, jsonOutpu
 		fmt.Fprintf(cmd.OutOrStdout(), "history %s:%d %s\n", match.Path, match.Line, match.Excerpt)
 	}
 	for _, fact := range report.Facts {
-		fmt.Fprintf(cmd.OutOrStdout(), "fact [%s] %s\n", strings.Join(fact.Paths, ","), fact.Text)
+		marker := ""
+		for _, id := range report.GlobalFactIDs {
+			if id == fact.ID {
+				marker = " (global)"
+				break
+			}
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "fact [%s]%s %s\n", strings.Join(fact.Paths, ","), marker, fact.Text)
 		if gone := report.FactsLocusDrift[fact.ID]; len(gone) > 0 {
 			fmt.Fprintf(cmd.OutOrStdout(), "  ⚠ stale locus (no longer in worktree): %s\n", strings.Join(gone, ", "))
 		}
@@ -2626,6 +2660,7 @@ func brainBriefJSONProjection(report brainBriefReport) brainBriefJSONReport {
 		History:            report.History,
 		Conversation:       report.Conversation,
 		FactsLocusDrift:    report.FactsLocusDrift,
+		GlobalFactIDs:      report.GlobalFactIDs,
 		FactsPendingReview: report.FactsPendingReview,
 		ActionChecklist:    report.ActionChecklist,
 		LikelyEditFiles:    report.LikelyEditFiles,

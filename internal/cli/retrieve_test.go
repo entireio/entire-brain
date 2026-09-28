@@ -37,7 +37,7 @@ func (*wrongDimensionQueryEmbedder) ID() string                  { return "wrong
 func TestVectorRankedReturnsNothingWhenEmbedderUnavailable(t *testing.T) {
 	dir := t.TempDir()
 	facts := []factRecord{{ID: "fact:a", Text: "alpha"}, {ID: "fact:b", Text: "beta"}}
-	if out := factsVectorRanked(dir, "main", facts, "q", emptyEmbedder{}, 10); len(out) != 0 {
+	if out := factsVectorRanked(dir, "main", facts, "q", emptyEmbedder{}, 10, nil); len(out) != 0 {
 		t.Fatalf("facts: empty embedder must yield no semantic results, got %d (arbitrary top-N)", len(out))
 	}
 	idx := docIndex{Records: []docRecord{{ID: "d1", Text: "x"}, {ID: "d2", Text: "y"}}}
@@ -62,7 +62,7 @@ func TestVectorRankedWrongDimensionQueryPreservesCaches(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := factsVectorRanked(dir, "main", []factRecord{fact}, "bad query", e, 1); len(got) != 0 {
+	if got := factsVectorRanked(dir, "main", []factRecord{fact}, "bad query", e, 1, nil); len(got) != 0 {
 		t.Fatalf("wrong-dimension fact query returned semantic results: %+v", got)
 	}
 	if got := docsVectorRanked(dir, docIndex{Records: []docRecord{doc}}, "bad query", e, 1, false, nil); len(got.ranked) != 0 {
@@ -148,7 +148,7 @@ func TestFactsVectorRankedRanksActiveButCachesAll(t *testing.T) {
 		{ID: "fact:act", Text: "active checkpoint logic", Status: factStatusActive},
 		{ID: "fact:sup", Text: "superseded note", Status: factStatusSuperseded},
 	}
-	out := factsVectorRanked(dir, "main", facts, "checkpoint", e, 10)
+	out := factsVectorRanked(dir, "main", facts, "checkpoint", e, 10, nil)
 	// vsearch ranks active facts only.
 	if len(out) != 1 || out[0].ID != "fact:act" {
 		t.Fatalf("expected only the active fact ranked, got %v", out)
@@ -174,7 +174,7 @@ func TestFactsVectorRankedRepairsInvalidCachedVector(t *testing.T) {
 	store := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim())
 	seedPersistedZeroVector(t, store, fact.ID, e.Dim())
 
-	out := factsVectorRanked(dir, "main", []factRecord{fact}, "repair query", e, 1)
+	out := factsVectorRanked(dir, "main", []factRecord{fact}, "repair query", e, 1, nil)
 	if len(out) != 1 || out[0].ID != fact.ID {
 		t.Fatalf("invalid cached fact vector was not repaired: %+v", out)
 	}
@@ -196,7 +196,7 @@ func TestFactsVectorRankedRejectsInvalidCachedVectorWhenRepairFails(t *testing.T
 	store := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim())
 	seedPersistedZeroVector(t, store, fact.ID, e.Dim())
 
-	if out := factsVectorRanked(dir, "main", []factRecord{fact}, "repair query", e, 1); len(out) != 0 {
+	if out := factsVectorRanked(dir, "main", []factRecord{fact}, "repair query", e, 1, nil); len(out) != 0 {
 		t.Fatalf("failed repair returned an invalid semantic hit: %+v", out)
 	}
 	if _, ok := store.load()[fact.ID]; ok {

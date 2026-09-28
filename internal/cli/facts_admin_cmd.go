@@ -31,6 +31,7 @@ func newFactsCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newFactsProposalsCommand(opts))
 	cmd.AddCommand(newFactsPromoteCommand(opts))
 	cmd.AddCommand(newFactsRetractCommand(opts))
+	cmd.AddCommand(newFactsGlobalCommand(opts))
 	cmd.AddCommand(newFactsGCCommand(opts))
 	cmd.AddCommand(newFactsReclassifyCommand(opts))
 	cmd.AddCommand(newFactsOutlineCommand(opts))
@@ -42,6 +43,7 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 	var (
 		branch  string
 		jsonOut bool
+		global  bool
 	)
 	cmd := &cobra.Command{
 		Use:   "retract <fact-id>",
@@ -49,7 +51,22 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			factID := args[0]
-			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			var (
+				brainDir       string
+				resolvedBranch string
+				err            error
+			)
+			// A fact that can be written and not retracted is a fact you are
+			// stuck with. Global facts surface in every repository, so being
+			// stuck with a wrong one is worse, not better.
+			if global {
+				if strings.TrimSpace(branch) != "" {
+					return fmt.Errorf("--global and --branch cannot be combined: a global fact is not on a branch")
+				}
+				brainDir, resolvedBranch, err = resolveGlobalFactsTarget(opts.Env)
+			} else {
+				_, brainDir, resolvedBranch, err = resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			}
 			if err != nil {
 				return err
 			}
@@ -65,6 +82,9 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 				}
 				found, didChange := retractFact(facts, factID, now)
 				if !found {
+					if global {
+						return fmt.Errorf("no global fact %s", factID)
+					}
 					return fmt.Errorf("no fact %s on %s", factID, resolvedBranch)
 				}
 				changed = didChange
@@ -89,21 +109,30 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 			// changed nothing, and a subscriber that fired on it would act on
 			// news that is not news.
 			if changed {
-				notifyFactWebhook(cmd.Context(), cmd.ErrOrStderr(), opts, WebhookFactRetracted, resolvedBranch, retracted, now)
+				if global {
+					notifyGlobalFactWebhook(cmd.Context(), cmd.ErrOrStderr(), WebhookFactRetracted, retracted, now)
+				} else {
+					notifyFactWebhook(cmd.Context(), cmd.ErrOrStderr(), opts, WebhookFactRetracted, resolvedBranch, retracted, now)
+				}
 			}
 			if jsonOut {
 				return writeJSON(cmd, map[string]any{"id": factID, "branch": resolvedBranch, "status": factStatusRetracted, "changed": changed})
 			}
+			where := "on " + resolvedBranch
+			if global {
+				where = "globally"
+			}
 			if changed {
-				fmt.Fprintf(cmd.OutOrStdout(), "retracted %s on %s (run `facts gc --force` to prune)\n", factID, resolvedBranch)
+				fmt.Fprintf(cmd.OutOrStdout(), "retracted %s %s (run `facts gc --force` to prune)\n", factID, where)
 			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s on %s was already retracted\n", factID, resolvedBranch)
+				fmt.Fprintf(cmd.OutOrStdout(), "%s %s was already retracted\n", factID, where)
 			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch the fact belongs to (default: current branch)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the result as JSON")
+	cmd.Flags().BoolVar(&global, "global", false, "Retract a global fact rather than one of this repository's")
 	return cmd
 }
 
@@ -446,19 +475,37 @@ func newFactsGCCommand(opts Options) *cobra.Command {
 		force   bool
 		retain  time.Duration
 		jsonOut bool
+		global  bool
 	)
 	cmd := &cobra.Command{
 		Use:   "gc",
 		Short: "Prune retracted and old superseded facts; report orphans",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			var (
+				brainDir       string
+				resolvedBranch string
+				err            error
+			)
+			// Without this the global store is write-only in one direction:
+			// facts can be retracted there and never pruned, so it grows
+			// without bound and the documented promise that global facts get
+			// the same lifecycle as repository ones is not kept.
+			if global {
+				if strings.TrimSpace(branch) != "" {
+					return fmt.Errorf("--global and --branch cannot be combined: a global fact is not on a branch")
+				}
+				brainDir, resolvedBranch, err = resolveGlobalFactsTarget(opts.Env)
+			} else {
+				_, brainDir, resolvedBranch, err = resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			}
 			if err != nil {
 				return err
 			}
 			return runFactsGC(cmd, opts, brainDir, resolvedBranch, force, retain, jsonOut)
 		},
 	}
+	cmd.Flags().BoolVar(&global, "global", false, "Prune the global fact store rather than this repository's")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch to gc (default: current branch)")
 	cmd.Flags().BoolVar(&force, "force", false, "Actually prune (default: dry-run reporting what would be pruned)")
 	cmd.Flags().DurationVar(&retain, "retain", defaultFactRetention, "Retain superseded facts updated within this window")

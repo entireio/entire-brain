@@ -1214,6 +1214,101 @@ Model2Vec with a one-line stderr notice. Switching embedders re-namespaces the
 vector cache, so the two never mix. Changing the embedder changes retrieval
 behavior, not the underlying source of truth.
 
+## Global Facts
+
+A fact normally belongs to a repository and a branch. That is right for a claim
+about one codebase and wrong for the rest: "I prefer table-driven tests", "we
+deploy on Thursdays", "the staging cluster is in eu-west-1" are true everywhere,
+and recording them in one repo's brain makes them invisible from the next.
+
+```sh
+entire brain remember "We deploy on Thursdays." --global
+entire brain facts global                     # list them
+entire brain facts global --all --json
+entire brain facts retract <fact-id> --global
+```
+
+An MCP-connected agent records one the same way, through `brain_remember`:
+
+```json
+{"name": "brain_remember", "arguments": {
+  "fact": "We deploy on Thursdays.",
+  "path": "project.deployment.convention",
+  "global": true
+}}
+```
+
+`global` cannot be combined with `branch`: a fact that applies everywhere has no
+branch to belong to.
+
+Global facts live in their own store beside the per-repo ones — `global/` next
+to `repos/` under the plugin data directory, which `entire brain facts global`
+prints. They are ordinary facts: the same format, the same taxonomy, the same
+retraction and garbage collection.
+
+### How they surface
+
+Every read surface merges them into the repository's results: `recall`,
+`query`, `search`, `vsearch` and `brief` on the CLI, and `brain_query`,
+`brain_search`, `brain_vsearch` and `brain_brief` over MCP. `brief` surfaces
+them even in a repository that has no facts of its own — a repo that has never
+been told the statement is the case global facts exist for. They go through the
+same guard, filters and ranking as repository facts, and are labelled:
+
+```
+fact:76aa6fd6 decision [architecture.deployment.convention] (global)
+  The staging cluster is in eu-west-1.
+```
+
+The label matters: acting on a general convention as though this repository had
+declared it is a different thing, and an agent reading unlabelled output cannot
+tell the difference. `recall` and `brief` report the same distinction as
+`global_fact_ids` in JSON. Unified `query`, `search`, `vsearch`, and `get` results
+include `(global)` in each global fact's heading.
+
+Where a repository records the same statement, the repository's copy wins —
+fact ids are content-derived, so it is the same fact, and the local one carries
+that repository's provenance, which is the evidence somebody would check.
+
+Only a live repository fact wins that way. Once the local copy is retracted or
+superseded it makes no claim, so the global statement becomes visible again
+rather than staying hidden behind a fact nobody can read: retracting a local
+duplicate falls back to the global one instead of silently losing it in that
+repository.
+
+### Turning them off
+
+Use `--no-global` on a single `recall`, `search`, `query`, or `vsearch` request,
+or `no_global: true` with `brain_search`, `brain_query`, or `brain_vsearch` over MCP.
+Set `ENTIRE_BRAIN_NO_GLOBAL_FACTS=1` for a
+machine where repository answers must not be influenced by anything outside the
+repository. The variable is fail-closed like the other guards: an unrecognised
+value disables global facts rather than leaving them on.
+
+### Outside a repository
+
+`remember` used to fail outside a checkout. It now records the fact globally and
+says so:
+
+```
+not in a repository, so this was remembered globally; it will be recalled from every repo
+```
+
+This is decided by asking git whether the directory is a working tree, not by
+whether a path resolves — any existing directory resolves, and the branch then
+defaults to `main`, which would file the fact against a repository that does not
+exist. Passing `--branch` still requires a repository: that names a specific
+branch, and filing it globally would be a different write than the one asked for.
+
+### What a global fact does not have
+
+A commit anchor. There is no repository to cite, and an anchor pointing at
+whatever happened to be checked out would be worse than none — `verify` would
+resolve it and report the fact as evidenced by a commit it has nothing to do
+with. `--global` and `--branch` cannot be combined for the same reason.
+
+Note that multi-repository *code* analysis is a separate feature: see
+`entire brain workspace` for brains spanning several repositories at once.
 ## Documents
 
 Brain indexes markdown from `docs/` and, alongside it, the documents that are
@@ -1345,6 +1440,10 @@ fact itself in your channel.
 
 `repo` is the repository's directory name, never its path, so an event does not
 disclose the layout of your filesystem.
+
+Global fact events carry `"global": true` and omit `repo` and `branch`: the
+current checkout does not own a global fact. The same text-redaction and
+no-egress settings apply to both scopes.
 
 ### Verifying the sender
 

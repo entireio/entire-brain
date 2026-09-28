@@ -336,6 +336,10 @@ type getOptions struct {
 	// set marks which options the caller supplied explicitly.
 	ContextSet bool
 	OutlineSet bool
+	// GlobalFacts are facts from the global store, so an id that query or
+	// search returned can be fetched back by get. Nil means the caller did not
+	// offer them and get sees only this repository's facts, as before.
+	GlobalFacts []factRecord
 }
 
 func (o getOptions) navigation() bool { return o.ContextSet || o.OutlineSet }
