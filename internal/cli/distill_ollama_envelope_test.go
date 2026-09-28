@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -279,5 +281,34 @@ func TestOllamaDistillAgentRecordsUsageOnOversizedOutputFailure(t *testing.T) {
 	summary := collector.summary(1)
 	if summary.InputTokens != 700 || summary.OutputTokens != 65000 {
 		t.Fatalf("an oversized response was still generated and must be accounted; summary = %+v", summary)
+	}
+}
+
+func TestOllamaContextProbeClosesIdleConnection(t *testing.T) {
+	closed := make(chan struct{}, 1)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"models":[{"name":"test","context_length":32768}]}`)
+	}))
+	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateClosed {
+			select {
+			case closed <- struct{}{}:
+			default:
+			}
+		}
+	}
+	server.Start()
+	defer server.Close()
+	endpoint, err := url.Parse(server.URL + "/api/generate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ollamaLoadedContextWindow(context.Background(), endpoint, "test"); got != 32768 {
+		t.Fatalf("context window = %d, want 32768", got)
+	}
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("context probe left its idle connection open")
 	}
 }

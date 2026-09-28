@@ -2628,6 +2628,7 @@ func ollamaLoadedContextWindow(ctx context.Context, generateURL *url.URL, model 
 		return 0
 	}
 	tr := &http.Transport{Proxy: nil, DialContext: loopbackOnlyDialContext}
+	defer tr.CloseIdleConnections()
 	client := &http.Client{Timeout: ollamaContextProbeTimeout, Transport: tr,
 		CheckRedirect: func(r *http.Request, _ []*http.Request) error {
 			if !isLoopbackHTTPURL(r.URL) {
