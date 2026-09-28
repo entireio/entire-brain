@@ -39,9 +39,9 @@ func TestVerifiedSQLiteStoreKeysOnTheDeclaredCounts(t *testing.T) {
 	}
 }
 
-func TestVerifiedSQLiteStoreCachesTheFailureToo(t *testing.T) {
-	// A refusal is as much a verdict as a pass; repeating it must stay a refusal
-	// rather than falling through to a second, unchecked attempt.
+func TestVerifiedSQLiteStoreRejectsRepeatedFailure(t *testing.T) {
+	// Failed validations are retried, but a persistently invalid store must
+	// still fail on every attempt.
 	bad := newMemoStoreFixture(t, 1, 0)
 	first := verifiedSQLiteStore(bad, 7, 7)
 	second := verifiedSQLiteStore(bad, 7, 7)
@@ -288,5 +288,50 @@ func TestSemanticIntegrityMemoBoundHoldsUnderConcurrentWriters(t *testing.T) {
 	if live > semanticIntegrityMemoMaxEntries {
 		t.Fatalf("memo holds %d entries after %d concurrent writes; the bound is %d",
 			live, writers*perWriter, semanticIntegrityMemoMaxEntries)
+	}
+}
+
+func TestSemanticIntegrityRetriesAfterTemporaryReadFailure(t *testing.T) {
+	for _, kind := range []string{"snapshot", "store"} {
+		t.Run(kind, func(t *testing.T) {
+			var path string
+			var verify func() error
+			if kind == "store" {
+				path = newMemoStoreFixture(t, 3, 2)
+				verify = func() error { return verifiedSQLiteStore(path, 3, 2) }
+			} else {
+				path = filepath.Join(t.TempDir(), "snapshot.ndjson")
+				data := []byte(`{"record_type":"header","schema_version":"1.0","repo_key":"gh/example/repo"}` + "\n")
+				if err := os.WriteFile(path, data, 0600); err != nil {
+					t.Fatal(err)
+				}
+				verify = func() error {
+					_, _, err := verifiedSnapshotSummary(path, "gh/example/repo")
+					return err
+				}
+			}
+			identity := fileIdentity(path)
+			if err := os.Chmod(path, 0000); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(path, 0600) })
+			probe, err := os.Open(path)
+			if err == nil {
+				probe.Close()
+				t.Skip("filesystem does not enforce read permissions for this user")
+			}
+			if err := verify(); err == nil {
+				t.Fatal("unreadable file passed validation")
+			}
+			if err := os.Chmod(path, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if fileIdentity(path) != identity {
+				t.Fatal("permission-only change altered the memo identity")
+			}
+			if err := verify(); err != nil {
+				t.Fatalf("temporary read failure remained cached after recovery: %v", err)
+			}
+		})
 	}
 }

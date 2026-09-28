@@ -7416,7 +7416,10 @@ func verifiedSnapshotSummary(path, repoKey string) (semanticHeader, semanticCoun
 		return verdict.header, verdict.counts, verdict.err
 	}
 	header, counts, err := readSemanticSnapshotSummary(path, repoKey)
-	rememberSemanticIntegrity(key, semanticSnapshotVerdict{header: header, counts: counts, err: err})
+	// I/O errors can recover without a size/mtime change, so only cache success.
+	if err == nil {
+		rememberSemanticIntegrity(key, semanticSnapshotVerdict{header: header, counts: counts})
+	}
 	return header, counts, err
 }
 
@@ -7432,7 +7435,9 @@ func verifiedSQLiteStore(path string, symbols, relations int) error {
 		return verdict.err
 	}
 	err := validateSemanticSQLiteStore(path, symbols, relations)
-	rememberSemanticIntegrity(key, semanticStoreVerdict{err: err})
+	if err == nil {
+		rememberSemanticIntegrity(key, semanticStoreVerdict{})
+	}
 	return err
 }
 
