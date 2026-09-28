@@ -194,6 +194,7 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 				facts[i].Kind = explicitKind
 			}
 			storedKind = factKindOrInferred(facts[i])
+			record = facts[i]
 		}
 		if err := writeFacts(brainDir, branch, facts); err != nil {
 			return err

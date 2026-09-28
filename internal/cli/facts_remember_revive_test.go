@@ -3,7 +3,9 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -121,5 +123,58 @@ func TestRememberActiveFactIsStillIdempotent(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Status != factStatusActive || got[0].Branch != branch {
 		t.Fatalf("want one active fact, got %+v", got)
+	}
+}
+
+// A repeated remember merges into the existing durable record. JSON must report
+// that stored result, not the fresh incoming record that existed before upsert.
+func TestRememberJSONReportsPersistedMergedFact(t *testing.T) {
+	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	opts, brainDir, branch := rememberReviveEnv(t, now)
+
+	text := "The service keeps durable facts in branch-scoped stores."
+	paths := normalizeFactPaths([]string{"preferences.coding.style"})
+	createdAt := now.Add(-time.Hour)
+	seed := factRecord{
+		ID: factRecordID(text, paths), Paths: paths, Kind: factKindPreference,
+		Text: text, Branch: branch, Origin: factOriginDistilled,
+		Status: factStatusSuperseded, SupersededBy: "fact:newer",
+		Confidence: "high", RelatedIDs: []string{"fact:related"},
+		Provenance: []factAnchor{{SessionID: "prior-session", Commit: "prior111"}},
+		CreatedAt:  createdAt, UpdatedAt: createdAt,
+	}
+	if err := writeFacts(brainDir, branch, []factRecord{seed}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCommand(opts)
+	out, err := execute(t, cmd, "remember", text,
+		"--path", "preferences.coding.style", "--agent", "none",
+		"--kind", factKindDecision, "--json")
+	if err != nil {
+		t.Fatalf("remember --json: %v\n%s", err, out)
+	}
+	var reported factRecord
+	if err := json.Unmarshal([]byte(out), &reported); err != nil {
+		t.Fatalf("decode remember JSON: %v\n%s", err, out)
+	}
+	stored, err := loadFacts(brainDir, branch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 1 {
+		t.Fatalf("stored facts = %+v, want one merged fact", stored)
+	}
+	if !reflect.DeepEqual(reported, stored[0]) {
+		t.Fatalf("remember JSON did not report the persisted fact:\nreported: %+v\nstored:   %+v", reported, stored[0])
+	}
+	if reported.Origin != factOriginDistilled || !reported.CreatedAt.Equal(createdAt) {
+		t.Fatalf("original metadata was not retained: %+v", reported)
+	}
+	if reported.Status != factStatusActive || reported.SupersededBy != "" || reported.Kind != factKindDecision {
+		t.Fatalf("reactivation or explicit kind missing from JSON: %+v", reported)
+	}
+	if len(reported.Provenance) != 2 {
+		t.Fatalf("provenance = %+v, want retained and new anchors", reported.Provenance)
 	}
 }
