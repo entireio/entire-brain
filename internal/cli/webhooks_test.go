@@ -589,6 +589,48 @@ func TestRememberNotifiesTheEndpoint(t *testing.T) {
 	}
 }
 
+func TestGlobalFactWebhooksDoNotClaimRepositoryOwnership(t *testing.T) {
+	opts, _ := globalTestOptions(t)
+	rec := webhookEndpointServer(t)
+	t.Setenv(webhookIncludeTextEnv, "")
+	text := "I prefer table-driven tests."
+	rememberGlobal(t, opts, text)
+	globals, err := loadGlobalFacts(opts.Env)
+	if err != nil || len(globals) != 1 {
+		t.Fatalf("global fixture: %v, %v", globals, err)
+	}
+	check := func(event string) {
+		t.Helper()
+		var payload webhookEvent
+		if err := json.Unmarshal(rec.last(t).body, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.Event != event || !payload.Global || payload.Repo != "" || payload.Branch != "" {
+			t.Fatalf("global event claimed repository ownership: %+v", payload)
+		}
+		if payload.Fact == nil || payload.Fact.ID != globals[0].ID || payload.Fact.Text != "" {
+			t.Fatalf("wrong fact or leaked text: %+v", payload.Fact)
+		}
+	}
+	check(WebhookFactRecorded)
+	cmd := newFactsRetractCommand(opts)
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{globals[0].ID, "--global"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	check(WebhookFactRetracted)
+	if rec.count() != 2 {
+		t.Fatalf("expected recorded and retracted events, got %d", rec.count())
+	}
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
+	rememberGlobal(t, opts, "We deploy on Thursdays.")
+	if rec.count() != 2 {
+		t.Fatal("global write sent a webhook while egress was disabled")
+	}
+}
+
 // remember writes to disk; under no-egress it must still write, and still send
 // nothing. This is the combination that matters in practice — a locked-down
 // machine where somebody has also configured a webhook.

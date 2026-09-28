@@ -215,6 +215,26 @@ func TestSemanticIntegrityMemoIsBounded(t *testing.T) {
 	}
 }
 
+func TestSemanticIntegrityMemoRetainsEntryThatTriggersEviction(t *testing.T) {
+	semanticIntegrityMemo.Clear()
+	semanticIntegrityMemoCount.Store(0)
+	t.Cleanup(func() {
+		semanticIntegrityMemo.Clear()
+		semanticIntegrityMemoCount.Store(0)
+	})
+	for i := 0; i < semanticIntegrityMemoMaxEntries; i++ {
+		rememberSemanticIntegrity(fmt.Sprintf("old-%d", i), nil)
+	}
+	verdict := fmt.Errorf("invalid store")
+	rememberSemanticIntegrity("newest", verdict)
+	if got, ok := semanticIntegrityMemo.Load("newest"); !ok || got != verdict {
+		t.Fatalf("eviction lost newest verdict: %v, present %v", got, ok)
+	}
+	if got := semanticIntegrityMemoCount.Load(); got != 1 {
+		t.Fatalf("count after eviction = %d, want 1", got)
+	}
+}
+
 // Dropping the memo must never change an answer, only cost a re-validation.
 func TestSemanticIntegrityMemoStaysCorrectAcrossAnEviction(t *testing.T) {
 	store := newMemoStoreFixture(t, 3, 2)

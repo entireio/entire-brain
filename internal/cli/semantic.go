@@ -7387,7 +7387,8 @@ func rememberSemanticIntegrity(key string, verdict any) {
 	}
 	if semanticIntegrityMemoCount.Add(1) > semanticIntegrityMemoMaxEntries {
 		semanticIntegrityMemo.Clear()
-		semanticIntegrityMemoCount.Store(0)
+		semanticIntegrityMemo.Store(key, verdict)
+		semanticIntegrityMemoCount.Store(1)
 	}
 }
 
