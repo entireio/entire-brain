@@ -16,6 +16,7 @@ type rememberCommandOptions struct {
 	model        string
 	agentCommand []string
 	json         bool
+	global       bool
 	run          distillAgentRunner
 }
 
@@ -36,6 +37,7 @@ func newRememberCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&rememberOpts.model, "model", "", "Model for codex/claude-code/ollama classification")
 	cmd.Flags().StringArrayVar(&rememberOpts.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().BoolVar(&rememberOpts.json, "json", false, "Emit the created fact as JSON")
+	cmd.Flags().BoolVar(&rememberOpts.global, "global", false, "Record the fact globally, so every repository recalls it")
 	return cmd
 }
 
@@ -72,9 +74,50 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 	if text == "" {
 		return fmt.Errorf("fact text must not be empty")
 	}
-	repoDir, brainDir, branch, err := resolveFactsTarget(ctx, opts, agentSurfaceTarget(opts, nil), rememberOpts.branch)
-	if err != nil {
-		return err
+	// A fact that is not about one repository has nowhere to go in a per-repo
+	// store, and outside a checkout there is no store at all. Both cases file
+	// globally: explicitly when asked, and automatically rather than refusing,
+	// because "you are not in a repository" is a reason to pick a different
+	// store, not a reason to discard what somebody just typed.
+	global := rememberOpts.global
+	if !global && strings.TrimSpace(rememberOpts.branch) == "" {
+		here, err := inARepository(ctx, opts)
+		if err != nil {
+			// An undecidable repository identity is not an invitation to file
+			// the fact somewhere else. Surfacing it is the whole point of the
+			// guard that raised it.
+			return err
+		}
+		if !here {
+			global = true
+			fmt.Fprintln(cmd.ErrOrStderr(), globalFactNotice(false))
+		}
+	}
+
+	var (
+		repoDir  string
+		brainDir string
+		branch   string
+		err      error
+	)
+	if global {
+		if strings.TrimSpace(rememberOpts.branch) != "" {
+			// A global fact is not on a branch, and quietly ignoring --branch
+			// would file it somewhere the user did not ask for.
+			return fmt.Errorf("--global and --branch cannot be combined: a global fact is not on a branch")
+		}
+		brainDir, branch, err = resolveGlobalFactsTarget(opts.Env)
+		if err != nil {
+			return err
+		}
+		// repoDir stays empty on purpose: classification and the commit anchor
+		// below both degrade to "no repository", which is the truth.
+		repoDir = ""
+	} else {
+		repoDir, brainDir, branch, err = resolveFactsTarget(ctx, opts, agentSurfaceTarget(opts, nil), rememberOpts.branch)
+		if err != nil {
+			return err
+		}
 	}
 	now := opts.Now().UTC()
 	taxonomy, err := loadFactTaxonomy(brainDir, now)
@@ -97,8 +140,14 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 	}
 
 	anchor := factAnchor{}
-	if commit, ok := rememberAnchorCommit(ctx, opts, repoDir, branch, strings.TrimSpace(rememberOpts.branch) != ""); ok {
-		anchor.Commit = commit
+	// A global fact has no commit to cite. An anchor pointing at whatever
+	// happened to be checked out would be worse than none: verification would
+	// resolve it and report the fact as evidenced by a commit it has nothing to
+	// do with.
+	if !global {
+		if commit, ok := rememberAnchorCommit(ctx, opts, repoDir, branch, strings.TrimSpace(rememberOpts.branch) != ""); ok {
+			anchor.Commit = commit
+		}
 	}
 
 	record := factRecord{
@@ -162,11 +211,19 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 	// that failed to persist. Delivery cannot fail this command — the fact is
 	// already on disk and the author's write must not be undone by an
 	// unreachable endpoint.
-	notifyFactWebhook(ctx, cmd.ErrOrStderr(), opts, WebhookFactRecorded, branch, record, now)
+	if global {
+		notifyGlobalFactWebhook(ctx, cmd.ErrOrStderr(), WebhookFactRecorded, record, now)
+	} else {
+		notifyFactWebhook(ctx, cmd.ErrOrStderr(), opts, WebhookFactRecorded, branch, record, now)
+	}
 	if rememberOpts.json {
 		return writeJSON(cmd, record)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "remembered %s [%s] %s on %s\n", record.ID, storedKind, strings.Join(paths, ","), branch)
+	where := "on " + branch
+	if global {
+		where = "globally"
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "remembered %s [%s] %s %s\n", record.ID, storedKind, strings.Join(paths, ","), where)
 	return nil
 }
 

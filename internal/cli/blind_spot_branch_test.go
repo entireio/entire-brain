@@ -58,7 +58,7 @@ func TestBlindSpotNamesOtherBranchesHoldingFacts(t *testing.T) {
 	declareFacts(t, brainDir, now, 3, "feat/stage1a", "feat/scale")
 
 	note := emptyResultBlindSpotOnBranch(brainDir, "main")
-	for _, want := range []string{"0 facts on main", "3 active fact(s)", "2 other branch(es)", "feat/scale", "feat/stage1a", "--branch"} {
+	for _, want := range []string{"no matching facts on main", "3 active fact(s)", "2 other branch(es)", "feat/scale", "feat/stage1a", "--branch"} {
 		if !strings.Contains(note, want) {
 			t.Fatalf("note must contain %q, got %q", want, note)
 		}
@@ -118,5 +118,18 @@ func TestBlindSpotIgnoresInactiveFactsOnOtherBranches(t *testing.T) {
 	declareFacts(t, brainDir, now, 1, "feat/old")
 	if note := emptyResultBlindSpotOnBranch(brainDir, "main"); strings.Contains(note, "feat/old") {
 		t.Fatalf("a retired fact must not be advertised as reachable, got %q", note)
+	}
+}
+
+// An empty search does not imply that the branch holds no facts at all.
+func TestBlindSpotDoesNotClaimQueriedBranchHasNoFacts(t *testing.T) {
+	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+	seedFactBranch(t, brainDir, "main", "unrelated")
+	seedFactBranch(t, brainDir, "feature", "other")
+	declareFacts(t, brainDir, now, 2, "main", "feature")
+	note := emptyResultBlindSpotOnBranch(brainDir, "main")
+	if strings.Contains(note, "0 facts on main") || !strings.Contains(note, "no matching facts on main") || !strings.Contains(note, "1 active fact(s)") {
+		t.Fatalf("misleading branch diagnostic: %q", note)
 	}
 }

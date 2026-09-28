@@ -16,6 +16,7 @@ Through the CLI and MCP, agents can retrieve earlier decisions, revisit past att
 - Find code, inspect the impact of a change, and investigate regressions with [Entire Graph](https://github.com/entireio/entire-graph).
 - Connect agents through the CLI or MCP, with response size limits and repository instructions.
 - Browse saved knowledge in a terminal dashboard or an offline graph view.
+- Record facts globally, not just per repository, so a preference or team convention applies everywhere.
 - Read the documents that are not code: PDFs, Word, Excel and PowerPoint files under `docs/`.
 - Notify CI, a chat channel, or an index with signed webhooks when the brain changes.
 - Brain reads sessions captured by Entire CLI and uses Entire Graph for code analysis. Without captured sessions, Brain builds from code, docs, and Git history.
@@ -34,9 +35,11 @@ curl -fsSL https://raw.githubusercontent.com/entireio/entire-brain/main/scripts/
 entire plugin install graph
 ```
 
-Brain is a plugin for the CLI. The install script verifies the download against
-the release checksums; no Go toolchain, no C compiler. It takes `--nightly`,
-`--version vX.Y.Z` and `--dir`.
+The script downloads a prebuilt binary for your platform, checks it against the
+release checksums, and registers it with the CLI as the `entire brain` plugin.
+There is nothing to compile. Pin a release with `--version vX.Y.Z`, take the
+current prerelease with `--nightly`, or install somewhere other than
+`~/.local/bin` with `--dir`.
 
 Without Graph, `setup` reports the semantic index as unavailable; sessions, docs
 and facts still work. Without the CLI there are no sessions to read, and Brain
@@ -64,8 +67,10 @@ See [installation options](docs/operations.md#full-install) for choosing a Graph
 ### How Brain compares
 
 [`docs/feature-matrix.md`](docs/feature-matrix.md) — 51 capabilities against five
-alternatives, including the 20 rows where neither Graph nor Brain answers Yes.
+alternatives, including the 15 rows where neither Graph nor Brain answers Yes.
 Our columns are read from the binaries; the competitor columns are not.
+
+Every number we publish, how to reproduce it, and what we deliberately do not claim: [benchmarks](docs/benchmarks.md).
 
 ## Activate it for your agent
 
@@ -164,6 +169,27 @@ one, pass it yourself: `--path constraints.retry.policy`, shaped
 
 `verify` reports hand-written facts as `unverifiable-here` — they have no source
 anchor in the repository. Expected, not a failure.
+
+### Remember something that is not about one repository
+
+Most facts belong to a codebase. Some — a preference, a team convention, where
+the staging cluster lives — are true in every repository you work in, and had
+nowhere to live but one repo's brain.
+
+```bash
+entire brain remember "The staging cluster is in eu-west-1." --global
+entire brain facts global                  # everything recorded globally
+entire brain facts retract <id> --global
+```
+
+Global facts are recalled from every repository and labelled `(global)` when
+they surface, so a general convention is never mistaken for something this
+codebase declared. `--no-global`, or `ENTIRE_BRAIN_NO_GLOBAL_FACTS=1`, leaves
+them out.
+
+Running `remember` outside a checkout records the fact globally instead of
+failing — which is usually where you are when the thing you want to write down
+is not about one repo.
 
 ### Search
 
@@ -306,6 +332,8 @@ Facts extracted by a model can be wrong. Check the linked sources before relying
 
 Code analysis inherits Graph's limitations: dynamic calls can go unresolved, and parsing support varies by language.
 
+The historical scale benchmark measured a 1.2 GB index and roughly 12-second median code search on one 4.8M-line repository. Those runs do not establish a scaling law or performance at 100M lines. See [scale](docs/scale.md) for the measurements, their limits, and the command to benchmark a current build.
+
 Search support varies by build and source. Check `entire brain capabilities` for available retrieval modes and the [conversation recall documentation](docs/recall-evidence.md) for experimental features.
 
 See the [recall threat model](docs/recall_threat_model.md) for how Brain handles untrusted session content and retained secrets.
@@ -317,6 +345,9 @@ See the [recall threat model](docs/recall_threat_model.md) for how Brain handles
 - [Agent activation and coordination](docs/agent-coordination.md)
 - [Semantic features and MCP](docs/semantic_mcp_guide.md)
 - [Storage and configuration](docs/reference.md#storage-and-configuration)
+- [Benchmarks: what we measure, what we found, what we do not claim](docs/benchmarks.md)
+- [Scale: index size and query latency, measured](docs/scale.md)
+- [Global facts](docs/reference.md#global-facts)
 - [Documents (PDF, Word, Excel, PowerPoint)](docs/reference.md#documents)
 - [Privacy and egress](docs/reference.md#privacy-and-egress)
 - [Webhooks](docs/reference.md#webhooks)
