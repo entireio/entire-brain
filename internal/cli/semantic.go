@@ -7420,14 +7420,19 @@ func verifiedSnapshotSummary(path, repoKey string) (semanticHeader, semanticCoun
 	return header, counts, err
 }
 
+// A wrapper gives successful (nil error) verdicts a concrete type too.
+type semanticStoreVerdict struct {
+	err error
+}
+
 func verifiedSQLiteStore(path string, symbols, relations int) error {
 	key := fmt.Sprintf("store\x00%s\x00%d\x00%d\x00%s", path, symbols, relations, fileIdentity(path))
 	if cached, ok := semanticIntegrityMemo.Load(key); ok {
-		verdict, _ := cached.(error)
-		return verdict
+		verdict := cached.(semanticStoreVerdict)
+		return verdict.err
 	}
 	err := validateSemanticSQLiteStore(path, symbols, relations)
-	rememberSemanticIntegrity(key, err)
+	rememberSemanticIntegrity(key, semanticStoreVerdict{err: err})
 	return err
 }
 
