@@ -48,7 +48,7 @@ func TestMem0ImportRefusesAFileThatIsNotAnExport(t *testing.T) {
 	// field nil — so decoding alone cannot tell "an export with no memories"
 	// from "not an export". Without an explicit presence check this returned
 	// success and imported nothing, which is worse than failing.
-	for _, notAnExport := range []string{`{"nope":true}`, `{}`, `"a string"`, `42`} {
+	for _, notAnExport := range []string{`{"nope":true}`, `{}`, `"a string"`, `42`, `null`, ` null `, `{"results":null}`} {
 		if _, _, err := parseMem0([]byte(notAnExport)); err == nil {
 			t.Fatalf("%s was accepted as a mem0 export", notAnExport)
 		}
@@ -60,6 +60,10 @@ func TestMem0ImportRefusesAFileThatIsNotAnExport(t *testing.T) {
 	}
 	if len(memories) != 0 || skipped != 0 {
 		t.Fatalf("empty export produced %d memories, %d skipped", len(memories), skipped)
+	}
+	// Both forms of an empty export are valid.
+	if _, _, err := parseMem0([]byte(`[]`)); err != nil {
+		t.Fatalf("empty bare array rejected: %v", err)
 	}
 	// And a bare array, which is what the list endpoint returns.
 	if _, _, err := parseMem0([]byte(`[{"id":"z","memory":"bare"}]`)); err != nil {

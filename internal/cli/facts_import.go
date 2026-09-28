@@ -75,7 +75,7 @@ type mem0Memory struct {
 // silent zero-record import.
 func parseMem0(data []byte) ([]importedMemory, int, error) {
 	var direct []mem0Memory
-	if err := json.Unmarshal(data, &direct); err != nil {
+	if err := json.Unmarshal(data, &direct); err != nil || direct == nil {
 		// Unmarshalling into a struct SUCCEEDS for any JSON object, leaving
 		// Results nil — so decoding alone cannot tell "an export with no
 		// memories" from "not an export at all". The key has to be looked for
