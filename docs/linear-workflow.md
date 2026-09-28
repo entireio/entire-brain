@@ -69,6 +69,15 @@ suppresses it and its comments without expanding scope. Disconnect immediately
 removes project evidence from retrieval; purge also erases stored revisions,
 work links, receipts, and derived issue indexes.
 
+Purge invalidates receipts for every batch that included the purged project,
+including mixed-project batches. Keeping those receipts would make a later
+re-import skip the erased records. Receipts for batches containing only other
+projects remain valid. To restore purged evidence, explicitly select the project
+again and import fresh source observations. Replaying an old mixed batch after
+reselection re-evaluates its records: unchanged retained snapshots are reused,
+newer observations are preserved, and stale or conflicting records are reported
+normally. A subsequent identical retry is idempotent again.
+
 ## Starting or resuming work
 
 1. Resolve the exact issue in configured workspace/projects.

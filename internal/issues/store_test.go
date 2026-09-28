@@ -483,3 +483,47 @@ func TestOperationPreservesBeforeSnapshot(t *testing.T) {
 		})
 	}
 }
+
+func TestPurgeInvalidatesMixedBatchSoReselectionCanRestoreEvidence(t *testing.T) {
+	s := fixture(t)
+	otherProject := "99999999-9999-9999-9999-999999999999"
+	binding := Binding{Version: 1, Provider: "linear", Workspace: ws, Projects: []string{project, otherProject}}
+	if err := s.Configure(binding); err != nil {
+		t.Fatal(err)
+	}
+	first := rec("issue", issue, "first project")
+	other := rec("issue", "77777777-7777-7777-7777-777777777777", "second project")
+	other.Project = otherProject
+	importOK(t, s, 1, first, other)
+	retained, ok, err := s.Get(other.Key())
+	if err != nil || !ok {
+		t.Fatal("missing retained project", err)
+	}
+	if err := s.Disconnect(project, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Import(batch(1, first, other)); err == nil {
+		t.Fatal("replay restored a project without selecting it again")
+	}
+	if err := s.Configure(binding); err != nil {
+		t.Fatal(err)
+	}
+	out := importOK(t, s, 1, first, other)
+	if out.Replay || out.Imported != 2 || len(out.Conflicts) != 0 || out.Ignored != 0 {
+		t.Fatalf("mixed batch did not restore cleanly: %+v", out)
+	}
+	if _, ok, err := s.Get(first.Key()); err != nil || !ok {
+		t.Fatal("purged project was not restored after selection", err)
+	}
+	after, ok, err := s.Get(other.Key())
+	if err != nil || !ok || after.Ref != retained.Ref {
+		t.Fatal("reimport changed the retained project's snapshot", err)
+	}
+	st, err := s.Load()
+	if err != nil || len(st.Snapshots) != 2 {
+		t.Fatal("reimport duplicated snapshots", err)
+	}
+	if out := importOK(t, s, 1, first, other); !out.Replay {
+		t.Fatal("restored batch did not regain idempotent replay")
+	}
+}
