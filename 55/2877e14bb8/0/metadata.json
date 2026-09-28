@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.11.3-nightly.202609230619.4e2e839c2",
+  "checkpoint_id": "552877e14bb8",
+  "session_id": "01a0e98b-3cb9-7021-a0ed-f4308376018b",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-28T20:12:59.872489Z",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/linear-workflow.md",
+    "internal/issues/store_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "c09ae2257cb6",
+  "checkpoint_transcript_start": 652,
+  "transcript_lines_at_start": 652,
+  "compact_transcript_start": 72,
+  "token_usage": {
+    "input_tokens": 14083,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2673408,
+    "output_tokens": 4962,
+    "api_call_count": 13
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-28T20:12:59.76443Z",
+    "agent_lines": 773,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 773,
+    "total_lines_changed": 773,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
