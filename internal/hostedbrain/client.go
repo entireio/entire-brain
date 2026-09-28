@@ -24,10 +24,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/apiurl"
-	"github.com/ashtom/entire-brain/internal/brainwire"
-	"github.com/ashtom/entire-brain/internal/httpx"
-	"github.com/ashtom/entire-brain/internal/repoid"
+	"github.com/entireio/entire-brain/internal/apiurl"
+	"github.com/entireio/entire-brain/internal/brainwire"
+	"github.com/entireio/entire-brain/internal/httpx"
+	"github.com/entireio/entire-brain/internal/repoid"
 )
 
 // mcpProtocolVersion is the MCP protocol version the client requests on initialize.
@@ -218,6 +218,7 @@ func (c *Client) rpc(ctx context.Context, repoID, method string, params any) (js
 		return nil, fmt.Errorf("hostedbrain: decode %s response: %w", method, err)
 	}
 	if out.Error != nil {
+		out.Error.Message = httpx.Redact(httpx.ErrorDetailFromBody([]byte(out.Error.Message)), c.Token)
 		return nil, out.Error
 	}
 	return out.Result, nil
@@ -276,6 +277,7 @@ func (c *Client) CallTool(ctx context.Context, repoID, name string, args map[str
 		return "", err
 	}
 	var res struct {
+		IsError bool `json:"isError"`
 		Content []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
@@ -283,6 +285,16 @@ func (c *Client) CallTool(ctx context.Context, repoID, name string, args map[str
 	}
 	if err := json.Unmarshal(raw, &res); err != nil {
 		return "", fmt.Errorf("hostedbrain: decode tools/call %s: %w", name, err)
+	}
+	if res.IsError {
+		detail := ""
+		for _, content := range res.Content {
+			if content.Type == "text" && content.Text != "" {
+				detail = httpx.Redact(httpx.SuffixFromBody([]byte(content.Text)), c.Token)
+				break
+			}
+		}
+		return "", fmt.Errorf("hostedbrain: tool %s failed%s", name, detail)
 	}
 	if len(res.Content) == 0 {
 		return "", nil

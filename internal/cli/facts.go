@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factmerge"
 )
 
 const (
@@ -30,6 +30,7 @@ const (
 // factSourceManifest is recorded under sources.facts in the brain manifest,
 // parallel to historySourceManifest and the semantic source metadata.
 type factSourceManifest struct {
+	LastDistilledAt   time.Time                 `json:"last_distilled_at,omitzero"`
 	GeneratedAt       time.Time                 `json:"generated_at"`
 	TaxonomyPath      string                    `json:"taxonomy_path"`
 	Branches          []string                  `json:"branches,omitempty"`

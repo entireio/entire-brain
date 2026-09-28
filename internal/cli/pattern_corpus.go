@@ -70,7 +70,7 @@ const (
 	// Bump when the parser/extractor output changes in a way that requires
 	// re-indexing already-indexed sessions. v2: Phase 2 enrichment (exit codes,
 	// files, meta-hits, fact links).
-	patternIndexerVersion = 6
+	patternIndexerVersion = 9
 )
 
 // patternCorpusSchema is the full target schema (additive). Tables not yet
@@ -525,6 +525,14 @@ func buildPatternCorpusLocked(brainDir string, now time.Time) error {
 		factsByBranch[branch] = guardFactRecords(guard, facts)
 	}
 
+	// Fact enrichment is an input independent of transcript identity. A changed
+	// fact inventory rebuilds links even for byte-identical transcripts.
+	factData, err := json.Marshal(factsByBranch)
+	if err != nil {
+		return err
+	}
+	factFingerprint := hexSHA(string(factData))
+	factsCurrent := corpusMeta(db, "facts_fingerprint") == factFingerprint
 	present := map[string]bool{}
 	for _, s := range sessions {
 		rel := strings.TrimSpace(s.TranscriptPath)
@@ -544,7 +552,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time) error {
 			return readErr
 		}
 		present[id] = true
-		if corpusSessionUnchanged(db, id, size, mtime, sha) {
+		if factsCurrent && corpusSessionUnchanged(db, id, size, mtime, sha) {
 			continue
 		}
 		if err := indexSessionIntoCorpus(db, repoKey, s, id, rel, content, size, mtime, sha, factsByBranch); err != nil {
@@ -588,6 +596,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time) error {
 	if err := setCorpusMeta(db, map[string]string{
 		"schema_version":          strconv.Itoa(patternCorpusSchemaVersion),
 		"pattern_indexer_version": strconv.Itoa(patternIndexerVersion),
+		"facts_fingerprint":       factFingerprint,
 		"privacy_policy_identity": guard.policyIdentity,
 		"repo_key":                repoKey,
 		"generated_at":            now.UTC().Format(time.RFC3339),
@@ -1200,6 +1209,15 @@ func publishPatternCorpusLocked(brainDir, stagingPath string) error {
 	return pinned.validate()
 }
 
+// Source anchors in both document and JSONL transcripts use physical lines.
+func patternTranscriptEndLine(content string) int {
+	content = strings.TrimRight(content, "\r\n")
+	if content == "" {
+		return 0
+	}
+	return strings.Count(content, "\n") + 1
+}
+
 func corpusSessionUnchanged(db *sql.DB, id string, size, mtime int64, sha string) bool {
 	var (
 		gotSize, gotMtime int64
@@ -1240,6 +1258,7 @@ func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel
 		createdAt = s.CreatedAt.UTC().Format(time.RFC3339)
 	}
 
+	endOfTranscript := patternTranscriptEndLine(string(content))
 	episodeCount := 0
 	for ord, seg := range segments {
 		feedback := ""
@@ -1258,7 +1277,9 @@ func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel
 
 		startLine := seg.Request.Line
 		endLine := startLine
-		if ord+1 < len(segments) && segments[ord+1].Request.Line > startLine {
+		if ord+1 == len(segments) {
+			endLine = max(startLine, endOfTranscript)
+		} else if segments[ord+1].Request.Line > startLine {
 			endLine = segments[ord+1].Request.Line - 1
 		}
 

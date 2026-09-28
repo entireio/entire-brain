@@ -19,8 +19,8 @@ import (
 // The journeys are opt-in (ENTIRE_BRAIN_LIVE_E2E=1): they spend real agent
 // tokens and need `entire` plus the harness on PATH and its credentials in
 // the environment. Everything lands in t.TempDir (auto-removed); test output
-// carries counts and ids, never transcript bodies, so no retained artifact
-// holds session content or credentials.
+// normally carries counts and ids. Failure diagnostics may include raw agent
+// output and log tails; do not treat them as redacted artifacts.
 
 type liveE2EHarness struct {
 	repoDir  string

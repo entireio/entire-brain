@@ -158,8 +158,8 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 				if _, ok := semanticAvailable(); ok {
 					complete := true
 					embedder := conversationMultiConceptEmbedder()
-					fused := rankFreshHistory(fresh, conversationKind, concept, conversationConceptScanCeiling/4, pred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
-						ranked, conceptComplete, rankOK := rankConversationFused(brainDir, longTerm, concept, conversationConceptScanCeiling/4, embedder, pred)
+					fused := rankFreshHistory(fresh, conversationKind, concept, conversationConceptScanCeiling/4, pred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
+						ranked, conceptComplete, rankOK := rankConversationFused(brainDir, longTerm, concept, conversationConceptScanCeiling/4, embedder, eligible)
 						// conceptComplete is only meaningful when the fused arm
 						// ran; on rankOK == false rankFreshHistory falls back to
 						// the exhaustive in-memory scorer, which cannot be

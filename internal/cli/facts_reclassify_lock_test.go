@@ -3,6 +3,8 @@ package cli
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -75,7 +77,9 @@ func TestFactsReclassifyWaitsForOtherProcess(t *testing.T) {
 	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
 	brainDir, branch := seedReclassifyBrain(t, now)
 
-	helper := exec.Command(os.Args[0], "-test.run=^TestHelperHoldBrainWriteLock$", "-test.timeout=120s")
+	helperCtx, cancelHelper := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelHelper()
+	helper := exec.CommandContext(helperCtx, os.Args[0], "-test.run=^TestHelperHoldBrainWriteLock$", "-test.timeout=120s")
 	helper.Env = append(os.Environ(), envHoldBrainWriteLock+"="+brainDir)
 	stdin, err := helper.StdinPipe()
 	if err != nil {
@@ -89,26 +93,50 @@ func TestFactsReclassifyWaitsForOtherProcess(t *testing.T) {
 	if err := helper.Start(); err != nil {
 		t.Skipf("cannot re-exec the test binary as a lock holder: %v", err)
 	}
+	var done chan error
+	workerDone := false
 	defer func() {
 		_ = stdin.Close()
+		if helper.Process != nil {
+			_ = helper.Process.Kill()
+		}
 		_ = helper.Wait()
+		if done != nil && !workerDone {
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Errorf("facts reclassify worker did not stop during cleanup")
+			}
+		}
 	}()
 
 	scanner := bufio.NewScanner(stdout)
-	locked := false
-	for scanner.Scan() {
-		if strings.Contains(scanner.Text(), "HELPER-LOCKED") {
-			locked = true
-			break
+	ready := make(chan error, 1)
+	go func() {
+		for scanner.Scan() {
+			if strings.Contains(scanner.Text(), "HELPER-LOCKED") {
+				ready <- nil
+				return
+			}
 		}
-	}
-	if !locked {
-		t.Fatal("helper process never reported holding the brain write lock")
+		if err := scanner.Err(); err != nil {
+			ready <- err
+			return
+		}
+		ready <- errors.New("helper exited before reporting the brain write lock")
+	}()
+	select {
+	case err := <-ready:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-helperCtx.Done():
+		t.Fatalf("helper process never reported holding the brain write lock: %v", helperCtx.Err())
 	}
 
 	cmd, _ := reclassifyTestCommand()
 	opts := Options{Version: "test", Now: func() time.Time { return now }}
-	done := make(chan error, 1)
+	done = make(chan error, 1)
 	go func() { done <- runFactsReclassify(cmd, opts, brainDir, branch, false, false) }()
 
 	time.Sleep(500 * time.Millisecond)
@@ -123,8 +151,14 @@ func TestFactsReclassifyWaitsForOtherProcess(t *testing.T) {
 	if _, err := io.WriteString(stdin, "go\n"); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-done; err != nil {
-		t.Fatalf("reclassify after the lock was released: %v", err)
+	select {
+	case err := <-done:
+		workerDone = true
+		if err != nil {
+			t.Fatalf("reclassify after the lock was released: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("facts reclassify did not finish after the lock was released")
 	}
 	after, err := loadFacts(brainDir, branch)
 	if err != nil {

@@ -50,6 +50,7 @@ func newBenchmarkCommand(opts Options) *cobra.Command {
 		Short: "Benchmark semantic indexing performance",
 	}
 	cmd.AddCommand(newSemanticBenchCommand(opts))
+	cmd.AddCommand(newScaleBenchCommand(opts))
 	return cmd
 }
 

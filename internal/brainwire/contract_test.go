@@ -96,7 +96,6 @@ func TestCheckCompatibility(t *testing.T) {
 		wantErr  bool
 	}{
 		{name: "same version", remote: "1.0", wantOK: true},
-		{name: "same major lower-or-equal minor", remote: "1.0", wantOK: true},
 		{name: "same major higher minor warns", remote: "1.7", wantOK: true, wantWarn: true},
 		{name: "unknown greater major errors", remote: "2.0", wantErr: true},
 		{name: "unknown lesser major errors", remote: "0.9", wantErr: true},

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/httpx"
+	"github.com/entireio/entire-brain/internal/httpx"
 )
 
 // The hosted MCP surface read its 200 with an unbounded json.NewDecoder, the same

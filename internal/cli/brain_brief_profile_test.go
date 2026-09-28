@@ -234,11 +234,15 @@ func TestBrainBriefRawHistoryProfileAggregatesAndCountsTruncation(t *testing.T) 
 	if len(matches) != 0 || profile.QueryCount != 8 || len(profile.Queries) != 8 {
 		t.Fatalf("unexpected raw aggregate: matches=%d profile=%+v", len(matches), profile)
 	}
-	if profile.ScannedFileCount < 8 || profile.ScannedByteCount <= 0 {
+	expectedFiles := 1
+	if brokenLinkCreated {
+		expectedFiles++
+	}
+	if profile.ScannedFileCount != expectedFiles || profile.ScannedByteCount <= 0 {
 		t.Fatalf("raw scan counts missing: %+v", profile)
 	}
-	if brokenLinkCreated && profile.ErrorCount != 8 {
-		t.Fatalf("broken input error count = %d, want one per query", profile.ErrorCount)
+	if brokenLinkCreated && profile.ErrorCount != 1 {
+		t.Fatalf("broken input error count = %d, want one physical open failure", profile.ErrorCount)
 	}
 	assertRawHistoryProfileAggregates(t, profile)
 
@@ -250,7 +254,7 @@ func TestBrainBriefRawHistoryProfileAggregatesAndCountsTruncation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("truncated raw matches: %v", err)
 	}
-	if len(matches) != 1 || truncated.QueryCount != 1 || truncated.TruncationCount != 1 || !truncated.Queries[0].Truncated {
+	if len(matches) != 1 || truncated.QueryCount != 8 || truncated.TruncationCount != 1 || !truncated.Queries[0].Truncated {
 		t.Fatalf("truncation not recorded: matches=%d profile=%+v", len(matches), truncated)
 	}
 }
@@ -332,7 +336,7 @@ func assertRawHistoryProfileAggregates(t *testing.T, profile brainBriefProfileRa
 		}
 		errors += query.ErrorCount
 	}
-	if profile.QueryCount != len(profile.Queries) || profile.ScannedFileCount != files || profile.ScannedByteCount != bytes || profile.MatchCount != matches || profile.TruncationCount != truncations || profile.ErrorCount != errors {
+	if profile.QueryCount != len(profile.Queries) || (!profile.SharedScan && (profile.ScannedFileCount != files || profile.ScannedByteCount != bytes || profile.ErrorCount != errors)) || profile.MatchCount != matches || profile.TruncationCount != truncations {
 		t.Fatalf("raw aggregate does not equal per-query sums: aggregate=%+v sums={queries:%d files:%d bytes:%d matches:%d truncations:%d errors:%d}", profile, len(profile.Queries), files, bytes, matches, truncations, errors)
 	}
 	if strings.Contains(fmt.Sprintf("%+v", profile), "ALPHA_ONE") {

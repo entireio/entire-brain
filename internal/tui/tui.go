@@ -33,9 +33,10 @@ type SearchFunc func(query string) ([]SearchResult, error)
 // searchResultMsg carries the outcome of an async in-dashboard search back into
 // Update.
 type searchResultMsg struct {
-	query   string
-	results []SearchResult
-	err     error
+	requestID uint64
+	query     string
+	results   []SearchResult
+	err       error
 }
 
 // Model is the dashboard model over a brain Snapshot.
@@ -51,12 +52,12 @@ type Model struct {
 	filter textinput.Model
 	search textinput.Model
 
-	tab          Tab
-	visible      []int // indices into the active tab's source slice
-	focusDetail  bool
-	filtering    bool
-	searching    bool
-	pendingQuery string // the in-flight search query; stale results are dropped
+	tab           Tab
+	visible       []int // indices into the active tab's source slice
+	focusDetail   bool
+	filtering     bool
+	searching     bool
+	searchRequest uint64 // identifies submitted requests, including repeated query text
 
 	width, height int
 	leftTotal     int
@@ -135,11 +136,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateMouse(msg)
 	case searchResultMsg:
 		// Drop a stale result superseded by a newer search.
-		if msg.query != m.pendingQuery {
+		if msg.requestID != m.searchRequest {
 			return m, nil
 		}
-		m.searching = false
-		m.search.Blur()
 		m.snap.SearchQuery = msg.query
 		if msg.err != nil {
 			m.snap.Search = nil
@@ -302,15 +301,13 @@ func (m Model) updateSearching(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		query := strings.TrimSpace(m.search.Value())
-		// Exit search mode immediately on submit so repeated Enter can't enqueue
-		// overlapping searches; record the in-flight query so a stale (out-of-order)
-		// result is dropped when it arrives.
+		// Submission closes this editor; completing a request must not close a newer one.
 		m.searching = false
 		m.search.Blur()
 		if query == "" {
 			return m, nil
 		}
-		m.pendingQuery = query
+		m.searchRequest++
 		return m, m.runSearchCmd(query)
 	}
 	var cmd tea.Cmd
@@ -322,12 +319,13 @@ func (m Model) updateSearching(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // searchResultMsg.
 func (m Model) runSearchCmd(query string) tea.Cmd {
 	fn := m.searchFn
+	requestID := m.searchRequest
 	return func() tea.Msg {
 		if fn == nil {
-			return searchResultMsg{query: query, err: fmt.Errorf("search is unavailable")}
+			return searchResultMsg{requestID: requestID, query: query, err: fmt.Errorf("search is unavailable")}
 		}
 		results, err := fn(query)
-		return searchResultMsg{query: query, results: results, err: err}
+		return searchResultMsg{requestID: requestID, query: query, results: results, err: err}
 	}
 }
 

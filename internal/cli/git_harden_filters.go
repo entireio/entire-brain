@@ -2,14 +2,12 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -84,35 +82,16 @@ var gitFilterOverrideKeys = []struct{ suffix, value string }{
 // repoFilterEnumerateTimeout bounds the one `git config` probe per repository.
 const repoFilterEnumerateTimeout = 5 * time.Second
 
-type repoFilterCacheEntry struct {
-	signature string
-	overrides []gitConfigOverride
-}
-
-var repoFilterCache sync.Map // repoDir -> repoFilterCacheEntry
-
-// repoFilterDriverOverrides returns the config overrides that disarm every
-// filter driver the REPOSITORY configures. The common case -- no repo-local
-// filter driver at all -- returns nil and costs nothing beyond the probe.
-//
-// The result is cached per repository, keyed by a stat signature of the config
-// files it can come from, so a config that changes underneath us is picked up
-// while a steady repository costs one `git config` for the whole process. That
-// matters: history indexing runs thousands of git commands, and a fork per
-// command would be a visible slowdown.
-func repoFilterDriverOverrides(ctx context.Context, repoDir string) []gitConfigOverride {
+// repoFilterDriverOverrides enumerates the current effective configuration on
+// every invocation. A stat cache of .git/config misses included files, common
+// worktree configuration, conditional includes, and environment changes. Git's
+// --show-origin reports active origins only; it cannot prove a previously
+// inactive include is still inactive without reevaluating configuration.
+func repoFilterDriverOverrides(ctx context.Context, repoDir string) ([]gitConfigOverride, error) {
 	if strings.TrimSpace(repoDir) == "" {
-		return nil
+		return nil, nil
 	}
-	signature := repoConfigSignature(repoDir)
-	if cached, ok := repoFilterCache.Load(repoDir); ok {
-		if entry := cached.(repoFilterCacheEntry); entry.signature == signature {
-			return entry.overrides
-		}
-	}
-	overrides := enumerateRepoFilterDrivers(ctx, repoDir)
-	repoFilterCache.Store(repoDir, repoFilterCacheEntry{signature: signature, overrides: overrides})
-	return overrides
+	return enumerateRepoFilterDrivers(ctx, repoDir)
 }
 
 // enumerateRepoFilterDrivers asks git which filter.* keys the repository itself
@@ -130,7 +109,7 @@ func repoFilterDriverOverrides(ctx context.Context, repoDir string) []gitConfigO
 // post-index-change today; the flags are applied because "every git spawn is
 // hardened" is a cheaper invariant to keep than a per-call-site argument about
 // which hooks a subcommand can reach.
-func enumerateRepoFilterDrivers(ctx context.Context, repoDir string) []gitConfigOverride {
+func enumerateRepoFilterDrivers(ctx context.Context, repoDir string) ([]gitConfigOverride, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -144,10 +123,16 @@ func enumerateRepoFilterDrivers(ctx context.Context, repoDir string) []gitConfig
 	cmd.Dir = repoDir
 	out, err := cmd.Output()
 	if err != nil {
-		// Exit status 1 simply means "no matching keys", which is the norm.
-		// Any other failure leaves us without an enumeration; there is nothing
-		// safe to invent, and the three other vectors remain neutralized.
-		return nil
+		if runCtx.Err() != nil {
+			return nil, fmt.Errorf("enumerate repository filter drivers: %w", runCtx.Err())
+		}
+		// Git reports no matching keys with exit 1 and no output. Any other
+		// failure must block the protected command and must not enter the cache.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && len(out) == 0 && len(exitErr.Stderr) == 0 {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("enumerate repository filter drivers: %w", err)
 	}
 	fields := strings.Split(string(out), "\x00")
 	seen := map[string]bool{}
@@ -170,7 +155,7 @@ func enumerateRepoFilterDrivers(ctx context.Context, repoDir string) []gitConfig
 			overrides = append(overrides, gitConfigOverride{Key: "filter." + driver + "." + k.suffix, Value: k.value})
 		}
 	}
-	return overrides
+	return overrides, nil
 }
 
 // filterDriverFromConfigKey pulls "na=me" out of "filter.na=me.clean". The
@@ -186,36 +171,6 @@ func filterDriverFromConfigKey(key string) (string, bool) {
 		return "", false
 	}
 	return rest[:dot], true
-}
-
-// repoConfigSignature is a cheap fingerprint of the config files a repository
-// can carry its own filter drivers in. An empty signature (a repoDir that is
-// not a repository root, so the files cannot be located) still caches, which is
-// safe: a repository does not rewrite its own config mid-run without already
-// having execution.
-func repoConfigSignature(repoDir string) string {
-	gitDir := filepath.Join(repoDir, ".git")
-	if info, err := os.Stat(gitDir); err == nil && !info.IsDir() {
-		// A worktree or submodule checkout: ".git" is a file naming the real dir.
-		if data, err := os.ReadFile(gitDir); err == nil {
-			if pointed, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:"); ok {
-				gitDir = strings.TrimSpace(pointed)
-				if !filepath.IsAbs(gitDir) {
-					gitDir = filepath.Join(repoDir, gitDir)
-				}
-			}
-		}
-	}
-	var b strings.Builder
-	for _, name := range []string{"config", "config.worktree"} {
-		info, err := os.Stat(filepath.Join(gitDir, name))
-		if err != nil {
-			b.WriteString("-|")
-			continue
-		}
-		fmt.Fprintf(&b, "%d:%d|", info.Size(), info.ModTime().UnixNano())
-	}
-	return b.String()
 }
 
 // gitConfigOverrideEnv appends overrides to base as GIT_CONFIG_KEY_n /

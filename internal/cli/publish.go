@@ -19,12 +19,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ashtom/entire-brain/internal/apiurl"
-	"github.com/ashtom/entire-brain/internal/brainwire"
-	"github.com/ashtom/entire-brain/internal/factmerge"
-	"github.com/ashtom/entire-brain/internal/factsync"
-	"github.com/ashtom/entire-brain/internal/httpx"
-	"github.com/ashtom/entire-brain/internal/repoid"
+	"github.com/entireio/entire-brain/internal/apiurl"
+	"github.com/entireio/entire-brain/internal/brainwire"
+	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factsync"
+	"github.com/entireio/entire-brain/internal/httpx"
+	"github.com/entireio/entire-brain/internal/repoid"
 )
 
 // Hosted brain publish (P1.M1.5, client half). This command is the ONLY path in
@@ -220,6 +220,15 @@ func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOp
 		return fmt.Errorf("publish: no brain found for this repo; run 'entire brain refresh' first")
 	}
 
+	// Exclusion and purge use the same boundary. Hold it from collection through
+	// the completed HTTP exchange so a checked bundle cannot become private
+	// between its policy read and its last outgoing byte.
+	privacyUnlock, err := acquireBrainPrivacySideEffectLock(storage.BrainDir)
+	if err != nil {
+		return fmt.Errorf("publish: %w", err)
+	}
+	defer privacyUnlock()
+
 	body, repoKey, err := buildPublishBundle(ctx, opts, storage, repoDir)
 	if err != nil {
 		return fmt.Errorf("publish: %w", err)
@@ -393,8 +402,7 @@ func projectedPublishBodyBytes(body publishRequestBody) int64 {
 // collectSnapshotArtifacts reads semantic/snapshots/<commit>/snapshot.ndjson,
 // keying each by its commit, and registers a SnapshotRef on art.
 func collectSnapshotArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publishArtifact, error) {
-	root := filepath.Join(brainDir, semanticDirName, semanticSnapshotsDir)
-	entries, err := os.ReadDir(root)
+	entries, _, err := readPrivacyDirectory(brainDir, filepath.Join(semanticDirName, semanticSnapshotsDir), "publish snapshots")
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -407,7 +415,7 @@ func collectSnapshotArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]
 	var out []publishArtifact
 	for _, commit := range commits {
 		rel := filepath.ToSlash(filepath.Join(semanticDirName, semanticSnapshotsDir, commit, semanticSnapshotName))
-		data, ok, err := readBrainBlob(filepath.Join(brainDir, filepath.FromSlash(rel)))
+		data, ok, err := readBrainBlob(brainDir, rel)
 		if err != nil {
 			return nil, fmt.Errorf("read snapshot %s: %w", commit, err)
 		}
@@ -428,8 +436,7 @@ func collectSnapshotArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]
 // each by "base..head", and registers an OverlayRef on art. The all-branches.json
 // refresh report is not a (base,head) overlay and is skipped.
 func collectOverlayArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publishArtifact, error) {
-	root := filepath.Join(brainDir, semanticDirName, "overlays")
-	entries, err := os.ReadDir(root)
+	entries, _, err := readPrivacyDirectory(brainDir, filepath.Join(semanticDirName, "overlays"), "publish overlays")
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -458,7 +465,7 @@ func collectOverlayArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]p
 		ref := strings.TrimSuffix(name, ".json")
 		base, head, _ := strings.Cut(ref, "..")
 		rel := filepath.ToSlash(filepath.Join(semanticDirName, "overlays", name))
-		data, ok, err := readBrainBlob(filepath.Join(brainDir, filepath.FromSlash(rel)))
+		data, ok, err := readBrainBlob(brainDir, rel)
 		if err != nil {
 			return nil, fmt.Errorf("read overlay %s: %w", ref, err)
 		}
@@ -481,8 +488,15 @@ func collectOverlayArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]p
 // logical branch from the records (the on-disk slug is lossy), and registers a
 // FactsRef on art. Streams are keyed by branch and emitted in branch order.
 func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publishArtifact, error) {
-	root := filepath.Join(brainDir, factsDirName)
-	entries, err := os.ReadDir(root)
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return nil, fmt.Errorf("load facts privacy manifest: %w", err)
+	}
+	guard, err := loadSessionReadGuard(brainDir, manifest)
+	if err != nil {
+		return nil, fmt.Errorf("load facts privacy policy: %w", err)
+	}
+	entries, _, err := readPrivacyDirectory(brainDir, factsDirName, "publish facts")
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -500,21 +514,22 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 	var streams []factStream
 	seen := make(map[string]struct{})
 	for _, dir := range dirs {
-		data, ok, err := readBrainBlob(filepath.Join(root, dir, factsFileName))
+		data, ok, err := readBrainBlob(brainDir, filepath.Join(factsDirName, dir, factsFileName))
 		if err != nil {
 			return nil, fmt.Errorf("read facts %s: %w", dir, err)
 		}
 		if !ok {
 			continue
 		}
-		branch := firstFactBranch(data)
+		branch, err := firstFactBranch(data)
+		if err != nil {
+			return nil, fmt.Errorf("read facts %s: %w", dir, err)
+		}
 		if branch == "" {
 			continue
 		}
 		if _, dup := seen[branch]; dup {
-			// Two on-disk streams collapsing to one branch would be a duplicate
-			// coordinate the server rejects; keep the first deterministically.
-			continue
+			return nil, fmt.Errorf("read facts %s: duplicate branch stream %q", dir, branch)
 		}
 		seen[branch] = struct{}{}
 		streams = append(streams, factStream{branch: branch, data: data})
@@ -526,7 +541,7 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 		// REDACT before the bytes become an artifact. The digest and the manifest
 		// ContentRef must describe what actually leaves, so the redaction has to
 		// happen ahead of both.
-		data, err := redactFactsForEgress(stream.data)
+		data, err := redactFactsForEgress(stream.data, guard)
 		if err != nil {
 			return nil, fmt.Errorf("read facts %s: %w", stream.branch, err)
 		}
@@ -566,11 +581,14 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 // A stream that will not parse is an ERROR, not a stream to ship unredacted. It is
 // also not a new class of failure: `facts sync` already refuses the same file, so a
 // brain that cannot publish here could not sync either.
-func redactFactsForEgress(data []byte) ([]byte, error) {
+func redactFactsForEgress(data []byte, guard sessionReadGuard) ([]byte, error) {
 	records, err := factmerge.ParseNDJSON(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("cannot redact local-only provenance before upload: %w", err)
 	}
+	// Filter before sanitizing: transcript coordinates are needed to recognize
+	// excluded provenance when an anchor has no session ID.
+	records = guardFactRecords(guard, records)
 	var buf bytes.Buffer
 	if err := factmerge.WriteNDJSON(&buf, factsync.SanitizeForEgress(records)); err != nil {
 		return nil, fmt.Errorf("cannot redact local-only provenance before upload: %w", err)
@@ -662,7 +680,23 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 		// of the two it is rather than guessing on the member's behalf.
 		if len(body.Artifacts) > 0 && len(result.Stored) == 0 {
 			return publishResult{}, fmt.Errorf("publish_unacknowledged: the server answered HTTP 200 but acknowledged storing 0 of the %d artifact(s) sent%s; the brain was NOT published — check that %s is the hosted Entire API and not a proxy in front of it",
-				len(body.Artifacts), publishStatusDetail(result.Status), endpoint)
+				len(body.Artifacts), publishStatusDetail(result.Status, token), endpoint)
+		}
+		// Stored coordinates must cover exactly the submitted set, once each.
+		expected := make(map[[2]string]bool, len(body.Artifacts))
+		for _, artifact := range body.Artifacts {
+			expected[[2]string{artifact.Kind, artifact.Ref}] = true
+		}
+		complete := len(result.Stored) == len(body.Artifacts)
+		for _, stored := range result.Stored {
+			key := [2]string{stored.Kind, stored.Ref}
+			if !expected[key] {
+				complete = false
+			}
+			delete(expected, key)
+		}
+		if !complete || len(expected) != 0 {
+			return publishResult{}, fmt.Errorf("publish_unacknowledged: the server did not acknowledge every submitted artifact exactly once%s; check the hosted publish response before retrying", publishStatusDetail(result.Status, token))
 		}
 		return result, nil
 	case http.StatusUnauthorized, http.StatusForbidden:
@@ -687,8 +721,8 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 // acknowledged-nothing refusal, as " (status \"...\")", or "" when it said nothing.
 // It goes through the same terminal-safety cleaning as every other server string
 // this command prints.
-func publishStatusDetail(status string) string {
-	cleaned := httpx.ErrorDetailFromBody([]byte(status))
+func publishStatusDetail(status, token string) string {
+	cleaned := httpx.Redact(httpx.ErrorDetailFromBody([]byte(status)), token)
 	if cleaned == "" {
 		return ""
 	}
@@ -728,20 +762,23 @@ func semanticSourceOf(manifest *exportManifest) *semanticSourceManifest {
 	return manifest.Sources.Semantic
 }
 
-// readBrainBlob reads a brain payload file, returning ok=false (not an error) for
-// a missing file or a non-regular entry (a symlink is not followed).
-func readBrainBlob(path string) ([]byte, bool, error) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, false, nil
-		}
+// readBrainBlob binds a payload to its brain-relative path, rejecting symlinks
+// in every component and validating the opened regular-file descriptor. Missing
+// files remain optional; unsafe files fail the bundle instead of being omitted.
+func readBrainBlob(brainDir, rel string) ([]byte, bool, error) {
+	f, present, err := openMemoryStateFileExpected(brainDir, rel, "publish artifact", nil)
+	if err != nil || !present {
 		return nil, false, err
 	}
-	if !info.Mode().IsRegular() {
-		return nil, false, nil
+	defer f.Close()
+	max := semanticSnapshotMaxBytes()
+	path := f.Name()
+	if info, err := f.Stat(); err != nil {
+		return nil, false, err
+	} else if info.Size() > max {
+		return nil, false, &readBoundExceededError{source: path, max: max}
 	}
-	data, err := safeReadFile(path, semanticSnapshotMaxBytes())
+	data, err := safeReadAll(f, max, path)
 	if err != nil {
 		return nil, false, err
 	}
@@ -758,24 +795,24 @@ func subdirNames(entries []os.DirEntry) []string {
 	return names
 }
 
-// firstFactBranch recovers the logical branch from a facts.ndjson stream by
-// reading the branch of its first record. It returns "" when no branch can be
-// read (advisory recovery, so a parse error is not fatal to the caller).
-func firstFactBranch(data []byte) string {
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		var record struct {
-			Branch string `json:"branch"`
-		}
-		if err := json.Unmarshal([]byte(line), &record); err != nil {
-			return ""
-		}
-		return strings.TrimSpace(record.Branch)
+// firstFactBranch validates the entire stream before choosing its branch. Empty
+// streams are optional; malformed records and mixed branch coordinates are not.
+func firstFactBranch(data []byte) (string, error) {
+	records, err := factmerge.ParseNDJSON(bytes.NewReader(data))
+	if err != nil {
+		return "", fmt.Errorf("invalid fact stream: %w", err)
 	}
-	return ""
+	branch := ""
+	for i, record := range records {
+		if strings.TrimSpace(record.Branch) == "" {
+			return "", fmt.Errorf("fact record %d has no branch", i+1)
+		}
+		if i > 0 && record.Branch != branch {
+			return "", fmt.Errorf("fact stream contains multiple branches")
+		}
+		branch = record.Branch
+	}
+	return branch, nil
 }
 
 // overlayBranchName reads the advisory "branch" field from an overlay payload.

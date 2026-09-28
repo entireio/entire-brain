@@ -26,6 +26,18 @@ class WorkflowContractTests(unittest.TestCase):
                      'GOSUMDB: "off"', 'go mod download', 'go test -race -timeout 20m'):
             self.assertIn(text, phase1)
 
+    def test_statement_coverage_reuses_windows_shards_without_a_second_suite(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn("\n  coverage-windows:", workflow)
+        windows = workflow.split("  windows-test-prepare:\n", 1)[1].split("  test-cgo:\n", 1)[0]
+        coverage_commands = [line.strip() for line in windows.splitlines() if "tools/coverage/run.py" in line]
+        self.assertEqual(len(coverage_commands), 1)
+        self.assertIn("--race --binary-only", coverage_commands[0])
+        self.assertNotIn("--test-timeout 30m", windows)
+        self.assertIn('--coverage-output "${{ runner.temp }}/windows-statement-coverage"', windows)
+        self.assertIn("name: coverage-windows-sharded", windows)
+        self.assertIn("windows-statement-coverage/combined.out", windows)
+
     def test_dynamic_matrix_and_stable_aggregate_check_are_present(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         settings = json.loads(SETTINGS.read_text(encoding="utf-8"))

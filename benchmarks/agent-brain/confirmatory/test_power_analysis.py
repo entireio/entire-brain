@@ -6,6 +6,9 @@ import math
 import pathlib
 import tempfile
 import unittest
+from unittest import mock
+
+from power_test_fixture import patch_archived_calibration
 
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -16,6 +19,16 @@ SPEC.loader.exec_module(POWER)
 
 
 class PowerAnalysisV3Test(unittest.TestCase):
+    def setUp(self):
+        self.real_calibration = POWER.build_calibration_diagnostics
+        patcher = patch_archived_calibration(POWER)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_missing_archived_panel_still_refuses_in_production(self):
+        with self.assertRaisesRegex(ValueError, "calibration file does not exist"):
+            self.real_calibration()
+
     @staticmethod
     def evaluated_report() -> dict:
         """Build an otherwise coherent evaluated-state attack on pending-only v3."""
@@ -395,8 +408,12 @@ class PowerAnalysisV3Test(unittest.TestCase):
             bad_hash = json.loads(json.dumps(manifest))
             bad_hash["sources"][0]["sha256"] = "0" * 64
             path.write_text(json.dumps(bad_hash), encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "content hash mismatch"):
-                POWER.build_calibration_diagnostics(path)
+            source = pathlib.Path(temp) / bad_hash["sources"][0]["path"]
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text("synthetic calibration bytes", encoding="utf-8")
+            with mock.patch.object(POWER, "REPO", pathlib.Path(temp)):
+                with self.assertRaisesRegex(ValueError, "content hash mismatch"):
+                    POWER.build_calibration_diagnostics(path)
 
     def test_existing_screening_helpers_still_behave_monotonically(self) -> None:
         effect = abs(math.log(0.88))
@@ -404,7 +421,7 @@ class PowerAnalysisV3Test(unittest.TestCase):
         high = POWER.normal_two_sided_power(effect, 0.30 / math.sqrt(96), 0.05)
         self.assertGreater(high, low)
 
-    def test_checked_in_result_is_current(self) -> None:
+    def test_pending_contract_matches_archived_diagnostic_fixture(self) -> None:
         checked_in = json.loads((HERE / "power-analysis.json").read_text(encoding="utf-8"))
         self.assertEqual(checked_in, POWER.build_report())
 

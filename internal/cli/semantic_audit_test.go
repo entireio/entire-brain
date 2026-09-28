@@ -238,6 +238,11 @@ func TestValidateSemanticSQLiteStoreInReadOnlyDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(storeDir, 0o700) })
+	probe := filepath.Join(storeDir, "write-probe")
+	if err := os.WriteFile(probe, []byte("probe"), 0o600); err == nil {
+		_ = os.Remove(probe)
+		t.Skip("filesystem or process privileges do not enforce the read-only directory mode")
+	}
 
 	if err := validateSemanticSQLiteStore(storePath, 0, 0, 0); err != nil {
 		t.Fatalf("validate immutable store in read-only directory: %v", err)

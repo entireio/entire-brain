@@ -156,6 +156,56 @@ class RunBDryRunTest(unittest.TestCase):
                 os.environ[key] = value
         self.tmp.cleanup()
 
+    def test_full_brain_prepares_isolated_repo_at_pinned_base(self):
+        source = self.repo_cache / "o_r"
+        for number in range(2):
+            (source / "history.txt").write_text(str(number))
+            subprocess.run(["git", "-C", str(source), "add", "history.txt"], check=True)
+            subprocess.run(["git", "-C", str(source), "-c", "user.name=t", "-c",
+                            "user.email=t@e", "commit", "-qm", f"history {number}"], check=True)
+        self.pair["b"]["base_commit"] = subprocess.check_output(
+            ["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
+        (source / "future.txt").write_text("future solution")
+        subprocess.run(["git", "-C", str(source), "add", "future.txt"], check=True)
+        subprocess.run(["git", "-C", str(source), "-c", "user.name=t", "-c",
+                        "user.email=t@e", "commit", "-qm", "future"], check=True)
+        future = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
+        binary = self.stubdir / "entire-brain"
+        binary.write_text("#!" + sys.executable + "\n" + textwrap.dedent("""
+            import json, os, pathlib, subprocess, sys
+            command = sys.argv[1]
+            if command in ("status", "search"):
+                assert pathlib.Path("STUB.md").read_text() == "hello\\n"
+                assert not pathlib.Path("future.txt").exists()
+                assert pathlib.Path(".git").is_dir()
+            if command == "status":
+                print(json.dumps({"brain": {"path": os.environ["ENTIRE_PLUGIN_DATA_DIR"] + "/brain"}}))
+            elif command == "search":
+                print(json.dumps({"results": [{"id": "f1", "text": "prior STUB.md", "score": 1.0}]}))
+            else:
+                print("{}")
+        """))
+        binary.chmod(0o755)
+        self.config["brain"]["binary"] = str(binary)
+        self.config["brain"]["distill"] = {"agent": "claude", "model": "stub", "effort": "low"}
+        run_b.run_pair(self.config, self.pair, self.a_dir, self.out_root,
+                       tier="pilot", arms=["full_brain"])
+        root = self.out_root / self.pair["pair_id"]
+        repo = root / "brain-repo"
+        self.assertIn("prior STUB.md", (root / "full_brain" / "packet.txt").read_text())
+        expected_history = subprocess.check_output(
+            ["git", "-C", str(source), "log", "--first-parent", "--format=%H",
+             self.pair["b"]["base_commit"]], text=True)
+        self.assertEqual(subprocess.check_output(
+            ["git", "-C", str(repo), "log", "--first-parent", "--format=%H"], text=True),
+            expected_history)
+
+        self.assertEqual(subprocess.check_output(["git", "-C", str(repo), "remote"], text=True), "")
+        self.assertNotEqual(subprocess.run(["git", "-C", str(repo), "cat-file", "-e", future],
+                                          capture_output=True).returncode, 0)
+        self.assertEqual(subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip(), future)
+        self.assertEqual(subprocess.check_output(["git", "-C", str(source), "status", "--porcelain"], text=True), "")
+
     def test_full_results_layout_is_produced(self):
         summary = run_b.run_pair(
             self.config, self.pair, self.a_dir, self.out_root, tier="pilot", arms=ARMS,

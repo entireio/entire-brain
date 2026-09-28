@@ -10,8 +10,9 @@ import (
 )
 
 // TestValidateSemanticSchemaFollowsTheTolerantReaderContract pins ADR 0001's
-// tolerant-reader rules: accept any supported-major minor, refuse an unknown
-// major, and refuse a version that is not a well-formed major.minor at all.
+// tolerant-reader rules: accept any supported-major minor (including an
+// additive patch component), refuse an unknown major, and refuse a version
+// whose major/minor components are not well formed.
 func TestValidateSemanticSchemaFollowsTheTolerantReaderContract(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

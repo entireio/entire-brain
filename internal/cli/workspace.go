@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -205,6 +206,7 @@ type workspaceGraphExternalSymbolRef struct {
 }
 
 type workspaceGraphPayload struct {
+	Generation  string                    `json:"generation,omitempty"`
 	Workspace   string                    `json:"workspace"`
 	GeneratedAt time.Time                 `json:"generated_at"`
 	Results     []workspaceGraphResult    `json:"results"`
@@ -1042,6 +1044,10 @@ func runWorkspaceGraphManifest(cmd *cobra.Command, opts Options, graphOpts works
 }
 
 func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest workspaceManifest, limit int) (workspaceGraphPayload, error) {
+	generation, err := workspaceGraphGeneration(opts.Env, manifest)
+	if err != nil {
+		return workspaceGraphPayload{}, err
+	}
 	var results []workspaceGraphResult
 	contractIndex := map[string]*workspaceExternalContractAggregate{}
 	var repoIndexes []workspaceRepoGraphIndex
@@ -1133,6 +1139,7 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 	}
 	return workspaceGraphPayload{
 		Workspace:   manifest.Name,
+		Generation:  generation,
 		GeneratedAt: opts.Now().UTC(),
 		Results:     results,
 		Contracts:   workspaceGraphContracts(contractIndex, limit),
@@ -1446,7 +1453,7 @@ func workspaceGraphCrossEdges(index map[string]*workspaceExternalContractAggrega
 				if participants[i].RepoKey == participants[j].RepoKey {
 					continue
 				}
-				edges = append(edges, workspaceGraphCrossEdge{
+				edges = keepWorkspaceGraphEdge(edges, limit, workspaceGraphCrossEdge{
 					Endpoint:     aggregate.Endpoint,
 					Type:         aggregate.Type,
 					FromRepo:     participants[i].RepoKey,
@@ -1492,7 +1499,7 @@ func workspaceGraphImportCrossEdges(indexes []workspaceRepoGraphIndex, limit int
 				if !ok {
 					continue
 				}
-				edges = append(edges, workspaceGraphCrossEdge{
+				edges = keepWorkspaceGraphEdge(edges, limit, workspaceGraphCrossEdge{
 					Endpoint:     "external:import:" + imp.Spec,
 					Type:         "IMPORTS",
 					FromRepo:     fromRepo.RepoKey,
@@ -1531,7 +1538,6 @@ func workspaceGraphRouteCallCrossEdges(index map[string]*workspaceExternalContra
 		}
 	}
 	var edges []workspaceGraphCrossEdge
-	seen := map[string]bool{}
 	for endpoint, callers := range callersByEndpoint {
 		handlers := handlersByEndpoint[endpoint]
 		if len(callers) == 0 || len(handlers) == 0 {
@@ -1544,12 +1550,7 @@ func workspaceGraphRouteCallCrossEdges(index map[string]*workspaceExternalContra
 				if caller.RepoKey == handler.RepoKey {
 					continue
 				}
-				key := endpoint + "\x00" + caller.ID + "\x00" + handler.ID
-				if seen[key] {
-					continue
-				}
-				seen[key] = true
-				edges = append(edges, workspaceGraphCrossEdge{
+				edges = keepWorkspaceGraphEdge(edges, limit, workspaceGraphCrossEdge{
 					Endpoint:     endpoint,
 					Type:         "CALLS",
 					FromRepo:     caller.RepoKey,
@@ -1628,7 +1629,7 @@ func workspaceGraphGraphQLCrossEdges(index map[string]*workspaceExternalContract
 				if target.Kind == "graphql_schema_field" {
 					relationKind = "cross_repo_graphql_schema"
 				}
-				edges = append(edges, workspaceGraphCrossEdge{
+				edges = keepWorkspaceGraphEdge(edges, limit, workspaceGraphCrossEdge{
 					Endpoint:     aggregate.Endpoint,
 					Type:         "CALLS",
 					FromRepo:     operation.RepoKey,
@@ -1645,7 +1646,7 @@ func workspaceGraphGraphQLCrossEdges(index map[string]*workspaceExternalContract
 				if schemaField.RepoKey == resolver.RepoKey {
 					continue
 				}
-				edges = append(edges, workspaceGraphCrossEdge{
+				edges = keepWorkspaceGraphEdge(edges, limit, workspaceGraphCrossEdge{
 					Endpoint:     aggregate.Endpoint,
 					Type:         "CALLS",
 					FromRepo:     schemaField.RepoKey,
@@ -1683,7 +1684,6 @@ func workspaceGraphChannelCrossEdges(index map[string]*workspaceExternalContract
 		}
 	}
 	var edges []workspaceGraphCrossEdge
-	seen := map[string]bool{}
 	for endpoint, emitters := range emittersByEndpoint {
 		listeners := listenersByEndpoint[endpoint]
 		if len(emitters) == 0 || len(listeners) == 0 {
@@ -1696,12 +1696,7 @@ func workspaceGraphChannelCrossEdges(index map[string]*workspaceExternalContract
 				if emitter.RepoKey == listener.RepoKey {
 					continue
 				}
-				key := endpoint + "\x00" + emitter.ID + "\x00" + listener.ID
-				if seen[key] {
-					continue
-				}
-				seen[key] = true
-				edges = append(edges, workspaceGraphCrossEdge{
+				edges = keepWorkspaceGraphEdge(edges, limit, workspaceGraphCrossEdge{
 					Endpoint:     endpoint,
 					Type:         "EMITS",
 					FromRepo:     emitter.RepoKey,
@@ -1747,7 +1742,7 @@ func workspaceGraphResourceCrossEdges(index map[string]*workspaceExternalContrac
 				if !ok {
 					continue
 				}
-				edges = append(edges, workspaceGraphCrossEdge{
+				edges = keepWorkspaceGraphEdge(edges, limit, workspaceGraphCrossEdge{
 					Endpoint:     aggregate.Endpoint,
 					Type:         aggregate.Type,
 					FromRepo:     participant.RepoKey,
@@ -1782,7 +1777,7 @@ func workspaceGraphExternalSymbolCrossEdges(indexes []workspaceRepoGraphIndex, l
 				if !ok {
 					continue
 				}
-				edges = append(edges, workspaceGraphCrossEdge{
+				edges = keepWorkspaceGraphEdge(edges, limit, workspaceGraphCrossEdge{
 					Endpoint:     "external:symbol:" + ref.Spec,
 					Type:         ref.Type,
 					FromRepo:     fromRepo.RepoKey,
@@ -2337,25 +2332,56 @@ var workspaceDocumentationSymbolKinds = map[string]bool{
 	"paragraph": true,
 }
 
-func sortWorkspaceGraphCrossEdges(edges []workspaceGraphCrossEdge) {
-	sort.Slice(edges, func(i, j int) bool {
-		if edges[i].SharedCount == edges[j].SharedCount {
-			if edges[i].RelationKind == edges[j].RelationKind {
-				if edges[i].Type == edges[j].Type {
-					if edges[i].Endpoint == edges[j].Endpoint {
-						if edges[i].FromRepo == edges[j].FromRepo {
-							return edges[i].ToRepo < edges[j].ToRepo
-						}
-						return edges[i].FromRepo < edges[j].FromRepo
-					}
-					return edges[i].Endpoint < edges[j].Endpoint
-				}
-				return edges[i].Type < edges[j].Type
-			}
-			return edges[i].RelationKind < edges[j].RelationKind
+func workspaceGraphEdgeLess(a, b workspaceGraphCrossEdge) bool {
+	if a.SharedCount != b.SharedCount {
+		return a.SharedCount > b.SharedCount
+	}
+	for _, pair := range [][2]string{{a.RelationKind, b.RelationKind}, {a.Type, b.Type}, {a.Endpoint, b.Endpoint}, {a.FromRepo, b.FromRepo}, {a.ToRepo, b.ToRepo}, {a.FromSymbol.ID, b.FromSymbol.ID}, {a.ToSymbol.ID, b.ToSymbol.ID}} {
+		if pair[0] != pair[1] {
+			return pair[0] < pair[1]
 		}
-		return edges[i].SharedCount > edges[j].SharedCount
-	})
+	}
+	return false
+}
+
+func sortWorkspaceGraphCrossEdges(edges []workspaceGraphCrossEdge) {
+	sort.Slice(edges, func(i, j int) bool { return workspaceGraphEdgeLess(edges[i], edges[j]) })
+}
+
+// keepWorkspaceGraphEdge retains the best limit edges while candidates stream in.
+// It allocates O(limit) storage instead of retaining every cross-repository pair.
+func keepWorkspaceGraphEdge(edges []workspaceGraphCrossEdge, limit int, edge workspaceGraphCrossEdge) []workspaceGraphCrossEdge {
+	if limit <= 0 {
+		return edges
+	}
+	if len(edges) == limit && !workspaceGraphEdgeLess(edge, edges[len(edges)-1]) {
+		return edges
+	}
+	// Ranking includes the occurrence count; identity does not. Canonical routes
+	// and channels can contribute the same pair with different counts. Keep its
+	// strongest candidate without allowing duplicates to consume the limit.
+	for i, existing := range edges {
+		if existing.RelationKind == edge.RelationKind && existing.Type == edge.Type && existing.Endpoint == edge.Endpoint &&
+			existing.FromRepo == edge.FromRepo && existing.ToRepo == edge.ToRepo &&
+			existing.FromSymbol.ID == edge.FromSymbol.ID && existing.ToSymbol.ID == edge.ToSymbol.ID {
+			if !workspaceGraphEdgeLess(edge, existing) {
+				return edges
+			}
+			copy(edges[i:], edges[i+1:])
+			edges = edges[:len(edges)-1]
+			break
+		}
+	}
+	at := sort.Search(len(edges), func(i int) bool { return !workspaceGraphEdgeLess(edges[i], edge) })
+	if at < len(edges) && !workspaceGraphEdgeLess(edge, edges[at]) {
+		return edges
+	}
+	if len(edges) < limit {
+		edges = append(edges, workspaceGraphCrossEdge{})
+	}
+	copy(edges[at+1:], edges[at:len(edges)-1])
+	edges[at] = edge
+	return edges
 }
 
 func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspaceRetrieveOptions, mode retrievalMode, workspaceName, query string) error {
@@ -2820,13 +2846,24 @@ func loadWorkspaceGraphPayload(env EntireEnv, workspaceName string) (workspaceGr
 	if err != nil {
 		return workspaceGraphPayload{}, err
 	}
-	data, err := os.ReadFile(filepath.Join(dir, workspaceGraphName))
+	data, err := safeReadFile(filepath.Join(dir, workspaceGraphName), defaultMaxReadBytes)
 	if err != nil {
 		return workspaceGraphPayload{}, err
 	}
 	var payload workspaceGraphPayload
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return workspaceGraphPayload{}, err
+	}
+	manifest, err := loadWorkspaceManifest(env, workspaceName)
+	if err != nil {
+		return workspaceGraphPayload{}, err
+	}
+	generation, err := workspaceGraphGeneration(env, manifest)
+	if err != nil {
+		return workspaceGraphPayload{}, err
+	}
+	if payload.Generation == "" || payload.Generation != generation {
+		return workspaceGraphPayload{Workspace: workspaceName, CrossEdges: []workspaceGraphCrossEdge{}}, nil
 	}
 	return payload, nil
 }
@@ -3644,6 +3681,10 @@ func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regres
 	if ro.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
+	privacyPolicies, _, err := captureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
+	if err != nil {
+		return err
+	}
 	var results []workspaceRegressionResult
 	for _, f := range skipped {
 		results = append(results, workspaceRegressionResult{
@@ -3669,59 +3710,62 @@ func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regres
 		}
 		results = append(results, result)
 	}
-	if ro.json {
-		return writeJSON(cmd, struct {
-			Workspace     string                      `json:"workspace"`
-			SchemaVersion int                         `json:"schema_version"`
-			Results       []workspaceRegressionResult `json:"results"`
-		}{Workspace: manifest.Name, SchemaVersion: reviewReportSchemaVersion, Results: results})
-	}
-	out := cmd.OutOrStdout()
-	total := 0
-	scanned := 0
-	for _, result := range results {
-		if result.Checked {
-			scanned++
+	render := func() error {
+		if ro.json {
+			return writeJSON(cmd, struct {
+				Workspace     string                      `json:"workspace"`
+				SchemaVersion int                         `json:"schema_version"`
+				Results       []workspaceRegressionResult `json:"results"`
+			}{Workspace: manifest.Name, SchemaVersion: reviewReportSchemaVersion, Results: results})
 		}
-		// Surface per-repo freshness so a stale/degraded pairing is never silently trusted.
-		state := result.Freshness.State
-		if state == "" {
-			state = "unknown"
-		}
-		if workspaceRepoBlockNeedsHeader(state, len(result.Anomalies), len(result.Warnings), result.Error) {
-			fmt.Fprintf(out, "%s [%s]\n", result.RepoKey, state)
-		}
-		if result.Error != "" {
-			fmt.Fprintf(out, "  %s\n", result.Error)
-		}
-		for _, w := range result.Warnings {
-			fmt.Fprintf(out, "  warning: %s\n", w)
-		}
-		for _, a := range result.Anomalies {
-			total++
-			fmt.Fprintf(out, "  %s:%d [%s, conf %.2f] %s\n", a.File, a.Line, a.Kind, a.Confidence, a.Identifier)
-			if a.Expected != "" {
-				fmt.Fprintf(out, "    expected: %s\n    current:  %s\n", a.Expected, a.Current)
+		out := cmd.OutOrStdout()
+		total := 0
+		scanned := 0
+		for _, result := range results {
+			if result.Checked {
+				scanned++
+			}
+			// Surface per-repo freshness so a stale/degraded pairing is never silently trusted.
+			state := result.Freshness.State
+			if state == "" {
+				state = "unknown"
+			}
+			if workspaceRepoBlockNeedsHeader(state, len(result.Anomalies), len(result.Warnings), result.Error) {
+				fmt.Fprintf(out, "%s [%s]\n", result.RepoKey, state)
+			}
+			if result.Error != "" {
+				fmt.Fprintf(out, "  %s\n", result.Error)
+			}
+			for _, w := range result.Warnings {
+				fmt.Fprintf(out, "  warning: %s\n", w)
+			}
+			for _, a := range result.Anomalies {
+				total++
+				fmt.Fprintf(out, "  %s:%d [%s, conf %.2f] %s\n", a.File, a.Line, a.Kind, a.Confidence, a.Identifier)
+				if a.Expected != "" {
+					fmt.Fprintf(out, "    expected: %s\n    current:  %s\n", a.Expected, a.Current)
+				}
 			}
 		}
-	}
-	if total == 0 {
-		// COVERAGE, not membership. The count used to be len(results), so a
-		// workspace whose members were skipped unsafe or never resolved still
-		// reported "No suspected regressions across 6 repo(s)" -- a clean bill of
-		// health over repos nothing ever looked at.
-		switch {
-		case scanned == 0:
-			fmt.Fprintf(out, "INCONCLUSIVE: no file in any of %d repo(s) in %q was compared — this is not a clean result. See the warnings above.\n",
-				len(results), manifest.Name)
-		case scanned == len(results):
-			fmt.Fprintf(out, "No suspected regressions across %d repo(s) in %q.\n", scanned, manifest.Name)
-		default:
-			fmt.Fprintf(out, "No suspected regressions across %d of %d repo(s) in %q; %d not scanned (see the per-repo lines above).\n",
-				scanned, len(results), manifest.Name, len(results)-scanned)
+		if total == 0 {
+			// COVERAGE, not membership. The count used to be len(results), so a
+			// workspace whose members were skipped unsafe or never resolved still
+			// reported "No suspected regressions across 6 repo(s)" -- a clean bill of
+			// health over repos nothing ever looked at.
+			switch {
+			case scanned == 0:
+				fmt.Fprintf(out, "INCONCLUSIVE: no file in any of %d repo(s) in %q was compared — this is not a clean result. See the warnings above.\n",
+					len(results), manifest.Name)
+			case scanned == len(results):
+				fmt.Fprintf(out, "No suspected regressions across %d repo(s) in %q.\n", scanned, manifest.Name)
+			default:
+				fmt.Fprintf(out, "No suspected regressions across %d of %d repo(s) in %q; %d not scanned (see the per-repo lines above).\n",
+					scanned, len(results), manifest.Name, len(results)-scanned)
+			}
 		}
+		return nil
 	}
-	return nil
+	return bufferRetrievalCommandOutput(cmd, privacyPolicies, render)
 }
 
 // workspaceReviewSummary is the per-repo verdict for a repo that produced no
@@ -3762,6 +3806,10 @@ func runWorkspaceReview(cmd *cobra.Command, opts Options, ro regressionDetectorO
 func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, manifest workspaceManifest, query string, skipped []workspaceRepoFreshness) error {
 	if ro.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
+	}
+	privacyPolicies, _, err := captureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
+	if err != nil {
+		return err
 	}
 	var results []workspaceReviewResult
 	reposWithFindings := 0
@@ -3832,42 +3880,73 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 	case reviewed != len(results):
 		summary += fmt.Sprintf(" %d of %d member(s) were not reviewed.", len(results)-reviewed, len(results))
 	}
-	if ro.json {
-		return writeJSON(cmd, struct {
-			Workspace     string                  `json:"workspace"`
-			SchemaVersion int                     `json:"schema_version"`
-			Mode          string                  `json:"mode"`
-			Summary       string                  `json:"summary"`
-			Results       []workspaceReviewResult `json:"results"`
-		}{Workspace: manifest.Name, SchemaVersion: reviewReportSchemaVersion, Mode: "diff-less (brain memory vs current tree)", Summary: summary, Results: results})
+	render := func() error {
+		if ro.json {
+			return writeJSON(cmd, struct {
+				Workspace     string                  `json:"workspace"`
+				SchemaVersion int                     `json:"schema_version"`
+				Mode          string                  `json:"mode"`
+				Summary       string                  `json:"summary"`
+				Results       []workspaceReviewResult `json:"results"`
+			}{Workspace: manifest.Name, SchemaVersion: reviewReportSchemaVersion, Mode: "diff-less (brain memory vs current tree)", Summary: summary, Results: results})
+		}
+		out := cmd.OutOrStdout()
+		fmt.Fprintln(out, summary)
+		for _, result := range results {
+			// Surface per-repo freshness so a stale/degraded or skipped pairing is visible, not silent.
+			state := result.Freshness.State
+			if state == "" {
+				state = "unknown"
+			}
+			if len(result.Findings) == 0 && result.Error == "" && len(result.Warnings) == 0 && state == "ok" {
+				continue
+			}
+			label := result.RepoKey
+			if result.Name != "" {
+				label = result.Name + " (" + result.RepoKey + ")"
+			}
+			fmt.Fprintf(out, "\n%s [%s]\n", label, state)
+			if result.Error != "" {
+				fmt.Fprintf(out, "  error: %s\n", result.Error)
+				continue
+			}
+			for _, w := range result.Warnings {
+				fmt.Fprintf(out, "  warning: %s\n", w)
+			}
+			for _, f := range result.Findings {
+				fmt.Fprintf(out, "  [%s] %s\n    %s:%d\n    %s\n    evidence: %s\n",
+					strings.ToUpper(f.Severity), f.Title, f.File, f.Line, f.Detail, f.Evidence)
+			}
+		}
+		return nil
 	}
-	out := cmd.OutOrStdout()
-	fmt.Fprintln(out, summary)
-	for _, result := range results {
-		// Surface per-repo freshness so a stale/degraded or skipped pairing is visible, not silent.
-		state := result.Freshness.State
-		if state == "" {
-			state = "unknown"
-		}
-		if len(result.Findings) == 0 && result.Error == "" && len(result.Warnings) == 0 && state == "ok" {
-			continue
-		}
-		label := result.RepoKey
-		if result.Name != "" {
-			label = result.Name + " (" + result.RepoKey + ")"
-		}
-		fmt.Fprintf(out, "\n%s [%s]\n", label, state)
-		if result.Error != "" {
-			fmt.Fprintf(out, "  error: %s\n", result.Error)
-			continue
-		}
-		for _, w := range result.Warnings {
-			fmt.Fprintf(out, "  warning: %s\n", w)
-		}
-		for _, f := range result.Findings {
-			fmt.Fprintf(out, "  [%s] %s\n    %s:%d\n    %s\n    evidence: %s\n",
-				strings.ToUpper(f.Severity), f.Title, f.File, f.Line, f.Detail, f.Evidence)
-		}
+	return bufferRetrievalCommandOutput(cmd, privacyPolicies, render)
+}
+
+// workspaceGraphGeneration binds cached edges to membership and member source
+// generations. A builder that finishes after either changes writes a stale token,
+// which readers reject even if that builder overwrites a newer cache file.
+func workspaceGraphGeneration(env EntireEnv, manifest workspaceManifest) (string, error) {
+	type memberSource struct {
+		Repo        workspaceRepo   `json:"repo"`
+		Manifest    *exportManifest `json:"manifest"`
+		Unavailable bool            `json:"unavailable,omitempty"`
 	}
-	return nil
+	members := make([]memberSource, 0, len(manifest.Repos))
+	for _, repo := range manifest.Repos {
+		brainDir, err := brainDirForKey(env, repo.RepoKey)
+		if err != nil {
+			return "", err
+		}
+		source, err := loadBrainManifest(brainDir)
+		// The builder reports source failures per member and still serves healthy
+		// repositories. Bind that degraded state too, so recovery invalidates it.
+		members = append(members, memberSource{Repo: repo, Manifest: source, Unavailable: err != nil})
+	}
+	sort.Slice(members, func(i, j int) bool { return members[i].Repo.RepoKey < members[j].Repo.RepoKey })
+	data, err := json.Marshal(members)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(data)), nil
 }

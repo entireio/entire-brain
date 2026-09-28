@@ -66,8 +66,8 @@ const streamStderrCap = 256 * 1024
 // grandchild makes all of them unenforceable: measured at 30s of wait against a
 // 300ms deadline.
 //
-// WaitDelay closes the pipes and force-kills the process group that far past
-// cancellation, converting an unbounded wait into a bounded one. It is a
+// WaitDelay bounds waiting for process exit and inherited pipes after
+// cancellation. CommandContext kills the direct child, not its process group. It is a
 // backstop, not a timeout: a command that exits normally is never affected, and
 // the delay only starts counting once the context is already cancelled.
 const commandWaitDelay = 2 * time.Second
@@ -88,7 +88,11 @@ func runExecCommand(ctx context.Context, dir string, env map[string]string, name
 		args = hardenedGitArgs(args...)
 		// The filter neutralizers travel in the environment, not in argv; see
 		// git_harden_filters.go for why `-c` cannot express them safely.
-		gitOverrides = repoFilterDriverOverrides(ctx, dir)
+		var err error
+		gitOverrides, err = repoFilterDriverOverrides(ctx, dir)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.WaitDelay = commandWaitDelay
@@ -144,7 +148,11 @@ func (ExecRunner) Stream(ctx context.Context, dir, name string, args ...string) 
 	var gitOverrides []gitConfigOverride
 	if name == "git" {
 		args = hardenedGitArgs(args...)
-		gitOverrides = repoFilterDriverOverrides(ctx, dir)
+		var err error
+		gitOverrides, err = repoFilterDriverOverrides(ctx, dir)
+		if err != nil {
+			return nil, err
+		}
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.WaitDelay = commandWaitDelay

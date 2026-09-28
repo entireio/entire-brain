@@ -683,7 +683,9 @@ func TestSummarizeEvalByStratum(t *testing.T) {
 func TestLoadEvalTasks(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tasks.json")
-	os.WriteFile(path, []byte(`[{"id":"t1","task":"do X","relevant":["fact:a"],"label_source":"human"}]`), 0o600)
+	if err := os.WriteFile(path, []byte(`[{"id":"t1","task":"do X","relevant":["fact:a"],"label_source":"human"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	tasks, err := loadEvalTasks(path)
 	if err != nil || len(tasks) != 1 || tasks[0].ID != "t1" {
 		t.Fatalf("loadEvalTasks: %v %+v", err, tasks)
@@ -692,12 +694,16 @@ func TestLoadEvalTasks(t *testing.T) {
 	// provenance_silver default: every generator that ever emitted unlabeled
 	// sources labeled by provenance, and silver is never claimable as proof —
 	// rejecting these files would orphan every retained task set on disk.
-	os.WriteFile(path, []byte(`[{"id":"t1","task":"do X","relevant":["fact:a"]}]`), 0o600)
+	if err := os.WriteFile(path, []byte(`[{"id":"t1","task":"do X","relevant":["fact:a"]}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	legacy, err := loadEvalTasks(path)
 	if err != nil || len(legacy) != 1 || legacy[0].LabelSource != evalLabelSourceProvenanceSilver {
 		t.Fatalf("legacy labels should default to provenance_silver, got %v %+v", err, legacy)
 	}
-	os.WriteFile(path, []byte(`[{"id":"t1","task":"do X","relevant":["fact:a"],"label_source":"typo"}]`), 0o600)
+	if err := os.WriteFile(path, []byte(`[{"id":"t1","task":"do X","relevant":["fact:a"],"label_source":"typo"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := loadEvalTasks(path); err == nil || !strings.Contains(err.Error(), "label_source") {
 		t.Fatalf("bad label_source should be rejected, got %v", err)
 	}

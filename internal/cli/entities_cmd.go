@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/entityindex"
-	"github.com/ashtom/entire-brain/internal/factgitmeta"
+	"github.com/entireio/entire-brain/internal/entityindex"
+	"github.com/entireio/entire-brain/internal/factgitmeta"
 
 	"github.com/spf13/cobra"
 )
@@ -357,7 +357,10 @@ func entityHistory(ctx context.Context, opts Options, repoDir, query, branch str
 		result.Note = "the entity index is empty; run `entire brain entities backfill`"
 		return result, nil
 	}
-	reachable := branchReachableCommits(ctx, opts.Runner, repoDir, result.Branch)
+	reachable, err := checkedBranchReachableCommits(ctx, opts.Runner, repoDir, result.Branch)
+	if err != nil {
+		return result, err
+	}
 	keys := make([]string, 0, len(view.cache.Entries))
 	for key := range view.cache.Entries {
 		keys = append(keys, key)
@@ -400,25 +403,32 @@ func entityHistory(ctx context.Context, opts Options, repoDir, query, branch str
 	return result, nil
 }
 
-// branchReachableCommits returns the set of commits reachable from branch, or
-// nil when no branch filter applies (or the branch cannot be resolved — an
-// unfiltered answer beats a wrongly empty one).
+// branchReachableCommits preserves the provenance resolver's unknown-reachability
+// contract. Entity history uses the checked variant so a failed filter is explicit.
 func branchReachableCommits(ctx context.Context, runner CommandRunner, repoDir, branch string) map[string]struct{} {
-	if strings.TrimSpace(branch) == "" || runner == nil {
-		return nil
+	reachable, _ := checkedBranchReachableCommits(ctx, runner, repoDir, branch)
+	return reachable
+}
+
+func checkedBranchReachableCommits(ctx context.Context, runner CommandRunner, repoDir, branch string) (map[string]struct{}, error) {
+	if strings.TrimSpace(branch) == "" {
+		return nil, nil
+	}
+	if runner == nil {
+		return nil, fmt.Errorf("cannot resolve entity-history branch %q without a Git runner", branch)
 	}
 	stdout, _, err := runner.Run(ctx, repoDir, "git", "rev-list", fmt.Sprintf("--max-count=%d", entityBranchRevWalkMax), branch)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("resolve entity-history branch %q: %w", branch, err)
 	}
 	out := map[string]struct{}{}
 	for _, line := range strings.Fields(string(stdout)) {
 		out[line] = struct{}{}
 	}
 	if len(out) == 0 {
-		return nil
+		return nil, fmt.Errorf("entity-history branch %q has no reachable commits", branch)
 	}
-	return out
+	return out, nil
 }
 
 func filterOccurrencesToBranch(occurrences []entityIndexOccurrence, reachable map[string]struct{}) []entityIndexOccurrence {
@@ -578,6 +588,21 @@ func loadEntityIndexView(ctx context.Context, opts Options, repoDir string) (*en
 		return nil, err
 	}
 	view := &entityIndexView{}
+	finish := func() (*entityIndexView, error) {
+		byCheckpoint, err := sessionIDsByCheckpoint(ctx, opts, repoDir, storage.BrainDir)
+		if err != nil {
+			return nil, err
+		}
+		// Git metadata can be unchanged while sessions arrive or privacy changes.
+		// Refresh this join on cache hits and on stale-cache fallback alike.
+		for key, occurrences := range view.cache.Entries {
+			for i := range occurrences {
+				occurrences[i].SessionIDs = sessionIDsFor(byCheckpoint, occurrences[i].CheckpointIDs)
+			}
+			view.cache.Entries[key] = occurrences
+		}
+		return view, nil
+	}
 	revision, identityErr := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, "entire")
 	if identityErr != nil {
 		view.warning = "cannot verify entity history parser identity: " + identityErr.Error()
@@ -593,7 +618,7 @@ func loadEntityIndexView(ctx context.Context, opts Options, repoDir string) (*en
 		if previous.NeedsMigration && view.warning == "" {
 			view.warning = "history from another parser revision is available; run `entire brain entities migrate` to carry it forward"
 		}
-		return view, nil
+		return finish()
 	}
 	cache, err := rebuildEntityIndexCache(ctx, opts, repoDir, storage.BrainDir, store, tip, revision)
 	if err != nil {
@@ -605,7 +630,7 @@ func loadEntityIndexView(ctx context.Context, opts Options, repoDir string) (*en
 		if hasPrevious {
 			view.cache = previous
 			view.warning = fmt.Sprintf("entity index join could not be rebuilt (%v); serving the previous cache", err)
-			return view, nil
+			return finish()
 		}
 		return nil, err
 	}
@@ -617,9 +642,9 @@ func loadEntityIndexView(ctx context.Context, opts Options, repoDir string) (*en
 	// Persisting is an optimization, never a correctness requirement: a
 	// read-only brain dir must still answer queries.
 	if err := saveEntityIndexCache(storage.BrainDir, cache); err != nil {
-		return view, nil //nolint:nilerr // a cache we could not persist is still a valid answer
+		return finish() //nolint:nilerr // a cache we could not persist is still a valid answer
 	}
-	return view, nil
+	return finish()
 }
 
 // rebuildEntityIndexCache materializes the git-meta index and joins each

@@ -311,7 +311,7 @@ func TestExplicitVectorSearchPreservesSmallCorpusNearestNeighbors(t *testing.T) 
 		{ID: "beta", Text: "qmd retrieval beta contract", Status: factStatusActive},
 	}
 	got := factsVectorRanked(
-		t.TempDir(), "main", facts, "qmd retrieval beta", e, 1,
+		t.TempDir(), "main", facts, "qmd retrieval beta", e, 1, nil,
 	)
 	if len(got) != 1 || got[0].ID != "beta" {
 		t.Fatalf("explicit vector search lost its nearest neighbor: %+v", got)

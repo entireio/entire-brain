@@ -243,6 +243,12 @@ func emitBrainBriefCompactV1(cmd *cobra.Command, report brainBriefReport) error 
 			compactV1IntAlways("verified_anchors", verifiedAnchors),
 			compactV1Strings("stale_locus", report.FactsLocusDrift[fact.ID]),
 		)
+		if notice, ok := report.FactsPendingReview[fact.ID]; ok {
+			// Reuse the existing warning family so every compact version retains
+			// the trust notice without changing its positional fact schema.
+			compactV1Record(&out, "warning", compactV1StringAlways("source", fact.ID),
+				compactV1StringAlways("text", factReviewNoticeLine(notice)+" "+notice.Message))
+		}
 		seenFacts[fact.ID] = struct{}{}
 	}
 	driftIDs := make([]string, 0, len(report.FactsLocusDrift))
@@ -503,6 +509,11 @@ func compactV1SemanticRelation(out *strings.Builder, tag string, index int, reco
 
 func brainBriefCompactV1WarningCount(report brainBriefReport) int {
 	count := len(report.Status.Warnings) + len(report.Status.Live.Warnings) + len(report.Warnings)
+	for _, fact := range report.Facts {
+		if _, ok := report.FactsPendingReview[fact.ID]; ok {
+			count++
+		}
+	}
 	if semantic := report.Status.Semantic; semantic != nil {
 		count += len(semantic.BlindSpots)
 		if semantic.Freshness != nil {

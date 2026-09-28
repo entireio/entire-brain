@@ -27,24 +27,26 @@ func readRepoDoc(t *testing.T, rel string) string {
 
 func TestDocContractCapabilityMatrix(t *testing.T) {
 	readme := readRepoDoc(t, "README.md")
+	reference := readRepoDoc(t, "docs/reference.md")
 	threat := readRepoDoc(t, "docs/recall_threat_model.md")
 	guide := readRepoDoc(t, "docs/semantic_mcp_guide.md")
 
 	opts := Options{Version: "test"}
 
-	// Conversation vector support: the README must not describe the CLI
-	// conversation vector arm as unsupported, and must document the fusion
-	// development flag it references in code.
+	// The README describes the search interface; the reference documents
+	// the development flags for conversation retrieval.
 	if strings.Contains(readme, "`vsearch --source conversation` is unsupported") {
 		t.Fatal("README still claims conversation vector search is unsupported")
+	}
+	if !strings.Contains(readme, "`--source` (`all` | `fact` |") {
+		t.Fatal("README missing query source options")
 	}
 	for _, want := range []string{
 		"ENTIRE_BRAIN_CONVERSATION_FUSION",
 		"ENTIRE_BRAIN_BRIEF_CONVERSATION",
-		"`--source` (`all` | `fact` |",
 	} {
-		if !strings.Contains(readme, want) {
-			t.Fatalf("README missing %q", want)
+		if !strings.Contains(reference, want) {
+			t.Fatalf("docs/reference.md missing %q", want)
 		}
 	}
 

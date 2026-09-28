@@ -23,6 +23,18 @@ jobs:
       - uses: actions/setup-go@v6.4.0
         with: { go-version: "1.27.1" }
       - run: go vet ./...
+      - name: Test browser controller request lifetimes
+        run: node --test webui/tests/*.test.cjs
+      - uses: actions/setup-python@v6.0.0
+        with: { python-version: "3.14" }
+      - run: python3 -m pip install coverage==7.16.1
+      - run: python3 -B -m unittest discover -s tools/coverage -p 'test_*.py'
+      - run: python3 -B -m unittest discover -s tools/release-hygiene -p 'test_*.py'
+      # The adapters are only meaningful against the frameworks they adapt, so
+      # CI installs them. Without them the suite still runs and skips those
+      # cases, which would quietly assert nothing.
+      - run: python3 -m pip install langchain-core==1.6.4 llama-index-core==0.14.25
+      - run: python3 -B -m unittest discover -s sdk/python/tests -p 'test_*.py'
       - run: |
           unformatted=$(gofmt -l -s .)
           if [ -n "$unformatted" ]; then
@@ -30,6 +42,36 @@ jobs:
             echo "$unformatted"
             exit 1
           fi
+
+  browser-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: actions/setup-go@v6.4.0
+        with: { go-version: "1.27.1" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: npm ci --prefix webui --ignore-scripts
+      - run: npm exec --prefix webui -- playwright install --with-deps chromium
+      - run: go build -o "$RUNNER_TEMP/entire-brain" ./cmd/entire-brain
+      - name: Exercise the embedded UI in Chromium
+        run: BRAIN_VIZ_BINARY="$RUNNER_TEMP/entire-brain" npm --prefix webui run test:browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-smoke-traces
+          path: webui/test-results/
+
+  regression-mutations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: actions/setup-go@v6.4.0
+        with: { go-version: "1.27.1" }
+      - name: Prove the selected tests catch their intended regressions
+        run: python3 -B tools/coverage/mutation_check.py
 
   build:
     runs-on: ubuntu-latest
@@ -57,7 +99,18 @@ jobs:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
         with: { go-version: "1.27.1" }
-      - run: go test -race -timeout 20m ./...
+      - name: Test with coverage and binary contracts
+        run: python3 -B tools/coverage/run.py --race --output "${{ runner.temp }}/brain-coverage"
+      - name: Retain coverage and test results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-default-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/brain-coverage/*.json
+            ${{ runner.temp }}/brain-coverage/*.jsonl
+            ${{ runner.temp }}/brain-coverage/*.out
+            ${{ runner.temp }}/brain-coverage/*.html
 
   windows-test-prepare:
     name: test (windows-latest) / compile and plan
@@ -195,6 +248,8 @@ jobs:
             --output $output `
             --expected-repository-sha '${{ github.sha }}'
           exit $LASTEXITCODE
+      - name: Measure instrumented CLI contracts without rerunning the suite
+        run: python -B tools/coverage/run.py --race --binary-only --output "${{ runner.temp }}/windows-test-other/binary-coverage"
       - name: Upload non-heavy package evidence
         if: always()
         uses: actions/upload-artifact@v6
@@ -231,6 +286,9 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - uses: actions/setup-go@v6.4.0
+        with:
+          go-version: "1.27.1"
       - uses: actions/download-artifact@v6
         with:
           name: windows-test-bundle
@@ -249,7 +307,17 @@ jobs:
             --bundle "${{ runner.temp }}/windows-test-bundle" \
             --shard-results "${{ runner.temp }}/windows-test-shards" \
             --other-results "${{ runner.temp }}/windows-test-other" \
+            --coverage-output "${{ runner.temp }}/windows-statement-coverage" \
             --output "${{ runner.temp }}/windows-test-verification.json"
+      - name: Render merged Windows statement coverage
+        run: go tool cover -html="${{ runner.temp }}/windows-statement-coverage/combined.out" -o="${{ runner.temp }}/windows-statement-coverage/coverage.html"
+      - name: Upload Windows statement coverage
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-windows-sharded
+          path: ${{ runner.temp }}/windows-statement-coverage/
+          if-no-files-found: warn
       - name: Upload verification report
         if: always()
         uses: actions/upload-artifact@v6
@@ -297,7 +365,18 @@ jobs:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
         with: { go-version: "1.27.1" }
-      - run: go test -race -tags "brain_cgo sqlite_fts5" -timeout 20m ./...
+      - name: Test CGO with coverage and binary contracts
+        run: python3 -B tools/coverage/run.py --race --tags "brain_cgo sqlite_fts5" --output "${{ runner.temp }}/brain-coverage"
+      - name: Retain CGO coverage and test results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-cgo-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/brain-coverage/*.json
+            ${{ runner.temp }}/brain-coverage/*.jsonl
+            ${{ runner.temp }}/brain-coverage/*.out
+            ${{ runner.temp }}/brain-coverage/*.html
 
   phase1-semantic:
     strategy:
@@ -320,14 +399,7 @@ jobs:
       - name: Run deterministic Phase 1 semantic tests
         run: go test -race -timeout 20m ./internal/cli -run 'TestPhase1|TestSemantic|TestWorkspace|TestMCP|TestRefreshSemantic'
 
-  # The benchmark harness is Python and `go test ./...` does not see it. This job
-  # is its only gate, so it must run the whole suite by DISCOVERY, not by a list:
-  # the previous hand-maintained list named five scripts, two of them narrowed to
-  # one TestCase class, and executed ten tests in ten seconds. Everything else —
-  # 36 of 39 test modules and 310 of run_test.py's 313 tests — ran nowhere, so a
-  # fix whose evidence was a new test file was reported green without that
-  # evidence ever being executed. ci_tests.py discovers every test module, and
-  # carries the quarantine list for the modules that are red on a clean checkout.
+  # Discover every Python benchmark test module; Go tests do not cover the harness.
   benchmark-corpus:
     runs-on: ubuntu-latest
     steps:
@@ -336,10 +408,7 @@ jobs:
       # cannot answer.
       - uses: actions/checkout@v6.0.2
         with: { fetch-depth: 0 }
-      # The suite was written against Python 3.14 (it packages evidence with
-      # tarfile's zstd mode, added there). The job previously used whatever
-      # `python3` the image happened to ship — 3.12 — and never declared an
-      # interpreter, because the modules that need one were not being run.
+      # Evidence packaging uses tarfile's zstd support from Python 3.14.
       - uses: actions/setup-python@v6.0.0
         with: { python-version: "3.14" }
       # The task negative-control module drives the pinned Go toolchain. Same
@@ -352,11 +421,22 @@ jobs:
       # runs; this is the one command allowed to fetch it.
       - name: Prime the Go toolchain the task negative control pins
         run: GOTOOLCHAIN=go1.26.4 go version
+      - name: Install Python coverage tracer
+        run: python3 -m pip install coverage==7.16.1
       - name: Validate mined-scale corpus and run the benchmark test suite
         run: |
           set -e
           python3 benchmarks/agent-brain/mined-scale/check_manifest.py
-          python3 benchmarks/agent-brain/ci_tests.py
+          python3 -B tools/coverage/python_run.py --output "${{ runner.temp }}/python-coverage"
+      - name: Retain Python coverage and module outcomes
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-python-benchmarks
+          path: |
+            ${{ runner.temp }}/python-coverage/*.json
+            ${{ runner.temp }}/python-coverage/*.log
+            ${{ runner.temp }}/python-coverage/html/
 
   release-evidence:
     # Release-evidence audits enforce proof-ready release artifacts: they prove
@@ -505,3 +585,32 @@ jobs:
             echo "::error::$failures release-evidence check(s) failed"
             exit 1
           fi
+
+  benchmark-real-components:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v6.0.0
+        with: { python-version: "3.14" }
+      - uses: actions/setup-go@v6.4.0
+        with: { go-version-file: go.mod }
+      - name: Check out the fixed Graph integration dependency
+        uses: actions/checkout@v6.0.2
+        with:
+          repository: entireio/entire-graph
+          ref: 91f9a05ad02aa779b858e9f641e5a8fa2ecf7103
+          path: .integration-graph
+          persist-credentials: false
+      - name: Build the real preparation components
+        run: |
+          go build -o "${{ runner.temp }}/entire-brain" ./cmd/entire-brain
+          cd .integration-graph
+          go build -o "${{ runner.temp }}/entire-graph" ./cmd/entire-graph
+      - name: Exercise public benchmark preparation with local provider output
+        env:
+          ENTIRE_BENCHMARK_REQUIRE_COMPONENTS: "1"
+          ENTIRE_BENCHMARK_BRAIN_BINARY: ${{ runner.temp }}/entire-brain
+          ENTIRE_BENCHMARK_GRAPH_BINARY: ${{ runner.temp }}/entire-graph
+        run: python3 -B benchmarks/agent-brain/test_full_brain_integration.py -v

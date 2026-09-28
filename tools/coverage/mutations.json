@@ -1,0 +1,34 @@
+[
+  {
+    "name": "refresh must publish corpus",
+    "file": "internal/cli/patterns_cmd.go",
+    "original": "// Explicit refresh is the stricter surface: a corpus failure is fatal here.\n\tif err := buildPatternCorpus(brainDir, opts.Now().UTC()); err != nil {\n\t\treturn fmt.Errorf(\"pattern corpus: %w\", err)\n\t}",
+    "replacement": "// MUTANT: omit corpus publication after the episode rebuild.",
+    "test": "TestRootCommandPatternsLifecycleAndPrivacyFailures",
+    "diagnostic": "refresh did not publish corpus"
+  },
+  {
+    "name": "refresh must retain session exclusion",
+    "file": "internal/cli/pattern_corpus.go",
+    "original": "\tsessions = guardExportSessions(guard, sessions)",
+    "replacement": "\t// Deliberate regression: skip retained exclusion filter.",
+    "test": "TestExcludedSessionSurvivesCancelledRefreshReopenAndRetry",
+    "diagnostic": "refresh 1 corpus sessions = [clean-sess secret-sess], want [clean-sess]"
+  },
+  {
+    "name": "brief must preserve raw-only matches",
+    "file": "internal/cli/agent_surface.go",
+    "original": "rawMatches, rawErr := rawHistoryMatcher(status.Brain.Path, task, nil, briefOpts.limit, rawProfile)",
+    "replacement": "_ = rawProfile\n\t\t\trawMatches, rawErr := []brainTextMatch(nil), error(nil)",
+    "test": "TestRawHistoryFallbackRetainsFallbackOnlyMatch",
+    "diagnostic": "end-to-end brief lost fallback-only match"
+  },
+  {
+    "name": "privacy verification must detect excluded vector IDs",
+    "file": "internal/cli/session_privacy_verify.go",
+    "original": "\t\tif _, current := wanted[id]; !current {",
+    "replacement": "\t\tif _, current := wanted[id]; !current && false {",
+    "test": "TestPrivacyVectorSnapshotInspectsRealSQLiteMembership",
+    "diagnostic": "want the excluded real SQLite record only"
+  }
+]

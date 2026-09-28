@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/config"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/entireio/entire-brain/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -110,7 +110,7 @@ func TestRedundantAliasesAreRemoved(t *testing.T) {
 	// get/multi-get) and `inspect <sub>` for symbol-graph navigation.
 	for _, alias := range []string{"context", "impact", "changes", "tests", "routes", "tools", "workflows"} {
 		cmd := NewRootCommand(Options{Version: "test-version"})
-		if _, err := execute(t, cmd, alias); err == nil {
+		if _, err := execute(t, cmd, alias); err == nil || !strings.Contains(err.Error(), "unknown command") {
 			t.Fatalf("alias %q should be removed (expected unknown-command error)", alias)
 		}
 	}

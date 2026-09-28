@@ -22,7 +22,7 @@ func TestSemanticEndpointPathRecoversFieldsAroundColons(t *testing.T) {
 		id      string
 		want    string
 	}{
-		{"symbol", "gh/ashtom/entire-brain", "gh/ashtom/entire-brain:Go:cmd/entire-brain/main.go:function:main", "cmd/entire-brain/main.go"},
+		{"symbol", "gh/entireio/entire-brain", "gh/entireio/entire-brain:Go:cmd/entire-brain/main.go:function:main", "cmd/entire-brain/main.go"},
 		{"symbol lowercase language", "gh/example/repo", "gh/example/repo:go:secret/config.go:function:Secret", "secret/config.go"},
 		{"kind marker in path before future kind", "gh/example/repo", "gh/example/repo:Go:dir:function:file.go:new_kind:F", ""},
 		{"ambiguous qualified name", "gh/example/repo", "gh/example/repo:Go:file.go:function:Name:Part", ""},

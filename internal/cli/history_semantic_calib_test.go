@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestHistorySemanticCalibration probes whether the embedder can separate
+// TestHistorySemanticCalibrationDiagnostic reports whether the embedder can separate
 // relevant history decisions from noise — the gate for adding a semantic arm to
 // history (today BM25-only). Model2Vec couldn't: on the live brain an unrelated
 // query ("fake metadata") scored cosine 0.336, higher than every paraphrase
@@ -14,7 +14,9 @@ import (
 // selected (ENTIRE_BRAIN_EMBEDDER=ollama for EmbeddingGemma) and reports the
 // separation: a semantic arm is viable only if the positives' cosine clears the
 // negatives'. Env: CALIB_BRAIN, CALIB_BRANCH (main).
-func TestHistorySemanticCalibration(t *testing.T) {
+// This is an opt-in calibration diagnostic, not a fixed quality gate: expected
+// separation varies with the selected external model and the supplied brain.
+func TestHistorySemanticCalibrationDiagnostic(t *testing.T) {
 	brainDir := os.Getenv("CALIB_BRAIN")
 	if brainDir == "" {
 		t.Skip("set CALIB_BRAIN to a built brain dir")

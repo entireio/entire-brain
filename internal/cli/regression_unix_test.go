@@ -43,10 +43,15 @@ func TestRegressionScanHistoryClosesFilesDuringLargeWalk(t *testing.T) {
 		t.Skipf("lower rlimit: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = syscall.Setrlimit(syscall.RLIMIT_NOFILE, &original)
+		if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &original); err != nil {
+			t.Errorf("restore file descriptor limit: %v", err)
+		}
 	})
 
-	changes, _, files := regressionScanHistory(brainDir, []string{"scopeBaseRef"})
+	changes, _, files, err := regressionScanHistory(brainDir, []string{"scopeBaseRef"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(changes) == 0 {
 		t.Fatalf("late signal file was not scanned under low descriptor limit; files=%v", files)
 	}

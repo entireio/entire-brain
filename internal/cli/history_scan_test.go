@@ -77,10 +77,19 @@ func TestScanHistoryFileOpencodeDocument(t *testing.T) {
 	}
 	sawNarrative := false
 	sawToolFact := false
+	requestCount := 0
 	for _, record := range records {
-		// The assistant message object opens on line 8 of the document.
-		if record.Line != 8 {
-			t.Errorf("record anchored to line %d, want 8 (the message object's opening line)", record.Line)
+		// Each role anchors to its own message object's opening line.
+		wantLine := 8
+		if record.Kind == "request" {
+			wantLine = 4
+			requestCount++
+			if record.Summary != "Remove the header bottom border" {
+				t.Errorf("unexpected user request: %+v", record)
+			}
+		}
+		if record.Line != wantLine {
+			t.Errorf("%s record anchored to line %d, want %d (its message object's opening line)", record.Kind, record.Line, wantLine)
 		}
 		if strings.Contains(record.Summary, "huge tool output") {
 			t.Errorf("bulk tool output leaked into the index: %+v", record)
@@ -91,6 +100,9 @@ func TestScanHistoryFileOpencodeDocument(t *testing.T) {
 		if record.Kind == "code_fact" && strings.Contains(record.Summary, "borderWidth = 0") {
 			sawToolFact = true
 		}
+	}
+	if requestCount != 1 {
+		t.Errorf("document user request count = %d, want 1", requestCount)
 	}
 	if !sawNarrative {
 		t.Error("assistant narrative missing from document records")

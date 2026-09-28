@@ -17,6 +17,11 @@ Available tools:
   bounded imports, pagination, and user-requested remote writes through the host.
   Selected projects participate in default retrieval; `source: "issue"` narrows
   it. `brain_brief` accepts `issue` with optional task text and pins its citation.
+- Durable facts: `brain_remember` — the only tool here that writes memory rather
+  than derived state. Takes `fact` and a taxonomy `path` shaped
+  `category.subcategory.type`; `path` is required rather than inferred, because
+  the CLI infers it by shelling out to a coding agent and an MCP call must not
+  spend model tokens its caller did not ask for.
 - Unified retrieval: `brain_query` (hybrid by default; optional mutually exclusive
   `keyword: true` or `semantic: true`), `brain_get`, `brain_multi_get`.
   Compatibility tools: `brain_search` (lexical), `brain_vsearch` (vector).
@@ -67,6 +72,19 @@ Gemma-class embedder is configured and `refresh` has built history vectors).
 All three return ids you can pass to `brain_get`/`brain_multi_get` for full
 records. (The earlier `brain_history` tool was
 removed — history is now one source within the unified lexical/hybrid verbs.)
+
+Recency weighting is opt-in on all three retrieval tools: set `recency: true`
+to weight dated candidates before the result limit. Optionally set
+`recency_half_life: "720h"` for a 30-day half-life; the default is `2160h`
+(90 days). The CLI equivalents are `--recency` and
+`--recency-half-life 720h` on `query`, `search`, and `vsearch`. A custom
+half-life requires recency to be enabled and must be a positive Go duration
+(hours are supported; use `720h`, not `30d`). Undated records retain neutral
+weight; when no candidate has a usable timestamp, results carry a
+`recency_unavailable` caveat. Recency is not supported for `source: "conversation"`.
+Fact results expose `created_at` and `updated_at` separately. Recency uses
+`updated_at` when present, falling back to `created_at` for unrevised facts;
+other dated sources use `created_at`.
 
 ### Conversation exchanges (experimental, opt-in)
 

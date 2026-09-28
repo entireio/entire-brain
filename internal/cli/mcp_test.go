@@ -94,27 +94,9 @@ func TestMCPBrainReviewToolDefinitionGolden(t *testing.T) {
 		t.Fatalf("brain_review tool definition changed\n got: %s\nwant: %s", got, want)
 	}
 
-	// Exact local o200k_base evidence: this definition is 1,026 -> 810 bytes
-	// and 223 -> 166 tokens; the full tools/list result is 16,080 -> 15,864
-	// bytes and 3,411 -> 3,354 tokens. The pinned tokenizer asset (SHA-256
-	// 446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d)
-	// is deliberately not a production or test dependency.
-	// The declared integer ceiling (mcpIntegerArgMax) adds 16 bytes per integer
-	// argument. Byte counts below are re-measured; the token counts are the
-	// earlier measurement and are NOT re-measured here, because the pinned
-	// o200k_base asset is deliberately not a test dependency. Across the whole
-	// surface this is +432 bytes on the tools/list result (26,074 -> 26,506).
-	// The response-budget note (mcpResponseBudgetNote) adds 64 bytes per limit/
-	// depth argument -- 22 of them -- for +1,536 bytes on the tools/list result
-	// (27,433 -> 28,969). The full statement of the contract is carried once in
-	// initialize's instructions instead of being repeated in twenty-two schemas.
-	// A declared maxLength on every string argument (mcpStringArgMaxBytes) adds
-	// 18 bytes per string argument, so the surface can state the bound it
-	// enforces: an argument the tool echoes back cannot be trimmed away by
-	// dropping rows, so an oversize scalar is refused rather than blowing the
-	// response budget.
-	if len(got) != 907 {
-		t.Fatalf("brain_review tool definition bytes = %d, want 907", len(got))
+	// Pin serialized schema bytes; tokenizer measurements are not part of this test.
+	if len(got) != 917 {
+		t.Fatalf("brain_review tool definition bytes = %d, want 917", len(got))
 	}
 }
 
@@ -141,31 +123,9 @@ func TestMCPBrainWorkspaceReviewToolDefinitionGolden(t *testing.T) {
 		t.Fatalf("brain_workspace_review tool definition changed\n got: %s\nwant: %s", got, want)
 	}
 
-	// Exact local o200k_base evidence: this definition is 1,060 -> 907 bytes
-	// and 226 -> 186 tokens; the full tools/list result is 15,864 -> 15,711
-	// bytes and 3,354 -> 3,314 tokens. The pinned tokenizer asset (SHA-256
-	// 446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d)
-	// is deliberately not a production or test dependency. The +80 bytes over
-	// that 907-byte floor are the cross-repo scope gate, named in the
-	// description so an agent that hits the refusal knows the one knob.
-	// The declared integer ceiling (mcpIntegerArgMax) adds 16 bytes per integer
-	// argument. Byte counts below are re-measured; the token counts are the
-	// earlier measurement and are NOT re-measured here, because the pinned
-	// o200k_base asset is deliberately not a test dependency. Across the whole
-	// surface this is +432 bytes on the tools/list result (26,074 -> 26,506).
-	// The workspace membership/sibling description is now explicit; byte count
-	// below is re-measured, while the token counts above remain historical.
-	// The response-budget note (mcpResponseBudgetNote) adds 64 bytes per limit/
-	// depth argument -- 22 of them -- for +1,536 bytes on the tools/list result
-	// (27,433 -> 28,969). The full statement of the contract is carried once in
-	// initialize's instructions instead of being repeated in twenty-two schemas.
-	// A declared maxLength on every string argument (mcpStringArgMaxBytes) adds
-	// 18 bytes per string argument, so the surface can state the bound it
-	// enforces: an argument the tool echoes back cannot be trimmed away by
-	// dropping rows, so an oversize scalar is refused rather than blowing the
-	// response budget.
-	if len(got) != 1157 {
-		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 1157", len(got))
+	// Pin serialized schema bytes; tokenizer measurements are not part of this test.
+	if len(got) != 1167 {
+		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 1167", len(got))
 	}
 }
 
@@ -1414,10 +1374,15 @@ func TestMCPBrainBriefAndQueryToolsUseIndexedHistory(t *testing.T) {
 	if len(responses) != 2 {
 		t.Fatalf("responses = %d", len(responses))
 	}
-	data, _ := json.Marshal(responses)
-	for _, want := range []string{"brain", "media playback verification", "reaching YouTube alone is not success"} {
-		if !strings.Contains(string(data), want) {
-			t.Fatalf("history wrapper results missing %q: %s", want, data)
+	for i, response := range responses {
+		data, err := json.Marshal(response)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{"media playback verification", "reaching YouTube alone is not success"} {
+			if !strings.Contains(string(data), want) {
+				t.Fatalf("history response %d missing %q: %s", i, want, data)
+			}
 		}
 	}
 }
@@ -1752,7 +1717,7 @@ func payloadArray(t *testing.T, payload map[string]any, key string) []any {
 func assertNumberField(t *testing.T, payload map[string]any, key string, want int) {
 	t.Helper()
 	got, ok := payload[key].(float64)
-	if !ok || int(got) != want {
+	if !ok || got != float64(want) {
 		t.Fatalf("%s = %#v, want %d in payload %+v", key, payload[key], want, payload)
 	}
 }
@@ -2096,6 +2061,11 @@ func TestMCPConversationNavigation(t *testing.T) {
 	largeRow := large["results"].([]any)[0].(map[string]any)
 	if largeRow["heading"] != "session_outline" {
 		t.Fatalf("large cursor: %+v", largeRow)
+	}
+	if value, present := largeRow["turns"]; present {
+		if turns, ok := value.([]any); !ok || len(turns) != 0 {
+			t.Fatalf("exhausted cursor returned turns: %+v", largeRow)
+		}
 	}
 
 	// Type mismatch is a structured error, never an ignored option.

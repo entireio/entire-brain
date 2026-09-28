@@ -37,7 +37,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
-from brainmark import _harness, report  # noqa: E402
+from brainmark import _harness, prompts, report  # noqa: E402
 
 ARMS = ["no_brain", "full_brain"]
 
@@ -77,8 +77,13 @@ def _cell(cell: pathlib.Path, instance_id: str, stream: list[str]) -> None:
         encoding="utf-8")
     (cell / "patch.diff").write_text("diff --git a/f.py b/f.py\n+x\n", encoding="utf-8")
     (cell / "stream.jsonl").write_text("\n".join(stream) + "\n", encoding="utf-8")
+    prompt = (cell / "prompt.txt").read_text(encoding="utf-8")
+    (cell / "prompt_sym.sha256").write_text(prompts.symmetry_sha(prompt) + "\n", encoding="utf-8")
     (cell / "meta.json").write_text(_harness.pretty_json({
         "instance_id": instance_id,
+        "packet_sha256": _harness.sha256_text(packet),
+        "prompt_sha256": _harness.sha256_text(prompt),
+        "prompt_sym_sha256": prompts.symmetry_sha(prompt),
         "result_event": {"total_cost_usd": 0.1, "subtype": "success"},
         "mechmetrics": session_metrics(stream, backend="claude"),
     }), encoding="utf-8")

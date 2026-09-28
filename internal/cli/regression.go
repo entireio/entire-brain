@@ -277,12 +277,22 @@ func regressionSignalHead(raw string) string {
 // regressionScanHistory walks the raw brain (sessions + exports) once and extracts change/delete
 // signals for the given identifiers from EVERY matching line — not a capped top-N — so rare but
 // precise invariants are not lost. Bounded by a generous file cap and a distinct-signal cap.
-func regressionScanHistory(brainDir string, ids []string) ([]changeSignal, []deleteSignal, map[string]struct{}) {
+func regressionScanHistory(brainDir string, ids []string) ([]changeSignal, []deleteSignal, map[string]struct{}, error) {
 	const (
 		maxFiles       = 20000
 		maxLineBytes   = 4 * 1024 * 1024
 		maxSignalsEach = 400
 	)
+	// Resolve excluded transcript paths before reading any history. A broken
+	// manifest or privacy policy must fail closed, not disable exclusion.
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	guard, err := loadSessionReadGuard(brainDir, manifest)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	lowIDs := make([]string, 0, len(ids))
 	for _, id := range ids {
 		lowIDs = append(lowIDs, strings.ToLower(id))
@@ -313,7 +323,10 @@ func regressionScanHistory(brainDir string, ids []string) ([]changeSignal, []del
 		}
 		rel, _ := filepath.Rel(brainDir, path)
 		relSlash := filepath.ToSlash(rel)
-		if relSlash == "manifest.json" || strings.HasPrefix(relSlash, "seed/") {
+		if brainRawScanSkipsDerived(relSlash) {
+			return nil
+		}
+		if _, excluded := guard.paths[relSlash]; excluded {
 			return nil
 		}
 		f, openErr := os.Open(path)
@@ -369,7 +382,7 @@ func regressionScanHistory(brainDir string, ids []string) ([]changeSignal, []del
 		_ = f.Close()
 		return nil
 	})
-	return changes, deletes, files
+	return changes, deletes, files, nil
 }
 
 func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSourceManifest, query string, limit int, includeDeletions bool) ([]regressionAnomaly, int, []string) {
@@ -421,7 +434,10 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 	// Targeted history scan: walk the raw sessions once, keeping only signal-bearing lines (so a
 	// rare invariant isn't lost behind thousands of plain identifier mentions, as a capped
 	// generic scan would). Also collects the code files those sessions name.
-	changes, deletes, namedFiles := regressionScanHistory(brainDir, ids)
+	changes, deletes, namedFiles, scanErr := regressionScanHistory(brainDir, ids)
+	if scanErr != nil {
+		return nil, 0, append(warnings, "history scan unavailable: "+scanErr.Error())
+	}
 	for f := range namedFiles {
 		candidateFiles[f] = struct{}{}
 	}
@@ -1163,6 +1179,10 @@ func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, 
 	if err != nil {
 		return err
 	}
+	privacyPolicy, err := captureRetrievalPrivacyPolicy(status.Brain.Path)
+	if err != nil {
+		return err
+	}
 	var semSource *semanticSourceManifest
 	if status.Manifest != nil && status.Manifest.Sources != nil {
 		semSource = status.Manifest.Sources.Semantic
@@ -1190,29 +1210,32 @@ func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, 
 		Scanned:       scanned,
 		Warnings:      warnings,
 	}
-	if ro.json {
-		return writeJSON(cmd, report)
-	}
-	out := cmd.OutOrStdout()
-	if len(anomalies) == 0 {
-		// Same rule as reviewSummary: zero anomalies out of zero files scanned is
-		// "nothing was checked", not "nothing is wrong".
-		if scanned == 0 {
-			fmt.Fprintf(out, "INCONCLUSIVE for %q: nothing was compared (0 files scanned).\n", query)
-		} else {
-			fmt.Fprintf(out, "No suspected regressions for %q (scanned %d files).\n", query, scanned)
+	render := func() error {
+		if ro.json {
+			return writeJSON(cmd, report)
 		}
-		for _, w := range warnings {
-			fmt.Fprintf(out, "  note: %s\n", w)
+		out := cmd.OutOrStdout()
+		if len(anomalies) == 0 {
+			// Same rule as reviewSummary: zero anomalies out of zero files scanned is
+			// "nothing was checked", not "nothing is wrong".
+			if scanned == 0 {
+				fmt.Fprintf(out, "INCONCLUSIVE for %q: nothing was compared (0 files scanned).\n", query)
+			} else {
+				fmt.Fprintf(out, "No suspected regressions for %q (scanned %d files).\n", query, scanned)
+			}
+			for _, w := range warnings {
+				fmt.Fprintf(out, "  note: %s\n", w)
+			}
+			return nil
+		}
+		fmt.Fprintf(out, "Suspected regressions for %q:\n", query)
+		for _, a := range anomalies {
+			fmt.Fprintf(out, "  [%s, conf %.2f] %s:%d\n    expected: %s\n    current:  %s\n    why: %s\n    evidence: %s\n",
+				a.Kind, a.Confidence, a.File, a.Line, a.Expected, a.Current, a.Reason, a.Evidence)
 		}
 		return nil
 	}
-	fmt.Fprintf(out, "Suspected regressions for %q:\n", query)
-	for _, a := range anomalies {
-		fmt.Fprintf(out, "  [%s, conf %.2f] %s:%d\n    expected: %s\n    current:  %s\n    why: %s\n    evidence: %s\n",
-			a.Kind, a.Confidence, a.File, a.Line, a.Expected, a.Current, a.Reason, a.Evidence)
-	}
-	return nil
+	return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, render)
 }
 
 func newInspectRegressionsCommand(opts Options) *cobra.Command {
@@ -1371,13 +1394,12 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 	if err != nil {
 		return err
 	}
-	var patternPrivacyPolicy retrievalPrivacyPolicy
+	privacyPolicy, err := captureRetrievalPrivacyPolicy(status.Brain.Path)
+	if err != nil {
+		return err
+	}
 	if ro.patterns {
-		patternPrivacyPolicy, err = captureRetrievalPrivacyPolicy(status.Brain.Path)
-		if err != nil {
-			return err
-		}
-		patternPrivacyPolicy.RequireDerivedClean = true
+		privacyPolicy.RequireDerivedClean = true
 		if err := requirePrivacyDerivedRead(status.Brain.Path); err != nil {
 			return err
 		}
@@ -1458,10 +1480,7 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 		}
 		return nil
 	}
-	if ro.patterns {
-		return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{patternPrivacyPolicy}, render)
-	}
-	return render()
+	return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, render)
 }
 
 func newBrainReviewCommand(opts Options) *cobra.Command {

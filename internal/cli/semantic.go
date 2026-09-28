@@ -24,7 +24,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/ashtom/entire-brain/internal/entityindex"
+	"github.com/entireio/entire-brain/internal/entityindex"
 	"github.com/spf13/cobra"
 )
 
@@ -453,8 +453,19 @@ func semanticRecordedArtifactsReadable(brainDir string, source *semanticSourceMa
 	if err != nil {
 		return err
 	}
-	if info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+	if !info.Mode().IsRegular() {
 		return fmt.Errorf("semantic snapshot must be a regular file: %s", source.SnapshotPath)
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return err
+	}
+	header, counts, err := readSemanticSnapshotSummary(filepath.Join(brainDir, snapshot), manifest.RepoKey)
+	if err != nil {
+		return err
+	}
+	if err := validateSemanticSourceMatchesSnapshot(source, header, counts); err != nil {
+		return err
 	}
 	if source.StorePath == "" {
 		return nil
@@ -1801,7 +1812,10 @@ func buildSemanticGeneration(ctx context.Context, brainDir, repoDir, generationI
 	if err := os.MkdirAll(generationsRoot, 0o700); err != nil {
 		return "", semanticBuildMetrics{}, fmt.Errorf("create semantic generations dir: %w", err)
 	}
-	finalID := semanticAvailableGenerationID(generationsRoot, generationID, contentSuffix)
+	finalID, err := semanticAvailableGenerationID(generationsRoot, generationID, contentSuffix)
+	if err != nil {
+		return "", semanticBuildMetrics{}, err
+	}
 	tmpDir, err := os.MkdirTemp(generationsRoot, ".tmp-"+finalID+"-*")
 	if err != nil {
 		return "", semanticBuildMetrics{}, err
@@ -1860,19 +1874,20 @@ func buildSemanticGeneration(ctx context.Context, brainDir, repoDir, generationI
 	return filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir, finalID)), metrics, nil
 }
 
-func semanticAvailableGenerationID(root, base, suffix string) string {
-	candidate := base
-	if _, err := os.Lstat(filepath.Join(root, candidate)); os.IsNotExist(err) {
-		return candidate
-	}
-	candidate = base + "-" + suffix
-	if _, err := os.Lstat(filepath.Join(root, candidate)); os.IsNotExist(err) {
-		return candidate
-	}
-	for i := 1; ; i++ {
-		candidate = fmt.Sprintf("%s-%s-%d", base, suffix, i)
-		if _, err := os.Lstat(filepath.Join(root, candidate)); os.IsNotExist(err) {
-			return candidate
+func semanticAvailableGenerationID(root, base, suffix string) (string, error) {
+	for i := 0; ; i++ {
+		candidate := base
+		if i == 1 {
+			candidate = base + "-" + suffix
+		} else if i > 1 {
+			candidate = fmt.Sprintf("%s-%s-%d", base, suffix, i-1)
+		}
+		_, err := os.Lstat(filepath.Join(root, candidate))
+		if os.IsNotExist(err) {
+			return candidate, nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("inspect semantic generation candidate: %w", err)
 		}
 	}
 }
@@ -6871,7 +6886,10 @@ func replaceImportedSemanticGeneration(brainDir, bundleRoot string, source *sema
 	target := filepath.Join(brainDir, targetGenerationPath)
 	if _, err := os.Lstat(target); err == nil {
 		root := filepath.Join(brainDir, semanticDirName, semanticGenerationsDir)
-		targetID := semanticAvailableGenerationID(root, pathpkg.Base(filepath.ToSlash(generationPath))+"-import", semanticGenerationContentSuffix([]byte(source.SnapshotPath+"\x00"+source.StorePath)))
+		targetID, err := semanticAvailableGenerationID(root, pathpkg.Base(filepath.ToSlash(generationPath))+"-import", semanticGenerationContentSuffix([]byte(source.SnapshotPath+"\x00"+source.StorePath)))
+		if err != nil {
+			return err
+		}
 		targetGenerationPath = filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir, targetID))
 		target = filepath.Join(brainDir, targetGenerationPath)
 	} else if !os.IsNotExist(err) {

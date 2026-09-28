@@ -34,6 +34,7 @@ esac
 shortrunner() { echo "$1" | sed -e 's/codex:gpt-5.4-mini:/codex-mini-/; s/codex:gpt-5.5:/codex-55-/; s/claude:/claude-/; s/:/-/g'; }
 shorttask()   { case "$1" in *transcript*) echo tr ;; *review*) echo rv ;; esac; }
 
+failed=0
 for runner in "${RUNNERS[@]}"; do
   for task in "${TASKS[@]}"; do
     sn="cliproof-$(shorttask "$task")-$(shortrunner "$runner")"
@@ -58,6 +59,12 @@ for runner in "${RUNNERS[@]}"; do
       --pricing-file pricing.json \
       --suite-name "$sn" \
       >> "/tmp/cliproof-${AGENT}.log" 2>&1
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+      echo "FAILED $sn rc=$rc" >&2
+      failed=1
+    fi
   done
 done
+[ "$failed" -eq 0 ] || exit 1
 echo "[$(date '+%H:%M:%S')] MATRIX PASS COMPLETE for $AGENT"

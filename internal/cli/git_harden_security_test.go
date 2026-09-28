@@ -388,13 +388,19 @@ func TestCleanFilterWithAnEqualsInItsDriverNameIsNeutralized(t *testing.T) {
 func TestGlobalFilterDriversAreLeftAlone(t *testing.T) {
 	gitHardenSkipUnsupported(t)
 	repo := gitHardenRepo(t)
-	overrides := repoFilterDriverOverrides(context.Background(), repo)
+	overrides, err := repoFilterDriverOverrides(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(overrides) != 0 {
 		t.Fatalf("a repository with no local filter driver produced overrides: %v", overrides)
 	}
 
 	gitHardenRun(t, repo, "config", "--local", "filter.local-one.clean", "cat")
-	overrides = repoFilterDriverOverrides(context.Background(), repo)
+	overrides, err = repoFilterDriverOverrides(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var keys []string
 	for _, o := range overrides {
 		keys = append(keys, o.Key)
@@ -554,29 +560,40 @@ func gitHardenBrainEnv(t *testing.T, repo string) EntireEnv {
 }
 
 // gitHardenAssertCommandsRunNoHook drives every command the vector was measured
-// on and asserts the repository never got to run code. A command that fails is
-// still evidence -- the hook must not run either way -- so its error is
-// reported alongside a violation rather than ending the test early.
+// on and asserts both that the command reaches its normal completion and that
+// the repository never got to run code. Accepting an arbitrary early error
+// would let this command-level regression pass without exercising Git.
 func gitHardenAssertCommandsRunNoHook(t *testing.T, repo, log, vector string) {
 	t.Helper()
 	env := gitHardenBrainEnv(t, repo)
-	for _, argv := range [][]string{
-		{"refresh", "--worktree", "--agent", "none"},
-		{"refresh", "--agent", "none"},
-		{"status"},
-		{"status", "--verbose"},
-		{"overview"},
+	for _, tc := range []struct {
+		argv    []string
+		wantErr string
+	}{
+		{argv: []string{"refresh", "--worktree", "--agent", "none"}},
+		{argv: []string{"refresh", "--agent", "none"}, wantErr: "dirty_worktree"},
+		{argv: []string{"status"}},
+		{argv: []string{"status", "--verbose"}},
+		{argv: []string{"overview"}},
 	} {
 		gitHardenArmHook(t, repo, log)
 		cmd := NewRootCommand(Options{Version: "test-version", Env: env})
 		var out bytes.Buffer
 		cmd.SetOut(&out)
 		cmd.SetErr(&out)
-		cmd.SetArgs(argv)
+		cmd.SetArgs(tc.argv)
 		err := cmd.Execute()
+		if tc.wantErr == "" && err != nil {
+			t.Fatalf("`entire-brain %s` failed before proving the hook boundary: %v\n%s",
+				strings.Join(tc.argv, " "), err, out.String())
+		}
+		if tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
+			t.Fatalf("`entire-brain %s` error = %v, want %q\n%s",
+				strings.Join(tc.argv, " "), err, tc.wantErr, out.String())
+		}
 		if n := gitHardenHookExecutions(t, log); n != 0 {
 			t.Fatalf("SECURITY: `entire-brain %s` ran a repo-local %s hook %d time(s) via %s (command err: %v)\n%s",
-				strings.Join(argv, " "), gitHardenHookName, n, vector, err, out.String())
+				strings.Join(tc.argv, " "), gitHardenHookName, n, vector, err, out.String())
 		}
 	}
 }

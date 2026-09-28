@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/httpx"
+	"github.com/entireio/entire-brain/internal/httpx"
 )
 
 // TestPublishClientIsFullyBounded verifies that uploads share an isolated

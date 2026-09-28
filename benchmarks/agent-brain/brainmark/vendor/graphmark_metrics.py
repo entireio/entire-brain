@@ -1,11 +1,11 @@
 # =============================================================================
-# VENDORED COPY -- DO NOT EDIT IN PLACE.
+# VENDORED COPY with a local undefined-value handling repair.
 #
 #   Source repo   : <local graphmark checkout>  (graphmark)
 #   Source path   : agentic-swebench/tools/metrics.py
 #   Source commit : 641c009cbe10ccac72059de0c92e339943274b67
 #   Commit date   : 2026-07-27T09:11:02-04:00
-#   SHA256 of the vendored source bytes (everything below this header):
+#   SHA256 of the ORIGINAL upstream source bytes (before local repairs):
 #                   d84be013f6c87d27e9a795402d0842e4b5add2246a90ea40eca9177cf80cb563
 #   Vendored for  : BrainMark, benchmarks/agent-brain/brainmark/vendor/
 #
@@ -18,8 +18,9 @@
 # NOTE (memory: "estimator flips the sign"): pooled vs equal-weighted choice is
 # an ANALYSIS decision, pre-registered in PREREGISTRATION.md, not a free knob.
 #
-# To update: re-copy from the source path, refresh commit/sha above in the SAME
-# commit, and state in the commit message why the estimator changed.
+# Local repair: loo_range excludes undefined deletions from numeric bounds,
+# reports their count, and refuses to claim sign stability when any are undefined.
+# The upstream identity above is retained; existing seals must be revalidated.
 # =============================================================================
 
 #!/usr/bin/env python3
@@ -313,22 +314,26 @@ def bootstrap_ci(fn, n: int, draws: int, seed: int) -> dict:
 
 
 def loo_range(values: list, agg) -> dict:
-    """Range of agg() when any single element is dropped."""
+    """Range over defined deletions; undefined deletions cannot prove stability."""
     n = len(values)
     full = agg(values)
     if n < 2:
-        return {"full": full, "min": full, "max": full, "sign_holds": True, "n": n,
-                "worst_id": None}
-    outs = []
-    for i in range(n):
-        outs.append((agg(values[:i] + values[i + 1:]), i))
-    lo, ilo = min(outs)
-    hi, ihi = max(outs)
-    sign_holds = full is not None and all(
-        (v is not None and (v > 0) == (full > 0)) or v == full == 0 for v, _ in outs)
+        return {"full": full, "min": full, "max": full, "sign_holds": full is not None, "n": n,
+                "worst_idx": None, "valid": 0, "undefined": 0}
+    outs = [(agg(values[:i] + values[i + 1:]), i) for i in range(n)]
+    valid = [(value, i) for value, i in outs
+             if value is not None and math.isfinite(value)]
+    undefined = n - len(valid)
+    if not valid:
+        return {"full": full, "min": None, "max": None, "sign_holds": False, "n": n,
+                "worst_idx": None, "valid": 0, "undefined": undefined}
+    lo, ilo = min(valid)
+    hi, ihi = max(valid)
+    sign_holds = full is not None and not undefined and all(
+        (v > 0) == (full > 0) or v == full == 0 for v, _ in valid)
     worst = ilo if abs(lo - (full or 0)) > abs(hi - (full or 0)) else ihi
     return {"full": full, "min": lo, "max": hi, "sign_holds": bool(sign_holds), "n": n,
-            "worst_idx": worst}
+            "worst_idx": worst, "valid": len(valid), "undefined": undefined}
 
 
 def mcnemar_exact(res_a: dict, res_b: dict, ids: list) -> dict:

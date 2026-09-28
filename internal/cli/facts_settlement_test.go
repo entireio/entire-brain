@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/factmerge"
-	"github.com/ashtom/entire-brain/internal/factsync"
+	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factsync"
 )
 
 // hostedHead re-serializes a fact set as the hosted head blob, so a test can
@@ -254,8 +254,8 @@ func TestFactsReviewBulkSkipsSharedButSettlesPrivate(t *testing.T) {
 		t.Fatal(loadErr)
 	}
 	// Private settled...
-	if ti := indexOfFact(facts, privTarget.ID); ti >= 0 && facts[ti].Status != factStatusSuperseded {
-		t.Fatalf("private proposal was not settled locally: %+v", facts[ti])
+	if ti := indexOfFact(facts, privTarget.ID); ti < 0 || facts[ti].Status != factStatusSuperseded {
+		t.Fatalf("private proposal was not settled locally: %+v", facts)
 	}
 	// ...shared untouched.
 	if ti := indexOfFact(facts, target.ID); ti < 0 || facts[ti].Status != factStatusActive {
@@ -364,6 +364,9 @@ func TestFactsProposalsApplyMirrorsIntoLocalFactsImmediately(t *testing.T) {
 		Branch: "main", Origin: factOriginDistilled, Status: factStatusActive, CreatedAt: f.now, UpdatedAt: f.now,
 	}
 	f.writeFacts(t, "main", []factRecord{target, candidate})
+	if _, err := execute(t, NewRootCommand(f.opts), "facts", "sync", "--facts-backend", "http"); err != nil {
+		t.Fatalf("establish hosted binding: %v", err)
+	}
 
 	out, err := execute(t, NewRootCommand(f.opts), "facts", "proposals", "apply", open.ID,
 		"--repo-id", "repo-01HZZ", "--branch", "main")

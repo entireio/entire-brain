@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// ---------- Priority 3: only one skill-creation path ----------
+// Skill creation path.
 
 func TestPatternsCommandHasNoFormSubcommand(t *testing.T) {
 	cmd := newPatternsCommand(Options{})
@@ -47,7 +47,7 @@ func TestPatternsCommandHasNoFormSubcommand(t *testing.T) {
 	}
 }
 
-// ---------- Priority 4: redaction ----------
+// Redaction.
 
 func TestRedactText(t *testing.T) {
 	cases := []struct{ in, mustNotContain, mustContain string }{
@@ -115,7 +115,7 @@ func TestSynthesisEvidenceRedactsSecrets(t *testing.T) {
 	}
 }
 
-// ---------- Priority 6 + 7: preview/write contract via stubbed agent ----------
+// Preview/write contract via a stubbed agent.
 
 const stubSkillText = "---\nname: ship-it\ndescription: Use when shipping.\n---\n# Ship it\nstep"
 
@@ -157,7 +157,11 @@ func TestFormPreviewWritesNothing(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(repo, ".agents", "skills", "ship-it", "SKILL.md")); !os.IsNotExist(err) {
 		t.Error("preview must not write skill files")
 	}
-	if recs, _ := loadBrainSkillMemory(store); len(recs) != 0 {
+	recs, err := loadBrainSkillMemory(store)
+	if err != nil {
+		t.Fatalf("preview memory load: %v", err)
+	}
+	if len(recs) != 0 {
 		t.Error("preview must not record skill memory")
 	}
 }
@@ -208,14 +212,32 @@ func TestFormRejectsNotASkill(t *testing.T) {
 	repo := t.TempDir()
 	cmd, out := formCmd()
 	s := skillFormOptions{target: "standard", scope: "repo", yes: true}
+	before, err := os.ReadDir(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 0 {
+		t.Fatalf("fixture repository unexpectedly non-empty: %v", before)
+	}
 	if err := synthesizeAndForm(context.Background(), cmd, sampleCand(), nil, nil, store, repo, "codex", stubRunner("NOT_A_SKILL: generic git usage"), s, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "not a skill") {
 		t.Errorf("expected not-a-skill message, got: %s", out.String())
 	}
-	if recs, _ := loadBrainSkillMemory(store); len(recs) != 0 {
+	recs, err := loadBrainSkillMemory(store)
+	if err != nil {
+		t.Fatalf("NOT_A_SKILL memory load: %v", err)
+	}
+	if len(recs) != 0 {
 		t.Error("NOT_A_SKILL must not record skill memory or write files")
+	}
+	after, err := os.ReadDir(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != 0 {
+		t.Fatalf("NOT_A_SKILL must not write repository files: after=%v", after)
 	}
 }
 
@@ -232,7 +254,7 @@ func TestFormPreviewRedactsEvidence(t *testing.T) {
 	}
 }
 
-// ---------- Priority 8: compact candidate eval ----------
+// Compact candidate evaluation.
 
 func evalEp(id, sig, intent string, cmds ...string) episodeRecord {
 	return episodeRecord{ID: id, RepoKey: "gh/acme/cli", IntentSignature: sig, Intent: intent,

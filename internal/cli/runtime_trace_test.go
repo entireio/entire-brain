@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -19,14 +20,16 @@ func writeTraceFile(t *testing.T, content string) string {
 func TestReadRuntimeTracesArrayAndNDJSON(t *testing.T) {
 	arr := writeTraceFile(t, `[{"from":"A","to":"B","type":"CALLS"},{"from":"B","to":"C"}]`)
 	traces, err := readRuntimeTraces(arr)
-	if err != nil || len(traces) != 2 {
-		t.Fatalf("array: len=%d err=%v", len(traces), err)
+	want := []semanticRuntimeTrace{{From: "A", To: "B", Type: "CALLS"}, {From: "B", To: "C"}}
+	if err != nil || !slices.Equal(traces, want) {
+		t.Fatalf("array: traces=%+v err=%v, want %+v", traces, err, want)
 	}
 
 	nd := writeTraceFile(t, `{"from":"A","to":"B"}`+"\n"+`{"from":"C","to":"D"}`+"\n")
 	traces, err = readRuntimeTraces(nd)
-	if err != nil || len(traces) != 2 {
-		t.Fatalf("ndjson: len=%d err=%v", len(traces), err)
+	want = []semanticRuntimeTrace{{From: "A", To: "B"}, {From: "C", To: "D"}}
+	if err != nil || !slices.Equal(traces, want) {
+		t.Fatalf("ndjson: traces=%+v err=%v, want %+v", traces, err, want)
 	}
 }
 

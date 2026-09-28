@@ -359,6 +359,7 @@ func (v *verifyContext) verifyAnchor(anchor factAnchor, factBranch string) verif
 		transcriptRel = session.TranscriptPath
 	}
 	transcriptContent := ""
+	transcriptRead := false
 	if transcriptRel == "" {
 		result.addCheck(verifyCheck{Name: "transcript", Verdict: verifyVerdictOrphaned, Reason: "anchor has no transcript path"})
 	} else {
@@ -370,10 +371,11 @@ func (v *verifyContext) verifyAnchor(anchor factAnchor, factBranch string) verif
 			result.addCheck(verifyCheck{Name: "transcript", Verdict: verifyVerdictOrphaned, Reason: err.Error()})
 		} else {
 			transcriptContent = string(data)
+			transcriptRead = true
 			result.addCheck(verifyCheck{Name: "transcript", Verdict: verifyVerdictVerified, Reason: transcriptRel})
 		}
 	}
-	if anchor.Line > 0 && transcriptContent != "" {
+	if anchor.Line > 0 && transcriptRead {
 		line, ok := transcriptLine(transcriptContent, anchor.Line)
 		if !ok {
 			result.addCheck(verifyCheck{Name: "line", Verdict: verifyVerdictOrphaned, Reason: fmt.Sprintf("line %d is outside transcript", anchor.Line)})
@@ -382,7 +384,7 @@ func (v *verifyContext) verifyAnchor(anchor factAnchor, factBranch string) verif
 			result.addCheck(verifyCheck{Name: "line", Verdict: verifyVerdictVerified, Reason: fmt.Sprintf("line %d resolved", anchor.Line)})
 		}
 	}
-	if strings.TrimSpace(anchor.CheckpointID) != "" && transcriptContent != "" {
+	if strings.TrimSpace(anchor.CheckpointID) != "" && transcriptRead {
 		result.addCheck(v.verifyCheckpointTranscript(anchor, session, transcriptContent))
 	}
 	result.Reason = reasonForAnchorVerdict(result.Verdict)
@@ -740,7 +742,7 @@ func checkpointUnreadableInSnapshot(snapshot *checkpointSnapshot, checkpointID s
 }
 
 func transcriptLine(content string, line int) (string, bool) {
-	if line <= 0 {
+	if line <= 0 || content == "" {
 		return "", false
 	}
 	lines := strings.Split(content, "\n")

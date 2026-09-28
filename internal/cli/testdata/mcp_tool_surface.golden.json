@@ -63,7 +63,7 @@
           "type": "string"
         },
         "limit": {
-          "description": "Maximum records per section (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum records per section (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -160,16 +160,32 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum results (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum results (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
           "type": "integer"
         },
+        "no_global": {
+          "description": "Exclude global facts from this request",
+          "title": "no_global",
+          "type": "boolean"
+        },
         "query": {
           "description": "Natural-language or keyword query",
           "maxLength": 8192,
           "title": "query",
+          "type": "string"
+        },
+        "recency": {
+          "description": "Prefer recent dated results; default false, not supported for source conversation",
+          "title": "recency",
+          "type": "boolean"
+        },
+        "recency_half_life": {
+          "description": "Positive Go duration, e.g. 720h; default 2160h (90 days); requires recency=true",
+          "maxLength": 8192,
+          "title": "recency_half_life",
           "type": "string"
         },
         "semantic": {
@@ -267,16 +283,32 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum results (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum results (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
           "type": "integer"
         },
+        "no_global": {
+          "description": "Exclude global facts from this request",
+          "title": "no_global",
+          "type": "boolean"
+        },
         "query": {
           "description": "Natural-language or keyword query",
           "maxLength": 8192,
           "title": "query",
+          "type": "string"
+        },
+        "recency": {
+          "description": "Prefer recent dated results; default false, not supported for source conversation",
+          "title": "recency",
+          "type": "boolean"
+        },
+        "recency_half_life": {
+          "description": "Positive Go duration, e.g. 720h; default 2160h (90 days); requires recency=true",
+          "maxLength": 8192,
+          "title": "recency_half_life",
           "type": "string"
         },
         "session_id": {
@@ -369,16 +401,32 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum results (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum results (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
           "type": "integer"
         },
+        "no_global": {
+          "description": "Exclude global facts from this request",
+          "title": "no_global",
+          "type": "boolean"
+        },
         "query": {
           "description": "Natural-language or keyword query",
           "maxLength": 8192,
           "title": "query",
+          "type": "string"
+        },
+        "recency": {
+          "description": "Prefer recent dated results; default false, not supported for source conversation",
+          "title": "recency",
+          "type": "boolean"
+        },
+        "recency_half_life": {
+          "description": "Positive Go duration, e.g. 720h; default 2160h (90 days); requires recency=true",
+          "maxLength": 8192,
+          "title": "recency_half_life",
           "type": "string"
         },
         "session_id": {
@@ -502,7 +550,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum symbols (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum symbols (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -528,7 +576,7 @@
       "additionalProperties": false,
       "properties": {
         "depth": {
-          "description": "Relation depth (over-budget results drop tail rows and set response_truncated)",
+          "description": "Relation depth (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "depth",
@@ -540,7 +588,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum symbols (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum symbols (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -566,7 +614,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "description": "Maximum symbols (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum symbols (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -588,7 +636,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum results (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum results (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -689,6 +737,56 @@
     "name": "brain_delete_project"
   },
   {
+    "description": "Record a durable fact about this repository so it survives the session. The only tool here that writes memory rather than derived state; read the result back with brain_query source=fact, or brain_get by id. path is a taxonomy path shaped category.subcategory.type, e.g. constraints.retry.policy; a path outside this repository's taxonomy is refused with the valid categories named (by default architecture, constraints, preferences, project, workflow). Facts are stored per branch and anchored to the current commit.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "description": "Branch for facts (default: current)",
+          "maxLength": 8192,
+          "title": "branch",
+          "type": "string"
+        },
+        "fact": {
+          "description": "The durable fact, as one self-contained sentence",
+          "maxLength": 8192,
+          "title": "fact",
+          "type": "string"
+        },
+        "global": {
+          "description": "Record outside every repository so the fact applies everywhere (a preference, a team convention, an environment detail). Cannot be combined with branch.",
+          "title": "global",
+          "type": "boolean"
+        },
+        "kind": {
+          "description": "Fact kind; inferred when omitted",
+          "enum": [
+            "decision",
+            "invariant",
+            "gotcha",
+            "preference",
+            "convention"
+          ],
+          "maxLength": 8192,
+          "title": "kind",
+          "type": "string"
+        },
+        "path": {
+          "description": "Taxonomy path: category.subcategory.type, comma-separated for several",
+          "maxLength": 8192,
+          "title": "path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fact",
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "brain_remember"
+  },
+  {
     "description": "Alias for brain_code; search indexed source symbols with compact records by default. Set details=true for full provider records.",
     "inputSchema": {
       "additionalProperties": false,
@@ -699,7 +797,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum results (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum results (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -725,7 +823,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "description": "Maximum results (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum results (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -758,7 +856,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "description": "Maximum relations (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum relations (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -819,7 +917,7 @@
       "additionalProperties": false,
       "properties": {
         "depth": {
-          "description": "Maximum relation depth (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum relation depth (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "depth",
@@ -852,7 +950,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "description": "Maximum symbols (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum symbols (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -869,7 +967,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "description": "Maximum symbols (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum symbols (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -919,7 +1017,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum test suggestions (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum test suggestions (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -959,7 +1057,7 @@
           "type": "string"
         },
         "limit": {
-          "description": "Maximum boundary symbols (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum boundary symbols (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -981,7 +1079,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum suspected regressions (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum suspected regressions (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -1017,7 +1115,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum findings (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum findings (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -1053,7 +1151,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum suspected regressions per repo (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum suspected regressions per repo (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -1091,7 +1189,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "description": "Maximum contracts/cross_edges (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum contracts/cross_edges (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -1122,7 +1220,7 @@
           "type": "boolean"
         },
         "limit": {
-          "description": "Maximum findings per repo (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum findings per repo (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -1160,7 +1258,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "description": "Maximum patterns to return (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum patterns to return (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",
@@ -1206,7 +1304,7 @@
           "type": "string"
         },
         "limit": {
-          "description": "Maximum matching entities (over-budget results drop tail rows and set response_truncated)",
+          "description": "Maximum matching entities (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",

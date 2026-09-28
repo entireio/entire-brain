@@ -129,9 +129,7 @@ func TestIsNumericTokenRejectsNonFinite(t *testing.T) {
 	}
 }
 
-// A "new" line whose trailing token is NaN must keep the default confidence of
-// 1.0 (NaN is not treated as a numeric confidence) rather than letting a NaN
-// reach the action.
+// A merge with NaN confidence must fall back to zero so it is queued for review.
 func TestParseReconcileActionsRejectsNaNConfidence(t *testing.T) {
 	now := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
 	candidates := []factRecord{factFor(t, "c1", []string{"project.tooling.stack"}, now)}

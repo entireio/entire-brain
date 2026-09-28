@@ -15,7 +15,7 @@ func seedAcceptedDeepDossier(t *testing.T, db *sql.DB, patternID string, rec dee
 	t.Helper()
 	rec.PatternID = patternID
 	blob, _ := json.Marshal(rec)
-	verdict := dossierVerdict{Verdict: "accepted", Reason: "coherent repo-specific task", RequiredEdits: requiredEdits}
+	verdict := dossierVerdict{Verdict: "accepted", Reason: "coherent repo-specific task", RequiredEdits: requiredEdits, EvidenceFingerprint: rec.Fingerprint}
 	vblob, _ := json.Marshal(verdict)
 	if _, err := db.Exec(`INSERT INTO deep_dossiers (pattern_id, fingerprint, json_redacted, verifier_json_redacted, verdict, status, created_at, updated_at)
 		VALUES (?,?,?,?, 'accepted','current','t','t')`, patternID, rec.Fingerprint, string(blob), string(vblob)); err != nil {
@@ -62,14 +62,16 @@ func TestDeepSkillEvidenceFromDossier(t *testing.T) {
 
 // SR1: a promotable task with no accepted deep dossier cannot be formed from
 // shallow evidence — the form must require deep verification first.
-func TestFormRequiresAcceptedDeepDossier(t *testing.T) {
+func TestAcceptedDeepDossierLoadsAndDrivesSynthesis(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
 	db, err := openPatternCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var pid string
-	db.QueryRow(`SELECT id FROM patterns WHERE type='task' AND intent_sig='deploy:release'`).Scan(&pid)
+	if err := db.QueryRow(`SELECT id FROM patterns WHERE type='task' AND intent_sig='deploy:release'`).Scan(&pid); err != nil {
+		t.Fatal(err)
+	}
 	db.Close()
 
 	// No accepted deep dossier → form refuses (and never calls the agent).
@@ -79,8 +81,15 @@ func TestFormRequiresAcceptedDeepDossier(t *testing.T) {
 
 	// With an accepted deep dossier, the dossier-driven synthesis runs and the
 	// agent receives the dossier (not shallow snippets).
-	db2, _ := openPatternCorpusMutableDB(brainDir)
-	seedAcceptedDeepDossier(t, db2, pid, deployDeepDossier(), nil)
+	db2, err := openPatternCorpusMutableDB(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := buildDeepDossier(db2, brainDir, pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedAcceptedDeepDossier(t, db2, pid, current, nil)
 	db2.Close()
 	in, ok := loadAcceptedDeepDossier(brainDir, pid)
 	if !ok {
@@ -98,27 +107,31 @@ func TestFormRequiresAcceptedDeepDossier(t *testing.T) {
 	if !res.IsSkill {
 		t.Errorf("expected a skill from the accepted dossier, got NOT_A_SKILL: %s", res.Reason)
 	}
-	if !strings.Contains(gotInput, "VERIFIED SKILL DOSSIER") || !strings.Contains(gotInput, "ZEBRA_GOTCHA") {
+	if !strings.Contains(gotInput, "VERIFIED SKILL DOSSIER") || !strings.Contains(gotInput, "mise deploy") {
 		t.Errorf("synthesis input was not the verified dossier:\n%s", gotInput)
 	}
 }
 
 // SR3 golden: a generic git dossier yields NOT_A_SKILL (the writer still refuses
 // non-skill-worthy material even though it was nominally accepted).
-func TestDeepSkillSynthesisRejectsGeneric(t *testing.T) {
-	in := deepSkillInput{rec: deepDossierRecord{
-		Title:    "commit:push — git push ▷ git status",
-		Trigger:  "recurring intent: commit:push",
-		Workflow: []string{"git push", "git status"},
-	}, verdict: dossierVerdict{Verdict: "accepted"}}
-	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
-		return "NOT_A_SKILL: generic git push/status, nothing repo-specific", nil
-	}
-	res, err := synthesizeSkillFromDossier(context.Background(), t.TempDir(), in, "codex", "", "", run)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.IsSkill {
-		t.Error("a generic git dossier must yield NOT_A_SKILL")
+func TestDeepSkillSynthesisPreservesProviderNotASkill(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		workflow         []string
+		response, reason string
+	}{
+		{"push-status", []string{"git push", "git status"}, "NOT_A_SKILL: generic git push/status, nothing repo-specific", "generic git push/status"},
+		{"add-push", []string{"git add", "git push"}, "NOT_A_SKILL: generic git add/push, nothing repo-specific", "generic git add/push"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := deepSkillInput{rec: deepDossierRecord{Title: "commit:push", Trigger: "recurring intent: commit:push", Workflow: tc.workflow}, verdict: dossierVerdict{Verdict: "accepted"}}
+			res, err := synthesizeSkillFromDossier(context.Background(), t.TempDir(), in, "codex", "", "", stubRunner(tc.response))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.IsSkill || !strings.Contains(res.Reason, tc.reason) {
+				t.Fatalf("provider refusal = %+v, want reason containing %q", res, tc.reason)
+			}
+		})
 	}
 }

@@ -19,6 +19,7 @@ import os
 import pathlib
 import platform
 import secrets
+import signal
 import shutil
 import socket
 import struct
@@ -741,6 +742,43 @@ def null_server_artifacts() -> dict[str, None]:
     return {f"{stem}_{suffix}": None for stem in stems for suffix in ("path", "sha256")}
 
 
+RECALL_TIMEOUT_SECONDS = 300.0
+
+
+def _run_recall(command, settings, environment, run_command, cancelled):
+    """Bound recall lifetime and reap the owned process on observer failure."""
+    require(math.isfinite(RECALL_TIMEOUT_SECONDS) and RECALL_TIMEOUT_SECONDS > 0,
+            "recall timeout must be finite and positive")
+    if run_command is not subprocess.run:
+        # Injected test runners follow subprocess.run's timeout contract.
+        return run_command(command, cwd=settings.repo_root, env=environment,
+                           capture_output=True, check=False, timeout=RECALL_TIMEOUT_SECONDS)
+    process = subprocess.Popen(command, cwd=settings.repo_root, env=environment,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               start_new_session=(os.name == "posix"))
+    deadline = time.monotonic() + RECALL_TIMEOUT_SECONDS
+    try:
+        while True:
+            require(not cancelled.is_set(), "recall cancelled after observer failure")
+            remaining = deadline - time.monotonic()
+            require(remaining > 0, f"recall timed out after {RECALL_TIMEOUT_SECONDS} seconds")
+            try:
+                stdout, stderr = process.communicate(timeout=min(0.1, remaining))
+                return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+            except subprocess.TimeoutExpired:
+                continue
+    finally:
+        if os.name == "posix":
+            # Descendants may still own the pipes after the direct child exits.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        elif process.poll() is None:
+            process.kill()
+        process.communicate()
+
+
 def run_arm(
     settings: Settings,
     matrix_arm: dict[str, Any],
@@ -760,8 +798,9 @@ def run_arm(
     stderr_path = run_dir / "recall.stderr.txt"
     command = recall_command(settings, bundle, arm)
     environment = safe_runtime_environment(settings, prepared, arm, pins)
+    cancelled = threading.Event()
     if during_observer is None:
-        completed = run_command(command, cwd=settings.repo_root, env=environment, capture_output=True, check=False)
+        completed = _run_recall(command, settings, environment, run_command, cancelled)
     else:
         require(recall_window_observer is not None, "recall-window observer is required with live server observation")
         result: list[subprocess.CompletedProcess[bytes]] = []
@@ -775,7 +814,7 @@ def run_arm(
             recall_started.set()
             try:
                 result.append(
-                    run_command(command, cwd=settings.repo_root, env=environment, capture_output=True, check=False)
+                    _run_recall(command, settings, environment, run_command, cancelled)
                 )
             except BaseException as exc:  # propagate the runner's original failure after joining
                 failure.append(exc)
@@ -794,6 +833,9 @@ def run_arm(
             if not completed_before_observation:
                 during_observer("during_recall")
             completed_before_observation_returned = recall_finished.is_set()
+        except BaseException:
+            cancelled.set()
+            raise
         finally:
             worker.join()
         if failure:

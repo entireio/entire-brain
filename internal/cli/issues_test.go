@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/issues"
+	"github.com/entireio/entire-brain/internal/issues"
 	"github.com/spf13/cobra"
 )
 
@@ -205,7 +205,9 @@ func TestIssueCLIStdinAndMCPParity(t *testing.T) {
 }
 
 func TestIssueContentExcludedFromBundleAndPublish(t *testing.T) {
-	_, opts, cmd, repo, dir := bundleTestIndexedBrain(t)
+	f := newBrainBriefProfileFixture(t)
+	opts, repo, dir := f.opts, f.repoDir, f.brainDir
+	cmd := NewRootCommand(opts)
 	seedIssueTest(t, dir)
 	output := filepath.Join(t.TempDir(), "brain.tar")
 	if err := runSemanticBundleExport(cmd.Context(), cmd, opts, output, false); err != nil {

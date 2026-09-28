@@ -314,16 +314,7 @@ func TestIndexToolDescriptionDisclosesItsTimeout(t *testing.T) {
 	}
 }
 
-// The server's own instructions are the contract an agent reads before its
-// first call, and two of their claims were stronger than the implementation.
-//
-//   - "{path, returned, total}" invited reading `total` as how many rows exist.
-//     It is len(rows the tool produced), which the caller's own limit already
-//     capped: a repository with 154 routes queried at limit=100 reported
-//     {returned: 57, total: 100}, so "43 dropped" was 97 dropped.
-//   - "a wider list is not cut to a narrower one's width" is exactly what
-//     mcpTrimSharedWidth -- the documented fallback for a document too wide to
-//     share fairly -- does. Lists of 154/76/264 rows all came back at 57.
+// Instructions must disclose allocation fallback and distinguish page totals from corpus counts.
 func TestServerInstructionsDoNotOverstateTheBudget(t *testing.T) {
 	t.Parallel()
 
@@ -333,7 +324,7 @@ func TestServerInstructionsDoNotOverstateTheBudget(t *testing.T) {
 	if !strings.Contains(mcpServerInstructions, "shared width") {
 		t.Error("the instructions do not mention the shared-width fallback at all")
 	}
-	if !strings.Contains(mcpServerInstructions, "not the number that exist") {
+	if !strings.Contains(mcpServerInstructions, "it is not the corpus count") {
 		t.Error("the instructions do not say that `total` is capped by the caller's own limit")
 	}
 }

@@ -502,8 +502,9 @@ func TestVitalityCompactionIsIdempotentAndCrashSafe(t *testing.T) {
 	branch := "main"
 	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
 	events := []vitalityEvent{
-		{Type: vitalityEventServed, FactID: "fact:a", At: now, Surface: "recall", Branch: branch},
+		// Timestamps are intentionally out of order to verify both range endpoints.
 		{Type: vitalityEventServed, FactID: "fact:a", At: now.Add(time.Minute), Surface: "query", Branch: branch},
+		{Type: vitalityEventServed, FactID: "fact:a", At: now, Surface: "recall", Branch: branch},
 		{Type: vitalityEventServed, FactID: "fact:b", At: now, Surface: "brief", Branch: branch},
 	}
 	if err := appendVitalityEvents(brainDir, branch, events); err != nil {
@@ -547,6 +548,9 @@ func TestVitalityCompactionIsIdempotentAndCrashSafe(t *testing.T) {
 	}
 	if afterFirst.Facts["fact:a"].LastSurface != "query" {
 		t.Fatalf("last surface = %q", afterFirst.Facts["fact:a"].LastSurface)
+	}
+	if got := afterFirst.Facts["fact:a"]; !got.FirstServed.Equal(now) || !got.LastServed.Equal(now.Add(time.Minute)) {
+		t.Fatalf("fact:a service range = %s..%s", got.FirstServed, got.LastServed)
 	}
 
 	// Crash safety: reconstruct the state after phase 1 of compaction (rollup

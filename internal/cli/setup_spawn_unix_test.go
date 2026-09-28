@@ -3,18 +3,14 @@
 package cli
 
 import (
+	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
 	"syscall"
 	"testing"
 )
 
-// TestSpawnDetachedPutsTheChildInItsOwnSession covers the property spawn's own
-// doc comment calls "the whole point", and which nothing tested: deleting
-// `cmd.SysProcAttr = detachedSysProcAttr()` left all 41 setup tests passing
-// while making every background backfill die with the shell that started it —
-// the exact failure the detached design exists to prevent, and one that is
-// invisible in `status` because the pid is recorded before the shell exits.
+// Detached backfills must lead a new session and process group.
 func TestSpawnDetachedPutsTheChildInItsOwnSession(t *testing.T) {
 	dir := t.TempDir()
 	pid, err := spawnDetached(setupBackfillPlan{
@@ -27,8 +23,15 @@ func TestSpawnDetachedPutsTheChildInItsOwnSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("spawnDetached: %v", err)
 	}
-	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
 
+	session, err := unix.Getsid(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session != pid {
+		t.Fatalf("child session=%d, want child pid %d", session, pid)
+	}
 	childGroup, err := syscall.Getpgid(pid)
 	if err != nil {
 		t.Fatalf("getpgid(child): %v", err)

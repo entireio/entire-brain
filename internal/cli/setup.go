@@ -14,7 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ashtom/entire-brain/internal/tui"
+	"github.com/entireio/entire-brain/internal/tui"
 )
 
 // setup.go is the one-command onboarding path. Before it there were three
@@ -1258,7 +1258,7 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 				sub.SetErr(io.Discard)
 			}
 			var components []setupComponent
-			err := watchDeterministicRefreshComponents(ctx, sub, opts, repoDir, setupBuildsHistoryProjection, func(name string, err error) {
+			err := watchDeterministicRefreshComponents(ctx, sub, opts, repoDir, setupBuildsHistoryProjection, true, func(name string, err error) {
 				component := newSetupComponent(name, err, brainCmd)
 				components = append(components, component)
 				steps.observeComponent.notify(component)

@@ -387,7 +387,7 @@ func TestWorkspaceReviewWillNotCallATreeCleanWithoutComparingIt(t *testing.T) {
 	}
 	r := payload.Results[0]
 	if r.FilesScanned != 0 {
-		t.Skipf("fixture unexpectedly compared %d file(s); the unscanned case is what this pins", r.FilesScanned)
+		t.Fatalf("fixture compared %d files, want an unscanned member", r.FilesScanned)
 	}
 	if r.Checked {
 		t.Fatalf("checked=true for a repo where no file was read: %+v", r)

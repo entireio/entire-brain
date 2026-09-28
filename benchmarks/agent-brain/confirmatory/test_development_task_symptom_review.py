@@ -13,6 +13,18 @@ import development_task_symptom_review as review
 import relevance_dataset
 
 
+class HistoricalIdentityBoundaryTest(unittest.TestCase):
+    def test_current_validator_refuses_changed_implementation_identity(self):
+        root = pathlib.Path(review.__file__).parent
+        negative, _ = review._load_json(root / "development-task-negative-control-v1.json")
+        changed = copy.deepcopy(negative["implementation"])
+        changed["python_version"] = "0.0.0-synthetic-drift"
+        with mock.patch.object(review.task_negative_control, "_implementation_identity", return_value=changed):
+            with self.assertRaisesRegex(review.task_negative_control.NegativeControlError,
+                                        "implementation identity differs"):
+                review.task_negative_control.validate_receipt(negative)
+
+
 class DevelopmentTaskSymptomReviewTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -20,6 +32,15 @@ class DevelopmentTaskSymptomReviewTest(unittest.TestCase):
         cls.review, _ = review._load_json(cls.root / "development-task-symptom-review-v1.json")
         cls.ledger, cls.ledger_raw = review._load_json(cls.root / "development-task-eligibility-scan-v1.json")
         cls.negative, cls.negative_raw = review._load_json(cls.root / "development-task-negative-control-v1.json")
+
+    def setUp(self):
+        # Exercise the historical review's semantics with its declared runtime
+        # identities; production validation of current bytes is tested separately.
+        for module, identity in ((review, self.review["implementation"]),
+                                 (review.task_negative_control, self.negative["implementation"])):
+            patcher = mock.patch.object(module, "_implementation_identity", return_value=identity)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def validate(self, value: dict[str, object]) -> None:
         review.validate_review(
@@ -38,7 +59,7 @@ class DevelopmentTaskSymptomReviewTest(unittest.TestCase):
     def reseal_record(record: dict[str, object]) -> None:
         record["review_record_sha256"] = review._review_record_hash(record)
 
-    def test_checked_in_review_validates_and_matches_schema(self) -> None:
+    def test_historical_review_fixture_validates_and_matches_schema(self) -> None:
         self.validate(self.review)
         schema = json.loads(
             (self.root / "schemas" / "development-task-symptom-review-v1.schema.json").read_text(encoding="utf-8")

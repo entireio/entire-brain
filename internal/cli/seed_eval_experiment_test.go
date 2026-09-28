@@ -51,11 +51,9 @@ func TestSeedRetrievalExperiment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load facts: %v", err)
 	}
-	factByID := make(map[string]factRecord, len(facts))
 	// Precompute each fact's content terms (stopword-filtered) for the proxy.
 	factTerms := make(map[string][]string, len(facts))
 	for _, f := range facts {
-		factByID[f.ID] = f
 		factTerms[f.ID] = historyQueryTerms(f.Text)
 	}
 
@@ -67,19 +65,24 @@ func TestSeedRetrievalExperiment(t *testing.T) {
 	}
 	var seedChunks []chunk
 	seedDir := filepath.Join(brainDir, "seed")
-	_ = filepath.WalkDir(seedDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(path), ".md") {
+	if err := filepath.WalkDir(seedDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(strings.ToLower(path), ".md") {
 			return nil
 		}
-		data, rErr := os.ReadFile(path)
-		if rErr != nil {
-			return nil
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
 		}
 		for _, c := range chunkLines(string(data), chunkBytes, false) {
 			seedChunks = append(seedChunks, chunk{strings.ToLower(c.Text), len(c.Text) / 4, e.Embed(c.Text)})
 		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("walk seed corpus: %v", err)
+	}
 	// Facts corpus for comparison.
 	type factVec struct {
 		id     string
@@ -91,6 +94,9 @@ func TestSeedRetrievalExperiment(t *testing.T) {
 		if f.Status == factStatusActive {
 			factVecs = append(factVecs, factVec{f.ID, len(f.Text) / 4, e.Embed(f.Text)})
 		}
+	}
+	if len(seedChunks) == 0 || len(factVecs) == 0 {
+		t.Fatalf("seed experiment needs non-empty seed chunks and active facts, got chunks=%d facts=%d", len(seedChunks), len(factVecs))
 	}
 	t.Logf("embedder=%s  seed_chunks=%d (<=%dB)  facts=%d", e.ID(), len(seedChunks), chunkBytes, len(factVecs))
 
@@ -167,6 +173,9 @@ func TestSeedRetrievalExperiment(t *testing.T) {
 		if ftok > 0 {
 			factUseful += float64(cov) / (float64(ftok) / 1000)
 		}
+	}
+	if n == 0 {
+		t.Fatal("seed experiment needs at least one eligible task")
 	}
 	nf := float64(n)
 	t.Logf("=== %d tasks, k=%d, embedder=%s ===", n, topK, e.ID())

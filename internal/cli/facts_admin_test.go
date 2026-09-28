@@ -26,6 +26,13 @@ func TestApplyProposalMerge(t *testing.T) {
 	if len(out[0].Provenance) != 2 {
 		t.Fatalf("merge should union provenance, got %d", len(out[0].Provenance))
 	}
+	seenSessions := map[string]bool{}
+	for _, anchor := range out[0].Provenance {
+		seenSessions[anchor.SessionID] = true
+	}
+	if !seenSessions["s1"] || !seenSessions["s2"] {
+		t.Fatalf("merge provenance = %+v, want anchors from s1 and s2", out[0].Provenance)
+	}
 	if contains(out[0].RelatedIDs, cand.ID) {
 		t.Fatalf("conflict link should be cleared")
 	}

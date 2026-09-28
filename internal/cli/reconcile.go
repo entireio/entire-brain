@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -22,13 +21,12 @@ func factsProposalsRelPath(branch string) string {
 // loadFactProposals reads a branch's pending proposals; a missing file yields
 // none. A malformed line is a hard error so a corrupt queue is surfaced.
 func loadFactProposals(brainDir, branch string) ([]factProposal, error) {
-	path := filepath.Join(brainDir, filepath.FromSlash(factsProposalsRelPath(branch)))
-	data, err := os.ReadFile(path)
+	data, present, err := readMemoryStateFile(brainDir, factsProposalsRelPath(branch), "fact proposals", defaultMaxReadBytes)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
 		return nil, err
+	}
+	if !present {
+		return nil, nil
 	}
 	var proposals []factProposal
 	for i, line := range strings.Split(string(data), "\n") {

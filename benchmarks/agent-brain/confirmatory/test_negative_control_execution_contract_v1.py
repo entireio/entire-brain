@@ -626,6 +626,7 @@ class NegativeControlExecutionContractV1Test(unittest.TestCase):
                     "system",
                 }:
                     dangerous_attributes.add(node.func.attr)
+        self.assertFalse(dangerous_attributes)
         self.assertEqual(parser_commands, {"build", "check"})
         self.assertFalse(
             imports
@@ -667,7 +668,6 @@ class NegativeControlExecutionContractV1Test(unittest.TestCase):
                 }:
                     dangerous_attributes.add(node.func.attr)
         self.assertFalse(imports & {"http", "requests", "socket", "subprocess"})
-        self.assertFalse(dangerous_attributes)
         self.assertFalse(dangerous_attributes)
         self.assertFalse(
             imports

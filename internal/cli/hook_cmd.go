@@ -289,14 +289,23 @@ func hookRecordServed(cmd *cobra.Command, opts Options, target hookTarget, surfa
 // hookReadFailureTail reads at most the last hookFailureTailBytes of stdin —
 // errors cluster at the end of output.
 func hookReadFailureTail(r io.Reader) string {
-	data, err := io.ReadAll(io.LimitReader(r, 1<<20)) // absolute cap: 1 MiB
-	if err != nil {
-		return ""
+	var tail []byte
+	buf := make([]byte, hookFailureTailBytes)
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			if len(tail)+n > hookFailureTailBytes {
+				tail = tail[len(tail)+n-hookFailureTailBytes:]
+			}
+			tail = append(tail, buf[:n]...)
+		}
+		if err == io.EOF {
+			return string(tail)
+		}
+		if err != nil {
+			return ""
+		}
 	}
-	if len(data) > hookFailureTailBytes {
-		data = data[len(data)-hookFailureTailBytes:]
-	}
-	return string(data)
 }
 
 // hookMatchFailure ranks gotcha and closed-negative facts against the failure

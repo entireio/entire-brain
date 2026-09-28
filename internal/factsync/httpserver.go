@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/apiurl"
-	"github.com/ashtom/entire-brain/internal/httpx"
-	"github.com/ashtom/entire-brain/internal/repoid"
+	"github.com/entireio/entire-brain/internal/apiurl"
+	"github.com/entireio/entire-brain/internal/httpx"
+	"github.com/entireio/entire-brain/internal/repoid"
 )
 
 // HTTPServer is the real Server adapter: it drives entire-api's fact-set sync
@@ -43,20 +43,8 @@ type HTTPServer struct {
 	Client  *http.Client // defaults to the bounded shared upload client when nil
 }
 
-// syncRequestTimeout bounds one fact-set sync request end to end.
-//
-// The sync runner is driven from the CLI and the workspace daemon with
-// context.Background(), so with no caller deadline this client's own bound is the
-// only thing standing between a wedged hosted endpoint — one that completes the dial
-// and then never responds — and a permanently hung process; http.DefaultClient has
-// no timeout at all. http.Client.Timeout covers the whole exchange, which is what a
-// stall after a successful dial needs.
-//
-// Advance uploads the whole merged fact-set, so the bound matches the five minutes
-// the hosted publish path already allows for a body-carrying request
-// (cli.publishRequestTimeout) rather than a short read timeout.
-//
-// It is a var, not a const, so tests can shorten it.
+// syncRequestTimeout bounds one HTTP exchange, including a full fact-set upload.
+// Tests may shorten it; the default matches the hosted publish upload budget.
 var syncRequestTimeout = 5 * time.Minute
 
 func (h *HTTPServer) client() *http.Client {
@@ -70,29 +58,9 @@ func (h *HTTPServer) client() *http.Client {
 	return apiurl.WithoutRedirects(httpx.UploadClient(syncRequestTimeout))
 }
 
-// syncOperationTimeout is the stated ceiling for ONE do() call, retries included.
-//
-// syncRequestTimeout bounds a single http.Client.Do. do() may issue several, so
-// without an operation-wide deadline the two compose by MULTIPLICATION and a caller
-// reading syncRequestTimeout gets a number that is wrong by the attempt count:
-//
-//	attempts         = 1 + transientDialRetries        = 3
-//	per attempt      = syncRequestTimeout              = 5m
-//	inter-attempt    = 2 x transientDialRetryDelay     = 40ms
-//	naive worst case = 3 x 5m + 40ms                   = 15m0.04s
-//	enforced ceiling = syncOperationTimeout            = 5m
-//
-// In practice retries are cheap: they fire only on a LOCAL dial failure that
-// returns in microseconds (EADDRNOTAVAIL, see isTransientLocalDialError), so they
-// spend ~40ms of the budget rather than a second and third five-minute wait. The
-// deadline turns that from an expectation into a guarantee -- whatever the remote
-// does, one fact-set request costs its caller at most syncOperationTimeout, and the
-// retry budget can never widen it.
-//
-// It must stay >= syncRequestTimeout (a single healthy slow request has to be able
-// to finish) and < the naive worst case (or it caps nothing). Both are asserted.
-//
-// It is a var, not a const, so tests can shorten it.
+// syncOperationTimeout bounds the complete operation, including retries and
+// response-body consumption. It must allow one syncRequestTimeout exchange.
+// Tests may shorten it.
 var syncOperationTimeout = 5 * time.Minute
 
 // transientDialRetries bounds how many times do() will redial after a local
@@ -105,31 +73,11 @@ const transientDialRetries = 2
 // short delay is enough — this is not a server-side backoff policy.
 const transientDialRetryDelay = 20 * time.Millisecond
 
-// do issues req, transparently redialing up to transientDialRetries times on
-// a TRANSIENT LOCAL dial failure — one where net/http never got past
-// establishing the TCP connection, so nothing reached the peer and a retry
-// can never double up a mutation. client() refuses redirects, so a later
-// redirect dial cannot disguise an already-applied POST as a local failure.
-// POST bodies are re-armed via req.GetBody,
-// which http.NewRequestWithContext populates automatically for the
-// bytes.Reader bodies every factsync request uses.
-//
-// The failure this exists for is "dial tcp ...: connect: cannot assign
-// requested address" (EADDRNOTAVAIL): the LOCAL ephemeral port range or
-// connection table is briefly exhausted, which has nothing to do with the
-// remote host's health and clears itself in milliseconds once some of the
-// host's own recently-closed sockets leave TIME_WAIT. A single member's
-// laptop can hit this under its own load; a shared CI runner running more
-// than one job's test suite at once hits it far more easily, since ALL of
-// those jobs draw from the same finite local port table. Before this fix,
-// the very first such blip failed the whole sync/proposal round-trip outright
-// — a client with zero tolerance for a purely local, self-resolving hiccup.
-// Anything else (refused, no route, DNS failure, TLS failure) is a real
-// connectivity problem and is returned immediately, unretried.
+// do retries transient local dial failures that occur before any request reaches
+// the peer. Redirects are disabled, and GetBody rearms upload bodies. Other
+// connectivity errors return immediately; retries share one operation deadline.
 func (h *HTTPServer) do(req *http.Request) (*http.Response, error) {
-	// One deadline for the whole operation, so the retry budget and the per-request
-	// bound compose by MIN rather than by multiplication. See syncOperationTimeout
-	// for the arithmetic this replaces.
+	// Retries and body consumption share the caller-bounded deadline.
 	ctx, cancel := context.WithTimeout(req.Context(), syncOperationTimeout)
 	req = req.WithContext(ctx)
 

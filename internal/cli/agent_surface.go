@@ -22,8 +22,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ashtom/entire-brain/internal/issues"
-	"github.com/ashtom/entire-brain/internal/tui"
+	"github.com/entireio/entire-brain/internal/issues"
+	"github.com/entireio/entire-brain/internal/tui"
 )
 
 const (
@@ -218,13 +218,14 @@ type brainLiveState struct {
 }
 
 type brainBriefReport struct {
-	Issues      []unifiedResult    `json:"issues,omitempty"`
-	GeneratedAt time.Time          `json:"generated_at"`
-	Task        string             `json:"task"`
-	Status      brainStatusReport  `json:"status"`
-	Semantic    brainBriefSemantic `json:"semantic"`
-	History     brainBriefHistory  `json:"history"`
-	Facts       []factRecord       `json:"facts,omitempty"`
+	Issues        []unifiedResult    `json:"issues,omitempty"`
+	GeneratedAt   time.Time          `json:"generated_at"`
+	Task          string             `json:"task"`
+	Status        brainStatusReport  `json:"status"`
+	Semantic      brainBriefSemantic `json:"semantic"`
+	History       brainBriefHistory  `json:"history"`
+	Facts         []factRecord       `json:"facts,omitempty"`
+	GlobalFactIDs []string           `json:"global_fact_ids,omitempty"`
 	// FactsLocusDrift flags surfaced facts whose code locus no longer exists
 	// in the worktree (fact id -> departed locus tokens) — the "re-verify
 	// before trusting" signal (Phase 2 item 4).
@@ -287,6 +288,7 @@ type brainBriefJSONReport struct {
 	History            brainBriefHistory           `json:"history"`
 	Conversation       []brainBriefConversationHit `json:"conversation,omitempty"`
 	Facts              []brainBriefJSONFact        `json:"facts,omitempty"`
+	GlobalFactIDs      []string                    `json:"global_fact_ids,omitempty"`
 	FactsLocusDrift    map[string][]string         `json:"facts_locus_drift,omitempty"`
 	FactsPendingReview map[string]factReviewNotice `json:"facts_pending_review,omitempty"`
 	ActionChecklist    []brainBriefAction          `json:"action_checklist,omitempty"`
@@ -1504,6 +1506,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		historyEmbedder := defaultEmbedder()
 		fusionEnabled := historySemanticEmbedder(historyEmbedder) != nil
 		var scoredHistory []scoredHistoryRecord
+		var rankedHistoryIndex *historyIndex
 		var historyErr error
 
 		if !fusionEnabled {
@@ -1531,6 +1534,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 				var index historyIndex
 				var legacyIdentity *historyLegacyIdentity
 				index, legacyIdentity, historyErr = loadBrainHistoryIndexWithLegacyIdentity(status.Brain.Path, source)
+				rankedHistoryIndex = &index
 				if profile != nil {
 					historyErrors := 0
 					if historyErr != nil {
@@ -1572,6 +1576,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			indexLoadStarted := profile.start()
 			var index historyIndex
 			index, historyErr = loadBrainHistoryIndex(status.Brain.Path, source)
+			rankedHistoryIndex = &index
 			if profile != nil {
 				historyErrors := 0
 				if historyErr != nil {
@@ -1604,13 +1609,21 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			if !briefGuard.empty() {
 				briefGuardPred = func(r historyRecord) bool { return !briefGuard.blocksRecord(r) }
 			}
-			if len(freshOverlay.overlay) > 0 {
-				// The closure ignores its argument and returns the ranking
-				// already computed from the LONG-TERM tier, so the on-disk BM25
-				// store never sees a merged record set (Bugbot PR #77).
-				scoredHistory = rankFreshHistory(freshOverlay, "history", task, briefOpts.limit, briefGuardPred, func(historyIndex) ([]scoredHistoryRecord, bool) {
-					return scoredHistory, true
-				})
+			if len(freshOverlay.overlay) > 0 || len(freshOverlay.replaced) > 0 {
+				if rankedHistoryIndex != nil {
+					// Reuse the truth already loaded by the fused or legacy arm.
+					freshOverlay.index = *rankedHistoryIndex
+					scoredHistory = rankFreshHistory(freshOverlay, "history", task, briefOpts.limit, briefGuardPred, func(index historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
+						return rankHistoryFusedFiltered(status.Brain.Path, index, "history", task, briefOpts.limit, historyEmbedder, eligible)
+					})
+				} else {
+					// A validated payload ranking does not need JSON truth. Apply
+					// replacement/privacy eligibility in that same payload path.
+					scoredHistory, _, _, historyErr = rankFreshHistoryLexicalFromSource(status.Brain.Path, source, "history", task, briefOpts.limit, briefGuardPred)
+					if historyErr != nil {
+						report.Warnings = append(report.Warnings, "history context unavailable: "+historyErr.Error())
+					}
+				}
 			}
 			if briefGuardPred != nil {
 				kept := scoredHistory[:0:0]
@@ -1638,7 +1651,21 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	} else if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Sessions != nil {
 		report.Warnings = append(report.Warnings, "history index missing; run `entire brain refresh`")
 	}
-	if status.Sources.Facts {
+	// Facts recorded outside any repository reach the brief — the surface the
+	// agent guide mandates as the first call of every task. Loaded before the
+	// gate because a repository that has never recorded a fact of its own has
+	// no fact source, and that is exactly the case global facts exist for: a
+	// preference recorded once, in a repo that has never been told it. A
+	// damaged global store degrades to a warning rather than taking the brief
+	// down.
+	var briefGlobalFacts []factRecord
+	var briefGlobalIDs map[string]bool
+	if globalFacts, globalErr := globalFactsForRead(opts.Env, false); globalErr != nil {
+		report.Warnings = append(report.Warnings, "global facts unavailable: "+globalErr.Error())
+	} else {
+		briefGlobalFacts = globalFacts
+	}
+	if status.Sources.Facts || len(briefGlobalFacts) > 0 {
 		branch := status.Live.Branch
 		if branch == "" {
 			branch = distillDefaultBranch
@@ -1648,7 +1675,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		// yields fewer facts than the manifest declares. The manifest can:
 		// warn before the packet reports a healthy facts source that
 		// contributed less than it claims.
-		if status.Manifest != nil && status.Manifest.Sources != nil {
+		if status.Sources.Facts && status.Manifest != nil && status.Manifest.Sources != nil {
 			if warning := missingFactStoreWarningForBranch(status.Brain.Path, status.Manifest.Sources.Facts, branch); warning != "" {
 				report.Warnings = append(report.Warnings, warning)
 
@@ -1666,6 +1693,9 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		if factsErr != nil {
 			report.Warnings = append(report.Warnings, "facts unavailable: "+factsErr.Error())
 		} else {
+			if len(briefGlobalFacts) > 0 {
+				facts, briefGlobalIDs = mergeGlobalFacts(facts, briefGlobalFacts)
+			}
 			// Exclusion guard: the brief's fact context honors
 			// tombstones at read time like every retrieval surface.
 			facts = guardFactRecords(briefPrivacyGuard, facts)
@@ -1680,6 +1710,9 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 					}
 					cacheLoadStarted := profile.start()
 					rr = newSemanticRerankerForBranch(e, status.Brain.Path, branch)
+					// Global facts rank here but belong to no single repository,
+					// so they must not be filed under this one's cache key.
+					rr.markForeign(briefGlobalIDs)
 					if profile != nil {
 						profile.finishStage(&profile.Facts.VectorCacheLoad, cacheLoadStarted, 1, rr.loaded, 0)
 					}
@@ -1691,6 +1724,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			}
 			factsRankStarted := profile.start()
 			report.Facts = rankFactsFused(facts, task, brainBriefFactsCount(briefOpts.limit), false, rr)
+			report.GlobalFactIDs = sortedGlobalFactIDs(report.Facts, briefGlobalIDs)
 			if profile != nil {
 				profile.finishStage(&profile.Facts.Rank, factsRankStarted, len(facts), len(report.Facts), 0)
 				embedDuringRank := profile.Facts.Embed.DurationNS - embedBefore
@@ -1727,13 +1761,17 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 				if proposals, proposalsErr := loadFactProposals(status.Brain.Path, branch); proposalsErr != nil {
 					report.Warnings = append(report.Warnings, factReviewQueueUnavailableWarning)
 				} else {
-					report.FactsPendingReview = factsPendingReview(facts, proposals, report.Facts)
+					localFacts := factsEligibleForLocusDrift(facts, briefGlobalIDs)
+					report.FactsPendingReview = factsPendingReview(localFacts, proposals, report.Facts)
 				}
 			}
 		}
 	}
 	likelyFilesStarted := profile.start()
-	report.FactsLocusDrift = factsLocusDrift(status.Repo.Root, report.Facts)
+	report.FactsLocusDrift = factsLocusDrift(status.Repo.Root, factsEligibleForLocusDrift(report.Facts, briefGlobalIDs))
+	if len(report.GlobalFactIDs) > 0 {
+		report.Guidance = append(report.Guidance, "Facts from the global store (not scoped to this repository): "+strings.Join(report.GlobalFactIDs, ", "))
+	}
 	// A non-current semantic index is still useful for intent and graph shape,
 	// but its repository loci must cross the live worktree boundary before the
 	// packet can present them as current context. The durable index is unchanged.
@@ -1907,7 +1945,14 @@ func emitBrainBriefReport(cmd *cobra.Command, report brainBriefReport, jsonOutpu
 		fmt.Fprintf(cmd.OutOrStdout(), "history %s:%d %s\n", match.Path, match.Line, match.Excerpt)
 	}
 	for _, fact := range report.Facts {
-		fmt.Fprintf(cmd.OutOrStdout(), "fact [%s] %s\n", strings.Join(fact.Paths, ","), fact.Text)
+		marker := ""
+		for _, id := range report.GlobalFactIDs {
+			if id == fact.ID {
+				marker = " (global)"
+				break
+			}
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "fact [%s]%s %s\n", strings.Join(fact.Paths, ","), marker, fact.Text)
 		if gone := report.FactsLocusDrift[fact.ID]; len(gone) > 0 {
 			fmt.Fprintf(cmd.OutOrStdout(), "  ⚠ stale locus (no longer in worktree): %s\n", strings.Join(gone, ", "))
 		}
@@ -2648,6 +2693,7 @@ func brainBriefJSONProjection(report brainBriefReport) brainBriefJSONReport {
 		History:            report.History,
 		Conversation:       report.Conversation,
 		FactsLocusDrift:    report.FactsLocusDrift,
+		GlobalFactIDs:      report.GlobalFactIDs,
 		FactsPendingReview: report.FactsPendingReview,
 		ActionChecklist:    report.ActionChecklist,
 		LikelyEditFiles:    report.LikelyEditFiles,
@@ -3983,14 +4029,17 @@ func brainBriefLikelyFileBonus(path string) int {
 }
 
 func brainBriefLikelyTestFile(path string) bool {
-	lower := strings.ToLower(path)
-	base := filepath.Base(lower)
-	return strings.Contains(lower, "/test/") ||
-		strings.Contains(lower, "/tests/") ||
-		strings.Contains(base, ".test.") ||
-		strings.Contains(base, ".spec.") ||
-		strings.HasSuffix(base, "_test.go") ||
-		strings.HasSuffix(base, "_test.py")
+	lower := strings.ToLower(strings.ReplaceAll(path, `\`, "/"))
+	parts := strings.Split(lower, "/")
+	for _, part := range parts[:len(parts)-1] {
+		if part == "test" || part == "tests" || part == "__tests__" {
+			return true
+		}
+	}
+	base := parts[len(parts)-1]
+	return strings.Contains(base, ".test.") || strings.Contains(base, ".spec.") ||
+		strings.HasSuffix(base, "_test.go") || strings.HasSuffix(base, "_test.py") ||
+		strings.HasPrefix(base, "test_") && strings.HasSuffix(base, ".py")
 }
 
 func extractBrainBriefPaths(text string) []string {
@@ -5025,16 +5074,11 @@ func brainBriefRawHistoryMatches(brainDir, task string, existing []brainTextMatc
 }
 
 func brainBriefRawHistoryMatchesObserved(brainDir, task string, existing []brainTextMatch, limit int, profile *brainBriefProfileRawHistory) ([]brainTextMatch, error) {
-	if profile == nil {
-		return brainBriefRawHistoryMatchesSingleScan(brainDir, task, existing, limit)
-	}
-	return brainBriefRawHistoryMatchesMultiScan(brainDir, task, existing, limit, profile)
+	return brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task, existing, limit, profile)
 }
 
-// brainBriefRawHistoryMatchesMultiScan preserves the observation contract for
-// opt-in profiling: each query has its own measured filesystem walk and byte
-// count. The default product path uses brainBriefRawHistoryMatchesSingleScan,
-// which produces the same ordered matches with one walk.
+// brainBriefRawHistoryMatchesMultiScan is the retained reference for parity
+// tests and benchmarks. Product profiling observes the shared single scan.
 func brainBriefRawHistoryMatchesMultiScan(brainDir, task string, existing []brainTextMatch, limit int, profile *brainBriefProfileRawHistory) ([]brainTextMatch, error) {
 	var profileStarted time.Time
 	if profile != nil {
@@ -5133,6 +5177,22 @@ type brainBriefRawHistoryQuery struct {
 // query n can request at most limit-len(matches) hits, and the legacy scanner
 // stops before deduplication at precisely that prefix length.
 func brainBriefRawHistoryMatchesSingleScan(brainDir, task string, existing []brainTextMatch, limit int) ([]brainTextMatch, error) {
+	return brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task, existing, limit, nil)
+}
+
+func brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task string, existing []brainTextMatch, limit int, profile *brainBriefProfileRawHistory) (out []brainTextMatch, returnErr error) {
+	if profile != nil {
+		profile.Invoked = true
+		profile.SharedScan = true
+		started := time.Now()
+		defer func() {
+			profile.DurationNS = max(0, time.Since(started).Nanoseconds())
+			if returnErr != nil {
+				profile.ErrorCount++
+			}
+		}()
+	}
+
 	if limit <= 0 {
 		return nil, nil
 	}
@@ -5158,9 +5218,24 @@ func brainBriefRawHistoryMatchesSingleScan(brainDir, task string, existing []bra
 		return nil, nil
 	}
 
+	if profile != nil {
+		defer func() {
+			for i, query := range queries {
+				truncated := len(query.matches) >= limit
+				profile.Queries = append(profile.Queries, brainBriefProfileRawHistoryQuery{
+					Ordinal: i + 1, MatchCount: len(query.matches), Truncated: truncated,
+				})
+				profile.MatchCount += len(query.matches)
+				if truncated {
+					profile.TruncationCount++
+				}
+			}
+			profile.QueryCount = len(queries)
+		}()
+	}
+
 	// Exclusion guard, identical to inspectBrainRawText's. This is the
-	// DEFAULT product path (the profiling path routes through
-	// inspectBrainRawTextObserved and is guarded there), so without this a
+	// shared product and profiling path, so without this a
 	// tombstoned session's transcript would be scanned here and its lines
 	// merged straight into report.History.Matches. rawGuard.paths is the only
 	// exclusion mechanism available in a raw file walk, and it is populated
@@ -5180,6 +5255,9 @@ func brainBriefRawHistoryMatchesSingleScan(brainDir, task string, existing []bra
 	scanBuffer := make([]byte, 64*1024)
 	err := filepath.WalkDir(brainDir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if profile != nil {
+				profile.ErrorCount++
+			}
 			return nil
 		}
 		if d.IsDir() {
@@ -5211,11 +5289,22 @@ func brainBriefRawHistoryMatchesSingleScan(brainDir, task string, existing []bra
 			return nil
 		}
 		scannedFiles++
+		if profile != nil {
+			profile.ScannedFileCount++
+		}
 		f, openErr := os.Open(path)
 		if openErr != nil {
+			if profile != nil {
+				profile.ErrorCount++
+			}
 			return nil
 		}
-		scanner := bufio.NewScanner(f)
+		var reader io.Reader = f
+		counting := &brainBriefCountingReader{reader: f}
+		if profile != nil {
+			reader = counting
+		}
+		scanner := bufio.NewScanner(reader)
 		scanner.Buffer(scanBuffer, brainInspectHistoryMaxLine)
 		lineNo := 0
 		for scanner.Scan() {
@@ -5255,6 +5344,12 @@ func brainBriefRawHistoryMatchesSingleScan(brainDir, task string, existing []bra
 			}
 			if fullQueries == len(queries) {
 				break
+			}
+		}
+		if profile != nil {
+			profile.ScannedByteCount += counting.bytes
+			if scanner.Err() != nil {
+				profile.ErrorCount++
 			}
 		}
 		_ = f.Close()
@@ -5383,10 +5478,7 @@ func historyRawLineExcerpt(line, query string) string {
 	}
 	if idx == -1 {
 		// The full query was not a literal substring. Locate the first significant
-		// query token directly in `lower` so the resulting offset stays valid for
-		// `text`. (Using an offset from normalizeHistorySearchText, which collapses
-		// punctuation/case and splits camelCase, would index a differently-sized
-		// string and misalign the window.)
+		// query token in the case-folded text; map its position back below.
 		for _, tok := range strings.Fields(query) {
 			if len(tok) < 3 {
 				continue
@@ -5401,9 +5493,23 @@ func historyRawLineExcerpt(line, query string) string {
 	if idx == -1 {
 		return strings.TrimSpace(truncateString(text, 700))
 	}
-	start := max(0, idx-280)
-	end := min(len(text), idx+matchLen+620)
-	// Snap the window to rune boundaries so the slice is valid UTF-8.
+	// Lowercasing can change UTF-8 byte widths. Convert the folded offsets
+	// through rune positions before taking a byte-bounded original window.
+	firstRune := utf8.RuneCountInString(lower[:idx])
+	lastRune := utf8.RuneCountInString(lower[:idx+matchLen])
+	firstByte, lastByte, ordinal := len(text), len(text), 0
+	for offset := range text {
+		if ordinal == firstRune {
+			firstByte = offset
+		}
+		if ordinal == lastRune {
+			lastByte = offset
+			break
+		}
+		ordinal++
+	}
+	start := max(0, firstByte-280)
+	end := min(len(text), lastByte+620)
 	for start > 0 && !utf8.RuneStart(text[start]) {
 		start--
 	}
@@ -5455,8 +5561,8 @@ func brainBriefFocusedHistoryMatches(brainDir string, fresh freshHistory, primar
 	// rankFreshHistory keeps the FTS/fused arm on the on-disk long-term index
 	// and fuses the short-term overlay in memory (Bugbot PR #77: passing a
 	// merged index here rebuilt or misresolved the BM25 store).
-	scored := rankFreshHistory(fresh, "history", query, candidateLimit, fGuardPred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
-		return rankHistoryFused(brainDir, longTerm, "history", query, candidateLimit, defaultEmbedder())
+	scored := rankFreshHistory(fresh, "history", query, candidateLimit, fGuardPred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
+		return rankHistoryFusedFiltered(brainDir, longTerm, "history", query, candidateLimit, defaultEmbedder(), eligible)
 	})
 	records := make([]historyRecord, 0, len(scored))
 	for _, item := range scored {

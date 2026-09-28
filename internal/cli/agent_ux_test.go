@@ -179,7 +179,7 @@ func TestInspectCodeEmptyResultsEmitArrayNotNull(t *testing.T) {
 }
 
 func TestInspectImpactSurfacesNeighborsBeyondRoots(t *testing.T) {
-	brainDir, _, _ := indexFixtureBrain(t, semanticFixtureSnapshot("1.0"))
+	brainDir, _, _ := indexFixtureBrain(t, semanticFixtureSnapshotWithCallerSymbol())
 	source, err := loadBrainManifest(brainDir)
 	if err != nil {
 		t.Fatalf("manifest: %v", err)
@@ -193,8 +193,17 @@ func TestInspectImpactSurfacesNeighborsBeyondRoots(t *testing.T) {
 	if len(roots) == 0 || len(relations) == 0 {
 		t.Fatalf("expected roots and relations, got roots=%d relations=%d", len(roots), len(relations))
 	}
-	if len(symbols) < len(roots) {
-		t.Fatalf("impact symbols (%d) should include at least the roots (%d)", len(symbols), len(roots))
+	if len(symbols) <= len(roots) {
+		t.Fatalf("impact symbols (%d) should include neighbors beyond the roots (%d)", len(symbols), len(roots))
+	}
+	foundCaller := false
+	for _, symbol := range symbols {
+		if symbol.ID == "caller" {
+			foundCaller = true
+		}
+	}
+	if !foundCaller {
+		t.Fatal("impact omitted the known caller")
 	}
 }
 

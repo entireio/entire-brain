@@ -66,7 +66,9 @@ const (
 	// anchors) with a matching pre-decode line filter; the other's v8 was the
 	// parallel-format invalidation above. A warm v8 cache from either lineage
 	// would silently keep that lineage's behavior, so both are invalidated.
-	historyScanCacheVersion = 9
+	// v10: admit all transcript JSON for authoritative extraction and include
+	// wrapper-filtered user requests from document transcripts.
+	historyScanCacheVersion = 10
 )
 
 type historySourceManifest struct {
@@ -1074,7 +1076,10 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 	}
 	contentIdentity := ""
 	if includeContents {
-		excludedByPath := excludedTranscriptPaths(manifest, stones)
+		excludedByPath, err := excludedTranscriptPathsChecked(outputDir, manifest, stones)
+		if err != nil {
+			return historyProjectionIdentity{}, nil, sessionTombstones{}, err
+		}
 		contentCache := historyScanCache{Files: make(map[string]historyScanCacheEntry, len(inventory.files))}
 		for _, file := range inventory.files {
 			if _, excluded := excludedByPath[file.Rel]; excluded {
@@ -1199,7 +1204,10 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 	// Session tombstones (Phase 4): excluded sessions are understood BEFORE
 	// derived indexing; their transcripts are skipped entirely (no records,
 	// no exchanges, no cache entry), counted without retaining content.
-	excludedByPath := excludedTranscriptPaths(manifest, stones)
+	excludedByPath, err := excludedTranscriptPathsChecked(outputDir, manifest, stones)
+	if err != nil {
+		return index, nil, historyScanCache{}, err
+	}
 	repoKey := ""
 	if manifest != nil {
 		repoKey = manifest.RepoKey
@@ -1657,7 +1665,7 @@ func historyRecordBranchForPath(path string, branchByPath map[string]string) str
 // footprint (the record text compresses heavily).
 func loadHistoryScanCache(outputDir string) historyScanCache {
 	empty := historyScanCache{Version: historyScanCacheVersion, Files: map[string]historyScanCacheEntry{}}
-	data, err := os.ReadFile(filepath.Join(outputDir, filepath.FromSlash(historyScanCachePath)))
+	data, err := safeReadFile(filepath.Join(outputDir, filepath.FromSlash(historyScanCachePath)), semanticSnapshotMaxBytes())
 	if err != nil {
 		return empty
 	}
@@ -1957,7 +1965,7 @@ func scanHistoryLines(ctx context.Context, rel, ext string, reader io.Reader) ([
 // parseDocumentConversation). isDocument=false means the file is line-oriented
 // (or not a transcript at all) and the caller's line scanner should handle it
 // after rewinding past the probe read. Mirrors the JSONL indexing policy:
-// assistant text is narrative, user turns are skipped; record lines anchor to
+// assistant text is narrative and user turns are requests; record lines anchor to
 // the document line each message object opens on.
 func scanDocumentHistoryFile(f *os.File, rel string) (records []historyRecord, isDocument bool, err error) {
 	return scanDocumentHistoryFileContext(context.Background(), f, rel)
@@ -2010,10 +2018,17 @@ func historyDocumentRecords(rel string, messages []documentMessage) []historyRec
 				appendFragment(fragment, message.Line)
 			}
 		}
-		if message.Role != "assistant" || message.Text == "" {
+		if (message.Role != "assistant" && message.Role != "user") || message.Text == "" {
 			continue
 		}
-		appendFragment(historyFragment{Text: message.Text, Source: "assistant_message"}, message.Line)
+		source := "assistant_message"
+		if message.Role == "user" {
+			if isWrapperRequest(message.Text) {
+				continue
+			}
+			source = "user_prompt"
+		}
+		appendFragment(historyFragment{Text: message.Text, Source: source}, message.Line)
 	}
 	return records
 }
@@ -2333,27 +2348,12 @@ func historyLineMayContainIndexedContent(text string) bool {
 	if containsAny(lower, `"type":"session_meta"`, `"type": "session_meta"`, `"type":"turn_context"`, `"type": "turn_context"`, `"type":"permission-mode"`, `"type": "permission-mode"`) {
 		return false
 	}
-	return containsAny(lower,
-		"decision", "decided", "we chose", "we choose", "instead of", "rationale",
-		"learned", "root cause", "turns out", "lesson", "failure mode", "found that",
-		"go test", "pytest", "npm test", "mise run", "validation", "regression test",
-		"tests pass", "validated with", "ran tests",
-		"architecture", "boundary", "boundaries", "data flow", "contract", "invariant",
-		"module", "package", "command surface", "dispatch", "integration", "workflow",
-		"tool_use", "function_call", "custom_tool_call", "apply_patch", "exec_command", `"cmd"`,
-		"must ", "must not", "should ", "should not", "keep ", "preserve ", "restore ",
-		"compatibility", "because", "fix ", "fixed ", "implemented ", "updated ",
-		"changed ", "added ", "removed ", "avoid ", "fallback", "source of truth",
-	) ||
-		// The keyword fast-path only knows narrative vocabulary, but tool output
-		// states durable facts in code shapes with no such words on the line: a
-		// flag default from --help, a constant echoed by a build, an assignment
-		// in a config dump. Those lines must survive to the fragment extractor,
-		// so the same structural signal that admits a fragment also admits the
-		// raw line. The former tail of this list (attributionbasecommit,
-		// seed-agent, schema contract, ...) was vocabulary lifted from benchmark
-		// task names and is deliberately gone.
-		historyFactSignalRelaxed.MatchString(text)
+	// JSON message shapes carry user requests and narratives whose vocabulary
+	// is broader than any keyword allowlist. Let the extractor classify them.
+	if strings.HasPrefix(strings.TrimSpace(text), "{") {
+		return true
+	}
+	return len(classifyHistoryFragment(historyFragment{Text: text, Source: "text"})) > 0 || historyFactSignalRelaxed.MatchString(text)
 }
 
 func isDecisionFragment(source, lower string) bool {
@@ -2737,6 +2737,8 @@ func historyRecordQueryScoreMin(record historyRecord, query string, minMatches i
 	return score
 }
 
+// historyRecordEvidenceScore rewards evidence shape, not a particular product
+// or topic. Query relevance is accounted for by historyRecordQueryScoreMin.
 func historyRecordEvidenceScore(record historyRecord, termMatches, identifierMatches int) int {
 	text := record.Summary + " " + strings.Join(record.Terms, " ") + " " + record.Path
 	lower := strings.ToLower(text)
@@ -2753,17 +2755,6 @@ func historyRecordEvidenceScore(record historyRecord, termMatches, identifierMat
 	}
 	if containsAny(lower, "packages/", "internal/", "cmd/", "src/", "apps/", ".go", ".ts", ".tsx", ".js", ".py", ".rs") {
 		score += 20
-	}
-	if containsAny(lower, "metadata.step", "invalid_type", "metadata values must be strings", "metadata value") {
-		score += 80
-	}
-	if containsAny(lower, "stopped chaining", "self-contained perception", "self-contained browser", "previous_response_id") &&
-		containsAny(lower, "agentic", "browser", "chrome") {
-		score += 90
-	}
-	if containsAny(lower, "openai docs", "responses api supports", "same-thread continuity", "conversations api") &&
-		!containsAny(lower, "agentic", "browser", "chrome") {
-		score -= 60
 	}
 	if identifierMatches > 0 {
 		score += 20 * identifierMatches

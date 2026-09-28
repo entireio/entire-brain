@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -14,7 +15,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ashtom/entire-brain/internal/config"
+	"github.com/entireio/entire-brain/internal/config"
 )
 
 const (
@@ -248,11 +249,15 @@ func (s repoStorageSet) conflictError() error {
 }
 
 func resolveRepoStorageSet(ctx context.Context, runner CommandRunner, env EntireEnv, repoDir string) (repoStorageSet, error) {
+	return resolveRepoStorageSetWithSlug(ctx, runner, env, repoDir, repoDomainSlug)
+}
+
+func resolveRepoStorageSetWithSlug(ctx context.Context, runner CommandRunner, env EntireEnv, repoDir string, slugForHost func(string, string) (string, error)) (repoStorageSet, error) {
 	dirs, err := resolvePluginDirs(env)
 	if err != nil {
 		return repoStorageSet{}, err
 	}
-	identity, err := resolveRepoStorageIdentity(ctx, runner, dirs.Config, repoDir, repoDir)
+	identity, err := resolveRepoStorageIdentityWithSlug(ctx, runner, dirs.Config, repoDir, repoDir, slugForHost)
 	if err != nil {
 		return repoStorageSet{}, err
 	}
@@ -391,6 +396,10 @@ func repoStorageKey(ctx context.Context, runner CommandRunner, configDir, repoDi
 }
 
 func resolveRepoStorageIdentity(ctx context.Context, runner CommandRunner, configDir, repoDir, legacyRepoDir string) (repoStorageIdentity, error) {
+	return resolveRepoStorageIdentityWithSlug(ctx, runner, configDir, repoDir, legacyRepoDir, repoDomainSlug)
+}
+
+func resolveRepoStorageIdentityWithSlug(ctx context.Context, runner CommandRunner, configDir, repoDir, legacyRepoDir string, slugForHost func(string, string) (string, error)) (repoStorageIdentity, error) {
 	legacyRepoDir = filepath.Clean(legacyRepoDir)
 	rootLinkResolved, err := rootSymlinkResolvedLocalRepoDir(repoDir)
 	if err != nil {
@@ -399,7 +408,7 @@ func resolveRepoStorageIdentity(ctx context.Context, runner CommandRunner, confi
 	if runner != nil {
 		stdout, _, err := runner.Run(ctx, rootLinkResolved, "git", "remote", "get-url", "origin")
 		if err == nil {
-			if key, ok, keyErr := repoKeyFromRemote(configDir, strings.TrimSpace(string(stdout))); ok || keyErr != nil {
+			if key, ok, keyErr := repoKeyFromRemoteWithSlug(configDir, strings.TrimSpace(string(stdout)), slugForHost); ok || keyErr != nil {
 				return repoStorageIdentity{Key: key}, keyErr
 			}
 		}
@@ -530,6 +539,10 @@ func rootSymlinkResolvedLocalRepoDir(repoDir string) (string, error) {
 }
 
 func repoKeyFromRemote(configDir, remote string) (string, bool, error) {
+	return repoKeyFromRemoteWithSlug(configDir, remote, repoDomainSlug)
+}
+
+func repoKeyFromRemoteWithSlug(configDir, remote string, slugForHost func(string, string) (string, error)) (string, bool, error) {
 	remote = strings.TrimSpace(remote)
 	if parsed, err := url.Parse(remote); err == nil && strings.EqualFold(parsed.Scheme, "entire") {
 		if parsed.Hostname() == "" {
@@ -550,7 +563,7 @@ func repoKeyFromRemote(configDir, remote string) (string, bool, error) {
 	if !ok {
 		return "", false, nil
 	}
-	slug, err := repoDomainSlug(configDir, host)
+	slug, err := slugForHost(configDir, host)
 	if err != nil {
 		return "", true, err
 	}
@@ -726,4 +739,30 @@ func valueOrUnset(value string) string {
 		return "<unset>"
 	}
 	return value
+}
+
+// lookupRepoDomainSlug reads an established binding without allocating one or
+// quarantining malformed configuration. A getter must not redefine identity.
+func lookupRepoDomainSlug(configDir, host string) (string, error) {
+	if slug, ok := knownRepoDomainSlugs[host]; ok {
+		return slug, nil
+	}
+	path, err := config.Path(configDir)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("read host bindings: %w", err)
+	}
+	if err == nil {
+		var cfg config.Config
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return "", fmt.Errorf("read host bindings: %w", err)
+		}
+		if slug := cfg.DomainSlugs[host]; slug != "" {
+			return slug, nil
+		}
+	}
+	return "", fmt.Errorf("unresolved_repo_host: %q has no stored host binding; run setup or refresh in its checkout, or use path --ensure to allocate it", host)
 }

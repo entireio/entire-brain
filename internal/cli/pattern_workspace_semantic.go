@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -131,7 +133,13 @@ func proposeWorkspaceFamiliesInDB(ctx context.Context, db *sql.DB, env EntireEnv
 		}
 	}
 	if contributing < workspaceMinRepos {
-		return stats, nil // nothing can be cross-repo
+		if _, err := db.Exec(`DELETE FROM deep_dossiers WHERE pattern_id LIKE 'family:%'`); err != nil {
+			return stats, err
+		}
+		if _, err := db.Exec(`DELETE FROM meta WHERE key='workspace_families_fingerprint'`); err != nil {
+			return stats, err
+		}
+		return stats, nil
 	}
 
 	// Fingerprint the actual evidence payload (per-repo intent + title + commands +
@@ -140,6 +148,7 @@ func proposeWorkspaceFamiliesInDB(ctx context.Context, db *sql.DB, env EntireEnv
 	payload, _ := json.Marshal(map[string]any{"workspace": manifest.Name, "repos": perRepo})
 	fp := proposalSampleFingerprint(payload)
 	if corpusMeta(db, "workspace_families_fingerprint") == fp &&
+		corpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'family:%' AND status!='current'`) == 0 &&
 		corpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'family:%'`) > 0 {
 		stats.Cached = corpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'family:%'`)
 		stats.Considered = stats.Cached
@@ -217,6 +226,9 @@ func proposeWorkspaceFamiliesInDB(ctx context.Context, db *sql.DB, env EntireEnv
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, fp); err != nil {
 		return stats, err
 	}
+	if _, err := tx.Exec(`INSERT INTO meta(key,value) VALUES('workspace_families_membership',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, workspaceMembershipFingerprint(manifest)); err != nil {
+		return stats, err
+	}
 	return stats, tx.Commit()
 }
 
@@ -245,6 +257,15 @@ func familyRepoKeysJoined(f workspaceFamily) string {
 	return strings.Join(keys, ",")
 }
 
+func workspaceMembershipFingerprint(manifest workspaceManifest) string {
+	keys := make([]string, 0, len(manifest.Repos))
+	for _, repo := range manifest.Repos {
+		keys = append(keys, repo.RepoKey)
+	}
+	sort.Strings(keys)
+	return "sha256:" + hexSHA(manifest.Name+"\x00"+strings.Join(keys, "\x00"))
+}
+
 // loadAcceptedWorkspaceFamilies returns the accepted cross-repo families.
 func loadAcceptedWorkspaceFamilies(wsBrainDir string) []workspaceFamily {
 	families, _ := loadAcceptedWorkspaceFamiliesChecked(wsBrainDir)
@@ -260,11 +281,37 @@ func loadAcceptedWorkspaceFamiliesChecked(wsBrainDir string) ([]workspaceFamily,
 		return nil, nil
 	}
 	defer db.Close()
-	rows, err := db.Query(`SELECT json_redacted FROM deep_dossiers WHERE pattern_id LIKE 'family:%' AND verdict='accepted' ORDER BY pattern_id`)
+	// A cached family is only eligible in the current persisted workspace.
+	if err := rejectExistingSymlinkPathComponents(wsBrainDir, workspaceManifestName); err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(filepath.Join(wsBrainDir, workspaceManifestName))
+	if err != nil {
+		return nil, err
+	}
+	var manifest workspaceManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return nil, err
+	}
+	if manifest.SchemaVersion != workspaceSchemaVersion || manifest.Name != filepath.Base(wsBrainDir) {
+		return nil, fmt.Errorf("invalid workspace manifest identity")
+	}
+	members := map[string]bool{}
+	for _, repo := range manifest.Repos {
+		if err := validateWorkspaceRepoKey(repo.RepoKey); err != nil {
+			return nil, err
+		}
+		members[repo.RepoKey] = true
+	}
+	membershipCurrent := len(members) >= workspaceMinRepos && corpusMeta(db.DB, "workspace_families_membership") == workspaceMembershipFingerprint(manifest)
+	rows, err := db.Query(`SELECT json_redacted FROM deep_dossiers WHERE pattern_id LIKE 'family:%' AND verdict='accepted' AND status='current' ORDER BY pattern_id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	if !membershipCurrent {
+		return nil, nil
+	}
 	var out []workspaceFamily
 	for rows.Next() {
 		var blob string
@@ -272,8 +319,16 @@ func loadAcceptedWorkspaceFamiliesChecked(wsBrainDir string) ([]workspaceFamily,
 			return out, err
 		}
 		var f workspaceFamily
-		if json.Unmarshal([]byte(blob), &f) == nil {
-			out = append(out, f)
+		if json.Unmarshal([]byte(blob), &f) == nil && f.repoCount() >= workspaceMinRepos {
+			current := true
+			for _, variant := range f.PerRepo {
+				if !members[variant.RepoKey] {
+					current = false
+				}
+			}
+			if current {
+				out = append(out, f)
+			}
 		}
 	}
 	return out, rows.Err()

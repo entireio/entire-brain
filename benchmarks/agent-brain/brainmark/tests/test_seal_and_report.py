@@ -11,7 +11,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
-from brainmark import _harness, report, seal  # noqa: E402
+from brainmark import _harness, prompts, report, seal  # noqa: E402
 
 
 def _pair(pair_id: str) -> dict:
@@ -165,12 +165,47 @@ class ReportRefusalTest(unittest.TestCase):
         (cell / "packet.sha256").write_text(_harness.sha256_text(packet_text) + "\n",
                                             encoding="utf-8")
         (cell / "prompt.txt").write_text(prompt, encoding="utf-8")
+        (cell / "prompt_sym.sha256").write_text(prompts.symmetry_sha(prompt) + "\n", encoding="utf-8")
+        (cell / "stream.jsonl").write_text('{"type":"result"}\n', encoding="utf-8")
         (cell / "patch.diff").write_text("diff --git a/x b/x\n", encoding="utf-8")
         (cell / "meta.json").write_text(_harness.pretty_json({
             "instance_id": f"iid-{cell.parent.name}", "arm": arm,
+            "packet_sha256": _harness.sha256_text(packet_text),
+            "prompt_sha256": _harness.sha256_text(prompt),
+            "prompt_sym_sha256": prompts.symmetry_sha(prompt),
             "result_event": {"total_cost_usd": 0.1},
             "mechmetrics": {"locate_calls_pre_edit": 3, "tokens": {"total_tokens": 100}},
         }), encoding="utf-8")
+
+    def test_missing_result_evidence_is_blocking(self):
+        for name in ("packet.txt", "packet.sha256", "prompt.txt", "prompt_sym.sha256", "stream.jsonl", "meta.json"):
+            with self.subTest(artifact=name), tempfile.TemporaryDirectory() as raw:
+                results = pathlib.Path(raw)
+                cell = results / "p1" / "no_brain"
+                self._cell(cell, "no_brain", '{"results":[]}', prompts.build_prompt("issue", '{"results":[]}'))
+                (cell / name).unlink()
+                problems, _ = report.check_integrity(results, ["no_brain"], require_seal=False)
+                self.assertTrue(any(name in problem for problem in problems), problems)
+
+    def test_packet_must_match_delivered_prompt_even_with_matching_sidecar(self):
+        with tempfile.TemporaryDirectory() as raw:
+            results = pathlib.Path(raw)
+            cell = results / "p1" / "no_brain"
+            self._cell(cell, "no_brain", '{"results":[]}', prompts.build_prompt("issue", '{"results":[{"text":"different"}]}'))
+            problems, _ = report.check_integrity(results, ["no_brain"], require_seal=False)
+            self.assertTrue(any("packet differs from prompt" in problem for problem in problems), problems)
+
+    def test_prompt_and_packet_must_match_meta_hashes(self):
+        for field in ("packet_sha256", "prompt_sha256", "prompt_sym_sha256"):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as raw:
+                results = pathlib.Path(raw)
+                cell = results / "p1" / "no_brain"
+                self._cell(cell, "no_brain", '{"results":[]}', prompts.build_prompt("issue", '{"results":[]}'))
+                meta = json.loads((cell / "meta.json").read_text())
+                meta[field] = "0" * 64
+                (cell / "meta.json").write_text(json.dumps(meta))
+                problems, _ = report.check_integrity(results, ["no_brain"], require_seal=False)
+                self.assertTrue(any(field in problem for problem in problems), problems)
 
     def test_packet_sha_mismatch_is_blocking(self):
         from brainmark import prompts

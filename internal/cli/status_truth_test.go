@@ -307,7 +307,7 @@ func TestStatusHealthRemedyNamesTheFix(t *testing.T) {
 		"degraded freshness": {health: statusHealth{Severity: "degraded"}, want: "refresh --agent none"},
 		"a health issue":     {health: statusHealth{Issues: 1}, want: "doctor"},
 	} {
-		if got := testCase.health.Remedy(); got != testCase.want {
+		if got := testCase.health.repairCommand(); got != testCase.want {
 			t.Errorf("%s: remedy = %q, want %q", name, got, testCase.want)
 		}
 	}

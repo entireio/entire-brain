@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/entityindex"
-	"github.com/ashtom/entire-brain/internal/factgitmeta"
+	"github.com/entireio/entire-brain/internal/entityindex"
+	"github.com/entireio/entire-brain/internal/factgitmeta"
 )
 
 // entityIndexFixture wires a fake repository whose git and `entire graph diff`
@@ -77,6 +77,7 @@ func newEntityIndexFixture(t *testing.T) *entityIndexFixture {
 	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
 		fakeCommandKey("git", "rev-parse", "--show-toplevel"):           {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "rev-parse", "--is-inside-work-tree"):     {stdout: "true\n"},
 		fakeCommandKey("git", "remote", "get-url", "origin"):            {stdout: "git@github.com:example/entities.git\n"},
 		fakeCommandKey("git", "branch", "--show-current"):               {stdout: "main\n"},
 		fakeCommandKey("git", "rev-parse", "--verify", "main^{commit}"): {stdout: entityFixtureCommitB + "\n"},

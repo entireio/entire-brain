@@ -16,3 +16,6 @@ __pycache__/
 
 # embedded git worktrees
 .worktrees
+/webui/node_modules/
+/webui/test-results/
+/webui/playwright-report/

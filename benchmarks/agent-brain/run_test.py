@@ -2879,6 +2879,43 @@ class RunnerAndConditionTests(unittest.TestCase):
                 0,
             )
 
+    def test_filtered_history_cache_rebuilds_when_cached_baseline_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            run.run_cmd(["git", "init"], cwd=source, check=True)
+            (source / "target.txt").write_text("source\n")
+            run.run_cmd(["git", "add", "target.txt"], cwd=source, check=True)
+            run.run_cmd(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "source"],
+                cwd=source,
+                env=run.benchmark_git_env(),
+                check=True,
+            )
+            head = run.run_cmd(["git", "rev-parse", "HEAD"], cwd=source, check=True).stdout.strip()
+            with mock.patch.object(run, "CACHE_DIR", root / "cache"):
+                cache = run.filtered_agent_history_repo(
+                    source, head, list(run.AGENT_HISTORY_PRIVATE_PATHS), paths_present=[]
+                )
+                run.run_cmd(["git", "update-ref", "-d", "refs/heads/baseline"], cwd=cache, check=True)
+                missing = run.run_cmd(["git", "cat-file", "-e", "refs/heads/baseline^{commit}"], cwd=cache)
+                self.assertNotEqual(missing.returncode, 0)
+                rebuilt = run.filtered_agent_history_repo(
+                    source, head, list(run.AGENT_HISTORY_PRIVATE_PATHS), paths_present=[]
+                )
+                sentinel = rebuilt / "reuse-sentinel"
+                sentinel.write_text("warm cache\n")
+                reused = run.filtered_agent_history_repo(
+                    source, head, list(run.AGENT_HISTORY_PRIVATE_PATHS), paths_present=[]
+                )
+            self.assertEqual(reused, rebuilt)
+            self.assertTrue(sentinel.is_file(), "successful warm-cache reuse replaced the cache")
+            self.assertEqual(
+                run.run_cmd(["git", "rev-parse", "refs/heads/baseline"], cwd=rebuilt, check=True).stdout.strip(),
+                head,
+            )
+
     def test_sanitize_brain_history_scrubs_benchmark_scaffolding(self):
         with tempfile.TemporaryDirectory() as tmp:
             plugin = pathlib.Path(tmp) / "plugin"
@@ -6358,6 +6395,19 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             self.assertFalse(report["release_evidence"], report)
             self.assertIn("eval summaries have differing brain_manifest_sha256 values", report["flags"])
 
+    def test_facts_eval_audit_rejects_comparison_brain_hash_mismatch(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            manifest = self._write_facts_eval_fixture(root_path)
+            comparison_path = root_path / "raw-vs-facts.compare.json"
+            comparison = json.loads(comparison_path.read_text())
+            comparison["b_brain_manifest_sha256"] = "sha256:" + "c" * 64
+            comparison_path.write_text(json.dumps(comparison))
+
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+            self.assertFalse(report["release_evidence"], report)
+            self.assertIn("raw_vs_facts: b_brain_manifest_sha256 mismatch", report["flags"])
+
     def test_facts_eval_audit_rejects_unknown_claim_scope(self):
         with tempfile.TemporaryDirectory() as root:
             root_path = pathlib.Path(root)
@@ -7444,8 +7494,11 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
         (root / "matrix").mkdir()
 
         (root / "reports" / "release.json").write_text(json.dumps({
+            "gate_status": {"status": "pass", "release_evidence": True,
+                            "claim_policy": "proof_required"},
             "totals": {
                 "hard_flags": 0,
+                "proof_ready_comparisons": 3,
                 "proof_ready_comparisons_by_scope": {
                     "history": 1,
                     "mcp": 1,

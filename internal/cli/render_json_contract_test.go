@@ -13,14 +13,13 @@ import (
 // render_json_contract_test.go pins the --json contract of the two commands the
 // visual renderer touches. The goldens were captured from a REAL run of
 // `entire-brain status --json` / `entire-brain setup --json` BEFORE the renderer
-// existed, so any change that alters a field name, adds one, drops one, or
-// changes an omitempty rule shows up here as a byte diff rather than silently
-// breaking every script that parses this output.
+// existed. They pin serialization of the fields and values present in those
+// fixtures. New optional fields that remain empty need separate populated cases.
 //
 // The check is a round trip through the very structs writeJSON marshals: read
 // the golden, unmarshal into the report type, marshal it back with writeJSON's
-// exact encoder settings, compare bytes. That catches renamed/added/removed
-// fields without depending on a live brain, a clock, or a filesystem.
+// encoder, compare bytes. That catches changes to represented fields without
+// depending on a live brain or clock.
 //
 // Regenerate deliberately (and only when the JSON contract is MEANT to change)
 // with ENTIRE_BRAIN_UPDATE_GOLDEN=1 go test ./internal/cli -run JSONContract.

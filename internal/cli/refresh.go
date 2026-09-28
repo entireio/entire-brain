@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/entityindex"
+	"github.com/entireio/entire-brain/internal/entityindex"
 	"github.com/spf13/cobra"
 )
 
@@ -36,12 +36,9 @@ type refreshCommandOptions struct {
 	// semantic stage off. The decision is correct and stays; what was missing is
 	// that anyone could tell. See refreshWorktreeSemanticSkipNote.
 	semanticWorktreeSkip bool
-	// component, when non-nil, turns the refresh BEST-EFFORT: every stage
-	// reports its outcome through this callback (err == nil means built) and a
-	// failing stage no longer aborts the run. One broken source — a semantic
-	// snapshot whose repo key was derived by a different CLI, say — must degrade
-	// the brain, not stop it from being built at all. Only the failures that
-	// leave nothing usable (no brain directory, no output path) still return.
+	// bestEffort controls whether component failures abort the orchestration.
+	bestEffort bool
+	// component observes outcomes without changing failure policy.
 	component func(name string, err error)
 }
 
@@ -148,16 +145,11 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		refreshOpts.seed.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
 	}
 	progress := newRefreshProgress(cmd.ErrOrStderr())
-	// stage reports one stage's outcome and answers "must this abort the
-	// refresh?". Outside best-effort mode the answer is the old one — any error
-	// aborts. Inside it, nothing does: the caller collects the per-component
-	// outcomes and decides.
-	stage := func(name string, err error) bool {
+	reportStageAndShouldAbort := func(name string, err error) bool {
 		if refreshOpts.component != nil {
 			refreshOpts.component(name, err)
-			return false
 		}
-		return err != nil
+		return err != nil && !refreshOpts.bestEffort
 	}
 	storageTask := progress.Begin("locate brain")
 	storage, storageErr := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
@@ -193,26 +185,12 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			fmt.Fprintln(cmd.ErrOrStderr(), "refresh: discarded a manifest written by a different build; rebuilding it")
 		}
 	}
-	exportCmd := &cobra.Command{Use: "export"}
-	exportCmd.SetOut(io.Discard)
-	exportCmd.SetErr(io.Discard)
-	exportOpts := exportCommandOptions{
-		outputDir:       defaultExportDir,
-		outputExplicit:  outputExplicit,
-		checkpointLimit: refreshOpts.checkpointLimit,
-		entireBinary:    refreshOpts.entireBinary,
-		rawTranscript:   refreshOpts.rawTranscript,
-		scope:           refreshOpts.scope,
-	}
-	if outputExplicit {
-		exportOpts.outputDir = refreshOpts.outputDir
-	}
 	var exportErr error
 	finishExportTask := func(error) {}
 	updateExportTask := func(string) {}
 	if !refreshOpts.skipSessions {
 		exportTask := progress.Begin("export sessions")
-		exportOpts.progress = func(p exportProgress) {
+		exportProgress := func(p exportProgress) {
 			// The bar is fed from the SAME numbers the label prints, so the two
 			// can never disagree; refreshExportProgressCounts picks whichever
 			// pair the exporter is currently counting (items, else checkpoints).
@@ -220,7 +198,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			exportTask.SetProgress(done, total)
 			exportTask.Update(refreshExportProgressLabel(p))
 		}
-		exportErr = runExport(ctx, exportCmd, opts, exportOpts)
+		exportErr = runRefreshExportPhase(ctx, opts, refreshOpts, outputExplicit, exportProgress)
 		exportTaskFinished := false
 		finishExportTask = func(err error) {
 			if exportTaskFinished {
@@ -239,14 +217,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 
 	manifest, _ := loadBrainManifest(brainDir)
 	needSeed := outputExplicit || refreshOpts.seed.force
-	// seedProbeErr is a freshness check that could not RUN — `git rev-parse
-	// HEAD` failing on an unborn branch, an interrupted git state, or git
-	// missing from a daemon's PATH. Returning it raw punched a hole straight
-	// through the never-abort contract this best-effort mode exists to keep
-	// (setup.go's instant phase): the phase died before reporting a single
-	// component, so instant.json was never written, `status` and `doctor` could
-	// not name the reason, and the workspace, the daemon and the backfill were
-	// all skipped. It is a failed SEED source, so it is reported as one.
+	// A failed freshness probe is a seed-stage failure, not permission to rebuild.
 	var seedProbeErr error
 	if !needSeed {
 		needSeed, seedProbeErr = seedRefreshNeeded(ctx, opts, repoDir, manifest, refreshOpts.seed.worktree)
@@ -259,26 +230,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	if exportErr != nil && (manifest == nil || manifest.Sources == nil) && seedProbeErr == nil {
 		needSeed = true
 	}
-	// hostCLIAbsent is the ONE export failure that is not this brain's fault:
-	// the Entire CLI session capture reads through is not installed. It is an
-	// environmental fact, identical on the first refresh and the hundredth, and
-	// no repair applies to it — so it degrades unconditionally, with the cause
-	// named and the install step attached (see host_cli.go).
-	//
-	// It is deliberately NOT folded into the clause above. That clause asks
-	// "does this brain have a baseline at all", which is genuinely a first-run
-	// question, and it is why a missing `entire` degraded on run 1: a fresh
-	// store has no manifest, so the seed fallback caught the failure on its way
-	// past. Run 2 has a manifest, the clause is false, and the SAME condition
-	// became a fatal raw `exec: "entire": executable file not found in $PATH`
-	// — while `status` went on recommending the command that produced it.
-	//
-	// Keeping the two separate is also what preserves what the manifest test
-	// was protecting. An export that RAN and failed still aborts here, because
-	// answering real loss with "unavailable, using seed baseline" is the
-	// masking this file already had to undo once (see
-	// discardManifestThisBuildCannotRewrite above); only the launch failure is
-	// forgiven, and only because there is nothing to fix in the brain.
+	// A missing host CLI degrades sessions on every run; an executed export failure remains fatal.
 	hostCLIAbsent := hostCLIMissing(exportErr, refreshOpts.entireBinary)
 	if hostCLIAbsent {
 		exportErr = hostCLIMissingExportError(exportErr, refreshOpts.entireBinary)
@@ -291,10 +243,10 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	if !refreshOpts.skipSessions {
 		if exportErr != nil && !needSeed && !hostCLIAbsent {
 			finishExportTask(exportErr)
-			if stage(brainComponentSessions, exportErr) {
+			if reportStageAndShouldAbort(brainComponentSessions, exportErr) {
 				return exportErr
 			}
-		} else if stage(brainComponentSessions, exportErr) {
+		} else if reportStageAndShouldAbort(brainComponentSessions, exportErr) {
 			degradedSessions = exportErr
 		}
 	}
@@ -314,50 +266,33 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		// condition carries its remedy on the lines after the first, which the
 		// terminal error still prints in full.
 		progress.Skip("seed baseline: freshness unknown (" + firstErrorLine(seedProbeErr) + ")")
-		if stage(brainComponentSeed, seedProbeErr) {
+		if reportStageAndShouldAbort(brainComponentSeed, seedProbeErr) {
 			return seedProbeErr
 		}
 	case needSeed:
 		seedTask := progress.Begin("seed baseline")
-		seedCmd := &cobra.Command{Use: "seed"}
-		seedCmd.SetOut(io.Discard)
-		seedCmd.SetErr(io.Discard)
-		seedOpts := refreshOpts.seed
-		seedOpts.update = true
-		seedOpts.outputExplicit = outputExplicit
-		seedOpts.progress = func(phase string) {
+		seedErr := runRefreshSeedPhase(ctx, opts, refreshOpts.seed, repoDir, brainDir, outputExplicit, func(phase string) {
 			seedTask.Update("seed baseline: " + phase)
-		}
-		if outputExplicit {
-			seedOpts.outputDir = brainDir
-		}
-		seedErr := runSeed(ctx, seedCmd, opts, seedOpts, repoDir)
+		})
 		// Seed may have updated the manifest before a later best-effort step
 		// failed. History freshness must use the state now on disk in either
 		// outcome, not the snapshot loaded before seed ran.
 		manifest, _ = loadBrainManifest(brainDir)
 		if seedErr != nil {
 			seedTask.Finish(seedErr)
-			if stage(brainComponentSeed, seedErr) {
+			if reportStageAndShouldAbort(brainComponentSeed, seedErr) {
 				return seedErr
 			}
 		} else {
 			seedTask.Update(refreshSeedLabel(manifest))
 			seedTask.Finish(nil)
-			stage(brainComponentSeed, nil)
+			reportStageAndShouldAbort(brainComponentSeed, nil)
 		}
 	default:
 		progress.Skip(refreshSeedLabel(manifest))
-		stage(brainComponentSeed, nil)
+		reportStageAndShouldAbort(brainComponentSeed, nil)
 	}
-	// The projector reads the brain directory directly, and on a first run where
-	// EVERY source failed there is no brain directory to read: a repo enabled a
-	// minute ago has no sessions to export, and if the worktree is also dirty
-	// (which `entire enable` leaves it) the seed baseline does not build either.
-	// Running the projector anyway answered "you have no sessions yet" with a
-	// second, rawer line naming an internal path and no remedy --
-	// "lstat <brainDir>: no such file or directory". An empty history index over
-	// a brain directory that DOES exist is still built, as before.
+	// No source built means there is no history target to project.
 	if refreshOpts.historyIndex && !historyProjectionTargetExists(brainDir) {
 		progress.Skip("history index: skipped, no brain directory was built")
 	} else if refreshOpts.historyIndex && (refreshOpts.force || !historyIndexCurrent(brainDir, manifest)) {
@@ -372,18 +307,18 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		historySource, err := writeBrainHistoryIndexAndSourceContext(ctx, brainDir, opts.Now().UTC(), historyProgress)
 		if err != nil {
 			historyTask.Finish(err)
-			if stage(brainComponentHistory, err) {
+			if reportStageAndShouldAbort(brainComponentHistory, err) {
 				return err
 			}
 		} else {
 			historyTask.Update(refreshHistoryLabel(historySource))
 			historyTask.Finish(nil)
 			manifest, _ = loadBrainManifest(brainDir)
-			stage(brainComponentHistory, nil)
+			reportStageAndShouldAbort(brainComponentHistory, nil)
 		}
 	} else if refreshOpts.historyIndex {
 		progress.Skip(refreshHistoryLabel(existingHistorySource(manifest)))
-		stage(brainComponentHistory, nil)
+		reportStageAndShouldAbort(brainComponentHistory, nil)
 	}
 	// History vectors: the persisted semantic arm behind the fusion gate (see
 	// history_vec.go). The stage exists only when the user has opted into an
@@ -412,14 +347,14 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			})
 			if serr != nil {
 				vecTask.Finish(serr)
-				if stage(brainComponentHistoryVectors, serr) {
+				if reportStageAndShouldAbort(brainComponentHistoryVectors, serr) {
 					return serr
 				}
 				break
 			}
 			vecTask.Update(fmt.Sprintf("history vectors: %d embedded, %d pruned (%d total)", vectors.HistoryAdded, vectors.HistoryDropped, vectors.HistoryTotal))
 			vecTask.Finish(nil)
-			stage(brainComponentHistoryVectors, nil)
+			reportStageAndShouldAbort(brainComponentHistoryVectors, nil)
 			// Conversation vectors ride the same stage and gate but live in
 			// their own store (separate identity; general history KNN never
 			// spends budget on exchanges). Skipped silently when the store is
@@ -447,7 +382,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		docSource, derr := writeDocIndexAndSource(brainDir, opts.Now().UTC())
 		if derr != nil {
 			docTask.Finish(derr)
-			if stage(brainComponentDocs, derr) {
+			if reportStageAndShouldAbort(brainComponentDocs, derr) {
 				return derr
 			}
 		} else {
@@ -458,10 +393,10 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			docTask.Update(docLabel)
 			docTask.Finish(nil)
 			manifest, _ = loadBrainManifest(brainDir)
-			stage(brainComponentDocs, nil)
+			reportStageAndShouldAbort(brainComponentDocs, nil)
 		}
 	} else {
-		stage(brainComponentDocs, nil)
+		reportStageAndShouldAbort(brainComponentDocs, nil)
 	}
 	if refreshOpts.semantic {
 		semanticCheckTask := progress.Begin(refreshSemanticCheckLabel(manifest))
@@ -475,7 +410,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		switch {
 		case err != nil:
 			semanticCheckTask.Finish(err)
-			if stage(brainComponentSemantic, err) {
+			if reportStageAndShouldAbort(brainComponentSemantic, err) {
 				if !semanticHostAbsent {
 					return err
 				}
@@ -498,9 +433,6 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			}
 			if needSemantic {
 				semanticTask := progress.Begin("semantic index")
-				indexCmd := &cobra.Command{Use: "index"}
-				indexCmd.SetOut(io.Discard)
-				indexCmd.SetErr(io.Discard)
 				semanticProgress := func(phase string) {
 					semanticTask.Update("semantic index: " + phase)
 				}
@@ -517,9 +449,9 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 				semanticCounts := func(files, _, _ int) {
 					semanticTask.SetProgress(files, expectedFiles)
 				}
-				if err := runSemanticIndex(ctx, indexCmd, opts, semanticIndexOptions{force: true, graphBinary: refreshOpts.graphBinary, worktree: semanticWorktree, outputDir: brainDir, outputExplicit: outputExplicit, progress: semanticProgress, progressCounts: semanticCounts}, repoDir); err != nil {
+				if err := runRefreshSemanticPhase(ctx, opts, semanticIndexOptions{force: true, graphBinary: refreshOpts.graphBinary, worktree: semanticWorktree, outputDir: brainDir, outputExplicit: outputExplicit, progress: semanticProgress, progressCounts: semanticCounts}, repoDir); err != nil {
 					semanticTask.Finish(err)
-					if stage(brainComponentSemantic, err) {
+					if reportStageAndShouldAbort(brainComponentSemantic, err) {
 						if !semanticHostAbsent {
 							return err
 						}
@@ -529,11 +461,11 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 					manifest, _ = loadBrainManifest(brainDir)
 					semanticTask.Update(refreshSemanticLabel(existingSemanticSource(manifest)))
 					semanticTask.Finish(nil)
-					stage(brainComponentSemantic, nil)
+					reportStageAndShouldAbort(brainComponentSemantic, nil)
 				}
 			} else {
 				progress.Skip(refreshSemanticLabel(existingSemanticSource(manifest)))
-				stage(brainComponentSemantic, nil)
+				reportStageAndShouldAbort(brainComponentSemantic, nil)
 			}
 		}
 	} else if refreshOpts.semanticWorktreeSkip {
@@ -545,12 +477,12 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		finishBranches := progress.Step("branch overlays")
 		if err := runSemanticRefreshAllBranches(ctx, opts, refreshOpts, repoDir); err != nil {
 			finishBranches(err)
-			if stage(brainComponentBranches, err) {
+			if reportStageAndShouldAbort(brainComponentBranches, err) {
 				return err
 			}
 		} else {
 			finishBranches(nil)
-			stage(brainComponentBranches, nil)
+			reportStageAndShouldAbort(brainComponentBranches, nil)
 		}
 	}
 	// Backfill deterministic fact kinds/locus when a fact store exists, so a kind
@@ -561,12 +493,12 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		finishReclass := progress.Step("reclassify facts")
 		if _, err := reclassifyAllFactBranches(brainDir, opts.Now().UTC()); err != nil {
 			finishReclass(err)
-			if stage(brainComponentFacts, err) {
+			if reportStageAndShouldAbort(brainComponentFacts, err) {
 				return err
 			}
 		} else {
 			finishReclass(nil)
-			stage(brainComponentFacts, nil)
+			reportStageAndShouldAbort(brainComponentFacts, nil)
 		}
 	}
 	// Pattern layer (episodes -> tasks/procedures/practices). Deterministic and
@@ -577,7 +509,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		finishPatterns := progress.Step("pattern layer")
 		if _, err := refreshPatternLayer(brainDir, refreshOpts.force, opts.Now().UTC()); err != nil {
 			finishPatterns(err)
-			if stage(brainComponentPatterns, err) {
+			if reportStageAndShouldAbort(brainComponentPatterns, err) {
 				return err
 			}
 		} else {
@@ -588,21 +520,15 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 				fmt.Fprintf(cmd.ErrOrStderr(), "warning: pattern corpus: %v\n", cerr)
 			}
 			finishPatterns(nil)
-			stage(brainComponentPatterns, nil)
+			reportStageAndShouldAbort(brainComponentPatterns, nil)
 		}
 	}
-	// On STDOUT, beside the success line it qualifies. `--worktree` turning the
-	// semantic stage off is deliberate, and `setup`'s documented exit-0-on-partial
-	// is the precedent for keeping the exit code at 0 -- but setup earns that by
-	// naming every component it skipped, and this named none. The skip went to
-	// stderr as a bare "semantic index skipped" while stdout said "refreshed
-	// brain" and the status verdict underneath went on reporting the same
-	// degradation, so the one state no command clears was the one state nothing
-	// explained. An exit code cannot carry the sentence a reader needs here; the
-	// sentence can.
+	// Include the intentional semantic skip beside the success line.
 	if refreshOpts.semanticWorktreeSkip {
 		printAroundLiveLine(cmd.OutOrStdout(), "%s\n", refreshWorktreeSemanticSkipNote(setupCommandPrefix(os.LookupEnv)))
 	}
+	// The refresh completed; anything watching this brain can now re-read it.
+	notifyBrainWebhook(ctx, cmd.ErrOrStderr(), opts, WebhookBrainRefreshed, opts.Now())
 	printAroundLiveLine(cmd.OutOrStdout(), "refreshed brain: %s\n", brainDir)
 	if refreshOpts.statusAfter && !outputExplicit {
 		statusCmd := &cobra.Command{Use: "status"}
@@ -653,7 +579,14 @@ func historyIndexCurrent(brainDir string, manifest *exportManifest) bool {
 	// Unsafe/unreadable entries are deliberately excluded by the same collector
 	// used to build the index. Comparing the safe included set keeps those
 	// exclusions fail-closed without forcing an endless rebuild.
-	excludedByPath := excludedTranscriptPaths(manifest, loadSessionTombstones(brainDir))
+	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	if err != nil {
+		return false
+	}
+	excludedByPath, err := excludedTranscriptPathsChecked(brainDir, manifest, stones)
+	if err != nil {
+		return false
+	}
 	files, err := collectHistorySessionDigests(context.Background(), brainDir, excludedByPath)
 	if err != nil {
 		return false

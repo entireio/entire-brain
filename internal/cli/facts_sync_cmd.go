@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/apiurl"
-	"github.com/ashtom/entire-brain/internal/factgitmeta"
-	"github.com/ashtom/entire-brain/internal/factmerge"
-	"github.com/ashtom/entire-brain/internal/factsync"
+	"github.com/entireio/entire-brain/internal/apiurl"
+	"github.com/entireio/entire-brain/internal/factgitmeta"
+	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factsync"
 
 	"github.com/spf13/cobra"
 )
@@ -117,6 +117,13 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 	if err != nil {
 		return err
 	}
+	// The binding records the fact-head sync, independently of proposal queue health.
+	if hosted, ok := srv.(*factsync.HTTPServer); ok {
+		if err := writeHostedFactsBinding(storage.BrainDir, branch, repoID, hosted.BaseURL); err != nil {
+			return fmt.Errorf("facts sync: record hosted target: %w", err)
+		}
+	}
+
 	if err := persistFactsSyncProposals(storage.BrainDir, branch, res.Proposals); err != nil {
 		return err
 	}

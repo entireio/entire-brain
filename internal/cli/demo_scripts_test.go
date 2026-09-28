@@ -9,20 +9,7 @@ import (
 	"testing"
 )
 
-// The demo scripts run every `entire` and `entire-brain` verb through a
-// sandbox() helper built on `env -i`, which means the sandbox's env block is
-// the ONLY place a child's environment comes from. It sets TERM, so under a
-// captured pty (`script -q run.log ./scripts/demo-agent-session.sh` — the way
-// these demos are recorded and validated) stdout is a real terminal and
-// `entire checkpoint list` pages its output through $PAGER. With PAGER unset
-// that is `less` (cmd/entire/cli/explain.go: outputWithPager -> buildPagerCmd),
-// which blocks on "Press RETURN to continue" and hangs the demo indefinitely
-// mid-run — observed twice, at ~42 and ~59 minutes, with no further output.
-//
-// This is a shell fix with no Go call path, so it has no other regression
-// guard: nothing in the build or the test suite notices if the three
-// non-blocking env entries are dropped from sandbox() again. Hence this test,
-// which reads the shipped scripts and fails if they are.
+// Sandboxed demo children must use noninteractive pager and Git settings.
 func TestDemoScriptSandboxesKeepEveryChildNonBlocking(t *testing.T) {
 	t.Parallel()
 

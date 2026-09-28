@@ -8,7 +8,7 @@ import (
 	"os"
 	"testing"
 
-	entirebrain "github.com/ashtom/entire-brain"
+	entirebrain "github.com/entireio/entire-brain"
 )
 
 func testEmbedder(t *testing.T) *staticEmbedder {

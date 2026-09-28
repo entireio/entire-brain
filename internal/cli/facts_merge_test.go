@@ -130,7 +130,7 @@ func TestApplyFactActionsLowConfidenceQueuesProposal(t *testing.T) {
 		t.Fatalf("proposal fields wrong: %+v", p)
 	}
 	// Both facts must be cross-linked for review.
-	if !contains(out[0].RelatedIDs, out[1].ID) && !contains(out[1].RelatedIDs, out[0].ID) {
+	if !contains(out[0].RelatedIDs, out[1].ID) || !contains(out[1].RelatedIDs, out[0].ID) {
 		t.Fatalf("conflicting facts not cross-linked")
 	}
 }

@@ -197,6 +197,17 @@ func TestConcurrentSetupsDoNotInterleaveTheDaemonRegistration(t *testing.T) {
 	close(start)
 	wg.Wait()
 
+	counts := make(map[event]int)
+	for _, event := range events {
+		counts[event]++
+	}
+	for racer := 0; racer < racers; racer++ {
+		for _, kind := range []string{"inspect", "install"} {
+			if counts[event{racer, kind}] != 1 {
+				t.Fatalf("racer %d %s count=%d, want 1; events=%+v", racer, kind, counts[event{racer, kind}], events)
+			}
+		}
+	}
 	// Each racer observes the service and then changes it. Another racer
 	// changing it in between is the interleaving that leaves one `setup`
 	// reporting "daemon install failed" for a watcher that is running.
@@ -216,9 +227,8 @@ func TestConcurrentSetupsDoNotInterleaveTheDaemonRegistration(t *testing.T) {
 	}
 }
 
-// The uninstall verb has the same shape -- inspect, then act -- and the same
-// need to be atomic against another process installing.
-func TestConcurrentUninstallAndInstallDoNotInterleave(t *testing.T) {
+// Registration lock callers serialize their critical sections.
+func TestDaemonRegistrationLockSerializesCallers(t *testing.T) {
 	f := newSetupTestFixture(t)
 	var inside atomic.Int32
 	var overlaps atomic.Int32
@@ -230,13 +240,16 @@ func TestConcurrentUninstallAndInstallDoNotInterleave(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			_ = withDaemonRegistrationLock(f.env, func() error {
+			err := withDaemonRegistrationLock(f.env, func() error {
 				if inside.Add(1) != 1 {
 					overlaps.Add(1)
 				}
 				defer inside.Add(-1)
 				return nil
 			})
+			if err != nil {
+				t.Errorf("registration lock: %v", err)
+			}
 		}()
 	}
 	close(start)

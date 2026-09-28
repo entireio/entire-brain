@@ -126,7 +126,7 @@ func TestStatusRemediationNeverNamesACommandThatCannotRun(t *testing.T) {
 			want: "run `entire-brain setup`",
 		},
 	} {
-		if got := testCase.health.Remediation("entire-brain"); got != testCase.want {
+		if got := testCase.health.nextStepMessage("entire-brain"); got != testCase.want {
 			t.Errorf("%s:\n got  %s\n want %s", name, got, testCase.want)
 		}
 	}
@@ -209,28 +209,5 @@ func TestRefreshWorktreeSaysWhichStageItSkipped(t *testing.T) {
 	}
 	if strings.Contains(ordinary, "semantic index not rebuilt") {
 		t.Fatalf("a refresh that DID build the semantic index must not claim otherwise:\n%s", ordinary)
-	}
-}
-
-// TestStatusRemediationRankingIsOrdered pins the ORDER of the rule table, not
-// just its outcomes.
-//
-// The table's outcomes are covered case by case above, but the defect that
-// produced this ladder was purely one of ranking: the host-CLI note was a
-// correct sentence sitting one tier too high, and it answered a corrupt
-// semantic store with "install the Entire CLI". A reordering is therefore the
-// exact regression to guard, and it is invisible to a test that only checks
-// individual verdicts -- several tiers return the same text.
-func TestStatusRemediationRankingIsOrdered(t *testing.T) {
-	t.Parallel()
-	want := []string{"absent", "blocked", "broken", "unbuilt"}
-	if len(statusRemediationRules) != len(want) {
-		t.Fatalf("the ladder has %d rules and this test knows %d; rank the new one deliberately and add it here", len(statusRemediationRules), len(want))
-	}
-	for i, rule := range statusRemediationRules {
-		tier, _, ok := strings.Cut(rule.condition, ":")
-		if !ok || tier != want[i] {
-			t.Fatalf("rule %d is %q, want the %q tier: a background condition must stay below every diagnosis", i, rule.condition, want[i])
-		}
 	}
 }

@@ -3,11 +3,12 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/tui"
+	"github.com/entireio/entire-brain/internal/tui"
 	runewidth "github.com/mattn/go-runewidth"
 )
 
@@ -199,7 +200,7 @@ func TestProgressPlainCoalescesCounterFlood(t *testing.T) {
 
 	task := p.Begin("semantic index")
 	for i := 1; i <= 500; i++ {
-		task.Update("semantic index: parsing sources (" + itoa(i*37) + " symbols, " + itoa(i*211) + " relations)")
+		task.Update("semantic index: parsing sources (" + strconv.Itoa(i*37) + " symbols, " + strconv.Itoa(i*211) + " relations)")
 	}
 	task.Finish(nil)
 
@@ -211,18 +212,6 @@ func TestProgressPlainCoalescesCounterFlood(t *testing.T) {
 	if !strings.Contains(buf.String(), "18500 symbols, 105500 relations") {
 		t.Fatalf("coalesced line does not carry the latest counts:\n%s", buf.String())
 	}
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var digits []byte
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
 }
 
 // TestProgressPlainStillReportsDistinctPhases guards the other direction: the
@@ -513,7 +502,11 @@ func TestFinishTerminalLineFitsTheTerminal(t *testing.T) {
 	task := p.Begin("instant core ready in 1m4.4s — built sessions, seed, docs, semantic, patterns, entities, memory; the brain is queryable now")
 	task.Finish(nil)
 
-	for _, line := range visibleLines(buf.String()) {
+	lines := visibleLines(buf.String())
+	if len(lines) != 1 {
+		t.Fatalf("expected one final line, got %q", lines)
+	}
+	for _, line := range lines {
 		if got := runewidth.StringWidth(line); got > caps.Width {
 			t.Fatalf("terminal line is %d cells wide on a %d-column terminal, so it wraps and strands a row: %q",
 				got, caps.Width, line)

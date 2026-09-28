@@ -31,8 +31,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/factgitmeta/gitmeta"
-	"github.com/ashtom/entire-brain/internal/factsync"
+	"github.com/entireio/entire-brain/internal/factgitmeta/gitmeta"
+	"github.com/entireio/entire-brain/internal/factsync"
 
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/object"
@@ -142,7 +142,10 @@ func (b *Backend) Current(_ context.Context, _, branch string) (string, []byte, 
 // returns ErrConflict when the head the caller advanced from is no longer
 // current (a concurrent member advanced first) or when ref contention exhausts
 // the retry budget.
-func (b *Backend) Advance(_ context.Context, _, branch, oldRef string, plaintext []byte) (string, error) {
+func (b *Backend) Advance(ctx context.Context, _, branch, oldRef string, plaintext []byte) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if len(plaintext) == 0 {
 		// A head always points at content; the hosted store hard-rejects empty
 		// data (400). Sync's empty-merge guard prevents reaching here, but reject
@@ -158,7 +161,7 @@ func (b *Backend) Advance(_ context.Context, _, branch, oldRef string, plaintext
 	// write is UNCONDITIONAL (CheckAndSetReference with a nil old ref skips the
 	// absence check), so without this two concurrent first-syncs both succeed and
 	// silently drop one member's facts. Released on return.
-	unlock, err := b.repo.lock()
+	unlock, err := b.repo.lockContext(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -168,6 +171,9 @@ func (b *Backend) Advance(_ context.Context, _, branch, oldRef string, plaintext
 	blobKey := b.blobKey(branch)
 
 	for attempt := 0; attempt < maxRefCASRetries; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		st, headRefObj, err := b.state()
 		if err != nil {
 			return "", err
@@ -196,6 +202,9 @@ func (b *Backend) Advance(_ context.Context, _, branch, oldRef string, plaintext
 			return "", err
 		}
 
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		newRefObj := plumbing.NewHashReference(plumbing.ReferenceName(metaRef), commitHash)
 		switch err := b.repo.store.CheckAndSetReference(newRefObj, headRefObj); {
 		case err == nil:

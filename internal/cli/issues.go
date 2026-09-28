@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/ashtom/entire-brain/internal/issues"
+	"github.com/entireio/entire-brain/internal/issues"
 	"github.com/spf13/cobra"
 )
 

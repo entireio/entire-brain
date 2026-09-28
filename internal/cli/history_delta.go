@@ -284,7 +284,10 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 	files := inventory.files
 	cache := loadHistoryScanCache(outputDir)
 	previous := loadHistoryShortTerm(outputDir, source)
-	excludedByPath := excludedTranscriptPaths(manifest, stones)
+	excludedByPath, err := excludedTranscriptPathsChecked(outputDir, manifest, stones)
+	if err != nil {
+		return stats, err
+	}
 	branchByPath := historyBranchByTranscriptPath(manifest)
 	sessionByPath := historySessionByTranscriptPath(manifest)
 	repoKey := ""
@@ -459,20 +462,60 @@ func loadFreshHistoryOverlay(brainDir string, source *historySourceManifest) fre
 // rankFreshHistoryLexicalFromSource preserves the direct FTS payload path for
 // the long-term tier, then overlays short-term records without forcing a full
 // index.json load on the common BM25-only path.
-func rankFreshHistoryLexicalFromSource(brainDir string, source *historySourceManifest, kind, query string, limit int) ([]scoredHistoryRecord, string, int, error) {
-	longTerm, access, inputs, err := rankHistoryLexicalFromSource(brainDir, source, kind, query, limit)
-	if err != nil {
-		return nil, access, inputs, err
+func rankFreshHistoryLexicalFromSource(brainDir string, source *historySourceManifest, kind, query string, limit int, predicates ...func(historyRecord) bool) ([]scoredHistoryRecord, string, int, error) {
+	var pred func(historyRecord) bool
+	if len(predicates) > 0 {
+		pred = predicates[0]
 	}
 	fresh := loadFreshHistoryOverlay(brainDir, source)
-	inputs += len(fresh.overlay)
-	if len(fresh.overlay) == 0 {
-		return longTerm, access, inputs, nil
+	if len(fresh.replaced) == 0 && len(fresh.overlay) == 0 && pred == nil {
+		return rankHistoryLexicalFromSource(brainDir, source, kind, query, limit)
 	}
-	merged := rankFreshHistory(fresh, kind, query, limit, nil, func(historyIndex) ([]scoredHistoryRecord, bool) {
-		return longTerm, true
+	// Filter before the payload reader deduplicates or limits candidates. This
+	// preserves the direct path even when the full JSON truth is unavailable.
+	overlayByKey := make(map[historyRecordReplacementKey]historyRecord)
+	for _, r := range fresh.overlay {
+		key := recordReplacementKey(r)
+		if prev, ok := overlayByKey[key]; ok {
+			r = newestHistoryRecord(prev, r)
+		}
+		overlayByKey[key] = r
+	}
+	eligible := func(r historyRecord) bool {
+		if fresh.replaced[r.Path] || (pred != nil && !pred(r)) {
+			return false
+		}
+		if replacement, ok := overlayByKey[recordReplacementKey(r)]; ok {
+			return sameRecordCopy(newestHistoryRecord(r, replacement), r)
+		}
+		return true
+	}
+	lex, used, directErr := rankHistoryViaFreshFTSCutoffDetailed(brainDir, source, kind, query, limit, historyFTSRelevanceCutoff, eligible)
+	derivedCorrupt := errors.Is(directErr, errHistoryFTSPayloadCorrupt)
+	if directErr != nil && !derivedCorrupt {
+		return nil, "", 0, directErr
+	}
+	if used {
+		for _, hit := range lex {
+			fresh.index.Records = append(fresh.index.Records, hit.Record)
+		}
+		ranked := rankFreshHistory(fresh, kind, query, limit, pred, func(historyIndex, func(historyRecord) bool) ([]scoredHistoryRecord, bool) { return lex, true })
+		return ranked, historyIndexAccessFTSPayload, source.Records + len(fresh.overlay), nil
+	}
+	index, err := loadBrainHistoryIndex(brainDir, source)
+	if err != nil {
+		return nil, "", 0, err
+	}
+	fresh.index = index
+	repaired := !derivedCorrupt || rebuildHistoryFTSFromTruth(brainDir, index) == nil
+	ranked := rankFreshHistory(fresh, kind, query, limit, pred, func(index historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
+		if !repaired {
+			return nil, false
+		}
+		ranked, complete, ok := rankHistoryViaFTSFiltered(brainDir, index, kind, query, limit, historyFTSRelevanceCutoff, eligible)
+		return ranked, ok && complete
 	})
-	return merged, access, inputs, nil
+	return ranked, historyIndexAccessJSON, len(index.Records) + len(fresh.overlay), nil
 }
 
 // historyRecordSourceTime derives a record's source recency from its
@@ -595,7 +638,7 @@ func (f freshHistory) duplicateRecordWinners() map[historyRecordReplacementKey]h
 // files, plus every overlay record. Duplicate stable IDs are NOT reconciled
 // here; readers that resolve records by ID must use reconciledRecords.
 func (f freshHistory) mergedRecords() []historyRecord {
-	if len(f.overlay) == 0 {
+	if len(f.overlay) == 0 && len(f.replaced) == 0 {
 		return f.index.Records
 	}
 	out := make([]historyRecord, 0, len(f.index.Records)+len(f.overlay))
@@ -655,7 +698,7 @@ func (f freshHistory) longTermReconciled() historyIndex {
 // longTermActive returns the long-term records minus superseded files, for
 // rankers that never touch the FTS store (semantic arms).
 func (f freshHistory) longTermActive() historyIndex {
-	if len(f.overlay) == 0 {
+	if len(f.replaced) == 0 {
 		return f.index
 	}
 	kept := make([]historyRecord, 0, len(f.index.Records))
@@ -668,40 +711,39 @@ func (f freshHistory) longTermActive() historyIndex {
 	return historyIndex{GeneratedAt: f.index.GeneratedAt, Records: kept}
 }
 
-// rankFreshHistory ranks the two tiers: longTermRank runs against the on-disk
-// long-term index (so the FTS freshness identity is untouched), superseded
-// files' hits are dropped, the overlay is ranked in-memory, and the two lists
-// RRF-fuse. With an empty overlay the long-term ranking is returned unchanged:
-// bit-for-bit default preservation. A non-nil pred applies the structured
-// filters to the in-memory arms (overlay and substring fallback) during
-// candidate generation; the longTermRank closure is responsible for pushing
-// the same predicate into its own arm. Superseded long-term hits are
-// dropped even when the filtered overlay is empty: their file was re-scanned,
-// so they are stale copies either way.
+// rankFreshHistory ranks both tiers with replacement eligibility applied
+// before candidate limits. The callback receives the original on-disk index
+// and the composed eligibility predicate, preserving its FTS identity. Overlay
+// and fallback candidates use the same filters before the lists are RRF-fused.
+
 func rankFreshHistory(
 	fresh freshHistory,
 	kind, query string,
 	limit int,
 	pred func(historyRecord) bool,
-	longTermRank func(historyIndex) ([]scoredHistoryRecord, bool),
+	longTermRank func(historyIndex, func(historyRecord) bool) ([]scoredHistoryRecord, bool),
 ) []scoredHistoryRecord {
-	lex, ok := longTermRank(fresh.index)
-	if !ok {
-		fallback := fresh.index
-		if pred != nil {
-			fallback = historyIndex{GeneratedAt: fresh.index.GeneratedAt, Records: filterHistoryRecords(fresh.index.Records, pred)}
-		}
-		lex = rankHistoryRecordsScored(fallback, kind, query, limit, 0)
-	}
-	if len(fresh.overlay) == 0 {
-		return lex
-	}
-	// One winner per replacement-scoped identity across the tiers: a superseded copy
-	// neither surfaces nor contributes a duplicate rank vote to the fusion.
 	winners := fresh.duplicateRecordWinners()
 	superseded := func(r historyRecord) bool {
 		w, ok := winners[recordReplacementKey(r)]
 		return ok && !sameRecordCopy(w, r)
+	}
+	eligible := pred
+	if len(fresh.replaced) > 0 || len(winners) > 0 {
+		eligible = func(r historyRecord) bool {
+			return !fresh.replaced[r.Path] && !superseded(r) && (pred == nil || pred(r))
+		}
+	}
+	lex, ok := longTermRank(fresh.index, eligible)
+	if !ok {
+		fallback := fresh.index
+		if eligible != nil {
+			fallback = historyIndex{GeneratedAt: fresh.index.GeneratedAt, Records: filterHistoryRecords(fresh.index.Records, eligible)}
+		}
+		lex = rankHistoryRecordsScored(fallback, kind, query, limit, 0)
+	}
+	if len(fresh.overlay) == 0 && len(fresh.replaced) == 0 {
+		return lex
 	}
 	kept := lex[:0:0]
 	for _, scored := range lex {

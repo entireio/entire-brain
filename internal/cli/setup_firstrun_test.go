@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/tui"
+	"github.com/entireio/entire-brain/internal/tui"
 	"github.com/spf13/cobra"
 )
 

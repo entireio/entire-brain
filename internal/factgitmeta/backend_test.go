@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/factgitmeta/gitmeta"
-	"github.com/ashtom/entire-brain/internal/factmerge"
-	"github.com/ashtom/entire-brain/internal/factsync"
+	"github.com/entireio/entire-brain/internal/factgitmeta/gitmeta"
+	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factsync"
 )
 
 func testNow() time.Time { return time.Date(2026, 7, 17, 0, 0, 0, 0, time.UTC) }

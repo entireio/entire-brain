@@ -7,6 +7,7 @@ const $ = (id) => document.getElementById(id);
 const app = $('app');
 let graph = null, view = 'hub', currentSel = null, currentFeature = null, brainMeta = {};
 let gData = { byId: {}, edges: [] };
+let graphGeneration = 0, inspectorGeneration = 0;
 
 async function api(path) {
   const res = await fetch(path, { headers: { Accept: 'application/json' } });
@@ -296,16 +297,19 @@ async function openFeature(key, focusId) {
 
 // Fetch (or re-fetch, when the slider changes) the current feature graph.
 async function loadFeatureGraph(key, focusId, fit) {
+  const generation = ++graphGeneration;
+  closeInspector();
   const f = featureByKey[key];
   $('loading').classList.remove('hidden'); $('empty').classList.add('hidden');
   try {
     const base = key === 'sem' ? '/api/graph' : '/api/' + key;
     const g = await api(base + (currentLimit ? '?limit=' + currentLimit : ''));
-    if (currentFeature !== key) return;
+    if (generation !== graphGeneration || currentFeature !== key) return;
     $('loading').classList.add('hidden');
     const nodes = g.nodes || [];
     gData = { byId: Object.fromEntries(nodes.map((n) => [n.id, n])), edges: g.edges || [] };
     const total = g.total || nodes.length;
+    graph.setData(nodes, g.edges || []);
     if (!nodes.length) {
       $('empty').classList.remove('hidden');
       $('empty-title').textContent = 'Nothing here yet';
@@ -313,14 +317,13 @@ async function loadFeatureGraph(key, focusId, fit) {
       setupSlider(nodes.length, total);
       return;
     }
-    graph.setData(nodes, g.edges || []);
     const shown = nodes.length;
     $('crumb-count').textContent = total > shown ? `${nf(shown)} of ${nf(total)}` : nf(total);
     setupSlider(shown, total);
-    if (fit) [280, 900, 1800].forEach((t) => setTimeout(() => { if (graph && currentFeature === key) graph.zoomToFit(false); }, t));
-    if (focusId) setTimeout(() => { if (currentFeature === key) openGraphNode(graph.getNode(focusId) || { id: focusId }); }, 650);
+    if (fit) [280, 900, 1800].forEach((t) => setTimeout(() => { if (graph && generation === graphGeneration && currentFeature === key) graph.zoomToFit(false); }, t));
+    if (focusId) setTimeout(() => { if (generation === graphGeneration && currentFeature === key) openGraphNode(graph.getNode(focusId) || { id: focusId }); }, 650);
   } catch (e) {
-    if (currentFeature !== key) return; // a stale failure must not clobber the active view
+    if (generation !== graphGeneration || currentFeature !== key) return; // a stale failure must not clobber the active view
     $('loading').classList.add('hidden'); $('empty').classList.remove('hidden');
     $('empty-title').textContent = 'Could not load'; $('empty-body').textContent = String(e.message || e);
   }
@@ -403,13 +406,15 @@ function paintHead(n) {
 
 // Semantic symbol: rich detail via /api/node (signature, snippet, neighbors, link).
 async function openNode(id) {
+  const request = ++inspectorGeneration, generation = graphGeneration;
+  const isCurrent = () => request === inspectorGeneration && generation === graphGeneration && currentSel === id;
   sfx('open');
   currentSel = id; ensureGraph(); graph.focus(id); app.classList.add('inspector-open');
   paintHead(graph.getNode(id) || { id });
   $('insp-body').innerHTML = '<div class="empty-note">Loading…</div>';
   try {
     const d = await api('/api/node?id=' + encodeURIComponent(id));
-    if (currentSel !== id) return;
+    if (!isCurrent()) return;
     paintHead(d.symbol || { id });
     let html = '';
     if (d.link) html += linkButton({ link: d.link, link_label: d.link_label });
@@ -424,11 +429,12 @@ async function openNode(id) {
     }
     const body = $('insp-body'); body.innerHTML = html;
     body.querySelectorAll('.neighbor').forEach((el) => el.addEventListener('click', () => openNode(el.dataset.id)));
-  } catch (e) { $('insp-body').innerHTML = `<div class="empty-note">Could not load: ${esc(String(e.message || e))}</div>`; }
+  } catch (e) { if (!isCurrent()) return; $('insp-body').innerHTML = `<div class="empty-note">Could not load: ${esc(String(e.message || e))}</div>`; }
 }
 
 // Feature node (fact/session/history/doc): detail comes from the loaded graph data.
 function openFeatureNode(id) {
+  ++inspectorGeneration;
   const n = gData.byId[id];
   if (!n) return;
   sfx('open');
@@ -457,8 +463,15 @@ function openFeatureNode(id) {
   body.querySelectorAll('.neighbor').forEach((el) => el.addEventListener('click', () => openFeatureNode(el.dataset.id)));
 }
 
-async function expandNode(n) { try { const d = await api('/api/node?id=' + encodeURIComponent(n.id)); if (graph.mergeData(d.neighbors || [], d.relations || []) > 0) graph.reheat(0.6); } catch (e) { /* best-effort */ } }
-function closeInspector() { app.classList.remove('inspector-open'); currentSel = null; graph && graph.clearFocus(); }
+async function expandNode(n) {
+  const generation = graphGeneration;
+  try {
+    const d = await api('/api/node?id=' + encodeURIComponent(n.id));
+    if (generation !== graphGeneration || currentFeature !== 'sem') return;
+    if (graph.mergeData(d.neighbors || [], d.relations || []) > 0) graph.reheat(0.6);
+  } catch (e) { /* best-effort */ }
+}
+function closeInspector() { ++inspectorGeneration; app.classList.remove('inspector-open'); currentSel = null; graph && graph.clearFocus(); }
 $('insp-close').addEventListener('click', closeInspector);
 $('insp-focus').addEventListener('click', () => currentSel && graph.focus(currentSel));
 $('insp-expand').addEventListener('click', () => { if (currentFeature === 'sem' && currentSel) { const n = graph.getNode(currentSel); if (n) expandNode(n); } });
@@ -471,6 +484,7 @@ let replay = null;
 const RP_PLAY = '▶', RP_PAUSE = '⏸';
 
 function stopReplay() {
+  ++graphGeneration;
   if (replay) { clearInterval(replay.timer); replay = null; }
   graph && graph.clearReplay();
   $('replaybar').classList.add('hidden');
@@ -479,6 +493,7 @@ function stopReplay() {
 async function startReplay(sessionId) {
   ensureGraph();
   stopReplay();
+  const generation = graphGeneration;
   setView('graph');
   currentFeature = 'replay';
   $('legend').classList.add('hidden');
@@ -491,25 +506,26 @@ async function startReplay(sessionId) {
   sfx('open');
   try {
     const d = await api('/api/session/replay?id=' + encodeURIComponent(sessionId));
-    if (currentFeature !== 'replay') return;
+    if (generation !== graphGeneration || currentFeature !== 'replay') return;
     $('loading').classList.add('hidden');
     const nodes = d.nodes || [];
     gData = { byId: Object.fromEntries(nodes.map((n) => [n.id, n])), edges: d.edges || [] };
+    graph.setData(nodes, d.edges || []);
     if (!nodes.length) {
       $('empty').classList.remove('hidden');
       $('empty-title').textContent = 'Nothing to replay';
       $('empty-body').textContent = (d.warnings && d.warnings[0]) || 'This session touched no indexed symbols.';
       return;
     }
-    graph.setData(nodes, d.edges || []); // autoFit frames the whole subgraph as it settles
     replay = { steps: d.steps || [], idx: -1, playing: false, timer: null, name: (d.session && d.session.name) || 'session' };
     $('rp-title').textContent = replay.name;
     const scrub = $('rp-scrub'); scrub.min = 0; scrub.max = Math.max(0, replay.steps.length - 1); scrub.value = 0;
     $('replaybar').classList.remove('hidden');
     // Let it settle + frame the whole graph first, then start stepping through it
     // in place (no per-step camera jumps — that was the disorienting part).
-    setTimeout(() => { if (currentFeature === 'replay' && replay) { graph.zoomToFit(false); replaySeek(0); replayPlay(); } }, 1100);
+    setTimeout(() => { if (generation === graphGeneration && currentFeature === 'replay' && replay) { graph.zoomToFit(false); replaySeek(0); replayPlay(); } }, 1100);
   } catch (e) {
+    if (generation !== graphGeneration || currentFeature !== 'replay') return;
     $('loading').classList.add('hidden'); $('empty').classList.remove('hidden');
     $('empty-title').textContent = 'Could not load replay'; $('empty-body').textContent = String(e.message || e);
   }

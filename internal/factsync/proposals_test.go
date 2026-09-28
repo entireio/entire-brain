@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ashtom/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factmerge"
 )
 
 // TestProposalIDIsStableAndDiscriminating pins the derived id: the same conflict

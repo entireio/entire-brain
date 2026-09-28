@@ -137,7 +137,7 @@ func lookGitMeta(t *testing.T) string {
 	cand := filepath.Join(home, ".local", "bin", "git-meta")
 	if _, err := os.Stat(cand); err == nil {
 		// Ensure `git meta` resolves to it by prepending to PATH for child procs.
-		_ = os.Setenv("PATH", filepath.Dir(cand)+string(os.PathListSeparator)+os.Getenv("PATH"))
+		t.Setenv("PATH", filepath.Dir(cand)+string(os.PathListSeparator)+os.Getenv("PATH"))
 		return cand
 	}
 	return ""

@@ -5,8 +5,9 @@ Adapted from entire-graph PR #189, source revision
 detector and default pure-Go SQLite backend; it does not enable the `brain_cgo`
 or `sqlite_fts5` build tags. `CGO_ENABLED=1` supports Go's race runtime.
 
-The `test` workflow compiles `internal/cli` once with `go test -race -c`,
-checks the executable's Go build information for `-race=true`, inventories
+The `test` workflow compiles `internal/cli` once with
+`go test -race -covermode=atomic -coverpkg=./... -c`, checks the executable's
+Go build information for race and coverage instrumentation, inventories
 its runnable Test, Example, and Fuzz roots, and partitions them across eight
 standard ephemeral Windows runners. Benchmarks are excluded. All remaining
 Windows packages run once with `go test -race`; native Windows vet runs once
@@ -20,6 +21,17 @@ multiplicity, exit codes, race evidence, binary hashes, toolchain and commit
 identity, and command-line limits. It requires all planned roots to run and
 terminate successfully (including legitimate skips), and rejects duplicates
 and omissions. The compiled inventory is authoritative for newly added tests.
+
+The same shard processes also collect atomic, cross-package statement coverage.
+Each invocation writes a separate profile with its path and SHA-256 bound into
+execution metadata; the non-heavy package run writes one additional profile.
+The non-heavy job also runs the instrumented CLI metadata/error contracts once
+with `tools/coverage/run.py --race --binary-only`, without a second suite run.
+After validating all execution evidence, the verifier checks profile hashes,
+format, containment and matching build identity, then unions covered source
+blocks into `summary.json` and `combined.out`. Missing or corrupt coverage fails
+verification. The aggregate job renders HTML and publishes the
+`coverage-windows-sharded` artifact. No separate full-suite coverage job remains.
 
 `settings.json` is the tuning surface. The timeout remains 20 minutes per
 package, shuffle remains off, and Go's default parallelism is preserved.

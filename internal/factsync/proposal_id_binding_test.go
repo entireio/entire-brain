@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/internal/factmerge"
 )
 
 // A proposal id is content-derived: ProposalID hashes action, candidate id,

@@ -105,14 +105,19 @@ func TestDeepVerifyCachesAndInvalidates(t *testing.T) {
 	}
 	firstCalls := calls
 	var verdict string
-	db.QueryRow(`SELECT verdict FROM deep_dossiers LIMIT 1`).Scan(&verdict)
+	if err := db.QueryRow(`SELECT verdict FROM deep_dossiers LIMIT 1`).Scan(&verdict); err != nil {
+		t.Fatal(err)
+	}
 	if verdict != "accepted" {
 		t.Errorf("verdict = %q, want accepted", verdict)
 	}
 
 	// Second run: unchanged evidence → all cached, agent not called again.
-	stats2, _ := verifyDeepDossiers(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, now)
-	if stats2.Cached != stats2.Considered || calls != firstCalls {
+	stats2, err := verifyDeepDossiers(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats2.Considered != stats.Considered || stats2.Cached != stats2.Considered || calls != firstCalls {
 		t.Errorf("expected full cache reuse (cached=%d considered=%d, no new calls), got %+v calls=%d (was %d)",
 			stats2.Cached, stats2.Considered, stats2, calls, firstCalls)
 	}
@@ -121,7 +126,10 @@ func TestDeepVerifyCachesAndInvalidates(t *testing.T) {
 	id := "episode:fix-new"
 	insertCorpusEpisode(t, db, id, "deploy:release", "corrected", 2, now)
 	insertCorpusShape(t, db, id, "mise build", "mise deploy")
-	stats3, _ := verifyDeepDossiers(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, now)
+	stats3, err := verifyDeepDossiers(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, now)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if stats3.Verified == 0 || calls <= firstCalls {
 		t.Errorf("changed evidence should re-verify, got %+v calls=%d (was %d)", stats3, calls, firstCalls)
 	}

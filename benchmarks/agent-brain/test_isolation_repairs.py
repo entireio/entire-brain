@@ -68,21 +68,25 @@ class CheckpointObjectPurgeTest(unittest.TestCase):
             _git("commit", "-qm", "base", "--allow-empty", cwd=worktree)
             _git("fetch", "-q", str(src), f"+HEAD:{run.CHECKPOINT_REF}", cwd=worktree)
 
+            answer_blob = _git(
+                "rev-parse", f"{run.CHECKPOINT_REF}~1:transcript-0.jsonl", cwd=worktree
+            ).strip()
+            self.assertIn(ANSWER, _git("cat-file", "-p", answer_blob, cwd=worktree))
+
             removed = run.remove_agent_visible_entire_history(worktree)
             self.assertTrue(removed)
 
-            unreachable = subprocess.run(
-                ["git", "fsck", "--unreachable", "--no-reflogs"],
-                cwd=worktree, capture_output=True, text=True,
-            ).stdout.strip()
+            unreachable = _git("fsck", "--unreachable", "--no-reflogs", cwd=worktree).strip()
             self.assertEqual(unreachable, "", "fetched checkpoint objects survived removal")
 
-            # The answer must be unrecoverable from the whole object store.
-            grep = subprocess.run(
-                ["git", "grep", "-F", ANSWER, "--all-match", "--cached"],
-                cwd=worktree, capture_output=True, text=True,
+            missing = subprocess.run(
+                ["git", "cat-file", "-p", answer_blob],
+                cwd=worktree,
+                capture_output=True,
+                text=True,
             )
-            self.assertNotEqual(grep.returncode, 0)
+            self.assertEqual(missing.returncode, 128)
+            self.assertIn("Not a valid object name", missing.stderr)
 
 
 class ScrubbedTaskBoundaryPolicyTest(unittest.TestCase):
@@ -99,7 +103,10 @@ class ScrubbedTaskBoundaryPolicyTest(unittest.TestCase):
     def test_unscrubbed_tasks_keep_the_strict_exclusion(self) -> None:
         audit = run.baseline_history_audit(self.AGENT_INFO, self.ATTESTATIONS, {})
         self.assertFalse(audit["ok"])
-        self.assertTrue(audit["findings"])
+        self.assertEqual(len(audit["findings"]), 1)
+        finding = audit["findings"][0]
+        self.assertEqual(finding["kind"], "benchmark_baseline_boundary_inspection")
+        self.assertRegex(finding["command_sha256"], r"^[0-9a-f]{64}$")
 
     def test_scrubbed_tasks_record_probing_as_advisory(self) -> None:
         audit = run.baseline_history_audit(

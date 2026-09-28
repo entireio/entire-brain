@@ -114,21 +114,34 @@ type mcpResponseTransport struct {
 type mcpResponseTransportContextKey struct{}
 
 func newMCPCommand(opts Options) *cobra.Command {
-	var printConfig bool
+	var (
+		printConfig bool
+		httpAddr    string
+		allowRemote bool
+	)
 	cmd := &cobra.Command{
 		Use:   "mcp",
-		Short: "Serve local brain tools over MCP stdio",
+		Short: "Serve local brain tools over MCP (stdio by default, or HTTP with --http)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if printConfig {
 				return printMCPServerConfig(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), opts)
 			}
 			nudgeMemoryAtStartup(cmd.Context(), opts)
+			if strings.TrimSpace(httpAddr) != "" {
+				return runMCPHTTP(cmd.Context(), cmd.OutOrStdout(), opts, httpAddr, allowRemote)
+			}
 			return runMCP(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), opts)
 		},
 	}
 	cmd.Flags().BoolVar(&printConfig, "print-config", false,
 		"Print an MCP server entry that launches this binary directly, for a host agent's config")
+	// Absent by default: with no --http there is no listener and no network,
+	// which is what SECURITY.md promises about the default build.
+	cmd.Flags().StringVar(&httpAddr, "http", "",
+		"Also serve MCP over HTTP on this address (e.g. 127.0.0.1:7777). A bare port binds loopback. Always requires a bearer token")
+	cmd.Flags().BoolVar(&allowRemote, "http-allow-remote", false,
+		"Permit --http to bind a non-loopback address. The brain holds source, transcripts and prompts; put TLS in front of it")
 	return cmd
 }
 
@@ -420,12 +433,10 @@ func runMCP(ctx context.Context, in io.Reader, out io.Writer, opts Options) erro
 		if msg.ID == nil {
 			continue
 		}
-		privacyState := &mcpResponsePrivacyState{}
 		requestCtx := context.WithValue(ctx, mcpResponseTransportContextKey{}, mcpResponseTransport{ID: msg.ID, FrameMode: frameMode})
-		requestCtx = context.WithValue(requestCtx, mcpResponsePrivacyContextKey{}, privacyState)
-		response := handleMCPMessage(requestCtx, opts, msg)
-		writeErr := writeMCPMessage(out, response, frameMode)
-		privacyState.release()
+		response, writeErr := deliverMCPResponse(requestCtx, opts, msg, func(_ context.Context, response mcpMessage) error {
+			return writeMCPMessage(out, response, frameMode)
+		})
 		if writeErr != nil {
 			mcpDebugLog(debugLog, "write_error: "+writeErr.Error())
 			return writeErr
@@ -433,6 +444,41 @@ func runMCP(ctx context.Context, in io.Reader, out io.Writer, opts Options) erro
 		mcpDebugLog(debugLog, "response: "+msg.Method)
 		mcpDebugLogToolResult(debugLog, msg, response)
 	}
+}
+
+// deliverMCPResponse runs one request and delivers its response with the
+// retrieval privacy lock held until delivery has finished.
+//
+// The lock-until-delivered ordering is the whole point and is easy to lose: a
+// retrieval command checks its output against the exclusion state, and a
+// tombstone landing between that check and the response reaching the client
+// would deliver content that should already have been excluded. Holding the
+// lock across delivery closes that window.
+//
+// It lives here, shared, because the ordering was originally written into the
+// stdio loop and the HTTP transport did not reproduce it — the two transports
+// silently disagreed about whether the window was closed. A transport now gets
+// the behaviour by calling this rather than by remembering to.
+// deliver receives the request context — the same one handling ran under, with
+// the privacy state on it — so a transport can honour cancellation and so the
+// seeding is observable rather than taken on faith.
+func deliverMCPResponse(ctx context.Context, opts Options, msg mcpMessage, deliver func(context.Context, mcpMessage) error) (mcpMessage, error) {
+	privacyState := newMCPResponsePrivacyState()
+	ctx = context.WithValue(ctx, mcpResponsePrivacyContextKey{}, privacyState)
+	response := handleMCPMessage(ctx, opts, msg)
+	err := deliver(ctx, response)
+	// After delivery, always — including when delivery failed, or the lock
+	// would be held for the life of the process.
+	privacyState.release()
+	return response, err
+}
+
+// newMCPResponsePrivacyState is a variable so a test can observe the state a
+// delivery created and when it was released. Production always returns a fresh
+// zero state; the ordering it guards is not otherwise observable from outside,
+// and an untestable ordering is one that silently comes undone.
+var newMCPResponsePrivacyState = func() *mcpResponsePrivacyState {
+	return &mcpResponsePrivacyState{}
 }
 
 type mcpResponsePrivacyContextKey struct{}
@@ -724,7 +770,10 @@ func mcpToolDefinitions() []map[string]any {
 			"items":       map[string]any{"type": "string"},
 			"description": "Conversation source only: additional concepts (up to 4). Returns conversation-session: results covering the query AND every concept, with evidence_ids naming the supporting exchanges.",
 		}
+		args["no_global"] = boolArg("no_global", "Exclude global facts from this request")
 		args["include_abstract"] = boolArg("include_abstract", "Conversation source only: include bounded evidence-linked session previews; never changes ranking or invokes a provider")
+		args["recency"] = boolArg("recency", "Prefer recent dated results; default false, not supported for source conversation")
+		args["recency_half_life"] = stringArg("recency_half_life", "Positive Go duration, e.g. 720h; default 2160h (90 days); requires recency=true")
 		return args
 	}
 	objectSchema := func(required []string, properties map[string]any) map[string]any {
@@ -853,6 +902,28 @@ func mcpToolDefinitions() []map[string]any {
 			"name":        "brain_delete_project",
 			"description": "Delete a local brain project by repo_key, or the current repo project when repo_key is omitted. This removes local generated brain data only. Irreversible: exported session history and indexes for the project are erased, so confirm=true is required. A repo_key other than the bound repository's is refused unless ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO is set.",
 			"inputSchema": objectSchema([]string{"confirm"}, map[string]any{"repo_key": stringArg("repo_key", "Repository key to delete (default: current repo)"), "confirm": boolArg("confirm", "Must be true; acknowledges that the project's exported history and indexes are erased irreversibly")}),
+		},
+		{
+			"name": "brain_remember",
+			// The one write an agent actually needs. Every other writing tool
+			// here rebuilds derived state; this is the only way to record
+			// something learned, and without it a session's conclusions die
+			// with the session while `entire brain remember` sits in the CLI
+			// where no agent can reach it.
+			//
+			// path is required rather than inferred. The CLI can classify a
+			// fact by shelling out to a coding agent, and doing that from an
+			// MCP call would spend model tokens the caller never asked for,
+			// inside a tool whose whole point is that it is deterministic.
+			// The caller already knows what it learned.
+			"description": "Record a durable fact about this repository so it survives the session. The only tool here that writes memory rather than derived state; read the result back with brain_query source=fact, or brain_get by id. path is a taxonomy path shaped category.subcategory.type, e.g. constraints.retry.policy; a path outside this repository's taxonomy is refused with the valid categories named (by default architecture, constraints, preferences, project, workflow). Facts are stored per branch and anchored to the current commit.",
+			"inputSchema": objectSchema([]string{"fact", "path"}, map[string]any{
+				"fact":   stringArg("fact", "The durable fact, as one self-contained sentence"),
+				"path":   stringArg("path", "Taxonomy path: category.subcategory.type, comma-separated for several"),
+				"kind":   enumArg("kind", "Fact kind; inferred when omitted", []string{"decision", "invariant", "gotcha", "preference", "convention"}),
+				"branch": branchArg(),
+				"global": boolArg("global", "Record outside every repository so the fact applies everywhere (a preference, a team convention, an environment detail). Cannot be combined with branch."),
+			}),
 		},
 		{
 			"name":        "brain_search_code",
@@ -1099,6 +1170,52 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		}
 	case "brain_list_projects":
 		err = runMCPListProjects(ctx, cmd, opts)
+	case "brain_remember":
+		factText, factErr := mcpOptionalString(params.Arguments, "fact")
+		if factErr != nil {
+			err = factErr
+			break
+		}
+		if strings.TrimSpace(factText) == "" {
+			err = mcpRequiredArg("fact")
+			break
+		}
+		taxonomyPath, pathErr := mcpOptionalString(params.Arguments, "path")
+		if pathErr != nil {
+			err = pathErr
+			break
+		}
+		if strings.TrimSpace(taxonomyPath) == "" {
+			// Required rather than inferred, and refused rather than guessed:
+			// the CLI's fallback classifies by shelling out to a coding agent,
+			// and an MCP call must not spend model tokens its caller did not
+			// ask for. The schema and description carry the shape.
+			err = mcpRequiredArg("path")
+			break
+		}
+		factKind, kindErr := mcpOptionalString(params.Arguments, "kind")
+		if kindErr != nil {
+			err = kindErr
+			break
+		}
+		factBranch, branchErr := mcpOptionalString(params.Arguments, "branch")
+		if branchErr != nil {
+			err = branchErr
+			break
+		}
+		factGlobal, globalErr := mcpBool(params.Arguments, "global")
+		if globalErr != nil {
+			err = globalErr
+			break
+		}
+		err = runRemember(ctx, cmd, opts, rememberCommandOptions{
+			path:   strings.TrimSpace(taxonomyPath),
+			kind:   strings.TrimSpace(factKind),
+			branch: strings.TrimSpace(factBranch),
+			agent:  "none",
+			json:   true,
+			global: factGlobal,
+		}, factText)
 	case "brain_delete_project":
 		repoKey, stringErr := mcpOptionalString(params.Arguments, "repo_key")
 		if stringErr != nil {
@@ -1575,11 +1692,23 @@ func mcpRetrievalOptions(args map[string]any, branch string) (retrievalOptions, 
 	if err != nil {
 		return retrievalOptions{}, err
 	}
+	ropts.NoGlobalFacts, err = mcpBool(args, "no_global")
+	if err != nil {
+		return retrievalOptions{}, err
+	}
 	ropts.IncludeAbstract, err = mcpBool(args, "include_abstract")
 	if err != nil {
 		return retrievalOptions{}, err
 	}
-	return ropts, nil
+	recency, err := mcpBool(args, "recency")
+	if err != nil {
+		return retrievalOptions{}, err
+	}
+	halfLife, err := mcpOptionalString(args, "recency_half_life")
+	if err != nil {
+		return retrievalOptions{}, err
+	}
+	return withRecencyOptions(ropts, recency, halfLife)
 }
 
 type mcpProjectSummary struct {

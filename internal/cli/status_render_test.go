@@ -2,13 +2,14 @@ package cli
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/ashtom/entire-brain/internal/tui"
+	"github.com/entireio/entire-brain/internal/tui"
 )
 
 // statusFixtureReport is the report the screenshot that started this work came
@@ -21,7 +22,7 @@ func statusFixtureReport(t *testing.T, blindSpotCount int) brainStatusReport {
 	spots := make([]brainBlindSpot, 0, blindSpotCount)
 	warnings := make([]semanticWarning, 0, blindSpotCount)
 	for i := 0; i < blindSpotCount; i++ {
-		path := "benchmarks/agent-brain/mined/entire-cli-" + itoa(i) + ".json"
+		path := "benchmarks/agent-brain/mined/entire-cli-" + strconv.Itoa(i) + ".json"
 		spots = append(spots, brainBlindSpot{
 			Path:   path,
 			Code:   "E_MINIFIED",
