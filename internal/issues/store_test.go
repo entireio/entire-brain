@@ -449,3 +449,37 @@ func TestFailedOperationRemainsTerminal(t *testing.T) {
 		t.Fatal("terminal failure was blindly retried")
 	}
 }
+
+func TestOperationPreservesBeforeSnapshot(t *testing.T) {
+	for _, outcome := range []string{"unknown", "failed", "succeeded"} {
+		t.Run(outcome, func(t *testing.T) {
+			s := fixture(t)
+			r := rec("issue", issue, "requirements")
+			importOK(t, s, 1, r)
+			op := Operation{ID: "88888888-8888-8888-8888-888888888888", Target: r.Key(), Action: "status", PayloadHash: Hash([]byte("update")), ObservedAt: now, Outcome: "pending", Before: map[string]json.RawMessage{"status": json.RawMessage(`{"name":"open","id":"old"}`)}}
+			if err := s.Operation(op); err != nil {
+				t.Fatal(err)
+			}
+			op.Outcome, op.ObjectID, op.URL = outcome, issue, r.URL
+			for _, changed := range []map[string]json.RawMessage{
+				{"status": json.RawMessage(`{"name":"closed","id":"new"}`)},
+				nil,
+				{"status": json.RawMessage(`{"name":"open","id":"old"}`), "priority": json.RawMessage(`1`)},
+			} {
+				op.Before = changed
+				if err := s.Operation(op); err == nil {
+					t.Fatal("operation replaced its original before snapshot")
+				}
+				st, err := s.Load()
+				if err != nil || len(st.Operations[op.ID]) != 1 {
+					t.Fatalf("rejected operation altered history: %+v, %v", st.Operations, err)
+				}
+			}
+			// Formatting and key order may differ between CLI and MCP callers.
+			op.Before = map[string]json.RawMessage{"status": json.RawMessage(`{ "id": "old", "name": "open" }`)}
+			if err := s.Operation(op); err != nil {
+				t.Fatalf("unchanged before snapshot rejected: %v", err)
+			}
+		})
+	}
+}

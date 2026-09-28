@@ -674,7 +674,9 @@ func (s Store) Operation(op Operation) error {
 			}
 		} else {
 			prev := history[len(history)-1]
-			if prev.Target != op.Target || prev.Action != op.Action || prev.PayloadHash != op.PayloadHash {
+			beforeChanged := len(prev.Before) != len(op.Before) ||
+				(len(prev.Before) > 0 && !bytes.Equal(canonicalJSON(prev.Before), canonicalJSON(op.Before)))
+			if prev.Target != op.Target || prev.Action != op.Action || prev.PayloadHash != op.PayloadHash || beforeChanged {
 				return errors.New("operation intent cannot change")
 			}
 			a, _ := json.Marshal(prev)
