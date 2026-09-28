@@ -1,0 +1,57 @@
+{
+  "cli_version": "0.11.3-nightly.202609230619.4e2e839c2",
+  "checkpoint_id": "9b4ec917a3fb",
+  "strategy": "manual-commit",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "docs/benchmarks.md",
+    "docs/feature-matrix.csv",
+    "docs/feature-matrix.md",
+    "docs/reference.md",
+    "docs/scale.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/bench.go",
+    "internal/cli/bench_scale.go",
+    "internal/cli/bench_scale_test.go",
+    "internal/cli/benchmarks_doc_test.go",
+    "internal/cli/blind_spot.go",
+    "internal/cli/blind_spot_branch_test.go",
+    "internal/cli/conversation_session.go",
+    "internal/cli/embed_rank.go",
+    "internal/cli/entities_cmd_test.go",
+    "internal/cli/facts_admin_cmd.go",
+    "internal/cli/facts_global.go",
+    "internal/cli/facts_global_test.go",
+    "internal/cli/facts_read_cmd.go",
+    "internal/cli/facts_write_cmd.go",
+    "internal/cli/feature_matrix_test.go",
+    "internal/cli/mcp.go",
+    "internal/cli/retrieve.go",
+    "internal/cli/retrieve_cmd.go",
+    "internal/cli/retrieve_test.go",
+    "internal/cli/rss_children_test.go",
+    "internal/cli/rss_getrusage.go",
+    "internal/cli/semantic_relevance_test.go",
+    "internal/cli/semantic_test.go",
+    "internal/cli/testdata/mcp_tool_surface.golden.json",
+    "internal/cli/webhooks.go",
+    "internal/cli/webhooks_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/9b/4ec917a3fb/0/metadata.json",
+      "transcript": "/9b/4ec917a3fb/0/full.jsonl",
+      "compact_transcript": "/9b/4ec917a3fb/0/transcript.jsonl",
+      "content_hash": "/9b/4ec917a3fb/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 4739,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 453248,
+    "output_tokens": 1190,
+    "api_call_count": 3
+  }
+}
