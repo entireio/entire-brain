@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -32,6 +34,14 @@ func distillCoverage(manifest *exportManifest) (last time.Time, undigested int, 
 // gone" decides whether the line is true.
 // Empty string when nothing useful can be said (no manifest at all).
 func emptyResultBlindSpot(brainDir string) string {
+	return emptyResultBlindSpotOnBranch(brainDir, "")
+}
+
+// emptyResultBlindSpotOnBranch is emptyResultBlindSpot for callers that know
+// which branch they queried. Facts are stored per branch, so "nothing here" and
+// "nothing anywhere" are different answers and only this variant can tell them
+// apart.
+func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
 	manifest, err := loadBrainManifest(brainDir)
 	// A missing manifest loads as an empty struct, not an error, and a nil
 	// Sources is exactly that case: normalizeBrainManifest gives every manifest
@@ -63,7 +73,61 @@ func emptyResultBlindSpot(brainDir string) string {
 	if undigested > 0 {
 		return fmt.Sprintf("note: last distillation %s; %d session(s) captured since; coverage of older sessions is unknown", last.Format("2006-01-02"), undigested)
 	}
+	// Facts are recorded against the branch the session ran on. Sessions run on
+	// feature branches and queries run from main, so an empty result on one
+	// branch is the ordinary case rather than a signal about the corpus. The
+	// note below is true but generic; when the store can name where the facts
+	// actually are, saying so is strictly more useful than restating that
+	// absence is not evidence.
+	if note := otherBranchBlindSpot(brainDir, branch); note != "" {
+		return note
+	}
 	return fmt.Sprintf("note: last distillation %s; complete session coverage is unknown, so this empty result is not evidence of absence", last.Format("2006-01-02"))
+}
+
+// otherBranchBlindSpot reports active facts held on branches other than the one
+// queried. It returns empty when the caller did not say which branch it
+// queried, when the store cannot be read, or when no other branch holds
+// anything active — in each case the caller falls through to its normal note.
+func otherBranchBlindSpot(brainDir, branch string) string {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return ""
+	}
+	byBranch, err := loadAllFactBranches(brainDir)
+	if err != nil {
+		return ""
+	}
+	total := 0
+	var names []string
+	for other, records := range byBranch {
+		if other == branch {
+			continue
+		}
+		active := 0
+		for _, record := range records {
+			if record.Status == factStatusActive {
+				active++
+			}
+		}
+		if active == 0 {
+			continue
+		}
+		total += active
+		names = append(names, other)
+	}
+	if total == 0 {
+		return ""
+	}
+	// Deterministic: loadAllFactBranches returns a map, and Go randomises map
+	// iteration, so an unsorted list would reorder between identical runs.
+	sort.Strings(names)
+	shown, suffix := names, ""
+	if len(shown) > 3 {
+		shown, suffix = shown[:3], ", ..."
+	}
+	return fmt.Sprintf("note: no matching facts on %s, but %d active fact(s) on %d other branch(es): %s%s — retry with --branch",
+		branch, total, len(names), strings.Join(shown, ", "), suffix)
 }
 
 // noBrainBlindSpot is the note for a repository whose brain does not exist or

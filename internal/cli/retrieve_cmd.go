@@ -280,7 +280,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 				out["related_patterns"] = related
 			}
 			if len(results) == 0 {
-				if note := emptyResultBlindSpot(brainDir); note != "" {
+				if note := emptyResultBlindSpotOnBranch(brainDir, resolvedBranch); note != "" {
 					out["blind_spot"] = note
 				}
 			}
@@ -300,7 +300,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		if err := writeTextToWriter(&rendered, func(out io.Writer) {
 			if len(results) == 0 {
 				fmt.Fprintf(out, "no results for %q\n", query)
-				if note := emptyResultBlindSpot(brainDir); note != "" {
+				if note := emptyResultBlindSpotOnBranch(brainDir, resolvedBranch); note != "" {
 					fmt.Fprintln(out, note)
 				}
 			}
@@ -372,7 +372,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		Related:                   related,
 	}
 	if len(results) == 0 {
-		extras.BlindSpot = emptyResultBlindSpot(brainDir)
+		extras.BlindSpot = emptyResultBlindSpotOnBranch(brainDir, resolvedBranch)
 	}
 	if jsonOut {
 		// Preserve the established JSON `text` field on both CLI and MCP
