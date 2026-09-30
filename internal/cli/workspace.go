@@ -608,7 +608,7 @@ func newWorkspaceRetrieveCommand(opts Options, use string, mode retrievalMode, s
 	cmd.Flags().IntVar(&retrieveOpts.limit, "limit", 10, "Maximum results per repo")
 	cmd.Flags().StringVar(&retrieveOpts.branch, "branch", "", "Branch for facts in every repo (default: each repo's distill default)")
 	cmd.Flags().BoolVar(&retrieveOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().StringVar(&retrieveOpts.source, "source", "", "Restrict retrieval to one source per repo: all, fact, history, conversation, or doc (conversation is experimental opt-in)")
+	cmd.Flags().StringVar(&retrieveOpts.source, "source", "", "Restrict retrieval per repo to all, fact, history, conversation, doc, or issue (conversation is experimental opt-in)")
 	cmd.Flags().StringVar(&retrieveOpts.after, "after", "", "Conversation source only: sessions at or after this time (RFC3339 or YYYY-MM-DD)")
 	cmd.Flags().StringVar(&retrieveOpts.before, "before", "", "Conversation source only: sessions before this time (RFC3339 or YYYY-MM-DD)")
 	cmd.Flags().StringVar(&retrieveOpts.session, "session", "", "Conversation source only: exchanges from this session id")
@@ -2557,7 +2557,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 				label += " verify"
 			}
 			fmt.Fprintf(out, "[%s] %s  %s\n    %s\n", label, printedID, loc, ex)
-			printRetrievalCaveats(out, r)
+			printRetrievalCaveats(out, qualifyWorkspaceUnifiedResult(result.RepoKey, manifest.Name, r))
 		}
 		if result.Error != "" {
 			fmt.Fprintf(out, "%s error %s\n", result.RepoKey, result.Error)
@@ -2770,7 +2770,7 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 				label += " verify"
 			}
 			fmt.Fprintf(out, "[%s] %s/%s  %s\n%s\n", label, result.RepoKey, r.ID, loc, r.Text)
-			printRetrievalCaveats(out, r)
+			printRetrievalCaveats(out, qualifyWorkspaceUnifiedResult(result.RepoKey, manifest.Name, r))
 			fmt.Fprintln(out)
 		}
 		for _, id := range result.Missing {
@@ -2981,7 +2981,7 @@ func workspaceMemberBranch(brainDir, override string) (string, error) {
 // first path segment starting a known source prefix is the boundary.
 func splitWorkspaceID(qualified string) (repoKey, id string, err error) {
 	// conversation-session: must precede conversation: (prefix containment).
-	for _, prefix := range []string{"fact:", "review:", "history:", conversationSessionIDPrefix, "conversation:", "doc:", "pattern:", "theme:"} {
+	for _, prefix := range []string{"fact:", "review:", "history:", conversationSessionIDPrefix, "conversation:", "doc:", "issue:", "pattern:", "theme:"} {
 		if strings.HasPrefix(qualified, prefix) {
 			return "", "", fmt.Errorf("id %q is missing its repo key (expected <repo-key>/%s…)", qualified, prefix)
 		}

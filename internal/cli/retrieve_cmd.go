@@ -16,11 +16,12 @@ import (
 const retrievalExcerptBytes = 600
 
 type compactUnifiedResult struct {
-	Source  string `json:"source"`
-	ID      string `json:"id"`
-	Path    string `json:"path,omitempty"`
-	Heading string `json:"heading,omitempty"`
-	Line    int    `json:"line,omitempty"`
+	Issue   *issueCitation `json:"issue,omitempty"`
+	Source  string         `json:"source"`
+	ID      string         `json:"id"`
+	Path    string         `json:"path,omitempty"`
+	Heading string         `json:"heading,omitempty"`
+	Line    int            `json:"line,omitempty"`
 	// Text is retained for JSON compatibility. Excerpt is the bounded locator
 	// projection newer agents may prefer before calling get/multi-get; it is
 	// omitted when it would duplicate Text byte for byte, which is the common
@@ -125,7 +126,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current); with --source conversation also filters exchanges to that captured branch")
 	cmd.Flags().BoolVar(&noGlobal, "no-global", false, "Exclude global facts from this request")
 	cmd.Flags().BoolVar(&patterns, "patterns", false, "Also surface relevant pattern:/theme: pointers (does not change facts/history/docs ranking)")
-	cmd.Flags().StringVar(&source, "source", "", "Restrict retrieval to one source: all, fact, history, conversation, or doc (default all; conversation is experimental opt-in)")
+	cmd.Flags().StringVar(&source, "source", "", "Restrict retrieval to all, fact, history, conversation, doc, or issue (default all; conversation is experimental opt-in)")
 	cmd.Flags().StringVar(&after, "after", "", "Conversation source only: sessions at or after this time (RFC3339 or YYYY-MM-DD)")
 	cmd.Flags().StringVar(&before, "before", "", "Conversation source only: sessions before this time (RFC3339 or YYYY-MM-DD)")
 	cmd.Flags().StringVar(&session, "session", "", "Conversation source only: exchanges from this session id (also disables the per-session diversity cap)")
@@ -482,6 +483,7 @@ func compactUnifiedResults(results []unifiedResult, query string) []compactUnifi
 	out := make([]compactUnifiedResult, len(results))
 	for i, result := range results {
 		out[i] = compactUnifiedResult{
+			Issue:  result.Issue,
 			Source: result.Source, ID: result.ID, Path: result.Path, Heading: result.Heading, Line: result.Line,
 			Text: result.Text, Excerpt: distinctRetrievalExcerpt(result.Text, query), Score: result.Score,
 			VerificationRequired: result.VerificationRequired, Caveats: result.Caveats, RelatedIDs: result.RelatedIDs,
@@ -593,7 +595,9 @@ func newGetCommand(opts Options) *cobra.Command {
 		Use:   "get <id>",
 		Short: "Fetch a brain item by ID",
 		Long: `get fetches one item in full by id (fact: | review: | history: | conversation: |
-conversation-session: | doc: | pattern: | theme:).
+conversation-session: | doc: | issue: | pattern: | theme:).
+Large issue records return a bounded page; pass issue.next_id to get the next
+page of the same immutable snapshot.
 
 Exit code: 0 when the id was found, 1 when it was not. A miss still prints
 ` + "`not found: <id>`" + ` (or a JSON body whose "missing" array names it) before
@@ -820,6 +824,12 @@ func unifiedResultLocation(r unifiedResult) string {
 }
 
 func printRetrievalCaveats(out io.Writer, result unifiedResult) {
+	if result.Issue != nil {
+		fmt.Fprintf(out, "    snapshot: %s\n    observed: %s\n", result.Issue.Snapshot, result.Issue.ObservedAt.Format("2006-01-02T15:04:05Z07:00"))
+		if result.Issue.NextID != "" {
+			fmt.Fprintf(out, "    next_id: %s\n", result.Issue.NextID)
+		}
+	}
 	for _, caveat := range result.Caveats {
 		fmt.Fprintf(out, "    verify: %s\n", caveat.Message)
 		details := make([]string, 0, 4)

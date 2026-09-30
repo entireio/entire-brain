@@ -111,7 +111,7 @@ See the [agent integration guide](docs/reference.md#how-agents-use-the-brain) an
 
 ### Brain without fact extraction
 
-Extracting facts uses an available agent CLI and can send session content to its model provider and incur token charges. Without an agent CLI, this step is skipped. 
+Extracting facts uses an available agent CLI and can send session content to its model provider and incur token charges. Without an agent CLI, this step is skipped.
 
 To build without fact extraction or a background service, use:
 
@@ -215,7 +215,7 @@ The default mode is hybrid. `--keyword` and `--semantic` are mutually
 exclusive; supplying both a positional query and `--query` is an error.
 The same forms work with `entire brain workspace query <workspace>`.
 
-`query` also takes `--source` (`all` | `fact` | `history` | `doc` | `conversation`) to narrow the corpus, and `--json` for machine-readable output:
+`query` also takes `--source` (`all` | `fact` | `history` | `doc` | `conversation` | `issue`) to narrow the corpus, and `--json` for machine-readable output:
 
 ```bash
 entire brain query "auth middleware" --source fact --json | jq '.results[0]'
@@ -264,6 +264,16 @@ entire brain inspect changes
 # A bounded context packet scoped to one task.
 entire brain brief "add rate limiting to the upload endpoint"
 ```
+
+### Work with Linear issue evidence
+
+For Linear-backed work, connect Linear's MCP server in the agent host and follow
+the [host-neutral issue workflow](docs/linear-workflow.md). `issues configure`
+selects projects, `issues import` stores bounded source batches, and
+`brief --issue COR-123` pins an imported issue. Selected evidence joins ordinary
+queries, with exact snapshot citations and freshness/coverage caveats. Remote
+writes remain user-requested host actions; Brain stores their receipts locally.
+No Brain-owned Linear credentials are needed.
 
 ### Explore the brain interactively
 

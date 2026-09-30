@@ -47,6 +47,7 @@ var beforeRetrievalResponseWrite = func() {}
 type retrievalPrivacyPolicy struct {
 	BrainDir            string
 	Identity            string
+	IssueIdentity       string
 	RequireDerivedClean bool
 }
 
@@ -86,7 +87,11 @@ func captureRetrievalPrivacyPolicy(brainDir string) (retrievalPrivacyPolicy, err
 	if err != nil {
 		return retrievalPrivacyPolicy{}, err
 	}
-	return retrievalPrivacyPolicy{BrainDir: brainDir, Identity: guard.policyIdentity}, nil
+	issueIdentity, err := issueVisibilityIdentity(brainDir)
+	if err != nil {
+		return retrievalPrivacyPolicy{}, err
+	}
+	return retrievalPrivacyPolicy{BrainDir: brainDir, Identity: guard.policyIdentity, IssueIdentity: issueIdentity}, nil
 }
 
 // writeRetrievalResponseBytes is the only final write boundary for retrieval,
@@ -125,6 +130,7 @@ func withLockedRetrievalPrivacyPolicies(policies []retrievalPrivacyPolicy, fn fu
 
 func acquireRetrievalPrivacyPolicies(policies []retrievalPrivacyPolicy) (func(), error) {
 	byBrain := make(map[string]string, len(policies))
+	issueByBrain := make(map[string]string, len(policies))
 	requireDerivedClean := make(map[string]bool, len(policies))
 	for _, policy := range policies {
 		if policy.BrainDir == "" {
@@ -135,6 +141,12 @@ func acquireRetrievalPrivacyPolicies(policies []retrievalPrivacyPolicy) (func(),
 			return nil, fmt.Errorf("%s: response was assembled under conflicting privacy policies", memoryErrPrivacyDirty)
 		}
 		byBrain[brainDir] = policy.Identity
+		if policy.IssueIdentity != "" {
+			if prior := issueByBrain[brainDir]; prior != "" && prior != policy.IssueIdentity {
+				return nil, fmt.Errorf("issue evidence changed while assembling response; retry retrieval")
+			}
+			issueByBrain[brainDir] = policy.IssueIdentity
+		}
 		requireDerivedClean[brainDir] = requireDerivedClean[brainDir] || policy.RequireDerivedClean
 	}
 	brainDirs := make([]string, 0, len(byBrain))
@@ -159,6 +171,16 @@ func acquireRetrievalPrivacyPolicies(policies []retrievalPrivacyPolicy) (func(),
 		}
 	}
 	for _, brainDir := range brainDirs {
+		if expected := issueByBrain[brainDir]; expected != "" {
+			actual, err := issueVisibilityIdentity(brainDir)
+			if err != nil || actual != expected {
+				release()
+				if err != nil {
+					return nil, err
+				}
+				return nil, fmt.Errorf("issue evidence changed while assembling response; retry retrieval")
+			}
+		}
 		if err := requireRetrievalPrivacyPolicyIdentity(brainDir, byBrain[brainDir]); err != nil {
 			release()
 			return nil, err
@@ -540,6 +562,12 @@ func qualifyAbstractStatement(repoKey, workspaceName string, statement abstractS
 func qualifyWorkspaceUnifiedResult(repoKey, workspaceName string, result unifiedResult) unifiedResult {
 	qualify := func(id string) string { return qualifyWorkspaceAddressableID(repoKey, workspaceName, id) }
 	result.ID = qualify(result.ID)
+	if result.Issue != nil {
+		citation := *result.Issue
+		citation.Snapshot = qualify(citation.Snapshot)
+		citation.NextID = qualify(citation.NextID)
+		result.Issue = &citation
+	}
 	result.SessionRef = qualify(result.SessionRef)
 	result.TargetID = qualify(result.TargetID)
 	result.RelatedIDs = append([]string(nil), result.RelatedIDs...)
