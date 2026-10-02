@@ -48,6 +48,15 @@ func newAgentInstructionsCommand(opts Options, install bool) *cobra.Command {
 			if root == "" {
 				return fmt.Errorf("outside a repository; supply --repo")
 			}
+			// Name both roots when this one sits inside another repository.
+			// Writing the guide into a nested clone is silent and looks like
+			// success, and the files land where the outer repository cannot
+			// see them. See agentsetup.OuterRepo.
+			if outer := agentsetup.OuterRepo(root); outer != "" && !cmd.Flags().Changed("repo") && len(args) == 0 {
+				fmt.Fprintf(cmd.ErrOrStderr(),
+					"warning: %s is a git repository inside %s.\nThe guide, AGENTS.md and CLAUDE.md go to the inner one. If you meant the project, run:\n    entire brain init-agents --repo %s\n\n",
+					root, outer, outer)
+			}
 			if jsonOut {
 				changed, err := agentsetup.InstallChanged(root, render)
 				if err != nil {
