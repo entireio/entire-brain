@@ -250,7 +250,7 @@ func TestBrainReviewUsesRuntimeTraceForRankingAndContext(t *testing.T) {
 			t.Fatalf("write %s: %v", rel, err)
 		}
 	}
-	for _, k := range [][]string{{"git", "status", "--porcelain"}, {"git", "status", "--porcelain", "--untracked-files=all"}, {"git", "diff", "--shortstat", "HEAD"}, {"git", "diff", "--name-status", "-M", "-C", "HEAD"}} {
+	for _, k := range [][]string{{"git", "status", "--porcelain"}, {"git", "status", "--porcelain", "--untracked-files=all"}, {"git", "diff-index", "-M", "--shortstat", "HEAD"}, {"git", "diff", "--name-status", "-M", "-C", "HEAD"}} {
 		runner.responses[fakeCommandKey(k[0], k[1:]...)] = fakeCommandResponse{}
 	}
 	var out strings.Builder
@@ -281,7 +281,7 @@ func TestInspectRegressionsCommandJSONAndLocationOnly(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	for _, k := range [][]string{{"git", "status", "--porcelain"}, {"git", "status", "--porcelain", "--untracked-files=all"}, {"git", "diff", "--shortstat", "HEAD"}, {"git", "diff", "--name-status", "-M", "-C", "HEAD"}} {
+	for _, k := range [][]string{{"git", "status", "--porcelain"}, {"git", "status", "--porcelain", "--untracked-files=all"}, {"git", "diff-index", "-M", "--shortstat", "HEAD"}, {"git", "diff", "--name-status", "-M", "-C", "HEAD"}} {
 		runner.responses[fakeCommandKey(k[0], k[1:]...)] = fakeCommandResponse{}
 	}
 	mk := func() *cobra.Command {

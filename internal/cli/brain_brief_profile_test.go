@@ -65,7 +65,7 @@ func newBrainBriefProfileFixture(t *testing.T) brainBriefProfileFixture {
 
 	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
-	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 	return brainBriefProfileFixture{repoDir: repoDir, brainDir: storage.BrainDir, opts: opts}
 }

@@ -2816,7 +2816,7 @@ func gitDiffBinary(ctx context.Context, runner CommandRunner, repoDir string, ca
 		args = append(args, "--", ".")
 		args = append(args, exclusions...)
 	}
-	stdout, _, err := runner.Run(ctx, repoDir, "git", args...)
+	stdout, _, err := runGitWithScratchIndex(ctx, runner, repoDir, args...)
 	if err == nil {
 		return stdout, nil
 	}
@@ -2825,7 +2825,7 @@ func gitDiffBinary(ctx context.Context, runner CommandRunner, repoDir string, ca
 		args = append(args, "--cached")
 	}
 	args = append(args, "--binary", "HEAD")
-	stdout, _, fallbackErr := runner.Run(ctx, repoDir, "git", args...)
+	stdout, _, fallbackErr := runGitWithScratchIndex(ctx, runner, repoDir, args...)
 	if fallbackErr != nil {
 		return nil, err
 	}
@@ -5199,7 +5199,7 @@ func changedSemanticFiles(ctx context.Context, runner CommandRunner, repoDir str
 	if err != nil {
 		return nil, err
 	}
-	diffOutput, _, err := runner.Run(ctx, repoDir, "git", "diff", "--name-status", "-M", "-C", "HEAD")
+	diffOutput, _, err := runGitWithScratchIndex(ctx, runner, repoDir, "diff", "--name-status", "-M", "-C", "HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("list changed files: %w", err)
 	}
@@ -5243,7 +5243,7 @@ func changedSemanticFiles(ctx context.Context, runner CommandRunner, repoDir str
 }
 
 func changedSemanticRanges(ctx context.Context, runner CommandRunner, repoDir string, indexedWorktree bool) ([]semanticChangedRange, error) {
-	diffOutput, _, err := runner.Run(ctx, repoDir, "git", "diff", "--unified=0", "--no-ext-diff", "--no-color", "--no-prefix", "HEAD")
+	diffOutput, _, err := runGitWithScratchIndex(ctx, runner, repoDir, "diff", "--unified=0", "--no-ext-diff", "--no-color", "--no-prefix", "HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("inspect changed lines: %w", err)
 	}

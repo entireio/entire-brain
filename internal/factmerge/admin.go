@@ -91,9 +91,16 @@ func removeString(values []string, target string) []string {
 //
 // Identical facts (same content-derived id) never conflict; their provenance is
 // unioned.
+//
+// Under keep-both every conflicting pair is cross-linked (the ADR-P1-G keep-both
+// guarantee), but the queued proposals are a SPANNING set, not one per pair:
+// see conflictComponents. Each proposal carries a computed ConflictConfidence
+// rather than a placeholder, so nothing reaches a human review queue claiming a
+// confidence this package never derived.
 func Promote(source, target []Record, strategy, intoBranch string, now time.Time) ([]Record, []Proposal, int) {
 	result := append([]Record(nil), target...)
 	var proposals []Proposal
+	components := newConflictComponents()
 	promoted := 0
 	for _, sf := range source {
 		if sf.Status != StatusActive {
@@ -125,7 +132,24 @@ func Promote(source, target []Record, strategy, intoBranch string, now time.Time
 			for _, ci := range conflicts {
 				result[ci].RelatedIDs = appendUniqueString(result[ci].RelatedIDs, sf.ID)
 				sf.RelatedIDs = appendUniqueString(sf.RelatedIDs, result[ci].ID)
-				proposals = append(proposals, Proposal{Action: ActionSupersede, CandidateID: sf.ID, TargetID: result[ci].ID, Confidence: 0, Branch: intoBranch})
+				// Same-path facts form a clique. A proposal for every pair is
+				// quadratic and tells a reviewer nothing the spanning edges do
+				// not: the review surface groups proposals into connected
+				// components, so one edge into an already-connected component
+				// is pure duplication. Queue only the edges that actually join
+				// two components, which keeps every conflicting fact reachable
+				// in exactly one review group.
+				if components.connected(sf.ID, result[ci].ID) {
+					continue
+				}
+				components.union(sf.ID, result[ci].ID)
+				proposals = append(proposals, Proposal{
+					Action:      ActionSupersede,
+					CandidateID: sf.ID,
+					TargetID:    result[ci].ID,
+					Confidence:  ConflictConfidence(sf, result[ci]),
+					Branch:      intoBranch,
+				})
 			}
 			result = append(result, sf)
 			promoted++

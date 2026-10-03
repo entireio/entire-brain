@@ -64,7 +64,7 @@ func newBrainBriefSemanticFreshnessFixture(t *testing.T) brainBriefSemanticFresh
 	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: "bbb222\n"}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
-	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 	return brainBriefSemanticFreshnessFixtureEnv{repoDir: repoDir, opts: opts}
 }

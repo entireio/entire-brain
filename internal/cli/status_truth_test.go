@@ -39,7 +39,7 @@ func statusTruthFixture(t *testing.T) (Options, string, string) {
 	env.RepoRoot = repoDir
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
-	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 	now := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
