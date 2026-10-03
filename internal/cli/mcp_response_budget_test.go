@@ -341,8 +341,18 @@ func TestAResultThatFitsIsReturnedByteForByte(t *testing.T) {
 func TestTheResponseBudgetIsTheRetrievalBudgetNotAnArbitraryNumber(t *testing.T) {
 	t.Parallel()
 
-	if mcpToolResponseMaxBytes != conversationConceptResponseMaxBytes {
-		t.Errorf("MCP tool budget %d and retrieval budget %d disagree; one surface would truncate where the other does not",
+	// This used to require equality with the retrieval budget. That coupled two
+	// surfaces with different consumers: retrieval writes to a terminal or a
+	// file, where only bytes matter, while an MCP result is spent in an agent's
+	// context window, where tokens matter and the ceiling is far lower.
+	// Equality is what put 128 KiB -- about 52k tokens of JSON -- on the MCP
+	// surface, where every result over ~25k tokens was refused by the client.
+	//
+	// The invariant that survives is the one that was actually protecting
+	// anything: MCP must never emit MORE than retrieval would, so no caller
+	// sees the agent surface return rows the CLI surface would have dropped.
+	if mcpToolResponseMaxBytes > conversationConceptResponseMaxBytes {
+		t.Errorf("MCP tool budget %d exceeds retrieval budget %d; the agent surface would return rows the CLI surface drops",
 			mcpToolResponseMaxBytes, conversationConceptResponseMaxBytes)
 	}
 	if mcpToolResponseMaxBytes >= maxMCPFrameBytes {
@@ -491,11 +501,11 @@ func TestTruncationDoesNotStarveOneListToFillAnother(t *testing.T) {
 	}
 	// Neither list runs away with the budget: every list keeps at least its
 	// fair share of rows.
-	if len(symbols) < mcpResponseTrimFairRows {
-		t.Errorf("symbols kept %d rows, below the %d row fair share", len(symbols), mcpResponseTrimFairRows)
+	if len(symbols) < mcpResponseTrimFairRows() {
+		t.Errorf("symbols kept %d rows, below the %d row fair share", len(symbols), mcpResponseTrimFairRows())
 	}
-	if len(relations) < mcpResponseTrimFairRows {
-		t.Errorf("relations kept %d rows, below the %d row fair share", len(relations), mcpResponseTrimFairRows)
+	if len(relations) < mcpResponseTrimFairRows() {
+		t.Errorf("relations kept %d rows, below the %d row fair share", len(relations), mcpResponseTrimFairRows())
 	}
 	// ... and the wider list is not cut to the narrower one's width. relations
 	// has four times the rows, so it must keep more of them than symbols does.
@@ -658,22 +668,52 @@ func TestRaisingTheLimitDoesNotReturnFewerRows(t *testing.T) {
 		return out
 	}
 
-	// limit=25: 25 symbols, 100 relations, 12 neighbours -- fits whole.
-	small := build(t, 25, 100, 12)
-	// limit=10000: the same shape, saturated -- far over budget.
-	large := build(t, 4000, 16000, 800)
+	// WHAT THIS TEST USED TO ASSERT, AND WHY IT WAS WRONG.
+	//
+	// It raised all three limits at once and required that no list shrink. That
+	// held only because the budget was 128 KiB -- large enough that a saturated
+	// shared width still exceeded a modest unsaturated response. It is not a
+	// property of the trimmer, and under a budget sized for what an agent can
+	// actually accept it is not achievable by any trimmer.
+	//
+	// Measured here: holding relations at 100 and enlarging ONLY the other two
+	// lists drops relations from 36 rows to 16. The relations limit never moved.
+	// The rows relations had at 36 were space the small symbols and neighbours
+	// lists were not using; when those lists fill, they take it back. Requiring
+	// otherwise is requiring that one list keep borrowed budget forever, which
+	// is the starvation the test above forbids.
+	//
+	// The achievable property -- and the one a caller actually relies on -- is
+	// monotonicity in a SINGLE list's limit with the others held constant.
+	// That does hold, and is what this now tests.
+
+	const (
+		bigSymbols    = 4000
+		bigNeighbours = 800
+	)
+	fewer := build(t, bigSymbols, 100, bigNeighbours)
+	more := build(t, bigSymbols, 16000, bigNeighbours)
 
 	for _, list := range []string{"symbols", "relations", "neighbors"} {
-		before, _ := small[list].([]any)
-		after, _ := large[list].([]any)
+		before, _ := fewer[list].([]any)
+		after, _ := more[list].([]any)
 		if len(after) == 0 {
-			t.Errorf("%s was starved to zero rows at the larger limit", list)
+			t.Errorf("%s was starved to zero rows", list)
+		}
+		if list != "relations" {
 			continue
 		}
 		if len(after) < len(before) {
-			t.Errorf("%s returned %d rows at the small limit and only %d at the large one; "+
-				"raising the limit returned less", list, len(before), len(after))
+			t.Errorf("with the other lists held constant, relations returned %d rows for 100 available "+
+				"and only %d for 16000; raising one list's limit returned less", len(before), len(after))
 		}
+	}
+
+	// And the budget, not the limit, is what bounds the result: a saturated
+	// response must say it was trimmed rather than look like a complete answer.
+	saturated := build(t, bigSymbols, 16000, bigNeighbours)
+	if rows, _ := saturated["relations"].([]any); len(rows) >= 16000 {
+		t.Errorf("a 16000-row list came back whole under a %d byte budget", mcpToolResponseMaxBytes)
 	}
 }
 

@@ -394,7 +394,7 @@ func newAgentStatusCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&statusOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&statusOpts.details, "details", false, "Include coverage histograms, staged-file classifications, and changed-symbol records")
+	cmd.Flags().BoolVar(&statusOpts.details, "details", false, "Include coverage histograms, staged-file classifications, changed-symbol records, and fact-anchor verification (walks git history; seconds on a large repo)")
 	cmd.Flags().BoolVar(&statusOpts.verbose, "verbose", false, "Print the full report (coverage, freshness axes, blind spots, live state) instead of the short summary")
 	cmd.Flags().StringVar(&statusOpts.failOn, "fail-on", semanticAuditFailOnNone, "Return nonzero after emitting the report when the selected gate trips: release, unsafe, degraded, blind-spots, none")
 	return cmd
@@ -1051,7 +1051,9 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 	if err != nil {
 		return err
 	}
-	populateBrainStatusVerification(ctx, opts, &report)
+	// Fact verification walks git history per anchor commit; it is charged to
+	// --details only. See populateBrainStatusVerification.
+	populateBrainStatusVerification(ctx, opts, &report, statusOpts.details)
 	if statusOpts.compact && !statusOpts.details {
 		// MCP owns the explicitly compact transport. The CLI remains backward
 		// compatible and emits the established detailed JSON by default.
@@ -1221,6 +1223,13 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 		if v := f.Verification; v != nil {
 			fmt.Fprintf(out, "  verification: %d facts, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
 				v.Facts, v.Verified, v.Stale, v.Orphaned, v.UnverifiableHere)
+		} else if f.Facts > 0 {
+			// Verification moved behind --details because it walks git history
+			// per anchor commit and made status unusable in a hook (24s to 2.4s
+			// on a 961-fact brain). Say where it went: a line that silently
+			// stops appearing is the same class of defect this change set exists
+			// to remove.
+			fmt.Fprintln(out, "  verification: not run (use --details; it walks git history)")
 		}
 	}
 	renderBrainOnboardingStatus(out, report.Onboarding, report.GeneratedAt, brainCmd)

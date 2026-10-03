@@ -17,6 +17,7 @@ import (
 	"os"
 	pathpkg "path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -1431,8 +1432,7 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 		return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot header: %w", err)
 	}
 	header.RepoRoot = ""
-	header.Warnings = ignore.FilterWarnings(header.Warnings)
-	header.PartialFailures = ignore.FilterWarnings(header.PartialFailures)
+	header.Warnings, header.PartialFailures = ignore.filterIgnoredWarningLists(header.Warnings, header.PartialFailures)
 	header.Warnings = sanitizeSemanticWarnings(header.Warnings, repoDir)
 	header.PartialFailures = sanitizeSemanticWarnings(header.PartialFailures, repoDir)
 	headerLine, marshalErr := json.Marshal(header)
@@ -1520,8 +1520,9 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 			if err := json.Unmarshal(recordRaw, &summary); err != nil {
 				return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot summary (line %d): %w", line, err)
 			}
-			summary.Warnings = sanitizeSemanticWarnings(ignore.FilterWarnings(summary.Warnings), repoDir)
-			summary.PartialFailures = sanitizeSemanticWarnings(ignore.FilterWarnings(summary.PartialFailures), repoDir)
+			keptWarnings, keptFailures := ignore.filterIgnoredWarningLists(summary.Warnings, summary.PartialFailures)
+			summary.Warnings = sanitizeSemanticWarnings(keptWarnings, repoDir)
+			summary.PartialFailures = sanitizeSemanticWarnings(keptFailures, repoDir)
 			mergeSemanticSummary(&header, &summary)
 			encoded, marshalErr := json.Marshal(summary)
 			if marshalErr != nil {
@@ -1779,9 +1780,12 @@ func semanticSchemaMinorSkewWarning(version string) *semanticWarning {
 		Code:     "provider_schema_newer_minor",
 		Severity: "warning",
 		Effect:   "additive semantic facts introduced after " + semanticSchemaVersion + " may not have been ingested",
+		// Kept under statusCauseWidth: this Detail is rendered inside the
+		// one-line status cause, and the longer wording was cut mid-word
+		// ("...so the snapshot is usabl") in the short report.
 		Detail: fmt.Sprintf(
-			"semantic provider emitted schema_version %q but this build reads %s; minors are additive, so the snapshot is usable, but upgrade entire-brain to ingest everything %q carries",
-			version, semanticSchemaVersion, version),
+			"provider schema_version %q is newer than this build's %s; minors are additive, so the snapshot is usable -- upgrade to ingest everything",
+			version, semanticSchemaVersion),
 	}
 }
 
@@ -2239,6 +2243,14 @@ func writeSemanticSnapshotManifest(brainDir, snapshotID string, source *semantic
 
 type brainIgnore struct {
 	patterns []string
+	// repoDir is kept so warning text carrying ABSOLUTE paths can be matched.
+	// Provider warnings are built from raw subprocess output (Detail is
+	// serr.Error()), so the paths in them are absolute, while every pattern in
+	// .brainignore is repo-relative. Without the root to relativise against,
+	// Ignored("/abs/repo/secret/x.go") is false for the pattern "secret/" and
+	// the warning is never withheld. Empty is valid and simply disables the
+	// relativising step.
+	repoDir string
 }
 
 func (i brainIgnore) gitPathspecExclusions() []string {
@@ -2270,11 +2282,11 @@ func loadBrainIgnore(repoDir string) (brainIgnore, error) {
 	data, err := os.ReadFile(filepath.Join(repoDir, ".brainignore"))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return brainIgnore{}, nil
+			return brainIgnore{repoDir: repoDir}, nil
 		}
-		return brainIgnore{}, fmt.Errorf("read .brainignore: %w", err)
+		return brainIgnore{repoDir: repoDir}, fmt.Errorf("read .brainignore: %w", err)
 	}
-	var ignore brainIgnore
+	ignore := brainIgnore{repoDir: repoDir}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -2377,18 +2389,91 @@ func pathHasSegment(path, segment string) bool {
 	return false
 }
 
+// FilterWarnings drops the warnings whose subject is a path the ignore rules
+// cover. It is the raw filter; production call sites use
+// FilterWarningsReported so the count of withheld warnings is not lost.
 func (i brainIgnore) FilterWarnings(warnings []semanticWarning) []semanticWarning {
+	filtered, _ := i.filterWarningsCounted(warnings)
+	return filtered
+}
+
+// warningsHiddenCode is the notice FilterWarningsReported appends when the
+// ignore rules withheld anything.
+const warningsHiddenCode = "warnings_hidden_by_brainignore"
+
+// FilterWarningsReported filters and then says how much it removed.
+//
+// Silence here is the actual hazard. The filter runs over the provider's own
+// warning and partial-failure lists, so an over-broad ignore rule does not just
+// hide a path: it turns a degraded index into a report with an empty warning
+// list, which every reader downstream renders as "clean". A count costs one
+// record and makes the omission visible.
+// filterIgnoredWarningLists filters a header's two warning lists together and
+// discloses, in the warnings list only, how much each one lost.
+//
+// Disclosure has to live in exactly one place and be accurate about what it
+// covers. Appending a notice to each list separately put "N provider
+// warning(s) were withheld" inside PartialFailures, where it is wrong twice
+// over: a withheld-count notice is not a partial failure, and the entries it
+// was counting there were failures, not warnings. Partial failures being
+// hidden is the more serious of the two, so it is named explicitly rather than
+// folded into one total.
+func (i brainIgnore) filterIgnoredWarningLists(warnings, partialFailures []semanticWarning) ([]semanticWarning, []semanticWarning) {
+	keptWarnings, droppedWarnings := i.filterWarningsCounted(warnings)
+	keptFailures, droppedFailures := i.filterWarningsCounted(partialFailures)
+	if droppedWarnings+droppedFailures == 0 {
+		return keptWarnings, keptFailures
+	}
+
+	var detail string
+	switch {
+	case droppedFailures == 0:
+		detail = fmt.Sprintf("%d provider warning(s) named ignored paths and were withheld by brainignore rules", droppedWarnings)
+	case droppedWarnings == 0:
+		detail = fmt.Sprintf("%d partial indexing failure(s) named ignored paths and were withheld by brainignore rules", droppedFailures)
+	default:
+		detail = fmt.Sprintf("%d provider warning(s) and %d partial indexing failure(s) named ignored paths and were withheld by brainignore rules",
+			droppedWarnings, droppedFailures)
+	}
+	// The notice carries no path token of its own, so re-filtering an already
+	// filtered snapshot cannot swallow it.
+	return append(keptWarnings, semanticWarning{
+		Code:     warningsHiddenCode,
+		Severity: "warning",
+		Effect:   "this warning list is incomplete",
+		Detail:   detail,
+	}), keptFailures
+}
+
+func (i brainIgnore) FilterWarningsReported(warnings []semanticWarning) []semanticWarning {
+	filtered, dropped := i.filterWarningsCounted(warnings)
+	if dropped == 0 {
+		return filtered
+	}
+	// The notice carries no path token of its own, so re-filtering an already
+	// filtered snapshot cannot swallow it.
+	return append(filtered, semanticWarning{
+		Code:     warningsHiddenCode,
+		Severity: "warning",
+		Effect:   "this warning list is incomplete",
+		Detail:   fmt.Sprintf("%d provider warning(s) named ignored paths and were withheld by brainignore rules", dropped),
+	})
+}
+
+func (i brainIgnore) filterWarningsCounted(warnings []semanticWarning) ([]semanticWarning, int) {
 	if len(warnings) == 0 {
-		return nil
+		return nil, 0
 	}
 	filtered := make([]semanticWarning, 0, len(warnings))
+	dropped := 0
 	for _, warning := range warnings {
 		if i.Ignored(warning.Path) || i.MentionsIgnoredPath(warning.Detail) || i.MentionsIgnoredPath(warning.Effect) {
+			dropped++
 			continue
 		}
 		filtered = append(filtered, warning)
 	}
-	return filtered
+	return filtered, dropped
 }
 
 func sanitizeSemanticWarnings(warnings []semanticWarning, repoDir string) []semanticWarning {
@@ -2516,18 +2601,117 @@ func isPathBoundary(ch byte) bool {
 	}
 }
 
+// MentionsIgnoredPath reports whether free-form warning text NAMES a path the
+// ignore rules cover. Every candidate is parsed out as a path token and matched
+// with Ignored; the text is never substring-matched against a pattern.
+//
+// Substring matching was the bug. `.brainignore` holds repository-relative
+// patterns, and warning Detail at this point in the pipeline still holds the
+// provider's absolute paths (sanitizeSemanticWarnings has not run yet), so a
+// pattern like `entire-brain` — the checkout's own directory name, and the
+// first line of this repository's own .brainignore — is a substring of EVERY
+// absolute path under it. Every index warning matched and was discarded, and
+// status then reported a clean index over files it had silently failed to
+// parse.
 func (i brainIgnore) MentionsIgnoredPath(text string) bool {
-	text = filepath.ToSlash(text)
-	if text == "" {
-		return false
-	}
-	for _, pattern := range append([]string{".env", ".pem", ".key"}, i.patterns...) {
-		pattern = strings.Trim(filepath.ToSlash(pattern), "/")
-		if pattern != "" && strings.Contains(text, pattern) {
+	for _, token := range brainIgnorePathTokens(text) {
+		if i.Ignored(i.relativiseToRepo(token)) {
 			return true
 		}
 	}
 	return false
+}
+
+// relativiseToRepo turns an absolute path inside the repo into the
+// repo-relative form .brainignore patterns are written in. A path outside the
+// repo, or a path already relative, is returned unchanged -- an outside path
+// genuinely is not covered by this repo's ignore rules.
+//
+// The symlink-evaluated root is tried as well: on macOS a temp dir reached as
+// /var/... resolves to /private/var/..., and provider output can carry either.
+func (i brainIgnore) relativiseToRepo(token string) string {
+	if i.repoDir == "" || !absolutePathToken(token) {
+		return token
+	}
+	roots := []string{i.repoDir}
+	if resolved, err := filepath.EvalSymlinks(i.repoDir); err == nil && resolved != i.repoDir {
+		roots = append(roots, resolved)
+	}
+	for _, root := range roots {
+		prefix := filepath.ToSlash(root)
+		if !strings.HasSuffix(prefix, "/") {
+			prefix += "/"
+		}
+		if rel, ok := cutPathPrefix(token, prefix); ok && rel != "" {
+			return rel
+		}
+	}
+	return token
+}
+
+// absolutePathToken recognises an absolute path in the slash-normalised form
+// brainIgnorePathTokens produces. A Windows path is absolute as "C:/x" and as
+// "//host/share/x", neither of which starts with a single slash -- checking for
+// "/" alone silently disabled ignore matching for every absolute provider
+// warning on Windows, which CI caught and a Unix-only test could not.
+func absolutePathToken(token string) bool {
+	if strings.HasPrefix(token, "/") {
+		return true
+	}
+	if len(token) >= 3 && token[1] == ':' && token[2] == '/' {
+		c := token[0]
+		return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+	}
+	return false
+}
+
+// cutPathPrefix strips a path prefix, folding case where the filesystem does.
+// Windows and macOS both commonly compare paths case-insensitively, so a
+// provider that reports "C:/Repo/secret/x.go" against a root recorded as
+// "C:/repo" must still match.
+func cutPathPrefix(token, prefix string) (string, bool) {
+	if rel, ok := strings.CutPrefix(token, prefix); ok {
+		return rel, true
+	}
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		return "", false
+	}
+	if len(token) < len(prefix) || !strings.EqualFold(token[:len(prefix)], prefix) {
+		return "", false
+	}
+	return token[len(prefix):], true
+}
+
+// brainIgnorePathTokens extracts the path-shaped words from prose.
+//
+// A token is split on the characters that cannot occur inside a path in a
+// sentence, stripped of trailing sentence punctuation, and kept only when it
+// still looks like a path (it contains a separator or a dot). Trailing-only
+// trimming is deliberate: `.env` is a filename, not a sentence fragment.
+func brainIgnorePathTokens(text string) []string {
+	if text == "" {
+		return nil
+	}
+	fields := strings.FieldsFunc(filepath.ToSlash(text), func(r rune) bool {
+		switch r {
+		case ' ', '\t', '\n', '\r', '"', '\'', '`', '(', ')', '[', ']', '{', '}', '<', '>', '|', ',', ';', '=':
+			return true
+		default:
+			return false
+		}
+	})
+	tokens := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = strings.TrimRight(field, ".,;:!?")
+		if field == "" || field == "." || field == ".." || field == "/" {
+			continue
+		}
+		if !strings.ContainsAny(field, "/.") {
+			continue
+		}
+		tokens = append(tokens, field)
+	}
+	return tokens
 }
 
 func gitScalar(ctx context.Context, runner CommandRunner, repoDir string, args ...string) (string, error) {
@@ -6717,7 +6901,7 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 		return err
 	}
 	if len(conflicts) > 0 && !overwrite {
-		return fmt.Errorf("bundle import would overwrite brain layers this brain already has (%s); re-run with --overwrite to accept that, or import into a brain without them", strings.Join(conflicts, ", "))
+		return fmt.Errorf("bundle import would overwrite brain layers this brain already has (%s); re-run with --overwrite to accept that", strings.Join(conflicts, ", "))
 	}
 	if err := filepath.WalkDir(tmpDir, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
