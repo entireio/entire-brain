@@ -63,7 +63,7 @@ preflight because a file is known or a grep looks easier.
 
 Start needed code discovery with:
 
-    entire graph query --repo . --profile full --head --query "<task>"
+    entire graph search --repo . --profile full --head --query "<task>"
 
 Code relationships — callers, callees, dependents, implementors, type consumers,
 routes, and blast radius — MUST be answered with Graph first, ALWAYS, even when
