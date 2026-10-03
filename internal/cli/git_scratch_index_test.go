@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // envRecordingRunner records the environment each spawn was given so a test
@@ -18,6 +19,8 @@ type envRecordingRunner struct {
 type recordedSpawn struct {
 	args []string
 	env  map[string]string
+	// indexModTime is the scratch index's mtime as the child would see it.
+	indexModTime time.Time
 	// indexSeen is the scratch index's contents AS THE CHILD WOULD SEE THEM.
 	// It has to be captured here: the file is removed when the call returns,
 	// which is the behaviour TestScratchIndexIsRemovedAfterTheCall asserts.
@@ -34,12 +37,16 @@ func (r *envRecordingRunner) Run(ctx context.Context, dir, name string, args ...
 
 func (r *envRecordingRunner) RunWithEnv(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error) {
 	seen := ""
+	var mtime time.Time
 	if p := env["GIT_INDEX_FILE"]; p != "" {
 		if data, err := os.ReadFile(p); err == nil {
 			seen = string(data)
 		}
+		if info, err := os.Stat(p); err == nil {
+			mtime = info.ModTime()
+		}
 	}
-	r.calls = append(r.calls, recordedSpawn{args: args, env: env, indexSeen: seen})
+	r.calls = append(r.calls, recordedSpawn{args: args, env: env, indexSeen: seen, indexModTime: mtime})
 	return nil, nil, nil
 }
 
@@ -149,5 +156,55 @@ func TestNoPorcelainWorktreeDiffRemainsInTheBriefPath(t *testing.T) {
 			continue
 		}
 		t.Errorf("a porcelain worktree diff is spawned directly; it refreshes the real index:\n  %s", strings.TrimSpace(line))
+	}
+}
+
+// The scratch index must be a faithful stand-in, and its MTIME is part of that.
+//
+// git decides whether a cached stat entry is trustworthy by comparing the
+// file's recorded mtime against THE INDEX FILE'S OWN mtime. An entry whose
+// file changed in the same moment the index was written is "racily clean" and
+// git re-reads its content. A freshly written copy has a newer mtime than
+// every tracked file, so git trusts the stale cache, and a same-moment edit --
+// especially one that does not change the file's size -- comes back as
+// UNCHANGED. Losing a worktree edit is worse than the lock contention this
+// code exists to avoid.
+//
+// This asserts the MECHANISM, not the symptom, and deliberately so. The
+// symptom needs a file whose mtime equals the one `git add` recorded while its
+// content differs, which is a race this test loses on a fast machine: an
+// earlier version of it passed with AND without the fix, making it no guard at
+// all. The symptom is covered for real by
+// TestWorktreeFingerprintDoesNotRunRepoLocalDiffExternal, whose fixture
+// overwrites a 12-byte file with 12 different bytes immediately after
+// committing it -- that is what caught this, on CI, after it passed locally.
+func TestScratchIndexCopiesTheOriginalsModTime(t *testing.T) {
+	t.Parallel()
+
+	real := writeFakeIndex(t)
+	// Make the original visibly older than anything created now, so a copy
+	// that stamps its own time cannot coincidentally match.
+	old := time.Now().Add(-2 * time.Hour).Truncate(time.Second)
+	if err := os.Chtimes(real, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &envRecordingRunner{indexPath: real}
+	if _, _, err := runGitWithScratchIndex(context.Background(), runner, t.TempDir(), "diff", "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+
+	var seen time.Time
+	for _, c := range runner.calls {
+		if !c.indexModTime.IsZero() {
+			seen = c.indexModTime
+		}
+	}
+	if seen.IsZero() {
+		t.Fatal("no scratch index was observed; the test proves nothing")
+	}
+	if !seen.Equal(old) {
+		t.Fatalf("scratch index mtime is %s, want the original's %s; git would trust a stale stat cache "+
+			"and report a racily-clean edit as unchanged", seen, old)
 	}
 }

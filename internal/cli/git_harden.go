@@ -270,5 +270,29 @@ func runGitWithScratchIndex(ctx context.Context, runner CommandRunner, repoDir s
 	if err := os.WriteFile(scratch, contents, 0o600); err != nil {
 		return runner.Run(ctx, repoDir, "git", args...)
 	}
+
+	// The copy must carry the ORIGINAL's mtime, not its own.
+	//
+	// git decides whether a cached stat entry can be trusted by comparing the
+	// file's mtime against THE INDEX FILE'S OWN mtime: an entry whose file was
+	// modified in the same second the index was written is "racily clean" and
+	// git re-reads its content instead of believing the cache. A fresh copy has
+	// a newer mtime than every tracked file, so every entry looks safely older
+	// than the index and git trusts the cache -- and a file edited in that same
+	// second, especially one whose size did not change, is reported as
+	// UNCHANGED.
+	//
+	// That is worse than the lock contention this function exists to avoid: it
+	// silently loses a worktree edit. Caught by an existing hardening test whose
+	// fixture overwrites a 12-byte file with 12 different bytes immediately
+	// after committing it -- exactly the racy window.
+	if info, err := os.Stat(indexPath); err == nil {
+		mtime := info.ModTime()
+		if err := os.Chtimes(scratch, mtime, mtime); err != nil {
+			// Without the original mtime the copy is not a faithful stand-in,
+			// so take the lock rather than risk a wrong answer.
+			return runner.Run(ctx, repoDir, "git", args...)
+		}
+	}
 	return envRunner.RunWithEnv(ctx, repoDir, map[string]string{"GIT_INDEX_FILE": scratch}, "git", args...)
 }
