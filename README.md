@@ -109,6 +109,7 @@ By default, `setup` indexes the repository, extracts facts from up to 25 past se
 Now install the agent instructions:
 
 ```sh
+entire graph init-agents   # only if Graph is installed; see the note below
 entire brain init-agents
 ```
 
@@ -117,11 +118,29 @@ The command creates or updates these files:
 - `.entire/agent-guide.md`: the agent instructions. Rerunning the command replaces this file.
 - `AGENTS.md` and `CLAUDE.md`: references to the guide inside managed blocks. Your text outside those blocks is preserved.
 
-Review the generated files and commit them together when the instructions should apply to your team. When Graph is installed, the guide tells agents to use Brain for prior decisions and Graph to locate and inspect code. Restart your agent or reload its repository instructions so it picks up the guide.
+The guide is assembled from whichever products have been **activated**, and each
+product activates itself. `entire brain init-agents` on its own writes a
+Brain-only guide containing no Graph instructions at all — installing Graph does
+not change that, because activation is recorded in the guide rather than probed.
+Run Graph's `init-agents` too if you want both.
+
+Run Brain's **last**. Each product rewrites the shared guide file from its own
+copy of the text, so whichever you run last decides the wording.
+
+Review the generated files and commit them together when the instructions should apply to your team. Restart your agent or reload its repository instructions so it picks up the guide.
 
 For an MCP client, print this repository's configuration:
 
-```sh
+```
+
+The agent guide is assembled from whichever products have been activated, and
+each product activates itself. `entire brain init-agents` alone writes a
+Brain-only guide with no Graph instructions in it, even when Graph is installed
+— so run Graph's `init-agents` too if you want both. Run Brain's **last**: each
+product rewrites the shared guide file from its own copy of the text, so the one
+you run last decides the wording.
+
+sh
 entire brain mcp --print-config
 ```
 

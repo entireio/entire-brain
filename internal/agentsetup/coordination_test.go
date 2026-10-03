@@ -411,3 +411,48 @@ func TestGuidesNameOnlyCommandsGraphExposes(t *testing.T) {
 		}
 	}
 }
+
+// A Brain-only activation produces a guide with NO Graph instruction, because
+// activation is recorded in the guide rather than probed from the installed
+// plugins (preview.go: "activation does not depend on plugin inventory").
+//
+// Measured in a clean clone: `entire brain init-agents` alone yields
+// `enabled:["brain"]` and zero occurrences of the Graph directive. So the
+// directive restored for the combined guide is unreachable for anyone who
+// follows Brain's README without also activating Graph — which is why the
+// README now names both commands and their order.
+func TestBrainOnlyActivationHasNoGraphInstruction(t *testing.T) {
+	brainOnly := BrainGuide()
+	for _, graphism := range []string{"MUST be ONE Graph search", "entire graph search", "entire graph query"} {
+		if strings.Contains(brainOnly, graphism) {
+			t.Errorf("the Brain-only guide names %q; it must not instruct an agent to use a product that was never activated", graphism)
+		}
+	}
+	// ...and the combined guide must, or the directive reaches nobody.
+	if !strings.Contains(CombinedGuide, "MUST be ONE Graph search") {
+		t.Error("the combined guide lost the Graph directive; only the combined guide can carry it")
+	}
+}
+
+// The README must name both activation commands and their order. Brain's
+// documented path produced a guide with no Graph instruction, so an agent could
+// not have followed one.
+func TestREADMEDocumentsBothActivationsAndTheirOrder(t *testing.T) {
+	data, err := os.ReadFile("../../README.md")
+	if err != nil {
+		t.Fatalf("read README: %v", err)
+	}
+	readme := string(data)
+	if len(readme) == 0 {
+		t.Fatal("README is empty; this assertion would be vacuous")
+	}
+	for _, want := range []string{"entire graph init-agents", "entire brain init-agents"} {
+		if !strings.Contains(readme, want) {
+			t.Errorf("README does not tell the user to run %q", want)
+		}
+	}
+	if !strings.Contains(readme, "last") {
+		t.Error("README does not state the activation ORDER; each product rewrites the guide from its own text, " +
+			"so the one run last decides the wording")
+	}
+}

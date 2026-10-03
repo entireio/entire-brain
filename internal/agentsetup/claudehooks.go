@@ -76,8 +76,13 @@ func MergePreEditHook(root, brainCmd string) (changed bool, err error) {
 	hooks["PreToolUse"] = append(pre, map[string]any{
 		"matcher": preEditMatcher,
 		"hooks": []any{map[string]any{
-			"type":    "command",
-			"command": brainCmd + " " + preEditHookCommand + " --file \"$CLAUDE_FILE_PATH\"",
+			"type": "command",
+			// No --file: the harness delivers tool_input.file_path on STDIN,
+			// and there is no CLAUDE_FILE_PATH variable to expand. Passing one
+			// expanded to "" on every edit, so the hook errored every time and
+			// served nothing -- installed, and a no-op. Verified against
+			// Claude Code 2.1.288; see hookFileFromStdin.
+			"command": brainCmd + " " + preEditHookCommand,
 		}},
 	})
 	settings["hooks"] = hooks
