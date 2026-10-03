@@ -3424,11 +3424,15 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 		return err
 	}
 	var results []semanticRecord
+	// Kept for the empty-result inventory below: explaining WHICH empty this is
+	// needs the store that was actually searched.
+	storePathForInventory := ""
 	if manifest.Sources.Semantic.StorePath != "" {
 		storePath, err := validateSemanticDeclaredStore(storage.BrainDir, manifest.Sources.Semantic)
 		if err != nil {
 			return err
 		}
+		storePathForInventory = storePath
 		results, err = findSemanticSymbolsInSQLite(storePath, query, queryOpts.limit, queryOpts.offset)
 		if err != nil {
 			return err
@@ -3462,7 +3466,7 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 		fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", freshness.Severity)
 	}
 	if len(results) == 0 {
-		printSemanticNoMatch(cmd, "symbols", query)
+		printSemanticNoSymbolMatch(cmd, storePathForInventory, query)
 		return nil
 	}
 	for _, result := range results {
@@ -3483,6 +3487,64 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 // stays distinguishable from an unlucky search term.
 func printSemanticNoMatch(cmd *cobra.Command, kind, query string) {
 	fmt.Fprintf(cmd.OutOrStdout(), "no %s found in the semantic index for %q\n", kind, query)
+}
+
+// printSemanticNoSymbolMatch adds the one thing the bare message cannot say:
+// WHICH of the indistinguishable cases this is.
+//
+// The comment above names three — no such symbol, index never built, command
+// broken — and there is a fourth it misses: the index holds no symbols OF THAT
+// KIND. Go package-level consts and vars are not extracted at all, so
+// `search-graph defaultDistillTimeout` returns the same empty line as a typo
+// does, and the honest reading ("constants are not in here") is unavailable.
+//
+// This cost real time: given that line for a symbol I could see in the source,
+// I concluded the search was broken and spent an hour on a false root cause.
+// An inventory of what the index DOES hold answers it in one line.
+func printSemanticNoSymbolMatch(cmd *cobra.Command, storePath, query string) {
+	printSemanticNoMatch(cmd, "symbols", query)
+	total, kinds := semanticIndexKindInventory(storePath)
+	if total == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "note: the semantic index holds no symbols at all — run `entire brain refresh --semantic`")
+		return
+	}
+	fmt.Fprintf(cmd.OutOrStdout(),
+		"note: the index holds %d symbols of kinds %s; Go consts and vars are not extracted, so a constant name finds nothing here\n",
+		total, strings.Join(kinds, ", "))
+}
+
+// semanticIndexKindInventory reports what the store actually contains. Every
+// failure is a zero inventory rather than an error: this runs only to explain
+// an empty result, and must never turn one into a command failure.
+func semanticIndexKindInventory(storePath string) (int, []string) {
+	if storePath == "" {
+		return 0, nil
+	}
+	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+	if err != nil {
+		return 0, nil
+	}
+	defer db.Close()
+	rows, err := db.Query(`SELECT kind, count(*) c FROM symbols GROUP BY kind ORDER BY c DESC LIMIT 6`)
+	if err != nil {
+		return 0, nil
+	}
+	defer rows.Close()
+	total := 0
+	var kinds []string
+	for rows.Next() {
+		var k string
+		var c int
+		if err := rows.Scan(&k, &c); err != nil {
+			return 0, nil
+		}
+		total += c
+		kinds = append(kinds, k)
+	}
+	if rows.Err() != nil {
+		return 0, nil
+	}
+	return total, kinds
 }
 
 func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, contextOpts semanticContextOptions, query string) error {
