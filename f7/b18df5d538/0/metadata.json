@@ -1,0 +1,138 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "f7b18df5d538",
+  "session_id": "01a0ffd1-017c-739e-87a8-769a8f750176",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-03T04:52:55.812757Z",
+  "branch": "alex/cor-2001-hide-dev-commands",
+  "checkpoints_count": 9,
+  "save_step_count": 7,
+  "files_touched": [
+    "README.md",
+    "docs/getting-started.md",
+    "docs/reference.md",
+    "docs/semantic_agent_guide.md",
+    "internal/agentsetup/brain-reference.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/bench.go",
+    "internal/cli/bench_scale.go",
+    "internal/cli/command_regression_test.go",
+    "internal/cli/docs_cmd.go",
+    "internal/cli/documented_commands_test.go",
+    "internal/cli/facts_admin_cmd.go",
+    "internal/cli/facts_eval.go",
+    "internal/cli/facts_eval_compare.go",
+    "internal/cli/facts_eval_gen.go",
+    "internal/cli/root.go",
+    "internal/cli/root_test.go"
+  ],
+  "agent": "Pi",
+  "model": "gpt-6-luna",
+  "turn_id": "b7455cfb2e46",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 412812,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 17921024,
+    "output_tokens": 73586,
+    "api_call_count": 90
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "pi-skill-owning-workspace-slice-2026-10-03T03:33:53.362Z-0",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "owning-workspace-slice"
+      },
+      "source": {
+        "agent": "pi",
+        "signal": "input_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "251ca5c83cc2",
+      "timestamp": "2026-10-03T03:33:53.362Z",
+      "native": {
+        "command": "/skill:owning-workspace-slice"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/skill:owning-workspace-slice",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 9
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-03T04:52:55.749995Z",
+    "agent_lines": 300,
+    "agent_removed": 56,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 300,
+    "total_lines_changed": 356,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 197,
+      "agent_lines_removed": 44
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 200,
+      "agent_lines_removed": 48
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 300,
+      "agent_lines_removed": 56
+    }
+  ]
+}

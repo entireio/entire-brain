@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "f7b18df5d538",
+  "strategy": "manual-commit",
+  "branch": "alex/cor-2001-hide-dev-commands",
+  "checkpoints_count": 9,
+  "files_touched": [
+    "README.md",
+    "docs/getting-started.md",
+    "docs/reference.md",
+    "docs/semantic_agent_guide.md",
+    "internal/agentsetup/brain-reference.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/bench.go",
+    "internal/cli/bench_scale.go",
+    "internal/cli/command_regression_test.go",
+    "internal/cli/docs_cmd.go",
+    "internal/cli/documented_commands_test.go",
+    "internal/cli/facts_admin_cmd.go",
+    "internal/cli/facts_eval.go",
+    "internal/cli/facts_eval_compare.go",
+    "internal/cli/facts_eval_gen.go",
+    "internal/cli/root.go",
+    "internal/cli/root_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f7/b18df5d538/0/metadata.json",
+      "transcript": "/f7/b18df5d538/0/full.jsonl",
+      "compact_transcript": "/f7/b18df5d538/0/transcript.jsonl",
+      "content_hash": "/f7/b18df5d538/0/content_hash.txt",
+      "prompt": "/f7/b18df5d538/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 412812,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 17921024,
+    "output_tokens": 73586,
+    "api_call_count": 90
+  }
+}
