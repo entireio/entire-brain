@@ -69,8 +69,57 @@ const (
 	distillAgentWaitDelay = 5 * time.Second
 )
 
+// maxPersistedDistillWarnings bounds what reaches the manifest.
+//
+// The bug this change set fixes was a 50-entry DISPLAY cap applied before the
+// write, so warning 51 existed nowhere. Persisting everything fixes that and
+// introduces a smaller problem in its place: a pathological run -- every chunk
+// timing out, say -- would append an unbounded list to a file that is read on
+// every status call. My own distill run produced 278 suppressed warnings in
+// one pass, so this is not hypothetical.
+//
+// 1000 is high enough that no real run is truncated and low enough that a
+// runaway cannot grow the manifest without limit. When it does fire the
+// overflow line states the true total, so the count is never wrong -- only the
+// tail of a list that is already repeating itself is lost.
+const maxPersistedDistillWarnings = 1000
+
+// distillWarningsForPersist bounds the written list while keeping the total
+// honest. Unlike the old display cap, the number it reports is the real one.
+func distillWarningsForPersist(warnings []string) []string {
+	if len(warnings) <= maxPersistedDistillWarnings {
+		return warnings
+	}
+	kept := warnings[:maxPersistedDistillWarnings:maxPersistedDistillWarnings]
+	return append(kept, fmt.Sprintf(
+		"... and %d more warnings beyond the %d kept here (total %d); the tail is dropped to bound manifest growth, the count is exact",
+		len(warnings)-maxPersistedDistillWarnings, maxPersistedDistillWarnings, len(warnings)))
+}
+
+// distillWarningsForDisplay caps a warning list for PRINTING only.
+//
+// The cap used to be applied before the manifest write, so the text of every
+// warning past the 50th existed nowhere afterwards -- not in the manifest, not
+// behind a flag, nowhere -- while the run still reported success. The full list
+// is now persisted (manifest sources.facts.warnings, and the dry-run report's
+// JSON); only the terminal rendering is truncated, and the overflow line says
+// how many were held back and where to read them.
+func distillWarningsForDisplay(warnings []string) []string {
+	if len(warnings) <= maxDistillWarnings {
+		return warnings
+	}
+	extra := len(warnings) - maxDistillWarnings
+	return append(warnings[:maxDistillWarnings:maxDistillWarnings], fmt.Sprintf(
+		"... and %d more warnings (not shown here; all %d are recorded in the brain manifest under sources.facts.warnings, and in --json output)",
+		extra, len(warnings)))
+}
+
 // capWarnings truncates a warning list to max entries, replacing the overflow
 // with a single summary line so a systemic failure stays legible.
+//
+// It is a DISPLAY cap. Never apply it to a list on its way to disk: the
+// overflow text has no other home. Use distillWarningsForDisplay at the point
+// of rendering instead.
 func capWarnings(warnings []string, max int) []string {
 	if len(warnings) <= max {
 		return warnings
@@ -737,7 +786,7 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 		fmt.Fprintln(cmd.OutOrStdout(), string(data))
 		return nil
 	}
-	for _, warning := range source.Warnings {
+	for _, warning := range distillWarningsForDisplay(source.Warnings) {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "distilled %d facts (%d distilled, %d authored, %d superseded) across %d branch(es) from %d chunks; %d proposals queued for review\n",
@@ -1231,7 +1280,14 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			"--max-sessions %d reached: %d session(s) deferred to a later run (they stay undistilled, not skipped)",
 			distillOpts.maxSessions, budgetDeferred)}, warnings...)
 	}
-	warnings = capWarnings(warnings, maxDistillWarnings)
+	// The 50-entry DISPLAY cap must not run here: `warnings` goes straight into
+	// the manifest below, and truncating now would delete the only copy of
+	// everything past it. The display cap lives at the print site
+	// (distillWarningsForDisplay).
+	//
+	// A much higher persist bound does apply, so a pathological run cannot grow
+	// the manifest without limit; it keeps the exact total either way.
+	warnings = distillWarningsForPersist(warnings)
 
 	writeStarted := time.Now()
 	var source *factSourceManifest
@@ -1347,7 +1403,9 @@ func buildDistillDryRunReportContext(ctx context.Context, brainDir string, disti
 		ExtractionAgentCalls:          plan.Chunks,
 		ReconcileAgentCallsUpperBound: plan.Chunks,
 		EstimatedAgentCallsUpperBound: plan.Chunks * 2,
-		Warnings:                      capWarnings(plan.Warnings, maxDistillWarnings),
+		// Whole, not capped: this report IS the artifact (`--json` emits it verbatim).
+		// printDistillDryRunReport caps the terminal rendering.
+		Warnings: append([]string(nil), plan.Warnings...),
 	}
 	branchStats := map[string]*distillDryRunBranch{}
 	for _, branch := range plan.BranchOrder {
@@ -1431,7 +1489,7 @@ func printDistillDryRunReport(cmd *cobra.Command, report distillDryRunReport) {
 				session.Branch, session.Transcript, chunkText, cached, session.PreprocessedBytes, session.RawBytes)
 		}
 	}
-	for _, warning := range report.Warnings {
+	for _, warning := range distillWarningsForDisplay(report.Warnings) {
 		fmt.Fprintf(out, "warning: %s\n", warning)
 	}
 }

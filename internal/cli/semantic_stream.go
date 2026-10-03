@@ -142,8 +142,9 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 			header.RepoKey = cfg.repoKey
 		}
 		header.RepoRoot = ""
-		header.Warnings = sanitizeSemanticWarnings(cfg.ignore.FilterWarnings(header.Warnings), cfg.repoDir)
-		header.PartialFailures = sanitizeSemanticWarnings(cfg.ignore.FilterWarnings(header.PartialFailures), cfg.repoDir)
+		keptWarnings, keptFailures := cfg.ignore.filterIgnoredWarningLists(header.Warnings, header.PartialFailures)
+		header.Warnings = sanitizeSemanticWarnings(keptWarnings, cfg.repoDir)
+		header.PartialFailures = sanitizeSemanticWarnings(keptFailures, cfg.repoDir)
 		headerLine, err := json.Marshal(header)
 		if err != nil {
 			return res, fmt.Errorf("encode filtered semantic snapshot header: %w", err)
@@ -266,8 +267,9 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 					continue
 				}
 			}
-			summary.Warnings = sanitizeSemanticWarnings(cfg.ignore.FilterWarnings(summary.Warnings), cfg.repoDir)
-			summary.PartialFailures = sanitizeSemanticWarnings(cfg.ignore.FilterWarnings(summary.PartialFailures), cfg.repoDir)
+			keptWarnings, keptFailures := cfg.ignore.filterIgnoredWarningLists(summary.Warnings, summary.PartialFailures)
+			summary.Warnings = sanitizeSemanticWarnings(keptWarnings, cfg.repoDir)
+			summary.PartialFailures = sanitizeSemanticWarnings(keptFailures, cfg.repoDir)
 			res.summary = &summary
 			encoded, err := json.Marshal(summary)
 			if err != nil {
@@ -515,7 +517,7 @@ func semanticSummaryTruncationCheck(res *semanticStreamResult) error {
 	provider := strings.TrimSpace(res.header.Provider)
 	if provider == "" || provider == "entire-graph" {
 		return fmt.Errorf(
-			"semantic provider snapshot truncated: stream ended without its terminating summary record after %d file record(s), %d symbol(s), %d relation(s); the provider exited without finishing",
+			"semantic provider snapshot truncated: stream ended with no terminating summary record after %d file(s), %d symbol(s), %d relation(s)",
 			res.stream.Files, res.stream.Symbols, res.stream.Relations,
 		)
 	}

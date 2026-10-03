@@ -61,7 +61,11 @@ type regressionReport struct {
 	BrainPath     string              `json:"brain_path"`
 	Anomalies     []regressionAnomaly `json:"anomalies"`
 	Scanned       int                 `json:"scanned_files"`
-	Warnings      []string            `json:"warnings,omitempty"`
+	// HistoryTruncated reports that the raw-history walk stopped at a hard cap before the end of
+	// the brain. When it is true, an empty Anomalies list means "nothing found in the part that
+	// was read", never "nothing exists".
+	HistoryTruncated bool     `json:"history_truncated,omitempty"`
+	Warnings         []string `json:"warnings,omitempty"`
 }
 
 type regressionDetectorOptions struct {
@@ -274,24 +278,72 @@ func regressionSignalHead(raw string) string {
 	return strings.ToLower(token)
 }
 
-// regressionScanHistory walks the raw brain (sessions + exports) once and extracts change/delete
-// signals for the given identifiers from EVERY matching line — not a capped top-N — so rare but
-// precise invariants are not lost. Bounded by a generous file cap and a distinct-signal cap.
+// regressionScanCaps records whether a hard limit stopped the raw-history walk before it reached
+// the end of the brain. A fired cap makes the scan PARTIAL: from that point on, the absence of a
+// signal is no longer evidence that no such signal exists, so every caller must say so rather than
+// print a clean bill of health.
+type regressionScanCaps struct {
+	// FileCap is true when the walk hit maxFiles opened history files.
+	FileCap bool
+	// SignalCap is true when both the distinct-change and distinct-delete signal caps filled.
+	SignalCap bool
+	// Scanned is the number of history files actually opened before the walk ended.
+	Scanned int
+	// MaxFiles / MaxSignals are the limits in force, reported so the warning is self-explaining.
+	MaxFiles   int
+	MaxSignals int
+}
+
+// Truncated reports whether the walk ended early, i.e. whether the scan is partial.
+func (c regressionScanCaps) Truncated() bool { return c.FileCap || c.SignalCap }
+
+// Warning renders the one line a reader needs to know the scan was partial. Empty when it was not.
+func (c regressionScanCaps) Warning() string {
+	switch {
+	case c.FileCap && c.SignalCap:
+		return fmt.Sprintf("history scan stopped early: hit both the %d-file cap and the %d-distinct-signal cap; results are partial and absence of a finding is not evidence of absence", c.MaxFiles, c.MaxSignals)
+	case c.FileCap:
+		return fmt.Sprintf("history scan stopped early: hit the %d-file cap after %d files; results are partial and absence of a finding is not evidence of absence", c.MaxFiles, c.Scanned)
+	case c.SignalCap:
+		return fmt.Sprintf("history scan stopped early: hit the %d-distinct-signal cap after %d files; results are partial and absence of a finding is not evidence of absence", c.MaxSignals, c.Scanned)
+	default:
+		return ""
+	}
+}
+
+// regressionScanHistory is the capped walk without the truncation report, kept for callers that
+// only need the signals. Prefer regressionScanHistoryCapped: a dropped cap report is exactly the
+// silent failure this file's warnings exist to prevent.
 func regressionScanHistory(brainDir string, ids []string) ([]changeSignal, []deleteSignal, map[string]struct{}, error) {
+	changes, deletes, files, _, err := regressionScanHistoryCapped(brainDir, ids)
+	return changes, deletes, files, err
+}
+
+// regressionScanHistoryCapped walks the raw brain (sessions + exports) once and extracts
+// change/delete signals for the given identifiers from every matching line of every file it
+// reaches, so rare but precise invariants are not lost behind a top-N ranking.
+//
+// It is NOT unbounded, and the bound is not cosmetic: the walk stops outright (filepath.SkipAll)
+// once it has opened maxFiles history files, or once it holds maxSignalsEach distinct change
+// signals AND maxSignalsEach distinct delete signals. Whatever lies beyond that point in the walk
+// is never read. The returned regressionScanCaps says whether that happened; callers must surface
+// it, because "no signal found" and "stopped looking" are different answers.
+func regressionScanHistoryCapped(brainDir string, ids []string) ([]changeSignal, []deleteSignal, map[string]struct{}, regressionScanCaps, error) {
 	const (
 		maxFiles       = 20000
 		maxLineBytes   = 4 * 1024 * 1024
 		maxSignalsEach = 400
 	)
+	caps := regressionScanCaps{MaxFiles: maxFiles, MaxSignals: maxSignalsEach}
 	// Resolve excluded transcript paths before reading any history. A broken
 	// manifest or privacy policy must fail closed, not disable exclusion.
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, caps, err
 	}
 	guard, err := loadSessionReadGuard(brainDir, manifest)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, caps, err
 	}
 	lowIDs := make([]string, 0, len(ids))
 	for _, id := range ids {
@@ -313,7 +365,15 @@ func regressionScanHistory(brainDir string, ids []string) ([]changeSignal, []del
 			}
 			return nil
 		}
-		if scanned >= maxFiles || (len(seenC) >= maxSignalsEach && len(seenD) >= maxSignalsEach) {
+		// Record WHICH cap fired before abandoning the walk. Stopping silently here is what let
+		// "No suspected regressions" be printed over a scan that never finished.
+		if scanned >= maxFiles {
+			caps.FileCap = true
+		}
+		if len(seenC) >= maxSignalsEach && len(seenD) >= maxSignalsEach {
+			caps.SignalCap = true
+		}
+		if caps.FileCap || caps.SignalCap {
 			return filepath.SkipAll
 		}
 		switch filepath.Ext(path) {
@@ -382,14 +442,24 @@ func regressionScanHistory(brainDir string, ids []string) ([]changeSignal, []del
 		_ = f.Close()
 		return nil
 	})
-	return changes, deletes, files, nil
+	caps.Scanned = scanned
+	return changes, deletes, files, caps, nil
 }
 
 func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSourceManifest, query string, limit int, includeDeletions bool) ([]regressionAnomaly, int, []string) {
+	anomalies, scanned, warnings, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, semSource, query, limit, includeDeletions)
+	return anomalies, scanned, warnings
+}
+
+// detectRegressionAnomaliesCapped is detectRegressionAnomalies plus the raw-history truncation
+// report. The caps are also rendered into warnings, but a caller that writes a summary sentence
+// needs the flag itself: a note printed under a clean-bill-of-health headline is not a correction.
+func detectRegressionAnomaliesCapped(brainDir, repoRoot string, semSource *semanticSourceManifest, query string, limit int, includeDeletions bool) ([]regressionAnomaly, int, []string, regressionScanCaps) {
 	var warnings []string
+	var caps regressionScanCaps
 	ids := brainBriefRawHistoryQueries(query)
 	if len(ids) == 0 {
-		return []regressionAnomaly{}, 0, []string{"no code identifiers found in query; pass the failing symbols/terms"}
+		return []regressionAnomaly{}, 0, []string{"no code identifiers found in query; pass the failing symbols/terms"}, caps
 	}
 
 	candidateFiles := map[string]struct{}{}
@@ -434,15 +504,21 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 	// Targeted history scan: walk the raw sessions once, keeping only signal-bearing lines (so a
 	// rare invariant isn't lost behind thousands of plain identifier mentions, as a capped
 	// generic scan would). Also collects the code files those sessions name.
-	changes, deletes, namedFiles, scanErr := regressionScanHistory(brainDir, ids)
+	changes, deletes, namedFiles, scanCaps, scanErr := regressionScanHistoryCapped(brainDir, ids)
+	caps = scanCaps
 	if scanErr != nil {
-		return nil, 0, append(warnings, "history scan unavailable: "+scanErr.Error())
+		return nil, 0, append(warnings, "history scan unavailable: "+scanErr.Error()), caps
+	}
+	// Surface the truncation BEFORE any of the early returns below: a capped scan that then finds
+	// no candidate files must still tell the reader it stopped looking.
+	if w := caps.Warning(); w != "" {
+		warnings = append(warnings, w)
 	}
 	for f := range namedFiles {
 		candidateFiles[f] = struct{}{}
 	}
 	if len(changes) == 0 && len(deletes) == 0 {
-		return []regressionAnomaly{}, 0, append(warnings, "history holds no precise code assertions for these identifiers")
+		return []regressionAnomaly{}, 0, append(warnings, "history holds no precise code assertions for these identifiers"), caps
 	}
 
 	// Load all candidate files once.
@@ -481,7 +557,7 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 		files = append(files, candFile{clean: clean, lines: lines, norm: norm, semantic: isSem, rank: rank, runtimeTrace: hasTrace, traceRank: traceRank, isTest: regressionIsTestPath(clean)})
 	}
 	if len(files) == 0 {
-		return []regressionAnomaly{}, 0, append(warnings, "no current files to verify against (semantic index missing?)")
+		return []regressionAnomaly{}, 0, append(warnings, "no current files to verify against (semantic index missing?)"), caps
 	}
 	// Deterministic, locus-prioritized order: implementation before tests, then by semantic rank
 	// (the strongest fix-site first), then path — so a finding lands on the actual fix site, not a
@@ -684,7 +760,7 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 	if anomalies == nil {
 		anomalies = []regressionAnomaly{}
 	}
-	return anomalies, len(files), warnings
+	return anomalies, len(files), warnings, caps
 }
 
 type regressionHome struct {
@@ -1187,7 +1263,7 @@ func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, 
 	if status.Manifest != nil && status.Manifest.Sources != nil {
 		semSource = status.Manifest.Sources.Semantic
 	}
-	anomalies, scanned, warnings := detectRegressionAnomalies(status.Brain.Path, status.Repo.Root, semSource, query, ro.limit, ro.includeDeletions)
+	anomalies, scanned, warnings, caps := detectRegressionAnomaliesCapped(status.Brain.Path, status.Repo.Root, semSource, query, ro.limit, ro.includeDeletions)
 	if ro.locationOnly {
 		// Hand only the suspected location, not the fix — so a fair A/B measures detection, not
 		// the agent pasting a harness-computed `expected`.
@@ -1201,14 +1277,15 @@ func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, 
 		}
 	}
 	report := regressionReport{
-		SchemaVersion: reviewReportSchemaVersion,
-		GeneratedAt:   opts.Now().UTC(),
-		Query:         query,
-		RepoPath:      status.Repo.Root,
-		BrainPath:     status.Brain.Path,
-		Anomalies:     anomalies,
-		Scanned:       scanned,
-		Warnings:      warnings,
+		SchemaVersion:    reviewReportSchemaVersion,
+		GeneratedAt:      opts.Now().UTC(),
+		Query:            query,
+		RepoPath:         status.Repo.Root,
+		BrainPath:        status.Brain.Path,
+		Anomalies:        anomalies,
+		Scanned:          scanned,
+		HistoryTruncated: caps.Truncated(),
+		Warnings:         warnings,
 	}
 	render := func() error {
 		if ro.json {
@@ -1216,13 +1293,7 @@ func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, 
 		}
 		out := cmd.OutOrStdout()
 		if len(anomalies) == 0 {
-			// Same rule as reviewSummary: zero anomalies out of zero files scanned is
-			// "nothing was checked", not "nothing is wrong".
-			if scanned == 0 {
-				fmt.Fprintf(out, "INCONCLUSIVE for %q: nothing was compared (0 files scanned).\n", query)
-			} else {
-				fmt.Fprintf(out, "No suspected regressions for %q (scanned %d files).\n", query, scanned)
-			}
+			fmt.Fprintln(out, regressionNoAnomaliesLine(query, scanned, caps.Truncated()))
 			for _, w := range warnings {
 				fmt.Fprintf(out, "  note: %s\n", w)
 			}
@@ -1340,6 +1411,26 @@ func regressionSeverity(conf float64) string {
 		return "medium"
 	default:
 		return "low"
+	}
+}
+
+// regressionNoAnomaliesLine is the headline `inspect regressions` prints when nothing was
+// flagged. Like reviewSummary, it may never claim more than the run established.
+//
+// There are three distinct causes of zero findings and they used to share two sentences:
+//   - scanned == 0: nothing was compared at all.
+//   - the raw-history walk hit a file or signal cap and abandoned the rest of the brain: the
+//     comparison that did run was over a PREFIX of history. "No suspected regressions" read as a
+//     clean bill of health for evidence that was never opened.
+//   - the scan completed: the only case that earns the unqualified sentence.
+func regressionNoAnomaliesLine(query string, scanned int, historyTruncated bool) string {
+	switch {
+	case scanned == 0:
+		return fmt.Sprintf("INCONCLUSIVE for %q: nothing was compared (0 files scanned).", query)
+	case historyTruncated:
+		return fmt.Sprintf("PARTIAL for %q: nothing flagged in what was compared (scanned %d files), but the history scan stopped at a cap before the end of the brain, so this is not a clean bill of health (see the notes below).", query, scanned)
+	default:
+		return fmt.Sprintf("No suspected regressions for %q (scanned %d files).", query, scanned)
 	}
 }
 

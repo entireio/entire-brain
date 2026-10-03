@@ -830,8 +830,20 @@ func verificationSummaryForBranch(ctx context.Context, opts Options, repoDir, br
 	return report.Summary, nil
 }
 
-func populateBrainStatusVerification(ctx context.Context, opts Options, report *brainStatusReport) {
-	if report == nil || !report.Sources.Facts {
+// populateBrainStatusVerification spot-checks the anchors of the most recent
+// facts and attaches the summary to a status report.
+//
+// It is OPT-IN (details) and must stay that way. Verification resolves every
+// distinct anchor commit with `git cat-file -e` plus a
+// `git for-each-ref --contains <commit>` walk over refs/heads, refs/remotes
+// and refs/tags. That walk costs refs x history per distinct commit, not
+// "a bit per fact", so a repo with real history pays seconds to a minute the
+// moment it has any facts at all — while a brain with zero facts returns
+// instantly and hides the cliff. `brain status` is the command the docs point
+// at session-start hooks and the MCP brain_status tool, so the default report
+// may not pay it; `brain verify` and `status --details` still do (#325).
+func populateBrainStatusVerification(ctx context.Context, opts Options, report *brainStatusReport, details bool) {
+	if report == nil || !details || !report.Sources.Facts {
 		return
 	}
 	branch := report.Live.Branch

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -12,8 +13,32 @@ import (
 // MCP results drop whole tail rows to fit the exact serialized budget.
 // Truncation markers participate in every size check; unreducible envelopes fail.
 const (
-	// Bound agent context below the transport frame limit, matching retrieval.
-	mcpToolResponseMaxBytes = 128 * 1024
+	// mcpToolResponseDefaultMaxBytes bounds a tool result to what an AGENT can
+	// accept, which is far below the transport frame limit.
+	//
+	// This was 128 KiB, chosen as "below the transport frame limit" (4 MiB).
+	// That is the wrong consumer. The budget is spent in an agent's context
+	// window, and JSON of this shape runs about 2.5 characters per token --
+	// ids, quotes, braces and punctuation are not free -- so 128 KiB is roughly
+	// 52k tokens, double a typical client's whole tool-result ceiling.
+	//
+	// Measured from a real session: brain_status returned 124,295 characters,
+	// brain_brief 125,822 and brain_impact 61,580. Every one of them was UNDER
+	// the 128 KiB budget, so the trimming here worked exactly as designed, and
+	// every one was then REJECTED by the client as exceeding its token limit.
+	// brain_impact is the tight bound: 61,580 characters is already ~24.6k
+	// tokens at 2.5 chars/token, so the client's ceiling sits near 25k.
+	//
+	// 32 KiB is ~13k tokens: generous for a single tool result, and half the
+	// smallest result that was actually refused. Trimming still returns rows
+	// plus a marker, which is strictly better than an error carrying nothing.
+	mcpToolResponseDefaultMaxBytes = 32 * 1024
+
+	// mcpToolResponseMaxBytesEnv raises or lowers the budget for a client whose
+	// window differs. The default is chosen for the smallest limit observed,
+	// not the largest, because being under costs rows while being over costs
+	// the whole result.
+	mcpToolResponseMaxBytesEnv = "ENTIRE_BRAIN_MCP_MAX_BYTES"
 
 	// mcpResponseTruncatedKey / mcpResponseTruncationKey are the envelope
 	// markers. The boolean matches the retrieval surface's existing
@@ -35,7 +60,16 @@ const (
 
 	// Reserve this many rows per list before sharing remaining space proportionally.
 	// If the floor does not fit, use one shared width across all lists.
-	mcpResponseTrimFairRows = 64
+	// mcpResponseTrimFairRowsAt128K is the per-list guarantee that was tuned
+	// against the original 128 KiB budget. It is not a free-standing number: it
+	// is a number of rows that fitted in THAT budget, so it has to move with the
+	// budget. Left fixed at 64 under a 32 KiB budget, phase 1 can never satisfy
+	// two lists (128 rows of space in a quarter of the room), so every list
+	// silently drops to the same shared width and the wider list is cut to the
+	// narrower one's size.
+	mcpResponseTrimFairRowsAt128K = 64
+	mcpResponseTrimFairRowsBudget = 128 * 1024
+	mcpResponseTrimFairRowsFloor  = 8
 
 	// Truncated array roots move under this key so markers stay outside data rows.
 	// Untruncated roots keep their original shape.
@@ -61,7 +95,7 @@ var mcpServerInstructions = fmt.Sprintf("Tool results are bounded to %d bytes. O
 	"If that floor does not fit, lists use a shared width. Matching pagination counts are updated to returned rows. "+
 	"Truncated array roots are wrapped in {%q: [...]} so markers remain at the document root.",
 	mcpToolResponseMaxBytes, mcpResponseTruncatedKey, mcpResponseTruncationKey,
-	mcpResponseTrimFairRows, mcpResponseTrimArrayKey)
+	mcpResponseTrimFairRows(), mcpResponseTrimArrayKey)
 
 // mcpRowCountKeys are sibling fields that state how many rows a list carries.
 // Trimming the list without repairing them would replace the old dishonesty
@@ -141,7 +175,7 @@ func mcpBoundedToolText(ctx context.Context, tool, text string) (string, error) 
 }
 
 // mcpTrimToolResponseRows drops complete tail rows and measures the exact frame.
-// It first reserves mcpResponseTrimFairRows per list, then shares space in
+// It first reserves mcpResponseTrimFairRows() per list, then shares space in
 // proportion to original list lengths. If the floor cannot fit, lists share
 // one width. No row contents are rewritten. Non-JSON results, documents with
 // no row lists, and envelopes that remain oversized return false.
@@ -193,22 +227,22 @@ func mcpTrimToolResponseRows(ctx context.Context, text string, size int) (string
 		return func(list *mcpRowList) int {
 			// int64 throughout: widestRows * total overflows a 32-bit int.
 			rows := int((int64(widestRows)*int64(list.total()) + int64(widest) - 1) / int64(widest))
-			if rows < mcpResponseTrimFairRows {
-				rows = mcpResponseTrimFairRows
+			if rows < mcpResponseTrimFairRows() {
+				rows = mcpResponseTrimFairRows()
 			}
 			return min(rows, list.total())
 		}
 	}
 
-	// Phase 1: can every list keep its fair share? share(mcpResponseTrimFairRows)
-	// is exactly uniform(mcpResponseTrimFairRows), so this doubles as the low end
+	// Phase 1: can every list keep its fair share? share(mcpResponseTrimFairRows())
+	// is exactly uniform(mcpResponseTrimFairRows()), so this doubles as the low end
 	// of the phase-2 search.
-	encoded, fits, measured := probe(uniform(mcpResponseTrimFairRows))
+	encoded, fits, measured := probe(uniform(mcpResponseTrimFairRows()))
 	if !measured {
 		return "", false
 	}
 	if !fits {
-		return mcpTrimSharedWidth(&marker, probe, uniform, mcpResponseTrimFairRows, &probes)
+		return mcpTrimSharedWidth(&marker, probe, uniform, mcpResponseTrimFairRows(), &probes)
 	}
 	best := encoded
 
@@ -216,7 +250,7 @@ func mcpTrimToolResponseRows(ctx context.Context, text string, size int) (string
 	// it, so lo is the largest count known to fit and hi the smallest known not
 	// to. widest is the document exactly as the tool produced it, which is how we
 	// got here, so hi starts out known not to fit.
-	lo, hi := mcpResponseTrimFairRows, widest
+	lo, hi := mcpResponseTrimFairRows(), widest
 	// Seed the search from how far over budget the document is, so a 33 MB answer
 	// starts near its allocation instead of halving down to it.
 	if seed := int(int64(widest) * int64(mcpToolResponseMaxBytes) / int64(size)); seed > lo && seed < hi {
@@ -500,4 +534,49 @@ func (m *mcpTruncationMarker) document() any {
 		mcpResponseTruncatedKey:  true,
 		mcpResponseTruncationKey: report,
 	}
+}
+
+// mcpToolResponseMaxBytes is the active budget: the default unless
+// ENTIRE_BRAIN_MCP_MAX_BYTES names a positive byte count. Resolved once, so a
+// single server process cannot change budget between two calls and hand a
+// client two different contracts after advertising one in its instructions.
+var mcpToolResponseMaxBytes = resolveMCPToolResponseMaxBytes(os.Getenv(mcpToolResponseMaxBytesEnv))
+
+// resolveMCPToolResponseMaxBytes keeps the parse testable without touching the
+// process environment. An unset, unparseable or non-positive value takes the
+// default rather than failing: a bad override must not take the server down,
+// and silently running unbounded would be worse than ignoring it.
+func resolveMCPToolResponseMaxBytes(raw string) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return mcpToolResponseDefaultMaxBytes
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return mcpToolResponseDefaultMaxBytes
+	}
+	// Never exceed the transport frame: a budget above it promises a result
+	// the transport would refuse to carry.
+	if n > maxMCPFrameBytes {
+		return maxMCPFrameBytes
+	}
+	return n
+}
+
+// mcpResponseTrimFairRows() scales the per-list row guarantee with the active
+// budget, holding the original calibration exactly at the budget it was tuned
+// for (64 rows at 128 KiB) and degrading linearly below it.
+//
+// A floor keeps the guarantee meaningful: below a handful of rows per list the
+// phase-1 reservation stops expressing "nobody gets starved" and just fails,
+// which is the degenerate case this scaling exists to avoid.
+func mcpResponseTrimFairRows() int {
+	rows := mcpToolResponseMaxBytes * mcpResponseTrimFairRowsAt128K / mcpResponseTrimFairRowsBudget
+	if rows < mcpResponseTrimFairRowsFloor {
+		return mcpResponseTrimFairRowsFloor
+	}
+	if rows > mcpResponseTrimFairRowsAt128K {
+		return mcpResponseTrimFairRowsAt128K
+	}
+	return rows
 }

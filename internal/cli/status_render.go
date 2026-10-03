@@ -163,8 +163,37 @@ func subtractBlindSpots(spots []brainBlindSpot, seen map[string]bool) []brainBli
 }
 
 // statusCauseWidth bounds the one-line cause so the short report stays short
-// even when a provider hands back a paragraph-length axis detail.
+// even when a provider hands back a paragraph-length axis detail. It counts
+// CHARACTERS, not bytes — see truncateStatusCause.
 const statusCauseWidth = 140
+
+// statusCauseEllipsis marks a cause that did not fit.
+const statusCauseEllipsis = "..."
+
+// truncateStatusCause bounds a cause at statusCauseWidth runes.
+//
+// The general-purpose truncateString measures its budget in BYTES. For the
+// ASCII causes this file was written against the two are the same, but a
+// provider detail carrying a non-ASCII path, identifier or quotation mark is
+// charged two to four bytes per character, so a perfectly short cause was cut
+// to a third of its length. Counting runes makes the advertised width mean
+// what it says, and cutting on a rune index can never split a character.
+func truncateStatusCause(cause string) string {
+	if cause == "" {
+		return ""
+	}
+	runes := []rune(cause)
+	if len(runes) <= statusCauseWidth {
+		return cause
+	}
+	limit := statusCauseWidth
+	suffix := ""
+	if statusCauseWidth > len(statusCauseEllipsis) {
+		limit = statusCauseWidth - len(statusCauseEllipsis)
+		suffix = statusCauseEllipsis
+	}
+	return string(runes[:limit]) + suffix
+}
 
 // statusHealth is the one-line verdict the short report ends on.
 type statusHealth struct {
@@ -261,7 +290,7 @@ func statusFreshnessCause(report brainStatusReport) string {
 			parts = append(parts, summary)
 		}
 	}
-	return truncateString(strings.Join(parts, "; "), statusCauseWidth)
+	return truncateStatusCause(strings.Join(parts, "; "))
 }
 
 func semanticFreshnessOf(report brainStatusReport) *staleReport {
