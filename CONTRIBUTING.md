@@ -5,15 +5,9 @@ explains the vocabulary, source layers, and data flow; it is a map for contribut
 and agents, not a replacement for the operational reference.
 
 1. **Branch from current `main`.** Tags mark releases on `main`; they are not branches to work from.
-2. **Run lint and tests before you push:**
+2. **Run the full suite before you push:**
    ```bash
-   mise run lint
-   mise run test
-   ```
-   Lint checks `go vet`, formatting, module tidiness, and shell scripts. The test
-   task runs `go test ./...`; use `go test ./... -count=1` for an uncached run.
-   The direct Go checks remain useful when iterating:
-   ```bash
+   go test ./... -count=1
    gofmt -l -s .
    go vet ./...
    ```
