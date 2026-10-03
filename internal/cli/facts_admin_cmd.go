@@ -521,9 +521,10 @@ func newFactsReclassifyCommand(opts Options) *cobra.Command {
 		jsonOut bool
 	)
 	cmd := &cobra.Command{
-		Use:   "reclassify",
-		Short: "Backfill the deterministic KIND onto facts missing one (no agent)",
-		Args:  cobra.NoArgs,
+		Hidden: true,
+		Use:    "reclassify",
+		Short:  "Backfill the deterministic KIND onto facts missing one (no agent)",
+		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
 			if err != nil {

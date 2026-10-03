@@ -42,8 +42,9 @@ func newFactsEvalGenCommand(opts Options) *cobra.Command {
 		source       string
 	)
 	cmd := &cobra.Command{
-		Use:   "eval-gen",
-		Short: "Generate a silver-labeled eval task set from the brain's own sessions",
+		Hidden: true,
+		Use:    "eval-gen",
+		Short:  "Generate a silver-labeled eval task set from the brain's own sessions",
 		Long: `eval-gen turns the brain into a self-labeled benchmark: each captured session
 	becomes a task (its opening user request), and the facts whose provenance points
 	back to that session are provenance/silver labels. These labels are useful for

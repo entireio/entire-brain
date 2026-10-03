@@ -841,9 +841,10 @@ func newInspectQueryGraphCommand(opts Options) *cobra.Command {
 func newInspectGraphSchemaCommand(opts Options) *cobra.Command {
 	graphOpts := semanticGraphSchemaOptions{}
 	cmd := &cobra.Command{
-		Use:   "graph-schema",
-		Short: "Describe the indexed semantic graph schema and relation vocabulary",
-		Args:  cobra.NoArgs,
+		Hidden: true,
+		Use:    "graph-schema",
+		Short:  "Describe the indexed semantic graph schema and relation vocabulary",
+		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticGraphSchema(cmd, opts, graphOpts)
 		},
