@@ -92,7 +92,24 @@ func parseMem0(data []byte) ([]importedMemory, int, error) {
 	out := make([]importedMemory, 0, len(direct))
 	skipped := 0
 	for _, m := range direct {
-		text := strings.TrimSpace(m.Memory)
+		// Foreign text is UNTRUSTED CONTENT, not just untrusted size.
+		//
+		// This file already treats the input as hostile by bounding how much
+		// of it it will read. It did not bound what is IN it: m.Memory was
+		// stored verbatim, and printFactLine (facts_read_cmd.go) and the
+		// compact brief both print f.Text unescaped. So ANSI escapes, bidi
+		// overrides and zero-width runes from another tool's export reach the
+		// terminal and, worse, the agent's prompt.
+		//
+		// sanitizeDistilledFactText exists for exactly this and was already
+		// applied to agent-produced text in distill.go. Text arriving from a
+		// third-party tool has strictly weaker provenance than text this
+		// brain's own agent produced, so it cannot be held to a weaker
+		// standard. Stripping is counted and reported rather than silent: a
+		// fact whose text changed on the way in is something the owner should
+		// be able to see.
+		text, stripped := sanitizeDistilledFactText(strings.TrimSpace(m.Memory))
+		text = strings.TrimSpace(text)
 		if text == "" {
 			// A memory with no text is not a fact. Skipping is right; skipping
 			// silently is not, so it is counted and reported.
@@ -106,6 +123,14 @@ func parseMem0(data []byte) ([]importedMemory, int, error) {
 			CreatedAt:  parseImportTime(m.CreatedAt),
 			UpdatedAt:  parseImportTime(m.UpdatedAt),
 			ReplacedBy: strings.TrimSpace(m.ReplacedBy),
+		}
+		if stripped {
+			// Reuse the channel this file already has for "the source said
+			// something we changed or could not keep", so a fact whose text
+			// was altered on the way in is visible in the report rather than
+			// silently different from the export.
+			mem.Unsupported = append(mem.Unsupported,
+				"control, bidi or zero-width characters in the memory text (stripped on import; they render in terminals and in agent prompts)")
 		}
 		// Brain has no TTL. Dropping an expiry without saying so would turn a
 		// memory its owner scheduled to disappear into one that never does.
@@ -213,6 +238,41 @@ func validateImportPrefix(prefix string) error {
 			prefix, strings.TrimSuffix(normalized[0], ".general"))
 	}
 	return nil
+}
+
+// validateImportPrefixAgainstTaxonomy rejects a --path-prefix whose top-level
+// category the taxonomy does not know.
+//
+// `facts add --path` already refuses this, and says why: "otherwise --path can
+// mint immediately-orphaned facts the rest of the system treats as invalid"
+// (facts_write_cmd.go). Import had only the shape check above, so
+// `--path-prefix notes.inbox` could land a thousand facts that factmerge.GC
+// reports as orphans while the command printed "imported 1000 of 1000".
+//
+// An explicit prefix is deliberate, exactly like an explicit --path, so an
+// unknown category is a hard error rather than a silent drop that would hide
+// a typo across the whole import. This runs after the brain is resolved,
+// because the taxonomy lives there; the shape check stays up front so a
+// malformed prefix still fails before any file is read.
+func validateImportPrefixAgainstTaxonomy(brainDir, prefix string, now time.Time) error {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return nil // the default prefix is taxonomy-valid by construction
+	}
+	taxonomy, err := loadFactTaxonomy(brainDir, now)
+	if err != nil {
+		// A taxonomy that cannot be read is not evidence the prefix is wrong.
+		// Refusing the import here would turn a brain-state problem into a
+		// rejected import, so the shape check above stands alone.
+		return nil
+	}
+	candidate := prefix + ".general"
+	var warnings []string
+	if kept := filterFactPathsByTaxonomy([]string{candidate}, taxonomy, &warnings); len(kept) == 1 {
+		return nil
+	}
+	return fmt.Errorf("--path-prefix %q is not under a known taxonomy category (%s); importing under it would mint facts the rest of the system treats as orphaned",
+		prefix, strings.Join(sortedTaxonomyTopLevels(taxonomy), ", "))
 }
 
 // sanitizeImportSegment keeps a foreign category to characters usable in a
@@ -507,7 +567,13 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
 			if err != nil {
 				return err
+			} // The shape of the prefix was checked before any file was read;
+			// whether the taxonomy knows it can only be checked once the brain
+			// is resolved.
+			if err := validateImportPrefixAgainstTaxonomy(brainDir, prefix, opts.Now().UTC()); err != nil {
+				return err
 			}
+
 			facts, report := memoriesToFacts(memories, skipped, strings.ToLower(source), prefix, resolvedBranch, opts.Now().UTC())
 			report.File = file
 			report.DryRun = dryRun
