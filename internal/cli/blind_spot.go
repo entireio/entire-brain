@@ -63,6 +63,29 @@ func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
 	if integrity := inspectFactStore(brainDir, manifest.Sources.Facts); !integrity.OK() {
 		return "note: this empty result is NOT evidence of absence — " + integrity.Warning()
 	}
+	// Facts are recorded against the branch the session ran on. Sessions run on
+	// feature branches and queries run from main, so an empty result on one
+	// branch is the ordinary case rather than a signal about the corpus.
+	//
+	// THIS IS CHECKED BEFORE THE COVERAGE NOTES, and the order is the whole
+	// point. Both can be true at once, and when they are, naming the branch
+	// that holds the facts is the only one the caller can act on: it ends with
+	// a flag they can retype, where "coverage of older sessions is unknown"
+	// ends with nothing to do.
+	//
+	// Checked last, this feature was unreachable in the case it was built for.
+	// `undigested > 0` is true in every repository where a session has been
+	// captured since the last distillation -- which is every actively worked
+	// repository, and you are on a feature branch BECAUSE you have been
+	// working. The fixtures never caught it because they set LastDistilledAt
+	// to now with sessions two hours old, so undigested was always 0 and the
+	// branch path was never exercised.
+	//
+	// The integrity check above still wins: a store that lost facts must never
+	// be reported as merely the wrong branch.
+	if note := otherBranchBlindSpot(brainDir, branch); note != "" {
+		return note
+	}
 	last, undigested, ok := distillCoverage(manifest)
 	if !ok {
 		if manifest.Sources.Sessions != nil && len(manifest.Sources.Sessions.Sessions) > 0 {
@@ -72,15 +95,6 @@ func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
 	}
 	if undigested > 0 {
 		return fmt.Sprintf("note: last distillation %s; %d session(s) captured since; coverage of older sessions is unknown", last.Format("2006-01-02"), undigested)
-	}
-	// Facts are recorded against the branch the session ran on. Sessions run on
-	// feature branches and queries run from main, so an empty result on one
-	// branch is the ordinary case rather than a signal about the corpus. The
-	// note below is true but generic; when the store can name where the facts
-	// actually are, saying so is strictly more useful than restating that
-	// absence is not evidence.
-	if note := otherBranchBlindSpot(brainDir, branch); note != "" {
-		return note
 	}
 	return fmt.Sprintf("note: last distillation %s; complete session coverage is unknown, so this empty result is not evidence of absence", last.Format("2006-01-02"))
 }
