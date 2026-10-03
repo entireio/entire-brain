@@ -1,0 +1,97 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "a01c0747b1d5",
+  "session_id": "01a0ffcf-337e-73e8-bacf-402ddded1a31",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-03T04:17:50.715974Z",
+  "branch": "alex/cor-2000-contributing-docs",
+  "checkpoints_count": 5,
+  "save_step_count": 4,
+  "files_touched": [
+    "CONTRIBUTING.md",
+    "README.md",
+    "docs/concepts.md",
+    "docs/superpowers/specs/2026-10-03-contributor-concepts-design.md"
+  ],
+  "agent": "Pi",
+  "model": "gpt-6-luna",
+  "turn_id": "f4ddade8a0e0",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 264958,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 8101888,
+    "output_tokens": 38141,
+    "api_call_count": 55
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "pi-skill-owning-workspace-slice-2026-10-03T03:30:52.807Z-0",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "owning-workspace-slice"
+      },
+      "source": {
+        "agent": "pi",
+        "signal": "input_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "373766f2c3f9",
+      "timestamp": "2026-10-03T03:30:52.807Z",
+      "native": {
+        "command": "/skill:owning-workspace-slice"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/skill:owning-workspace-slice",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 5
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-03T04:17:50.673967Z",
+    "agent_lines": 167,
+    "agent_removed": 2,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 167,
+    "total_lines_changed": 169,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 167,
+      "agent_lines_removed": 2
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

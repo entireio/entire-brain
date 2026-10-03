@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "a01c0747b1d5",
+  "strategy": "manual-commit",
+  "branch": "alex/cor-2000-contributing-docs",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "CONTRIBUTING.md",
+    "README.md",
+    "docs/concepts.md",
+    "docs/superpowers/specs/2026-10-03-contributor-concepts-design.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a0/1c0747b1d5/0/metadata.json",
+      "transcript": "/a0/1c0747b1d5/0/full.jsonl",
+      "compact_transcript": "/a0/1c0747b1d5/0/transcript.jsonl",
+      "content_hash": "/a0/1c0747b1d5/0/content_hash.txt",
+      "prompt": "/a0/1c0747b1d5/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 264958,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 8101888,
+    "output_tokens": 38141,
+    "api_call_count": 55
+  }
+}
