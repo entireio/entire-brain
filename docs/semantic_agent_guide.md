@@ -28,8 +28,7 @@ Recommended intake flow:
    `entire brain inspect search-graph <query> --json` to find candidate symbols
    and relation hits.
 3. Use `entire brain inspect query-graph "type:CALLS <query>" --json` when the
-   question needs a specific relation family, and `entire brain inspect
-   graph-schema --json` when you need the available relation/types inventory.
+   question needs a specific relation family.
    Use `entire brain inspect graph-ui semantic-graph.html` when a local visual
    graph explorer is useful.
 4. Use `entire brain inspect context <symbol> --json --include-content=false`
@@ -43,8 +42,8 @@ Recommended intake flow:
    candidates, and `entire brain inspect ingest-traces <json-or-ndjson> --json`
    to compare runtime trace edges to static graph edges. After ingest, use
    `entire brain inspect query-graph type:RUNTIME_TRACE --json` to retrieve
-   persisted dynamic trace facts; `brief`, `trace-path`, and graph
-   schema/metrics also include the imported runtime trace edges.
+   persisted dynamic trace facts; `brief` and `trace-path` also include the
+   imported runtime trace edges.
 8. Use `entire brain inspect tests <symbol> --json` before choosing validation
    commands for a changed symbol. Code, context, impact, and test JSON is compact
    by default; use `--details` only when full provider records are required.
