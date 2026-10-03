@@ -95,8 +95,17 @@ func TestMCPBrainReviewToolDefinitionGolden(t *testing.T) {
 	}
 
 	// Pin serialized schema bytes; tokenizer measurements are not part of this test.
-	if len(got) != 917 {
-		t.Fatalf("brain_review tool definition bytes = %d, want 917", len(got))
+	//
+	// 917 -> 1090. The description gained the two sentences that tell an agent
+	// when to reach for this tool INSTEAD of re-reading its own diff, and when
+	// not to. Every brain_* description lacked that, which is why the measured
+	// tool-use rate was 0.34%: the description is what an agent reads when
+	// choosing, and none of them argued for being chosen.
+	//
+	// The cost is real and bounded: this is sent once per session in the tool
+	// list, not per call.
+	if len(got) != 1090 {
+		t.Fatalf("brain_review tool definition bytes = %d, want 1090", len(got))
 	}
 }
 
@@ -123,9 +132,11 @@ func TestMCPBrainWorkspaceReviewToolDefinitionGolden(t *testing.T) {
 		t.Fatalf("brain_workspace_review tool definition changed\n got: %s\nwant: %s", got, want)
 	}
 
-	// Pin serialized schema bytes; tokenizer measurements are not part of this test.
-	if len(got) != 1167 {
-		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 1167", len(got))
+	// Pin serialized schema bytes; see the note on brain_review above. 1167 ->
+	// 1261 for the same substitution cue; the cross-repo permission rules the
+	// old text carried are all still here.
+	if len(got) != 1263 {
+		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 1263", len(got))
 	}
 }
 

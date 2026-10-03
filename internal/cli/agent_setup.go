@@ -48,14 +48,33 @@ func newAgentInstructionsCommand(opts Options, install bool) *cobra.Command {
 			if root == "" {
 				return fmt.Errorf("outside a repository; supply --repo")
 			}
+			// The pre-edit hook is the only PUSH path brain has; everything
+			// else waits to be asked. A merge failure must not fail the whole
+			// install -- the guide is the primary artifact and lands either
+			// way -- but it must be SAID, because a hook silently not wired is
+			// how this one sat unused since PR #24.
+			hookChanged, hookErr := agentsetup.MergePreEditHook(root, "entire brain")
 			if jsonOut {
 				changed, err := agentsetup.InstallChanged(root, render)
 				if err != nil {
 					return err
 				}
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"changed_files": changed})
+				payload := map[string]any{"changed_files": changed, "pre_edit_hook_installed": hookChanged}
+				if hookErr != nil {
+					payload["pre_edit_hook_error"] = hookErr.Error()
+				}
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(payload)
 			}
-			return agentsetup.Install(root, render, cmd.OutOrStdout())
+			if err := agentsetup.Install(root, render, cmd.OutOrStdout()); err != nil {
+				return err
+			}
+			switch {
+			case hookErr != nil:
+				fmt.Fprintf(cmd.OutOrStdout(), "pre-edit hook not wired: %v\n", hookErr)
+			case hookChanged:
+				fmt.Fprintf(cmd.OutOrStdout(), "wrote %s (pre-edit hook)\n", ".claude/settings.json")
+			}
+			return nil
 		}
 		guide, err := render()
 		if err != nil {

@@ -104,7 +104,7 @@ uses the mandatory rules described above.
 Graph-only discovery begins, when discovery is needed, with:
 
 ```sh
-entire graph query --repo . --profile full --query "<task>"
+entire graph search --repo . --profile full --query "<task>"
 ```
 
 Brain-only guidance uses Brain for task context, retained knowledge, and semantic
