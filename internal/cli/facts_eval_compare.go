@@ -417,8 +417,9 @@ func newFactsEvalCompareCommand(opts Options) *cobra.Command {
 		allowBrainManifestMismatch bool
 	)
 	cmd := &cobra.Command{
-		Use:   "eval-compare --a <A.json> --b <B.json>",
-		Short: "Paired A/B comparison of two eval runs with a t-test and Holm correction",
+		Hidden: true,
+		Use:    "eval-compare --a <A.json> --b <B.json>",
+		Short:  "Paired A/B comparison of two eval runs with a t-test and Holm correction",
 		Long: `eval-compare reads two 'facts eval --json' summaries over the SAME tasks (two
 retrieval configs, e.g. base vs --expand) and reports, per metric, the paired
 mean delta, a two-sided Student-t p-value, Cohen's d, and a Holm-Bonferroni

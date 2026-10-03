@@ -28,7 +28,6 @@ Specialist tools (symbol graph + regression analysis — what the verbs can't do
   entire brain inspect code "<query>" --json        # find a symbol in the graph
   entire brain inspect search-graph "<query>" --json
   entire brain inspect query-graph "type:CALLS <query>" --json
-  entire brain inspect graph-schema --json
   entire brain inspect graph-ui semantic-graph.html
   entire brain inspect snippet <symbol-or-id> --json
   entire brain inspect trace-path <from-symbol> <to-symbol> --json

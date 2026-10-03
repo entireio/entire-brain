@@ -126,6 +126,30 @@ func isUnknownCommandOrFlag(msg string) bool {
 		strings.Contains(msg, "unknown shorthand flag")
 }
 
+func TestUserAndAgentGuidesDoNotAdvertiseDeveloperIntrospection(t *testing.T) {
+	for _, source := range []string{"../../README.md", "../../docs/getting-started.md", "../../docs/reference.md", "../../docs/semantic_agent_guide.md", "../../internal/agentsetup/brain-reference.md"} {
+		data, err := os.ReadFile(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range []string{"graph-schema", "docs formats"} {
+			if strings.Contains(string(data), path) {
+				t.Errorf("%s advertises hidden developer path %q", source, path)
+			}
+		}
+	}
+	t.Chdir(t.TempDir()) // Outside a repository, preview standalone Brain guidance.
+	guide, err := execute(t, NewRootCommand(Options{Version: "test"}), "agent-guide")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"facts eval", "facts reclassify", "bench semantic", "bench scale", "inspect graph-schema", "docs formats"} {
+		if strings.Contains(guide, "entire brain "+path) {
+			t.Errorf("generated agent guide advertises hidden developer path %q", path)
+		}
+	}
+}
+
 // TestDocumentedCommandsAreDiscoverable closes the gap between what the docs
 // tell a reader to run and what `--help` will admit exists.
 //
@@ -176,6 +200,7 @@ func TestDocumentedCommandsAreDiscoverable(t *testing.T) {
 		"review":           "machine contract for the host CLI's `entire review`, not a human verb",
 		"history-eval":     "measurement harness for the retrieval layer; developer tooling",
 		"history-eval-gen": "measurement harness for the retrieval layer; developer tooling",
+		"bench":            "maintainer-only measurement harness, explicitly introduced as such in getting-started",
 	}
 
 	seen := map[string]string{}
