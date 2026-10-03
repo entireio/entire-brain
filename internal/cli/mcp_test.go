@@ -777,7 +777,7 @@ func TestMCPDebugLogReviewToolsRedactAndLogSuccess(t *testing.T) {
 		}
 		runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
 		runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
-		runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+		runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 		runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 
 		input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_review","arguments":{"query":"secret-review-query","include_deletions":true,"location_only":true}}}`)
@@ -871,7 +871,7 @@ func TestMCPBrainRegressionsTool(t *testing.T) {
 	}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
-	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"fix scopeBaseRef base scope review","limit":5}}}`) +
@@ -930,7 +930,7 @@ func TestMCPBrainRegressionsDeletionLocationOnlyKeepsAllAssignmentSites(t *testi
 	}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
-	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"fix TranscriptPath resolved","limit":5,"include_deletions":true,"location_only":true}}}`)
@@ -984,7 +984,7 @@ func TestMCPBrainReviewTool(t *testing.T) {
 	}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
-	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`) +
@@ -1361,7 +1361,7 @@ func TestMCPBrainBriefAndQueryToolsUseIndexedHistory(t *testing.T) {
 	}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
-	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_brief","arguments":{"task":"restore YouTube media playback verification","limit":5}}}`) +

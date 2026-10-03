@@ -16,6 +16,16 @@ const (
 	distillTemplateName   = "templates/entire-brain-distill.md"
 	distillTaxonomyMarker = "${TAXONOMY_BLOCK}"
 	distillMaxOutputBytes = 256 * 1024
+	// distillAgentPromptMarker separates the agent's real argv from its system
+	// prompt inside the slice distillAgentCommandArgs returns. The prompt is
+	// deliberately NOT a process argument: on Windows `claude`/`codex` installed
+	// from npm resolve to `.cmd` shims, which Go runs through cmd.exe, and
+	// cmd.exe caps the whole command line at 8191 characters.
+	// templates/entire-brain-distill.md alone is ~7.5 KiB, so a prompt on argv
+	// made `brain distill` fail unconditionally there with "The command line is
+	// too long" (issue #322). prepareAgentExec strips this marker and the prompt
+	// that follows it and delivers the prompt out of band instead.
+	distillAgentPromptMarker = "--entire-brain-agent-prompt-off-argv"
 	// Ollama /api/generate echoes the prompt back as a `context` token array the
 	// distiller never reads. Measured at ~3x the prompt bytes for dense ASCII;
 	// 8x leaves headroom for tokenizers that split finer, while keeping the read
@@ -38,9 +48,10 @@ const (
 
 // distillTemplate returns the distillation prompt body shipped with the binary,
 // with its YAML frontmatter stripped. The frontmatter is metadata for skill
-// installers, not part of the prompt — and crucially the agent runners pass the
-// prompt as a positional CLI argument, so a leading "---" would be parsed as an
-// unknown flag and rejected. A missing template is a build error, not runtime.
+// installers, not part of the prompt — and a leading "---" would be read as a
+// flag by any agent that still takes instructions positionally (codex reads
+// them from stdin here, but `--agent command` wrappers may not). A missing
+// template is a build error, not runtime.
 func distillTemplate() (string, error) {
 	data, err := entirebrain.Templates.ReadFile(distillTemplateName)
 	if err != nil {
@@ -118,9 +129,12 @@ func factTaxonomyBlock(taxonomy factTaxonomy) string {
 }
 
 // distillAgentCommandArgs builds the argv that runs the seed agent with the
-// rendered distillation prompt. It mirrors seedAgentCommandArgs: the prompt is
-// the agent's system prompt and the transcript chunk is supplied on stdin. The
-// no-agent mode ("none") has no command — distillation is agent-required.
+// rendered distillation prompt. The prompt stays OFF the command line: it is
+// appended behind distillAgentPromptMarker and prepareAgentExec moves it to a
+// 0600 temp file (claude, via --system-prompt-file) or onto stdin (codex)
+// before the process is spawned — see distillAgentPromptMarker for why. The
+// transcript chunk is supplied on stdin. The no-agent mode ("none") has no
+// command — distillation is agent-required.
 func distillAgentCommandArgs(agent string, agentCommand []string, prompt string) ([]string, error) {
 	if err := rejectAgentForNoEgress(agent); err != nil {
 		return nil, err
@@ -132,16 +146,34 @@ func distillAgentCommandArgs(agent string, agentCommand []string, prompt string)
 		}
 		return append([]string(nil), agentCommand...), nil
 	case "codex":
-		return []string{"codex", "exec", "--json", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only", prompt}, nil
+		return []string{"codex", "exec", "--json", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only", distillAgentPromptMarker, prompt}, nil
 	case "claude-code":
-		return []string{"claude", "--print", "--output-format", "json", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt", prompt}, nil
+		return []string{"claude", "--print", "--output-format", "json", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", distillAgentPromptMarker, prompt}, nil
 	case "ollama":
+		// No marker: the ollama runner never spawns a process. It POSTs to a
+		// loopback /api/generate endpoint and sends this element as the JSON
+		// `system` field, so no command line is ever built and no OS argv limit
+		// applies.
 		return []string{"ollama", "", prompt}, nil
 	case "none", "":
 		return nil, errors.New("distillation requires an agent; --agent none has nothing to run")
 	default:
 		return nil, fmt.Errorf("unsupported --agent %q", agent)
 	}
+}
+
+// splitAgentPromptArg separates the agent argv from the system prompt that
+// distillAgentCommandArgs parked behind distillAgentPromptMarker. The returned
+// argv is a copy, so callers may append their own flags without aliasing the
+// builder's slice. Agents whose builder output carries no marker (the `command`
+// agent, which never received the prompt, and `ollama`, which spawns no
+// process) come back unchanged with ok=false.
+func splitAgentPromptArg(args []string) (argv []string, prompt string, ok bool) {
+	n := len(args)
+	if n < 2 || args[n-2] != distillAgentPromptMarker {
+		return args, "", false
+	}
+	return append([]string(nil), args[:n-2]...), args[n-1], true
 }
 
 // injectAgentModel inserts a `--model <model>` flag into a codex/claude-code argv

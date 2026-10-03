@@ -4774,7 +4774,25 @@ func brainLiveStateReport(ctx context.Context, runner CommandRunner, repoDir str
 	}
 	live.Staged, live.Unstaged, live.Untracked = parseBrainLiveStatus(status)
 	live.Dirty = len(live.Staged)+len(live.Unstaged)+len(live.Untracked) > 0
-	if stat, err := gitScalar(ctx, runner, repoDir, "diff", "--shortstat", "HEAD"); err == nil {
+	// `git diff --shortstat HEAD` REFRESHES THE INDEX as a side effect, which
+	// takes `.git/index.lock` and makes a concurrent human or agent git command
+	// fail (issue #326). --no-optional-locks does not suppress that particular
+	// refresh -- measured, see gitHardenConfig -- so the only fix is to stop
+	// calling the porcelain. `diff-index` is the plumbing `git diff <commit>`
+	// is built on and never refreshes.
+	//
+	// -M is load-bearing. `git diff` gets rename detection from diff.renames,
+	// whose default is true; plumbing reads only the basic diff config and so
+	// gets none. Without -M a rename is counted as a whole-file delete plus a
+	// whole-file add, changing BOTH the file count and the insertion/deletion
+	// counts (measured: " 3 files changed, 6 insertions(+), 5 deletions(-)"
+	// against the porcelain's " 2 files changed, 1 insertion(+)" on the same
+	// worktree). With -M the output is byte-identical to the porcelain on git
+	// 2.54.0, including against a stat-dirty-but-identical file -- the
+	// --shortstat path reads content, so such a file is dropped from both.
+	// (The raw `diff-index --name-status` path does NOT read content and would
+	// report it, which is why this swap is safe only for stat output.)
+	if stat, err := gitScalar(ctx, runner, repoDir, "diff-index", "-M", "--shortstat", "HEAD"); err == nil {
 		live.DiffStat = stat
 	} else {
 		live.Warnings = append(live.Warnings, "diff stat unavailable: "+err.Error())
