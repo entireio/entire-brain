@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -130,5 +131,56 @@ func TestAbsolutePathsInWarningTextAreMatchedAgainstIgnoreRules(t *testing.T) {
 	wide, wideRepo := ignoreForTest(t, filepath.Base(t.TempDir()))
 	if wide.MentionsIgnoredPath(wideRepo + "/internal/cli/semantic.go: failed to parse") {
 		t.Fatal("a pattern that merely appears in the absolute path discarded an unrelated warning")
+	}
+}
+
+// The Unix-only blind spot, pinned so it cannot recur.
+//
+// relativiseToRepo originally tested `strings.HasPrefix(token, "/")`. That is
+// true for every absolute path a macOS or Linux test can construct, and false
+// for every absolute path on Windows, so ignore matching was silently disabled
+// there -- warnings naming ignored files were never withheld. Every local test
+// passed; CI on windows-latest failed. This table runs the Windows forms on
+// every platform.
+func TestAbsolutePathTokenRecognisesEveryPlatformsForm(t *testing.T) {
+	t.Parallel()
+
+	for token, want := range map[string]bool{
+		"/abs/unix/path.go":        true,
+		"C:/Users/dev/repo/x.go":   true, // the form that was missed
+		"c:/users/dev/repo/x.go":   true, // drive letters are case-insensitive
+		"//host/share/repo/x.go":   true, // UNC
+		"internal/cli/semantic.go": false,
+		"./relative/path.go":       false,
+		"x.go":                     false,
+		"":                         false,
+		"C:":                       false, // a drive with no path is not one
+		"1:/not/a/drive.go":        false,
+	} {
+		if got := absolutePathToken(token); got != want {
+			t.Errorf("absolutePathToken(%q) = %v, want %v", token, got, want)
+		}
+	}
+}
+
+// A provider may report a path whose case differs from the recorded root.
+// Windows and macOS both compare paths case-insensitively in the common case.
+func TestRelativisingFoldsCaseWhereTheFilesystemDoes(t *testing.T) {
+	t.Parallel()
+
+	ig := brainIgnore{patterns: []string{"secret/"}, repoDir: "/Users/dev/Repo"}
+
+	// Exact case always works, on every platform.
+	if got := ig.relativiseToRepo("/Users/dev/Repo/secret/x.go"); got != "secret/x.go" {
+		t.Fatalf("exact-case relativise gave %q", got)
+	}
+	// Differing case works where the filesystem folds it.
+	got := ig.relativiseToRepo("/users/dev/repo/secret/x.go")
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		if got != "secret/x.go" {
+			t.Fatalf("on %s a case-differing root must still relativise; got %q", runtime.GOOS, got)
+		}
+	} else if got == "secret/x.go" {
+		t.Fatalf("on %s paths are case-SENSITIVE; folding here would match the wrong file", runtime.GOOS)
 	}
 }

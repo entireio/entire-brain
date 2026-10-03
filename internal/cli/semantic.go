@@ -17,6 +17,7 @@ import (
 	"os"
 	pathpkg "path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -2629,7 +2630,7 @@ func (i brainIgnore) MentionsIgnoredPath(text string) bool {
 // The symlink-evaluated root is tried as well: on macOS a temp dir reached as
 // /var/... resolves to /private/var/..., and provider output can carry either.
 func (i brainIgnore) relativiseToRepo(token string) string {
-	if i.repoDir == "" || !strings.HasPrefix(token, "/") {
+	if i.repoDir == "" || !absolutePathToken(token) {
 		return token
 	}
 	roots := []string{i.repoDir}
@@ -2641,11 +2642,44 @@ func (i brainIgnore) relativiseToRepo(token string) string {
 		if !strings.HasSuffix(prefix, "/") {
 			prefix += "/"
 		}
-		if rel, ok := strings.CutPrefix(token, prefix); ok && rel != "" {
+		if rel, ok := cutPathPrefix(token, prefix); ok && rel != "" {
 			return rel
 		}
 	}
 	return token
+}
+
+// absolutePathToken recognises an absolute path in the slash-normalised form
+// brainIgnorePathTokens produces. A Windows path is absolute as "C:/x" and as
+// "//host/share/x", neither of which starts with a single slash -- checking for
+// "/" alone silently disabled ignore matching for every absolute provider
+// warning on Windows, which CI caught and a Unix-only test could not.
+func absolutePathToken(token string) bool {
+	if strings.HasPrefix(token, "/") {
+		return true
+	}
+	if len(token) >= 3 && token[1] == ':' && token[2] == '/' {
+		c := token[0]
+		return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+	}
+	return false
+}
+
+// cutPathPrefix strips a path prefix, folding case where the filesystem does.
+// Windows and macOS both commonly compare paths case-insensitively, so a
+// provider that reports "C:/Repo/secret/x.go" against a root recorded as
+// "C:/repo" must still match.
+func cutPathPrefix(token, prefix string) (string, bool) {
+	if rel, ok := strings.CutPrefix(token, prefix); ok {
+		return rel, true
+	}
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		return "", false
+	}
+	if len(token) < len(prefix) || !strings.EqualFold(token[:len(prefix)], prefix) {
+		return "", false
+	}
+	return token[len(prefix):], true
 }
 
 // brainIgnorePathTokens extracts the path-shaped words from prose.
