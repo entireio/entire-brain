@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -91,4 +93,52 @@ func noBrainBlindSpot(loadErr error) string {
 		return "note: this repository's brain could not be read, so this empty result is not evidence of absence; run `entire brain status` for the reason"
 	}
 	return "note: no brain has been built for this repository, so nothing is indexed here and this empty result is not evidence of absence; run `entire brain setup`"
+}
+
+// briefBranchBlindSpot explains an empty fact set on the CURRENT branch when
+// other branches hold facts, and names them.
+//
+// This is the trap in its most damaging form. Facts are stored per branch, so
+// `brain brief` on a feature branch reports "0 facts" while the brain is full
+// — and the brief is step 1 of the shipped agent guide, so this is the FIRST
+// thing an agent sees. Nothing in the packet said why, which reads as "this
+// brain knows nothing about your project" rather than "you are on a branch
+// that has none".
+//
+// Measured on this repository: `recall "distill"` on a feature branch returns
+// "no facts", and the same query with `--branch main` returns a fact. An agent
+// given the empty answer has no way to discover the second half.
+//
+// recall and query reach emptyResultBlindSpot for this; brief did not, despite
+// that function's own comment claiming to cover every retrieval surface.
+func briefBranchBlindSpot(brainDir, branch string) string {
+	if brainDir == "" {
+		return ""
+	}
+	byBranch, err := loadAllFactBranches(brainDir)
+	if err != nil || len(byBranch) == 0 {
+		return ""
+	}
+	others := make([]string, 0, len(byBranch))
+	for name, facts := range byBranch {
+		if name == branch || len(facts) == 0 {
+			continue
+		}
+		others = append(others, name)
+	}
+	if len(others) == 0 {
+		return ""
+	}
+	sort.Strings(others)
+	// Name at most three: the point is that the facts are reachable, and a
+	// long list of branches buries that in a surface that is already dense.
+	shown := others
+	suffix := ""
+	if len(shown) > 3 {
+		suffix = fmt.Sprintf(" (and %d more)", len(shown)-3)
+		shown = shown[:3]
+	}
+	return fmt.Sprintf(
+		"no facts on branch %q, but %d branch(es) hold facts: %s%s — facts are stored per branch; retry with `--branch %s`",
+		branch, len(others), strings.Join(shown, ", "), suffix, shown[0])
 }

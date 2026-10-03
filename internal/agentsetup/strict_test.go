@@ -55,7 +55,11 @@ func TestGuidanceModeLifecycle(t *testing.T) {
 			// the third place the permissive regression was pinned. Normal mode
 			// is distinguished from strict by its MODE, not by offering the
 			// agent a way out; both are directive.
-			if err != nil || strings.Contains(normal, `"mode":"strict"`) || !strings.Contains(normal, "MUST be ONE Graph search") {
+			// Both products are active by this point, so this is the COMBINED
+			// guide, which states an ordered sequence rather than a second
+			// first-action absolute -- see TestNormalGuideStaysDirective for
+			// why. Assert the sequence, not the word MUST.
+			if err != nil || strings.Contains(normal, `"mode":"strict"`) || !strings.Contains(normal, "Both tools run, in this order") {
 				t.Fatal("normal override failed", err)
 			}
 			for name, contents := range before {

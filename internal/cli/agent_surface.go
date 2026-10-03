@@ -1677,6 +1677,15 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		if factsErr != nil {
 			report.Warnings = append(report.Warnings, "facts unavailable: "+factsErr.Error())
 		} else {
+			// An empty fact set on THIS branch while other branches hold facts
+			// is the single most misleading thing the brief can report: it is
+			// step 1 of the shipped guide, so it is the first thing an agent
+			// sees, and silence reads as "this brain knows nothing".
+			if len(facts) == 0 {
+				if note := briefBranchBlindSpot(status.Brain.Path, branch); note != "" {
+					report.Warnings = append(report.Warnings, note)
+				}
+			}
 			if len(briefGlobalFacts) > 0 {
 				facts, briefGlobalIDs = mergeGlobalFacts(facts, briefGlobalFacts)
 			}

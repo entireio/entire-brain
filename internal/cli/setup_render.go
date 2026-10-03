@@ -217,6 +217,16 @@ func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport,
 
 	fmt.Fprintf(out, "\n%s\n", render.Bold("Next"))
 	next := [][2]string{
+		// FIRST, because setup does not do it and a user cannot guess it.
+		//
+		// setup writes no AGENTS.md and no CLAUDE.md -- activation is recorded
+		// in the guide, not probed -- so an agent learns nothing about this
+		// brain until `init-agents` runs. A user who ran setup, saw it succeed,
+		// found no agent files and concluded they had run it from the wrong
+		// directory is the reported case. They had not: the step simply was not
+		// named anywhere they were looking. `setup --help` and the README are
+		// not where someone stands when this goes wrong; this block is.
+		{brainCmd + " init-agents", "write AGENTS.md/CLAUDE.md so your agent uses this brain"},
 		{brainCmd + " overview", "what this project is"},
 		{brainCmd + ` brief "<task>"`, "task-shaped context"},
 		{brainCmd + " status", "backfill progress and daemon health"},

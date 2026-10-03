@@ -107,14 +107,24 @@ may differ from current working-tree source.
 // obligation at all: it was brainWorkflow plus a capability list. The brief is
 // about prior decisions, so an agent reading only this had nothing telling it to
 // look at the call graph before editing.
+//
+// IT MUST STATE AN ORDER, NOT TWO ABSOLUTES. The first version of this fix put
+// "your FIRST action MUST be ONE Graph search" after brainWorkflow's "begin
+// substantive tasks with brain brief". Both claimed to be first, an agent can
+// only do one thing first, and in a measured clean-environment session it
+// resolved the conflict by dropping Brain entirely: "I also skipped
+// `entire brain brief` entirely, which the guide recommends." Two competing
+// absolutes are weaker than one sequence, because the agent picks.
 const combinedWorkflow = brainWorkflow + `
-Your FIRST action on any task that requires finding code MUST be ONE Graph search:
+Both tools run, in this order, and neither replaces the other:
 
-    entire graph search --repo . --profile full --query "<task>"
+    1. entire brain brief "<task>" --json                      (why, and what was decided)
+    2. entire graph search --repo . --profile full --query "<task>"   (where, and what depends on it)
 
-This holds for small edits, follow-up work, and tasks that already name the file.
-A named file answers where code is; it does not answer what else depends on it.
-Do not skip the search on the grounds that the available context feels sufficient.
+Step 2 holds for small edits, follow-up work, and tasks that already name the
+file: a named file answers where code is, not what else depends on it. Do not
+skip either step on the grounds that the available context feels sufficient, and
+do not treat having done one as having done the other.
 Use Graph search, def, neighbors, and impact for code discovery and structural
 analysis. The brief gives task context and prior decisions; Graph gives the call
 graph and blast radius. They answer different questions, so locations from the

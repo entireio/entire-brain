@@ -385,14 +385,35 @@ func TestNormalGuideStaysDirective(t *testing.T) {
 			}
 		}
 	}
-	// ...and the directive itself is present, not merely the absence of exits.
-	for name, guide := range map[string]string{"graph": GraphGuide, "combined": CombinedGuide} {
-		if !strings.Contains(guide, "MUST be ONE Graph search") {
-			t.Errorf("%s guide no longer states the search-first obligation", name)
+	// ...and the obligation itself is present, not merely the absence of exits.
+	//
+	// The two guides state it differently ON PURPOSE. A Graph-only guide has
+	// one tool, so "your FIRST action MUST be ONE Graph search" is unambiguous.
+	// The COMBINED guide has two, and stating two first-action absolutes is
+	// what made a measured session drop Brain altogether -- an agent can only
+	// do one thing first, so it picks. The combined guide therefore states an
+	// ORDER, and the assertion checks for the order rather than the word MUST.
+	if !strings.Contains(GraphGuide, "MUST be ONE Graph search") {
+		t.Error("the Graph-only guide no longer states the search-first obligation")
+	}
+	if !strings.Contains(GraphGuide, "Do not skip the search") {
+		t.Error("the Graph-only guide no longer closes the sufficiency exit")
+	}
+	for _, want := range []string{
+		"Both tools run, in this order",
+		`1. entire brain brief`,
+		`2. entire graph search`,
+		"do not treat having done one as having done the other",
+	} {
+		if !strings.Contains(CombinedGuide, want) {
+			t.Errorf("the combined guide no longer states the ordered sequence; missing %q", want)
 		}
-		if !strings.Contains(guide, "Do not skip the search") {
-			t.Errorf("%s guide no longer closes the sufficiency exit", name)
-		}
+	}
+	// And it must NOT reintroduce a second first-action absolute beside the
+	// sequence: that is the collision this replaced.
+	if strings.Contains(CombinedGuide, "FIRST action") {
+		t.Error("the combined guide carries a second first-action absolute beside the ordered " +
+			"sequence; two absolutes let the agent pick one and drop the other")
 	}
 }
 
@@ -428,9 +449,9 @@ func TestBrainOnlyActivationHasNoGraphInstruction(t *testing.T) {
 			t.Errorf("the Brain-only guide names %q; it must not instruct an agent to use a product that was never activated", graphism)
 		}
 	}
-	// ...and the combined guide must, or the directive reaches nobody.
-	if !strings.Contains(CombinedGuide, "MUST be ONE Graph search") {
-		t.Error("the combined guide lost the Graph directive; only the combined guide can carry it")
+	// ...and the combined guide must carry the Graph step, or it reaches nobody.
+	if !strings.Contains(CombinedGuide, "entire graph search") {
+		t.Error("the combined guide lost the Graph step; only the combined guide can carry it")
 	}
 }
 
