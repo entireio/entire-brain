@@ -1,9 +1,19 @@
 # Contributing
 
+Start here when changing entire-brain. The [contributor concepts guide](docs/concepts.md)
+explains the vocabulary, source layers, and data flow; it is a map for contributors
+and agents, not a replacement for the operational reference.
+
 1. **Branch from current `main`.** Tags mark releases on `main`; they are not branches to work from.
-2. **Run the full suite before you push:**
+2. **Run lint and tests before you push:**
    ```bash
-   go test ./... -count=1
+   mise run lint
+   mise run test
+   ```
+   Lint checks `go vet`, formatting, module tidiness, and shell scripts. The test
+   task runs `go test ./...`; use `go test ./... -count=1` for an uncached run.
+   The direct Go checks remain useful when iterating:
+   ```bash
    gofmt -l -s .
    go vet ./...
    ```
@@ -18,6 +28,19 @@
 
 Be explicit about what you did *not* verify. A pull request that names its gaps is worth more than one that implies there are none.
 
+## Source map
+
+| Path | Start here for |
+|---|---|
+| `cmd/entire-brain/` | Plugin executable entry point |
+| `internal/cli/` | Commands, source projections, retrieval, MCP, and hooks |
+| `internal/config/`, `internal/repoid/` | Configuration and repository identity |
+| `internal/agentsetup/`, `templates/` | Managed agent instructions and intake templates |
+| `internal/tui/` | Terminal dashboard |
+| `*_test.go` alongside source | Unit and contract tests |
+| `docs/` | User, contributor, design, and operational documentation |
+| `scripts/`, `mise-tasks/`, `mise.toml` | Installation, release scripts, and local verification tasks |
+| `benchmarks/` | Evaluation harnesses and retained evidence |
 
 ## Tech Stack & Dependencies
 
@@ -30,6 +53,12 @@ Be explicit about what you did *not* verify. A pull request that names its gaps 
 | Vector search | `asg017/sqlite-vec-go-bindings` |
 | TUI | `charmbracelet/bubbletea`, `bubbles`, `lipgloss` |
 | Agent interface | Model Context Protocol over stdio (JSON-RPC 2.0, `Content-Length` framing) |
+
+`go.mod` targets Go 1.27 and selects toolchain 1.27.1; `mise.toml` pins Go
+1.27.1 and ShellCheck for local development. See the
+[development reference](docs/reference.md#development) for broader checks,
+including the aggregate `check` task and build variants. The full release gate
+is separate from the normal lint/test loop.
 
 ### Build tags
 
