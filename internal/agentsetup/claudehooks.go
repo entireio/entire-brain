@@ -3,6 +3,7 @@ package agentsetup
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,14 +44,57 @@ const preEditHookCommand = "hook pre-edit"
 // Any shape it does not recognise is left strictly alone and reported, rather
 // than overwritten: silently replacing a user's hook config to install our own
 // would be a worse bug than the missing hook.
+// readHookSettings reads the settings file through the os.Root, bounded, and
+// maps the result to the shape the caller's switch expects.
+//
+// It does not use readContainedFile: that helper runs resolveContainedName,
+// which only admits agent-instruction files. See the note at the write.
+func readHookSettings(repoRoot *os.Root, name string) ([]byte, error) {
+	f, err := repoRoot.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	content, err := io.ReadAll(io.LimitReader(f, maxClaudeSettingsBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(content)) > maxClaudeSettingsBytes {
+		return nil, fmt.Errorf("%s is larger than %d bytes; refusing to rewrite it", claudeSettingsPath, maxClaudeSettingsBytes)
+	}
+	return content, nil
+}
+
+// maxClaudeSettingsBytes bounds the contained read. A settings file larger
+// than this is not one to parse and rewrite in place; refusing beats loading an
+// unbounded file into memory to merge one hook entry into it.
+const maxClaudeSettingsBytes = 4 << 20
+
 func MergePreEditHook(root, brainCmd string) (changed bool, err error) {
 	if root == "" {
 		return false, nil
 	}
-	path := filepath.Join(root, filepath.FromSlash(claudeSettingsPath))
+
+	// Every write into the repository tree goes through an os.Root, like the
+	// rest of this package (files.go:74). A raw os.WriteFile here was measured
+	// writing 255 bytes OUTSIDE the repository when `.claude` is a symlink to
+	// another directory. os.Root resolves each component with openat relative
+	// to the opened directory, so a link that stays inside is still followed
+	// while one that escapes is refused.
+	//
+	// The READ goes through it too: reading through an escaping symlink would
+	// merge a settings file from outside the repository and write the result
+	// back, so containment has to cover both ends.
+	repoRoot, err := os.OpenRoot(root)
+	if err != nil {
+		return false, fmt.Errorf("open repository root: %w", err)
+	}
+	defer repoRoot.Close()
+
+	name := filepath.FromSlash(claudeSettingsPath)
 
 	settings := map[string]any{}
-	existing, readErr := os.ReadFile(path)
+	existing, readErr := readHookSettings(repoRoot, name)
 	switch {
 	case readErr == nil:
 		if len(existing) > 0 {
@@ -92,10 +136,22 @@ func MergePreEditHook(root, brainCmd string) (changed bool, err error) {
 		return false, fmt.Errorf("encode %s: %w", claudeSettingsPath, err)
 	}
 	encoded = append(encoded, '\n')
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return false, fmt.Errorf("create %s: %w", filepath.Dir(path), err)
+	if err := repoRoot.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+		return false, fmt.Errorf("create %s: %w", filepath.Dir(name), err)
 	}
-	if err := os.WriteFile(path, encoded, 0o644); err != nil {
+	// repoRoot.WriteFile, NOT writeContainedFile.
+	//
+	// The review's prescribed remedy was "os.OpenRoot() + resolveContainedName
+	// like other file writes in this package". The containment is right and is
+	// applied; resolveContainedName is not, and adopting it breaks the feature
+	// outright: it enforces an agent-instruction-file allowlist (AGENTS.md,
+	// CLAUDE.md, the guide) and refuses anything else with "not an
+	// agent-instruction file". .claude/settings.json is not one. Measured --
+	// three pre-existing merge tests went red on exactly that error.
+	//
+	// os.Root's own methods give the openat-based component resolution that
+	// closes the escape, with no allowlist.
+	if err := repoRoot.WriteFile(name, encoded, 0o644); err != nil {
 		return false, fmt.Errorf("write %s: %w", claudeSettingsPath, err)
 	}
 	return true, nil

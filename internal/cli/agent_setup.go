@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/entireio/entire-brain/internal/agentsetup"
 	"github.com/spf13/cobra"
+	"os"
 )
 
 func newBrainGuideCommand(opts Options) *cobra.Command {
@@ -53,7 +54,16 @@ func newAgentInstructionsCommand(opts Options, install bool) *cobra.Command {
 			// install -- the guide is the primary artifact and lands either
 			// way -- but it must be SAID, because a hook silently not wired is
 			// how this one sat unused since PR #24.
-			hookChanged, hookErr := agentsetup.MergePreEditHook(root, "entire brain")
+			// RESOLVE the prefix; do not hardcode it.
+			//
+			// `entire brain` is correct only when a host entire CLI is on PATH.
+			// For a standalone install -- no ENTIRE_CLI_VERSION, which
+			// setupCommandPrefix's own doc comment calls the common fallback --
+			// the invocation is `entire-brain`, and a hook reading `entire
+			// brain hook pre-edit` is a command that does not exist on that
+			// user's PATH. It would fail on every edit, silently, which is the
+			// same inert-hook failure the comment above is about.
+			hookChanged, hookErr := agentsetup.MergePreEditHook(root, setupCommandPrefix(os.LookupEnv))
 			if jsonOut {
 				changed, err := agentsetup.InstallChanged(root, render)
 				if err != nil {

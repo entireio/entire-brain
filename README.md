@@ -131,16 +131,7 @@ Review the generated files and commit them together when the instructions should
 
 For an MCP client, print this repository's configuration:
 
-```
-
-The agent guide is assembled from whichever products have been activated, and
-each product activates itself. `entire brain init-agents` alone writes a
-Brain-only guide with no Graph instructions in it, even when Graph is installed
-— so run Graph's `init-agents` too if you want both. Run Brain's **last**: each
-product rewrites the shared guide file from its own copy of the text, so the one
-you run last decides the wording.
-
-sh
+```sh
 entire brain mcp --print-config
 ```
 

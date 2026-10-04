@@ -157,3 +157,100 @@ func TestPreEditHookMergeRefusesRatherThanOverwrite(t *testing.T) {
 		})
 	}
 }
+
+// A raw os.WriteFile here wrote 255 bytes OUTSIDE the repository when
+// `.claude` is a symlink to another directory -- measured before the fix. Every
+// other write in this package goes through an os.Root for exactly this reason
+// (files.go:74), and the hook write did not.
+//
+// ATTRIBUTION, measured rather than assumed. There are three contained calls
+// here -- the read, the MkdirAll and the write -- and the measured result is:
+//
+//	all three reverted  -> this test and the read test both go RED
+//	any ONE kept        -> still refused, both tests green
+//
+// So no single call is NECESSARY for this fixture and each is SUFFICIENT. That
+// is defence in depth rather than three independent guards, and it is worth
+// stating plainly: a sweep that mutates one call at a time will report all
+// three as unheld, which is how a real escape could later be introduced by
+// removing them together. The decisive check is reverting all three.
+func TestPreEditHookWriteCannotEscapeTheRepository(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, ".claude")); err != nil {
+		t.Skipf("this filesystem cannot create symlinks: %v", err)
+	}
+	// Non-vacuity: the symlink must actually be there and point out of the
+	// repo, or a refusal proves nothing.
+	if info, err := os.Lstat(filepath.Join(root, ".claude")); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("fixture is not a symlink (err=%v)", err)
+	}
+
+	changed, err := MergePreEditHook(root, "entire-brain")
+	if err == nil {
+		t.Error("a settings path that escapes the repository must be refused")
+	}
+	if changed {
+		t.Error("nothing was legitimately changed, so changed must be false")
+	}
+	if data, readErr := os.ReadFile(filepath.Join(outside, "settings.json")); readErr == nil {
+		t.Errorf("wrote %d bytes outside the repository", len(data))
+	}
+}
+
+// Reading through an escaping symlink would merge a settings file from outside
+// the repository and write the result back, so containment covers both ends.
+//
+// This is the test that pins the contained READ specifically: reverting it to
+// os.ReadFile turns the clobber test red, and leaves the outside file as the
+// source of the merge.
+func TestPreEditHookDoesNotMergeSettingsFromOutsideTheRepository(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "settings.json"),
+		[]byte(`{"marker":"FROM OUTSIDE THE REPOSITORY"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, ".claude")); err != nil {
+		t.Skipf("this filesystem cannot create symlinks: %v", err)
+	}
+
+	if _, err := MergePreEditHook(root, "entire-brain"); err == nil {
+		t.Fatal("reading settings through an escaping symlink must be refused")
+	}
+	// And the outside file must be exactly as it was.
+	data, err := os.ReadFile(filepath.Join(outside, "settings.json"))
+	if err != nil {
+		t.Fatalf("read outside file: %v", err)
+	}
+	if string(data) != `{"marker":"FROM OUTSIDE THE REPOSITORY"}` {
+		t.Errorf("the outside file was rewritten: %s", data)
+	}
+}
+
+// The hook command must be the RESOLVED invocation, not a hardcoded one.
+// `entire brain` is correct only with a host entire CLI on PATH; a standalone
+// install needs `entire-brain`, and the wrong one is a command that does not
+// exist, failing silently on every edit.
+func TestPreEditHookUsesTheGivenInvocation(t *testing.T) {
+	t.Parallel()
+
+	for _, brainCmd := range []string{"entire-brain", "entire brain"} {
+		root := t.TempDir()
+		if _, err := MergePreEditHook(root, brainCmd); err != nil {
+			t.Fatalf("merge with %q: %v", brainCmd, err)
+		}
+		data, err := os.ReadFile(filepath.Join(root, ".claude", "settings.json"))
+		if err != nil {
+			t.Fatalf("read settings: %v", err)
+		}
+		want := brainCmd + " hook pre-edit"
+		if !strings.Contains(string(data), want) {
+			t.Errorf("settings must carry %q, got:\n%s", want, data)
+		}
+	}
+}
