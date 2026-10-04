@@ -18,15 +18,15 @@ import (
 func TestEmptySymbolSearchNamesWhatTheIndexHolds(t *testing.T) {
 	t.Parallel()
 
-	total, kinds := semanticIndexKindInventory("")
-	if total != 0 || kinds != nil {
-		t.Fatalf("an unreadable store must report an empty inventory, got %d / %v", total, kinds)
+	total, distinct, kinds := semanticIndexKindInventory("")
+	if total != 0 || distinct != 0 || kinds != nil {
+		t.Fatalf("an unreadable store must report an empty inventory, got %d / %d / %v", total, distinct, kinds)
 	}
 	// A missing file is the common case when the index was never built; it
 	// must not error, because this runs only to explain an empty result.
-	total, kinds = semanticIndexKindInventory(t.TempDir() + "/absent.sqlite")
-	if total != 0 || kinds != nil {
-		t.Fatalf("a missing store must report an empty inventory, got %d / %v", total, kinds)
+	total, distinct, kinds = semanticIndexKindInventory(t.TempDir() + "/absent.sqlite")
+	if total != 0 || distinct != 0 || kinds != nil {
+		t.Fatalf("a missing store must report an empty inventory, got %d / %d / %v", total, distinct, kinds)
 	}
 }
 

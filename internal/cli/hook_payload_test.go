@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -153,5 +155,59 @@ func TestPreEditCommandDistinguishesMisuseFromAnUnreadablePayload(t *testing.T) 
 	}
 	if err := run("not a hook payload at all"); err != nil {
 		t.Errorf("an unrecognised payload must be silence, got: %v", err)
+	}
+}
+
+// hookFileFromStdin does io.ReadAll, which on a real TTY waits for EOF. So
+// running the verb by hand with no --file hung indefinitely where it previously
+// failed fast with "--file is required". The existing tests did not catch it
+// because they supply a strings.Reader, which EOFs at once.
+//
+// THE HANG ITSELF IS NOT REPRODUCIBLE IN-PROCESS: it needs the process's real
+// stdin to be a character device, and `go test` does not provide one. Saying so
+// rather than dressing up a weaker check as a behavioural test. What is
+// testable is the predicate and that the call site consults it.
+func TestStdinIsReadUnlessItWouldBlockOnAPerson(t *testing.T) {
+	t.Parallel()
+
+	// A harness always redirects stdin, and a test supplies its own reader.
+	// Neither must ever be skipped, or the hook stops working entirely.
+	for name, r := range map[string]io.Reader{
+		"harness payload": strings.NewReader(`{"tool_input":{"file_path":"/a/b.go"}}`),
+		"empty reader":    strings.NewReader(""),
+		"nil reader":      nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if hookStdinWouldBlock(r) {
+				t.Error("a reader that is not the process's stdin must always be read")
+			}
+		})
+	}
+
+	// And for os.Stdin the answer must track whether it is a terminal -- which
+	// is the whole decision. Compared against the helper rather than asserted
+	// to a constant, because the test runner's stdin is not ours to assume.
+	if got, want := hookStdinWouldBlock(os.Stdin), stdinIsTerminal(); got != want {
+		t.Errorf("hookStdinWouldBlock(os.Stdin) = %v, want stdinIsTerminal() = %v", got, want)
+	}
+}
+
+// The call site must consult the predicate. A correct predicate nothing calls
+// leaves the hang exactly as it was, and that class of gap has already bitten
+// this stack more than once.
+func TestTheHookCallSiteGuardsTheStdinRead(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile("hook_cmd.go")
+	if err != nil {
+		t.Fatalf("read hook_cmd.go: %v", err)
+	}
+	src := string(data)
+	if !strings.Contains(src, "func hookStdinWouldBlock") {
+		t.Fatal("read the wrong file; this guard would be vacuous")
+	}
+	if !strings.Contains(src, `!hookStdinWouldBlock(cmd.InOrStdin())`) {
+		t.Error("the stdin read is not gated, so `hook pre-edit` with no --file hangs on a terminal " +
+			"instead of reporting that --file is required")
 	}
 }

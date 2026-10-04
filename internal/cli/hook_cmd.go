@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -188,7 +189,19 @@ func newHookPreEditCommand(opts Options) *cobra.Command {
 			// A harness supplies the path on stdin; --file stays for hand
 			// testing, and wins when both are present so a human can override.
 			sawPayload := false
-			if strings.TrimSpace(file) == "" {
+			// Do not read stdin when reading it would block on a human.
+			//
+			// hookFileFromStdin does io.ReadAll, which on a real TTY waits for
+			// EOF -- so running the verb by hand with no --file hung
+			// indefinitely where it previously failed fast with "--file is
+			// required". The tests did not catch it because they supply a
+			// strings.Reader, which EOFs at once.
+			//
+			// The check is on the READER, not just the process: a harness pipes
+			// stdin (not a char device) and is read; a human at a terminal gets
+			// the error; a test with its own reader is read regardless of what
+			// the test runner did with os.Stdin.
+			if strings.TrimSpace(file) == "" && !hookStdinWouldBlock(cmd.InOrStdin()) {
 				file, sawPayload = hookFileFromStdin(cmd.InOrStdin())
 			}
 			if strings.TrimSpace(file) == "" {
@@ -422,6 +435,15 @@ type agentHookPayload struct {
 		// NotebookEdit uses notebook_path rather than file_path.
 		NotebookPath string `json:"notebook_path"`
 	} `json:"tool_input"`
+}
+
+// hookStdinWouldBlock reports whether reading this reader would wait on a
+// person: it is the process's real stdin, and that stdin is a terminal.
+//
+// A harness always redirects stdin, so this is false for every real hook
+// invocation and true only for someone running the verb by hand.
+func hookStdinWouldBlock(in io.Reader) bool {
+	return in == os.Stdin && stdinIsTerminal()
 }
 
 // hookFileFromStdin reads a harness hook payload and returns the path of the

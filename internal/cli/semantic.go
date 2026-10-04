@@ -3503,48 +3503,68 @@ func printSemanticNoMatch(cmd *cobra.Command, kind, query string) {
 // An inventory of what the index DOES hold answers it in one line.
 func printSemanticNoSymbolMatch(cmd *cobra.Command, storePath, query string) {
 	printSemanticNoMatch(cmd, "symbols", query)
-	total, kinds := semanticIndexKindInventory(storePath)
+	total, distinctKinds, kinds := semanticIndexKindInventory(storePath)
 	if total == 0 {
 		fmt.Fprintln(cmd.OutOrStdout(), "note: the semantic index holds no symbols at all — run `entire brain refresh --semantic`")
 		return
 	}
+	shown := strings.Join(kinds, ", ")
+	if distinctKinds > len(kinds) {
+		// Say that the list is partial. Six of twenty kinds presented as the
+		// whole set is the same misdirection as an under-reported total.
+		shown = fmt.Sprintf("%s (%d of %d kinds)", shown, len(kinds), distinctKinds)
+	}
 	fmt.Fprintf(cmd.OutOrStdout(),
 		"note: the index holds %d symbols of kinds %s; Go consts and vars are not extracted, so a constant name finds nothing here\n",
-		total, strings.Join(kinds, ", "))
+		total, shown)
 }
 
 // semanticIndexKindInventory reports what the store actually contains. Every
 // failure is a zero inventory rather than an error: this runs only to explain
 // an empty result, and must never turn one into a command failure.
-func semanticIndexKindInventory(storePath string) (int, []string) {
+func semanticIndexKindInventory(storePath string) (total int, distinctKinds int, kinds []string) {
 	if storePath == "" {
-		return 0, nil
+		return 0, 0, nil
 	}
 	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
 	if err != nil {
-		return 0, nil
+		return 0, 0, nil
 	}
 	defer db.Close()
+	// The TOTAL comes from its own count, not from summing the displayed rows.
+	//
+	// Summing the LIMIT 6 groups is a partial sum: with more than six distinct
+	// kinds it under-reports, and this note exists precisely to give an agent
+	// an accurate picture after an empty result. A too-low total risks the same
+	// false root cause the note was written to prevent -- which is the mistake
+	// that prompted writing it.
+	if err := db.QueryRow(`SELECT count(*) FROM symbols`).Scan(&total); err != nil {
+		return 0, 0, nil
+	}
+
+	// And the KIND COUNT is its own query too, so a truncated list can say so
+	// rather than presenting six of twenty as if that were all of them.
+	if err := db.QueryRow(`SELECT count(DISTINCT kind) FROM symbols`).Scan(&distinctKinds); err != nil {
+		return total, 0, nil
+	}
+
 	rows, err := db.Query(`SELECT kind, count(*) c FROM symbols GROUP BY kind ORDER BY c DESC LIMIT 6`)
 	if err != nil {
-		return 0, nil
+		return total, distinctKinds, nil
 	}
 	defer rows.Close()
-	total := 0
-	var kinds []string
 	for rows.Next() {
 		var k string
 		var c int
 		if err := rows.Scan(&k, &c); err != nil {
-			return 0, nil
+			return total, distinctKinds, nil
 		}
-		total += c
 		kinds = append(kinds, k)
 	}
 	if rows.Err() != nil {
-		return 0, nil
+		return total, distinctKinds, nil
 	}
-	return total, kinds
+	return total, distinctKinds, kinds
 }
 
 func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, contextOpts semanticContextOptions, query string) error {
