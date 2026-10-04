@@ -713,7 +713,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 			return err
 		}
 		if err := validateLiveSemanticHeader(header, head, tree, indexOpts.worktree && dirty); err != nil {
-			return err
+			return annotateSemanticHeaderRefusal(ctx, opts.Runner, repoDir, err)
 		}
 		header.Warnings = sanitizeSemanticWarnings(header.Warnings, repoDir)
 		header.PartialFailures = sanitizeSemanticWarnings(header.PartialFailures, repoDir)
@@ -1400,6 +1400,60 @@ func semanticSnapshotRejectsIgnoreFile(err error) bool {
 //	validateSemanticProviderRepoKey   the spelling the provider stamped
 //	readSemanticSnapshotSummary /     a key read back from an on-disk artifact
 //	validateImportedBundle            (another brain's bundle, an older snapshot)
+//
+// annotateSemanticHeaderRefusal names the CAUSE when the provider handed back a
+// header with no commit or tree.
+//
+// Measured: entire-graph refuses to run git metadata subprocesses in a
+// PARTIAL CLONE, because a promisor remote means an ordinary git command can
+// silently fetch over the network and the provider runs --no-network. That
+// refusal is correct. What it produces is not: an empty commit and tree, with
+// warnings[] and partial_failures[] both empty, so nothing on the wire says
+// why. Brain then refused the snapshot with "missing commit", which names a
+// symptom and leaves the user to guess.
+//
+// Reproduced on one repository by toggling a single config section: with
+// promisor=true and partialclonefilter set the commit comes back "", without
+// them it resolves, and back again when restored. `git clone --filter=blob:none`
+// is ordinary practice on a large repository, so this is not an exotic state --
+// it silently costs that repository its entire semantic index.
+//
+// The annotation is best-effort: if the git probe fails the original error is
+// returned unchanged, because a diagnostic must never replace a real error with
+// a worse one.
+func annotateSemanticHeaderRefusal(ctx context.Context, runner CommandRunner, repoDir string, err error) error {
+	if err == nil {
+		return nil
+	}
+	text := err.Error()
+	if !strings.Contains(text, "missing commit") && !strings.Contains(text, "missing tree") {
+		return err
+	}
+	if !repoIsPartialClone(ctx, runner, repoDir) {
+		return err
+	}
+	// The cause and the remedy, inside statusCauseWidth: this string is
+	// recorded as a freshness axis detail, and a cause that overruns is
+	// truncated in the very report it exists to explain. The full reasoning
+	// lives in the comment above, where length is free.
+	const detail = "%w; partial clone (remote promisor/partialclonefilter): provider refuses git metadata here, re-clone without --filter"
+	return fmt.Errorf(detail, err)
+}
+
+// repoIsPartialClone reports whether any remote is a promisor or carries a
+// partial-clone filter. Best-effort: an unreadable config is "no", because this
+// only decorates an error that already stands on its own.
+func repoIsPartialClone(ctx context.Context, runner CommandRunner, repoDir string) bool {
+	if runner == nil {
+		return false
+	}
+	out, _, runErr := runner.Run(ctx, repoDir, "git", "config", "--get-regexp", `^remote\..*\.(promisor|partialclonefilter)$`)
+	if runErr != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) != ""
+}
+
 func validateLiveSemanticHeader(header semanticHeader, commit, tree string, allowWorktreeTree bool) error {
 	if header.Commit == "" {
 		return errors.New("semantic snapshot header missing commit")
