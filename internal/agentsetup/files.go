@@ -2093,3 +2093,70 @@ func renderPointerBlock(existing []byte, begin, end int, block string) []byte {
 	}
 	return []byte(content)
 }
+
+// AgentsWired reports whether `init-agents` has been run in this repository,
+// and names what is missing when it has not.
+//
+// A brain nothing reads is the product's worst failure mode, and it is SILENT:
+// setup succeeds, status reports every source healthy, and no agent ever
+// consults the brain because nothing told it the brain exists. The published
+// guide compounds this by teaching `setup` and `status` without `init-agents`,
+// so a user following the docs lands here by default and concludes the product
+// does not work.
+//
+// The check is deliberately cheap and read-only: the guide file must exist, and
+// at least one of AGENTS.md / CLAUDE.md must carry the managed pointer at it.
+// One pointer is enough -- the two are documented aliases and a repository may
+// legitimately keep only the one its agent reads.
+//
+// Absence is reported, never repaired. Writing into someone's repository
+// because they ran a read-only status command would be a worse surprise than
+// the one this diagnoses.
+func AgentsWired(root string) (bool, []string) {
+	if strings.TrimSpace(root) == "" {
+		return false, nil
+	}
+	repoRoot, err := os.OpenRoot(root)
+	if err != nil {
+		return false, nil
+	}
+	defer repoRoot.Close()
+
+	var missing []string
+	guide := filepath.Join(".entire", "agent-guide.md")
+	if !regularFileExists(repoRoot, guide) {
+		missing = append(missing, guide)
+	}
+	pointed := false
+	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
+		if fileContains(repoRoot, name, agentPointerBegin) {
+			pointed = true
+			break
+		}
+	}
+	if !pointed {
+		missing = append(missing, "AGENTS.md or CLAUDE.md (neither carries the managed block)")
+	}
+	return len(missing) == 0, missing
+}
+
+func regularFileExists(root *os.Root, name string) bool {
+	info, err := root.Stat(name)
+	return err == nil && info.Mode().IsRegular()
+}
+
+// fileContains reads a bounded prefix: the managed pointer is written at the
+// top of the file, and a repository's own instructions below it can be large.
+func fileContains(root *os.Root, name, needle string) bool {
+	f, err := root.Open(name)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	buf := make([]byte, 64<<10)
+	n, readErr := io.ReadFull(f, buf)
+	if n == 0 && readErr != nil {
+		return false
+	}
+	return strings.Contains(string(buf[:n]), needle)
+}

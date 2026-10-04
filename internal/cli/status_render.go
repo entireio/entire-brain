@@ -473,6 +473,21 @@ func renderStatusOnboardingBlock(out io.Writer, render *tui.Renderer, report bra
 		return
 	}
 	fmt.Fprintf(out, "\n%s\n", render.Bold("Onboarding"))
+	// FIRST, because it decides whether any other line is ever acted on. A
+	// brain no agent knows about reads healthy on every source and is never
+	// consulted; nothing else in this report would say so. The published guide
+	// teaches `setup` then `status` without `init-agents`, so a reader
+	// following it lands here by default.
+	if onboarding.AgentsUnwired {
+		fmt.Fprintf(out, "  %-*s %s %s\n", statusLabelWidth, "agents",
+			render.Mark(tui.MarkFailed),
+			render.PhasePaint(tui.PhaseFailed,
+				fmt.Sprintf("not wired — run `%s init-agents` so your agent uses this brain", brainCmd)))
+		if len(onboarding.AgentsMissing) > 0 {
+			fmt.Fprintf(out, "  %-*s   %s\n", statusLabelWidth, "",
+				render.Dim("missing: "+strings.Join(onboarding.AgentsMissing, ", ")))
+		}
+	}
 	facts := onboarding.Facts
 	factsLine := fmt.Sprintf("  %-*s %s %s distilled",
 		statusLabelWidth, "facts",

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/agentsetup"
 	"io"
 	"io/fs"
 	"os"
@@ -4641,6 +4642,15 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	// is inspected rather than reported missing.
 	recordedSetupOpts, _, _ := setupOptionsFromRecord(filepath.Dir(storage.HeadPath))
 	onboarding := buildBrainOnboardingStatus(ctx, opts, storage, manifest, recordedSetupOpts)
+	// The repo root from the REPORT, not opts.Env: the latter is empty on the
+	// ordinary `status` path, which is why the first version of this check
+	// never fired. report.Repo.Root is the resolved root this status is about.
+	if root := strings.TrimSpace(report.Repo.Root); root != "" {
+		if wired, missing := agentsetup.AgentsWired(root); !wired {
+			onboarding.AgentsUnwired = true
+			onboarding.AgentsMissing = missing
+		}
+	}
 	markUnreadableSemanticComponent(&onboarding, semanticFreshnessOf(report))
 	markMissingDeclaredIndexes(&onboarding, storage.BrainDir, manifest)
 	report.Onboarding = &onboarding
