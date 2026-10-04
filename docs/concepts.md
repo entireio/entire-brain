@@ -15,7 +15,7 @@ Start with [Contributing](../CONTRIBUTING.md) for workflow and checks; use the
 | **Seed** | Repository orientation material: inventory, summaries, and copied/extracted docs. Can be built deterministically or enriched with agent synthesis. |
 | **History** | Searchable records derived from retained transcripts, including classified decisions and rationale; not a synonym for Git's commit log. |
 | **Doc source** | Retrievable chunks of seed material and repository documents, with paths and line locations. Distinct from session-derived history. |
-| **Durable fact** | A retained statement about decisions, constraints, preferences, or standing rules. Authored through `remember`, or distilled from sessions with source anchors; an authored assertion is not automatically source-backed. |
+| **Durable fact** | A retained statement about decisions, constraints, preferences, or standing rules. Authored through `remember`, distilled from sessions with source anchors, or imported from another memory tool; authorship or import alone does not establish local source evidence. |
 | **Semantic provider / index** | Entire Graph produces code-structure records; Brain persists and queries an index of those records. This code graph is separate from Brain's facts/history/docs retrieval corpus. |
 | **Pattern** | Evidence-backed recurring tasks or practices derived from session episodes. Deterministic pattern discovery is separate from agent-assisted deep verification and skill formation. |
 | **Retrieval** | Finding retained items by keyword, meaning, or both, then expanding selected IDs. Default unified retrieval covers facts, classified history, and docs; conversation exchanges are experimental and opt-in. |
@@ -32,6 +32,7 @@ Entire checkpoints and sessions --> session export --> history and patterns
 Repository content -------------> seed -----------> doc index
 Repository code ----------------> Entire Graph ---> semantic index
 Retained sessions --distill--> durable facts <--remember-- authored statements
+External memory exports --import----^
                                       |
                      local per-repo brain + source manifest
                                       |
@@ -45,6 +46,10 @@ inventory and transcripts into its local store. Repository content supplies a
 second input path, so a brain can still contain seed, docs, and code understanding
 without captured sessions. Checkpoint/session evidence remains distinct from the
 interpretations derived from it: history records, durable facts, and patterns.
+
+Facts can also enter through [`facts import`](../internal/cli/facts_import.go)
+from external memory exports. These records retain foreign-source anchors;
+those anchors do not prove evidence in this repository.
 
 ### 2. Refresh coordinates source stages, not one universal index
 

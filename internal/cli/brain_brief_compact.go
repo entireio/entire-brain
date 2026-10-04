@@ -99,6 +99,11 @@ func emitBrainBriefCompactV1(cmd *cobra.Command, report brainBriefReport) error 
 			compactV1IntAlways("facts", facts.Facts),
 			compactV1IntAlways("distilled", facts.Distilled),
 			compactV1IntAlways("authored", facts.Authored),
+			// Omitted when zero: the packet has a byte budget and most brains
+			// have no imported facts. But when there ARE some, leaving them out
+			// made the origins fail to sum -- facts=400 distilled=0 authored=0
+			// reads as an empty brain to the agent reading this packet.
+			compactV1Int("imported", facts.Imported),
 			compactV1IntAlways("superseded", facts.Superseded),
 			compactV1IntAlways("branches", facts.Branches),
 			compactV1IntAlways("proposals", facts.Proposals),
