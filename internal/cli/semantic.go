@@ -2777,8 +2777,55 @@ func brainIgnorePathTokens(text string) []string {
 			continue
 		}
 		tokens = append(tokens, field)
+		// A compiler or parser error names its location as
+		// "<path>:<line>:<col>", and TrimRight above only removes a TRAILING
+		// colon -- so ".env:3:5" survives as one token and matches no
+		// exact-file pattern: Ignored() compares against ".env", and
+		// ".env:3:5" is not equal to it, does not contain "/.env" and does not
+		// end in ".env".
+		//
+		// That is the shape the warnings this filter exists to withhold
+		// actually take, and such an error routinely quotes the offending
+		// SOURCE LINE -- so a parse failure in an ignored .env, .pem, .key or
+		// a user's own secrets pattern was written into the snapshot warnings
+		// and printed by `brain status`. Measured before this fix:
+		// "/repo/.env" was withheld and "/repo/.env:3:5" was not.
+		//
+		// The bare path is offered as an ADDITIONAL token rather than
+		// replacing the original, so a file whose name genuinely ends in
+		// digits after a colon still matches its own pattern.
+		if trimmed := trimPathPositionSuffix(field); trimmed != field && trimmed != "" {
+			tokens = append(tokens, trimmed)
+		}
 	}
 	return tokens
+}
+
+// trimPathPositionSuffix removes trailing ":<digits>" groups, the
+// "<path>:<line>:<col>" form every compiler, linter and parser uses.
+//
+// Only digits are stripped, and only from the end: a path containing a colon
+// followed by anything else is left alone, because that colon may be part of
+// the name.
+func trimPathPositionSuffix(token string) string {
+	for {
+		idx := strings.LastIndexByte(token, ':')
+		if idx <= 0 || idx == len(token)-1 {
+			return token
+		}
+		suffix := token[idx+1:]
+		allDigits := true
+		for _, r := range suffix {
+			if r < '0' || r > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if !allDigits {
+			return token
+		}
+		token = token[:idx]
+	}
 }
 
 func gitScalar(ctx context.Context, runner CommandRunner, repoDir string, args ...string) (string, error) {
