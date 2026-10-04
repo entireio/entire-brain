@@ -277,11 +277,17 @@ func TestImportTimestampsFallBackToImportTime(t *testing.T) {
 	if !facts[0].CreatedAt.Equal(now) || !facts[0].UpdatedAt.Equal(now) {
 		t.Fatalf("undated memory got %v/%v, want both %v", facts[0].CreatedAt, facts[0].UpdatedAt, now)
 	}
-	if got := parseImportTime("2024-07-01T12:00:00Z"); got.IsZero() {
-		t.Fatal("RFC3339 timestamp failed to parse")
+	if got, bad := parseImportTime("2024-07-01T12:00:00Z"); got.IsZero() || bad {
+		t.Fatalf("RFC3339 timestamp failed to parse: %v (unreadable=%v)", got, bad)
 	}
-	if got := parseImportTime("not a time"); !got.IsZero() {
-		t.Fatalf("unparseable timestamp became %v, want the zero value", got)
+	// An unreadable value now reports that it was PRESENT and unreadable, which
+	// is what separates it from an absent field -- both still yield the zero
+	// time, and the caller substitutes the import date for a zero.
+	if got, bad := parseImportTime("not a time"); !got.IsZero() || !bad {
+		t.Fatalf("unparseable timestamp became %v (unreadable=%v), want zero and unreadable", got, bad)
+	}
+	if got, bad := parseImportTime(""); !got.IsZero() || bad {
+		t.Fatalf("an absent timestamp is not unreadable: %v (unreadable=%v)", got, bad)
 	}
 }
 

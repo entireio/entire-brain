@@ -258,3 +258,89 @@ func TestManifestRefreshFailureIsReportedNotReturned(t *testing.T) {
 		t.Error("the warning that distinguishes a stale manifest from a failed import is gone")
 	}
 }
+
+// parseImportTime returned only a zero time, which made "the field was absent"
+// and "the field was present and unreadable" indistinguishable. The caller
+// substitutes `now` for a zero, so an export whose timestamps are epoch
+// seconds, or use a space instead of a T, had EVERY fact silently re-dated to
+// the import date while the report said "imported N of N".
+//
+// Recency ordering is what these fields are for. A date that is wrong but
+// looks real is worse than no date, because nothing downstream can tell.
+func TestTimestampParsingDistinguishesAbsentFromUnreadable(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name, in string
+		wantYear int
+		wantBad  bool
+	}{
+		{"absent", "", 0, false},
+		{"whitespace only", "   ", 0, false},
+		{"rfc3339", "2024-07-01T12:00:00Z", 2024, false},
+		{"date only", "2024-07-01", 2024, false},
+		{"space separator", "2024-07-01 12:00:00", 2024, false},
+		{"space and minutes", "2024-07-01 12:00", 2024, false},
+		{"no zone", "2024-07-01T12:00:00", 2024, false},
+		{"python isoformat", "2024-07-01T12:00:00.123456", 2024, false},
+		{"epoch seconds", "1719835200", 2024, false},
+		{"epoch millis", "1719835200000", 2024, false},
+		{"genuinely unreadable", "last Tuesday", 0, true},
+		{"a bare year is not a date", "2024", 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, bad := parseImportTime(tc.in)
+			if bad != tc.wantBad {
+				t.Fatalf("parseImportTime(%q) unreadable=%v, want %v", tc.in, bad, tc.wantBad)
+			}
+			if tc.wantYear == 0 {
+				if !got.IsZero() {
+					t.Errorf("parseImportTime(%q) = %v, want the zero time", tc.in, got)
+				}
+				return
+			}
+			if got.Year() != tc.wantYear {
+				t.Errorf("parseImportTime(%q) = %v, want year %d", tc.in, got, tc.wantYear)
+			}
+		})
+	}
+}
+
+// An unreadable timestamp must reach the report, naming the field and quoting
+// the value -- the fact is dated at import time, and nothing downstream can
+// tell that from a real date.
+func TestUnreadableTimestampIsReportedPerMemory(t *testing.T) {
+	t.Parallel()
+
+	memories, _, err := parseMem0([]byte(`{"results":[
+	  {"id":"a","memory":"We deploy on Thursdays.","created_at":"last Tuesday"},
+	  {"id":"b","memory":"We use Postgres.","created_at":"2024-07-01T12:00:00Z"}
+	]}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(memories) != 2 {
+		t.Fatalf("want 2 memories, got %d", len(memories))
+	}
+
+	var flagged, clean []string
+	for _, m := range memories {
+		joined := strings.Join(m.Unsupported, " | ")
+		if strings.Contains(joined, "could not read") {
+			flagged = append(flagged, m.ForeignID)
+		} else {
+			clean = append(clean, m.ForeignID)
+		}
+	}
+	if len(flagged) != 1 || flagged[0] != "a" {
+		t.Errorf("the unreadable timestamp must be reported on memory a alone, flagged=%v", flagged)
+	}
+	if len(clean) != 1 || clean[0] != "b" {
+		t.Errorf("a readable timestamp must not be flagged, clean=%v", clean)
+	}
+	// The note must name the field and quote the value, or it cannot be acted on.
+	note := strings.Join(memories[0].Unsupported, " | ")
+	if !strings.Contains(note, "created_at") || !strings.Contains(note, "last Tuesday") {
+		t.Errorf("the note must name the field and quote the value: %q", note)
+	}
+}

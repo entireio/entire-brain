@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -129,13 +130,25 @@ func parseMem0(data []byte) ([]importedMemory, int, error) {
 			skipped++
 			continue
 		}
+		createdAt, createdBad := parseImportTime(m.CreatedAt)
+		updatedAt, updatedBad := parseImportTime(m.UpdatedAt)
 		mem := importedMemory{
 			ForeignID:  strings.TrimSpace(m.ID),
 			Text:       text,
 			Categories: m.Categories,
-			CreatedAt:  parseImportTime(m.CreatedAt),
-			UpdatedAt:  parseImportTime(m.UpdatedAt),
+			CreatedAt:  createdAt,
+			UpdatedAt:  updatedAt,
 			ReplacedBy: strings.TrimSpace(m.ReplacedBy),
+		}
+		if createdBad || updatedBad {
+			// The caller substitutes `now` for a zero time, so an unparseable
+			// timestamp re-dates the fact to the import date. Say so: recency
+			// ordering is what these fields exist for, and silently stamping
+			// every fact with today is worse than carrying no date at all,
+			// because it looks like real information.
+			mem.Unsupported = append(mem.Unsupported, fmt.Sprintf(
+				"a timestamp this import could not read (%s); the fact is dated at import time instead, so its position in recency order is not the source's",
+				unreadableTimestampDetail(m, createdBad, updatedBad)))
 		}
 		if stripped {
 			// Reuse the channel this file already has for "the source said
@@ -174,17 +187,50 @@ func parseMem0(data []byte) ([]importedMemory, int, error) {
 	return out, skipped, nil
 }
 
-func parseImportTime(value string) time.Time {
+// parseImportTime returns the parsed time, and whether the value was PRESENT
+// but could not be parsed.
+//
+// Returning only a zero time made those two cases indistinguishable, and the
+// caller substitutes `now` for a zero. So an export whose timestamps are epoch
+// seconds, or "2024-07-01 12:00:00" with a space instead of a T, had every
+// fact silently re-dated to the import date while the report said "imported
+// 400 of 400". Recency ordering is exactly what these fields are for, and
+// every imported fact claiming today destroys it invisibly.
+//
+// The layouts below cover the shapes actually seen in mem0, Letta and
+// sqlite-backed exports. Anything else is reported rather than guessed.
+func parseImportTime(value string) (time.Time, bool) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return time.Time{}
+		return time.Time{}, false
 	}
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02"} {
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05.999999", // no zone (sqlite, python isoformat)
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05.999999Z07:00",
+		"2006-01-02 15:04:05.999999", // space separator
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		"2006-01-02",
+	} {
 		if parsed, err := time.Parse(layout, value); err == nil {
-			return parsed.UTC()
+			return parsed.UTC(), false
 		}
 	}
-	return time.Time{}
+	// Epoch seconds or milliseconds. Requiring 10+ digits keeps a bare year or
+	// a short numeric id from being read as a date; 10 digits is 2001-09-09
+	// onward, and no export predates that.
+	if len(value) >= 10 && strings.IndexFunc(value, func(r rune) bool { return r < '0' || r > '9' }) < 0 {
+		if n, err := strconv.ParseInt(value, 10, 64); err == nil {
+			if len(value) >= 13 {
+				return time.UnixMilli(n).UTC(), false
+			}
+			return time.Unix(n, 0).UTC(), false
+		}
+	}
+	return time.Time{}, true
 }
 
 // importTaxonomyPath maps a foreign category onto a Brain taxonomy path. A
@@ -797,4 +843,18 @@ func firstJSONTypeError(errs ...error) error {
 		}
 	}
 	return nil
+}
+
+// unreadableTimestampDetail names which field could not be read and quotes the
+// value, so the report points at the export rather than merely admitting
+// defeat.
+func unreadableTimestampDetail(m mem0Memory, createdBad, updatedBad bool) string {
+	switch {
+	case createdBad && updatedBad:
+		return fmt.Sprintf("created_at %q and updated_at %q", m.CreatedAt, m.UpdatedAt)
+	case createdBad:
+		return fmt.Sprintf("created_at %q", m.CreatedAt)
+	default:
+		return fmt.Sprintf("updated_at %q", m.UpdatedAt)
+	}
 }
