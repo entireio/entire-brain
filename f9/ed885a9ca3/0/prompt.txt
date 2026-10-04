@@ -1,0 +1,9 @@
+Orchestrator reminder: the full internal/cli package already timed out locally on unchanged base code (COR-2000 docs-only branch and your first writer run). A third full-package run is likely to spend another 15 minutes and prove nothing. Prefer targeted -run tests for the touched commands/help plus go vet/build, then publish and let PR CI run the full suite.
+
+---
+
+Orchestrator note from Alex: superpowers spec/plan files must not be committed. PR #333 currently has none. Keep it that way if you push again. No action needed now.
+
+---
+
+Orchestrator: main advanced to 6c8ebdab (PR #306 merged, which adds a new 'facts import' command). PR #333 is now mergeStateStatus=BEHIND (still MERGEABLE). Resume your steward to bring the branch up to date with main, then make sure the new command fits the settled grouping (everyday vs operations vs hidden dev-only; decide from what it does) and that your help/grouping tests still pass with it. Push and report the new head. Do not merge.
