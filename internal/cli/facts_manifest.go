@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -24,7 +25,28 @@ func loadAllFactBranches(brainDir string) (map[string][]factRecord, error) {
 		if !entry.IsDir() {
 			continue
 		}
-		records, err := parseFactsFile(filepath.Join(root, entry.Name(), factsFileName))
+		// Same containment guards the single-branch read applies.
+		//
+		// loadFacts(brainDir, branch) rejects a symlinked path component and a
+		// non-regular fact file (facts.go:146,150). This inventory walk
+		// applied neither, so a symlinked facts.ndjson inside a real branch
+		// directory was READ -- measured: loadFacts refuses it with "path
+		// component must not be a symlink" while this function returned its
+		// content from outside the brain.
+		//
+		// A symlinked branch DIRECTORY was never the vector: os.ReadDir
+		// reports types without following links, so entry.IsDir() is false for
+		// one and the continue above already skips it. The gap was the file
+		// one level down.
+		rel := filepath.ToSlash(filepath.Join(factsDirName, entry.Name(), factsFileName))
+		if err := rejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
+			return nil, err
+		}
+		path := filepath.Join(brainDir, filepath.FromSlash(rel))
+		if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("fact store is not a regular file: %s", rel)
+		}
+		records, err := parseFactsFile(path)
 		if err != nil {
 			return nil, err
 		}
