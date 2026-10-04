@@ -172,6 +172,27 @@ func TestIssueBriefCLIMCPAndQuotedCompactPackets(t *testing.T) {
 	}
 }
 
+func TestIssueBriefFieldsOnlyIssueSuppliesTask(t *testing.T) {
+	f := newBrainBriefProfileFixture(t)
+	s := seedIssueTest(t, f.brainDir)
+	r := s.Record
+	r.Title, r.Text = "", ""
+	r.Fields = map[string]json.RawMessage{"status": json.RawMessage(`"Todo"`)}
+	r.UpdatedAt = time.Now().UTC()
+	r.ObservedAt = r.UpdatedAt
+	importIssueTest(t, f.brainDir, 2, []issues.Record{r})
+	out, err := execute(t, NewRootCommand(f.opts), "brief", "--issue", "COR-123", "--json")
+	if err != nil {
+		t.Fatal("resolved --issue did not supply task", err)
+	}
+	var report struct {
+		Task string `json:"task"`
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil || report.Task != "COR-123" {
+		t.Fatal("task did not fall back to issue identity", report.Task, err)
+	}
+}
+
 func TestIssueCLIStdinAndMCPParity(t *testing.T) {
 	f := newBrainBriefProfileFixture(t)
 	seedIssueTest(t, f.brainDir)

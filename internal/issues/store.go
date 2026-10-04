@@ -138,6 +138,10 @@ type State struct {
 	RunIssues     map[string][]string    `json:"run_issues,omitempty"`
 	Links         []Link                 `json:"links,omitempty"`
 	Operations    map[string][]Operation `json:"operations"`
+	// RunConflicts keeps unresolved equal-timestamp conflicts per run and
+	// project, so a later batch cannot complete a run an earlier batch left
+	// serving stale evidence.
+	RunConflicts map[string][]string `json:"run_conflicts,omitempty"`
 }
 
 // The adapter supplies Brain's cross-process lock and platform-specific atomic
@@ -376,6 +380,9 @@ func (s Store) Import(data []byte) (res ImportResult, err error) {
 				}
 			}
 		}
+		if st.RunConflicts == nil {
+			st.RunConflicts = map[string][]string{}
+		}
 		for _, r := range e.Records {
 			ref := r.Key() + "@" + r.ContentHash()
 			old, ok := st.Snapshots[st.Current[r.Key()]]
@@ -385,6 +392,11 @@ func (s Store) Import(data []byte) (res ImportResult, err error) {
 			}
 			if ok && old.UpdatedAt.Equal(r.UpdatedAt) && !compatibleObservation(old, r) {
 				res.Conflicts = append(res.Conflicts, r.Key())
+				key := e.RunID + ":" + r.Project
+				if !contains(st.RunConflicts[key], r.Key()) {
+					st.RunConflicts[key] = append(st.RunConflicts[key], r.Key())
+					sort.Strings(st.RunConflicts[key])
+				}
 				continue
 			}
 			if ok && old.UpdatedAt.Equal(r.UpdatedAt) && old.ObservedAt.After(r.ObservedAt) {
@@ -398,6 +410,24 @@ func (s Store) Import(data []byte) (res ImportResult, err error) {
 			st.Snapshots[ref] = r
 			st.Current[r.Key()] = ref
 			res.Imported++
+			// A newer observation in the same run supersedes an earlier conflict,
+			// whichever project the conflict was recorded under.
+			for key, keys := range st.RunConflicts {
+				if !strings.HasPrefix(key, e.RunID+":") || !contains(keys, r.Key()) {
+					continue
+				}
+				kept := []string{}
+				for _, k := range keys {
+					if k != r.Key() {
+						kept = append(kept, k)
+					}
+				}
+				if len(kept) == 0 {
+					delete(st.RunConflicts, key)
+				} else {
+					st.RunConflicts[key] = kept
+				}
+			}
 		}
 		for _, r := range e.Records {
 			if r.Kind == "comment" {
@@ -490,7 +520,7 @@ func (s Store) Import(data []byte) (res ImportResult, err error) {
 				return errors.New("invalid issue pagination")
 			}
 			if p.Complete {
-				if !p.Issues.Complete || len(res.Conflicts) > 0 {
+				if !p.Issues.Complete || len(st.RunConflicts[key]) > 0 {
 					return errors.New("cannot complete unfinished or conflicting import")
 				}
 				for _, id := range p.IssueIDs {
@@ -743,6 +773,11 @@ func (s Store) Disconnect(project string, purge bool) error {
 			for key := range st.RunIssues {
 				if strings.HasSuffix(key, ":"+project) {
 					delete(st.RunIssues, key)
+				}
+			}
+			for key := range st.RunConflicts {
+				if strings.HasSuffix(key, ":"+project) {
+					delete(st.RunConflicts, key)
 				}
 			}
 			for batch := range st.Batches {

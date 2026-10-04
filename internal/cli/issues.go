@@ -444,6 +444,13 @@ func issueBriefEvidence(brainDir, task, requested string, limit int) (string, []
 		if strings.TrimSpace(task) == "" {
 			task = boundedIssueText(s.Title, 600) + "\n" + boundedIssueText(s.Text, 1200)
 		}
+		// A resolved issue may carry only fields; its identity still names the task.
+		for _, id := range []string{s.Alias, s.URL, s.ID} {
+			if strings.TrimSpace(task) != "" {
+				break
+			}
+			task = id
+		}
 	}
 	hits, err := retrieveIssues(brainDir, task, min(limit, 3), modeLexical, nil)
 	if err != nil {

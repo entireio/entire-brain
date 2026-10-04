@@ -104,3 +104,41 @@ func TestRunCompletionIncludesBatchesWithoutProgress(t *testing.T) {
 		t.Fatal("purge retained run membership")
 	}
 }
+
+func TestRunCompletionRejectsConflictFromEarlierBatch(t *testing.T) {
+	s := fixture(t)
+	r := rec("issue", issue, "original")
+	importOK(t, s, 1, r)
+	r.Text = "conflicting same-revision text"
+	if result := importOK(t, s, 2, r); len(result.Conflicts) != 1 {
+		t.Fatal("equal timestamp conflict not reported", result)
+	}
+	// Reopen persisted state: a trailing progress-only batch must still see it.
+	s = Store{Root: s.Root, Lock: s.Lock, Write: s.Write}
+	complete := func(n int) error {
+		var e Envelope
+		_ = json.Unmarshal(batch(n), &e)
+		e.Progress = &Progress{Project: project, WindowStart: now.AddDate(0, 0, -90), Issues: Page{Complete: true}, Comments: map[string]Page{issue: {Complete: true}}, Complete: true}
+		b, _ := json.Marshal(e)
+		_, err := s.Import(b)
+		return err
+	}
+	if err := complete(3); err == nil {
+		t.Fatal("completed run despite conflict from an earlier batch")
+	}
+	r.UpdatedAt = now.Add(time.Hour)
+	r.ObservedAt = r.UpdatedAt
+	importOK(t, s, 4, r)
+	if err := complete(5); err != nil {
+		t.Fatal("newer revision did not resolve run conflict", err)
+	}
+	r.Text = "another conflict"
+	importOK(t, s, 6, r)
+	if err := s.Disconnect(project, true); err != nil {
+		t.Fatal(err)
+	}
+	state, _ := s.Load()
+	if len(state.RunConflicts) != 0 {
+		t.Fatal("purge retained run conflicts", state.RunConflicts)
+	}
+}
