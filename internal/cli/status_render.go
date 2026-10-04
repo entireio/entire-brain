@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/entireio/entire-brain/internal/tui"
 )
@@ -186,10 +187,19 @@ func truncateStatusCause(cause string) string {
 	if len(runes) <= statusCauseWidth {
 		return cause
 	}
+	// The RESERVE is counted in runes too.
+	//
+	// Measuring the input in runes and the ellipsis in bytes is the same
+	// rune-versus-byte confusion this function exists to fix, just on the other
+	// operand. It happens to agree for ASCII "...", and silently
+	// over-reserves the moment the marker becomes "…" -- which is one
+	// const edit away, in a function whose entire comment is about this class
+	// of bug.
+	ellipsisWidth := utf8.RuneCountInString(statusCauseEllipsis)
 	limit := statusCauseWidth
 	suffix := ""
-	if statusCauseWidth > len(statusCauseEllipsis) {
-		limit = statusCauseWidth - len(statusCauseEllipsis)
+	if statusCauseWidth > ellipsisWidth {
+		limit = statusCauseWidth - ellipsisWidth
 		suffix = statusCauseEllipsis
 	}
 	return string(runes[:limit]) + suffix

@@ -446,11 +446,6 @@ func regressionScanHistoryCapped(brainDir string, ids []string) ([]changeSignal,
 	return changes, deletes, files, caps, nil
 }
 
-func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSourceManifest, query string, limit int, includeDeletions bool) ([]regressionAnomaly, int, []string) {
-	anomalies, scanned, warnings, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, semSource, query, limit, includeDeletions)
-	return anomalies, scanned, warnings
-}
-
 // detectRegressionAnomaliesCapped is detectRegressionAnomalies plus the raw-history truncation
 // report. The caps are also rendered into warnings, but a caller that writes a summary sentence
 // needs the flag itself: a note printed under a clean-bill-of-health headline is not a correction.
@@ -1449,12 +1444,18 @@ func regressionNoAnomaliesLine(query string, scanned int, historyTruncated bool)
 // scanned is the number of current files actually read and compared, so
 // scanned == 0 is the precise, non-string-matched test for "nothing was
 // checked".
-func reviewSummary(findings, scanned int) string {
+func reviewSummary(findings, scanned int, historyTruncated bool) string {
 	switch {
 	case findings > 0:
 		return fmt.Sprintf("Diff-less review: %d suspected regression(s) — verify each before acting.", findings)
 	case scanned == 0:
 		return "Diff-less review: INCONCLUSIVE — nothing was compared (the brain holds no code assertions to check this tree against). This is not a clean result; see the notes below."
+	case historyTruncated:
+		// A scan that stopped at a cap has not seen the whole brain, so the
+		// absence of findings is not a clean bill of health. regressionNoAnomaliesLine
+		// has said this since the caps were added; this surface discarded the
+		// flag and could not.
+		return fmt.Sprintf("Diff-less review: PARTIAL — nothing flagged in what was compared (%d file(s)), but the history scan stopped at a cap before the end of the brain, so this is not a clean result; see the notes below.", scanned)
 	default:
 		return fmt.Sprintf("Diff-less review: no suspected regressions (%d file(s) compared against the brain's memory).", scanned)
 	}
@@ -1502,7 +1503,7 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 	if status.Manifest != nil && status.Manifest.Sources != nil {
 		semSource = status.Manifest.Sources.Semantic
 	}
-	anomalies, scanned, warnings := detectRegressionAnomalies(status.Brain.Path, status.Repo.Root, semSource, query, ro.limit, ro.includeDeletions)
+	anomalies, scanned, warnings, caps := detectRegressionAnomaliesCapped(status.Brain.Path, status.Repo.Root, semSource, query, ro.limit, ro.includeDeletions)
 	var runtimeTraces []semanticRecord
 	if semSource != nil {
 		traces, err := semanticRuntimeTraceFacts(status.Brain.Path, semSource, query, ro.limit)
@@ -1536,7 +1537,7 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 		Query:         query,
 		RepoPath:      status.Repo.Root,
 		BrainPath:     status.Brain.Path,
-		Summary:       reviewSummary(len(findings), scanned),
+		Summary:       reviewSummary(len(findings), scanned, caps.Truncated()),
 		Checked:       scanned > 0,
 		FilesScanned:  scanned,
 		Findings:      findings,

@@ -447,16 +447,16 @@ func TestWorkspaceReviewStillReportsAGenuinelyCleanTree(t *testing.T) {
 
 // TestWorkspaceReviewSummaryVerdict pins the rule both callers share.
 func TestWorkspaceReviewSummaryVerdict(t *testing.T) {
-	if got := workspaceReviewSummary(false, 0); !strings.Contains(got, "INCONCLUSIVE") {
+	if got := workspaceReviewSummary(false, 0, false); !strings.Contains(got, "INCONCLUSIVE") {
 		t.Fatalf("nothing compared must be inconclusive: %q", got)
 	}
 	// A zero file count is inconclusive even if a caller says it checked: the
 	// count is the evidence, and the two must never disagree in the clean
 	// direction.
-	if got := workspaceReviewSummary(true, 0); !strings.Contains(got, "INCONCLUSIVE") {
+	if got := workspaceReviewSummary(true, 0, false); !strings.Contains(got, "INCONCLUSIVE") {
 		t.Fatalf("zero files compared must be inconclusive: %q", got)
 	}
-	got := workspaceReviewSummary(true, 3)
+	got := workspaceReviewSummary(true, 3, false)
 	if strings.Contains(got, "INCONCLUSIVE") || !strings.Contains(got, "3 file(s)") {
 		t.Fatalf("a real comparison must report itself with its count: %q", got)
 	}

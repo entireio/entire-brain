@@ -230,10 +230,14 @@ type workspaceRegressionResult struct {
 	// infer from an empty anomaly list) to find out. Checked is false whenever
 	// FilesScanned is zero: the detector read nothing, and an empty result is
 	// therefore the absence of evidence, not evidence of absence.
-	Checked      bool     `json:"checked"`
-	FilesScanned int      `json:"files_scanned"`
-	Warnings     []string `json:"warnings,omitempty"`
-	Error        string   `json:"error,omitempty"`
+	Checked      bool `json:"checked"`
+	FilesScanned int  `json:"files_scanned"`
+	// HistoryTruncated is true when the history scan stopped at a cap before
+	// the end of the brain. Then an empty Anomalies list is an incomplete
+	// answer, not a clean one -- the same reason Checked exists, one layer in.
+	HistoryTruncated bool     `json:"history_truncated,omitempty"`
+	Warnings         []string `json:"warnings,omitempty"`
+	Error            string   `json:"error,omitempty"`
 }
 
 type workspaceReviewResult struct {
@@ -245,10 +249,12 @@ type workspaceReviewResult struct {
 	Findings  []reviewFinding        `json:"findings"`
 	// See workspaceRegressionResult: Checked/FilesScanned keep the "was this
 	// repo compared at all?" answer out of the prose.
-	Checked      bool     `json:"checked"`
-	FilesScanned int      `json:"files_scanned"`
-	Warnings     []string `json:"warnings,omitempty"`
-	Error        string   `json:"error,omitempty"`
+	Checked      bool `json:"checked"`
+	FilesScanned int  `json:"files_scanned"`
+	// See workspaceRegressionResult.HistoryTruncated.
+	HistoryTruncated bool     `json:"history_truncated,omitempty"`
+	Warnings         []string `json:"warnings,omitempty"`
+	Error            string   `json:"error,omitempty"`
 }
 
 func newWorkspaceCommand(opts Options) *cobra.Command {
@@ -3635,27 +3641,31 @@ func workspaceRepoBlockNeedsHeader(state string, anomalies, warnings int, errTex
 // files to verify against -- and this function used to discard it with `_`. A caller with no count
 // cannot tell "compared the tree and found nothing wrong" from "never opened a file", and the
 // review summary went on to assert the first. See workspaceReviewSummary.
-func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo workspaceRepo, ro regressionDetectorOptions, query string) (string, []regressionAnomaly, int, []string, string) {
+func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo workspaceRepo, ro regressionDetectorOptions, query string) (string, []regressionAnomaly, int, []string, bool, string) {
 	brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
 	if err != nil {
-		return "", nil, 0, nil, err.Error()
+		return "", nil, 0, nil, false, err.Error()
 	}
 	if repo.LocalPathHint == "" {
-		return "", nil, 0, nil, "no local_path_hint (re-add the repo to record its working tree)"
+		return "", nil, 0, nil, false, "no local_path_hint (re-add the repo to record its working tree)"
 	}
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
 	if err != nil {
-		return "", nil, 0, nil, err.Error()
+		return "", nil, 0, nil, false, err.Error()
 	}
 	if !local {
-		return "", nil, 0, nil, "local_path_hint unavailable"
+		return "", nil, 0, nil, false, "local_path_hint unavailable"
 	}
 	// Semantic source is optional: a sessions-only brain (no export manifest) still scans.
 	var semSource *semanticSourceManifest
 	if source, srcErr := workspaceSemanticSource(brainDir); srcErr == nil {
 		semSource = source
 	}
-	anomalies, scanned, warnings := detectRegressionAnomalies(brainDir, repoDir, semSource, query, ro.limit, ro.includeDeletions)
+	// Capped, so a caller writing a summary sentence can qualify it. The
+	// uncapped wrapper discarded this flag, which let the workspace surfaces
+	// print an unqualified clean bill of health over a scan that stopped at a
+	// cap -- the exact bug class the caps were added to eliminate.
+	anomalies, scanned, warnings, caps := detectRegressionAnomaliesCapped(brainDir, repoDir, semSource, query, ro.limit, ro.includeDeletions)
 	if ro.locationOnly {
 		for i := range anomalies {
 			anomalies[i].Expected = ""
@@ -3666,7 +3676,7 @@ func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo worksp
 			}
 		}
 	}
-	return repoDir, anomalies, scanned, warnings, ""
+	return repoDir, anomalies, scanned, warnings, caps.Truncated(), ""
 }
 
 func runWorkspaceRegressions(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, workspaceName, query string) error {
@@ -3697,10 +3707,11 @@ func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regres
 		if workspaceFreshnessBlocksScan(freshness) {
 			result.Error = "skipped (unsafe): " + freshness.Detail
 		} else {
-			repoPath, anomalies, scanned, warnings, scanErr := scanWorkspaceRepoRegressions(cmd.Context(), opts, repo, ro, query)
+			repoPath, anomalies, scanned, warnings, truncated, scanErr := scanWorkspaceRepoRegressions(cmd.Context(), opts, repo, ro, query)
 			result.RepoPath = repoPath
 			result.Anomalies = anomalies
 			result.FilesScanned = scanned
+			result.HistoryTruncated = truncated
 			result.Checked = scanErr == "" && scanned > 0
 			result.Warnings = warnings
 			result.Error = scanErr
@@ -3752,10 +3763,25 @@ func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regres
 			// workspace whose members were skipped unsafe or never resolved still
 			// reported "No suspected regressions across 6 repo(s)" -- a clean bill of
 			// health over repos nothing ever looked at.
+			//
+			// COMPLETENESS is the same defect one layer in, and it is why the
+			// truncated count is here: a repo whose history scan stopped at a
+			// cap WAS scanned, so it counts toward coverage, but it was not
+			// scanned to the end. Without this the headline reads as clean over
+			// a scan that never finished.
+			truncated := 0
+			for _, result := range results {
+				if result.HistoryTruncated {
+					truncated++
+				}
+			}
 			switch {
 			case scanned == 0:
 				fmt.Fprintf(out, "INCONCLUSIVE: no file in any of %d repo(s) in %q was compared — this is not a clean result. See the warnings above.\n",
 					len(results), manifest.Name)
+			case truncated > 0:
+				fmt.Fprintf(out, "PARTIAL for %q: nothing flagged across %d of %d repo(s), but %d repo(s) stopped at a history cap before the end of the brain, so this is not a clean result. See the per-repo lines above.\n",
+					manifest.Name, scanned, len(results), truncated)
 			case scanned == len(results):
 				fmt.Fprintf(out, "No suspected regressions across %d repo(s) in %q.\n", scanned, manifest.Name)
 			default:
@@ -3788,8 +3814,14 @@ func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regres
 // An agent or script reads `summary`. INCONCLUSIVE is the honest verdict when
 // the scan read zero files, and `checked`/`files_scanned` carry the same fact
 // in machine-readable form so nothing has to parse this prose at all.
-func workspaceReviewSummary(checked bool, filesScanned int) string {
+func workspaceReviewSummary(checked bool, filesScanned int, historyTruncated bool) string {
 	if checked && filesScanned > 0 {
+		if historyTruncated {
+			// A capped scan has not seen the whole brain, so no findings is not
+			// a clean result. This surface could not say so while the caps were
+			// discarded by the uncapped detector wrapper.
+			return fmt.Sprintf("PARTIAL: nothing flagged in what was compared (%d file(s)), but the history scan stopped at a cap before the end of the brain, so this is not a clean result. See the warnings.", filesScanned)
+		}
 		return fmt.Sprintf("no suspected regressions (compared %d file(s) against the brain's memory).", filesScanned)
 	}
 	return "INCONCLUSIVE: nothing was compared — no files were read, so this is not a clean result. See the warnings."
@@ -3831,9 +3863,10 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 			results = append(results, result)
 			continue
 		}
-		repoPath, anomalies, scanned, warnings, scanErr := scanWorkspaceRepoRegressions(cmd.Context(), opts, repo, ro, query)
+		repoPath, anomalies, scanned, warnings, truncated, scanErr := scanWorkspaceRepoRegressions(cmd.Context(), opts, repo, ro, query)
 		result.RepoPath = repoPath
 		result.FilesScanned = scanned
+		result.HistoryTruncated = truncated
 		result.Checked = scanErr == "" && scanned > 0
 		result.Warnings = warnings
 		result.Error = scanErr
@@ -3853,7 +3886,7 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 			totalFindings += len(result.Findings)
 			result.Summary = fmt.Sprintf("%d suspected regression(s) — verify each before acting.", len(result.Findings))
 		default:
-			result.Summary = workspaceReviewSummary(result.Checked, result.FilesScanned)
+			result.Summary = workspaceReviewSummary(result.Checked, result.FilesScanned, result.HistoryTruncated)
 		}
 		results = append(results, result)
 	}
