@@ -170,3 +170,59 @@ func noBrainBlindSpot(loadErr error) string {
 	}
 	return "note: no brain has been built for this repository, so nothing is indexed here and this empty result is not evidence of absence; run `entire brain setup`"
 }
+
+// otherBranchSessionBlindSpot reports captured sessions held on branches other
+// than the one scanned. It is the SESSION-unit twin of otherBranchBlindSpot.
+//
+// Evidence recall scans canonical sessions on one branch and returns spans, not
+// facts. Reusing the fact note here would attach "N active fact(s) on M other
+// branch(es)" to a result that is not about facts -- a note that does not match
+// the shape of the answer is the hazard the review named on the unified
+// surfaces, and it applies just as much to this one.
+//
+// So the discipline is the same and the unit is the result's own: an empty
+// evidence result on a branch holding no sessions, while other branches hold
+// them, is the same wrong-branch trap and the same actionable remedy.
+//
+// Empty when the caller did not say which branch it scanned, when the manifest
+// cannot be read, or when no other branch holds a session.
+func otherBranchSessionBlindSpot(brainDir, branch string) string {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return ""
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil || manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
+		return ""
+	}
+	byBranch := map[string]int{}
+	here := 0
+	for _, session := range manifest.Sources.Sessions.Sessions {
+		name := strings.TrimSpace(session.Branch)
+		if name == "" {
+			continue
+		}
+		if name == branch {
+			here++
+			continue
+		}
+		byBranch[name]++
+	}
+	// Sessions on THIS branch mean the scan had material to work with, so an
+	// empty result is about the query, not the branch.
+	if here > 0 || len(byBranch) == 0 {
+		return ""
+	}
+	total := 0
+	names := make([]string, 0, len(byBranch))
+	for name, n := range byBranch {
+		total += n
+		names = append(names, name)
+	}
+	// Map iteration is randomised, so an unsorted list would differ between
+	// identical runs.
+	sort.Strings(names)
+	return fmt.Sprintf(
+		"note: no sessions were captured on %s; %d session(s) on %d other branch(es): %s — retry with --branch <name>",
+		branch, total, len(names), strings.Join(names, ", "))
+}
