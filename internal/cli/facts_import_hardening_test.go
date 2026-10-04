@@ -344,3 +344,85 @@ func TestUnreadableTimestampIsReportedPerMemory(t *testing.T) {
 		t.Errorf("the note must name the field and quote the value: %q", note)
 	}
 }
+
+// importTaxonomyPath takes the FIRST usable category and breaks, so a memory
+// tagged ["deployment","security"] was filed under project.imported.deployment
+// with "security" gone and nothing said -- while factmerge.MaxPaths is 2, so
+// the room for a second path was already there.
+func TestImportCarriesASecondCategoryAndReportsTheRest(t *testing.T) {
+	t.Parallel()
+
+	paths, dropped := importedFactPaths("project.imported", []string{"deployment", "security"})
+	if len(paths) != 2 {
+		t.Fatalf("two categories must yield two paths, got %v", paths)
+	}
+	if len(dropped) != 0 {
+		t.Errorf("nothing is dropped at the cap, got %v", dropped)
+	}
+	joined := strings.Join(paths, " ")
+	for _, want := range []string{"deployment", "security"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("category %q was lost; paths = %v", want, paths)
+		}
+	}
+
+	// Past the cap the loss is real, so it must be named.
+	_, over := importedFactPaths("project.imported", []string{"a", "b", "c", "d"})
+	if len(over) != 2 || over[0] != "c" || over[1] != "d" {
+		t.Errorf("categories past the cap must be returned for reporting, got %v", over)
+	}
+
+	// Duplicates after sanitising are not two categories.
+	dedup, _ := importedFactPaths("project.imported", []string{"Deployment", "deployment"})
+	if len(dedup) != 1 {
+		t.Errorf("one category spelled two ways is one path, got %v", dedup)
+	}
+
+	// No categories still yields a usable path; an unpathed fact is unfindable.
+	bare, _ := importedFactPaths("project.imported", nil)
+	if len(bare) != 1 || !strings.Contains(bare[0], "general") {
+		t.Errorf("a memory with no categories must still get a path, got %v", bare)
+	}
+}
+
+// Superseded was incremented once per MEMORY while Imported counts distinct
+// FACTS. Two memories that dedupe into one fact, both superseded at the
+// source, reported "2 already superseded" out of "1 imported" -- two numbers in
+// different units presented as comparable.
+func TestSupersededIsCountedInTheSameUnitAsImported(t *testing.T) {
+	t.Parallel()
+
+	// Two records, one id: exactly the collapse case.
+	facts := []factRecord{
+		{ID: "same", Status: factStatusSuperseded},
+		{ID: "same", Status: factStatusSuperseded},
+	}
+	if got := countSupersededFacts(facts); got != 1 {
+		t.Errorf("two memories collapsing into one fact is one superseded fact, got %d", got)
+	}
+	mixed := []factRecord{
+		{ID: "a", Status: factStatusSuperseded},
+		{ID: "b", Status: factStatusActive},
+		{ID: "c", Status: factStatusSuperseded},
+	}
+	if got := countSupersededFacts(mixed); got != 2 {
+		t.Errorf("two distinct superseded facts must count 2, got %d", got)
+	}
+	if got := countSupersededFacts(nil); got != 0 {
+		t.Errorf("no facts is no superseded facts, got %d", got)
+	}
+}
+
+// Facts are branch-scoped: recall on another branch does not see them and
+// reports an empty corpus, which reads as a failed import rather than a
+// misplaced one. The report must say which branch they landed on.
+func TestImportReportNamesTheBranch(t *testing.T) {
+	t.Parallel()
+
+	_, report := memoriesToFacts(
+		[]importedMemory{{ForeignID: "x", Text: "We deploy on Thursdays."}},
+		0, "mem0", "project.imported", "feature/x", time.Now().UTC())
+	if report.Branch != "feature/x" {
+		t.Errorf("the report must name the branch the facts landed on, got %q", report.Branch)
+	}
+}

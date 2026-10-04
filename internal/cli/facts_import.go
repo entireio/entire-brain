@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/factmerge"
 	"os"
 	"sort"
 	"strconv"
@@ -261,8 +262,45 @@ func importTaxonomyPath(prefix string, categories []string) string {
 // built from a mixed-case --path-prefix would be rejected downstream by the
 // very check meant to protect it. Normalising here — before the id is derived
 // from the paths — means the id matches the path that is actually stored.
-func importedFactPaths(prefix string, categories []string) []string {
-	paths := normalizeFactPaths([]string{importTaxonomyPath(prefix, categories)})
+func importedFactPaths(prefix string, categories []string) ([]string, []string) {
+	// Use the capacity the identity model allows instead of keeping one
+	// category and dropping the rest in silence.
+	//
+	// importTaxonomyPath takes the FIRST usable category and breaks, so a
+	// memory tagged ["deployment","security"] arrived under
+	// project.imported.deployment with "security" gone and nothing said. That
+	// is the same silent-drop class this file refuses everywhere else, and
+	// factmerge.MaxPaths is 2 -- the room for a second path was already there.
+	//
+	// Categories beyond the cap are returned so the caller can report them.
+	// They are genuinely dropped; the cap is an identity invariant, not a
+	// formatting choice.
+	usable := make([]string, 0, len(categories))
+	seen := map[string]bool{}
+	for _, category := range categories {
+		cleaned := strings.ToLower(sanitizeImportSegment(category))
+		if cleaned == "" || seen[cleaned] {
+			continue
+		}
+		seen[cleaned] = true
+		usable = append(usable, cleaned)
+	}
+
+	var dropped []string
+	if len(usable) > factmerge.MaxPaths {
+		dropped = append(dropped, usable[factmerge.MaxPaths:]...)
+		usable = usable[:factmerge.MaxPaths]
+	}
+
+	candidates := make([]string, 0, len(usable))
+	for _, segment := range usable {
+		candidates = append(candidates, importTaxonomyPathForSegment(prefix, segment))
+	}
+	if len(candidates) == 0 {
+		candidates = append(candidates, importTaxonomyPath(prefix, nil))
+	}
+
+	paths := normalizeFactPaths(candidates)
 	if len(paths) == 0 {
 		// Unreachable while the prefix is validated up front and the sanitiser
 		// emits only taxonomy-legal characters — both of which this file now
@@ -271,7 +309,21 @@ func importedFactPaths(prefix string, categories []string) []string {
 		// of those two guarantees should not be able to produce one silently.
 		paths = normalizeFactPaths([]string{importTaxonomyPath("", nil)})
 	}
-	return paths
+	return paths, dropped
+}
+
+// importTaxonomyPathForSegment builds one taxonomy path from an
+// already-sanitised segment, so importedFactPaths can build several without
+// re-running the first-category-wins selection in importTaxonomyPath.
+func importTaxonomyPathForSegment(prefix, segment string) string {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		prefix = "project.imported"
+	}
+	if segment == "" {
+		segment = "general"
+	}
+	return prefix + "." + segment
 }
 
 // validateImportPrefix rejects a --path-prefix that cannot survive
@@ -357,8 +409,13 @@ func sanitizeImportSegment(segment string) string {
 }
 
 type factImportReport struct {
-	Source      string   `json:"source"`
-	File        string   `json:"file"`
+	Source string `json:"source"`
+	File   string `json:"file"`
+	// Branch the facts landed on. Facts are branch-scoped, so an import that
+	// resolved to a different branch than the user had in mind is invisible
+	// without this -- `facts recall` on another branch then reports an empty
+	// corpus, which reads as a failed import rather than a misplaced one.
+	Branch      string   `json:"branch,omitempty"`
 	Read        int      `json:"read"`
 	Imported    int      `json:"imported"`
 	SkippedText int      `json:"skipped_empty_text"`
@@ -374,7 +431,7 @@ type factImportReport struct {
 func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, branch string, now time.Time) ([]factRecord, factImportReport) {
 	// Read is what the file contained, not what survived parsing: "3 of 3"
 	// when the file held four is exactly the silent drop this reports against.
-	report := factImportReport{Source: source, Read: len(memories) + skipped, SkippedText: skipped}
+	report := factImportReport{Source: source, Branch: branch, Read: len(memories) + skipped, SkippedText: skipped}
 	unsupported := map[string]bool{}
 	facts := make([]factRecord, 0, len(memories))
 	// Supersession is resolved after the loop, because a memory can be
@@ -384,7 +441,16 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 	duplicateForeignIDs := map[string]bool{}
 	replaces := make([]string, 0, len(memories))
 	for _, mem := range memories {
-		paths := importedFactPaths(prefix, mem.Categories)
+		paths, droppedCategories := importedFactPaths(prefix, mem.Categories)
+		if len(droppedCategories) > 0 {
+			// A fact may live under at most factmerge.MaxPaths taxonomy paths,
+			// so categories past that are genuinely lost. Saying which ones
+			// beats discovering later that a tag the source had cannot be
+			// found anywhere in this brain.
+			report.Unsupported = append(report.Unsupported, fmt.Sprintf(
+				"categories beyond the %d taxonomy paths a fact may hold: %s (the fact is filed under the first %d)",
+				factmerge.MaxPaths, strings.Join(droppedCategories, ", "), factmerge.MaxPaths))
+		}
 		created, updated := mem.CreatedAt, mem.UpdatedAt
 		if created.IsZero() {
 			created = now
@@ -556,7 +622,28 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 			"Superseded facts keep source timestamps; facts gc may prune them immediately if they are older than its retention window. Preview facts gc without --force and adjust --retain before deleting imported history.")
 	}
 	report.Imported = len(distinct)
+	// Count superseded in the SAME UNIT as Imported.
+	//
+	// It was incremented once per MEMORY while Imported counts distinct FACTS,
+	// so two memories that dedupe into one fact -- both superseded at the
+	// source -- reported "2 already superseded at the source" out of "1
+	// imported". Two numbers in different units, presented as if they were
+	// comparable, is the defect this report exists to avoid.
+	report.Superseded = countSupersededFacts(facts)
 	return facts, report
+}
+
+// countSupersededFacts counts superseded facts by DISTINCT ID, so the number is
+// comparable with Imported, which is also a count of distinct ids. Two memories
+// that collapse into one fact are one fact here too.
+func countSupersededFacts(facts []factRecord) int {
+	seen := map[string]bool{}
+	for _, fact := range facts {
+		if fact.Status == factStatusSuperseded {
+			seen[fact.ID] = true
+		}
+	}
+	return len(seen)
 }
 
 // countKeptActiveFacts reports how many imported-superseded facts are still
@@ -776,6 +863,11 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 				verb = "would import"
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s %d of %d memories from %s\n", verb, report.Imported, report.Read, report.Source)
+			if report.Branch != "" {
+				// Facts are branch-scoped, so which branch they landed on is
+				// not a detail: recall on any other branch will not see them.
+				fmt.Fprintf(cmd.OutOrStdout(), "  on branch %s\n", report.Branch)
+			}
 			if report.SkippedText > 0 {
 				fmt.Fprintf(cmd.OutOrStdout(), "  %d skipped: no memory text\n", report.SkippedText)
 			}
