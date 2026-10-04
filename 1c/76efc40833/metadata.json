@@ -3,7 +3,7 @@
   "checkpoint_id": "1c76efc40833",
   "strategy": "manual-commit",
   "branch": "fix/trail197-findings",
-  "checkpoints_count": 15,
+  "checkpoints_count": 18,
   "files_touched": [
     "internal/cli/issues.go",
     "internal/cli/issues_test.go",
@@ -31,14 +31,21 @@
       "compact_transcript": "/1c/76efc40833/2/transcript.jsonl",
       "content_hash": "/1c/76efc40833/2/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/1c/76efc40833/3/metadata.json",
+      "transcript": "/1c/76efc40833/3/full.jsonl",
+      "compact_transcript": "/1c/76efc40833/3/transcript.jsonl",
+      "content_hash": "/1c/76efc40833/3/content_hash.txt",
+      "prompt": "/1c/76efc40833/3/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 176,
-    "cache_creation_tokens": 273352,
-    "cache_read_tokens": 6175334,
-    "output_tokens": 41884,
-    "api_call_count": 76,
+    "input_tokens": 288,
+    "cache_creation_tokens": 366885,
+    "cache_read_tokens": 11326027,
+    "output_tokens": 61086,
+    "api_call_count": 130,
     "subagent_tokens": {
       "input_tokens": 60,
       "cache_creation_tokens": 179139,
