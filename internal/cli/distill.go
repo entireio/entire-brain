@@ -13,9 +13,25 @@ import (
 )
 
 const (
-	distillTemplateName             = "templates/entire-brain-distill.md"
-	distillTaxonomyMarker           = "${TAXONOMY_BLOCK}"
-	distillMaxOutputBytes           = 256 * 1024
+	distillTemplateName   = "templates/entire-brain-distill.md"
+	distillTaxonomyMarker = "${TAXONOMY_BLOCK}"
+	distillMaxOutputBytes = 256 * 1024
+	// Ollama /api/generate echoes the prompt back as a `context` token array the
+	// distiller never reads. Measured at ~3x the prompt bytes for dense ASCII;
+	// 8x leaves headroom for tokenizers that split finer, while keeping the read
+	// bounded by a request size we control.
+	distillOllamaEnvelopeFactor = 8
+	distillOllamaEnvelopeSlack  = 64 * 1024
+	// The envelope allowance scales off a request size the caller chooses, and
+	// --max-chunk-bytes has no upper bound, so without a ceiling a hostile or
+	// malfunctioning loopback endpoint could amplify a large chunk into a much
+	// larger read than the old fixed cap ever permitted. 32 MiB is far above any
+	// workable chunk size (a usable chunk is tens of KiB) while keeping the read
+	// bounded no matter what is configured.
+	distillOllamaMaxEnvelopeBytes = 32 * 1024 * 1024
+	// Budget for the /api/ps context-window probe, independent of the generate
+	// call's own timeout so a long generation cannot starve it.
+	ollamaContextProbeTimeout       = 10 * time.Second
 	distillMaxStructuredOutputBytes = 4 * 1024 * 1024
 	distillFactMaxTextSize          = 2000
 )
