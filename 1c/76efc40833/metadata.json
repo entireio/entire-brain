@@ -1,0 +1,24 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "1c76efc40833",
+  "strategy": "manual-commit",
+  "branch": "fix/trail197-findings",
+  "checkpoints_count": 2,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/1c/76efc40833/0/metadata.json",
+      "transcript": "/1c/76efc40833/0/full.jsonl",
+      "compact_transcript": "/1c/76efc40833/0/transcript.jsonl",
+      "content_hash": "/1c/76efc40833/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 54,
+    "cache_creation_tokens": 74228,
+    "cache_read_tokens": 2102178,
+    "output_tokens": 15179,
+    "api_call_count": 25
+  }
+}
