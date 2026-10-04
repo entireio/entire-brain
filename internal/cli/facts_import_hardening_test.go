@@ -153,3 +153,40 @@ func TestNonExportStillReportsTheFormat(t *testing.T) {
 		t.Errorf("a non-export must be reported as such: %v", err)
 	}
 }
+
+// The origin field is SELF-DECLARED. factmerge/identity.go is explicit that
+// records are not authenticated by transport, and a fact can reach this store
+// from a shared fact-set head or a hand-written file as easily as from
+// `facts import`.
+//
+// verify skipped its anchor checks for anything claiming origin "imported",
+// on the premise that an imported fact's evidence was never here. That premise
+// fails when the anchor itself names repository evidence: `facts import`
+// writes one anchor carrying only SessionID "<tool>:<foreign id>", never a
+// commit. So a record claiming imported WITH a commit anchor was waved through
+// as benign.
+func TestImportedOriginWithRepositoryEvidenceIsNotWavedThrough(t *testing.T) {
+	t.Parallel()
+
+	legit := factRecord{
+		Origin:     factOriginImported,
+		Provenance: []factAnchor{{SessionID: "mem0:abc123"}},
+	}
+	if importedAnchorClaimsThisRepo(legit) {
+		t.Error("a genuine import carries only its source tool and foreign id; it must not be flagged")
+	}
+
+	for name, anchor := range map[string]factAnchor{
+		"commit":     {SessionID: "mem0:abc", Commit: "deadbeef"},
+		"checkpoint": {SessionID: "mem0:abc", CheckpointID: "cp1"},
+		"transcript": {SessionID: "mem0:abc", Transcript: "sessions/main/s1.jsonl"},
+		"verified":   {SessionID: "mem0:abc", Verified: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fact := factRecord{Origin: factOriginImported, Provenance: []factAnchor{anchor}}
+			if !importedAnchorClaimsThisRepo(fact) {
+				t.Errorf("an imported fact naming %s evidence must be flagged; the origin and anchor disagree", name)
+			}
+		})
+	}
+}

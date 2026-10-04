@@ -307,7 +307,7 @@ func (v *verifyContext) verifyFact(fact factRecord) verifyFactResult {
 		result.Reason = "fact has no retained source anchor"
 		return result
 	}
-	if fact.Origin == factOriginImported {
+	if fact.Origin == factOriginImported && !importedAnchorClaimsThisRepo(fact) {
 		// An imported fact's anchor names a session in the system it came from,
 		// not one this repository ever exported. Run through the session checks
 		// it would be reported orphaned — "its evidence is gone" — when the
@@ -316,6 +316,29 @@ func (v *verifyContext) verifyFact(fact factRecord) verifyFactResult {
 		// import of any size.
 		result.Verdict = verifyVerdictUnverifiableHere
 		result.Reason = "fact was imported; its source is not this repository"
+		return result
+	}
+	if fact.Origin == factOriginImported {
+		// The origin field is SELF-DECLARED. factmerge/identity.go is explicit
+		// that records are not authenticated by transport, and a fact can reach
+		// this store from a shared fact-set head or a hand-written file as
+		// easily as from `facts import`.
+		//
+		// The skip above rests on a premise: an imported fact's evidence was
+		// never in this repository, so running the session checks would report
+		// "orphaned" when the truth is "never here". That premise is FALSE when
+		// the anchor itself claims repository-shaped evidence. `facts import`
+		// writes exactly one anchor, carrying only SessionID "<tool>:<foreign
+		// id>" -- never a commit, checkpoint, transcript or verified flag. So a
+		// record claiming `imported` while naming a commit is internally
+		// inconsistent, and taking its word for it means a fabricated anchor
+		// into this repository is never checked and reads as benign.
+		//
+		// Reporting the contradiction is better than either alternative:
+		// checking it would print "orphaned", which blames the wrong thing,
+		// and skipping it hides a record that should not exist.
+		result.Verdict = verifyVerdictUnverifiableHere
+		result.Reason = "fact claims origin \"imported\" but its anchor names repository evidence (commit, checkpoint, transcript or a verified flag); an imported fact carries only its source tool and foreign id, so the origin and the anchor disagree"
 		return result
 	}
 	factBranch := fact.Branch
@@ -894,4 +917,20 @@ func renderVerifyReportText(cmd *cobra.Command, report verifyReport) {
 	for _, warning := range report.Warnings {
 		fmt.Fprintf(out, "warning: %s\n", warning)
 	}
+}
+
+// importedAnchorClaimsThisRepo reports whether a fact claiming the imported
+// origin carries evidence only a fact produced HERE could have.
+//
+// `facts import` writes one anchor holding just SessionID "<tool>:<foreign
+// id>". Anything else -- a commit, a checkpoint, a brain-relative transcript
+// path, or the retained signed-source flag -- cannot have come from an import,
+// so its presence means the origin field and the anchor contradict each other.
+func importedAnchorClaimsThisRepo(fact factRecord) bool {
+	for _, anchor := range fact.Provenance {
+		if anchor.Commit != "" || anchor.CheckpointID != "" || anchor.Transcript != "" || anchor.Verified {
+			return true
+		}
+	}
+	return false
 }
