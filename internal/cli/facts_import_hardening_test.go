@@ -116,3 +116,40 @@ func jsonQuoteForTest(s string) string {
 	b.WriteByte('"')
 	return b.String()
 }
+
+// A real export carrying one bad field was reported as the wrong KIND of file,
+// and the decoder's own message — which already named the field — was thrown
+// away. `{"results":[{"id":1}]}` is unmistakably a mem0 export.
+func TestTypeErrorNamesTheFieldInsteadOfDenyingTheFormat(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := parseMem0([]byte(`{"results":[{"id":1,"memory":"x"}]}`))
+	if err == nil {
+		t.Fatal("a numeric id must be an error")
+	}
+	if strings.Contains(err.Error(), "not a mem0 export") {
+		t.Errorf("a real export with one bad field was reported as the wrong format: %v", err)
+	}
+	if !strings.Contains(err.Error(), "unexpected type") {
+		t.Errorf("the error must say a type was wrong: %v", err)
+	}
+	// The decoder names the field; discarding that leaves the user nothing to
+	// look for.
+	if !strings.Contains(err.Error(), "id") {
+		t.Errorf("the error must name the offending field: %v", err)
+	}
+}
+
+// A file that is genuinely not an export must still say so, or the fix above
+// would turn every shape problem into a type problem.
+func TestNonExportStillReportsTheFormat(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := parseMem0([]byte(`{"nope":true}`))
+	if err == nil {
+		t.Fatal("an object with no results array must be an error")
+	}
+	if !strings.Contains(err.Error(), "not a mem0 export") {
+		t.Errorf("a non-export must be reported as such: %v", err)
+	}
+}

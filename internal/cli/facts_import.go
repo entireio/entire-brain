@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -85,6 +86,18 @@ func parseMem0(data []byte) ([]importedMemory, int, error) {
 			Results *[]mem0Memory `json:"results"`
 		}
 		if envErr := json.Unmarshal(data, &envelope); envErr != nil || envelope.Results == nil {
+			// Distinguish "the shape is wrong" from "a field had the wrong
+			// type", and never discard the decoder's own message.
+			//
+			// Both errors were previously thrown away and replaced with "not a
+			// mem0 export", which is FALSE for a real export carrying one bad
+			// field: `{"results":[{"id":1}]}` is unmistakably a mem0 export,
+			// and the decoder already knew it was `id` that was numeric. The
+			// user was told their file was the wrong kind of file and given no
+			// way to find the field.
+			if typeErr := firstJSONTypeError(err, envErr); typeErr != nil {
+				return nil, 0, fmt.Errorf("mem0 export has an unexpected type: %w", typeErr)
+			}
 			return nil, 0, fmt.Errorf("not a mem0 export: expected a JSON array of memories, or an object with a \"results\" array")
 		}
 		direct = *envelope.Results
@@ -633,6 +646,23 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 					keptActive))
 				sort.Strings(report.Unsupported)
 			}
+			// EVERY record lacking memory text is a format mismatch, not an
+			// import.
+			//
+			// A bare JSON array parses as mem0, so an export from another tool
+			// (Letta, Zep) whose records carry no `memory` key reached the
+			// report as "imported 0 of N / N skipped: no memory text" and
+			// exited 0. This file's own doctrine is that a file which is not an
+			// export "is an error naming both, not a silent zero-record
+			// import" -- and a file where not one record has text is that same
+			// case, discovered one layer later.
+			//
+			// Some records skipped is different and stays a warning: a real
+			// export can carry an empty memory.
+			if report.Read > 0 && report.Imported == 0 && report.SkippedText == report.Read {
+				return fmt.Errorf("no record in %s has a %q field: %d record(s) read, all skipped — this is probably an export from a different tool, or a different endpoint's shape",
+					report.Source, "memory", report.Read)
+			}
 			if jsonOut {
 				return writeIndentedJSON(cmd.OutOrStdout(), report)
 			}
@@ -682,4 +712,30 @@ func readImportFile(path string) ([]byte, error) {
 		return nil, fmt.Errorf("read export: %w", err)
 	}
 	return data, nil
+}
+
+// firstJSONTypeError returns the first error that names a FIELD rather than a
+// shape, so a real export with one bad field is not reported as the wrong kind
+// of file.
+//
+// A *json.UnmarshalTypeError carries the field and the offending Go type,
+// which is the only part of this the user can act on. A syntax error is a
+// different problem and is left to the shape message, because a truncated or
+// non-JSON file genuinely is not an export.
+func firstJSONTypeError(errs ...error) error {
+	for _, err := range errs {
+		if err == nil {
+			continue
+		}
+		var typeErr *json.UnmarshalTypeError
+		// Field is the whole point. Trying the bare-array shape first produces
+		// its own UnmarshalTypeError for any object ("cannot unmarshal object
+		// into []mem0Memory"), which is a SHAPE complaint naming nothing the
+		// user can look for. Only an error that names a field improves on the
+		// format message.
+		if errors.As(err, &typeErr) && typeErr.Field != "" {
+			return typeErr
+		}
+	}
+	return nil
 }
