@@ -133,13 +133,34 @@ func parseMem0(data []byte) ([]importedMemory, int, error) {
 		}
 		createdAt, createdBad := parseImportTime(m.CreatedAt)
 		updatedAt, updatedBad := parseImportTime(m.UpdatedAt)
+		// The foreign IDS are untrusted text too, not just the memory body.
+		//
+		// m.Memory goes through sanitizeDistilledFactText above because
+		// unescaped foreign text reaches the terminal. The ids take the same
+		// path and were left raw: ForeignID is embedded in the anchor as
+		// "<tool>:<id>", and `facts show` prints anchor.SessionID straight
+		// through valueOrUnset with %s (facts_read_cmd.go:540), which neither
+		// quotes nor strips. An export with ANSI escapes, bidi overrides or
+		// zero-width runes in `id` reached the terminal unsanitised --
+		// contradicting this file's own stated threat model for foreign text.
+		//
+		// BOTH ids are sanitised, and that is not optional: ReplacedBy is
+		// matched against ForeignID through byForeignID, so cleaning one and
+		// not the other would silently break every supersession whose id
+		// happened to contain a stripped character.
+		foreignID, foreignIDStripped := sanitizeDistilledFactText(strings.TrimSpace(m.ID))
+		replacedBy, replacedByStripped := sanitizeDistilledFactText(strings.TrimSpace(m.ReplacedBy))
 		mem := importedMemory{
-			ForeignID:  strings.TrimSpace(m.ID),
+			ForeignID:  foreignID,
 			Text:       text,
 			Categories: m.Categories,
 			CreatedAt:  createdAt,
 			UpdatedAt:  updatedAt,
-			ReplacedBy: strings.TrimSpace(m.ReplacedBy),
+			ReplacedBy: replacedBy,
+		}
+		if foreignIDStripped || replacedByStripped {
+			mem.Unsupported = append(mem.Unsupported,
+				"control, bidi or zero-width characters in a source id (stripped on import; the id is printed by `facts show` and embedded in the fact's anchor)")
 		}
 		if createdBad || updatedBad {
 			// The caller substitutes `now` for a zero time, so an unparseable
@@ -696,6 +717,35 @@ func countImportsOntoInactiveFacts(imported, existing []factRecord) int {
 	return blocked
 }
 
+// factImportSources is the one list of tools `facts import` accepts, shared so
+// that verify's foreign-anchor detection cannot drift from what import
+// actually writes. An anchor minted by this file is "<source>:<foreign id>"
+// where source is one of these.
+var factImportSources = []string{"mem0"}
+
+// anchorNamesAForeignSource reports whether an anchor names a session in
+// another tool rather than one this repository exported.
+//
+// `facts import` writes exactly one anchor, carrying ONLY SessionID
+// "<source>:<foreign id>" -- no commit, checkpoint, transcript, turn, line or
+// verified flag. Both conditions are required: the prefix alone would misread
+// a local session id that happened to contain a colon, and the shape alone
+// would misread a sparse local anchor.
+func anchorNamesAForeignSource(anchor factAnchor) bool {
+	if strings.TrimSpace(anchor.Commit) != "" || strings.TrimSpace(anchor.CheckpointID) != "" ||
+		strings.TrimSpace(anchor.Transcript) != "" || strings.TrimSpace(anchor.TurnID) != "" ||
+		anchor.Line > 0 || anchor.Verified {
+		return false
+	}
+	session := strings.TrimSpace(anchor.SessionID)
+	for _, source := range factImportSources {
+		if strings.HasPrefix(session, source+":") && len(session) > len(source)+1 {
+			return true
+		}
+	}
+	return false
+}
+
 func newFactsImportCommand(opts Options) *cobra.Command {
 	var (
 		source  string
@@ -730,7 +780,7 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 			case "mem0":
 				memories, skipped, err = parseMem0(data)
 			default:
-				return fmt.Errorf("unknown --source %q (supported: mem0)", source)
+				return fmt.Errorf("unknown --source %q (supported: %s)", source, strings.Join(factImportSources, ", "))
 			}
 			if err != nil {
 				return err

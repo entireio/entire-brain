@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -486,5 +487,153 @@ func TestADoomedImportDoesNotTouchTheBrainFirst(t *testing.T) {
 	}
 	if !bytes.Equal(before, after) {
 		t.Errorf("a failed import rewrote the manifest:\nbefore: %s\nafter:  %s", before, after)
+	}
+}
+
+// factmerge.Upsert keys on the content-addressed id and keeps the EXISTING
+// record's Origin while unioning provenance. So an imported memory whose text
+// and paths normalise onto a pre-existing AUTHORED fact -- which importing
+// under an existing taxonomy prefix explicitly permits -- produces a fact with
+// Origin != "imported" carrying a foreign anchor.
+//
+// Neither record-level origin gate fires for that record, so verify tried to
+// resolve "mem0:abc" as a local session and reported the fact ORPHANED ("its
+// evidence is gone") when its evidence was never here: the same false and
+// alarming diagnosis the origin gates exist to prevent, reached another way.
+func TestForeignAnchorDetectionIsShapeAndSourceBased(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		anchor factAnchor
+		want   bool
+	}{
+		"import-minted anchor":        {factAnchor{SessionID: "mem0:abc123"}, true},
+		"unknown tool is not foreign": {factAnchor{SessionID: "notatool:abc"}, false},
+		"local id with no colon":      {factAnchor{SessionID: "20373dcb"}, false},
+		"source prefix but no id":     {factAnchor{SessionID: "mem0:"}, false},
+		"bare source name":            {factAnchor{SessionID: "mem0"}, false},
+		"empty":                       {factAnchor{}, false},
+		"foreign prefix + commit":     {factAnchor{SessionID: "mem0:abc", Commit: "deadbeef"}, false},
+		"foreign prefix + checkpoint": {factAnchor{SessionID: "mem0:abc", CheckpointID: "cp1"}, false},
+		"foreign prefix + transcript": {factAnchor{SessionID: "mem0:abc", Transcript: "s/1.jsonl"}, false},
+		"foreign prefix + turn":       {factAnchor{SessionID: "mem0:abc", TurnID: "t1"}, false},
+		"foreign prefix + line":       {factAnchor{SessionID: "mem0:abc", Line: 3}, false},
+		"foreign prefix + verified":   {factAnchor{SessionID: "mem0:abc", Verified: true}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := anchorNamesAForeignSource(tc.anchor); got != tc.want {
+				t.Errorf("anchorNamesAForeignSource(%+v) = %v, want %v", tc.anchor, got, tc.want)
+			}
+		})
+	}
+}
+
+// The anchor an import actually writes must be classified as foreign. Without
+// this, the table above could pass while the real anchor shape drifted away
+// from it -- the two must be checked against each other, not just asserted.
+func TestTheAnchorImportWritesIsDetectedAsForeign(t *testing.T) {
+	t.Parallel()
+
+	facts, _ := memoriesToFacts(
+		[]importedMemory{{ForeignID: "abc123", Text: "We deploy on Thursdays."}},
+		0, "mem0", "project.imported", "main", time.Now().UTC())
+	if len(facts) != 1 || len(facts[0].Provenance) != 1 {
+		t.Fatalf("expected one fact with one anchor, got %d fact(s)", len(facts))
+	}
+	if !anchorNamesAForeignSource(facts[0].Provenance[0]) {
+		t.Errorf("the anchor import writes (%+v) must be detected as foreign, or verify will call it orphaned",
+			facts[0].Provenance[0])
+	}
+	// And every declared source must be detectable, so adding one to
+	// factImportSources without teaching verify about it cannot slip through.
+	for _, source := range factImportSources {
+		if !anchorNamesAForeignSource(factAnchor{SessionID: source + ":x"}) {
+			t.Errorf("declared import source %q is not detected as foreign", source)
+		}
+	}
+}
+
+// Foreign ids are untrusted text, exactly like the memory body. ForeignID is
+// embedded in the anchor and `facts show` prints anchor.SessionID straight
+// through valueOrUnset with %s (facts_read_cmd.go:540), which neither quotes
+// nor strips.
+func TestForeignIDsAreSanitisedLikeTheMemoryText(t *testing.T) {
+	t.Parallel()
+
+	memories, _, err := parseMem0([]byte(`{"results":[
+	  {"id":"a\u001b[31mRED","memory":"We deploy on Thursdays.","replaced_by":"b​ZWSP"}
+	]}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(memories) != 1 {
+		t.Fatalf("want 1 memory, got %d", len(memories))
+	}
+	m := memories[0]
+	if strings.ContainsRune(m.ForeignID, '\u001b') {
+		t.Errorf("an escape sequence survived in the foreign id: %q", m.ForeignID)
+	}
+	if strings.ContainsRune(m.ReplacedBy, '​') {
+		t.Errorf("a zero-width character survived in replaced_by: %q", m.ReplacedBy)
+	}
+	// Stripping must be disclosed, like the text case.
+	if !strings.Contains(strings.Join(m.Unsupported, " | "), "source id") {
+		t.Errorf("stripping a source id must be reported: %v", m.Unsupported)
+	}
+}
+
+// THE CALL SITE. The detector tests above all stayed green when the gate in
+// verifyAnchor was removed -- a perfect detector nothing consults looks
+// identical to them. This drives verifyFact on the record the collision
+// actually produces.
+//
+// Shape of that record: Origin "authored" (Upsert keeps the EXISTING origin),
+// one local anchor and one foreign anchor unioned in. The local anchor must
+// still be checked normally; the foreign one must come back
+// unverifiable-here, never orphaned -- "its evidence is gone" about evidence
+// that was never here is the false alarm the origin gates exist to prevent.
+func TestVerifyDoesNotCallAForeignAnchorOrphaned(t *testing.T) {
+	f := newVerifyFixture(t)
+
+	v := &verifyContext{
+		ctx:      context.Background(),
+		opts:     f.opts,
+		repoDir:  f.repoDir,
+		brainDir: f.brainDir,
+		branch:   "main",
+		manifest: &exportManifest{
+			DefaultBranch: "main",
+			Sources:       &brainSources{Sessions: &sessionSourceManifest{Sessions: nil}},
+		},
+	}
+
+	// Origin is NOT "imported": that is the whole point -- Upsert kept the
+	// pre-existing authored origin while unioning the foreign anchor in.
+	collided := factRecord{
+		ID:         "fact:collided",
+		Text:       "We deploy on Thursdays.",
+		Branch:     "main",
+		Origin:     factOriginAuthored,
+		Status:     factStatusActive,
+		Provenance: []factAnchor{{SessionID: "mem0:abc123"}},
+	}
+
+	result := v.verifyFact(collided)
+	if len(result.Anchors) != 1 {
+		t.Fatalf("expected one anchor result, got %d", len(result.Anchors))
+	}
+	if result.Anchors[0].Verdict == verifyVerdictOrphaned {
+		t.Errorf("a foreign anchor was reported orphaned -- 'its evidence is gone' about evidence that was never here: %s",
+			result.Anchors[0].Reason)
+	}
+	if result.Anchors[0].Verdict != verifyVerdictUnverifiableHere {
+		t.Errorf("anchor verdict = %q (%s), want %q",
+			result.Anchors[0].Verdict, result.Anchors[0].Reason, verifyVerdictUnverifiableHere)
+	}
+	if !strings.Contains(result.Anchors[0].Reason, "mem0") {
+		t.Errorf("the reason must name the tool the anchor points at, got %q", result.Anchors[0].Reason)
+	}
+	if result.Verdict == verifyVerdictOrphaned {
+		t.Errorf("the FACT verdict must not be orphaned either: %s", result.Reason)
 	}
 }

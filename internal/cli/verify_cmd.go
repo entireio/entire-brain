@@ -356,6 +356,31 @@ func (v *verifyContext) verifyFact(fact factRecord) verifyFactResult {
 
 func (v *verifyContext) verifyAnchor(anchor factAnchor, factBranch string) verifyAnchorResult {
 	result := verifyAnchorResult{Anchor: anchor, Verdict: verifyVerdictVerified, Reason: "anchor resolved locally", Checks: []verifyCheck{}}
+
+	// PER-ANCHOR, because the record-level origin gates above are not enough.
+	//
+	// factmerge.Upsert keys on the content-addressed id and keeps the EXISTING
+	// record's Origin while unioning provenance. So an imported memory whose
+	// text and paths normalise onto a pre-existing authored fact -- which
+	// importing under an existing taxonomy prefix explicitly permits -- yields
+	// a fact with Origin != "imported" that nonetheless carries a foreign
+	// anchor. Neither origin gate fires, and this function then tries to
+	// resolve "mem0:abc" as a local session and reports the fact ORPHANED:
+	// "its evidence is gone", when its evidence was never here. That is the
+	// same false and alarming diagnosis the origin gates exist to prevent,
+	// reached by a different route.
+	//
+	// Per-anchor is also the correct granularity for that record: it holds the
+	// original local anchor AND the foreign one, so the local one must still be
+	// checked normally while the foreign one must not be called orphaned.
+	// worseVerifyVerdict then aggregates, and unverifiable-here does not mask a
+	// genuine local failure.
+	if anchorNamesAForeignSource(anchor) {
+		result.Verdict = verifyVerdictUnverifiableHere
+		result.Reason = "anchor names a session in " + strings.SplitN(strings.TrimSpace(anchor.SessionID), ":", 2)[0] + ", not this repository"
+		result.addCheck(verifyCheck{Name: "foreign_source", Verdict: verifyVerdictUnverifiableHere, Reason: result.Reason})
+		return result
+	}
 	hasRetainedSource := strings.TrimSpace(anchor.SessionID) != "" ||
 		strings.TrimSpace(anchor.CheckpointID) != "" ||
 		strings.TrimSpace(anchor.Transcript) != "" ||
