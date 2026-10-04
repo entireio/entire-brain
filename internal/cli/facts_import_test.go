@@ -902,8 +902,14 @@ func TestKeptActiveCountsEachFactOnce(t *testing.T) {
 			id = fact.ID
 		}
 	}
+	// FATAL, not skipped. This test exists to prove one id is counted once
+	// however many memories map to it, and it needs two superseded copies to
+	// prove anything. A skip here means fixture drift silently converts the
+	// guard into a pass, which is the failure mode it was written to catch --
+	// the fixture does produce two today, so the skip bought nothing and only
+	// hid the day it stops.
 	if superseded < 2 {
-		t.Skipf("fixture produced %d superseded copies; the double count needs two", superseded)
+		t.Fatalf("fixture produced %d superseded copies; this guard needs two or it proves nothing", superseded)
 	}
 
 	existing := []factRecord{{ID: id, Text: "We deploy on Thursdays.", Status: factStatusActive}}
@@ -941,7 +947,12 @@ func TestDryRunReportsTheSupersessionItWouldNotApply(t *testing.T) {
 	opts := Options{Version: "test", Env: env, Runner: semanticFixtureRunner(repoDir, ""), Now: time.Now}
 	_, brainDir, branch, err := resolveFactsTarget(context.Background(), opts, agentSurfaceTarget(opts, nil), "")
 	if err != nil {
-		t.Skipf("no repository target: %v", err)
+		// FATAL, not skipped: this test builds its own repository through
+		// semanticTestEnv, so a target that will not resolve is a broken
+		// fixture, not a capability this machine lacks. Skipping turned that
+		// into a pass for a guard whose whole subject is a report entry that
+		// was missing from the dry-run path.
+		t.Fatalf("fixture produced no repository target: %v", err)
 	}
 
 	// A fact this repository asserts, active.
