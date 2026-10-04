@@ -158,40 +158,97 @@ func TestNonExportStillReportsTheFormat(t *testing.T) {
 	}
 }
 
-// The origin field is SELF-DECLARED. factmerge/identity.go is explicit that
-// records are not authenticated by transport, and a fact can reach this store
-// from a shared fact-set head or a hand-written file as easily as from
-// `facts import`.
+// A record can hold anchors of BOTH kinds, so the decision belongs per-anchor.
 //
-// verify skipped its anchor checks for anything claiming origin "imported",
-// on the premise that an imported fact's evidence was never here. That premise
-// fails when the anchor itself names repository evidence: `facts import`
-// writes one anchor carrying only SessionID "<tool>:<foreign id>", never a
-// commit. So a record claiming imported WITH a commit anchor was waved through
-// as benign.
-func TestImportedOriginWithRepositoryEvidenceIsNotWavedThrough(t *testing.T) {
-	t.Parallel()
+// factmerge.Upsert keys on the content id independent of Origin and keeps the
+// existing record's Origin while unioning anchors. An "imported" record can
+// therefore end up holding its foreign anchor AND a genuine local one from a
+// later distill of colliding text. The record-level gates that used to live in
+// verifyFact bailed for the whole fact, so that real commit, checkpoint and
+// transcript were never checked at all.
+func TestAnImportedRecordWithALocalAnchorStillChecksThatAnchor(t *testing.T) {
+	f := newVerifyFixture(t)
 
-	legit := factRecord{
+	v := &verifyContext{
+		ctx:      context.Background(),
+		opts:     f.opts,
+		repoDir:  f.repoDir,
+		brainDir: f.brainDir,
+		branch:   "main",
+		manifest: &exportManifest{
+			DefaultBranch: "main",
+			Sources:       &brainSources{Sessions: &sessionSourceManifest{Sessions: nil}},
+		},
+	}
+
+	mixed := factRecord{
+		ID:     "fact:mixed",
+		Text:   "We deploy on Thursdays.",
+		Branch: "main",
+		Origin: factOriginImported,
+		Status: factStatusActive,
+		Provenance: []factAnchor{
+			{SessionID: "mem0:abc123"},                            // foreign
+			{SessionID: "sess-local", Commit: "deadbeefdeadbeef"}, // genuinely local
+		},
+	}
+
+	result := v.verifyFact(mixed)
+	if len(result.Anchors) != 2 {
+		t.Fatalf("both anchors must be examined, got %d result(s) -- a record-level gate is bailing early", len(result.Anchors))
+	}
+	// The foreign one is not this repository's to check.
+	if result.Anchors[0].Verdict != verifyVerdictUnverifiableHere {
+		t.Errorf("the foreign anchor must be unverifiable-here, got %q (%s)", result.Anchors[0].Verdict, result.Anchors[0].Reason)
+	}
+	// The local one must actually have been CHECKED. Its commit does not exist
+	// in the fixture, so the honest answer names that -- what matters is that
+	// a verdict was reached rather than the anchor being skipped.
+	if result.Anchors[1].Verdict == verifyVerdictUnverifiableHere &&
+		strings.Contains(result.Anchors[1].Reason, "not this repository") {
+		t.Errorf("the local anchor was waved through as foreign: %s", result.Anchors[1].Reason)
+	}
+	if len(result.Anchors[1].Checks) == 0 {
+		t.Errorf("the local anchor ran no checks at all, so its commit was never examined: %+v", result.Anchors[1])
+	}
+}
+
+// A record claiming "imported" while naming a commit is still not waved
+// through: the anchor is CHECKED, which is a stronger answer than declaring an
+// origin contradiction and leaving it unexamined.
+func TestAFabricatedRepositoryAnchorOnAnImportedRecordIsChecked(t *testing.T) {
+	f := newVerifyFixture(t)
+
+	v := &verifyContext{
+		ctx:      context.Background(),
+		opts:     f.opts,
+		repoDir:  f.repoDir,
+		brainDir: f.brainDir,
+		branch:   "main",
+		manifest: &exportManifest{
+			DefaultBranch: "main",
+			Sources:       &brainSources{Sessions: &sessionSourceManifest{Sessions: nil}},
+		},
+	}
+
+	fabricated := factRecord{
+		ID:         "fact:fab",
+		Text:       "We deploy on Thursdays.",
+		Branch:     "main",
 		Origin:     factOriginImported,
-		Provenance: []factAnchor{{SessionID: "mem0:abc123"}},
-	}
-	if importedAnchorClaimsThisRepo(legit) {
-		t.Error("a genuine import carries only its source tool and foreign id; it must not be flagged")
+		Status:     factStatusActive,
+		Provenance: []factAnchor{{SessionID: "sess-nope", Commit: "0123456789abcdef"}},
 	}
 
-	for name, anchor := range map[string]factAnchor{
-		"commit":     {SessionID: "mem0:abc", Commit: "deadbeef"},
-		"checkpoint": {SessionID: "mem0:abc", CheckpointID: "cp1"},
-		"transcript": {SessionID: "mem0:abc", Transcript: "sessions/main/s1.jsonl"},
-		"verified":   {SessionID: "mem0:abc", Verified: true},
-	} {
-		t.Run(name, func(t *testing.T) {
-			fact := factRecord{Origin: factOriginImported, Provenance: []factAnchor{anchor}}
-			if !importedAnchorClaimsThisRepo(fact) {
-				t.Errorf("an imported fact naming %s evidence must be flagged; the origin and anchor disagree", name)
-			}
-		})
+	result := v.verifyFact(fabricated)
+	if len(result.Anchors) != 1 {
+		t.Fatalf("expected one anchor result, got %d", len(result.Anchors))
+	}
+	if len(result.Anchors[0].Checks) == 0 {
+		t.Fatal("a repository-shaped anchor must be checked, not skipped as foreign")
+	}
+	if result.Anchors[0].Verdict == verifyVerdictVerified {
+		t.Errorf("a commit that is not in this repository must not verify: %+v", result.Anchors[0])
 	}
 }
 
@@ -635,5 +692,61 @@ func TestVerifyDoesNotCallAForeignAnchorOrphaned(t *testing.T) {
 	}
 	if result.Verdict == verifyVerdictOrphaned {
 		t.Errorf("the FACT verdict must not be orphaned either: %s", result.Reason)
+	}
+}
+
+// The fact-level reason prefers a SHARED anchor reason over the generic one,
+// and only when the anchors agree.
+//
+// reasonForFactVerdict describes a verdict, not a cause: "one or more anchors
+// need finer local evidence" is equally true of an imported fact, a
+// turn-signature limitation and a sparse authored anchor, and tells them
+// apart not at all. But two different causes collapsed into one sentence
+// would be worse than the generic line, not better -- so agreement is
+// required, and that half had no guard until this test.
+func TestFactReasonPrefersAnAgreedAnchorReason(t *testing.T) {
+	t.Parallel()
+
+	const v = verifyVerdictUnverifiableHere
+
+	// All contributing anchors agree: that reason is the fact's reason.
+	agreed := []verifyAnchorResult{
+		{Verdict: v, Reason: "anchor names a session in mem0, not this repository"},
+		{Verdict: v, Reason: "anchor names a session in mem0, not this repository"},
+	}
+	if got := sharedAnchorReason(agreed, v); got != "anchor names a session in mem0, not this repository" {
+		t.Errorf("agreed anchors must supply the fact reason, got %q", got)
+	}
+
+	// They disagree: fall back, because one of two causes stated as the cause
+	// is a wrong answer.
+	mixed := []verifyAnchorResult{
+		{Verdict: v, Reason: "anchor names a session in mem0, not this repository"},
+		{Verdict: v, Reason: "authored fact has no retained source anchor"},
+	}
+	if got := sharedAnchorReason(mixed, v); got != "" {
+		t.Errorf("disagreeing anchors must fall back to the generic reason, got %q", got)
+	}
+
+	// Anchors with a DIFFERENT verdict do not get a say; only those carrying
+	// the fact's verdict explain it.
+	withOther := []verifyAnchorResult{
+		{Verdict: v, Reason: "anchor names a session in mem0, not this repository"},
+		{Verdict: verifyVerdictVerified, Reason: "anchor resolved locally"},
+	}
+	if got := sharedAnchorReason(withOther, v); got != "anchor names a session in mem0, not this repository" {
+		t.Errorf("only anchors carrying the verdict explain it, got %q", got)
+	}
+
+	// An empty reason is not an explanation, so it must not win.
+	withBlank := []verifyAnchorResult{
+		{Verdict: v, Reason: "anchor names a session in mem0, not this repository"},
+		{Verdict: v, Reason: "   "},
+	}
+	if got := sharedAnchorReason(withBlank, v); got != "" {
+		t.Errorf("a blank anchor reason must force the generic fallback, got %q", got)
+	}
+	if got := sharedAnchorReason(nil, v); got != "" {
+		t.Errorf("no anchors means no specific reason, got %q", got)
 	}
 }

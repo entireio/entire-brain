@@ -850,8 +850,16 @@ func TestVerifyReportsAnImportedFactAsUnverifiableRatherThanOrphaned(t *testing.
 	if result.Verdict != verifyVerdictUnverifiableHere {
 		t.Fatalf("verdict = %q, want %q (%s)", result.Verdict, verifyVerdictUnverifiableHere, result.Reason)
 	}
-	if !strings.Contains(result.Reason, "imported") {
-		t.Fatalf("the reason does not say why it cannot be verified: %q", result.Reason)
+	// The reason must say WHY, which is what this assertion is for. It used to
+	// test for the literal word "imported" -- a containment check standing in
+	// for the real one. The per-anchor path now answers it better by naming
+	// the tool the anchor points at, so the assertion checks the substance:
+	// which system the evidence lives in, and that it is not this one.
+	if !strings.Contains(result.Reason, "mem0") {
+		t.Fatalf("the reason does not name the system the evidence lives in: %q", result.Reason)
+	}
+	if !strings.Contains(result.Reason, "not this repository") {
+		t.Fatalf("the reason does not say the evidence was never here: %q", result.Reason)
 	}
 }
 

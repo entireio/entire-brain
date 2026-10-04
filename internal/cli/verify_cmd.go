@@ -307,40 +307,29 @@ func (v *verifyContext) verifyFact(fact factRecord) verifyFactResult {
 		result.Reason = "fact has no retained source anchor"
 		return result
 	}
-	if fact.Origin == factOriginImported && !importedAnchorClaimsThisRepo(fact) {
-		// An imported fact's anchor names a session in the system it came from,
-		// not one this repository ever exported. Run through the session checks
-		// it would be reported orphaned — "its evidence is gone" — when the
-		// truth is that its evidence was never here to begin with. That is a
-		// different answer and a much more alarming one, particularly after an
-		// import of any size.
-		result.Verdict = verifyVerdictUnverifiableHere
-		result.Reason = "fact was imported; its source is not this repository"
-		return result
-	}
-	if fact.Origin == factOriginImported {
-		// The origin field is SELF-DECLARED. factmerge/identity.go is explicit
-		// that records are not authenticated by transport, and a fact can reach
-		// this store from a shared fact-set head or a hand-written file as
-		// easily as from `facts import`.
-		//
-		// The skip above rests on a premise: an imported fact's evidence was
-		// never in this repository, so running the session checks would report
-		// "orphaned" when the truth is "never here". That premise is FALSE when
-		// the anchor itself claims repository-shaped evidence. `facts import`
-		// writes exactly one anchor, carrying only SessionID "<tool>:<foreign
-		// id>" -- never a commit, checkpoint, transcript or verified flag. So a
-		// record claiming `imported` while naming a commit is internally
-		// inconsistent, and taking its word for it means a fabricated anchor
-		// into this repository is never checked and reads as benign.
-		//
-		// Reporting the contradiction is better than either alternative:
-		// checking it would print "orphaned", which blames the wrong thing,
-		// and skipping it hides a record that should not exist.
-		result.Verdict = verifyVerdictUnverifiableHere
-		result.Reason = "fact claims origin \"imported\" but its anchor names repository evidence (commit, checkpoint, transcript or a verified flag); an imported fact carries only its source tool and foreign id, so the origin and the anchor disagree"
-		return result
-	}
+	// NO RECORD-LEVEL ORIGIN GATE. Both of the ones that used to live here
+	// bailed for the WHOLE fact, which is the wrong granularity for a record
+	// that can hold anchors of both kinds.
+	//
+	// factmerge.Upsert keys on the content id, independent of Origin, and
+	// keeps the existing record's Origin while unioning anchors. So a fact can
+	// end up Origin "imported" holding BOTH its foreign anchor and a genuine
+	// local one (a later distill of colliding text), and bailing on the record
+	// meant that real commit, checkpoint and transcript were never checked at
+	// all. The mirror case -- an authored record that gains a foreign anchor --
+	// is what the per-anchor check in verifyAnchor was added for; this is the
+	// same bug on the other side of the same merge.
+	//
+	// Per-anchor handles every case, and better:
+	//   foreign-shaped anchor -> unverifiable-here, naming the tool
+	//   genuine local anchor  -> checked normally
+	//   repo-shaped anchor on an "imported" record -> CHECKED, so a fabricated
+	//     commit is reported missing rather than described as an origin
+	//     contradiction and left unexamined
+	//
+	// That last one is why nothing is lost by dropping the contradiction
+	// message: actually resolving the anchor is a stronger answer than
+	// declaring it inconsistent.
 	factBranch := fact.Branch
 	if factBranch == "" {
 		factBranch = v.branch
@@ -350,8 +339,43 @@ func (v *verifyContext) verifyFact(fact factRecord) verifyFactResult {
 		result.Anchors = append(result.Anchors, anchorResult)
 		result.Verdict = worseVerifyVerdict(result.Verdict, anchorResult.Verdict)
 	}
-	result.Reason = reasonForFactVerdict(result.Verdict)
+	// Prefer a SPECIFIC anchor reason over the generic one.
+	//
+	// reasonForFactVerdict describes a verdict, not a cause: "one or more
+	// anchors need finer local evidence" is true of an imported fact, a
+	// turn-signature limitation and a sparse authored anchor alike, and tells
+	// the reader none of them apart. When every anchor that produced this
+	// verdict gives the SAME reason, that reason is the fact's reason, and it
+	// is the one the reader can act on.
+	//
+	// Only when they agree. Two different causes collapsed into one sentence
+	// would be a worse answer than the generic line, not a better one.
+	if specific := sharedAnchorReason(result.Anchors, result.Verdict); specific != "" {
+		result.Reason = specific
+	} else {
+		result.Reason = reasonForFactVerdict(result.Verdict)
+	}
 	return result
+}
+
+// sharedAnchorReason returns the one reason given by every anchor carrying the
+// fact's verdict, or "" when they disagree or none is set.
+func sharedAnchorReason(anchors []verifyAnchorResult, verdict string) string {
+	reason := ""
+	for _, anchor := range anchors {
+		if anchor.Verdict != verdict {
+			continue
+		}
+		switch {
+		case strings.TrimSpace(anchor.Reason) == "":
+			return ""
+		case reason == "":
+			reason = anchor.Reason
+		case reason != anchor.Reason:
+			return ""
+		}
+	}
+	return reason
 }
 
 func (v *verifyContext) verifyAnchor(anchor factAnchor, factBranch string) verifyAnchorResult {
@@ -942,20 +966,4 @@ func renderVerifyReportText(cmd *cobra.Command, report verifyReport) {
 	for _, warning := range report.Warnings {
 		fmt.Fprintf(out, "warning: %s\n", warning)
 	}
-}
-
-// importedAnchorClaimsThisRepo reports whether a fact claiming the imported
-// origin carries evidence only a fact produced HERE could have.
-//
-// `facts import` writes one anchor holding just SessionID "<tool>:<foreign
-// id>". Anything else -- a commit, a checkpoint, a brain-relative transcript
-// path, or the retained signed-source flag -- cannot have come from an import,
-// so its presence means the origin field and the anchor contradict each other.
-func importedAnchorClaimsThisRepo(fact factRecord) bool {
-	for _, anchor := range fact.Provenance {
-		if anchor.Commit != "" || anchor.CheckpointID != "" || anchor.Transcript != "" || anchor.Verified {
-			return true
-		}
-	}
-	return false
 }
