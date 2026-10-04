@@ -1432,11 +1432,24 @@ func annotateSemanticHeaderRefusal(ctx context.Context, runner CommandRunner, re
 	if !repoIsPartialClone(ctx, runner, repoDir) {
 		return err
 	}
+	// The remedy is RUN, not guessed. Verified on git 2.54.0 against a real
+	// `git clone --filter=blob:none`: `git fetch --refetch origin` backfills
+	// (rc=0), after which unsetting promisor and partialclonefilter lets the
+	// provider resolve the commit again. Two plausible alternatives do NOT
+	// work and were in an earlier draft of this very message:
+	// `git fetch --refetch --filter=` fails with "invalid filter-spec", and
+	// `--filter=blob:unlimited` exits 128.
+	//
+	// The backfill has to come FIRST. Unsetting the markers alone appears to
+	// work on a small clone whose blobs are already present, and on a real
+	// partial clone it strips git's ability to fetch the objects it is still
+	// missing.
+	//
 	// The cause and the remedy, inside statusCauseWidth: this string is
 	// recorded as a freshness axis detail, and a cause that overruns is
 	// truncated in the very report it exists to explain. The full reasoning
 	// lives in the comment above, where length is free.
-	const detail = "%w; partial clone (remote promisor/partialclonefilter): provider refuses git metadata here, re-clone without --filter"
+	const detail = "%w; partial clone (remote promisor/partialclonefilter) blocks the provider; run `git fetch --refetch origin`, then unset those two keys"
 	return fmt.Errorf(detail, err)
 }
 

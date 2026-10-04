@@ -41,7 +41,7 @@ func TestHeaderRefusalNamesAPartialClone(t *testing.T) {
 	// message deliberately -- this string is recorded as a freshness axis detail
 	// and must fit statusCauseWidth, which a repo guard enforces, so the
 	// reasoning lives in the code comment where length is free.
-	for _, want := range []string{"partial clone", "promisor", "--filter"} {
+	for _, want := range []string{"partial clone", "promisor", "git fetch --refetch origin"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the annotation must mention %q: %q", want, got)
 		}
