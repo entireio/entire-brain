@@ -95,9 +95,19 @@ type brainStatusReport struct {
 }
 
 type brainStatusFacts struct {
-	Facts        int            `json:"facts"`
-	Distilled    int            `json:"distilled"`
-	Authored     int            `json:"authored"`
+	Facts     int `json:"facts"`
+	Distilled int `json:"distilled"`
+	Authored  int `json:"authored"`
+	// Imported counts facts brought in from another memory tool. Omitted when
+	// zero so it stays additive for existing readers.
+	//
+	// Without it the origin buckets do not sum: an import of 400 reported
+	// facts=400 distilled=0 authored=0, which reads as a corrupt or empty
+	// brain. facts.go states that origins must account for the total, and the
+	// manifest already carried Imported -- the agent surface simply did not
+	// forward it, so status and the brief were the two places that could not
+	// explain their own numbers.
+	Imported     int            `json:"imported,omitempty"`
 	Superseded   int            `json:"superseded"`
 	Branches     int            `json:"branches"`
 	Proposals    int            `json:"proposals"`
@@ -4586,6 +4596,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 				Facts:      f.Facts,
 				Distilled:  f.Distilled,
 				Authored:   f.Authored,
+				Imported:   f.Imported,
 				Superseded: f.Superseded,
 				Branches:   len(f.Branches),
 				Proposals:  f.Proposals,
