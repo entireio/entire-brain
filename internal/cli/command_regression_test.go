@@ -120,6 +120,33 @@ func fakeCodexProvider(t *testing.T, response string) {
 	}
 }
 
+func TestFactsImportRemainsRunnableFromRoot(t *testing.T) {
+	opts, _, brainDir := commandRegressionFixture(t)
+	export := filepath.Join(t.TempDir(), "mem0.json")
+	text := "Retries stop after three attempts."
+	if err := os.WriteFile(export, []byte(`{"results":[{"id":"m1","memory":"Retries stop after three attempts."}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := execute(t, NewRootCommand(opts), "facts", "import", "--source", "mem0", "--file", export, "--json")
+	if err != nil {
+		t.Fatalf("facts import: %v\n%s", err, out)
+	}
+	var report factImportReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("import report: %v\n%s", err, out)
+	}
+	if report.Source != "mem0" || report.Branch != "main" || report.Read != 1 || report.Imported != 1 || report.DryRun {
+		t.Fatalf("unexpected import report: %+v", report)
+	}
+	facts, err := loadFacts(brainDir, "main")
+	if err != nil || len(facts) != 1 {
+		t.Fatalf("imported facts: %v %+v", err, facts)
+	}
+	if facts[0].Text != text || facts[0].Origin != "imported" || facts[0].Status != factStatusActive {
+		t.Fatalf("unexpected imported fact: %+v", facts[0])
+	}
+}
+
 func TestHiddenDeveloperCommandsRemainRunnable(t *testing.T) {
 	opts, _, brainDir := commandRegressionFixture(t)
 	for _, args := range [][]string{{"bench", "--help"}, {"facts", "eval-gen", "--help"}, {"facts", "eval-compare", "--help"}} {

@@ -171,7 +171,7 @@ func TestOperatorCommandFamiliesRemainDiscoverable(t *testing.T) {
 	if start < 0 || end <= start {
 		t.Fatalf("missing operations group before miscellaneous:\n%s", out)
 	}
-	for _, family := range []string{"facts sync", "facts proposals", "facts gc", "facts vitality", "memory", "privacy", "docs", "refresh", "watch", "entities", "repo-identity", "repair", "gc", "reset"} {
+	for _, family := range []string{"facts import", "facts sync", "facts proposals", "facts gc", "facts vitality", "memory", "privacy", "docs", "refresh", "watch", "entities", "repo-identity", "repair", "gc", "reset"} {
 		if !strings.Contains(out[start:end], "\n  "+family+" ") {
 			t.Errorf("operations group missing %q", family)
 		}
@@ -186,7 +186,7 @@ func TestOperatorCommandFamiliesRemainDiscoverable(t *testing.T) {
 			t.Errorf("durable facts group missing everyday verb %q", verb)
 		}
 	}
-	for _, path := range []string{"facts sync", "facts proposals", "facts gc", "facts vitality"} {
+	for _, path := range []string{"facts import", "facts sync", "facts proposals", "facts gc", "facts vitality"} {
 		if strings.Contains(out[factsStart:factsEnd], "\n  "+path+" ") {
 			t.Errorf("fact operator path %q should appear only in operations", path)
 		}
@@ -196,7 +196,7 @@ func TestOperatorCommandFamiliesRemainDiscoverable(t *testing.T) {
 			t.Errorf("operations group should not list %q", absent)
 		}
 	}
-	for _, path := range []string{"memory migrate", "entities migrate", "facts status", "facts tree", "facts map", "facts retract", "facts review", "facts promote", "facts sync", "facts proposals", "facts gc", "facts vitality", "docs extract"} {
+	for _, path := range []string{"memory migrate", "entities migrate", "facts status", "facts tree", "facts map", "facts retract", "facts review", "facts promote", "facts import", "facts sync", "facts proposals", "facts gc", "facts vitality", "docs extract"} {
 		root := NewRootCommand(Options{Version: "test"})
 		c, _, err := root.Find(strings.Fields(path))
 		if err != nil || c.Hidden || c.Parent().Hidden {

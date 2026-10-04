@@ -205,7 +205,7 @@ func setRootUsage(root *cobra.Command, commands []*cobra.Command) {
 			if c.Name() == "facts" {
 				// Surface operator paths without moving the everyday facts family
 				// or changing any child's registration or visibility.
-				for _, name := range []string{"sync", "proposals", "gc", "vitality"} {
+				for _, name := range []string{"import", "sync", "proposals", "gc", "vitality"} {
 					for _, child := range c.Commands() {
 						if child.Name() == name {
 							ordered = append(ordered, helpEntry{child, "facts " + name, "operations"})
