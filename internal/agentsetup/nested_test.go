@@ -56,3 +56,59 @@ func TestOuterRepoDetectsAGitFileNotJustADirectory(t *testing.T) {
 		t.Fatalf("a .git FILE marks a repository too; OuterRepo = %q, want %q", got, project)
 	}
 }
+
+// OuterRepo walks UP for an ancestor .git and never checked the starting
+// point, so a plain directory inside a repository came back with that ancestor
+// and the caller announced "<root> is a git repository inside <outer>" about a
+// path that is not a repository at all -- suggesting a remedy that addresses
+// nothing.
+//
+// This fires on an ordinary layout, not a contrived one: a monorepo
+// subdirectory, or anything under a dotfiles-tracked home directory.
+func TestOuterRepoRequiresAnInnerRepository(t *testing.T) {
+	t.Parallel()
+
+	outer := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outer, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// A PLAIN directory inside the repo: there is no nesting to report.
+	plain := filepath.Join(outer, "packages", "web")
+	if err := os.MkdirAll(plain, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := OuterRepo(plain); got != "" {
+		t.Errorf("a plain subdirectory is not a nested repository, but OuterRepo returned %q", got)
+	}
+
+	// A real nested clone still reports, or the fix would disable the feature.
+	inner := filepath.Join(outer, "entire-brain")
+	if err := os.MkdirAll(filepath.Join(inner, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := OuterRepo(inner); got != outer {
+		t.Errorf("a genuine nested clone must still be reported: got %q, want %q", got, outer)
+	}
+
+	// A .git FILE is how a worktree marks its root, so it counts too.
+	wt := filepath.Join(outer, "wt")
+	if err := os.MkdirAll(wt, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: /elsewhere\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := OuterRepo(wt); got != outer {
+		t.Errorf("a worktree root carries .git as a FILE and must still be reported: got %q", got)
+	}
+
+	// And a repository with no outer repository reports nothing.
+	lone := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(lone, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := OuterRepo(lone); got != "" {
+		t.Errorf("a top-level repository has no outer repository, got %q", got)
+	}
+}

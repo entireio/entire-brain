@@ -23,6 +23,21 @@ func OuterRepo(root string) string {
 	if root == "" {
 		return ""
 	}
+	// root must be a repository ITSELF, or the caller's message is false.
+	//
+	// This walks UP for an ancestor .git and never checked the starting point,
+	// so a plain directory inside a repository -- a monorepo subdirectory, or
+	// anything under a dotfiles-tracked home -- came back with that ancestor
+	// and the caller announced "<root> is a git repository inside <outer>"
+	// about a path that is not a repository at all. The remedy it suggests
+	// then addresses nothing.
+	//
+	// Checking here rather than at the call site keeps the guarantee with the
+	// function that makes the claim: OuterRepo returns an outer repository
+	// only when there is genuinely an inner one.
+	if !isRepoRoot(root) {
+		return ""
+	}
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return ""
@@ -37,4 +52,12 @@ func OuterRepo(root string) string {
 			return ""
 		}
 	}
+}
+
+// isRepoRoot reports whether this path holds its own .git, by Lstat so a
+// symlinked .git is seen rather than followed -- matching how the walk above
+// tests each ancestor.
+func isRepoRoot(path string) bool {
+	_, err := os.Lstat(filepath.Join(path, ".git"))
+	return err == nil
 }
