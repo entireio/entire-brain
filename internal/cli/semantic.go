@@ -736,6 +736,21 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		// Disclosed rather than silent: the snapshot's commit came from brain's
 		// own git, not from the thing that did the indexing.
 		if res.stampedHeader != "" {
+			// The disclosure says the commit was verified unchanged across
+			// the index run, so verify it. verifySemanticWorktreeStable above
+			// does NOT establish this: it compares worktree dirtiness and a
+			// worktree fingerprint, both of which are measured against
+			// whatever HEAD is current, so `git commit --allow-empty` or a
+			// checkout partway through leaves the worktree clean and passes.
+			// On every other path validateLiveSemanticHeader catches a moved
+			// HEAD, because the provider resolved the commit itself and it no
+			// longer equals the one brain resolved. On THIS path brain stamped
+			// `head` into the header, so that comparison is a value against
+			// itself and cannot fail -- the only path where the claim was
+			// unbacked is the only path that makes it.
+			if err := verifySemanticHeadStable(ctx, opts.Runner, repoDir, head, tree); err != nil {
+				return err
+			}
 			warnings = append(warnings, semanticWarning{
 				Code:     "provider_header_stamped_locally",
 				Severity: "warning",
@@ -2942,6 +2957,39 @@ func verifySemanticWorktreeStable(ctx context.Context, runner CommandRunner, rep
 	}
 	if hashBefore != hashAfter {
 		return errors.New("worktree_changed: worktree content changed during semantic indexing")
+	}
+	return nil
+}
+
+// verifySemanticHeadStable re-resolves HEAD after the provider has run and
+// refuses the index when it no longer matches what brain resolved before the
+// run.
+//
+// Only the locally-stamped path needs this. Everywhere else the provider
+// stamps its own commit and validateLiveSemanticHeader compares it against the
+// pre-run value, so a HEAD that moved is already fatal. When brain supplies the
+// provenance it is comparing its own value with itself, so without this check
+// the snapshot would be published carrying a commit the indexed content does
+// not belong to -- and would say, in the disclosure warning, that the commit
+// had been verified unchanged.
+//
+// Refusing is the right outcome rather than restamping with the new HEAD: the
+// content that was actually indexed is a mixture of both, so neither commit
+// describes it.
+func verifySemanticHeadStable(ctx context.Context, runner CommandRunner, repoDir, commitBefore, treeBefore string) error {
+	commitAfter, err := gitScalar(ctx, runner, repoDir, "rev-parse", "HEAD")
+	if err != nil {
+		return fmt.Errorf("recheck HEAD after semantic index: %w", err)
+	}
+	treeAfter, err := gitScalar(ctx, runner, repoDir, "rev-parse", "HEAD^{tree}")
+	if err != nil {
+		return fmt.Errorf("recheck HEAD tree after semantic index: %w", err)
+	}
+	if commitAfter != commitBefore {
+		return fmt.Errorf("head_changed: HEAD moved from %s to %s during semantic indexing", commitBefore, commitAfter)
+	}
+	if treeAfter != treeBefore {
+		return fmt.Errorf("head_changed: HEAD tree moved from %s to %s during semantic indexing", treeBefore, treeAfter)
 	}
 	return nil
 }

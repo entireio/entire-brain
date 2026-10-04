@@ -1,6 +1,12 @@
 package cli
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"testing"
+)
 
 // entire-graph refuses git metadata subprocesses in a PARTIAL CLONE -- rightly,
 // since a promisor remote means an ordinary git command can fetch over the
@@ -12,8 +18,14 @@ import "testing"
 //
 // Brain never needed the provider for that answer. head and tree come from its
 // own `git rev-parse HEAD` and `HEAD^{tree}`, which succeed in a partial clone,
-// and verifySemanticWorktreeStable has already confirmed the tree did not move
-// while the provider ran -- so the snapshot describes exactly that commit.
+// and verifySemanticHeadStable re-resolves both after the provider ran -- so
+// the snapshot describes exactly that commit.
+//
+// It is verifySemanticHeadStable and NOT verifySemanticWorktreeStable that
+// establishes this, which this comment used to claim. See
+// TestStampedProvenanceRefusesAMovedHead: a dirtiness check is measured
+// against whatever HEAD is current, so a commit made while the provider ran
+// leaves the worktree clean and passes it.
 func TestBrainStampsAHeaderTheProviderCouldNotStamp(t *testing.T) {
 	t.Parallel()
 
@@ -95,4 +107,91 @@ func indexOfForTest(haystack, needle string) int {
 		}
 	}
 	return -1
+}
+
+// The stamp DISCLOSES that the commit was "verified unchanged across the index
+// run". Nothing verified it.
+//
+// verifySemanticWorktreeStable, which the comment above credits with that
+// guarantee, compares worktree dirtiness and a worktree fingerprint -- both
+// measured against whatever HEAD is current. `git commit --allow-empty` or a
+// checkout while the provider runs moves HEAD and leaves the worktree clean,
+// so it passes. On every other path validateLiveSemanticHeader catches it,
+// because the provider resolved the commit itself; on THIS path brain stamped
+// its own `head` into the header, so that comparison is a value against itself
+// and cannot fail. The one path that makes the claim was the one path with
+// nothing behind it.
+func TestStampedProvenanceRefusesAMovedHead(t *testing.T) {
+	t.Parallel()
+
+	const before = "a80904c86091139e5451785c002d8fee1a9de85c"
+	const beforeTree = "5b66bbca628cc9ecbbc4c8d6a69f1cf3c648db6a"
+	const after = "f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1"
+	const afterTree = "e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2"
+
+	runner := func(commit, tree string) CommandRunner {
+		return commandRunnerFunc(func(_ context.Context, _, name string, args ...string) ([]byte, []byte, error) {
+			if name != "git" || len(args) != 2 || args[0] != "rev-parse" {
+				return nil, nil, fmt.Errorf("unexpected command %s %v", name, args)
+			}
+			switch args[1] {
+			case "HEAD":
+				return []byte(commit + "\n"), nil, nil
+			case "HEAD^{tree}":
+				return []byte(tree + "\n"), nil, nil
+			}
+			return nil, nil, fmt.Errorf("unexpected rev-parse %q", args[1])
+		})
+	}
+
+	// Unchanged HEAD: the claim holds and the index proceeds.
+	if err := verifySemanticHeadStable(context.Background(), runner(before, beforeTree), t.TempDir(), before, beforeTree); err != nil {
+		t.Fatalf("an unchanged HEAD must not be refused: %v", err)
+	}
+
+	// A new commit on the same tree -- the exact shape a dirtiness check
+	// cannot see, because the worktree is clean before and after.
+	err := verifySemanticHeadStable(context.Background(), runner(after, beforeTree), t.TempDir(), before, beforeTree)
+	if err == nil {
+		t.Fatal("a HEAD that moved during indexing was accepted, so the snapshot would be published " +
+			"stamped with a commit it does not describe, claiming it was verified unchanged")
+	}
+	if !strings.Contains(err.Error(), "head_changed") {
+		t.Errorf("the refusal must be classifiable, got %q", err)
+	}
+
+	// The tree alone moving is refused too.
+	if err := verifySemanticHeadStable(context.Background(), runner(before, afterTree), t.TempDir(), before, beforeTree); err == nil {
+		t.Error("a HEAD tree that moved during indexing was accepted")
+	}
+
+	// A git that fails is an error, never a silent pass.
+	broken := commandRunnerFunc(func(_ context.Context, _, _ string, _ ...string) ([]byte, []byte, error) {
+		return nil, nil, errors.New("git exploded")
+	})
+	if err := verifySemanticHeadStable(context.Background(), broken, t.TempDir(), before, beforeTree); err == nil {
+		t.Error("a failed recheck must not be read as 'unchanged'")
+	}
+}
+
+// The check has to be WIRED, not merely present: a helper nobody calls proves
+// nothing, and the previous defect on this same code path was an assignment in
+// the wrong branch rather than a missing function.
+func TestStampedProvenanceIsVerifiedBeforeItIsDisclosed(t *testing.T) {
+	t.Parallel()
+
+	src := readGoSourceForTest(t, "semantic.go")
+	stamp := indexOfForTest(src, `if res.stampedHeader != ""`)
+	if stamp < 0 {
+		t.Fatal("the stamped-header disclosure is gone; this test needs rewriting")
+	}
+	disclose := indexOfForTest(src[stamp:], `"provider_header_stamped_locally"`)
+	if disclose < 0 {
+		t.Fatal("the disclosure warning code is gone; this test needs rewriting")
+	}
+	call := indexOfForTest(src[stamp:stamp+disclose], "verifySemanticHeadStable(")
+	if call < 0 {
+		t.Error("the stamped path discloses that the commit was verified unchanged without calling " +
+			"verifySemanticHeadStable first, so nothing verifies it")
+	}
 }
