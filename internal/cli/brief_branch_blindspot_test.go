@@ -90,3 +90,57 @@ func TestBriefCommandEmitsTheBranchNoteItself(t *testing.T) {
 		t.Fatal("agent_surface.go does not contain the brief builder; this guard is reading the wrong file")
 	}
 }
+
+// A branch whose facts are all retracted or superseded holds nothing
+// retrievable. Naming it sends the reader to re-run their query somewhere it
+// will also come back empty -- a false lead dressed as a remedy, which is
+// worse than the silence this note replaces.
+//
+// This also aligns brief's note with otherBranchBlindSpot (PR #318), which
+// counted active facts from the start. The two were a DIVERGENT twin on
+// exactly this check, and divergence is what makes collapsing them into one
+// function dangerous; identical behaviour makes it a pure refactor.
+func TestBriefBranchNoteIgnoresBranchesHoldingOnlyDeadFacts(t *testing.T) {
+	t.Parallel()
+
+	f := newVerifyFixture(t)
+	dead := vitalityTestFact("this was retired", "feat/dead", f.now)
+	dead.Status = factStatusRetracted
+	gone := vitalityTestFact("this was replaced", "feat/dead", f.now)
+	gone.Status = factStatusSuperseded
+	if err := writeFacts(f.brainDir, "feat/dead", []factRecord{dead, gone}); err != nil {
+		t.Fatalf("write dead facts: %v", err)
+	}
+	if err := writeFacts(f.brainDir, "feat/live", []factRecord{
+		vitalityTestFact("retries are capped at three", "feat/live", f.now),
+	}); err != nil {
+		t.Fatalf("write live fact: %v", err)
+	}
+
+	note := briefBranchBlindSpot(f.brainDir, "main")
+	if note == "" {
+		t.Fatal("a branch holding a live fact must still produce a note")
+	}
+	if strings.Contains(note, "feat/dead") {
+		t.Errorf("a branch holding only retracted or superseded facts is a false lead:\n%s", note)
+	}
+	if !strings.Contains(note, "feat/live") {
+		t.Errorf("the branch holding a live fact must be named:\n%s", note)
+	}
+}
+
+// And with nothing live anywhere there is no remedy to offer, so the note must
+// stay silent rather than point at a branch that will also come back empty.
+func TestBriefBranchNoteIsSilentWhenNothingIsLiveAnywhere(t *testing.T) {
+	t.Parallel()
+
+	f := newVerifyFixture(t)
+	dead := vitalityTestFact("this was retired", "feat/dead", f.now)
+	dead.Status = factStatusRetracted
+	if err := writeFacts(f.brainDir, "feat/dead", []factRecord{dead}); err != nil {
+		t.Fatalf("write dead fact: %v", err)
+	}
+	if note := briefBranchBlindSpot(f.brainDir, "main"); note != "" {
+		t.Errorf("no live facts anywhere means no remedy to offer, got %q", note)
+	}
+}

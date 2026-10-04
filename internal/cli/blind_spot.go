@@ -119,9 +119,31 @@ func briefBranchBlindSpot(brainDir, branch string) string {
 	if err != nil || len(byBranch) == 0 {
 		return ""
 	}
+	// ACTIVE facts only. A branch whose facts are all retracted or superseded
+	// holds nothing retrievable, so naming it sends the reader to re-run their
+	// query somewhere it will also come back empty -- a false lead dressed as
+	// a remedy, which is worse than the silence this note replaces.
+	//
+	// MERGE NOTE: PR #318 adds otherBranchBlindSpot to this file, doing the
+	// same job for the retrieval surfaces. The two are deliberately
+	// behaviourally IDENTICAL in what they count (active facts on other
+	// branches) and differ only in phrasing for their surface. Whichever of
+	// #318 and #331 lands second should collapse this into a call to that
+	// function with brief's wording -- a pure refactor, no behaviour change.
+	// They diverged on exactly this active-vs-any check until it was fixed
+	// here, which is the state that would have made the collapse dangerous.
 	others := make([]string, 0, len(byBranch))
 	for name, facts := range byBranch {
-		if name == branch || len(facts) == 0 {
+		if name == branch {
+			continue
+		}
+		active := 0
+		for _, fact := range facts {
+			if fact.Status == factStatusActive {
+				active++
+			}
+		}
+		if active == 0 {
 			continue
 		}
 		others = append(others, name)
