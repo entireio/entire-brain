@@ -254,3 +254,94 @@ func TestPreEditHookUsesTheGivenInvocation(t *testing.T) {
 		}
 	}
 }
+
+// `pre, _ := hooks["PreToolUse"].([]any)` discarded the type assertion's
+// second value, so a PreToolUse that existed but was not an array became nil
+// and the append wrote a brand-new one-element array OVER it -- destroying the
+// user's configuration.
+//
+// This function's doc comment promises the opposite, and claudeHooksSection
+// already makes this check one level up for "hooks". The promise held for the
+// container and not for the key being modified.
+func TestPreEditHookRefusesAnUnrecognisedPreToolUseInsteadOfOverwritingIt(t *testing.T) {
+	t.Parallel()
+
+	for name, raw := range map[string]string{
+		"object": `{"hooks":{"PreToolUse":{"matcher":"Edit"}}}`,
+		"string": `{"hooks":{"PreToolUse":"Edit"}}`,
+		"number": `{"hooks":{"PreToolUse":7}}`,
+		"bool":   `{"hooks":{"PreToolUse":true}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			settings := filepath.Join(root, ".claude", "settings.json")
+			if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(settings, []byte(raw), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			changed, err := MergePreEditHook(root, "entire-brain")
+			if err == nil {
+				t.Error("an unrecognised PreToolUse must be refused, not replaced")
+			}
+			if changed {
+				t.Error("nothing was installed, so changed must be false")
+			}
+			// The decisive assertion: the file is BYTE-IDENTICAL.
+			after, readErr := os.ReadFile(settings)
+			if readErr != nil {
+				t.Fatalf("read back: %v", readErr)
+			}
+			if string(after) != raw {
+				t.Errorf("the user's configuration was rewritten:\n before: %s\n after:  %s", raw, after)
+			}
+		})
+	}
+}
+
+// Absent or null is not an unrecognised shape: there is nothing to preserve,
+// so the hook installs normally. Without this the refusal above would block
+// every fresh install.
+func TestPreEditHookStillInstallsWhenPreToolUseIsAbsentOrNull(t *testing.T) {
+	t.Parallel()
+
+	for name, raw := range map[string]string{
+		"no hooks key": `{}`,
+		"empty hooks":  `{"hooks":{}}`,
+		"null key":     `{"hooks":{"PreToolUse":null}}`,
+		"empty array":  `{"hooks":{"PreToolUse":[]}}`,
+		"other hooks":  `{"hooks":{"PostToolUse":[{"matcher":"Edit"}]}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			settings := filepath.Join(root, ".claude", "settings.json")
+			if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(settings, []byte(raw), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			changed, err := MergePreEditHook(root, "entire-brain")
+			if err != nil {
+				t.Fatalf("a fresh or empty PreToolUse must install: %v", err)
+			}
+			if !changed {
+				t.Error("the hook was not installed")
+			}
+			after, readErr := os.ReadFile(settings)
+			if readErr != nil {
+				t.Fatalf("read back: %v", readErr)
+			}
+			if !strings.Contains(string(after), "hook pre-edit") {
+				t.Errorf("the hook is missing from the merged settings:\n%s", after)
+			}
+			// A sibling key must survive the merge.
+			if strings.Contains(raw, "PostToolUse") && !strings.Contains(string(after), "PostToolUse") {
+				t.Errorf("a sibling hook key was lost:\n%s", after)
+			}
+		})
+	}
+}

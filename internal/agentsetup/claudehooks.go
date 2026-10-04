@@ -112,7 +112,21 @@ func MergePreEditHook(root, brainCmd string) (changed bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	pre, _ := hooks["PreToolUse"].([]any)
+	// REFUSE an unrecognised PreToolUse rather than replace it.
+	//
+	// The discarded second return defaulted pre to nil whenever PreToolUse was
+	// present but not an array -- an object or a string from a hand-edited or
+	// legacy settings.json -- and the append below then wrote a brand-new
+	// one-element array over it, destroying the user's configuration.
+	//
+	// This function's own doc comment promises the opposite, and
+	// claudeHooksSection already makes exactly this check one level up for
+	// "hooks". PreToolUse had no equivalent, so the promise held for the
+	// container and not for the key being modified.
+	pre, err := claudePreToolUseEntries(hooks)
+	if err != nil {
+		return false, err
+	}
 	if preEditHookPresent(pre) {
 		return false, nil
 	}
@@ -169,6 +183,25 @@ func claudeHooksSection(settings map[string]any) (map[string]any, error) {
 		return nil, fmt.Errorf("%s has a \"hooks\" key that is not an object; leaving it untouched", claudeSettingsPath)
 	}
 	return hooks, nil
+}
+
+// claudePreToolUseEntries returns the existing PreToolUse list, refusing a
+// value of any other shape instead of silently standing in nil for it.
+//
+// Absent or null is an empty list: there is nothing to preserve and the caller
+// creates the key. Anything that is not an array is someone's configuration
+// this command does not understand, and overwriting it is worse than declining
+// to install a hook.
+func claudePreToolUseEntries(hooks map[string]any) ([]any, error) {
+	raw, ok := hooks["PreToolUse"]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	entries, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("%s has a \"PreToolUse\" key that is not an array; leaving it untouched", claudeSettingsPath)
+	}
+	return entries, nil
 }
 
 // preEditHookPresent reports whether any entry already runs the hook, however
