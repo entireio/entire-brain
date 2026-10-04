@@ -3,8 +3,13 @@
   "checkpoint_id": "1c76efc40833",
   "strategy": "manual-commit",
   "branch": "fix/trail197-findings",
-  "checkpoints_count": 2,
-  "files_touched": null,
+  "checkpoints_count": 13,
+  "files_touched": [
+    "internal/cli/issues.go",
+    "internal/cli/issues_test.go",
+    "internal/issues/import_observation_test.go",
+    "internal/issues/store.go"
+  ],
   "sessions": [
     {
       "metadata": "/1c/76efc40833/0/metadata.json",
@@ -12,13 +17,27 @@
       "compact_transcript": "/1c/76efc40833/0/transcript.jsonl",
       "content_hash": "/1c/76efc40833/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/1c/76efc40833/1/metadata.json",
+      "transcript": "/1c/76efc40833/1/full.jsonl",
+      "compact_transcript": "/1c/76efc40833/1/transcript.jsonl",
+      "content_hash": "/1c/76efc40833/1/content_hash.txt",
+      "prompt": "/1c/76efc40833/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 54,
-    "cache_creation_tokens": 74228,
-    "cache_read_tokens": 2102178,
-    "output_tokens": 15179,
-    "api_call_count": 25
+    "input_tokens": 146,
+    "cache_creation_tokens": 210989,
+    "cache_read_tokens": 5203761,
+    "output_tokens": 32510,
+    "api_call_count": 62,
+    "subagent_tokens": {
+      "input_tokens": 60,
+      "cache_creation_tokens": 179139,
+      "cache_read_tokens": 2505731,
+      "output_tokens": 7072,
+      "api_call_count": 28
+    }
   }
 }
