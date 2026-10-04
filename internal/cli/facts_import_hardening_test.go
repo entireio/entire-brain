@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bytes"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -424,5 +426,65 @@ func TestImportReportNamesTheBranch(t *testing.T) {
 		0, "mem0", "project.imported", "feature/x", time.Now().UTC())
 	if report.Branch != "feature/x" {
 		t.Errorf("the report must name the branch the facts landed on, got %q", report.Branch)
+	}
+}
+
+// A command that is going to fail must not mutate the brain first.
+//
+// The all-skipped check sat AFTER the write block, so a doomed import took the
+// write lock, rewrote the facts file with an empty set, and bumped the
+// manifest's generation and freshness fields -- making the brain look freshly
+// imported -- and only then returned the error saying nothing was imported.
+//
+// Driven through the real command and asserted on the BYTES on disk, because
+// the defect was in the ORDER of two calls and no unit test of either one can
+// see it.
+func TestADoomedImportDoesNotTouchTheBrainFirst(t *testing.T) {
+	f := newVerifyFixture(t)
+	writeDistillFixtureAt(t, f.brainDir, f.now)
+
+	manifestPath := filepath.Join(f.brainDir, exportManifestFileName)
+	before, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	// Non-vacuity: the fixture must have a manifest with content, or comparing
+	// it proves nothing.
+	if len(before) == 0 {
+		t.Fatal("fixture manifest is empty; this guard would pass trivially")
+	}
+
+	// An export from another tool: records with no `memory` field at all.
+	export := filepath.Join(t.TempDir(), "letta.json")
+	if err := os.WriteFile(export, []byte(`[{"id":"a","content":"x"},{"id":"b","content":"y"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cmd := NewRootCommand(f.opts)
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"facts", "import", "--source", "mem0", "--file", export})
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatalf("an import where no record has memory text must fail:\n%s", out.String())
+	}
+	// NEGATIVE CONTROL. The first version of this test passed "--from", which
+	// does not exist: cobra rejected the flag, the command never ran, and the
+	// manifest was trivially unchanged. The guard reported success while
+	// measuring nothing. Pin the error to the IMPORT failing, not the parse.
+	if strings.Contains(err.Error(), "unknown flag") || strings.Contains(err.Error(), "unknown command") {
+		t.Fatalf("the command never ran, so this guard measures nothing: %v", err)
+	}
+	if !strings.Contains(err.Error(), "has a \"memory\" field") {
+		t.Fatalf("expected the all-skipped error, got: %v", err)
+	}
+
+	after, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read manifest after: %v", err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Errorf("a failed import rewrote the manifest:\nbefore: %s\nafter:  %s", before, after)
 	}
 }

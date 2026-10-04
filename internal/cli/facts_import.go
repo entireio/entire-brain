@@ -765,6 +765,27 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 				keptActive = countKeptActiveFacts(facts, existing)
 				ontoInactive = countImportsOntoInactiveFacts(facts, existing)
 			}
+			// BEFORE the write lock: a command that is going to fail must not
+			// mutate the brain first.
+			//
+			// This check used to sit after the write block, so a doomed import
+			// took the lock, rewrote the facts file with an empty set and
+			// bumped the manifest's generation and freshness fields -- making
+			// the brain look freshly imported -- and only then returned the
+			// error saying nothing was imported. It also discarded the
+			// manifest-refresh warning collected inside that lock, because
+			// returning an error here skips the report entirely, which is
+			// exactly the loss the warning was added to prevent.
+			//
+			// Nothing in the condition depends on the write: every field comes
+			// from memoriesToFacts above.
+			//
+			// Some records skipped is different and stays a warning: a real
+			// export can carry an empty memory.
+			if report.Read > 0 && report.Imported == 0 && report.SkippedText == report.Read {
+				return fmt.Errorf("no record in %s has a %q field: %d record(s) read, all skipped — this is probably an export from a different tool, or a different endpoint's shape",
+					report.Source, "memory", report.Read)
+			}
 			// Set inside the write lock, read after it: a refresh failure is
 			// reported alongside a successful import rather than replacing it.
 			var manifestErr error
@@ -849,12 +870,6 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 			// import" -- and a file where not one record has text is that same
 			// case, discovered one layer later.
 			//
-			// Some records skipped is different and stays a warning: a real
-			// export can carry an empty memory.
-			if report.Read > 0 && report.Imported == 0 && report.SkippedText == report.Read {
-				return fmt.Errorf("no record in %s has a %q field: %d record(s) read, all skipped — this is probably an export from a different tool, or a different endpoint's shape",
-					report.Source, "memory", report.Read)
-			}
 			if jsonOut {
 				return writeIndentedJSON(cmd.OutOrStdout(), report)
 			}
