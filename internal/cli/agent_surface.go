@@ -969,7 +969,31 @@ func newInspectImpactCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&impactOpts.depth, "depth", 1, "Relation traversal depth")
 	cmd.Flags().BoolVar(&impactOpts.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().BoolVar(&impactOpts.details, "details", false, "Include full semantic records with provider metadata")
+	hintPositionalSymbol(cmd)
 	return cmd
+}
+
+// hintPositionalSymbol turns cobra's bare "unknown flag: --symbol" into an
+// answer.
+//
+// The published guide documents `inspect impact --symbol ValidateToken`. There
+// is no such flag -- the symbol is positional here and on the sibling commands
+// -- so anyone following the docs gets a flag error with nothing to act on,
+// and no reason to suspect the page rather than their own typing.
+//
+// The flag is deliberately NOT added. `inspect context` and `inspect tests`
+// take their symbol positionally too, so accepting --symbol on one of the
+// three would make this the inconsistent one and bend a working interface
+// around a typo. Naming the right form costs nothing and unblocks the reader
+// in one line; the page is corrected separately.
+func hintPositionalSymbol(cmd *cobra.Command) {
+	cmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
+		if err == nil || !strings.Contains(err.Error(), "--symbol") {
+			return err
+		}
+		return fmt.Errorf("%w; this command takes the symbol as an argument, not a flag: `%s %s <symbol>`",
+			err, setupCommandPrefix(os.LookupEnv), c.CommandPath()[strings.Index(c.CommandPath(), " ")+1:])
+	})
 }
 
 func newInspectChangesCommand(opts Options) *cobra.Command {

@@ -282,6 +282,17 @@ type semanticIndexOptions struct {
 	force       bool
 	graphBinary string
 	skipGraph   bool
+	// localCommit and localTree are brain's OWN `git rev-parse HEAD` and
+	// `HEAD^{tree}`, used only to stamp a snapshot header the provider could
+	// not stamp itself. entire-graph refuses git metadata subprocesses in a
+	// partial clone -- correctly, since a promisor remote can fetch over the
+	// network and it runs --no-network -- and returns an empty commit and
+	// tree, which made brain discard an index it had already parsed in full.
+	//
+	// These are facts rather than options, and they live here only because the
+	// stream path already threads this struct end to end.
+	localCommit string
+	localTree   string
 	// Compatibility aliases for callers created before the graph-provider
 	// command rename. New code should use graphBinary and skipGraph.
 	semBinary      string
@@ -568,6 +579,14 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	}
 	branch, _ := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current")
 	defaultBranch, defaultWarnings := detectDefaultBranch(ctx, opts.Runner, repoDir)
+	// Carried for the stream scanner, which stamps a header the provider could
+	// not stamp itself. Set HERE, beside the git calls that produced them, and
+	// not inside the already-current branch below: that branch only runs when a
+	// semantic source already exists, so a FIRST index -- exactly the case a
+	// partial clone fails on -- left these empty and the stamp never happened.
+	indexOpts.localCommit = head
+	indexOpts.localTree = tree
+
 	dirty, err := worktreeDirtyWithIgnore(ctx, opts.Runner, repoDir, ignore)
 	if err != nil {
 		return fmt.Errorf("check worktree dirtiness for semantic index: %w", err)
@@ -711,6 +730,18 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		}
 		if err := validateSemanticProviderRepoKey(ctx, opts.Runner, repoDir, storage.Key, res.providerRepoKey, doctorReport.RepoKey, indexOpts.graphBinary); err != nil {
 			return err
+		}
+		// The provider could not stamp its own provenance, and brain supplied
+		// it during the stream scan (see semanticStreamScanConfig.commit).
+		// Disclosed rather than silent: the snapshot's commit came from brain's
+		// own git, not from the thing that did the indexing.
+		if res.stampedHeader != "" {
+			warnings = append(warnings, semanticWarning{
+				Code:     "provider_header_stamped_locally",
+				Severity: "warning",
+				Effect:   "provenance supplied by brain",
+				Detail:   res.stampedHeader,
+			})
 		}
 		if err := validateLiveSemanticHeader(header, head, tree, indexOpts.worktree && dirty); err != nil {
 			return annotateSemanticHeaderRefusal(ctx, opts.Runner, repoDir, err)
@@ -1298,11 +1329,26 @@ func semanticProviderUnverifiedError(graphBinary string, warnings []semanticWarn
 		if binary == "" {
 			binary = entireBinaryName
 		}
+		// The DOCUMENTED path comes first.
+		//
+		// This used to name only `scripts/install.sh` from the entire-brain
+		// checkout, which is the contributor's path and assumes a sibling
+		// clone. The published guide tells everyone else to run
+		// `entire plugin install graph`, so a user who followed the docs and
+		// then hit this error was handed a different, harder instruction than
+		// the page had just given them -- and one they usually cannot follow,
+		// having no checkout at all.
+		//
+		// Both are kept because both are real: the plugin index for a normal
+		// install, the script for someone working from source. The order and
+		// the "from a source checkout" qualifier are what stop the second from
+		// reading as the only option.
 		message += fmt.Sprintf(
 			"; the entire-graph semantic provider is not installed (%s has no `graph` command)"+
-				" -- install it with `scripts/install.sh` from the entire-brain checkout"+
-				" (it builds and registers entire-graph from the sibling clone),"+
-				" then re-run `%s setup`", binary, setupCommandPrefix(os.LookupEnv))
+				" -- install it with `%s plugin install graph`,"+
+				" or from a source checkout run `scripts/install.sh` in entire-brain"+
+				" (it builds and registers entire-graph from the sibling clone);"+
+				" then re-run `%s setup`", binary, entireBinaryName, setupCommandPrefix(os.LookupEnv))
 	}
 	return errors.New(message)
 }
@@ -1401,6 +1447,30 @@ func semanticSnapshotRejectsIgnoreFile(err error) bool {
 //	readSemanticSnapshotSummary /     a key read back from an on-disk artifact
 //	validateImportedBundle            (another brain's bundle, an older snapshot)
 //
+// stampSemanticHeaderFromLocalGit fills a header the provider left unstamped,
+// returning the warning to disclose that brain supplied the provenance, or ""
+// when nothing was changed.
+//
+// BOTH fields must be empty. A header carrying one and not the other is not a
+// provider that declined to answer -- it is a provider that answered
+// inconsistently, and that is a real defect which must keep failing validation
+// rather than be papered over.
+//
+// A value the provider DID supply is never overwritten: the point is to fill a
+// blank, not to overrule the thing that did the indexing.
+func stampSemanticHeaderFromLocalGit(header *semanticHeader, commit, tree string) string {
+	if header == nil || header.Commit != "" || header.Tree != "" {
+		return ""
+	}
+	if strings.TrimSpace(commit) == "" || strings.TrimSpace(tree) == "" {
+		return ""
+	}
+	header.Commit = commit
+	header.Tree = tree
+	return "the semantic provider returned no commit or tree (it refuses git metadata in a partial clone); " +
+		"brain stamped the snapshot with the commit it resolved locally, verified unchanged across the index run"
+}
+
 // annotateSemanticHeaderRefusal names the CAUSE when the provider handed back a
 // header with no commit or tree.
 //

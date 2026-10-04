@@ -68,6 +68,10 @@ func semanticStrictIngest() bool {
 }
 
 type semanticStreamResult struct {
+	// stampedHeader is the disclosure text when brain supplied provenance the
+	// provider could not, or "" when it did not need to.
+	stampedHeader string
+
 	header        semanticHeader
 	summary       *semanticSummary
 	counts        semanticCounts
@@ -98,7 +102,17 @@ type semanticStreamScanConfig struct {
 	// written to the snapshot is normalized to it so every later reader of a
 	// brain artifact compares like with like; the provider's own spelling is
 	// preserved on the result for contract validation.
-	repoKey  string
+	repoKey string
+	// commit and tree are the brain's OWN `git rev-parse HEAD` / `HEAD^{tree}`,
+	// used only to stamp a header the provider left blank. See
+	// stampSemanticHeaderFromLocalGit: entire-graph refuses git metadata in a
+	// partial clone and returns an empty commit and tree, and a fully parsed
+	// index was then discarded. The stamp happens HERE, before the header is
+	// written, so the persisted snapshot and the manifest carry the same value
+	// -- stamping only the in-memory copy later left the snapshot blank and the
+	// two disagreed ("commit ... does not match snapshot \"\"").
+	commit   string
+	tree     string
 	progress func(phase string)
 	// counts reports the running record tallies alongside the phase label, so a
 	// caller can draw a determinate bar instead of an indeterminate spinner.
@@ -142,6 +156,7 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 			header.RepoKey = cfg.repoKey
 		}
 		header.RepoRoot = ""
+		res.stampedHeader = stampSemanticHeaderFromLocalGit(&header, cfg.commit, cfg.tree)
 		keptWarnings, keptFailures := cfg.ignore.filterIgnoredWarningLists(header.Warnings, header.PartialFailures)
 		header.Warnings = sanitizeSemanticWarnings(keptWarnings, cfg.repoDir)
 		header.PartialFailures = sanitizeSemanticWarnings(keptFailures, cfg.repoDir)
@@ -440,6 +455,8 @@ func streamSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir, 
 		ignore:   ignore,
 		repoDir:  repoDir,
 		repoKey:  repoKey,
+		commit:   indexOpts.localCommit,
+		tree:     indexOpts.localTree,
 		progress: indexOpts.progress,
 		counts:   indexOpts.progressCounts,
 		onRecord: func(string) {
