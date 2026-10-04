@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -382,11 +383,19 @@ func TestHookSettingsAreWrittenAtomically(t *testing.T) {
 		}
 	}
 	// Permissions are preserved rather than reset to the default.
+	//
+	// Windows has no POSIX mode bits: os.Stat reports 0666 for any writable
+	// file and 0444 for a read-only one, so the original os.WriteFile(.., 0600)
+	// above could not have produced 0600 there either. Asserting it would fail
+	// on a correct implementation, which is why atomic_write_test.go and
+	// brain_brief_profile_test.go guard the same assertion the same way. The
+	// merge, the staging-file check and the hard-link refusal below all still
+	// run on Windows.
 	info, err := os.Stat(settings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := info.Mode().Perm(); got != 0o600 {
+	if got := info.Mode().Perm(); runtime.GOOS != "windows" && got != 0o600 {
 		t.Errorf("permissions = %v, want 0600 preserved from the original", got)
 	}
 	// No staging file is left behind.
