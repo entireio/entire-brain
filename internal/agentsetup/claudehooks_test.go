@@ -345,3 +345,102 @@ func TestPreEditHookStillInstallsWhenPreToolUseIsAbsentOrNull(t *testing.T) {
 		})
 	}
 }
+
+// repoRoot.WriteFile TRUNCATES IN PLACE. This function MERGES, so what a
+// crash, kill or full disk partway through would destroy is the user's own
+// pre-existing settings, not just the hook entry being added.
+//
+// It also skipped the hard-link check: if settings.json is a hard link to
+// another file, an in-place write corrupts that file too.
+func TestHookSettingsAreWrittenAtomically(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	settings := filepath.Join(root, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A pre-existing settings file with the user's own content and a
+	// non-default permission bit, both of which must survive.
+	original := `{"model":"opus","hooks":{"PostToolUse":[{"matcher":"Edit"}]}}`
+	if err := os.WriteFile(settings, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := MergePreEditHook(root, "entire-brain"); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+
+	data, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	merged := string(data)
+	for _, want := range []string{`"model"`, "PostToolUse", "hook pre-edit"} {
+		if !strings.Contains(merged, want) {
+			t.Errorf("the merge lost %q:\n%s", want, merged)
+		}
+	}
+	// Permissions are preserved rather than reset to the default.
+	info, err := os.Stat(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("permissions = %v, want 0600 preserved from the original", got)
+	}
+	// No staging file is left behind.
+	entries, _ := os.ReadDir(filepath.Dir(settings))
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".entire-brain-hook-") {
+			t.Errorf("a staging file was left behind: %s", e.Name())
+		}
+	}
+}
+
+// A settings.json that is a hard link to another file must be refused, not
+// written through -- an in-place write would corrupt the link's other name.
+func TestHookWriteRefusesAHardLinkedSettingsFile(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(root, "important.json")
+	if err := os.WriteFile(other, []byte(`{"keep":"me"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	settings := filepath.Join(root, ".claude", "settings.json")
+	if err := os.Link(other, settings); err != nil {
+		t.Skipf("this filesystem cannot create hard links: %v", err)
+	}
+	// Non-vacuity: it must really be a link (nlink > 1).
+	if info, err := os.Stat(settings); err != nil {
+		t.Fatal(err)
+	} else if !os.SameFile(info, mustStat(t, other)) {
+		t.Fatal("fixture is not a hard link; nothing is being tested")
+	}
+
+	_, err := MergePreEditHook(root, "entire-brain")
+	if err == nil {
+		t.Error("a hard-linked settings file must be refused, not written through")
+	}
+	// The other name must be untouched.
+	data, readErr := os.ReadFile(other)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != `{"keep":"me"}` {
+		t.Errorf("the hard link's other name was corrupted: %s", data)
+	}
+}
+
+func mustStat(t *testing.T, path string) os.FileInfo {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info
+}

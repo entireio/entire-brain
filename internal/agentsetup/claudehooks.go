@@ -1,6 +1,7 @@
 package agentsetup
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -153,7 +154,8 @@ func MergePreEditHook(root, brainCmd string) (changed bool, err error) {
 	if err := repoRoot.MkdirAll(filepath.Dir(name), 0o755); err != nil {
 		return false, fmt.Errorf("create %s: %w", filepath.Dir(name), err)
 	}
-	// repoRoot.WriteFile, NOT writeContainedFile.
+	// replaceHookSettingsAtomically, NOT repoRoot.WriteFile and NOT
+	// writeContainedFile.
 	//
 	// The review's prescribed remedy was "os.OpenRoot() + resolveContainedName
 	// like other file writes in this package". The containment is right and is
@@ -165,7 +167,7 @@ func MergePreEditHook(root, brainCmd string) (changed bool, err error) {
 	//
 	// os.Root's own methods give the openat-based component resolution that
 	// closes the escape, with no allowlist.
-	if err := repoRoot.WriteFile(name, encoded, 0o644); err != nil {
+	if err := replaceHookSettingsAtomically(repoRoot, name, encoded); err != nil {
 		return false, fmt.Errorf("write %s: %w", claudeSettingsPath, err)
 	}
 	return true, nil
@@ -228,4 +230,78 @@ func preEditHookPresent(entries []any) bool {
 		}
 	}
 	return false
+}
+
+// replaceHookSettingsAtomically writes the merged settings the way every other
+// managed write in this package does: probe, stage, rename.
+//
+// repoRoot.WriteFile TRUNCATES IN PLACE. A crash, a kill or a full disk partway
+// through leaves settings.json truncated -- and this function exists to MERGE,
+// so what it would destroy is the user's own pre-existing settings, not just
+// the hook entry it was adding. That is the same class of loss the refusal
+// above was written to prevent, arriving by a different route.
+//
+// It also skips the hard-link check. If settings.json is a hard link to another
+// file, an in-place write corrupts that file too -- the attack shape this
+// package's own comments describe against .git/config.
+//
+// replaceContainedFile already does all of this, and cannot be reused: it runs
+// resolveContainedName, which admits only agent-instruction files and refuses
+// .claude/settings.json outright. So the sequence is repeated here against the
+// plain name: probe for permission and shared inodes without truncating, keep
+// the original's permissions, stage beside the target, sync, then rename --
+// a rename replaces a directory entry rather than following a link swapped in
+// underneath it.
+func replaceHookSettingsAtomically(root *os.Root, name string, content []byte) error {
+	perm := os.FileMode(0o644)
+	var original os.FileInfo
+	if file, err := root.OpenFile(name, os.O_WRONLY, 0); err == nil {
+		guardErr := refuseSharedInode(root, file, name, name, nil)
+		original, err = file.Stat()
+		closeErr := file.Close()
+		if guardErr != nil {
+			return guardErr
+		}
+		if err != nil {
+			return err
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		if !original.Mode().IsRegular() {
+			return fmt.Errorf("%s is not a regular file", name)
+		}
+		perm = original.Mode().Perm()
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	parent, err := root.OpenRoot(filepath.Dir(name))
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
+
+	temp := ".entire-brain-hook-" + rand.Text()
+	staged, err := parent.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	if err != nil {
+		return err
+	}
+	defer parent.Remove(temp)
+
+	_, writeErr := staged.Write(content)
+	if writeErr == nil && original != nil {
+		writeErr = staged.Chmod(perm)
+	}
+	if writeErr == nil {
+		writeErr = staged.Sync()
+	}
+	closeErr := staged.Close()
+	if writeErr != nil {
+		return writeErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return parent.Rename(temp, filepath.Base(name))
 }
