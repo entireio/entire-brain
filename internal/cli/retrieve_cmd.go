@@ -792,6 +792,23 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 		if len(missing) > 0 {
 			if integrity := inspectBrainFactStore(brainDir); !integrity.OK() {
 				fmt.Fprintf(out, "note: \"not found\" is NOT evidence of absence — %s\n", integrity.Warning())
+			} else if missingFactIDs(missing) {
+				// Facts are BRANCH-SCOPED, and `get fact:<id>` is usually the
+				// moment someone meets that. A bare "not found" makes the same
+				// claim the empty-result note makes -- that the item was never
+				// there -- when the fact may be sitting on another branch,
+				// which is a different answer with something the caller can
+				// act on.
+				//
+				// Integrity still wins: a store that lost facts must never be
+				// reported as merely the wrong branch.
+				//
+				// Gated on a fact-shaped id because this is a unified surface:
+				// `get conversation:<id>` missing has nothing to do with which
+				// branch holds facts, and a note about facts there is noise.
+				if note := otherBranchBlindSpot(brainDir, resolvedBranch); note != "" {
+					fmt.Fprintf(out, "%s\n", note)
+				}
 			}
 		}
 	}); err != nil {
@@ -900,4 +917,26 @@ func configureQueryCommand(cmd *cobra.Command, use string, selection *querySelec
 		}
 		return run(cmd, args)
 	}
+}
+
+// missingFactIDs reports whether any of these ids is fact-shaped.
+//
+// `get` and `multi-get` are unified surfaces that take fact, review, history,
+// conversation, doc, pattern and theme ids. The branch note is about where
+// FACTS live, so it belongs only on a miss that could be a fact: on
+// `get conversation:<id>` it would be noise attached to an unrelated answer.
+//
+// A bare id with no prefix is treated as a fact id, matching how the rest of
+// the codebase resolves them (facts_eval.go:902).
+func missingFactIDs(ids []string) bool {
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if strings.HasPrefix(id, "fact:") || !strings.Contains(id, ":") {
+			return true
+		}
+	}
+	return false
 }
