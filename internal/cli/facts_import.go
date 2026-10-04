@@ -535,6 +535,34 @@ func countKeptActiveFacts(imported, existing []factRecord) int {
 	return kept
 }
 
+// countImportsOntoInactiveFacts counts incoming ACTIVE facts whose id already
+// exists locally with a non-active status.
+//
+// This is the mirror of countKeptActiveFacts, and it was missing. Upsert unions
+// anchors and never moves Status or Text, which is right for a re-distill: a
+// fact retracted here should not spring back to life because it was distilled
+// again. The consequence for an import is that re-importing text identical to
+// a locally RETRACTED fact attaches an anchor to the retracted record, lands
+// nothing retrievable, and still counts toward "imported N of N".
+//
+// The local status is kept, for the same reason the other direction keeps it --
+// a decision made in this repository is not reversed by a foreign export -- so
+// the only thing missing was saying so.
+func countImportsOntoInactiveFacts(imported, existing []factRecord) int {
+	counted := map[string]bool{}
+	blocked := 0
+	for _, fact := range imported {
+		if fact.Status != factStatusActive || counted[fact.ID] {
+			continue
+		}
+		counted[fact.ID] = true
+		if i := indexOfFact(existing, fact.ID); i >= 0 && existing[i].Status != factStatusActive {
+			blocked++
+		}
+	}
+	return blocked
+}
+
 func newFactsImportCommand(opts Options) *cobra.Command {
 	var (
 		source  string
@@ -592,6 +620,7 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 			report.DryRun = dryRun
 
 			keptActive := 0
+			ontoInactive := 0
 			if dryRun {
 				// A dry run that cannot report this says less than the real run
 				// it is supposed to preview, which is the one thing a preview
@@ -601,7 +630,11 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 					return loadErr
 				}
 				keptActive = countKeptActiveFacts(facts, existing)
+				ontoInactive = countImportsOntoInactiveFacts(facts, existing)
 			}
+			// Set inside the write lock, read after it: a refresh failure is
+			// reported alongside a successful import rather than replacing it.
+			var manifestErr error
 			if !dryRun {
 				if err := withBrainWriteLock(brainDir, func() error {
 					existing, loadErr := loadFacts(brainDir, resolvedBranch)
@@ -619,6 +652,7 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 					// export — and the divergence is counted, so it is visible
 					// instead of silently on either side.
 					keptActive = countKeptActiveFacts(facts, existing)
+					ontoInactive = countImportsOntoInactiveFacts(facts, existing)
 					for _, fact := range facts {
 						existing = upsertFact(existing, fact)
 					}
@@ -631,14 +665,39 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 					// their counts and generation time from it, so an import
 					// that skipped this left them describing the brain as it
 					// was before the import — stale, and silently so.
-					return updateFactSourceManifestLocked(brainDir, opts.Now().UTC())
+					// A manifest refresh that fails AFTER the facts are on disk
+					// must not present as a failed import.
+					//
+					// writeFacts above already succeeded, so the facts are in
+					// the store. Returning this error aborted before any report
+					// was printed, so the user was told the import failed while
+					// their brain held every imported fact -- and would then
+					// reasonably re-run it. The import DID happen; what is
+					// wrong is that `facts status` and the freshness report
+					// still describe the brain as it was before, which is a
+					// different problem with a different remedy.
+					manifestErr = updateFactSourceManifestLocked(brainDir, opts.Now().UTC())
+					return nil
 				}); err != nil {
 					return err
+				}
+				if manifestErr != nil {
+					report.Warnings = append(report.Warnings, fmt.Sprintf(
+						"the facts were imported, but the source manifest could not be refreshed (%v); `facts status` and freshness will describe the brain as it was before this import until `entire brain refresh` runs",
+						manifestErr))
+					sort.Strings(report.Warnings)
 				}
 			}
 			// Outside the write branch: a dry run computes this too, and a
 			// preview that reports less than the run it previews is the one
 			// thing a preview must not do.
+			if ontoInactive > 0 {
+				report.Unsupported = append(report.Unsupported, fmt.Sprintf(
+					"%d imported fact(s) match text already present here with a non-active status (retracted or superseded); "+
+						"the local status is kept, so they are not retrievable -- un-retract them if the source is right",
+					ontoInactive))
+				sort.Strings(report.Unsupported)
+			}
 			if keptActive > 0 {
 				report.Unsupported = append(report.Unsupported, fmt.Sprintf(
 					"supersession not applied to %d fact(s) already active in this brain "+

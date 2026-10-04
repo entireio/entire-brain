@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -188,5 +189,72 @@ func TestImportedOriginWithRepositoryEvidenceIsNotWavedThrough(t *testing.T) {
 				t.Errorf("an imported fact naming %s evidence must be flagged; the origin and anchor disagree", name)
 			}
 		})
+	}
+}
+
+// Upsert unions anchors and never moves Status or Text, which is right for a
+// re-distill: a fact retracted here must not spring back to life because it
+// was distilled again. The consequence for an import is that text matching a
+// locally RETRACTED fact attaches an anchor to the retracted record, lands
+// nothing retrievable, and still counted toward "imported N of N".
+//
+// countKeptActiveFacts already covered the opposite direction
+// (superseded-at-source meeting active-here). This is the missing mirror.
+func TestImportOntoARetractedFactIsCountedAndReported(t *testing.T) {
+	t.Parallel()
+
+	incoming := []factRecord{{ID: "f1", Status: factStatusActive}}
+	existing := []factRecord{{ID: "f1", Status: factStatusRetracted}}
+
+	if got := countImportsOntoInactiveFacts(incoming, existing); got != 1 {
+		t.Fatalf("an import landing on a retracted fact must be counted, got %d", got)
+	}
+	// Superseded counts too: equally not retrievable.
+	if got := countImportsOntoInactiveFacts(incoming, []factRecord{{ID: "f1", Status: factStatusSuperseded}}); got != 1 {
+		t.Errorf("an import landing on a superseded fact must be counted, got %d", got)
+	}
+	// The ordinary case must stay silent, or the note becomes noise.
+	if got := countImportsOntoInactiveFacts(incoming, []factRecord{{ID: "f1", Status: factStatusActive}}); got != 0 {
+		t.Errorf("an import onto an active fact is the normal case and must not be flagged, got %d", got)
+	}
+	if got := countImportsOntoInactiveFacts(incoming, nil); got != 0 {
+		t.Errorf("a fact with no local counterpart must not be flagged, got %d", got)
+	}
+	// Each id counted once, however many memories mapped to it.
+	dupes := []factRecord{{ID: "f1", Status: factStatusActive}, {ID: "f1", Status: factStatusActive}}
+	if got := countImportsOntoInactiveFacts(dupes, existing); got != 1 {
+		t.Errorf("one id must count once, got %d", got)
+	}
+}
+
+// A manifest refresh that fails AFTER writeFacts succeeded must not present as
+// a failed import: the facts are on disk, and telling the user it failed
+// invites a re-run of something that already happened.
+//
+// This is a SOURCE-LEVEL guard, and weaker than the others here. Forcing
+// updateFactSourceManifestLocked to fail would need write-failure injection
+// the import path does not expose, so this asserts the shape instead: the error
+// is captured and reported, not returned. Stated rather than dressed up as a
+// behavioural test.
+func TestManifestRefreshFailureIsReportedNotReturned(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile("facts_import.go")
+	if err != nil {
+		t.Fatalf("read facts_import.go: %v", err)
+	}
+	src := string(data)
+	if !strings.Contains(src, "func newFactsImportCommand") {
+		t.Fatal("read the wrong file; this guard would be vacuous")
+	}
+	if strings.Contains(src, "return updateFactSourceManifestLocked(") {
+		t.Error("a manifest-refresh error is returned from inside the write lock, which aborts before any " +
+			"report: the facts are already on disk, so the user is told the import failed when it succeeded")
+	}
+	if !strings.Contains(src, "manifestErr = updateFactSourceManifestLocked(") {
+		t.Error("the manifest error is no longer captured for reporting")
+	}
+	if !strings.Contains(src, "the facts were imported, but the source manifest could not be refreshed") {
+		t.Error("the warning that distinguishes a stale manifest from a failed import is gone")
 	}
 }
