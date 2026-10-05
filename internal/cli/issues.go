@@ -37,7 +37,7 @@ func issueStore(brainDir string) issues.Store {
 			return nil, os.ErrNotExist
 		}
 		defer f.Close()
-		return io.ReadAll(f)
+		return safeReadAll(f, defaultMaxReadBytes, path)
 	}, CleanDerived: func() error {
 		if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
 			return err
