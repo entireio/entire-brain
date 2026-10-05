@@ -2710,6 +2710,20 @@ func brainIgnorePathTokens(text string) []string {
 			continue
 		}
 		tokens = append(tokens, field)
+		// Compiler locations append numeric :line[:column] suffixes. Keep
+		// the original token for real colon-bearing filenames as well as the
+		// path without that suffix; a Windows drive prefix is not numeric.
+		path := field
+		for {
+			colon := strings.LastIndexByte(path, ':')
+			if colon < 0 || path[colon+1:] == "" || strings.Trim(path[colon+1:], "0123456789") != "" {
+				break
+			}
+			path = path[:colon]
+		}
+		if path != field {
+			tokens = append(tokens, path)
+		}
 	}
 	return tokens
 }

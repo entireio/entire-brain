@@ -1460,6 +1460,13 @@ func reviewSummary(findings, scanned int) string {
 	}
 }
 
+func reviewSummaryWithCaps(findings, scanned int, caps regressionScanCaps) string {
+	if caps.Truncated() {
+		return fmt.Sprintf("Diff-less review: PARTIAL — %d suspected regression(s) in %d file(s) compared; the history scan stopped at a cap, so this is not a clean result. See the notes below.", findings, scanned)
+	}
+	return reviewSummary(findings, scanned)
+}
+
 func anomalyToReviewFinding(a regressionAnomaly) reviewFinding {
 	detail := "suspected regression at this location — verify against the brain's history."
 	if a.Expected != "" {
@@ -1502,7 +1509,7 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 	if status.Manifest != nil && status.Manifest.Sources != nil {
 		semSource = status.Manifest.Sources.Semantic
 	}
-	anomalies, scanned, warnings := detectRegressionAnomalies(status.Brain.Path, status.Repo.Root, semSource, query, ro.limit, ro.includeDeletions)
+	anomalies, scanned, warnings, caps := detectRegressionAnomaliesCapped(status.Brain.Path, status.Repo.Root, semSource, query, ro.limit, ro.includeDeletions)
 	var runtimeTraces []semanticRecord
 	if semSource != nil {
 		traces, err := semanticRuntimeTraceFacts(status.Brain.Path, semSource, query, ro.limit)
@@ -1536,7 +1543,7 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 		Query:         query,
 		RepoPath:      status.Repo.Root,
 		BrainPath:     status.Brain.Path,
-		Summary:       reviewSummary(len(findings), scanned),
+		Summary:       reviewSummaryWithCaps(len(findings), scanned, caps),
 		Checked:       scanned > 0,
 		FilesScanned:  scanned,
 		Findings:      findings,
