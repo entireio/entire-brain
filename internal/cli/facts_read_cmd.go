@@ -409,7 +409,7 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 					out["warnings"] = append(warnings, storeWarning)
 				}
 				if len(matches) == 0 {
-					if note := emptyResultBlindSpot(brainDir); note != "" && storeWarning == "" {
+					if note := emptyResultBlindSpotOnBranch(brainDir, resolvedBranch); note != "" && storeWarning == "" {
 						out["blind_spot"] = note
 					}
 				}
@@ -427,7 +427,7 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 					if storeWarning != "" {
 						fmt.Fprintln(out, "warning: "+storeWarning)
 					}
-					if note := emptyResultBlindSpot(brainDir); note != "" && storeWarning == "" {
+					if note := emptyResultBlindSpotOnBranch(brainDir, resolvedBranch); note != "" && storeWarning == "" {
 						fmt.Fprintln(out, note)
 					}
 				})
