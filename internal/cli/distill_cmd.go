@@ -683,6 +683,9 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	if distillOpts.concurrency <= 0 {
 		return fmt.Errorf("--concurrency must be greater than 0")
 	}
+	if cmd.Flags().Changed("timeout") && distillOpts.timeout <= 0 {
+		return fmt.Errorf("--timeout must be greater than 0")
+	}
 	// Only when the user actually typed it: the zero value of the option means
 	// "use the default" for every in-process caller (runDistillForBrain reads
 	// threshold <= 0 that way), so the library contract has to stay intact while
