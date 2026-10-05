@@ -1,9 +1,49 @@
 package cli
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
+
+func TestBriefReportsOtherBranchesWhenCurrentFactsAreInactive(t *testing.T) {
+	for _, status := range []string{factStatusActive, factStatusRetracted, factStatusSuperseded} {
+		t.Run(status, func(t *testing.T) {
+			f := newBrainBriefProfileFixture(t)
+			facts, err := loadFacts(f.brainDir, "feature")
+			if err != nil || len(facts) != 1 {
+				t.Fatalf("fixture facts: %d, %v", len(facts), err)
+			}
+			facts[0].Status = status
+			if err := writeFacts(f.brainDir, "feature", facts); err != nil {
+				t.Fatal(err)
+			}
+			if err := writeFacts(f.brainDir, "main", []factRecord{vitalityTestFact("retries are capped at three", "main", f.opts.Now())}); err != nil {
+				t.Fatal(err)
+			}
+			if err := updateFactSourceManifest(f.brainDir, f.opts.Now()); err != nil {
+				t.Fatal(err)
+			}
+			out, err := execute(t, NewRootCommand(f.opts), "brief", "retries", "--json", "--no-semantic")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var packet struct{ Warnings []string }
+			if err := json.Unmarshal([]byte(out), &packet); err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, warning := range packet.Warnings {
+				if strings.Contains(warning, "per branch") && strings.Contains(warning, "main") && strings.Contains(warning, "--branch") {
+					found = true
+				}
+			}
+			if found != (status != factStatusActive) {
+				t.Fatalf("branch notice (current status=%s): %v", status, packet.Warnings)
+			}
+		})
+	}
+}
 
 // Facts are stored per branch, so a brief on a feature branch can report
 // "0 facts" while the brain is full. Measured on this repository: 16 branches

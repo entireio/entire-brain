@@ -60,8 +60,8 @@ func newAgentInstructionsCommand(opts Options, install bool) *cobra.Command {
 					// unquoted path with a space -- ordinary on macOS -- made
 					// the remedy silently do the wrong thing when copied, and
 					// one with $ or a backtick would expand.
-					"warning: %s is a git repository inside %s.\nThe guide, AGENTS.md and CLAUDE.md go to the inner one. If you meant the project, run:\n    entire brain init-agents --repo %s\n\n",
-					root, outer, shellQuotedRepoDir(outer))
+					"warning: %s is a git repository inside %s.\nThe guide, AGENTS.md and CLAUDE.md go to the inner one. If you meant the project, run:\n    %s init-agents --repo %s\n\n",
+					root, outer, setupCommandPrefix(os.LookupEnv), shellQuotedRepoDir(outer))
 			}
 			// The pre-edit hook is the only PUSH path brain has; everything
 			// else waits to be asked. A merge failure must not fail the whole

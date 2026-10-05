@@ -53,6 +53,7 @@ func TestNestedRepoWarningQuotesThePathInItsSuggestedCommand(t *testing.T) {
 // form. The helper being correct is not the same as the call site using it,
 // and that gap has bitten this stack repeatedly.
 func TestNestedRepoWarningUsesTheQuotedForm(t *testing.T) {
+	t.Setenv("ENTIRE_CLI_VERSION", "")
 	outer := filepath.Join(t.TempDir(), "My Projects", "outer")
 	inner := filepath.Join(outer, "inner")
 	for _, d := range []string{filepath.Join(outer, ".git"), filepath.Join(inner, ".git")} {
@@ -85,5 +86,8 @@ func TestNestedRepoWarningUsesTheQuotedForm(t *testing.T) {
 	}
 	if !strings.Contains(got, "--repo '"+outer+"'") {
 		t.Errorf("the suggested command must carry the quoted path:\n%s", got)
+	}
+	if !strings.Contains(got, "entire-brain init-agents --repo '"+outer+"'") {
+		t.Errorf("standalone remedy names an unavailable host CLI:\n%s", got)
 	}
 }

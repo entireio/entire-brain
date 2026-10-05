@@ -1716,7 +1716,14 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			// is the single most misleading thing the brief can report: it is
 			// step 1 of the shipped guide, so it is the first thing an agent
 			// sees, and silence reads as "this brain knows nothing".
-			if len(facts) == 0 {
+			hasActiveFacts := false
+			for _, fact := range facts {
+				if fact.Status == factStatusActive {
+					hasActiveFacts = true
+					break
+				}
+			}
+			if !hasActiveFacts {
 				if note := briefBranchBlindSpot(status.Brain.Path, branch); note != "" {
 					report.Warnings = append(report.Warnings, note)
 				}
