@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -180,16 +182,44 @@ func newHookPreEditCommand(opts Options) *cobra.Command {
 		jsonOut bool
 	)
 	cmd := &cobra.Command{
-		Use:   "pre-edit --file <path>",
+		Use:   "pre-edit [--file <path>]",
 		Short: "Facts locus-anchored to a file about to be edited (silent when none)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// A harness supplies the path on stdin; --file stays for hand
+			// testing, and wins when both are present so a human can override.
+			sawPayload := false
+			// Do not read stdin when reading it would block on a human.
+			//
+			// hookFileFromStdin does io.ReadAll, which on a real TTY waits for
+			// EOF -- so running the verb by hand with no --file hung
+			// indefinitely where it previously failed fast with "--file is
+			// required". The tests did not catch it because they supply a
+			// strings.Reader, which EOFs at once.
+			//
+			// The check is on the READER, not just the process: a harness pipes
+			// stdin (not a char device) and is read; a human at a terminal gets
+			// the error; a test with its own reader is read regardless of what
+			// the test runner did with os.Stdin.
+			if strings.TrimSpace(file) == "" && !hookStdinWouldBlock(cmd.InOrStdin()) {
+				file, sawPayload = hookFileFromStdin(cmd.InOrStdin())
+			}
 			if strings.TrimSpace(file) == "" {
-				return fmt.Errorf("--file is required")
+				if sawPayload {
+					return nil // a harness called us with something we cannot read: silence
+				}
+				return fmt.Errorf("--file is required, or a hook payload naming tool_input.file_path on stdin")
 			}
 			facts, target, ok := hookLoadFacts(cmd, opts, branch)
 			if !ok {
 				return nil // no brain / no facts: silence, never an error
+			}
+			if filepath.IsAbs(file) {
+				repoRel, err := filepath.Rel(target.repoDir, file)
+				if err != nil || repoRel == ".." || strings.HasPrefix(repoRel, ".."+string(filepath.Separator)) {
+					return nil
+				}
+				file = repoRel
 			}
 			rel := filepath.ToSlash(file)
 			stem := strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
@@ -388,4 +418,79 @@ func hookEmit(cmd *cobra.Command, hits []factRecord, budget int, jsonOut bool) (
 			fmt.Fprintf(out, "[%s] %s\n", factKindOrInferred(f), f.Text)
 		}
 	})
+}
+
+// A Claude Code PreToolUse hook receives its payload as JSON on STDIN. It does
+// NOT receive a CLAUDE_FILE_PATH environment variable; no such variable exists.
+// Measured against Claude Code 2.1.288 by wiring a hook that dumped its stdin
+// and environment:
+//
+//	stdin: {"hook_event_name":"PreToolUse","tool_name":"Write",
+//	        "tool_input":{"file_path":"/abs/path","content":"…"},
+//	        "cwd":"…","session_id":"…","tool_use_id":"…"}
+//	env:   CLAUDE_PROJECT_DIR, CLAUDE_PID, CLAUDE_EFFORT, CLAUDE_TRANSCRIPT_PATH,
+//	       CLAUDE_CODE_ENTRYPOINT, … and no CLAUDE_FILE_PATH
+//
+// The first wiring of this hook passed `--file "$CLAUDE_FILE_PATH"`, which
+// expanded to the empty string on every edit, so the hook errored out every
+// time and served nothing. It was a no-op that looked installed.
+type agentHookPayload struct {
+	HookEventName string `json:"hook_event_name"`
+	ToolName      string `json:"tool_name"`
+	ToolInput     struct {
+		FilePath string `json:"file_path"`
+		// NotebookEdit uses notebook_path rather than file_path.
+		NotebookPath string `json:"notebook_path"`
+	} `json:"tool_input"`
+}
+
+// hookStdinWouldBlock reports whether reading this reader would wait on a
+// person: it is the process's real stdin, and that stdin is a terminal.
+//
+// A harness always redirects stdin, so this is false for every real hook
+// invocation and true only for someone running the verb by hand.
+func hookStdinWouldBlock(in io.Reader) bool {
+	return in == os.Stdin && stdinIsTerminal()
+}
+
+// hookFileFromStdin reads a harness hook payload and returns the path of the
+// file about to be edited.
+//
+// Every failure is a silent empty string, never an error. The hook's contract
+// is that a data problem is silence: a hook that fails breaks the harness it is
+// wired into, and an edit must never be blocked because the brain could not
+// parse something. The caller decides whether an empty result is fatal, which
+// keeps `--file` hand-testing debuggable.
+func hookFileFromStdin(in io.Reader) (path string, sawInput bool) {
+	if in == nil {
+		return "", false
+	}
+	// A hook payload is small; cap the read so a non-hook stdin (a piped file,
+	// a terminal left open) cannot hang or balloon.
+	const maxPayloadBytes = 1 << 20
+	data, err := io.ReadAll(io.LimitReader(in, maxPayloadBytes+1))
+	if len(data) > maxPayloadBytes {
+		return "", true
+	}
+	if err != nil || len(strings.TrimSpace(string(data))) == 0 {
+		return "", false
+	}
+	// sawInput is true from here on, and that distinction is the whole point.
+	// Something INVOKED us with a payload. If we cannot make sense of it, the
+	// answer is silence and exit 0, never an error: this runs as a PreToolUse
+	// hook on every edit, and a hook that reports an error on every edit is a
+	// hook that gets deleted from the settings within a day -- the same
+	// doctrine that makes an empty fact set silent rather than loud.
+	//
+	// An error is reserved for the case where NOTHING supplied a path: no
+	// stdin and no --file. That is a human hand-testing the verb wrong, and
+	// they need to be told.
+	var payload agentHookPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return "", true
+	}
+	if p := strings.TrimSpace(payload.ToolInput.FilePath); p != "" {
+		return p, true
+	}
+	return strings.TrimSpace(payload.ToolInput.NotebookPath), true
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/agentsetup"
 	"io"
 	"io/fs"
 	"os"
@@ -979,7 +980,31 @@ func newInspectImpactCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&impactOpts.depth, "depth", 1, "Relation traversal depth")
 	cmd.Flags().BoolVar(&impactOpts.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().BoolVar(&impactOpts.details, "details", false, "Include full semantic records with provider metadata")
+	hintPositionalSymbol(cmd)
 	return cmd
+}
+
+// hintPositionalSymbol turns cobra's bare "unknown flag: --symbol" into an
+// answer.
+//
+// The published guide documents `inspect impact --symbol ValidateToken`. There
+// is no such flag -- the symbol is positional here and on the sibling commands
+// -- so anyone following the docs gets a flag error with nothing to act on,
+// and no reason to suspect the page rather than their own typing.
+//
+// The flag is deliberately NOT added. `inspect context` and `inspect tests`
+// take their symbol positionally too, so accepting --symbol on one of the
+// three would make this the inconsistent one and bend a working interface
+// around a typo. Naming the right form costs nothing and unblocks the reader
+// in one line; the page is corrected separately.
+func hintPositionalSymbol(cmd *cobra.Command) {
+	cmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
+		if err == nil || !strings.Contains(err.Error(), "--symbol") {
+			return err
+		}
+		return fmt.Errorf("%w; this command takes the symbol as an argument, not a flag: `%s %s <symbol>`",
+			err, setupCommandPrefix(os.LookupEnv), c.CommandPath()[strings.Index(c.CommandPath(), " ")+1:])
+	})
 }
 
 func newInspectChangesCommand(opts Options) *cobra.Command {
@@ -1687,6 +1712,22 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		if factsErr != nil {
 			report.Warnings = append(report.Warnings, "facts unavailable: "+factsErr.Error())
 		} else {
+			// An empty fact set on THIS branch while other branches hold facts
+			// is the single most misleading thing the brief can report: it is
+			// step 1 of the shipped guide, so it is the first thing an agent
+			// sees, and silence reads as "this brain knows nothing".
+			hasActiveFacts := false
+			for _, fact := range facts {
+				if fact.Status == factStatusActive {
+					hasActiveFacts = true
+					break
+				}
+			}
+			if !hasActiveFacts {
+				if note := briefBranchBlindSpot(status.Brain.Path, branch); note != "" {
+					report.Warnings = append(report.Warnings, note)
+				}
+			}
 			if len(briefGlobalFacts) > 0 {
 				facts, briefGlobalIDs = mergeGlobalFacts(facts, briefGlobalFacts)
 			}
@@ -4619,6 +4660,18 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	// is inspected rather than reported missing.
 	recordedSetupOpts, _, _ := setupOptionsFromRecord(filepath.Dir(storage.HeadPath))
 	onboarding := buildBrainOnboardingStatus(ctx, opts, storage, manifest, recordedSetupOpts)
+	// The repo root from the REPORT, not opts.Env: the latter is empty on the
+	// ordinary `status` path, which is why the first version of this check
+	// never fired. report.Repo.Root is the resolved root this status is about.
+	if root := strings.TrimSpace(report.Repo.Root); root != "" {
+		if wired, missing := agentsetup.AgentsWired(root); !wired {
+			onboarding.AgentsUnwired = true
+			onboarding.AgentsMissing = missing
+			// Keep the published JSON shape while exposing the same repair
+			// diagnostic to CLI JSON and MCP consumers through warnings.
+			report.Warnings = append(report.Warnings, "agents not wired: missing "+strings.Join(missing, ", ")+"; run "+setupCommandPrefix(os.LookupEnv)+" init-agents so your agent uses this brain")
+		}
+	}
 	markUnreadableSemanticComponent(&onboarding, semanticFreshnessOf(report))
 	markMissingDeclaredIndexes(&onboarding, storage.BrainDir, manifest)
 	report.Onboarding = &onboarding

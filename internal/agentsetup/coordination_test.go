@@ -134,18 +134,31 @@ func TestCoordinationActivationOrdersAndStableMigration(t *testing.T) {
 }
 func TestCoordinationNoRuntimeProbes(t *testing.T) {
 	for _, guide := range []string{GraphGuide, BrainGuide(), CombinedGuide} {
-		for _, bad := range []string{"entire plugin list", "entire graph version", "entire brain version", "command -v", "setup.json", "if Brain is installed", "FIRST action", "SEARCH FIRST"} {
+		// "FIRST action" and "SEARCH FIRST" used to be banned here alongside
+		// these probes. They are not probes. They are the directive that makes
+		// the product get used, and banning them was benchmark arm-fairness
+		// doctrine applied to shipped text -- correct for an A/B cell, fatal in
+		// a user's repo, where there is no second arm. The bans below are the
+		// genuine ones: a guide must not tell an agent to go probing its own
+		// installation at runtime.
+		for _, bad := range []string{"entire plugin list", "entire graph version", "entire brain version", "command -v", "setup.json", "if Brain is installed"} {
 			if strings.Contains(guide, bad) {
 				t.Errorf("guide contains %q", bad)
 			}
 		}
-		for _, want := range []string{"sufficient locations", "focused tests", "untrusted", "Do not automatically install"} {
+		// "sufficient locations" was REQUIRED here, which is how the permissive
+		// regression was pinned in place from both directions at once. It is now
+		// forbidden -- see TestNormalGuideStaysDirective below.
+		for _, want := range []string{"focused tests", "untrusted", "Do not automatically install"} {
 			if !strings.Contains(guide, want) {
 				t.Errorf("guide missing %q", want)
 			}
 		}
 	}
-	for _, want := range []string{`entire brain brief "<task>" --json`, "equivalent task context", "redundant", "identified gap", "entities history", "memory-informed review", "workspace", "working tree", "stored index"} {
+	// "equivalent task context" named the brief's self-assessed exit and is gone
+	// with it; "redundant" survives only as part of the narrower rule that the
+	// two tools must not be asked the SAME question.
+	for _, want := range []string{`entire brain brief "<task>" --json`, "identified gap", "entities history", "memory-informed review", "workspace", "working tree", "stored index"} {
 		if !strings.Contains(CombinedGuide, want) {
 			t.Errorf("combined guide missing %q", want)
 		}
@@ -346,4 +359,121 @@ func localKey(p string) string {
 		base = "repo"
 	}
 	return fmt.Sprintf("local/%s-%x", base, sum[:6])
+}
+
+// TestNormalGuideStaysDirective is the guard the permissive regression got past.
+//
+// Shipped guidance has to be imperative. An agent offered a self-assessed exit
+// takes it: skipping is always the locally cheaper move, and "I already have
+// enough context" is always available as a reason. Measured after the 2026-09-14
+// wording change: 332 graph calls against 96,987 exploration calls (0.34%), and a
+// graph-first rate of 0 in every session sampled.
+//
+// If a benchmark needs capability-only wording, it gets its own string. It does
+// not get to soften this one.
+func TestNormalGuideStaysDirective(t *testing.T) {
+	for name, guide := range map[string]string{"graph": GraphGuide, "brain": BrainGuide(), "combined": CombinedGuide} {
+		// Every exit that was present in the regression, by its exact words.
+		for _, exit := range []string{
+			"sufficient locations",
+			"Skip ceremonial queries",
+			"do not require a redundant",
+			"Skip this when equivalent task context",
+		} {
+			if strings.Contains(guide, exit) {
+				t.Errorf("%s guide carries the self-assessed exit %q; shipped guidance is imperative", name, exit)
+			}
+		}
+	}
+	// ...and the obligation itself is present, not merely the absence of exits.
+	//
+	// The two guides state it differently ON PURPOSE. A Graph-only guide has
+	// one tool, so "your FIRST action MUST be ONE Graph search" is unambiguous.
+	// The COMBINED guide has two, and stating two first-action absolutes is
+	// what made a measured session drop Brain altogether -- an agent can only
+	// do one thing first, so it picks. The combined guide therefore states an
+	// ORDER, and the assertion checks for the order rather than the word MUST.
+	if !strings.Contains(GraphGuide, "MUST be ONE Graph search") {
+		t.Error("the Graph-only guide no longer states the search-first obligation")
+	}
+	if !strings.Contains(GraphGuide, "Do not skip the search") {
+		t.Error("the Graph-only guide no longer closes the sufficiency exit")
+	}
+	for _, want := range []string{
+		"Both tools run, in this order",
+		`1. entire brain brief`,
+		`2. entire graph search`,
+		"do not treat having done one as having done the other",
+	} {
+		if !strings.Contains(CombinedGuide, want) {
+			t.Errorf("the combined guide no longer states the ordered sequence; missing %q", want)
+		}
+	}
+	// And it must NOT reintroduce a second first-action absolute beside the
+	// sequence: that is the collision this replaced.
+	if strings.Contains(CombinedGuide, "FIRST action") {
+		t.Error("the combined guide carries a second first-action absolute beside the ordered " +
+			"sequence; two absolutes let the agent pick one and drop the other")
+	}
+}
+
+// TestGuidesNameOnlyCommandsGraphExposes covers issue #323: the guide named
+// `entire graph query`, which does not exist in the released v0.4.0 dispatch.
+// A guide that names a missing command teaches the agent the tool is broken,
+// which is worse than saying nothing. `search` is correct on 0.4.0 and remains
+// an alias on 0.4.1+.
+func TestGuidesNameOnlyCommandsGraphExposes(t *testing.T) {
+	for name, guide := range map[string]string{
+		"graph": GraphGuide, "brain": BrainGuide(), "combined": CombinedGuide,
+		"strict-graph": strictGraphWorkflow, "strict-combined": strictCombinedWorkflow,
+	} {
+		if strings.Contains(guide, "entire graph query") || strings.Contains(guide, "Use Graph query,") {
+			t.Errorf("%s guide names `entire graph query`, absent from released graph (#323); use `search`", name)
+		}
+	}
+}
+
+// A Brain-only activation produces a guide with NO Graph instruction, because
+// activation is recorded in the guide rather than probed from the installed
+// plugins (preview.go: "activation does not depend on plugin inventory").
+//
+// Measured in a clean clone: `entire brain init-agents` alone yields
+// `enabled:["brain"]` and zero occurrences of the Graph directive. So the
+// directive restored for the combined guide is unreachable for anyone who
+// follows Brain's README without also activating Graph — which is why the
+// README now names both commands and their order.
+func TestBrainOnlyActivationHasNoGraphInstruction(t *testing.T) {
+	brainOnly := BrainGuide()
+	for _, graphism := range []string{"MUST be ONE Graph search", "entire graph search", "entire graph query"} {
+		if strings.Contains(brainOnly, graphism) {
+			t.Errorf("the Brain-only guide names %q; it must not instruct an agent to use a product that was never activated", graphism)
+		}
+	}
+	// ...and the combined guide must carry the Graph step, or it reaches nobody.
+	if !strings.Contains(CombinedGuide, "entire graph search") {
+		t.Error("the combined guide lost the Graph step; only the combined guide can carry it")
+	}
+}
+
+// The README must name both activation commands and their order. Brain's
+// documented path produced a guide with no Graph instruction, so an agent could
+// not have followed one.
+func TestREADMEDocumentsBothActivationsAndTheirOrder(t *testing.T) {
+	data, err := os.ReadFile("../../README.md")
+	if err != nil {
+		t.Fatalf("read README: %v", err)
+	}
+	readme := string(data)
+	if len(readme) == 0 {
+		t.Fatal("README is empty; this assertion would be vacuous")
+	}
+	for _, want := range []string{"entire graph init-agents", "entire brain init-agents"} {
+		if !strings.Contains(readme, want) {
+			t.Errorf("README does not tell the user to run %q", want)
+		}
+	}
+	if !strings.Contains(readme, "last") {
+		t.Error("README does not state the activation ORDER; each product rewrites the guide from its own text, " +
+			"so the one run last decides the wording")
+	}
 }

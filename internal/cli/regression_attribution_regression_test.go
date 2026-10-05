@@ -27,7 +27,7 @@ func TestRegressionDetectorAttributesDeletedAssignmentToRenamedHintedSite(t *tes
 	if err := os.WriteFile(noise, []byte("package aaa\nfunc noise() { replacement = resolved }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	anomalies, _, warnings := detectRegressionAnomalies(brainDir, repoRoot, nil, "TranscriptPath resolved renamed", 20, true)
+	anomalies, _, warnings, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "TranscriptPath resolved renamed", 20, true)
 	if len(warnings) != 0 {
 		t.Fatalf("unexpected detector warnings: %v", warnings)
 	}
@@ -44,7 +44,7 @@ func TestRegressionDetectorAttributesDeletedAssignmentToRenamedHintedSite(t *tes
 	if err := os.WriteFile(filepath.Join(repoRoot, "pkg", "renamed.go"), []byte("package pkg\nfunc renamed() string {\n\tstate.TranscriptPath = resolved\n\treturn resolved\n}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	anomalies, _, _ = detectRegressionAnomalies(brainDir, repoRoot, nil, "TranscriptPath resolved renamed", 20, true)
+	anomalies, _, _, _ = detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "TranscriptPath resolved renamed", 20, true)
 	for _, anomaly := range anomalies {
 		if anomaly.Kind == "deleted" && anomaly.File == "pkg/renamed.go" {
 			t.Fatalf("intact assignment produced deletion anomaly: %+v", anomaly)

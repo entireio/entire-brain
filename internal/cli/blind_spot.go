@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -32,6 +34,14 @@ func distillCoverage(manifest *exportManifest) (last time.Time, undigested int, 
 // gone" decides whether the line is true.
 // Empty string when nothing useful can be said (no manifest at all).
 func emptyResultBlindSpot(brainDir string) string {
+	return emptyResultBlindSpotOnBranch(brainDir, "")
+}
+
+// emptyResultBlindSpotOnBranch is emptyResultBlindSpot for callers that know
+// which branch they queried. Facts are stored per branch, so "nothing here" and
+// "nothing anywhere" are different answers and only this variant can tell them
+// apart.
+func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
 	manifest, err := loadBrainManifest(brainDir)
 	// A missing manifest loads as an empty struct, not an error, and a nil
 	// Sources is exactly that case: normalizeBrainManifest gives every manifest
@@ -53,6 +63,29 @@ func emptyResultBlindSpot(brainDir string) string {
 	if integrity := inspectFactStore(brainDir, manifest.Sources.Facts); !integrity.OK() {
 		return "note: this empty result is NOT evidence of absence — " + integrity.Warning()
 	}
+	// Facts are recorded against the branch the session ran on. Sessions run on
+	// feature branches and queries run from main, so an empty result on one
+	// branch is the ordinary case rather than a signal about the corpus.
+	//
+	// THIS IS CHECKED BEFORE THE COVERAGE NOTES, and the order is the whole
+	// point. Both can be true at once, and when they are, naming the branch
+	// that holds the facts is the only one the caller can act on: it ends with
+	// a flag they can retype, where "coverage of older sessions is unknown"
+	// ends with nothing to do.
+	//
+	// Checked last, this feature was unreachable in the case it was built for.
+	// `undigested > 0` is true in every repository where a session has been
+	// captured since the last distillation -- which is every actively worked
+	// repository, and you are on a feature branch BECAUSE you have been
+	// working. The fixtures never caught it because they set LastDistilledAt
+	// to now with sessions two hours old, so undigested was always 0 and the
+	// branch path was never exercised.
+	//
+	// The integrity check above still wins: a store that lost facts must never
+	// be reported as merely the wrong branch.
+	if note := otherBranchBlindSpot(brainDir, branch); note != "" {
+		return note
+	}
 	last, undigested, ok := distillCoverage(manifest)
 	if !ok {
 		if manifest.Sources.Sessions != nil && len(manifest.Sources.Sessions.Sessions) > 0 {
@@ -64,6 +97,51 @@ func emptyResultBlindSpot(brainDir string) string {
 		return fmt.Sprintf("note: last distillation %s; %d session(s) captured since; coverage of older sessions is unknown", last.Format("2006-01-02"), undigested)
 	}
 	return fmt.Sprintf("note: last distillation %s; complete session coverage is unknown, so this empty result is not evidence of absence", last.Format("2006-01-02"))
+}
+
+// otherBranchBlindSpot reports active facts held on branches other than the one
+// queried. It returns empty when the caller did not say which branch it
+// queried, when the store cannot be read, or when no other branch holds
+// anything active — in each case the caller falls through to its normal note.
+func otherBranchBlindSpot(brainDir, branch string) string {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return ""
+	}
+	byBranch, err := loadAllFactBranches(brainDir)
+	if err != nil {
+		return ""
+	}
+	total := 0
+	var names []string
+	for other, records := range byBranch {
+		if other == branch {
+			continue
+		}
+		active := 0
+		for _, record := range records {
+			if record.Status == factStatusActive {
+				active++
+			}
+		}
+		if active == 0 {
+			continue
+		}
+		total += active
+		names = append(names, other)
+	}
+	if total == 0 {
+		return ""
+	}
+	// Deterministic: loadAllFactBranches returns a map, and Go randomises map
+	// iteration, so an unsorted list would reorder between identical runs.
+	sort.Strings(names)
+	shown, suffix := names, ""
+	if len(shown) > 3 {
+		shown, suffix = shown[:3], ", ..."
+	}
+	return fmt.Sprintf("note: no matching facts on %s, but %d active fact(s) on %d other branch(es): %s%s — retry with --branch",
+		branch, total, len(names), strings.Join(shown, ", "), suffix)
 }
 
 // noBrainBlindSpot is the note for a repository whose brain does not exist or
@@ -91,4 +169,130 @@ func noBrainBlindSpot(loadErr error) string {
 		return "note: this repository's brain could not be read, so this empty result is not evidence of absence; run `entire brain status` for the reason"
 	}
 	return "note: no brain has been built for this repository, so nothing is indexed here and this empty result is not evidence of absence; run `entire brain setup`"
+}
+
+// briefBranchBlindSpot explains an empty fact set on the CURRENT branch when
+// other branches hold facts, and names them.
+//
+// This is the trap in its most damaging form. Facts are stored per branch, so
+// `brain brief` on a feature branch reports "0 facts" while the brain is full
+// — and the brief is step 1 of the shipped agent guide, so this is the FIRST
+// thing an agent sees. Nothing in the packet said why, which reads as "this
+// brain knows nothing about your project" rather than "you are on a branch
+// that has none".
+//
+// Measured on this repository: `recall "distill"` on a feature branch returns
+// "no facts", and the same query with `--branch main` returns a fact. An agent
+// given the empty answer has no way to discover the second half.
+//
+// recall and query reach emptyResultBlindSpot for this; brief did not, despite
+// that function's own comment claiming to cover every retrieval surface.
+func briefBranchBlindSpot(brainDir, branch string) string {
+	if brainDir == "" {
+		return ""
+	}
+	byBranch, err := loadAllFactBranches(brainDir)
+	if err != nil || len(byBranch) == 0 {
+		return ""
+	}
+	// ACTIVE facts only. A branch whose facts are all retracted or superseded
+	// holds nothing retrievable, so naming it sends the reader to re-run their
+	// query somewhere it will also come back empty -- a false lead dressed as
+	// a remedy, which is worse than the silence this note replaces.
+	//
+	// MERGE NOTE: PR #318 adds otherBranchBlindSpot to this file, doing the
+	// same job for the retrieval surfaces. The two are deliberately
+	// behaviourally IDENTICAL in what they count (active facts on other
+	// branches) and differ only in phrasing for their surface. Whichever of
+	// #318 and #331 lands second should collapse this into a call to that
+	// function with brief's wording -- a pure refactor, no behaviour change.
+	// They diverged on exactly this active-vs-any check until it was fixed
+	// here, which is the state that would have made the collapse dangerous.
+	others := make([]string, 0, len(byBranch))
+	for name, facts := range byBranch {
+		if name == branch {
+			continue
+		}
+		active := 0
+		for _, fact := range facts {
+			if fact.Status == factStatusActive {
+				active++
+			}
+		}
+		if active == 0 {
+			continue
+		}
+		others = append(others, name)
+	}
+	if len(others) == 0 {
+		return ""
+	}
+	sort.Strings(others)
+	// Name at most three: the point is that the facts are reachable, and a
+	// long list of branches buries that in a surface that is already dense.
+	shown := others
+	suffix := ""
+	if len(shown) > 3 {
+		suffix = fmt.Sprintf(" (and %d more)", len(shown)-3)
+		shown = shown[:3]
+	}
+	return fmt.Sprintf(
+		"no facts on branch %q, but %d branch(es) hold facts: %s%s — facts are stored per branch; retry with `--branch %s`",
+		branch, len(others), strings.Join(shown, ", "), suffix, shown[0])
+}
+
+// otherBranchSessionBlindSpot reports captured sessions held on branches other
+// than the one scanned. It is the SESSION-unit twin of otherBranchBlindSpot.
+//
+// Evidence recall scans canonical sessions on one branch and returns spans, not
+// facts. Reusing the fact note here would attach "N active fact(s) on M other
+// branch(es)" to a result that is not about facts -- a note that does not match
+// the shape of the answer is the hazard the review named on the unified
+// surfaces, and it applies just as much to this one.
+//
+// So the discipline is the same and the unit is the result's own: an empty
+// evidence result on a branch holding no sessions, while other branches hold
+// them, is the same wrong-branch trap and the same actionable remedy.
+//
+// Empty when the caller did not say which branch it scanned, when the manifest
+// cannot be read, or when no other branch holds a session.
+func otherBranchSessionBlindSpot(brainDir, branch string) string {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return ""
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil || manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
+		return ""
+	}
+	byBranch := map[string]int{}
+	here := 0
+	for _, session := range manifest.Sources.Sessions.Sessions {
+		name := strings.TrimSpace(session.Branch)
+		if name == "" {
+			continue
+		}
+		if name == branch {
+			here++
+			continue
+		}
+		byBranch[name]++
+	}
+	// Sessions on THIS branch mean the scan had material to work with, so an
+	// empty result is about the query, not the branch.
+	if here > 0 || len(byBranch) == 0 {
+		return ""
+	}
+	total := 0
+	names := make([]string, 0, len(byBranch))
+	for name, n := range byBranch {
+		total += n
+		names = append(names, name)
+	}
+	// Map iteration is randomised, so an unsorted list would differ between
+	// identical runs.
+	sort.Strings(names)
+	return fmt.Sprintf(
+		"note: no sessions were captured on %s; %d session(s) on %d other branch(es): %s — retry with --branch <name>",
+		branch, total, len(names), strings.Join(names, ", "))
 }

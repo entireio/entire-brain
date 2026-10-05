@@ -446,11 +446,6 @@ func regressionScanHistoryCapped(brainDir string, ids []string) ([]changeSignal,
 	return changes, deletes, files, caps, nil
 }
 
-func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSourceManifest, query string, limit int, includeDeletions bool) ([]regressionAnomaly, int, []string) {
-	anomalies, scanned, warnings, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, semSource, query, limit, includeDeletions)
-	return anomalies, scanned, warnings
-}
-
 // detectRegressionAnomaliesCapped is detectRegressionAnomalies plus the raw-history truncation
 // report. The caps are also rendered into warnings, but a caller that writes a summary sentence
 // needs the flag itself: a note printed under a clean-bill-of-health headline is not a correction.
@@ -1449,8 +1444,10 @@ func regressionNoAnomaliesLine(query string, scanned int, historyTruncated bool)
 // scanned is the number of current files actually read and compared, so
 // scanned == 0 is the precise, non-string-matched test for "nothing was
 // checked".
-func reviewSummary(findings, scanned int) string {
+func reviewSummary(findings, scanned int, historyTruncated bool) string {
 	switch {
+	case historyTruncated && scanned > 0:
+		return fmt.Sprintf("Diff-less review: PARTIAL — %d suspected regression(s) in %d file(s) compared; the history scan stopped at a cap, so this is not a clean result and additional regressions may exist. See the notes below.", findings, scanned)
 	case findings > 0:
 		return fmt.Sprintf("Diff-less review: %d suspected regression(s) — verify each before acting.", findings)
 	case scanned == 0:
@@ -1458,13 +1455,6 @@ func reviewSummary(findings, scanned int) string {
 	default:
 		return fmt.Sprintf("Diff-less review: no suspected regressions (%d file(s) compared against the brain's memory).", scanned)
 	}
-}
-
-func reviewSummaryWithCaps(findings, scanned int, caps regressionScanCaps) string {
-	if caps.Truncated() {
-		return fmt.Sprintf("Diff-less review: PARTIAL — %d suspected regression(s) in %d file(s) compared; the history scan stopped at a cap, so this is not a clean result. See the notes below.", findings, scanned)
-	}
-	return reviewSummary(findings, scanned)
 }
 
 func anomalyToReviewFinding(a regressionAnomaly) reviewFinding {
@@ -1543,7 +1533,7 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 		Query:         query,
 		RepoPath:      status.Repo.Root,
 		BrainPath:     status.Brain.Path,
-		Summary:       reviewSummaryWithCaps(len(findings), scanned, caps),
+		Summary:       reviewSummary(len(findings), scanned, caps.Truncated()),
 		Checked:       scanned > 0,
 		FilesScanned:  scanned,
 		Findings:      findings,

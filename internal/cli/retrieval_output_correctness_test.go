@@ -51,7 +51,7 @@ func TestRegressionHistoryScanCapIsSurfacedNotSilent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, warnings := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false)
+	_, _, warnings, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false)
 	found := false
 	for _, w := range warnings {
 		if strings.Contains(w, "stopped early") && strings.Contains(w, "partial") {

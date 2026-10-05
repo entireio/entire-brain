@@ -325,7 +325,19 @@ func wrapJSONErrorRendering(cmd *cobra.Command) {
 			return renderedCommandError{err: err}
 		}
 	}
+	// CHAIN, do not replace. This walks every child, and a plain
+	// SetFlagErrorFunc here silently discarded any handler a command had set
+	// for itself -- which is how the `--symbol` hint on `inspect impact`
+	// vanished without a trace: the command set it, this overwrote it, and the
+	// user still saw cobra's bare "unknown flag".
+	//
+	// Any command may now improve its own flag error, and this still gets to
+	// render the JSON form on top.
+	prior := flagErrorFuncOf(cmd)
 	cmd.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
+		if prior != nil {
+			err = prior(cmd, err)
+		}
 		if !commandWantsJSONError(cmd) {
 			return err
 		}
@@ -335,6 +347,25 @@ func wrapJSONErrorRendering(cmd *cobra.Command) {
 	for _, child := range cmd.Commands() {
 		wrapJSONErrorRendering(child)
 	}
+}
+
+// flagErrorFuncOf returns a command's OWN flag-error handler, or nil when it
+// has none.
+//
+// cobra's FlagErrorFunc() walks up to the root when a command has not set one,
+// so calling it directly would return the parent's and chain it to itself.
+// Comparing against the parent's is what distinguishes "this command set one"
+// from "this command inherited one".
+func flagErrorFuncOf(cmd *cobra.Command) func(*cobra.Command, error) error {
+	own := cmd.FlagErrorFunc()
+	if own == nil || cmd.Parent() == nil {
+		return own
+	}
+	inherited := cmd.Parent().FlagErrorFunc()
+	if inherited != nil && reflect.ValueOf(own).Pointer() == reflect.ValueOf(inherited).Pointer() {
+		return nil
+	}
+	return own
 }
 
 func commandWantsJSONError(cmd *cobra.Command) bool {
