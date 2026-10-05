@@ -118,3 +118,18 @@ func TestEmptySymbolNoteOmitsTheCountWhenNothingIsTruncated(t *testing.T) {
 		t.Errorf("nothing was truncated, so the note must not say it was:\n%s", got)
 	}
 }
+
+func TestEmptySymbolNoteDoesNotClaimSnapshotIndexIsEmpty(t *testing.T) {
+	var out bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	printSemanticNoSymbolMatch(cmd, "", "missingSymbol")
+	if !strings.Contains(out.String(), "no symbols found") {
+		t.Fatalf("missing no-match diagnostic: %s", out.String())
+	}
+	for _, unwanted := range []string{"holds no symbols at all", "refresh --semantic"} {
+		if strings.Contains(out.String(), unwanted) {
+			t.Errorf("snapshot-only search must not claim an empty inventory: %s", out.String())
+		}
+	}
+}

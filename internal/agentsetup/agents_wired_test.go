@@ -78,3 +78,17 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestAgentsWiredAfterInstallingIntoLargeInstructions(t *testing.T) {
+	root := t.TempDir()
+	original := strings.Repeat("Repository instructions.\n", 4000)
+	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
+		writeFile(t, filepath.Join(root, name), original)
+	}
+	if err := Install(root, func() (string, error) { return BrainGuide(), nil }, &strings.Builder{}); err != nil {
+		t.Fatal(err)
+	}
+	if wired, missing := AgentsWired(root); !wired {
+		t.Fatalf("successful installation must be detected: %v", missing)
+	}
+}

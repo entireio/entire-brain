@@ -72,7 +72,7 @@ Your FIRST action on any task that requires finding code MUST be ONE Graph searc
 This holds for small edits, follow-up work, and tasks that already name the file.
 A named file answers where code is; it does not answer what else depends on it.
 Do not skip the search on the grounds that the available context feels sufficient.
-Then reuse the reported locations and inspect source. Use Graph query, def, neighbors, and impact
+Then reuse the reported locations and inspect source. Use Graph search, def, neighbors, and impact
 for additional discovery and structural analysis. Use Graph diff, commit, and
 checkpoint for semantic comparisons of code revisions.
 Graph interactive queries normally inspect the working tree; --head selects committed

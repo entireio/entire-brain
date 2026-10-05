@@ -3735,6 +3735,11 @@ func printSemanticNoMatch(cmd *cobra.Command, kind, query string) {
 // An inventory of what the index DOES hold answers it in one line.
 func printSemanticNoSymbolMatch(cmd *cobra.Command, storePath, query string) {
 	printSemanticNoMatch(cmd, "symbols", query)
+	// Snapshot-backed searches have no SQLite inventory to inspect. A missing
+	// inventory does not imply that the searched snapshot has no symbols.
+	if storePath == "" {
+		return
+	}
 	total, distinctKinds, kinds := semanticIndexKindInventory(storePath)
 	if total == 0 {
 		fmt.Fprintln(cmd.OutOrStdout(), "note: the semantic index holds no symbols at all — run `entire brain refresh --semantic`")

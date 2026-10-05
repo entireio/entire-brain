@@ -214,6 +214,13 @@ func newHookPreEditCommand(opts Options) *cobra.Command {
 			if !ok {
 				return nil // no brain / no facts: silence, never an error
 			}
+			if filepath.IsAbs(file) {
+				repoRel, err := filepath.Rel(target.repoDir, file)
+				if err != nil || repoRel == ".." || strings.HasPrefix(repoRel, ".."+string(filepath.Separator)) {
+					return nil
+				}
+				file = repoRel
+			}
 			rel := filepath.ToSlash(file)
 			stem := strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
 			// The stem ("distill_cmd") matches facts that name the file without

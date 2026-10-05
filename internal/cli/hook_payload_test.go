@@ -2,8 +2,10 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -223,5 +225,41 @@ func TestTheHookCallSiteGuardsTheStdinRead(t *testing.T) {
 	if !strings.Contains(src, `!hookStdinWouldBlock(cmd.InOrStdin())`) {
 		t.Error("the stdin read is not gated, so `hook pre-edit` with no --file hangs on a terminal " +
 			"instead of reporting that --file is required")
+	}
+}
+
+func TestPreEditMatchesRepositoryPathsFromAbsolutePayloads(t *testing.T) {
+	f := newVerifyFixture(t)
+	fact := vitalityTestFact("`internal/cli/distill_cmd.go` owns the distill flag surface.", "main", f.now)
+	if err := writeFacts(f.brainDir, "main", []factRecord{fact}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, path string
+		want       bool
+	}{
+		{"relative", "internal/cli/distill_cmd.go", true},
+		{"absolute", filepath.Join(f.repoDir, "internal", "cli", "distill_cmd.go"), true},
+		{"unrelated", filepath.Join(f.repoDir, "other.go"), false},
+		{"outside", filepath.Join(t.TempDir(), "internal", "cli", "distill_cmd.go"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload, err := json.Marshal(map[string]any{"tool_input": map[string]string{"file_path": tc.path}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var out bytes.Buffer
+			cmd := NewRootCommand(f.opts)
+			cmd.SetIn(bytes.NewReader(payload))
+			cmd.SetOut(&out)
+			cmd.SetErr(&out)
+			cmd.SetArgs([]string{"hook", "pre-edit"})
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Contains(out.String(), "distill flag surface"); got != tc.want {
+				t.Fatalf("served=%v, want %v: %s", got, tc.want, out.String())
+			}
+		})
 	}
 }

@@ -2145,18 +2145,9 @@ func regularFileExists(root *os.Root, name string) bool {
 	return err == nil && info.Mode().IsRegular()
 }
 
-// fileContains reads a bounded prefix: the managed pointer is written at the
-// top of the file, and a repository's own instructions below it can be large.
+// fileContains uses the same contained read bound as init-agents. Existing
+// instructions can place the managed pointer anywhere within that bound.
 func fileContains(root *os.Root, name, needle string) bool {
-	f, err := root.Open(name)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-	buf := make([]byte, 64<<10)
-	n, readErr := io.ReadFull(f, buf)
-	if n == 0 && readErr != nil {
-		return false
-	}
-	return strings.Contains(string(buf[:n]), needle)
+	content, err := readContainedFile(root, name, maxInstructionFileBytes)
+	return err == nil && bytes.Contains(content, []byte(needle))
 }

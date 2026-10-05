@@ -427,7 +427,7 @@ func TestGuidesNameOnlyCommandsGraphExposes(t *testing.T) {
 		"graph": GraphGuide, "brain": BrainGuide(), "combined": CombinedGuide,
 		"strict-graph": strictGraphWorkflow, "strict-combined": strictCombinedWorkflow,
 	} {
-		if strings.Contains(guide, "entire graph query") {
+		if strings.Contains(guide, "entire graph query") || strings.Contains(guide, "Use Graph query,") {
 			t.Errorf("%s guide names `entire graph query`, absent from released graph (#323); use `search`", name)
 		}
 	}
