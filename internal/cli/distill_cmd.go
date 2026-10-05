@@ -706,6 +706,9 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	// to-distill — defeating the dry-run's whole purpose of matching the run.
 	if distillOpts.agent == "auto" {
 		distillOpts.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
+		if warning := ollamaModelMissingWarning(ctx, opts.Runner, repoDir, distillOpts.agent); warning != "" {
+			fmt.Fprintln(cmd.ErrOrStderr(), "warning:", warning)
+		}
 	}
 	if distillOpts.session != "" && distillOpts.force {
 		// Mirror runDistillForBrain's guard so a dry-run rejects the same

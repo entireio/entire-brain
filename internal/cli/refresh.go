@@ -143,6 +143,9 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	}
 	if refreshOpts.seed.agent == "auto" {
 		refreshOpts.seed.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
+		if warning := ollamaModelMissingWarning(ctx, opts.Runner, repoDir, refreshOpts.seed.agent); warning != "" {
+			fmt.Fprintln(cmd.ErrOrStderr(), "warning:", warning)
+		}
 	}
 	progress := newRefreshProgress(cmd.ErrOrStderr())
 	reportStageAndShouldAbort := func(name string, err error) bool {
@@ -852,9 +855,32 @@ func defaultRefreshAgent(ctx context.Context, runner CommandRunner, repoDir stri
 	if brainNoEgressMode() {
 		return "none"
 	}
-	if commandLooksAvailable(ctx, runner, repoDir, "ollama") {
-		return "ollama"
-	}
+	// Ollama is preferred ONLY when a model is actually named.
+	//
+	// The preference above is right and deliberate: transcripts are the most
+	// sensitive thing this product touches, and a user who installed a local
+	// model asked for it to be used. But execOllamaDistillAgent hard-errors
+	// with "--agent ollama requires --model", and no model is resolved here --
+	// so merely having ollama ON PATH made every agent-backed command fail:
+	// distill, refresh, watch --distill, remember without --path, and
+	// recall --expand. `ollama --version` succeeds with no server and no
+	// models pulled, so installing it was enough to break them.
+	//
+	// AUTO selection can never supply that model. The distill path reads it
+	// from --model alone (distill_cmd.go takes args[1]); the only ollama
+	// environment variable, ENTIRE_BRAIN_OLLAMA_MODEL, is read by the
+	// EMBEDDING path and does nothing here. So "auto -> ollama" is a state
+	// that cannot work, whatever else is configured.
+	//
+	// A model is NOT auto-picked instead. `ollama list` routinely offers
+	// nomic-embed-text, an EMBEDDING model that would return nonsense for
+	// distillation; choosing one is a product decision, not a default worth
+	// guessing.
+	//
+	// Ollama is still fully available EXPLICITLY -- `--agent ollama --model
+	// <name>` is unaffected. What is removed is only the automatic choice that
+	// then failed. The caller warns when it falls through, so a
+	// privacy-motivated install does not quietly become a cloud call.
 	if commandLooksAvailable(ctx, runner, repoDir, "codex") {
 		return "codex"
 	}
@@ -862,6 +888,20 @@ func defaultRefreshAgent(ctx context.Context, runner CommandRunner, repoDir stri
 		return "claude-code"
 	}
 	return "none"
+}
+
+// ollamaModelMissingWarning is the line a caller prints when ollama is present
+// but unusable, so a privacy-motivated install does not quietly become a cloud
+// call.
+func ollamaModelMissingWarning(ctx context.Context, runner CommandRunner, repoDir, chosen string) string {
+	if chosen == "ollama" || chosen == "none" {
+		return ""
+	}
+	if !commandLooksAvailable(ctx, runner, repoDir, "ollama") {
+		return ""
+	}
+	return "ollama is installed but cannot be chosen automatically (it needs --model), so " + chosen +
+		" was selected; run with `--agent ollama --model <name>` to keep transcripts local"
 }
 
 func commandLooksAvailable(ctx context.Context, runner CommandRunner, repoDir, name string) bool {

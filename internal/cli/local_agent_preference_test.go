@@ -21,6 +21,24 @@ func (a *availabilityRunner) Run(ctx context.Context, dir, name string, args ...
 // Issue #328: a user who installed a local model to keep transcripts off a
 // third party got either no distillation at all, or -- if a cloud CLI happened
 // to be installed too -- their sessions sent to that provider instead.
+//
+// AMENDED. The original fix preferred ollama whenever the binary was on PATH,
+// and that premise does not hold: AUTO selection cannot supply the --model
+// that execOllamaDistillAgent requires (the distill path reads it from the
+// flag alone; ENTIRE_BRAIN_OLLAMA_MODEL belongs to the embedding path). So
+// "auto -> ollama" did not keep transcripts local -- it returned
+// "distill: --agent ollama requires --model" and nobody got distillation at
+// all. Installing ollama was enough to break distill, refresh,
+// watch --distill, remember without --path and recall --expand.
+//
+// Auto therefore selects an agent that can actually run, and the concern
+// behind #328 -- sessions going to a cloud provider SILENTLY -- is covered by
+// ollamaModelMissingWarning, which names the fallback and how to get the local
+// path back. Explicit `--agent ollama --model <name>` is unchanged.
+//
+// A model is not auto-picked: `ollama list` routinely offers an embedding
+// model such as nomic-embed-text, which would return nonsense for
+// distillation. Choosing one is a product decision, not a default.
 func TestLocalModelIsPreferredOverACloudAgent(t *testing.T) {
 	t.Parallel()
 
@@ -28,9 +46,11 @@ func TestLocalModelIsPreferredOverACloudAgent(t *testing.T) {
 		present []string
 		want    string
 	}{
-		"ollama alone is selected":               {[]string{"ollama"}, "ollama"},
-		"ollama wins over codex":                 {[]string{"ollama", "codex"}, "ollama"},
-		"ollama wins over every cloud agent":     {[]string{"ollama", "codex", "claude"}, "ollama"},
+		// Ollama alone cannot distill automatically, so auto reports none
+		// rather than selecting an agent that will error.
+		"ollama alone cannot be auto-selected":   {[]string{"ollama"}, "none"},
+		"codex runs when ollama has no model":    {[]string{"ollama", "codex"}, "codex"},
+		"claude runs when ollama has no model":   {[]string{"ollama", "claude"}, "claude-code"},
 		"codex still used when ollama is absent": {[]string{"codex"}, "codex"},
 		"claude still used as the last resort":   {[]string{"claude"}, "claude-code"},
 		"nothing installed means none":           {nil, "none"},
