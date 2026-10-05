@@ -1446,16 +1446,12 @@ func regressionNoAnomaliesLine(query string, scanned int, historyTruncated bool)
 // checked".
 func reviewSummary(findings, scanned int, historyTruncated bool) string {
 	switch {
+	case historyTruncated && scanned > 0:
+		return fmt.Sprintf("Diff-less review: PARTIAL — %d suspected regression(s) in %d file(s) compared; the history scan stopped at a cap, so this is not a clean result and additional regressions may exist. See the notes below.", findings, scanned)
 	case findings > 0:
 		return fmt.Sprintf("Diff-less review: %d suspected regression(s) — verify each before acting.", findings)
 	case scanned == 0:
 		return "Diff-less review: INCONCLUSIVE — nothing was compared (the brain holds no code assertions to check this tree against). This is not a clean result; see the notes below."
-	case historyTruncated:
-		// A scan that stopped at a cap has not seen the whole brain, so the
-		// absence of findings is not a clean bill of health. regressionNoAnomaliesLine
-		// has said this since the caps were added; this surface discarded the
-		// flag and could not.
-		return fmt.Sprintf("Diff-less review: PARTIAL — nothing flagged in what was compared (%d file(s)), but the history scan stopped at a cap before the end of the brain, so this is not a clean result; see the notes below.", scanned)
 	default:
 		return fmt.Sprintf("Diff-less review: no suspected regressions (%d file(s) compared against the brain's memory).", scanned)
 	}

@@ -3888,6 +3888,9 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 		default:
 			result.Summary = workspaceReviewSummary(result.Checked, result.FilesScanned, result.HistoryTruncated)
 		}
+		if result.HistoryTruncated && len(result.Findings) > 0 {
+			result.Summary = reviewSummary(len(result.Findings), scanned, true)
+		}
 		results = append(results, result)
 	}
 	// "%d/%d repo(s)" is a statement about REVIEWED repos, so the denominator
