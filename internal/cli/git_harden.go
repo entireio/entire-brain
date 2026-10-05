@@ -255,27 +255,17 @@ func runGitWithScratchIndex(ctx context.Context, runner CommandRunner, repoDir s
 	if !filepath.IsAbs(indexPath) {
 		indexPath = filepath.Join(repoDir, indexPath)
 	}
-	// ONE open handle for both the contents and the mtime.
-	//
-	// Reading the file and then stat-ing the path were two separate lookups, so
-	// a concurrent git could replace the index between them and the copy would
-	// carry one version's bytes with another version's mtime -- which is
-	// precisely the pairing the racily-clean logic below depends on being
-	// consistent.
-	//
-	// git writes the index by rename, so an open file description keeps the
-	// inode it opened: contents and FileInfo taken from this one handle are
-	// guaranteed to describe the same version, however many times the path is
-	// replaced afterwards.
-	indexFile, err := os.Open(indexPath)
+	index, err := os.Open(indexPath)
 	if err != nil {
 		// No index yet (a repo with no commits): nothing to protect.
 		return runner.Run(ctx, repoDir, "git", args...)
 	}
-	indexInfo, infoErr := indexFile.Stat()
-	contents, readErr := io.ReadAll(indexFile)
-	indexFile.Close()
-	if readErr != nil {
+	// Git replaces its index atomically. Read the content and timestamp from
+	// the same descriptor so a concurrent replacement cannot mix generations.
+	info, statErr := index.Stat()
+	contents, readErr := io.ReadAll(index)
+	index.Close()
+	if statErr != nil || readErr != nil {
 		return runner.Run(ctx, repoDir, "git", args...)
 	}
 
@@ -305,15 +295,11 @@ func runGitWithScratchIndex(ctx context.Context, runner CommandRunner, repoDir s
 	// silently loses a worktree edit. Caught by an existing hardening test whose
 	// fixture overwrites a 12-byte file with 12 different bytes immediately
 	// after committing it -- exactly the racy window.
-	// indexInfo comes from the same handle as contents, so this mtime belongs
-	// to the bytes that were copied.
-	if infoErr == nil {
-		mtime := indexInfo.ModTime()
-		if err := os.Chtimes(scratch, mtime, mtime); err != nil {
-			// Without the original mtime the copy is not a faithful stand-in,
-			// so take the lock rather than risk a wrong answer.
-			return runner.Run(ctx, repoDir, "git", args...)
-		}
+	mtime := info.ModTime()
+	if err := os.Chtimes(scratch, mtime, mtime); err != nil {
+		// Without the original mtime the copy is not a faithful stand-in,
+		// so take the lock rather than risk a wrong answer.
+		return runner.Run(ctx, repoDir, "git", args...)
 	}
 	return envRunner.RunWithEnv(ctx, repoDir, map[string]string{"GIT_INDEX_FILE": scratch}, "git", args...)
 }

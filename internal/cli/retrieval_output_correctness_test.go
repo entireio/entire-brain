@@ -105,6 +105,20 @@ func TestExportWarningSuppressionIsDisclosed(t *testing.T) {
 	}
 }
 
+func TestExportWarningSummaryDisclosesDuplicateWarnings(t *testing.T) {
+	for _, debug := range []bool{false, true} {
+		warnings := []string{"checkpoint remote unavailable: timeout", "checkpoint remote unavailable: timeout"}
+		shown, suppressed, total := usefulExportWarningsDetailed(warnings, debug)
+		summary := strings.Join(exportWarningSummaryLines(shown, suppressed, total), "\n")
+		if !strings.Contains(summary, "warnings: 1 shown of 2 total") {
+			t.Fatalf("duplicate warning count is unexplained (debug=%t): %s", debug, summary)
+		}
+		if strings.Contains(summary, "suppressed as diagnostic detail") {
+			t.Fatalf("duplicates are not suppressed diagnostics: %s", summary)
+		}
+	}
+}
+
 func TestExportWarningSummaryOnlyClaimsIncompleteForUnreadableSnapshots(t *testing.T) {
 	for _, tc := range []struct {
 		name       string

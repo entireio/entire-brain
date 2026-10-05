@@ -96,15 +96,24 @@ func newConflictComponents() *conflictComponents {
 }
 
 func (c *conflictComponents) root(id string) string {
-	p, ok := c.parent[id]
-	if !ok {
-		c.parent[id] = id
-		return id
+	root := id
+	for {
+		p, ok := c.parent[root]
+		if !ok {
+			c.parent[root] = root
+			break
+		}
+		if p == root {
+			break
+		}
+		root = p
 	}
-	if p != id {
-		c.parent[id] = c.root(p)
+	for id != root {
+		p := c.parent[id]
+		c.parent[id] = root
+		id = p
 	}
-	return c.parent[id]
+	return root
 }
 
 // connected reports whether a and b are already in one proposal component, i.e.

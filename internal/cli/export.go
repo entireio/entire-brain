@@ -3654,7 +3654,7 @@ func exportWarningSummaryLines(shown []string, suppressed []string, total int) [
 		return nil
 	}
 	lines := make([]string, 0, len(shown)+2)
-	if len(suppressed) > 0 {
+	if len(shown) != total {
 		lines = append(lines, fmt.Sprintf("warnings: %d shown of %d total", len(shown), total))
 	} else {
 		lines = append(lines, fmt.Sprintf("warnings: %d", total))

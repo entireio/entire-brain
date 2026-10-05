@@ -4660,6 +4660,9 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		if wired, missing := agentsetup.AgentsWired(root); !wired {
 			onboarding.AgentsUnwired = true
 			onboarding.AgentsMissing = missing
+			// Keep the published JSON shape while exposing the same repair
+			// diagnostic to CLI JSON and MCP consumers through warnings.
+			report.Warnings = append(report.Warnings, "agents not wired: missing "+strings.Join(missing, ", ")+"; run entire brain init-agents so your agent uses this brain")
 		}
 	}
 	markUnreadableSemanticComponent(&onboarding, semanticFreshnessOf(report))
