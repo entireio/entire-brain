@@ -3913,6 +3913,15 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 	case reviewed != len(results):
 		summary += fmt.Sprintf(" %d of %d member(s) were not reviewed.", len(results)-reviewed, len(results))
 	}
+	partialMembers := 0
+	for _, result := range results {
+		if result.HistoryTruncated {
+			partialMembers++
+		}
+	}
+	if partialMembers > 0 {
+		summary = fmt.Sprintf("PARTIAL: %s History scans stopped at a cap in %d member(s); this is not a clean result.", summary, partialMembers)
+	}
 	render := func() error {
 		if ro.json {
 			return writeJSON(cmd, struct {
