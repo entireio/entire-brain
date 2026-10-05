@@ -143,6 +143,9 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	}
 	if refreshOpts.seed.agent == "auto" {
 		refreshOpts.seed.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
+		if warning := ollamaModelMissingWarning(ctx, opts.Runner, repoDir, refreshOpts.seed.agent); warning != "" {
+			fmt.Fprintln(cmd.ErrOrStderr(), "warning:", warning)
+		}
 	}
 	progress := newRefreshProgress(cmd.ErrOrStderr())
 	reportStageAndShouldAbort := func(name string, err error) bool {
@@ -898,7 +901,7 @@ func ollamaModelMissingWarning(ctx context.Context, runner CommandRunner, repoDi
 		return ""
 	}
 	return "ollama is installed but cannot be chosen automatically (it needs --model), so " + chosen +
-		" was used; run with `--agent ollama --model <name>` to keep transcripts local"
+		" was selected; run with `--agent ollama --model <name>` to keep transcripts local"
 }
 
 func commandLooksAvailable(ctx context.Context, runner CommandRunner, repoDir, name string) bool {

@@ -1,10 +1,33 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"testing"
 )
+
+func TestAutoOllamaFallbackIsDisclosedByDistill(t *testing.T) {
+	opts, _, brainDir := statusTruthFixture(t)
+	writeDistillFixtureAt(t, brainDir, opts.Now())
+	runner := opts.Runner.(*fakeCommandRunner)
+	for _, name := range []string{"ollama", "codex"} {
+		runner.responses[fakeCommandKey(name, "--version")] = fakeCommandResponse{stdout: "available"}
+	}
+	var out, diagnostic bytes.Buffer
+	cmd := NewRootCommand(opts)
+	cmd.SetOut(&out)
+	cmd.SetErr(&diagnostic)
+	cmd.SetArgs([]string{"distill", "--agent", "auto", "--dry-run"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"ollama", "--model", "codex"} {
+		if !strings.Contains(diagnostic.String(), want) {
+			t.Errorf("fallback diagnostic lacks %q: %s", want, diagnostic.String())
+		}
+	}
+}
 
 type fakeWhichRunner struct{ present map[string]bool }
 
