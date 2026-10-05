@@ -87,6 +87,20 @@ func TestHookPayloadFailuresAreSilent(t *testing.T) {
 	}
 }
 
+func TestHookPayloadRejectsOversizedInputWithoutParsingItsPrefix(t *testing.T) {
+	const limit = 1 << 20
+	const payload = `{"tool_input":{"file_path":"/repo/main.go"}}`
+	boundary := payload + strings.Repeat(" ", limit-len(payload))
+	if got, saw := hookFileFromStdin(strings.NewReader(boundary)); got != "/repo/main.go" || !saw {
+		t.Fatalf("payload at the limit: path=%q saw=%v", got, saw)
+	}
+	for _, oversized := range []string{boundary + " ", boundary + `{"tool_input":{"file_path":"/repo/other.go"}}`} {
+		if got, saw := hookFileFromStdin(strings.NewReader(oversized)); got != "" || !saw {
+			t.Fatalf("oversized payload must be silent, not parsed as its valid prefix: path=%q saw=%v", got, saw)
+		}
+	}
+}
+
 // The wiring must not reference a variable the harness does not define. A path
 // that expands to "" is indistinguishable from a working hook until someone
 // checks whether a fact was ever served.

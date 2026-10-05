@@ -460,7 +460,11 @@ func hookFileFromStdin(in io.Reader) (path string, sawInput bool) {
 	}
 	// A hook payload is small; cap the read so a non-hook stdin (a piped file,
 	// a terminal left open) cannot hang or balloon.
-	data, err := io.ReadAll(io.LimitReader(in, 1<<20))
+	const maxPayloadBytes = 1 << 20
+	data, err := io.ReadAll(io.LimitReader(in, maxPayloadBytes+1))
+	if len(data) > maxPayloadBytes {
+		return "", true
+	}
 	if err != nil || len(strings.TrimSpace(string(data))) == 0 {
 		return "", false
 	}
