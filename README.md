@@ -379,6 +379,7 @@ See the [recall threat model](docs/recall_threat_model.md) for how Brain handles
 - [Webhooks](docs/reference.md#webhooks)
 - [Conversation recall and source citations](docs/recall-evidence.md)
 - [Contributing and build options](CONTRIBUTING.md)
+- [Contributor concepts and data flow](docs/concepts.md)
 - [Release readiness](docs/release_readiness_audit.md)
 
 Please report problems in [GitHub Issues](https://github.com/entireio/entire-brain/issues) or open a pull request.

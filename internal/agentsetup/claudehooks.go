@@ -102,6 +102,9 @@ func MergePreEditHook(root, brainCmd string) (changed bool, err error) {
 			if err := json.Unmarshal(existing, &settings); err != nil {
 				return false, fmt.Errorf("%s is not valid JSON, leaving it untouched: %w", claudeSettingsPath, err)
 			}
+			if settings == nil {
+				return false, fmt.Errorf("%s is not a JSON object; leaving it untouched", claudeSettingsPath)
+			}
 		}
 	case os.IsNotExist(readErr):
 		// A fresh repo: we create the file.

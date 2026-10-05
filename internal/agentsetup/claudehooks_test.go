@@ -139,6 +139,7 @@ func TestPreEditHookMergeRefusesRatherThanOverwrite(t *testing.T) {
 	t.Parallel()
 	for name, body := range map[string]string{
 		"invalid json":     `{"hooks": `,
+		"null settings":    `null`,
 		"hooks not object": `{"hooks": "nope"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
