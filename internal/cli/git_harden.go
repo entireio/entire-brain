@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -254,9 +255,17 @@ func runGitWithScratchIndex(ctx context.Context, runner CommandRunner, repoDir s
 	if !filepath.IsAbs(indexPath) {
 		indexPath = filepath.Join(repoDir, indexPath)
 	}
-	contents, err := os.ReadFile(indexPath)
+	index, err := os.Open(indexPath)
 	if err != nil {
 		// No index yet (a repo with no commits): nothing to protect.
+		return runner.Run(ctx, repoDir, "git", args...)
+	}
+	// Git replaces its index atomically. Read the content and timestamp from
+	// the same descriptor so a concurrent replacement cannot mix generations.
+	info, statErr := index.Stat()
+	contents, readErr := io.ReadAll(index)
+	index.Close()
+	if statErr != nil || readErr != nil {
 		return runner.Run(ctx, repoDir, "git", args...)
 	}
 
@@ -286,13 +295,11 @@ func runGitWithScratchIndex(ctx context.Context, runner CommandRunner, repoDir s
 	// silently loses a worktree edit. Caught by an existing hardening test whose
 	// fixture overwrites a 12-byte file with 12 different bytes immediately
 	// after committing it -- exactly the racy window.
-	if info, err := os.Stat(indexPath); err == nil {
-		mtime := info.ModTime()
-		if err := os.Chtimes(scratch, mtime, mtime); err != nil {
-			// Without the original mtime the copy is not a faithful stand-in,
-			// so take the lock rather than risk a wrong answer.
-			return runner.Run(ctx, repoDir, "git", args...)
-		}
+	mtime := info.ModTime()
+	if err := os.Chtimes(scratch, mtime, mtime); err != nil {
+		// Without the original mtime the copy is not a faithful stand-in,
+		// so take the lock rather than risk a wrong answer.
+		return runner.Run(ctx, repoDir, "git", args...)
 	}
 	return envRunner.RunWithEnv(ctx, repoDir, map[string]string{"GIT_INDEX_FILE": scratch}, "git", args...)
 }
