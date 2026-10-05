@@ -105,6 +105,30 @@ func TestExportWarningSuppressionIsDisclosed(t *testing.T) {
 	}
 }
 
+func TestExportWarningSummaryOnlyClaimsIncompleteForUnreadableSnapshots(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		raw        []string
+		incomplete bool
+	}{
+		{"discovery notice", []string{"discovered checkpoint refs from configured checkpoint remote"}, false},
+		{"transcript notice", []string{"exporting raw transcripts directly from checkpoint storage"}, false},
+		{"unreadable snapshot", []string{"checkpoint snapshot unavailable: missing object"}, true},
+		{"mixed", []string{"discovered checkpoint refs from configured checkpoint remote", "checkpoint snapshot unavailable: missing object"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			shown, suppressed, total := usefulExportWarningsDetailed(tc.raw, false)
+			summary := strings.Join(exportWarningSummaryLines(shown, suppressed, total), "\n")
+			if got := strings.Contains(summary, "INCOMPLETE"); got != tc.incomplete {
+				t.Fatalf("incomplete claim = %t, want %t:\n%s", got, tc.incomplete, summary)
+			}
+			if !strings.Contains(summary, "suppressed_warnings") {
+				t.Fatalf("summary lost the suppressed warning location:\n%s", summary)
+			}
+		})
+	}
+}
+
 // Bug 3: capWarnings is applied BEFORE the manifest write, so dropped warning
 // text exists nowhere and no flag recovers it.
 func TestDistillWarningsPersistUncappedToManifest(t *testing.T) {

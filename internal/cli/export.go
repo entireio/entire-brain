@@ -3663,9 +3663,16 @@ func exportWarningSummaryLines(shown []string, suppressed []string, total int) [
 		lines = append(lines, "warning: "+warning)
 	}
 	if len(suppressed) > 0 {
+		incomplete := ""
+		for _, warning := range suppressed {
+			if strings.HasPrefix(warning, "checkpoint snapshot unavailable:") {
+				incomplete = " (unreadable checkpoint snapshots among them, which mean the export is INCOMPLETE)"
+				break
+			}
+		}
 		lines = append(lines, fmt.Sprintf(
-			"warning: %d warning(s) suppressed as diagnostic detail (unreadable checkpoint snapshots among them, which mean the export is INCOMPLETE); re-run with --debug to print them, or read \"suppressed_warnings\" in the brain manifest",
-			len(suppressed)))
+			"warning: %d warning(s) suppressed as diagnostic detail%s; re-run with --debug to print them, or read \"suppressed_warnings\" in the brain manifest",
+			len(suppressed), incomplete))
 	}
 	return lines
 }
