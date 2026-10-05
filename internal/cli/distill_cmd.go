@@ -2304,6 +2304,9 @@ func defaultDistillAgentRunner(agent string) distillAgentRunner {
 	if agent == "ollama" {
 		return execOllamaDistillAgent
 	}
+	if agent == "command" {
+		return execCustomDistillAgent
+	}
 	return execDistillAgent
 }
 
@@ -2366,12 +2369,26 @@ func prepareAgentExec(args []string, input []byte) (argv []string, stdin []byte,
 }
 
 func execDistillAgent(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+	return execDistillAgentWithPrompt(ctx, dir, args, input, timeout, true)
+}
+
+func execCustomDistillAgent(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+	return execDistillAgentWithPrompt(ctx, dir, args, input, timeout, false)
+}
+
+func execDistillAgentWithPrompt(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration, carriesPrompt bool) (string, error) {
 	if len(args) == 0 {
 		return "", errors.New("distill: empty agent command")
 	}
-	argv, stdin, cleanup, err := prepareAgentExec(args, input)
-	if err != nil {
-		return "", err
+	argv, stdin, cleanup := args, input, func() {}
+	var err error
+	// Custom commands own their complete argv. Only built-in agent builders
+	// encode a system prompt behind the private marker.
+	if carriesPrompt {
+		argv, stdin, cleanup, err = prepareAgentExec(args, input)
+		if err != nil {
+			return "", err
+		}
 	}
 	defer cleanup()
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
