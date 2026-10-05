@@ -280,7 +280,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 				out["related_patterns"] = related
 			}
 			if len(results) == 0 {
-				if note := emptyResultBlindSpot(brainDir); note != "" {
+				if note := emptyResultBlindSpotOnBranch(brainDir, resolvedBranch); note != "" {
 					out["blind_spot"] = note
 				}
 			}
@@ -300,7 +300,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		if err := writeTextToWriter(&rendered, func(out io.Writer) {
 			if len(results) == 0 {
 				fmt.Fprintf(out, "no results for %q\n", query)
-				if note := emptyResultBlindSpot(brainDir); note != "" {
+				if note := emptyResultBlindSpotOnBranch(brainDir, resolvedBranch); note != "" {
 					fmt.Fprintln(out, note)
 				}
 			}
@@ -372,7 +372,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		Related:                   related,
 	}
 	if len(results) == 0 {
-		extras.BlindSpot = emptyResultBlindSpot(brainDir)
+		extras.BlindSpot = emptyResultBlindSpotOnBranch(brainDir, resolvedBranch)
 	}
 	if jsonOut {
 		// Preserve the established JSON `text` field on both CLI and MCP
@@ -756,8 +756,20 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 	if missing == nil {
 		missing = []string{}
 	}
+	// Computed BEFORE the output split, because both surfaces need it.
+	//
+	// These notes lived only in the text block, so `get --json` never carried
+	// them -- and mcp.go:1323,1333 call runGet with jsonOut=true for brain_get
+	// and brain_multi_get. The agent surface, the one most likely to act on a
+	// "--branch" hint, was the one surface that could not see it. The
+	// integrity note had the same gap before this change and inherits the fix.
+	missNote := getMissNote(brainDir, resolvedBranch, missing)
 	if jsonOut {
-		serialized, err := jsonOutputBytes(map[string]any{"branch": resolvedBranch, "results": found, "missing": missing})
+		payload := map[string]any{"branch": resolvedBranch, "results": found, "missing": missing}
+		if missNote != "" {
+			payload["blind_spot"] = missNote
+		}
+		serialized, err := jsonOutputBytes(payload)
 		if err != nil {
 			return nil, err
 		}
@@ -789,10 +801,8 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 		// When the fact store cannot produce what the manifest declares, that
 		// claim is wrong — and `get fact:<id>` is usually the exact moment a
 		// user discovers the loss.
-		if len(missing) > 0 {
-			if integrity := inspectBrainFactStore(brainDir); !integrity.OK() {
-				fmt.Fprintf(out, "note: \"not found\" is NOT evidence of absence — %s\n", integrity.Warning())
-			}
+		if missNote != "" {
+			fmt.Fprintf(out, "%s\n", missNote)
 		}
 	}); err != nil {
 		return nil, err
@@ -900,4 +910,54 @@ func configureQueryCommand(cmd *cobra.Command, use string, selection *querySelec
 		}
 		return run(cmd, args)
 	}
+}
+
+// missingFactIDs reports whether any of these ids is fact-shaped.
+//
+// `get` and `multi-get` are unified surfaces that take fact, review, history,
+// conversation, doc, pattern and theme ids. The branch note is about where
+// FACTS live, so it belongs only on a miss that could be a fact: on
+// `get conversation:<id>` it would be noise attached to an unrelated answer.
+//
+// A bare id with no prefix is treated as a fact id, matching how the rest of
+// the codebase resolves them (facts_eval.go:902).
+func missingFactIDs(ids []string) bool {
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if strings.HasPrefix(id, "fact:") || !strings.Contains(id, ":") {
+			return true
+		}
+	}
+	return false
+}
+
+// getMissNote is the one note a miss carries, computed once for both output
+// formats.
+//
+// It lived inside the text block, so `get --json` carried neither this nor the
+// integrity warning -- and mcp.go calls runGet with jsonOut=true for brain_get
+// and brain_multi_get, making the agent surface the one consumer that could
+// not see it.
+//
+// INTEGRITY WINS. A store that cannot produce what its manifest declares must
+// never be reported as merely the wrong branch, or the caller goes hunting for
+// a fact that is actually gone.
+//
+// The branch note is gated on a fact-shaped id because get and multi-get are
+// unified surfaces: a missing conversation has nothing to do with which branch
+// holds facts, and a note about facts there is noise on an unrelated answer.
+func getMissNote(brainDir, branch string, missing []string) string {
+	if len(missing) == 0 {
+		return ""
+	}
+	if integrity := inspectBrainFactStore(brainDir); !integrity.OK() {
+		return fmt.Sprintf("note: \"not found\" is NOT evidence of absence — %s", integrity.Warning())
+	}
+	if !missingFactIDs(missing) {
+		return ""
+	}
+	return otherBranchBlindSpot(brainDir, branch)
 }
