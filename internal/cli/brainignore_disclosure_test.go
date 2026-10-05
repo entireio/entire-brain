@@ -134,6 +134,23 @@ func TestAbsolutePathsInWarningTextAreMatchedAgainstIgnoreRules(t *testing.T) {
 	}
 }
 
+func TestIgnoredExactFileWithCompilerLocationsIsWithheld(t *testing.T) {
+	t.Parallel()
+	ig, repo := ignoreForTest(t, "secret/config.go")
+	for _, path := range []string{"secret/config.go", repo + "/secret/config.go"} {
+		for _, suffix := range []string{":42: parse error", ":42:10: parse error"} {
+			if !ig.MentionsIgnoredPath(path + suffix) {
+				t.Fatalf("ignored exact file leaked through compiler location: %s", path+suffix)
+			}
+		}
+	}
+	for _, warning := range []string{"secret/config.go-other:42:10: parse error", "secret/config.go:notes: parse error"} {
+		if ig.MentionsIgnoredPath(warning) {
+			t.Fatalf("unrelated colon-bearing filename was ignored: %s", warning)
+		}
+	}
+}
+
 // The Unix-only blind spot, pinned so it cannot recur.
 //
 // relativiseToRepo originally tested `strings.HasPrefix(token, "/")`. That is
