@@ -79,6 +79,17 @@ type brainStatusOnboarding struct {
 	// run. Stated in the negative so the zero value is the ordinary machine,
 	// and json:"-" for the same published-contract reason as WatchPlan.
 	HostCLIMissing bool `json:"-"`
+	// AgentsUnwired reports that `init-agents` has not been run: the guide or
+	// the managed pointer in AGENTS.md / CLAUDE.md is absent, so no agent has
+	// been told this brain exists.
+	//
+	// This is the product's worst failure mode and it is SILENT -- setup
+	// succeeds, every source reads healthy, and the brain is simply never
+	// consulted. These fields are for the text renderer; JSON and MCP receive
+	// the same diagnostic through the status report's existing warnings field.
+	AgentsUnwired bool `json:"-"`
+	// AgentsMissing names what is absent, so the line can say which half.
+	AgentsMissing []string `json:"-"`
 }
 
 // factsBackfillStatusForBrain counts how many exported sessions have already
@@ -336,6 +347,15 @@ func renderBrainOnboardingStatus(out io.Writer, onboarding *brainStatusOnboardin
 		return
 	}
 	fmt.Fprintln(out, "\nOnboarding")
+	// FIRST, because it decides whether any of the rest is ever read. A brain
+	// no agent knows about is healthy on every other line and useless in
+	// practice, and nothing else in this report would say so.
+	if onboarding.AgentsUnwired {
+		fmt.Fprintf(out, "  agents: NOT WIRED — run `%s init-agents` so your agent uses this brain\n", brainCmd)
+		if len(onboarding.AgentsMissing) > 0 {
+			fmt.Fprintf(out, "          missing: %s\n", strings.Join(onboarding.AgentsMissing, ", "))
+		}
+	}
 	line := fmt.Sprintf("  facts: %d/%d sessions distilled", onboarding.Facts.Distilled, onboarding.Facts.Sessions)
 	switch {
 	case onboarding.Facts.Running:

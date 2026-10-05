@@ -1,6 +1,13 @@
 package cli
 
-import "slices"
+import (
+	"context"
+	"io"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+)
 
 // git resolves several configuration keys to *commands it executes*, and it
 // honours them from the per-repository .git/config — plus the in-tree
@@ -75,7 +82,39 @@ const gitHooksDisabledPath = "/dev/null/entire-brain-hooks-disabled"
 var (
 	// gitHardenConfig applies to every git invocation. Verified accepted by
 	// every subcommand this binary runs, including clone.
+	//
+	// --no-optional-locks is the one entry that is a git-LEVEL FLAG rather than
+	// a -c pair. ORDER MATTERS: it must precede the subcommand, which is why it
+	// lives at the head of this slice -- both consumers (hardenedGitArgs below,
+	// and enumerateRepoFilterDrivers in git_harden_filters.go, the only git
+	// spawn that does not go through hardenedGitArgs) splice the whole slice in
+	// ahead of the subcommand. Placed after the subcommand git parses it as a
+	// subcommand option and dies.
+	//
+	// It is here because two agents in one repository is the NORMAL case for
+	// this product: a read-only inspection that opportunistically takes
+	// `.git/index.lock` makes the concurrent human or agent git command fail
+	// with "Unable to create '.git/index.lock': File exists" (issue #326).
+	// git's own definition of an optional lock is exactly the refresh this
+	// binary never needs -- suppressing it changes no output, only the write.
+	//
+	// Measured on git 2.54.0 by hashing .git/index either side of the command,
+	// against a worktree holding a stat-dirty-but-identical file:
+	//
+	//   - `git status --porcelain` REWRITES the index without the flag and does
+	//     NOT with it.
+	//   - `git diff <commit>` rewrites it EITHER WAY: cmd_diff runs its own
+	//     refresh that the optional-lock setting does not gate. So the flag is
+	//     necessary but NOT sufficient, and the one diff that exists purely to
+	//     report a stat moved to the `diff-index` plumbing as well; see
+	//     brainLiveStateReport in agent_surface.go.
+	//   - Write commands are unaffected, because only OPTIONAL locks are
+	//     suppressed: init, add, commit, config, clone, fetch and
+	//     `worktree add` were each run with the flag and completed normally. No
+	//     call site therefore needs to opt out, and none can: there is
+	//     deliberately no escape hatch at this chokepoint.
 	gitHardenConfig = []string{
+		"--no-optional-locks",
 		"-c", "core.fsmonitor=false",
 		"-c", "core.hooksPath=" + gitHooksDisabledPath,
 	}
@@ -166,4 +205,101 @@ func gitSubcommandIndex(args []string) int {
 		}
 	}
 	return -1
+}
+
+// A porcelain `git diff <commit>` refreshes the index as part of its own work,
+// and --no-optional-locks does NOT gate that refresh. Measured on git 2.54.0,
+// each trial from an identical stat-dirty index, restored in between:
+//
+//	git diff --name-status -M -C HEAD                      REWRITES the index
+//	git --no-optional-locks diff --name-status -M -C HEAD   REWRITES the index
+//	git --no-optional-locks diff-index --name-status …      leaves it alone
+//
+// So the hardening flag closes `git status` and leaves the diffs open, which
+// matters because changedSemanticFiles runs inside `brain brief` -- the exact
+// command issue #326 reports colliding with a concurrent git.
+//
+// Switching those diffs to plumbing would fix the lock and change the answer:
+// diff-index against an unrefreshed index reports a stat-dirty file (mtime
+// touched, content identical) as modified. On the same fixture that cost one
+// spurious path, which here means re-indexing a file that did not change.
+//
+// Pointing GIT_INDEX_FILE at a COPY gets both: git refreshes the copy to its
+// heart's content, the real index is never opened for write, and the output is
+// byte-identical to porcelain because it is porcelain, run against the same
+// index contents.
+const gitScratchIndexPrefix = "entire-brain-index"
+
+// runGitWithScratchIndex runs a git command whose index refresh must not touch
+// the repository's real index.
+//
+// A runner without the environment capability falls back to running the
+// command as-is. That is today's behaviour -- the lock is taken, as it is on
+// main -- rather than an error: a brief that fails outright would be a worse
+// regression than a brief that occasionally contends, and every such runner in
+// this repo is a test fake.
+func runGitWithScratchIndex(ctx context.Context, runner CommandRunner, repoDir string, args ...string) ([]byte, []byte, error) {
+	envRunner, ok := runner.(EnvironmentCommandRunner)
+	if !ok {
+		return runner.Run(ctx, repoDir, "git", args...)
+	}
+
+	realIndex, _, err := runner.Run(ctx, repoDir, "git", "rev-parse", "--git-path", "index")
+	if err != nil {
+		return runner.Run(ctx, repoDir, "git", args...)
+	}
+	indexPath := strings.TrimSpace(string(realIndex))
+	if indexPath == "" {
+		return runner.Run(ctx, repoDir, "git", args...)
+	}
+	if !filepath.IsAbs(indexPath) {
+		indexPath = filepath.Join(repoDir, indexPath)
+	}
+	index, err := os.Open(indexPath)
+	if err != nil {
+		// No index yet (a repo with no commits): nothing to protect.
+		return runner.Run(ctx, repoDir, "git", args...)
+	}
+	// Git replaces its index atomically. Read the content and timestamp from
+	// the same descriptor so a concurrent replacement cannot mix generations.
+	info, statErr := index.Stat()
+	contents, readErr := io.ReadAll(index)
+	index.Close()
+	if statErr != nil || readErr != nil {
+		return runner.Run(ctx, repoDir, "git", args...)
+	}
+
+	dir, err := os.MkdirTemp("", gitScratchIndexPrefix)
+	if err != nil {
+		return runner.Run(ctx, repoDir, "git", args...)
+	}
+	defer os.RemoveAll(dir)
+
+	scratch := filepath.Join(dir, "index")
+	if err := os.WriteFile(scratch, contents, 0o600); err != nil {
+		return runner.Run(ctx, repoDir, "git", args...)
+	}
+
+	// The copy must carry the ORIGINAL's mtime, not its own.
+	//
+	// git decides whether a cached stat entry can be trusted by comparing the
+	// file's mtime against THE INDEX FILE'S OWN mtime: an entry whose file was
+	// modified in the same second the index was written is "racily clean" and
+	// git re-reads its content instead of believing the cache. A fresh copy has
+	// a newer mtime than every tracked file, so every entry looks safely older
+	// than the index and git trusts the cache -- and a file edited in that same
+	// second, especially one whose size did not change, is reported as
+	// UNCHANGED.
+	//
+	// That is worse than the lock contention this function exists to avoid: it
+	// silently loses a worktree edit. Caught by an existing hardening test whose
+	// fixture overwrites a 12-byte file with 12 different bytes immediately
+	// after committing it -- exactly the racy window.
+	mtime := info.ModTime()
+	if err := os.Chtimes(scratch, mtime, mtime); err != nil {
+		// Without the original mtime the copy is not a faithful stand-in,
+		// so take the lock rather than risk a wrong answer.
+		return runner.Run(ctx, repoDir, "git", args...)
+	}
+	return envRunner.RunWithEnv(ctx, repoDir, map[string]string{"GIT_INDEX_FILE": scratch}, "git", args...)
 }

@@ -107,9 +107,19 @@ func defaultWatchOptions() watchCommandOptions {
 		interval:         5 * time.Minute,
 		consolidateEvery: 30 * time.Minute,
 		distillEvery:     24 * time.Hour,
-		distillAgent:     "codex",
-		distillJobs:      1,
-		seedAgent:        "none",
+		// Empty means "detect at run time" (defaultRefreshAgent), not "no
+		// agent". This was hardcoded to codex, which is the same defect as
+		// issue #328 and worse here: the watcher runs unattended, so a user
+		// with a local model installed had their transcripts sent to a cloud
+		// provider on a timer, without ever choosing it.
+		// "auto" is the sentinel runDistill resolves through defaultRefreshAgent;
+		// the empty string is NOT -- it passes through as an invalid agent name.
+		// This was hardcoded to codex, the same defect as issue #328 and worse
+		// here: the watcher runs unattended, so a user with a local model
+		// installed had transcripts sent to a cloud provider on a timer.
+		distillAgent: "auto",
+		distillJobs:  1,
+		seedAgent:    "none",
 	}
 }
 
@@ -303,10 +313,19 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 	}
 	if changed {
 		if err := steps.refresh(ctx); err != nil {
-			// Refresh failed: do NOT spend tokens on an unrefreshed brain, and do NOT advance the cursor.
-			// The next tick retries the free refresh before attempting pending agent work.
-			fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
-			return
+			// A refusal to index an uncommitted worktree is not a failure: it
+			// is the expected answer while someone is working, and it recurs
+			// every tick until they commit. Treating it as a failure aborted
+			// the tick and left the cursor where it was, so the watcher made no
+			// progress at all for the whole time the tree stayed dirty
+			// (issue #327). Everything else still aborts, because an
+			// unrefreshed brain must not have tokens spent against it.
+			if strings.Contains(err.Error(), dirtyWorktreeErrorCode+":") {
+				fmt.Fprintf(out, "[watch] semantic index skipped (uncommitted worktree); continuing\n")
+			} else {
+				fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
+				return
+			}
 		}
 	}
 	reserved, reason, err := reserveWatchAgentSpend(cursorPath, fp, w, agentCalls, steps.now().UTC(), !deltaHealthy)

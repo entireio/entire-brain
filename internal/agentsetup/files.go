@@ -2093,3 +2093,61 @@ func renderPointerBlock(existing []byte, begin, end int, block string) []byte {
 	}
 	return []byte(content)
 }
+
+// AgentsWired reports whether `init-agents` has been run in this repository,
+// and names what is missing when it has not.
+//
+// A brain nothing reads is the product's worst failure mode, and it is SILENT:
+// setup succeeds, status reports every source healthy, and no agent ever
+// consults the brain because nothing told it the brain exists. The published
+// guide compounds this by teaching `setup` and `status` without `init-agents`,
+// so a user following the docs lands here by default and concludes the product
+// does not work.
+//
+// The check is deliberately cheap and read-only: the guide file must exist, and
+// at least one of AGENTS.md / CLAUDE.md must carry the managed pointer at it.
+// One pointer is enough -- the two are documented aliases and a repository may
+// legitimately keep only the one its agent reads.
+//
+// Absence is reported, never repaired. Writing into someone's repository
+// because they ran a read-only status command would be a worse surprise than
+// the one this diagnoses.
+func AgentsWired(root string) (bool, []string) {
+	if strings.TrimSpace(root) == "" {
+		return false, nil
+	}
+	repoRoot, err := os.OpenRoot(root)
+	if err != nil {
+		return false, nil
+	}
+	defer repoRoot.Close()
+
+	var missing []string
+	guide := filepath.Join(".entire", "agent-guide.md")
+	if !regularFileExists(repoRoot, guide) {
+		missing = append(missing, guide)
+	}
+	pointed := false
+	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
+		if fileContains(repoRoot, name, agentPointerBegin) {
+			pointed = true
+			break
+		}
+	}
+	if !pointed {
+		missing = append(missing, "AGENTS.md or CLAUDE.md (neither carries the managed block)")
+	}
+	return len(missing) == 0, missing
+}
+
+func regularFileExists(root *os.Root, name string) bool {
+	info, err := root.Stat(name)
+	return err == nil && info.Mode().IsRegular()
+}
+
+// fileContains uses the same contained read bound as init-agents. Existing
+// instructions can place the managed pointer anywhere within that bound.
+func fileContains(root *os.Root, name, needle string) bool {
+	content, err := readContainedFile(root, name, maxInstructionFileBytes)
+	return err == nil && bytes.Contains(content, []byte(needle))
+}

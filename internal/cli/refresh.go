@@ -143,6 +143,9 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	}
 	if refreshOpts.seed.agent == "auto" {
 		refreshOpts.seed.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
+		if warning := ollamaModelMissingWarning(ctx, opts.Runner, repoDir, refreshOpts.seed.agent); warning != "" {
+			fmt.Fprintln(cmd.ErrOrStderr(), "warning:", warning)
+		}
 	}
 	progress := newRefreshProgress(cmd.ErrOrStderr())
 	reportStageAndShouldAbort := func(name string, err error) bool {
@@ -788,13 +791,20 @@ func semanticRefreshNeeded(ctx context.Context, opts Options, brainDir, repoDir 
 		}
 		return !semanticRefreshArtifactsUsable(brainDir, source), warning, nil
 	}
-	dirty, err := worktreeDirty(ctx, opts.Runner, repoDir)
-	if err != nil {
-		return false, warning, fmt.Errorf("check worktree dirtiness for semantic refresh: %w", err)
-	}
-	if dirty {
-		return true, warning, nil
-	}
+	// A dirty worktree used to force a rebuild here, unconditionally. That
+	// asked for work the indexer then REFUSED to do: without --worktree,
+	// runSemanticIndex returns dirty_worktree rather than indexing uncommitted
+	// content. Every tick asked, every tick was refused, and because a failed
+	// refresh aborts the whole watch tick the cursor never advanced -- so
+	// indexing stalled for as long as the tree stayed dirty, which for anyone
+	// actually working is most of the time (issue #327).
+	//
+	// Dirtiness on its own says nothing about whether the INDEXED content is
+	// stale: the index describes HEAD, and HEAD has not moved just because the
+	// worktree has uncommitted edits. The two cases where it does matter are
+	// already decided below -- a snapshot taken in worktree mode, or one taken
+	// from a dirty tree (source.WorktreeMode / source.DirtyWorktree) -- as is a
+	// moved HEAD. So the check is not merely harmful here, it is redundant.
 	tree, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD^{tree}")
 	if err != nil {
 		return false, warning, fmt.Errorf("resolve HEAD tree for semantic refresh: %w", err)
@@ -826,10 +836,51 @@ func semanticRefreshArtifactsUsable(brainDir string, source *semanticSourceManif
 	return true
 }
 
+// defaultRefreshAgent picks the agent that will read session transcripts.
+//
+// ollama is tried FIRST, and that ordering is the point of issue #328. It was
+// absent from this list entirely, so a user who had installed a local model
+// specifically to keep transcripts off a third party got one of two outcomes:
+// "none", and silently no distillation at all, or -- if they also happened to
+// have codex or claude installed -- their session content sent to a cloud
+// provider instead. Neither is what installing ollama asked for.
+//
+// Transcripts are the most sensitive thing this product touches. When a local
+// model is available, preferring it is the behaviour the user configured, and
+// the only one that needs no explanation afterwards.
+//
+// This does change the agent for someone who has both ollama and a cloud CLI
+// installed. --agent still overrides it per run.
 func defaultRefreshAgent(ctx context.Context, runner CommandRunner, repoDir string) string {
 	if brainNoEgressMode() {
 		return "none"
 	}
+	// Ollama is preferred ONLY when a model is actually named.
+	//
+	// The preference above is right and deliberate: transcripts are the most
+	// sensitive thing this product touches, and a user who installed a local
+	// model asked for it to be used. But execOllamaDistillAgent hard-errors
+	// with "--agent ollama requires --model", and no model is resolved here --
+	// so merely having ollama ON PATH made every agent-backed command fail:
+	// distill, refresh, watch --distill, remember without --path, and
+	// recall --expand. `ollama --version` succeeds with no server and no
+	// models pulled, so installing it was enough to break them.
+	//
+	// AUTO selection can never supply that model. The distill path reads it
+	// from --model alone (distill_cmd.go takes args[1]); the only ollama
+	// environment variable, ENTIRE_BRAIN_OLLAMA_MODEL, is read by the
+	// EMBEDDING path and does nothing here. So "auto -> ollama" is a state
+	// that cannot work, whatever else is configured.
+	//
+	// A model is NOT auto-picked instead. `ollama list` routinely offers
+	// nomic-embed-text, an EMBEDDING model that would return nonsense for
+	// distillation; choosing one is a product decision, not a default worth
+	// guessing.
+	//
+	// Ollama is still fully available EXPLICITLY -- `--agent ollama --model
+	// <name>` is unaffected. What is removed is only the automatic choice that
+	// then failed. The caller warns when it falls through, so a
+	// privacy-motivated install does not quietly become a cloud call.
 	if commandLooksAvailable(ctx, runner, repoDir, "codex") {
 		return "codex"
 	}
@@ -837,6 +888,20 @@ func defaultRefreshAgent(ctx context.Context, runner CommandRunner, repoDir stri
 		return "claude-code"
 	}
 	return "none"
+}
+
+// ollamaModelMissingWarning is the line a caller prints when ollama is present
+// but unusable, so a privacy-motivated install does not quietly become a cloud
+// call.
+func ollamaModelMissingWarning(ctx context.Context, runner CommandRunner, repoDir, chosen string) string {
+	if chosen == "ollama" || chosen == "none" {
+		return ""
+	}
+	if !commandLooksAvailable(ctx, runner, repoDir, "ollama") {
+		return ""
+	}
+	return "ollama is installed but cannot be chosen automatically (it needs --model), so " + chosen +
+		" was selected; run with `--agent ollama --model <name>` to keep transcripts local"
 }
 
 func commandLooksAvailable(ctx context.Context, runner CommandRunner, repoDir, name string) bool {

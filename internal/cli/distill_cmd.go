@@ -657,6 +657,8 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&distillOpts.dryRun, "dry-run", false, "Estimate distill work without calling an agent or writing facts")
 	cmd.Flags().IntVar(&distillOpts.concurrency, "concurrency", defaultDistillConcurrency, "Distill agent calls to run in flight at once, shared across sessions (1 = strictly sequential; higher values may add one concurrent reconcile call)")
 	cmd.Flags().IntVar(&distillOpts.jobs, "jobs", 0, "Compatibility alias for --concurrency")
+	cmd.Flags().DurationVar(&distillOpts.timeout, "timeout", defaultDistillTimeout,
+		"Per-chunk agent timeout. A chunk the agent cannot finish inside this budget fails and is retried on the next run, so a corpus of large transcripts can crawl forward one session per timeout. Raise it for big sessions or a slow local model; lower --max-chunk-bytes instead if the model is the limit")
 	cmd.Flags().IntVar(&distillOpts.maxChunkBytes, "max-chunk-bytes", defaultDistillChunkSize, "Transcript chunk size in bytes; larger chunks mean fewer agent calls per session, but a chunk must fit the model's context window — transcript text runs ~3.65 chars/token, so a 32K-context model (ollama's default for many local models) truncates past roughly 116KB")
 	cmd.Flags().BoolVar(&distillOpts.newestFirst, "newest-first", false, "Distill the most recent sessions first so the most useful facts land early (default: oldest first)")
 	cmd.Flags().IntVar(&distillOpts.maxSessions, "max-sessions", 0, "Cap how many not-yet-distilled sessions this run processes (0 = no cap); pairs with --newest-first as a backfill budget")
@@ -680,6 +682,9 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	}
 	if distillOpts.concurrency <= 0 {
 		return fmt.Errorf("--concurrency must be greater than 0")
+	}
+	if cmd.Flags().Changed("timeout") && distillOpts.timeout <= 0 {
+		return fmt.Errorf("--timeout must be greater than 0")
 	}
 	// Only when the user actually typed it: the zero value of the option means
 	// "use the default" for every in-process caller (runDistillForBrain reads
@@ -706,6 +711,9 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	// to-distill — defeating the dry-run's whole purpose of matching the run.
 	if distillOpts.agent == "auto" {
 		distillOpts.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
+		if warning := ollamaModelMissingWarning(ctx, opts.Runner, repoDir, distillOpts.agent); warning != "" {
+			fmt.Fprintln(cmd.ErrOrStderr(), "warning:", warning)
+		}
 	}
 	if distillOpts.session != "" && distillOpts.force {
 		// Mirror runDistillForBrain's guard so a dry-run rejects the same
@@ -723,10 +731,13 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 		printDistillDryRunReport(cmd, report)
 		return nil
 	}
-	if distillOpts.agent == "none" {
-		return errors.New("distillation requires an agent (codex or claude-code); none found on PATH")
-	}
-	if distillOpts.run == nil {
+	// The agent check is deliberately NOT here any more; it moved below the
+	// pass lock. A pass that finds the lock held does nothing, so the agent it
+	// would have used is irrelevant, and complaining about the agent first
+	// reports the wrong reason: a supervised watcher told "no agent on PATH"
+	// treats a transient contention as a configuration error and gives up,
+	// where "another pass holds this brain" is a wait-and-retry.
+	if distillOpts.run == nil && distillOpts.agent != "none" {
 		distillOpts.run = defaultDistillAgentRunner(distillOpts.agent)
 	}
 	// Progress goes to stderr so it never corrupts the --json summary on stdout.
@@ -745,6 +756,7 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	// place that can stop two of them spending tokens on the same sessions.
 	var source *factSourceManifest
 	skipped := false
+	// Contention is decided before the agent is: see above.
 	err = withDistillPassLock(storage.BrainDir, func() {
 		skipped = true
 		// Tell the CALLER, not just the terminal. A skipped pass spends
@@ -760,6 +772,15 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 			"distill: another distill pass already holds %s for this brain; skipping so the same sessions are not distilled twice\n",
 			filepath.Join(storage.BrainDir, brainLockDirName, brainDistillLockName))
 	}, func() error {
+		// We hold the lock, so this pass will really run: NOW the agent has to
+		// exist. ollama is named because it is auto-selected ahead of the
+		// cloud agents (issue #328); the old text listed only codex and
+		// claude-code, so a user whose local model was missing was told to
+		// install something else entirely.
+		if distillOpts.agent == "none" {
+			return errors.New("distillation requires an agent (ollama, codex, or claude-code); none found on PATH")
+		}
+
 		// Built once per run, before any agent call: reading the derived index
 		// is cheap and bounded, and a missing/empty index yields nil, which
 		// restores the pre-index anchoring exactly. Built INSIDE the pass lock
@@ -2283,19 +2304,99 @@ func defaultDistillAgentRunner(agent string) distillAgentRunner {
 	if agent == "ollama" {
 		return execOllamaDistillAgent
 	}
+	if agent == "command" {
+		return execCustomDistillAgent
+	}
 	return execDistillAgent
 }
 
+// prepareAgentExec turns the builder's slice into the argv actually handed to
+// CreateProcess/execve plus the bytes the agent should read on stdin, keeping
+// the ~7.5 KiB system prompt off the command line (issue #322 — cmd.exe caps a
+// command line at 8191 characters and the npm `claude.cmd`/`codex.cmd` shims
+// route every exec through it).
+//
+// It returns a cleanup that the caller MUST defer before any other error
+// return, because the claude channel stages the prompt in a temp file. The file
+// is written 0600 inside a 0700 MkdirTemp directory, so the prompt never lands
+// in a world-readable location, and cleanup removes the directory on every exit
+// path including failure and timeout.
+//
+// Slices with no marker (the `command` agent, which was never given the prompt,
+// and the handcrafted argv used by tests) pass through untouched.
+func prepareAgentExec(args []string, input []byte) (argv []string, stdin []byte, cleanup func(), err error) {
+	noop := func() {}
+	argv, prompt, ok := splitAgentPromptArg(args)
+	if !ok {
+		return args, input, noop, nil
+	}
+	if len(argv) == 0 {
+		return nil, nil, noop, errors.New("distill: agent command carries a prompt but no executable")
+	}
+	switch strings.TrimSuffix(strings.ToLower(filepath.Base(argv[0])), ".exe") {
+	case "claude":
+		// claude reads its system prompt from a file with --system-prompt-file,
+		// which keeps the system/user split intact (folding the instructions into
+		// the stdin user message would change behaviour on every platform, not
+		// just Windows).
+		dir, mkErr := os.MkdirTemp("", "entire-brain-prompt-")
+		if mkErr != nil {
+			return nil, nil, noop, fmt.Errorf("distill: stage system prompt: %w", mkErr)
+		}
+		cleanup = func() { _ = os.RemoveAll(dir) }
+		path := filepath.Join(dir, "system-prompt.md")
+		if wErr := os.WriteFile(path, []byte(prompt), 0o600); wErr != nil {
+			cleanup()
+			return nil, nil, noop, fmt.Errorf("distill: stage system prompt: %w", wErr)
+		}
+		return append(argv, "--system-prompt-file", path), input, cleanup, nil
+	case "codex":
+		// `codex exec -` reads its instructions from stdin. codex itself appends
+		// piped stdin to a positional prompt as a <stdin> block, so composing the
+		// same shape here keeps the transcript distinguishable from the
+		// instructions while the instructions leave argv.
+		var composed bytes.Buffer
+		composed.WriteString(prompt)
+		if len(input) > 0 {
+			composed.WriteString("\n\n<stdin>\n")
+			composed.Write(input)
+			composed.WriteString("\n</stdin>\n")
+		}
+		return append(argv, "-"), composed.Bytes(), noop, nil
+	default:
+		return nil, nil, noop, fmt.Errorf("distill: no off-argv prompt channel for agent %q", argv[0])
+	}
+}
+
 func execDistillAgent(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+	return execDistillAgentWithPrompt(ctx, dir, args, input, timeout, true)
+}
+
+func execCustomDistillAgent(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+	return execDistillAgentWithPrompt(ctx, dir, args, input, timeout, false)
+}
+
+func execDistillAgentWithPrompt(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration, carriesPrompt bool) (string, error) {
 	if len(args) == 0 {
 		return "", errors.New("distill: empty agent command")
 	}
+	argv, stdin, cleanup := args, input, func() {}
+	var err error
+	// Custom commands own their complete argv. Only built-in agent builders
+	// encode a system prompt behind the private marker.
+	if carriesPrompt {
+		argv, stdin, cleanup, err = prepareAgentExec(args, input)
+		if err != nil {
+			return "", err
+		}
+	}
+	defer cleanup()
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	command := exec.CommandContext(runCtx, args[0], args[1:]...)
+	command := exec.CommandContext(runCtx, argv[0], argv[1:]...)
 	command.Dir = dir
-	command.Stdin = bytes.NewReader(input)
-	stdoutLimit := distillStdoutLimit(args)
+	command.Stdin = bytes.NewReader(stdin)
+	stdoutLimit := distillStdoutLimit(argv)
 	stdout := newCappedDistillBuffer(stdoutLimit)
 	stderr := newCappedDistillBuffer(distillMaxOutputBytes)
 	command.Stdout = &stdout
@@ -2310,7 +2411,7 @@ func execDistillAgent(ctx context.Context, dir string, args []string, input []by
 	// kill and lets Wait return, so `timeout` is the real ceiling and a --jobs N
 	// pool cannot be wedged by one hung call.
 	command.WaitDelay = distillAgentWaitDelay
-	err := command.Run()
+	err = command.Run()
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		return "", fmt.Errorf("agent timed out after %s", timeout)
 	}
@@ -2319,7 +2420,7 @@ func execDistillAgent(ctx context.Context, dir string, args []string, input []by
 	var decodeErr error
 	if !stdout.Exceeded() {
 		var usage distillProviderUsage
-		decodedOutput, usage, decodeErr = decodeStructuredDistillOutput(args, rawOutput)
+		decodedOutput, usage, decodeErr = decodeStructuredDistillOutput(argv, rawOutput)
 		// Provider usage is the cost of the attempted call, even when the CLI
 		// reports a logical error that makes the extraction itself fail.
 		recordDistillProviderUsage(ctx, usage)

@@ -92,7 +92,7 @@ func TestRegressionDetectsChangedOperand(t *testing.T) {
 	regressed := "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"
 	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/review_context.go", regressed)
 
-	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false)
+	an, _, _, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false)
 	if len(an) != 1 || an[0].Kind != "changed" || !strings.Contains(an[0].File, "review_context.go") {
 		t.Fatalf("expected one changed anomaly on review_context.go, got %+v", an)
 	}
@@ -103,7 +103,7 @@ func TestRegressionDetectsChangedOperand(t *testing.T) {
 	// Clean tree (invariant still present) → no anomaly.
 	clean := "package x\nfunc f() string {\n\treturn scopeBaseRef + \"..HEAD\"\n}\n"
 	_, repoRoot2 := writeRegressionFixture(t, session, "pkg/review_context.go", clean)
-	if an2, _, _ := detectRegressionAnomalies(brainDir, repoRoot2, nil, "fix scopeBaseRef base scope", 20, false); len(an2) != 0 {
+	if an2, _, _, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot2, nil, "fix scopeBaseRef base scope", 20, false); len(an2) != 0 {
 		t.Fatalf("expected no anomaly on clean tree, got %+v", an2)
 	}
 }
@@ -117,7 +117,7 @@ func TestRegressionChangedOperandReportsMissingHintedFileDespiteIntactPeer(t *te
 		t.Fatal(err)
 	}
 
-	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false)
+	an, _, _, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false)
 	if len(an) != 1 || an[0].Kind != "changed" || an[0].File != "pkg/b.go" {
 		t.Fatalf("expected only regressed hinted file b.go despite intact peer, got %+v", an)
 	}
@@ -131,7 +131,7 @@ func TestRegressionChangedOperandReportsEachRegressedHintedFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false)
+	an, _, _, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false)
 	var files []string
 	for _, a := range an {
 		if a.Kind == "changed" {
@@ -149,7 +149,7 @@ func TestRegressionBenignRenameNotFlagged(t *testing.T) {
 	session := `{"text":"pkg/review_context.go builds the range as scopeBaseRef+\"..HEAD\""}`
 	body := "package x\nfunc f(baseRef string) string {\n\treturn baseRef + \"..HEAD\"\n}\n"
 	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/review_context.go", body)
-	if an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false); len(an) != 0 {
+	if an, _, _, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false); len(an) != 0 {
 		t.Fatalf("benign rename (operand still concatenated to an identifier) must not flag: %+v", an)
 	}
 }
@@ -160,7 +160,7 @@ func TestRegressionCommentCopyDoesNotSuppress(t *testing.T) {
 	session := `{"text":"pkg/review_context.go uses scopeBaseRef+\"..HEAD\" for the range"}`
 	body := "package x\n// historical: scopeBaseRef+\"..HEAD\"\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"
 	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/review_context.go", body)
-	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false)
+	an, _, _, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false)
 	if len(an) != 1 || an[0].Kind != "changed" || !strings.Contains(an[0].Current, "master..HEAD") {
 		t.Fatalf("a comment copy of the invariant must not suppress the real regression: %+v", an)
 	}
@@ -171,7 +171,7 @@ func TestRegressionIntactInvariantNotFlagged(t *testing.T) {
 	session := `{"text":"pkg/review_context.go scopeBaseRef+\"..HEAD\""}`
 	body := "package x\nfunc f() string {\n\trng := scopeBaseRef + \"..HEAD\"\n\t_ = \"origin/main..HEAD\"\n\treturn rng\n}\n"
 	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/review_context.go", body)
-	if an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false); len(an) != 0 {
+	if an, _, _, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false); len(an) != 0 {
 		t.Fatalf("intact invariant must not flag despite an operand collision elsewhere: %+v", an)
 	}
 }
@@ -250,7 +250,7 @@ func TestBrainReviewUsesRuntimeTraceForRankingAndContext(t *testing.T) {
 			t.Fatalf("write %s: %v", rel, err)
 		}
 	}
-	for _, k := range [][]string{{"git", "status", "--porcelain"}, {"git", "status", "--porcelain", "--untracked-files=all"}, {"git", "diff", "--shortstat", "HEAD"}, {"git", "diff", "--name-status", "-M", "-C", "HEAD"}} {
+	for _, k := range [][]string{{"git", "status", "--porcelain"}, {"git", "status", "--porcelain", "--untracked-files=all"}, {"git", "diff-index", "-M", "--shortstat", "HEAD"}, {"git", "diff", "--name-status", "-M", "-C", "HEAD"}} {
 		runner.responses[fakeCommandKey(k[0], k[1:]...)] = fakeCommandResponse{}
 	}
 	var out strings.Builder
@@ -281,7 +281,7 @@ func TestInspectRegressionsCommandJSONAndLocationOnly(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	for _, k := range [][]string{{"git", "status", "--porcelain"}, {"git", "status", "--porcelain", "--untracked-files=all"}, {"git", "diff", "--shortstat", "HEAD"}, {"git", "diff", "--name-status", "-M", "-C", "HEAD"}} {
+	for _, k := range [][]string{{"git", "status", "--porcelain"}, {"git", "status", "--porcelain", "--untracked-files=all"}, {"git", "diff-index", "-M", "--shortstat", "HEAD"}, {"git", "diff", "--name-status", "-M", "-C", "HEAD"}} {
 		runner.responses[fakeCommandKey(k[0], k[1:]...)] = fakeCommandResponse{}
 	}
 	mk := func() *cobra.Command {
@@ -347,18 +347,18 @@ func TestRegressionDetectorWarnings(t *testing.T) {
 	// Each user-facing "found nothing" diagnostic path returns a specific warning + a non-nil slice.
 	// (1) no extractable identifier in the query.
 	brainDir, repoRoot := writeRegressionFixture(t, `{"text":"x"}`, "a.go", "package a\n")
-	an, _, w := detectRegressionAnomalies(brainDir, repoRoot, nil, "the and for with", 20, false)
+	an, _, w, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "the and for with", 20, false)
 	if an == nil || len(an) != 0 || len(w) == 0 || !strings.Contains(w[0], "no code identifiers") {
 		t.Fatalf("expected non-nil empty slice + no-identifiers warning, got an=%+v w=%v", an, w)
 	}
 	// (2) identifier present, but history holds no precise code assertion.
 	brainDir, repoRoot = writeRegressionFixture(t, `{"text":"we touched scopeBaseRef somewhere in prose"}`, "a.go", "package a\n")
-	if _, _, w := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix scopeBaseRef", 20, false); len(w) == 0 || !strings.Contains(w[len(w)-1], "no precise code assertions") {
+	if _, _, w, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "fix scopeBaseRef", 20, false); len(w) == 0 || !strings.Contains(w[len(w)-1], "no precise code assertions") {
 		t.Fatalf("expected no-precise-assertions warning, got %v", w)
 	}
 	// (3) a precise assertion names a file that does not exist in the current tree.
 	brainDir, repoRoot = writeRegressionFixture(t, `{"text":"in pkg/gone.go the range is scopeBaseRef+\"..HEAD\""}`, "other.go", "package x\n")
-	if _, _, w := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false); len(w) == 0 || !strings.Contains(w[len(w)-1], "no current files") {
+	if _, _, w, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false); len(w) == 0 || !strings.Contains(w[len(w)-1], "no current files") {
 		t.Fatalf("expected no-current-files warning, got %v", w)
 	}
 }
@@ -370,10 +370,10 @@ func TestRegressionDeletionIsOptIn(t *testing.T) {
 	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_transcript.go", body)
 	q := "fix resolveTranscriptPath TranscriptPath"
 
-	if an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, q, 20, false); len(an) != 0 {
+	if an, _, _, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, q, 20, false); len(an) != 0 {
 		t.Fatalf("deletions must be off by default, got %+v", an)
 	}
-	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, q, 20, true)
+	an, _, _, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, q, 20, true)
 	if len(an) != 1 || an[0].Kind != "deleted" {
 		t.Fatalf("expected one deleted anomaly with --include-deletions, got %+v", an)
 	}
@@ -399,7 +399,7 @@ func TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer(t
 		t.Fatal(err)
 	}
 
-	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
+	an, _, _, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
 	var deleted []regressionAnomaly
 	for _, a := range an {
 		if a.Kind == "deleted" && strings.Contains(strings.ToLower(a.Expected), "transcriptpath") {
@@ -419,7 +419,7 @@ func TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol(t *testing.T
 	body := "package x\nfunc missOne(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\t// state.TranscriptPath = resolved\n\treturn resolved\n}\nfunc missTwo(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\t// state.TranscriptPath = resolved\n\treturn resolved\n}\n"
 	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_transcript.go", body)
 
-	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
+	an, _, _, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
 	var lines []int
 	for _, a := range an {
 		if a.Kind == "deleted" && a.File == "pkg/resolve_transcript.go" {
@@ -442,7 +442,7 @@ func TestRegressionAssignmentDeletionRelatedLocationsStayOnSameInvariant(t *test
 	body := "package x\nfunc missPathOne(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\nfunc missPathTwo(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\nfunc missMode(state *State) string {\n\tnextMode := computeMode()\n\t_ = state.ResolveMode\n\treturn nextMode\n}\n"
 	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_transcript.go", body)
 
-	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved ResolveMode nextMode", 20, true)
+	an, _, _, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "fix TranscriptPath resolved ResolveMode nextMode", 20, true)
 	bySymbol := map[string]regressionAnomaly{}
 	for _, a := range an {
 		if a.Kind == "deleted" && a.File == "pkg/resolve_transcript.go" && a.Symbol != "" {
@@ -473,7 +473,7 @@ func TestRegressionAssignmentDeletionRelatedLocationsDistinguishSameIdentifierDi
 	body := "package x\nfunc missResolved(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\nfunc missFallback(state *State) string {\n\tfallback := computeFallback()\n\t_ = state.TranscriptPath\n\treturn fallback\n}\n"
 	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_transcript.go", body)
 
-	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved fallback", 20, true)
+	an, _, _, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "fix TranscriptPath resolved fallback", 20, true)
 	var foundResolved, foundFallback bool
 	for _, a := range an {
 		if a.Kind != "deleted" || a.File != "pkg/resolve_transcript.go" {
@@ -503,7 +503,7 @@ func TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite(t *t
 	body := "package x\nfunc ok(state *State) string {\n\tresolved := compute()\n\tstate.TranscriptPath = resolved\n\treturn resolved\n}\nfunc miss(state *State) string {\n\tresolved := compute()\n\treturn resolved\n}\n"
 	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_transcript.go", body)
 
-	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
+	an, _, _, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
 	var deleted []regressionAnomaly
 	for _, a := range an {
 		if a.Kind == "deleted" && a.File == "pkg/resolve_transcript.go" {
@@ -523,7 +523,7 @@ func TestRegressionAssignmentDeletionReportsSameNameReceiverMethods(t *testing.T
 	body := "package x\nfunc (a *Alpha) Resolve(state *State) string {\n\tresolved := computeA()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\nfunc (b *Beta) Resolve(state *State) string {\n\tresolved := computeB()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\n"
 	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolver.go", body)
 
-	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
+	an, _, _, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
 	var lines []int
 	for _, a := range an {
 		if a.Kind == "deleted" && a.File == "pkg/resolver.go" {
@@ -540,7 +540,7 @@ func TestRegressionAssignmentDeletionReportsOneMissingLocusInsideSameFunction(t 
 	body := "package x\nfunc resolveBoth(state *State) string {\n\t{\n\t\tresolved := computeA()\n\t\tstate.TranscriptPath = resolved\n\t}\n\t{\n\t\tresolved := computeB()\n\t\treturn resolved\n\t}\n}\n"
 	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_transcript.go", body)
 
-	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
+	an, _, _, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
 	var deleted []regressionAnomaly
 	for _, a := range an {
 		if a.Kind == "deleted" && a.File == "pkg/resolve_transcript.go" {
@@ -568,7 +568,7 @@ func TestRegressionDeletionRanksCallLocusWithHistoryFileHint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "RealignAttributionBase newHead HumanAdded", 20, true)
+	an, _, _, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "RealignAttributionBase newHead HumanAdded", 20, true)
 	if len(an) == 0 {
 		t.Fatal("expected a deleted call anomaly")
 	}
@@ -588,7 +588,7 @@ func TestRegressionDeletionReportsEachMissingAnchoredCallSite(t *testing.T) {
 	body := "package strategy\nfunc ok(state *State, newHead string) {\n\tstate.BaseCommit = newHead\n\tstate.RealignAttributionBase(newHead)\n}\nfunc missOne(state *State, newHead string) {\n\tstate.BaseCommit = newHead\n\tlog(newHead)\n}\nfunc missTwo(state *State, newHead string) {\n\tstate.BaseCommit = newHead\n}\n"
 	brainDir, repoRoot := writeRegressionFixture(t, session, "cmd/entire/cli/strategy/manual_commit_hooks.go", body)
 
-	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "RealignAttributionBase newHead manual commit hooks", 20, true)
+	an, _, _, _ := detectRegressionAnomaliesCapped(brainDir, repoRoot, nil, "RealignAttributionBase newHead manual commit hooks", 20, true)
 	var lines []int
 	for _, a := range an {
 		if a.Kind == "deleted" && strings.Contains(strings.ToLower(a.Expected), "realignattributionbase") {

@@ -282,6 +282,17 @@ type semanticIndexOptions struct {
 	force       bool
 	graphBinary string
 	skipGraph   bool
+	// localCommit and localTree are brain's OWN `git rev-parse HEAD` and
+	// `HEAD^{tree}`, used only to stamp a snapshot header the provider could
+	// not stamp itself. entire-graph refuses git metadata subprocesses in a
+	// partial clone -- correctly, since a promisor remote can fetch over the
+	// network and it runs --no-network -- and returns an empty commit and
+	// tree, which made brain discard an index it had already parsed in full.
+	//
+	// These are facts rather than options, and they live here only because the
+	// stream path already threads this struct end to end.
+	localCommit string
+	localTree   string
 	// Compatibility aliases for callers created before the graph-provider
 	// command rename. New code should use graphBinary and skipGraph.
 	semBinary      string
@@ -568,6 +579,14 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	}
 	branch, _ := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current")
 	defaultBranch, defaultWarnings := detectDefaultBranch(ctx, opts.Runner, repoDir)
+	// Carried for the stream scanner, which stamps a header the provider could
+	// not stamp itself. Set HERE, beside the git calls that produced them, and
+	// not inside the already-current branch below: that branch only runs when a
+	// semantic source already exists, so a FIRST index -- exactly the case a
+	// partial clone fails on -- left these empty and the stamp never happened.
+	indexOpts.localCommit = head
+	indexOpts.localTree = tree
+
 	dirty, err := worktreeDirtyWithIgnore(ctx, opts.Runner, repoDir, ignore)
 	if err != nil {
 		return fmt.Errorf("check worktree dirtiness for semantic index: %w", err)
@@ -712,8 +731,35 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		if err := validateSemanticProviderRepoKey(ctx, opts.Runner, repoDir, storage.Key, res.providerRepoKey, doctorReport.RepoKey, indexOpts.graphBinary); err != nil {
 			return err
 		}
+		// The provider could not stamp its own provenance, and brain supplied
+		// it during the stream scan (see semanticStreamScanConfig.commit).
+		// Disclosed rather than silent: the snapshot's commit came from brain's
+		// own git, not from the thing that did the indexing.
+		if res.stampedHeader != "" {
+			// The disclosure says the commit was verified unchanged across
+			// the index run, so verify it. verifySemanticWorktreeStable above
+			// does NOT establish this: it compares worktree dirtiness and a
+			// worktree fingerprint, both of which are measured against
+			// whatever HEAD is current, so `git commit --allow-empty` or a
+			// checkout partway through leaves the worktree clean and passes.
+			// On every other path validateLiveSemanticHeader catches a moved
+			// HEAD, because the provider resolved the commit itself and it no
+			// longer equals the one brain resolved. On THIS path brain stamped
+			// `head` into the header, so that comparison is a value against
+			// itself and cannot fail -- the only path where the claim was
+			// unbacked is the only path that makes it.
+			if err := verifySemanticHeadStable(ctx, opts.Runner, repoDir, head, tree); err != nil {
+				return err
+			}
+			warnings = append(warnings, semanticWarning{
+				Code:     "provider_header_stamped_locally",
+				Severity: "warning",
+				Effect:   "provenance supplied by brain",
+				Detail:   res.stampedHeader,
+			})
+		}
 		if err := validateLiveSemanticHeader(header, head, tree, indexOpts.worktree && dirty); err != nil {
-			return err
+			return annotateSemanticHeaderRefusal(ctx, opts.Runner, repoDir, err)
 		}
 		header.Warnings = sanitizeSemanticWarnings(header.Warnings, repoDir)
 		header.PartialFailures = sanitizeSemanticWarnings(header.PartialFailures, repoDir)
@@ -1298,11 +1344,26 @@ func semanticProviderUnverifiedError(graphBinary string, warnings []semanticWarn
 		if binary == "" {
 			binary = entireBinaryName
 		}
+		// The DOCUMENTED path comes first.
+		//
+		// This used to name only `scripts/install.sh` from the entire-brain
+		// checkout, which is the contributor's path and assumes a sibling
+		// clone. The published guide tells everyone else to run
+		// `entire plugin install graph`, so a user who followed the docs and
+		// then hit this error was handed a different, harder instruction than
+		// the page had just given them -- and one they usually cannot follow,
+		// having no checkout at all.
+		//
+		// Both are kept because both are real: the plugin index for a normal
+		// install, the script for someone working from source. The order and
+		// the "from a source checkout" qualifier are what stop the second from
+		// reading as the only option.
 		message += fmt.Sprintf(
 			"; the entire-graph semantic provider is not installed (%s has no `graph` command)"+
-				" -- install it with `scripts/install.sh` from the entire-brain checkout"+
-				" (it builds and registers entire-graph from the sibling clone),"+
-				" then re-run `%s setup`", binary, setupCommandPrefix(os.LookupEnv))
+				" -- install it with `%s plugin install graph`,"+
+				" or from a source checkout run `scripts/install.sh` in entire-brain"+
+				" (it builds and registers entire-graph from the sibling clone);"+
+				" then re-run `%s setup`", binary, entireBinaryName, setupCommandPrefix(os.LookupEnv))
 	}
 	return errors.New(message)
 }
@@ -1400,6 +1461,97 @@ func semanticSnapshotRejectsIgnoreFile(err error) bool {
 //	validateSemanticProviderRepoKey   the spelling the provider stamped
 //	readSemanticSnapshotSummary /     a key read back from an on-disk artifact
 //	validateImportedBundle            (another brain's bundle, an older snapshot)
+//
+// stampSemanticHeaderFromLocalGit fills a header the provider left unstamped,
+// returning the warning to disclose that brain supplied the provenance, or ""
+// when nothing was changed.
+//
+// BOTH fields must be empty. A header carrying one and not the other is not a
+// provider that declined to answer -- it is a provider that answered
+// inconsistently, and that is a real defect which must keep failing validation
+// rather than be papered over.
+//
+// A value the provider DID supply is never overwritten: the point is to fill a
+// blank, not to overrule the thing that did the indexing.
+func stampSemanticHeaderFromLocalGit(header *semanticHeader, commit, tree string) string {
+	if header == nil || header.Commit != "" || header.Tree != "" {
+		return ""
+	}
+	if strings.TrimSpace(commit) == "" || strings.TrimSpace(tree) == "" {
+		return ""
+	}
+	header.Commit = commit
+	header.Tree = tree
+	return "the semantic provider returned no commit or tree (it refuses git metadata in a partial clone); " +
+		"brain stamped the snapshot with the commit it resolved locally, verified unchanged across the index run"
+}
+
+// annotateSemanticHeaderRefusal names the CAUSE when the provider handed back a
+// header with no commit or tree.
+//
+// Measured: entire-graph refuses to run git metadata subprocesses in a
+// PARTIAL CLONE, because a promisor remote means an ordinary git command can
+// silently fetch over the network and the provider runs --no-network. That
+// refusal is correct. What it produces is not: an empty commit and tree, with
+// warnings[] and partial_failures[] both empty, so nothing on the wire says
+// why. Brain then refused the snapshot with "missing commit", which names a
+// symptom and leaves the user to guess.
+//
+// Reproduced on one repository by toggling a single config section: with
+// promisor=true and partialclonefilter set the commit comes back "", without
+// them it resolves, and back again when restored. `git clone --filter=blob:none`
+// is ordinary practice on a large repository, so this is not an exotic state --
+// it silently costs that repository its entire semantic index.
+//
+// The annotation is best-effort: if the git probe fails the original error is
+// returned unchanged, because a diagnostic must never replace a real error with
+// a worse one.
+func annotateSemanticHeaderRefusal(ctx context.Context, runner CommandRunner, repoDir string, err error) error {
+	if err == nil {
+		return nil
+	}
+	text := err.Error()
+	if !strings.Contains(text, "missing commit") && !strings.Contains(text, "missing tree") {
+		return err
+	}
+	if !repoIsPartialClone(ctx, runner, repoDir) {
+		return err
+	}
+	// The remedy is RUN, not guessed. Verified on git 2.54.0 against a real
+	// `git clone --filter=blob:none`: `git fetch --refetch origin` backfills
+	// (rc=0), after which unsetting promisor and partialclonefilter lets the
+	// provider resolve the commit again. Two plausible alternatives do NOT
+	// work and were in an earlier draft of this very message:
+	// `git fetch --refetch --filter=` fails with "invalid filter-spec", and
+	// `--filter=blob:unlimited` exits 128.
+	//
+	// The backfill has to come FIRST. Unsetting the markers alone appears to
+	// work on a small clone whose blobs are already present, and on a real
+	// partial clone it strips git's ability to fetch the objects it is still
+	// missing.
+	//
+	// The cause and the remedy, inside statusCauseWidth: this string is
+	// recorded as a freshness axis detail, and a cause that overruns is
+	// truncated in the very report it exists to explain. The full reasoning
+	// lives in the comment above, where length is free.
+	const detail = "%w; partial clone (remote promisor/partialclonefilter) blocks the provider; run `git fetch --refetch origin`, then unset those two keys"
+	return fmt.Errorf(detail, err)
+}
+
+// repoIsPartialClone reports whether any remote is a promisor or carries a
+// partial-clone filter. Best-effort: an unreadable config is "no", because this
+// only decorates an error that already stands on its own.
+func repoIsPartialClone(ctx context.Context, runner CommandRunner, repoDir string) bool {
+	if runner == nil {
+		return false
+	}
+	out, _, runErr := runner.Run(ctx, repoDir, "git", "config", "--get-regexp", `^remote\..*\.(promisor|partialclonefilter)$`)
+	if runErr != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) != ""
+}
+
 func validateLiveSemanticHeader(header semanticHeader, commit, tree string, allowWorktreeTree bool) error {
 	if header.Commit == "" {
 		return errors.New("semantic snapshot header missing commit")
@@ -2710,22 +2862,55 @@ func brainIgnorePathTokens(text string) []string {
 			continue
 		}
 		tokens = append(tokens, field)
-		// Compiler locations append numeric :line[:column] suffixes. Keep
-		// the original token for real colon-bearing filenames as well as the
-		// path without that suffix; a Windows drive prefix is not numeric.
-		path := field
-		for {
-			colon := strings.LastIndexByte(path, ':')
-			if colon < 0 || path[colon+1:] == "" || strings.Trim(path[colon+1:], "0123456789") != "" {
-				break
-			}
-			path = path[:colon]
-		}
-		if path != field {
-			tokens = append(tokens, path)
+		// A compiler or parser error names its location as
+		// "<path>:<line>:<col>", and TrimRight above only removes a TRAILING
+		// colon -- so ".env:3:5" survives as one token and matches no
+		// exact-file pattern: Ignored() compares against ".env", and
+		// ".env:3:5" is not equal to it, does not contain "/.env" and does not
+		// end in ".env".
+		//
+		// That is the shape the warnings this filter exists to withhold
+		// actually take, and such an error routinely quotes the offending
+		// SOURCE LINE -- so a parse failure in an ignored .env, .pem, .key or
+		// a user's own secrets pattern was written into the snapshot warnings
+		// and printed by `brain status`. Measured before this fix:
+		// "/repo/.env" was withheld and "/repo/.env:3:5" was not.
+		//
+		// The bare path is offered as an ADDITIONAL token rather than
+		// replacing the original, so a file whose name genuinely ends in
+		// digits after a colon still matches its own pattern.
+		if trimmed := trimPathPositionSuffix(field); trimmed != field && trimmed != "" {
+			tokens = append(tokens, trimmed)
 		}
 	}
 	return tokens
+}
+
+// trimPathPositionSuffix removes trailing ":<digits>" groups, the
+// "<path>:<line>:<col>" form every compiler, linter and parser uses.
+//
+// Only digits are stripped, and only from the end: a path containing a colon
+// followed by anything else is left alone, because that colon may be part of
+// the name.
+func trimPathPositionSuffix(token string) string {
+	for {
+		idx := strings.LastIndexByte(token, ':')
+		if idx <= 0 || idx == len(token)-1 {
+			return token
+		}
+		suffix := token[idx+1:]
+		allDigits := true
+		for _, r := range suffix {
+			if r < '0' || r > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if !allDigits {
+			return token
+		}
+		token = token[:idx]
+	}
 }
 
 func gitScalar(ctx context.Context, runner CommandRunner, repoDir string, args ...string) (string, error) {
@@ -2772,6 +2957,39 @@ func verifySemanticWorktreeStable(ctx context.Context, runner CommandRunner, rep
 	}
 	if hashBefore != hashAfter {
 		return errors.New("worktree_changed: worktree content changed during semantic indexing")
+	}
+	return nil
+}
+
+// verifySemanticHeadStable re-resolves HEAD after the provider has run and
+// refuses the index when it no longer matches what brain resolved before the
+// run.
+//
+// Only the locally-stamped path needs this. Everywhere else the provider
+// stamps its own commit and validateLiveSemanticHeader compares it against the
+// pre-run value, so a HEAD that moved is already fatal. When brain supplies the
+// provenance it is comparing its own value with itself, so without this check
+// the snapshot would be published carrying a commit the indexed content does
+// not belong to -- and would say, in the disclosure warning, that the commit
+// had been verified unchanged.
+//
+// Refusing is the right outcome rather than restamping with the new HEAD: the
+// content that was actually indexed is a mixture of both, so neither commit
+// describes it.
+func verifySemanticHeadStable(ctx context.Context, runner CommandRunner, repoDir, commitBefore, treeBefore string) error {
+	commitAfter, err := gitScalar(ctx, runner, repoDir, "rev-parse", "HEAD")
+	if err != nil {
+		return fmt.Errorf("recheck HEAD after semantic index: %w", err)
+	}
+	treeAfter, err := gitScalar(ctx, runner, repoDir, "rev-parse", "HEAD^{tree}")
+	if err != nil {
+		return fmt.Errorf("recheck HEAD tree after semantic index: %w", err)
+	}
+	if commitAfter != commitBefore {
+		return fmt.Errorf("head_changed: HEAD moved from %s to %s during semantic indexing", commitBefore, commitAfter)
+	}
+	if treeAfter != treeBefore {
+		return fmt.Errorf("head_changed: HEAD tree moved from %s to %s during semantic indexing", treeBefore, treeAfter)
 	}
 	return nil
 }
@@ -2830,7 +3048,7 @@ func gitDiffBinary(ctx context.Context, runner CommandRunner, repoDir string, ca
 		args = append(args, "--", ".")
 		args = append(args, exclusions...)
 	}
-	stdout, _, err := runner.Run(ctx, repoDir, "git", args...)
+	stdout, _, err := runGitWithScratchIndex(ctx, runner, repoDir, args...)
 	if err == nil {
 		return stdout, nil
 	}
@@ -2839,7 +3057,7 @@ func gitDiffBinary(ctx context.Context, runner CommandRunner, repoDir string, ca
 		args = append(args, "--cached")
 	}
 	args = append(args, "--binary", "HEAD")
-	stdout, _, fallbackErr := runner.Run(ctx, repoDir, "git", args...)
+	stdout, _, fallbackErr := runGitWithScratchIndex(ctx, runner, repoDir, args...)
 	if fallbackErr != nil {
 		return nil, err
 	}
@@ -3438,11 +3656,15 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 		return err
 	}
 	var results []semanticRecord
+	// Kept for the empty-result inventory below: explaining WHICH empty this is
+	// needs the store that was actually searched.
+	storePathForInventory := ""
 	if manifest.Sources.Semantic.StorePath != "" {
 		storePath, err := validateSemanticDeclaredStore(storage.BrainDir, manifest.Sources.Semantic)
 		if err != nil {
 			return err
 		}
+		storePathForInventory = storePath
 		results, err = findSemanticSymbolsInSQLite(storePath, query, queryOpts.limit, queryOpts.offset)
 		if err != nil {
 			return err
@@ -3476,7 +3698,7 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 		fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", freshness.Severity)
 	}
 	if len(results) == 0 {
-		printSemanticNoMatch(cmd, "symbols", query)
+		printSemanticNoSymbolMatch(cmd, storePathForInventory, query)
 		return nil
 	}
 	for _, result := range results {
@@ -3497,6 +3719,89 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 // stays distinguishable from an unlucky search term.
 func printSemanticNoMatch(cmd *cobra.Command, kind, query string) {
 	fmt.Fprintf(cmd.OutOrStdout(), "no %s found in the semantic index for %q\n", kind, query)
+}
+
+// printSemanticNoSymbolMatch adds the one thing the bare message cannot say:
+// WHICH of the indistinguishable cases this is.
+//
+// The comment above names three — no such symbol, index never built, command
+// broken — and there is a fourth it misses: the index holds no symbols OF THAT
+// KIND. Go package-level consts and vars are not extracted at all, so
+// `search-graph defaultDistillTimeout` returns the same empty line as a typo
+// does, and the honest reading ("constants are not in here") is unavailable.
+//
+// This cost real time: given that line for a symbol I could see in the source,
+// I concluded the search was broken and spent an hour on a false root cause.
+// An inventory of what the index DOES hold answers it in one line.
+func printSemanticNoSymbolMatch(cmd *cobra.Command, storePath, query string) {
+	printSemanticNoMatch(cmd, "symbols", query)
+	// Snapshot-backed searches have no SQLite inventory to inspect. A missing
+	// inventory does not imply that the searched snapshot has no symbols.
+	if storePath == "" {
+		return
+	}
+	total, distinctKinds, kinds := semanticIndexKindInventory(storePath)
+	if total == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "note: the semantic index holds no symbols at all — run `entire brain refresh --semantic`")
+		return
+	}
+	shown := strings.Join(kinds, ", ")
+	if distinctKinds > len(kinds) {
+		// Say that the list is partial. Six of twenty kinds presented as the
+		// whole set is the same misdirection as an under-reported total.
+		shown = fmt.Sprintf("%s (%d of %d kinds)", shown, len(kinds), distinctKinds)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(),
+		"note: the index holds %d symbols of kinds %s; Go consts and vars are not extracted, so a constant name finds nothing here\n",
+		total, shown)
+}
+
+// semanticIndexKindInventory reports what the store actually contains. Every
+// failure is a zero inventory rather than an error: this runs only to explain
+// an empty result, and must never turn one into a command failure.
+func semanticIndexKindInventory(storePath string) (total int, distinctKinds int, kinds []string) {
+	if storePath == "" {
+		return 0, 0, nil
+	}
+	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+	if err != nil {
+		return 0, 0, nil
+	}
+	defer db.Close()
+	// The TOTAL comes from its own count, not from summing the displayed rows.
+	//
+	// Summing the LIMIT 6 groups is a partial sum: with more than six distinct
+	// kinds it under-reports, and this note exists precisely to give an agent
+	// an accurate picture after an empty result. A too-low total risks the same
+	// false root cause the note was written to prevent -- which is the mistake
+	// that prompted writing it.
+	if err := db.QueryRow(`SELECT count(*) FROM symbols`).Scan(&total); err != nil {
+		return 0, 0, nil
+	}
+
+	// And the KIND COUNT is its own query too, so a truncated list can say so
+	// rather than presenting six of twenty as if that were all of them.
+	if err := db.QueryRow(`SELECT count(DISTINCT kind) FROM symbols`).Scan(&distinctKinds); err != nil {
+		return total, 0, nil
+	}
+
+	rows, err := db.Query(`SELECT kind, count(*) c FROM symbols GROUP BY kind ORDER BY c DESC LIMIT 6`)
+	if err != nil {
+		return total, distinctKinds, nil
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var k string
+		var c int
+		if err := rows.Scan(&k, &c); err != nil {
+			return total, distinctKinds, nil
+		}
+		kinds = append(kinds, k)
+	}
+	if rows.Err() != nil {
+		return total, distinctKinds, nil
+	}
+	return total, distinctKinds, kinds
 }
 
 func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, contextOpts semanticContextOptions, query string) error {
@@ -5213,7 +5518,7 @@ func changedSemanticFiles(ctx context.Context, runner CommandRunner, repoDir str
 	if err != nil {
 		return nil, err
 	}
-	diffOutput, _, err := runner.Run(ctx, repoDir, "git", "diff", "--name-status", "-M", "-C", "HEAD")
+	diffOutput, _, err := runGitWithScratchIndex(ctx, runner, repoDir, "diff", "--name-status", "-M", "-C", "HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("list changed files: %w", err)
 	}
@@ -5257,7 +5562,7 @@ func changedSemanticFiles(ctx context.Context, runner CommandRunner, repoDir str
 }
 
 func changedSemanticRanges(ctx context.Context, runner CommandRunner, repoDir string, indexedWorktree bool) ([]semanticChangedRange, error) {
-	diffOutput, _, err := runner.Run(ctx, repoDir, "git", "diff", "--unified=0", "--no-ext-diff", "--no-color", "--no-prefix", "HEAD")
+	diffOutput, _, err := runGitWithScratchIndex(ctx, runner, repoDir, "diff", "--unified=0", "--no-ext-diff", "--no-color", "--no-prefix", "HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("inspect changed lines: %w", err)
 	}

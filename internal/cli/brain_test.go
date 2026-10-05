@@ -110,7 +110,7 @@ func TestBrainBriefJSONUsesSemanticContextAndLiveOverlay(t *testing.T) {
 	}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: " M internal/auth/token.go\n?? notes.md\n"}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{stdout: " M internal/auth/token.go\n?? notes.md\n"}
-	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{stdout: " 1 file changed, 2 insertions(+)\n"}
+	runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{stdout: " 1 file changed, 2 insertions(+)\n"}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{stdout: "M\tinternal/auth/token.go\n"}
 
 	cmd := NewRootCommand(opts)
@@ -524,7 +524,7 @@ func TestBrainBriefIncludesMatchingFacts(t *testing.T) {
 	if err := updateFactSourceManifest(storage.BrainDir, now); err != nil {
 		t.Fatalf("update manifest: %v", err)
 	}
-	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 
 	cmd := NewRootCommand(opts)
@@ -574,7 +574,7 @@ func TestBrainBriefAnnotatesPendingFactReview(t *testing.T) {
 	if err := updateFactSourceManifest(storage.BrainDir, now); err != nil {
 		t.Fatalf("update manifest: %v", err)
 	}
-	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 
 	out, err := execute(t, NewRootCommand(opts), "brief", "ValidateToken", "--json")
@@ -640,7 +640,7 @@ func TestBrainBriefWarnsWhenProposalQueueUnreadable(t *testing.T) {
 	if err := updateFactSourceManifest(storage.BrainDir, now); err != nil {
 		t.Fatalf("update manifest: %v", err)
 	}
-	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 
 	out, err := execute(t, NewRootCommand(opts), "brief", "ValidateToken", "--json")
@@ -681,7 +681,7 @@ func TestBrainInspectCodeAndShow(t *testing.T) {
 	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 
 	cmd := NewRootCommand(opts)

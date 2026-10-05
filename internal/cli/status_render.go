@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/entireio/entire-brain/internal/tui"
 )
@@ -186,10 +187,19 @@ func truncateStatusCause(cause string) string {
 	if len(runes) <= statusCauseWidth {
 		return cause
 	}
+	// The RESERVE is counted in runes too.
+	//
+	// Measuring the input in runes and the ellipsis in bytes is the same
+	// rune-versus-byte confusion this function exists to fix, just on the other
+	// operand. It happens to agree for ASCII "...", and silently
+	// over-reserves the moment the marker becomes "…" -- which is one
+	// const edit away, in a function whose entire comment is about this class
+	// of bug.
+	ellipsisWidth := utf8.RuneCountInString(statusCauseEllipsis)
 	limit := statusCauseWidth
 	suffix := ""
-	if statusCauseWidth > len(statusCauseEllipsis) {
-		limit = statusCauseWidth - len(statusCauseEllipsis)
+	if statusCauseWidth > ellipsisWidth {
+		limit = statusCauseWidth - ellipsisWidth
 		suffix = statusCauseEllipsis
 	}
 	return string(runes[:limit]) + suffix
@@ -463,6 +473,21 @@ func renderStatusOnboardingBlock(out io.Writer, render *tui.Renderer, report bra
 		return
 	}
 	fmt.Fprintf(out, "\n%s\n", render.Bold("Onboarding"))
+	// FIRST, because it decides whether any other line is ever acted on. A
+	// brain no agent knows about reads healthy on every source and is never
+	// consulted; nothing else in this report would say so. The published guide
+	// teaches `setup` then `status` without `init-agents`, so a reader
+	// following it lands here by default.
+	if onboarding.AgentsUnwired {
+		fmt.Fprintf(out, "  %-*s %s %s\n", statusLabelWidth, "agents",
+			render.Mark(tui.MarkFailed),
+			render.PhasePaint(tui.PhaseFailed,
+				fmt.Sprintf("not wired — run `%s init-agents` so your agent uses this brain", brainCmd)))
+		if len(onboarding.AgentsMissing) > 0 {
+			fmt.Fprintf(out, "  %-*s   %s\n", statusLabelWidth, "",
+				render.Dim("missing: "+strings.Join(onboarding.AgentsMissing, ", ")))
+		}
+	}
 	facts := onboarding.Facts
 	factsLine := fmt.Sprintf("  %-*s %s %s distilled",
 		statusLabelWidth, "facts",
