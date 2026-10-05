@@ -58,10 +58,9 @@ func newBenchmarkCommand(opts Options) *cobra.Command {
 func newSemanticBenchCommand(opts Options) *cobra.Command {
 	benchOpts := semanticBenchOptions{graphBinary: "entire"}
 	cmd := &cobra.Command{
-		Hidden: true,
-		Use:    "semantic [path]",
-		Short:  "Benchmark end-to-end semantic Brain indexing in an isolated store",
-		Args:   cobra.MaximumNArgs(1),
+		Use:   "semantic [path]",
+		Short: "Benchmark end-to-end semantic Brain indexing in an isolated store",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := "."
 			if opts.Env.RepoRoot != "" {

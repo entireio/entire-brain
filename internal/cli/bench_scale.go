@@ -121,9 +121,8 @@ func defaultScaleQueries() []string {
 func newScaleBenchCommand(opts Options) *cobra.Command {
 	benchOpts := scaleBenchOptions{graphBinary: "entire", profile: "syntax-only", repeats: 5}
 	cmd := &cobra.Command{
-		Hidden: true,
-		Use:    "scale [path]",
-		Short:  "Measure index size on disk and query latency against a repository's size",
+		Use:   "scale [path]",
+		Short: "Measure index size on disk and query latency against a repository's size",
 		Long: strings.TrimSpace(`
 Reports how large a brain gets and how quickly it answers, against the size of
 the repository in lines — the terms large-codebase claims are usually stated in.

@@ -138,8 +138,11 @@ func TestRootHelpAllShowsDeveloperCommands(t *testing.T) {
 				t.Errorf("all-help missing %q", path)
 			}
 			c, _, err := root.Find(strings.Fields(path))
-			if err != nil || !c.Hidden {
-				t.Errorf("%q should remain hidden after all-help: %v", path, err)
+			// Bench children remain visible within the hidden family so
+			// explicit `bench --help` can describe its subcommands.
+			wantHidden := path != "bench semantic" && path != "bench scale"
+			if err != nil || c.Hidden != wantHidden {
+				t.Errorf("%q hidden should remain %v after all-help: %v", path, wantHidden, err)
 			}
 		}
 	}
@@ -156,6 +159,37 @@ func TestRootHelpAllShowsDeveloperCommands(t *testing.T) {
 			if strings.Contains(out, "\n  "+name+" ") {
 				t.Errorf("%s --help lists developer command %q", family, name)
 			}
+		}
+	}
+}
+
+func TestBenchmarkHelpKeepsHiddenFamilyDiscoverable(t *testing.T) {
+	root := NewRootCommand(Options{Version: "test"})
+	out, err := execute(t, root, "bench", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"entire-brain bench [command]", "Available Commands:", "\n  semantic ", "\n  scale "} {
+		if !strings.Contains(out, want) {
+			t.Errorf("bench help missing %q:\n%s", want, out)
+		}
+	}
+	bench, _, err := root.Find([]string{"bench"})
+	if err != nil || !bench.Hidden {
+		t.Fatalf("benchmark family should remain hidden: %v", err)
+	}
+	for _, child := range bench.Commands() {
+		if child.Hidden {
+			t.Errorf("bench child %q should be visible in contextual help", child.Name())
+		}
+	}
+	out, err = execute(t, NewRootCommand(Options{Version: "test"}), "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"bench", "bench semantic", "bench scale"} {
+		if strings.Contains(out, "\n  "+path+" ") {
+			t.Errorf("default root help should not list %q:\n%s", path, out)
 		}
 	}
 }
