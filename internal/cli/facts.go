@@ -37,6 +37,7 @@ type factSourceManifest struct {
 	Facts             int                       `json:"facts"`
 	Distilled         int                       `json:"distilled"`
 	Authored          int                       `json:"authored"`
+	Imported          int                       `json:"imported,omitempty"`
 	Superseded        int                       `json:"superseded"`
 	Proposals         int                       `json:"proposals"`
 	Verified          int                       `json:"verified"`
@@ -406,6 +407,11 @@ func summarizeFactSource(now time.Time, byBranch map[string][]factRecord, chunks
 				source.Distilled++
 			case factOriginAuthored:
 				source.Authored++
+			case factOriginImported:
+				// Without this bucket an imported fact raises the total and no
+				// line item, so the origins visibly do not sum to the count and
+				// nothing explains the difference.
+				source.Imported++
 			}
 			if record.Status == factStatusSuperseded {
 				source.Superseded++
