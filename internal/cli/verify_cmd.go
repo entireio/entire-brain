@@ -307,6 +307,29 @@ func (v *verifyContext) verifyFact(fact factRecord) verifyFactResult {
 		result.Reason = "fact has no retained source anchor"
 		return result
 	}
+	// NO RECORD-LEVEL ORIGIN GATE. Both of the ones that used to live here
+	// bailed for the WHOLE fact, which is the wrong granularity for a record
+	// that can hold anchors of both kinds.
+	//
+	// factmerge.Upsert keys on the content id, independent of Origin, and
+	// keeps the existing record's Origin while unioning anchors. So a fact can
+	// end up Origin "imported" holding BOTH its foreign anchor and a genuine
+	// local one (a later distill of colliding text), and bailing on the record
+	// meant that real commit, checkpoint and transcript were never checked at
+	// all. The mirror case -- an authored record that gains a foreign anchor --
+	// is what the per-anchor check in verifyAnchor was added for; this is the
+	// same bug on the other side of the same merge.
+	//
+	// Per-anchor handles every case, and better:
+	//   foreign-shaped anchor -> unverifiable-here, naming the tool
+	//   genuine local anchor  -> checked normally
+	//   repo-shaped anchor on an "imported" record -> CHECKED, so a fabricated
+	//     commit is reported missing rather than described as an origin
+	//     contradiction and left unexamined
+	//
+	// That last one is why nothing is lost by dropping the contradiction
+	// message: actually resolving the anchor is a stronger answer than
+	// declaring it inconsistent.
 	factBranch := fact.Branch
 	if factBranch == "" {
 		factBranch = v.branch
@@ -316,12 +339,72 @@ func (v *verifyContext) verifyFact(fact factRecord) verifyFactResult {
 		result.Anchors = append(result.Anchors, anchorResult)
 		result.Verdict = worseVerifyVerdict(result.Verdict, anchorResult.Verdict)
 	}
-	result.Reason = reasonForFactVerdict(result.Verdict)
+	// Prefer a SPECIFIC anchor reason over the generic one.
+	//
+	// reasonForFactVerdict describes a verdict, not a cause: "one or more
+	// anchors need finer local evidence" is true of an imported fact, a
+	// turn-signature limitation and a sparse authored anchor alike, and tells
+	// the reader none of them apart. When every anchor that produced this
+	// verdict gives the SAME reason, that reason is the fact's reason, and it
+	// is the one the reader can act on.
+	//
+	// Only when they agree. Two different causes collapsed into one sentence
+	// would be a worse answer than the generic line, not a better one.
+	if specific := sharedAnchorReason(result.Anchors, result.Verdict); specific != "" {
+		result.Reason = specific
+	} else {
+		result.Reason = reasonForFactVerdict(result.Verdict)
+	}
 	return result
+}
+
+// sharedAnchorReason returns the one reason given by every anchor carrying the
+// fact's verdict, or "" when they disagree or none is set.
+func sharedAnchorReason(anchors []verifyAnchorResult, verdict string) string {
+	reason := ""
+	for _, anchor := range anchors {
+		if anchor.Verdict != verdict {
+			continue
+		}
+		switch {
+		case strings.TrimSpace(anchor.Reason) == "":
+			return ""
+		case reason == "":
+			reason = anchor.Reason
+		case reason != anchor.Reason:
+			return ""
+		}
+	}
+	return reason
 }
 
 func (v *verifyContext) verifyAnchor(anchor factAnchor, factBranch string) verifyAnchorResult {
 	result := verifyAnchorResult{Anchor: anchor, Verdict: verifyVerdictVerified, Reason: "anchor resolved locally", Checks: []verifyCheck{}}
+
+	// PER-ANCHOR, because the record-level origin gates above are not enough.
+	//
+	// factmerge.Upsert keys on the content-addressed id and keeps the EXISTING
+	// record's Origin while unioning provenance. So an imported memory whose
+	// text and paths normalise onto a pre-existing authored fact -- which
+	// importing under an existing taxonomy prefix explicitly permits -- yields
+	// a fact with Origin != "imported" that nonetheless carries a foreign
+	// anchor. Neither origin gate fires, and this function then tries to
+	// resolve "mem0:abc" as a local session and reports the fact ORPHANED:
+	// "its evidence is gone", when its evidence was never here. That is the
+	// same false and alarming diagnosis the origin gates exist to prevent,
+	// reached by a different route.
+	//
+	// Per-anchor is also the correct granularity for that record: it holds the
+	// original local anchor AND the foreign one, so the local one must still be
+	// checked normally while the foreign one must not be called orphaned.
+	// worseVerifyVerdict then aggregates, and unverifiable-here does not mask a
+	// genuine local failure.
+	if anchorNamesAForeignSource(anchor) {
+		result.Verdict = verifyVerdictUnverifiableHere
+		result.Reason = "anchor names a session in " + strings.SplitN(strings.TrimSpace(anchor.SessionID), ":", 2)[0] + ", not this repository"
+		result.addCheck(verifyCheck{Name: "foreign_source", Verdict: verifyVerdictUnverifiableHere, Reason: result.Reason})
+		return result
+	}
 	hasRetainedSource := strings.TrimSpace(anchor.SessionID) != "" ||
 		strings.TrimSpace(anchor.CheckpointID) != "" ||
 		strings.TrimSpace(anchor.Transcript) != "" ||
