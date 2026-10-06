@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "be7c6d0cd198",
+  "strategy": "manual-commit",
+  "branch": "alex/control-background-processes",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/pause_test.go",
+    "internal/cli/setup_status.go",
+    "internal/cli/testdata/render/status.json",
+    "internal/cli/testdata/render/status_detailed.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/be/7c6d0cd198/0/metadata.json",
+      "transcript": "/be/7c6d0cd198/0/full.jsonl",
+      "compact_transcript": "/be/7c6d0cd198/0/transcript.jsonl",
+      "content_hash": "/be/7c6d0cd198/0/content_hash.txt",
+      "prompt": "/be/7c6d0cd198/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 32,
+    "cache_creation_tokens": 12951,
+    "cache_read_tokens": 3734349,
+    "output_tokens": 5494,
+    "api_call_count": 12,
+    "subagent_tokens": {
+      "input_tokens": 20,
+      "cache_creation_tokens": 137566,
+      "cache_read_tokens": 1291415,
+      "output_tokens": 114,
+      "api_call_count": 9
+    }
+  }
+}
