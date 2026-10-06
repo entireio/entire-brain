@@ -207,8 +207,7 @@
         "name": "seed",
         "state": "built"
       }
-    ],
-    "paused": false
+    ]
   },
   "memory": {
     "canonical_sessions": {

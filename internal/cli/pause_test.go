@@ -54,7 +54,7 @@ func TestStatusReportsThePause(t *testing.T) {
 		t.Fatalf("status: %v", err)
 	}
 	if !report.Onboarding.Paused {
-		t.Fatal("status --json does not report the pause")
+		t.Fatal("status does not record the pause")
 	}
 	if got := renderStatus(t, report, false); !strings.Contains(got, "background work: paused") {
 		t.Fatalf("status text does not show the pause:\n%s", got)

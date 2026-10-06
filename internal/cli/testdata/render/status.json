@@ -170,8 +170,7 @@
         "name": "history",
         "state": "missing"
       }
-    ],
-    "paused": false
+    ]
   },
   "memory": {
     "canonical_sessions": {

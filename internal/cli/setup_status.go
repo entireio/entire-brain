@@ -68,7 +68,6 @@ type brainStatusOnboarding struct {
 	Daemon     daemonState            `json:"daemon"`
 	LastTickAt time.Time              `json:"last_tick_at,omitempty"`
 	Components []brainStatusComponent `json:"components,omitempty"`
-	Paused     bool                   `json:"paused"`
 	// WatchPlan is what the machine's ONE watcher covers. json:"-" on purpose:
 	// the status JSON is a published contract and a new field in it is a
 	// breaking change for anything parsing it today, so this is carried for the
@@ -80,6 +79,8 @@ type brainStatusOnboarding struct {
 	// run. Stated in the negative so the zero value is the ordinary machine,
 	// and json:"-" for the same published-contract reason as WatchPlan.
 	HostCLIMissing bool `json:"-"`
+	// json:"-" for the same published-contract reason as WatchPlan.
+	Paused bool `json:"-"`
 }
 
 // factsBackfillStatusForBrain counts how many exported sessions have already
