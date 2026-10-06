@@ -1,0 +1,21 @@
+#!/bin/sh
+# Condition-gated shim for the Entire CLI, placed first on PATH by run.sh.
+#   LADDER_COND=1  no Entire tooling
+#   LADDER_COND=2  hosted sessions only (search, checkpoint)
+#   LADDER_COND=3  sessions + Graph
+#   LADDER_COND=4  sessions + Graph + Brain (normal guide)
+#   LADDER_COND=5  sessions + Graph + Brain (strict guide)
+# Lifecycle hooks are swallowed so a nested agent run never captures a checkpoint.
+REAL=${LADDER_REAL_ENTIRE:-$(command -v -p entire 2>/dev/null || echo /opt/homebrew/bin/entire)}
+sub=${1:-}
+case "$sub" in hooks) exit 0 ;; esac
+# drop the shim directory so the real CLI's children do not loop back here
+PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '/memory-ladder/bin$' | paste -sd: -); export PATH
+deny() { echo "entire: '$sub' is not available in this environment" >&2; exit 1; }
+case "${LADDER_COND:-1}" in
+  1) echo "entire: command not found" >&2; exit 127 ;;
+  2) case "$sub" in search|checkpoint|cp|checkpoints|agent-help|version|status|why) exec "$REAL" "$@" ;; *) deny ;; esac ;;
+  3) case "$sub" in search|checkpoint|cp|checkpoints|agent-help|version|status|why|graph) exec "$REAL" "$@" ;; *) deny ;; esac ;;
+  4|5) exec "$REAL" "$@" ;;
+  *) echo "entire shim: bad LADDER_COND '${LADDER_COND}'" >&2; exit 2 ;;
+esac

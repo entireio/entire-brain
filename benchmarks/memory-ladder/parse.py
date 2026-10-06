@@ -1,0 +1,39 @@
+import json, sys, os, re, collections
+run = sys.argv[1]
+tools = collections.Counter(); cmds = []; result = {}
+for line in open(os.path.join(run, "stream.jsonl")):
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        ev = json.loads(line)
+    except Exception:
+        continue
+    if ev.get("type") == "assistant":
+        for b in ev.get("message", {}).get("content", []):
+            if b.get("type") == "tool_use":
+                tools[b["name"]] += 1
+                if b["name"] == "Bash":
+                    cmds.append(b["input"].get("command", "")[:300])
+                elif b["name"] in ("Agent", "Task"):
+                    cmds.append("AGENT:" + str(b["input"].get("prompt", ""))[:200])
+    elif ev.get("type") == "result":
+        result = ev
+u = result.get("usage", {})
+entire_cmds = [c for c in cmds if re.search(r"\bentire\b", c)]
+subs = collections.Counter(re.sub(r".*?\bentire\s+(\S+).*", r"\1", c, flags=re.S) for c in entire_cmds)
+out = {
+    "cond": os.path.basename(run),
+    "is_error": result.get("is_error"), "subtype": result.get("subtype"),
+    "duration_s": round((result.get("duration_ms") or 0) / 1000, 1),
+    "cost_usd": round(result.get("total_cost_usd") or 0, 3),
+    "num_turns": result.get("num_turns"),
+    "tool_calls": sum(tools.values()), "tools": dict(tools),
+    "bash_calls": len(cmds), "entire_calls": len(entire_cmds),
+    "entire_subcommands": dict(subs),
+    "tokens_in": (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0),
+    "tokens_out": u.get("output_tokens"),
+    "result": result.get("result"),
+    "commands": cmds,
+}
+print(json.dumps(out, indent=1))
