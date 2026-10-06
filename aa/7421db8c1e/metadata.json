@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "aa7421db8c1e",
+  "strategy": "manual-commit",
+  "branch": "brain-cloud-memory-sync",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "factmerge/record.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/aa/7421db8c1e/0/metadata.json",
+      "transcript": "/aa/7421db8c1e/0/full.jsonl",
+      "compact_transcript": "/aa/7421db8c1e/0/transcript.jsonl",
+      "content_hash": "/aa/7421db8c1e/0/content_hash.txt",
+      "prompt": "/aa/7421db8c1e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 24,
+    "cache_creation_tokens": 788864,
+    "cache_read_tokens": 4069428,
+    "output_tokens": 4508,
+    "api_call_count": 12
+  }
+}
