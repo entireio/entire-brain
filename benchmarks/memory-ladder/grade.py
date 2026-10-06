@@ -16,17 +16,29 @@ for sj in sorted(glob.glob(os.path.join(out_dir, q, "c*-r*", "summary.json"))):
     d = json.load(open(sj))
     text = d.get("result") or ""
     hits = {k: bool(re.search(p, text, re.I | re.S)) for k, p in rubric.items()}
-    rows.append({"run": d["cond"], **{k: d.get(k) for k in ("duration_s", "cost_usd", "num_turns", "tool_calls", "tokens_in", "tokens_out", "is_error", "entire_subcommands")}, **hits})
+    if "completed" in d:
+        completed = bool(d["completed"])
+    else:  # summary written by an older parse.py: derive the same rule
+        completed = not d.get("is_error") and d.get("subtype") == "success" and bool(d.get("result"))
+    if not completed:
+        hits = {k: None for k in rubric}  # an unfinished run has no answer to grade
+    rows.append({"run": d["cond"], "completed": completed, **{k: d.get(k) for k in ("duration_s", "cost_usd", "num_turns", "tool_calls", "tokens_in", "tokens_out", "is_error", "subtype", "entire_subcommands")}, **hits})
 if "--json" in sys.argv:
     print(json.dumps(rows, indent=1)); sys.exit()
-cols = ["duration_s", "num_turns", "tool_calls", "tokens_in"] + list(rubric)
+cols = ["completed", "duration_s", "num_turns", "tool_calls", "tokens_in"] + list(rubric)
 print("run".ljust(8) + "".join(c[:11].ljust(12) for c in cols))
 for r in rows:
     print(r["run"].ljust(8) + "".join(str(r.get(c))[:11].ljust(12) for c in cols))
 by = {}
 for r in rows:
     by.setdefault(r["run"].split("-")[0], []).append(r)
-print("\ncond  n  mean_dur_s  mean_turns  mean_tok_in  recovered")
+print("\nMeans and the recovered denominator use completed runs only; failed runs are counted separately.")
+print("cond  completed/total  mean_dur_s  mean_turns  mean_tok_in  recovered")
 for c, rs in sorted(by.items()):
-    m = lambda k: statistics.mean(x[k] or 0 for x in rs)
-    print(f"{c}    {len(rs)}  {m('duration_s'):9.1f}  {m('num_turns'):10.1f}  {m('tokens_in'):11.0f}  {sum(bool(x.get('recovered')) for x in rs)}/{len(rs)}")
+    ok = [x for x in rs if x["completed"]]
+    m = lambda k: statistics.mean(x[k] or 0 for x in ok) if ok else float("nan")
+    rec = sum(bool(x.get("recovered")) for x in ok)
+    print(f"{c}    {len(ok):>9}/{len(rs):<6}  {m('duration_s'):9.1f}  {m('num_turns'):10.1f}  {m('tokens_in'):11.0f}  {rec}/{len(ok)}")
+failed = [r["run"] for r in rows if not r["completed"]]
+if failed:
+    print("\nfailed or incomplete runs (excluded from means):", ", ".join(failed))

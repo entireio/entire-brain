@@ -6,11 +6,14 @@
 #   LADDER_COND=4  sessions + Graph + Brain (normal guide)
 #   LADDER_COND=5  sessions + Graph + Brain (strict guide)
 # Lifecycle hooks are swallowed so a nested agent run never captures a checkpoint.
-REAL=${LADDER_REAL_ENTIRE:-$(command -v -p entire 2>/dev/null || echo /opt/homebrew/bin/entire)}
 sub=${1:-}
 case "$sub" in hooks) exit 0 ;; esac
-# drop the shim directory so the real CLI's children do not loop back here
-PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '/memory-ladder/bin$' | paste -sd: -); export PATH
+# Drop this shim's own directory from PATH, then resolve the real CLI from what remains, so the
+# real binary is found wherever it is installed and its children cannot loop back here.
+shimdir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -vx -- "$shimdir" | paste -sd: -); export PATH
+REAL=${LADDER_REAL_ENTIRE:-$(command -v entire 2>/dev/null || true)}
+[ -n "$REAL" ] && [ -x "$REAL" ] || { echo "entire shim: real entire CLI not found on PATH; set LADDER_REAL_ENTIRE=/path/to/entire" >&2; exit 127; }
 deny() { echo "entire: '$sub' is not available in this environment" >&2; exit 1; }
 case "${LADDER_COND:-1}" in
   1) echo "entire: command not found" >&2; exit 127 ;;

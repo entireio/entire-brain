@@ -20,11 +20,15 @@ for line in open(os.path.join(run, "stream.jsonl")):
     elif ev.get("type") == "result":
         result = ev
 u = result.get("usage", {})
+failed_marker = os.path.exists(os.path.join(run, "failed.txt"))
+completed = bool(result) and not result.get("is_error") and result.get("subtype") == "success" and bool(result.get("result")) and not failed_marker
 entire_cmds = [c for c in cmds if re.search(r"\bentire\b", c)]
 subs = collections.Counter(re.sub(r".*?\bentire\s+(\S+).*", r"\1", c, flags=re.S) for c in entire_cmds)
 out = {
     "cond": os.path.basename(run),
     "is_error": result.get("is_error"), "subtype": result.get("subtype"),
+    "completed": completed, "failed_marker": failed_marker,
+    "head": open(os.path.join(run, "head.txt")).read().strip() if os.path.exists(os.path.join(run, "head.txt")) else None,
     "duration_s": round((result.get("duration_ms") or 0) / 1000, 1),
     "cost_usd": round(result.get("total_cost_usd") or 0, 3),
     "num_turns": result.get("num_turns"),

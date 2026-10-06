@@ -12,7 +12,12 @@ repository's past as you add memory surfaces one step at a time:
 | 5 | + Brain, strict guidance | this repository's committed `.entire/agent-guide.md` + session section |
 
 Every condition runs the same prompt against a fresh clone with the same
-read-only tool allowlist. A shim first on `PATH` decides which `entire`
+read-only tool allowlist. The harness directory itself (prompt, rubric, this
+README) is removed from the clone's worktree and HEAD tree before the agent
+starts, so it cannot read its own answer key. The clone's HEAD is therefore one
+commit past the indexed commit, and Brain's freshness label moves from
+"degraded" to "unsafe"; its facts and history sections are unchanged by that
+(checked: 3 facts and 3 history matches before and after). A shim first on `PATH` decides which `entire`
 subcommands exist, so an agent cannot reach a surface its condition excludes,
 and lifecycle hooks are swallowed so nested runs never capture checkpoints. The
 guides are generated from the product at run time, not checked in.
@@ -35,11 +40,15 @@ python3 benchmarks/memory-ladder/grade.py      # table of runs and per-condition
 
 Knobs: `LADDER_MODEL` (default `sonnet`), `LADDER_MAX_TURNS` (80), `LADDER_OUT`
 (default `runs/`, gitignored), `LADDER_ORIGIN` (clone origin URL; Brain and
-Graph derive the repository key from it, so keep the GitHub URL). Graph prewarm
+Graph derive the repository key from it, so keep the GitHub URL), `LADDER_BRANCH`
+(default `main`; Brain scopes facts to the checked-out branch, so a clone of a
+feature branch sees no facts at all). Graph prewarm
 for conditions 3 and above is excluded from timing and recorded in `prewarm.txt`.
 
 Each run leaves `stream.jsonl` (the full agent transcript), `summary.json`
-(metrics, every shell command, the final answer) and the clone it ran in.
+(metrics, completion state, every shell command, the final answer, the clone's
+HEAD) and the clone it ran in. `grade.py` averages completed runs only and lists
+failed or capped runs separately.
 Add a question by dropping `questions/<name>.txt` and
 `questions/<name>.rubric.json`; the rubric is named regexes over the final answer
 and its `recovered` key is a first pass that should be hand-checked.
@@ -72,5 +81,9 @@ after that fix before claiming Brain lift over plain session access.
   benchmark; the claim gate in `docs/benchmarks.md` does not apply to it.
 - Conditions 2 to 5 depend on the hosted search service, so results vary with
   what has been synced. Condition 1 has no network surface.
+- Sessions spent building or running this harness enter the hosted history and,
+  once distilled, the Brain, and they discuss the answer. Later runs of the same
+  question can find them. Check `summary.json` commands for hits on those
+  sessions, or ask a fresh question whose answer has not been discussed.
 - The first run executed arms in parallel; `run-all.sh` runs them sequentially
   per the recorded benchmark convention. Re-check timing before quoting it.
