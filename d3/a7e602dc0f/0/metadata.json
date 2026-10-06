@@ -1,0 +1,85 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "d3a7e602dc0f",
+  "session_id": "b34bb187-a006-42fd-950e-5baa8971ec81",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-06T17:58:18.235384Z",
+  "branch": "brain-cloud-memory-sync",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/hosted_memory_sync_plan.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "0b1719c5d03a",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 134,
+    "cache_creation_tokens": 644964,
+    "cache_read_tokens": 8999463,
+    "output_tokens": 48678,
+    "api_call_count": 68,
+    "subagent_tokens": {
+      "input_tokens": 228,
+      "cache_creation_tokens": 416946,
+      "cache_read_tokens": 8590090,
+      "output_tokens": 46844,
+      "api_call_count": 107
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01VeFt9LU3bEQotMcA11Yanr",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:brainstorming"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "0b1719c5d03a",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 24,
+        "end": 25,
+        "entry_ids": [
+          "eb23047d-c12a-4565-9723-a63b59d9de67"
+        ],
+        "tool_use_id": "toolu_01VeFt9LU3bEQotMcA11Yanr"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01VeFt9LU3bEQotMcA11Yanr"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:brainstorming",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "initial_attribution": {
+    "calculated_at": "2026-10-06T17:58:18.18755Z",
+    "agent_lines": 168,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 168,
+    "total_lines_changed": 168,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

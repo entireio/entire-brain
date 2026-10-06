@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "d3a7e602dc0f",
+  "strategy": "manual-commit",
+  "branch": "brain-cloud-memory-sync",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/hosted_memory_sync_plan.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d3/a7e602dc0f/0/metadata.json",
+      "transcript": "/d3/a7e602dc0f/0/full.jsonl",
+      "compact_transcript": "/d3/a7e602dc0f/0/transcript.jsonl",
+      "content_hash": "/d3/a7e602dc0f/0/content_hash.txt",
+      "prompt": "/d3/a7e602dc0f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 134,
+    "cache_creation_tokens": 644964,
+    "cache_read_tokens": 8999463,
+    "output_tokens": 48678,
+    "api_call_count": 68,
+    "subagent_tokens": {
+      "input_tokens": 228,
+      "cache_creation_tokens": 416946,
+      "cache_read_tokens": 8590090,
+      "output_tokens": 46844,
+      "api_call_count": 107
+    }
+  }
+}

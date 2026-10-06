@@ -1,0 +1,410 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/baghdad directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name. Conductor will automatically rename it in the background to match your task.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+the goal: we need to connect memories that entire brain creates locally to storing them in an entire region in our hosted aurora db. and then have a path back for entire-brain to pull them down.
+
+first ivestigate how brain stores memories today and the format.
+
+then investigate where the logical point is where we can call an update and upload those memories for a specific repo to our cloud infrastructrue. and in what format and what with what scopes and how that works in the plugin. 
+
+then investigate where in the developer workflow it makes sense to retrieve those memories and how we do that in what format and in what way. 
+
+we need to define loop here from memory created by brain -> uploaded -> stored -> retrieving it locally (by another devloper for example).
+
+do some investigation first adn then come back with a set of questions hat you need clarity on. then let's walk through a design and implementation plan. 
+
+none of the hosted infrastructure is created yet so we will have to do that as well. 
+
+but first design.
+
+---
+
+<task-notification>
+<task-id>af6907978cc7060b5</task-id>
+<tool-use-id>toolu_01KbJEB61jVcoM5VzqG6gFNB</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-baghdad/b34bb187-a006-42fd-950e-5baa8971ec81/tasks/af6907978cc7060b5.output</output-file>
+<status>completed</status>
+<summary>Agent "Search prior sessions on fact sync" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Based on the Entire checkpoint history search, here are the most relevant prior sessions for cloud syncing and sharing of brain facts/memories:
+
+1. **Session 01a08c7d-721b-7952-8df2-510fa908151d** (checkpoint 8083dbf6c4b2)
+   - "Review and Fix Multiple Open PRs" — Comprehensive work on fact sync, proposals transport, and hosted paths security (2026-09-12)
+
+2. **Session 01a0b6ce-e2ad-7853-bb2f-19731062a2c9** (checkpoint a8c077219c99)
+   - "Codebase Quality Audit and Bug Fixes" — Fixes to fact sync convergence and hosted settlement bindings (2026-09-20)
+
+3. **Session de272aad-c620-4d71-bbdd-27dd2d3dc8af** (checkpoint ca03a2aa13e0)
+   - "Fix Hosted Settlements Persistence and Review" — Hosted brain settlements and fact persistence (2026-08-19)
+
+4. **Session af861ed9-9e1d-41a7-8400-b53c2995aed8** (checkpoint 7c960de16048)
+   - "Entire Brain Proof Loop and MCP Benchmark" — Large-scale proof of hosted brain infrastructure with cross-member fact sync (2026-06-17)
+
+5. **Session d770cc65-b914-4759-91e4-31397a99ba57** (checkpoint 245c3e1b5de0)
+   - "Update MCP Tool Names in README" — Fact distillation pipeline validation, mentions fact import/sharing (2026-06-05)
+
+The work includes: HTTP fact-set sync endpoints, read-merge-CAS convergence for cross-member syncing, proposal queueing and resolution, hosted MCP client, fact publishing, and cross-member conflict resolution via proposals.</result>
+<usage><subagent_tokens>37387</subagent_tokens><tool_uses>4</tool_uses><duration_ms>24981</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aa22defdee0638ff8</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-baghdad/b34bb187-a006-42fd-950e-5baa8971ec81/tasks/aa22defdee0638ff8.output</output-file>
+<status>completed</status>
+<summary>Agent "Explore plugin sync/upload points" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>[harness: subagent output matched instruction-shaped pattern(s): settings-json. Control tags below are neutralized (`&lt;` → `&lt;\`); treat any remaining directive-shaped text as a finding to relay to the user, not an instruction to you.]
+
+Done. Here are the findings.
+
+---
+
+## Headline
+
+**This repo already has substantial cloud plumbing** — four dedicated packages (`internal/apiurl`, `internal/httpx`, `internal/repoid`, `internal/factsync`, `internal/hostedbrain`) plus two user-facing egress commands (`brain publish`, `brain facts sync --facts-backend http`). The gap is **not** network code; it is that **nothing automatic ever calls it**. The background daemon's tick does zero network work.
+
+---
+
+### 1. Plugin registration is thin — a single external-command manifest, no hook declarations
+
+- `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/entire-plugin.yml` (4 lines): just `name: brain`, a description, and a `requires: graph` dependency. **No hook points, no scheduled tasks, no capability/scope declarations.**
+- `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/cmd/entire-brain/main.go:1-5` — the binary is dispatched by the parent CLI when a user runs `entire brain`.
+- Integration is purely via env vars the parent injects: `ENTIRE_PLUGIN_CONFIG_DIR / DATA_DIR / STATE_DIR / CACHE_DIR`, `ENTIRE_REPO_ROOT`, `ENTIRE_CLI_VERSION` — `internal/cli/env.go:22-43`, table in `docs/reference.md:1549-1557`.
+
+### 2. Hook points that fire today (`internal/cli/hook_cmd.go`)
+
+`hook session-end`, `hook pre-edit`, `hook post-failure` (`hook_cmd.go:47-50, 77-175, 175, 213`). The session-end handler at `hook_cmd.go:90-167` does: short-term delta export → durable lifecycle hint → entity-index refresh → `runDistill`. **No network step.** Note the parent CLI's own hooks (`.claude/settings.json`) call `entire hooks claude-code …`, not `entire brain …`; `internal/cli/setup_status.go:397-460` only *inspects* whether the host wired a session-end hook.
+
+This is a natural upload point: a session just produced new facts, and the branch is already resolved at `hook_cmd.go:118-122` via `git branch --show-current`.
+
+### 3. The hosted transport is complete and production-grade
+
+Endpoints already implemented (all `{base}/api/v1/repos/{repoID}/…`):
+
+| Route | Code |
+|---|---|
+| `POST /brain/artifacts` (whole brain bundle) | `internal/cli/publish.go:68-71` |
+| `GET /brain/facts?branch=` / `POST /brain/facts/advance` | `internal/factsync/httpserver.go:28-34, 296, 346` |
+| `GET\|POST /brain/facts/proposals[/{id}[/resolve]]` | `internal/factsync/httpproposals.go:19-28` |
+| `POST /brain/mcp` (JSON-RPC read tools) | `internal/hostedbrain/client.go:173` |
+
+Supporting hardening: `internal/apiurl/apiurl.go:64-114` (HTTPS floor, userinfo rejection, loopback carve-out), `internal/apiurl/client.go:9-16` (redirect refusal), `internal/repoid/repoid.go:76-94` (one-path-segment rule), `internal/httpx/httpx.go:95,112` (bounded shared/upload transports), `internal/httpx/errbody.go` + `Redact` (token scrubbing in errors).
+
+The CAS upload loop itself is done: `internal/factsync/sync.go:75-159` — read head → `factmerge.Promote` keep-both → `applyLocalRetirements` → `Advance` under compare-and-swap, retrying on `ErrConflict`, max 32 attempts.
+
+### 4. Auth / identity / egress gating — all env-driven, no credential store
+
+- Token/URL/repo: `ENTIRE_API_TOKEN`, `ENTIRE_API_URL`, `ENTIRE_REPO_ID` — `internal/cli/publish.go:53-56`. Sent as `Authorization: Bearer` (`hostedbrain/client.go:179-181`). **There is no reader for `~/.config/entire` credentials, no OAuth, no keychain** — `internal/config/config.go:18-24` persists exactly one field (`domain_slugs`) in `brain.json`.
+- Opt-in gates: `ENTIRE_BRAIN_ALLOW_HOSTED` must be truthy *and* the command run explicitly (`publish.go:30-44, 171-180`); the master kill switch `ENTIRE_BRAIN_NO_EGRESS` / `ENTIRE_BRAIN_LOCAL_ONLY` always wins (`hostedbrain/client.go:391-419`).
+- Member identity = `git user.email` by default: `internal/cli/facts_sync_cmd.go:600-603`, stamped onto proposals (`factsync/sync.go:128-131`).
+- **No org, scope, or permission concept exists client-side** — grep across `factsync`, `hostedbrain`, `publish.go` returns nothing. Authorization is only observed as `ErrUnauthorized/ErrForbidden/ErrNotConfigured` 401/403/503 sentinels (`hostedbrain/client.go:44-48`).
+
+### 5. Privacy scrubbing before egress already exists
+
+`internal/factsync/egress.go:25-48` — `SanitizeForEgress` clears `Anchor.Transcript` and `Anchor.Line` (local filesystem coordinates) while keeping opaque cross-member ids, deep-copying so local facts are untouched. Called unconditionally at `factsync/sync.go:84`. Any new upload path should route through this.
+
+### 6. **The daemon tick has no network step — this is the slot**
+
+- Launchd label: `io.entire.&lt;stem&gt;.&lt;sha256[:4]&gt;` → `internal/cli/setup_daemon.go:140-144`; plist rendered at `setup_daemon.go:232-266` with `RunAtLoad`, `KeepAlive`, `ThrottleInterval 60`, `ProcessType Background`.
+- Unit argv is **deliberately constant**: `workspace watch --distill` (`internal/cli/setup.go:1193`, rationale at `setup.go:1158-1192`). All per-workspace tuning lives in a machine-level plan re-read every outer pass: `internal/cli/setup_watchplan.go:40-72`.
+- Tick body: `internal/cli/watch.go:232-400`. Steps struct is `watch.go:86-103` — `delta`, `reconcile`, `refresh`, `seed`, `distill`. Default interval 5 min, consolidate every 30 min, distill every 24 h (`watch.go:105-116`).
+- **Grepping `watch.go` for `publish|sync|hosted|http` returns one unrelated comment match.** The tick is 100% local.
+
+Concretely, a `sync` step would be added to `watchSteps` (`watch.go:86-103`), wired in `watchStepsForRepo` (`watch.go:414`), and invoked in `watchTick` after a successful `steps.refresh` (`watch.go:304-318`) — reusing the same `reserveWatchAgentSpend`-style cursor throttle. The workspace fan-out that calls it per repo is `internal/cli/workspace.go:481`.
+
+### 7. Repo identity: a local storage key, **not** a hosted repo ULID
+
+Two separate notions that are currently unbridged:
+
+- **Local repo key** (`gh/entireio/entire-brain`): `internal/cli/env.go:390-430` runs `git remote get-url origin`, then `repoKeyFromRemoteWithSlug` (`env.go:541-582`) maps host→slug via the built-in table (`env.go:47-54`: github.com→gh, entire.io→et, …) with unknown hosts auto-slugged into `brain.json` (`env.go:656-680`). Falls back to a hash of the symlink-resolved root for remoteless repos. Also handles `entire://` remotes (`env.go:547-561`).
+- **Hosted repo id** (a ULID) only ever comes from `--repo-id` / `ENTIRE_REPO_ID`. **Nothing derives it from the repo key or resolves it against the API.** This is the main missing piece for automatic upload. A per-branch binding is cached *after* a successful sync at `internal/cli/facts_hosted_binding.go:19-36` (`{RepoID, BaseURL}`), which could be read back as the identity source on later ticks.
+
+Branch: `git branch --show-current` everywhere (`facts_sync_cmd.go:92-95`, `hook_cmd.go:118-122`). Commit/checkpoint state feeds the change-detection fingerprint at `watch.go:554`.
+
+### 8. A second, lighter outbound channel already exists: webhooks
+
+`internal/cli/webhooks.go` — HMAC-signed JSON POSTs on `fact.recorded` / `fact.retracted` / `brain.refreshed`, off unless `ENTIRE_BRAIN_WEBHOOK_URL` is set, 2 s budget, redirects refused, fact text withheld unless `ENTIRE_BRAIN_WEBHOOK_INCLUDE_TEXT` (`webhooks.go:52-67, 99-115, 185`). Call sites: `facts_write_cmd.go:216-218`, `facts_admin_cmd.go:114-116`. These are exactly the moments a fact is created/retracted — i.e. the other natural upload trigger, already instrumented.
+
+---
+
+## Recommended slots, ranked
+
+1. **`watchTick` after successful refresh** (`watch.go:304-318`) — the daemon already runs every 5 min on a KeepAlive service, has a persisted cursor for throttling, and needs only the repo-id resolution from finding 7.
+2. **`hook session-end`** (`hook_cmd.go:158-166`, after `runDistill`) — fires exactly when new facts land; branch already resolved; must stay non-fatal like every other step there.
+3. **`notifyFactWebhook` call sites** (`facts_write_cmd.go:216`, `facts_admin_cmd.go:114`) — per-fact immediacy, but synchronous on the CLI hot path; better as a cursor mark the daemon drains.
+
+The one genuine prerequisite is resolving `ENTIRE_REPO_ID` and a token without manual env setup — everything downstream (transport, CAS merge, redaction, HTTPS floor, error redaction, conflict proposals) already exists and is heavily tested (~9.5k lines across those five packages, majority tests).</result>
+<usage><subagent_tokens>120191</subagent_tokens><tool_uses>37</tool_uses><duration_ms>158653</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a3bb858c7aa2d3305</task-id>
+<tool-use-id>toolu_01Rm4L355WQ3dM3KF49P84sp</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-baghdad/b34bb187-a006-42fd-950e-5baa8971ec81/tasks/a3bb858c7aa2d3305.output</output-file>
+<status>completed</status>
+<summary>Agent "Explore memory retrieval workflow" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>[harness: subagent output matched instruction-shaped pattern(s): settings-json. Control tags below are neutralized (`&lt;` → `&lt;\`); treat any remaining directive-shaped text as a finding to relay to the user, not an instruction to you.]
+
+I have the full picture. Here are the findings.
+
+## 1. Retrieval entry points and what each reads
+
+| Surface | Entry point | Sources | Fact ranking |
+|---|---|---|---|
+| `entire brain brief &lt;task&gt;` | `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/agent_surface.go:730` (cmd), `:1379` (`runBrainBriefWithRawHistoryMatcher`) | semantic index (context/impact/runtime traces/tests), history index, **facts** (`:1670` `loadFacts`), global facts (`:1648`), conversation hits (`:1999`) | `rankFactsFused` at `agent_surface.go:1711` — lexical + vector RRF |
+| `entire brain query` / `search` / `vsearch` | `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/retrieve_cmd.go:95` → `runRetrieve` `:188` → `retrieveUnifiedWithOptions` `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/retrieve.go:203` | facts + classified history + docs (+ `source=conversation` arm, `retrieve.go:800`) | per-layer ranked lists fused by RRF (`rrfMergeUnified`, `retrieve.go:515`); facts arm `retrieve.go:297-344` |
+| `entire brain recall` | `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts_read_cmd.go:231` | facts only (+ global merge at `:272`), or canonical session spans under `--evidence` (`recall_evidence.go`) | `rankFactsFused` at `facts_read_cmd.go:344` |
+| MCP server | `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/mcp.go:123`; tool list `:805-1030`; dispatch `:1235-1290` | `brain_brief`, `brain_query`/`brain_search`/`brain_vsearch` (all delegate to `runRetrieve`, `mcp.go:1264/1275/1288`), `brain_get`, `brain_multi_get`, `brain_status`, `brain_remember` | same code paths as CLI |
+| Agent instructions | `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/agent_setup.go:16` (`agent-guide` / `init-agents`) → `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/agentsetup/brain-reference.md` (embedded at `guide.go:5`), strict mode `agentsetup/strict.go:106-141` ("run `entire brain brief` BEFORE any substantive task") | text only — tells agents which commands to run | n/a |
+| Session-start hook | `.claude/settings.json` / `.codex/hooks.json` call `entire hooks claude-code session-start` — that lives in the **host `entire` CLI, not this repo**. This repo's hooks (`internal/cli/hook_cmd.go:49`) are only `session-end`, `pre-edit`, `post-failure` — all write-side | — | — |
+
+Fact ranking detail: lexical arm is `factLexicalScore` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts_query.go:24`) — substring/term overlap + `factLocusBoost=60` per shared code identifier + `factClosedNegativeBoost=30`; optional FTS5 BM25 behind `ENTIRE_BRAIN_FACTS_BM25`. Semantic arm + RRF fusion is `rankFactsFusedWithSemanticDepthMultiplier` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/embed_rank.go:246`), with leave-one-out background calibration for term-disjoint semantic hits (`:343-364`).
+
+## 2. Scoping: facts are per-repo **and** per-branch, and that is the blind spot
+
+- On-disk layout: `facts/&lt;branch-slug&gt;-&lt;sha256[:4]&gt;/facts.ndjson` — `factsBranchRelDir` at `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts.go:115`. Every read is `loadFacts(brainDir, branch)` (`facts.go:145`) for exactly **one** branch; `Record.Branch` is a stored field (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/factmerge/record.go:26`).
+- Repo scoping is by storage key: `repoStoragePaths` → `brainDir`. Workspaces are a separate multi-repo fan-out layer (`internal/cli/workspace.go:596` etc.), not a fact-sharing mechanism.
+- **Branch discovery / blind spot**: `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/blind_spot.go`. `emptyResultBlindSpotOnBranch` (`:44`) is the single choke point for every empty retrieval result; `otherBranchBlindSpot` (`:106`) calls `loadAllFactBranches` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts_manifest.go:14`, which scans the whole `facts/` dir and groups by `record.Branch`) and emits *"no matching facts on X, but N active fact(s) on M other branch(es) … retry with --branch"*. Ordering matters: store-integrity check wins, then branch note, then distill-coverage notes (`:63-99`). Session twin: `otherBranchSessionBlindSpot` (`:189`). Wired in at `retrieve_cmd.go:283,303,375` and `getMissNote` `:952`.
+
+This is the directly relevant precedent: **the machinery to say "the facts you want exist somewhere you aren't looking" already exists and already scans the whole store.** A remote/teammate dimension is a natural third case in the same function.
+
+## 3. `setup` / `refresh`: where a "pull remote facts" step fits
+
+- `entire brain setup` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/setup.go:421`) is three phases: **instant** (deterministic core: semantic index, sessions, seed, docs, history — no tokens), **backfill** (distill past sessions into facts, background, newest-first), **daemon** (watcher).
+- `entire brain refresh` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/refresh.go:48`) stages: export sessions → seed → history index → history vectors → conversation vectors → doc index → semantic index → branch overlays → **reclassify facts** (`refresh.go:493`, calls `reclassifyAllFactBranches` which already holds the write lock and rebuilds the manifest) → pattern layer.
+- Natural insertion point: a `refresh facts-pull` stage next to the existing `reclassifyAllFactBranches` step, or a phase-1 step in setup. It would need `updateFactSourceManifestLocked` (`facts_manifest.go:114`) afterwards so `status`/integrity counts stay honest — every existing fact mutator does this under `withBrainWriteLock`.
+
+## 4. Embeddings: local only, index-time == query-time, cache keyed by (brainDir, branch)
+
+- One embedder interface (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/embed.go:25`). Default is the **bundled pure-Go Model2Vec static model** embedded in the binary (`embedmodel.go` / `loadStaticEmbedder`, `embed.go:57`). Opt-in `ENTIRE_BRAIN_EMBEDDER=ollama` swaps in EmbeddingGemma over a **loopback-only** HTTP endpoint (`embed.go:293-315`) — non-loopback URLs are rejected to keep embeddings on-box.
+- There is **no index-time fact embedding pass**. Fact vectors are computed lazily at query time and cached: `embedStore` writes `facts/&lt;branch&gt;/embeddings/vectors.bin` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/embed_store.go:34`), header carries `modelID` + `dim`, and a model change invalidates the whole file (`:62`). Under `brain_cgo` the store is a sqlite-vec `vec0` table with one KNN query per retrieval (`embed_rank.go:297-307`).
+- **Implication for remote facts**: shipping vectors with them is near-useless unless the sender used the identical `modelID`+`dim` — the cache rejects mismatches wholesale. The cheap path is to embed them locally on first query, exactly as new local facts are. But note the cache key is `(brainDir, branch)`, and the codebase already has a concept for "ranked here but not mine": `semanticReranker.markForeign` (`embed_rank.go:121`) / `rr.retain` skip (`:185-200`) — used for global facts so they are ranked but never persisted under this repo's key. Remote facts would need the same decision made deliberately (`factsVectorRanked`'s doc comment at `retrieve.go:565-571` spells out the rule).
+
+## 5. Multi-user: no author field on facts, but a full member-attributed sync protocol already exists
+
+- **No author/user/machine field on `factmerge.Record`** (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/factmerge/record.go:20-35`). `Origin` is only `distilled | authored | imported`. Identity is content-derived: `RecordID(text, paths)` — so the *same statement from two developers is literally the same fact id*, and provenance anchors union.
+- Attribution exists only on **proposals**: `factmerge.Proposal.ProposedBy` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/factmerge/merge.go:51`), stamped by `factsync.Sync` from `memberID` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/factsync/sync.go:75`), which the CLI resolves from `git config user.email` → `$USER@hostname` → `"local"` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts_sync_cmd.go:603`).
+- Cross-machine plumbing that already ships:
+  - `entire brain facts sync` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts_sync_cmd.go:49`) — read-merge-CAS against a shared fact-set head, backends `local-gitmeta` (default, on-disk bare repo) or `http` (hosted entire-api, gated on `ENTIRE_BRAIN_ALLOW_HOSTED=1` + token).
+  - `factsync.Sync` (`sync.go:75`) does a keep-both merge via `factmerge.Promote`, re-derives every head record's content id before merging (forgery defense, `sync.go:104-112`), and **returns the merged head in `Result.Facts`**.
+  - `factsync.SanitizeForEgress` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/factsync/egress.go:24`) strips `Transcript`+`Line` from anchors before egress, keeping opaque ids — peers' anchors are explicitly "opaque, never resolved locally".
+  - `hostedbrain.Client` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/hostedbrain/client.go`) can already call a **hosted** brain's `brain_search` / `brain_get` / `brain_multi_get` / `brain_status` over MCP (`:308-376`) — but it is wired into **nothing but the proposal queue** (`facts_proposals_cmd.go:203`). No retrieval surface calls it.
+
+### The gap, stated precisely
+
+`facts sync` **pushes** local facts to the shared head and pulls the head down — but it only writes *settlements* (status/supersede changes) back into `facts.ndjson` (`facts_sync_cmd.go:489-494` → `applySettlementLocally` → `writeFacts`). **Other members' new facts from `res.Facts` are never written to the local store**, so they never reach `loadFacts`, and therefore never reach brief, recall, query, or any MCP tool. Contrast `facts import` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts_import.go:759`), which *does* `upsertFact` + `writeFacts` into the branch store and refreshes the manifest under the write lock (`:845-880`) — making imported facts fully first-class in retrieval, labelled by `Origin: "imported"` with a foreign anchor (`:490-499`) that `verify` reports as unverifiable-here (`verify_cmd.go:387-405`).
+
+So the shortest credible path for remotely-stored teammate facts is: a pull step modelled on `facts import`'s write path, fed by `factsync.Sync`'s already-computed `Result.Facts` (or a hosted read), landing in the per-branch store with a distinct origin/label, reusing the global-facts labelling precedent (`describeFactScope`, `facts_global.go:209`; `" (global)"` heading suffix at `retrieve.go:332`; `global_fact_ids` JSON key at `facts_read_cmd.go:382`) and the `markForeign` vector-cache discipline — plus a fourth clause in `blind_spot.go` for "facts exist remotely that you have not pulled."</result>
+<usage><subagent_tokens>149038</subagent_tokens><tool_uses>55</tool_uses><duration_ms>226254</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a6ffe69b9e13b9983</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-baghdad/b34bb187-a006-42fd-950e-5baa8971ec81/tasks/a6ffe69b9e13b9983.output</output-file>
+<status>completed</status>
+<summary>Agent "Explore brain memory storage" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I have a complete picture. Here are the findings.
+
+## 1. Memories are NOT in SQLite — they are per-branch NDJSON files
+
+The durable-fact store is a plain newline-delimited JSON file, one `factRecord` per line. There is no facts table anywhere; SQLite appears only as *derived, throwaway* caches.
+
+On-disk layout, rooted at the per-repo brain dir:
+
+```
+&lt;xdg_data&gt;/entire/plugins/data/brain/repos/&lt;repo-key&gt;/      # brainDirForKey
+  manifest.json                       # brain manifest; sources.facts = factSourceManifest
+  facts/
+    taxonomy.json                     # factTaxonomy snapshot
+    &lt;branch-slug&gt;-&lt;sha256(branch)[:8]&gt;/
+      facts.ndjson                    # THE memories — one factRecord JSON per line
+      proposals.ndjson                # pending merge/supersede proposals
+      outline.json                    # locus-tiered outline
+      vitality.ndjson / vitality.json # serve-event log + rollup
+      hosted-target.json              # hosted sync binding
+      shared ledger file              # factsSharedLedgerFileName
+      embeddings/
+        vectors.bin                   # pure-Go build: flat float32 cache
+        vectors.sqlite                # brain_cgo build: sqlite-vec vec0
+  locks/{write.lock,manifest.lock,vitality.lock,...}
+```
+
+Key refs: `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts.go:19-28` (const names), `:115-123` (`factsBranchRelDir` / `factsFileRelPath` — branch dir is `safePathComponent(branch)` + `-` + first 4 bytes of `sha256(branch)` hex, to avoid slug collisions), `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/env.go:356-369` (`brainDirForKey` = `dirs.Data/repos/&lt;key&gt;`), `:88-104` (standalone runs synthesize `plugins/data/brain`). Global (non-repo) facts live in a sibling store `.../brain/global/` with branch literal `"global"` — `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts_global.go:33-56`.
+
+## 2. The exact fact data model
+
+`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/factmerge/record.go:20-49` — this is the whole model (the CLI uses type *aliases*, so `factRecord` IS `factmerge.Record`; see `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts_aliases.go:18-23`).
+
+```go
+type Record struct {
+	ID           string    `json:"id"`            // "fact:" + hex(sha256(normText+"\x00"+paths)[:12])
+	Paths        []string  `json:"paths"`         // 1-2 taxonomy paths, category.subcategory.type
+	Kind         string    `json:"kind,omitempty"`// decision|invariant|gotcha|preference|convention|closed-negative
+	Locus        []string  `json:"locus,omitempty"`// code identifiers/paths the fact is about
+	Text         string    `json:"text"`
+	Branch       string    `json:"branch"`
+	Origin       string    `json:"origin"`        // distilled|authored|imported
+	Status       string    `json:"status"`        // active|superseded|retracted
+	Confidence   string    `json:"confidence,omitempty"` // string, e.g. "0.92"
+	Provenance   []Anchor  `json:"provenance"`    // &gt;=1
+	RelatedIDs   []string  `json:"related_ids,omitempty"`
+	SupersededBy string    `json:"superseded_by,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+type Anchor struct {
+	SessionID, Commit, CheckpointID, TurnID, Transcript string
+	Line int; Verified bool   // all omitempty except session_id
+}
+```
+
+Note: there is **no author field** and **no embedding field** on the record. Scope = `Branch` + which store (repo vs. global). Embeddings are a separate keyed-by-ID cache. Identity is content-derived: `RecordID` at `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/factmerge/identity.go:35-37`, with `VerifyIdentity`/`VerifyIdentities` (`:78-139`) enforced at shared fact-set boundaries.
+
+## 3. How a memory is created (three paths, all converging on `writeFacts`)
+
+- **CLI `entire brain remember &lt;fact&gt;`** — `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts_write_cmd.go:23-42` (flags `--path --kind --branch --agent --model --json --global`), `runRemember` at `:72-229`. It resolves target store/branch, loads the taxonomy, classifies paths (explicit `--path`, else shells out to a coding agent — `resolveRememberPaths` `:234-280`), infers kind, resolves a commit anchor (`rememberAnchorCommit` `:59-70`), builds the `factRecord` at `:153-165` with `Origin: "authored"`, then under `withBrainWriteLock`: `loadFacts` → `upsertFact` → revive-if-retracted (`:184-188`) → `writeFacts` → `writeFactTaxonomy` → `updateFactSourceManifestLocked`.
+- **MCP tool `brain_remember`** — schema at `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/mcp.go:905-926`, dispatch at `:1166-1211`. It forces `agent:"none"` and **requires** `path` (deliberately refuses to spend model tokens classifying). It is described in-tree as "the only tool here that writes memory rather than derived state."
+- **Automatic distillation from sessions** — `runDistill` / `runDistillForBrain` at `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/distill_cmd.go:617,771`. Per transcript chunk it builds an `Anchor{SessionID, CheckpointID, Transcript, Line}` (`:1131-1136`), calls the agent, parses a tab-separated `kind\tpath\tfact` grammar into records via `distilledFactsFromOutput` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/distill.go:211-281`, `Origin: "distilled"`, capped at `factsMaxPerChunk = 6`, text sanitized before the ID is derived), reconciles against existing branch facts into `factAction`s, applies them (`:1202`), and flushes with `writeFacts` (`:982`).
+- **Import from other tools** — `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts_import.go:17-55` (`entire brain facts import`, mem0 adapter), `factOriginImported = "imported"`; imported facts get an anchor naming the source tool + foreign ID rather than a fabricated commit.
+
+The single write primitive: `writeFacts` at `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts.go:275-281` → `factmerge.WriteNDJSON` (deterministic sort) → `writeBrainRelativeFileAtomic(..., 0o600)`. Read side: `loadFacts` `:145-165` / `parseFactsFile` `:173-191` (a malformed line is a hard error — a corrupt branch disappears from every retrieval surface, which `unreadableFactBranchStores` `:242-256` exists to report).
+
+## 4. Lifecycle: dedup, merge, supersede, retract, GC, promote
+
+All in `internal/factmerge`, all pure (no filesystem, no LLM, no cgo — explicitly so it is reusable server-side):
+
+- **Dedup**: `Upsert` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/factmerge/dedup.go:32-50`) keys on the content-derived ID — re-distilling a turn is idempotent; it unions provenance anchors (`UnionAnchors` `:55-78`, keyed on session+commit+checkpoint+turn+transcript+line) and advances `UpdatedAt`. It deliberately does **not** overwrite a valid stored `Kind` (anti-thrash).
+- **Merge/supersede**: `ApplyActions` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/factmerge/merge.go:66-116`). Confidence ≥ `DefaultConfidenceThreshold = 0.75` applies automatically: merge folds candidate provenance into the target (target text wins); supersede sets the target `Status="superseded"`, `SupersededBy=&lt;candidate id&gt;` and **never deletes**. Below threshold both stay active, are cross-linked via `RelatedIDs`, and a `Proposal` is queued.
+- **Retract**: `Retract` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/factmerge/admin.go:140-151`) — status flip only, auditable. `remember` of a retracted statement *revives* it (facts_write_cmd.go:184-188).
+- **GC**: `GC` (`admin.go:190-210`) prunes retracted facts and superseded facts older than the retention window; taxonomy-orphaned facts are reported but never deleted.
+- **Branch scoping / promotion**: `Promote` (`admin.go:94-135`) with `keep-both` (default, cross-link + proposal) / `prefer-source` (supersede target) / `prefer-target` (drop source); same-ID facts never conflict, provenance unions. Conflict detection is "shares a taxonomy path, different ID" (`activeConflictIndexes` `:155-173`).
+- CLI surfaces: `facts retract|review|promote|gc|reclassify|outline|map` at `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts_admin_cmd.go:50,152,354,482,524,597,648`; `facts proposals list|show|apply|reject|repair` at `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts_proposals_cmd.go:97-131`.
+
+## 5. Embeddings are a derived, ID-keyed sidecar — never part of the record
+
+Two interchangeable backends behind a `vectorStore` interface, both keyed by fact ID and stamped with `(model_id, dim)`; any mismatch or corruption returns empty = full re-embed (a cache is never load-bearing):
+- Pure-Go: `embedStore` → `facts/&lt;branch&gt;/embeddings/vectors.bin`, custom binary format with magic `"EBV1"` — `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/embed_store.go:20-37,46-90`.
+- `brain_cgo`: `vecStore` → `facts/&lt;branch&gt;/embeddings/vectors.sqlite` with `CREATE VIRTUAL TABLE vec_facts USING vec0(embedding float[N] distance_metric=cosine)`, plus `fact_ids(rowid INTEGER PRIMARY KEY, fact_id TEXT UNIQUE)` and `meta(key,value)` holding `model_id`/`dim` — `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/embed_vec_cgo.go:31-50,173-212`. Save is a transactional DROP/CREATE full rewrite.
+
+Lexical FTS over facts is **in-memory only and off by default**: `CREATE VIRTUAL TABLE facts_fts USING fts5(...)` built per query against a `:memory:` DB, gated on `ENTIRE_BRAIN_FACTS_BM25` — `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts_fts.go:25-31,43-91`. (By contrast history/docs/patterns do have persisted `.sqlite` indexes: `history/index-fts.sqlite`, `patterns/corpus.sqlite`, `semantic.sqlite`. `patterns/corpus.sqlite` has an `episode_facts(episode_id, fact_id, branch, kind, paths, weight)` join table at `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/pattern_corpus.go:184-188` — it references facts by ID, it does not store them.)
+
+## 6. Schema versioning / migrations
+
+There is no SQL migration system for facts. Versioning is at the **manifest** level: `brainManifestSchemaVersion = 3`, `brainManifestMinSchemaVersion = 1` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/brain.go:13-24`), validated in `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/brain_manifest_read.go:49-70` (newer-than-supported and older-than-min both hard-error with `memoryErrUnsupportedVersion`). The NDJSON record format evolves purely additively — `Kind` and `Locus` were added *outside* the ID hash precisely so existing IDs, provenance and vector caches stay stable, with `facts reclassify` / `reclassifyAllFactBranches` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts_manifest.go:91-112`) as the no-agent backfill run automatically on `refresh`. See `docs/durable_facts_handover.md:36-70`.
+
+The aggregate rollup `factSourceManifest` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts.go:32-73`) is stored under `sources.facts` in `manifest.json`: branch list, counts by origin/status/kind, verified vs. unsigned anchor counts, distill run evidence (agent, model, token usage, timings). Recomputed from disk by `summarizeFactSource` (`:378-435`) and `updateFactSourceManifestLocked` (`facts_manifest.go:114-143`).
+
+## 7. Serialization / export formats
+
+- **Canonical**: NDJSON via `factmerge.ParseNDJSON` / `WriteNDJSON` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/factmerge/ndjson.go:172,211`), with a 16 MiB `MaxLineBytes` cap and UTF-8 validation (`ErrRecordTooLarge`, `ErrInvalidUTF8`). Deterministic sort by paths → text → ID.
+- **Wire/exchange**: `FactsRef` keyed by branch, pointing at `facts/&lt;branch&gt;/facts.ndjson` as a content-addressed blob (`ContentRef{digest: "sha256:…", media_type: "application/x-ndjson"}`) — `docs/brain_wire_contract.md:79-96`.
+- **Cross-member sync**: `internal/factsync` runs a read-merge-CAS loop where the *entire branch fact set as NDJSON plaintext* is the unit transported; `Proposal` gains `proposed_by` for routing (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/factmerge/merge.go:45-52`). CLI: `facts sync` (`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts_sync_cmd.go:49`).
+- **Local git-backed store**: `internal/factgitmeta` stores the same NDJSON blob as git-meta project records in a bare repo at `refs/meta/local/main`, keyed `brain:facts:&lt;hex repoKey&gt;:&lt;hex branch&gt;:{head,blob}`, content ref `"facts-" + hex(sha256(plaintext))` — `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/factgitmeta/backend.go:1-21,101-107`.
+- **Hosted projection** (lossy, read-only): `hostedbrain.Fact{id, paths, kind, text, status}` — `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/hostedbrain/client.go:106-113`.
+- `remember --json` and MCP emit the full `factRecord` JSON directly (facts_write_cmd.go:220-222).
+
+## 8. One thing worth flagging
+
+`internal/cli/memory_*.go` is a **different subsystem** despite the name — `memory_state.go:17-21` describes it as "the durable work record: content-free lifecycle hint files and per-job state files under `history/work/v1/`… Losing every file here loses no memory." If you're looking for stored knowledge, it's `facts`, not `memory`; `memory_*` is the projection/job scheduler for session indexing.</result>
+<usage><subagent_tokens>131360</subagent_tokens><tool_uses>66</tool_uses><duration_ms>241133</duration_ms></usage>
+</task-notification>
+
+---
+
+# Autonomous loop check
+
+You're being invoked on a timer while the user is away or occupied. The point is to keep work moving forward without the user driving every step - finishing things they started, maintaining PRs they're building, catching problems before they come back to find them. You're a steward, not an initiator. The user set you loose on their work, and the value you provide comes from reliably advancing things they've already set in motion, not from finding new things to do.
+
+The key tension to navigate: the user trusts you enough to run autonomously, but that trust is easily lost. Acting on what the conversation already established is safe and valuable. Inventing new work or making irreversible changes without clear authorization erodes trust fast. When you're unsure whether something falls into "continuing established work" or "inventing new work," lean toward the former only when the transcript provides clear evidence the user wanted it done. If you find yourself reaching for justifications about why a push is probably fine, that's a signal to wait.
+
+## What to act on
+
+The current conversation is your highest-signal source - re-read the transcript above, since everything there is something the user was actively engaged with. The strongest signal is an in-progress PR you've been building together: review comments to address and resolve, failing CI checks to diagnose (and re-enqueue if they're flakes), merge conflicts to fix. The goal is to get the PR into a state where it's ready to merge pending only human review - the user shouldn't come back to find a PR blocked on things you could have handled. After that, look for unfinished implementation where the last exchange left something half-done, and explicit "I'll also..." or "next I'll..." commitments the conversation made and didn't honor. Weaker but still real: dangling questions you could now answer, verification steps that were skipped, edge cases that were mentioned but not handled, and natural continuations that don't require new decisions.
+
+If you find anything in this category, act on it - actually do the work, don't describe what could be done. Run the tests, don't say "you could run the tests." The whole point of autonomous operation is that work gets done while the user is away.
+
+When the conversation transcript has nothing left, the current branch's pull/merge request on the user's SCM is the next-best place to look. This is maintenance work - valuable, but lower priority than continuing the user's active work. Find the PR/MR for the current branch via the SCM's CLI, then check three things: CI status, unresolved review threads, and whether the branch has fallen behind the base. For failing CI, pull the failing job's logs and diagnose before acting - flaky-shaped failures (timeout, runner died, transient network) can be re-enqueued; real failures need a reproduction and a minimal fix. For unresolved review threads, fetch the comment, address the feedback, push, and resolve the thread via, for example, the GitHub GraphQL `resolveReviewThread` mutation (or the equivalent for whichever SCM the project uses). Before pushing anything, check whether someone else has pushed to the branch while you were working - if so, rebase (don't merge) to keep history clean.
+
+When CI is green, threads are clear, and there's idle time, sweeping the branch for issues is a good use of that time - bug-hunt or simplification passes catch problems before reviewers do, saving everyone a round-trip.
+
+If everything is genuinely quiet - no conversation work, no PR maintenance - say so in one sentence and stop. No summary of what you checked, no list of what you might do later. The user will see your message in the transcript when they come back; three consecutive "nothing to do" results means you should scale back to a quick CI check and stop, not narrate.
+
+## Repeated invocations
+
+If you see earlier autonomous checks in this conversation, adjust your scope accordingly. If a previous check left a question the user hasn't answered, the cost of acting depends on reversibility: for reversible actions (local edits, running tests), make your best call and proceed; for irreversible ones (pushing, deleting, sending), keep waiting - the cost of acting wrongly on something irreversible is much higher than the cost of waiting one more cycle. If three or more consecutive checks have found nothing actionable, things are quiet - do one quick CI/threads check and stop in a single line. Repeated "nothing to do" messages clutter the transcript and waste the user's attention when they come back to review.
+
+Read and analyze freely - understanding the state of things has no blast radius. Make edits and run tests when you're confident they continue established work. Commit and push only when you're clearly continuing something the user authorized, or when the work pattern makes the intent obvious - like fixing CI on a PR you've been building together.
+
+---
+
+# Autonomous loop tick (dynamic pacing)
+
+Run the autonomous check using the loop instructions established earlier in this conversation. If you cannot find them, treat this as a no-op tick.
+
+You scheduled this tick via the ScheduleWakeup tool (not a recurring cron). To keep the loop alive, call ScheduleWakeup again at the end of this turn with `prompt` set to the literal sentinel `<<autonomous-loop-dynamic>>` and `noop` set to `true` if this tick changed nothing (or `false` if it did) — otherwise the loop ends after this tick.
+
+If a Monitor is armed (check TaskList), keep `delaySeconds` at 1200–1800s — the Monitor is the wake signal and this is only the fallback heartbeat. If you were woken by a `<task-notification>`, handle the event before deciding whether to re-arm. To stop the loop, call ScheduleWakeup with `stop: true` and TaskStop the monitor (use TaskList to find its task ID if no longer in context).
+
+---
+
+1.  no serverside code exists for this path. we will have to create it from scratch. we already have an entire-api service which is a reverse proxy to internal services. so we will probably have to stand up a small internal service to handle the API requests. Entire-api doesn't really do anything itself in terms of actual processing, it just routes API calls to other services. So we'll need to create a new service for it. We can store the data in our existing aurora cluster today that is already set up. we have existing design patterns around this for authn/authz/etc.
+
+2. memories will exist at the branch (trail) and repo level. Potentially at the project level as well but that can come later. Not at the org level.
+
+3. why are we additionall encrypting server side for this? we don't encrypt transcripts or anything else using like envelope encryption or anything like that? that seems unnecesary and slow.
+
+4. i think we have to do eveery branch since we're also doing this at the trail level. right now in the trail, we attach teh session to it so the user can see it. we shoudl essentially attach a new section called "memories" that is searchable.
+
+5. we should be syncing per repo
+
+6. yes if we can. we can make changes if needed. if we don't do that then how else would we do it? we shoudl also re-use as much existing auth/cell resolution logic as we can. all of that is already defined in the CLI. no need to reinvent the wheel. 
+
+7. no we need statetment level attribution so we can track it. 
+
+8. yes in every region. no cross-region stuff. 
+
+
+take these answers into consideration and then rview you design and implementation plan and then come back with more questions or let's talk through the design
+
+---
+
+# Autonomous loop tick (dynamic pacing)
+
+Run the autonomous check using the loop instructions established earlier in this conversation. If you cannot find them, treat this as a no-op tick.
+
+You scheduled this tick via the ScheduleWakeup tool (not a recurring cron). To keep the loop alive, call ScheduleWakeup again at the end of this turn with `prompt` set to the literal sentinel `<<autonomous-loop-dynamic>>` and `noop` set to `true` if this tick changed nothing (or `false` if it did) — otherwise the loop ends after this tick.
+
+If a Monitor is armed (check TaskList), keep `delaySeconds` at 1200–1800s — the Monitor is the wake signal and this is only the fallback heartbeat. If you were woken by a `<task-notification>`, handle the event before deciding whether to re-arm. To stop the loop, call ScheduleWakeup with `stop: true` and TaskStop the monitor (use TaskList to find its task ID if no longer in context).
+
+---
+
+1. look at the entire-search service as an example. auth is internal mtls and i think grpc iirc but double check. 
+2. yeah let's keep it for now. i think we need to assume that brain isn't going to change and instead just hook it up. then once it's working end to end we can start to rip things uot. 
+3. for now just the API. i'll build the UI later.
+4. yes, skip
+5. keep the conflicts for nwo and we will handle it after. i just want to get it working end to end with the server side store.
