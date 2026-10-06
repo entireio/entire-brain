@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "e47f15efe892",
+  "strategy": "manual-commit",
+  "branch": "brain-cloud-memory-sync",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/superpowers/plans/2026-10-06-factmerge-export.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e4/7f15efe892/0/metadata.json",
+      "transcript": "/e4/7f15efe892/0/full.jsonl",
+      "compact_transcript": "/e4/7f15efe892/0/transcript.jsonl",
+      "content_hash": "/e4/7f15efe892/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 10224,
+    "cache_read_tokens": 1402591,
+    "output_tokens": 6418,
+    "api_call_count": 5
+  }
+}
