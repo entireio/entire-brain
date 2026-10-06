@@ -1,6 +1,6 @@
 package factsync
 
-import "github.com/entireio/entire-brain/internal/factmerge"
+import "github.com/entireio/entire-brain/factmerge"
 
 // SanitizeForEgress redacts a fact's LOCAL-ONLY provenance coordinates before its
 // facts leave this member for the shared, cross-member head. A provenance Anchor mixes

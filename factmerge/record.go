@@ -3,7 +3,9 @@
 // merge/supersede decision engine, promotion, retraction, garbage collection,
 // and NDJSON (de)serialization. It depends on nothing from internal/cli, no
 // cobra, no agent/network, and no filesystem path handling (callers pass
-// io.Reader/io.Writer), so the same logic is reusable from a server.
+// io.Reader/io.Writer), so both sides of the sync wire — this CLI and the
+// hosted brainstore service — run the identical merge semantics. It is
+// exported (not internal/) because brainstore imports it.
 package factmerge
 
 import "time"
