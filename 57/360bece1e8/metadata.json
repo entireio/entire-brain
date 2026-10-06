@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "57360bece1e8",
+  "strategy": "manual-commit",
+  "branch": "fix/brief-order-recall-guidance",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/agentsetup/guide.go",
+    "internal/agentsetup/recall_guidance_test.go",
+    "internal/agentsetup/strict.go",
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/57/360bece1e8/0/metadata.json",
+      "transcript": "/57/360bece1e8/0/full.jsonl",
+      "compact_transcript": "/57/360bece1e8/0/transcript.jsonl",
+      "content_hash": "/57/360bece1e8/0/content_hash.txt",
+      "prompt": "/57/360bece1e8/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 552,
+    "cache_creation_tokens": 57687,
+    "cache_read_tokens": 5947308,
+    "output_tokens": 27604,
+    "api_call_count": 20
+  }
+}
