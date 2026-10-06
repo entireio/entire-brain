@@ -422,6 +422,13 @@ func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w wa
 			fmt.Fprintln(out, "[watch] no workspaces registered yet — run `entire-brain setup` in a repo")
 		}
 		for _, entry := range plan.Workspaces {
+			// Checked per workspace so a `stop` mid-pass spares the rest. Pausing
+			// skips work but keeps the loop and its cadence: the unit is
+			// KeepAlive, so exiting would only be restarted straight back here.
+			if backgroundPaused(env) {
+				fmt.Fprintln(out, "[watch] paused — `entire-brain start` resumes")
+				break
+			}
 			pass := applyWatchPlanEntry(w, entry)
 			// once: this loop owns the waiting, so the inner workspace loop runs
 			// exactly one pass over its members and returns.
