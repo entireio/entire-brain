@@ -1821,7 +1821,7 @@ func TestMCPToolsListSourceEnumOnRetrievalTools(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s missing source argument", tool)
 		}
-		want := []string{"all", "fact", "history", "conversation", "doc"}
+		want := []string{"all", "fact", "history", "conversation", "doc", "issue"}
 		if len(enum) != len(want) {
 			t.Fatalf("%s source enum = %v, want %v", tool, enum, want)
 		}
