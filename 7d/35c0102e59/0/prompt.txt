@@ -1,0 +1,13 @@
+what's controlling the background 'brain' process spawns?
+
+---
+
+there's no 'stop' command? 😅
+
+---
+
+machine-wide, go ahead
+
+---
+
+what is the current command to start the background process?

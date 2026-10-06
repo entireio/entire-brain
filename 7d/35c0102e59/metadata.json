@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "7d35c0102e59",
+  "strategy": "manual-commit",
+  "branch": "alex/control-background-processes",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "internal/cli/memory_cmd.go",
+    "internal/cli/pause.go",
+    "internal/cli/pause_test.go",
+    "internal/cli/root.go",
+    "internal/cli/setup.go",
+    "internal/cli/workspace.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/7d/35c0102e59/0/metadata.json",
+      "transcript": "/7d/35c0102e59/0/full.jsonl",
+      "compact_transcript": "/7d/35c0102e59/0/transcript.jsonl",
+      "content_hash": "/7d/35c0102e59/0/content_hash.txt",
+      "prompt": "/7d/35c0102e59/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 124,
+    "cache_creation_tokens": 177756,
+    "cache_read_tokens": 10077278,
+    "output_tokens": 33098,
+    "api_call_count": 62
+  }
+}
