@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -52,51 +51,23 @@ func setBackgroundPaused(env EntireEnv, paused bool) error {
 	return os.WriteFile(path, nil, 0o600)
 }
 
-// stopRepoBackfill stops the setup backfill recorded for the current repository,
-// returning its pid, or 0 when there is no repository or nothing running.
-// Only this repository's: backfills are recorded per repo and `setup` starts
-// one at a time, so that is where an in-flight one is.
-func stopRepoBackfill(ctx context.Context, opts Options, stop func(pid int) error) (int, error) {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil))
-	if err != nil || !local {
-		return 0, nil
-	}
-	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
-	if err != nil {
-		return 0, nil
-	}
-	state, ok := readSetupBackfillState(filepath.Dir(storage.HeadPath))
-	if !ok || !backfillRunning(storage.BrainDir, state.PID) {
-		return 0, nil
-	}
-	if err := stop(state.PID); err != nil {
-		return 0, err
-	}
-	return state.PID, nil
-}
-
 func newStopCommand(opts Options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop",
-		Short: "Pause all background brain work on this machine",
-		Long: "Pause all background brain work on this machine until `start`.\n\n" +
-			"The installed watcher stays loaded but idles, memory workers launched by\n" +
-			"agent hooks exit without working, and `setup` skips its backfill. Work\n" +
-			"recorded while paused is not lost; it runs after `start`.",
+		Short: "Pause background brain work on this machine",
+		Long: "Pause background brain work on this machine until `start`.\n\n" +
+			"From its next pass the installed watcher stays loaded but idles, memory\n" +
+			"workers exit without working, the session-end hook skips its refresh and\n" +
+			"distill, and `setup` skips its backfill. A pass already running, such as a\n" +
+			"`setup` backfill (capped at --backfill-budget sessions), finishes first.\n\n" +
+			"Nothing is lost: captured sessions stay canonical and are picked up by the\n" +
+			"watcher, the next hook, or a re-run `setup` once `start` lifts the pause.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := setBackgroundPaused(opts.Env, true); err != nil {
 				return fmt.Errorf("pause background work: %w", err)
 			}
-			out := cmd.OutOrStdout()
-			fmt.Fprintln(out, "background brain work paused (`entire brain start` resumes)")
-			pid, err := stopRepoBackfill(cmd.Context(), opts, stopDetachedProcess)
-			if err != nil {
-				return fmt.Errorf("stop this repository's backfill: %w", err)
-			}
-			if pid != 0 {
-				fmt.Fprintf(out, "stopped this repository's fact backfill (pid %d)\n", pid)
-			}
+			fmt.Fprintf(cmd.OutOrStdout(), "background brain work paused; passes already running finish first (`%s start` resumes)\n", setupCommandPrefix(os.LookupEnv))
 			return nil
 		},
 	}

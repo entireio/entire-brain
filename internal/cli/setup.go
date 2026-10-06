@@ -925,7 +925,7 @@ func runSetupBackfill(ctx context.Context, progress *refreshProgress, opts Optio
 		return setupPhase{State: "skipped", Detail: "--no-backfill"}
 	}
 	if backgroundPaused(opts.Env) {
-		progress.Skip("fact backfill: background work is paused " + progress.dash() + " `" + setupBrainCommand(brainCmd) + " start` resumes it")
+		progress.Skip("fact backfill: background work is paused " + progress.dash() + " run `" + setupBrainCommand(brainCmd) + " start`, then re-run setup")
 		return setupPhase{State: "skipped", Detail: "background work paused"}
 	}
 	if report.Facts.Sessions == 0 {

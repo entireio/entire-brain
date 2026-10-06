@@ -1644,8 +1644,10 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 				timer.Stop()
 			}
 			// Checked after the unleased wait so a worker that went to sleep
-			// before `stop` still wakes into the pause. No relaunch is scheduled:
-			// the durable hints remain and the next launch after `start` drains them.
+			// before `stop` still wakes into the pause, without touching
+			// coordinator state. No relaunch is scheduled: the durable hints
+			// remain for the next launch after `start` (a hook, MCP start or watch
+			// pass) to drain.
 			if backgroundPaused(opts.Env) {
 				return writeJSON(cmd, memoryWorkerStats{Paused: true})
 			}
@@ -1692,6 +1694,11 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 					outcome = "cancelled"
 					return cmd.Context().Err()
 				}
+			}
+			// Again after the leased tail: a `stop` during it must still win.
+			if backgroundPaused(opts.Env) {
+				outcome = "cancelled"
+				return writeJSON(cmd, memoryWorkerStats{Paused: true})
 			}
 			var stats memoryWorkerStats
 			var prepassRetry *time.Duration

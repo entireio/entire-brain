@@ -3,8 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -27,48 +25,29 @@ func TestStopPausesAndStartResumesBackgroundWork(t *testing.T) {
 	}
 }
 
-// The backfill is the one background process that spends tokens for hours, so
-// pausing must not leave it running to completion.
-func TestStopEndsThisRepositorysRunningBackfill(t *testing.T) {
+func TestStartWhenNotPausedIsANoOp(t *testing.T) {
 	f := newSetupTestFixture(t)
-	stateDir := filepath.Dir(f.storage.HeadPath)
-	// A live pid AND a held distill pass lock is what a running backfill looks
-	// like (see backfillRunning); our own pid stands in for the child.
-	if err := writeSetupBackfillState(stateDir, setupBackfillState{SchemaVersion: setupBackfillStateVersion, PID: os.Getpid()}); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(f.storage.BrainDir, brainLockDirName), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	passLock, err := acquireFileLock(filepath.Join(f.storage.BrainDir, brainLockDirName, brainDistillLockName), "distill_pass_locked", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = passLock.Close() }()
-
-	var stopped []int
-	pid, err := stopRepoBackfill(context.Background(), f.opts, func(pid int) error { stopped = append(stopped, pid); return nil })
-	if err != nil {
-		t.Fatalf("stop backfill: %v", err)
-	}
-	if pid != os.Getpid() || len(stopped) != 1 || stopped[0] != os.Getpid() {
-		t.Fatalf("the running backfill was not stopped: pid=%d stopped=%v", pid, stopped)
+	if out, err := execute(t, newStartCommand(f.opts)); err != nil {
+		t.Fatalf("start on a running machine must succeed: %v\n%s", err, out)
 	}
 }
 
-// A recorded pid whose distill lock is free belongs to some other process now;
-// stopping it would kill a stranger.
-func TestStopLeavesAStaleBackfillRecordAlone(t *testing.T) {
-	f := newSetupTestFixture(t)
-	stateDir := filepath.Dir(f.storage.HeadPath)
-	if err := writeSetupBackfillState(stateDir, setupBackfillState{SchemaVersion: setupBackfillStateVersion, PID: os.Getpid()}); err != nil {
+// A forgotten `stop` otherwise looks like a brain that quietly went stale.
+func TestStatusWarnsWhilePaused(t *testing.T) {
+	f := newSetupTestFixture(t, "s1")
+	if err := setBackgroundPaused(f.env, true); err != nil {
 		t.Fatal(err)
 	}
-	stops := 0
-	pid, err := stopRepoBackfill(context.Background(), f.opts, func(int) error { stops++; return nil })
-	if err != nil || pid != 0 || stops != 0 {
-		t.Fatalf("a stale record must not be acted on: pid=%d stops=%d err=%v", pid, stops, err)
+	report, err := buildBrainStatusReport(context.Background(), f.opts, f.repoDir)
+	if err != nil {
+		t.Fatalf("status: %v", err)
 	}
+	for _, warning := range report.Warnings {
+		if strings.Contains(warning, "paused") {
+			return
+		}
+	}
+	t.Fatalf("status does not mention the pause: %v", report.Warnings)
 }
 
 // The installed watcher is KeepAlive: killing it only restarts it. Pausing has
@@ -97,6 +76,30 @@ func TestSupervisedWatchIdlesWhilePaused(t *testing.T) {
 	}
 }
 
+// `stop` is most likely run while a pass is busy; the workspaces after the
+// current one must not start their gated distill.
+func TestSupervisedWatchStopsVisitingWorkspacesWhenPausedMidPass(t *testing.T) {
+	f := newSetupTestFixture(t)
+	for _, name := range []string{"alpha", "beta"} {
+		if _, err := recordSetupWatchPlan(f.env, daemonDefaultName, setupWatchPlanEntry{Workspace: name, Interval: "5m"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base := defaultWatchOptions()
+	base.once = true
+	var seen []string
+	if err := supervisedWatchLoop(context.Background(), &bytes.Buffer{}, f.env, base,
+		func(workspace string, _ watchCommandOptions, _ *int) error {
+			seen = append(seen, workspace)
+			return setBackgroundPaused(f.env, true)
+		}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 1 {
+		t.Fatalf("paused during alpha, but the pass went on to visit %v", seen)
+	}
+}
+
 func TestSetupSkipsBackfillWhilePaused(t *testing.T) {
 	f := newSetupTestFixture(t, "s1")
 	if err := setBackgroundPaused(f.env, true); err != nil {
@@ -111,13 +114,34 @@ func TestSetupSkipsBackfillWhilePaused(t *testing.T) {
 	if rec.spawnCalls != 0 {
 		t.Fatalf("paused, but setup spawned %d backfill(s)", rec.spawnCalls)
 	}
-	if !strings.Contains(out, "paused") {
-		t.Fatalf("the skip must say why:\n%s", out)
+	if !strings.Contains(out, "paused") || !strings.Contains(out, "re-run setup") {
+		t.Fatalf("the skip must say why and how to get the backfill back:\n%s", out)
 	}
 }
 
-// Every launch path (hooks, watch ticks, MCP startup, self-relaunch) ends in a
-// worker process, so the worker is the one place that has to honour the pause.
+// session-end distills the ended session itself, outside the worker, so it
+// spends tokens on every session unless it honours the pause too.
+func TestHookSessionEndDoesNothingWhilePaused(t *testing.T) {
+	opts, brainDir := privacyRegressionCommandFixture(t, time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC))
+	t.Setenv(memoryWorkerOriginEnv, "")
+	old := memoryWorkerLaunch
+	memoryWorkerLaunch = func(string) error { t.Error("paused hook launched a worker"); return nil }
+	t.Cleanup(func() { memoryWorkerLaunch = old })
+	if err := setBackgroundPaused(opts.Env, true); err != nil {
+		t.Fatal(err)
+	}
+	before := privacyTreeDigest(t, brainDir)
+	stdout, stderr, err := executeSplit(t, NewRootCommand(opts), "hook", "session-end", "--session", "ended-session")
+	if err != nil || stdout != "" || stderr != "" {
+		t.Fatalf("paused hook: stdout=%s stderr=%s err=%v", stdout, stderr, err)
+	}
+	if privacyTreeDigest(t, brainDir) != before {
+		t.Fatal("paused hook modified the brain")
+	}
+}
+
+// Hooks, watch ticks, MCP startup and self-relaunch all start a worker, so the
+// worker itself honours the pause rather than each of those launchers.
 func TestMemoryWorkerDoesNothingWhilePaused(t *testing.T) {
 	oldPrepass, oldLaunchAfter := memoryWorkerPrepass, memoryWorkerLaunchAfter
 	defer func() { memoryWorkerPrepass, memoryWorkerLaunchAfter = oldPrepass, oldLaunchAfter }()
@@ -138,5 +162,30 @@ func TestMemoryWorkerDoesNothingWhilePaused(t *testing.T) {
 	}
 	if !strings.Contains(out, `"paused": true`) {
 		t.Fatalf("the worker must report that it was paused: %s", out)
+	}
+}
+
+// The tail of a delayed worker's wait holds the coordinator lease; a `stop`
+// that lands there must still win.
+func TestMemoryWorkerHonoursAPauseDuringItsLeasedSleep(t *testing.T) {
+	oldPrepass, oldLaunchAfter := memoryWorkerPrepass, memoryWorkerLaunchAfter
+	defer func() { memoryWorkerPrepass, memoryWorkerLaunchAfter = oldPrepass, oldLaunchAfter }()
+	prepassCalls := 0
+	memoryWorkerPrepass = func(context.Context, Options, string) error { prepassCalls++; return nil }
+	memoryWorkerLaunchAfter = func(string, time.Duration, int) error { return nil }
+
+	opts, _ := newPrepassBackoffBrain(t, time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC))
+	// The whole 2s delay is under memoryWorkerMaxLeaseSleep, so it is all
+	// leased; the pause lands 50ms into it.
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		_ = setBackgroundPaused(opts.Env, true)
+	}()
+	out, err := execute(t, newMemoryWorkerCommand(opts), "--once", "--delay", "2s")
+	if err != nil {
+		t.Fatalf("worker: %v\n%s", err, out)
+	}
+	if prepassCalls != 0 || !strings.Contains(out, `"paused": true`) {
+		t.Fatalf("a pause during the leased sleep was ignored: prepass=%d out=%s", prepassCalls, out)
 	}
 }
