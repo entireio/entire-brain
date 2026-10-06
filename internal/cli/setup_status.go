@@ -68,6 +68,7 @@ type brainStatusOnboarding struct {
 	Daemon     daemonState            `json:"daemon"`
 	LastTickAt time.Time              `json:"last_tick_at,omitempty"`
 	Components []brainStatusComponent `json:"components,omitempty"`
+	Paused     bool                   `json:"paused"`
 	// WatchPlan is what the machine's ONE watcher covers. json:"-" on purpose:
 	// the status JSON is a published contract and a new field in it is a
 	// breaking change for anything parsing it today, so this is carried for the
@@ -157,6 +158,7 @@ func buildBrainOnboardingStatus(ctx context.Context, opts Options, storage repoS
 		onboarding.Daemon.Detail = strings.TrimSpace(onboarding.Daemon.Detail + "; watch plan unavailable: " + watchPlanErr.Error())
 	}
 	onboarding.Components = instantPhaseComponents(manifest, readSetupInstantRecord(stateDir))
+	onboarding.Paused = backgroundPaused(opts.Env)
 	return onboarding
 }
 

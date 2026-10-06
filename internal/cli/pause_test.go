@@ -3,9 +3,12 @@ package cli
 import (
 	"bytes"
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 func TestStopPausesAndStartResumesBackgroundWork(t *testing.T) {
@@ -33,21 +36,35 @@ func TestStartWhenNotPausedIsANoOp(t *testing.T) {
 }
 
 // A forgotten `stop` otherwise looks like a brain that quietly went stale.
-func TestStatusWarnsWhilePaused(t *testing.T) {
+func TestStatusReportsThePause(t *testing.T) {
 	f := newSetupTestFixture(t, "s1")
-	if err := setBackgroundPaused(f.env, true); err != nil {
-		t.Fatal(err)
-	}
 	report, err := buildBrainStatusReport(context.Background(), f.opts, f.repoDir)
 	if err != nil {
 		t.Fatalf("status: %v", err)
+	}
+	if report.Onboarding.Paused {
+		t.Fatal("status reports a pause nobody asked for")
+	}
+
+	if err := setBackgroundPaused(f.env, true); err != nil {
+		t.Fatal(err)
+	}
+	report, err = buildBrainStatusReport(context.Background(), f.opts, f.repoDir)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !report.Onboarding.Paused {
+		t.Fatal("status --json does not report the pause")
+	}
+	if got := renderStatus(t, report, false); !strings.Contains(got, "background work: paused") {
+		t.Fatalf("status text does not show the pause:\n%s", got)
 	}
 	for _, warning := range report.Warnings {
 		if strings.Contains(warning, "paused") {
 			return
 		}
 	}
-	t.Fatalf("status does not mention the pause: %v", report.Warnings)
+	t.Fatalf("status does not warn about the pause: %v", report.Warnings)
 }
 
 // The installed watcher is KeepAlive: killing it only restarts it. Pausing has
@@ -97,6 +114,36 @@ func TestSupervisedWatchStopsVisitingWorkspacesWhenPausedMidPass(t *testing.T) {
 	}
 	if len(seen) != 1 {
 		t.Fatalf("paused during alpha, but the pass went on to visit %v", seen)
+	}
+}
+
+// `watch [path]` and `workspace watch <name>` bypass the supervised loop, and
+// setup tells users on platforms without a service manager to run the latter
+// themselves, so each tick has to honour the pause on its own.
+func TestWatchTickDoesNothingWhilePaused(t *testing.T) {
+	f := newSetupTestFixture(t)
+	if err := setBackgroundPaused(f.env, true); err != nil {
+		t.Fatal(err)
+	}
+	steps := watchStepsForRepo(&cobra.Command{}, f.opts, defaultWatchOptions(), f.repoDir, time.Now)
+	var ran []string
+	steps.fingerprint = func(context.Context) string { ran = append(ran, "fingerprint"); return "changed" }
+	steps.delta = func(context.Context) (shortTermStats, error) {
+		ran = append(ran, "delta")
+		return shortTermStats{}, nil
+	}
+	steps.reconcile = func(context.Context) error { ran = append(ran, "reconcile"); return nil }
+	steps.refresh = func(context.Context) error { ran = append(ran, "refresh"); return nil }
+	steps.seed = func(context.Context) error { ran = append(ran, "seed"); return nil }
+	steps.distill = func(context.Context) error { ran = append(ran, "distill"); return nil }
+	out := &bytes.Buffer{}
+	agentCalls := 0
+	watchTick(context.Background(), out, defaultWatchOptions(), filepath.Join(t.TempDir(), "watch.json"), steps, &agentCalls)
+	if len(ran) != 0 {
+		t.Fatalf("paused, but the tick ran %v", ran)
+	}
+	if !strings.Contains(out.String(), "paused") {
+		t.Fatalf("the log must say why nothing ran: %q", out.String())
 	}
 }
 
