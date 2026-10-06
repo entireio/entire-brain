@@ -1,0 +1,23 @@
+"Proposal store endpoints ship in v1 (blob-CAS, same pattern as facts) even though the review UX is deferred — the client’s sync path publishes raised proposals after an advance, so omitting them would break the existing sync flow we’re deliberately not modifying."
+
+im not clear on this. explain it to me
+
+---
+
+the merge conflicts will be async on the server as a popeline. so i don't really want ot handle proposals at all actually. i'd rather just accept both facts (even if they conflict) for now adn then once we get teh async cron job working, that will take care of it. so i don't really want to create proposal end points
+
+---
+
+what are the three endpoints and what exactly do they do. be concise.
+
+---
+
+why are we calling it "advance" why not just post on facts?
+
+---
+
+okay fine. give me the link to the design doc.
+
+---
+
+/review-pr review the implementation plan and work on getting it tready to start implementing. don't write any code yet, just review the plan
