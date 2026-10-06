@@ -1,0 +1,610 @@
+1. brainstore is fine for now
+2. yes every part of the plan shoudl get the review
+3. the module rename and move is fine
+
+review everything else and then come back withupdates
+
+---
+
+<task-notification>
+<task-id>a1afa6d18be7bd8c3</task-id>
+<tool-use-id>toolu_015mPntfjKui7qfq8PhWfxtb</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-baghdad/b34bb187-a006-42fd-950e-5baa8971ec81/tasks/a1afa6d18be7bd8c3.output</output-file>
+<status>completed</status>
+<summary>Agent "Extract entire-search service template" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Findings for templating `brainstore` on `entire-search`.
+
+## 1. Module path + Go version
+`/Users/evisdrenova/code/entire-search/go.mod:1-3`
+```
+module github.com/entirehq/entire-search
+
+go 1.26.3
+```
+No `toolchain` line. Toolchain is pinned in `/Users/evisdrenova/code/entire-search/mise.toml:4-7` (`go = "1.26.3"`, `golangci-lint = "2.11.4"`, `shellcheck = "0.11.0"`), with tasks `mise run test` → `go test ./... -count=1 -race` and `mise run lint` → `golangci-lint run ./...`.
+
+## 2. The query API is `query-serve`, not `serve`
+Important: `serve` is the NATS indexing consumer (health-only HTTP). The query API server is `cmdQueryServe` — that's the one to copy.
+
+Dispatch, `/Users/evisdrenova/code/entire-search/cmd/entire-search/main.go:46-68`: plain `switch os.Args[1]` → `cmdServe` / `cmdQueryServe` / `cmdBackfill` / ... Each cmd parses its own flagset: `fs := flag.NewFlagSet("query-serve", flag.ExitOnError); _ = fs.Parse(args)` (main.go:562-563).
+
+Query server wiring, main.go:740-768:
+```go
+server := searchapi.NewServerWithJWKS(svc, allowedOrigins, cfg.EntireCoreTrustedIssuers, cfg.EntireCoreJWTAudiences, logger)
+httpServer := newHTTPServer(":"+cfg.SearchAPIPort, otelhttp.NewHandler(server.Handler(), "entire-search-query"))
+go func() {
+    if err := httpServer.ListenAndServe(); err != nil &amp;&amp; err != http.ErrServerClosed {
+        logger.Fatal().Err(err).Msg("search API server failed")
+    }
+}()
+sigCh := make(chan os.Signal, 1)
+signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+sig := &lt;-sigCh
+shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+defer shutdownCancel()
+httpServer.Shutdown(shutdownCtx)   // then pprofServer.Shutdown(shutdownCtx)
+```
+Order of startup in `cmdQueryServe` (main.go:565-593): `setupLogger()` → `log.Logger = logger` → `meminit.Configure(logger)` → `config.LoadSearchAPI()` (Fatal on err) → `telemetry.Init(ctx, "entire-search-query")` (Warn-and-continue on err) → `defer startRuntimeMetrics(logger)()` registered *before* the otel shutdown defer (LIFO, so runtime gauges make the final export) → `startPprofServer(cfg.PprofEnabled, cfg.PprofPort, logger)` (binds `127.0.0.1:&lt;port&gt;` only, main.go:120).
+
+Shared server constructor, `/Users/evisdrenova/code/entire-search/cmd/entire-search/http_server.go:11-20`:
+```go
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &amp;http.Server{
+		Addr: addr, Handler: handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      5 * time.Minute,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    64 &lt;&lt; 10,
+	}
+}
+```
+Health/readiness: the query API exposes only `GET /search/v1/health` on its own mux (server.go:63,130-137 — returns `{"status","service","timestamp"}`). `/healthz` + `/readyz` exist only on the consumer's separate health mux at `":"+cfg.Port` (main.go:503-521); `/readyz` deliberately checks no dependency.
+
+## 3. Auth pattern (searchapi)
+Mux + middleware, `/Users/evisdrenova/code/entire-search/internal/searchapi/server.go:57-72` — Go 1.22 method-prefixed patterns, chain CORS → logging → mux:
+```go
+mux := http.NewServeMux()
+mux.HandleFunc("GET /openapi.yaml", s.handleOpenAPI)
+mux.HandleFunc("GET /search/v1/health", s.handleHealth)
+mux.HandleFunc("GET /search/v1/search", s.handleSearch)
+return s.withMiddleware(mux)  // s.corsMiddleware(s.loggingMiddleware(next))
+```
+Verifier construction is conditional and silent-off if unconfigured (server.go:44-54) — config validation is what actually forces it on:
+```go
+func NewServerWithJWKS(service *searcher.Service, allowedOrigins []string, trustedIssuers []string, audiences []string, logger zerolog.Logger) *Server {
+	s := NewServer(service, allowedOrigins, logger)
+	if len(trustedIssuers) &gt; 0 &amp;&amp; len(audiences) &gt; 0 {
+		s.jwksVerifier = NewJWKSVerifier(trustedIssuers, audiences)
+	}
+	return s
+}
+```
+All JWT logic is delegated to the shared module `github.com/entirehq/entiredb/modules/jwtverify` — `/Users/evisdrenova/code/entire-search/internal/searchapi/jwks.go:62-83`:
+```go
+type JWKSVerifier struct{ trustedIssuers *jwtverify.TrustedIssuers }
+
+func NewJWKSVerifier(trustedIssuers []string, audiences []string) *JWKSVerifier {
+	return &amp;JWKSVerifier{trustedIssuers: jwtverify.NewTrustedIssuers(
+		trustedIssuers, defaultJWKSCacheTTL,          // 5 * time.Minute
+		jwtverify.WithAudiences(audiences),
+		jwtverify.WithMinRefetchInterval(jwksFetchCooldown),  // 30s
+		jwtverify.WithHTTPClient(&amp;http.Client{Timeout: jwksFetchTimeout /*10s*/, Transport: otelhttp.NewTransport(http.DefaultTransport)}),
+		jwtverify.WithFetchObserver(recordJWKSFetch),
+	)}
+}
+```
+There is no JWKS *URL* env var — the issuer list is the JWKS source; `jwtverify` derives/fetches per issuer. jwks.go:24-45 registers an `otel.Meter("entire-search/searchapi").Int64Counter("search.jwks.fetches")` with `source` (request|keeper) + `outcome` attributes via the fetch observer. Claims type (jwks.go:48-52) embeds `josejwt.Claims` plus `Handle`/`Scope`.
+
+`resolveUserID`, `/Users/evisdrenova/code/entire-search/internal/searchapi/auth.go:11-70`:
+```go
+type AuthResult struct{ AccountID, Token, Issuer string }
+
+func resolveUserID(ctx context.Context, r *http.Request, jwksVerifier *JWKSVerifier) (*AuthResult, error) {
+	authHeader := r.Header.Get("Authorization")            // "" -&gt; error
+	token := authHeader
+	for _, prefix := range []string{"Bearer ", "bearer ", "token ", "Token "} { ... TrimPrefix ... }
+	if jwksVerifier == nil { return nil, fmt.Errorf("core JWT authentication is not configured") } // fail closed
+	if !looksLikeJWT(token) { return nil, fmt.Errorf("unsupported credential; authenticate with an entire-core token") }
+	claims, err := jwksVerifier.Verify(ctx, token)
+	if err != nil { return nil, fmt.Errorf("invalid or expired token") }  // error text never leaks the cause
+	return &amp;AuthResult{AccountID: accountIDFromSubject(claims.Subject), Token: token, Issuer: claims.Issuer}, nil
+}
+func accountIDFromSubject(sub string) string { return strings.TrimPrefix(sub, "account:") }
+func looksLikeJWT(token string) bool { return strings.Count(token, ".") == 2 }
+```
+Handler gate (server.go:144-156): auth error → `401 {"error":"Unauthorized"}`; `authResult.AccountID == ""` → `403 {"error":"Forbidden"}`. The verified triple is then handed to the search layer (server.go:258-262):
+```go
+result, err := s.service.SearchWithCaller(ctx, searcher.CallerIdentity{
+    AccountID: authResult.AccountID, Token: authResult.Token, Issuer: authResult.Issuer}, params)
+```
+
+## 4. Core `/repos` access resolver (the authz gate)
+`/Users/evisdrenova/code/entire-search/internal/searcher/core_repos_resolver.go`. Constructed in main.go:718-726 with `searcher.NewCoreReposV4RepoResolver(cfg.CoreReposURL, cfg.CoreReposCell, logger)` + `resolver.SetHTTPTransport(otelhttp.NewTransport(http.DefaultTransport))` + `svc.SetRepoResolver(resolver)`.
+
+- Endpoint: `strings.TrimRight(coreBaseURL,"/") + "/api/v1/repos"` (line 432), plus `.../repos/resolve-ids` POST for explicit filters (line 891).
+- **Key convention**: the URL is chosen from the *verified* `iss`, not config (lines 478-483) — `reposURLFor(issuer)` returns `strings.TrimRight(issuer,"/") + "/api/v1/repos"`, falling back to the configured `CORE_REPOS_URL` only for an empty issuer. Rationale at 471-477: a core token verifies only at the core that minted it.
+- Forwarded credential: `req.Header.Set("Authorization", "Bearer "+token)` on both the GET page fetch (line 666) and the resolve-ids POST (line 956).
+- Entry point fails closed on a missing identity (lines 452-463): empty `AccountID` or empty `Token` → error before any call.
+- Cache: keyed by `sha256.Sum256([]byte(caller.Token))` (line 489), 30s TTL + 30s stale-while-revalidate, LRU max 1024, `singleflight` on the blocking path (lines 25-33, 485-540).
+- Response-size guards: 8 MiB per page, 64 MiB per walk (lines 68-73).
+- Handler maps resolver outcomes: `searcher.ErrRepoAccessIncomplete` → 503, `searcher.ErrRepoFilterUnmatched` → 404 (server.go:264-275).
+
+## 5. openapi.yaml: hand-written and `go:embed`-served
+726 lines, hand-authored OpenAPI 3.0.3 (`/Users/evisdrenova/code/entire-search/internal/searchapi/openapi.yaml:1-7`). No generator, no drift test, no lint task — the only codegen in the repo is protobuf/connect under `internal/gen/gitread/v1`. Served verbatim, `/Users/evisdrenova/code/entire-search/internal/searchapi/openapi.go:7-18`:
+```go
+//go:embed openapi.yaml
+var openAPISpec []byte
+
+func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/yaml")
+	_, _ = w.Write(openAPISpec)
+}
+```
+Purpose per the comment: the entire-api gateway fetches/merges/proxies this surface (same integration peregrine uses). Route is unauthenticated (`GET /openapi.yaml`, server.go:61).
+
+## 6. Config: env-only, per-command loader, collect-then-report validation
+`/Users/evisdrenova/code/entire-search/internal/config/config.go` — one `Config` struct, two loaders: `Load()` (indexer, :246) and `LoadSearchAPI()` (query API, :351). Pattern: struct literal of `os.Getenv` / `envOrDefault*` helpers, then a `missing []string` pass, then one error:
+```go
+var missing []string
+if cfg.TurbopufferAPIKey == "" { missing = append(missing, "TURBOPUFFER_API_KEY") }
+...
+if len(missing) &gt; 0 { return nil, fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", ")) }
+```
+Query-API env names (config.go:353-383): `TURBOPUFFER_API_KEY`, `TURBOPUFFER_NAMESPACE_PREFIX`, `TURBOPUFFER_NAMESPACE_VERSION` (default `v3`), `TURBOPUFFER_REGION`, `COHERE_API_KEY`, `COHERE_EMBED_INPUTS_PER_SEC`, `POSTHOG_API_KEY`, `POSTHOG_PERSONAL_API_KEY`, `MAX_QUERY_MEMORY_BYTES` (default `256&lt;&lt;20`), `PORT` (default `8080`), `SEARCH_API_PORT` (default `8081`), `ALLOWED_ORIGINS` (comma-split in main.go:729-737), `SEARCH_MIN_CHUNK_VERSION`, `PPROF_ENABLED` (default false), `PPROF_PORT` (default `6060`), `ENTIRE_CORE_TRUSTED_ISSUERS` (comma list), `ENTIRE_CORE_JWT_AUDIENCE` (comma list), `CORE_REPOS_URL`, `CORE_REPOS_CELL`, `ENTIRE_API_URL`, `SPIFFE_CERT_FILE`/`SPIFFE_KEY_FILE`/`SPIFFE_CA_FILE`.
+Required (fail startup): `TURBOPUFFER_API_KEY`, `COHERE_API_KEY`, `CORE_REPOS_URL`, `CORE_REPOS_CELL`, `ENTIRE_CORE_TRUSTED_ISSUERS`, `ENTIRE_CORE_JWT_AUDIENCE`.
+
+Bounded ints use a table-driven strict helper (config.go:431-450) where a set-but-invalid value fails startup rather than silently defaulting:
+```go
+for _, lim := range []struct{ key string; dest *int; def, min, max int }{
+	{"MAX_QUERY_FANOUT_CONCURRENCY", &amp;cfg.MaxQueryFanoutConcurrency, 16, 0, 128},
+	{"MAX_QUERY_INFLIGHT_REQUESTS", &amp;cfg.MaxQueryInflightRequests, 0, 0, 4096},
+	{"SEARCH_FACET_COUNT_BUDGET_MS", &amp;cfg.FacetCountBudgetMs, 0, 500, 60_000},
+} { n, err := envLimitInt(lim.key, lim.def, lim.min, lim.max); if err != nil { return nil, err }; *lim.dest = n }
+```
+Helper set at config.go:465-562: `envOrDefault`, `parseCommaSeparated`, `envOrDefaultBool`, `envLimitInt`, `envOrDefaultInt`, `envOrDefaultInt64`, `envOrDefaultDuration`. Logging config is outside the struct: `LOG_FORMAT=console` → zerolog ConsoleWriter (main.go:76-79).
+
+## 7. Telemetry: one `Init` returning a shutdown func
+`/Users/evisdrenova/code/entire-search/internal/telemetry/telemetry.go:19-63` — signature `func Init(ctx context.Context, serviceName string) (shutdown func(context.Context) error, err error)`. Endpoint comes from standard `OTEL_EXPORTER_OTLP_ENDPOINT` (no custom env). Resource is only `semconv.ServiceName(serviceName)` (semconv v1.26.0); traces via `otlptracehttp.New(ctx)` + `trace.WithBatcher(traceExp, trace.WithBatchTimeout(5*time.Second))`; propagator `NewCompositeTextMapPropagator(TraceContext{}, Baggage{})`; metrics via `otlpmetrichttp.New(ctx)` + `metric.NewPeriodicReader(metricExp, metric.WithInterval(30*time.Second))`; if the metric exporter fails it shuts the tracer provider down before returning. Service names are per-subcommand strings: `"entire-search"`, `"entire-search-query"`, `"entire-search-backfill"` (main.go:256, 580, 798). Server spans come from wrapping the handler: `otelhttp.NewHandler(server.Handler(), "entire-search-query")`; every outbound client gets `otelhttp.NewTransport(...)`.
+
+## 8. Dockerfile + Postgres
+`/Users/evisdrenova/code/entire-search/Dockerfile` — two-stage, static, with a BuildKit secret for private `entirehq` modules:
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM golang:1.26-alpine AS builder
+RUN apk add --no-cache git
+WORKDIR /app
+ENV GOPRIVATE=github.com/entirehq/*
+COPY go.mod go.sum ./
+RUN --mount=type=secret,id=git_token \
+    --mount=type=tmpfs,target=/gitconfig \
+    export GIT_CONFIG_GLOBAL=/gitconfig/.gitconfig &amp;&amp; \
+    git config --global \
+      url."https://x-access-token:$(cat /run/secrets/git_token)@github.com/entirehq/".insteadOf \
+      "https://github.com/entirehq/" &amp;&amp; \
+    go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /entire-search ./cmd/entire-search
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /entire-search /usr/local/bin/entire-search
+ENTRYPOINT ["entire-search"]
+CMD ["serve"]
+```
+The comment notes the secret is opt-in via `go_private_repos` in the fleet deploy workflow, "same pattern as entire-api". Note `CMD ["serve"]` is the indexer default — a query-API-only service would ship its own default arg.
+
+**Postgres: no.** Zero `pgx`/`lib/pq`/`DATABASE_URL`/`postgres://` anywhere, and no migration tool (no goose/atlas/golang-migrate/sqlc). The only `database/sql` imports (`internal/handler/handler.go:5`, `internal/entiredb/handler_adapter.go:5`) use it solely for `errors.Is(err, sql.ErrNoRows)` as a sentinel across the entiredb client boundary. Storage is Turbopuffer (vector/search) + NATS JetStream; if brainstore needs Postgres it will be introducing that dependency, with no in-repo precedent to copy.</result>
+<usage><subagent_tokens>71387</subagent_tokens><tool_uses>22</tool_uses><duration_ms>110740</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a83bea46dc58776d0</task-id>
+<tool-use-id>toolu_01C1Lt7tLDbr9tE7QXbxrMEf</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-baghdad/b34bb187-a006-42fd-950e-5baa8971ec81/tasks/a83bea46dc58776d0.output</output-file>
+<status>completed</status>
+<summary>Agent "Plugin wiring exact seams" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I have everything. Here are the exact seams.
+
+---
+
+## 1. `internal/cli/watch.go` — daemon tick
+
+**`watchSteps` struct** — `/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/watch.go:86-116`. All fields are injected funcs (unit-testable):
+```go
+type watchSteps struct {
+	now         func() time.Time
+	fingerprint func(context.Context) string
+	delta       func(context.Context) (shortTermStats, error)
+	reconcile   func(context.Context) error
+	refresh     func(context.Context) error
+	seed        func(context.Context) error
+	distill     func(context.Context) error
+}
+```
+Add `factsSync func(context.Context) error` here.
+
+**`watchStepsForRepo`** — `watch.go:406-424`:
+```go
+func watchStepsForRepo(cmd *cobra.Command, opts Options, w watchCommandOptions, repoDir string, now func() time.Time) watchSteps
+```
+Each field closes over `(c, cmd, opts, repoDir)` — e.g. `refresh: func(c context.Context) error { return watchDeterministicRefresh(c, cmd, opts, repoDir) }`. A new `factsSync` step follows that shape exactly.
+
+**Slot for the new post-refresh step** — `watchTick` is `watch.go:232-382`. The refresh block is `watch.go:303-311`; it `return`s on failure (never spend/advance on an unrefreshed brain). The correct insertion point is **after that block and before `reserveWatchAgentSpend` at `watch.go:312`** — i.e. deterministic, token-free work runs after refresh, before the gated agent budget reservation. Note `reserveWatchAgentSpend` is what advances `LastFingerprint`/`LastRefreshAt`, so inserting before it means a sync failure can still choose not to advance; inserting after means the tick is already committed.
+
+**Non-fatal error idiom** (copy verbatim) — `watch.go:263-269` (delta) and `watch.go:290-295` (reconcile):
+```go
+if err := steps.reconcile(ctx); err != nil {
+    fmt.Fprintf(out, "[watch] memory reconciliation failed (durable overlay retained): %v\n", err)
+} else {
+    fmt.Fprintln(out, "[watch] long-term memory reconciliation queued")
+}
+```
+Every step is nil-guarded (`if steps.delta != nil`) so existing tests that build partial `watchSteps` keep compiling — your new step **must** be nil-guarded too.
+
+**Cursor/throttle persistence** — `watch.go:490`:
+```go
+func reserveWatchAgentSpend(cursorPath, fingerprint string, w watchCommandOptions, agentCalls *int, now time.Time, repair bool) (bool, string, error)
+```
+and its inverse `func releaseWatchAgentSpend(cursorPath string, previous time.Time, agentCalls *int)` (`watch.go:386`). Both wrap `withWatchCursorLock(cursorPath string, fn func() error) error` (`watch.go:532`) around `loadWatchCursor(cursorPath)` → mutate → `saveWatchCursor(cursorPath, current)`. `watchCursor` (`watch.go:62-74`) is the place to add a `LastFactsSyncAt time.Time \`json:"last_facts_sync_at,omitempty"\`` for a sync throttle; the read-modify-write-under-lock pattern at `watch.go:364-379` is the template. `watchCursorLockName = "watch.lock"` (`watch.go:80`).
+
+---
+
+## 2. `internal/cli/hook_cmd.go` — session-end
+
+`newHookSessionEndCommand(opts Options) *cobra.Command` at `hook_cmd.go:77`. In scope at the `runDistill` call site (`hook_cmd.go:155`):
+
+- `repoDir string`, `local bool` — from `resolveLocalTargetRepoDir(cmd.Context(), opts.Runner, target)` (`:95`)
+- `perRepo Options` — `opts` with `perRepo.Env.RepoRoot = repoDir` (`:99-100`)
+- `sub *cobra.Command` — a synthetic command whose out/err are both redirected to `cmd.ErrOrStderr()` (`:105-108`); this is what you pass to any function needing a `*cobra.Command`, since `runFactsSync` writes warnings to `cmd.ErrOrStderr()`
+- `storage repoStorage, storageErr error` — `repoStoragePaths(cmd.Context(), perRepo.Runner, perRepo.Env, repoDir)` (`:114`) — **declared inside the `if storageErr == nil` block's enclosing scope, so `storage.BrainDir` is available after it**
+- `resolvedBranch string` — `:116-121`, falls back to `gitScalar(cmd.Context(), perRepo.Runner, repoDir, "branch", "--show-current")`. ⚠️ it is scoped **inside** `if storageErr == nil { ... }` (`:115`), so a sync step after `runDistill` must re-resolve or hoist it.
+- Call: `runDistill(cmd.Context(), sub, opts, distillOpts, repoDir)` at `:155` — note it passes `opts`, not `perRepo`.
+
+Contract to preserve: stdout stays empty, env problems return `nil`, all reporting via `fmt.Fprintf(cmd.ErrOrStderr(), "session-end: ...")`.
+
+---
+
+## 3. `runFactsSync` — directly callable, no shell-out needed
+
+`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/cli/facts_sync_cmd.go:77`:
+```go
+func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) error
+```
+It takes `*cobra.Command` only for `cmd.Context()` and `cmd.ErrOrStderr()` — so the `sub := &amp;cobra.Command{}` trick from hook_cmd.go works for both watch and hook callers. It re-resolves `repoDir`/`storage`/`branch` itself (`:80-100`), so it is self-contained but redundant in a context that already has them.
+
+```go
+type factsSyncOptions struct {        // facts_sync_cmd.go:34-44
+	branch  string
+	backend string
+	member  string
+	apiURL  string   // http backend only
+	token   string
+	repoID  string
+	jsonOut bool
+}
+```
+`jsonOut: false` prints human output to `cmd.OutOrStdout()` — for the hook you must redirect that to stderr.
+
+Key internals you may want to reuse rather than the whole command:
+- `factsync.Sync(ctx, srv, repoID, branch, memberID, facts, opts.Now().UTC()) (factsync.Result, error)` — `internal/factsync/sync.go:75`
+- `buildFactsSyncBackend(opts Options, backend string, storage repoStorage, syncOpts factsSyncOptions) (factsync.Server, string, string, error)` — `facts_sync_cmd.go:553` (returns srv, repoID, backendLabel)
+- `resolveSyncMemberID(ctx context.Context, runner CommandRunner, repoDir, override string) string` — `facts_sync_cmd.go:603`
+- `readSharedFactHead(ctx context.Context, srv factsync.Server, repoID, branch string) ([]factRecord, error)` — `facts_sync_cmd.go:349` — **this is your "pull remote facts" primitive.** `factsync.Result.Facts []factmerge.Record` (`sync.go:65`) already carries the post-sync head, so a pull-after-sync is free.
+- `factsync.Server` interface: `Current(ctx, repoID, branch) (ref string, plaintext []byte, found bool, err error)` / `Advance(...)` — `sync.go:46-49`
+
+---
+
+## 4. Facts import write path — the merge-into-local template
+
+Exact signatures:
+- `func withBrainWriteLock(brainDir string, fn func() error) error` — `internal/cli/brain.go:82`
+- `func loadFacts(brainDir, branch string) ([]factRecord, error)` — `internal/cli/facts.go:145`
+- `func upsertFact(records []factRecord, incoming factRecord) []factRecord` — `internal/cli/facts_aliases.go:58` (→ `factmerge.Upsert`)
+- `func writeFacts(brainDir, branch string, records []factRecord) error` — `internal/cli/facts.go:275`
+- `func updateFactSourceManifestLocked(brainDir string, now time.Time) error` — `internal/cli/facts_manifest.go:114`
+
+Composition at `internal/cli/facts_import.go:842-886` — copy this exactly:
+```go
+var manifestErr error
+if err := withBrainWriteLock(brainDir, func() error {
+    existing, loadErr := loadFacts(brainDir, resolvedBranch)
+    if loadErr != nil { return loadErr }
+    keptActive = countKeptActiveFacts(facts, existing)
+    ontoInactive = countImportsOntoInactiveFacts(facts, existing)
+    for _, fact := range facts {
+        existing = upsertFact(existing, fact)
+    }
+    if err := writeFacts(brainDir, resolvedBranch, existing); err != nil { return err }
+    manifestErr = updateFactSourceManifestLocked(brainDir, opts.Now().UTC())
+    return nil
+}); err != nil {
+    return err
+}
+```
+Three load-bearing invariants documented in the comments there: (a) validation happens **before** the lock so a doomed op never mutates; (b) `updateFactSourceManifestLocked` must run **under the same lock** or `facts status`/freshness go stale silently; (c) a manifest error after a successful `writeFacts` is a **warning, not an error** (the facts are on disk). `upsertFact` unions provenance and **never moves a status** — import compensates via `countKeptActiveFacts`/`countImportsOntoInactiveFacts` (`facts_import.go:838-841`), and a remote-pull will need the same decision.
+
+Also: `writeHostedFactsBinding` (below) itself takes `withBrainWriteLock`, so don't nest it inside your lock.
+
+---
+
+## 5. `internal/cli/blind_spot.go`
+
+```go
+func emptyResultBlindSpotOnBranch(brainDir, branch string) string   // blind_spot.go:44
+func otherBranchBlindSpot(brainDir, branch string) string           // blind_spot.go:106
+func noBrainBlindSpot(loadErr error) string                         // blind_spot.go:167
+func otherBranchSessionBlindSpot(brainDir, branch string) string    // blind_spot.go:189
+```
+**There is no note struct** — every clause returns a plain `string` beginning with `"note: "`, empty meaning "nothing to say, fall through". Your unsynced-hosted-facts clause is a `func unsyncedHostedFactsBlindSpot(brainDir, branch string) string`, invoked from `emptyResultBlindSpotOnBranch` with the same guard form as `blind_spot.go:86`:
+```go
+if note := otherBranchBlindSpot(brainDir, branch); note != "" { return note }
+```
+**Ordering is doctrine, not style** (`blind_spot.go:53-85`): integrity check wins over everything; branch note before coverage notes, because an actionable note (`retry with --branch`) must beat a non-actionable one. An unsynced-hosted note is actionable (`run facts sync`), so it belongs between the integrity check (`:62`) and `otherBranchBlindSpot` (`:86`) — or immediately after, if a wrong-branch answer is judged more actionable.
+
+Consumers: the string lands on `retrievalExtras.BlindSpot string` (`internal/cli/retrieval_transport.go:25`, rendered at `:333/:364/:456`) and `recall_evidence.go:16` (`json:"blind_spot,omitempty"`). Call sites: `retrieve_cmd.go:283,303,375`, `facts_read_cmd.go:412,430`, `retrieve_cmd.go:962`. The separate `brainBlindSpot` struct at `semantic.go:2804` is a *different* mechanism (status report), not this one.
+
+---
+
+## 6. `factmerge.Record` and the alias list
+
+`/Users/evisdrenova/conductor/workspaces/entire-brain/baghdad/internal/factmerge/record.go:20-35`:
+```go
+type Record struct {
+	ID           string    `json:"id"`
+	Paths        []string  `json:"paths"`
+	Kind         string    `json:"kind,omitempty"`
+	Locus        []string  `json:"locus,omitempty"`
+	Text         string    `json:"text"`
+	Branch       string    `json:"branch"`
+	Origin       string    `json:"origin"`
+	Status       string    `json:"status"`
+	Confidence   string    `json:"confidence,omitempty"`
+	Provenance   []Anchor  `json:"provenance"`
+	RelatedIDs   []string  `json:"related_ids,omitempty"`
+	SupersededBy string    `json:"superseded_by,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+```
+Additive `Author string \`json:"author,omitempty"\`` goes naturally after `Origin` (both are "where did this come from" metadata) or after `Confidence`. **Critical constraint stated in the doc comment at `record.go:17-19`: the `ID` is `sha256(normalized text + sorted paths)` — `RecordID(text, sortedPaths)`. Adding `Author` must NOT enter the id derivation, or every existing fact's identity changes and dedup/CAS merge breaks.** Second constraint: `writeFacts` → `factmerge.WriteNDJSON` sorts deterministically (`facts.go:270-281`); confirm the sort key doesn't include the new field.
+
+`internal/cli/facts_aliases.go:17-23` — type aliases, *not* named types, so `factRecord` **is** `factmerge.Record` and the new field is visible to all ~70 CLI call sites with zero shim work:
+```go
+type (
+	factRecord   = factmerge.Record
+	factAnchor   = factmerge.Anchor
+	factAction   = factmerge.Action
+	factProposal = factmerge.Proposal
+	gcResult     = factmerge.GCResult
+)
+```
+Const aliases at `:27-44`; forwarding wrappers at `:48-93` (`factRecordID`, `upsertFact`, `sortFactRecords`, `applyFactActions`, `applyProposal`, `promoteFacts`, `retractFact`, `gcFacts`, …). Note `Anchor` (`record.go:42-50`) already carries `SessionID`/`Commit`/`CheckpointID` — check whether author belongs there instead, since `factsync.Sync` **redacts local-only provenance coordinates before egress** (`sync.go:81-83`), which an author field on `Record` would bypass.
+
+---
+
+## 7. Shelling out to the parent `entire` binary
+
+Interface — `internal/cli/runner.go:17-19`:
+```go
+type CommandRunner interface {
+	Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error)
+}
+```
+Optional env-scoped variant at `runner.go:26-28`:
+```go
+type EnvironmentCommandRunner interface {
+	RunWithEnv(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error)
+}
+```
+Canonical call site to copy — `internal/cli/export.go:982-1004` (`listRoutedCheckpoints`):
+```go
+args := []string{"checkpoint", "explain", "--json"}
+stdout, stderr, err := runner.Run(ctx, repoDir, entireBinary, args...)
+warnings := routedCheckpointWarnings(stderr)
+if err != nil {
+	return nil, warnings, fmt.Errorf("list checkpoints: %w", err)
+}
+var checkpoints []checkpointListEntry
+if err := decodeHostCLIJSON(stdout, &amp;checkpoints); err != nil {
+	return nil, nil, fmt.Errorf("parse checkpoint list json: %w", err)
+}
+```
+**`decodeHostCLIJSON(stdout, &amp;v)` (`export.go:1006+`) is mandatory, not optional**: the host `entire` CLI prints an "Update available!" banner on the *same* stream as `--json`, so a strict `json.Unmarshal` fails deterministically on first run only (24h version-check cache hides it after). A new `entire auth token --jurisdiction X` call must go through it.
+
+The binary name is never hardcoded at the call site — it threads as a `string` param defaulting to `"entire"` from a flag: `exportOptions.entireBinary` (`export.go:83,105,125`), and `graphBinary` elsewhere (`entities_cmd.go:142`, `bench.go:75`). `config.go:51` notes the env override convention `ENTIRE_BRAIN_GRAPH_BINARY`. There is currently **no** `entire auth` invocation anywhere in the repo — `rest_api.go:146` is only doc text.
+
+---
+
+## 8. Egress gates and hosted binding helpers
+
+`internal/cli/agent_policy.go`:
+```go
+func brainNoEgressMode() bool            // :14 — securityToggleEnabled("ENTIRE_BRAIN_NO_EGRESS") || ...("ENTIRE_BRAIN_LOCAL_ONLY")
+func envBool(name string) bool           // :18 — "1","true","yes","on" → true; everything else false
+func securityToggleEnabled(name string) bool  // :32 — fail-CLOSED: an unrecognized value is treated as ENABLED + warns once
+```
+`envBool` and `securityToggleEnabled` have **deliberately different** semantics: `envBool` fails open (opt-in gates), `securityToggleEnabled` fails closed (safety guards). Use `envBool` for opt-ins, never for a guard.
+
+Env var consts — `internal/cli/publish.go:46-56`: `envBrainAllowHosted = "ENTIRE_BRAIN_ALLOW_HOSTED"`, `envAPIBaseURL = "ENTIRE_API_URL"`, `envAPIToken = "ENTIRE_API_TOKEN"`, `envRepoID = "ENTIRE_REPO_ID"`. Resolution helper: `publishFlagOrEnv(flagVal, envName)`.
+
+The **three-gate order** any automatic hosted step must replicate verbatim (`facts_sync_cmd.go:566-593`): (1) `brainNoEgressMode()` — master switch, always wins; (2) `!envBool(envBrainAllowHosted)` — opt-in, fails closed with code `hosted_sync_disabled`; (3) `apiurl.Validate(baseURL)` — scheme floor (https, or http only to loopback), **before** the backend is constructed. Same pattern at `publish.go:178` and `facts_proposals_cmd.go:181`.
+
+`internal/cli/facts_hosted_binding.go`:
+```go
+type hostedFactsBinding struct {                                        // :10
+	RepoID  string `json:"repo_id"`
+	BaseURL string `json:"base_url"`
+}
+func hostedFactsBindingPath(branch string) string                        // :15 — &lt;factsBranchRelDir(branch)&gt;/hosted-target.json
+func writeHostedFactsBinding(brainDir, branch, repoID, baseURL string) error  // :19 — takes withBrainWriteLock internally
+func checkHostedFactsBinding(brainDir, branch, repoID, baseURL string) error  // :30 — error when absent or mismatched
+```
+`checkHostedFactsBinding` returning an error (including the "not present" case) is exactly the **"this branch has never been synced hosted-side"** signal your blind-spot clause needs — but it requires a `repoID`+`baseURL` to compare against. For a blind spot with no target in hand, read the file directly via `readMemoryStateFile(brainDir, hostedFactsBindingPath(branch), "hosted fact binding", defaultMaxReadBytes)` (`:31`) and test `present`. Written from `runFactsSync` at `facts_sync_cmd.go:120-125`, only when `srv.(*factsync.HTTPServer)` type-asserts.</result>
+<usage><subagent_tokens>76910</subagent_tokens><tool_uses>19</tool_uses><duration_ms>121452</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ab27b2523c79d0c2c</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-baghdad/b34bb187-a006-42fd-950e-5baa8971ec81/tasks/ab27b2523c79d0c2c.output</output-file>
+<status>completed</status>
+<summary>Agent "Gateway upstream registration + migrations" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I have everything needed.
+
+## A. Adding a new remote upstream to the gateway
+
+**1. The mechanism is a compile-time code table + per-cell env vars.** `/Users/evisdrenova/code/entire/entire-api/internal/gateway/config/topology.go:72-77` — add one `upstreamDef` row; everything else (fetch, merge, route, readiness) follows automatically:
+
+```go
+var cellServices = []upstreamDef{
+	{Name: "entiredb", SpecURLEnv: "ENTIREDB_SPEC_URL", BaseURLEnv: "REPO_API_INTERNAL_URL", Required: true, PathPrefix: "/git"},
+	{Name: "peregrine", SpecURLEnv: "PEREGRINE_SPEC_URL", BaseURLEnv: "PEREGRINE_INTERNAL_URL", Required: false, PathPrefix: "/search"},
+	{Name: "entire-search", SpecURLEnv: "SEMANTIC_SEARCH_SPEC_URL", BaseURLEnv: "SEMANTIC_SEARCH_INTERNAL_URL", Required: false, PathPrefix: "/semantic-search"},
+	{Name: "ci-webhooks", SpecURLEnv: "CI_WEBHOOKS_SPEC_URL", BaseURLEnv: "CI_WEBHOOKS_INTERNAL_URL", Required: false, PathPrefix: "/ci"},
+}
+```
+The brainstore row would be `{Name: "brainstore", SpecURLEnv: "BRAINSTORE_SPEC_URL", BaseURLEnv: "BRAINSTORE_INTERNAL_URL", Required: false, PathPrefix: "/brain"}`. `upstreamDef` is documented at topology.go:24-41.
+
+**2. Env var value formats** (`cellUpstreams`, topology.go:85-109; `NewUpstream`, config.go:278-296):
+- `*_SPEC_URL` — full `http(s)://` URL to the service's OpenAPI document (or an HTML docs page, one hop auto-resolved). Must have http/https scheme + host or startup fails. The *proxy base* is derived by stripping the last path segment (`deriveBaseURL`, config.go:301) unless overridden.
+- `*_INTERNAL_URL` — optional override for the proxy destination only (e.g. `https://peregrine.search.svc.cluster.local:8080`), so the spec can be fetched from a public host while traffic goes over the internal listener (see config.go:27-34). Empty/unset → base derived from the spec URL.
+- Real-world shapes from `config_test.go:292-293` and `:329`: `https://peregrine.us-east-2.entire.internal/openapi.yaml` + `https://peregrine.search.svc.cluster.local:8080`; `http://entire-search-query.entire-search.svc.cluster.local/openapi.yaml`.
+
+**3. Required vs optional.** `Required: true` → missing `SpecURLEnv` is a hard startup error (`cell service %q: %s is required`, topology.go:91). `Required: false` → the upstream is silently skipped when its env is unset, so the same binary rolls to a cell before the backend exists. Required also gates pod readiness: `Upstream.Required` (config.go:74-81) feeds `Store.AllReady`, and a DOWN optional upstream degrades only its own routes without pulling the pod out of rotation. **A new service should ship `Required: false`** and only be promoted later.
+
+**4. PathPrefix.** Merge prepends it to every path key (`internal/gateway/merge/paths.go:50`, `pathStr := spec.Base.PathPrefix + localPath`) and the proxy strips it back before joining BaseURL (`internal/gateway/proxy/proxy.go:83-94`, `http.StripPrefix(up.PathPrefix, rp)`) — the backend still serves bare paths. It also becomes the fallback OpenAPI tag for untagged operations (`paths.go:199-214`), so the prefix is public vocabulary, not a codename. A path published by two upstreams is a hard merge error that pins the gateway to last-good, so the prefix must be unique (topology.go:61-71 documents the TRAILS_SPEC_URL incident).
+
+**5. Spec fetch + merge lifecycle.** `internal/gateway/upstream/fetch.go:39-64` — spec fetches refuse all redirects (SSRF bound); `upstream/store.go` does `Refresh` → `Candidates` → `Commit`/`MarkRejected` with last-good retention; `internal/gateway/server/server.go:239` rebuilds the chi router on change. `InitialLoad` retries until every *required* service is ready or `STARTUP_READY_TIMEOUT` (default 60s) elapses, then binds not-ready rather than crash-looping. The spec's own `servers[]` is deliberately ignored for routing (config.go:22-25). mTLS-only operations are dropped from the merged doc (`merge/mtls.go:87`), so a brainstore spec that marks an op `type: mutualTLS` is excluded from the public surface automatically.
+
+**6. How the gateway reaches upstreams: one shared transport, workload mTLS when configured.** There is no per-upstream `TransportForUpstream` in this repo. `internal/server/api.go:111-128`:
+
+```go
+func gatewayProxyTransport(ctx context.Context, cfg *config.APIConfig) (http.RoundTripper, error) {
+	if !cfg.InternalMTLS() { return nil, nil }
+	return repoauth.New(ctx, repoauth.Config{CertFile: cfg.ProxyTLSCert, KeyFile: cfg.ProxyTLSKey, CAFile: cfg.ProxyTLSCA}).Transport()
+}
+// proxyBaseTransport: gatewayRT if non-nil, else proxy.NewTransport(gw)
+```
+That single RoundTripper is wrapped by `repotransport.NewReplicaRedirectTransport` (api.go:788) and handed to `gwserver.New(..., transport, ...)` → `proxy.BuildRouter(res.Routes, basePath, s.transport, ...)` (`internal/gateway/server/server.go:47,64,239`). So **brainstore rides the same transport as entiredb**: mTLS client cert from `PROXY_INTERNAL_TLS_{CERT,KEY,CA}_FILE` (`internal/config/config.go:1458`, validated at `:1992`) when `InternalMTLS()` is on, otherwise plain HTTP(S) with the tuned timeouts from `proxy.NewTransport` (`internal/gateway/proxy/proxy.go:44-54`). Practical implication: if brainstore's `*_INTERNAL_URL` points at an in-cluster mTLS listener, it must accept the gateway leaf signed by the internal PCA CA; if it's plain HTTP in-cluster, it will still be dialed with the mTLS transport in prod (client cert simply unused by an HTTP backend).
+
+**7. Peregrine extras you may or may not need.** Peregrine is also named by the anonymous public-repo gate: `internal/server/api.go:886` (`Upstream: "peregrine"`) with an explicit path allowlist `anonSearchRoutes` (api.go:941-945), and entire-search is named by `proxy.CheckpointStorageResolver`. These are *opt-in extras keyed by upstream name* — a plain brainstore upstream needs neither; adding the topology row alone gives you merge + routing + bearer-forwarding.
+
+## B. Postgres migration tooling
+
+**8. goose (`github.com/pressly/goose/v3`) with embedded SQL, pgx/v5 pool, run out-of-band via a `migrate` subcommand.** This is identical in both repos, so copy it directly.
+
+- entire-api: `internal/store/migrations/{repo,user}/*.sql` + `embed.go` (`//go:embed *.sql` → `var FS embed.FS`). Runner at `cmd/repo-activity/main.go:619-633`:
+  ```go
+  provider, err := goose.NewProvider(goose.DialectPostgres, db, fs,
+      goose.WithTableName("public."+table), goose.WithSessionLocker(locker))
+  ```
+  Distinct version tables per store (`gooseTableRepo = "goose_activity_repo"`, `gooseTableUser = "goose_activity_user"`, main.go:50-51), a `lock` session locker so concurrent pods serialize, and `search_path` set per schema.
+- entiredb has the reusable helper a new service should call: `/Users/evisdrenova/code/entiredb/postgres/migrate.go:22` `postgres.Migrate(ctx, pool, migrations.FS, table, opts...)` and `:31` `MigrateWithDSN(ctx, dsn, migrations.FS, table)` (plus `MigrateUpTo` for migration tests). **Closest template for brainstore: `/Users/evisdrenova/code/entiredb/internal/ciwebhooks/serve.go:43** — a recent new service that calls `postgres.MigrateWithDSN(ctx, cfg.PostgresDSN, migrations.FS, "goose_ci_webhooks")` inline at startup, with `internal/ciwebhooks/migrations/{0001_init.sql,0002_delivery_key.sql,embed.go}`. Note ci-webhooks is also already a gateway cell service, so it's the end-to-end template for both halves of your plan.
+- Driver: `github.com/jackc/pgx/v5` v5.9.2 + `pgxpool`, with `stdlib.OpenDBFromPool` to hand goose a `*sql.DB`, and `github.com/exaring/otelpgx` for tracing (both repos' `go.mod`).
+
+**9. Naming + deploy convention (entire-api is stricter — follow it).** `CLAUDE.md:10-28` and `CONTRIBUTING.md:13-33`: filenames **must** be `YYYYMMDDHHMMSS_&lt;name&gt;.sql` UTC timestamps, never hand-picked integers (goose silently skips a version &lt;= DB version, so two PRs picking `017_` makes one vanish). Scaffold with `scripts/new-migration.sh &lt;repo|user&gt; &lt;name&gt;`. Never edit a merged-and-applied migration; a `migration-check` blocks the deploy, and `refs/deploy/staging` is the marker for what has reached a database. File body convention (e.g. `internal/store/migrations/repo/20260907162703_trail_metadata.sql`):
+```sql
+-- +goose Up
+SET search_path TO repo, public;
+...
+-- +goose Down
+SET search_path TO repo, public;
+```
+On deploy, migrations are **out-of-band**: each worker's `migrate` subcommand runs as a Kubernetes initContainer before `serve`, never at serve startup (`docs/architecture.md:888-897`; `Dockerfile:56-59`). It reads a privileged `MIGRATE_DATABASE_DSN` (`internal/config/config.go:1681`, `cmd/repo-activity/main.go:59-76`), separate from the runtime least-privilege DSN; local equivalent is `mise run migrate`. Partitions are deliberately not created by migrations (`architecture.md:451`).</result>
+<usage><subagent_tokens>81619</subagent_tokens><tool_uses>41</tool_uses><duration_ms>148263</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a1d4207cfc042ffc4</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-baghdad/b34bb187-a006-42fd-950e-5baa8971ec81/tasks/a1d4207cfc042ffc4.output</output-file>
+<status>completed</status>
+<summary>Agent "CLI repo/placement/token resolution" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Findings below. Short version: the CLI never resolves all three of (repo ULID, cell base URL, jurisdiction) in one place for the *current* repo, but every piece exists and they compose cleanly.
+
+---
+
+**1. Resolution chain for the current repo → hosted identity**
+
+Checkpoints/sessions are pushed over **git** (`checkpoint_remote` → `entire://host/path`, auth via `cmd/git-remote-entire/main.go:324 resolveCreds` → `clusterdiscovery.ResolveClusterAuth`), not via the data API. The *API-side* chain used by `entire trail`, `entire experts`, `entire explain --repo` is:
+
+1. `gitremote.ResolveRemoteRepo(ctx, "origin")` — `/Users/evisdrenova/code/entire/cli/cmd/entire/cli/gitremote/gitremote.go:309` → `(forge, owner, repo)`, forge is `gh`/`et`.
+2. Convenience wrappers for the current repo: `currentRepoSlugWithForge` (`cmd/entire/cli/recap.go:285`) and `currentRepoRef` (`cmd/entire/cli/entireapi_client.go:78`) — the latter already returns a **repo ULID + slug**, but via the *mirror* listing (`listMirrorsForRepo` → `firstActiveRepoID`, `entireapi_client.go:108`), best-effort with a 5 s budget.
+3. Authoritative path: `resolveForgeRepoCellPlacement(ctx, forge, owner, repo)` — `cmd/entire/cli/cell_target.go:305`, which forks:
+   - `et/` → `resolveNativeRepoCellPlacement` (`cell_target.go:320`): `resolveNativeRepo` (POST `/repos/resolve`, `resolveref.go:255`) → `Repo.ID` + `Repo.ClusterHost` → `cellTargetForClusterHost` (`cell_target.go:128`).
+   - `gh/` → `resolveRepoCellPlacement` (`cell_target.go:368`): `lookupRepoIndexEntry` (GET `/repos?filter=owner/repo`, `cell_target.go:274`) → `resolveProcessingPlacement` (`cell_target.go:217`, picks `entry.Primaries.Processing` out of `entry.Placements`) → `cellTargetForPlacement` (`cell_target.go:157`, joins `ClusterSlug`→`Cluster.Slug`, falling back to cell-name-in-URL).
+4. Both converge on `cellTargetFromCluster` (`cell_target.go:174`) which yields exactly what you want:
+```go
+return &amp;auth.CellTarget{BaseURL: apiURL, Jurisdiction: jurisdiction}, nil
+```
+   from `coreapi.Cluster.ApiUrl` (e.g. `https://aws-us-east-2.api.entire.io`) + `Cluster.Jurisdiction` (lower-cased slug).
+
+Return shape: `repoCellPlacement{RepoID string; Target *auth.CellTarget}` — `cell_target.go:292`. **`RepoID` is the region-local ULID** (placement ID for gh mirrors, `Repo.ID` for native). Entry point used by trail commands: `newTrailAPIClient`, `cmd/entire/cli/api_client.go:107`. Budget: `requiredCellResolveTimeout = 15s` (`cell_target.go:34`); two sequential control-plane round trips.
+
+**2. No existing command prints all three for the current repo**
+
+- `entire status --json` (`cmd/entire/cli/status.go:34`, shape at `status.go:1026 statusJSON`) is purely local: `enabled`, `agents`, `active_sessions`, `checkpoint_sync_remote`, `hooks_outdated`, … — **no repo id, no cell, no jurisdiction**.
+- `entire repo view &lt;ref&gt; --json` (`repo.go:322`) prints `ID, NAME, PROJECT, CLUSTER, STATE, PROVISION REASON, REMOTE` (`repo.go:57`) — ULID + cluster *host*, but only for native `/et/` repos and only when you name the repo; no jurisdiction, no cell apiUrl.
+- `entire repo mirror get &lt;owner/repo&gt; [--json]` (`repo_mirror.go:1274`) renders `repoDirRow{Repo, Private, Status, Placements[]{Cluster, Status, CloneURL}}` (`repo_mirror.go:301`) — placement **IDs are deliberately dropped**, so no ULID.
+- `entire cluster list --json` (`cluster_list.go:91`) is the only place jurisdiction + host are user-visible: columns `REGION, CLUSTER, HOST` (`cluster_list.go:22`, `cl.Jurisdiction, cl.Slug, host`).
+- `entire auth status` (`auth.go:216`) prints `Jurisdiction: &lt;slug&gt;` (`auth.go:525`) — but it's the **account home jurisdiction** (`/me` `global.homeJurisdiction`, `auth.go:387`), not the repo's. No `--json` flag; only `--insecure-http-auth`.
+
+Conclusion: a `connect` step cannot shell out to an existing command; it needs the Go path from (1) or a new command.
+
+**3. `entire auth token --jurisdiction &lt;slug&gt;` and config paths**
+
+`cmd/entire/cli/auth.go:141`, flag at `auth.go:205`; delegates to `auth.JurisdictionToken(ctx, insecure, jurisdiction)` — `cmd/entire/cli/auth/cell_data_api.go:186`. Its own help text says "find yours with `entire auth status`", i.e. there is no machine-readable discovery today.
+
+Programmatic discovery options, cheapest first:
+- **Local, no network:** `auth.HomeJurisdictionFromLoginJWT(loginJWT)` — `cmd/entire/cli/auth/cell_data_api.go:649`. Account home only.
+- **Repo-correct:** `cellTargetFromCluster` → `CellTarget.Jurisdiction` (see finding 1).
+
+Config files:
+- `$ENTIRE_CONFIG_DIR/contexts.json`, default `~/.config/entire/contexts.json` — `internal/entireclient/contexts/contexts.go:3`, env var const at `internal/entireclient/userdirs/userdirs.go:29 EnvConfigDir = "ENTIRE_CONFIG_DIR"`. Shape (`contexts.go:36-63`):
+```go
+type File struct { CurrentContext string `json:"current_context,omitempty"`; Contexts []*Context `json:"contexts,omitempty"` }
+type Context struct { Name, CoreURL, Handle, KeychainService string; JurisdictionAudiences []string `json:"jurisdiction_audiences,omitempty"` }
+```
+  `JurisdictionAudiences` holds data-plane **audiences** (not slugs) the context has tokens filed for; tokens live in the OS keyring at `tokenstore.JurisdictionService(aud)` = `"entire-jurisdiction:&lt;audience&gt;"` (`internal/entireclient/tokenstore/tokenstore.go:43`). File is 0600, atomic temp+rename, flock.
+- Cluster discovery cache under `userdirs.Cache()` — `internal/entireclient/discovery/cluster_cores.go:55` stores per-cluster `jurisdiction_audience` / `jurisdiction_core_url`.
+
+**4. Plugin dispatch + env assembly — adding env vars is a 1-line change**
+
+There is no `brain`-specific dispatch; it's the generic prefix mechanism: `entire &lt;name&gt;` → `entire-&lt;name&gt;` on PATH (`pluginBinaryPrefix = "entire-"`, `cmd/entire/cli/plugin.go:32`; resolution at `plugin.go:200`). Env is assembled in `runPlugin`, **`cmd/entire/cli/plugin.go:266-305`**:
+```go
+extras := []string{"ENTIRE_CLI_VERSION=" + versioninfo.Version}
+if repoRoot, err := paths.WorktreeRoot(ctx); err == nil {
+    extras = append(extras, "ENTIRE_REPO_ROOT="+repoRoot)   // plugin.go:278
+}
+... extras = append(extras, pluginEnvPluginData+"="+dataDir)  // ENTIRE_PLUGIN_DATA_DIR
+cmd.Env = pluginEnv(parentEnv, extras...)                     // plugin.go:306
+```
+Appending to `extras` is trivial and safe: `pluginEnv` (`cmd/entire/cli/plugin_env.go:75`) filters the parent through an allowlist but appends `extras` verbatim last (last-wins), and `ENTIRE_` is already a passthrough prefix (`plugin_env.go:58`). Caveat for a connect step: anything expensive here runs on **every** plugin invocation — `ENTIRE_REPO_ROOT` is a local git call; a cell/ULID resolution is 2 control-plane round trips, so it should be lazy (plugin calls back into `entire`) or cached, not inline in `runPlugin`.
+
+Note `plugin_official.go:12` — telemetry allowlist currently only contains `"ci"`; `brain` would need adding there if you want it treated as official.
+
+**5. `ENTIRE_API_URL` / `ENTIRE_API_TOKEN` / `ENTIRE_REPO_ID` do not exist anywhere in the repo**
+
+Grep across all `*.go` returns zero hits. The existing names are:
+- `ENTIRE_API_BASE_URL` — `cmd/entire/cli/api/base_url.go:31` (`api.BaseURLEnvVar`), data-API origin override; rejected if `http://` unless `--insecure-http-auth` (`api_client.go:70`).
+- `ENTIRE_TOKEN` — `cmd/entire/cli/auth/env_token.go:18` (`auth.EnvTokenVar`), used verbatim, bypasses contexts.json + keyring.
+- `ENTIRE_CONFIG_DIR`, `ENTIRE_CLI_VERSION`, `ENTIRE_REPO_ROOT`, `ENTIRE_PLUGIN_DATA_DIR`, `ENTIRE_PLUGIN_DIR`, `ENTIRE_PLUGIN_ENV`, `ENTIRE_TOKEN_STORE[_PATH]`, `ENTIRE_TLS_SKIP_VERIFY`, `ENTIRE_CORE_BASE_URL_TEMPLATE`.
+- Retired: `ENTIRE_AUTH_BASE_URL` (`base_url.go:36`) — hard-errors if set.
+
+If you add `ENTIRE_API_URL`/`ENTIRE_API_TOKEN` for plugins, pick names that don't collide with `ENTIRE_API_BASE_URL` semantics (that one is the *data API / BFF* origin, not a cell apiUrl) — e.g. `ENTIRE_CELL_API_URL` / `ENTIRE_JURISDICTION` / `ENTIRE_REPO_ULID`.
+
+**6. Suggested shape for the connect step** (no new control-plane work needed)
+
+A `repoCellPlacement` already carries 2 of the 3 values and `CellTarget` the third. The minimal addition is a small exported helper beside `currentRepoRef` (`entireapi_client.go:78`) that does `gitremote.ResolveRemoteRepo("origin")` → `resolveForgeRepoCellPlacement` and returns `{RepoID, Target.BaseURL, Target.Jurisdiction}`, plus either a hidden `entire repo whereami --json` command (so plugins can shell out and cache) or three extra `extras` entries in `plugin.go:278`. The token for that cell then comes from `auth.JurisdictionToken(ctx, insecure, target.Jurisdiction)` (`auth/cell_data_api.go:186`) — the exact pair `entire auth token --jurisdiction` already prints.</result>
+<usage><subagent_tokens>101111</subagent_tokens><tool_uses>36</tool_uses><duration_ms>146701</duration_ms></usage>
+</task-notification>
