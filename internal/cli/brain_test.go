@@ -1890,3 +1890,30 @@ func TestLoadBrainManifestMigratesLegacyFlatManifest(t *testing.T) {
 		t.Fatalf("transcript mode = %q, want raw", manifest.Sources.Sessions.TranscriptMode)
 	}
 }
+
+func TestBrainBriefJSONPutsRetrievalBeforeStatus(t *testing.T) {
+	report := brainBriefReport{
+		Task:     "order",
+		Status:   brainBriefOutputStatus(brainStatusReport{Live: brainLiveState{ChangedFiles: []string{"a.go"}}}),
+		History:  brainBriefHistory{Matches: []brainTextMatch{{Path: "sessions/main/x.jsonl", Line: 1, Excerpt: "decided"}}},
+		Facts:    []factRecord{{ID: "fact:order", Paths: []string{"architecture"}, Text: "The decision."}},
+		Guidance: []string{"g"},
+	}
+	data, err := json.Marshal(brainBriefJSONProjection(report))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	pos := func(key string) int {
+		i := strings.Index(text, `"`+key+`"`)
+		if i < 0 {
+			t.Fatalf("brief JSON lacks %q: %s", key, text)
+		}
+		return i
+	}
+	// Agents cap what they read from a tool call; the retrieval payload must
+	// precede the status report, which is mostly freshness warnings (#335).
+	if !(pos("facts") < pos("history") && pos("history") < pos("guidance") && pos("guidance") < pos("semantic") && pos("semantic") < pos("status")) {
+		t.Fatalf("brief JSON order must be facts, history, guidance, semantic, status: %s", text)
+	}
+}

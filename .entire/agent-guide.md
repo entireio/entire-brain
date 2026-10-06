@@ -32,6 +32,11 @@ Knowing what the current code does does not establish why it was written.
 Do not substitute recollection, source comments, or a plausible explanation
 for retrieval of the recorded evidence.
 
+Retrieve prior decisions, rejected approaches and rationale with recall, not
+with query and not from the brief's facts sample alone:
+
+    entire brain recall "<question>" --json
+
 Use Brain retrieval for recorded knowledge. Use entities history when connecting
 code changes to earlier checkpoints or sessions. ALWAYS retrieve relevant prior
 decisions and attempts before proposing to replace an existing approach.
@@ -42,6 +47,19 @@ that the brief did not answer.
 Cite the retrieved evidence for historical claims. Distinguish recorded rationale
 from inference. An empty result means no evidence was found; it does not establish
 that a decision or previous attempt never existed.
+
+Durable facts are Brain's episodic memory. When you establish something durable
+that the code does not already state - a decision and its rationale, an
+invariant, a gotcha that cost you time - RECORD it before finishing:
+
+    entire brain remember "<fact>" --path <category.subcategory.type> --json
+
+Categories are architecture, constraints, preferences, project and workflow.
+Omitting --path classifies the fact for you and requires a supported coding
+agent on PATH; pass --path when none is guaranteed. No MCP tool writes a fact,
+so this is a CLI call; do not go looking for one. Retrieve with recall and
+re-check anchors with verify. A fact you author has no source anchor, so verify
+reports it unverifiable-here - that is expected, not a failure.
 
 Brain semantic answers refer to a stored index, which may differ from current
 working-tree source. Verify claims about present behavior against current source
