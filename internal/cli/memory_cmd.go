@@ -766,6 +766,7 @@ type memoryWorkerStats struct {
 	JobsPruned    int  `json:"jobs_pruned"`
 	HintsConsumed int  `json:"hints_consumed"`
 	AlreadyActive bool `json:"already_active,omitempty"`
+	Paused        bool `json:"paused,omitempty"`
 	PrepassFailed bool `json:"prepass_failed,omitempty"`
 	// PrepassGaveUp reports that the relaunch chain this failure belongs to has
 	// exhausted memoryWorkerPrepassRetryAttempts and will not reschedule
@@ -1641,6 +1642,12 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 					return cmd.Context().Err()
 				}
 				timer.Stop()
+			}
+			// Checked after the unleased wait so a worker that went to sleep
+			// before `stop` still wakes into the pause. No relaunch is scheduled:
+			// the durable hints remain and the next launch after `start` drains them.
+			if backgroundPaused(opts.Env) {
+				return writeJSON(cmd, memoryWorkerStats{Paused: true})
 			}
 			coordinator, err := acquireMemoryCoordinator(storage.BrainDir, opts.Now().UTC(), opts.Version)
 			if err != nil {
