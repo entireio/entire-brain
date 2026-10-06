@@ -1,0 +1,51 @@
+Okay. entire-brain is this repo, but the product itself, entire-brain is qctive on this one. I just activated it :) You can check via status. What is a compelling demo for entire brain?
+
+---
+
+But this will work with sessions as well right? how is brain adding value here?
+
+---
+
+you run it and tell me. also, this demo is too deep in the weeds. find something eberyone can follow along with with reproducibe results. 1) Without sessions, 2) With Sessions, 3) With sessiond and Graph 4) With Sessions, graph and brain ;)
+
+---
+
+<task-notification>
+<task-id>b51rlu0cc</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-krk-Desktop-GitStore-entire-brain/de64cf76-bcd7-46f8-99bf-045c13045080/tasks/b51rlu0cc.output</output-file>
+<status>completed</status>
+<summary>Background command "Run repetition 1 of all four conditions in parallel" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b8h30pbt6</task-id>
+<tool-use-id>toolu_01Udy6An1rd9betSuesATXMd</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-krk-Desktop-GitStore-entire-brain/de64cf76-bcd7-46f8-99bf-045c13045080/tasks/b8h30pbt6.output</output-file>
+<status>completed</status>
+<summary>Background command "Widen git allowlist and run repetitions 2 and 3 of all conditions" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>buyuxllox</task-id>
+<tool-use-id>toolu_01ByxMyGyUYcCh7KQgSScu1x</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-krk-Desktop-GitStore-entire-brain/de64cf76-bcd7-46f8-99bf-045c13045080/tasks/buyuxllox.output</output-file>
+<status>completed</status>
+<summary>Background command "Add the strict-guide Brain condition and run three repetitions" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+file an issue in brain?
+
+---
+
+We don't need to quote cost and specifics, just the prompt and the amont of tokens, also exlude all identifiable information, it's just an issue
+
+---
+
+check the harness into benchmarks and open a PR

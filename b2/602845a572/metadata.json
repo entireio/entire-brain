@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "b2602845a572",
+  "strategy": "manual-commit",
+  "branch": "bench/memory-ladder-harness",
+  "checkpoints_count": 8,
+  "files_touched": [
+    "benchmarks/memory-ladder/.gitignore",
+    "benchmarks/memory-ladder/README.md",
+    "benchmarks/memory-ladder/bin/entire",
+    "benchmarks/memory-ladder/bin/gh",
+    "benchmarks/memory-ladder/grade.py",
+    "benchmarks/memory-ladder/parse.py",
+    "benchmarks/memory-ladder/questions/global-activation.rubric.json",
+    "benchmarks/memory-ladder/questions/global-activation.txt",
+    "benchmarks/memory-ladder/run-all.sh",
+    "benchmarks/memory-ladder/run.sh",
+    "benchmarks/memory-ladder/setup-guides.sh"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b2/602845a572/0/metadata.json",
+      "transcript": "/b2/602845a572/0/full.jsonl",
+      "compact_transcript": "/b2/602845a572/0/transcript.jsonl",
+      "content_hash": "/b2/602845a572/0/content_hash.txt",
+      "prompt": "/b2/602845a572/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1334,
+    "cache_creation_tokens": 187717,
+    "cache_read_tokens": 7212838,
+    "output_tokens": 80319,
+    "api_call_count": 50
+  }
+}
