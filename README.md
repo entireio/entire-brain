@@ -229,7 +229,6 @@ brain alongside markdown, so they come back from `search` and `brief` like
 anything else.
 
 ```bash
-entire brain docs formats              # what this build reads
 entire brain docs extract docs/spec.pdf # what it will get out of one file
 ```
 

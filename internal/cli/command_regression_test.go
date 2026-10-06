@@ -120,6 +120,89 @@ func fakeCodexProvider(t *testing.T, response string) {
 	}
 }
 
+func TestFactsImportRemainsRunnableFromRoot(t *testing.T) {
+	opts, _, brainDir := commandRegressionFixture(t)
+	export := filepath.Join(t.TempDir(), "mem0.json")
+	text := "Retries stop after three attempts."
+	if err := os.WriteFile(export, []byte(`{"results":[{"id":"m1","memory":"Retries stop after three attempts."}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := execute(t, NewRootCommand(opts), "facts", "import", "--source", "mem0", "--file", export, "--json")
+	if err != nil {
+		t.Fatalf("facts import: %v\n%s", err, out)
+	}
+	var report factImportReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("import report: %v\n%s", err, out)
+	}
+	if report.Source != "mem0" || report.Branch != "main" || report.Read != 1 || report.Imported != 1 || report.DryRun {
+		t.Fatalf("unexpected import report: %+v", report)
+	}
+	facts, err := loadFacts(brainDir, "main")
+	if err != nil || len(facts) != 1 {
+		t.Fatalf("imported facts: %v %+v", err, facts)
+	}
+	if facts[0].Text != text || facts[0].Origin != "imported" || facts[0].Status != factStatusActive {
+		t.Fatalf("unexpected imported fact: %+v", facts[0])
+	}
+}
+
+func TestHiddenDeveloperCommandsRemainRunnable(t *testing.T) {
+	opts, _, brainDir := commandRegressionFixture(t)
+	for _, args := range [][]string{{"bench", "--help"}, {"facts", "eval-gen", "--help"}, {"facts", "eval-compare", "--help"}} {
+		out, err := execute(t, NewRootCommand(opts), args...)
+		if err != nil || !strings.Contains(out, "Usage:") {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
+	// Reclassify writes only to the isolated fixture, never the checkout's brain.
+	text := "facts preserve durable identities"
+	paths := []string{"constraints.invariants.general"}
+	fact := factRecord{
+		ID: factRecordID(text, paths), Text: text, Paths: paths, Locus: []string{"internal/cli"},
+		Branch: "main", Origin: factOriginAuthored, Status: factStatusActive,
+		CreatedAt: opts.Now(), UpdatedAt: opts.Now(),
+	}
+	if err := writeFacts(brainDir, "main", []factRecord{fact}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := execute(t, NewRootCommand(opts), "facts", "reclassify", "--json")
+	if err != nil {
+		t.Fatalf("reclassify: %v\n%s", err, out)
+	}
+	var reclassified struct {
+		Branch  string         `json:"branch"`
+		Changed int            `json:"changed"`
+		Facts   int            `json:"facts"`
+		ByKind  map[string]int `json:"by_kind"`
+	}
+	if err := json.Unmarshal([]byte(out), &reclassified); err != nil {
+		t.Fatalf("decode reclassify result: %v\n%s", err, out)
+	}
+	if reclassified.Branch != "main" || reclassified.Changed != 1 || reclassified.Facts != 1 || len(reclassified.ByKind) != 1 || reclassified.ByKind[factKindInvariant] != 1 {
+		t.Fatalf("reclassify result = %+v, want main/1 changed/1 invariant fact", reclassified)
+	}
+	stored, err := loadFacts(brainDir, "main")
+	if err != nil || len(stored) != 1 || stored[0].ID != fact.ID || stored[0].Kind != factKindInvariant {
+		t.Fatalf("reclassify did not persist the inferred kind: facts=%+v err=%v", stored, err)
+	}
+
+	missing := filepath.Join(t.TempDir(), "missing-tasks.json")
+	out, err = execute(t, NewRootCommand(opts), "facts", "eval", "--tasks", missing)
+	if err == nil || !strings.Contains(err.Error(), missing) || isUnknownCommandOrFlag(err.Error()) {
+		t.Fatalf("eval should reach original task-file read: %v\n%s", err, out)
+	}
+	_, _, _, semanticOpts := buildSemanticMaintenanceFixture(t)
+	out, err = execute(t, NewRootCommand(semanticOpts), "inspect", "graph-schema", "--json")
+	if err != nil || !json.Valid([]byte(out)) {
+		t.Fatalf("graph-schema should produce its original JSON: %v\n%s", err, out)
+	}
+	out, err = execute(t, NewRootCommand(opts), "docs", "formats")
+	if err != nil || !strings.Contains(out, ".pdf") || !strings.Contains(out, ".pptx") {
+		t.Fatalf("formats should list original formats: %v\n%s", err, out)
+	}
+}
+
 const regressionSkill = "---\nname: deploy-release\ndescription: Deploy a release. Use when shipping a tagged build. Do NOT use when changing unrelated configuration.\n---\n# Deploy release\nRun mise build, then mise deploy.\n## Verification\ngo test ./...\n"
 
 func TestRootCommandPatternsLifecycleAndPrivacyFailures(t *testing.T) {

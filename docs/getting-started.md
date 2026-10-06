@@ -733,12 +733,11 @@ semantic language set, while many recognized filetypes are inventory-only. For
 inventory-only files, prefer text retrieval and lower confidence in
 impact/context answers.
 
-For deeper graph work, use the graph specialists: schema inventory, local graph
-UI, source snippets, directed trace paths, dead-code candidates, boundary
+For deeper graph work, use the graph specialists: local graph UI,
+source snippets, directed trace paths, dead-code candidates, boundary
 enumeration, and working-tree change mapping.
 
 ```sh
-entire brain inspect graph-schema --json
 entire brain inspect graph-ui semantic-graph.html
 entire brain inspect snippet "<symbol-or-id>" --json
 entire brain inspect trace-path "<caller>" "<callee>" --json
