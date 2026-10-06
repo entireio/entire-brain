@@ -89,6 +89,37 @@
         "label": "Skill: pr-followup",
         "default_collapsed": true
       }
+    },
+    {
+      "id": "claude-skill-toolu_01EikKEVWFVjb1W6gcQLcuZK",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "pr-review-toolkit:review-pr"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "f6129e8b4f6b",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 788,
+        "end": 789,
+        "entry_ids": [
+          "febe9ccb-9a42-4a3a-9249-2a4bb8bd8a1a"
+        ],
+        "tool_use_id": "toolu_01EikKEVWFVjb1W6gcQLcuZK"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01EikKEVWFVjb1W6gcQLcuZK"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: pr-review-toolkit:review-pr",
+        "default_collapsed": true
+      }
     }
   ],
   "session_metrics": {
