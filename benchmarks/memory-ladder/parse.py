@@ -1,5 +1,14 @@
+"""Summarise one run directory written by run.sh into summary.json fields.
+
+Internal to the harness: run.sh calls it with the run directory it just created. The
+argument must be an existing directory containing stream.jsonl; nothing outside it is read.
+"""
 import json, sys, os, re, collections
-run = sys.argv[1]
+if len(sys.argv) != 2:
+    sys.exit("usage: parse.py <run-dir>")
+run = os.path.realpath(sys.argv[1])
+if not os.path.isdir(run) or not os.path.isfile(os.path.join(run, "stream.jsonl")):
+    sys.exit(f"{sys.argv[1]!r} is not a run directory (expected stream.jsonl inside it)")
 tools = collections.Counter(); cmds = []; result = {}
 for line in open(os.path.join(run, "stream.jsonl")):
     line = line.strip()

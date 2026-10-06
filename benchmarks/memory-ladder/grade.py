@@ -9,8 +9,13 @@ import glob, json, os, re, statistics, sys
 
 here = os.path.dirname(os.path.abspath(__file__))
 q = next((a for a in sys.argv[1:] if not a.startswith("--")), "global-activation")
+if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", q):
+    sys.exit(f"question name {q!r} must match [A-Za-z0-9][A-Za-z0-9._-]* (it names files under questions/)")
 out_dir = os.environ.get("LADDER_OUT", os.path.join(here, "runs"))
-rubric = {k: v for k, v in json.load(open(os.path.join(here, "questions", f"{q}.rubric.json"))).items() if not k.startswith("_")}
+rubric_path = os.path.join(here, "questions", f"{q}.rubric.json")
+if not os.path.isfile(rubric_path):
+    sys.exit(f"no rubric for question {q!r}: {rubric_path}")
+rubric = {k: v for k, v in json.load(open(rubric_path)).items() if not k.startswith("_")}
 rows = []
 for sj in sorted(glob.glob(os.path.join(out_dir, q, "c*-r*", "summary.json"))):
     d = json.load(open(sj))

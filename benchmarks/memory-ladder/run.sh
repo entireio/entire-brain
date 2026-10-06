@@ -15,7 +15,10 @@
 # The clone's HEAD is one commit past the source (the harness directory is stripped), so Brain
 # reports its index as one commit behind; its content is unchanged by that commit.
 set -eu
-COND=$1; REP=$2; Q=${3:-global-activation}
+COND=${1:-}; REP=${2:-}; Q=${3:-global-activation}
+case "$COND" in 1|2|3|4|5) ;; *) echo "cond must be 1-5, got '$COND'" >&2; exit 2 ;; esac
+case "$REP" in ''|*[!0-9]*) echo "rep must be a non-negative integer, got '$REP'" >&2; exit 2 ;; esac
+case "$Q" in ''|*[!A-Za-z0-9._-]*|.*) echo "question name must match [A-Za-z0-9][A-Za-z0-9._-]*, got '$Q'" >&2; exit 2 ;; esac
 here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 SRC=$(git -C "$here" rev-parse --show-toplevel)
 OUT=${LADDER_OUT:-$here/runs}
