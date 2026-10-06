@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "fb5113b41af4",
+  "strategy": "manual-commit",
+  "branch": "alex/control-background-processes",
+  "checkpoints_count": 8,
+  "files_touched": [
+    "internal/cli/pause.go",
+    "internal/cli/pause_test.go",
+    "internal/cli/setup_status.go",
+    "internal/cli/status_render.go",
+    "internal/cli/testdata/render/status.json",
+    "internal/cli/testdata/render/status_detailed.json",
+    "internal/cli/watch.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/fb/5113b41af4/0/metadata.json",
+      "transcript": "/fb/5113b41af4/0/full.jsonl",
+      "compact_transcript": "/fb/5113b41af4/0/transcript.jsonl",
+      "content_hash": "/fb/5113b41af4/0/content_hash.txt",
+      "prompt": "/fb/5113b41af4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 52,
+    "cache_creation_tokens": 23169,
+    "cache_read_tokens": 6174849,
+    "output_tokens": 9824,
+    "api_call_count": 21,
+    "subagent_tokens": {
+      "input_tokens": 102,
+      "cache_creation_tokens": 374613,
+      "cache_read_tokens": 5569607,
+      "output_tokens": 2781,
+      "api_call_count": 50
+    }
+  }
+}
