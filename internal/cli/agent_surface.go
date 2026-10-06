@@ -4614,6 +4614,9 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	markUnreadableSemanticComponent(&onboarding, semanticFreshnessOf(report))
 	markMissingDeclaredIndexes(&onboarding, storage.BrainDir, manifest)
 	report.Onboarding = &onboarding
+	if backgroundPaused(opts.Env) {
+		report.Warnings = append(report.Warnings, "background work is paused, so this brain is not updating — `"+setupCommandPrefix(os.LookupEnv)+" start` resumes it")
+	}
 	return report, nil
 }
 

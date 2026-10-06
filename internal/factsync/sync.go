@@ -1,6 +1,6 @@
 // Package factsync is the runner-side read-merge-CAS loop that syncs a member's
 // durable facts into the hosted, shared fact-set head. It is where the two P1.M2
-// halves meet: the deterministic merge engine (internal/factmerge) and the hosted
+// halves meet: the deterministic merge engine (factmerge) and the hosted
 // atomic head (entire-api's FactSetStore, reached here through the Server seam).
 //
 // Per ADR-P1-E the MERGE runs on the runner (this package), not in the API server:
@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/factmerge"
 )
 
 // ErrConflict is what a Server.Advance returns when the head moved under it (a

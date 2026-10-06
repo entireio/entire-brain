@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/factmerge"
 )
 
 // compile-time: HTTPServer satisfies the full hosted seam ResolveOpen is written

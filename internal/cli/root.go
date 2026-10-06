@@ -140,6 +140,8 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	addGrouped("operations", newDocsCommand(opts))
 	addGrouped("operations", newRefreshCommand(opts))
 	addGrouped("operations", newWatchCommand(opts))
+	addGrouped("operations", newStopCommand(opts))
+	addGrouped("operations", newStartCommand(opts))
 	addGrouped("operations", newSemanticGCCommand(opts))
 	addGrouped("operations", newSemanticResetCommand(opts))
 

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/factsync"
 )
 
