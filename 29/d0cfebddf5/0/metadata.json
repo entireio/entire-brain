@@ -1,0 +1,53 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "29d0cfebddf5",
+  "session_id": "de64cf76-bcd7-46f8-99bf-045c13045080",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-06T13:39:17.639927Z",
+  "branch": "bench/memory-ladder-harness",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/memory-ladder/README.md",
+    "benchmarks/memory-ladder/bin/entire",
+    "benchmarks/memory-ladder/grade.py",
+    "benchmarks/memory-ladder/parse.py",
+    "benchmarks/memory-ladder/run.sh"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5-1",
+  "turn_id": "2e9928598a73",
+  "checkpoint_transcript_start": 658,
+  "transcript_lines_at_start": 658,
+  "compact_transcript_start": 66,
+  "token_usage": {
+    "input_tokens": 194,
+    "cache_creation_tokens": 16343,
+    "cache_read_tokens": 1608732,
+    "output_tokens": 12661,
+    "api_call_count": 7
+  },
+  "session_metrics": {
+    "turn_count": 9
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-06T13:39:17.594528Z",
+    "agent_lines": 59,
+    "agent_removed": 12,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 59,
+    "total_lines_changed": 71,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
