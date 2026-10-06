@@ -1,0 +1,9 @@
+create the native repo on entire for brain. 
+
+all infra is in the fleet/ and infra/ repos. 
+
+we already have a project here: https://linear.app/entirehq/project/p1-shared-hosted-brain-f44282d0ac88/overview
+
+where we should create linear tickets for each part of the implemnentation plan so that i can track them in another workspace once the repo is created. 
+
+use the linear MCP server to create every ticket we need for this
