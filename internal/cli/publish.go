@@ -19,9 +19,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/apiurl"
 	"github.com/entireio/entire-brain/internal/brainwire"
-	"github.com/entireio/entire-brain/internal/factmerge"
 	"github.com/entireio/entire-brain/internal/factsync"
 	"github.com/entireio/entire-brain/internal/httpx"
 	"github.com/entireio/entire-brain/internal/repoid"

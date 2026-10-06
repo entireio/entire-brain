@@ -42,7 +42,7 @@ func factScope(paths []string) string {
 }
 
 // The fixed KIND set (Appendix D) — factKind* consts, the validFactKinds set,
-// and validFactKind — moved to internal/factmerge (Kind* / ValidFactKind). The
+// and validFactKind — moved to factmerge (Kind* / ValidFactKind). The
 // CLI names are aliases/wrappers in facts_aliases.go, so the inference and
 // filtering below (which stay here because they depend on semanticRecord and
 // other CLI-only surfaces) reference them unchanged.

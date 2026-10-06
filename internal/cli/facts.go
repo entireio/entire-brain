@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/factmerge"
 )
 
 const (
@@ -74,7 +74,7 @@ type factSourceManifest struct {
 
 // factRecord (factmerge.Record) and factAnchor (factmerge.Anchor) are defined
 // as type aliases in facts_aliases.go; the durable-fact data model now lives in
-// internal/factmerge.
+// factmerge.
 
 // factTaxonomy is the active taxonomy snapshot. Paths are validated against
 // factPathPattern; classification may only invent a new three-level path under
@@ -92,7 +92,7 @@ type factPathDef struct {
 }
 
 // normalizeFactText, factRecordID, validFactPath, and normalizeFactPaths moved
-// to internal/factmerge (NormalizeText/RecordID/ValidPath/NormalizePaths); the
+// to factmerge (NormalizeText/RecordID/ValidPath/NormalizePaths); the
 // CLI names are forwarding wrappers in facts_aliases.go.
 
 // factTopLevel returns the top-level category of a taxonomy path (the segment
