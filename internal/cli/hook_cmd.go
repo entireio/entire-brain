@@ -90,7 +90,10 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 			if strings.TrimSpace(sessionID) == "" {
 				return fmt.Errorf("--session <id> is required")
 			}
-			if memoryWorkerOrigin() {
+			// Paused: skipping loses nothing. The captured session stays
+			// canonical; reconciliation re-exports it after `start`, and the next
+			// gated or manual distill extracts its facts.
+			if memoryWorkerOrigin() || backgroundPaused(opts.Env) {
 				return nil
 			}
 			target := agentSurfaceTarget(opts, nil)

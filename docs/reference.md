@@ -697,8 +697,10 @@ entire brain setup                         # safe to re-run; resumes, never dupl
 
 Two of those spends are recurring and neither prompts: the watcher installed in
 step 4, and the session-end hook wired in step 2, which distills each session as
-it ends. `entire brain setup --uninstall-daemon` removes the first;
-`entire disable` in the repository removes the second.
+it ends. `entire brain stop` pauses both machine-wide, along with new `setup`
+backfills, until `entire brain start`; passes already running finish first. To
+remove them instead, `entire brain setup --uninstall-daemon` removes the first
+and `entire disable` in the repository removes the second.
 
 Cloning a repository you don't have locally yet? `entire brain add <repo-url>`
 clones it, fetches its Entire checkpoint history, and runs this same build in

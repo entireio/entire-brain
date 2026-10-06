@@ -139,6 +139,8 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	addGrouped("maintain", newDocsCommand(opts))
 	addGrouped("maintain", newRefreshCommand(opts))
 	addGrouped("maintain", newWatchCommand(opts))
+	addGrouped("maintain", newStopCommand(opts))
+	addGrouped("maintain", newStartCommand(opts))
 	addGrouped("maintain", newSemanticGCCommand(opts))
 	addGrouped("maintain", newSemanticResetCommand(opts))
 

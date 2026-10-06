@@ -11,6 +11,9 @@ import (
 // Evidence recall has a separate opt-in envelope from ordinary fact recall.
 // The evidence array contains only original source bytes and their anchors.
 type evidenceRecallResult struct {
+	// Set only on an empty result: names other branches holding sessions, so a
+	// scan of the wrong branch is distinguishable from a genuine miss.
+	BlindSpot          string         `json:"blind_spot,omitempty"`
 	SchemaVersion      int            `json:"schema_version"`
 	Branch             string         `json:"branch"`
 	Query              string         `json:"query"`
@@ -73,6 +76,17 @@ func runRecallEvidence(cmd *cobra.Command, brainDir, branch, query string, limit
 		if out.Truncated {
 			out.Warnings = append(out.Warnings, "evidence byte budget omitted whole blocks")
 		}
+		// An empty evidence result on a branch that captured no sessions is the
+		// wrong-branch trap, not an answer. `--evidence` returned before
+		// reaching the blind-spot checks the other recall paths run
+		// (facts_read_cmd.go:412,430), so this surface said nothing at all.
+		//
+		// The note is in the result's OWN unit -- sessions, which is what
+		// evidence scans -- rather than the fact-branch note, which would
+		// attach a claim about facts to a result that holds none.
+		if out.ReturnedCount == 0 {
+			out.BlindSpot = otherBranchSessionBlindSpot(brainDir, branch)
+		}
 		if err := cmd.Context().Err(); err != nil {
 			return err
 		}
@@ -82,6 +96,11 @@ func runRecallEvidence(cmd *cobra.Command, brainDir, branch, query string, limit
 		fmt.Fprintf(cmd.OutOrStdout(), "%d evidence spans for %q on %s (deterministic)\n", out.ReturnedCount, query, branch)
 		for _, warning := range out.Warnings {
 			fmt.Fprintln(cmd.OutOrStdout(), "warning: "+warning)
+		}
+		// The text reader needs this as much as the JSON one; it is the only
+		// output a person sees.
+		if out.BlindSpot != "" {
+			fmt.Fprintln(cmd.OutOrStdout(), out.BlindSpot)
 		}
 		for _, span := range out.Evidence {
 			fmt.Fprintf(cmd.OutOrStdout(), "\n[%s] %s:%d %s UTF-8[%d:%d] sha256:%s\n%s\n", span.ID, span.Path, span.Line, span.JSONPointer, span.StartByte, span.EndByte, span.SourceSHA256, span.Text)

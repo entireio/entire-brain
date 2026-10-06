@@ -464,6 +464,9 @@ func renderStatusOnboardingBlock(out io.Writer, render *tui.Renderer, report bra
 			daemonLine += render.Dim(" (last watcher tick " + age + " ago)")
 		}
 	}
+	if onboarding.Paused {
+		daemonLine += render.PhasePaint(tui.PhaseSkipped, " "+render.Bullet()+" background work: paused")
+	}
 	fmt.Fprintln(out, daemonLine)
 	// Say what the machine's ONE watcher covers. A hashed launchd label answers
 	// nothing a reader of `status` came to ask; the workspaces it is watching
