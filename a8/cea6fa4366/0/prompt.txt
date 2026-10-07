@@ -1,0 +1,46 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/buffalo directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name. Conductor will automatically rename it in the background to match your task.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/buffalo/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+Implement the hosted-sync client work in entire-brain — Linear COR-2030 and COR-2031 (then COR-2032 e2e), project “P1 · Shared / Hosted Brain”.
+
+What this is: the server half is DONE and live in staging — brainstore sits behind the entire-api gateway. Your job is the client half: brain connect + per-sync token minting (COR-2030), then sync-and-pull-into-local + daemon/hook wiring + blind spot (COR-2031). COR-2029 (entire repo whereami --json, in entireio/cli) is a separate small ticket that brain connect consumes — check whether it’s done before relying on it.
+
+Authoritative documents (read first): the spec docs/hosted_memory_sync_plan.md is on entire-brain main now (PR #338 merged — no branch checkout needed); its “Client changes” section is your scope. The Linear doc “Plan: Plugin hosted sync (COR-2030/2031/2032)” is your task list.
+
+Server as-built — facts the spec doesn’t tell you:
+
+Staging is the only deployment (prod not rolled out): https://aws-us-east-2.api.partial.to/api/v1/repos/{repo_id}/brain/facts?branch=…
+Tokens: entire auth token --context us.auth.partial.to. ⚠️ The --jurisdiction flag the plan mentions is deprecated — mintJurisdictionToken must use the current CLI form.
+Wire: exactly the released client’s contract, zero client wire changes. Confirmed: 412 on every CAS miss, changed:false only vs the still-current head, 400 forged set, 413 over 32 MiB (new), 401 constant / 403 unknown-and-forbidden-alike / 503 retryable.
+Attribution: facts GET carries an additive authors map (fact_id → display handle) — that’s what the pull step stamps onto merged records (first-writer-wins by design).
+Proposal routes deliberately 404 → existing ErrProposalQueueUnsupported path; token scope is unenforced (COR-2036); memories endpoint is UI-only.
+Try the loop before writing code — works today with env overrides: ENTIRE_API_URL=https://aws-us-east-2.api.partial.to/api/v1 ENTIRE_API_TOKEN=$(entire auth token --context us.auth.partial.to) REDACTED entire brain facts sync --facts-backend http. (Brainstore’s own ULID 01M49DPN… is a prod-region id — wrong core for staging tokens.) Gateway deploys briefly 404 the brain paths from old pods — retry, don’t conclude the route is gone.
+
+Code landmarks: internal/factsync/ (sync loop, wire, egress scrubbing), factmerge/ (exported; Author must live outside the content-id hash like kind/locus), internal/cli/facts_import.go (the write-path model for pull-into-local), watch.go daemon steps + hook session-end (NEVER-FAILS rule), blind_spot.go, setup_daemon.go:97-101 (why tokens mint per call). Kill switches ENTIRE_BRAIN_NO_EGRESS/LOCAL_ONLY stay absolute; only non-secrets persist (repo-level hosted.json binding); each sync covers current + default branch; embeddings for pulled facts compute locally.
+
+AC for the finish line (COR-2032): a fact remembered on machine A appears in machine B’s brief with no manual commands.
+
+---
+
+<task-notification>
+<task-id>bba32j4u9</task-id>
+<tool-use-id>toolu_012QyX25jTgufz3moYkD2jUP</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-buffalo/db19f645-280b-4641-a903-216cc8ea1498/tasks/bba32j4u9.output</output-file>
+<status>completed</status>
+<summary>Background command "Run internal/cli suite (no race, disk-friendly) to confirm no drift" completed (exit code 0)</summary>
+</task-notification>
