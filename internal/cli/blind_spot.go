@@ -247,5 +247,8 @@ func unsyncedHostedFactsBlindSpot(brainDir, branch string) string {
 	if checkHostedFactsBinding(brainDir, branch, binding.RepoID, binding.BaseURL) == nil {
 		return ""
 	}
-	return fmt.Sprintf("note: this repository is connected to a hosted brain but branch %q has not synced with it; run 'entire brain facts sync' or wait for the next daemon tick", branch)
+	// The remedy must be a command that PULLS: `facts sync` only publishes
+	// (and would write the marker that silences this note without fetching
+	// anything); connect runs the full sync-and-pull.
+	return fmt.Sprintf("note: this repository is connected to a hosted brain but branch %q has not synced with it; run 'entire brain connect' or wait for the next daemon tick", branch)
 }

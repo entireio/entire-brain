@@ -65,7 +65,14 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 	if repoID == "" || apiURL == "" {
 		resolved, whereamiErr := resolveWhereami(ctx, opts.Runner, repoDir)
 		if whereamiErr != nil {
-			return fmt.Errorf("connect: resolve hosted placement (`entire repo whereami --json`): %w; pass --repo-id and --api-url explicitly", whereamiErr)
+			// An already-connected repo stays re-connectable without flags:
+			// re-connect means re-sync (the blind-spot note's remedy), not
+			// re-resolve.
+			if existing, present, readErr := readHostedRepoBinding(storage.BrainDir); readErr == nil && present {
+				resolved = whereamiResult{RepoID: existing.RepoID, APIURL: existing.BaseURL}
+			} else {
+				return fmt.Errorf("connect: resolve hosted placement (`entire repo whereami --json`): %w; pass --repo-id and --api-url explicitly", whereamiErr)
+			}
 		}
 		if repoID == "" {
 			repoID = resolved.RepoID
@@ -105,6 +112,8 @@ func bindHostedRepo(brainDir, repoID, apiURL string) (hostedRepoBinding, error) 
 
 // resolveWhereami shells out to the host CLI for this repo's hosted placement.
 func resolveWhereami(ctx context.Context, runner CommandRunner, repoDir string) (whereamiResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, hostedShellOutTimeout)
+	defer cancel()
 	stdout, _, err := runner.Run(ctx, repoDir, hostEntireBinary, "repo", "whereami", "--json")
 	if err != nil {
 		return whereamiResult{}, err

@@ -69,3 +69,17 @@ func TestMintHostedTokenFailures(t *testing.T) {
 		}
 	})
 }
+
+func TestMintHostedTokenBoundsTheShellOut(t *testing.T) {
+	// A watch tick must stay a tick and a hook must return: the shell-out to
+	// the host CLI carries a hard deadline, not just signal cancellation.
+	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if _, ok := ctx.Deadline(); !ok {
+			t.Error("the auth token shell-out must carry a deadline")
+		}
+		return []byte(fakeJWT + "\n"), nil, nil
+	})
+	if _, err := mintHostedToken(context.Background(), runner, "/repo", "entire"); err != nil {
+		t.Fatal(err)
+	}
+}
