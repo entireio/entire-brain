@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "fdb969b273d9",
+  "strategy": "manual-commit",
+  "branch": "hosted-sync-client-cor-2030",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/connect_cmd.go",
+    "internal/cli/connect_cmd_test.go",
+    "internal/cli/hook_hosted_test.go",
+    "internal/cli/hosted_binding.go",
+    "internal/cli/hosted_binding_test.go",
+    "internal/cli/hosted_sync_test.go",
+    "internal/cli/hosted_token.go",
+    "internal/cli/hosted_token_test.go",
+    "scripts/hosted-sync-smoke.sh"
+  ],
+  "sessions": [
+    {
+      "metadata": "/fd/b969b273d9/0/metadata.json",
+      "transcript": "/fd/b969b273d9/0/full.jsonl",
+      "compact_transcript": "/fd/b969b273d9/0/transcript.jsonl",
+      "content_hash": "/fd/b969b273d9/0/content_hash.txt",
+      "prompt": "/fd/b969b273d9/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 416,
+    "cache_creation_tokens": 1453955,
+    "cache_read_tokens": 50817485,
+    "output_tokens": 158426,
+    "api_call_count": 208,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  }
+}
