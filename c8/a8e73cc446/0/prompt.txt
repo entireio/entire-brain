@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bios3orrv</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-krk-Desktop-GitStore-entire-brain/8ac7b277-685f-472c-9141-8ba22f5e3246/tasks/bios3orrv.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for the review pass on f48baf33 and list any open findings" completed (exit code 0)</summary>
+</task-notification>
