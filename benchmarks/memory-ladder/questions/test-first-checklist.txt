@@ -1,0 +1,8 @@
+A teammate has proposed a change to the Brain brief: when the brief includes an action checklist, the first item should always tell the agent to run the exact failing or covering test before doing anything else, on the grounds that reproducing first saves wasted exploration.
+
+Before we decide, answer three things:
+1. How does the brief's action checklist work today, and which code would need to change? Name the specific files and functions.
+2. Has this idea, or something close to it, been considered, tried, or decided before in this project? If so, what was decided and why? Only report what you can back with evidence; say clearly if you found none.
+3. Your recommendation in two or three sentences.
+
+Cite evidence for each claim (file path and line, command output, checkpoint or session id, or fact id). Keep the whole answer under 400 words. Do not modify any files.

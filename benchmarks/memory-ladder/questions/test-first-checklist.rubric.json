@@ -1,0 +1,11 @@
+{
+  "_comment": "Ground truth: putting the exact test first in the action checklist was tried and rejected because, under semantic tolerance, it used about 31% more tokens and 27% more time; reproduction added work without removing the later history exploration. The checklist itself is opt-in because results flipped between wins and losses. 'recovered' needs the measured reason, not just 'it is off by default'. Hand-check it.",
+  "mechanism": "action.?checklist|ActionChecklist|brainBriefAction",
+  "code_paths": "agent_surface\\.go|brain_brief",
+  "prior_claimed": "rejected|reverted|was tried|previously (tried|considered|decided)|decided (not|against)|opt-in",
+  "recovered": "31(\\.2)?\\s*%|26(\\.8)?\\s*%|more tokens.{0,80}more time|reproduction added work|without eliminating|did not (eliminate|remove).{0,60}(history|exploration)",
+  "said_none_found": "found none|no (direct )?(evidence|record)|could not find|couldn't find|did not find|no prior",
+  "cites_session_or_checkpoint": "session\\s+[0-9a-f-]{20,}|checkpoint\\s+[0-9a-f]{12}",
+  "cites_fact": "fact:[0-9a-f]{24}",
+  "cites_file_line": "\\.go:\\d+"
+}

@@ -7,6 +7,9 @@
 #   LADDER_ORIGIN=<url>    origin URL to set on the clone (default: this repo's origin). Brain and Graph
 #                          derive the repository key from it, so a filesystem path origin breaks them.
 #   LADDER_MAX_TURNS=<n>   nested agent turn cap (default: 80)
+#   LADDER_BRAIN_BIN=<path> an entire-brain binary to run instead of the installed plugin for conditions 4 and 5
+#                          (for example `go build -o /tmp/entire-brain ./cmd/entire-brain` from main). The shim execs it
+#                          for `entire brain ...`; it reads the installed store, so no data is relocated. Unset: installed.
 #   LADDER_BRANCH=<name>   branch to clone (default: main). Brain scopes facts to the checked-out branch,
 #                          so this must be the branch the brain was built for, not the feature branch
 #                          you happen to be developing the harness on.
@@ -44,6 +47,11 @@ cp "$here/guides/cond${COND}.md" CLAUDE.md
 rm -f .entire/agent-guide.md
 [ "$COND" = 1 ] && rm -f .claude/agents/entire-search.md
 export PATH="$here/bin:$PATH" LADDER_COND=$COND
+if [ -n "${LADDER_BRAIN_BIN:-}" ] && [ "$COND" -ge 4 ]; then
+  [ -x "$LADDER_BRAIN_BIN" ] || { echo "LADDER_BRAIN_BIN is not executable: $LADDER_BRAIN_BIN" >&2; exit 2; }
+  export LADDER_BRAIN_BIN
+  (cd "$RUN/repo" && entire brain version) > "$RUN/brain_version.txt" 2>&1 || true
+fi
 if [ "$COND" -ge 3 ]; then
   s=$(date +%s); entire graph index --repo . --profile full >"$RUN/prewarm.log" 2>&1 || true
   echo "prewarm_s=$(( $(date +%s) - s ))" > "$RUN/prewarm.txt"

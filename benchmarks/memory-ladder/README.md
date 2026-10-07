@@ -8,7 +8,7 @@ repository's past as you add memory surfaces one step at a time:
 | 1 | source tree and git history | plain note; no Entire tooling |
 | 2 | + hosted session history (`entire search`, `entire checkpoint explain --full`) | plain note + session section |
 | 3 | + Graph (`entire graph query`, `neighbors`, `impact`) | `entire graph agent-guide` rendered outside a repository (standalone Graph) + session section |
-| 4 | + Brain, normal guidance | `entire graph agent-guide` rendered inside this repository (combined Graph and Brain) + session section |
+| 4 | + Brain, normal guidance | Brain's `agent-guide --normal` rendered inside this repository (combined Graph and Brain) + session section |
 | 5 | + Brain, strict guidance | this repository's committed `.entire/agent-guide.md` + session section |
 
 Every condition runs the same prompt against a fresh clone with the same
@@ -38,7 +38,10 @@ benchmarks/memory-ladder/run.sh 2 1            # one condition, one rep
 python3 benchmarks/memory-ladder/grade.py      # table of runs and per-condition means
 ```
 
-Knobs: `LADDER_MODEL` (default `sonnet`), `LADDER_MAX_TURNS` (80), `LADDER_OUT`
+Knobs: `LADDER_BRAIN_BIN` (an `entire-brain` binary to run instead of the
+installed plugin for conditions 4 and 5, for example a build from `main`; it
+reads the installed store and also renders condition 4's guide), `LADDER_MODEL`
+(default `sonnet`), `LADDER_MAX_TURNS` (80), `LADDER_OUT`
 (default `runs/`, gitignored), `LADDER_ORIGIN` (clone origin URL; Brain and
 Graph derive the repository key from it, so keep the GitHub URL), `LADDER_BRANCH`
 (default `main`; Brain scopes facts to the checked-out branch, so a clone of a
@@ -53,7 +56,39 @@ Add a question by dropping `questions/<name>.txt` and
 `questions/<name>.rubric.json`; the rubric is named regexes over the final answer
 and its `recovered` key is a first pass that should be hand-checked.
 
-## What the first run found (2026-10-06)
+## Questions
+
+- `global-activation`: should global plugin install auto-activate Brain in every
+  repository, and was that decided before? Recorded answer: tried, called a
+  regression, reversed; lives in one session and one closed-negative fact.
+- `test-first-checklist`: should the brief's action checklist put the exact
+  failing test first? Recorded answer: tried, rejected after it cost about 31%
+  more tokens and 27% more time under semantic tolerance; lives in one session
+  (deep in a 16k-line transcript) and one closed-negative fact. Chosen for the
+  second run because the first question had been discussed in sessions by then.
+
+## Run 2 (2026-10-07): after the #335 fix, question `test-first-checklist`
+
+Brain built from `main` at the merge of #337 via `LADDER_BRAIN_BIN`; three
+repetitions; Sonnet.
+
+| Cond | Recovered | Mean duration | Mean input tokens | Mean tool calls |
+|---|---|---|---|---|
+| 1 code + git | 0/3 | 24 s | 179k | 9 |
+| 2 + sessions | 0/3 | 38 s | 213k | 8 |
+| 3 + Graph | 0/3 | 52 s | 224k | 11 |
+| 4 + Brain, normal | **3/3** | 26 s | 160k | 7 |
+| 5 + Brain, strict | **3/3** | 115 s | 260k | 11 |
+
+Every normal-guide Brain run called `recall` first and cited the fact with its
+session, checkpoint and transcript line. Sessions-only runs found the right
+session through hosted search and explained five other checkpoints from it, but
+never the one carrying the measurement, and none read a transcript with
+`--full`; two said so. Conditions 1 and 3 reported no evidence, correctly. The
+strict guide reached the same answer at four times the wall clock, mostly
+preflight and Graph impact calls.
+
+## Run 1 (2026-10-06): before the fix, question `global-activation`
 
 Three repetitions per condition, Sonnet, this repository at `main`. "Recovered"
 means the answer stated the recorded decision and its reason, not an inference
@@ -68,12 +103,13 @@ from the resulting rule.
 | 5 + Brain, strict | 1/3 | 487k |
 
 Brain retrieved the decisive fact and the decisive session line in the brief on
-every run. The agent did not see them: `brief --json` leads with a ~12.8 KB
-status block and puts `facts` and `history` last, and every agent capped the
+every run. The agent did not see them: `brief --json` led with a ~12.8 KB
+status block and put `facts` and `history` last, and every agent capped the
 output before reaching them. `query` returned only `doc` results for natural
 phrasings while `recall` ranked the fact first. Tracked in
-[#335](https://github.com/entireio/entire-brain/issues/335). Re-run this ladder
-after that fix before claiming Brain lift over plain session access.
+[#335](https://github.com/entireio/entire-brain/issues/335); the brief order and
+guide text were fixed in #337, which run 2 measures. `query` ranking is still
+open.
 
 ## Caveats
 
@@ -84,6 +120,10 @@ after that fix before claiming Brain lift over plain session access.
 - Sessions spent building or running this harness enter the hosted history and,
   once distilled, the Brain, and they discuss the answer. Later runs of the same
   question can find them. Check `summary.json` commands for hits on those
-  sessions, or ask a fresh question whose answer has not been discussed.
+  sessions, or ask a fresh question whose answer has not been discussed. Run 2
+  used a new question for exactly this reason; check a candidate with hosted
+  `entire search` and a repo grep before using it.
+- Brain scopes facts to the checked-out branch. A clone of a feature branch sees
+  no facts; `run.sh` clones `main` for that reason.
 - The first run executed arms in parallel; `run-all.sh` runs them sequentially
   per the recorded benchmark convention. Re-check timing before quoting it.

@@ -19,6 +19,9 @@ case "${LADDER_COND:-1}" in
   1) echo "entire: command not found" >&2; exit 127 ;;
   2) case "$sub" in search|checkpoint|cp|checkpoints|agent-help|version|status|why) exec "$REAL" "$@" ;; *) deny ;; esac ;;
   3) case "$sub" in search|checkpoint|cp|checkpoints|agent-help|version|status|why|graph) exec "$REAL" "$@" ;; *) deny ;; esac ;;
-  4|5) exec "$REAL" "$@" ;;
+  4|5)
+    # A build under test replaces the installed Brain plugin for `entire brain ...` only.
+    if [ "$sub" = brain ] && [ -n "${LADDER_BRAIN_BIN:-}" ]; then shift; exec "$LADDER_BRAIN_BIN" "$@"; fi
+    exec "$REAL" "$@" ;;
   *) echo "entire shim: bad LADDER_COND '${LADDER_COND}'" >&2; exit 2 ;;
 esac

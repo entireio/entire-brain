@@ -4,7 +4,8 @@
 #   cond1  plain repository note, no Entire tooling
 #   cond2  plain note + session-history section
 #   cond3  `entire graph agent-guide` outside a repository (standalone Graph) + sessions
-#   cond4  `entire graph agent-guide` inside this repository (combined, normal) + sessions
+#   cond4  Brain's `agent-guide --normal` inside this repository (combined Graph and Brain, normal mode,
+#          rendered by LADDER_BRAIN_BIN when set so a build under test is what the agent reads) + sessions
 #   cond5  this repository's .entire/agent-guide.md as committed (strict if init-agents --strict was run) + sessions
 set -eu
 here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -33,7 +34,8 @@ This is the entire-brain Go repository. Use the source tree and git history
 printf '%s No Entire tooling (session\nhistory, code graph, or brain) is available in this environment.\n' "$plain" > "$out/cond1.md"
 printf '%s%s' "$plain" "$sessions" > "$out/cond2.md"
 { (cd / && entire graph agent-guide); printf '%s' "$sessions"; } > "$out/cond3.md"
-{ (cd "$repo" && entire graph agent-guide); printf '%s' "$sessions"; } > "$out/cond4.md"
+brain_guide() { if [ -n "${LADDER_BRAIN_BIN:-}" ]; then "$LADDER_BRAIN_BIN" agent-guide --normal --repo "$repo"; else (cd "$repo" && entire brain agent-guide --normal); fi; }
+{ brain_guide; printf '%s' "$sessions"; } > "$out/cond4.md"
 if [ -f "$repo/.entire/agent-guide.md" ]; then
   { cat "$repo/.entire/agent-guide.md"; printf '%s' "$sessions"; } > "$out/cond5.md"
 else
