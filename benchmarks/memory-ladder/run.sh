@@ -68,11 +68,14 @@ fi
 #  - Read: unconfined by default, so it is granted only under the clone with Read(./**).
 #  - Grep and Glob tools: not path-scoped by permission rules, so they are not granted; the agent
 #    uses grep, rg, find and ls through the sandboxed shell instead.
-ALLOW="Read(./**) Agent Bash(cd:*) Bash(git:*) Bash(entire:*) Bash(grep:*) Bash(rg:*) Bash(ls:*) Bash(cat:*) Bash(head:*) Bash(tail:*) Bash(sed -n:*) Bash(find:*) Bash(wc:*) Bash(go doc:*)"
+#  - Agent (subagents): launches regardless of the allowlist and cannot be scoped to one subagent
+#    type by a rule, so it is denied outright below. Subagents did inherit the parent's rules when
+#    measured, and no run so far launched one, so this changes nothing in the recorded results.
+ALLOW="Read(./**) Bash(cd:*) Bash(git:*) Bash(entire:*) Bash(grep:*) Bash(rg:*) Bash(ls:*) Bash(cat:*) Bash(head:*) Bash(tail:*) Bash(sed -n:*) Bash(find:*) Bash(wc:*) Bash(go doc:*)"
 start=$(date +%s)
 claude -p "$(cat "$here/questions/$Q.txt")" --model "${LADDER_MODEL:-sonnet}" --output-format stream-json --verbose \
   --setting-sources project --no-session-persistence --max-turns "${LADDER_MAX_TURNS:-80}" \
-  --allowedTools "$ALLOW" --disallowedTools "Edit Write MultiEdit NotebookEdit WebFetch WebSearch" \
+  --allowedTools "$ALLOW" --disallowedTools "Edit Write MultiEdit NotebookEdit WebFetch WebSearch Agent Task" \
   > "$RUN/stream.jsonl" 2> "$RUN/stderr.log" || echo "exit=$?" > "$RUN/failed.txt"
 echo "wall_s=$(( $(date +%s) - start ))" > "$RUN/wall.txt"
 LADDER_SRC="$src_real" python3 "$here/parse.py" "$RUN" > "$RUN/summary.json"

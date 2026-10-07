@@ -49,7 +49,9 @@ Bash file commands (`cat`, `find`, `ls`, `grep`) on a path outside the working
 directory are blocked by the runtime; the Read tool is not, so it is granted only
 as `Read(./**)`; the Grep and Glob tools are not path-scoped by permission rules,
 so they are not granted and the agent uses `grep`, `rg`, `find` and `ls` through
-the sandboxed shell. Runs land in `$TMPDIR/memory-ladder-runs` by default and
+the sandboxed shell; the Agent tool launches regardless of the allowlist and
+cannot be scoped to one subagent type, so it is denied (subagents inherited the
+parent's rules when measured, and no run so far launched one). Runs land in `$TMPDIR/memory-ladder-runs` by default and
 `run.sh` refuses an output directory inside this repository, so the clone never
 sits a relative path away from the un-stripped harness. `parse.py` records every
 tool input that names a path outside the clone and marks a run contaminated if
