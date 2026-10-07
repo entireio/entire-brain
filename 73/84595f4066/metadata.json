@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "7384595f4066",
+  "strategy": "manual-commit",
+  "branch": "hosted-sync-client-cor-2030",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "go.mod"
+  ],
+  "sessions": [
+    {
+      "metadata": "/73/84595f4066/0/metadata.json",
+      "transcript": "/73/84595f4066/0/full.jsonl",
+      "compact_transcript": "/73/84595f4066/0/transcript.jsonl",
+      "content_hash": "/73/84595f4066/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 4455,
+    "cache_read_tokens": 1674487,
+    "output_tokens": 1558,
+    "api_call_count": 5,
+    "subagent_tokens": {
+      "input_tokens": 20,
+      "cache_creation_tokens": 48375,
+      "cache_read_tokens": 1169306,
+      "output_tokens": 18592,
+      "api_call_count": 10
+    }
+  }
+}
