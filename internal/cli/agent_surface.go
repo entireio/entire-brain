@@ -94,9 +94,19 @@ type brainStatusReport struct {
 }
 
 type brainStatusFacts struct {
-	Facts        int            `json:"facts"`
-	Distilled    int            `json:"distilled"`
-	Authored     int            `json:"authored"`
+	Facts     int `json:"facts"`
+	Distilled int `json:"distilled"`
+	Authored  int `json:"authored"`
+	// Imported counts facts brought in from another memory tool. Omitted when
+	// zero so it stays additive for existing readers.
+	//
+	// Without it the origin buckets do not sum: an import of 400 reported
+	// facts=400 distilled=0 authored=0, which reads as a corrupt or empty
+	// brain. facts.go states that origins must account for the total, and the
+	// manifest already carried Imported -- the agent surface simply did not
+	// forward it, so status and the brief were the two places that could not
+	// explain their own numbers.
+	Imported     int            `json:"imported,omitempty"`
 	Superseded   int            `json:"superseded"`
 	Branches     int            `json:"branches"`
 	Proposals    int            `json:"proposals"`
@@ -831,9 +841,10 @@ func newInspectQueryGraphCommand(opts Options) *cobra.Command {
 func newInspectGraphSchemaCommand(opts Options) *cobra.Command {
 	graphOpts := semanticGraphSchemaOptions{}
 	cmd := &cobra.Command{
-		Use:   "graph-schema",
-		Short: "Describe the indexed semantic graph schema and relation vocabulary",
-		Args:  cobra.NoArgs,
+		Hidden: true,
+		Use:    "graph-schema",
+		Short:  "Describe the indexed semantic graph schema and relation vocabulary",
+		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticGraphSchema(cmd, opts, graphOpts)
 		},
@@ -4543,6 +4554,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 				Facts:      f.Facts,
 				Distilled:  f.Distilled,
 				Authored:   f.Authored,
+				Imported:   f.Imported,
 				Superseded: f.Superseded,
 				Branches:   len(f.Branches),
 				Proposals:  f.Proposals,
@@ -4602,6 +4614,9 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	markUnreadableSemanticComponent(&onboarding, semanticFreshnessOf(report))
 	markMissingDeclaredIndexes(&onboarding, storage.BrainDir, manifest)
 	report.Onboarding = &onboarding
+	if backgroundPaused(opts.Env) {
+		report.Warnings = append(report.Warnings, "background work is paused, so this brain is not updating — `"+setupCommandPrefix(os.LookupEnv)+" start` resumes it")
+	}
 	return report, nil
 }
 

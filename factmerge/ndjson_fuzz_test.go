@@ -15,7 +15,7 @@ import (
 // properties that matter for it: arbitrary bytes never panic, and anything the
 // writer emits the reader can read back.
 //
-//	go test ./internal/factmerge -run xxx -fuzz FuzzParseNDJSON
+//	go test ./factmerge -run xxx -fuzz FuzzParseNDJSON
 
 func FuzzParseNDJSON(f *testing.F) {
 	f.Add([]byte(`{"id":"fact:aa","paths":["a.b.c"],"text":"t","branch":"main","origin":"distilled","status":"active","provenance":[{"session_id":"s"}],"created_at":"2026-01-02T03:04:05Z","updated_at":"2026-01-02T03:04:05Z"}` + "\n"))

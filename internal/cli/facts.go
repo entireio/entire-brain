@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/factmerge"
 )
 
 const (
@@ -37,6 +37,7 @@ type factSourceManifest struct {
 	Facts             int                       `json:"facts"`
 	Distilled         int                       `json:"distilled"`
 	Authored          int                       `json:"authored"`
+	Imported          int                       `json:"imported,omitempty"`
 	Superseded        int                       `json:"superseded"`
 	Proposals         int                       `json:"proposals"`
 	Verified          int                       `json:"verified"`
@@ -73,7 +74,7 @@ type factSourceManifest struct {
 
 // factRecord (factmerge.Record) and factAnchor (factmerge.Anchor) are defined
 // as type aliases in facts_aliases.go; the durable-fact data model now lives in
-// internal/factmerge.
+// factmerge.
 
 // factTaxonomy is the active taxonomy snapshot. Paths are validated against
 // factPathPattern; classification may only invent a new three-level path under
@@ -91,7 +92,7 @@ type factPathDef struct {
 }
 
 // normalizeFactText, factRecordID, validFactPath, and normalizeFactPaths moved
-// to internal/factmerge (NormalizeText/RecordID/ValidPath/NormalizePaths); the
+// to factmerge (NormalizeText/RecordID/ValidPath/NormalizePaths); the
 // CLI names are forwarding wrappers in facts_aliases.go.
 
 // factTopLevel returns the top-level category of a taxonomy path (the segment
@@ -406,6 +407,11 @@ func summarizeFactSource(now time.Time, byBranch map[string][]factRecord, chunks
 				source.Distilled++
 			case factOriginAuthored:
 				source.Authored++
+			case factOriginImported:
+				// Without this bucket an imported fact raises the total and no
+				// line item, so the origins visibly do not sum to the count and
+				// nothing explains the difference.
+				source.Imported++
 			}
 			if record.Status == factStatusSuperseded {
 				source.Superseded++

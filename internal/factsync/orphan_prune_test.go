@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/factmerge"
 )
 
 // orphanServer models the state that made a proposal unremovable: an open proposal

@@ -697,8 +697,10 @@ entire brain setup                         # safe to re-run; resumes, never dupl
 
 Two of those spends are recurring and neither prompts: the watcher installed in
 step 4, and the session-end hook wired in step 2, which distills each session as
-it ends. `entire brain setup --uninstall-daemon` removes the first;
-`entire disable` in the repository removes the second.
+it ends. `entire brain stop` pauses both machine-wide, along with new `setup`
+backfills, until `entire brain start`; passes already running finish first. To
+remove them instead, `entire brain setup --uninstall-daemon` removes the first
+and `entire disable` in the repository removes the second.
 
 Cloning a repository you don't have locally yet? `entire brain add <repo-url>`
 clones it, fetches its Entire checkpoint history, and runs this same build in
@@ -1045,7 +1047,6 @@ entire brain inspect context "ValidateToken" --json      # relation-aware contex
 entire brain inspect impact "ValidateToken" --json       # impact set via typed relations
 entire brain inspect tests "ValidateToken" --json        # test suggestions
 # add --details to any of the four commands only for full provider records
-entire brain inspect graph-schema --json                 # relation/schema inventory
 entire brain inspect graph-ui semantic-graph.html        # local static graph explorer
 entire brain inspect trace-path "<caller>" "<callee>" --json
 entire brain inspect dead-code --json
@@ -1108,7 +1109,7 @@ to suspected files and lines without handing over the expected answer text.
 When static structure is not enough, import runtime trace edges with
 `brain_ingest_traces` / `inspect ingest-traces`. The brain compares runtime edges
 with known static relations, persists them as `RUNTIME_TRACE` graph facts, and
-makes them available to graph-schema, trace-path, and brief/context flows —
+makes them available to trace-path and brief/context flows —
 useful for incidents and performance work where "what actually happened?" matters
 more than "what could call this?"
 
@@ -1317,7 +1318,6 @@ and a spec that arrived as a PDF are project knowledge exactly like a `.md`
 file, and were previously invisible to every query.
 
 ```sh
-entire brain docs formats                 # what this build reads
 entire brain docs extract docs/spec.pdf   # the text it gets out of one file
 entire brain docs extract docs/spec.pdf --json
 ```

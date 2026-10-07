@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/factmerge"
 )
 
 func writePublishPrivacyFacts(t *testing.T, brainDir string) {

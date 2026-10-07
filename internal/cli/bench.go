@@ -46,8 +46,9 @@ type semanticBenchReport struct {
 
 func newBenchmarkCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "bench",
-		Short: "Benchmark semantic indexing performance",
+		Hidden: true,
+		Use:    "bench",
+		Short:  "Benchmark semantic indexing performance",
 	}
 	cmd.AddCommand(newSemanticBenchCommand(opts))
 	cmd.AddCommand(newScaleBenchCommand(opts))

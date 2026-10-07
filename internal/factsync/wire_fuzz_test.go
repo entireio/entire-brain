@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/factmerge"
 )
 
 // Once the fact-set is shared (P1), every byte HTTPServer decodes was produced
