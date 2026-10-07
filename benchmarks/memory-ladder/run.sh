@@ -86,5 +86,5 @@ claude -p "$(cat "$here/questions/$Q.txt")" --model "${LADDER_MODEL:-sonnet}" --
   --allowedTools "$ALLOW" --disallowedTools "Edit Write MultiEdit NotebookEdit WebFetch WebSearch Agent Task" \
   > "$RUN/stream.jsonl" 2> "$RUN/stderr.log" || echo "exit=$?" > "$RUN/failed.txt"
 echo "wall_s=$(( $(date +%s) - start ))" > "$RUN/wall.txt"
-LADDER_SRC="$src_real" python3 "$here/parse.py" "$RUN" > "$RUN/summary.json"
+LADDER_SRC="$src_real" LADDER_OUT_ROOT="$out_real" python3 "$here/parse.py" "$RUN" > "$RUN/summary.json"
 echo "done $Q c${COND}-r${REP}"

@@ -3,7 +3,7 @@
 Internal to the harness: run.sh calls it with the run directory it just created. The
 argument must be an existing directory containing stream.jsonl; nothing outside it is read.
 """
-import json, sys, os, re, collections, tempfile
+import json, sys, os, re, collections, subprocess
 if len(sys.argv) != 2:
     sys.exit("usage: parse.py <run-dir>")
 run = os.path.realpath(sys.argv[1])
@@ -20,8 +20,20 @@ probes = []; contaminated = False
 # it (absolute path elsewhere, or a parent traversal) is recorded; one that reaches the source
 # repository this harness lives in, or names harness content, marks the run contaminated.
 clone = os.path.realpath(os.path.join(run, "repo"))
-_tmp = os.path.realpath(tempfile.gettempdir())
-SYSTEM_PREFIXES = tuple(p if p.endswith(os.sep) else p + os.sep for p in ("/usr", "/bin", "/opt", "/dev", "/etc", _tmp, tempfile.gettempdir()))
+# The output root holds every run's clone, transcript and answer. A path under it that is not
+# this run's clone is another run's data, which may contain the answer: contamination.
+out_root = os.path.realpath(os.environ["LADDER_OUT_ROOT"]) if os.environ.get("LADDER_OUT_ROOT") else os.path.realpath(os.path.dirname(os.path.dirname(run)))
+def _go_env(name):
+    v = os.environ.get(name)
+    if not v:
+        try:
+            v = subprocess.run(["go", "env", name], capture_output=True, text=True, timeout=20).stdout.strip()
+        except Exception:
+            v = ""
+    return os.path.realpath(v) if v else None
+# Allowed outside the clone: tool and system trees, and the Go caches the toolchain reports.
+# No blanket temp-directory allowance: the output root lives there too.
+SYSTEM_PREFIXES = tuple(p + os.sep for p in ["/usr", "/bin", "/opt", "/dev", "/etc"] + [x for x in (_go_env("GOCACHE"), _go_env("GOMODCACHE")) if x])
 src = os.path.realpath(os.environ["LADDER_SRC"]) if os.environ.get("LADDER_SRC") else None
 escapes = []
 def audit_paths(tool, inp):
@@ -32,10 +44,12 @@ def audit_paths(tool, inp):
         if cand.startswith(clone + os.sep) or cand == clone:
             continue
         if cand.startswith(SYSTEM_PREFIXES):
-            continue  # tool binaries, devices, the runtime's own temp dir (go caches live there)
+            continue  # tool binaries, devices, Go caches
         escapes.append(f"{tool}: {m[:160]}")
         if src and (cand == src or cand.startswith(src + os.sep)):
-            contaminated = True
+            contaminated = True  # reached the source repository and its un-stripped harness
+        if cand.startswith(out_root + os.sep) and not (cand == clone or cand.startswith(clone + os.sep)):
+            contaminated = True  # reached another run's clone, transcript or answer
 for line in open(os.path.join(run, "stream.jsonl")):
     line = line.strip()
     if not line:
