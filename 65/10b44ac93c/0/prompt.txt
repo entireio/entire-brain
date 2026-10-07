@@ -1,0 +1,72 @@
+<task-notification>
+<task-id>a3a069d9728f1cfc8</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-buffalo/db19f645-280b-4641-a903-216cc8ea1498/tasks/a3a069d9728f1cfc8.output</output-file>
+<status>completed</status>
+<summary>Agent "Whole-branch code review" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All targeted suites pass (`factmerge`, `factsync`, `internal/cli` hosted/hook/watch/blind-spot tests, `-race -count=1`).
+
+Preflight record: Brain 0.1.0 available (durable_facts, task_briefs); brief run; recall returned the two authored staging facts (403 push grant, /api/v1 strip) — consistent with the ledger. No graph queries needed beyond focused source reads; all integration points verified in current source.
+
+---
+
+### Strengths
+- Gate order is exactly per spec and verified in source: `brainNoEgressMode()` (covers both `NO_EGRESS` and `LOCAL_ONLY`, agent_policy.go:14) → binding → `apiurl.Validate` → mint → client (hosted_sync.go:34-54).
+- Pull write composition is byte-for-byte the `facts_import.go:843-886` pattern (fresh load under `withBrainWriteLock`, `upsertFact`, `writeFacts`, manifest refresh under the same lock, manifest failure reported without masking the pull).
+- Corruption safety is inherited, not reimplemented: `factsync.Sync` fail-closes on forged head IDs (`VerifyIdentities`, sync.go:90-115), and `TestPullMergeFailsWithoutWrite` pins byte-identical local state.
+- Token hygiene is tested, not asserted: non-JWT output errors without echoing it (hosted_token_test.go:1508-1523); mint is per-call, nothing persisted.
+- `CurrentWithAuthors` is cleanly additive — `Current` delegates, the `Server` interface and wire names are untouched, and a test pins the seam.
+
+### Issues
+
+#### Critical
+None.
+
+#### Important
+1. **Daemon never pulls teammates' facts on an idle repo** — `internal/cli/watch.go:~288` (the `!changed` → "no change; nothing to do" early return) runs before the `factsSync` step at `watch.go:~330`. Failure scenario: machine B connects, its user stops producing local changes; the fingerprint never moves, every tick returns early, and teammates' facts never arrive via the daemon — the pull half's main purpose. The consolidation-deferral return also skips the step, so during active work sync runs at the 30m consolidation cadence, not 15m. This matches the plan's letter ("after a successful refresh"), so it may be an intentional ruling — but a reasonable user of "auto-sync" expects an idle machine to receive team memories. Fix: run the throttled `factsSync` check before the `!changed` early return (still skipping it when a changed tick's refresh failed).
+
+2. **Client-claimed author beats server-stamped attribution** — `internal/cli/hosted_sync.go:79-85` stamps `authors[id]` only when the blob record's `Author` is empty, and `factmerge/dedup.go:49-53` never overwrites a stored author. `SanitizeForEgress` (factsync/egress.go) does not clear `Author`, so published blobs carry client-written author values, and those permanently win over the server's `authors` map. The spec's locked decision is "statement-level attribution, server-stamped … never from client-claimed identity." Failure scenario: a buggy or malicious client publishes forged `Author` values and every teammate displays them forever; a server-side handle correction can never propagate. Display-only, but it's a spec deviation at a trust boundary. Fix: prefer `authors[id]` over the blob value when the map has an entry, and clear `Author` in `SanitizeForEgress` so the server map is the only attribution source.
+
+#### Minor
+3. `looksLikeJWT` + last-line heuristic (`internal/cli/hosted_token.go:26-29`): a post-token banner line with two dots and no spaces (e.g. `v1.2.3`) would be taken as the token, causing silent per-sync 401s a daemon user never sees. Plan-dictated heuristic; noting the ceiling.
+4. "Default branch" is hardcoded `main` (`distillDefaultBranch`, used in hook_cmd.go `syncBranches` and watch.go `factsSync`): repos whose default is `master`/`trunk` never get default-branch coverage, and every repo gets a spurious `main` per-branch marker attempt. Pre-existing repo convention.
+5. `readHostedRepoBinding` (hosted_binding.go:33-43) does not strip a `/api/v1` suffix — only connect does. A hand-edited or pre-ce340aec `hosted.json` 404s every sync with only a stderr note. One `TrimSuffix` on read would harden it.
+6. `TestSessionEndHookWithoutBindingMakesNoRequests` (hook_hosted_test.go:829-839) never starts the fake server, so `requestCount() == 0` is vacuous.
+7. `connect` under `ENTIRE_BRAIN_NO_EGRESS` prints "connected" and silently skips the initial pull (connect_cmd.go:422-425 → hosted_sync.go:31-33). One stderr line ("connected; initial pull skipped: NO_EGRESS") would prevent a false "I'm synced" impression.
+
+### Review Focus verdicts (all five verified in source + tests)
+1. Mid-merge corruption: **safe** — write only under lock after a fully successful, identity-verified Sync; pinned byte-identical on failure.
+2. Stale token: **safe** — minted per call, never cached; mint failure = one stderr line, zero requests.
+3. Unconnected repo: **safe** — absent binding is a silent nil before any client; NO_EGRESS checked first; both pinned.
+4. Retraction flip: **safe** — `factmerge.Upsert` never touches `Status`; `applyLocalRetirements` carries retirements to the head; pinned.
+5. Hook stdout: **clean** — distill sub-command and sync both write `ErrOrStderr`; empty-stdout pinned.
+
+Global constraints all hold: no change to `factsync.Sync`/`Server`/wire names (additive `authors` only); `Author` outside `RecordID` and `Sort`; shell-outs via `CommandRunner`; token never echoed. Hook/daemon never-fails contract holds on every path I traced.
+
+### Declined to judge
+- Staging POST advance 403 (push grant missing server-side) — server half out of scope; two-machine PASS transcript remains blocked (recorded in ledger + Brain fact).
+- `connect` stripping only one trailing `/api/v1` — ledger rules no `/api/v1/api/v1` cell exists.
+- Hook syncing on the `deltaErr` early-return path (one extra GET) — explicit ledger ruling.
+- Task 1's rewritten ordering test (distinct records instead of duplicate IDs) — ledger ruling; the rewritten assertion still covers the invariant.
+- Watch step writing its notes to the watch command's stdout — daemon stdout is not machine-read.
+- Per-branch marker written before the pull-merge completes — the sync-up did succeed; the marker's meaning ("has synced") holds.
+- Smoke script's `JURISDICTION=us.auth.partial.to` example — matches the recorded staging auth context.
+
+### Assessment
+
+**Ready to merge? With fixes.**
+
+**Reasoning:** The core sync/pull function is correct, fail-closed, and well-tested against all five planned failure classes; nothing corrupts the local store. The two Important findings are scoping judgments — the idle-repo daemon gap undercuts the feature's stated purpose, and the author-precedence order deviates from the spec's "server-stamped, never client-claimed" decision — both small, contained fixes.</result>
+<usage><subagent_tokens>137961</subagent_tokens><tool_uses>25</tool_uses><duration_ms>344788</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b2xkgc0hj</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-buffalo/db19f645-280b-4641-a903-216cc8ea1498/tasks/b2xkgc0hj.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full test suite with race detector" completed (exit code 0)</summary>
+</task-notification>
