@@ -285,23 +285,30 @@ type brainBriefSemantic struct {
 // The full report remains available while assembling likely files and rendering
 // text, but JSON callers should not pay for empty semantic fields, fact
 // provenance, coverage histograms, or live symbol records on every task.
+//
+// Field order is the emitted key order, and it is deliberate: agents routinely
+// cap the bytes they read from a tool call, so the sections the task needs
+// (facts, history, likely files, guidance) come first and the status report,
+// which is mostly provider freshness warnings and can run to 10+ KB, comes
+// last. A brief that was correct but truncated before its facts section is how
+// an agent misses a decision the brain had already retrieved (issue #335).
 type brainBriefJSONReport struct {
 	GeneratedAt        time.Time                   `json:"generated_at"`
 	Task               string                      `json:"task"`
-	Status             brainStatusReport           `json:"status"`
-	Semantic           brainBriefJSONSemantic      `json:"semantic"`
-	History            brainBriefHistory           `json:"history"`
-	Conversation       []brainBriefConversationHit `json:"conversation,omitempty"`
 	Facts              []brainBriefJSONFact        `json:"facts,omitempty"`
 	GlobalFactIDs      []string                    `json:"global_fact_ids,omitempty"`
 	FactsLocusDrift    map[string][]string         `json:"facts_locus_drift,omitempty"`
 	FactsPendingReview map[string]factReviewNotice `json:"facts_pending_review,omitempty"`
-	ActionChecklist    []brainBriefAction          `json:"action_checklist,omitempty"`
+	History            brainBriefHistory           `json:"history"`
+	Conversation       []brainBriefConversationHit `json:"conversation,omitempty"`
 	LikelyEditFiles    []string                    `json:"likely_edit_files,omitempty"`
 	LikelyTestFiles    []string                    `json:"likely_test_files,omitempty"`
 	LikelyFiles        []string                    `json:"likely_files,omitempty"`
+	ActionChecklist    []brainBriefAction          `json:"action_checklist,omitempty"`
 	Guidance           []string                    `json:"guidance"`
 	Warnings           []string                    `json:"warnings,omitempty"`
+	Semantic           brainBriefJSONSemantic      `json:"semantic"`
+	Status             brainStatusReport           `json:"status"`
 }
 
 type brainBriefJSONSemantic struct {

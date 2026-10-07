@@ -44,7 +44,17 @@ orientation with:
 
     entire brain brief "<task>" --json
 
-Skip this when equivalent task context is already available. Reuse useful code
+Questions about why something is the way it is, what was decided, or what was
+tried before are answered by durable facts. Retrieve them directly; the brief's
+facts section is a sample, not the search:
+
+    entire brain recall "<question>" --json
+
+recall ranks decisions, rejected approaches, invariants and gotchas first. query
+mixes facts with history and documentation and can rank documentation above the
+recorded decision.
+
+Skip the brief when equivalent task context is already available. Reuse useful code
 locations from the brief. Use Brain retrieval for previous decisions, attempts,
 documentation, and durable facts - Brain's episodic memory of what was decided,
 what went wrong before, and what must stay true. Record one when you learn
