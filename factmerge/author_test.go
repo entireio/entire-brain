@@ -65,7 +65,7 @@ func TestAuthorIsOutsideIdentityAndOrdering(t *testing.T) {
 	}
 }
 
-func TestUpsertFillsEmptyAuthorWithoutOverwriting(t *testing.T) {
+func TestUpsertTakesIncomingAuthorAndKeepsStoredOnEmpty(t *testing.T) {
 	paths := []string{"project.testing"}
 	stored := Record{ID: RecordID("fact text", paths), Paths: paths, Text: "fact text",
 		Branch: "main", Origin: "authored", Status: "active",
@@ -82,10 +82,22 @@ func TestUpsertFillsEmptyAuthorWithoutOverwriting(t *testing.T) {
 		t.Fatalf("empty stored author must be filled from incoming, got %q", got[0].Author)
 	}
 
-	overwrite := incoming
-	overwrite.Author = "someone-else"
-	got = Upsert(got, overwrite)
-	if got[0].Author != "evisdren" {
-		t.Fatalf("non-empty stored author must not be overwritten, got %q", got[0].Author)
+	// A non-empty incoming author overwrites: the only writer of Author is the
+	// hosted pull stamping server-side attribution, which is authoritative — a
+	// server-side handle correction must propagate.
+	corrected := incoming
+	corrected.Author = "evisdren-renamed"
+	got = Upsert(got, corrected)
+	if got[0].Author != "evisdren-renamed" {
+		t.Fatalf("a non-empty incoming author must overwrite, got %q", got[0].Author)
+	}
+
+	// An EMPTY incoming author keeps the stored one: a local re-distill or a
+	// legacy server without the authors map must not erase attribution.
+	unattributed := incoming
+	unattributed.Author = ""
+	got = Upsert(got, unattributed)
+	if got[0].Author != "evisdren-renamed" {
+		t.Fatalf("an empty incoming author must keep the stored one, got %q", got[0].Author)
 	}
 }

@@ -148,3 +148,14 @@ func TestSyncUnionsProvenanceAfterSanitize(t *testing.T) {
 		t.Fatalf("provenance union after sanitize = %+v; want sess-A + sess-B", recs[0].Provenance)
 	}
 }
+
+func TestSanitizeForEgressClearsClientClaimedAuthor(t *testing.T) {
+	in := []factmerge.Record{{ID: "fact:x", Text: "t", Paths: []string{"p.q"}, Author: "mallory"}}
+	out := SanitizeForEgress(in)
+	if out[0].Author != "" {
+		t.Fatalf("attribution is server-stamped; a client-claimed author must never egress, got %q", out[0].Author)
+	}
+	if in[0].Author != "mallory" {
+		t.Fatal("the caller's in-memory record must not be mutated")
+	}
+}

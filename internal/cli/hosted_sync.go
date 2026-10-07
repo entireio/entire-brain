@@ -76,11 +76,13 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 	if _, _, a, found, authorsErr := srv.CurrentWithAuthors(ctx, binding.RepoID, branch); authorsErr == nil && found {
 		authors = a
 	}
+	// The server map is the only attribution source: it overwrites whatever
+	// the blob carried (SanitizeForEgress clears Author on upload, but an old
+	// or hostile peer's value must not survive either). Records absent from
+	// the map arrive unattributed, and Upsert keeps any handle already stored.
 	merged := res.Facts
 	for i := range merged {
-		if merged[i].Author == "" {
-			merged[i].Author = authors[merged[i].ID]
-		}
+		merged[i].Author = authors[merged[i].ID]
 	}
 
 	// The import write composition: everything under one write lock, manifest

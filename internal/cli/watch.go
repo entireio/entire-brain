@@ -282,10 +282,29 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		}
 	}
 	cursor := loadWatchCursor(cursorPath)
+	// The hosted step pulls teammates' facts as much as it publishes local
+	// ones, so it must run on idle (no-change) ticks too — a machine that only
+	// receives would otherwise never sync. It is skipped on a failed refresh
+	// (callers below return before invoking it) and throttled by its own
+	// cursor timestamp, advanced regardless of outcome so a failing hosted
+	// endpoint cannot turn every tick into an egress attempt.
+	runFactsSync := func() {
+		now := steps.now().UTC()
+		if steps.factsSync == nil || now.Sub(cursor.LastFactsSyncAt) < hostedSyncMinInterval {
+			return
+		}
+		if err := steps.factsSync(ctx); err != nil {
+			fmt.Fprintf(out, "[watch] hosted fact sync failed (local brain unaffected): %v\n", err)
+		} else {
+			fmt.Fprintln(out, "[watch] hosted fact sync ran")
+		}
+		markFactsSyncAttempt(cursorPath, now)
+	}
 	fp := steps.fingerprint(ctx)
 	changed := fp != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero()
 	if !changed && !(cursor.PendingSeed && w.seedAgent != "none" || cursor.PendingDistill && w.distill) {
 		fmt.Fprintln(out, "[watch] no change; nothing to do")
+		runFactsSync()
 		return
 	}
 	// Consolidation throttle: the fingerprint includes checkpoint refs, so an
@@ -312,6 +331,7 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		if since := steps.now().UTC().Sub(cursor.LastRefreshAt); since < wait {
 			fmt.Fprintf(out, "[watch] consolidation deferred (%s since last full refresh; due in %s; %s)\n",
 				since.Round(time.Second), (wait - since).Round(time.Second), state)
+			runFactsSync()
 			return
 		}
 	}
@@ -323,16 +343,7 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 			return
 		}
 	}
-	if now := steps.now().UTC(); steps.factsSync != nil && now.Sub(cursor.LastFactsSyncAt) >= hostedSyncMinInterval {
-		if err := steps.factsSync(ctx); err != nil {
-			fmt.Fprintf(out, "[watch] hosted fact sync failed (local brain unaffected): %v\n", err)
-		} else {
-			fmt.Fprintln(out, "[watch] hosted fact sync ran")
-		}
-		// Advance the cursor regardless of outcome: a failing hosted endpoint
-		// must not turn every tick into an egress attempt.
-		markFactsSyncAttempt(cursorPath, now)
-	}
+	runFactsSync()
 	reserved, reason, err := reserveWatchAgentSpend(cursorPath, fp, w, agentCalls, steps.now().UTC(), !deltaHealthy)
 	if err != nil {
 		fmt.Fprintf(out, "[watch] cursor update failed (skipping agent work this tick): %v\n", err)

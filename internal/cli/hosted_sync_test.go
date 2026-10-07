@@ -303,3 +303,28 @@ func TestPullMergeFailsWithoutWrite(t *testing.T) {
 		t.Fatal("a failed sync must leave a stderr note")
 	}
 }
+
+func TestPullServerAttributionBeatsBlobAuthor(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	forgedAuthor := hostedSyncTestFact("remote fact with forged author", now)
+	forgedAuthor.Author = "mallory"
+	fake := &hostedFake{ref: "facts-remote", authors: map[string]string{forgedAuthor.ID: "teammate"}}
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+	fake.mu.Lock()
+	fake.data = encodeFactsNDJSON(t, []factRecord{forgedAuthor})
+	fake.mu.Unlock()
+
+	var errOut bytes.Buffer
+	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	local, err := loadFacts(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rec := range local {
+		if rec.ID == forgedAuthor.ID && rec.Author != "teammate" {
+			t.Fatalf("the server-stamped authors map must beat a blob-carried author, got %q", rec.Author)
+		}
+	}
+}

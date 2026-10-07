@@ -97,3 +97,24 @@ func TestWatchTickNilFactsSyncIsSkipped(t *testing.T) {
 		t.Fatalf("nil factsSync must leave no trace, got %q", out.String())
 	}
 }
+
+func TestWatchTickRunsHostedSyncOnNoChangeTick(t *testing.T) {
+	cursorPath := filepath.Join(t.TempDir(), "watch.json")
+	var refreshed, seeded, distilled, synced int
+	steps := fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled)
+	steps.factsSync = func(context.Context) error { synced++; return nil }
+	// Seed a cursor matching the fingerprint with a prior refresh: the idle,
+	// no-change tick — the main pull scenario for a machine receiving facts.
+	if err := saveWatchCursor(cursorPath, watchCursor{LastFingerprint: "ck1:head1", LastRefreshAt: steps.now()}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	var agentCalls int
+	watchTick(context.Background(), &out, watchCommandOptions{}, cursorPath, steps, &agentCalls)
+	if refreshed != 0 {
+		t.Fatalf("no-change tick must not refresh, got %d", refreshed)
+	}
+	if synced != 1 {
+		t.Fatalf("an idle repo must still pull teammates' facts, got sync=%d", synced)
+	}
+}
