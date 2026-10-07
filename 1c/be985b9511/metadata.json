@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "1cbe985b9511",
+  "strategy": "manual-commit",
+  "branch": "hosted-sync-client-cor-2030",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/watch.go",
+    "internal/cli/watch_hosted_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/1c/be985b9511/0/metadata.json",
+      "transcript": "/1c/be985b9511/0/full.jsonl",
+      "compact_transcript": "/1c/be985b9511/0/transcript.jsonl",
+      "content_hash": "/1c/be985b9511/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 24,
+    "cache_creation_tokens": 20349,
+    "cache_read_tokens": 2832560,
+    "output_tokens": 8997,
+    "api_call_count": 12
+  }
+}
