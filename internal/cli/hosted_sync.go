@@ -84,6 +84,13 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 	if err := writeHostedFactsBinding(storage.BrainDir, branch, binding.RepoID, baseURL); err != nil {
 		fmt.Fprintf(errW, "hosted sync: record hosted target: %v\n", err)
 	}
+	// Promote raises a keep-both conflict proposal only on FIRST contact (both
+	// facts are in the head afterwards), so dropping res.Proposals here would
+	// lose the review signal forever. Persist to the local review queue like
+	// the manual sync; v1 cuts the hosted queue endpoints, so no publish.
+	if err := persistFactsSyncProposals(storage.BrainDir, branch, res.Proposals); err != nil {
+		fmt.Fprintf(errW, "hosted sync: persist raised conflicts: %v\n", err)
+	}
 
 	// Best-effort attribution: the authors map is additive on the GET response,
 	// so a second read is the only way to fetch it. Failure costs display

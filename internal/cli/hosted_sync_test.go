@@ -85,7 +85,10 @@ func newHostedFakeServer(t *testing.T, fake *hostedFake) *httptest.Server {
 }
 
 func hostedSyncTestFact(text string, now time.Time) factRecord {
-	paths := normalizeFactPaths([]string{"architecture.sync"})
+	paths := normalizeFactPaths([]string{"architecture.sync.wire"})
+	if len(paths) == 0 {
+		panic("fixture taxonomy path must be valid")
+	}
 	return factRecord{
 		ID:         factRecordID(text, paths),
 		Paths:      paths,
@@ -407,5 +410,40 @@ func TestHostedSyncNoEgressBlocksAutoConnect(t *testing.T) {
 	}
 	if whereamiCalls != 0 || fake.requestCount() != 0 {
 		t.Fatalf("NO_EGRESS must block even placement resolution, got whereami=%d requests=%d", whereamiCalls, fake.requestCount())
+	}
+}
+
+func TestHostedSyncPersistsRaisedProposals(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	// Same taxonomy path, different text: Promote's keep-both raises a
+	// proposal exactly once, on first contact — dropping it here loses the
+	// review signal forever.
+	localFact := hostedSyncTestFact("retries are capped at three", now)
+	remoteFact := hostedSyncTestFact("retries are unlimited", now)
+	fake := &hostedFake{ref: "facts-remote"}
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+	fake.mu.Lock()
+	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
+	fake.mu.Unlock()
+	if err := writeFacts(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
+		t.Fatal(err)
+	}
+
+	var errOut bytes.Buffer
+	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	queue, err := loadFactProposals(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, p := range queue {
+		if p.CandidateID == localFact.ID && p.TargetID == remoteFact.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("a raised cross-member conflict must reach the local review queue, got %d entries (queue=%+v stderr=%q)", len(queue), queue, errOut.String())
 	}
 }
