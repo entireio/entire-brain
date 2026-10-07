@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "a401a20dab47",
+  "strategy": "manual-commit",
+  "branch": "hosted-sync-client-cor-2030",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/blind_spot.go",
+    "internal/cli/blind_spot_hosted_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a4/01a20dab47/0/metadata.json",
+      "transcript": "/a4/01a20dab47/0/full.jsonl",
+      "compact_transcript": "/a4/01a20dab47/0/transcript.jsonl",
+      "content_hash": "/a4/01a20dab47/0/content_hash.txt",
+      "prompt": "/a4/01a20dab47/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 562,
+    "cache_creation_tokens": 3693830,
+    "cache_read_tokens": 81472508,
+    "output_tokens": 197519,
+    "api_call_count": 281
+  }
+}
