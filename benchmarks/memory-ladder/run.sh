@@ -2,7 +2,9 @@
 # Run one condition, one repetition, against a fresh clone of this repository.
 #   run.sh <cond 1-5> <rep> [question-name]        (default question: global-activation)
 # Environment:
-#   LADDER_OUT=<dir>       where runs land (default: benchmarks/memory-ladder/runs, gitignored)
+#   LADDER_OUT=<dir>       where runs land (default: $TMPDIR/memory-ladder-runs). It must be outside this
+#                          repository: a clone nested under the source tree would put the un-stripped harness
+#                          (rubric, README with results) a relative path away from the agent under test.
 #   LADDER_MODEL=<model>   model for the nested agent (default: sonnet)
 #   LADDER_ORIGIN=<url>    origin URL to set on the clone (default: this repo's origin). Brain and Graph
 #                          derive the repository key from it, so a filesystem path origin breaks them.
@@ -13,7 +15,8 @@
 #   LADDER_BRANCH=<name>   branch to clone (default: main). Brain scopes facts to the checked-out branch,
 #                          so this must be the branch the brain was built for, not the feature branch
 #                          you happen to be developing the harness on.
-# The nested agent runs read-only: explicit tool allowlist, no permission bypass, no session persistence.
+# The nested agent runs read-only and confined to the clone: explicit tool allowlist, no permission
+# bypass, no session persistence (see the ALLOW comment below for how each tool is confined).
 # Graph prewarm (conditions 3+) is excluded from timing and written to prewarm.txt.
 # The clone's HEAD is one commit past the source (the harness directory is stripped), so Brain
 # reports its index as one commit behind; its content is unchanged by that commit.
@@ -24,7 +27,10 @@ case "$REP" in ''|*[!0-9]*) echo "rep must be a non-negative integer, got '$REP'
 case "$Q" in ''|*[!A-Za-z0-9._-]*|.*) echo "question name must match [A-Za-z0-9][A-Za-z0-9._-]*, got '$Q'" >&2; exit 2 ;; esac
 here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 SRC=$(git -C "$here" rev-parse --show-toplevel)
-OUT=${LADDER_OUT:-$here/runs}
+OUT=${LADDER_OUT:-${TMPDIR:-/tmp}/memory-ladder-runs}
+mkdir -p "$OUT"
+out_real=$(CDPATH='' cd -- "$OUT" && pwd -P); src_real=$(CDPATH='' cd -- "$SRC" && pwd -P)
+case "$out_real/" in "$src_real"/*) echo "LADDER_OUT ($out_real) must be outside the source repository ($src_real): the clone would sit next to the un-stripped harness" >&2; exit 2 ;; esac
 ORIGIN=${LADDER_ORIGIN:-$(git -C "$SRC" remote get-url origin)}
 BRANCH=${LADDER_BRANCH:-main}
 RUN=$OUT/$Q/c${COND}-r${REP}
@@ -56,12 +62,18 @@ if [ "$COND" -ge 3 ]; then
   s=$(date +%s); entire graph index --repo . --profile full >"$RUN/prewarm.log" 2>&1 || true
   echo "prewarm_s=$(( $(date +%s) - s ))" > "$RUN/prewarm.txt"
 fi
-ALLOW="Read Grep Glob Agent Bash(git:*) Bash(entire:*) Bash(grep:*) Bash(rg:*) Bash(ls:*) Bash(cat:*) Bash(head:*) Bash(tail:*) Bash(sed -n:*) Bash(find:*) Bash(wc:*) Bash(go doc:*)"
+# Tool confinement, measured against this runtime (see README):
+#  - Bash: Claude Code sandboxes file commands to the working directory, so cat/find/ls/grep on a
+#    path outside the clone are blocked by the runtime itself.
+#  - Read: unconfined by default, so it is granted only under the clone with Read(./**).
+#  - Grep and Glob tools: not path-scoped by permission rules, so they are not granted; the agent
+#    uses grep, rg, find and ls through the sandboxed shell instead.
+ALLOW="Read(./**) Agent Bash(cd:*) Bash(git:*) Bash(entire:*) Bash(grep:*) Bash(rg:*) Bash(ls:*) Bash(cat:*) Bash(head:*) Bash(tail:*) Bash(sed -n:*) Bash(find:*) Bash(wc:*) Bash(go doc:*)"
 start=$(date +%s)
 claude -p "$(cat "$here/questions/$Q.txt")" --model "${LADDER_MODEL:-sonnet}" --output-format stream-json --verbose \
   --setting-sources project --no-session-persistence --max-turns "${LADDER_MAX_TURNS:-80}" \
-  --allowedTools $ALLOW --disallowedTools "Edit Write MultiEdit NotebookEdit WebFetch WebSearch" \
+  --allowedTools "$ALLOW" --disallowedTools "Edit Write MultiEdit NotebookEdit WebFetch WebSearch" \
   > "$RUN/stream.jsonl" 2> "$RUN/stderr.log" || echo "exit=$?" > "$RUN/failed.txt"
 echo "wall_s=$(( $(date +%s) - start ))" > "$RUN/wall.txt"
-python3 "$here/parse.py" "$RUN" > "$RUN/summary.json"
+LADDER_SRC="$src_real" python3 "$here/parse.py" "$RUN" > "$RUN/summary.json"
 echo "done $Q c${COND}-r${REP}"

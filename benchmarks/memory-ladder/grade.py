@@ -11,7 +11,7 @@ here = os.path.dirname(os.path.abspath(__file__))
 q = next((a for a in sys.argv[1:] if not a.startswith("--")), "global-activation")
 if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", q):
     sys.exit(f"question name {q!r} must match [A-Za-z0-9][A-Za-z0-9._-]* (it names files under questions/)")
-out_dir = os.environ.get("LADDER_OUT", os.path.join(here, "runs"))
+out_dir = os.environ.get("LADDER_OUT", os.path.join(os.environ.get("TMPDIR", "/tmp"), "memory-ladder-runs"))
 rubric_path = os.path.join(here, "questions", f"{q}.rubric.json")
 if not os.path.isfile(rubric_path):
     sys.exit(f"no rubric for question {q!r}: {rubric_path}")
@@ -29,7 +29,7 @@ for sj in sorted(glob.glob(os.path.join(out_dir, q, "c*-r*", "summary.json"))):
         completed = False  # the agent saw harness content; its answer cannot be graded
     if not completed:
         hits = {k: None for k in rubric}  # an unfinished or contaminated run has no answer to grade
-    rows.append({"run": d["cond"], "completed": completed, "contaminated": bool(d.get("contaminated")), "probes": len(d.get("harness_probes") or []), **{k: d.get(k) for k in ("duration_s", "cost_usd", "num_turns", "tool_calls", "tokens_in", "tokens_out", "is_error", "subtype", "entire_subcommands")}, **hits})
+    rows.append({"run": d["cond"], "completed": completed, "contaminated": bool(d.get("contaminated")), "probes": len(d.get("harness_probes") or []) + len(d.get("escape_paths") or []), **{k: d.get(k) for k in ("duration_s", "cost_usd", "num_turns", "tool_calls", "tokens_in", "tokens_out", "is_error", "subtype", "entire_subcommands")}, **hits})
 if "--json" in sys.argv:
     print(json.dumps(rows, indent=1)); sys.exit()
 cols = ["completed", "duration_s", "num_turns", "tool_calls", "tokens_in"] + list(rubric)

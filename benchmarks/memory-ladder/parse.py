@@ -16,6 +16,24 @@ tools = collections.Counter(); cmds = []; result = {}
 HARNESS_MARKERS = ("memory-ladder", "memory_ladder", "rubric")
 CONTENT_MARKERS = ('"recovered"', ".rubric.json", "_comment", "## Run 1", "## Run 2", "Recovered the recorded")
 probes = []; contaminated = False
+# Escape audit: the clone is the agent's whole world. Any tool input that names a path outside
+# it (absolute path elsewhere, or a parent traversal) is recorded; one that reaches the source
+# repository this harness lives in, or names harness content, marks the run contaminated.
+clone = os.path.realpath(os.path.join(run, "repo"))
+src = os.path.realpath(os.environ["LADDER_SRC"]) if os.environ.get("LADDER_SRC") else None
+escapes = []
+def audit_paths(tool, inp):
+    global contaminated
+    text = json.dumps(inp)
+    for m in re.findall(r"(?:(?<=[\s\"'=:(])|^)(/[^\s\"'`;|&)>]+|(?:\.\./)+[^\s\"'`;|&)>]*)", text):
+        cand = os.path.realpath(m if m.startswith("/") else os.path.join(clone, m))
+        if cand.startswith(clone + os.sep) or cand == clone:
+            continue
+        if cand.startswith(("/usr/", "/bin/", "/opt/", "/dev/", "/etc/", "/private/var/folders/", "/var/folders/")):
+            continue  # tool binaries, devices, go caches
+        escapes.append(f"{tool}: {m[:160]}")
+        if src and (cand == src or cand.startswith(src + os.sep)):
+            contaminated = True
 for line in open(os.path.join(run, "stream.jsonl")):
     line = line.strip()
     if not line:
@@ -30,11 +48,12 @@ for line in open(os.path.join(run, "stream.jsonl")):
                 tools[b["name"]] += 1
                 if b["name"] == "Bash":
                     cmds.append(b["input"].get("command", "")[:300])
+                elif b["name"] in ("Agent", "Task"):
+                    cmds.append("AGENT:" + str(b["input"].get("prompt", ""))[:200])
                 probe_text = json.dumps(b.get("input", {}))
                 if any(m in probe_text for m in HARNESS_MARKERS):
                     probes.append(b["name"] + ": " + probe_text[:200])
-                elif b["name"] in ("Agent", "Task"):
-                    cmds.append("AGENT:" + str(b["input"].get("prompt", ""))[:200])
+                audit_paths(b["name"], b.get("input", {}))
     elif ev.get("type") == "user":
         for b in ev.get("message", {}).get("content", []):
             if isinstance(b, dict) and b.get("type") == "tool_result":
@@ -52,7 +71,7 @@ out = {
     "cond": os.path.basename(run),
     "is_error": result.get("is_error"), "subtype": result.get("subtype"),
     "completed": completed, "failed_marker": failed_marker,
-    "harness_probes": probes, "contaminated": contaminated,
+    "harness_probes": probes, "escape_paths": escapes, "contaminated": contaminated,
     "head": open(os.path.join(run, "head.txt")).read().strip() if os.path.exists(os.path.join(run, "head.txt")) else None,
     "duration_s": round((result.get("duration_ms") or 0) / 1000, 1),
     "cost_usd": round(result.get("total_cost_usd") or 0, 3),

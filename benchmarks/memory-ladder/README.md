@@ -44,11 +44,22 @@ benchmarks/memory-ladder/run.sh 2 1            # one condition, one rep
 python3 benchmarks/memory-ladder/grade.py      # table of runs and per-condition means
 ```
 
+The agent is confined to its clone. Measured against this Claude Code build:
+Bash file commands (`cat`, `find`, `ls`, `grep`) on a path outside the working
+directory are blocked by the runtime; the Read tool is not, so it is granted only
+as `Read(./**)`; the Grep and Glob tools are not path-scoped by permission rules,
+so they are not granted and the agent uses `grep`, `rg`, `find` and `ls` through
+the sandboxed shell. Runs land in `$TMPDIR/memory-ladder-runs` by default and
+`run.sh` refuses an output directory inside this repository, so the clone never
+sits a relative path away from the un-stripped harness. `parse.py` records every
+tool input that names a path outside the clone and marks a run contaminated if
+one reaches the source repository.
+
 Knobs: `LADDER_BRAIN_BIN` (an `entire-brain` binary to run instead of the
 installed plugin for conditions 4 and 5, for example a build from `main`; it
 reads the installed store and also renders condition 4's guide), `LADDER_MODEL`
 (default `sonnet`), `LADDER_MAX_TURNS` (80), `LADDER_OUT`
-(default `runs/`, gitignored), `LADDER_ORIGIN` (clone origin URL; Brain and
+(default `$TMPDIR/memory-ladder-runs`, must be outside this repository), `LADDER_ORIGIN` (clone origin URL; Brain and
 Graph derive the repository key from it, so keep the GitHub URL), `LADDER_BRANCH`
 (default `main`; Brain scopes facts to the checked-out branch, so a clone of a
 feature branch sees no facts at all). Graph prewarm
