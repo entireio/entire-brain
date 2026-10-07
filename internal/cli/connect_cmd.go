@@ -90,7 +90,10 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
-	binding.BaseURL = validated
+	// Cell URLs are commonly quoted with their /api/v1 prefix (whereami's
+	// api_url, docs examples), but the factsync client appends
+	// /api/v1/repos/... itself — storing the suffix would 404 every sync.
+	binding.BaseURL = strings.TrimSuffix(validated, "/api/v1")
 
 	if err := writeHostedRepoBinding(storage.BrainDir, binding); err != nil {
 		return err

@@ -61,8 +61,10 @@ func TestConnectWithExplicitFlagsWritesBindingWithoutShellOut(t *testing.T) {
 	if err != nil || !present {
 		t.Fatalf("binding must be written: present=%v err=%v", present, err)
 	}
+	// The factsync client appends /api/v1/repos/... itself, so connect must
+	// store the origin: a stored /api/v1 suffix would 404 every sync.
 	if binding.RepoID != "01M2Q9WATHXVM46CD8Y4D3AX8W" || binding.Jurisdiction != "us" ||
-		binding.BaseURL != "https://aws-us-east-2.api.partial.to/api/v1" {
+		binding.BaseURL != "https://aws-us-east-2.api.partial.to" {
 		t.Fatalf("binding mismatch: %+v", binding)
 	}
 }
@@ -90,7 +92,7 @@ func TestConnectResolvesViaWhereami(t *testing.T) {
 		t.Fatalf("binding must be written: present=%v err=%v", present, err)
 	}
 	if binding.RepoID != "01AAAAAAAAAAAAAAAAAAAAAAAA" || binding.Jurisdiction != "eu" ||
-		binding.BaseURL != "https://eu.api.example.com/api/v1" {
+		binding.BaseURL != "https://eu.api.example.com" {
 		t.Fatalf("binding mismatch: %+v", binding)
 	}
 }
