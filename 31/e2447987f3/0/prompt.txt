@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bqqc51hxc</task-id>
+<tool-use-id>toolu_01YE7ViVd2YjojN3Cq2bTT2W</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-krk-Desktop-GitStore-entire-brain/8ac7b277-685f-472c-9141-8ba22f5e3246/tasks/bqqc51hxc.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch trail 251 for the findings gate on the new head, then list open findings" completed (exit code 0)</summary>
+</task-notification>
