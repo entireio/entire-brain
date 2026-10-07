@@ -25,9 +25,11 @@ for sj in sorted(glob.glob(os.path.join(out_dir, q, "c*-r*", "summary.json"))):
         completed = bool(d["completed"])
     else:  # summary written by an older parse.py: derive the same rule
         completed = not d.get("is_error") and d.get("subtype") == "success" and bool(d.get("result"))
+    if d.get("contaminated"):
+        completed = False  # the agent saw harness content; its answer cannot be graded
     if not completed:
-        hits = {k: None for k in rubric}  # an unfinished run has no answer to grade
-    rows.append({"run": d["cond"], "completed": completed, **{k: d.get(k) for k in ("duration_s", "cost_usd", "num_turns", "tool_calls", "tokens_in", "tokens_out", "is_error", "subtype", "entire_subcommands")}, **hits})
+        hits = {k: None for k in rubric}  # an unfinished or contaminated run has no answer to grade
+    rows.append({"run": d["cond"], "completed": completed, "contaminated": bool(d.get("contaminated")), "probes": len(d.get("harness_probes") or []), **{k: d.get(k) for k in ("duration_s", "cost_usd", "num_turns", "tool_calls", "tokens_in", "tokens_out", "is_error", "subtype", "entire_subcommands")}, **hits})
 if "--json" in sys.argv:
     print(json.dumps(rows, indent=1)); sys.exit()
 cols = ["completed", "duration_s", "num_turns", "tool_calls", "tokens_in"] + list(rubric)
@@ -44,6 +46,12 @@ for c, rs in sorted(by.items()):
     m = lambda k: statistics.mean(x[k] or 0 for x in ok) if ok else float("nan")
     rec = sum(bool(x.get("recovered")) for x in ok)
     print(f"{c}    {len(ok):>9}/{len(rs):<6}  {m('duration_s'):9.1f}  {m('num_turns'):10.1f}  {m('tokens_in'):11.0f}  {rec}/{len(ok)}")
-failed = [r["run"] for r in rows if not r["completed"]]
+failed = [r["run"] for r in rows if not r["completed"] and not r["contaminated"]]
 if failed:
     print("\nfailed or incomplete runs (excluded from means):", ", ".join(failed))
+bad = [r["run"] for r in rows if r["contaminated"]]
+if bad:
+    print("contaminated runs, agent saw harness content (excluded):", ", ".join(bad))
+probed = [f'{r["run"]}({r["probes"]})' for r in rows if r["probes"]]
+if probed:
+    print("runs that probed for the harness directory (refused, kept):", ", ".join(probed))

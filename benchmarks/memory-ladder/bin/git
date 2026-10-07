@@ -1,0 +1,34 @@
+#!/bin/sh
+# Read-only, harness-blind git for the agent under test. run.sh puts this directory first on PATH.
+#
+# Why: the harness directory (prompt, rubric, README with earlier results) is stripped from the
+# clone's worktree and HEAD, but once it has merged it still exists in history, and the agent's
+# tool allowlist permits git. This wrapper keeps git history available as a memory surface
+# (condition 1 depends on it) while closing every read path to that directory:
+#   - only read subcommands are allowed (no fetch/pull, no object-level readers, no writes);
+#   - any argument that names the directory or a rubric is refused;
+#   - for history and content readers a pathspec exclusion is appended, so `git show <sha>` and
+#     `git log -p` cannot print the directory even for the commits that added it.
+# The transcript audit in parse.py records refused attempts; see README.
+HARNESS=benchmarks/memory-ladder
+shimdir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -vx -- "$shimdir" | paste -sd: -); export PATH
+REAL=$(command -v git 2>/dev/null || true)
+[ -n "$REAL" ] || { echo "git shim: real git not found on PATH" >&2; exit 127; }
+sub=${1:-}
+deny() { echo "git: $1 is not available in this environment" >&2; exit 1; }
+for a in "$@"; do
+  case "$a" in *memory-ladder*|*memory_ladder*|*rubric*) deny "that path" ;; esac
+done
+case "$sub" in
+  log|show|diff|whatchanged|range-diff|shortlog|grep|blame|annotate)
+    has_sep=0; for a in "$@"; do [ "$a" = "--" ] && has_sep=1; done
+    case "$sub" in
+      blame|annotate) exec "$REAL" "$@" ;;   # single-file readers: the path itself is already screened above
+      *) if [ "$has_sep" = 1 ]; then exec "$REAL" "$@" ":!$HARNESS"; else exec "$REAL" "$@" -- ":!$HARNESS"; fi ;;
+    esac ;;
+  status|branch|tag|describe|rev-parse|name-rev|merge-base|ls-files|for-each-ref|show-branch|show-ref|help|version|--version|config)
+    case "$sub$2" in config*) case "$2" in --get|--list|-l|--get-all|--get-regexp) ;; *) deny "git config writes" ;; esac ;; esac
+    exec "$REAL" "$@" ;;
+  *) deny "git $sub" ;;
+esac
