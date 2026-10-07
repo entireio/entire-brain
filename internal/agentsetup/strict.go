@@ -133,6 +133,11 @@ Knowing what the current code does does not establish why it was written.
 Do not substitute recollection, source comments, or a plausible explanation
 for retrieval of the recorded evidence.
 
+Retrieve prior decisions, rejected approaches and rationale with recall, not
+with query and not from the brief's facts sample alone:
+
+    entire brain recall "<question>" --json
+
 Use Brain retrieval for recorded knowledge. Use entities history when connecting
 code changes to earlier checkpoints or sessions. ALWAYS retrieve relevant prior
 decisions and attempts before proposing to replace an existing approach.
