@@ -1,0 +1,85 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "54d885255e14",
+  "session_id": "8ac7b277-685f-472c-9141-8ba22f5e3246",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-07T06:59:46.79722Z",
+  "branch": "bench/memory-ladder-harness",
+  "checkpoints_count": 12,
+  "save_step_count": 2,
+  "files_touched": [
+    "benchmarks/memory-ladder/bin/entire",
+    "benchmarks/memory-ladder/run.sh",
+    "benchmarks/memory-ladder/setup-guides.sh"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5-1",
+  "turn_id": "c1f1bc306701",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 4434,
+    "cache_creation_tokens": 751423,
+    "cache_read_tokens": 45729519,
+    "output_tokens": 195413,
+    "api_call_count": 165
+  },
+  "session_metrics": {
+    "turn_count": 12
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-07T06:59:46.708578Z",
+    "agent_lines": 27,
+    "agent_removed": 0,
+    "human_added": 179,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 206,
+    "total_lines_changed": 214,
+    "agent_percentage": 12.616822429906541,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 90,
+      "user_lines_removed": 6,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "internal/agentsetup/guide.go": 11,
+        "internal/agentsetup/recall_guidance_test.go": 35,
+        "internal/agentsetup/strict.go": 5,
+        "internal/cli/agent_surface.go": 12,
+        "internal/cli/brain_test.go": 27
+      },
+      "user_removed_per_file": {
+        "internal/agentsetup/guide.go": 1,
+        "internal/cli/agent_surface.go": 5
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 131,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "benchmarks/memory-ladder/questions/test-first-checklist.rubric.json": 11,
+        "benchmarks/memory-ladder/questions/test-first-checklist.txt": 8,
+        "benchmarks/memory-ladder/run.sh": 67,
+        "benchmarks/memory-ladder/setup-guides.sh": 45
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 19,
+      "user_lines_removed": 0,
+      "agent_lines_added": 16,
+      "agent_lines_removed": 3,
+      "user_added_per_file": {
+        "benchmarks/memory-ladder/questions/test-first-checklist.rubric.json": 11,
+        "benchmarks/memory-ladder/questions/test-first-checklist.txt": 8
+      }
+    }
+  ]
+}
