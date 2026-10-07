@@ -44,6 +44,11 @@ func Upsert(records []Record, incoming Record) []Record {
 		if !ValidFactKind(records[i].Kind) && ValidFactKind(incoming.Kind) {
 			records[i].Kind = incoming.Kind
 		}
+		// Same anti-thrash rule for Author: fill an empty one, never overwrite
+		// (attribution is first-writer-wins by design).
+		if records[i].Author == "" && incoming.Author != "" {
+			records[i].Author = incoming.Author
+		}
 		return records
 	}
 	return append(records, incoming)
