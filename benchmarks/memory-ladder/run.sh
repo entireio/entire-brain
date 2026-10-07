@@ -37,7 +37,15 @@ RUN=$OUT/$Q/c${COND}-r${REP}
 [ -f "$here/guides/cond${COND}.md" ] || { echo "guides missing; run setup-guides.sh first" >&2; exit 1; }
 [ -f "$here/questions/$Q.txt" ] || { echo "unknown question $Q" >&2; exit 1; }
 rm -rf "$RUN"; mkdir -p "$RUN"
-git clone -q --branch "$BRANCH" "$SRC" "$RUN/repo"
+# Single-branch, non-local clone: the source repository carries Entire's checkpoint refs
+# (entire/checkpoints/v1 and entire/<sha>), whose commits hold session transcripts, including
+# those of sessions that built or ran this harness. A default clone copies every ref and pack,
+# so `git log --all` or `git grep <pat> origin/entire/checkpoints/v1` would hand session
+# history, and the answer key quoted inside it, to every condition including "code and git
+# only". --single-branch fetches only $BRANCH and tags; --no-local transfers objects as a pack
+# instead of hard-linking the source's, so the checkpoint objects are absent, not merely
+# unreferenced (measured: 60 MB and 2 s against 600 MB for the default clone).
+git clone -q --no-local --single-branch --branch "$BRANCH" "$SRC" "$RUN/repo"
 cd "$RUN/repo"
 git remote set-url origin "$ORIGIN"
 # The agent under test must not be able to read its own grading rubric, the prompt, or the README

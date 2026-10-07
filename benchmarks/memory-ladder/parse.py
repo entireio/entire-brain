@@ -3,7 +3,7 @@
 Internal to the harness: run.sh calls it with the run directory it just created. The
 argument must be an existing directory containing stream.jsonl; nothing outside it is read.
 """
-import json, sys, os, re, collections
+import json, sys, os, re, collections, tempfile
 if len(sys.argv) != 2:
     sys.exit("usage: parse.py <run-dir>")
 run = os.path.realpath(sys.argv[1])
@@ -20,6 +20,8 @@ probes = []; contaminated = False
 # it (absolute path elsewhere, or a parent traversal) is recorded; one that reaches the source
 # repository this harness lives in, or names harness content, marks the run contaminated.
 clone = os.path.realpath(os.path.join(run, "repo"))
+_tmp = os.path.realpath(tempfile.gettempdir())
+SYSTEM_PREFIXES = tuple(p if p.endswith(os.sep) else p + os.sep for p in ("/usr", "/bin", "/opt", "/dev", "/etc", _tmp, tempfile.gettempdir()))
 src = os.path.realpath(os.environ["LADDER_SRC"]) if os.environ.get("LADDER_SRC") else None
 escapes = []
 def audit_paths(tool, inp):
@@ -29,8 +31,8 @@ def audit_paths(tool, inp):
         cand = os.path.realpath(m if m.startswith("/") else os.path.join(clone, m))
         if cand.startswith(clone + os.sep) or cand == clone:
             continue
-        if cand.startswith(("/usr/", "/bin/", "/opt/", "/dev/", "/etc/", "/private/var/folders/", "/var/folders/")):
-            continue  # tool binaries, devices, go caches
+        if cand.startswith(SYSTEM_PREFIXES):
+            continue  # tool binaries, devices, the runtime's own temp dir (go caches live there)
         escapes.append(f"{tool}: {m[:160]}")
         if src and (cand == src or cand.startswith(src + os.sep)):
             contaminated = True

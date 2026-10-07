@@ -44,6 +44,12 @@ benchmarks/memory-ladder/run.sh 2 1            # one condition, one rep
 python3 benchmarks/memory-ladder/grade.py      # table of runs and per-condition means
 ```
 
+The clone is single-branch and non-local: the source repository carries Entire's
+checkpoint refs, whose commits are session transcripts (including those of the
+sessions that built this harness and quote its answer key), and a default clone
+would expose them to every condition through `git log --all`. Only the branch
+under test and tags are fetched, and the checkpoint objects are not transferred.
+
 The agent is confined to its clone. Measured against this Claude Code build:
 Bash file commands (`cat`, `find`, `ls`, `grep`) on a path outside the working
 directory are blocked by the runtime; the Read tool is not, so it is granted only
