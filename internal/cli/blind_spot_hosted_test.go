@@ -15,7 +15,7 @@ func TestUnsyncedHostedFactsBlindSpot(t *testing.T) {
 		t.Fatal(err)
 	}
 	note := unsyncedHostedFactsBlindSpot(brainDir, "feature/x")
-	if !strings.Contains(note, "has never synced") || !strings.Contains(note, "feature/x") {
+	if !strings.Contains(note, "has not synced") || !strings.Contains(note, "feature/x") {
 		t.Fatalf("connected-but-unsynced branch must get the note, got %q", note)
 	}
 	if err := writeHostedFactsBinding(brainDir, "feature/x", "repo1", "https://api.example.com/api/v1"); err != nil {
@@ -40,7 +40,28 @@ func TestHostedNoteWinsOverTheOtherBranchNote(t *testing.T) {
 		t.Fatal(err)
 	}
 	note := emptyResultBlindSpotOnBranch(brainDir, "feature/x")
-	if !strings.Contains(note, "has never synced") {
+	if !strings.Contains(note, "has not synced") {
 		t.Fatalf("the hosted note is actionable and must win over the other-branch note, got %q", note)
+	}
+}
+
+func TestUnsyncedNoteReturnsAfterReconnectingToADifferentTarget(t *testing.T) {
+	brainDir := t.TempDir()
+	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo-old", BaseURL: "https://old.api.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeHostedFactsBinding(brainDir, "main", "repo-old", "https://old.api.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if note := unsyncedHostedFactsBlindSpot(brainDir, "main"); note != "" {
+		t.Fatalf("a branch synced against the connected target must get no note, got %q", note)
+	}
+	// Reconnect to a different hosted target: the stale per-branch marker must
+	// not suppress the note — this branch has never synced against it.
+	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo-new", BaseURL: "https://new.api.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if note := unsyncedHostedFactsBlindSpot(brainDir, "main"); note == "" {
+		t.Fatal("a stale marker from a previous target must not suppress the note")
 	}
 }

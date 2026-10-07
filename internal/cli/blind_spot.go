@@ -234,15 +234,18 @@ func otherBranchSessionBlindSpot(brainDir, branch string) string {
 		branch, total, len(names), strings.Join(names, ", "))
 }
 
-// unsyncedHostedFactsBlindSpot notes a branch that has never synced in a repo
-// connected to a hosted brain (repo-level hosted.json present, per-branch
-// hosted-target.json absent). Purely local reads; no network.
+// unsyncedHostedFactsBlindSpot notes a branch that has not synced against the
+// CONNECTED hosted brain: repo-level hosted.json present, per-branch
+// hosted-target.json absent or recording a different target (a marker left by
+// a previous connection must not suppress the note). Purely local reads; no
+// network.
 func unsyncedHostedFactsBlindSpot(brainDir, branch string) string {
-	if _, connected, err := readHostedRepoBinding(brainDir); err != nil || !connected {
+	binding, connected, err := readHostedRepoBinding(brainDir)
+	if err != nil || !connected {
 		return ""
 	}
-	if _, synced, err := readMemoryStateFile(brainDir, hostedFactsBindingPath(branch), "hosted fact binding", defaultMaxReadBytes); err != nil || synced {
+	if checkHostedFactsBinding(brainDir, branch, binding.RepoID, binding.BaseURL) == nil {
 		return ""
 	}
-	return fmt.Sprintf("note: this repository is connected to a hosted brain but branch %q has never synced; run 'entire brain facts sync' or wait for the next daemon tick", branch)
+	return fmt.Sprintf("note: this repository is connected to a hosted brain but branch %q has not synced with it; run 'entire brain facts sync' or wait for the next daemon tick", branch)
 }
