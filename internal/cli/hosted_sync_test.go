@@ -118,7 +118,7 @@ func hostedSyncHarness(t *testing.T, fake *hostedFake, bind bool) (Options, repo
 	storage := repoStorage{Key: "test/repo", BrainDir: brainDir, HeadPath: filepath.Join(t.TempDir(), "HEAD")}
 	srv := newHostedFakeServer(t, fake)
 	if bind {
-		if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL, Jurisdiction: "us"}); err != nil {
+		if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -326,5 +326,86 @@ func TestPullServerAttributionBeatsBlobAuthor(t *testing.T) {
 		if rec.ID == forgedAuthor.ID && rec.Author != "teammate" {
 			t.Fatalf("the server-stamped authors map must beat a blob-carried author, got %q", rec.Author)
 		}
+	}
+}
+
+func TestHostedSyncAutoConnectsWhenUnbound(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	remoteFact := hostedSyncTestFact("auto-connected team fact", now)
+	fake := &hostedFake{ref: "facts-remote", authors: map[string]string{remoteFact.ID: "teammate"}}
+	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
+	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "whereami" {
+			// whereami quotes the cell URL with its /api/v1 prefix; binding must strip it.
+			return []byte(`{"repo_id":"repo1","api_url":"` + baseURL + `/api/v1"}` + "\n"), nil, nil
+		}
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+
+	var errOut bytes.Buffer
+	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	binding, present, err := readHostedRepoBinding(storage.BrainDir)
+	if err != nil || !present {
+		t.Fatalf("auto-connect must write the binding: present=%v err=%v", present, err)
+	}
+	if binding.RepoID != "repo1" || binding.BaseURL != baseURL {
+		t.Fatalf("binding mismatch (api/v1 must be stripped): %+v", binding)
+	}
+	local, err := loadFacts(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, rec := range local {
+		if rec.ID == remoteFact.ID && rec.Author == "teammate" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("auto-connect must complete the first sync+pull, got %d local records", len(local))
+	}
+}
+
+func TestHostedSyncStaysLocalWhenPlacementUnresolvable(t *testing.T) {
+	fake := &hostedFake{}
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, false)
+	// Harness runner answers only `auth token`; whereami fails like a CLI
+	// without COR-2029, a logged-out user, or an unregistered repo.
+	var errOut bytes.Buffer
+	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatalf("unresolvable placement must be a graceful local fallback, got %v", err)
+	}
+	if fake.requestCount() != 0 {
+		t.Fatalf("local fallback must make zero hosted requests, got %d", fake.requestCount())
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("local fallback must be silent, got %q", errOut.String())
+	}
+	if _, present, _ := readHostedRepoBinding(storage.BrainDir); present {
+		t.Fatal("no binding may be written when placement is unresolved")
+	}
+}
+
+func TestHostedSyncNoEgressBlocksAutoConnect(t *testing.T) {
+	fake := &hostedFake{}
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, false)
+	whereamiCalls := 0
+	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		whereamiCalls++
+		return nil, nil, errors.New("not available")
+	})
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
+	var errOut bytes.Buffer
+	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if whereamiCalls != 0 || fake.requestCount() != 0 {
+		t.Fatalf("NO_EGRESS must block even placement resolution, got whereami=%d requests=%d", whereamiCalls, fake.requestCount())
 	}
 }

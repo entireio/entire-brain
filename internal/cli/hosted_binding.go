@@ -8,12 +8,11 @@ import (
 
 // hostedRepoBinding is the repo-level "connected to a hosted brain" marker,
 // written once by `entire brain connect`. Only non-secrets live here; tokens
-// are minted per call (see mintJurisdictionToken). The per-branch
+// are minted per call (see mintHostedToken). The per-branch
 // hosted-target.json (hostedFactsBinding) records which branches have synced.
 type hostedRepoBinding struct {
-	RepoID       string `json:"repo_id"`
-	BaseURL      string `json:"base_url"`
-	Jurisdiction string `json:"jurisdiction,omitempty"`
+	RepoID  string `json:"repo_id"`
+	BaseURL string `json:"base_url"`
 }
 
 const hostedRepoBindingFile = "hosted.json"

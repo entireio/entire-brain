@@ -45,8 +45,7 @@ func TestConnectWithExplicitFlagsWritesBindingWithoutShellOut(t *testing.T) {
 
 	_, _, err := runConnectCommand(t, opts,
 		"--repo-id", "01M2Q9WATHXVM46CD8Y4D3AX8W",
-		"--api-url", "https://aws-us-east-2.api.partial.to/api/v1",
-		"--jurisdiction", "us")
+		"--api-url", "https://aws-us-east-2.api.partial.to/api/v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +62,7 @@ func TestConnectWithExplicitFlagsWritesBindingWithoutShellOut(t *testing.T) {
 	}
 	// The factsync client appends /api/v1/repos/... itself, so connect must
 	// store the origin: a stored /api/v1 suffix would 404 every sync.
-	if binding.RepoID != "01M2Q9WATHXVM46CD8Y4D3AX8W" || binding.Jurisdiction != "us" ||
+	if binding.RepoID != "01M2Q9WATHXVM46CD8Y4D3AX8W" ||
 		binding.BaseURL != "https://aws-us-east-2.api.partial.to" {
 		t.Fatalf("binding mismatch: %+v", binding)
 	}
@@ -91,7 +90,7 @@ func TestConnectResolvesViaWhereami(t *testing.T) {
 	if err != nil || !present {
 		t.Fatalf("binding must be written: present=%v err=%v", present, err)
 	}
-	if binding.RepoID != "01AAAAAAAAAAAAAAAAAAAAAAAA" || binding.Jurisdiction != "eu" ||
+	if binding.RepoID != "01AAAAAAAAAAAAAAAAAAAAAAAA" ||
 		binding.BaseURL != "https://eu.api.example.com" {
 		t.Fatalf("binding mismatch: %+v", binding)
 	}
@@ -162,7 +161,7 @@ func TestConnectRunsInitialPull(t *testing.T) {
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
 
 	if _, _, err := runConnectCommand(t, opts,
-		"--repo-id", "repo1", "--api-url", srv.URL, "--jurisdiction", "us"); err != nil {
+		"--repo-id", "repo1", "--api-url", srv.URL); err != nil {
 		t.Fatal(err)
 	}
 	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)

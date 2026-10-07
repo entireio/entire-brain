@@ -27,8 +27,10 @@ const hostEntireBinary = "entire"
 // errors only.
 //
 // Gate order is fixed: (1) the local-only kill switch always wins; (2) the
-// repo binding is the connection intent; (3) apiurl.Validate before any client
-// exists. A fresh token is minted per call and held only in memory.
+// repo binding is the connection state — absent, each run tries to resolve it
+// through the host CLI and falls back to local-only, silently, until that
+// succeeds; (3) apiurl.Validate before any client exists. A fresh token is
+// minted per call via the host CLI's own login and held only in memory.
 func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) error {
 	if brainNoEgressMode() {
 		return nil
@@ -39,14 +41,27 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 		return nil
 	}
 	if !present {
-		return nil
+		// Auto-connect: placement comes from the host CLI (whereami), which
+		// fails for a logged-out user, an unregistered repo, or a CLI without
+		// the command — all of which mean "stay local and retry next run".
+		// ponytail: an unresolvable repo re-runs whereami on every throttled
+		// sync attempt; cache a negative result if that ever gets expensive.
+		resolved, whereamiErr := resolveWhereami(ctx, opts.Runner, repoDir)
+		if whereamiErr != nil {
+			return nil
+		}
+		binding, err = bindHostedRepo(storage.BrainDir, resolved.RepoID, resolved.APIURL)
+		if err != nil {
+			fmt.Fprintf(errW, "hosted sync: auto-connect skipped: %v\n", err)
+			return nil
+		}
 	}
 	baseURL, err := apiurl.Validate(binding.BaseURL)
 	if err != nil {
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
 		return nil
 	}
-	token, err := mintJurisdictionToken(ctx, opts.Runner, repoDir, hostEntireBinary, binding.Jurisdiction)
+	token, err := mintHostedToken(ctx, opts.Runner, repoDir, hostEntireBinary)
 	if err != nil {
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
 		return nil

@@ -8,7 +8,7 @@ import (
 
 func TestHostedRepoBindingRoundTrip(t *testing.T) {
 	brainDir := t.TempDir()
-	in := hostedRepoBinding{RepoID: "01M2Q9WATHXVM46CD8Y4D3AX8W", BaseURL: "https://aws-us-east-2.api.partial.to/api/v1/", Jurisdiction: "us"}
+	in := hostedRepoBinding{RepoID: "01M2Q9WATHXVM46CD8Y4D3AX8W", BaseURL: "https://aws-us-east-2.api.partial.to/api/v1/"}
 	if err := writeHostedRepoBinding(brainDir, in); err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestHostedRepoBindingRoundTrip(t *testing.T) {
 	if !present {
 		t.Fatal("binding must be present after write")
 	}
-	if got.RepoID != in.RepoID || got.Jurisdiction != in.Jurisdiction {
+	if got.RepoID != in.RepoID {
 		t.Fatalf("round-trip mismatch: %+v", got)
 	}
 	if got.BaseURL != "https://aws-us-east-2.api.partial.to/api/v1" {

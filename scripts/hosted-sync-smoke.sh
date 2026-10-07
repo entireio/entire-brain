@@ -4,20 +4,24 @@
 # `entire brain connect`.
 #
 # Each "machine" is a fresh clone with its own plugin data/state/config/cache
-# dirs, sharing only the hosted brainstore head. Tokens are minted per sync by
-# shelling out to the host `entire` CLI, so run this logged in to the target
-# jurisdiction (entire auth contexts).
+# dirs, sharing only the hosted brainstore head. Auth is the host CLI's own:
+# the plugin shells `entire auth token`, which prints ENTIRE_TOKEN verbatim
+# when set, else the active context's login. To target a non-active context
+# (e.g. staging), set AUTH_CONTEXT and the script exports ENTIRE_TOKEN from it.
 #
 # Usage:
 #   REPO_ID=01M2Q9WATHXVM46CD8Y4D3AX8W \
 #   API_URL=https://aws-us-east-2.api.partial.to/api/v1 \
-#   JURISDICTION=us.auth.partial.to \
+#   AUTH_CONTEXT=us.auth.partial.to \
 #   scripts/hosted-sync-smoke.sh
 set -euo pipefail
 
 REPO_ID=${REPO_ID:?set REPO_ID (region-local repo ULID)}
 API_URL=${API_URL:?set API_URL (cell base URL, e.g. https://aws-us-east-2.api.partial.to/api/v1)}
-JURISDICTION=${JURISDICTION:-}
+if [ -n "${AUTH_CONTEXT:-}" ]; then
+  ENTIRE_TOKEN=$(entire auth token --context "$AUTH_CONTEXT")
+  export ENTIRE_TOKEN
+fi
 
 root=$(git rev-parse --show-toplevel)
 work=$(mktemp -d)
@@ -45,9 +49,6 @@ git clone -q "$root" "$work/b"
 fact="hosted sync smoke $(date +%s)-$RANDOM: the two-machine loop works"
 
 connect_args=(--repo-id "$REPO_ID" --api-url "$API_URL")
-if [ -n "$JURISDICTION" ]; then
-  connect_args+=(--jurisdiction "$JURISDICTION")
-fi
 
 echo "==> machine A: connect"
 run a "$work/a" connect "${connect_args[@]}"

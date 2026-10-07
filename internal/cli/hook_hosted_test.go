@@ -40,7 +40,7 @@ func sessionEndHarness(t *testing.T, fake *hostedFake, bind bool) (Options, repo
 	}
 	if bind {
 		srv := newHostedFakeServer(t, fake)
-		if err := writeHostedRepoBinding(storage.BrainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL, Jurisdiction: "us"}); err != nil {
+		if err := writeHostedRepoBinding(storage.BrainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -77,7 +77,7 @@ func TestSessionEndHookHostedFailureIsSilentSuccess(t *testing.T) {
 	fake := &hostedFake{}
 	opts, storage := sessionEndHarness(t, fake, true)
 	// Corrupt the binding's URL so the sync step fails its gate.
-	if err := writeHostedRepoBinding(storage.BrainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: "ftp://nope", Jurisdiction: "us"}); err != nil {
+	if err := writeHostedRepoBinding(storage.BrainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: "ftp://nope"}); err != nil {
 		t.Fatal(err)
 	}
 	stdout, errOut := runSessionEndHook(t, opts)

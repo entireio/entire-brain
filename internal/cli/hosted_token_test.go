@@ -9,7 +9,7 @@ import (
 
 const fakeJWT = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1bHJpY2gifQ.c2lnbmF0dXJl"
 
-func TestMintJurisdictionTokenTakesLastLineAndUsesContextFlag(t *testing.T) {
+func TestMintHostedTokenUsesTheCLIsOwnAuth(t *testing.T) {
 	var gotName string
 	var gotArgs []string
 	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
@@ -17,7 +17,7 @@ func TestMintJurisdictionTokenTakesLastLineAndUsesContextFlag(t *testing.T) {
 		gotArgs = args
 		return []byte("some banner chatter\n" + fakeJWT + "\n"), nil, nil
 	})
-	token, err := mintJurisdictionToken(context.Background(), runner, "/repo", "entire", "us")
+	token, err := mintHostedToken(context.Background(), runner, "/repo", "entire")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,33 +27,20 @@ func TestMintJurisdictionTokenTakesLastLineAndUsesContextFlag(t *testing.T) {
 	if gotName != "entire" {
 		t.Fatalf("must shell out to the host binary, got %q", gotName)
 	}
-	want := []string{"auth", "token", "--context", "us"}
-	if strings.Join(gotArgs, " ") != strings.Join(want, " ") {
-		t.Fatalf("args = %v, want %v (current CLI form; --jurisdiction is deprecated)", gotArgs, want)
-	}
-}
-
-func TestMintJurisdictionTokenOmitsContextWhenEmpty(t *testing.T) {
-	var gotArgs []string
-	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
-		gotArgs = args
-		return []byte(fakeJWT + "\n"), nil, nil
-	})
-	if _, err := mintJurisdictionToken(context.Background(), runner, "/repo", "entire", ""); err != nil {
-		t.Fatal(err)
-	}
+	// The CLI owns auth entirely: its stored active-context login (or
+	// ENTIRE_TOKEN, which it prints verbatim). No context/jurisdiction flags.
 	if strings.Join(gotArgs, " ") != "auth token" {
-		t.Fatalf("empty jurisdiction must omit --context, got %v", gotArgs)
+		t.Fatalf("args = %v, want [auth token]", gotArgs)
 	}
 }
 
-func TestMintJurisdictionTokenFailures(t *testing.T) {
+func TestMintHostedTokenFailures(t *testing.T) {
 	t.Run("runner error passes through", func(t *testing.T) {
 		boom := errors.New("not logged in")
 		runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 			return nil, nil, boom
 		})
-		if _, err := mintJurisdictionToken(context.Background(), runner, "/repo", "entire", "us"); !errors.Is(err, boom) {
+		if _, err := mintHostedToken(context.Background(), runner, "/repo", "entire"); !errors.Is(err, boom) {
 			t.Fatalf("runner error must pass through, got %v", err)
 		}
 	})
@@ -61,7 +48,7 @@ func TestMintJurisdictionTokenFailures(t *testing.T) {
 		runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 			return []byte("  \n"), nil, nil
 		})
-		if _, err := mintJurisdictionToken(context.Background(), runner, "/repo", "entire", "us"); err == nil {
+		if _, err := mintHostedToken(context.Background(), runner, "/repo", "entire"); err == nil {
 			t.Fatal("empty stdout must error")
 		}
 	})
@@ -70,7 +57,7 @@ func TestMintJurisdictionTokenFailures(t *testing.T) {
 		runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 			return []byte(secretish + "\n"), nil, nil
 		})
-		_, err := mintJurisdictionToken(context.Background(), runner, "/repo", "entire", "us")
+		_, err := mintHostedToken(context.Background(), runner, "/repo", "entire")
 		if err == nil {
 			t.Fatal("non-JWT output must error")
 		}
