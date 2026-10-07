@@ -24,6 +24,12 @@ func runSessionEndHook(t *testing.T, opts Options) (string, string) {
 
 func sessionEndHarness(t *testing.T, fake *hostedFake, bind bool) (Options, repoStorage) {
 	t.Helper()
+	// The real launch re-execs this test binary as `memory worker --once` with
+	// its cwd inside the temp dir — on Windows that handle blocks TempDir
+	// cleanup, and a spawned worker is never what a unit test wants.
+	oldLaunch := memoryWorkerLaunch
+	memoryWorkerLaunch = func(string) error { return nil }
+	t.Cleanup(func() { memoryWorkerLaunch = oldLaunch })
 	repoDir := t.TempDir()
 	env := connectTestEnv(t, repoDir)
 	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {

@@ -8,7 +8,7 @@ import (
 
 func TestHostedRepoBindingRoundTrip(t *testing.T) {
 	brainDir := t.TempDir()
-	in := hostedRepoBinding{RepoID: "01M2Q9WATHXVM46CD8Y4D3AX8W", BaseURL: "https://aws-us-east-2.api.partial.to/api/v1/"}
+	in := hostedRepoBinding{RepoID: "01M2Q9WATHXVM46CD8Y4D3AX8W", BaseURL: "https://cell.api.example.com/api/v1/"}
 	if err := writeHostedRepoBinding(brainDir, in); err != nil {
 		t.Fatal(err)
 	}
@@ -22,7 +22,7 @@ func TestHostedRepoBindingRoundTrip(t *testing.T) {
 	if got.RepoID != in.RepoID {
 		t.Fatalf("round-trip mismatch: %+v", got)
 	}
-	if got.BaseURL != "https://aws-us-east-2.api.partial.to/api/v1" {
+	if got.BaseURL != "https://cell.api.example.com/api/v1" {
 		t.Fatalf("base URL must be stored without trailing slash, got %q", got.BaseURL)
 	}
 }

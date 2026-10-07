@@ -45,7 +45,7 @@ func TestConnectWithExplicitFlagsWritesBindingWithoutShellOut(t *testing.T) {
 
 	_, _, err := runConnectCommand(t, opts,
 		"--repo-id", "01M2Q9WATHXVM46CD8Y4D3AX8W",
-		"--api-url", "https://aws-us-east-2.api.partial.to/api/v1")
+		"--api-url", "https://cell.api.example.com/api/v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestConnectWithExplicitFlagsWritesBindingWithoutShellOut(t *testing.T) {
 	// The factsync client appends /api/v1/repos/... itself, so connect must
 	// store the origin: a stored /api/v1 suffix would 404 every sync.
 	if binding.RepoID != "01M2Q9WATHXVM46CD8Y4D3AX8W" ||
-		binding.BaseURL != "https://aws-us-east-2.api.partial.to" {
+		binding.BaseURL != "https://cell.api.example.com" {
 		t.Fatalf("binding mismatch: %+v", binding)
 	}
 }

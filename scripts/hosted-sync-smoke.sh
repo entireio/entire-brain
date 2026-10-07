@@ -11,13 +11,13 @@
 #
 # Usage:
 #   REPO_ID=01M2Q9WATHXVM46CD8Y4D3AX8W \
-#   API_URL=https://aws-us-east-2.api.partial.to/api/v1 \
+#   API_URL=https://<cell>.api.example.com/api/v1 \
 #   AUTH_CONTEXT=us.auth.partial.to \
 #   scripts/hosted-sync-smoke.sh
 set -euo pipefail
 
 REPO_ID=${REPO_ID:?set REPO_ID (region-local repo ULID)}
-API_URL=${API_URL:?set API_URL (cell base URL, e.g. https://aws-us-east-2.api.partial.to/api/v1)}
+API_URL=${API_URL:?set API_URL (cell base URL, e.g. https://<cell>.api.example.com/api/v1)}
 if [ -n "${AUTH_CONTEXT:-}" ]; then
   ENTIRE_TOKEN=$(entire auth token --context "$AUTH_CONTEXT")
   export ENTIRE_TOKEN
