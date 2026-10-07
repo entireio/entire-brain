@@ -1,0 +1,91 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "381ef3852e06",
+  "session_id": "8ac7b277-685f-472c-9141-8ba22f5e3246",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-07T11:50:02.117676Z",
+  "branch": "bench/memory-ladder-harness",
+  "checkpoints_count": 3,
+  "save_step_count": 2,
+  "files_touched": [
+    "benchmarks/memory-ladder/bin/git",
+    "benchmarks/memory-ladder/parse.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5-1",
+  "turn_id": "cec462473ce0",
+  "checkpoint_transcript_start": 2042,
+  "transcript_lines_at_start": 2042,
+  "compact_transcript_start": 239,
+  "token_usage": {
+    "input_tokens": 602,
+    "cache_creation_tokens": 46525,
+    "cache_read_tokens": 15668676,
+    "output_tokens": 31929,
+    "api_call_count": 30,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  },
+  "session_metrics": {
+    "turn_count": 19
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-07T11:50:01.99612Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 9,
+    "human_modified": 17,
+    "human_removed": 0,
+    "total_committed": 9,
+    "total_lines_changed": 27,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 39,
+      "user_lines_removed": 10,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "benchmarks/memory-ladder/bin/git": 39
+      },
+      "user_removed_per_file": {
+        "benchmarks/memory-ladder/bin/git": 10
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 11,
+      "user_lines_removed": 6,
+      "agent_lines_added": 44,
+      "agent_lines_removed": 13,
+      "user_added_per_file": {
+        "benchmarks/memory-ladder/bin/git": 11
+      },
+      "user_removed_per_file": {
+        "benchmarks/memory-ladder/bin/git": 6
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 15,
+      "user_lines_removed": 1,
+      "agent_lines_added": 49,
+      "agent_lines_removed": 13,
+      "user_added_per_file": {
+        "benchmarks/memory-ladder/README.md": 6,
+        "benchmarks/memory-ladder/run.sh": 9
+      },
+      "user_removed_per_file": {
+        "benchmarks/memory-ladder/run.sh": 1
+      }
+    }
+  ]
+}
