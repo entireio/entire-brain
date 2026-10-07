@@ -447,3 +447,66 @@ func TestHostedSyncPersistsRaisedProposals(t *testing.T) {
 		t.Fatalf("a raised cross-member conflict must reach the local review queue, got %d entries (queue=%+v stderr=%q)", len(queue), queue, errOut.String())
 	}
 }
+
+func TestPullAppliesRemoteRetirement(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	localActive := hostedSyncTestFact("fact the team retired", now)
+	remoteRetired := localActive
+	remoteRetired.Status = factStatusRetracted
+	remoteRetired.UpdatedAt = now.Add(time.Hour)
+
+	fake := &hostedFake{ref: "facts-remote"}
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+	fake.mu.Lock()
+	fake.data = encodeFactsNDJSON(t, []factRecord{remoteRetired})
+	fake.mu.Unlock()
+	if err := writeFacts(storage.BrainDir, "main", []factRecord{localActive}); err != nil {
+		t.Fatal(err)
+	}
+
+	var errOut bytes.Buffer
+	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	local, err := loadFacts(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rec := range local {
+		if rec.ID == localActive.ID && rec.Status != factStatusRetracted {
+			t.Fatalf("a retirement settled in the shared head must reach the local store, got status %q", rec.Status)
+		}
+	}
+}
+
+func TestPullNeverRevivesFromAnActiveHead(t *testing.T) {
+	// The inverse of TestPullAppliesRemoteRetirement: lifecycle moves one way.
+	// (TestPullPreservesLocalStatus covers the full sync; this pins the pair.)
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	localRetired := hostedSyncTestFact("fact this member retired", now)
+	localRetired.Status = factStatusRetracted
+	remoteActive := hostedSyncTestFact("fact this member retired", now)
+
+	fake := &hostedFake{ref: "facts-remote"}
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+	fake.mu.Lock()
+	fake.data = encodeFactsNDJSON(t, []factRecord{remoteActive})
+	fake.mu.Unlock()
+	if err := writeFacts(storage.BrainDir, "main", []factRecord{localRetired}); err != nil {
+		t.Fatal(err)
+	}
+
+	var errOut bytes.Buffer
+	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	local, err := loadFacts(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rec := range local {
+		if rec.ID == localRetired.ID && rec.Status != factStatusRetracted {
+			t.Fatalf("the pull must never revive a locally retired fact, got status %q", rec.Status)
+		}
+	}
+}

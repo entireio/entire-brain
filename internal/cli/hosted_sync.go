@@ -111,7 +111,11 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 	// The import write composition: everything under one write lock, manifest
 	// refresh included; a manifest failure reports alongside the successful
 	// pull instead of masking it. upsertFact never moves a local status, so a
-	// locally retracted fact stays retracted whatever the head says.
+	// locally retracted fact stays retracted whatever the head says. The
+	// settled head is authoritative for RETIREMENTS, though: it already folded
+	// this member's own (applyLocalRetirements), so a non-active head status
+	// is a teammate's settled retraction/supersession and must reach the local
+	// store. Lifecycle moves one way — active to retired, never a revival.
 	var manifestErr error
 	if err := withBrainWriteLock(storage.BrainDir, func() error {
 		existing, loadErr := loadFacts(storage.BrainDir, branch)
@@ -120,6 +124,14 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 		}
 		for _, fact := range merged {
 			existing = upsertFact(existing, fact)
+			if fact.Status == factStatusActive {
+				continue
+			}
+			if i := indexOfFact(existing, fact.ID); i >= 0 && existing[i].Status == factStatusActive {
+				existing[i].Status = fact.Status
+				existing[i].SupersededBy = fact.SupersededBy
+				existing[i].UpdatedAt = opts.Now().UTC()
+			}
 		}
 		if err := writeFacts(storage.BrainDir, branch, existing); err != nil {
 			return err
