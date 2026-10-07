@@ -1,0 +1,126 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "20226f5a84a6",
+  "session_id": "db19f645-280b-4641-a903-216cc8ea1498",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-07T19:14:19.761096Z",
+  "branch": "hosted-sync-client-cor-2030",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/connect_cmd.go",
+    "internal/cli/connect_cmd_test.go",
+    "internal/cli/hosted_sync.go",
+    "internal/cli/hosted_sync_test.go",
+    "internal/factsync/httpserver.go",
+    "internal/factsync/httpserver_authors_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "cf7475ac2496",
+  "checkpoint_transcript_start": 369,
+  "transcript_lines_at_start": 369,
+  "compact_transcript_start": 77,
+  "token_usage": {
+    "input_tokens": 50,
+    "cache_creation_tokens": 45402,
+    "cache_read_tokens": 5027974,
+    "output_tokens": 24414,
+    "api_call_count": 25
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_017fu6VspmP6nBMzkPJ1TqsP",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:executing-plans"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "6bf3ba430e57",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 105,
+        "end": 106,
+        "entry_ids": [
+          "e3beb40e-d83e-427d-b5a5-ac1b5731e732"
+        ],
+        "tool_use_id": "toolu_017fu6VspmP6nBMzkPJ1TqsP"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_017fu6VspmP6nBMzkPJ1TqsP"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:executing-plans",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_014ahDX8cF8YjKjsaHNCY44W",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:test-driven-development"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "6bf3ba430e57",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 112,
+        "end": 113,
+        "entry_ids": [
+          "d3f505bd-483d-4320-9f17-4ed5ed84d9b1"
+        ],
+        "tool_use_id": "toolu_014ahDX8cF8YjKjsaHNCY44W"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_014ahDX8cF8YjKjsaHNCY44W"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:test-driven-development",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "initial_attribution": {
+    "calculated_at": "2026-10-07T19:14:19.726287Z",
+    "agent_lines": 161,
+    "agent_removed": 6,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 11,
+    "total_committed": 161,
+    "total_lines_changed": 178,
+    "agent_percentage": 93.82022471910112,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 795,
+      "user_lines_removed": 11,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/hosted_memory_sync_plan.md": 212,
+        ".context/plan-plugin-hosted-sync.md": 179,
+        "internal/cli/hosted_sync_test.go": 305,
+        "internal/factsync/httpserver.go": 20,
+        "internal/factsync/httpserver_authors_test.go": 79
+      },
+      "user_removed_per_file": {
+        "internal/factsync/httpserver.go": 11
+      }
+    }
+  ]
+}

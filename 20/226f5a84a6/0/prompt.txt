@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>b96henz1h</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-buffalo/db19f645-280b-4641-a903-216cc8ea1498/tasks/b96henz1h.output</output-file>
+<status>completed</status>
+<summary>Background command "Re-run internal/cli suite capturing failing test names" completed (exit code 0)</summary>
+</task-notification>
