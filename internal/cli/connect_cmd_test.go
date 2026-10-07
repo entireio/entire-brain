@@ -34,10 +34,10 @@ func runConnectCommand(t *testing.T, opts Options, args ...string) (string, stri
 func TestConnectWithExplicitFlagsWritesBindingWithoutShellOut(t *testing.T) {
 	repoDir := t.TempDir()
 	env := connectTestEnv(t, repoDir)
-	hostCalls := 0
+	whereamiCalls := 0
 	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
-		if name != "git" {
-			hostCalls++
+		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "whereami" {
+			whereamiCalls++
 		}
 		return nil, nil, errors.New("not available")
 	})
@@ -50,8 +50,8 @@ func TestConnectWithExplicitFlagsWritesBindingWithoutShellOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hostCalls != 0 {
-		t.Fatalf("explicit flags must bypass the host CLI entirely, got %d calls", hostCalls)
+	if whereamiCalls != 0 {
+		t.Fatalf("explicit flags must bypass whereami entirely, got %d calls", whereamiCalls)
 	}
 	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
 	if err != nil {
@@ -139,5 +139,45 @@ func TestConnectRejectsInvalidAPIURL(t *testing.T) {
 	}
 	if _, present, _ := readHostedRepoBinding(storage.BrainDir); present {
 		t.Fatal("no binding may be written for a rejected URL")
+	}
+}
+
+func TestConnectRunsInitialPull(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	remoteFact := hostedSyncTestFact("team fact", now)
+	fake := &hostedFake{ref: "facts-remote", authors: map[string]string{remoteFact.ID: "teammate"}}
+	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
+	srv := newHostedFakeServer(t, fake)
+
+	repoDir := t.TempDir()
+	env := connectTestEnv(t, repoDir)
+	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+
+	if _, _, err := runConnectCommand(t, opts,
+		"--repo-id", "repo1", "--api-url", srv.URL, "--jurisdiction", "us"); err != nil {
+		t.Fatal(err)
+	}
+	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, err := loadFacts(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, rec := range local {
+		if rec.ID == remoteFact.ID && rec.Author == "teammate" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("connect must perform the initial pull, got %d local records", len(local))
 	}
 }

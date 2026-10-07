@@ -96,7 +96,9 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "connected: repo %s via %s\n", binding.RepoID, binding.BaseURL)
-	return nil
+	// Connect doubles as the initial pull so a fresh clone receives team
+	// memories immediately; failures note and never fail the connect.
+	return hostedFactsSyncAndPull(ctx, cmd.ErrOrStderr(), opts, repoDir, storage, hostedSyncBranch(ctx, opts.Runner, repoDir))
 }
 
 // resolveWhereami shells out to the host CLI for this repo's hosted placement.

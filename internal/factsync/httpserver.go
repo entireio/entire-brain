@@ -289,36 +289,45 @@ func (h *HTTPServer) newRequest(ctx context.Context, method, path string, body i
 // found=false and nil plaintext; the data field is base64-decoded by encoding/json into
 // the []byte. Any non-200 is an error (the runner cannot merge against an unknown state).
 func (h *HTTPServer) Current(ctx context.Context, repoID, branch string) (string, []byte, bool, error) {
+	ref, plaintext, _, found, err := h.CurrentWithAuthors(ctx, repoID, branch)
+	return ref, plaintext, found, err
+}
+
+// CurrentWithAuthors is Current plus the additive per-fact attribution map the
+// hosted server stamps on the GET response (fact id → display handle). A server
+// without the field yields a nil map — the sync contract is unchanged.
+func (h *HTTPServer) CurrentWithAuthors(ctx context.Context, repoID, branch string) (string, []byte, map[string]string, bool, error) {
 	base, err := requestTarget(repoID, branch)
 	if err != nil {
-		return "", nil, false, err
+		return "", nil, nil, false, err
 	}
 	path := base + "/brain/facts?branch=" + url.QueryEscape(branch)
 	req, err := h.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
-		return "", nil, false, err
+		return "", nil, nil, false, err
 	}
 	resp, err := h.do(req)
 	if err != nil {
-		return "", nil, false, fmt.Errorf("factsync: GET fact-set head %s/%s: %w", repoID, branch, err)
+		return "", nil, nil, false, fmt.Errorf("factsync: GET fact-set head %s/%s: %w", repoID, branch, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", nil, false, fmt.Errorf("factsync: GET fact-set head %s/%s: unexpected status %s%s", repoID, branch, resp.Status, h.detail(resp))
+		return "", nil, nil, false, fmt.Errorf("factsync: GET fact-set head %s/%s: unexpected status %s%s", repoID, branch, resp.Status, h.detail(resp))
 	}
 	var out struct {
-		Found   bool   `json:"found"`
-		Ref     string `json:"ref"`
-		Version int64  `json:"version"`
-		Data    []byte `json:"data"`
+		Found   bool              `json:"found"`
+		Ref     string            `json:"ref"`
+		Version int64             `json:"version"`
+		Data    []byte            `json:"data"`
+		Authors map[string]string `json:"authors"`
 	}
 	if err := httpx.DecodeJSONBody(resp, &out); err != nil {
-		return "", nil, false, fmt.Errorf("factsync: decode fact-set head %s/%s: %w", repoID, branch, err)
+		return "", nil, nil, false, fmt.Errorf("factsync: decode fact-set head %s/%s: %w", repoID, branch, err)
 	}
 	if !out.Found {
-		return "", nil, false, nil
+		return "", nil, nil, false, nil
 	}
-	return out.Ref, out.Data, true, nil
+	return out.Ref, out.Data, out.Authors, true, nil
 }
 
 // Advance compare-and-swaps the head onto plaintext, mapping the endpoint's outcomes to
