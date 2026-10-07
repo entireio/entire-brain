@@ -74,6 +74,7 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	// version` prints the bare string, and that is the form scripts already
 	// parse.
 	cmd.SetVersionTemplate("{{.Version}}\n")
+	cmd.Flags().Bool("help-all", false, "List all commands, including hidden commands")
 
 	// The shell-completion generator targets the standalone binary name and is
 	// dead weight when dispatched as `entire brain`, so drop it entirely.
@@ -83,10 +84,10 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 		&cobra.Group{ID: "setup", Title: "Set up the brain & agents:"},
 		&cobra.Group{ID: "explore", Title: "Search & explore the brain:"},
 		&cobra.Group{ID: "facts", Title: "Durable facts & patterns:"},
-		&cobra.Group{ID: "memory", Title: "Sessions & conversation memory:"},
 		&cobra.Group{ID: "code", Title: "Code & semantic index:"},
 		&cobra.Group{ID: "maintain", Title: "Brain state & maintenance:"},
 		&cobra.Group{ID: "share", Title: "Workspaces & sharing:"},
+		&cobra.Group{ID: "operations", Title: "Troubleshooting & operations:"},
 		&cobra.Group{ID: "misc", Title: "Miscellaneous:"},
 	)
 
@@ -125,32 +126,34 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	addGrouped("facts", newVerifyCommand(opts))
 	addGrouped("facts", newPatternsCommand(opts))
 
-	addGrouped("memory", newMemoryCommand(opts))
-	addGrouped("memory", newPrivacyCommand(opts))
+	addGrouped("operations", newMemoryCommand(opts))
+	addGrouped("operations", newPrivacyCommand(opts))
 
 	addGrouped("code", newBrainInspectCommand(opts))
 	addGrouped("code", newBrainShowCommand(opts))
-	addGrouped("code", newEntitiesCommand(opts))
+	addGrouped("operations", newEntitiesCommand(opts))
 	addGrouped("code", newVizCommand(opts))
-	addGrouped("code", newSemanticRepairCommand(opts))
+	addGrouped("operations", newSemanticRepairCommand(opts))
 
 	addGrouped("maintain", newAgentStatusCommand(opts))
 	addGrouped("maintain", newStatsCommand(opts))
-	addGrouped("maintain", newDocsCommand(opts))
-	addGrouped("maintain", newRefreshCommand(opts))
-	addGrouped("maintain", newWatchCommand(opts))
-	addGrouped("maintain", newSemanticGCCommand(opts))
-	addGrouped("maintain", newSemanticResetCommand(opts))
+	addGrouped("operations", newDocsCommand(opts))
+	addGrouped("operations", newRefreshCommand(opts))
+	addGrouped("operations", newWatchCommand(opts))
+	addGrouped("operations", newStopCommand(opts))
+	addGrouped("operations", newStartCommand(opts))
+	addGrouped("operations", newSemanticGCCommand(opts))
+	addGrouped("operations", newSemanticResetCommand(opts))
 
 	addGrouped("share", newWorkspaceCommand(opts))
 	addGrouped("share", newSemanticBundleCommand(opts))
 	addGrouped("share", newPublishCommand(opts))
 
 	addGrouped("misc", newPathCommand(opts))
-	addGrouped("misc", newRepoIdentityCommand(opts))
+	addGrouped("operations", newRepoIdentityCommand(opts))
 	addGrouped("misc", newCapabilitiesCommand(opts))
 	addGrouped("misc", newDoctorCommand(opts))
-	addGrouped("misc", newBenchmarkCommand(opts))
+	addHidden(newBenchmarkCommand(opts))
 	addGrouped("misc", newVersionCommand(opts.Version))
 
 	// Hidden: `review` is the machine contract `entire review`'s diff-less mode shells
@@ -193,18 +196,37 @@ func setRootUsage(root *cobra.Command, commands []*cobra.Command) {
 		if cmd != root {
 			return defaultUsage(cmd)
 		}
-		ordered := append([]*cobra.Command(nil), commands...)
+		type helpEntry struct {
+			command *cobra.Command
+			name    string
+			group   string
+		}
+		var ordered []helpEntry
+		for _, c := range commands {
+			ordered = append(ordered, helpEntry{c, c.Name(), c.GroupID})
+			if c.Name() == "facts" {
+				// Surface operator paths without moving the everyday facts family
+				// or changing any child's registration or visibility.
+				for _, name := range []string{"import", "sync", "proposals", "gc", "vitality"} {
+					for _, child := range c.Commands() {
+						if child.Name() == name {
+							ordered = append(ordered, helpEntry{child, "facts " + name, "operations"})
+						}
+					}
+				}
+			}
+		}
 		for _, c := range cmd.Commands() {
 			if c.Name() == "help" {
-				ordered = append(ordered, c)
+				ordered = append(ordered, helpEntry{c, c.Name(), c.GroupID})
 			}
 		}
 		var out strings.Builder
 		fmt.Fprintf(&out, "Usage:\n  %s\n  %s [command]\n", cmd.UseLine(), cmd.CommandPath())
 		width := 0
-		for _, c := range ordered {
-			if !c.Hidden && len(c.Name()) > width {
-				width = len(c.Name())
+		for _, entry := range ordered {
+			if !entry.command.Hidden && len(entry.name) > width {
+				width = len(entry.name)
 			}
 		}
 		terminalWidth := helpWidth
@@ -213,17 +235,44 @@ func setRootUsage(root *cobra.Command, commands []*cobra.Command) {
 		}
 		for _, group := range cmd.Groups() {
 			fmt.Fprintf(&out, "\n%s\n", group.Title)
-			for _, c := range ordered {
-				if c.GroupID == group.ID && !c.Hidden && (c.IsAvailableCommand() || c.Name() == "help") {
-					writeHelpCommand(&out, c.Name(), c.Short, width, terminalWidth)
+			for _, entry := range ordered {
+				c := entry.command
+				if entry.group == group.ID && !c.Hidden && (c.IsAvailableCommand() || c.Name() == "help") {
+					writeHelpCommand(&out, entry.name, c.Short, width, terminalWidth)
 				}
 			}
+		}
+		if all, _ := cmd.Flags().GetBool("help-all"); all {
+			writeAllCommandHelp(&out, cmd, terminalWidth)
 		}
 		fmt.Fprintf(&out, "\nFlags:\n%s", cmd.LocalFlags().FlagUsages())
 		fmt.Fprintf(&out, "\nUse %q for more information about a command.\n", cmd.CommandPath()+" [command] --help")
 		_, err := io.WriteString(cmd.OutOrStderr(), out.String())
 		return err
 	})
+}
+
+// List full paths without changing Hidden: all-help is an inspection surface,
+// not a visibility change to the command tree or subsequent help invocations.
+func writeAllCommandHelp(out io.Writer, root *cobra.Command, terminalWidth int) {
+	var commands []*cobra.Command
+	var paths []string
+	width := 0
+	var collect func(*cobra.Command, string)
+	collect = func(parent *cobra.Command, prefix string) {
+		for _, child := range parent.Commands() {
+			path := prefix + child.Name()
+			commands = append(commands, child)
+			paths = append(paths, path)
+			width = max(width, len(path))
+			collect(child, path+" ")
+		}
+	}
+	collect(root, "")
+	fmt.Fprintln(out, "\nAll commands (including developer and machine commands):")
+	for i, cmd := range commands {
+		writeHelpCommand(out, paths[i], cmd.Short, width, terminalWidth)
+	}
 }
 
 // Prefer the output terminal. Entire may pipe plugin output, so also consult

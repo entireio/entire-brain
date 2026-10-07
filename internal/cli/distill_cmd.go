@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/factmerge"
 	"github.com/spf13/cobra"
 )
 
@@ -608,7 +608,7 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&distillOpts.dryRun, "dry-run", false, "Estimate distill work without calling an agent or writing facts")
 	cmd.Flags().IntVar(&distillOpts.concurrency, "concurrency", defaultDistillConcurrency, "Distill agent calls to run in flight at once, shared across sessions (1 = strictly sequential; higher values may add one concurrent reconcile call)")
 	cmd.Flags().IntVar(&distillOpts.jobs, "jobs", 0, "Compatibility alias for --concurrency")
-	cmd.Flags().IntVar(&distillOpts.maxChunkBytes, "max-chunk-bytes", defaultDistillChunkSize, "Transcript chunk size in bytes; larger chunks mean fewer agent calls per session (long-context models handle 128-192KB comfortably)")
+	cmd.Flags().IntVar(&distillOpts.maxChunkBytes, "max-chunk-bytes", defaultDistillChunkSize, "Transcript chunk size in bytes; larger chunks mean fewer agent calls per session, but a chunk must fit the model's context window — transcript text runs ~3.65 chars/token, so a 32K-context model (ollama's default for many local models) truncates past roughly 116KB")
 	cmd.Flags().BoolVar(&distillOpts.newestFirst, "newest-first", false, "Distill the most recent sessions first so the most useful facts land early (default: oldest first)")
 	cmd.Flags().IntVar(&distillOpts.maxSessions, "max-sessions", 0, "Cap how many not-yet-distilled sessions this run processes (0 = no cap); pairs with --newest-first as a backfill budget")
 	return cmd
@@ -2392,12 +2392,22 @@ func execOllamaDistillAgent(ctx context.Context, dir string, args []string, inpu
 		return "", fmt.Errorf("ollama request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, distillMaxOutputBytes+1))
+	// /api/generate echoes a `context` token array proportional to the prompt we
+	// sent, so the JSON envelope is several times larger than the generated text.
+	// Bounding the envelope by distillMaxOutputBytes therefore rejects responses on
+	// prompt size rather than output size: a 48 KiB chunk produces a ~123 KiB
+	// envelope even when the model answers in two bytes, so chunks much past that
+	// fail with an error that blames output the model never produced. Scale the
+	// envelope allowance off the request we control, and keep
+	// distillMaxOutputBytes as the bound on the text we actually consume.
+	envelopeLimit := min(int64(distillMaxOutputBytes)+int64(len(body))*distillOllamaEnvelopeFactor+distillOllamaEnvelopeSlack,
+		int64(distillOllamaMaxEnvelopeBytes))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, envelopeLimit+1))
 	if err != nil {
 		return "", err
 	}
-	if len(data) > distillMaxOutputBytes {
-		return "", fmt.Errorf("ollama output exceeds %d bytes", distillMaxOutputBytes)
+	if int64(len(data)) > envelopeLimit {
+		return "", fmt.Errorf("ollama response envelope exceeds %d bytes", envelopeLimit)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("ollama returned HTTP %d: %s", resp.StatusCode, truncateAgentWarning(string(data)))
@@ -2414,6 +2424,11 @@ func execOllamaDistillAgent(ctx context.Context, dir string, args []string, inpu
 	if (parsed.PromptEvalCount != nil && *parsed.PromptEvalCount < 0) || (parsed.EvalCount != nil && *parsed.EvalCount < 0) {
 		return "", errors.New("ollama returned negative token counts")
 	}
+	// Recorded before the checks below, not after. Each of them fails a call the
+	// model has already been paid for, and truncation is the costliest of all —
+	// it burns a full context window. Recording after them dropped exactly the
+	// most expensive calls from accounting, while TotalAgentCalls still counted
+	// them, so the two disagreed.
 	usage := distillProviderUsage{Source: distillUsageSourceOllama}
 	if parsed.PromptEvalCount != nil {
 		usage.Reported = true
@@ -2428,6 +2443,30 @@ func execOllamaDistillAgent(ctx context.Context, dir string, args []string, inpu
 	// Error responses may still consume model tokens; TotalAgentCalls also
 	// counts failed attempts, so retain provider-reported usage before failing.
 	recordDistillProviderUsage(ctx, usage)
+	if len(parsed.Response) > distillMaxOutputBytes {
+		return "", fmt.Errorf("ollama output exceeds %d bytes", distillMaxOutputBytes)
+	}
+	// Ollama silently truncates a prompt that exceeds the context window the
+	// model was loaded with (gemma4:12b loads at num_ctx 32768 by default), so a
+	// chunk past roughly 116 KB is distilled in part and nothing says so. A fact
+	// store is read as authoritative, so partial extraction must fail loudly
+	// rather than quietly produce fewer facts.
+	//
+	// The test is prompt_eval_count — the server's own count of tokens it read —
+	// against the window the model is actually loaded with. A truncated prompt
+	// fills the window exactly, so the count pins to it. An estimate from prompt
+	// bytes was tried first and rejected: it needs a chars-per-token assumption,
+	// and measured text ran 3.65 chars/token on one tokenizer and 4.89 on
+	// another, leaving a 2% margin against a divisor of 5. This comparison has no
+	// tokenizer term in it at all.
+	if parsed.PromptEvalCount != nil {
+		if window := ollamaLoadedContextWindow(ctx, u, model); window > 0 && *parsed.PromptEvalCount >= window {
+			// Report the chunk and the system prompt separately: the request
+			// carries both, but --max-chunk-bytes only moves the chunk, so a
+			// single total would misdirect anyone sizing it down.
+			return "", fmt.Errorf("ollama read %d tokens of a %d-byte prompt (%d-byte chunk plus %d-byte system prompt), filling the model's %d-token context window: the prompt was truncated and this chunk would be distilled in part; lower --max-chunk-bytes or load %s with a larger num_ctx", *parsed.PromptEvalCount, len(input)+len(args[2]), len(input), len(args[2]), window, model)
+		}
+	}
 	if parsed.Error != "" {
 		return "", fmt.Errorf("ollama error: %s", parsed.Error)
 	}
@@ -2558,4 +2597,74 @@ func mergeDistillRelatedIDs(baseline, disk, local []string) []string {
 		}
 	}
 	return out
+}
+
+// ollamaLoadedContextWindow reports the context window the named model is
+// currently loaded with, via /api/ps. This is deliberately not /api/show: show
+// reports the model's architectural maximum (262144 for gemma4:12b) while ps
+// reports what it was actually loaded with (32768 by default), and only the
+// latter is the size a prompt gets truncated to.
+//
+// Returns 0 when the window cannot be determined — the endpoint is unreachable,
+// the model is not resident, or the payload does not carry the field. Callers
+// treat 0 as "cannot tell" and skip the check rather than guessing.
+func ollamaLoadedContextWindow(ctx context.Context, generateURL *url.URL, model string) int64 {
+	// Derive a fresh budget from the caller's context rather than reusing the
+	// one the generate call ran under. That context carries the whole-call
+	// timeout, and a chunk near the context window — the case this probe exists
+	// to catch — spends most of it generating. Reusing it would leave the probe
+	// no time, return 0 for "cannot tell", and stand the truncation guard down
+	// precisely when it is needed.
+	ctx, cancel := context.WithTimeout(ctx, ollamaContextProbeTimeout)
+	defer cancel()
+	psURL := *generateURL
+	psURL.Path = strings.TrimSuffix(strings.TrimSuffix(psURL.Path, "/api/generate"), "/") + "/api/ps"
+	psURL.RawQuery = ""
+	if !isLoopbackHTTPURL(&psURL) {
+		return 0
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, psURL.String(), nil)
+	if err != nil {
+		return 0
+	}
+	tr := &http.Transport{Proxy: nil, DialContext: loopbackOnlyDialContext}
+	defer tr.CloseIdleConnections()
+	client := &http.Client{Timeout: ollamaContextProbeTimeout, Transport: tr,
+		CheckRedirect: func(r *http.Request, _ []*http.Request) error {
+			if !isLoopbackHTTPURL(r.URL) {
+				return fmt.Errorf("ollama redirect must stay loopback-only: %s", r.URL.String())
+			}
+			return nil
+		}}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return 0
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return 0
+	}
+	var parsed struct {
+		Models []struct {
+			Name          string `json:"name"`
+			Model         string `json:"model"`
+			ContextLength int64  `json:"context_length"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return 0
+	}
+	for _, m := range parsed.Models {
+		if m.Name == model || m.Model == model {
+			if m.ContextLength > 0 {
+				return m.ContextLength
+			}
+			return 0
+		}
+	}
+	return 0
 }

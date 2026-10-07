@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -61,10 +62,10 @@ func TestRootWithoutCommandShowsHelp(t *testing.T) {
 		"Set up the brain & agents:",
 		"Search & explore the brain:",
 		"Durable facts & patterns:",
-		"Sessions & conversation memory:",
 		"Code & semantic index:",
 		"Brain state & maintenance:",
 		"Workspaces & sharing:",
+		"Troubleshooting & operations:",
 		"Miscellaneous:",
 		"brief",
 		"status",
@@ -77,6 +78,25 @@ func TestRootWithoutCommandShowsHelp(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("root output missing %q:\n%s", want, out)
 		}
+	}
+	wantGroups := []string{
+		"Set up the brain & agents:",
+		"Search & explore the brain:",
+		"Durable facts & patterns:",
+		"Code & semantic index:",
+		"Brain state & maintenance:",
+		"Workspaces & sharing:",
+		"Troubleshooting & operations:",
+		"Miscellaneous:",
+	}
+	var gotGroups []string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasSuffix(line, ":") && !strings.HasPrefix(line, " ") && line != "Usage:" && line != "Flags:" {
+			gotGroups = append(gotGroups, line)
+		}
+	}
+	if !slices.Equal(gotGroups, wantGroups) {
+		t.Fatalf("root help groups = %q, want %q", gotGroups, wantGroups)
 	}
 	// `doctor` and `config` are PRESENT. They were hidden here as plugin
 	// plumbing, and this list pinned that -- while the README documented
@@ -93,13 +113,140 @@ func TestRootWithoutCommandShowsHelp(t *testing.T) {
 	// redundant aliases; and the build stages that now live under `refresh`
 	// (sessions, index, seed).
 	for _, absent := range []string{
-		"  completion ",
+		"  completion ", "  bench ",
 		"  context ", "  impact ", "  changes ",
 		"  tests ", "  routes ", "  tools ", "  workflows ",
 		"  index ", "  seed ", "  sessions ", "  history-index ",
 	} {
 		if strings.Contains(out, "\n"+absent) {
 			t.Fatalf("root output should not list %q:\n%s", absent, out)
+		}
+	}
+}
+
+func TestRootHelpAllShowsDeveloperCommands(t *testing.T) {
+	for _, args := range [][]string{{"--help-all"}, {"--help-all", "--help"}} {
+		root := NewRootCommand(Options{Version: "test"})
+		out, err := execute(t, root, args...)
+		if err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+		// Include previously hidden machine surfaces as well as the newly
+		// hidden developer paths. All-help must not mutate dispatch visibility.
+		for _, path := range []string{"bench", "bench semantic", "bench scale", "facts eval", "facts eval-gen", "facts eval-compare", "facts reclassify", "inspect graph-schema", "docs formats", "history-eval", "hook", "review"} {
+			if !strings.Contains(out, "\n  "+path+" ") {
+				t.Errorf("all-help missing %q", path)
+			}
+			c, _, err := root.Find(strings.Fields(path))
+			// Bench children remain visible within the hidden family so
+			// explicit `bench --help` can describe its subcommands.
+			wantHidden := path != "bench semantic" && path != "bench scale"
+			if err != nil || c.Hidden != wantHidden {
+				t.Errorf("%q hidden should remain %v after all-help: %v", path, wantHidden, err)
+			}
+		}
+	}
+	for family, hidden := range map[string][]string{
+		"facts":   {"eval", "eval-gen", "eval-compare", "reclassify"},
+		"inspect": {"graph-schema"},
+		"docs":    {"formats"},
+	} {
+		out, err := execute(t, NewRootCommand(Options{Version: "test"}), family, "--help")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range hidden {
+			if strings.Contains(out, "\n  "+name+" ") {
+				t.Errorf("%s --help lists developer command %q", family, name)
+			}
+		}
+	}
+}
+
+func TestBenchmarkHelpKeepsHiddenFamilyDiscoverable(t *testing.T) {
+	root := NewRootCommand(Options{Version: "test"})
+	out, err := execute(t, root, "bench", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"entire-brain bench [command]", "Available Commands:", "\n  semantic ", "\n  scale "} {
+		if !strings.Contains(out, want) {
+			t.Errorf("bench help missing %q:\n%s", want, out)
+		}
+	}
+	bench, _, err := root.Find([]string{"bench"})
+	if err != nil || !bench.Hidden {
+		t.Fatalf("benchmark family should remain hidden: %v", err)
+	}
+	for _, child := range bench.Commands() {
+		if child.Hidden {
+			t.Errorf("bench child %q should be visible in contextual help", child.Name())
+		}
+	}
+	out, err = execute(t, NewRootCommand(Options{Version: "test"}), "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"bench", "bench semantic", "bench scale"} {
+		if strings.Contains(out, "\n  "+path+" ") {
+			t.Errorf("default root help should not list %q:\n%s", path, out)
+		}
+	}
+}
+
+func TestOperatorCommandFamiliesRemainDiscoverable(t *testing.T) {
+	root := NewRootCommand(Options{Version: "test"})
+	out, err := execute(t, root, "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := strings.Index(out, "Troubleshooting & operations:")
+	end := strings.Index(out, "Miscellaneous:")
+	if start < 0 || end <= start {
+		t.Fatalf("missing operations group before miscellaneous:\n%s", out)
+	}
+	for _, family := range []string{"facts import", "facts sync", "facts proposals", "facts gc", "facts vitality", "memory", "privacy", "docs", "refresh", "watch", "entities", "repo-identity", "repair", "gc", "reset"} {
+		if !strings.Contains(out[start:end], "\n  "+family+" ") {
+			t.Errorf("operations group missing %q", family)
+		}
+	}
+	factsStart := strings.Index(out, "Durable facts & patterns:")
+	factsEnd := strings.Index(out, "Code & semantic index:")
+	if factsStart < 0 || factsEnd <= factsStart {
+		t.Fatalf("missing durable facts group before code:\n%s", out)
+	}
+	for _, verb := range []string{"recall", "remember", "distill", "facts", "verify", "patterns"} {
+		if !strings.Contains(out[factsStart:factsEnd], "\n  "+verb+" ") {
+			t.Errorf("durable facts group missing everyday verb %q", verb)
+		}
+	}
+	for _, path := range []string{"facts import", "facts sync", "facts proposals", "facts gc", "facts vitality"} {
+		if strings.Contains(out[factsStart:factsEnd], "\n  "+path+" ") {
+			t.Errorf("fact operator path %q should appear only in operations", path)
+		}
+	}
+	for _, absent := range []string{"facts", "facts status", "facts tree", "facts map", "facts retract", "facts review", "facts promote", "facts eval", "facts eval-gen", "facts eval-compare", "facts reclassify"} {
+		if strings.Contains(out[start:end], "\n  "+absent+"  ") {
+			t.Errorf("operations group should not list %q", absent)
+		}
+	}
+	for _, path := range []string{"memory migrate", "entities migrate", "facts status", "facts tree", "facts map", "facts retract", "facts review", "facts promote", "facts import", "facts sync", "facts proposals", "facts gc", "facts vitality", "docs extract"} {
+		root := NewRootCommand(Options{Version: "test"})
+		c, _, err := root.Find(strings.Fields(path))
+		if err != nil || c.Hidden || c.Parent().Hidden {
+			t.Fatalf("command path %q is not visible: %v", path, err)
+		}
+		if strings.HasPrefix(path, "facts ") && (c.Parent().Name() != "facts" || c.Parent().GroupID != "facts") {
+			t.Fatalf("%q should remain registered under the everyday facts family", path)
+		}
+		args := append(strings.Fields(path), "--help")
+		out, err := execute(t, root, args...)
+		if err != nil || !strings.Contains(out, "Usage:") {
+			t.Fatalf("%s --help: %v\n%s", path, err, out)
+		}
+		out, err = execute(t, NewRootCommand(Options{Version: "test"}), c.Parent().Name(), "--help")
+		if err != nil || !strings.Contains(out, "\n  "+c.Name()+" ") {
+			t.Fatalf("parent help does not list %q: %v\n%s", path, err, out)
 		}
 	}
 }

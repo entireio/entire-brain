@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/factmerge"
 )
 
 func TestProposalRepairPreservesValidEntriesAndRequiresReviewedRef(t *testing.T) {

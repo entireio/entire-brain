@@ -99,6 +99,7 @@ type watchSteps struct {
 	refresh   func(context.Context) error
 	seed      func(context.Context) error
 	distill   func(context.Context) error
+	paused    func() bool
 }
 
 // defaultWatchOptions are the shared defaults for `watch` and `workspace watch`.
@@ -230,6 +231,10 @@ func watchLoop(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 // then the GATED token-spending work (seed synthesis and/or distill). agentCalls is shared across
 // ticks/members so --budget caps total token spend across the whole run.
 func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursorPath string, steps watchSteps, agentCalls *int) {
+	if steps.paused != nil && steps.paused() {
+		fmt.Fprintln(out, "[watch] paused — `entire-brain start` resumes")
+		return
+	}
 	// Short-term memory first, every tick: cheap (change detection + only
 	// changed transcripts), and it must never block or fail the tick; a delta
 	// failure just means the long-term path repairs freshness later.
@@ -426,6 +431,7 @@ func watchStepsForRepo(cmd *cobra.Command, opts Options, w watchCommandOptions, 
 		refresh: func(c context.Context) error { return watchDeterministicRefresh(c, cmd, opts, repoDir) },
 		seed:    func(c context.Context) error { return watchSeed(c, cmd, opts, w, repoDir) },
 		distill: func(c context.Context) error { return watchDistill(c, cmd, opts, w, repoDir) },
+		paused:  func() bool { return backgroundPaused(opts.Env) },
 	}
 }
 

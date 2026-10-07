@@ -89,9 +89,10 @@ func newDocsExtractCommand() *cobra.Command {
 
 func newDocsFormatsCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "formats",
-		Short: "List the document formats this build reads",
-		Args:  cobra.NoArgs,
+		Hidden: true,
+		Use:    "formats",
+		Short:  "List the document formats this build reads",
+		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()
 			for _, format := range []struct{ ext, note string }{

@@ -3,11 +3,11 @@ package cli
 import (
 	"time"
 
-	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/factmerge"
 )
 
 // This file is the thin compatibility shim between internal/cli and the
-// extracted, LLM-free durable-fact merge core in internal/factmerge. The core
+// extracted, LLM-free durable-fact merge core in factmerge. The core
 // types, consts, and pure functions moved verbatim; the aliases and forwarding
 // wrappers here keep the ~70 existing CLI call sites (and their golden tests)
 // compiling and behaving identically against the old lowercase names.

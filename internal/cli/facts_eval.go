@@ -348,8 +348,9 @@ func newFactsEvalCommand(opts Options) *cobra.Command {
 		run          distillAgentRunner
 	)
 	cmd := &cobra.Command{
-		Use:   "eval --tasks <file>",
-		Short: "Measure retrieval quality (tokens, precision, useful-items-per-1k) over held-out tasks",
+		Hidden: true,
+		Use:    "eval --tasks <file>",
+		Short:  "Measure retrieval quality (tokens, precision, useful-items-per-1k) over held-out tasks",
 		Long: `Eval runs a held-out task set through a selected retriever and reports, per task and
 	in aggregate: retrieved items, estimated tokens, precision, recall when labels
 	exist for that retriever, and useful-items-per-1k-tokens (the headline agent

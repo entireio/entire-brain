@@ -187,7 +187,7 @@ func TestFactRecordIDIgnoresKind(t *testing.T) {
 	// A literal, not a second call to factRecordID: comparing the function to
 	// itself holds for every implementation, including one that has silently
 	// re-keyed every fact already on disk. See the note on recordIDNDJSONTruth in
-	// internal/factmerge. This id must equal the merge-core id byte for byte —
+	// factmerge. This id must equal the merge-core id byte for byte —
 	// the alias exists so the CLI and the fact-set head agree on identity.
 	if id != "fact:6bc25f8fd4b22fcbae32d329" {
 		t.Fatalf("factRecordID = %s, want fact:6bc25f8fd4b22fcbae32d329", id)

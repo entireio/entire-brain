@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/factmerge"
 )
 
 // TestSyncRejectsHeadFactWhoseIDDoesNotMatchItsContent is the exploit test for
