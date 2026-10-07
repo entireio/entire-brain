@@ -33,3 +33,13 @@ give me the trails
 ---
 
 apply the defensive copy
+
+---
+
+walk me through this trail and what it does. start very concise with a tldr, then walk me trhough each copmonent
+
+---
+
+we should change 3 and instead use the CLIs token auth and not trying to build our own separate auth. the cli already handles this with a token it stores locally. 
+
+we also shouldn't need to manually run connect. it should try to connect and if it can't then gracefully fallbakc to just local usage until it can connect.
