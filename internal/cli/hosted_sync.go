@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/apiurl"
 	"github.com/entireio/entire-brain/internal/factsync"
 )
@@ -80,7 +81,7 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 	// the blob carried (SanitizeForEgress clears Author on upload, but an old
 	// or hostile peer's value must not survive either). Records absent from
 	// the map arrive unattributed, and Upsert keeps any handle already stored.
-	merged := res.Facts
+	merged := append([]factmerge.Record(nil), res.Facts...)
 	for i := range merged {
 		merged[i].Author = authors[merged[i].ID]
 	}
