@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "b6e901512d69",
+  "session_id": "8ac7b277-685f-472c-9141-8ba22f5e3246",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-07T07:28:34.848573Z",
+  "branch": "bench/memory-ladder-harness",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-fable-5-1",
+  "turn_id": "eaacedd2194b",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 4694,
+    "cache_creation_tokens": 777469,
+    "cache_read_tokens": 49857139,
+    "output_tokens": 214286,
+    "api_call_count": 174
+  },
+  "session_metrics": {
+    "turn_count": 13
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 61,
+      "user_lines_removed": 3,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "benchmarks/memory-ladder/bin/git": 34,
+        "benchmarks/memory-ladder/grade.py": 11,
+        "benchmarks/memory-ladder/parse.py": 16
+      },
+      "user_removed_per_file": {
+        "benchmarks/memory-ladder/grade.py": 3
+      }
+    }
+  ]
+}

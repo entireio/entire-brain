@@ -1,0 +1,24 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "b6e901512d69",
+  "strategy": "manual-commit",
+  "branch": "bench/memory-ladder-harness",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/b6/e901512d69/0/metadata.json",
+      "transcript": "/b6/e901512d69/0/full.jsonl",
+      "compact_transcript": "/b6/e901512d69/0/transcript.jsonl",
+      "content_hash": "/b6/e901512d69/0/content_hash.txt",
+      "prompt": "/b6/e901512d69/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 4694,
+    "cache_creation_tokens": 777469,
+    "cache_read_tokens": 49857139,
+    "output_tokens": 214286,
+    "api_call_count": 174
+  }
+}
