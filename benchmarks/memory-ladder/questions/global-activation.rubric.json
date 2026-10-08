@@ -1,0 +1,11 @@
+{
+  "_comment": "Named regexes applied to the final answer (case-insensitive). 'recovered' is the headline: the recorded rejection and its reason, not an inference. Hand-check it; regexes are a first pass.",
+  "mechanism": "init-agents|agentsetup|agent-guide|entire-agent-activation",
+  "code_paths": "internal/agentsetup|agent_setup\\.go",
+  "prior_claimed": "rejected|regression|reverted|was tried|previously (tried|considered|decided)|decided (not|against)|never enable",
+  "recovered": "(any repo|every repo|all repos|repositories where only|only graph|graph init-agents).{0,120}(brain|regression)|never enable it in a repo|(regression|rejected).{0,160}(global|managed plugin)",
+  "said_none_found": "found none|no (direct )?(evidence|record)|could not find|couldn't find|did not find|no prior",
+  "cites_session_or_checkpoint": "session\\s+[0-9a-f-]{20,}|checkpoint\\s+[0-9a-f]{12}",
+  "cites_fact": "fact:[0-9a-f]{24}",
+  "cites_file_line": "\\.go:\\d+"
+}

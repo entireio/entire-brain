@@ -1,0 +1,27 @@
+#!/bin/sh
+# Condition-gated shim for the Entire CLI, placed first on PATH by run.sh.
+#   LADDER_COND=1  no Entire tooling
+#   LADDER_COND=2  hosted sessions only (search, checkpoint)
+#   LADDER_COND=3  sessions + Graph
+#   LADDER_COND=4  sessions + Graph + Brain (normal guide)
+#   LADDER_COND=5  sessions + Graph + Brain (strict guide)
+# Lifecycle hooks are swallowed so a nested agent run never captures a checkpoint.
+sub=${1:-}
+case "$sub" in hooks) exit 0 ;; esac
+# Drop this shim's own directory from PATH, then resolve the real CLI from what remains, so the
+# real binary is found wherever it is installed and its children cannot loop back here.
+shimdir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -vx -- "$shimdir" | paste -sd: -); export PATH
+REAL=${LADDER_REAL_ENTIRE:-$(command -v entire 2>/dev/null || true)}
+[ -n "$REAL" ] && [ -x "$REAL" ] || { echo "entire shim: real entire CLI not found on PATH; set LADDER_REAL_ENTIRE=/path/to/entire" >&2; exit 127; }
+deny() { echo "entire: '$sub' is not available in this environment" >&2; exit 1; }
+case "${LADDER_COND:-1}" in
+  1) echo "entire: command not found" >&2; exit 127 ;;
+  2) case "$sub" in search|checkpoint|cp|checkpoints|agent-help|version|status|why) exec "$REAL" "$@" ;; *) deny ;; esac ;;
+  3) case "$sub" in search|checkpoint|cp|checkpoints|agent-help|version|status|why|graph) exec "$REAL" "$@" ;; *) deny ;; esac ;;
+  4|5)
+    # A build under test replaces the installed Brain plugin for `entire brain ...` only.
+    if [ "$sub" = brain ] && [ -n "${LADDER_BRAIN_BIN:-}" ]; then shift; exec "$LADDER_BRAIN_BIN" "$@"; fi
+    exec "$REAL" "$@" ;;
+  *) echo "entire shim: bad LADDER_COND '${LADDER_COND}'" >&2; exit 2 ;;
+esac

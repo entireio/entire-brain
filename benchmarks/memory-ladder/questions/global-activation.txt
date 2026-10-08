@@ -1,0 +1,8 @@
+A teammate has proposed a product change: when a developer installs the Entire plugins globally, Brain should automatically be activated in every repository they work in, instead of being enabled per repository.
+
+Before we decide, answer three things:
+1. How does Brain activation work in this codebase today, and which code would need to change? Name the specific files and functions.
+2. Has this idea, or something close to it, been considered, tried, or decided before in this project? If so, what was decided and why? Only report what you can back with evidence; say clearly if you found none.
+3. Your recommendation in two or three sentences.
+
+Cite evidence for each claim (file path and line, command output, checkpoint or session id, or fact id). Keep the whole answer under 400 words. Do not modify any files.

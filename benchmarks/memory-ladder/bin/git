@@ -1,0 +1,68 @@
+#!/bin/sh
+# Read-only, harness-blind git for the agent under test. run.sh puts this directory first on PATH.
+#
+# Why: the harness directory (prompt, rubric, README with earlier results) is stripped from the
+# clone's worktree and HEAD, but once it has merged it still exists in history, and the agent's
+# tool allowlist permits git. This wrapper keeps git history available as a memory surface
+# (condition 1 depends on it) while closing every read path to that directory:
+#   - only read subcommands are allowed (no fetch/pull, no object-level readers, no writes; branch
+#     and tag list only);
+#   - any argument that names the directory or a rubric is refused;
+#   - for history and content readers a pathspec exclusion is added behind "--", classifying bare
+#     path arguments the way git does, so `git show <sha>` and `git log -p` cannot print the
+#     directory even for the commits that added it and `git log README.md` keeps working.
+# The transcript audit in parse.py records refused attempts; see README.
+HARNESS=benchmarks/memory-ladder
+shimdir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -vx -- "$shimdir" | paste -sd: -); export PATH
+REAL=$(command -v git 2>/dev/null || true)
+[ -n "$REAL" ] || { echo "git shim: real git not found on PATH" >&2; exit 127; }
+sub=${1:-}
+deny() { echo "git: $1 is not available in this environment" >&2; exit 1; }
+for a in "$@"; do
+  case "$a" in *memory-ladder*|*memory_ladder*|*rubric*) deny "that path" ;; esac
+done
+# Does $1 name something in the worktree (relative to cwd or to the repository root)?
+is_path() { [ -e "$1" ] || { top=$("$REAL" rev-parse --show-toplevel 2>/dev/null) && [ -n "$top" ] && [ -e "$top/$1" ]; }; }
+case "$sub" in
+  log|show|diff|whatchanged|range-diff|shortlog|grep)
+    # git only accepts the exclusion pathspec after "--". If the caller already gave one, append.
+    # Otherwise classify the positional arguments the way git itself disambiguates them: anything
+    # that exists as a path becomes a pathspec and moves behind "--" together with the exclusion;
+    # options and revisions stay in front. A non-existent path without "--" fails in plain git too.
+    has_sep=0; for a in "$@"; do [ "$a" = "--" ] && has_sep=1; done
+    if [ "$has_sep" = 1 ]; then exec "$REAL" "$@" ":!$HARNESS"; fi
+    shift
+    front=""; paths=""; n=0
+    for a in "$@"; do
+      n=$((n + 1))
+      case "$a" in
+        -*) front="$front \"\$$n\"" ;;
+        *) if is_path "$a"; then paths="$paths \"\$$n\""; else front="$front \"\$$n\""; fi ;;
+      esac
+    done
+    eval "set -- $front -- $paths \":!\$HARNESS\""
+    exec "$REAL" "$sub" "$@" ;;
+  blame|annotate) exec "$REAL" "$@" ;;   # single-file readers: the path itself is screened above
+  branch|tag)
+    # Listing only. Write flags are refused per subcommand; a positional (a name or a pattern) is
+    # accepted only when a listing flag is present, so `tag -l 'v*'` and `branch --contains <sha>`
+    # work while `branch <name>` and `tag <name>` do not.
+    shift
+    listing=0
+    for a in "$@"; do case "$a" in -l|--list|--contains|--no-contains|--points-at|--merged|--no-merged|--sort=*|--format=*) listing=1 ;; esac; done
+    for a in "$@"; do
+      if [ "$sub" = branch ]; then
+        case "$a" in -d|-D|-m|-M|-c|-C|-f|--force|--delete|--move|--copy|-u|--set-upstream-to|--set-upstream-to=*|--unset-upstream|--edit-description|--track|--no-track) deny "git branch $a" ;; esac
+      else
+        case "$a" in -a|-s|-u|-f|-F|-m|-d|--annotate|--sign|--local-user=*|--force|--file|--file=*|--message|--message=*|--delete|-e|--edit|--cleanup=*) deny "git tag $a" ;; esac
+      fi
+      case "$a" in -*) ;; *) [ "$listing" = 1 ] || deny "git $sub <name>" ;; esac
+    done
+    exec "$REAL" "$sub" "$@" ;;
+  status|describe|rev-parse|name-rev|merge-base|ls-files|for-each-ref|show-branch|show-ref|help|version|--version)
+    exec "$REAL" "$@" ;;
+  config)
+    case "${2:-}" in --get|--list|-l|--get-all|--get-regexp) exec "$REAL" "$@" ;; *) deny "git config writes" ;; esac ;;
+  *) deny "git $sub" ;;
+esac
