@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "38091d6c8d4e",
+  "strategy": "manual-commit",
+  "branch": "hosted-sync-client-cor-2030",
+  "checkpoints_count": 13,
+  "files_touched": [
+    ".context/brainstore-workspace-init.md",
+    ".context/docs/2026-10-06-brainstore-service.md",
+    ".context/docs/2026-10-06-cli-repo-whereami.md",
+    ".context/docs/2026-10-06-factmerge-export.md",
+    ".context/docs/2026-10-06-gateway-brainstore-registration.md",
+    ".context/docs/2026-10-06-plugin-hosted-sync.md",
+    ".context/docs/hosted_memory_sync_plan.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/38/091d6c8d4e/0/metadata.json",
+      "transcript": "/38/091d6c8d4e/0/full.jsonl",
+      "compact_transcript": "/38/091d6c8d4e/0/transcript.jsonl",
+      "content_hash": "/38/091d6c8d4e/0/content_hash.txt",
+      "prompt": "/38/091d6c8d4e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 98,
+    "cache_creation_tokens": 820900,
+    "cache_read_tokens": 27633429,
+    "output_tokens": 95945,
+    "api_call_count": 49,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  }
+}

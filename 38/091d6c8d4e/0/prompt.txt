@@ -1,0 +1,1 @@
+the plan should be put into linear in a parent ticket and then split up into appropriate sub tickets in linear. we track everythign in linear, not this workspace. update linear project and tickets so that any agent can pick it up and get all of the context it needs.
