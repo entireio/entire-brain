@@ -63,6 +63,13 @@ func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
 	if integrity := inspectFactStore(brainDir, manifest.Sources.Facts); !integrity.OK() {
 		return "note: this empty result is NOT evidence of absence — " + integrity.Warning()
 	}
+	// A connected repo whose branch never synced may be missing the whole
+	// team's facts, and the remedy is one command — more actionable than "try
+	// another branch", so it wins over the branch note below. The integrity
+	// check above still wins: a store that lost facts is not merely unsynced.
+	if note := unsyncedHostedFactsBlindSpot(brainDir, branch); note != "" {
+		return note
+	}
 	// Facts are recorded against the branch the session ran on. Sessions run on
 	// feature branches and queries run from main, so an empty result on one
 	// branch is the ordinary case rather than a signal about the corpus.
@@ -225,4 +232,29 @@ func otherBranchSessionBlindSpot(brainDir, branch string) string {
 	return fmt.Sprintf(
 		"note: no sessions were captured on %s; %d session(s) on %d other branch(es): %s — retry with --branch <name>",
 		branch, total, len(names), strings.Join(names, ", "))
+}
+
+// unsyncedHostedFactsBlindSpot notes a branch that has not synced against the
+// CONNECTED hosted brain: repo-level hosted.json present, per-branch
+// hosted-target.json absent or recording a different target (a marker left by
+// a previous connection must not suppress the note). Purely local reads; no
+// network.
+func unsyncedHostedFactsBlindSpot(brainDir, branch string) string {
+	// The branchless surface (emptyResultBlindSpot) passes ""; facts sync per
+	// branch, so there is no empty-branch marker and the note would be
+	// nonsense — and would hide the coverage notes below it.
+	if strings.TrimSpace(branch) == "" {
+		return ""
+	}
+	binding, connected, err := readHostedRepoBinding(brainDir)
+	if err != nil || !connected {
+		return ""
+	}
+	if checkHostedFactsBinding(brainDir, branch, binding.RepoID, binding.BaseURL) == nil {
+		return ""
+	}
+	// The remedy must be a command that PULLS: `facts sync` only publishes
+	// (and would write the marker that silences this note without fetching
+	// anything); connect runs the full sync-and-pull.
+	return fmt.Sprintf("note: this repository is connected to a hosted brain but branch %q has not synced with it; run 'entire brain connect' or wait for the next daemon tick", branch)
 }

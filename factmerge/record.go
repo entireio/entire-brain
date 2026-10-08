@@ -20,13 +20,18 @@ const (
 // derived (sha256 of normalized text + sorted paths) so re-distilling a turn
 // is idempotent and dedupe is a map lookup.
 type Record struct {
-	ID           string    `json:"id"`
-	Paths        []string  `json:"paths"`           // 1-2 taxonomy paths (topic label)
-	Kind         string    `json:"kind,omitempty"`  // decision|invariant|gotcha|preference|convention|closed-negative
-	Locus        []string  `json:"locus,omitempty"` // code identifiers/paths the fact is about (WHERE)
-	Text         string    `json:"text"`            // third person about the user
-	Branch       string    `json:"branch"`
-	Origin       string    `json:"origin"` // "distilled" | "authored"
+	ID     string   `json:"id"`
+	Paths  []string `json:"paths"`           // 1-2 taxonomy paths (topic label)
+	Kind   string   `json:"kind,omitempty"`  // decision|invariant|gotcha|preference|convention|closed-negative
+	Locus  []string `json:"locus,omitempty"` // code identifiers/paths the fact is about (WHERE)
+	Text   string   `json:"text"`            // third person about the user
+	Branch string   `json:"branch"`
+	Origin string   `json:"origin"` // "distilled" | "authored"
+	// Author is display attribution (an account handle), stamped by the hosted
+	// pull path from server-side attribution. It is OUTSIDE the content id and
+	// outside merge/sort semantics: two records differing only in Author are
+	// the same fact.
+	Author       string    `json:"author,omitempty"`
 	Status       string    `json:"status"` // "active" | "superseded" | "retracted"
 	Confidence   string    `json:"confidence,omitempty"`
 	Provenance   []Anchor  `json:"provenance"` // >=1; retained source/authored anchors

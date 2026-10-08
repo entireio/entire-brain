@@ -70,7 +70,8 @@ type watchCursor struct {
 	// watchRepairWait: a single failure repairs promptly, a persistent one
 	// settles back to the normal consolidation cadence instead of firing the
 	// heavy refresh every tick. Reset to 0 by the first healthy delta.
-	ConsolidationRepairs int `json:"consolidation_repairs,omitempty"`
+	ConsolidationRepairs int       `json:"consolidation_repairs,omitempty"`
+	LastFactsSyncAt      time.Time `json:"last_facts_sync_at,omitempty"`
 }
 
 // watchRepairBackoffMax caps ConsolidationRepairs so the persisted counter stays
@@ -99,8 +100,16 @@ type watchSteps struct {
 	refresh   func(context.Context) error
 	seed      func(context.Context) error
 	distill   func(context.Context) error
+	// factsSync publishes-and-pulls hosted facts (hostedFactsSyncAndPull) for
+	// the current + default branch. Nil when the surface has no hosted step;
+	// non-fatal and cursor-throttled (hostedSyncMinInterval).
+	factsSync func(context.Context) error
 	paused    func() bool
 }
+
+// hostedSyncMinInterval throttles the hosted fact sync step across ticks: the
+// tick interval is minutes, a team's fact churn is hours.
+const hostedSyncMinInterval = 15 * time.Minute
 
 // defaultWatchOptions are the shared defaults for `watch` and `workspace watch`.
 func defaultWatchOptions() watchCommandOptions {
@@ -273,10 +282,29 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		}
 	}
 	cursor := loadWatchCursor(cursorPath)
+	// The hosted step pulls teammates' facts as much as it publishes local
+	// ones, so it must run on idle (no-change) ticks too — a machine that only
+	// receives would otherwise never sync. It is skipped on a failed refresh
+	// (callers below return before invoking it) and throttled by its own
+	// cursor timestamp, advanced regardless of outcome so a failing hosted
+	// endpoint cannot turn every tick into an egress attempt.
+	runFactsSync := func() {
+		now := steps.now().UTC()
+		if steps.factsSync == nil || now.Sub(cursor.LastFactsSyncAt) < hostedSyncMinInterval {
+			return
+		}
+		if err := steps.factsSync(ctx); err != nil {
+			fmt.Fprintf(out, "[watch] hosted fact sync failed (local brain unaffected): %v\n", err)
+		} else {
+			fmt.Fprintln(out, "[watch] hosted fact sync ran")
+		}
+		markFactsSyncAttempt(cursorPath, now)
+	}
 	fp := steps.fingerprint(ctx)
 	changed := fp != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero()
 	if !changed && !(cursor.PendingSeed && w.seedAgent != "none" || cursor.PendingDistill && w.distill) {
 		fmt.Fprintln(out, "[watch] no change; nothing to do")
+		runFactsSync()
 		return
 	}
 	// Consolidation throttle: the fingerprint includes checkpoint refs, so an
@@ -303,6 +331,7 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		if since := steps.now().UTC().Sub(cursor.LastRefreshAt); since < wait {
 			fmt.Fprintf(out, "[watch] consolidation deferred (%s since last full refresh; due in %s; %s)\n",
 				since.Round(time.Second), (wait - since).Round(time.Second), state)
+			runFactsSync()
 			return
 		}
 	}
@@ -314,6 +343,7 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 			return
 		}
 	}
+	runFactsSync()
 	reserved, reason, err := reserveWatchAgentSpend(cursorPath, fp, w, agentCalls, steps.now().UTC(), !deltaHealthy)
 	if err != nil {
 		fmt.Fprintf(out, "[watch] cursor update failed (skipping agent work this tick): %v\n", err)
@@ -431,8 +461,33 @@ func watchStepsForRepo(cmd *cobra.Command, opts Options, w watchCommandOptions, 
 		refresh: func(c context.Context) error { return watchDeterministicRefresh(c, cmd, opts, repoDir) },
 		seed:    func(c context.Context) error { return watchSeed(c, cmd, opts, w, repoDir) },
 		distill: func(c context.Context) error { return watchDistill(c, cmd, opts, w, repoDir) },
-		paused:  func() bool { return backgroundPaused(opts.Env) },
+		factsSync: func(c context.Context) error {
+			storage, err := repoStoragePaths(c, opts.Runner, opts.Env, repoDir)
+			if err != nil {
+				return err
+			}
+			branch := hostedSyncBranch(c, opts.Runner, repoDir)
+			if err := hostedFactsSyncAndPull(c, cmd.ErrOrStderr(), opts, repoDir, storage, branch); err != nil {
+				return err
+			}
+			if branch != distillDefaultBranch {
+				return hostedFactsSyncAndPull(c, cmd.ErrOrStderr(), opts, repoDir, storage, distillDefaultBranch)
+			}
+			return nil
+		},
+		paused: func() bool { return backgroundPaused(opts.Env) },
 	}
+}
+
+// markFactsSyncAttempt persists the hosted-sync throttle timestamp. Failures
+// are silent for the same reason as releaseWatchAgentSpend: a watcher must
+// never die on cursor bookkeeping.
+func markFactsSyncAttempt(cursorPath string, now time.Time) {
+	_ = withWatchCursorLock(cursorPath, func() error {
+		cursor := loadWatchCursor(cursorPath)
+		cursor.LastFactsSyncAt = now
+		return saveWatchCursor(cursorPath, cursor)
+	})
 }
 
 // watchShortTermDelta runs the short-term memory path for one repo: quiet

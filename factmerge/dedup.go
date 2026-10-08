@@ -44,6 +44,14 @@ func Upsert(records []Record, incoming Record) []Record {
 		if !ValidFactKind(records[i].Kind) && ValidFactKind(incoming.Kind) {
 			records[i].Kind = incoming.Kind
 		}
+		// Author: a non-empty incoming value wins — its only writer is the
+		// hosted pull stamping server-side attribution, which is authoritative
+		// (a server-side handle correction must propagate). An empty incoming
+		// value keeps the stored handle so a local re-distill or a server
+		// without the authors map never erases attribution.
+		if incoming.Author != "" {
+			records[i].Author = incoming.Author
+		}
 		return records
 	}
 	return append(records, incoming)

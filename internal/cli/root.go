@@ -123,6 +123,7 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	addGrouped("facts", newRememberCommand(opts))
 	addGrouped("facts", newDistillCommand(opts))
 	addGrouped("facts", newFactsCommand(opts))
+	addGrouped("facts", newConnectCommand(opts))
 	addGrouped("facts", newVerifyCommand(opts))
 	addGrouped("facts", newPatternsCommand(opts))
 

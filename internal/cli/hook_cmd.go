@@ -116,13 +116,13 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 			// content-free and durable; startup/watch reconciliation or a later
 			// worker pass can repair the missed export without retaining content.
 			storage, storageErr := repoStoragePaths(cmd.Context(), perRepo.Runner, perRepo.Env, repoDir)
-			if storageErr == nil {
-				resolvedBranch := strings.TrimSpace(branch)
-				if resolvedBranch == "" {
-					if current, gitErr := gitScalar(cmd.Context(), perRepo.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
-						resolvedBranch = strings.TrimSpace(current)
-					}
+			resolvedBranch := strings.TrimSpace(branch)
+			if resolvedBranch == "" {
+				if current, gitErr := gitScalar(cmd.Context(), perRepo.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
+					resolvedBranch = strings.TrimSpace(current)
 				}
+			}
+			if storageErr == nil {
 				_, warning, hintErr := recordMemoryLifecycleAndLaunch(
 					storage.BrainDir, repoDir, storage.Key, sessionID, resolvedBranch, "session_end", perRepo.Now().UTC(),
 				)
@@ -141,8 +141,29 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 			if entityErr := refreshEntityIndexQuietly(cmd.Context(), perRepo, repoDir); entityErr != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "session-end: entity index refresh skipped: %v\n", entityErr)
 			}
+			// Hosted sync runs on every exit path — the pull half matters even
+			// when this session's export or distill could not: current branch,
+			// then the default branch (the spec's per-trigger coverage).
+			// hostedFactsSyncAndPull soaks every gated/soft failure itself;
+			// the print covers programming errors only. Stderr only — the
+			// hook's stdout is machine-read.
+			syncHosted := func() {
+				if storageErr != nil {
+					return
+				}
+				syncBranches := []string{distillDefaultBranch}
+				if resolvedBranch != "" && resolvedBranch != distillDefaultBranch {
+					syncBranches = []string{resolvedBranch, distillDefaultBranch}
+				}
+				for _, syncBranch := range syncBranches {
+					if err := hostedFactsSyncAndPull(cmd.Context(), cmd.ErrOrStderr(), perRepo, repoDir, storage, syncBranch); err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "session-end: hosted fact sync failed (local brain unaffected): %v\n", err)
+					}
+				}
+			}
 			if deltaErr != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "session-end: incremental export failed: %v\n", deltaErr)
+				syncHosted()
 				return nil
 			}
 			distillOpts := distillCommandOptions{
@@ -164,6 +185,7 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 				// stderr for the curious, succeed for the harness.
 				fmt.Fprintf(cmd.ErrOrStderr(), "session-end: distill skipped: %v\n", err)
 			}
+			syncHosted()
 			return nil
 		},
 	}
