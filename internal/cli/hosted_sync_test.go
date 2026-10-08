@@ -28,6 +28,7 @@ type hostedFake struct {
 	authors  map[string]string
 	requests int
 	seq      int
+	denyPush bool // advance → 403, the staging push-grant-denied shape
 }
 
 func (f *hostedFake) requestCount() int {
@@ -66,6 +67,10 @@ func newHostedFakeServer(t *testing.T, fake *hostedFake) *httptest.Server {
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Data) == 0 {
 				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if fake.denyPush {
+				w.WriteHeader(http.StatusForbidden)
 				return
 			}
 			if body.OldRef != fake.ref {
@@ -508,5 +513,76 @@ func TestPullNeverRevivesFromAnActiveHead(t *testing.T) {
 		if rec.ID == localRetired.ID && rec.Status != factStatusRetracted {
 			t.Fatalf("the pull must never revive a locally retired fact, got status %q", rec.Status)
 		}
+	}
+}
+
+func TestHostedSyncFallsBackToPullOnlyWhenPublishDenied(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	localFact := hostedSyncTestFact("local fact A", now)
+	remoteFact := hostedSyncTestFact("remote fact B", now)
+	fake := &hostedFake{ref: "facts-remote", authors: map[string]string{remoteFact.ID: "teammate"}, denyPush: true}
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
+	fake.mu.Lock()
+	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
+	fake.mu.Unlock()
+	if err := writeFacts(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
+		t.Fatal(err)
+	}
+
+	var errOut bytes.Buffer
+	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatalf("publish denial must be non-fatal, got %v", err)
+	}
+	local, err := loadFacts(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, rec := range local {
+		if rec.ID == remoteFact.ID && rec.Author == "teammate" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("a denied publish must still pull teammates' facts, got %d local records", len(local))
+	}
+	// The branch did NOT sync: the marker stays absent so the blind-spot note
+	// keeps firing until a full sync succeeds.
+	if err := checkHostedFactsBinding(storage.BrainDir, "main", "repo1", baseURL); err == nil {
+		t.Fatal("a pull-only run must not mark the branch as synced")
+	}
+	if !strings.Contains(errOut.String(), "pull-only") {
+		t.Fatalf("expected a pull-only note on stderr, got %q", errOut.String())
+	}
+}
+
+func TestPullOnlyRejectsAForgedHead(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	localFact := hostedSyncTestFact("local fact A", now)
+	forged := hostedSyncTestFact("remote fact B", now)
+	forged.ID = "fact:forged-id-that-does-not-match-content"
+	fake := &hostedFake{ref: "facts-remote", denyPush: true}
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+	fake.mu.Lock()
+	fake.data = encodeFactsNDJSON(t, []factRecord{forged})
+	fake.mu.Unlock()
+	if err := writeFacts(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factsFileRelPath("main"))))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var errOut bytes.Buffer
+	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatalf("must be non-fatal, got %v", err)
+	}
+	after, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factsFileRelPath("main"))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("a forged head must leave the local store byte-identical on the pull-only path too")
 	}
 }

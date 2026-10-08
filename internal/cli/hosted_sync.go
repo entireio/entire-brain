@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -76,7 +77,12 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 	memberID := resolveSyncMemberID(ctx, opts.Runner, repoDir, "")
 	res, err := factsync.Sync(ctx, srv, binding.RepoID, branch, memberID, facts, opts.Now().UTC())
 	if err != nil {
-		fmt.Fprintf(errW, "hosted sync: branch %s failed (local brain unaffected): %v\n", branch, err)
+		// Publish can be denied (missing push grant, 5xx) while the pull grant
+		// works; discarding the readable head would starve this member of the
+		// team's facts — the receive half of the loop. Pull-only: no marker
+		// (the branch did not sync), no proposals, head verified fail-closed.
+		fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): %v; attempting pull-only\n", branch, err)
+		pullOnlyHostedFacts(ctx, errW, opts, storage, srv, binding.RepoID, branch)
 		return nil
 	}
 	// The per-branch marker records that this branch has synced against this
@@ -108,14 +114,54 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 		merged[i].Author = authors[merged[i].ID]
 	}
 
-	// The import write composition: everything under one write lock, manifest
-	// refresh included; a manifest failure reports alongside the successful
-	// pull instead of masking it. upsertFact never moves a local status, so a
-	// locally retracted fact stays retracted whatever the head says. The
-	// settled head is authoritative for RETIREMENTS, though: it already folded
-	// this member's own (applyLocalRetirements), so a non-active head status
-	// is a teammate's settled retraction/supersession and must reach the local
-	// store. Lifecycle moves one way — active to retired, never a revival.
+	if mergeHostedFactsIntoLocal(errW, opts, storage, branch, merged) {
+		fmt.Fprintf(errW, "hosted sync: branch %s published=%v attempts=%d facts=%d\n", branch, res.Published, res.Attempts, len(res.Facts))
+	}
+	return nil
+}
+
+// pullOnlyHostedFacts is the degraded receive path when publish failed: read
+// the head, verify it fail-closed exactly like Sync does, stamp attribution,
+// and merge it into the local store. Deliberately NOT written: the per-branch
+// marker (this branch has not synced, so the blind-spot note keeps firing)
+// and proposals (no merge ran, none were raised).
+func pullOnlyHostedFacts(ctx context.Context, errW io.Writer, opts Options, storage repoStorage, srv *factsync.HTTPServer, repoID, branch string) {
+	_, plaintext, authors, found, err := srv.CurrentWithAuthors(ctx, repoID, branch)
+	if err != nil {
+		fmt.Fprintf(errW, "hosted sync: branch %s pull-only read failed: %v\n", branch, err)
+		return
+	}
+	if !found || len(plaintext) == 0 {
+		return
+	}
+	head, err := factmerge.ParseNDJSON(bytes.NewReader(plaintext))
+	if err != nil {
+		fmt.Fprintf(errW, "hosted sync: branch %s pull-only parse failed: %v\n", branch, err)
+		return
+	}
+	// Same fail-closed rule as Sync: a head record whose content id does not
+	// re-derive is a forgery and nothing from that head may be merged.
+	if err := factmerge.VerifyIdentities(head); err != nil {
+		fmt.Fprintf(errW, "hosted sync: branch %s pull-only refused untrustworthy head: %v\n", branch, err)
+		return
+	}
+	for i := range head {
+		head[i].Author = authors[head[i].ID]
+	}
+	if mergeHostedFactsIntoLocal(errW, opts, storage, branch, head) {
+		fmt.Fprintf(errW, "hosted sync: branch %s pull-only facts=%d (local facts not shared)\n", branch, len(head))
+	}
+}
+
+// mergeHostedFactsIntoLocal writes a verified hosted fact set into the local
+// branch store with the import write composition: everything under one write
+// lock, manifest refresh included; a manifest failure reports alongside the
+// successful pull instead of masking it. upsertFact never moves a local
+// status, so a locally retracted fact stays retracted whatever the head says.
+// The head is authoritative for RETIREMENTS, though: a non-active head status
+// is a settled retraction/supersession and must reach the local store.
+// Lifecycle moves one way — active to retired, never a revival.
+func mergeHostedFactsIntoLocal(errW io.Writer, opts Options, storage repoStorage, branch string, merged []factmerge.Record) bool {
 	var manifestErr error
 	if err := withBrainWriteLock(storage.BrainDir, func() error {
 		existing, loadErr := loadFacts(storage.BrainDir, branch)
@@ -140,13 +186,12 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 		return nil
 	}); err != nil {
 		fmt.Fprintf(errW, "hosted sync: branch %s pull failed (local store unchanged): %v\n", branch, err)
-		return nil
+		return false
 	}
 	if manifestErr != nil {
 		fmt.Fprintf(errW, "hosted sync: facts updated, but the source manifest could not be refreshed: %v\n", manifestErr)
 	}
-	fmt.Fprintf(errW, "hosted sync: branch %s published=%v attempts=%d facts=%d\n", branch, res.Published, res.Attempts, len(res.Facts))
-	return nil
+	return true
 }
 
 // hostedSyncBranch resolves the branch a hosted sync step should cover: the

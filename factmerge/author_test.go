@@ -101,3 +101,16 @@ func TestUpsertTakesIncomingAuthorAndKeepsStoredOnEmpty(t *testing.T) {
 		t.Fatalf("an empty incoming author must keep the stored one, got %q", got[0].Author)
 	}
 }
+
+func TestInvalidUTF8AuthorIsRefused(t *testing.T) {
+	paths := []string{"project.testing"}
+	r := Record{ID: RecordID("fact text", paths), Paths: paths, Text: "fact text",
+		Branch: "main", Origin: "authored", Status: "active",
+		Provenance: []Anchor{{SessionID: "s"}}, CreatedAt: time.Unix(1, 0).UTC(), UpdatedAt: time.Unix(1, 0).UTC(),
+		Author: "evis\xff"}
+	var buf bytes.Buffer
+	err := WriteNDJSON(&buf, []Record{r})
+	if err == nil {
+		t.Fatal("an invalid-UTF-8 author must be refused: encoding/json would substitute U+FFFD and the write/parse round-trip would silently change it")
+	}
+}

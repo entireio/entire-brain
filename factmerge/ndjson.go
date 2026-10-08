@@ -110,6 +110,7 @@ func invalidUTF8Field(record Record) (string, string) {
 		{"text", record.Text},
 		{"branch", record.Branch},
 		{"origin", record.Origin},
+		{"author", record.Author},
 		{"status", record.Status},
 		{"confidence", record.Confidence},
 		{"superseded_by", record.SupersededBy},

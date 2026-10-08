@@ -240,6 +240,12 @@ func otherBranchSessionBlindSpot(brainDir, branch string) string {
 // a previous connection must not suppress the note). Purely local reads; no
 // network.
 func unsyncedHostedFactsBlindSpot(brainDir, branch string) string {
+	// The branchless surface (emptyResultBlindSpot) passes ""; facts sync per
+	// branch, so there is no empty-branch marker and the note would be
+	// nonsense — and would hide the coverage notes below it.
+	if strings.TrimSpace(branch) == "" {
+		return ""
+	}
 	binding, connected, err := readHostedRepoBinding(brainDir)
 	if err != nil || !connected {
 		return ""

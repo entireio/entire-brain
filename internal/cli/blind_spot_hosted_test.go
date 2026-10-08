@@ -65,3 +65,15 @@ func TestUnsyncedNoteReturnsAfterReconnectingToADifferentTarget(t *testing.T) {
 		t.Fatal("a stale marker from a previous target must not suppress the note")
 	}
 }
+
+func TestUnsyncedNoteIgnoresAnEmptyBranch(t *testing.T) {
+	brainDir := t.TempDir()
+	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: "https://api.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	// emptyResultBlindSpot (the branchless surface) always passes branch "";
+	// a nonsense `branch "" has not synced` note must not hide the coverage notes.
+	if note := unsyncedHostedFactsBlindSpot(brainDir, ""); note != "" {
+		t.Fatalf("an empty branch must get no hosted note, got %q", note)
+	}
+}
