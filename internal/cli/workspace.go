@@ -3642,27 +3642,27 @@ func workspaceRepoBlockNeedsHeader(state string, anomalies, warnings int, errTex
 // files to verify against -- and this function used to discard it with `_`. A caller with no count
 // cannot tell "compared the tree and found nothing wrong" from "never opened a file", and the
 // review summary went on to assert the first. See workspaceReviewSummary.
-func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo workspaceRepo, ro regressionDetectorOptions, query string) (string, []regressionAnomaly, int, []string, string) {
+func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo workspaceRepo, ro regressionDetectorOptions, query string) (string, []regressionAnomaly, int, []string, regressionScanCaps, string) {
 	brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
 	if err != nil {
-		return "", nil, 0, nil, err.Error()
+		return "", nil, 0, nil, regressionScanCaps{}, err.Error()
 	}
 	if repo.LocalPathHint == "" {
-		return "", nil, 0, nil, "no local_path_hint (re-add the repo to record its working tree)"
+		return "", nil, 0, nil, regressionScanCaps{}, "no local_path_hint (re-add the repo to record its working tree)"
 	}
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
 	if err != nil {
-		return "", nil, 0, nil, err.Error()
+		return "", nil, 0, nil, regressionScanCaps{}, err.Error()
 	}
 	if !local {
-		return "", nil, 0, nil, "local_path_hint unavailable"
+		return "", nil, 0, nil, regressionScanCaps{}, "local_path_hint unavailable"
 	}
 	// Semantic source is optional: a sessions-only brain (no export manifest) still scans.
 	var semSource *semanticSourceManifest
 	if source, srcErr := workspaceSemanticSource(brainDir); srcErr == nil {
 		semSource = source
 	}
-	anomalies, scanned, warnings := detectRegressionAnomalies(brainDir, repoDir, semSource, query, ro.limit, ro.includeDeletions)
+	anomalies, scanned, warnings, caps := detectRegressionAnomaliesCapped(brainDir, repoDir, semSource, query, ro.limit, ro.includeDeletions)
 	if ro.locationOnly {
 		for i := range anomalies {
 			anomalies[i].Expected = ""
@@ -3673,7 +3673,7 @@ func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo worksp
 			}
 		}
 	}
-	return repoDir, anomalies, scanned, warnings, ""
+	return repoDir, anomalies, scanned, warnings, caps, ""
 }
 
 func runWorkspaceRegressions(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, workspaceName, query string) error {
@@ -3693,6 +3693,7 @@ func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regres
 		return err
 	}
 	var results []workspaceRegressionResult
+	partialMembers := 0
 	for _, f := range skipped {
 		results = append(results, workspaceRegressionResult{
 			RepoKey: f.RepoKey, Name: f.Name, Freshness: f, Error: workspaceSkippedResultError(f),
@@ -3704,7 +3705,10 @@ func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regres
 		if workspaceFreshnessBlocksScan(freshness) {
 			result.Error = "skipped (unsafe): " + freshness.Detail
 		} else {
-			repoPath, anomalies, scanned, warnings, scanErr := scanWorkspaceRepoRegressions(cmd.Context(), opts, repo, ro, query)
+			repoPath, anomalies, scanned, warnings, caps, scanErr := scanWorkspaceRepoRegressions(cmd.Context(), opts, repo, ro, query)
+			if caps.Truncated() {
+				partialMembers++
+			}
 			result.RepoPath = repoPath
 			result.Anomalies = anomalies
 			result.FilesScanned = scanned
@@ -3760,6 +3764,8 @@ func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regres
 			// reported "No suspected regressions across 6 repo(s)" -- a clean bill of
 			// health over repos nothing ever looked at.
 			switch {
+			case partialMembers > 0:
+				fmt.Fprintf(out, "PARTIAL: nothing flagged in the comparisons made, but history scans stopped at a cap in %d member(s) of %q; this is not a clean result.\n", partialMembers, manifest.Name)
 			case scanned == 0:
 				fmt.Fprintf(out, "INCONCLUSIVE: no file in any of %d repo(s) in %q was compared — this is not a clean result. See the warnings above.\n",
 					len(results), manifest.Name)
@@ -3819,6 +3825,7 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 		return err
 	}
 	var results []workspaceReviewResult
+	partialMembers := 0
 	reposWithFindings := 0
 	totalFindings := 0
 	for _, f := range skipped {
@@ -3838,7 +3845,10 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 			results = append(results, result)
 			continue
 		}
-		repoPath, anomalies, scanned, warnings, scanErr := scanWorkspaceRepoRegressions(cmd.Context(), opts, repo, ro, query)
+		repoPath, anomalies, scanned, warnings, caps, scanErr := scanWorkspaceRepoRegressions(cmd.Context(), opts, repo, ro, query)
+		if caps.Truncated() {
+			partialMembers++
+		}
 		result.RepoPath = repoPath
 		result.FilesScanned = scanned
 		result.Checked = scanErr == "" && scanned > 0
@@ -3861,6 +3871,9 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 			result.Summary = fmt.Sprintf("%d suspected regression(s) — verify each before acting.", len(result.Findings))
 		default:
 			result.Summary = workspaceReviewSummary(result.Checked, result.FilesScanned)
+		}
+		if caps.Truncated() {
+			result.Summary = reviewSummaryWithCaps(len(result.Findings), scanned, caps)
 		}
 		results = append(results, result)
 	}
@@ -3886,6 +3899,9 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 		summary = fmt.Sprintf("INCONCLUSIVE: no file in any of %d member(s) was compared — this is not a clean result. See each repo's warnings.", len(results))
 	case reviewed != len(results):
 		summary += fmt.Sprintf(" %d of %d member(s) were not reviewed.", len(results)-reviewed, len(results))
+	}
+	if partialMembers > 0 {
+		summary = fmt.Sprintf("PARTIAL: %s History scans stopped at a cap in %d member(s); this is not a clean result.", summary, partialMembers)
 	}
 	render := func() error {
 		if ro.json {
