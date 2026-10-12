@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -96,9 +97,9 @@ func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
 	last, undigested, ok := distillCoverage(manifest)
 	if !ok {
 		if manifest.Sources.Sessions != nil && len(manifest.Sources.Sessions.Sessions) > 0 {
-			return fmt.Sprintf("note: distillation coverage is unknown for %d captured session(s); run `entire brain distill`", len(manifest.Sources.Sessions.Sessions))
+			return fmt.Sprintf("note: distillation coverage is unknown for %d captured session(s); run `"+brainInvocation(os.LookupEnv, "distill")+"`", len(manifest.Sources.Sessions.Sessions))
 		}
-		return "note: no distillation timestamp is recorded; run `entire brain refresh`, then `distill`"
+		return "note: no distillation timestamp is recorded; run `" + brainInvocation(os.LookupEnv, "refresh") + "`, then `distill`"
 	}
 	if undigested > 0 {
 		return fmt.Sprintf("note: last distillation %s; %d session(s) captured since; coverage of older sessions is unknown", last.Format("2006-01-02"), undigested)
@@ -173,9 +174,9 @@ func otherBranchBlindSpot(brainDir, branch string) string {
 // "no results" line on text ones. Nothing new is introduced.
 func noBrainBlindSpot(loadErr error) string {
 	if loadErr != nil {
-		return "note: this repository's brain could not be read, so this empty result is not evidence of absence; run `entire brain status` for the reason"
+		return "note: this repository's brain could not be read, so this empty result is not evidence of absence; run `" + brainInvocation(os.LookupEnv, "status") + "` for the reason"
 	}
-	return "note: no brain has been built for this repository, so nothing is indexed here and this empty result is not evidence of absence; run `entire brain setup`"
+	return "note: no brain has been built for this repository, so nothing is indexed here and this empty result is not evidence of absence; run `" + brainInvocation(os.LookupEnv, "setup") + "`"
 }
 
 // otherBranchSessionBlindSpot reports captured sessions held on branches other
@@ -256,5 +257,5 @@ func unsyncedHostedFactsBlindSpot(brainDir, branch string) string {
 	// The remedy must be a command that PULLS: `facts sync` only publishes
 	// (and would write the marker that silences this note without fetching
 	// anything); connect runs the full sync-and-pull.
-	return fmt.Sprintf("note: this repository is connected to a hosted brain but branch %q has not synced with it; run 'entire brain connect' or wait for the next daemon tick", branch)
+	return fmt.Sprintf("note: this repository is connected to a hosted brain but branch %q has not synced with it; run '"+brainInvocation(os.LookupEnv, "connect")+"' or wait for the next daemon tick", branch)
 }

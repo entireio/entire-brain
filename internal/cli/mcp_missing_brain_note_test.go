@@ -25,7 +25,7 @@ func TestEmptyResultBlindSpotNamesAMissingBrain(t *testing.T) {
 	if !strings.Contains(note, "no brain has been built") {
 		t.Fatalf("note must name the missing brain, got %q", note)
 	}
-	if !strings.Contains(note, "entire brain setup") {
+	if !strings.Contains(note, brainInvocation(os.LookupEnv, "setup")) {
 		t.Fatalf("note must name the command that builds one, got %q", note)
 	}
 

@@ -871,7 +871,7 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil || manifest.Sources.Semantic.SnapshotPath == "" {
-		return errors.New("semantic index missing; run `entire brain refresh index --force` first")
+		return errors.New("semantic index missing; run `" + brainInvocation(os.LookupEnv, "refresh index") + " --force` first")
 	}
 	defaultBranch, _ := detectDefaultBranch(ctx, opts.Runner, repoDir)
 	defaultHead := ""

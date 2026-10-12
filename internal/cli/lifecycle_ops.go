@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -360,7 +361,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	case "current":
 		add("manifest", "ok", brainDir)
 	case "absent":
-		add("manifest", "warn", "absent; run `entire brain refresh`")
+		add("manifest", "warn", "absent; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
 		return checks, payload
 	default:
 		add("manifest", "error", fmt.Sprintf("%s: %s", snapshot.ManifestHealth.ErrorCode, snapshot.ManifestHealth.RecommendedAction))
@@ -369,7 +370,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 
 	// Capture: exported sessions are the canonical input to every projection.
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
-		add("capture", "warn", "no exported sessions; run `entire brain refresh` (sessions stage)")
+		add("capture", "warn", "no exported sessions; run `"+brainInvocation(os.LookupEnv, "refresh")+"` (sessions stage)")
 	} else {
 		sessions := manifest.Sources.Sessions.Sessions
 		latest := time.Time{}
@@ -416,7 +417,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	// only when it was built from the CURRENT session set (fingerprint match);
 	// a semantic-only refresh must never claim conversation freshness.
 	if manifest.Sources == nil || manifest.Sources.History == nil {
-		add("history_index", "warn", "no history index; run `entire brain refresh`")
+		add("history_index", "warn", "no history index; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
 		return checks, payload
 	}
 	history := manifest.Sources.History
@@ -427,7 +428,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	}
 	add("history_index", "ok", fmt.Sprintf("%d records (generated %s)", len(index.Records), history.GeneratedAt.UTC().Format(time.RFC3339)))
 	if history.IndexDigest == "" {
-		add("history_integrity", "warn", "index predates manifest content digests; run `entire brain refresh`")
+		add("history_integrity", "warn", "index predates manifest content digests; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
 	} else {
 		add("history_integrity", "ok", "index bytes match the manifest content digest")
 	}
@@ -440,25 +441,25 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	shortTermCovers := shortTermCurrentForSources && len(shortTerm.Files) > 0
 	switch {
 	case history.SessionsFingerprint == "":
-		add("history_freshness", "warn", "index predates fingerprinting; run `entire brain refresh`")
+		add("history_freshness", "warn", "index predates fingerprinting; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
 	case current == history.SessionsFingerprint:
 		add("history_freshness", "ok", "history and conversation projections were built from the current exported sessions")
 	case shortTermCovers && shortTerm.complete():
-		add("history_freshness", "ok", fmt.Sprintf("long-term index is behind, but short-term memory covers the gap (%d changed transcripts; consolidation pending via `entire brain refresh`)", len(shortTerm.Files)))
+		add("history_freshness", "ok", fmt.Sprintf("long-term index is behind, but short-term memory covers the gap (%d changed transcripts; consolidation pending via `"+brainInvocation(os.LookupEnv, "refresh")+"`)", len(shortTerm.Files)))
 	case shortTermCurrentForSources && !shortTerm.complete():
-		add("history_freshness", "warn", fmt.Sprintf("short-term memory covers the gap only partially (%s); run `entire brain refresh` to consolidate", shortTermIncompleteness(shortTerm)))
+		add("history_freshness", "warn", fmt.Sprintf("short-term memory covers the gap only partially (%s); run `"+brainInvocation(os.LookupEnv, "refresh")+"` to consolidate", shortTermIncompleteness(shortTerm)))
 	case shortTermState == shortTermStateCorrupt:
-		add("history_freshness", "warn", "exported sessions changed and the short-term overlay is corrupt; run `entire brain refresh delta` to rebuild it or `entire brain refresh` to consolidate")
+		add("history_freshness", "warn", "exported sessions changed and the short-term overlay is corrupt; run `"+brainInvocation(os.LookupEnv, "refresh delta")+"` to rebuild it or `"+brainInvocation(os.LookupEnv, "refresh")+"` to consolidate")
 	case shortTermState == shortTermStateUnsupported:
-		add("history_freshness", "warn", "exported sessions changed and the short-term overlay uses an unsupported version; run `entire brain refresh delta` to rebuild it or `entire brain refresh` to consolidate")
+		add("history_freshness", "warn", "exported sessions changed and the short-term overlay uses an unsupported version; run `"+brainInvocation(os.LookupEnv, "refresh delta")+"` to rebuild it or `"+brainInvocation(os.LookupEnv, "refresh")+"` to consolidate")
 	default:
-		add("history_freshness", "warn", "exported sessions changed since the last index build; run `entire brain refresh delta` for immediate freshness or `entire brain refresh` to consolidate (a missed session-end hook is repaired the same way)")
+		add("history_freshness", "warn", "exported sessions changed since the last index build; run `"+brainInvocation(os.LookupEnv, "refresh delta")+"` for immediate freshness or `"+brainInvocation(os.LookupEnv, "refresh")+"` to consolidate (a missed session-end hook is repaired the same way)")
 	}
 	switch shortTermState {
 	case shortTermStateCorrupt:
-		add("short_term_memory", "warn", "overlay unreadable or invalid (corrupt); rebuild with `entire brain refresh delta`")
+		add("short_term_memory", "warn", "overlay unreadable or invalid (corrupt); rebuild with `"+brainInvocation(os.LookupEnv, "refresh delta")+"`")
 	case shortTermStateUnsupported:
-		add("short_term_memory", "warn", "overlay version unsupported by this binary; rebuild with `entire brain refresh delta`")
+		add("short_term_memory", "warn", "overlay version unsupported by this binary; rebuild with `"+brainInvocation(os.LookupEnv, "refresh delta")+"`")
 	case shortTermStateCurrent:
 		if len(shortTerm.Files) == 0 && shortTerm.complete() {
 			break
@@ -745,7 +746,7 @@ func renderBrainStats(out io.Writer, report brainStatsReport) {
 			line += "; state " + s.State
 		}
 		if s.Truncated {
-			line += "; buffer full, consolidate with `entire brain refresh`"
+			line += "; buffer full, consolidate with `" + brainInvocation(os.LookupEnv, "refresh") + "`"
 		}
 		if len(s.FailedFiles) > 0 {
 			line += fmt.Sprintf("; %d transcripts failed to scan", len(s.FailedFiles))

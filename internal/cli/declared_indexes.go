@@ -57,7 +57,9 @@ var declaredIndexOrder = []declaredIndexSource{declaredIndexSeed, declaredIndexD
 // unlike a lossy fact store, nothing has to be re-distilled, because every one
 // of these artifacts is derived deterministically from sources the brain still
 // holds.
-const declaredIndexRepairHint = "run `entire brain refresh`"
+func declaredIndexRepairHint() string {
+	return "run `" + brainInvocation(os.LookupEnv, "refresh") + "`"
+}
 
 // declaredIndexDefect is one declared artifact the store cannot produce. The
 // zero value is a healthy source, so callers may use it unconditionally.
@@ -90,10 +92,10 @@ func (d declaredIndexDefect) Warning() string {
 	label := setupComponentLabel(string(d.Source))
 	if d.Absent {
 		return fmt.Sprintf("%s is declared in the manifest but %s is not on disk — %s",
-			label, d.Path, declaredIndexRepairHint)
+			label, d.Path, declaredIndexRepairHint())
 	}
 	return fmt.Sprintf("%s declared in the manifest cannot be read: %v — %s",
-		label, d.Err, declaredIndexRepairHint)
+		label, d.Err, declaredIndexRepairHint())
 }
 
 // Error lets a defect be returned straight from a read path.

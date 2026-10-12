@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 
@@ -130,7 +131,7 @@ func runPatternsList(ctx context.Context, cmd *cobra.Command, opts Options, targ
 		out := cmd.OutOrStdout()
 		if len(filtered) == 0 {
 			if !patternsPresent {
-				fmt.Fprintln(out, "patterns: not built (run `entire brain patterns refresh`)")
+				fmt.Fprintln(out, "patterns: not built (run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"`)")
 			} else {
 				fmt.Fprintln(out, "patterns: none detected yet")
 			}
@@ -570,7 +571,7 @@ func runPatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, ta
 			return writeJSON(cmd, report)
 		}
 		if !report.Present {
-			fmt.Fprintln(cmd.OutOrStdout(), "patterns: not built (run `entire brain patterns refresh`)")
+			fmt.Fprintln(cmd.OutOrStdout(), "patterns: not built (run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"`)")
 			return nil
 		}
 		out := cmd.OutOrStdout()

@@ -518,7 +518,7 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 	// brain over an empty repository. `dash` already draws the distinction;
 	// `overview`, the command the guide tells an agent to run FIRST, did not.
 	if !anySource(status.Sources) && (status.Manifest == nil || status.Manifest.GeneratedAt.IsZero()) {
-		report.Warnings = append(report.Warnings, "brain not built yet — run `entire brain refresh`; every count in this report is absence of data, not absence of findings")
+		report.Warnings = append(report.Warnings, "brain not built yet — run `"+brainInvocation(os.LookupEnv, "refresh")+"`; every count in this report is absence of data, not absence of findings")
 	}
 	if status.Semantic != nil && status.Semantic.Freshness != nil {
 		report.Freshness = brainOverviewFresh{
@@ -1490,7 +1490,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			profile.finishStage(&profile.Semantic.Tests, testsStarted, semanticInputCount, len(tests.Roots)+len(tests.Suggestions), testErrors)
 		}
 	} else {
-		report.Warnings = append(report.Warnings, "semantic index missing; run `entire brain refresh`")
+		report.Warnings = append(report.Warnings, "semantic index missing; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
 	}
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.History != nil {
 		source := status.Manifest.Sources.History
@@ -1642,7 +1642,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			report.History.Matches = mergeBrainBriefHistoryMatches(briefOpts.limit, rawMatches, indexedMatches)
 		}
 	} else if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Sessions != nil {
-		report.Warnings = append(report.Warnings, "history index missing; run `entire brain refresh`")
+		report.Warnings = append(report.Warnings, "history index missing; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
 	}
 	// Facts recorded outside any repository reach the brief — the surface the
 	// agent guide mandates as the first call of every task. Loaded before the
@@ -4470,7 +4470,7 @@ func runBrainShow(ctx context.Context, cmd *cobra.Command, opts Options, showOpt
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain refresh index`")
+		return errors.New("semantic index missing; run `" + brainInvocation(os.LookupEnv, "refresh index") + "`")
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -4631,7 +4631,7 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 	report := &brainStatusRetrieval{}
 	axes := map[string]staleAxis{}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Seed == nil {
-		axes["seed"] = staleAxis{State: "missing", Detail: "no seed source in manifest; run entire brain refresh --agent none"}
+		axes["seed"] = staleAxis{State: "missing", Detail: "no seed source in manifest; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none"}
 	} else {
 		seed := manifest.Sources.Seed
 		report.SeedCommit = seed.Commit
@@ -4640,7 +4640,7 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 		case live.Head == "":
 			axes["seed"] = staleAxis{State: "unsafe", Detail: "current HEAD unavailable", Indexed: seed.Commit}
 		case seed.Commit != live.Head:
-			axes["seed"] = staleAxis{State: "stale", Detail: "seed and docs are based on an older commit; run entire brain refresh --agent none", Current: live.Head, Indexed: seed.Commit}
+			axes["seed"] = staleAxis{State: "stale", Detail: "seed and docs are based on an older commit; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeMode != "worktree" && live.Dirty:
 			axes["seed"] = staleAxis{State: "dirty-unindexed", Detail: "seed and docs are based on committed HEAD; refresh with --worktree to include current changes", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeMode != "worktree":
@@ -4661,7 +4661,7 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 		}
 	}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Docs == nil {
-		axes["docs"] = staleAxis{State: "missing", Detail: "no docs index in manifest; run entire brain refresh --agent none"}
+		axes["docs"] = staleAxis{State: "missing", Detail: "no docs index in manifest; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none"}
 	} else {
 		docs := manifest.Sources.Docs
 		report.DocsGeneratedAt = docs.GeneratedAt.Format(time.RFC3339)
@@ -4675,7 +4675,7 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 			detail := "docs index declared in the manifest but unreadable: " + err.Error()
 			if os.IsNotExist(err) {
 				state = "missing"
-				detail = "docs index declared in the manifest but " + docIndexPath + " is absent; run entire brain refresh --agent none"
+				detail = "docs index declared in the manifest but " + docIndexPath + " is absent; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none"
 			}
 			axes["docs"] = staleAxis{State: state, Detail: detail}
 		} else if docs.GeneratedAt.IsZero() {
@@ -4683,7 +4683,7 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 		} else if manifest.Sources.Seed == nil {
 			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index provenance cannot be checked without a seed source"}
 		} else if docs.GeneratedAt.Before(manifest.Sources.Seed.GeneratedAt) {
-			axes["docs"] = staleAxis{State: "stale", Detail: "docs index predates the current seed; run entire brain refresh --agent none", Current: manifest.Sources.Seed.GeneratedAt.Format(time.RFC3339), Indexed: docs.GeneratedAt.Format(time.RFC3339)}
+			axes["docs"] = staleAxis{State: "stale", Detail: "docs index predates the current seed; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: manifest.Sources.Seed.GeneratedAt.Format(time.RFC3339), Indexed: docs.GeneratedAt.Format(time.RFC3339)}
 		} else {
 			axes["docs"] = staleAxis{State: "ok", Detail: "docs index was built from the current seed"}
 		}

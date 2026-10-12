@@ -158,7 +158,7 @@ func loadSemanticEnv(cmd *cobra.Command, opts Options) (semanticEnv, error) {
 
 func semanticStorePath(env semanticEnv) (string, error) {
 	if env.Source.StorePath == "" {
-		return "", errors.New("semantic graph command requires the SQLite semantic store; run `entire brain repair`")
+		return "", errors.New("semantic graph command requires the SQLite semantic store; run `" + brainInvocation(os.LookupEnv, "repair") + "`")
 	}
 	return validateSemanticDeclaredStore(env.BrainDir, env.Source)
 }

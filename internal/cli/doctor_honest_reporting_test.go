@@ -249,7 +249,7 @@ func TestDoctorReportsAnUnparseableFactStore(t *testing.T) {
 	// after an em-dash, so comparing the decorated errors whole would pin
 	// punctuation rather than the diagnosis.
 	for name, readerErr := range readerErrs {
-		reason := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(readerErr.Error()), factsRepairHint))
+		reason := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(readerErr.Error()), factsRepairHint()))
 		reason = strings.TrimSuffix(reason, ";")
 		if reason == "" {
 			t.Fatalf("%s gave no reason beyond the repair hint: %v", name, readerErr)

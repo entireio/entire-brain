@@ -158,7 +158,7 @@ func loadFacts(brainDir, branch string) ([]factRecord, error) {
 		// once, the way the history index names `refresh history`.
 		// parseFactsFile itself stays clean so the integrity report (which
 		// quotes it inside a fuller sentence) does not say it twice.
-		return nil, fmt.Errorf("%w; %s", err, factsRepairHint)
+		return nil, fmt.Errorf("%w; %s", err, factsRepairHint())
 	}
 	return records, nil
 
@@ -262,7 +262,7 @@ func missingFactStoreWarning(missing []string) string {
 		return ""
 	}
 	return fmt.Sprintf(
-		"facts declared for branch(es) %s but their %s is missing from the brain; those facts cannot be recalled — run `entire brain refresh` and re-distill",
+		"facts declared for branch(es) %s but their %s is missing from the brain; those facts cannot be recalled — run `"+brainInvocation(os.LookupEnv, "refresh")+"` and re-distill",
 		strings.Join(missing, ", "), factsFileName,
 	)
 }

@@ -197,7 +197,7 @@ func loadMemberPatterns(opts Options, manifest workspaceManifest) (memberPattern
 			m.warnings = append(m.warnings, fmt.Sprintf("%s: tasks: %v", repo.RepoKey, err))
 		}
 		if len(procs) == 0 && len(pracs) == 0 && len(tasks) == 0 {
-			m.warnings = append(m.warnings, fmt.Sprintf("%s: no patterns (run `entire brain refresh` in that repo)", repo.RepoKey))
+			m.warnings = append(m.warnings, fmt.Sprintf("%s: no patterns (run `"+brainInvocation(os.LookupEnv, "refresh")+"` in that repo)", repo.RepoKey))
 		}
 		m.procsByRepo[repo.RepoKey] = procs
 		m.pracsByRepo[repo.RepoKey] = pracs
@@ -496,7 +496,7 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 	}
 	if !corpusBacked {
 		return bufferRetrievalCommandOutput(cmd, privacyPolicies, func() error {
-			fmt.Fprintf(cmd.OutOrStdout(), "workspace %s: no cross-repo corpus (run `entire brain workspace patterns refresh %s`)\n", name, name)
+			fmt.Fprintf(cmd.OutOrStdout(), "workspace %s: no cross-repo corpus (run `"+brainInvocation(os.LookupEnv, "workspace patterns refresh")+" %s`)\n", name, name)
 			return nil
 		})
 	}
@@ -520,7 +520,7 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 		}
 		out := cmd.OutOrStdout()
 		if len(filtered) == 0 {
-			fmt.Fprintf(out, "workspace %s: no cross-repo patterns (run `entire brain workspace patterns refresh %s`)\n", name, name)
+			fmt.Fprintf(out, "workspace %s: no cross-repo patterns (run `"+brainInvocation(os.LookupEnv, "workspace patterns refresh")+" %s`)\n", name, name)
 			return nil
 		}
 		for _, v := range filtered {
@@ -714,7 +714,7 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 		}
 		out := cmd.OutOrStdout()
 		if len(families) == 0 {
-			fmt.Fprintf(out, "workspace %s: no accepted cross-repo families (run `entire brain workspace patterns verify %s`)\n", name, name)
+			fmt.Fprintf(out, "workspace %s: no accepted cross-repo families (run `"+brainInvocation(os.LookupEnv, "workspace patterns verify")+" %s`)\n", name, name)
 			return nil
 		}
 		for _, f := range families {
@@ -762,7 +762,7 @@ func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Option
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("no accepted workspace family %q: run `entire brain workspace patterns verify %s` (explicit, egress-gated), then `entire brain workspace patterns skills %s`", s.taskID, name, name)
+			return fmt.Errorf("no accepted workspace family %q: run `"+brainInvocation(os.LookupEnv, "workspace patterns verify")+" %s` (explicit, egress-gated), then `"+brainInvocation(os.LookupEnv, "workspace patterns skills")+" %s`", s.taskID, name, name)
 		}
 		// A synthetic candidate carries id/name/scope + per-repo breakdown for
 		// the skill-memory record; synthesis itself runs from the family.

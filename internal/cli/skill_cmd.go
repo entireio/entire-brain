@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -120,9 +121,9 @@ func runPatternsSkillsList(ctx context.Context, cmd *cobra.Command, opts Options
 		out := cmd.OutOrStdout()
 		if len(tasks) == 0 {
 			if corpusBacked {
-				fmt.Fprintln(out, "no skill proposals: promotable tasks need an accepted deep dossier.\nRun `entire brain patterns verify --deep` (explicit, egress-gated), then re-check.")
+				fmt.Fprintln(out, "no skill proposals: promotable tasks need an accepted deep dossier.\nRun `"+brainInvocation(os.LookupEnv, "patterns verify")+" --deep` (explicit, egress-gated), then re-check.")
 			} else {
-				fmt.Fprintln(out, "no task candidates (run `entire brain patterns refresh`)")
+				fmt.Fprintln(out, "no task candidates (run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"`)")
 			}
 			return nil
 		}
@@ -169,7 +170,7 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 				return err
 			}
 			if !ok {
-				return fmt.Errorf("no accepted theme %q: run `entire brain patterns verify --themes` first", s.taskID)
+				return fmt.Errorf("no accepted theme %q: run `"+brainInvocation(os.LookupEnv, "patterns verify")+" --themes` first", s.taskID)
 			}
 			deep = &in
 			cand = &taskCandidate{ID: s.taskID, Label: in.rec.Title}
@@ -195,7 +196,7 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 				if strings.HasPrefix(s.taskID, "convention:") {
 					channel = "--conventions"
 				}
-				return fmt.Errorf("no accepted proposal %q: run `entire brain patterns verify %s` first", s.taskID, channel)
+				return fmt.Errorf("no accepted proposal %q: run `"+brainInvocation(os.LookupEnv, "patterns verify")+" %s` first", s.taskID, channel)
 			}
 			deep = &in
 			cand = &taskCandidate{ID: s.taskID, Label: in.rec.Title, Support: in.rec.EvidenceEpisodes}
@@ -222,7 +223,7 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 				deep = &in
 			} else {
 				return fmt.Errorf("needs deep verification first: %s has no accepted deep dossier.\n"+
-					"Run `entire brain patterns verify --deep` (explicit, egress-gated), then re-run this form.", s.taskID)
+					"Run `"+brainInvocation(os.LookupEnv, "patterns verify")+" --deep` (explicit, egress-gated), then re-run this form.", s.taskID)
 			}
 		} else {
 			// Legacy fallback for repos without a V2 corpus.
@@ -238,7 +239,7 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 			}
 		}
 		if cand == nil {
-			return fmt.Errorf("task candidate not found: %s (run `entire brain patterns skills`)", s.taskID)
+			return fmt.Errorf("task candidate not found: %s (run `"+brainInvocation(os.LookupEnv, "patterns skills")+"`)", s.taskID)
 		}
 
 		agent := s.agent

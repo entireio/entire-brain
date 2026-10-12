@@ -103,7 +103,7 @@ func TestDeclaredIndexesAreCheckedAgainstDisk(t *testing.T) {
 		if !strings.Contains(warning, defect.Path) {
 			t.Errorf("%s: the warning does not name the artifact: %s", defect.Source, warning)
 		}
-		if !strings.Contains(warning, declaredIndexRepairHint) {
+		if !strings.Contains(warning, declaredIndexRepairHint()) {
 			t.Errorf("%s: the warning does not name the repair: %s", defect.Source, warning)
 		}
 	}
@@ -209,7 +209,7 @@ func TestRetrievalFailsOnADeclaredDocIndexThatIsGone(t *testing.T) {
 		if !strings.Contains(err.Error(), docIndexPath) {
 			t.Fatalf("mode %v: the error does not name the missing artifact: %v", mode, err)
 		}
-		if !strings.Contains(err.Error(), declaredIndexRepairHint) {
+		if !strings.Contains(err.Error(), declaredIndexRepairHint()) {
 			t.Fatalf("mode %v: the error does not name the repair: %v", mode, err)
 		}
 	}
@@ -255,7 +255,7 @@ func TestHistoryIndexReadNamesADeletedGeneration(t *testing.T) {
 	if strings.Contains(err.Error(), "lstat ") {
 		t.Fatalf("the reader still answers with a raw filesystem call: %v", err)
 	}
-	for _, want := range []string{source.IndexPath, "not on disk", declaredIndexRepairHint} {
+	for _, want := range []string{source.IndexPath, "not on disk", declaredIndexRepairHint()} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("the error is missing %q: %v", want, err)
 		}

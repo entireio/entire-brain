@@ -137,7 +137,7 @@ func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspaceManifest
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				// A genuinely absent member corpus degrades gracefully (refresh that repo).
-				counts.Warnings = append(counts.Warnings, repo.RepoKey+": no corpus (run `entire brain refresh` there)")
+				counts.Warnings = append(counts.Warnings, repo.RepoKey+": no corpus (run `"+brainInvocation(os.LookupEnv, "refresh")+"` there)")
 				continue
 			}
 			return counts, err

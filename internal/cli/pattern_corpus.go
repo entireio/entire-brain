@@ -342,7 +342,7 @@ func openPatternCorpusReadDB(brainDir string) (*patternCorpusReadDB, error) {
 		if markerErr := rejectInterruptedPatternCorpusPublication(brainDir); markerErr != nil {
 			return nil, markerErr
 		}
-		return nil, fmt.Errorf("pattern corpus not found (run `entire brain patterns refresh` first): %w", os.ErrNotExist)
+		return nil, fmt.Errorf("pattern corpus not found (run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"` first): %w", os.ErrNotExist)
 	}
 	snapshotPath, cleanup, err := snapshotPrivacySQLiteStore(brainDir, patternCorpusPath)
 	if err != nil {
@@ -435,7 +435,7 @@ func requirePatternCorpusAvailable(brainDir string) error {
 		return err
 	}
 	if !present {
-		return fmt.Errorf("%s: pattern corpus is unavailable; run `entire brain patterns refresh`", memoryErrSourceStale)
+		return fmt.Errorf("%s: pattern corpus is unavailable; run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"`", memoryErrSourceStale)
 	}
 	return nil
 }
@@ -636,7 +636,7 @@ func withPatternCorpusMutationLocked(brainDir string, mutate func(*sql.DB) error
 		return err
 	}
 	if !present {
-		return fmt.Errorf("pattern corpus not found (run `entire brain patterns refresh` first): %w", os.ErrNotExist)
+		return fmt.Errorf("pattern corpus not found (run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"` first): %w", os.ErrNotExist)
 	}
 	path, cleanup, err := preparePatternCorpusStaging(brainDir)
 	if err != nil {

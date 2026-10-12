@@ -2939,7 +2939,7 @@ func brainBlindSpotsForRepo(ctx context.Context, opts Options, target string) ([
 	if unknownPaths > 0 {
 		spots = append(spots, brainBlindSpot{
 			Code:   "E_PATH_UNAVAILABLE",
-			Detail: fmt.Sprintf("%d partial failures without a recorded path; run `entire brain refresh` to locate them", unknownPaths),
+			Detail: fmt.Sprintf("%d partial failures without a recorded path; run `"+brainInvocation(os.LookupEnv, "refresh")+"` to locate them", unknownPaths),
 		})
 	}
 	return spots, nil
@@ -3056,7 +3056,7 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 		if identityErr != nil {
 			axes["provider"] = staleAxis{State: "degraded", Detail: identityErr.Error()}
 		} else if revision != source.IdentityRevision {
-			axes["provider"] = staleAxis{State: "stale", Detail: "Graph identity revision changed; run entire brain refresh"}
+			axes["provider"] = staleAxis{State: "stale", Detail: "Graph identity revision changed; run " + brainInvocation(os.LookupEnv, "refresh")}
 		}
 	}
 	if source.Provider == "skipped" || semanticWarningsContainCode(source.Warnings, "provider_skipped") {

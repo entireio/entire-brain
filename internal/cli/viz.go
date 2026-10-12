@@ -975,7 +975,7 @@ func (s *vizServer) handleSessionReplay(w http.ResponseWriter, r *http.Request) 
 
 	sem := s.semanticSource()
 	if sem == nil {
-		resp.Warnings = append(resp.Warnings, "no semantic graph — run `entire brain refresh`")
+		resp.Warnings = append(resp.Warnings, "no semantic graph — run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
 		writeJSONHTTP(w, http.StatusOK, resp)
 		return
 	}
@@ -1063,7 +1063,7 @@ func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 	// safety ceiling are enforced inside vizQueryLimit for every endpoint.
 	limit := vizQueryLimit(r, 1200)
 	if s.manifest == nil || s.manifest.Sources == nil || s.manifest.Sources.History == nil {
-		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"no history yet — run `entire brain refresh`"}})
+		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"no history yet — run `" + brainInvocation(os.LookupEnv, "refresh") + "`"}})
 		return
 	}
 	idx, err := loadBrainHistoryIndex(s.brainDir, s.manifest.Sources.History)
@@ -1234,7 +1234,7 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 	resp := vizGraphResp{Nodes: []vizNode{}, Edges: []vizEdge{}}
 	sem := s.semanticSource()
 	if sem == nil {
-		resp.Warnings = append(resp.Warnings, "no semantic graph yet — run `entire brain refresh`")
+		resp.Warnings = append(resp.Warnings, "no semantic graph yet — run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
 		writeJSONHTTP(w, http.StatusOK, resp)
 		return
 	}
@@ -1257,7 +1257,7 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(syms) == 0 {
-		resp.Warnings = append(resp.Warnings, "the semantic snapshot has no symbols yet — run `entire brain refresh`")
+		resp.Warnings = append(resp.Warnings, "the semantic snapshot has no symbols yet — run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
 		writeJSONHTTP(w, http.StatusOK, resp)
 		return
 	}

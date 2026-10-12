@@ -474,7 +474,7 @@ func requirePrivacyDerivedRead(brainDir string) error {
 		return err
 	}
 	if !allowed {
-		return fmt.Errorf("%s: derived pattern state is unavailable until excluded-session cleanup verifies clean; run `entire brain privacy purge <session-id>`", memoryErrPrivacyDirty)
+		return fmt.Errorf("%s: derived pattern state is unavailable until excluded-session cleanup verifies clean; run `"+brainInvocation(os.LookupEnv, "privacy purge")+" <session-id>`", memoryErrPrivacyDirty)
 	}
 	return nil
 }
@@ -510,7 +510,7 @@ func newPrivacyVerifyCommand(opts Options) *cobra.Command {
 				return err
 			}
 			if !report.Clean {
-				return fmt.Errorf("privacy verify found %d violations; re-run `entire brain privacy purge <session-id>` (idempotent) or `entire brain refresh` to rebuild", len(report.Findings))
+				return fmt.Errorf("privacy verify found %d violations; re-run `"+brainInvocation(os.LookupEnv, "privacy purge")+" <session-id>` (idempotent) or `"+brainInvocation(os.LookupEnv, "refresh")+"` to rebuild", len(report.Findings))
 			}
 			return nil
 		},
