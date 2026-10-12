@@ -117,8 +117,15 @@ func TestSemanticIndexNamesTheMissingGraphPlugin(t *testing.T) {
 	if !strings.Contains(message, `unknown command "graph"`) {
 		t.Fatalf("the real cause must reach the user, got: %s", message)
 	}
-	if !strings.Contains(message, "entire-graph") || !strings.Contains(message, "scripts/install.sh") {
-		t.Fatalf("a missing plugin must name the install step, got: %s", message)
+	// The intent of this assertion is unchanged -- a missing plugin must name
+	// the install step. The step itself changed: `scripts/install.sh` from the
+	// entire-brain checkout is not something a reader who installed the plugin
+	// can run, and most readers who reach this message are exactly those.
+	if !strings.Contains(message, "entire-graph") || !strings.Contains(message, "entire plugin install graph") {
+		t.Fatalf("a missing plugin must name an install step the reader can run, got: %s", message)
+	}
+	if strings.Contains(message, "scripts/install.sh") {
+		t.Fatalf("the message sends the reader to a source checkout they may not have, got: %s", message)
 	}
 }
 

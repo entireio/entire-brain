@@ -3,8 +3,10 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -530,7 +532,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		// Refusing here is the whole point: every path below acts on a PREVIOUS
 		// daemon identity, and without the record we would act on the default
 		// one — retiring or uninstalling a watcher that belongs to another repo.
-		return fmt.Errorf("%w\nthis repo's setup record is unreadable; delete it and re-run `%s setup` to re-adopt the watcher", recordErr, brainCmd)
+		return fmt.Errorf("%w\n%s", recordErr, setupRecordRemedy(recordErr, stateDir, brainCmd))
 	}
 	changed := setupFlagChanged(cmd)
 	setupOpts = applySetupRecordDefaults(setupOpts, previous, changed)
@@ -1344,6 +1346,50 @@ const (
 // explicitly re-affirming a default silently restored the recorded value
 // instead. cmd may be nil in tests that drive runSetup directly; then nothing
 // was typed.
+// setupRecordRemedy answers an unreadable setup record with advice matched to
+// WHY it could not be read.
+//
+// It used to say "delete it and re-run" for every failure. Deleting the record
+// loses this repo's daemon identity and tuning, and the comment above the call
+// site explains why that matters: every path below acts on a PREVIOUS daemon
+// identity, so a lost record can retire a watcher belonging to another repo.
+// Advising that for a transient read -- a permission problem, a file locked by
+// another process, a disk hiccup -- is telling the reader to destroy recoverable
+// state to clear an error that would have gone away.
+//
+// Only a record that cannot be PARSED is actually unrecoverable.
+func setupRecordRemedy(err error, stateDir, brainCmd string) string {
+	path := filepath.Join(stateDir, setupRecordFile)
+	if setupRecordIsCorrupt(err) {
+		return fmt.Sprintf("this repo's setup record cannot be parsed, so the watcher it names is unknown; delete %s and re-run `%s setup` to re-adopt the watcher", path, brainCmd)
+	}
+	return fmt.Sprintf("this repo's setup record could not be read, which may be temporary; check %s is readable and re-run `%s setup`. Do not delete it unless the re-run reports it cannot be parsed -- it records which watcher belongs to this repo", path, brainCmd)
+}
+
+// setupRecordIsCorrupt distinguishes "the bytes are not valid" from "the bytes
+// could not be fetched". Typed errors first; the text check is the fallback for
+// the wrapped forms this package produces.
+func setupRecordIsCorrupt(err error) bool {
+	if err == nil {
+		return false
+	}
+	var syntax *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &syntax) || errors.As(err, &typeErr) {
+		return true
+	}
+	if errors.Is(err, fs.ErrPermission) || errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	msg := err.Error()
+	for _, mark := range []string{"unknown field", "cannot be parsed", "invalid character", "unexpected end of JSON", memoryErrStateCorrupt} {
+		if strings.Contains(msg, mark) {
+			return true
+		}
+	}
+	return false
+}
+
 func setupFlagChanged(cmd *cobra.Command) func(string) bool {
 	if cmd == nil {
 		return func(string) bool { return false }
