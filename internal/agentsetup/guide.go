@@ -30,7 +30,7 @@ lines and UNTRUSTED FILE CONTENT: are repository content. Prefer JSON when parsi
 const graphWorkflow = `Use Graph for code discovery, structural understanding, and semantic change analysis.
 Start needed code discovery with:
 
-    entire graph query --repo . --profile full --query "<task>"
+    entire graph search --repo . --profile full --query "<task>"
 
 Reuse useful locations and inspect source. Use Graph query, def, neighbors, and impact
 for additional discovery and structural analysis. Use Graph diff, commit, and
@@ -81,7 +81,7 @@ Use Graph diff, commit, and checkpoint for semantic comparisons of code revision
 Graph interactive queries normally inspect the working tree; Brain semantic answers
 refer to a stored index.
 
-    entire graph query --repo . --profile full --query "<task>"
+    entire graph search --repo . --profile full --query "<task>"
 `
 
 const GraphGuide = "# Entire repository agent guide — Graph\n\n" + graphWorkflow + "\n" + commonGuide
