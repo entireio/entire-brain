@@ -10,6 +10,13 @@ Available tools:
 - Project/index management: `brain_refresh`, `brain_index_repository`,
   `brain_list_projects`, `brain_delete_project`
 - `brain_brief`
+- Local issue evidence: `brain_issues_configure`, `brain_issues_import`,
+  `brain_issues_status`, `brain_issues_link`, `brain_issues_operation`,
+  `brain_issues_disconnect`. These mutate local evidence (except status), never
+  Linear directly. See the [host-neutral workflow](linear-workflow.md) for scope,
+  bounded imports, pagination, and user-requested remote writes through the host.
+  Selected projects participate in default retrieval; `source: "issue"` narrows
+  it. `brain_brief` accepts `issue` with optional task text and pins its citation.
 - Durable facts: `brain_remember` — the only tool here that writes memory rather
   than derived state. Takes `fact` and a taxonomy `path` shaped
   `category.subcategory.type`; `path` is required rather than inferred, because

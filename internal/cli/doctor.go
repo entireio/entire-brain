@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -377,11 +378,23 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool, failOn string) er
 		scoped.Env.RepoRoot = repoRoot
 		opts = scoped
 		env = scoped.Env
+		sampledNow := opts.Now()
+		opts.Now = func() time.Time { return sampledNow }
 		report.Checks, report.Memory = brainDoctorReadOnlyReport(cmd.Context(), opts, repoRoot)
 		// Whatever the last `setup` could not build. setup keeps going on a
 		// component failure and points here for the reason, so the reason has to
 		// actually be here.
 		if storage, serr := repoStoragePaths(cmd.Context(), opts.Runner, env, repoRoot); serr == nil {
+			is, ierr := issueStore(storage.BrainDir).Status(opts.Now())
+			if ierr != nil {
+				report.Checks = append(report.Checks, doctorCheckResult{Name: "issue source", State: "error", Detail: ierr.Error()})
+			} else if is.Binding.Workspace != "" {
+				state := "ok"
+				if is.Stale > 0 || is.Incomplete > 0 || is.PendingRuns > 0 || is.LimitedRuns > 0 {
+					state = "warn"
+				}
+				report.Checks = append(report.Checks, doctorCheckResult{Name: "issue source", State: state, Detail: fmt.Sprintf("%d records, %d stale, %d incomplete; %d pending and %d limited runs; inspect issues status for import coverage", is.Records, is.Stale, is.Incomplete, is.PendingRuns, is.LimitedRuns)})
+			}
 			for _, component := range failedSetupComponents(filepath.Dir(storage.HeadPath)) {
 				detail := component.Detail
 				if hint := component.Hint; hint != "" {
