@@ -29,9 +29,10 @@ const hostEntireBinary = "entire"
 //
 // Gate order is fixed: (1) the local-only kill switch always wins; (2) a
 // recorded opt-out (`entire brain disconnect`) stops sync AND auto-connect
-// until `connect` clears it; (3) the repo binding is the connection state —
-// absent, each run tries to resolve it through the host CLI and falls back to
-// local-only, silently, until that succeeds; (4) apiurl.Validate before any
+// until `connect` clears it — it is deliberately SILENT, the user asked for
+// this; (3) the repo binding is the connection state — absent, each run tries
+// to resolve it through the host CLI and falls back to local-only, REPORTING
+// why like every other unasked-for gate here; (4) apiurl.Validate before any
 // client exists. A fresh token is minted per call via the host CLI's own login
 // and held only in memory.
 func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) error {
@@ -47,13 +48,25 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 		return nil
 	}
 	if !present {
-		// Auto-connect: placement comes from the host CLI (repo view), which
-		// fails for a logged-out user, an unregistered repo, or a CLI without
-		// the command — all of which mean "stay local and retry next run".
-		// ponytail: an unresolvable repo re-runs repo view on every throttled
-		// sync attempt; cache a negative result if that ever gets expensive.
-		resolved, placementErr := resolveHostedPlacement(ctx, opts.Runner, repoDir)
+		// Auto-connect: placement comes from the host CLI's `entire repo view
+		// --json`, which is NOT SHIPPED (COR-2029) — so on a stock host CLI
+		// this gate is the one that always fires. It also fails for a
+		// logged-out user or an unregistered repo. All of them mean "stay
+		// local", and all of them used to mean it SILENTLY: this was the only
+		// unasked-for gate in this function that returned without a word, so
+		// the hosted loop appeared to work and simply never engaged.
+		//
+		// cachedHostedPlacement carries the negative cache: a failure
+		// suppresses the next shell-out for hostedPlacementNegativeTTL, which
+		// is what stops the session-end pair (current branch, then default
+		// branch) spending two hostedShellOutTimeout windows per session end.
+		// A suppressed attempt stays quiet so the note appears once per
+		// window, not once per branch.
+		resolved, attempted, placementErr := cachedHostedPlacement(ctx, opts.Runner, repoDir, opts.Now().UTC())
 		if placementErr != nil {
+			if attempted {
+				fmt.Fprintf(errW, "hosted sync: %s branch %s: staying local, not connected to a hosted brain: automatic binding needs a host CLI providing `entire repo view --json`, which is not shipped yet (COR-2029): %v; bind now with `entire brain connect --repo-id <repo id> --api-url <https://cell>`; the local brain is unaffected\n", repoDir, branch, placementErr)
+			}
 			return nil
 		}
 		var bound bool

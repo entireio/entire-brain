@@ -154,7 +154,7 @@ func TestHostedSyncGates(t *testing.T) {
 			t.Fatalf("NO_EGRESS must make zero requests, got %d", fake.requestCount())
 		}
 	})
-	t.Run("no binding means silent no-op", func(t *testing.T) {
+	t.Run("no binding means a reported no-op", func(t *testing.T) {
 		fake := &hostedFake{}
 		opts, storage, repoDir, _ := hostedSyncHarness(t, fake, false)
 		var errOut bytes.Buffer
@@ -164,8 +164,10 @@ func TestHostedSyncGates(t *testing.T) {
 		if fake.requestCount() != 0 {
 			t.Fatalf("unconnected repo must make zero requests, got %d", fake.requestCount())
 		}
-		if errOut.Len() != 0 {
-			t.Fatalf("unconnected repo must be silent, got %q", errOut.String())
+		// Reported, not silent: see TestHostedSyncAutoConnectFailureIsReported
+		// for the content contract.
+		if !strings.Contains(errOut.String(), "the local brain is unaffected") {
+			t.Fatalf("unconnected repo must say it stayed local, got %q", errOut.String())
 		}
 	})
 }
@@ -392,8 +394,8 @@ func TestHostedSyncStaysLocalWhenPlacementUnresolvable(t *testing.T) {
 	if fake.requestCount() != 0 {
 		t.Fatalf("local fallback must make zero hosted requests, got %d", fake.requestCount())
 	}
-	if errOut.Len() != 0 {
-		t.Fatalf("local fallback must be silent, got %q", errOut.String())
+	if !strings.Contains(errOut.String(), "staying local") {
+		t.Fatalf("local fallback must report itself, got %q", errOut.String())
 	}
 	if _, present, _ := readHostedRepoBinding(storage.BrainDir); present {
 		t.Fatal("no binding may be written when placement is unresolved")
