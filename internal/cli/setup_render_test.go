@@ -66,6 +66,11 @@ func TestSetupSummaryPlainGolden(t *testing.T) {
 		"  workspace   + default  (30ms)\n" +
 		"  daemon      - skipped: --no-daemon  (0s)\n" +
 		"\nNext\n" +
+		// init-agents is FIRST and deliberately so: setup writes no AGENTS.md
+		// and no CLAUDE.md, so an agent learns nothing about this brain until
+		// this runs. A user who ran setup, saw it succeed, found no agent files
+		// and concluded they had the wrong directory is the reported case.
+		"  entire-brain init-agents     write AGENTS.md/CLAUDE.md so your agent uses this brain\n" +
 		"  entire-brain overview        what this project is\n" +
 		"  entire-brain brief \"<task>\"  task-shaped context\n" +
 		"  entire-brain status          backfill progress and daemon health\n"

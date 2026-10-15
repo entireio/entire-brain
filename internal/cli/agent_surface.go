@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/agentsetup"
 	"io"
 	"io/fs"
 	"os"
@@ -411,7 +412,7 @@ func newAgentStatusCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&statusOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&statusOpts.details, "details", false, "Include coverage histograms, staged-file classifications, and changed-symbol records")
+	cmd.Flags().BoolVar(&statusOpts.details, "details", false, "Include coverage histograms, staged-file classifications, changed-symbol records, and fact-anchor verification (walks git history; seconds on a large repo)")
 	cmd.Flags().BoolVar(&statusOpts.verbose, "verbose", false, "Print the full report (coverage, freshness axes, blind spots, live state) instead of the short summary")
 	cmd.Flags().StringVar(&statusOpts.failOn, "fail-on", semanticAuditFailOnNone, "Return nonzero after emitting the report when the selected gate trips: release, unsafe, degraded, blind-spots, none")
 	return cmd
@@ -987,7 +988,31 @@ func newInspectImpactCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&impactOpts.depth, "depth", 1, "Relation traversal depth")
 	cmd.Flags().BoolVar(&impactOpts.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().BoolVar(&impactOpts.details, "details", false, "Include full semantic records with provider metadata")
+	hintPositionalSymbol(cmd)
 	return cmd
+}
+
+// hintPositionalSymbol turns cobra's bare "unknown flag: --symbol" into an
+// answer.
+//
+// The published guide documents `inspect impact --symbol ValidateToken`. There
+// is no such flag -- the symbol is positional here and on the sibling commands
+// -- so anyone following the docs gets a flag error with nothing to act on,
+// and no reason to suspect the page rather than their own typing.
+//
+// The flag is deliberately NOT added. `inspect context` and `inspect tests`
+// take their symbol positionally too, so accepting --symbol on one of the
+// three would make this the inconsistent one and bend a working interface
+// around a typo. Naming the right form costs nothing and unblocks the reader
+// in one line; the page is corrected separately.
+func hintPositionalSymbol(cmd *cobra.Command) {
+	cmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
+		if err == nil || !strings.Contains(err.Error(), "--symbol") {
+			return err
+		}
+		return fmt.Errorf("%w; this command takes the symbol as an argument, not a flag: `%s %s <symbol>`",
+			err, setupCommandPrefix(os.LookupEnv), c.CommandPath()[strings.Index(c.CommandPath(), " ")+1:])
+	})
 }
 
 func newInspectChangesCommand(opts Options) *cobra.Command {
@@ -1069,7 +1094,9 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 	if err != nil {
 		return err
 	}
-	populateBrainStatusVerification(ctx, opts, &report)
+	// Fact verification walks git history per anchor commit; it is charged to
+	// --details only. See populateBrainStatusVerification.
+	populateBrainStatusVerification(ctx, opts, &report, statusOpts.details)
 	if statusOpts.compact && !statusOpts.details {
 		// MCP owns the explicitly compact transport. The CLI remains backward
 		// compatible and emits the established detailed JSON by default.
@@ -1239,6 +1266,13 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 		if v := f.Verification; v != nil {
 			fmt.Fprintf(out, "  verification: %d facts, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
 				v.Facts, v.Verified, v.Stale, v.Orphaned, v.UnverifiableHere)
+		} else if f.Facts > 0 {
+			// Verification moved behind --details because it walks git history
+			// per anchor commit and made status unusable in a hook (24s to 2.4s
+			// on a 961-fact brain). Say where it went: a line that silently
+			// stops appearing is the same class of defect this change set exists
+			// to remove.
+			fmt.Fprintln(out, "  verification: not run (use --details; it walks git history)")
 		}
 	}
 	renderBrainOnboardingStatus(out, report.Onboarding, report.GeneratedAt, brainCmd)
@@ -1686,6 +1720,22 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		if factsErr != nil {
 			report.Warnings = append(report.Warnings, "facts unavailable: "+factsErr.Error())
 		} else {
+			// An empty fact set on THIS branch while other branches hold facts
+			// is the single most misleading thing the brief can report: it is
+			// step 1 of the shipped guide, so it is the first thing an agent
+			// sees, and silence reads as "this brain knows nothing".
+			hasActiveFacts := false
+			for _, fact := range facts {
+				if fact.Status == factStatusActive {
+					hasActiveFacts = true
+					break
+				}
+			}
+			if !hasActiveFacts {
+				if note := briefBranchBlindSpot(status.Brain.Path, branch); note != "" {
+					report.Warnings = append(report.Warnings, note)
+				}
+			}
 			if len(briefGlobalFacts) > 0 {
 				facts, briefGlobalIDs = mergeGlobalFacts(facts, briefGlobalFacts)
 			}
@@ -4618,6 +4668,18 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	// is inspected rather than reported missing.
 	recordedSetupOpts, _, _ := setupOptionsFromRecord(filepath.Dir(storage.HeadPath))
 	onboarding := buildBrainOnboardingStatus(ctx, opts, storage, manifest, recordedSetupOpts)
+	// The repo root from the REPORT, not opts.Env: the latter is empty on the
+	// ordinary `status` path, which is why the first version of this check
+	// never fired. report.Repo.Root is the resolved root this status is about.
+	if root := strings.TrimSpace(report.Repo.Root); root != "" {
+		if wired, missing := agentsetup.AgentsWired(root); !wired {
+			onboarding.AgentsUnwired = true
+			onboarding.AgentsMissing = missing
+			// Keep the published JSON shape while exposing the same repair
+			// diagnostic to CLI JSON and MCP consumers through warnings.
+			report.Warnings = append(report.Warnings, "agents not wired: missing "+strings.Join(missing, ", ")+"; run "+setupCommandPrefix(os.LookupEnv)+" init-agents so your agent uses this brain")
+		}
+	}
 	markUnreadableSemanticComponent(&onboarding, semanticFreshnessOf(report))
 	markMissingDeclaredIndexes(&onboarding, storage.BrainDir, manifest)
 	report.Onboarding = &onboarding
@@ -4787,7 +4849,25 @@ func brainLiveStateReport(ctx context.Context, runner CommandRunner, repoDir str
 	}
 	live.Staged, live.Unstaged, live.Untracked = parseBrainLiveStatus(status)
 	live.Dirty = len(live.Staged)+len(live.Unstaged)+len(live.Untracked) > 0
-	if stat, err := gitScalar(ctx, runner, repoDir, "diff", "--shortstat", "HEAD"); err == nil {
+	// `git diff --shortstat HEAD` REFRESHES THE INDEX as a side effect, which
+	// takes `.git/index.lock` and makes a concurrent human or agent git command
+	// fail (issue #326). --no-optional-locks does not suppress that particular
+	// refresh -- measured, see gitHardenConfig -- so the only fix is to stop
+	// calling the porcelain. `diff-index` is the plumbing `git diff <commit>`
+	// is built on and never refreshes.
+	//
+	// -M is load-bearing. `git diff` gets rename detection from diff.renames,
+	// whose default is true; plumbing reads only the basic diff config and so
+	// gets none. Without -M a rename is counted as a whole-file delete plus a
+	// whole-file add, changing BOTH the file count and the insertion/deletion
+	// counts (measured: " 3 files changed, 6 insertions(+), 5 deletions(-)"
+	// against the porcelain's " 2 files changed, 1 insertion(+)" on the same
+	// worktree). With -M the output is byte-identical to the porcelain on git
+	// 2.54.0, including against a stat-dirty-but-identical file -- the
+	// --shortstat path reads content, so such a file is dropped from both.
+	// (The raw `diff-index --name-status` path does NOT read content and would
+	// report it, which is why this swap is safe only for stat output.)
+	if stat, err := gitScalar(ctx, runner, repoDir, "diff-index", "-M", "--shortstat", "HEAD"); err == nil {
 		live.DiffStat = stat
 	} else {
 		live.Warnings = append(live.Warnings, "diff stat unavailable: "+err.Error())

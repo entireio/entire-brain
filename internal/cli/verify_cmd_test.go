@@ -811,12 +811,14 @@ func TestVerifyStrictFlagsFailOnUnverifiableAfterJSON(t *testing.T) {
 	}
 }
 
-func TestStatusIncludesVerificationSummary(t *testing.T) {
+// Verification is charged to --details: the walk it runs is too expensive to
+// sit on the default status path (see populateBrainStatusVerification, #325).
+func TestStatusDetailsIncludesVerificationSummary(t *testing.T) {
 	f := newVerifyFixture(t)
 	f.runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: "headsha\n"}
 	f.runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
 	f.runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
-	f.runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	f.runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	f.runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 	f.writeSessions(t, nil)
 	f.writeFacts(t, "main", []factRecord{
@@ -824,7 +826,7 @@ func TestStatusIncludesVerificationSummary(t *testing.T) {
 	})
 
 	cmd := NewRootCommand(f.opts)
-	out, err := execute(t, cmd, "status", "--json")
+	out, err := execute(t, cmd, "status", "--json", "--details")
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, out)
 	}

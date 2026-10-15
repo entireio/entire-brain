@@ -178,6 +178,76 @@ func noBrainBlindSpot(loadErr error) string {
 	return "note: no brain has been built for this repository, so nothing is indexed here and this empty result is not evidence of absence; run `entire brain setup`"
 }
 
+// briefBranchBlindSpot explains an empty fact set on the CURRENT branch when
+// other branches hold facts, and names them.
+//
+// This is the trap in its most damaging form. Facts are stored per branch, so
+// `brain brief` on a feature branch reports "0 facts" while the brain is full
+// — and the brief is step 1 of the shipped agent guide, so this is the FIRST
+// thing an agent sees. Nothing in the packet said why, which reads as "this
+// brain knows nothing about your project" rather than "you are on a branch
+// that has none".
+//
+// Measured on this repository: `recall "distill"` on a feature branch returns
+// "no facts", and the same query with `--branch main` returns a fact. An agent
+// given the empty answer has no way to discover the second half.
+//
+// recall and query reach emptyResultBlindSpot for this; brief did not, despite
+// that function's own comment claiming to cover every retrieval surface.
+func briefBranchBlindSpot(brainDir, branch string) string {
+	if brainDir == "" {
+		return ""
+	}
+	byBranch, err := loadAllFactBranches(brainDir)
+	if err != nil || len(byBranch) == 0 {
+		return ""
+	}
+	// ACTIVE facts only. A branch whose facts are all retracted or superseded
+	// holds nothing retrievable, so naming it sends the reader to re-run their
+	// query somewhere it will also come back empty -- a false lead dressed as
+	// a remedy, which is worse than the silence this note replaces.
+	//
+	// MERGE NOTE: PR #318 adds otherBranchBlindSpot to this file, doing the
+	// same job for the retrieval surfaces. The two are deliberately
+	// behaviourally IDENTICAL in what they count (active facts on other
+	// branches) and differ only in phrasing for their surface. Whichever of
+	// #318 and #331 lands second should collapse this into a call to that
+	// function with brief's wording -- a pure refactor, no behaviour change.
+	// They diverged on exactly this active-vs-any check until it was fixed
+	// here, which is the state that would have made the collapse dangerous.
+	others := make([]string, 0, len(byBranch))
+	for name, facts := range byBranch {
+		if name == branch {
+			continue
+		}
+		active := 0
+		for _, fact := range facts {
+			if fact.Status == factStatusActive {
+				active++
+			}
+		}
+		if active == 0 {
+			continue
+		}
+		others = append(others, name)
+	}
+	if len(others) == 0 {
+		return ""
+	}
+	sort.Strings(others)
+	// Name at most three: the point is that the facts are reachable, and a
+	// long list of branches buries that in a surface that is already dense.
+	shown := others
+	suffix := ""
+	if len(shown) > 3 {
+		suffix = fmt.Sprintf(" (and %d more)", len(shown)-3)
+		shown = shown[:3]
+	}
+	return fmt.Sprintf(
+		"no facts on branch %q, but %d branch(es) hold facts: %s%s — facts are stored per branch; retry with `--branch %s`",
+		branch, len(others), strings.Join(shown, ", "), suffix, shown[0])
+}
+
 // otherBranchSessionBlindSpot reports captured sessions held on branches other
 // than the one scanned. It is the SESSION-unit twin of otherBranchBlindSpot.
 //

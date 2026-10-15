@@ -148,6 +148,7 @@ func TestHardenedGitArgsIgnoresPathspecsWhenDeduplicating(t *testing.T) {
 func TestGitHardenConfigIsPinned(t *testing.T) {
 	t.Parallel()
 	want := []string{
+		"--no-optional-locks",
 		"-c", "core.fsmonitor=false",
 		"-c", "core.hooksPath=/dev/null/entire-brain-hooks-disabled",
 	}

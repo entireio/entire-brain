@@ -68,6 +68,10 @@ func semanticStrictIngest() bool {
 }
 
 type semanticStreamResult struct {
+	// stampedHeader is the disclosure text when brain supplied provenance the
+	// provider could not, or "" when it did not need to.
+	stampedHeader string
+
 	header        semanticHeader
 	summary       *semanticSummary
 	counts        semanticCounts
@@ -98,7 +102,17 @@ type semanticStreamScanConfig struct {
 	// written to the snapshot is normalized to it so every later reader of a
 	// brain artifact compares like with like; the provider's own spelling is
 	// preserved on the result for contract validation.
-	repoKey  string
+	repoKey string
+	// commit and tree are the brain's OWN `git rev-parse HEAD` / `HEAD^{tree}`,
+	// used only to stamp a header the provider left blank. See
+	// stampSemanticHeaderFromLocalGit: entire-graph refuses git metadata in a
+	// partial clone and returns an empty commit and tree, and a fully parsed
+	// index was then discarded. The stamp happens HERE, before the header is
+	// written, so the persisted snapshot and the manifest carry the same value
+	// -- stamping only the in-memory copy later left the snapshot blank and the
+	// two disagreed ("commit ... does not match snapshot \"\"").
+	commit   string
+	tree     string
 	progress func(phase string)
 	// counts reports the running record tallies alongside the phase label, so a
 	// caller can draw a determinate bar instead of an indeterminate spinner.
@@ -142,8 +156,10 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 			header.RepoKey = cfg.repoKey
 		}
 		header.RepoRoot = ""
-		header.Warnings = sanitizeSemanticWarnings(cfg.ignore.FilterWarnings(header.Warnings), cfg.repoDir)
-		header.PartialFailures = sanitizeSemanticWarnings(cfg.ignore.FilterWarnings(header.PartialFailures), cfg.repoDir)
+		res.stampedHeader = stampSemanticHeaderFromLocalGit(&header, cfg.commit, cfg.tree)
+		keptWarnings, keptFailures := cfg.ignore.filterIgnoredWarningLists(header.Warnings, header.PartialFailures)
+		header.Warnings = sanitizeSemanticWarnings(keptWarnings, cfg.repoDir)
+		header.PartialFailures = sanitizeSemanticWarnings(keptFailures, cfg.repoDir)
 		headerLine, err := json.Marshal(header)
 		if err != nil {
 			return res, fmt.Errorf("encode filtered semantic snapshot header: %w", err)
@@ -266,8 +282,9 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 					continue
 				}
 			}
-			summary.Warnings = sanitizeSemanticWarnings(cfg.ignore.FilterWarnings(summary.Warnings), cfg.repoDir)
-			summary.PartialFailures = sanitizeSemanticWarnings(cfg.ignore.FilterWarnings(summary.PartialFailures), cfg.repoDir)
+			keptWarnings, keptFailures := cfg.ignore.filterIgnoredWarningLists(summary.Warnings, summary.PartialFailures)
+			summary.Warnings = sanitizeSemanticWarnings(keptWarnings, cfg.repoDir)
+			summary.PartialFailures = sanitizeSemanticWarnings(keptFailures, cfg.repoDir)
 			res.summary = &summary
 			encoded, err := json.Marshal(summary)
 			if err != nil {
@@ -438,6 +455,8 @@ func streamSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir, 
 		ignore:   ignore,
 		repoDir:  repoDir,
 		repoKey:  repoKey,
+		commit:   indexOpts.localCommit,
+		tree:     indexOpts.localTree,
 		progress: indexOpts.progress,
 		counts:   indexOpts.progressCounts,
 		onRecord: func(string) {
@@ -515,7 +534,7 @@ func semanticSummaryTruncationCheck(res *semanticStreamResult) error {
 	provider := strings.TrimSpace(res.header.Provider)
 	if provider == "" || provider == "entire-graph" {
 		return fmt.Errorf(
-			"semantic provider snapshot truncated: stream ended without its terminating summary record after %d file record(s), %d symbol(s), %d relation(s); the provider exited without finishing",
+			"semantic provider snapshot truncated: stream ended with no terminating summary record after %d file(s), %d symbol(s), %d relation(s)",
 			res.stream.Files, res.stream.Symbols, res.stream.Relations,
 		)
 	}

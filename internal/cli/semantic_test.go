@@ -1449,8 +1449,34 @@ func TestSemanticIndexRedactsBrainignoredWarningsFromHeaderAndManifest(t *testin
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
-	if len(manifest.Sources.Semantic.Warnings) != 1 || manifest.Sources.Semantic.Warnings[0].Path == "secret/config.go" {
-		t.Fatalf("manifest warnings were not redacted: %+v", manifest.Sources.Semantic.Warnings)
+	// The property is that no ignored path leaks -- the count was only ever a
+	// proxy for it, and the proxy broke when a withheld-count notice was added.
+	// Assert the real thing, which is strictly stronger: nothing anywhere in
+	// the warnings names the ignored file.
+	for _, w := range manifest.Sources.Semantic.Warnings {
+		if w.Path == "secret/config.go" ||
+			strings.Contains(w.Detail, "secret/config.go") ||
+			strings.Contains(w.Effect, "secret/config.go") {
+			t.Fatalf("an ignored path leaked into the manifest warnings: %+v", w)
+		}
+	}
+	// Exactly one provider warning survives the ignore rules...
+	var provider, withheldNotice int
+	for _, w := range manifest.Sources.Semantic.Warnings {
+		if w.Code == "warnings_hidden_by_brainignore" {
+			withheldNotice++
+			continue
+		}
+		provider++
+	}
+	if provider != 1 {
+		t.Fatalf("want 1 surviving provider warning, got %d: %+v", provider, manifest.Sources.Semantic.Warnings)
+	}
+	// ...and the fact that something WAS withheld is disclosed. Dropping
+	// warnings silently is what made an incomplete index read as a clean one.
+	if withheldNotice != 1 {
+		t.Fatalf("withholding a warning must be disclosed exactly once, got %d notices: %+v",
+			withheldNotice, manifest.Sources.Semantic.Warnings)
 	}
 	if len(manifest.Sources.Semantic.PartialFailures) != 0 {
 		t.Fatalf("manifest partial failures were not redacted: %+v", manifest.Sources.Semantic.PartialFailures)

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/entireio/entire-brain/internal/tui"
 )
@@ -163,8 +164,46 @@ func subtractBlindSpots(spots []brainBlindSpot, seen map[string]bool) []brainBli
 }
 
 // statusCauseWidth bounds the one-line cause so the short report stays short
-// even when a provider hands back a paragraph-length axis detail.
+// even when a provider hands back a paragraph-length axis detail. It counts
+// CHARACTERS, not bytes — see truncateStatusCause.
 const statusCauseWidth = 140
+
+// statusCauseEllipsis marks a cause that did not fit.
+const statusCauseEllipsis = "..."
+
+// truncateStatusCause bounds a cause at statusCauseWidth runes.
+//
+// The general-purpose truncateString measures its budget in BYTES. For the
+// ASCII causes this file was written against the two are the same, but a
+// provider detail carrying a non-ASCII path, identifier or quotation mark is
+// charged two to four bytes per character, so a perfectly short cause was cut
+// to a third of its length. Counting runes makes the advertised width mean
+// what it says, and cutting on a rune index can never split a character.
+func truncateStatusCause(cause string) string {
+	if cause == "" {
+		return ""
+	}
+	runes := []rune(cause)
+	if len(runes) <= statusCauseWidth {
+		return cause
+	}
+	// The RESERVE is counted in runes too.
+	//
+	// Measuring the input in runes and the ellipsis in bytes is the same
+	// rune-versus-byte confusion this function exists to fix, just on the other
+	// operand. It happens to agree for ASCII "...", and silently
+	// over-reserves the moment the marker becomes "…" -- which is one
+	// const edit away, in a function whose entire comment is about this class
+	// of bug.
+	ellipsisWidth := utf8.RuneCountInString(statusCauseEllipsis)
+	limit := statusCauseWidth
+	suffix := ""
+	if statusCauseWidth > ellipsisWidth {
+		limit = statusCauseWidth - ellipsisWidth
+		suffix = statusCauseEllipsis
+	}
+	return string(runes[:limit]) + suffix
+}
 
 // statusHealth is the one-line verdict the short report ends on.
 type statusHealth struct {
@@ -261,7 +300,7 @@ func statusFreshnessCause(report brainStatusReport) string {
 			parts = append(parts, summary)
 		}
 	}
-	return truncateString(strings.Join(parts, "; "), statusCauseWidth)
+	return truncateStatusCause(strings.Join(parts, "; "))
 }
 
 func semanticFreshnessOf(report brainStatusReport) *staleReport {
@@ -434,6 +473,21 @@ func renderStatusOnboardingBlock(out io.Writer, render *tui.Renderer, report bra
 		return
 	}
 	fmt.Fprintf(out, "\n%s\n", render.Bold("Onboarding"))
+	// FIRST, because it decides whether any other line is ever acted on. A
+	// brain no agent knows about reads healthy on every source and is never
+	// consulted; nothing else in this report would say so. The published guide
+	// teaches `setup` then `status` without `init-agents`, so a reader
+	// following it lands here by default.
+	if onboarding.AgentsUnwired {
+		fmt.Fprintf(out, "  %-*s %s %s\n", statusLabelWidth, "agents",
+			render.Mark(tui.MarkFailed),
+			render.PhasePaint(tui.PhaseFailed,
+				fmt.Sprintf("not wired — run `%s init-agents` so your agent uses this brain", brainCmd)))
+		if len(onboarding.AgentsMissing) > 0 {
+			fmt.Fprintf(out, "  %-*s   %s\n", statusLabelWidth, "",
+				render.Dim("missing: "+strings.Join(onboarding.AgentsMissing, ", ")))
+		}
+	}
 	facts := onboarding.Facts
 	factsLine := fmt.Sprintf("  %-*s %s %s distilled",
 		statusLabelWidth, "facts",

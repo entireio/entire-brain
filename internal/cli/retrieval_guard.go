@@ -55,17 +55,36 @@ func buildFactReviewGroups(facts []factRecord, proposals []factProposal) []factR
 	}
 
 	parent := make(map[string]string)
-	var findRoot func(string) string
-	findRoot = func(id string) string {
+	// ITERATIVE path compression. The recursive form recursed once per link in
+	// the parent chain, so a long chain was bounded only by the stack. Union by
+	// smaller id keeps chains short in practice, which is why this has not
+	// bitten -- but "short in practice" is not a bound, and the iterative form
+	// costs nothing and has one.
+	findRoot := func(id string) string {
 		p, ok := parent[id]
 		if !ok {
 			parent[id] = id
 			return id
 		}
-		if p != id {
-			parent[id] = findRoot(p)
+		// Walk to the root, remembering the path.
+		root := id
+		var path []string
+		for {
+			p, ok = parent[root]
+			if !ok || p == root {
+				if !ok {
+					parent[root] = root
+				}
+				break
+			}
+			path = append(path, root)
+			root = p
 		}
-		return parent[id]
+		// Point every node on the path straight at the root.
+		for _, node := range path {
+			parent[node] = root
+		}
+		return root
 	}
 	union := func(a, b string) {
 		ra, rb := findRoot(a), findRoot(b)

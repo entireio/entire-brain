@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/entireio/entire-brain/internal/agentsetup"
 	"github.com/spf13/cobra"
+	"os"
 )
 
 func newBrainGuideCommand(opts Options) *cobra.Command {
@@ -48,14 +49,56 @@ func newAgentInstructionsCommand(opts Options, install bool) *cobra.Command {
 			if root == "" {
 				return fmt.Errorf("outside a repository; supply --repo")
 			}
+			// Name both roots when this one sits inside another repository.
+			// Writing the guide into a nested clone is silent and looks like
+			// success, and the files land where the outer repository cannot
+			// see them. See agentsetup.OuterRepo.
+			if outer := agentsetup.OuterRepo(root); outer != "" && !cmd.Flags().Changed("repo") && len(args) == 0 {
+				fmt.Fprintf(cmd.ErrOrStderr(),
+					// The path in the SUGGESTED COMMAND is shell-quoted; the two
+					// in the prose are not, because they are prose. An
+					// unquoted path with a space -- ordinary on macOS -- made
+					// the remedy silently do the wrong thing when copied, and
+					// one with $ or a backtick would expand.
+					"warning: %s is a git repository inside %s.\nThe guide, AGENTS.md and CLAUDE.md go to the inner one. If you meant the project, run:\n    %s init-agents --repo %s\n\n",
+					root, outer, setupCommandPrefix(os.LookupEnv), shellQuotedRepoDir(outer))
+			}
+			// The pre-edit hook is the only PUSH path brain has; everything
+			// else waits to be asked. A merge failure must not fail the whole
+			// install -- the guide is the primary artifact and lands either
+			// way -- but it must be SAID, because a hook silently not wired is
+			// how this one sat unused since PR #24.
+			// RESOLVE the prefix; do not hardcode it.
+			//
+			// `entire brain` is correct only when a host entire CLI is on PATH.
+			// For a standalone install -- no ENTIRE_CLI_VERSION, which
+			// setupCommandPrefix's own doc comment calls the common fallback --
+			// the invocation is `entire-brain`, and a hook reading `entire
+			// brain hook pre-edit` is a command that does not exist on that
+			// user's PATH. It would fail on every edit, silently, which is the
+			// same inert-hook failure the comment above is about.
+			hookChanged, hookErr := agentsetup.MergePreEditHook(root, setupCommandPrefix(os.LookupEnv))
 			if jsonOut {
 				changed, err := agentsetup.InstallChanged(root, render)
 				if err != nil {
 					return err
 				}
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"changed_files": changed})
+				payload := map[string]any{"changed_files": changed, "pre_edit_hook_installed": hookChanged}
+				if hookErr != nil {
+					payload["pre_edit_hook_error"] = hookErr.Error()
+				}
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(payload)
 			}
-			return agentsetup.Install(root, render, cmd.OutOrStdout())
+			if err := agentsetup.Install(root, render, cmd.OutOrStdout()); err != nil {
+				return err
+			}
+			switch {
+			case hookErr != nil:
+				fmt.Fprintf(cmd.OutOrStdout(), "pre-edit hook not wired: %v\n", hookErr)
+			case hookChanged:
+				fmt.Fprintf(cmd.OutOrStdout(), "wrote %s (pre-edit hook)\n", ".claude/settings.json")
+			}
+			return nil
 		}
 		guide, err := render()
 		if err != nil {

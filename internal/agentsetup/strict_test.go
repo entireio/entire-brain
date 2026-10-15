@@ -51,7 +51,15 @@ func TestGuidanceModeLifecycle(t *testing.T) {
 				before[name] = readFileForTest(t, filepath.Join(repo, name))
 			}
 			normal, err := Preview(repo, second, Options{Mode: ModeNormal})
-			if err != nil || strings.Contains(normal, `"mode":"strict"`) || !strings.Contains(normal, "Skip ceremonial queries") {
+			// This asserted normal mode contains "Skip ceremonial queries" --
+			// the third place the permissive regression was pinned. Normal mode
+			// is distinguished from strict by its MODE, not by offering the
+			// agent a way out; both are directive.
+			// Both products are active by this point, so this is the COMBINED
+			// guide, which states an ordered sequence rather than a second
+			// first-action absolute -- see TestNormalGuideStaysDirective for
+			// why. Assert the sequence, not the word MUST.
+			if err != nil || strings.Contains(normal, `"mode":"strict"`) || !strings.Contains(normal, "Both tools run, in this order") {
 				t.Fatal("normal override failed", err)
 			}
 			for name, contents := range before {
@@ -102,7 +110,7 @@ func TestStrictGuidanceContentAndScope(t *testing.T) {
 				"entire graph capabilities --json",
 				"ALWAYS use --head for interactive Graph queries by default, including the first",
 				"Use the working tree ONLY when the answer depends on uncommitted edits",
-				`entire graph query --repo . --profile full --head --query "<task>"`,
+				`entire graph search --repo . --profile full --head --query "<task>"`,
 			},
 			"brain": {
 				"ALWAYS check Brain availability and version once per session",

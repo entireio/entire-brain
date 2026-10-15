@@ -175,7 +175,7 @@ func TestRegressionPrivacySkipsDerivedAndFailsClosed(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			anomalies, scanned, warnings := detectRegressionAnomalies(f.BrainDir, f.Options.Env.RepoRoot, nil, "fix scopeBaseRef", 10, false)
+			anomalies, scanned, warnings, _ := detectRegressionAnomaliesCapped(f.BrainDir, f.Options.Env.RepoRoot, nil, "fix scopeBaseRef", 10, false)
 			if len(anomalies) != 0 || scanned != 0 {
 				t.Fatalf("unsafe scan: %+v scanned=%d warnings=%v", anomalies, scanned, warnings)
 			}

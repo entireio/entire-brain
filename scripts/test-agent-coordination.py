@@ -66,8 +66,16 @@ fi
         text = (repo / '.entire/agent-guide.md').read_text()
         assert run(product, repo, 'agent-guide') == text
         assert text.splitlines()[0] == '# Entire repository agent guide — ' + mode
-        for forbidden in ('FIRST action', 'SEARCH FIRST', 'entire plugin list', 'command -v', 'setup.json', 'if Brain is installed', 'entire graph version', 'entire brain version'):
+        # 'FIRST action' and 'SEARCH FIRST' used to be banned here too. They are
+        # not runtime probes; they are the directive that makes the product get
+        # used, and banning them was benchmark arm-fairness doctrine applied to
+        # shipped text. The bans that remain are the genuine ones: a guide must
+        # not send an agent probing its own installation.
+        for forbidden in ('entire plugin list', 'command -v', 'setup.json', 'if Brain is installed', 'entire graph version', 'entire brain version'):
             assert forbidden not in text
+        # The directive itself, and only verbs a released graph exposes (#323).
+        assert 'MUST be ONE Graph search' in text or product == 'brain', text[:400]
+        assert 'entire graph query' not in text
         for name in ('AGENTS.md', 'CLAUDE.md'):
             content = (repo / name).read_text()
             assert content.count('<!-- entire-agent:begin -->') == 1

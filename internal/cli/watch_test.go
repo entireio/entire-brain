@@ -298,6 +298,35 @@ func TestWatchTickSkipsAgentWorkWhenRefreshFails(t *testing.T) {
 	}
 }
 
+func TestWatchTickOnlyContinuesForDirtyWorktreeRefusal(t *testing.T) {
+	for _, tc := range []struct {
+		detail       string
+		continueTick bool
+	}{
+		{dirtyWorktreeErrorCode + ": uncommitted edits", true},
+		{`invalid manifest field "dirty_worktree"`, false},
+	} {
+		t.Run(tc.detail, func(t *testing.T) {
+			cursorPath := filepath.Join(t.TempDir(), "watch.json")
+			var refreshed, seeded, distilled, calls int
+			steps := fakeWatchSteps("ck:orig:head", &refreshed, &seeded, &distilled)
+			steps.refresh = func(context.Context) error { refreshed++; return errors.New(tc.detail) }
+			w := watchCommandOptions{distill: true, seedAgent: "codex", distillEvery: 0}
+			watchTick(context.Background(), &bytes.Buffer{}, w, cursorPath, steps, &calls)
+			want := 0
+			if tc.continueTick {
+				want = 1
+			}
+			if refreshed != 1 || seeded != want || distilled != want {
+				t.Fatalf("refresh=%d seed=%d distill=%d; want 1,%d,%d", refreshed, seeded, distilled, want, want)
+			}
+			if !tc.continueTick && (calls != 0 || loadWatchCursor(cursorPath).LastFingerprint != "") {
+				t.Fatal("an unrelated failure spent budget or advanced the cursor")
+			}
+		})
+	}
+}
+
 func TestWatchLoopStopsOnContextCancel(t *testing.T) {
 	cursorPath := filepath.Join(t.TempDir(), "watch.json")
 	ctx, cancel := context.WithCancel(context.Background())
