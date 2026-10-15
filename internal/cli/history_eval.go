@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -62,7 +63,7 @@ Emits a tasks.json consumable by 'history-eval --tasks'.`,
 				return err
 			}
 			if manifest.Sources == nil || manifest.Sources.Sessions == nil {
-				return fmt.Errorf("no exported sessions; run `entire brain refresh` first")
+				return errors.New("no exported sessions; run `" + brainInvocation(os.LookupEnv, "refresh") + "` first")
 			}
 			index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
 			if err != nil {
@@ -297,7 +298,7 @@ Arms:
 				return err
 			}
 			if manifest.Sources == nil {
-				return fmt.Errorf("brain has no sources; run `entire brain refresh` first")
+				return errors.New("brain has no sources; run `" + brainInvocation(os.LookupEnv, "refresh") + "` first")
 			}
 			index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
 			if err != nil {

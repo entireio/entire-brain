@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -176,7 +177,7 @@ func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOp
 	// deliberately NOT securityToggleEnabled (which fails a garbage value ON): a
 	// publish opt-in must fail CLOSED, so anything not clearly truthy stays local.
 	if !envBool(envBrainAllowHosted) {
-		return fmt.Errorf("hosted_publish_disabled: hosted brain publishing is opt-in and off by default; nothing was sent. Set %s=1 and re-run 'entire brain publish' to enable it", envBrainAllowHosted)
+		return fmt.Errorf("hosted_publish_disabled: hosted brain publishing is opt-in and off by default; nothing was sent. Set %s=1 and re-run '"+brainInvocation(os.LookupEnv, "publish")+"' to enable it", envBrainAllowHosted)
 	}
 
 	// Resolve the target (flag overrides env). Fail clearly before touching git or
@@ -217,7 +218,7 @@ func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOp
 		return fmt.Errorf("publish: resolve brain: %w", err)
 	}
 	if !brainExportExists(storage.BrainDir) {
-		return fmt.Errorf("publish: no brain found for this repo; run 'entire brain refresh' first")
+		return errors.New("publish: no brain found for this repo; run '" + brainInvocation(os.LookupEnv, "refresh") + "' first")
 	}
 
 	// Exclusion and purge use the same boundary. Hold it from collection through

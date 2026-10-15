@@ -64,8 +64,8 @@ something durable that the code does not already state:
 
 Categories are architecture, constraints, preferences, project and workflow.
 Omitting --path classifies the fact for you, which requires a supported coding
-agent on PATH. No MCP tool writes a fact, so this is a CLI call. Retrieve with
-recall, and re-check anchors with verify.
+agent on PATH. Over MCP the same write is the brain_remember tool, which
+requires path. Retrieve with recall, and re-check anchors with verify.
 
 Use Brain entities history to connect code changes to earlier checkpoints and
 sessions. Use Brain memory-informed review and workspace

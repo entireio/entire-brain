@@ -5,6 +5,94 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+29 pull requests and 360 commits since 0.1.0.
+
+The hosted-brain commands (`connect`, `publish`, `facts sync`) have a live
+server: brainstore is deployed across five production regions and three
+nonprod. Confirm the client in this release points at the right cells.
+
+### Added
+
+- **Documents beyond Markdown.** PDF, Word, Excel and PowerPoint are read into
+  the brain.
+- **A REST API, with Python and TypeScript clients.**
+- **MCP over HTTP**, opt-in and authenticated, alongside the existing stdio
+  transport.
+- **`brain_remember` over MCP**: an agent can record a durable fact without
+  shelling out to the CLI.
+- **Webhooks**: notify another service when the brain changes.
+- **Facts as plain Markdown files**, written out for reading and diffing.
+- **Cross-repository facts**: remember something that is not about one repo.
+- **Memory import from another tool.**
+- **Time-weighted retrieval ranking.**
+- **`brain stop` / `brain start`** to pause background work machine-wide.
+- **Hosted sync client** — `brain connect`, per-sync token mint, pull-into-local,
+  daemon and hook wiring (COR-2030/COR-2031). See "Known gaps".
+- **`brain disconnect`** opts a repository out of hosted syncing: sync stops and
+  the daemon's auto-connect will not re-bind it, while the local brain and facts
+  already pulled stay (not a purge). `connect` opts back in; it now prints a
+  user-facing summary of what it bound and synced (COR-2109, #364).
+- **Benchmarks**: `memory-ladder`, a five-condition probe of agent memory
+  surfaces, and index size / query latency measured against codebase size.
+
+### Changed
+
+- `brief --json` puts facts and history before status, and the guides name
+  `recall`.
+- Developer commands are hidden from the default help.
+- `factmerge` is exported for the brainstore service (COR-2023).
+- Semantic generations are verified once per file version rather than once per
+  query.
+
+### Fixed
+
+- Auto-connect cannot override a disconnect issued while placement was being
+  resolved: the opt-out is re-checked under the write lock (#364).
+- Hosted connect and disconnect banners open with a blank line and are
+  left-aligned, with a blank line before the join hint in the never-connected
+  banner (#369, #370).
+- `watch` runs hosted fact sync even when the refresh fails, and a deferred call
+  enforces it on every exit path of the tick (#366, COR-2114).
+- Auto-connect failures are reported, not silent, and a failed placement lookup
+  is cached for ten minutes per repository so the session-end hook's two
+  branches do not each spend a shell-out timeout. Both that note and the
+  `connect` error now lead with the command the reader can run
+  (`--repo-id`/`--api-url`) and name the unshipped host contract (COR-2029) as
+  the reason, instead of leading with a shell-out that looks like a local
+  breakage to fix.
+- `remember` returns the persisted merged fact in JSON.
+- An empty fact query names the branches that do hold facts.
+- The ollama chunk-size limits are real, and the advice that breaks them is
+  corrected.
+- Credentials no longer reach the worker log or `memory worker --json`. The
+  reason recorded beside a worker event is error text, and error text carries
+  whatever the failing call had in hand; it is now redacted before it is
+  truncated, because a credential the cut lands inside stops matching the
+  pattern that would have caught it.
+- A warning raised during `setup` keeps its causes. Errors are routinely
+  multi-line, and re-emitting only the first line dropped every cause after it.
+
+### Documentation
+
+- A contributor concepts guide.
+- What the install script does, rather than what it is not.
+- What we measure, what we found, and what we do not claim.
+
+### Known gaps
+
+- **Hosted brain client ships against a deployed server.** brainstore runs in
+  five prod regions. Verify end-to-end (`connect`, then `facts sync`) before
+  tagging — this client half has not been exercised against a live cell here.
+- **Automatic binding does not work yet.** Resolving a repository's hosted
+  placement needs the host CLI to provide `entire repo view --json`, which is
+  not shipped (COR-2029). Until it is, bind every repository by hand with
+  `connect --repo-id <repo id> --api-url <https://cell>`; the daemon and the
+  session-end hook stay local-only and say so.
+- **Sharing a brain is lossy.** `bundle import --overwrite` replaces the
+  receiver's fact layer rather than merging it. The import now says so at the
+  moment it happens, but one-way copy is the only sharing that works today.
+
+
 ## [0.1.0] - 2026-09-19
 
 First numbered release of the public line. Work that shipped as 0.2.0 and 0.3.0

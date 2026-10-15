@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -71,7 +73,7 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 				return err
 			}
 			if manifest.Sources == nil || manifest.Sources.Sessions == nil {
-				return fmt.Errorf("no exported sessions; run `entire brain refresh` first")
+				return errors.New("no exported sessions; run `" + brainInvocation(os.LookupEnv, "refresh") + "` first")
 			}
 			var tasks []evalTask
 			switch strings.TrimSpace(source) {
@@ -376,7 +378,7 @@ func generateSessionEvalTasks(brainDir string, manifest *exportManifest, branch 
 
 func generateSessionEvalTasksContext(ctx context.Context, brainDir string, manifest *exportManifest, branch string, limit int) ([]evalTask, error) {
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
-		return nil, fmt.Errorf("no exported sessions; run `entire brain refresh` first")
+		return nil, errors.New("no exported sessions; run `" + brainInvocation(os.LookupEnv, "refresh") + "` first")
 	}
 	var tasks []evalTask
 	idCollisions := evalSessionIDCollisions(manifest, branch)

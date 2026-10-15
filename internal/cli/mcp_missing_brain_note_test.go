@@ -25,7 +25,7 @@ func TestEmptyResultBlindSpotNamesAMissingBrain(t *testing.T) {
 	if !strings.Contains(note, "no brain has been built") {
 		t.Fatalf("note must name the missing brain, got %q", note)
 	}
-	if !strings.Contains(note, "entire brain setup") {
+	if !strings.Contains(note, brainInvocation(os.LookupEnv, "setup")) {
 		t.Fatalf("note must name the command that builds one, got %q", note)
 	}
 
@@ -54,8 +54,8 @@ func TestEmptyResultBlindSpotNamesAMissingBrain(t *testing.T) {
 // TestMCPRetrievalReportsAMissingBrain is the defect over the wire.
 //
 // On a repository with no brain, brain_code refuses out loud ("semantic index
-// missing; run `entire brain index`") while brain_search and brain_query
-// answered
+// missing", naming the refresh command that builds one) while brain_search and
+// brain_query answered
 //
 //	{"branch":"main","query":"Hello","results":[]}
 //

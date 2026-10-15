@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -129,7 +131,7 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 		return nil, nil, err
 	}
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil {
-		return nil, nil, fmt.Errorf("session history missing; run `entire brain refresh sessions` first")
+		return nil, nil, errors.New("session history missing; run `" + brainInvocation(os.LookupEnv, "refresh sessions") + "` first")
 	}
 
 	var (

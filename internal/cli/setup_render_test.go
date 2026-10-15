@@ -31,93 +31,14 @@ func setupRenderFixtureReport() setupReport {
 		Backfill:  setupPhase{State: "skipped", Detail: "--no-backfill"},
 		Workspace: setupWorkspaceState{Name: "default", Registered: true},
 		Daemon:    daemonState{Manager: daemonManagerUnsupported, Detail: "skipped: --no-daemon"},
-		Facts:     factsBackfillStatus{Sessions: 618, Distilled: 300},
-	}
-}
-
-func renderSetupSummaryPlain(t *testing.T, report setupReport, timings *setupTimings) string {
-	t.Helper()
-	out := &bytes.Buffer{}
-	theme, _ := tui.ThemeByName("default")
-	renderSetupSummary(out, tui.NewRendererWith(theme, tui.PlainCaps()), report, timings, setupWatchPlan{}, setupBrainBinaryName)
-	return out.String()
-}
-
-// TestSetupSummaryPlainGolden pins the closing block in plain mode. Timings are
-// supplied explicitly so the golden is a function of the report, not of how
-// fast the test machine is.
-func TestSetupSummaryPlainGolden(t *testing.T) {
-	t.Parallel()
-	timings := &setupTimings{}
-	timings.record("instant", 700*time.Millisecond)
-	timings.record("backfill", 0)
-	timings.record("workspace", 30*time.Millisecond)
-	timings.record("daemon", 0)
-
-	got := renderSetupSummaryPlain(t, setupRenderFixtureReport(), timings)
-	const want = "\nBrain ready (degraded) in 730ms\n" +
-		"  repo        /repo  (gh/demo-org/brain-demo)\n" +
-		"  brain       /brain\n" +
-		"  instant     x sessions  + seed  + docs  + semantic  (700ms)\n" +
-		"              x session export: checkpoint_scope_incomplete\n" +
-		"                hint: add a git remote\n" +
-		"  facts       ######........ 300/618 sessions distilled\n" +
-		"  backfill    - skipped (--no-backfill)  (0s)\n" +
-		"  workspace   + default  (30ms)\n" +
-		"  daemon      - skipped: --no-daemon  (0s)\n" +
-		"\nNext\n" +
-		"  entire-brain overview        what this project is\n" +
-		"  entire-brain brief \"<task>\"  task-shaped context\n" +
-		"  entire-brain status          backfill progress and daemon health\n"
-	if got != want {
-		t.Fatalf("setup summary\n got:\n%s\nwant:\n%s", got, want)
-	}
-}
-
-// TestSetupSummaryPlainHasNoNonASCII is the "□" guard applied to the summary:
-// nothing in the closing block may assume a UTF-8 locale.
-func TestSetupSummaryPlainHasNoNonASCII(t *testing.T) {
-	t.Parallel()
-	got := renderSetupSummaryPlain(t, setupRenderFixtureReport(), nil)
-	for _, r := range got {
-		if r > 127 {
-			t.Fatalf("non-ASCII %q in the plain summary:\n%s", r, got)
-		}
-	}
-	if strings.ContainsRune(got, 0x1b) {
-		t.Fatalf("plain summary carries escape sequences:\n%s", got)
-	}
-}
-
-func TestSetupSummaryMarksWorkspaceRegistrationFailure(t *testing.T) {
-	t.Parallel()
-	report := setupRenderFixtureReport()
-	report.Workspace.Registered = false
-	report.Warnings = []string{"workspace registration failed: manifest locked"}
-	got := renderSetupSummaryPlain(t, report, nil)
-	if !strings.Contains(got, "workspace   x default (registration failed)") {
-		t.Fatalf("failed registration rendered as successful:\n%s", got)
-	}
-}
-
-// TestSetupSummaryColoursEveryPhaseDistinctly proves the phase colour-coding
-// reaches the summary, not just the live lines.
-func TestSetupSummaryColoursEveryPhaseDistinctly(t *testing.T) {
-	t.Parallel()
-	out := &bytes.Buffer{}
-	theme, _ := tui.ThemeByName("default")
-	render := tui.NewRendererWith(theme, tui.Caps{TTY: true, Color: true, Unicode: true, Width: 200})
-	renderSetupSummary(out, render, setupRenderFixtureReport(), nil, setupWatchPlan{}, setupBrainBinaryName)
-	got := out.String()
-	for name, color := range map[string]string{
-		"good":    string(render.PhaseColor(tui.PhaseDone)),
-		"bad":     string(render.PhaseColor(tui.PhaseFailed)),
-		"skipped": string(render.PhaseColor(tui.PhaseSkipped)),
-		"daemon":  string(render.PhaseColor(tui.PhaseDaemon)),
-	} {
-		if !strings.Contains(got, "38;5;"+color+"m") {
-			t.Errorf("the %s phase colour (%s) never appears in the summary:\n%s", name, color, got)
-		}
+		Agents: setupAgentsState{
+			Installed:   true,
+			Files:       []string{".entire/agent-guide.md", "AGENTS.md", "CLAUDE.md"},
+			Changed:     []string{".entire/agent-guide.md", "AGENTS.md", "CLAUDE.md"},
+			Hook:        "/repo/.claude/settings.json",
+			HookChanged: true,
+		},
+		Facts: factsBackfillStatus{Sessions: 618, Distilled: 300},
 	}
 }
 

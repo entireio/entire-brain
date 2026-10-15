@@ -119,6 +119,9 @@ func TestSetupResolvesTheAgentBeforePlanningTheDaemon(t *testing.T) {
 	}
 
 	opts := defaultSetupOptions() // agent "auto", exactly as a bare `setup` runs
+	// The fact phase asks before it spends; a test with no terminal consents
+	// by flag, exactly as a CI run must.
+	opts.yes = true
 	out := &bytes.Buffer{}
 	if err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, steps); err != nil {
 		t.Fatalf("runSetup: %v", err)
@@ -412,6 +415,13 @@ func TestWatchDistillReportsContentionToItsCaller(t *testing.T) {
 	}
 
 	w := defaultWatchOptions()
+	// Pin the agent. The watch default is "auto" (it used to hardcode "codex",
+	// which bypassed agent resolution entirely), and auto resolves to "none" on
+	// a fixture runner that answers no `--version` probe — at which point
+	// runDistill returns "distillation requires an agent" before it ever reaches
+	// the pass lock, and this test would be asserting about a pass that never
+	// contended for anything. The subject here is contention, not selection.
+	w.distillAgent = "codex"
 	held := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {

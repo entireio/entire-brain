@@ -73,7 +73,7 @@ func TestLoadAggregateCheckpointSources_ReadsConfiguredPushRemote(t *testing.T) 
 		forkTrackingV1: "aa/aaaaaaaaaa/metadata.json\naa/aaaaaaaaaa/0/metadata.json\naa/aaaaaaaaaa/0/full.jsonl\n",
 	})
 
-	sources, _ := loadAggregateCheckpointSources(context.Background(), runner, repoDir, true, nil)
+	sources, _, _ := loadAggregateCheckpointSources(context.Background(), runner, repoDir, true, nil)
 
 	if got := sourceIDs(sources); len(got) != 1 || got[0] != "aaaaaaaaaaaa" {
 		t.Fatalf("discovered %v, want the checkpoint on the elected remote %q", got, remoteFork)
@@ -92,7 +92,7 @@ func TestLoadAggregateCheckpointSources_ReadsSoleRemote(t *testing.T) {
 		"refs/remotes/upstream/entire/checkpoints/v1": "bb/bbbbbbbbbb/metadata.json\nbb/bbbbbbbbbb/0/metadata.json\nbb/bbbbbbbbbb/0/full.jsonl\n",
 	})
 
-	sources, _ := loadAggregateCheckpointSources(context.Background(), runner, t.TempDir(), true, nil)
+	sources, _, _ := loadAggregateCheckpointSources(context.Background(), runner, t.TempDir(), true, nil)
 
 	if got := sourceIDs(sources); len(got) != 1 || got[0] != "bbbbbbbbbbbb" {
 		t.Fatalf("discovered %v, want the checkpoint on the sole remote", got)
@@ -112,7 +112,7 @@ func TestLoadAggregateCheckpointSources_KeepsOriginAsLegacyTier(t *testing.T) {
 		v1OriginRef:    "bb/bbbbbbbbbb/metadata.json\nbb/bbbbbbbbbb/0/metadata.json\nbb/bbbbbbbbbb/0/full.jsonl\n",
 	})
 
-	sources, _ := loadAggregateCheckpointSources(context.Background(), runner, repoDir, true, nil)
+	sources, _, _ := loadAggregateCheckpointSources(context.Background(), runner, repoDir, true, nil)
 
 	got := sourceIDs(sources)
 	if len(got) != 2 || got[0] != "aaaaaaaaaaaa" || got[1] != "bbbbbbbbbbbb" {
@@ -138,7 +138,7 @@ func TestLoadAggregateCheckpointSources_UnreadableSettingsStillReadsOrigin(t *te
 		v1OriginRef: "bb/bbbbbbbbbb/metadata.json\nbb/bbbbbbbbbb/0/metadata.json\nbb/bbbbbbbbbb/0/full.jsonl\n",
 	})
 
-	sources, _ := loadAggregateCheckpointSources(context.Background(), runner, repoDir, true, nil)
+	sources, _, _ := loadAggregateCheckpointSources(context.Background(), runner, repoDir, true, nil)
 
 	if got := sourceIDs(sources); len(got) != 1 || got[0] != "bbbbbbbbbbbb" {
 		t.Fatalf("discovered %v, want origin's checkpoint despite the unreadable settings", got)
@@ -164,7 +164,7 @@ func TestLoadAggregateCheckpointSources_ReadsCapturedRemote(t *testing.T) {
 		forkTrackingV1: "aa/aaaaaaaaaa/metadata.json\naa/aaaaaaaaaa/0/metadata.json\naa/aaaaaaaaaa/0/full.jsonl\n",
 	})
 
-	sources, _ := loadAggregateCheckpointSources(context.Background(), runner, repoDir, true, nil)
+	sources, _, _ := loadAggregateCheckpointSources(context.Background(), runner, repoDir, true, nil)
 
 	if got := sourceIDs(sources); len(got) != 1 || got[0] != "aaaaaaaaaaaa" {
 		t.Fatalf("discovered %v, want the checkpoint on the captured remote %q", got, remoteFork)
@@ -187,7 +187,7 @@ func TestLoadAggregateCheckpointSources_RejectsUnconfiguredPushRemote(t *testing
 		v1OriginRef: "bb/bbbbbbbbbb/metadata.json\nbb/bbbbbbbbbb/0/metadata.json\nbb/bbbbbbbbbb/0/full.jsonl\n",
 	})
 
-	sources, _ := loadAggregateCheckpointSources(context.Background(), runner, repoDir, true, nil)
+	sources, _, _ := loadAggregateCheckpointSources(context.Background(), runner, repoDir, true, nil)
 
 	if got := sourceIDs(sources); len(got) != 1 || got[0] != "bbbbbbbbbbbb" {
 		t.Fatalf("discovered %v, want origin's checkpoint", got)

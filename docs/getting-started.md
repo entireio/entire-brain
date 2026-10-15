@@ -277,28 +277,51 @@ command, is:
 
 ```sh
 entire enable                              # capture sessions + wire the session-end hook
-git add .entire .claude && git commit      # enable wrote these and did not commit them
 entire brain setup                         # then onboard: build, backfill, watch
 ```
 
 That order is a quality decision, not a correctness one — running `entire enable`
 after `setup` works too, and the next backfill pass picks the new sessions up.
 
-**The commit in the middle is not optional.** `entire enable` writes
+**Entire's own config no longer blocks the install.** `entire enable` writes
 `.entire/settings.json` and your agent's hook settings (`.claude/settings.json`
-for Claude Code) and leaves them uncommitted, so a `setup` run immediately
-afterwards finds a dirty worktree and refuses to seed or index it — two red `x`
-on a first run, caused by the command directly above it:
+for Claude Code, `.codex/hooks.json` for Codex); `entire graph init-agents`
+writes `AGENTS.md` and `CLAUDE.md`.
+A `setup` run immediately afterwards used to find that dirty worktree and refuse
+to seed or index it — two red `x` on a first run, caused by the command directly
+above it, which is not a failure a user can be expected to attribute. The dirty
+check now exempts the files Entire itself authored, so the sequence above works
+from a clean clone with nothing committed in between.
+
+The exemption is deliberately narrow. Uncommitted **source** still stops a seed
+or an index, because a brain attributed to a commit must not absorb work that
+commit does not contain:
 
 ```
-  instant     + sessions  x seed  + history  + docs  x semantic  + patterns  + entities  + memory
-              x seed baseline: dirty_worktree: refusing to seed uncommitted content without --worktree
-                hint: commit or stash the working tree, then re-run `entire brain setup`; `entire enable` writes .entire/ and .claude/ without committing them, which is what a first run usually trips over
+Brain set up, but not queryable in 1.9s
+  no semantic index and no seed baseline -- `entire brain query` and `entire brain brief` have nothing to read for this repo yet
+  instant     + session export  x seed baseline  + history index  + doc index  x semantic index  + pattern layer  + entity index  + memory coordinator
+              x seed baseline: dirty_worktree: refusing to seed uncommitted content without
+                --worktree; commit or stash them, list them in .brainignore to keep them out
+                of the brain, or pass --worktree to seed them as they are; 2 uncommitted
+                paths: src/app.ts, src/lib/parse.ts
+                hint: commit or stash the working tree -- or list the paths in .brainignore,
+                which the seed and index gates both honour -- then re-run `entire brain setup`,
+                or `entire brain refresh --worktree` to index the uncommitted changes as they are; `entire enable` writes .entire/ and .claude/ without committing them, which is what a first run usually trips over
 ```
 
-Both files are project configuration that belongs in the repository anyway, so
-committing them is the real fix rather than a workaround. (`--worktree`, which
-the refusal names, is a `refresh` flag — `setup` does not accept it.)
+The code index and the baseline are the two sources a query reads, so with both
+refused the summary says the brain is not queryable rather than calling it
+ready: setup still exits 0, and everything else it built is kept. Both files are
+project configuration that belongs in the repository anyway, so committing them
+is the real fix rather than a workaround. (`--worktree`, which the refusal
+names, is a `refresh` flag — `setup` does not accept it, which is why the hint
+spells out the `refresh` form.)
+
+The Entire-authored files are still **indexed** — `AGENTS.md` and `CLAUDE.md` are
+exactly the repository docs you want the brain to know about. They just stop
+counting as uncommitted source for the gate. (`--worktree`, which the refusal
+names, is a `refresh` flag — `setup` does not accept it.)
 
 **A repository new to Entire reaches an all-green `setup` with no user action.**
 On a committed `git init` repository with no remote at all, every component
@@ -308,7 +331,7 @@ builds:
 Brain ready in 3.6s
   repo        /path/to/your/repo  (local/your-repo-686eadf04b0f)
   brain       ~/.local/share/entire/plugins/data/brain/repos/local/your-repo-686eadf04b0f
-  instant     + sessions  + seed  + history  + docs  + semantic  + patterns  + entities  + memory  (3.6s)
+  instant     + session export  + seed baseline  + history index  + doc index  + semantic index  + pattern layer  + entity index  + memory coordinator  (3.6s)
   facts       .............. 0/0 sessions distilled
   backfill    - skipped (--no-backfill)  (0s)
   workspace   + default  (20ms)
@@ -329,8 +352,10 @@ before this repo's origin changed, and the hint says to rebuild it with
 ones that did not, so `Brain ready (degraded)` is information rather than
 failure when you do see it. The things that legitimately produce it:
 
-- **an uncommitted worktree** — `x seed` and `x semantic`, almost always the
-  `entire enable` output above, fixed by committing it;
+- **an uncommitted worktree** — `x seed baseline` and `x semantic index`, almost
+  always the `entire enable` output above, fixed by committing it. This one
+  loses both sources a query reads, so the headline is `Brain set up, but not
+  queryable` rather than `(degraded)`;
 - **no `entire graph` provider** — `x semantic index:
   provider_doctor_failed: ...`, fixed by `scripts/install.sh`;
 - **an unreadable checkpoint inventory** — `x session export`, when Entire
@@ -586,14 +611,22 @@ repo-wide text search until the brain's targeted context has been used.
 
 ### 4. Hidden Hooks Deliver Context At The Moment Of Relevance
 
-`entire-brain` also has a hidden hook surface for harness integrations. These
-hooks are not installed by the base Entire repository enablement flow; a harness
-must be configured to invoke them, for example from Claude Code
-`PreToolUse`/`PostToolUse` hooks or Entire CLI lifecycle hooks. Until then they
-have no effect. They are not intended as human-facing commands, although they
-can be hand-tested when
-debugging harness wiring. They are designed to surface a small, high-confidence
-fact exactly when it matters:
+`entire-brain` also has a hook surface for harness integrations. A harness must
+be configured to invoke a hook before it can have any effect, and `init-agents`
+— which `setup` runs for you — wires the one that matters for Claude Code: it
+merges a `PreToolUse` entry for `Edit`/`Write`/`MultiEdit`/`NotebookEdit` into
+the repository's `.claude/settings.json`, running
+`entire-brain hook pre-edit --claude-hook`. That flag is the wired spelling: it
+reads the host's `PreToolUse` event from stdin and replies with the
+`hookSpecificOutput` envelope, which is the only stdout shape Claude Code adds
+to the agent's context (plain lines are discarded). Pass
+`setup --no-agent-hooks` to decline it; the decline is remembered on re-runs.
+
+The remaining hooks — `post-failure`, `session-end` — are still harness-wired by
+hand, and have no effect until something calls them. None of them are intended
+as human-facing commands, although they can be hand-tested when debugging
+harness wiring. They are designed to surface a small, high-confidence fact
+exactly when it matters:
 
 - before editing a file, facts anchored to that file
 - after a failed command, gotchas and known dead ends that match the failure
@@ -944,6 +977,13 @@ model or by fetching over the network:
 - judged evaluation commands
 - `publish` uploads the serialized local brain to hosted Entire; opt-in and off
   by default, requiring both the command and `ENTIRE_BRAIN_ALLOW_HOSTED=1`
+- `connect` binds a repository to its hosted brain; running it is currently
+  required, not optional: bind by hand with `--repo-id` and `--api-url`. Automatic
+  resolution needs a host CLI command that is not shipped yet (COR-2029), so
+  until then the daemon and session-end hook stay local-only. `disconnect`
+  records an opt-out: sync stops and auto-connect will not re-bind the
+  repository. It is not a purge, so the local brain and facts already pulled
+  stay. `connect` opts back in
 
 Use `--agent none`, `--dry-run`, local loopback Ollama, or
 `ENTIRE_BRAIN_NO_EGRESS=1` / `ENTIRE_BRAIN_LOCAL_ONLY=1` when the repo must stay

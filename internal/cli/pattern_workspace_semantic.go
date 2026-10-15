@@ -91,7 +91,7 @@ func proposeWorkspaceFamilies(ctx context.Context, env EntireEnv, manifest works
 		return mutationErr
 	})
 	if err != nil {
-		return stats, fmt.Errorf("workspace corpus not built (run `entire brain workspace patterns refresh %s`): %w", manifest.Name, err)
+		return stats, fmt.Errorf("workspace corpus not built (run `"+brainInvocation(os.LookupEnv, "workspace patterns refresh")+" %s`): %w", manifest.Name, err)
 	}
 	return stats, nil
 }

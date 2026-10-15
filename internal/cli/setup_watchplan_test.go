@@ -561,6 +561,9 @@ func TestSetupSaysWhatTheBackfillCostsBeforeItSpends(t *testing.T) {
 	}
 
 	opts := defaultSetupOptions()
+	// The fact phase asks before it spends; a test with no terminal consents
+	// by flag, exactly as a CI run must.
+	opts.yes = true
 	opts.noDaemon = true
 	opts.model = "haiku"
 	opts.effort = "low"

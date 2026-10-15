@@ -160,12 +160,56 @@ func recordSetupWatchPlan(env EntireEnv, daemonName string, entry setupWatchPlan
 		}
 		for i := range plan.Workspaces {
 			if plan.Workspaces[i].Workspace == entry.Workspace {
-				plan.Workspaces[i] = entry
+				plan.Workspaces[i] = mergeSetupWatchPlanEntry(plan.Workspaces[i], entry)
 				return
 			}
 		}
 		plan.Workspaces = append(plan.Workspaces, entry)
 	})
+}
+
+// mergeSetupWatchPlanEntry upserts WITHOUT blanking a choice already recorded.
+//
+// The upsert used to be `plan.Workspaces[i] = entry`, a whole-row replacement,
+// so any run whose entry left Agent or Model empty erased what an earlier run
+// had recorded — and an empty Agent in the plan is not neutral. The daemon
+// resolves a blank agent itself, under daemonEnv, which is an EXPLICIT env map
+// (plugin dirs plus PATH). It carries no CLAUDECODE, so the daemon's own
+// resolution is codex-first no matter what `setup` detected, reported and paid
+// the foreground backfill with. A blanked agent is therefore a silent vendor
+// switch on the one unattended path that spends tokens by itself.
+//
+// Fill the blank, never clobber: a run that resolved an agent writes it (so a
+// previously auto-resolved value can never latch after the CLI it named is
+// gone), and a run with nothing to say leaves the recorded choice alone.
+func mergeSetupWatchPlanEntry(existing, incoming setupWatchPlanEntry) setupWatchPlanEntry {
+	merged := incoming
+	if strings.TrimSpace(merged.Agent) == "" {
+		merged.Agent = existing.Agent
+	}
+	if strings.TrimSpace(merged.Model) == "" {
+		merged.Model = existing.Model
+	}
+	// Interval, DistillEvery and Effort are written only when the run names
+	// them (see setupWatchPlanEntryFor), so a second repo adopting the same
+	// workspace without those flags arrives with them empty — and without a
+	// fallback it would blank tuning the first repo deliberately set. That is
+	// the "same workspace, different tuning" case this file's header describes.
+	if strings.TrimSpace(merged.Interval) == "" {
+		merged.Interval = existing.Interval
+	}
+	if strings.TrimSpace(merged.DistillEvery) == "" {
+		merged.DistillEvery = existing.DistillEvery
+	}
+	if strings.TrimSpace(merged.Effort) == "" {
+		merged.Effort = existing.Effort
+	}
+	// MaxSessions is deliberately NOT merged. It is always concrete
+	// (setupResolvedBackfillBudget never returns zero), and it carries the budget
+	// THIS run showed the user and paid the foreground backfill with. Falling
+	// back to a previous repo's cap would let the daemon keep spending against a
+	// number nobody was shown.
+	return merged
 }
 
 // setupWatchPlanEntryFor turns this run's options into the row the daemon reads.
@@ -186,6 +230,13 @@ func setupWatchPlanEntryFor(setupOpts setupCommandOptions, now time.Time) setupW
 	if setupOpts.distillEvery > 0 {
 		entry.DistillEvery = setupOpts.distillEvery.String()
 	}
+	// setup resolves the agent ONCE, before this is called (setup.go, just above
+	// the daemon plan), so by here setupOpts.agent is a concrete name and the
+	// plan always carries it. The literal "auto" is still refused rather than
+	// written: writing it would hand the daemon back its own codex-first
+	// resolution under an env that has no CLAUDECODE in it, which is the thing
+	// the single resolution exists to prevent. Skipping instead lets
+	// mergeSetupWatchPlanEntry keep whatever concrete agent was recorded before.
 	if agent := strings.TrimSpace(setupOpts.agent); agent != "" && agent != "auto" {
 		entry.Agent = agent
 	}

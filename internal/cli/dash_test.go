@@ -88,7 +88,7 @@ func TestDashHomeViewSourcesAndNotBuilt(t *testing.T) {
 	}
 	foundNotBuilt := false
 	for _, w := range home.Warnings {
-		if w == "brain not built yet — run `entire brain refresh`" {
+		if w == "brain not built yet — run `"+brainInvocation(os.LookupEnv, "refresh")+"`" {
 			foundNotBuilt = true
 		}
 	}
@@ -111,7 +111,7 @@ func TestDashHomeViewSourcesAndNotBuilt(t *testing.T) {
 	}
 	home = dashHomeView(built, manifest, "main")
 	for _, w := range home.Warnings {
-		if w == "brain not built yet — run `entire brain refresh`" {
+		if w == "brain not built yet — run `"+brainInvocation(os.LookupEnv, "refresh")+"`" {
 			t.Errorf("built brain should not warn not-built")
 		}
 	}

@@ -971,7 +971,7 @@ func runRefreshDelta(cmd *cobra.Command, opts Options, export bool) error {
 	line := fmt.Sprintf("short-term memory: %d records (%d exchanges) from %d changed transcripts (%d re-scanned, %d carried over)",
 		stats.Records, stats.Exchanges, stats.Files, stats.Scanned, stats.Reused)
 	if stats.Truncated {
-		line += "; buffer full; run `entire brain refresh` to consolidate"
+		line += "; buffer full; run `" + brainInvocation(os.LookupEnv, "refresh") + "` to consolidate"
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), line)
 	return nil

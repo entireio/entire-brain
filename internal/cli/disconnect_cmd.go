@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -10,13 +11,13 @@ func newDisconnectCommand(opts Options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "disconnect",
 		Short: "Stop syncing this repository with its hosted brain",
-		Long: `disconnect opts this repository out of hosted-brain syncing: memories stop
+		Long: fmt.Sprintf(`disconnect opts this repository out of hosted-brain syncing: memories stop
 publishing and pulling, and the daemon's auto-connect will not re-bind it.
 
 Your local brain keeps working exactly as before, and memories already pulled
 from teammates stay in the local store — disconnect is not a purge.
 
-Run 'entire brain connect' to opt back in.`,
+Run '%s' to opt back in.`, brainInvocation(os.LookupEnv, "connect")),
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDisconnect(cmd, opts)
@@ -48,12 +49,12 @@ func runDisconnect(cmd *cobra.Command, opts Options) error {
 		renderHostedBanner(cmd.OutOrStdout(),
 			"Disconnected: repo "+binding.RepoID+" no longer syncs memories",
 			"Your local brain keeps working exactly as before. Memories already pulled from teammates stay in the local store.",
-			"Run `entire brain connect` to resume syncing.")
+			"Run `"+brainInvocation(os.LookupEnv, "connect")+"` to resume syncing.")
 		return nil
 	}
 	renderHostedBanner(cmd.OutOrStdout(),
 		"Disconnected: this repository will not auto-connect to a hosted brain",
 		"Your local brain keeps working exactly as before.",
-		"Run `entire brain connect` to join.")
+		"Run `"+brainInvocation(os.LookupEnv, "connect")+"` to join.")
 	return nil
 }

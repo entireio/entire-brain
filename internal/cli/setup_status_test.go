@@ -173,7 +173,7 @@ func TestRenderBrainOnboardingStatusLines(t *testing.T) {
 	rendered := out.String()
 	for _, want := range []string{
 		"facts: 3/12 sessions distilled (backfill running, pid 99)",
-		"daemon: running (io.entire.brain-watch); last tick 2m0s ago",
+		"daemon: running; last tick 2m0s ago",
 		"instant: sessions=built semantic=missing",
 	} {
 		if !strings.Contains(rendered, want) {

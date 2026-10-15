@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 	xterm "github.com/charmbracelet/x/term"
@@ -407,21 +408,114 @@ func (r *Renderer) TruncateTo(s string, limit int) string {
 	if limit <= 0 {
 		return ""
 	}
-	if runewidth.StringWidth(s) <= limit {
-		return s
-	}
-	if limit <= 1 {
-		return runewidth.Truncate(s, limit, "")
-	}
 	tail := "..."
 	if r != nil && r.caps.Unicode {
 		tail = "…"
 	}
-	if runewidth.StringWidth(tail) > limit {
+	if limit <= 1 {
+		tail = ""
+	} else if runewidth.StringWidth(tail) > limit {
 		tail = ""
 	}
-	return runewidth.Truncate(s, limit, tail)
+	return truncateANSI(s, limit, tail)
 }
+
+// truncateANSI truncates to a VISIBLE cell count, never cutting inside an
+// escape sequence, and closes a colour the cut would have left open.
+//
+// runewidth counts an escape's bytes as cells and will happily cut through the
+// middle of one. Both are wrong on a string that is already painted, and the
+// second is the worse of the two: a terminal handed `ESC [ 3` with no final
+// byte waits for the rest of the sequence and swallows whatever follows it.
+// Observed live on setup's progress bar, which composes a per-cell coloured
+// bar and hands it on as a label for this function to budget:
+//
+//	ESC[38;5;203m█ESC[0m ... ESC[3…ESC[0m
+//	                          ^^^^^ cut mid-sequence, terminal eats the rest
+func truncateANSI(s string, limit int, tail string) string {
+	if limit <= 0 {
+		return ""
+	}
+	if ansiVisibleWidth(s) <= limit {
+		return s
+	}
+	budget := limit - runewidth.StringWidth(tail)
+	if budget < 0 {
+		budget = 0
+	}
+	var b strings.Builder
+	width, open := 0, false
+	for i := 0; i < len(s); {
+		if s[i] == 0x1b {
+			// Copy the whole sequence or none of it; never a prefix.
+			j := skipANSI(s, i)
+			seq := s[i:j]
+			b.WriteString(seq)
+			// Track whether a colour is left open, so the cut can close it.
+			if strings.HasSuffix(seq, "m") {
+				open = seq != "\x1b[0m" && seq != "\x1b[m"
+			}
+			i = j
+			continue
+		}
+		rn, size := utf8.DecodeRuneInString(s[i:])
+		w := runewidth.RuneWidth(rn)
+		if width+w > budget {
+			break
+		}
+		b.WriteString(s[i : i+size])
+		width += w
+		i += size
+	}
+	b.WriteString(tail)
+	if open {
+		b.WriteString("\x1b[0m")
+	}
+	return b.String()
+}
+
+// ansiVisibleWidth is StringWidth with escape sequences charged nothing.
+func ansiVisibleWidth(s string) int {
+	width := 0
+	for i := 0; i < len(s); {
+		if s[i] == 0x1b {
+			i = skipANSI(s, i)
+			continue
+		}
+		rn, size := utf8.DecodeRuneInString(s[i:])
+		width += runewidth.RuneWidth(rn)
+		i += size
+	}
+	return width
+}
+
+// skipANSI returns the index just past the escape sequence starting at i.
+//
+// The shape is ESC '[' <params 0x30-0x3f> <intermediates 0x20-0x2f> <final
+// 0x40-0x7e>. The '[' must be stepped over BEFORE hunting the final byte:
+// 0x5b is itself inside the final-byte range, so a scanner that does not
+// will stop on the bracket and read the parameters as visible text. That is
+// not hypothetical — it is the bug the first draft of this function shipped,
+// which measured "\x1b[38;5;45m" as eight visible cells.
+func skipANSI(s string, i int) int {
+	j := i + 1
+	if j < len(s) && s[j] == '[' {
+		j++
+		for j < len(s) && s[j] >= 0x30 && s[j] <= 0x3f {
+			j++
+		}
+		for j < len(s) && s[j] >= 0x20 && s[j] <= 0x2f {
+			j++
+		}
+	}
+	if j < len(s) && isANSIFinalByte(s[j]) {
+		j++
+	}
+	return j
+}
+
+// isANSIFinalByte reports the byte that ends a CSI sequence (@ through ~).
+func isANSIFinalByte(b byte) bool { return b >= 0x40 && b <= 0x7e }
 
 // Width reports the usable line width, 0 when unknown.
 func (r *Renderer) Width() int {

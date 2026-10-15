@@ -22,8 +22,23 @@ func TestSetupPlainRunKeepsMachineDaemonIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.DaemonName != name || rec.state.Label != launchdLabel(name) {
-		t.Fatalf("plain setup changed shared daemon: plan=%+v daemon=%+v", plan, rec.state)
+	if plan.DaemonName != name {
+		t.Fatalf("plain setup changed the shared daemon name: plan=%+v daemon=%+v", plan, rec.state)
+	}
+	// The label is no longer compared to launchdLabel(name) verbatim: an
+	// overridden unit directory now contributes a scope suffix, so that a
+	// throwaway install cannot bootstrap over the real registration. What this
+	// test is about is unchanged -- the shared identity survives a plain run --
+	// so assert the base derivation is kept and only extended, and that a
+	// second run lands on exactly the same label.
+	if !strings.HasPrefix(rec.state.Label, launchdLabel(name)) {
+		t.Fatalf("the shared daemon's base label was replaced, not scoped: got %q want prefix %q", rec.state.Label, launchdLabel(name))
+	}
+	first := rec.state.Label
+	again := &recordedSetup{}
+	runSetupForTest(t, f, defaultSetupOptions(), again)
+	if again.state.Label != first {
+		t.Fatalf("two plain runs produced different daemon labels, so each run would orphan the last: %q then %q", first, again.state.Label)
 	}
 }
 

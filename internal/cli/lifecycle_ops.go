@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -108,20 +109,16 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 		}
 		addEnvironment("memory_install", state, detail)
 	}
-	if adapter, ok := install["host_adapter"].(memoryHostAdapterHealth); ok {
-		// Host-adapter installation belongs to the Entire CLI and this process
-		// never inspects it: memoryInstallHealth hard-codes state and
-		// observability to "not_observable", so the old ok-condition
-		// (observability != not_observable && state == trusted) was
-		// unreachable by construction and the check was a warning on every
-		// run of every install. Scope is not a fault -- say where the answer
-		// lives, and do not spend the reader's attention on it.
-		//
-		// Environment-scoped for the same reason memory_install is: it and
-		// entire_binary come out of the same `install` payload and describe the
-		// same external product.
-		addEnvironment("memory_host_adapter", "ok", fmt.Sprintf("not checked here (%s; authority %s): host-adapter install, enablement and trust are owned by the Entire CLI -- verify them with its own integration diagnostics", adapter.State, adapter.Authority))
-	}
+	// There is deliberately no memory_host_adapter check. It reported the
+	// literal state "ok" on every run of every install, because
+	// memoryInstallHealth constructs memoryHostAdapterHealth with
+	// State/Observability hard-coded to "not_observable" (memory_admin.go) and
+	// there is no second construction site -- so no machine, no configuration
+	// and no user action could ever make it say anything else. A line that
+	// cannot vary carries no information, and thirty-four such lines are what
+	// taught readers to skip doctor's output. The underlying payload is NOT
+	// dropped: `doctor --json` still carries it verbatim at
+	// memory.install.host_adapter, with the authority that owns the answer.
 	if coordinator, ok := snapshot.Payload["coordinator"].(map[string]any); ok {
 		stateName, _ := coordinator["state"].(string)
 		state := "ok"
@@ -178,7 +175,16 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 		}
 		add("memory_provider_egress", state, detail)
 	}
-	add("memory_schema_capabilities", "ok", fmt.Sprintf("compiled support: manifest %d, overlay %d, FTS %s, vector %d, abstract %d, jobs %d", brainManifestSchemaVersion, historyShortTermVersion, historyFTSSchema, memoryVectorSchema, abstractSchemaVersion, memoryJobSchemaVersion))
+	// There is deliberately no memory_schema_capabilities check either. Its
+	// state was the literal "ok" and its detail was formatted purely from
+	// untyped compile-time constants (brainManifestSchemaVersion = 3,
+	// historyShortTermVersion = 3, historyFTSSchema = "3", memoryVectorSchema
+	// = 2, abstractSchemaVersion = 1, memoryJobSchemaVersion = 2): the same
+	// sentence for every brain built from a given binary. What this build
+	// SUPPORTS is a property of the build, not a diagnosis of the brain --
+	// memory_schemas below is the check that compares it with what is on disk.
+	// `doctor --json` still reports every one of those numbers, at
+	// memory.schemas.compiled_capabilities.
 	schemaState := "error"
 	switch snapshot.ManifestHealth.State {
 	case "current":
@@ -360,7 +366,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	case "current":
 		add("manifest", "ok", brainDir)
 	case "absent":
-		add("manifest", "warn", "absent; run `entire brain refresh`")
+		add("manifest", "warn", "absent; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
 		return checks, payload
 	default:
 		add("manifest", "error", fmt.Sprintf("%s: %s", snapshot.ManifestHealth.ErrorCode, snapshot.ManifestHealth.RecommendedAction))
@@ -368,9 +374,19 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	}
 
 	// Capture: exported sessions are the canonical input to every projection.
-	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
-		add("capture", "warn", "no exported sessions; run `entire brain refresh` (sessions stage)")
-	} else {
+	//
+	// "The sessions stage never ran" and "the sessions stage ran and Entire has
+	// captured nothing yet" were one branch, and it recommended `refresh` for
+	// both. For the second that is a remedy with nothing to do: the export
+	// succeeds, exports zero sessions again, and doctor re-prints the identical
+	// line. A manifest that DECLARES a sessions source is the evidence the
+	// stage ran, so the empty case names what actually produces a session.
+	switch {
+	case manifest.Sources == nil || manifest.Sources.Sessions == nil:
+		add("capture", "warn", "sessions stage has not run; run `"+brainInvocation(os.LookupEnv, "refresh")+"` (sessions stage)")
+	case len(manifest.Sources.Sessions.Sessions) == 0:
+		add("capture", "ok", "no captured sessions yet; Entire has recorded none in this repository -- work in an agent session, then refresh; `entire checkpoint list` shows what Entire itself can see")
+	default:
 		sessions := manifest.Sources.Sessions.Sessions
 		latest := time.Time{}
 		for _, session := range sessions {
@@ -416,7 +432,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	// only when it was built from the CURRENT session set (fingerprint match);
 	// a semantic-only refresh must never claim conversation freshness.
 	if manifest.Sources == nil || manifest.Sources.History == nil {
-		add("history_index", "warn", "no history index; run `entire brain refresh`")
+		add("history_index", "warn", "no history index; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
 		return checks, payload
 	}
 	history := manifest.Sources.History
@@ -427,7 +443,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	}
 	add("history_index", "ok", fmt.Sprintf("%d records (generated %s)", len(index.Records), history.GeneratedAt.UTC().Format(time.RFC3339)))
 	if history.IndexDigest == "" {
-		add("history_integrity", "warn", "index predates manifest content digests; run `entire brain refresh`")
+		add("history_integrity", "warn", "index predates manifest content digests; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
 	} else {
 		add("history_integrity", "ok", "index bytes match the manifest content digest")
 	}
@@ -440,25 +456,25 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	shortTermCovers := shortTermCurrentForSources && len(shortTerm.Files) > 0
 	switch {
 	case history.SessionsFingerprint == "":
-		add("history_freshness", "warn", "index predates fingerprinting; run `entire brain refresh`")
+		add("history_freshness", "warn", "index predates fingerprinting; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
 	case current == history.SessionsFingerprint:
 		add("history_freshness", "ok", "history and conversation projections were built from the current exported sessions")
 	case shortTermCovers && shortTerm.complete():
-		add("history_freshness", "ok", fmt.Sprintf("long-term index is behind, but short-term memory covers the gap (%d changed transcripts; consolidation pending via `entire brain refresh`)", len(shortTerm.Files)))
+		add("history_freshness", "ok", fmt.Sprintf("long-term index is behind, but short-term memory covers the gap (%d changed transcripts; consolidation pending via `"+brainInvocation(os.LookupEnv, "refresh")+"`)", len(shortTerm.Files)))
 	case shortTermCurrentForSources && !shortTerm.complete():
-		add("history_freshness", "warn", fmt.Sprintf("short-term memory covers the gap only partially (%s); run `entire brain refresh` to consolidate", shortTermIncompleteness(shortTerm)))
+		add("history_freshness", "warn", fmt.Sprintf("short-term memory covers the gap only partially (%s); run `"+brainInvocation(os.LookupEnv, "refresh")+"` to consolidate", shortTermIncompleteness(shortTerm)))
 	case shortTermState == shortTermStateCorrupt:
-		add("history_freshness", "warn", "exported sessions changed and the short-term overlay is corrupt; run `entire brain refresh delta` to rebuild it or `entire brain refresh` to consolidate")
+		add("history_freshness", "warn", "exported sessions changed and the short-term overlay is corrupt; run `"+brainInvocation(os.LookupEnv, "refresh delta")+"` to rebuild it or `"+brainInvocation(os.LookupEnv, "refresh")+"` to consolidate")
 	case shortTermState == shortTermStateUnsupported:
-		add("history_freshness", "warn", "exported sessions changed and the short-term overlay uses an unsupported version; run `entire brain refresh delta` to rebuild it or `entire brain refresh` to consolidate")
+		add("history_freshness", "warn", "exported sessions changed and the short-term overlay uses an unsupported version; run `"+brainInvocation(os.LookupEnv, "refresh delta")+"` to rebuild it or `"+brainInvocation(os.LookupEnv, "refresh")+"` to consolidate")
 	default:
-		add("history_freshness", "warn", "exported sessions changed since the last index build; run `entire brain refresh delta` for immediate freshness or `entire brain refresh` to consolidate (a missed session-end hook is repaired the same way)")
+		add("history_freshness", "warn", "exported sessions changed since the last index build; run `"+brainInvocation(os.LookupEnv, "refresh delta")+"` for immediate freshness or `"+brainInvocation(os.LookupEnv, "refresh")+"` to consolidate (a missed session-end hook is repaired the same way)")
 	}
 	switch shortTermState {
 	case shortTermStateCorrupt:
-		add("short_term_memory", "warn", "overlay unreadable or invalid (corrupt); rebuild with `entire brain refresh delta`")
+		add("short_term_memory", "warn", "overlay unreadable or invalid (corrupt); rebuild with `"+brainInvocation(os.LookupEnv, "refresh delta")+"`")
 	case shortTermStateUnsupported:
-		add("short_term_memory", "warn", "overlay version unsupported by this binary; rebuild with `entire brain refresh delta`")
+		add("short_term_memory", "warn", "overlay version unsupported by this binary; rebuild with `"+brainInvocation(os.LookupEnv, "refresh delta")+"`")
 	case shortTermStateCurrent:
 		if len(shortTerm.Files) == 0 && shortTerm.complete() {
 			break
@@ -745,7 +761,7 @@ func renderBrainStats(out io.Writer, report brainStatsReport) {
 			line += "; state " + s.State
 		}
 		if s.Truncated {
-			line += "; buffer full, consolidate with `entire brain refresh`"
+			line += "; buffer full, consolidate with `" + brainInvocation(os.LookupEnv, "refresh") + "`"
 		}
 		if len(s.FailedFiles) > 0 {
 			line += fmt.Sprintf("; %d transcripts failed to scan", len(s.FailedFiles))

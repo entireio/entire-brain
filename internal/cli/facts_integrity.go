@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -204,7 +205,9 @@ func factStoreIDList(ids []string) string {
 // factsRepairHint is the repair for a store that lost content. Rebuilding the
 // manifest alone would only re-baseline the loss, so the fact commands' own
 // wording — refresh, then re-distill — is what gets named.
-const factsRepairHint = "run `entire brain refresh` and re-distill"
+func factsRepairHint() string {
+	return "run `" + brainInvocation(os.LookupEnv, "refresh") + "` and re-distill"
+}
 
 // Warning renders the single caller-facing line, or "" when the store is
 // intact. Each mode keeps its own words.
@@ -219,7 +222,7 @@ func (r factStoreIntegrity) Warning() string {
 		}
 		return fmt.Sprintf(
 			"%s is corrupt: %s; the %d fact(s) the manifest declares cannot be recalled — %s",
-			where, r.ParseError, r.Declared, factsRepairHint,
+			where, r.ParseError, r.Declared, factsRepairHint(),
 		)
 	case factStoreDefectLossy:
 		detail := fmt.Sprintf(
@@ -238,15 +241,15 @@ func (r factStoreIntegrity) Warning() string {
 		if overwritten := r.Overwritten(); overwritten > 0 {
 			detail += fmt.Sprintf("; %d more record(s) repeat a fact id (%s)", overwritten, factStoreIDList(r.DuplicateIDs))
 		}
-		return detail + " — " + factsRepairHint
+		return detail + " — " + factsRepairHint()
 	case factStoreDefectDuplicated:
 		return fmt.Sprintf(
 			"fact ids are not unique: %d stored record(s) repeat an id the branch already holds (%s); an id identifies exactly one fact, so each repeat stands where another fact used to be and that fact can no longer be recalled; the manifest's %d were counted, not read — %s",
-			r.Overwritten(), factStoreIDList(r.DuplicateIDs), r.Declared, factsRepairHint,
+			r.Overwritten(), factStoreIDList(r.DuplicateIDs), r.Declared, factsRepairHint(),
 		)
 	case factStoreDefectStale:
 		return fmt.Sprintf(
-			"fact count does not match the manifest: %d declared, %d readable; the manifest is behind the store — run `entire brain refresh`",
+			"fact count does not match the manifest: %d declared, %d readable; the manifest is behind the store — run `"+brainInvocation(os.LookupEnv, "refresh")+"`",
 			r.Declared, r.Readable,
 		)
 	default:

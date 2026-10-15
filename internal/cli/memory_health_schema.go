@@ -69,7 +69,7 @@ func memoryOverlayHealth(brainDir string, source *historySourceManifest) map[str
 		health["state"] = memoryErrMigrationRequired
 		health["schema_state"] = memoryErrMigrationRequired
 		health["error_code"] = memoryErrMigrationRequired
-		health["action"] = "rebuild the disposable overlay with `entire brain refresh delta`"
+		health["action"] = "rebuild the disposable overlay with `" + brainInvocation(os.LookupEnv, "refresh delta") + "`"
 		return health
 	}
 

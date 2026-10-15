@@ -398,16 +398,20 @@ which every one of the eight instant components builds:
 
 ```
 Brain ready in 3.6s
-  instant     + sessions  + seed  + history  + docs  + semantic  + patterns  + entities  + memory  (3.6s)
+  instant     + session export  + seed baseline  + history index  + doc index  + semantic index  + pattern layer  + entity index  + memory coordinator  (3.6s)
 ```
 
 `Brain ready (degraded)` still exists, and when you do see it, read it as
 information rather than as failure: setup exits 0, the brain is queryable, and
 the summary names the component that did not build with a hint under it. What
-actually produces it is the uncommitted worktree above, a machine with no
-`entire graph` provider (`x semantic index: provider_doctor_failed: …`, fixed by
-`scripts/install.sh`), or a checkpoint inventory Entire cannot read
-(`x session export`).
+actually produces it is a machine with no `entire graph` provider
+(`x semantic index: provider_doctor_failed: …`, fixed by `scripts/install.sh`),
+or a checkpoint inventory Entire cannot read (`x session export`).
+
+The uncommitted worktree above is the one case that does NOT: it refuses both
+`seed baseline` and `semantic index`, which are the two sources a query reads,
+so the headline is `Brain set up, but not queryable` and names what is missing.
+The exit code is still 0 and everything else setup built is kept.
 
 `x semantic index: repo key mismatch` used to belong on that list, and no longer
 does. `entire-brain` and `entire-graph` name the same repository differently —
@@ -1495,6 +1499,13 @@ model or by fetching over the network:
 - `publish` uploads the serialized local brain (manifest, semantic snapshots,
   branch overlays, durable facts) to hosted Entire; opt-in and off by default,
   requiring both the command and `ENTIRE_BRAIN_ALLOW_HOSTED=1`
+- `connect` binds a repository to its hosted brain; running it is currently
+  required, not optional: bind by hand with `--repo-id` and `--api-url`. Automatic
+  resolution needs a host CLI command that is not shipped yet (COR-2029), so
+  until then the daemon and session-end hook stay local-only. `disconnect`
+  records an opt-out: sync stops and auto-connect will not re-bind the
+  repository. It is not a purge, so the local brain and facts already pulled
+  stay. `connect` opts back in
 - webhooks POST a small JSON event to `ENTIRE_BRAIN_WEBHOOK_URL` when a fact is
   recorded or retracted or the brain is refreshed; off until that variable is
   set. The payload carries the fact id, kind and taxonomy paths and the

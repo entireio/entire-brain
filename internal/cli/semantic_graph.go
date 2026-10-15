@@ -151,14 +151,14 @@ func loadSemanticEnv(cmd *cobra.Command, opts Options) (semanticEnv, error) {
 		return semanticEnv{}, err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return semanticEnv{}, errors.New("semantic index missing; run `entire brain index`")
+		return semanticEnv{}, semanticIndexMissingError()
 	}
 	return semanticEnv{RepoDir: repoDir, BrainDir: storage.BrainDir, RepoKey: manifest.RepoKey, Source: manifest.Sources.Semantic}, nil
 }
 
 func semanticStorePath(env semanticEnv) (string, error) {
 	if env.Source.StorePath == "" {
-		return "", errors.New("semantic graph command requires the SQLite semantic store; run `entire brain repair`")
+		return "", errors.New("semantic graph command requires the SQLite semantic store; run `" + brainInvocation(os.LookupEnv, "repair") + "`")
 	}
 	return validateSemanticDeclaredStore(env.BrainDir, env.Source)
 }

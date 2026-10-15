@@ -105,8 +105,8 @@ func hostCLIMissingExportError(err error, binary string) error {
 // The probe is what draws the line the brief cares about. A host CLI that is
 // PRESENT but has no `graph` subcommand is a different situation entirely: the
 // entire-graph plugin is installable right there, the error already says so by
-// name ("install it with `scripts/install.sh`"), and the user has the CLI
-// needed to run it. That one stays fatal.
+// name ("install it with `entire plugin install graph`"), and the user has the
+// CLI needed to run it. That one stays fatal.
 func hostCLISemanticProviderAbsent(graphBinary string) bool {
 	return hostCLIBinaryName(graphBinary) == entireBinaryName && !hostCLIOnPath()
 }

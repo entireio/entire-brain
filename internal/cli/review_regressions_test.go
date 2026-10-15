@@ -189,7 +189,7 @@ func TestHistoryInventoryReportsMissingSessionsRootAsEmpty(t *testing.T) {
 
 	// The long-term build keeps its actionable guidance.
 	if _, _, err := buildBrainHistoryIndex(brainDir, now, nil); err == nil ||
-		!strings.Contains(err.Error(), "run `entire brain refresh sessions` first") {
+		!strings.Contains(err.Error(), "run `"+brainInvocation(os.LookupEnv, "refresh sessions")+"` first") {
 		t.Fatalf("history build guidance = %v", err)
 	}
 }

@@ -143,6 +143,28 @@ func launchdLabel(name string) string {
 	return "io.entire." + strings.TrimPrefix(name, "entire-") + "." + hex.EncodeToString(sum[:4])
 }
 
+// daemonScopeSuffix distinguishes a daemon installed into an OVERRIDDEN unit
+// directory from the real one.
+//
+// The label used to be derived from the daemon NAME alone, which is constant,
+// so every environment on a machine rendered the same label. The plist PATH was
+// isolated by ENTIRE_BRAIN_DAEMON_DIR and the LABEL was not, so `launchctl
+// bootstrap` of a throwaway unit REPLACED the real registration and repointed
+// it at a scratch binary in a directory about to be deleted. That happened
+// twice here in one day; the second time it took a bootout/bootstrap to undo.
+//
+// Only an overridden directory gets a suffix. The default must keep rendering
+// the label it always has, or every existing install is orphaned on upgrade --
+// a migration this cannot justify when the whole point is not breaking things.
+func daemonScopeSuffix(unitDir string) string {
+	unitDir = strings.TrimSpace(unitDir)
+	if unitDir == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(unitDir))
+	return "." + hex.EncodeToString(sum[:4])
+}
+
 // systemdUnitName is the daemon name with the unit suffix; systemd unit names
 // are already plain identifiers, so no transformation is needed.
 func systemdUnitName(name string) string { return name + ".service" }
@@ -181,7 +203,7 @@ func planBrainWatchDaemon(goos, home, configHome, unitDir string, spec daemonSpe
 			return daemonPlan{}, fmt.Errorf("cannot resolve home directory for the launchd agent")
 		}
 		plan.Manager = daemonManagerLaunchd
-		plan.Label = launchdLabel(spec.Name)
+		plan.Label = launchdLabel(spec.Name) + daemonScopeSuffix(unitDir)
 		root := unitDir
 		if root == "" {
 			root = daemonPathJoin(home, "Library", "LaunchAgents")
@@ -201,7 +223,11 @@ func planBrainWatchDaemon(goos, home, configHome, unitDir string, spec daemonSpe
 			root = daemonPathJoin(root, "systemd", "user")
 		}
 		plan.Manager = daemonManagerSystemd
-		plan.Label = systemdUnitName(spec.Name)
+		// Same hazard as launchd: the unit NAME is constant, so a throwaway
+		// install into an overridden directory would otherwise collide with
+		// the real unit. Fixing one platform and not the other is how the two
+		// halves drift apart.
+		plan.Label = systemdUnitName(spec.Name + strings.ReplaceAll(daemonScopeSuffix(unitDir), ".", "-"))
 		plan.UnitPath = daemonPathJoin(root, plan.Label)
 		plan.Contents = renderSystemdUnit(spec)
 	default:

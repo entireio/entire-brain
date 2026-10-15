@@ -497,7 +497,7 @@ func rankHistoryViaFreshFTSCutoffDetailed(brainDir string, source *historySource
 		out, used, _, err = rankHistoryViaFreshFTSCutoffOnce(brainDir, current, kind, query, limit, cutoff, predicates...)
 		return out, used, err
 	}
-	return nil, false, errors.New("history index size does not match manifest; run `entire brain refresh history` to rebuild it")
+	return nil, false, errors.New("history index size does not match manifest; run `" + brainInvocation(os.LookupEnv, "refresh history") + "` to rebuild it")
 }
 
 func currentHistorySource(brainDir string) (*historySourceManifest, error) {

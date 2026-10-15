@@ -1,0 +1,16 @@
++ Detect    repo acme-payments | 13 commits | clean tree
+            agent    claude-code (claude-haiku-5-5, effort low)
+            provider entire-graph v0.4.1  semantic +  entities +
+            hosted   not bound -- local-only (COR-2029); bind: entire brain connect
++ Build     instant core ready in 340ms -- 9 components, the brain is queryable now
++ Agents    instructions written | pre-edit hook already wired | session-end hook installed
+- Facts     not distilled; the brain is queryable now, start later: entire brain distill
++ Workspace joined workspace acme -- 4 repos
+x Watcher   background watcher not installed
+            launchctl bootstrap gui/501: Operation not permitted; the plist was written to...
++ Ready     the brain is queryable -- 1 phase degraded
+            repo     /Users/dev/src/acme-payments
+            brain    /Users/dev/src/acme-payments/.entire/brain
+x           watcher  launchctl bootstrap gui/501: Operation not permitted; the plist was written...
+            next     entire brain query "why is the retry budget 3"  -- ask it something
+            next     entire brain distill  -- turn 12 sessions into facts

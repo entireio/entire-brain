@@ -117,9 +117,15 @@ func defaultWatchOptions() watchCommandOptions {
 		interval:         5 * time.Minute,
 		consolidateEvery: 30 * time.Minute,
 		distillEvery:     24 * time.Hour,
-		distillAgent:     "codex",
-		distillJobs:      1,
-		seedAgent:        "none",
+		// "auto", not "codex". A hardcoded vendor here was a THIRD codex default
+		// that never reached defaultRefreshAgent at all, so reordering that
+		// function alone would have left the watcher — the one unattended path
+		// that spends tokens on its own — routing repository content to codex
+		// forever. runDistill resolves "auto" on this path (distill_cmd.go), and
+		// `setup` still overrides it per workspace through the watch plan.
+		distillAgent: "auto",
+		distillJobs:  1,
+		seedAgent:    "none",
 	}
 }
 
@@ -813,12 +819,12 @@ func watchDistillOptions(w watchCommandOptions) distillCommandOptions {
 		// there is no cap, so an uncapped `watch --distill` is unchanged.
 		maxSessions: maxSessions,
 		newestFirst: maxSessions > 0,
-		jobs:        jobs,
 		// concurrency is what the distill pipeline (and runDistill's guard)
-		// actually reads; --jobs is only its compatibility alias. Leaving it at
-		// the zero value made every gated distill the watcher ever attempted
-		// fail with "--concurrency must be greater than 0" before making a
-		// single agent call.
+		// actually reads. Leaving it at the zero value made every gated distill
+		// the watcher ever attempted fail with "--concurrency must be greater
+		// than 0" before making a single agent call. There used to be a second
+		// `jobs` field to keep in step with it; `--jobs` is now a spelling of
+		// --concurrency rather than a field, so there is only one value to set.
 		concurrency: jobs,
 	}
 }

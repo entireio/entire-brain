@@ -238,3 +238,152 @@ func TestDocumentedCommandsAreDiscoverable(t *testing.T) {
 		t.Errorf("%s tells the reader to run `entire brain %s`, but it is hidden from --help: unhide it, or stop advertising it", source, verb)
 	}
 }
+
+// --- the other direction -----------------------------------------------------
+
+// userFacingDocs are the pages a new user is pointed at, and the ones both
+// directions of the discoverability contract are checked against.
+// scripts/install.sh is deliberately absent: it is a script that happens to run
+// some commands, not a document anybody reads to learn the surface.
+var userFacingDocs = []string{
+	"../../README.md",
+	"../../docs/getting-started.md",
+	"../../docs/operations.md",
+}
+
+// `entire brain <verb>` is the spelling all three documents use, because all
+// three describe the plugin install.
+var documentedVerbMention = regexp.MustCompile(`entire brain ([a-z][a-z-]*)`)
+
+func verbsMentionedInUserDocs(t *testing.T) map[string]string {
+	t.Helper()
+	seen := map[string]string{}
+	for _, source := range userFacingDocs {
+		data, err := os.ReadFile(source)
+		if err != nil {
+			t.Fatalf("read %s: %v", source, err)
+		}
+		for _, match := range documentedVerbMention.FindAllStringSubmatch(string(data), -1) {
+			if _, ok := seen[match[1]]; !ok {
+				seen[match[1]] = source
+			}
+		}
+	}
+	if len(seen) == 0 {
+		t.Fatal("no documented commands found -- the extractor is broken, and every assertion below would pass vacuously")
+	}
+	return seen
+}
+
+// TestEveryVisibleCommandIsDocumented is the direction
+// TestDocumentedCommandsAreDiscoverable did not check.
+//
+// That test asks "does everything the docs name still exist?". Nothing asked
+// the converse -- "does everything that exists get named?" -- so a command
+// could be added, shipped, listed in `--help` and never written down, and the
+// build stayed green. Ten had: connect, gc, memory, multi-get, privacy,
+// publish, show, start, stats and stop. A user meets those for the first time
+// in a help listing with one line of description and no page to read.
+//
+// A one-directional contract is half a contract. Both halves now fail CI, and
+// each failure names the two ways out: write the command down, or hide it.
+//
+// Subcommands are out of scope on purpose, exactly as they are in the forward
+// test: the regex above captures the first verb after `entire brain`, and the
+// unit both tests agree on is the top-level command.
+func TestEveryVisibleCommandIsDocumented(t *testing.T) {
+	root := NewRootCommand(Options{Version: "test"})
+	documented := verbsMentionedInUserDocs(t)
+
+	visible := 0
+	for _, c := range root.Commands() {
+		// Hidden commands are covered by the forward test, which fails if a
+		// document advertises one. `help` is cobra's, not ours.
+		if c.Hidden || c.Name() == "help" {
+			continue
+		}
+		visible++
+		if _, ok := documented[c.Name()]; ok {
+			continue
+		}
+		named := false
+		for _, alias := range c.Aliases {
+			if _, ok := documented[alias]; ok {
+				named = true
+				break
+			}
+		}
+		if named {
+			continue
+		}
+		t.Errorf("`entire brain %s` is listed in --help but no user document mentions it (%q): add it to README.md's command reference, or hide it at its registration in root.go and say why",
+			c.Name(), c.Short)
+	}
+	if visible < 20 {
+		t.Fatalf("only %d visible commands found; the walk is broken and this test is checking nothing", visible)
+	}
+}
+
+// TestDocumentedCommandContractIsBidirectional states the property the two
+// tests above jointly hold, so that deleting either one is a visible loss
+// rather than a silent one.
+func TestDocumentedCommandContractIsBidirectional(t *testing.T) {
+	root := NewRootCommand(Options{Version: "test"})
+	documented := verbsMentionedInUserDocs(t)
+
+	// visible answers "would --help admit this spelling exists?", so it holds
+	// aliases too. canonical is the set a document has to actually name: an
+	// alias is a convenience for a command that is already written down, not a
+	// second command owing its own paragraph.
+	visible := map[string]bool{}
+	canonical := map[string][]string{}
+	for _, c := range root.Commands() {
+		if c.Hidden || c.Name() == "help" {
+			continue
+		}
+		visible[c.Name()] = true
+		canonical[c.Name()] = c.Aliases
+		for _, alias := range c.Aliases {
+			visible[alias] = true
+		}
+	}
+
+	// forward: documented -> exists (the subset the forward test resolves)
+	for verb := range documented {
+		if cmd, _, err := root.Find([]string{verb}); err != nil || cmd == root {
+			continue // prose false positive, e.g. "entire brain from scratch"
+		}
+		if !visible[verb] {
+			if _, ok := hiddenButDocumentedOnPurpose()[verb]; !ok {
+				t.Errorf("forward direction broken: the docs name `entire brain %s`, which --help hides", verb)
+			}
+		}
+	}
+	// reverse: exists -> documented
+	for verb, aliases := range canonical {
+		if _, ok := documented[verb]; ok {
+			continue
+		}
+		named := false
+		for _, alias := range aliases {
+			if _, ok := documented[alias]; ok {
+				named = true
+				break
+			}
+		}
+		if !named {
+			t.Errorf("reverse direction broken: `entire brain %s` is visible but undocumented", verb)
+		}
+	}
+}
+
+// hiddenButDocumentedOnPurpose is the recorded list the forward test keeps.
+// It lives in a function so both tests read the same decision.
+func hiddenButDocumentedOnPurpose() map[string]string {
+	return map[string]string{
+		"review":           "machine contract for the host CLI's `entire review`, not a human verb",
+		"history-eval":     "measurement harness for the retrieval layer; developer tooling",
+		"history-eval-gen": "measurement harness for the retrieval layer; developer tooling",
+		"bench":            "maintainer-only measurement harness, explicitly introduced as such in getting-started",
+	}
+}

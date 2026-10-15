@@ -32,7 +32,7 @@ func TestLoadAggregateCheckpointSources_UnionsEveryCandidateRef(t *testing.T) {
 		},
 	}
 
-	sources, _ := loadAggregateCheckpointSources(context.Background(), runner, t.TempDir(), true, nil)
+	sources, _, _ := loadAggregateCheckpointSources(context.Background(), runner, t.TempDir(), true, nil)
 
 	got := make([]string, 0, len(sources))
 	for id := range sources {
@@ -73,7 +73,7 @@ func TestLoadAggregateCheckpointSources_LocalRefWinsAConflict(t *testing.T) {
 		},
 	}
 
-	sources, _ := loadAggregateCheckpointSources(context.Background(), runner, t.TempDir(), true, nil)
+	sources, _, _ := loadAggregateCheckpointSources(context.Background(), runner, t.TempDir(), true, nil)
 
 	if len(sources) != 1 {
 		t.Fatalf("got %d sources, want 1", len(sources))

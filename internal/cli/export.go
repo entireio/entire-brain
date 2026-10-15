@@ -160,6 +160,9 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	var selected map[string]selectedSession
 	var checkpointsScanned int
 	var snapshot *checkpointSnapshot
+	// catalogProvenEmpty records that the local enumeration completed and found
+	// no checkpoints at all, as opposed to failing to read them.
+	var catalogProvenEmpty bool
 
 	reportExportStatus(exportOpts.progress, "detecting default branch")
 	defaultBranch, defaultBranchWarnings := detectDefaultBranch(ctx, opts.Runner, repoDir)
@@ -200,11 +203,29 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 					return nil
 				})
 			}
+		} else if errors.Is(snapshotErr, errCheckpointCatalogEmpty) {
+			catalogProvenEmpty = true
 		} else if !errors.Is(snapshotErr, errCheckpointSnapshotUnavailable) {
 			warnings = append(warnings, "direct checkpoint export unavailable: "+snapshotErr.Error())
 		}
 	}
 
+	// NO-EGRESS ONLY, and the gate is the whole point. In no-egress mode the
+	// local catalog IS the catalog, so a clean empty enumeration of it proves
+	// the inventory empty and routed discovery has nothing to add. With egress
+	// ALLOWED that inference is false: the routed `--search-all` list is the
+	// only complete inventory, and it sees checkpoints the local refs do not
+	// (remote-only, other stores). Short-circuiting there would turn a
+	// locally-empty clone into a false-empty export -- the exact failure the
+	// refusal below this exists to prevent.
+	if selected == nil && catalogProvenEmpty && brainNoEgressMode() {
+		// A repository between `entire enable` and its first finished agent
+		// session. Exporting zero sessions is the correct answer here. The
+		// empty-export refusal below still protects a brain that already holds
+		// sessions.
+		warnings = append(warnings, errCheckpointCatalogEmpty.Error())
+		selected = map[string]selectedSession{}
+	}
 	if selected == nil {
 		if brainNoEgressMode() {
 			if exportOpts.scope == exportScopeBranch {
@@ -1527,6 +1548,20 @@ func validateGitHubRepoSlug(repo string) error {
 
 var errCheckpointSnapshotUnavailable = errors.New("checkpoint snapshot unavailable")
 
+// errCheckpointCatalogEmpty separates the two states that reaching zero
+// checkpoints collapses into one.
+//
+// "Nothing was ever captured" is where EVERY repository sits between `entire
+// enable` and its first finished agent session; "the catalog could not be
+// read" is a fault. Both used to surface as the same refusal, so a brand-new
+// repo was told its checkpoint catalog could not be established and sent to a
+// command that re-ran the identical export and failed identically.
+//
+// It is only ever returned when both local enumerations SUCCEEDED and found
+// nothing: a ref namespace that could not be listed, or a ref that exists and
+// will not open, stays errCheckpointSnapshotUnavailable on its own.
+var errCheckpointCatalogEmpty = errors.New("no checkpoints have been captured in this repository yet")
+
 func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner, repoDir string, raw bool, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress), cache *checkpointMetadataCache) (*checkpointSnapshot, []string, error) {
 	settings, settingsErr := readEntireSettings(repoDir)
 	primary, configured, primaryErr := configuredCheckpointPrimary(repoDir, settings)
@@ -1558,6 +1593,13 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 		return snapshot, warnings, nil
 	}
 	if brainNoEgressMode() {
+		// In no-egress mode the local catalog IS the catalog, so a clean empty
+		// enumeration proves emptiness — unless a configured checkpoint remote
+		// could hold checkpoints this mode deliberately refuses to fetch, in
+		// which case local-empty is not catalog-empty and must stay a refusal.
+		if errors.Is(err, errCheckpointCatalogEmpty) && !checkpointRemoteMayExtendCatalog(repoDir, settings, settingsErr) {
+			return nil, warnings, err
+		}
 		warnings = append(warnings, "no_egress: checkpoint remote snapshot fetch skipped")
 		return nil, warnings, fmt.Errorf("%w: local checkpoint refs unavailable and checkpoint remote disabled by no-egress mode", errCheckpointSnapshotUnavailable)
 	}
@@ -1711,8 +1753,8 @@ func loadLocalCheckpointUnionSnapshot(ctx context.Context, runner CommandRunner,
 	}
 	reportExportStatus(progress, "reading local checkpoint stores")
 
-	branchSources, branchWarnings := loadAggregateCheckpointSources(ctx, runner, repoDir, localOnly, cache)
-	refSources, refWarnings := loadPerCheckpointSources(ctx, runner, repoDir, localOnly, cache)
+	branchSources, branchWarnings, branchEnumerated := loadAggregateCheckpointSources(ctx, runner, repoDir, localOnly, cache)
+	refSources, refWarnings, refEnumerated := loadPerCheckpointSources(ctx, runner, repoDir, localOnly, cache)
 	warnings := append(branchWarnings, refWarnings...)
 
 	ids := make(map[string]struct{}, len(branchSources)+len(refSources))
@@ -1723,6 +1765,11 @@ func loadLocalCheckpointUnionSnapshot(ctx context.Context, runner CommandRunner,
 		ids[id] = struct{}{}
 	}
 	if len(ids) == 0 {
+		if branchEnumerated && refEnumerated {
+			// Both namespaces listed and both are empty. Nothing has been
+			// captured here yet; that is a state, not a fault.
+			return nil, warnings, fmt.Errorf("%w: %w", errCheckpointSnapshotUnavailable, errCheckpointCatalogEmpty)
+		}
 		return nil, warnings, fmt.Errorf("%w: no local checkpoint refs readable", errCheckpointSnapshotUnavailable)
 	}
 
@@ -1941,13 +1988,28 @@ func useCompactTranscripts(selected map[string]selectedSession, members []sessio
 // origin-only checkpoint behind a single stale local one, and reported success
 // while doing it — the caller's contract is a complete union of the local
 // stores, and the export manifest says so.
-func loadAggregateCheckpointSources(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, cache *checkpointMetadataCache) (map[string]checkpointSnapshotSource, []string) {
+// loadAggregateCheckpointSources also reports whether the aggregate namespace
+// was ENUMERATED: the ref list resolved and every ref that exists was readable.
+// A repository that simply has no aggregate checkpoint ref enumerates cleanly
+// with no sources, which is the difference between "nothing captured yet" and
+// "the catalog is broken".
+func loadAggregateCheckpointSources(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, cache *checkpointMetadataCache) (map[string]checkpointSnapshotSource, []string, bool) {
 	sources := make(map[string]checkpointSnapshotSource)
 	var deferredErrors []string
 	var warnings []string
-	for _, ref := range aggregateCheckpointRefs(ctx, runner, repoDir, localOnly) {
+	candidates := aggregateCheckpointRefs(ctx, runner, repoDir, localOnly)
+	present, enumerated := existingAggregateCheckpointRefs(ctx, runner, repoDir, localOnly, candidates)
+	for _, ref := range candidates {
+		if enumerated {
+			if _, ok := present[ref]; !ok {
+				// The ref does not exist. That is the ordinary shape of a repo
+				// with no checkpoints and must not be charged as a read fault.
+				continue
+			}
+		}
 		pathsOut, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, "ls-tree", "-r", "--name-only", ref)
 		if err != nil {
+			enumerated = false
 			deferredErrors = append(deferredErrors, fmt.Sprintf("checkpoint ref %s unavailable: %v", ref, err))
 			continue
 		}
@@ -1982,16 +2044,44 @@ func loadAggregateCheckpointSources(ctx context.Context, runner CommandRunner, r
 		warnings = append(warnings, warningLines("checkpoint ref "+ref, stderr)...)
 	}
 	if len(sources) > 0 {
-		return sources, warnings
+		return sources, warnings, enumerated
 	}
-	return sources, append(warnings, deferredErrors...)
+	return sources, append(warnings, deferredErrors...), enumerated
 }
 
-func loadPerCheckpointSources(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, cache *checkpointMetadataCache) (map[string]checkpointSnapshotSource, []string) {
+// existingAggregateCheckpointRefs resolves which of the candidate aggregate
+// refs actually exist, in one call. It answers the question `ls-tree` cannot:
+// ls-tree fails the same way for "this ref is not here" and "this ref is
+// corrupt", and telling a first-run repository its catalog is unreadable
+// because a ref it never had is missing is the whole defect. The second return
+// is false when existence itself could not be established, which keeps every
+// caller on the conservative path.
+func existingAggregateCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, candidates []string) (map[string]struct{}, bool) {
+	if len(candidates) == 0 {
+		return map[string]struct{}{}, true
+	}
+	args := append([]string{"for-each-ref", "--format=%(refname)"}, candidates...)
+	stdout, _, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, args...)
+	if err != nil {
+		return nil, false
+	}
+	present := make(map[string]struct{}, len(candidates))
+	for _, line := range strings.Split(string(stdout), "\n") {
+		if ref := strings.TrimSpace(line); ref != "" {
+			present[ref] = struct{}{}
+		}
+	}
+	return present, true
+}
+
+// loadPerCheckpointSources also reports whether the per-checkpoint ref
+// namespace was enumerable at all. An empty namespace that listed cleanly is
+// a repository with no checkpoints; a namespace that would not list is a fault.
+func loadPerCheckpointSources(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, cache *checkpointMetadataCache) (map[string]checkpointSnapshotSource, []string, bool) {
 	sources := make(map[string]checkpointSnapshotSource)
 	refs, warnings, err := probeLocalPerCheckpointRefs(ctx, runner, repoDir, localOnly)
 	if err != nil {
-		return sources, warnings
+		return sources, warnings, false
 	}
 	ids := make([]string, 0, len(refs))
 	for id := range refs {
@@ -2030,7 +2120,7 @@ func loadPerCheckpointSources(ctx context.Context, runner CommandRunner, repoDir
 			LocalOnly:   localOnly,
 		}
 	}
-	return sources, warnings
+	return sources, warnings, true
 }
 
 func probeLocalPerCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool) (map[string]string, []string, error) {

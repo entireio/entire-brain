@@ -224,8 +224,8 @@ func TestRefreshStillFailsWhenTheHostCLIIsPresentAndTheExportBreaks(t *testing.T
 //
 // The distinction is the same one the export draws, arrived at by probe rather
 // than by inference: a host CLI that is present but has no `graph` subcommand
-// is an installable plugin, the error already names `scripts/install.sh`, and
-// that stays fatal.
+// is an installable plugin, the error already names `entire plugin install
+// graph`, and that stays fatal.
 func TestSemanticProviderAbsenceFollowsTheHostCLI(t *testing.T) {
 	t.Parallel()
 	if hostCLISemanticProviderAbsent("some-other-graph-binary") {

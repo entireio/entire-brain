@@ -307,7 +307,7 @@ func dashHomeView(status brainStatusReport, manifest *exportManifest, branch str
 	}
 
 	if manifest != nil && manifest.GeneratedAt.IsZero() && !anySource(present) {
-		home.Warnings = append(home.Warnings, "brain not built yet — run `entire brain refresh`")
+		home.Warnings = append(home.Warnings, "brain not built yet — run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
 	}
 	return home
 }
