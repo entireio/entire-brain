@@ -200,6 +200,14 @@ type statusHealth struct {
 	// --worktree", semantic with the same refusal to index it — so recommending
 	// that command to a reader with a dirty tree is recommending an exit 1.
 	DirtyWorktree bool
+	// NoCapturedSessions reports the session export failing because Entire has
+	// no readable checkpoints — the state every repository is in between
+	// `entire enable` and its first finished agent session. `refresh --agent
+	// none` re-runs that same export as its FIRST stage and aborts on the same
+	// error, so naming it here hands the reader a remedy that reproduces the
+	// condition it is supposed to clear. The remedy is a finished session, and
+	// setupNoSessionsHint is where that sentence already lives.
+	NoCapturedSessions bool
 }
 
 // statusRemedyRefresh is the deterministic rebuild. Named, because it is also
@@ -227,6 +235,9 @@ func buildStatusHealth(report brainStatusReport) statusHealth {
 		for _, component := range report.Onboarding.Components {
 			if component.State == "failed" {
 				health.Failed = append(health.Failed, component.Name)
+				if setupIsNoReadableSessions(component.Detail) {
+					health.NoCapturedSessions = true
+				}
 			}
 		}
 	}
@@ -318,6 +329,11 @@ func (h statusHealth) nextStepMessage(brainCmd string) string {
 		return command
 	case h.DirtyWorktree && h.repairCommand() == statusRemedyRefresh:
 		return setupDirtyWorktreeHint(brainCmd)
+	case h.NoCapturedSessions && h.repairCommand() == statusRemedyRefresh:
+		// Same shape as the dirty-tree override and scoped the same way: the
+		// ONE remedy a failed session export invalidates is the one whose first
+		// stage IS that export.
+		return setupNoSessionsHint(brainCmd)
 	case h.Issues > 0 || h.Severity != "" && h.Severity != "ok":
 		return command
 	case h.HostCLIMissing && len(h.Failed) > 0:

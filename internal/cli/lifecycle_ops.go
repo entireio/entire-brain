@@ -368,9 +368,19 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	}
 
 	// Capture: exported sessions are the canonical input to every projection.
-	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
-		add("capture", "warn", "no exported sessions; run `entire brain refresh` (sessions stage)")
-	} else {
+	//
+	// "The sessions stage never ran" and "the sessions stage ran and Entire has
+	// captured nothing yet" were one branch, and it recommended `refresh` for
+	// both. For the second that is a remedy with nothing to do: the export
+	// succeeds, exports zero sessions again, and doctor re-prints the identical
+	// line. A manifest that DECLARES a sessions source is the evidence the
+	// stage ran, so the empty case names what actually produces a session.
+	switch {
+	case manifest.Sources == nil || manifest.Sources.Sessions == nil:
+		add("capture", "warn", "sessions stage has not run; run `entire brain refresh` (sessions stage)")
+	case len(manifest.Sources.Sessions.Sessions) == 0:
+		add("capture", "ok", "no captured sessions yet; Entire has recorded none in this repository -- work in an agent session, then refresh; `entire checkpoint list` shows what Entire itself can see")
+	default:
 		sessions := manifest.Sources.Sessions.Sessions
 		latest := time.Time{}
 		for _, session := range sessions {

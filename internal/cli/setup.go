@@ -266,8 +266,30 @@ func setupComponentFailureLine(component setupComponent, dash, brainCmd string) 
 	if detail == "" {
 		detail = "no detail reported"
 	}
+	// A hint that ends by naming `setup` closes a referral loop if this line
+	// also names `doctor`: doctor re-renders this same component with this
+	// same hint appended, so the two commands point at each other and neither
+	// adds a step. Where the hint names a DIFFERENT remedy (the repo-key skew
+	// names `refresh index --force`) there is no circle and doctor keeps its
+	// referral: it really is where the rest of the detail lives.
+	if setupHintReferralLoops(component.Hint, brainCmd) {
+		return fmt.Sprintf("%s failed (%s) %s continuing",
+			setupComponentLabel(component.Name), detail, dash)
+	}
 	return fmt.Sprintf("%s failed (%s) %s continuing; run '%s doctor' for detail",
 		setupComponentLabel(component.Name), detail, dash, setupBrainCommand(brainCmd))
+}
+
+// setupHintReferralLoops reports a hint whose own remedy is `setup` -- the
+// command the reader is already running. Pointing them at `doctor` on top of
+// that is the closed referral: doctor's only answer for this component is this
+// same hint, which sends them straight back here.
+func setupHintReferralLoops(hint, brainCmd string) bool {
+	hint = strings.TrimSpace(hint)
+	if hint == "" {
+		return false
+	}
+	return strings.Contains(hint, setupBrainCommand(brainCmd)+" setup")
 }
 
 // reportSetupComponentFailures prints one line per degraded component (plus its
