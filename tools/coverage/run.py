@@ -78,8 +78,14 @@ def main():
     parser.add_argument("--baseline")
     parser.add_argument("--binary-only", action="store_true",
                         help="Measure CLI contracts without rerunning the test suite")
-    parser.add_argument("--test-timeout", default="20m",
-                        help="Go test deadline per package (default: 20m)")
+    # The internal/cli suite measured 16m56s to 20m45s under -race across five
+    # PRs in one hour, so a 20m deadline sat INSIDE the suite's own runtime and
+    # whichever PR tipped over was noise. One did, at 1201s, with nothing hung:
+    # the three tests still running were 4s, 1s and 0s old, and the same commit
+    # passed at 17m50s on a rerun. 30m is margin over the observed maximum; the
+    # job-level timeout added beside this is what catches a real hang.
+    parser.add_argument("--test-timeout", default="30m",
+                        help="Go test deadline per package (default: 30m)")
     args = parser.parse_args()
     output = Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=True)
