@@ -325,6 +325,84 @@ Run `entire brain verify` to check whether a fact's source references still matc
 
 To stop and remove the watcher, run `entire brain setup --uninstall-daemon`. See [operations](docs/operations.md#after-the-install-onboard-a-repository) for service management.
 
+## Command reference
+
+Every command `entire brain --help` lists, in the groups it lists them in. Run
+any of them with `--help` for its flags; `docs/reference.md` has the long form.
+A command that is visible here but missing from this table fails
+`TestEveryVisibleCommandIsDocumented`, so this list cannot quietly fall behind
+the binary.
+
+**Set up the brain and agents**
+
+| Command | What it does |
+| --- | --- |
+| `entire brain setup` | Build the brain and start background updates |
+| `entire brain add` | Clone a repository, fetch its Entire history, and build its brain |
+| `entire brain init-agents` | Install coordinated agent instructions |
+| `entire brain agent-guide` | Preview repository-specific agent instructions |
+| `entire brain mcp` | Serve local brain tools over MCP |
+| `entire brain webhook` | Notify another service when this brain changes |
+| `entire brain config` | Inspect or initialize plugin configuration |
+| `entire brain connect` | Bind this repository to its hosted brain explicitly |
+| `entire brain disconnect` | Stop syncing this repository with its hosted brain |
+
+**Search and explore**
+
+| Command | What it does |
+| --- | --- |
+| `entire brain overview` | Summarize the project, its structure, and decisions |
+| `entire brain brief` | Gather relevant context for a task |
+| `entire brain query` | Search the brain (hybrid by default) |
+| `entire brain get` | Fetch a brain item by ID |
+| `entire brain multi-get` | Fetch several brain items by ID in one call |
+| `entire brain dash` | Browse the brain in an interactive dashboard |
+| `entire brain show` | Show one semantic brain record |
+| `entire brain inspect` | Explore code, dependencies, and change history |
+| `entire brain entities` | Find checkpoints and sessions that changed a symbol |
+| `entire brain viz` | Explore the brain as a graph in your browser |
+| `entire brain docs` | Inspect how non-code documents are read into the brain |
+
+**Durable facts and patterns**
+
+| Command | What it does |
+| --- | --- |
+| `entire brain remember` | Record a durable fact about this repository |
+| `entire brain recall` | Retrieve durable facts for the current branch |
+| `entire brain distill` | Extract durable facts from sessions (requires an agent) |
+| `entire brain facts` | Review, promote, and garbage-collect durable facts |
+| `entire brain verify` | Verify durable fact anchors against local retained sources |
+| `entire brain patterns` | Inspect and rebuild recurring patterns from sessions |
+
+**State, maintenance and troubleshooting**
+
+| Command | What it does |
+| --- | --- |
+| `entire brain status` | Show brain coverage, freshness, and workspace state |
+| `entire brain stats` | Show brain record counts and breakdowns, by branch, agent and source |
+| `entire brain doctor` | Report what is wrong and the command that fixes it (`--verbose` for the full report) |
+| `entire brain capabilities` | List supported features and retrieval sources |
+| `entire brain version` | Print plugin version |
+| `entire brain path` | Print the persistent brain path for a repo path or URL |
+| `entire brain refresh` | Create or refresh the repository brain |
+| `entire brain watch` | Keep the brain up to date automatically |
+| `entire brain memory` | Manage conversation indexing and background jobs |
+| `entire brain repair` | Rebuild derived semantic indexes |
+| `entire brain stop` | Pause background brain work on this machine |
+| `entire brain start` | Resume background brain work paused by stop |
+| `entire brain gc` | Prune old local semantic overlays and snapshots |
+| `entire brain reset` | Remove local generated brain data |
+| `entire brain repo-identity` | Find and resolve conflicting brain stores |
+| `entire brain privacy` | Control which captured sessions the brain retains |
+
+**Workspaces and sharing**
+
+| Command | What it does |
+| --- | --- |
+| `entire brain workspace` | Manage local multi-repo brain workspaces |
+| `entire brain bundle` | Import or export local brain bundles |
+| `entire brain publish` | Publish the local brain to hosted Entire (opt-in) |
+
 ## Limitations
 
 Facts extracted by a model can be wrong. Check the linked sources before relying on them. `brain verify` checks source references, not whether a conclusion is correct.

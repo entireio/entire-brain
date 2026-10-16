@@ -290,7 +290,11 @@ func TestDoctorUsesXDGFallbacks(t *testing.T) {
 	// This test is about the PATHS doctor resolves, not about its exit code:
 	// see doctorReportText. A runner with no `entire` on PATH makes doctor
 	// report a host-environment error, which is none of this test's business.
-	out := doctorReportText(t, Options{Version: "test-version"})
+	//
+	// --verbose: a resolved plugin directory that is fine is not a finding, so
+	// the short report does not print it. The full report is where the paths
+	// doctor read live, and where this test reads them from.
+	out := doctorReportText(t, Options{Version: "test-version"}, "--verbose")
 	// A plugin directory that has not been created yet is the normal state of
 	// a fresh install, not a finding: what doctor owes the reader here is the
 	// PATH it resolved from the XDG fallback, and the promise that it did not
@@ -326,7 +330,9 @@ func TestDoctorDoesNotCreateOrProbePluginDataDir(t *testing.T) {
 	}
 
 	// About the must-not-create-or-probe invariant, not about the exit code.
-	out := doctorReportText(t, opts)
+	// --verbose for the same reason as TestDoctorUsesXDGFallbacks: a healthy
+	// directory is not a finding, and the full report is what names the paths.
+	out := doctorReportText(t, opts, "--verbose")
 	// filepath.Join, not dirs+"/data": doctor reports the cleaned path, so on
 	// Windows the finding reads `...\001\data` while the raw env value keeps the
 	// forward slash it was given. The sibling XDG test above already joins.

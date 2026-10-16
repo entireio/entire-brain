@@ -160,16 +160,19 @@ func TestWatchLoopDistillWhenEnabledAndElapsed(t *testing.T) {
 }
 
 func TestWatchDistillOptionsDefaultAndExplicitJobs(t *testing.T) {
+	// concurrency, not a separate `jobs` field: --jobs is now a spelling of
+	// --concurrency, so there is one value for a caller to get wrong instead of
+	// two to keep in step.
 	defaultOpts := watchDistillOptions(defaultWatchOptions())
-	if defaultOpts.jobs != 1 {
-		t.Fatalf("default watch distill jobs = %d, want 1", defaultOpts.jobs)
+	if defaultOpts.concurrency != 1 {
+		t.Fatalf("default watch distill concurrency = %d, want 1", defaultOpts.concurrency)
 	}
 	explicit := defaultWatchOptions()
 	explicit.distillJobs = 4
 	explicit.distillAgent = "ollama"
 	explicit.model = "local-model"
 	got := watchDistillOptions(explicit)
-	if got.jobs != 4 || got.agent != "ollama" || got.model != "local-model" {
+	if got.concurrency != 4 || got.agent != "ollama" || got.model != "local-model" {
 		t.Fatalf("watch distill options not propagated: %+v", got)
 	}
 }

@@ -626,7 +626,7 @@ func TestDoctorReportsC5HealthWithoutCreatingState(t *testing.T) {
 	for _, check := range report.Checks {
 		checks[check.Name] = check
 	}
-	for _, name := range []string{"memory_install", "memory_host_adapter", "memory_coordinator", "write_lock", "memory_provider_egress", "memory_schema_capabilities", "memory_schemas", "memory_migrations", "memory_worker_log", "manifest"} {
+	for _, name := range []string{"memory_install", "memory_coordinator", "write_lock", "memory_provider_egress", "memory_schemas", "memory_migrations", "memory_worker_log", "manifest"} {
 		if _, ok := checks[name]; !ok {
 			t.Fatalf("doctor check %q missing: %+v", name, report.Checks)
 		}
@@ -634,13 +634,23 @@ func TestDoctorReportsC5HealthWithoutCreatingState(t *testing.T) {
 	if checks["manifest"].State != "error" || !strings.Contains(checks["manifest"].Detail, memoryErrUnsupportedVersion) {
 		t.Fatalf("manifest check = %+v", checks["manifest"])
 	}
-	// Not a warning: this process never observes the host adapter, so the
-	// check could never pass. It still has to name the authority that can.
-	if got := checks["memory_host_adapter"]; got.State != "ok" || !strings.Contains(got.Detail, "authority entire-cli") {
-		t.Fatalf("host adapter check = %+v", got)
+	// Not findings: both were string literals, so they are gone from the
+	// report. The payload they were formatted from is still in the machine
+	// contract, which is the half a caller can actually use.
+	for _, gone := range []string{"memory_host_adapter", "memory_schema_capabilities"} {
+		if got, ok := checks[gone]; ok {
+			t.Fatalf("%s is back in the report: %+v", gone, got)
+		}
 	}
-	if got := checks["memory_schema_capabilities"]; got.State != "ok" || !strings.Contains(got.Detail, fmt.Sprintf("manifest %d", brainManifestSchemaVersion)) {
-		t.Fatalf("compiled schema capabilities = %+v", got)
+	install, _ := report.Memory["install"].(map[string]any)
+	adapter, _ := install["host_adapter"].(map[string]any)
+	if adapter["authority"] != "entire-cli" {
+		t.Fatalf("host-adapter payload lost its authority: %#v", install["host_adapter"])
+	}
+	schemas, _ := report.Memory["schemas"].(map[string]any)
+	compiled, _ := schemas["compiled_capabilities"].(map[string]any)
+	if compiled["brain_manifest"] != float64(brainManifestSchemaVersion) {
+		t.Fatalf("compiled schema capabilities payload = %#v", compiled)
 	}
 	if got := checks["memory_schemas"]; got.State != "error" || !strings.Contains(got.Detail, memoryErrUnsupportedVersion) || !strings.Contains(got.Detail, "schema 4") {
 		t.Fatalf("observed schema health = %+v", got)
@@ -711,8 +721,8 @@ func TestMemoryReadOnlyHealthReportsStaleCoordinatorProviderSchemasLocksAndLog(t
 	if got := checks["memory_provider_egress"]; got.State != "ok" || !strings.Contains(got.Detail, "hosted") || !strings.Contains(got.Detail, "global policy default") || !strings.Contains(got.Detail, "effective available_unverified") {
 		t.Fatalf("provider/egress check = %+v", got)
 	}
-	if got := checks["memory_schema_capabilities"]; got.State != "ok" || !strings.Contains(got.Detail, fmt.Sprintf("jobs %d", memoryJobSchemaVersion)) {
-		t.Fatalf("compiled schema check = %+v", got)
+	if got, ok := checks["memory_schema_capabilities"]; ok {
+		t.Fatalf("compiled-capability check is back in the report: %+v", got)
 	}
 	if got := checks["memory_schemas"]; got.State != "ok" || !strings.Contains(got.Detail, "observed state current") {
 		t.Fatalf("schema check = %+v", got)
@@ -759,8 +769,8 @@ func TestMemoryDoctorSchemaHealthSeparatesCompiledCapabilitiesFromObservedState(
 			for _, check := range memoryDoctorChecks(snapshot) {
 				checks[check.Name] = check
 			}
-			if got := checks["memory_schema_capabilities"]; got.State != "ok" || !strings.Contains(got.Detail, fmt.Sprintf("manifest %d", brainManifestSchemaVersion)) {
-				t.Fatalf("compiled capabilities = %+v", got)
+			if got, ok := checks["memory_schema_capabilities"]; ok {
+				t.Fatalf("compiled-capability check is back in the report: %+v", got)
 			}
 			if got := checks["memory_schemas"]; got.State != tc.wantState || (tc.wantCode != "" && !strings.Contains(got.Detail, tc.wantCode)) {
 				t.Fatalf("observed schema check = %+v, want state=%s code=%s", got, tc.wantState, tc.wantCode)

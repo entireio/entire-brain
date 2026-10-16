@@ -817,12 +817,12 @@ func watchDistillOptions(w watchCommandOptions) distillCommandOptions {
 		// there is no cap, so an uncapped `watch --distill` is unchanged.
 		maxSessions: maxSessions,
 		newestFirst: maxSessions > 0,
-		jobs:        jobs,
 		// concurrency is what the distill pipeline (and runDistill's guard)
-		// actually reads; --jobs is only its compatibility alias. Leaving it at
-		// the zero value made every gated distill the watcher ever attempted
-		// fail with "--concurrency must be greater than 0" before making a
-		// single agent call.
+		// actually reads. Leaving it at the zero value made every gated distill
+		// the watcher ever attempted fail with "--concurrency must be greater
+		// than 0" before making a single agent call. There used to be a second
+		// `jobs` field to keep in step with it; `--jobs` is now a spelling of
+		// --concurrency rather than a field, so there is only one value to set.
 		concurrency: jobs,
 	}
 }

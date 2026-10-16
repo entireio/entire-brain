@@ -59,7 +59,6 @@ Agent flags:
 | `--agent-deep-timeout <duration>` | Timeout for the deep synthesis phase. Default: `10m`. |
 | `--agent-timeout-action keep-quick\|continue\|fail` | Non-interactive action when the deep phase times out. Default: `keep-quick`. |
 | `--agent-max-input-bytes <bytes>` | Bound the packet sent to the agent. Default proposal: `500000`. |
-| `--interactive` | Allow timeout prompts when stdin is a terminal. Default: auto for TTY only. |
 | `--no-interactive` | Disable prompts even when stdin is a terminal. |
 | `--require-agent` | Fail if required agent synthesis does not complete. By default this requires at least quick synthesis success. |
 

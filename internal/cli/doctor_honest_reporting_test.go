@@ -378,6 +378,11 @@ func TestDoctorReconciliationWarningCarriesItsReason(t *testing.T) {
 //     action could ever clear the warning.
 //   - memory_host_adapter required observability != "not_observable", and
 //     memoryInstallHealth hard-codes it to "not_observable".
+//
+// memory_host_adapter was then emitted as a permanent `ok` instead, which is
+// the same defect wearing the other hat: a line whose state and whose detail
+// are both constant for every brain on every machine. It is now not emitted at
+// all -- see TestDoctorDropsChecksThatCannotVary.
 func TestDoctorDoesNotWarnOnChecksThatCanNeverPass(t *testing.T) {
 	checks := memoryDoctorChecks(memoryReadOnlyHealthSnapshot{Payload: map[string]any{
 		"install": map[string]any{
@@ -395,12 +400,44 @@ func TestDoctorDoesNotWarnOnChecksThatCanNeverPass(t *testing.T) {
 	if got := byName["memory_install"]; !strings.Contains(got.Detail, "/usr/local/bin/entire") {
 		t.Fatalf("memory_install must still say where it found the executable: %+v", got)
 	}
-	if got := byName["memory_host_adapter"]; got.State != "ok" {
-		t.Fatalf("memory_host_adapter = %+v for a check this process never performs, want ok", got)
+}
+
+// TestDoctorDropsChecksThatCannotVary is the guard for the two findings that
+// were deleted rather than fixed.
+//
+// Both were literal constants, not observations:
+//
+//   - memory_host_adapter: `addEnvironment("memory_host_adapter", "ok", ...)`,
+//     formatted from a memoryHostAdapterHealth whose State and Observability
+//     memoryInstallHealth hard-codes to "not_observable" at its single
+//     construction site.
+//   - memory_schema_capabilities: `add("memory_schema_capabilities", "ok", ...)`,
+//     formatted entirely from compile-time constants.
+//
+// Neither could ever be anything but `ok`, so neither could ever tell a reader
+// anything -- and doctor printed thirty-four such lines on a healthy brain.
+// Deleting the LINE must not delete the DATA, so this also pins both payloads
+// in the machine contract, which is where a caller that wants them looks.
+func TestDoctorDropsChecksThatCannotVary(t *testing.T) {
+	snapshot := memoryReadOnlyHealthSnapshot{Payload: map[string]any{
+		"install": map[string]any{
+			"entire_binary": memoryInstallBinaryHealth{State: "present_unproven", Path: "/usr/local/bin/entire"},
+			"host_adapter":  memoryHostAdapterHealth{State: "not_observable", Authority: "entire-cli", Observability: "not_observable"},
+		},
+	}}
+	for _, check := range memoryDoctorChecks(snapshot) {
+		for _, gone := range []string{"memory_host_adapter", "memory_schema_capabilities"} {
+			if check.Name == gone {
+				t.Fatalf("%s is back: %+v -- its state is a string literal, so it is noise on every run", gone, check)
+			}
+		}
 	}
-	// Not silenced -- it still says the Entire CLI owns the answer.
-	if got := byName["memory_host_adapter"]; !strings.Contains(got.Detail, "Entire CLI") {
-		t.Fatalf("memory_host_adapter dropped the pointer to the authority: %+v", got)
+	// The data a caller might actually want is still in the payload doctor
+	// publishes as `memory` in --json.
+	install, _ := snapshot.Payload["install"].(map[string]any)
+	adapter, ok := install["host_adapter"].(memoryHostAdapterHealth)
+	if !ok || adapter.Authority != "entire-cli" {
+		t.Fatalf("host-adapter payload lost its authority: %#v", install["host_adapter"])
 	}
 }
 
@@ -571,9 +608,10 @@ func TestDoctorScopesHostEnvironmentFindings(t *testing.T) {
 	for _, check := range append(append([]doctorCheckResult{}, report.Dirs...), report.Checks...) {
 		byName[check.Name] = check
 	}
-	// The host Entire CLI and its host adapter come out of the same install
-	// payload and describe the same external product; they get the same answer.
-	for _, name := range []string{"memory_install", "memory_host_adapter"} {
+	// memory_install is the host Entire CLI, not the brain. (Its sibling
+	// memory_host_adapter was deleted outright -- its state was a literal --
+	// but the payload both were formatted from is still under `memory`.)
+	for _, name := range []string{"memory_install"} {
 		got, ok := byName[name]
 		if !ok {
 			t.Fatalf("doctor dropped the %s check entirely: %+v", name, report.Checks)

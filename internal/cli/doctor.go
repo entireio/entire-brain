@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -100,6 +101,7 @@ func doctorGateFailure(report doctorReport, failOn string) error {
 func newDoctorCommand(opts Options) *cobra.Command {
 	var (
 		jsonOut bool
+		verbose bool
 		failOn  string
 	)
 	cmd := &cobra.Command{
@@ -107,10 +109,11 @@ func newDoctorCommand(opts Options) *cobra.Command {
 		Short: "Diagnose environment and brain pipeline problems",
 		Long:  "Check the plugin environment and the capture-to-recall chain",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDoctor(cmd, opts, jsonOut, failOn)
+			return runDoctor(cmd, opts, jsonOut, verbose, failOn)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Print every check, including the ones that passed, and the environment doctor read")
 	cmd.Flags().StringVar(&failOn, "fail-on", doctorFailOnError, "Return nonzero after printing the report when a brain finding at this severity exists: error, warn, none (host-environment findings are reported, never gated)")
 	return cmd
 }
@@ -339,7 +342,7 @@ func doctorSemanticCoverage(ctx context.Context, opts Options, repoDir string, f
 	}, nil
 }
 
-func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool, failOn string) error {
+func runDoctor(cmd *cobra.Command, opts Options, jsonOut, verbose bool, failOn string) error {
 	failOn, err := normalizeDoctorFailOn(failOn)
 	if err != nil {
 		return err
@@ -452,6 +455,28 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool, failOn string) er
 		return doctorGateResult(report, failOn)
 	}
 	out := cmd.OutOrStdout()
+	if verbose {
+		renderDoctorVerbose(out, report)
+	} else {
+		renderDoctorActionable(out, report)
+	}
+	return doctorGateResult(report, failOn)
+}
+
+// doctorVerboseInvocation is the one command that turns the short report back
+// into the long one. It is named on every short report, so the detail a reader
+// does not see is always one documented command away.
+const doctorVerboseInvocation = "entire brain doctor --verbose"
+
+// doctorActionableDetailBudget caps one short line's detail. The blind-spot
+// groups carry every skipped path -- 3.5KB on this repository alone -- which is
+// a list to read at leisure under --verbose, not a wall to scroll past when you
+// are looking for what to fix.
+const doctorActionableDetailBudget = 160
+
+// renderDoctorVerbose is the whole report: the environment doctor read, the
+// resolved repository, and every finding at full detail, passing or not.
+func renderDoctorVerbose(out io.Writer, report doctorReport) {
 	for _, key := range []string{"ENTIRE_CLI_VERSION", "ENTIRE_REPO_ROOT", "ENTIRE_PLUGIN_CONFIG_DIR", "ENTIRE_PLUGIN_DATA_DIR", "ENTIRE_PLUGIN_STATE_DIR", "ENTIRE_PLUGIN_CACHE_DIR"} {
 		fmt.Fprintf(out, "%s=%s\n", key, valueOrUnset(report.Env[key]))
 	}
@@ -468,6 +493,10 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool, failOn string) er
 		}
 		fmt.Fprintln(out)
 	}
+	// Coverage is counts, never a finding: it names nothing to fix, so it
+	// belongs with the rest of the passing detail under --verbose. The one
+	// coverage condition a reader can act on -- the audit failing -- is a
+	// "semantic coverage" warn check above, and the short report prints it.
 	if c := report.SemanticCoverage; c != nil {
 		fmt.Fprintf(out, "semantic coverage: %d files, %d symbols, %d relations (manifest counts)\n", c.Files, c.Symbols, c.Relations)
 		for _, section := range []struct {
@@ -482,7 +511,293 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool, failOn string) er
 			}
 		}
 	}
-	return doctorGateResult(report, failOn)
+}
+
+// renderDoctorActionable is the default report, and it prints exactly the
+// findings a reader can do something about.
+//
+// The old default printed six environment lines, four passing directory lines
+// and every passing check -- forty lines and 6.4KB on a HEALTHY brain, of which
+// six said anything and exactly one named a remedy. A diagnostic that cries
+// wolf on a healthy system teaches people to stop reading it, and then the one
+// line that mattered is lost in the thirty-four that did not.
+//
+// So: nothing that passed, and every line that did not ends with a command.
+// The counts stay, because "I printed nothing" and "I checked nothing" must not
+// look the same, and the summary names the flag that restores the long form.
+//
+// Non-ok findings are NEVER dropped or capped. A brain with twelve problems
+// prints twelve lines; the saving comes from silence about what is fine, not
+// from hiding what is broken.
+func renderDoctorActionable(out io.Writer, report doctorReport) {
+	okCount, warnCount, errorCount := 0, 0, 0
+	var lines []doctorActionableLine
+	for i, dir := range report.Dirs {
+		switch dir.State {
+		case "ok":
+			okCount++
+			continue
+		case "warn":
+			warnCount++
+		default:
+			errorCount++
+		}
+		// Dirs and DirectoryHealth are appended in lockstep, so the health that
+		// produced this finding -- and the path to chmod -- is at the same index.
+		var health memoryInstallDirectoryHealth
+		if i < len(report.DirectoryHealth) {
+			health = report.DirectoryHealth[i]
+		}
+		lines = append(lines, doctorActionableLine{finding: dir, remedy: doctorDirectoryRemedy(health)})
+	}
+	for _, check := range report.Checks {
+		switch check.State {
+		case "ok":
+			okCount++
+			continue
+		case "warn":
+			warnCount++
+		default:
+			errorCount++
+		}
+		lines = append(lines, doctorActionableLine{finding: check, remedy: doctorRemedy(check)})
+	}
+	if len(lines) == 0 {
+		fmt.Fprintf(out, "healthy: %d check(s) passed, nothing to fix; run `%s` for the full report\n", okCount, doctorVerboseInvocation)
+		return
+	}
+	for _, line := range lines {
+		fmt.Fprintf(out, "%s: %s (%s)\n", line.finding.Name, line.finding.State, line.detail())
+	}
+	fmt.Fprintf(out, "%d ok, %d warn, %d error; run `%s` for the full report\n", okCount, warnCount, errorCount, doctorVerboseInvocation)
+}
+
+// doctorActionableLine is one short-report line: the finding, and the command
+// that addresses it when the finding's own detail does not already name one.
+type doctorActionableLine struct {
+	finding doctorCheckResult
+	remedy  string
+}
+
+func (l doctorActionableLine) detail() string {
+	detail := truncateDoctorDetail(l.finding.Detail)
+	// Whether the detail names its own command is decided on the text that is
+	// actually PRINTED. Deciding it on the untruncated detail meant a line
+	// whose command had been cut in half still suppressed the remedy, and the
+	// reader got "...; run `entire brain ref…" and nothing else.
+	// Truncation never cuts inside a span, so a backtick here means a whole one.
+	if strings.Contains(detail, "`") {
+		return detail
+	}
+	if l.remedy == "" {
+		return detail
+	}
+	if detail == "" {
+		return "run `" + l.remedy + "`"
+	}
+	return strings.TrimRight(detail, "; ") + "; run `" + l.remedy + "`"
+}
+
+func truncateDoctorDetail(detail string) string {
+	runes := []rune(detail)
+	if len(runes) <= doctorActionableDetailBudget {
+		return detail
+	}
+	cut := doctorActionableDetailBudget
+	// Never cut inside a `command` span. Half a command is worse than none: it
+	// cannot be run, and it still looks like the line answered the question.
+	// Backticks are balanced, so an odd count before the cut means it lands
+	// inside one; back up to that span's opening backtick and drop it whole.
+	if strings.Count(string(runes[:cut]), "`")%2 == 1 {
+		for cut > 0 && runes[cut-1] != '`' {
+			cut--
+		}
+		cut--
+	}
+	if cut < 0 {
+		cut = 0
+	}
+	kept := strings.TrimRight(string(runes[:cut]), " ,;`")
+	// Dropping the command can leave the word that introduced it, so the line
+	// read "...; run\u2026; run `entire brain refresh`". Trim the dangling lead-in.
+	for _, lead := range []string{"; run", " run", "; try", " try"} {
+		kept = strings.TrimSuffix(kept, lead)
+	}
+	return strings.TrimRight(kept, " ,;") + "\u2026"
+}
+
+// doctorDirectoryRemedy: every non-ok plugin-directory finding is a permission
+// or path problem on a named directory, and the mode bits are the part doctor
+// can actually see.
+func doctorDirectoryRemedy(health memoryInstallDirectoryHealth) string {
+	// The remedy is rendered as "run `<remedy>`", so it must be something a
+	// reader can actually run.
+	//
+	// This used to return health.RecommendedAction whenever it was set, which
+	// a previous finding asked for. Every constructor seeds that field and then
+	// overwrites it on each path, so it is NEVER empty for a real doctor run:
+	// the branches below were unreachable outside hand-built fixtures, and the
+	// line rendered as
+	//
+	//   run `grant write access before running a mutation; mode bits currently deny writes`
+	//
+	// presenting a sentence as a command, which is the defect this whole
+	// report set out to remove.
+	//
+	// Nothing is lost by not repeating it here: doctorDirectoryFinding already
+	// puts that guidance in the Detail this remedy is appended to, either in
+	// its own words for the two warn states or verbatim for the error state.
+	path := strings.TrimSpace(health.Path)
+	if path == "" {
+		return doctorVerboseInvocation
+	}
+	if strings.Contains(health.State, "unsafe") {
+		// A symlink, a non-directory, or a relative path. No mode change fixes
+		// any of them, and what the reader needs first is to see what is there.
+		return "ls -ld " + shellQuote(path)
+	}
+	if !health.Exists {
+		// The detail names the nearest EXISTING parent as the thing denying
+		// writes, so that is what the reader has to change. filepath.Dir climbs
+		// exactly one level, which was wrong whenever more than one component
+		// was missing -- the default data dir is three levels deep, so the
+		// suggested chmod named a directory that did not exist either.
+		return "chmod u+w " + shellQuote(nearestExistingAncestor(path))
+	}
+	return "chmod u+w " + shellQuote(path)
+}
+
+// shellQuote makes a path safe to paste into a shell.
+//
+// Raised as a shell-injection finding. As stated the threat model is weak: the
+// path comes from the reader's OWN ENTIRE_PLUGIN_* variables or home directory,
+// and anyone who can set those can already run code. The quoting is right for a
+// duller reason that bites far more often — a path containing a SPACE produces a
+// command that silently chmods the wrong thing, and "/Users/me/My Brain" is an
+// ordinary path on a Mac.
+//
+// Single quotes, because inside them a shell expands nothing at all; an embedded
+// single quote is closed, escaped and reopened.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// doctorRemedies maps a finding to the command that addresses it, for the
+// findings whose detail does not already quote one.
+//
+// This is a render-time table on purpose: doctorCheckResult is the --json
+// contract and gains no field, so adding a remedy to the human report cannot
+// change a byte of the machine one.
+//
+// TestDoctorRemediesAreRealCommands resolves every `entire brain ...` value
+// here against the live command tree, so a renamed verb fails the build rather
+// than sending a user to a command that no longer exists.
+const (
+	// doctorSemanticProviderFinding is the one finding whose remedy is chosen
+	// by condition rather than by name; see doctorSemanticProviderRemedy.
+	doctorSemanticProviderFinding = "semantic provider"
+	// doctorGraphInstallRemedy and doctorBrainUpgradeRemedy are the two sides
+	// of that pair, as the README documents installing them. Neither is an
+	// `entire brain ...` verb, so neither is resolvable against the command
+	// tree: entire-brain installs and upgrades neither itself nor Graph.
+	doctorGraphInstallRemedy = "entire plugin install graph"
+	doctorBrainUpgradeRemedy = "curl -fsSL https://raw.githubusercontent.com/entireio/entire-brain/main/scripts/get-brain.sh | bash"
+)
+
+var doctorRemedies = map[string]string{
+	"brain":                  "entire brain setup",
+	"manifest":               "entire brain refresh",
+	"capture":                "entire brain refresh sessions",
+	"docs_index":             "entire brain refresh",
+	"facts":                  "entire brain refresh",
+	"history_index":          "entire brain refresh history",
+	"history_integrity":      "entire brain refresh history",
+	"history_freshness":      "entire brain refresh",
+	"short_term_memory":      "entire brain refresh delta",
+	"conversation":           "entire brain refresh",
+	"history_fts":            "entire brain refresh history",
+	"semantic":               "entire brain refresh index",
+	"semantic blind spots":   "entire brain refresh index",
+	"memory_coordinator":     "entire brain memory status",
+	"write_lock":             "entire brain memory status",
+	"memory_provider_egress": "entire brain config show",
+	"memory_schemas":         "entire brain memory migrate",
+	"memory_overlay":         "entire brain memory rebuild",
+	"memory_fts":             "entire brain memory rebuild",
+	"memory_jobs":            "entire brain memory jobs",
+	"memory_vectors":         "entire brain memory rebuild",
+	"memory_migrations":      "entire brain memory migrate --dry-run",
+	"memory_worker_log":      "entire brain memory status",
+	"memory_sessions":        "entire brain refresh sessions",
+	"memory_reconciliation":  "entire brain memory reconcile",
+	// Host-environment findings. entire-brain neither installs nor repairs the
+	// Entire CLI or the Graph provider, so the command is the one the README
+	// gives for installing them -- not an entire-brain verb that would quietly
+	// do nothing.
+	"memory_install": "curl -fsSL https://entire.io/install.sh | bash",
+	// "semantic provider" is deliberately ABSENT: its remedy depends on which
+	// side of the pair is behind, which a name-keyed table cannot express.
+	// See doctorSemanticProviderRemedy.
+	// Quoted: unquoted, `<your` is an input redirection and the line fails with
+	// a redirection error instead of saying anything. A placeholder still has
+	// to survive being pasted.
+	"repo": "cd '<your repository>' && entire brain doctor",
+}
+
+func doctorRemedy(check doctorCheckResult) string {
+	// The "detail already names a command" case is NOT decided here: it depends
+	// on the truncated text, which only doctorActionableLine.detail sees.
+	// `setup <component>` findings are one per failed setup component.
+	if strings.HasPrefix(check.Name, "setup ") {
+		return "entire brain setup"
+	}
+	if check.Name == doctorSemanticProviderFinding {
+		return doctorSemanticProviderRemedy(check.Detail)
+	}
+	if remedy, ok := doctorRemedies[check.Name]; ok {
+		return remedy
+	}
+	// A check added later without a table entry still gets a command, because
+	// "no remedy" is the one answer a diagnostic must never give.
+	return doctorVerboseInvocation
+}
+
+// doctorSemanticProviderRemedy picks the remedy for the ONE finding whose fix
+// depends on the condition rather than on the finding's name.
+//
+// "semantic provider" reports a pair that has to agree: this build of
+// entire-brain and the entire-graph provider it reads. Either side can be the
+// one that is behind, and the table above is keyed by finding NAME, so it
+// could only ever name one of them. It named Graph. That is right when the
+// provider is absent and exactly backwards on a version skew, where the
+// provider is the side that is AHEAD:
+//
+//	semantic provider: warn (provider=degraded (semantic provider emitted
+//	schema_version "1.3" but this build reads 1.1; ...; but upgrade
+//	entire-b...; run `entire plugin install graph`)
+//
+// The message says upgrade Brain and the remedy says install Graph. Installing
+// Graph cannot help, and a newer Graph widens the skew it was offered for.
+//
+// Like every other classification of a provider failure here, this one reads
+// the FULL detail, never the truncated line: truncation cuts the skew message
+// mid-word ("upgrade entire-b..."), so a remedy chosen from what is printed
+// would flip back to the wrong side exactly when the line is long enough to
+// need the help.
+func doctorSemanticProviderRemedy(detail string) string {
+	if doctorSemanticProviderAhead(detail) {
+		return doctorBrainUpgradeRemedy
+	}
+	return doctorGraphInstallRemedy
+}
+
+// doctorSemanticProviderAhead reports whether the detail describes a provider
+// that is NEWER than this build, i.e. the skew where entire-brain is the side
+// to upgrade. It matches the remedy the message itself states, so the two can
+// only disagree if someone rewords the message without rewording this.
+func doctorSemanticProviderAhead(detail string) bool {
+	text := strings.ToLower(detail)
+	return strings.Contains(text, "upgrade entire-brain")
 }
 
 // doctorGateResult wraps a tripped gate the way `status --fail-on` does: the
@@ -494,4 +809,25 @@ func doctorGateResult(report doctorReport, failOn string) error {
 		return renderedCommandError{err: err}
 	}
 	return nil
+}
+
+// nearestExistingAncestor walks up until it finds a directory that exists.
+// inspectAbsoluteInstallDirectory's creatable_unproven state can sit under
+// arbitrarily many missing components, and a chmod against one of those fails
+// with "No such file or directory" rather than fixing anything.
+//
+// Returns the last path examined if it runs out of ancestors, so the caller
+// always has something to name.
+func nearestExistingAncestor(path string) string {
+	dir := filepath.Dir(path)
+	for {
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return dir
+		}
+		dir = parent
+	}
 }

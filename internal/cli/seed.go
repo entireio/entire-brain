@@ -49,9 +49,14 @@ type seedCommandOptions struct {
 	agentDeepTimeout   time.Duration
 	agentTimeoutAction string
 	agentMaxInputBytes int
-	interactive        bool
-	noInteractive      bool
-	requireAgent       bool
+	// There is no `interactive` field. `refresh seed --interactive` was
+	// registered, parsed and then never read by anything: promptSeedTimeoutAction
+	// gates on noInteractive and a TTY, so prompts were already on by default and
+	// the flag could only ever ask for what was already happening. A flag a user
+	// can type, that the binary accepts, and that changes nothing is worse than
+	// no flag -- it is a promise the program does not keep.
+	noInteractive bool
+	requireAgent  bool
 	// progress, when set, is called as seed synthesis advances (e.g. the agent
 	// quick/deep phases) so the long-running agent step reports more than a
 	// static spinner during refresh.
@@ -240,7 +245,6 @@ func newSeedCommand(opts Options) *cobra.Command {
 	cmd.Flags().DurationVar(&seedOpts.agentDeepTimeout, "agent-deep-timeout", 10*time.Minute, "Timeout for deep agent synthesis")
 	cmd.Flags().StringVar(&seedOpts.agentTimeoutAction, "agent-timeout-action", "keep-quick", "Deep timeout action: keep-quick, continue, or fail")
 	cmd.Flags().IntVar(&seedOpts.agentMaxInputBytes, "agent-max-input-bytes", defaultAgentMaxInput, "Maximum bytes in agent input packet")
-	cmd.Flags().BoolVar(&seedOpts.interactive, "interactive", false, "Allow timeout prompts when stdin is a terminal")
 	cmd.Flags().BoolVar(&seedOpts.noInteractive, "no-interactive", false, "Disable timeout prompts")
 	cmd.Flags().BoolVar(&seedOpts.requireAgent, "require-agent", false, "Fail if required agent synthesis does not complete")
 	return cmd

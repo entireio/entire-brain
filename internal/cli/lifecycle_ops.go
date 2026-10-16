@@ -108,20 +108,16 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 		}
 		addEnvironment("memory_install", state, detail)
 	}
-	if adapter, ok := install["host_adapter"].(memoryHostAdapterHealth); ok {
-		// Host-adapter installation belongs to the Entire CLI and this process
-		// never inspects it: memoryInstallHealth hard-codes state and
-		// observability to "not_observable", so the old ok-condition
-		// (observability != not_observable && state == trusted) was
-		// unreachable by construction and the check was a warning on every
-		// run of every install. Scope is not a fault -- say where the answer
-		// lives, and do not spend the reader's attention on it.
-		//
-		// Environment-scoped for the same reason memory_install is: it and
-		// entire_binary come out of the same `install` payload and describe the
-		// same external product.
-		addEnvironment("memory_host_adapter", "ok", fmt.Sprintf("not checked here (%s; authority %s): host-adapter install, enablement and trust are owned by the Entire CLI -- verify them with its own integration diagnostics", adapter.State, adapter.Authority))
-	}
+	// There is deliberately no memory_host_adapter check. It reported the
+	// literal state "ok" on every run of every install, because
+	// memoryInstallHealth constructs memoryHostAdapterHealth with
+	// State/Observability hard-coded to "not_observable" (memory_admin.go) and
+	// there is no second construction site -- so no machine, no configuration
+	// and no user action could ever make it say anything else. A line that
+	// cannot vary carries no information, and thirty-four such lines are what
+	// taught readers to skip doctor's output. The underlying payload is NOT
+	// dropped: `doctor --json` still carries it verbatim at
+	// memory.install.host_adapter, with the authority that owns the answer.
 	if coordinator, ok := snapshot.Payload["coordinator"].(map[string]any); ok {
 		stateName, _ := coordinator["state"].(string)
 		state := "ok"
@@ -178,7 +174,16 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 		}
 		add("memory_provider_egress", state, detail)
 	}
-	add("memory_schema_capabilities", "ok", fmt.Sprintf("compiled support: manifest %d, overlay %d, FTS %s, vector %d, abstract %d, jobs %d", brainManifestSchemaVersion, historyShortTermVersion, historyFTSSchema, memoryVectorSchema, abstractSchemaVersion, memoryJobSchemaVersion))
+	// There is deliberately no memory_schema_capabilities check either. Its
+	// state was the literal "ok" and its detail was formatted purely from
+	// untyped compile-time constants (brainManifestSchemaVersion = 3,
+	// historyShortTermVersion = 3, historyFTSSchema = "3", memoryVectorSchema
+	// = 2, abstractSchemaVersion = 1, memoryJobSchemaVersion = 2): the same
+	// sentence for every brain built from a given binary. What this build
+	// SUPPORTS is a property of the build, not a diagnosis of the brain --
+	// memory_schemas below is the check that compares it with what is on disk.
+	// `doctor --json` still reports every one of those numbers, at
+	// memory.schemas.compiled_capabilities.
 	schemaState := "error"
 	switch snapshot.ManifestHealth.State {
 	case "current":
