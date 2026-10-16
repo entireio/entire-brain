@@ -84,6 +84,10 @@ func (t *setupTimings) total() time.Duration {
 type setupComponentObserver struct {
 	mu sync.Mutex
 	fn func(setupComponent)
+	// observed is every component forwarded so far. It exists so a test can
+	// show it HAD sub-steps before asserting none of them became a line: an
+	// assertion over an empty set passes for the wrong reason.
+	observed []setupComponent
 }
 
 func (o *setupComponentObserver) bind(fn func(setupComponent)) {
@@ -101,6 +105,7 @@ func (o *setupComponentObserver) notify(component setupComponent) {
 	}
 	o.mu.Lock()
 	fn := o.fn
+	o.observed = append(o.observed, component)
 	o.mu.Unlock()
 	if fn != nil {
 		fn(component)

@@ -119,6 +119,9 @@ func TestSetupResolvesTheAgentBeforePlanningTheDaemon(t *testing.T) {
 	}
 
 	opts := defaultSetupOptions() // agent "auto", exactly as a bare `setup` runs
+	// The fact phase asks before it spends; a test with no terminal consents
+	// by flag, exactly as a CI run must.
+	opts.yes = true
 	out := &bytes.Buffer{}
 	if err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, steps); err != nil {
 		t.Fatalf("runSetup: %v", err)

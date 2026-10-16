@@ -5,6 +5,12 @@ templates/** text eol=lf
 
 # Golden byte fixtures are compared exactly in tests and must remain stable on
 # Windows checkouts too.
+# Every golden, wherever it lives. Pinning only internal/cli's left
+# internal/setupui/testdata/pipe.golden unpinned, so a Windows checkout turned
+# it into CRLF while the generated output stayed LF and the byte comparison
+# failed. A path-specific rule only protects the directory someone remembered.
+*.golden text eol=lf
+*.golden* text eol=lf
 internal/cli/testdata/*.golden* text eol=lf
 
 # render_json_contract_test.go round-trips these through json.Marshal (always LF)

@@ -191,7 +191,7 @@ func TestConcurrentSetupsDoNotInterleaveTheDaemonRegistration(t *testing.T) {
 			defer wg.Done()
 			<-start
 			report := setupReport{}
-			runSetupDaemon(context.Background(), newRefreshProgress(io.Discard), f.env, stepsFor(racer), plan, &report, "entire-brain")
+			runSetupDaemon(context.Background(), nil, f.env, stepsFor(racer), plan, &report, "entire-brain")
 		}(i)
 	}
 	close(start)
@@ -508,7 +508,7 @@ func TestARerunRefreshesTheUnitFileWithoutTouchingTheService(t *testing.T) {
 		install: func(context.Context, daemonPlan) error { installs++; return nil },
 	}
 	report := setupReport{}
-	runSetupDaemon(context.Background(), newRefreshProgress(io.Discard), f.env, steps, plan, &report, "entire-brain")
+	runSetupDaemon(context.Background(), nil, f.env, steps, plan, &report, "entire-brain")
 
 	if installs != 0 {
 		t.Fatalf("a running, current watcher must never be reloaded; install ran %d times", installs)
