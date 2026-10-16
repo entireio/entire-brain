@@ -320,52 +320,6 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		progress.Skip(refreshHistoryLabel(existingHistorySource(manifest)))
 		reportStageAndShouldAbort(brainComponentHistory, nil)
 	}
-	// History vectors: the persisted semantic arm behind the fusion gate (see
-	// history_vec.go). The stage exists only when the user has opted into an
-	// external embedder — without ENTIRE_BRAIN_EMBEDDER there is no line at
-	// all, so the default refresh output is unchanged. The first sync of a
-	// large repo embeds every record (potentially hours, one HTTP embed at a
-	// time); progress is batched to disk, so interrupting and re-running
-	// refresh resumes rather than restarts.
-	if refreshOpts.historyIndex && strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")) != "" &&
-		manifest != nil && manifest.Sources != nil && manifest.Sources.History != nil {
-		e := historySemanticEmbedder(defaultEmbedder())
-		store, storeOK := historyVectorStoreFor(brainDir, e)
-		switch {
-		case e == nil:
-			// Opt-in set but not honored (server unreachable → Model2Vec
-			// fallback, which is a closed negative on history). defaultEmbedder
-			// already printed the fallback warning.
-			progress.Skip("history vectors: embed server unavailable")
-		case !storeOK:
-			progress.Skip("history vectors: requires the brain_cgo build")
-		default:
-			_ = store // availability was checked above; the guarded writer reopens it.
-			vecTask := progress.Begin("history vectors")
-			vectors, serr := syncMemoryProjectionVectorsFully(ctx, brainDir, opts.Now().UTC(), e, func(current memoryVectorSyncPass) {
-				vecTask.Update(fmt.Sprintf("history vectors: %d new %s embedded", current.HistoryAdded, pluralUnit("record", current.HistoryAdded)))
-			})
-			if serr != nil {
-				vecTask.Finish(serr)
-				if reportStageAndShouldAbort(brainComponentHistoryVectors, serr) {
-					return serr
-				}
-				break
-			}
-			vecTask.Update(fmt.Sprintf("history vectors: %d embedded, %d pruned (%d total)", vectors.HistoryAdded, vectors.HistoryDropped, vectors.HistoryTotal))
-			vecTask.Finish(nil)
-			reportStageAndShouldAbort(brainComponentHistoryVectors, nil)
-			// Conversation vectors ride the same stage and gate but live in
-			// their own store (separate identity; general history KNN never
-			// spends budget on exchanges). Skipped silently when the store is
-			// unavailable; the history stage above already reported why.
-			if _, convOK := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim()); convOK {
-				convTask := progress.Begin("conversation vectors")
-				convTask.Update(fmt.Sprintf("conversation vectors: %d embedded, %d pruned (%d total)", vectors.ConversationAdded, vectors.ConversationDrop, vectors.ConversationTotal))
-				convTask.Finish(nil)
-			}
-		}
-	}
 	// Doc index: retrievable chunks of the brain's own markdown (seed summaries
 	// + copied repo docs). It derives from seed, not history, so gate it on its own
 	// inputs — rebuild when seed ran, when the docs source is missing, on --force,

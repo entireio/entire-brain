@@ -364,7 +364,7 @@ func TestPrivacyFactVectorInventoryHandlesGlobMetacharacters(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(embedStoreMagic), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("EBV1"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	artifacts, err := privacyDerivedStoreArtifacts(brainDir)

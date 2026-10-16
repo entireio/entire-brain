@@ -585,11 +585,11 @@ func newWorkspaceSearchCommand(opts Options) *cobra.Command {
 }
 
 func newWorkspaceVsearchCommand(opts Options) *cobra.Command {
-	return newWorkspaceRetrieveCommand(opts, "vsearch", modeVector, "Vector (semantic) search across every workspace repo's brain (facts, docs)")
+	return newWorkspaceRetrieveCommand(opts, "vsearch", modeHybrid, "Compatibility alias for workspace query: semantic retrieval was removed (trail #278); runs the same BM25 lexical ranking")
 }
 
 func newWorkspaceQueryCommand(opts Options) *cobra.Command {
-	return newWorkspaceRetrieveCommand(opts, "query", modeHybrid, "Hybrid (lexical+vector, RRF) search across every workspace repo's brain")
+	return newWorkspaceRetrieveCommand(opts, "query", modeHybrid, "Search every workspace repo's brain (BM25 lexical)")
 }
 
 // newWorkspaceRetrieveCommand mirrors the top-level search/vsearch/query verbs
@@ -608,6 +608,7 @@ func newWorkspaceRetrieveCommand(opts Options, use string, mode retrievalMode, s
 			if err != nil {
 				return err
 			}
+			warnRemovedSemanticAlias(cmd, use, selection.semantic)
 			return runWorkspaceRetrieve(cmd, opts, retrieveOpts, selectedMode, args[0], args[1])
 		},
 	}

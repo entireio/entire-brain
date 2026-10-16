@@ -214,15 +214,6 @@ func writeDocIndexAndSourceLocked(brainDir string, now time.Time) (*docSourceMan
 	return source, nil
 }
 
-// newDocEmbedStore is the disk-backed vector cache for doc chunks, mirroring the
-// fact embed store: keyed by doc id, headered with the embedder model+dim so a
-// model switch triggers a clean rebuild. This is the pure-Go stand-in for
-// sqlite-vec — brute-force cosine over a cached set, fast at the brain's scale.
-func newDocEmbedStore(brainDir, modelID string, dim int) *embedStore {
-	rel := filepath.ToSlash(filepath.Join(docDirName, embedStoreDirName, embedStoreFileName))
-	return &embedStore{path: filepath.Join(brainDir, filepath.FromSlash(rel)), brainDir: brainDir, relPath: rel, modelID: modelID, dim: dim}
-}
-
 // verifyDeclaredDocIndex reports why the docs index a manifest declares cannot
 // be read. It probes exactly the file loadDocIndex opens, so a "docs: ok"
 // status is a statement about the bytes retrieval will actually rank, not about

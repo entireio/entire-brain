@@ -84,14 +84,14 @@ func TestCapabilitiesWithoutRepository(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &c); err != nil {
 		t.Fatal(err)
 	}
-	if c.Version != "test-build" || c.SchemaVersion != 1 || c.Build.BrainCGO != brainCGOBuild || c.Query.DefaultMode != "hybrid" {
+	if c.Version != "test-build" || c.SchemaVersion != 1 || c.Build.BrainCGO != brainCGOBuild || c.Query.DefaultMode != "keyword" {
 		t.Fatalf("capabilities: %+v", c)
 	}
 	if len(c.Sources) != 4 {
 		t.Fatalf("sources: %+v", c.Sources)
 	}
 	for _, source := range c.Sources {
-		if source.Name == retrievalSourceConversation && (source.Default || !source.Experimental || source.SemanticCompiled != brainCGOBuild) {
+		if source.Name == retrievalSourceConversation && (source.Default || !source.Experimental || source.SemanticCompiled) {
 			t.Fatalf("conversation availability overstated: %+v", source)
 		}
 	}

@@ -14,7 +14,7 @@ func TestActualSilverEvalResultsCompareWithoutProofClaims(t *testing.T) {
 		t.Fatal(err)
 	}
 	tasks := []evalTask{{ID: "silver", Task: "Go modules", Branch: "main", Relevant: []string{f.ID}, LabelSource: evalLabelSourceProvenanceSilver}}
-	result, err := runFactsEval(context.Background(), Options{}, d, "/repo", "main", tasks, 10, false, nil, nil, loadJudgeCache(""), nil, nil, evalRetrieverFacts)
+	result, err := runFactsEval(context.Background(), Options{}, d, "/repo", "main", tasks, 10, false, nil, nil, loadJudgeCache(""), nil, evalRetrieverFacts)
 	if err != nil {
 		t.Fatal(err)
 	}

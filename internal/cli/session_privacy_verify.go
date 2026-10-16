@@ -607,13 +607,11 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	if manifest.Sources != nil {
 		source = manifest.Sources.History
 	}
-	var activeIndex historyIndex
 	if source != nil {
 		index, err := loadBrainHistoryIndex(brainDir, source)
 		if err != nil {
 			return report, err
 		}
-		activeIndex = index
 		for _, record := range index.Records {
 			if _, tombstoned := stones.Excluded[record.SessionID]; tombstoned && record.SessionID != "" {
 				add(record.SessionID, "history_index", "record "+record.ID)
@@ -817,34 +815,17 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		}
 		report.Findings = append(report.Findings, corpusFindings...)
 	}
-	vectorRels := []struct {
-		rel        string
-		hiddenKind func(string) bool
-	}{
-		{rel: filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, historyVecStoreFileNamePortable)), hiddenKind: historyGeneralRankingHiddenKind},
-		{rel: filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, conversationVecStoreFileNamePortable)), hiddenKind: conversationSemanticHiddenKind},
-	}
-	for _, vectorStore := range vectorRels {
-		if !currentArtifacts[vectorStore.rel] {
+	// Semantic retrieval was removed (trail #278): no writer can rebuild or
+	// re-validate a vector store, so any surviving legacy store is itself a
+	// finding — its rows predate the removal and may retain purged sessions.
+	for _, rel := range []string{
+		filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, historyVecStoreFileNamePortable)),
+		filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, conversationVecStoreFileNamePortable)),
+	} {
+		if !currentArtifacts[rel] {
 			continue
 		}
-		if source == nil {
-			// The store is newer than the newest tombstone, but the manifest
-			// declares no history source, so there is no active index to
-			// attribute its rows against. Skipping it (the previous behavior)
-			// still published Clean = true for a store whose membership was
-			// never checked, and requirePrivacyDerivedRead then allowed every
-			// retrieval and pattern mutation to proceed against it. An
-			// un-attributable store is a finding, not a pass.
-			add("", vectorStore.rel, "vector store is newer than the newest tombstone but the manifest declares no history source, so its rows cannot be attributed; rebuild the history projection then re-verify")
-			continue
-		}
-		wanted, _ := vectorEligibleRecordIDs(activeIndex, vectorStore.hiddenKind)
-		findings, inspectErr := inspectPrivacyVectorIDsSnapshot(sqliteSnapshots[vectorStore.rel], vectorStore.rel, wanted, newestID)
-		if inspectErr != nil {
-			return report, inspectErr
-		}
-		report.Findings = append(report.Findings, findings...)
+		add("", rel, "legacy semantic vector store survives after the semantic-retrieval removal; delete it (its rows cannot be attributed and may retain purged sessions)")
 	}
 	// Hosted-provider egress receipts retain content-free session identity and
 	// digest metadata. They are still session-linked records and must disappear

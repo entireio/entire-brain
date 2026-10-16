@@ -16,10 +16,10 @@ func TestCapabilitiesHumanReportNamesBuildGatesWithoutRepositoryAccess(t *testin
 	for _, want := range []string{
 		"Entire Brain regression-capability-version",
 		fmt.Sprintf("Build: %s (brain_cgo=%t)", sqliteDriverName, brainCGOBuild),
-		"Retrieval: hybrid (default), keyword, semantic",
-		"fact: keyword; semantic compiled=true (default)",
-		fmt.Sprintf("conversation: keyword; semantic compiled=%t (experimental, explicit opt-in)", brainCGOBuild),
-		"Semantic requires: brain_cgo build, fusion-eligible embedder, refresh-built conversation vectors",
+		"Retrieval: BM25 keyword (semantic retrieval removed)",
+		"fact: keyword; semantic compiled=false (default)",
+		"conversation: keyword; semantic compiled=false (experimental, explicit opt-in)",
+		"Semantic requires: semantic retrieval removed (trail #278); BM25 lexical is the only ranking",
 		"Repository readiness: entire brain status --details --json",
 		"Languages and relations: entire graph capabilities --json",
 	} {

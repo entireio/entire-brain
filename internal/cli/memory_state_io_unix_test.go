@@ -3,7 +3,6 @@
 package cli
 
 import (
-	"context"
 	"net"
 	"os"
 	"path/filepath"
@@ -11,7 +10,6 @@ import (
 	"sync"
 	"syscall"
 	"testing"
-	"time"
 )
 
 func TestMemoryStateReaderRejectsFIFOAndSocketWithoutBlocking(t *testing.T) {
@@ -111,37 +109,4 @@ func TestHistoryProjectionOverlayIdentityRejectsAliasesAndFIFOSwap(t *testing.T)
 			t.Fatalf("overlay swap identity error = %v", err)
 		}
 	})
-}
-
-func TestMemoryVectorWorkerPreservesUnsafeProgressAlias(t *testing.T) {
-	brainDir := t.TempDir()
-	now := time.Date(2026, 8, 9, 4, 25, 0, 0, time.UTC)
-	digest := "sha256:" + strings.Repeat("1", 64)
-	manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: "test/vector-unsafe", Sources: &brainSources{History: &historySourceManifest{IndexDigest: digest, PrivacyIdentity: "absent"}}}
-	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
-		t.Fatal(err)
-	}
-	outside := filepath.Join(t.TempDir(), "outside.json")
-	canary := []byte(`{"schema_version":3,"future":true}`)
-	if err := os.WriteFile(outside, canary, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	progressPath := filepath.Join(brainDir, filepath.FromSlash(memoryVectorProgressRel))
-	if err := os.MkdirAll(filepath.Dir(progressPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(outside, progressPath); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
-	_, pending, err := syncMemoryProjectionVectorsWithEmbedder(context.Background(), brainDir, now, &memoryContextTestEmbedder{}, 1)
-	if err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) || !pending {
-		t.Fatalf("unsafe progress sync pending=%v err=%v", pending, err)
-	}
-	after, readErr := os.ReadFile(outside)
-	if readErr != nil || string(after) != string(canary) {
-		t.Fatalf("unsafe progress target changed: %q err=%v", after, readErr)
-	}
-	if info, lstatErr := os.Lstat(progressPath); lstatErr != nil || info.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("unsafe progress alias was replaced: info=%v err=%v", info, lstatErr)
-	}
 }

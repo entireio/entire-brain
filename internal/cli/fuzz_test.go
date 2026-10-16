@@ -4,8 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"io"
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -37,23 +35,6 @@ func FuzzScanSemanticStream(f *testing.F) {
 	f.Add([]byte("\x00\x01\x02 not json at all"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		_, _ = scanSemanticStream(bytes.NewReader(data), io.Discard, semanticStreamScanConfig{})
-	})
-}
-
-func FuzzEmbedStoreLoad(f *testing.F) {
-	f.Add([]byte("EBV1"))
-	f.Add([]byte("EBV1\x04\x00mod\x00"))
-	f.Add(append([]byte("EBV1"), bytes.Repeat([]byte{0xff}, 32)...))
-	f.Fuzz(func(t *testing.T, data []byte) {
-		dir := t.TempDir()
-		store := newEmbedStore(dir, "main", "model", 8)
-		if err := os.MkdirAll(filepath.Dir(store.path), 0o700); err != nil {
-			t.Skip()
-		}
-		if err := os.WriteFile(store.path, data, 0o600); err != nil {
-			t.Skip()
-		}
-		_ = store.load() // must not panic on any bytes
 	})
 }
 

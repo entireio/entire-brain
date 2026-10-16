@@ -273,85 +273,6 @@ func TestConversationSessionDiversityCap(t *testing.T) {
 	}
 }
 
-// --- Increment 2: conversation semantic arm ---
-
-func TestSyncConversationVectorsSelectsExchangesOnly(t *testing.T) {
-	store := newMemHistoryVecStore()
-	e := &fakeFusionEmbedder{vecs: map[string][]float32{}}
-	index := historyIndex{Records: []historyRecord{
-		{ID: "history:d1", Kind: "decision", Summary: "decision summary"},
-		{ID: "history:r1", Kind: "request", Summary: "request summary"},
-		{ID: conversationIDPrefix + "e1", Kind: conversationKind, Summary: "exchange one"},
-		{ID: conversationIDPrefix + "e2", Kind: conversationKind, Summary: "exchange two"},
-	}}
-	added, dropped, total, err := syncConversationVectors(store, index, e, nil)
-	if err != nil {
-		t.Fatalf("sync: %v", err)
-	}
-	if added != 2 || dropped != 0 || total != 2 {
-		t.Fatalf("added/dropped/total = %d/%d/%d, want 2/0/2", added, dropped, total)
-	}
-	ids, _ := store.ids()
-	if _, ok := ids[conversationIDPrefix+"e1"]; !ok {
-		t.Fatalf("exchange vector missing: %v", ids)
-	}
-	if _, ok := ids["history:d1"]; ok {
-		t.Fatal("non-exchange record embedded into the conversation store")
-	}
-	// A departed exchange is pruned on the next sync.
-	index.Records = index.Records[:3]
-	_, dropped, total, err = syncConversationVectors(store, index, e, nil)
-	if err != nil || dropped != 1 || total != 1 {
-		t.Fatalf("prune: dropped=%d total=%d err=%v", dropped, total, err)
-	}
-}
-
-func TestRankConversationSemanticRanksExchangesOnly(t *testing.T) {
-	index := historyIndex{Records: []historyRecord{
-		{ID: "history:d1", Kind: "decision", Summary: "decision about caching"},
-		{ID: conversationIDPrefix + "e1", Kind: conversationKind, Summary: "cache rewrite rationale"},
-		{ID: conversationIDPrefix + "e2", Kind: conversationKind, Summary: "unrelated deploy talk"},
-	}}
-	scores := map[string]float64{
-		"history:d1":                0.99, // must be ignored: not an exchange
-		conversationIDPrefix + "e1": 0.9,
-		conversationIDPrefix + "e2": 0.2,
-	}
-	ranked := rankConversationSemantic(index, scores, 10)
-	if len(ranked) != 2 {
-		t.Fatalf("ranked = %d records, want 2 (exchanges only): %+v", len(ranked), ranked)
-	}
-	if ranked[0].Record.ID != conversationIDPrefix+"e1" {
-		t.Fatalf("cosine order wrong: %+v", ranked)
-	}
-	for _, s := range ranked {
-		if s.Record.Kind != conversationKind {
-			t.Fatalf("non-exchange leaked into conversation semantic ranking: %+v", s.Record)
-		}
-	}
-}
-
-func TestRankConversationFusedDegradesToLexicalWhenGateClosed(t *testing.T) {
-	brainDir := writeConversationFilterFixture(t)
-	source := &historySourceManifest{IndexPath: historyIndexPath}
-	index, err := loadBrainHistoryIndex(brainDir, source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// nil embedder = gate closed: fused ranking must equal the lexical ranking
-	// exactly (same list, same ok contract).
-	fused, _, fusedOK := rankConversationFused(brainDir, index, "deploy pipeline", 10, nil, nil)
-	lex, lexOK := rankHistoryViaFTS(brainDir, index, conversationKind, "deploy pipeline", 10)
-	if fusedOK != lexOK || len(fused) != len(lex) {
-		t.Fatalf("degraded fusion differs from lexical: ok %v/%v len %d/%d", fusedOK, lexOK, len(fused), len(lex))
-	}
-	for i := range fused {
-		if fused[i].Record.ID != lex[i].Record.ID {
-			t.Fatalf("degraded fusion order differs at %d: %s vs %s", i, fused[i].Record.ID, lex[i].Record.ID)
-		}
-	}
-}
-
 func TestConversationVectorModeExplicitUnavailable(t *testing.T) {
 	brainDir := writeConversationFilterFixture(t)
 	// On this build/environment the conversation semantic arm is closed:
@@ -511,8 +432,8 @@ func TestBuildConversationStatusDisabledWithoutEmbedderOptIn(t *testing.T) {
 	if status == nil || status.Exchanges != 42 || status.IncompleteExchanges != 3 {
 		t.Fatalf("status = %+v", status)
 	}
-	if status.VectorState != "disabled" {
-		t.Fatalf("vector state = %q, want disabled", status.VectorState)
+	if status.VectorState != "removed" {
+		t.Fatalf("vector state = %q, want removed", status.VectorState)
 	}
 	if buildConversationStatus(t.TempDir(), &exportManifest{Sources: &brainSources{}}) != nil {
 		t.Fatal("no history source must yield no conversation status block")
@@ -692,8 +613,8 @@ func TestBrainStatsReportCountsAndVersions(t *testing.T) {
 	if c.OldestCreatedAt == "" || c.LatestCreatedAt == "" {
 		t.Fatalf("missing created-at range: %+v", c)
 	}
-	if c.VectorState != "disabled" {
-		t.Fatalf("vector state = %q (test env has no embedder opt-in)", c.VectorState)
+	if c.VectorState != "removed" {
+		t.Fatalf("vector state = %q (semantic retrieval removed)", c.VectorState)
 	}
 }
 
@@ -783,26 +704,5 @@ func TestBrainDoctorChecksCaptureToRecallChain(t *testing.T) {
 	unlock()
 	if got.State != "ok" || !strings.Contains(got.Detail, "present_unproven") || !strings.Contains(got.Detail, "does not probe-acquire") {
 		t.Fatalf("held lock check = %+v", got)
-	}
-}
-
-// TestConversationEmbeddingTextIsRequestWeighted locks the reqw1 scheme: the
-// request line survives whole, the response contributes at most a bounded
-// head, and the store identity carries the scheme version so a change rebuilds
-// vectors instead of mixing schemes.
-func TestConversationEmbeddingTextIsRequestWeighted(t *testing.T) {
-	record := historyRecord{Summary: "why did the deploy fail\n" + strings.Repeat("long response body ", 200)}
-	text := conversationEmbeddingText(record)
-	if !strings.HasPrefix(text, "why did the deploy fail\n") {
-		t.Fatalf("request line lost: %q", text[:60])
-	}
-	if len(text) > len("why did the deploy fail\n")+512 {
-		t.Fatalf("response head over bound: %d bytes", len(text))
-	}
-	if only := conversationEmbeddingText(historyRecord{Summary: "just a request"}); only != "just a request" {
-		t.Fatalf("request-only summary: %q", only)
-	}
-	if id := conversationVectorModelID("ollama:embeddinggemma"); id != "ollama:embeddinggemma:reqw1" {
-		t.Fatalf("versioned store id = %q", id)
 	}
 }

@@ -425,18 +425,14 @@ The tasks file is a JSON array:
 					return expandQuery(cmd.Context(), expRun, expandArgs, repoDir, query, expCache)
 				}
 			}
-			var rr *semanticReranker
 			if semantic {
-				rr = newSemanticReranker(defaultEmbedder())
-				if rr == nil {
-					return fmt.Errorf("--semantic requested but the embedding backend is unavailable")
-				}
+				return fmt.Errorf("--semantic was removed: semantic retrieval no longer exists (trail #278); the default arm is BM25 lexical")
 			}
 			cache := loadJudgeCache(judgeCache)
 			if err := cache.validateLoaded(); err != nil {
 				return err
 			}
-			results, err := runFactsEvalWithOptions(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs, cache, expander, rr, retriever, factsEvalRunOptions{JudgeSourceMatches: judgeSource, Arm: armFn, ArmName: arm})
+			results, err := runFactsEvalWithOptions(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs, cache, expander, retriever, factsEvalRunOptions{JudgeSourceMatches: judgeSource, Arm: armFn, ArmName: arm})
 			if err != nil {
 				return err
 			}
@@ -635,13 +631,13 @@ func validateEvalSemanticRetriever(semantic bool, retriever string) error {
 	return nil
 }
 
-func retrieveEvalItems(ctx context.Context, brainDir, branch, query string, limit int, retriever string, facts []factRecord, rr *semanticReranker, arm retrievalArm) ([]evalRetrievedItem, error) {
+func retrieveEvalItems(ctx context.Context, brainDir, branch, query string, limit int, retriever string, facts []factRecord, arm retrievalArm) ([]evalRetrievedItem, error) {
 	switch retriever {
 	case evalRetrieverFacts:
 		if arm == nil {
 			arm = flatArm
 		}
-		return factsToEvalItems(arm(facts, query, limit, rr)), nil
+		return factsToEvalItems(arm(facts, query, limit)), nil
 	case evalRetrieverHistory:
 		manifest, err := loadBrainManifest(brainDir)
 		if err != nil {
@@ -1050,18 +1046,15 @@ type factsEvalRunOptions struct {
 	ArmName            string
 }
 
-func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc, rr *semanticReranker, retriever string) ([]evalTaskResult, error) {
-	return runFactsEvalWithOptions(ctx, opts, brainDir, repoDir, defaultBranch, tasks, defaultK, judge, run, judgeArgs, cache, expander, rr, retriever, factsEvalRunOptions{})
+func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc, retriever string) ([]evalTaskResult, error) {
+	return runFactsEvalWithOptions(ctx, opts, brainDir, repoDir, defaultBranch, tasks, defaultK, judge, run, judgeArgs, cache, expander, retriever, factsEvalRunOptions{})
 }
 
-func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc, rr *semanticReranker, retriever string, runOpts factsEvalRunOptions) ([]evalTaskResult, error) {
+func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc, retriever string, runOpts factsEvalRunOptions) ([]evalTaskResult, error) {
 	if err := validateEvalTasks(tasks); err != nil {
 		return nil, err
 	}
 	if err := validateEvalRetriever(retriever); err != nil {
-		return nil, err
-	}
-	if err := validateEvalSemanticRetriever(rr != nil, retriever); err != nil {
 		return nil, err
 	}
 	results := make([]evalTaskResult, 0, len(tasks))
@@ -1101,7 +1094,7 @@ func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDi
 			}
 		}
 		started := time.Now()
-		surfaced, err := retrieveEvalItems(ctx, brainDir, branch, query, k, retriever, facts, rr, runOpts.Arm)
+		surfaced, err := retrieveEvalItems(ctx, brainDir, branch, query, k, retriever, facts, runOpts.Arm)
 		if err != nil {
 			return nil, fmt.Errorf("retrieve task %s: %w", task.ID, err)
 		}

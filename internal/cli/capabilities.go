@@ -45,18 +45,23 @@ func compiledBrainCapabilities(version string) brainCapabilities {
 	var c brainCapabilities
 	c.SchemaVersion, c.Version, c.Scope = 1, version, "compiled; not repository readiness"
 	c.Build.BrainCGO, c.Build.SQLiteDriver = brainCGOBuild, sqliteDriverName
-	c.Query.DefaultMode = "hybrid"
-	c.Query.Modes = []string{"hybrid", "keyword", "semantic"}
+	// Semantic retrieval was removed (trail #278: BM25 lexical matched or beat
+	// the embedder stack end-to-end). The "semantic" mode and the per-source
+	// semantic fields stay in the schema reporting unavailable, so committed
+	// agent-guides that validate this report keep parsing.
+	c.Query.DefaultMode = "keyword"
+	c.Query.Modes = []string{"keyword"}
 	c.Query.Inputs = []string{"positional", "--query"}
 	c.Query.ModeFlagsMutuallyExclusive = true
+	removed := []string{"semantic retrieval removed (trail #278); BM25 lexical is the only ranking"}
 	c.Sources = []brainSourceCapability{
-		{retrievalSourceFact, true, false, true, true, []string{"available embedder", "stored facts"}},
-		{retrievalSourceHistory, true, false, true, brainCGOBuild, []string{"brain_cgo build", "fusion-eligible embedder", "refresh-built history vectors"}},
-		{retrievalSourceDoc, true, false, true, true, []string{"available embedder", "document index"}},
-		{retrievalSourceConversation, false, true, true, brainCGOBuild, []string{"brain_cgo build", "fusion-eligible embedder", "refresh-built conversation vectors"}},
+		{retrievalSourceFact, true, false, true, false, removed},
+		{retrievalSourceHistory, true, false, true, false, removed},
+		{retrievalSourceDoc, true, false, true, false, removed},
+		{retrievalSourceConversation, false, true, true, false, removed},
 	}
-	c.Features = []string{"agent_instructions", "hybrid_retrieval", "durable_facts", "task_briefs", "workspaces", "mcp", "graph_inspection", "freshness_checks"}
-	c.Experimental = []string{"conversation_retrieval", "compact_brief_formats", "recall_expansion", "facts_bm25", "deterministic_evidence_recall"}
+	c.Features = []string{"agent_instructions", "bm25_retrieval", "durable_facts", "task_briefs", "workspaces", "mcp", "graph_inspection", "freshness_checks"}
+	c.Experimental = []string{"conversation_retrieval", "compact_brief_formats", "recall_expansion", "deterministic_evidence_recall"}
 	c.GraphProvider.CapabilitiesCommand = "entire graph capabilities --json"
 	c.GraphProvider.Note = "Languages and relation types belong to the installed Graph provider; this command does not invoke it."
 	c.ReadinessCommand = "entire brain status --details --json"
@@ -78,7 +83,7 @@ func newCapabilitiesCommand(opts Options) *cobra.Command {
 			out := cmd.OutOrStdout()
 			var text strings.Builder
 			fmt.Fprintf(&text, "Entire Brain %s\nBuild: %s (brain_cgo=%t)\n\n", c.Version, c.Build.SQLiteDriver, c.Build.BrainCGO)
-			fmt.Fprintln(&text, "Retrieval: hybrid (default), keyword, semantic")
+			fmt.Fprintln(&text, "Retrieval: BM25 keyword (semantic retrieval removed)")
 			fmt.Fprintln(&text, "Sources:")
 			for _, source := range c.Sources {
 				scope := "default"

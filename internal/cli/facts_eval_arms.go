@@ -19,7 +19,7 @@ import (
 //	          outline node (progressive disclosure); on the root it equals flat.
 //
 // Each arm returns the surfaced facts; the eval scores them identically.
-type retrievalArm func(facts []factRecord, query string, k int, rr *semanticReranker) []factRecord
+type retrievalArm func(facts []factRecord, query string, k int) []factRecord
 
 func selectRetrievalArm(name string) (retrievalArm, error) {
 	switch name {
@@ -36,19 +36,19 @@ func selectRetrievalArm(name string) (retrievalArm, error) {
 	}
 }
 
-func flatArm(facts []factRecord, query string, k int, rr *semanticReranker) []factRecord {
-	return rankFactsFused(facts, query, k, false, rr)
+func flatArm(facts []factRecord, query string, k int) []factRecord {
+	return rankFacts(facts, query, k, false)
 }
 
 // scopedArm narrows to the facts whose locus the query names before ranking.
 // When the query has no code locus, or nothing matches, it falls back to flat so
 // a conceptual query is never starved to zero.
-func scopedArm(facts []factRecord, query string, k int, rr *semanticReranker) []factRecord {
+func scopedArm(facts []factRecord, query string, k int) []factRecord {
 	scoped := filterFactsByLocus(facts, query)
 	if len(scoped) > 0 && len(scoped) < len(facts) {
-		return rankFactsFused(scoped, query, k, false, rr)
+		return rankFacts(scoped, query, k, false)
 	}
-	return rankFactsFused(facts, query, k, false, rr)
+	return rankFacts(facts, query, k, false)
 }
 
 // scopedFloorArm puts the locus-scoped facts first, then backfills with
@@ -56,12 +56,12 @@ func scopedArm(facts []factRecord, query string, k int, rr *semanticReranker) []
 // of the hard scoped filter — relevant facts that don't name the queried code —
 // while keeping the high-precision locus matches at the top. When the query has
 // no code locus (or every fact matches) it is exactly flat.
-func scopedFloorArm(facts []factRecord, query string, k int, rr *semanticReranker) []factRecord {
+func scopedFloorArm(facts []factRecord, query string, k int) []factRecord {
 	scoped := filterFactsByLocus(facts, query)
 	if len(scoped) == 0 || len(scoped) == len(facts) {
-		return rankFactsFused(facts, query, k, false, rr)
+		return rankFacts(facts, query, k, false)
 	}
-	out := rankFactsFused(scoped, query, k, false, rr)
+	out := rankFacts(scoped, query, k, false)
 	if len(out) >= k {
 		return out
 	}
@@ -69,7 +69,7 @@ func scopedFloorArm(facts []factRecord, query string, k int, rr *semanticReranke
 	for _, f := range out {
 		seen[f.ID] = struct{}{}
 	}
-	for _, f := range rankFactsFused(facts, query, k, false, rr) {
+	for _, f := range rankFacts(facts, query, k, false) {
 		if len(out) >= k {
 			break
 		}
@@ -86,8 +86,8 @@ func scopedFloorArm(facts []factRecord, query string, k int, rr *semanticReranke
 // the "load the relevant subtree, not the whole branch" hypothesis. On the
 // locus-sparse root (where most facts home) the subtree is the whole branch, so
 // it degenerates to flat; that degeneration is itself a measured result.
-func outlineArm(facts []factRecord, query string, k int, rr *semanticReranker) []factRecord {
-	ranked := rankFactsFused(facts, query, max(k*3, k), false, rr)
+func outlineArm(facts []factRecord, query string, k int) []factRecord {
+	ranked := rankFacts(facts, query, max(k*3, k), false)
 	if len(ranked) == 0 {
 		return nil
 	}
@@ -95,7 +95,7 @@ func outlineArm(facts []factRecord, query string, k int, rr *semanticReranker) [
 	home := factHomeKey(ranked[0])
 	ids := subtreeFactIDs(outline, home)
 	if len(ids) == 0 || len(ids) == len(facts) {
-		return rankFactsFused(facts, query, k, false, rr)
+		return rankFacts(facts, query, k, false)
 	}
 	subset := make([]factRecord, 0, len(ids))
 	for _, f := range facts {
@@ -103,7 +103,7 @@ func outlineArm(facts []factRecord, query string, k int, rr *semanticReranker) [
 			subset = append(subset, f)
 		}
 	}
-	return rankFactsFused(subset, query, k, false, rr)
+	return rankFacts(subset, query, k, false)
 }
 
 // subtreeFactIDs collects the fact ids at and beneath an outline node.

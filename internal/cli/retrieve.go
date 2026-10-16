@@ -174,31 +174,19 @@ func parseRetrievalSource(value string) (string, error) {
 	}
 }
 
-func embedQueryWith(e Embedder, q string) []float32 {
-	if qe, ok := e.(queryEmbedder); ok {
-		return qe.EmbedQuery(q)
-	}
-	return e.Embed(q)
-}
-
-// retrieveUnified ranks across facts + history + docs. Lexical (search) and
-// hybrid (query) include all three; vector (vsearch) covers facts + docs always,
-// and history only behind the fusion gate (a fusion-eligible embedder plus the
-// brain_cgo vec0 store with refresh-built vectors — see history_vec.go). The
-// gate exists because Model2Vec on history is a measured closed negative and
-// embedding hundreds of thousands of records per query is hours of work that
-// belongs in refresh. Missing layers are skipped, not errors.
+// retrieveUnified ranks across facts + history + docs, lexically: BM25 for
+// facts (facts_bm25.go), BM25/FTS with an in-memory fallback for history and
+// docs. Semantic retrieval was removed (trail #278), so every mode ranks the
+// same way; vsearch and --semantic survive only as compatibility aliases.
+// Missing layers are skipped, not errors.
 func retrieveUnified(repoDir, brainDir, branch, query string, limit int, mode retrievalMode) ([]unifiedResult, error) {
 	return retrieveUnifiedWithOptions(repoDir, brainDir, branch, query, limit, mode, retrievalOptions{})
 }
 
-// errConversationVectorUnsupported is the structured answer for explicit
-// vector search over the conversation source when the semantic arm is
-// unavailable: the arm requires the fusion-eligible embedder opt-in
-// (ENTIRE_BRAIN_EMBEDDER with a Gemma-class server), the brain_cgo build's
-// vec0 store, and refresh-built conversation vectors. Lexical search and query
-// keep working without any of that.
-var errConversationVectorUnsupported = errors.New(`source "conversation" vector search is unavailable: it requires a fusion-eligible embedder (ENTIRE_BRAIN_EMBEDDER), the brain_cgo build, and conversation vectors built by refresh; use query --keyword --source conversation for lexical recall`)
+// errConversationVectorUnsupported answers a direct modeVector call on the
+// conversation source. No CLI/MCP surface produces modeVector anymore (the
+// verbs alias to the lexical ranking); this guards internal callers.
+var errConversationVectorUnsupported = errors.New(`vector search was removed with semantic retrieval (trail #278); use query --source conversation for lexical recall`)
 
 func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {
 	if limit <= 0 {
@@ -286,10 +274,6 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		}
 		proposals, proposalsErr = loadFactProposals(brainDir, branch)
 	}
-	var e Embedder
-	if mode != modeLexical {
-		e = defaultEmbedder()
-	}
 
 	var lists [][]unifiedResult
 
@@ -301,30 +285,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 			reviewGroups = buildFactReviewGroups(factsEligibleForLocusDrift(active, globalFactIDs), proposals)
 			factLimit = guardedFactCandidateLimitForGroups(len(active), reviewGroups, candidateLimit)
 		}
-		var factResults []unifiedResult
-		switch mode {
-		case modeLexical:
-			factResults = factsToUnified(rankFacts(active, query, factLimit, false))
-		case modeVector:
-			if e != nil {
-				// Pass the full set: factsVectorRanked ranks active facts but caches
-				// (and prunes) every present fact, matching the reranker's shared store.
-				factResults = factsToUnified(factsVectorRanked(
-					brainDir, branch, all, query, e, factLimit, globalFactIDs,
-				))
-			}
-		case modeHybrid:
-			var rr *semanticReranker
-			if e != nil {
-				rr = newSemanticRerankerForBranch(e, brainDir, branch)
-				rr.markForeign(globalFactIDs)
-			}
-			factResults = factsToUnified(rankFactsFused(active, query, factLimit, false, rr))
-			if rr != nil {
-				rr.retain(all) // keep every present fact's vector; prune only departed facts (matches recall/brief)
-				_ = rr.flush()
-			}
-		}
+		factResults := factsToUnified(rankFacts(active, query, factLimit, false))
 		// Repository proposals and locus checks apply only to repository facts.
 		localFacts := factsEligibleForLocusDrift(all, globalFactIDs)
 		for i := range factResults {
@@ -350,8 +311,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	// index the manifest declares yet is missing/unreadable, is a real storage
 	// problem — surface it rather than returning silently-incomplete results. A
 	// brain with no history source (nil) is legitimately skipped.
-	historySem := historySemanticEmbedder(e)
-	if includeHistory && (mode != modeVector || historySem != nil) {
+	if includeHistory {
 		// Self-echo filtering happens after lexical ranking. Over-fetch a bounded
 		// reserve so discarded `entire brain ...` tool-call echoes do not leave
 		// the history arm artificially short.
@@ -365,14 +325,13 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		}
 		if manifest.Sources != nil && manifest.Sources.History != nil {
 			source := manifest.Sources.History
-			var lexicalHistoryIDs map[string]struct{}
 			// The FTS-payload fast path hydrates its result window without
 			// loading index.json, but it cannot apply an exclusion predicate
 			// during candidate generation and does not resolve the two-tier
 			// duplicate winner. A brain with live tombstones therefore takes
 			// the full path below; an unguarded brain, the common
 			// case, keeps the fast path.
-			if mode != modeVector && historySem == nil && guardPred == nil {
+			if guardPred == nil {
 				// The common BM25-only path hydrates its small result window from
 				// the fresh FTS payload table, then merges the short-term tier.
 				// Legacy/stale/corrupt caches fall back through the verified full
@@ -405,40 +364,16 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 				if guardPred != nil {
 					index = historyIndex{GeneratedAt: index.GeneratedAt, Records: filterHistoryRecords(index.Records, guardPred)}
 				}
-				if mode != modeVector {
-					scored := rankFreshHistory(fresh, "history", query, historyCandidateLimit, guardPred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
-						lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, "history", query, historyCandidateLimit, historyFTSRelevanceCutoff, eligible)
-						return lex, ok && complete
-					})
-					scored = filterHistoryRetrievalSelfEchoes(scored, query)
-					if len(scored) > candidateLimit {
-						scored = scored[:candidateLimit]
-					}
-					if len(scored) > 0 {
-						lexicalHistoryIDs = make(map[string]struct{}, len(scored))
-						for _, record := range scored {
-							lexicalHistoryIDs[record.Record.ID] = struct{}{}
-						}
-						lists = append(lists, historyToUnified(scored))
-					}
+				scored := rankFreshHistory(fresh, "history", query, historyCandidateLimit, guardPred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
+					lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, "history", query, historyCandidateLimit, historyFTSRelevanceCutoff, eligible)
+					return lex, ok && complete
+				})
+				scored = filterHistoryRetrievalSelfEchoes(scored, query)
+				if len(scored) > candidateLimit {
+					scored = scored[:candidateLimit]
 				}
-				if mode != modeLexical && historySem != nil {
-					// Independently ranked history lists: global RRF fuses BM25 and
-					// cosine, then gives calibrated term-disjoint evidence a second
-					// vote without triple-counting lexical hits.
-					scores := historySemanticScores(brainDir, historySem, query, candidateLimit, mode == modeHybrid)
-					var sem historyVectorRanks
-					if mode == modeVector {
-						sem.ranked = rankHistorySemantic(index, scores, candidateLimit)
-					} else {
-						sem = rankHistorySemanticHybridRanks(index, scores, candidateLimit, lexicalHistoryIDs)
-					}
-					if len(sem.ranked) > 0 {
-						lists = append(lists, historyToUnified(sem.ranked))
-					}
-					if len(sem.calibratedSemanticOnly) > 0 {
-						lists = append(lists, historyToUnified(sem.calibratedSemanticOnly))
-					}
+				if len(scored) > 0 {
+					lists = append(lists, historyToUnified(scored))
 				}
 			}
 		}
@@ -456,32 +391,14 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	}
 	switch {
 	case derr == nil && len(docIdx.Records) > 0:
-		var lexicalDocIDs map[string]struct{}
-		if mode != modeVector {
-			// FTS is an optimization, never load-bearing: fall back to the in-memory
-			// lexical scorer so docs don't vanish when the doc FTS index can't open.
-			scored, ok := rankDocsViaFTS(brainDir, docIdx, query, candidateLimit)
-			if !ok {
-				scored = rankDocsLexical(docIdx, query, candidateLimit)
-			}
-			if len(scored) > 0 {
-				lexicalDocIDs = make(map[string]struct{}, len(scored))
-				for _, record := range scored {
-					lexicalDocIDs[record.Record.ID] = struct{}{}
-				}
-				lists = append(lists, docsToUnified(scored))
-			}
+		// FTS is an optimization, never load-bearing: fall back to the in-memory
+		// lexical scorer so docs don't vanish when the doc FTS index can't open.
+		scored, ok := rankDocsViaFTS(brainDir, docIdx, query, candidateLimit)
+		if !ok {
+			scored = rankDocsLexical(docIdx, query, candidateLimit)
 		}
-		if mode != modeLexical && e != nil {
-			vectorRanks := docsVectorRanked(
-				brainDir, docIdx, query, e, candidateLimit, mode == modeHybrid, lexicalDocIDs,
-			)
-			if len(vectorRanks.ranked) > 0 {
-				lists = append(lists, vectorRanks.ranked)
-			}
-			if len(vectorRanks.calibratedSemanticOnly) > 0 {
-				lists = append(lists, vectorRanks.calibratedSemanticOnly)
-			}
+		if len(scored) > 0 {
+			lists = append(lists, docsToUnified(scored))
 		}
 	case includeDocs && derr != nil && os.IsNotExist(derr):
 		// A doc index the manifest DECLARES and the store no longer holds is
@@ -558,211 +475,6 @@ func filterHistoryRetrievalSelfEchoes(scored []scoredHistoryRecord, query string
 			continue
 		}
 		out = append(out, item)
-	}
-	return out
-}
-
-// factsVectorRanked ranks active facts by cosine. facts is the full present set
-// (all statuses): active facts are ranked, but every present fact is embedded and
-// retained in the shared cache so this path keeps the same vectors the recall/brief
-// reranker does — and departed facts are pruned so the on-disk cache stays bounded.
-// foreign ids are ranked but never enter this repository's vector store: the
-// store is keyed by (brainDir, branch), and a global fact belongs to every
-// repository rather than to this one.
-func factsVectorRanked(
-	brainDir, branch string,
-	facts []factRecord,
-	query string,
-	e Embedder,
-	limit int,
-	foreign map[string]bool,
-) []factRecord {
-	// An empty query vector means the embedder is unavailable (e.g. Ollama down).
-	// Return no semantic results rather than an arbitrary top-N: every cosine
-	// would be 0 and the sort would just echo input order. A wrong-dimension
-	// query also fails closed before the cache is inspected: it must not make
-	// valid document vectors look corrupt and trigger a destructive rebuild.
-	qv := embedQueryWith(e, query)
-	if e.Dim() <= 0 || len(qv) != e.Dim() || !vectorHasMagnitude(qv) {
-		return nil
-	}
-	store := newVectorStore(brainDir, branch, factEmbeddingModelID(e.ID()), e.Dim())
-	cache := store.load()
-	dirty := false
-	present := make(map[string]struct{}, len(facts))
-	type sc struct {
-		rec factRecord
-		cos float64
-	}
-	scored := make([]sc, 0, len(facts))
-	for _, f := range facts {
-		if foreign[f.ID] {
-			if f.Status != factStatusActive {
-				continue
-			}
-			fv := e.Embed(factEmbeddingText(f))
-			if len(fv) == len(qv) && vectorHasMagnitude(fv) {
-				scored = append(scored, sc{rec: f, cos: cosineFloat32(qv, fv)})
-			}
-			continue
-		}
-		present[f.ID] = struct{}{}
-		v, ok := cache[f.ID]
-		if ok && (len(v) != len(qv) || !vectorHasMagnitude(v)) {
-			// A nil value is a deletion tombstone for savePresent: it overrides
-			// any invalid entry reloaded under the write lock, then is omitted
-			// from the rewritten store if re-embedding fails.
-			cache[f.ID] = nil
-			dirty = true
-			ok = false
-		}
-		if !ok {
-			v = e.Embed(factEmbeddingText(f))
-			if len(v) == len(qv) && vectorHasMagnitude(v) {
-				cache[f.ID] = v // never cache empty/mismatched vectors
-				dirty = true
-			}
-		}
-		if f.Status != factStatusActive || len(v) != len(qv) {
-			continue // rank active facts only; skip degenerate vectors
-		}
-		if !vectorHasMagnitude(v) {
-			continue
-		}
-		scored = append(scored, sc{rec: f, cos: cosineFloat32(qv, v)})
-	}
-	if saved := pruneToPresent(cache, present); dirty || saved {
-		_ = store.savePresent(cache, present)
-	}
-	sort.Slice(scored, func(a, b int) bool { return scored[a].cos > scored[b].cos })
-	out := make([]factRecord, 0, min(limit, len(scored)))
-	for _, s := range scored {
-		out = append(out, s.rec)
-		if len(out) >= limit {
-			break
-		}
-	}
-	return out
-}
-
-// pruneToPresent drops cache entries whose id is no longer in present, keeping the
-// on-disk vector cache bounded to the current corpus. Reports whether it removed
-// anything (so callers save even when no new vector was embedded).
-func pruneToPresent(cache map[string][]float32, present map[string]struct{}) bool {
-	removed := false
-	for id := range cache {
-		if _, ok := present[id]; !ok {
-			delete(cache, id)
-			removed = true
-		}
-	}
-	return removed
-}
-
-type documentVectorRanks struct {
-	ranked                 []unifiedResult
-	calibratedSemanticOnly []unifiedResult
-}
-
-func docsVectorRanked(
-	brainDir string,
-	index docIndex,
-	query string,
-	e Embedder,
-	limit int,
-	requireRelevance bool,
-	lexicalDocIDs map[string]struct{},
-) documentVectorRanks {
-	// Same guard as factsVectorRanked: no query vector → no doc semantic hits,
-	// not arbitrary docs ranked by all-zero cosines.
-	qv := embedQueryWith(e, query)
-	if e.Dim() <= 0 || len(qv) != e.Dim() || !vectorHasMagnitude(qv) {
-		return documentVectorRanks{}
-	}
-	store := newDocEmbedStore(brainDir, e.ID(), e.Dim())
-	cache := store.load()
-	dirty := false
-	present := make(map[string]struct{}, len(index.Records))
-	type sc struct {
-		i      int
-		cos    float64
-		vector []float32
-		keep   bool
-	}
-	scored := make([]sc, 0, len(index.Records))
-	for i, r := range index.Records {
-		present[r.ID] = struct{}{}
-		v, ok := cache[r.ID]
-		if ok && (len(v) != len(qv) || !vectorHasMagnitude(v)) {
-			cache[r.ID] = nil // persist deletion if repair fails
-			dirty = true
-			ok = false
-		}
-		if !ok {
-			v = e.Embed(r.Text)
-			if len(v) == len(qv) && vectorHasMagnitude(v) {
-				cache[r.ID] = v
-				dirty = true
-			}
-		}
-		if len(v) != len(qv) {
-			continue
-		}
-		if !vectorHasMagnitude(v) {
-			continue
-		}
-		entry := sc{i: i, cos: cosineFloat32(qv, v)}
-		if requireRelevance {
-			entry.vector = v
-		}
-		scored = append(scored, entry)
-	}
-	// Doc ids are content-derived, so any rebuild churns them; prune departed ids
-	// so the cache stays bounded to the current doc corpus.
-	if saved := pruneToPresent(cache, present); dirty || saved {
-		_ = store.savePresent(cache, present)
-	}
-	cosines := make([]float64, len(scored))
-	vectors := make([][]float32, len(scored))
-	for i := range scored {
-		cosines[i] = scored[i].cos
-		vectors[i] = scored[i].vector
-	}
-	var backgrounds []float64
-	if requireRelevance {
-		backgrounds = semanticLeaveOneOutBackgrounds(qv, vectors)
-	}
-	mask := semanticResultMask(cosines, requireRelevance, backgrounds)
-	for i := range scored {
-		scored[i].keep = mask[i]
-	}
-	sort.Slice(scored, func(a, b int) bool {
-		left := docTrustAdjustedScore(scored[a].cos, index.Records[scored[a].i].Historical)
-		right := docTrustAdjustedScore(scored[b].cos, index.Records[scored[b].i].Historical)
-		if left != right {
-			return left > right
-		}
-		return index.Records[scored[a].i].ID < index.Records[scored[b].i].ID
-	})
-	out := documentVectorRanks{
-		ranked:                 make([]unifiedResult, 0, min(limit, len(scored))),
-		calibratedSemanticOnly: make([]unifiedResult, 0),
-	}
-	for _, s := range scored {
-		_, lexical := lexicalDocIDs[index.Records[s.i].ID]
-		if !s.keep && !(requireRelevance && lexical) {
-			continue
-		}
-		result := docToUnified(index.Records[s.i])
-		if len(out.ranked) < limit {
-			out.ranked = append(out.ranked, result)
-		}
-		if requireRelevance && s.keep && !lexical && len(out.calibratedSemanticOnly) < limit {
-			out.calibratedSemanticOnly = append(out.calibratedSemanticOnly, result)
-		}
-		if len(out.ranked) >= limit && (!requireRelevance || len(out.calibratedSemanticOnly) >= limit) {
-			break
-		}
 	}
 	return out
 }
@@ -846,43 +558,9 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	var scored []scoredHistoryRecord
 	switch mode {
 	case modeVector:
-		var scores map[string]float64
-		if pred != nil {
-			scores = conversationSemanticScoresExhaustive(brainDir, historySemanticEmbedder(defaultEmbedder()), query, false)
-		} else {
-			scores = conversationSemanticScores(brainDir, historySemanticEmbedder(defaultEmbedder()), query, candidateLimit, false)
-		}
-		if len(scores) == 0 {
-			return nil, errConversationVectorUnsupported
-		}
-		// Semantic-only ranks long-term vectors; short-term records have no
-		// vectors until consolidation and are deliberately absent here. The
-		// reconciled view also drops long-term copies a newer overlay copy
-		// supersedes: those wait for consolidation like any other
-		// short-term record instead of surfacing stale.
-		semIndex := fresh.longTermReconciled()
-		if pred != nil {
-			semIndex = historyIndex{GeneratedAt: semIndex.GeneratedAt, Records: filterHistoryRecords(semIndex.Records, pred)}
-		}
-		scored = rankConversationSemantic(semIndex, scores, candidateLimit)
+		return nil, errConversationVectorUnsupported
 	case modeHybrid:
-		// Conversation fusion is OFF by default pending a validated positive:
-		// the 2026-08-07 calibration on the entire-brain corpus (22-task exact
-		// pack + 10-task paraphrase stratum, EmbeddingGemma) measured fusion
-		// trading exact-match precision (R@1 0.864→0.773, one R@5 loss, one
-		// paraphrase dropped from rank 1 to unranked) for +1 paraphrase hit;
-		// the same displacement failure mode that closed Model2Vec history
-		// fusion. Same discipline as historyFusionEligible: the fused arm
-		// ships dark behind a development flag until an eval-ledger row
-		// validates it (see docs/eval_ledger.md).
 		scored = rankFreshHistory(fresh, conversationKind, query, candidateLimit, pred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
-			if envBool("ENTIRE_BRAIN_CONVERSATION_FUSION") {
-				fused, complete, ok := rankConversationFused(brainDir, longTerm, query, candidateLimit, defaultEmbedder(), eligible)
-				if ok && !complete {
-					scanComplete = false
-				}
-				return fused, ok
-			}
 			lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, conversationKind, query, candidateLimit, historyFTSRelevanceCutoff, eligible)
 			if ok && !complete {
 				scanComplete = false

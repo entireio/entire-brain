@@ -194,25 +194,24 @@ is not about one repo.
 ### Search
 
 ```bash
-# Lexical (BM25 over history and docs, token overlap over facts).
-entire brain query --keyword "rate limiter"
-
-# Vector / semantic.
-entire brain query --semantic "how do we handle backpressure"
-
-# Hybrid: lexical + vector, fused with RRF. Usually the one you want.
+# BM25 lexical ranking across facts, history, and docs.
 entire brain query "why did we drop the queue abstraction"
 ```
+
+Semantic (embedding) retrieval was removed: a 1,748-run agent eval measured
+BM25 lexical ranking matching or beating the embedder stack end-to-end while
+cutting agent tokens 18-28%, query memory 96%, and 31 MB off the binary (see
+docs/eval_ledger.md and trail #278). `--keyword` is accepted for
+compatibility (it is the only mode); `--semantic` and `vsearch` return an
+error pointing here.
 
 Supply the query text positionally or with `--query`; flags can appear before or after it:
 
 ```bash
 entire brain query --keyword --query "RetryPolicy"
-entire brain query --query "handling temporary failures" --semantic
 ```
 
-The default mode is hybrid. `--keyword` and `--semantic` are mutually
-exclusive; supplying both a positional query and `--query` is an error.
+Supplying both a positional query and `--query` is an error.
 The same forms work with `entire brain workspace query <workspace>`.
 
 `query` also takes `--source` (`all` | `fact` | `history` | `doc` | `conversation`) to narrow the corpus, and `--json` for machine-readable output:

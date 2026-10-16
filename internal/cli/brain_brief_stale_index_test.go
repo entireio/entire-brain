@@ -422,6 +422,13 @@ func newBrainBriefPostIndexRepo(t testing.TB) string {
 	runBrainBriefPostIndexGit(t, repoDir, "config", "user.email", "brain-test@example.invalid")
 	runBrainBriefPostIndexGit(t, repoDir, "config", "commit.gpgsign", "false")
 	runBrainBriefPostIndexGit(t, repoDir, "config", "core.hooksPath", filepath.Join(repoDir, ".no-hooks"))
+	// The git-intent tests make ~20 commits; git's auto-gc detaches and keeps
+	// writing .git/objects past the test's end, which races TempDir cleanup
+	// ("directory not empty") and can break concurrent commits mid-run
+	// ("could not parse HEAD") — both observed as CI flakes on PR #365.
+	runBrainBriefPostIndexGit(t, repoDir, "config", "gc.auto", "0")
+	runBrainBriefPostIndexGit(t, repoDir, "config", "gc.autoDetach", "false")
+	runBrainBriefPostIndexGit(t, repoDir, "config", "maintenance.auto", "false")
 	return repoDir
 }
 

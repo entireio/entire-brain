@@ -413,11 +413,11 @@ func memoryVectorProgressHealth(brainDir string, source *historySourceManifest) 
 			if loadErr.Version > 0 {
 				health["schema_version"] = loadErr.Version
 			}
-			switch loadErr.State {
-			case memoryVectorProgressUnsupported:
+			// Only "unsupported" remains: the "unsafe" ownership-conflict
+			// state died with the vector writer (semantic removal, trail
+			// #278) — no reader can produce it anymore.
+			if loadErr.State == memoryVectorProgressUnsupported {
 				state = "unsupported"
-			case memoryVectorProgressUnsafe:
-				state = "unsafe"
 			}
 		}
 		health["state"] = state

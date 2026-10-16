@@ -1890,10 +1890,11 @@ func TestMCPConversationQueryThenGet(t *testing.T) {
 	if responses[2]["error"] == nil {
 		t.Fatalf("invalid source must error: %+v", responses[2])
 	}
-	// 4: vsearch with the conversation source is semantic-only; with the arm
-	// closed in this environment it returns the structured vector-state error.
-	if responses[3]["error"] == nil {
-		t.Fatalf("brain_vsearch with a closed conversation vector arm must error: %+v", responses[3])
+	// 4: brain_vsearch is a BM25 compatibility alias since the semantic
+	// removal (trail #278): the conversation source answers lexically instead
+	// of returning the old vector-state error.
+	if responses[3]["error"] != nil {
+		t.Fatalf("brain_vsearch alias must answer lexically: %+v", responses[3])
 	}
 	// 5: default search (source omitted) must not surface conversation records.
 	payload := mcpTextJSONPayload(t, responses[4])

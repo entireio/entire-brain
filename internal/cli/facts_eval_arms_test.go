@@ -32,12 +32,12 @@ func TestScopedFloorRecoversToK(t *testing.T) {
 		{ID: "p2", Status: factStatusActive, Paths: []string{"architecture.data.flow"}, Text: "token expiry uses a grace window.", UpdatedAt: now},
 	}
 	// Hard scoped narrows to the single locus match.
-	hard := scopedArm(facts, "ValidateToken expiry token", 5, nil)
+	hard := scopedArm(facts, "ValidateToken expiry token", 5)
 	if len(hard) != 1 || hard[0].ID != "loc" {
 		t.Fatalf("hard scoped should return only the locus match, got %+v", hard)
 	}
 	// scoped-floor keeps the locus match first, then backfills flat-ranked facts.
-	floor := scopedFloorArm(facts, "ValidateToken expiry token", 5, nil)
+	floor := scopedFloorArm(facts, "ValidateToken expiry token", 5)
 	if len(floor) <= 1 {
 		t.Fatalf("scoped-floor should backfill beyond the single locus match, got %+v", floor)
 	}
@@ -62,12 +62,12 @@ func TestScopedArmNarrowsThenFallsBack(t *testing.T) {
 		{ID: "c", Status: factStatusActive, Paths: []string{"architecture.data.flow"}, Text: "The store is SQLite.", UpdatedAt: now},
 	}
 	// A code-locus query narrows to the locus-matching fact only.
-	got := scopedArm(facts, "ValidateToken expiry", 10, nil)
+	got := scopedArm(facts, "ValidateToken expiry", 10)
 	if len(got) != 1 || got[0].ID != "a" {
 		t.Fatalf("scoped arm should narrow to the locus match, got %+v", got)
 	}
 	// A conceptual query (no code locus) falls back to flat — does not starve to 0.
-	got = scopedArm(facts, "how does caching work", 10, nil)
+	got = scopedArm(facts, "how does caching work", 10)
 	if len(got) == 0 {
 		t.Fatalf("conceptual query should fall back to flat, got nothing")
 	}
@@ -82,7 +82,7 @@ func TestOutlineArmRanksWithinSubtree(t *testing.T) {
 	}
 	// A query about internal/cli content should keep the result within that
 	// subtree (db1 lives under internal/db and is excluded).
-	got := outlineArm(facts, "internal/cli/facts.go factRecord", 10, nil)
+	got := outlineArm(facts, "internal/cli/facts.go factRecord", 10)
 	if len(got) == 0 {
 		t.Fatalf("outline arm returned nothing")
 	}

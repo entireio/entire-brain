@@ -178,64 +178,6 @@ func TestHistoryEvalCutoffSweep(t *testing.T) {
 		t.Fatalf("cutoff 0.99 should trim to the top match, got %+v (ok=%v)", tight, ok)
 	}
 }
-
-// fixedEmbedder is a deterministic stub: texts map to fixed vectors, unknown
-// text to the zero vector. The optional query prefix mirrors queryEmbedder.
-type fixedEmbedder struct {
-	vecs map[string][]float32
-	dim  int
-}
-
-func (f *fixedEmbedder) Embed(text string) []float32 {
-	if v, ok := f.vecs[text]; ok {
-		return v
-	}
-	return make([]float32, f.dim)
-}
-func (f *fixedEmbedder) Dim() int   { return f.dim }
-func (f *fixedEmbedder) ID() string { return "fixed-test" }
-
-// TestHistoryFusedReachesTermDisjoint: the reachability claim for the
-// prospective fused arm — a record sharing no term with the query is
-// unreachable by BM25 but surfaces through the semantic side of the fusion.
-func TestHistoryFusedReachesTermDisjoint(t *testing.T) {
-	brainDir := t.TempDir()
-	index := historyIndex{GeneratedAt: time.Now(), Records: []historyRecord{
-		{ID: "target", Kind: "decision", Path: "p1", Line: 1, Summary: "indentation uses spaces, never tabs"},
-		{ID: "noise1", Kind: "decision", Path: "p2", Line: 1, Summary: "release artifacts publish nightly"},
-		{ID: "noise2", Kind: "decision", Path: "p3", Line: 1, Summary: "reviews need two approvals"},
-	}}
-	query := "whitespace convention"
-	e := &fixedEmbedder{dim: 3, vecs: map[string][]float32{
-		query:                                 {1, 0, 0},
-		"indentation uses spaces, never tabs": {0.95, 0.05, 0},
-		"release artifacts publish nightly":   {0, 1, 0},
-		"reviews need two approvals":          {0, 0, 1},
-	}}
-
-	// BM25 alone cannot reach the term-disjoint record.
-	if scored, ok := rankHistoryViaFTSCutoff(brainDir, index, "history", query, 5, historyFTSRelevanceCutoff); ok {
-		for _, s := range scored {
-			if s.Record.ID == "target" {
-				t.Fatalf("test premise broken: bm25 reached the term-disjoint record")
-			}
-		}
-	}
-	got, err := newHistoryFusedRanker(brainDir, index, e, historyFTSRelevanceCutoff).rank(query, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].ID != "target" {
-		t.Fatalf("fused arm should surface the term-disjoint record first, got %+v", got)
-	}
-}
-
-// TestHistoryEvalGenLoadCompareSeam covers the seam that broke when label
-// discipline landed in facts_eval without touching this file: generated tasks
-// must survive the write -> loadEvalTasks round trip, legacy files without
-// label_source must still load (defaulted to provenance_silver), and two
-// history-eval summaries must compare without --allow-proxy-comparison while
-// staying non-proof (EvidenceBasis proxy).
 func TestHistoryEvalGenLoadCompareSeam(t *testing.T) {
 	brainDir, manifest, index := historyEvalFixture(t)
 	tasks := generateHistoryEvalTasks(brainDir, manifest, index, "", 2, 0, 0, false)

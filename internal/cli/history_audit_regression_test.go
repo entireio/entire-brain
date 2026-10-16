@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -28,27 +27,6 @@ func TestHistoryAuditDeclaredDocLossFailsExpansion(t *testing.T) {
 	}
 	if _, missing, err := getUnifiedBatch("", t.TempDir(), "main", []string{"doc:d1"}); err != nil || len(missing) != 1 {
 		t.Fatalf("never indexed docs: %v %v", missing, err)
-	}
-}
-
-func TestHistoryAuditFailedEmbeddingUnavailable(t *testing.T) {
-	for _, v := range [][]float32{nil, {0, 0}, {1}, {float32(math.NaN()), 1}, {float32(math.Inf(1)), 0}} {
-		query := "whitespace convention"
-		e := &fixedEmbedder{dim: 2, vecs: map[string][]float32{query: {1, 0}, "unrelated": v}}
-		idx := historyIndex{Records: []historyRecord{{ID: "noise", Kind: "decision", Summary: "unrelated"}}}
-		f := newHistoryFusedRanker(t.TempDir(), idx, e, .3)
-		got, err := f.rank(query, 1)
-		if err == nil || len(got) != 0 {
-			t.Errorf("invalid candidate %v became semantic evidence: %v %v", v, got, err)
-		}
-		if len(f.vecs) != 0 {
-			t.Errorf("invalid vector cached: %v", f.vecs)
-		}
-		e.vecs[query] = v
-		e.vecs["unrelated"] = []float32{1, 0}
-		if got, err := f.rank(query, 1); err == nil || len(got) != 0 {
-			t.Errorf("invalid query %v became semantic evidence: %v %v", v, got, err)
-		}
 	}
 }
 

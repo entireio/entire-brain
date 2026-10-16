@@ -3,9 +3,10 @@
 package cli
 
 // Stage 1b cgo stack (alignment plan): the brain's SQLite engine converges on
-// the qmd/Librarian-local stack — mattn/go-sqlite3 with the sqlite-vec
-// extension compiled in — so the two local tools can share one driver, one
-// schema, and (eventually) one store. Selected with
+// the qmd/Librarian-local stack — mattn/go-sqlite3 — so the two local tools
+// can share one driver and one schema. The sqlite-vec extension this build
+// used to register died with semantic retrieval (trail #278): no vec0 table
+// exists anywhere in the store anymore. Selected with
 //
 //	go build -tags "brain_cgo sqlite_fts5"
 //
@@ -17,7 +18,6 @@ package cli
 // driver — the cgo-less fallback the Stage 1b exit gate requires.
 
 import (
-	sqlitevec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -26,9 +26,3 @@ const sqliteDriverName = "sqlite3"
 
 // brainCGOBuild reports whether this binary runs the Stage 1b cgo stack.
 const brainCGOBuild = true
-
-func init() {
-	// Register sqlite-vec on every future connection (sqlite3_auto_extension),
-	// so vec0 virtual tables are available wherever the driver is opened.
-	sqlitevec.Auto()
-}

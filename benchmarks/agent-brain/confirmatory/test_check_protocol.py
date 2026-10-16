@@ -327,9 +327,13 @@ class ProtocolCheckTest(unittest.TestCase):
                 "source_artifacts[1]: content hash mismatch: benchmarks/agent-brain/run_test.py",
                 "source_artifacts[8]: content hash mismatch: internal/cli/facts_eligibility_test.go",
                 "source_artifacts[9]: content hash mismatch: internal/cli/facts_read_cmd.go",
-                "source_artifacts[11]: content hash mismatch: internal/cli/embed_rank.go",
-                "source_artifacts[12]: content hash mismatch: internal/cli/embed_store.go",
-                "source_artifacts[13]: content hash mismatch: internal/cli/embed_vec_cgo.go",
+                # The semantic-retrieval removal (trail #278) deleted the next
+                # four recorded sources outright, so the stale bindings now
+                # fail as missing files rather than hash mismatches.
+                "source_artifacts[10]: file does not exist: internal/cli/facts_retrieval_identity_test.go",
+                "source_artifacts[11]: file does not exist: internal/cli/embed_rank.go",
+                "source_artifacts[12]: file does not exist: internal/cli/embed_store.go",
+                "source_artifacts[13]: file does not exist: internal/cli/embed_vec_cgo.go",
                 "source_artifacts[15]: content hash mismatch: benchmarks/agent-brain/analysis/evidence.py",
                 "source_artifacts[17]: content hash mismatch: benchmarks/agent-brain/analysis/confirmatory.py",
                 "analyzer files[3]: content hash mismatch: benchmarks/agent-brain/analysis/evidence.py",

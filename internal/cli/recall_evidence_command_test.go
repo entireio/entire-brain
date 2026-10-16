@@ -31,10 +31,7 @@ func TestRecallEvidenceCommandReturnsOriginalSourceWithoutModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
-	cmd := newRecallCommandWithEmbedder(opts, func() Embedder {
-		t.Fatal("evidence recall initialized a model")
-		return nil
-	})
+	cmd := newRecallCommand(opts)
 	output, err := execute(t, cmd, "release approval", "--evidence", "--json")
 	if err != nil {
 		t.Fatal(err)

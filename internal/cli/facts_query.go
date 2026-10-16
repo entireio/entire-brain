@@ -18,9 +18,10 @@ const factLocusBoost = 60
 // until distill/reclassify produce closed-negatives.
 const factClosedNegativeBoost = 30
 
-// factLexicalScore is the full lexical arm for one fact: term/substring score,
-// locus boost, and the closed-negative kind boost. Both rankFacts and the
-// fused ranker's lexical side call this, so the two paths cannot drift.
+// factLexicalScore is the legacy integer scorer: term/substring score, locus
+// boost, and the closed-negative kind boost. rankFacts moved to BM25
+// (facts_bm25.go); the post-failure hook still uses this scorer for its
+// threshold semantics (hookPostFailureMinScore is calibrated to this scale).
 func factLexicalScore(f factRecord, query string, queryLocus []string) int {
 	score := factQueryScore(f, query)
 	if overlap := locusOverlapTokens(queryLocus, factLocusOf(f)); overlap > 0 {
@@ -35,7 +36,7 @@ func factLexicalScore(f factRecord, query string, queryLocus []string) int {
 // scoredFact pairs a fact with its query score for ranking.
 type scoredFact struct {
 	Record factRecord
-	Score  int
+	Score  float64
 }
 
 // rankFacts scores facts against a query and returns the top matches, highest
@@ -66,9 +67,11 @@ func rankFacts(facts []factRecord, query string, limit int, includeAll bool) []f
 	}
 
 	queryLocus := factLocus(query)
+	terms := factQueryTerms(query)
+	corpus := newBM25Corpus(candidates)
 	scored := make([]scoredFact, 0, len(candidates))
-	for _, f := range candidates {
-		if score := factLexicalScore(f, query, queryLocus); score > 0 {
+	for i, f := range candidates {
+		if score := factBM25Score(f, corpus, i, terms, queryLocus); score > 0 {
 			scored = append(scored, scoredFact{Record: f, Score: score})
 		}
 	}

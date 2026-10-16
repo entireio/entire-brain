@@ -296,30 +296,6 @@ func TestBrainBriefProfileRejectsHandoffWithoutWriting(t *testing.T) {
 		t.Fatalf("rejected handoff wrote profile: %v", statErr)
 	}
 }
-
-func TestBrainBriefProfilingEmbedderRecordsCountsWithoutText(t *testing.T) {
-	metrics := brainBriefProfileEmbedding{}
-	embedder := &brainBriefProfilingEmbedder{Embedder: briefProfileTestEmbedder{}, profile: &metrics}
-	embedder.Embed("PRIVATE_DOCUMENT_TEXT")
-	embedder.EmbedQuery("PRIVATE_QUERY_TEXT")
-	if !metrics.Invoked || metrics.FactCallCount != 1 || metrics.QueryCallCount != 1 || metrics.ValidVectorCount != 2 || metrics.InvalidCount != 0 {
-		t.Fatalf("unexpected embed metrics: %+v", metrics)
-	}
-	data, err := json.Marshal(metrics)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(data), "PRIVATE") {
-		t.Fatalf("embed profile retained input text: %s", data)
-	}
-}
-
-type briefProfileTestEmbedder struct{}
-
-func (briefProfileTestEmbedder) Embed(string) []float32 { return []float32{1, 0} }
-func (briefProfileTestEmbedder) Dim() int               { return 2 }
-func (briefProfileTestEmbedder) ID() string             { return "test" }
-
 func assertRawHistoryProfileAggregates(t *testing.T, profile brainBriefProfileRawHistory) {
 	t.Helper()
 	var files, matches, truncations, errors int

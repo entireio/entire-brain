@@ -286,29 +286,6 @@ func runHistoryIndex(ctx context.Context, cmd *cobra.Command, opts Options, targ
 		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "indexed %d history records: %s\n", source.Records, filepath.Join(storage.BrainDir, filepath.FromSlash(source.IndexPath)))
-	// History vectors ride the history stage (standalone here, and the same
-	// sequence inside the full `refresh`): only under the ENTIRE_BRAIN_EMBEDDER
-	// opt-in, see history_vec.go for the gate and sizing rationale.
-	if strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")) != "" {
-		e := historySemanticEmbedder(defaultEmbedder())
-		store, storeOK := historyVectorStoreFor(storage.BrainDir, e)
-		switch {
-		case e == nil:
-			fmt.Fprintln(cmd.OutOrStdout(), "history vectors: skipped (embed server unavailable)")
-		case !storeOK:
-			fmt.Fprintln(cmd.OutOrStdout(), "history vectors: skipped (requires the brain_cgo build)")
-		default:
-			_ = store // availability was checked above; the guarded writer reopens it.
-			vectors, serr := syncMemoryProjectionVectorsFully(ctx, storage.BrainDir, opts.Now().UTC(), e, func(progress memoryVectorSyncPass) {
-				fmt.Fprintf(cmd.ErrOrStderr(), "history vectors: %d new %s embedded\n", progress.HistoryAdded, pluralUnit("record", progress.HistoryAdded))
-			})
-			if serr != nil {
-				return serr
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "history vectors: %d embedded, %d pruned (%d total)\n", vectors.HistoryAdded, vectors.HistoryDropped, vectors.HistoryTotal)
-			fmt.Fprintf(cmd.OutOrStdout(), "conversation vectors: %d embedded, %d pruned (%d total)\n", vectors.ConversationAdded, vectors.ConversationDrop, vectors.ConversationTotal)
-		}
-	}
 	return nil
 }
 

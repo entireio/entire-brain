@@ -62,6 +62,20 @@ Re-run the benchmark to evaluate your current build and corpus.
 
 ## Retrieval quality: what moved the numbers
 
+> **Superseded 2026-10-12:** semantic retrieval was removed entirely. A
+> 1,748-run live-agent eval across two repositories, three models, and corpus
+> sizes up to 1,209 facts measured an in-process BM25 ranker with taxonomy
+> filters matching or beating the full embedder stack on recall and precision
+> while cutting agent tokens 18-28%, per-query memory 96% (316 MB -> 14 MB in
+> the prototype measurement), and 31 MB off every binary. The rows below are
+> retained as the historical record that gated earlier ship decisions; the
+> superseding row and its caveats (a marginal haiku-class recall edge for the
+> embedder, p=0.051) are in the [eval ledger](eval_ledger.md), and the
+> implementation is tracked in trail #278. The doc source was measured only
+> indirectly: its lexical-only ranking after the removal is an inference from
+> the facts result, not a doc-side eval.
+
+
 These are Brain measured against Brain — one retrieval arm against another on
 the same corpus and task set. They are not comparisons with other products.
 

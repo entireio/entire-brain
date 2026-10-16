@@ -360,109 +360,6 @@ func (e *memoryContextTestEmbedder) EmbedContext(ctx context.Context, _ string) 
 	}
 }
 
-func TestMemoryVectorLaneUsesDurableCappedContextBatches(t *testing.T) {
-	store := &memoryVectorTestStore{}
-	embedder := &memoryContextTestEmbedder{}
-	index := historyIndex{}
-	for i := 0; i < memoryVectorBatchRecords+9; i++ {
-		index.Records = append(index.Records, historyRecord{ID: memoryJobID("repo", "record", string(rune(i)), "vector"), Kind: "decision", Summary: string(rune('a' + (i % 20)))})
-	}
-	added, _, total, pending, err := syncVectorsForKindsContextBatch(context.Background(), store, index, embedder, func(string) bool { return false }, func(record historyRecord) string { return record.Summary }, memoryVectorBatchRecords)
-	if err != nil || added != memoryVectorBatchRecords || total != len(index.Records) || !pending || len(store.vectors) != memoryVectorBatchRecords {
-		t.Fatalf("first vector batch: added=%d total=%d pending=%v stored=%d err=%v", added, total, pending, len(store.vectors), err)
-	}
-	added, _, _, pending, err = syncVectorsForKindsContextBatch(context.Background(), store, index, embedder, func(string) bool { return false }, func(record historyRecord) string { return record.Summary }, memoryVectorBatchRecords)
-	if err != nil || added != 9 || pending || len(store.vectors) != len(index.Records) {
-		t.Fatalf("resumed vector batch: added=%d pending=%v stored=%d err=%v", added, pending, len(store.vectors), err)
-	}
-}
-
-func TestMemoryVectorLaneExcludesAmbiguousRecordIDs(t *testing.T) {
-	store := &memoryVectorTestStore{vectors: map[string][]float32{
-		"collision": {0, 1},
-	}}
-	embedder := &memoryContextTestEmbedder{}
-	index := historyIndex{Records: []historyRecord{
-		{ID: "collision", Kind: conversationKind, Branch: "main", SessionID: "one", Summary: "first"},
-		{ID: "collision", Kind: conversationKind, Branch: "feature", SessionID: "two", Summary: "second"},
-		{ID: "unique", Kind: conversationKind, Branch: "main", SessionID: "one", Summary: "third"},
-	}}
-	added, dropped, total, pending, err := syncVectorsForKindsContextBatch(context.Background(), store, index, embedder, func(string) bool { return false }, func(record historyRecord) string { return record.Summary }, memoryVectorBatchRecords)
-	if err != nil || added != 1 || dropped != 1 || total != 1 || pending {
-		t.Fatalf("collision-safe sync: added=%d dropped=%d total=%d pending=%v err=%v", added, dropped, total, pending, err)
-	}
-	if _, exists := store.vectors["collision"]; exists {
-		t.Fatal("ambiguous ID retained a semantic vector")
-	}
-	if _, exists := store.vectors["unique"]; !exists {
-		t.Fatal("unique ID was not embedded")
-	}
-}
-
-func TestMemoryVectorProgressResetsWhenProjectionTextChangesUnderStableIDs(t *testing.T) {
-	oldDigest := "sha256:" + strings.Repeat("1", 64)
-	newDigest := "sha256:" + strings.Repeat("2", 64)
-	progress := memoryVectorProgress{ModelID: "model", SourceDigest: oldDigest, CompleteSourceDigest: oldDigest, ResetComplete: true}
-	if !memoryVectorProgressNeedsReset(progress, true, "model", newDigest) {
-		t.Fatal("changed source digest reused vectors keyed by stable record IDs")
-	}
-	if memoryVectorProgressNeedsReset(progress, true, "model", oldDigest) {
-		t.Fatal("current complete generation unexpectedly requires reset")
-	}
-}
-
-func TestMemoryVectorReadsCloseWhileNewGenerationIsPending(t *testing.T) {
-	brainDir := t.TempDir()
-	now := time.Date(2026, 8, 9, 4, 15, 0, 0, time.UTC)
-	oldDigest := "sha256:" + strings.Repeat("1", 64)
-	newDigest := "sha256:" + strings.Repeat("2", 64)
-	manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: "test/vector-read", Sources: &brainSources{History: &historySourceManifest{IndexDigest: oldDigest, PrivacyIdentity: "absent"}}}
-	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
-		t.Fatal(err)
-	}
-	embedder := &memoryContextTestEmbedder{}
-	if err := saveMemoryVectorProgress(brainDir, memoryVectorProgress{ModelID: embedder.ID(), SourceDigest: oldDigest, CompleteSourceDigest: oldDigest, ResetComplete: true, UpdatedAt: now}); err != nil {
-		t.Fatal(err)
-	}
-	if !memoryProjectionVectorsCurrent(brainDir, embedder) {
-		t.Fatal("completed vector generation was not readable")
-	}
-	manifest.Sources.History.IndexDigest = newDigest
-	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
-		t.Fatal(err)
-	}
-	if memoryProjectionVectorsCurrent(brainDir, embedder) {
-		t.Fatal("stale stable-ID vectors remained readable after source text changed")
-	}
-	if state := memoryProjectionVectorState(brainDir, embedder); state != "stale" {
-		t.Fatalf("changed generation state = %q, want stale", state)
-	}
-	if err := saveMemoryVectorProgress(brainDir, memoryVectorProgress{ModelID: embedder.ID(), SourceDigest: newDigest, ResetComplete: true, Pending: true, UpdatedAt: now.Add(time.Second)}); err != nil {
-		t.Fatal(err)
-	}
-	if state := memoryProjectionVectorState(brainDir, embedder); state != "pending" {
-		t.Fatalf("incomplete bounded sync state = %q, want pending", state)
-	}
-	if err := writeBrainRelativeFileAtomic(brainDir, memoryVectorProgressRel, []byte(`{"schema_version":3,"future":true}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if state := memoryProjectionVectorState(brainDir, embedder); state != "unsupported" {
-		t.Fatalf("newer progress state = %q, want unsupported", state)
-	}
-}
-
-func TestMemoryVectorMissingCheckIgnoresAmbiguousIDs(t *testing.T) {
-	store := &memoryVectorTestStore{vectors: map[string][]float32{"unique": {1, 0}}}
-	index := historyIndex{Records: []historyRecord{
-		{ID: "collision", Kind: conversationKind},
-		{ID: "collision", Kind: conversationKind},
-		{ID: "unique", Kind: conversationKind},
-	}}
-	if vectorStoreHasMissing(store, index, func(string) bool { return false }) {
-		t.Fatal("ambiguous record ID kept a completed vector sync pending")
-	}
-}
-
 func TestMemoryVectorProgressRejectsNewerUnknownAndTrailingState(t *testing.T) {
 	brainDir := t.TempDir()
 	write := func(data string) {
@@ -483,39 +380,6 @@ func TestMemoryVectorProgressRejectsNewerUnknownAndTrailingState(t *testing.T) {
 	write(validPrefix + `} {}`)
 	if _, _, err := loadMemoryVectorProgress(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
 		t.Fatalf("trailing data error = %v", err)
-	}
-}
-
-func TestMemoryVectorWorkerPreservesUnreadableProgressState(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		data string
-		code string
-	}{
-		{name: "unknown-newer", data: `{"schema_version":3,"future":true}`, code: memoryErrUnsupportedVersion},
-		{name: "corrupt", data: `{"schema_version":2,"model_id":`, code: memoryErrStateCorrupt},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			brainDir := t.TempDir()
-			now := time.Date(2026, 8, 9, 4, 20, 0, 0, time.UTC)
-			digest := "sha256:" + strings.Repeat("1", 64)
-			manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: "test/vector-preserve", Sources: &brainSources{History: &historySourceManifest{IndexDigest: digest, PrivacyIdentity: "absent"}}}
-			if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
-				t.Fatal(err)
-			}
-			before := []byte(tc.data)
-			if err := writeBrainRelativeFileAtomic(brainDir, memoryVectorProgressRel, before, 0o600); err != nil {
-				t.Fatal(err)
-			}
-			_, pending, err := syncMemoryProjectionVectorsWithEmbedder(context.Background(), brainDir, now, &memoryContextTestEmbedder{}, 1)
-			if err == nil || !strings.Contains(err.Error(), tc.code) || !pending {
-				t.Fatalf("sync pending=%v error=%v", pending, err)
-			}
-			after, readErr := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(memoryVectorProgressRel)))
-			if readErr != nil || string(after) != string(before) {
-				t.Fatalf("progress bytes changed: after=%q err=%v", after, readErr)
-			}
-		})
 	}
 }
 
@@ -543,51 +407,6 @@ func TestMemoryMigrationDetectionClassifiesVectorProgressState(t *testing.T) {
 				t.Fatalf("vector progress migration findings = %+v", detectMemoryMigrations(brainDir, nil))
 			}
 		})
-	}
-}
-
-func TestMemoryGuardedVectorStoreRejectsPostPurgeCommit(t *testing.T) {
-	brainDir, _, _ := shortTermFixture(t)
-	now := time.Date(2026, 8, 9, 4, 30, 0, 0, time.UTC)
-	_ = runMemoryProjectionLaneTest(t, brainDir, now)
-	epoch, manifest, err := captureMemoryVectorEpoch(brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := saveMemoryVectorProgress(brainDir, memoryVectorProgress{
-		ModelID: "test-model", SourceDigest: manifest.Sources.History.IndexDigest,
-		ResetComplete: true, Pending: true, UpdatedAt: now,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	_, _, ownership, err := loadMemoryVectorProgressWithOwnership(brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw := &memoryVectorTestStore{}
-	guarded := &memoryGuardedVectorStore{brainDir: brainDir, epoch: epoch, ownership: ownership, store: raw}
-	if err := guarded.upsert(map[string][]float32{"before": {1, 0}}, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := withBrainWriteLock(brainDir, func() error {
-		stones := emptySessionTombstones()
-		stones.Excluded["private"] = sessionTombstone{At: now.Add(time.Second), Reason: "test"}
-		if err := saveSessionTombstones(brainDir, stones); err != nil {
-			return err
-		}
-		// Model the purge's wholesale vector-store deletion while it owns the
-		// same lock used by guarded commits.
-		raw.vectors = map[string][]float32{}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	err = guarded.upsert(map[string][]float32{"private-canary": {0, 1}}, nil)
-	if err == nil || !strings.Contains(err.Error(), memoryErrSourceStale) {
-		t.Fatalf("post-purge commit error = %v", err)
-	}
-	if _, exists := raw.vectors["private-canary"]; exists {
-		t.Fatal("stale vector commit repopulated a purged store")
 	}
 }
 

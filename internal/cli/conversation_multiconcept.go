@@ -30,11 +30,6 @@ const (
 // overflow contract without building ten thousand-record fixtures.
 var conversationConceptScanCeiling = 10000
 
-// conversationMultiConceptEmbedder is a narrow test seam: production always
-// resolves the configured process embedder, while the vec0 integration test
-// can exercise the complete hybrid path with deterministic vectors.
-var conversationMultiConceptEmbedder = defaultEmbedder
-
 // conceptMatch names the best supporting exchange for one concept inside a
 // matching session.
 type conceptMatch struct {
@@ -134,53 +129,12 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 		return conversationRecordMatchesFilters(r, opts)
 	}
 
-	semanticAvailable := func() (map[string]float64, bool) {
-		scores := conversationSemanticScoresExhaustive(brainDir, historySemanticEmbedder(conversationMultiConceptEmbedder()), concepts[0], mode == modeHybrid)
-		return scores, len(scores) > 0
-	}
-
 	rankOne := func(concept string) (conceptRankList, error) {
 		list := conceptRankList{concept: concept}
 		switch mode {
 		case modeVector:
-			scores := conversationSemanticScoresExhaustive(brainDir, historySemanticEmbedder(conversationMultiConceptEmbedder()), concept, false)
-			if len(scores) == 0 {
-				return list, errConversationVectorUnsupported
-			}
-			semIndex := fresh.longTermReconciled()
-			semIndex = historyIndex{GeneratedAt: semIndex.GeneratedAt, Records: filterHistoryRecords(semIndex.Records, pred)}
-			list.ranked = rankConversationSemantic(semIndex, scores, conversationConceptScanCeiling)
-			list.arm = "semantic"
-			list.approximate = true
-			return list, nil
+			return list, errConversationVectorUnsupported
 		case modeHybrid:
-			if envBool("ENTIRE_BRAIN_CONVERSATION_FUSION") {
-				if _, ok := semanticAvailable(); ok {
-					complete := true
-					embedder := conversationMultiConceptEmbedder()
-					fused := rankFreshHistory(fresh, conversationKind, concept, conversationConceptScanCeiling/4, pred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
-						ranked, conceptComplete, rankOK := rankConversationFused(brainDir, longTerm, concept, conversationConceptScanCeiling/4, embedder, eligible)
-						// conceptComplete is only meaningful when the fused arm
-						// ran; on rankOK == false rankFreshHistory falls back to
-						// the exhaustive in-memory scorer, which cannot be
-						// partial. Reporting "concept too broad" for an FTS
-						// outage would be a false alarm.
-						if rankOK {
-							complete = conceptComplete
-						}
-						return ranked, rankOK
-					})
-					if len(fused) > 0 {
-						if !complete {
-							return list, errConversationConceptTooBroad(concept)
-						}
-						list.ranked = fused
-						list.arm = "fused"
-						list.approximate = true
-						return list, nil
-					}
-				}
-			}
 			fallthrough
 		default:
 			var exhaustiveState historyExhaustiveRankState

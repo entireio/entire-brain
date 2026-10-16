@@ -69,11 +69,11 @@ type retrievalTaskHints struct {
 // traversal (code/context/impact/changes/tests/boundaries) and regression analysis.
 
 func newSearchCommand(opts Options) *cobra.Command {
-	return newRetrieveCommand(opts, "search", modeLexical, "Lexical keyword search across facts, history, and docs (BM25 for history and docs; token-overlap for facts)")
+	return newRetrieveCommand(opts, "search", modeLexical, "Lexical keyword search across facts, history, and docs (BM25 ranking; facts add locus and closed-negative boosts)")
 }
 
 func newVsearchCommand(opts Options) *cobra.Command {
-	return newRetrieveCommand(opts, "vsearch", modeVector, "Vector (semantic) search across facts and docs (history and conversation join with a Gemma-class embedder on the brain_cgo build)")
+	return newRetrieveCommand(opts, "vsearch", modeHybrid, "Compatibility alias for query: semantic retrieval was removed (trail #278); runs the same BM25 lexical ranking")
 }
 
 func newQueryCommand(opts Options) *cobra.Command {
@@ -114,6 +114,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 			if err != nil {
 				return err
 			}
+			warnRemovedSemanticAlias(cmd, use, selection.semantic)
 			return runRetrieve(cmd.Context(), cmd, opts, args[0], selectedMode, limit, branch, ropts, wantJSON, patterns, use)
 		},
 	}
@@ -849,6 +850,16 @@ func printRetrievalCaveats(out io.Writer, result unifiedResult) {
 	}
 }
 
+// warnRemovedSemanticAlias prints the one-line deprecation notice when a
+// caller reaches retrieval through a removed-semantic surface (the vsearch
+// verb or --semantic). stderr only, so JSON/CSV consumers are unaffected.
+func warnRemovedSemanticAlias(cmd *cobra.Command, use string, semanticFlag bool) {
+	if use != "vsearch" && !semanticFlag {
+		return
+	}
+	fmt.Fprintln(cmd.ErrOrStderr(), "warning: semantic retrieval was removed (trail #278); running the standard BM25 lexical ranking")
+}
+
 // querySelection is shared by local and workspace query commands.
 type querySelection struct {
 	text              string
@@ -863,7 +874,9 @@ func (s querySelection) mode(fallback retrievalMode) (retrievalMode, error) {
 		return modeLexical, nil
 	}
 	if s.semantic {
-		return modeVector, nil
+		// Semantic retrieval was removed (trail #278); the flag is honored as
+		// a compatibility alias for the default BM25 ranking.
+		return modeHybrid, nil
 	}
 	return fallback, nil
 }
@@ -880,7 +893,7 @@ func configureQueryCommand(cmd *cobra.Command, use string, selection *querySelec
 	cmd.Long = cmd.Short + ". Supply the text positionally or with --query. Flags may appear before or after the text."
 	cmd.Flags().StringVar(&selection.text, "query", "", "Query text (alternative to the positional query)")
 	cmd.Flags().BoolVar(&selection.keyword, "keyword", false, "Match keywords and identifiers only")
-	cmd.Flags().BoolVar(&selection.semantic, "semantic", false, "Match meaning using vector similarity only")
+	cmd.Flags().BoolVar(&selection.semantic, "semantic", false, "Compatibility alias: semantic retrieval was removed; ranking is BM25 lexical")
 	cmd.MarkFlagsMutuallyExclusive("keyword", "semantic")
 	cmd.Args = func(cmd *cobra.Command, args []string) error {
 		if cmd.Flags().Changed("query") {

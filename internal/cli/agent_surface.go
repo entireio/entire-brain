@@ -1463,13 +1463,11 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		source := status.Manifest.Sources.History
 		freshOverlay := loadFreshHistoryOverlay(status.Brain.Path, source)
 		historyInputCount := source.Records + len(freshOverlay.overlay)
-		historyEmbedder := defaultEmbedder()
-		fusionEnabled := historySemanticEmbedder(historyEmbedder) != nil
 		var scoredHistory []scoredHistoryRecord
 		var rankedHistoryIndex *historyIndex
 		var historyErr error
 
-		if !fusionEnabled {
+		{
 			directStarted := profile.start()
 			var used bool
 			derivedCorrupt := false
@@ -1529,32 +1527,6 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 					}
 				}
 			}
-		} else {
-			// The validated semantic arm can return arbitrary record IDs, so it
-			// deliberately keeps the full index mapping rather than hydrating only
-			// the lexical top-k payload window.
-			indexLoadStarted := profile.start()
-			var index historyIndex
-			index, historyErr = loadBrainHistoryIndex(status.Brain.Path, source)
-			rankedHistoryIndex = &index
-			if profile != nil {
-				historyErrors := 0
-				if historyErr != nil {
-					historyErrors = 1
-				}
-				profile.finishStage(&profile.History.IndexLoad, indexLoadStarted, 1, len(index.Records), historyErrors)
-			}
-			if historyErr == nil {
-				rankStarted := profile.start()
-				if fused, ok := rankHistoryFused(status.Brain.Path, index, "history", task, briefOpts.limit, historyEmbedder); ok {
-					scoredHistory = fused
-				} else {
-					scoredHistory = rankHistoryRecordsScored(index, "history", task, briefOpts.limit, 0)
-				}
-				if profile != nil {
-					profile.finishStage(&profile.History.IndexedRank, rankStarted, len(index.Records)+len(freshOverlay.overlay), len(scoredHistory), 0)
-				}
-			}
 		}
 		if historyErr != nil {
 			report.Warnings = append(report.Warnings, "history context unavailable: "+historyErr.Error())
@@ -1571,10 +1543,11 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			}
 			if len(freshOverlay.overlay) > 0 || len(freshOverlay.replaced) > 0 {
 				if rankedHistoryIndex != nil {
-					// Reuse the truth already loaded by the fused or legacy arm.
+					// Reuse the truth already loaded by the legacy arm.
 					freshOverlay.index = *rankedHistoryIndex
 					scoredHistory = rankFreshHistory(freshOverlay, "history", task, briefOpts.limit, briefGuardPred, func(index historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
-						return rankHistoryFusedFiltered(status.Brain.Path, index, "history", task, briefOpts.limit, historyEmbedder, eligible)
+						lex, complete, ok := rankHistoryViaFTSFiltered(status.Brain.Path, index, "history", task, briefOpts.limit, historyFTSRelevanceCutoff, eligible)
+						return lex, ok && complete
 					})
 				} else {
 					// A validated payload ranking does not need JSON truth. Apply
@@ -1659,52 +1632,11 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			// Exclusion guard: the brief's fact context honors
 			// tombstones at read time like every retrieval surface.
 			facts = guardFactRecords(briefPrivacyGuard, facts)
-			// Semantic rerank on by default; nil reranker (embedder
-			// unavailable or --no-semantic) falls back to lexical ranking. The
-			// disk-backed cache avoids re-embedding the branch each brief.
-			var rr *semanticReranker
-			if !briefOpts.noSemantic {
-				if e := defaultEmbedder(); e != nil {
-					if profile != nil {
-						e = &brainBriefProfilingEmbedder{Embedder: e, profile: &profile.Facts.Embed}
-					}
-					cacheLoadStarted := profile.start()
-					rr = newSemanticRerankerForBranch(e, status.Brain.Path, branch)
-					// Global facts rank here but belong to no single repository,
-					// so they must not be filed under this one's cache key.
-					rr.markForeign(briefGlobalIDs)
-					if profile != nil {
-						profile.finishStage(&profile.Facts.VectorCacheLoad, cacheLoadStarted, 1, rr.loaded, 0)
-					}
-				}
-			}
-			embedBefore := int64(0)
-			if profile != nil {
-				embedBefore = profile.Facts.Embed.DurationNS
-			}
 			factsRankStarted := profile.start()
-			report.Facts = rankFactsFused(facts, task, brainBriefFactsCount(briefOpts.limit), false, rr)
+			report.Facts = rankFacts(facts, task, brainBriefFactsCount(briefOpts.limit), false)
 			report.GlobalFactIDs = sortedGlobalFactIDs(report.Facts, briefGlobalIDs)
 			if profile != nil {
 				profile.finishStage(&profile.Facts.Rank, factsRankStarted, len(facts), len(report.Facts), 0)
-				embedDuringRank := profile.Facts.Embed.DurationNS - embedBefore
-				if embedDuringRank > 0 {
-					// Rank is exclusive compute time; embed calls are reported in
-					// their own nested stage rather than double-counted here.
-					profile.Facts.Rank.DurationNS = max(0, profile.Facts.Rank.DurationNS-embedDuringRank)
-				}
-			}
-			if rr != nil {
-				rr.retain(facts) // keep every present fact's vector; prune only departed facts
-				flushStarted := profile.start()
-				flushErr := rr.flush() // best-effort cache persist
-				if profile != nil {
-					flushErrors := 0
-					if flushErr != nil {
-						flushErrors = 1
-					}
-					profile.finishStage(&profile.Facts.CacheFlush, flushStarted, len(facts), len(rr.cache), flushErrors)
-				}
 			}
 			receiptBranch = branch
 			receiptSurface = briefOpts.surface
@@ -4698,36 +4630,9 @@ func buildConversationStatus(brainDir string, manifest *exportManifest) *brainSt
 		Exchanges:           history.Exchanges,
 		IncompleteExchanges: history.IncompleteExchanges,
 	}
-	if strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")) == "" {
-		status.VectorState = "disabled"
-		return status
-	}
-	e := historySemanticEmbedder(defaultEmbedder())
-	if e == nil {
-		status.VectorState = "gate_closed"
-		return status
-	}
-	store, ok := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim())
-	if !ok {
-		status.VectorState = "unavailable_build"
-		return status
-	}
-	ids, ok := store.ids()
-	state := memoryProjectionVectorState(brainDir, e)
-	if !ok {
-		if state == "current" {
-			state = "degraded" // progress claims a store that cannot be opened
-		}
-		status.VectorState = state
-		status.VectorModelID = e.ID()
-		return status
-	}
-	if state == "absent" {
-		state = "stale" // an untracked store is not proof of current inputs
-	}
-	status.VectorState = state
-	status.VectorModelID = e.ID()
-	status.Vectors = len(ids)
+	// Semantic retrieval was removed (trail #278); the conversation vector arm
+	// no longer exists and its state is permanently "removed".
+	status.VectorState = "removed"
 	return status
 }
 
@@ -5534,11 +5439,12 @@ func brainBriefFocusedHistoryMatches(brainDir string, fresh freshHistory, primar
 	if !fGuard.empty() {
 		fGuardPred = func(r historyRecord) bool { return !fGuard.blocksRecord(r) }
 	}
-	// rankFreshHistory keeps the FTS/fused arm on the on-disk long-term index
+	// rankFreshHistory keeps the FTS arm on the on-disk long-term index
 	// and fuses the short-term overlay in memory (Bugbot PR #77: passing a
 	// merged index here rebuilt or misresolved the BM25 store).
 	scored := rankFreshHistory(fresh, "history", query, candidateLimit, fGuardPred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
-		return rankHistoryFusedFiltered(brainDir, longTerm, "history", query, candidateLimit, defaultEmbedder(), eligible)
+		lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, "history", query, candidateLimit, historyFTSRelevanceCutoff, eligible)
+		return lex, ok && complete
 	})
 	records := make([]historyRecord, 0, len(scored))
 	for _, item := range scored {

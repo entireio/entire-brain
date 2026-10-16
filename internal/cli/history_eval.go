@@ -323,7 +323,7 @@ Arms:
 	cmd.Flags().StringVar(&tasksFile, "tasks", "", "Path to the held-out task set (JSON array, from history-eval-gen)")
 	cmd.Flags().StringVar(&branch, "branch", "", "Brain branch context (default: current branch)")
 	cmd.Flags().IntVar(&k, "k", 10, "Records to retrieve per task")
-	cmd.Flags().StringVar(&arm, "arm", "bm25", "Retrieval arm: substring | bm25 | fused")
+	cmd.Flags().StringVar(&arm, "arm", "bm25", "Retrieval arm: substring | bm25")
 	cmd.Flags().Float64Var(&cutoff, "cutoff", historyFTSRelevanceCutoff, "BM25 relevance cutoff (fraction of the top score) for the bm25/fused arms")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the summary as JSON")
 	return cmd
@@ -350,14 +350,9 @@ func selectHistoryEvalArm(arm, brainDir string, index historyIndex, cutoff float
 			return historyRecordsOf(scored), nil
 		}, nil
 	case "fused":
-		e := defaultEmbedder()
-		if e == nil {
-			return nil, fmt.Errorf("--arm fused requested but the embedding backend is unavailable")
-		}
-		f := newHistoryFusedRanker(brainDir, index, e, cutoff)
-		return f.rank, nil
+		return nil, fmt.Errorf("--arm fused was removed with semantic retrieval (trail #278)")
 	default:
-		return nil, fmt.Errorf("unknown arm %q (substring | bm25 | fused)", arm)
+		return nil, fmt.Errorf("unknown arm %q (substring | bm25)", arm)
 	}
 }
 
@@ -423,117 +418,4 @@ func historyEvalMetrics(surfaced []historyRecord, relevant map[string]struct{}, 
 		res.UsefulPer1k = float64(res.RelevantSurfaced) / (float64(res.Tokens) / 1000.0)
 	}
 	return res
-}
-
-// --- fused arm (BM25 + semantic RRF) ----------------------------------------
-
-// historyFusedRanker is the prospective history semantic arm: RRF fusion of
-// the shipped BM25 list with a cosine ranking of record summaries, mirroring
-// rankFactsFused's structure. It is eval-only — whether it ships is exactly
-// what the eval decides. Record vectors are embedded once and cached in memory
-// for the run (keyed by record ID); the cache is deliberately not persisted so
-// the eval never seeds a production store with an arm that may not ship.
-type historyFusedRanker struct {
-	brainDir string
-	index    historyIndex
-	e        Embedder
-	cutoff   float64
-	vecs     map[string][]float32
-}
-
-func newHistoryFusedRanker(brainDir string, index historyIndex, e Embedder, cutoff float64) *historyFusedRanker {
-	return &historyFusedRanker{brainDir: brainDir, index: index, e: e, cutoff: cutoff, vecs: map[string][]float32{}}
-}
-
-func (f *historyFusedRanker) recordVector(r historyRecord) []float32 {
-	if v, ok := f.vecs[r.ID]; ok {
-		return v
-	}
-	v := f.e.Embed(r.Summary)
-	if validSemanticEmbedding(v, f.e.Dim()) {
-		f.vecs[r.ID] = v // cache only full vectors so a transient failure retries
-	}
-	return v
-}
-
-func (f *historyFusedRanker) rank(query string, k int) ([]historyRecord, error) {
-	// Lexical arm: the shipped BM25 list, over-fetched so fusion sees lexical
-	// ranks beyond the final top-k. Degenerate queries (no usable terms) keep
-	// an empty lexical list rather than failing: the semantic arm still ranks.
-	lexRank := map[string]int{}
-	if scored, ok := rankHistoryViaFTSCutoff(f.brainDir, f.index, "history", query, k*4, f.cutoff); ok {
-		for i, s := range scored {
-			lexRank[s.Record.ID] = i
-		}
-	}
-
-	var qvec []float32
-	if qe, ok := f.e.(queryEmbedder); ok {
-		qvec = qe.EmbedQuery(query)
-	} else {
-		qvec = f.e.Embed(query)
-	}
-	if !validSemanticEmbedding(qvec, f.e.Dim()) {
-		return nil, fmt.Errorf("fused arm: query embedding unavailable")
-	}
-
-	// Candidates: every rankable record, deduped by normalized summary exactly
-	// like both production scorers, so fusion never surfaces two copies of the
-	// same templated line.
-	type cand struct {
-		rec historyRecord
-		cos float64
-	}
-	cands := make([]cand, 0, len(f.index.Records))
-	seen := map[string]struct{}{}
-	for _, r := range f.index.Records {
-		if historyGeneralRankingHiddenKind(r.Kind) {
-			continue
-		}
-		key := normalizeHistorySearchText(r.Summary)
-		if _, dup := seen[key]; dup {
-			continue
-		}
-		seen[key] = struct{}{}
-		vector := f.recordVector(r)
-		if !validSemanticEmbedding(vector, f.e.Dim()) {
-			return nil, fmt.Errorf("fused arm: candidate embedding unavailable for %q", r.ID)
-		}
-		cands = append(cands, cand{rec: r, cos: cosineFloat32(qvec, vector)})
-	}
-
-	// Semantic ranks over the full candidate set (reachability is the point),
-	// fused with the lexical ranks via RRF (k=60, as rankFactsFused).
-	order := make([]int, len(cands))
-	for i := range order {
-		order[i] = i
-	}
-	sort.SliceStable(order, func(a, b int) bool { return cands[order[a]].cos > cands[order[b]].cos })
-	fusedScore := make([]float64, len(cands))
-	for rank, idx := range order {
-		fusedScore[idx] += 1.0 / (rrfK + float64(rank+1))
-	}
-	for i, c := range cands {
-		if lr, ok := lexRank[c.rec.ID]; ok {
-			fusedScore[i] += 1.0 / (rrfK + float64(lr+1))
-		}
-	}
-	sort.SliceStable(order, func(a, b int) bool {
-		ia, ib := order[a], order[b]
-		if fusedScore[ia] != fusedScore[ib] {
-			return fusedScore[ia] > fusedScore[ib]
-		}
-		return cands[ia].rec.ID < cands[ib].rec.ID // deterministic tiebreak
-	})
-	out := make([]historyRecord, 0, min(k, len(order)))
-	for _, idx := range order {
-		if fusedScore[idx] <= 0 {
-			break
-		}
-		out = append(out, cands[idx].rec)
-		if len(out) >= k {
-			break
-		}
-	}
-	return out, nil
 }

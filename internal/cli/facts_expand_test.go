@@ -66,7 +66,7 @@ func TestRunFactsEvalWithExpander(t *testing.T) {
 	tasks := []evalTask{{ID: "t1", Task: "fix the sync bug", Branch: "main", Relevant: []string{f.ID}, LabelSource: evalLabelSourceHuman}}
 
 	// Without expansion the query "fix the sync bug" doesn't match the fact.
-	base, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, false, nil, nil, loadJudgeCache(""), nil, nil, evalRetrieverFacts)
+	base, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, false, nil, nil, loadJudgeCache(""), nil, evalRetrieverFacts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestRunFactsEvalWithExpander(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 		return "mirror ref reconciliation", nil
 	}
-	exp, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, false, nil, nil, loadJudgeCache(""), expander, nil, evalRetrieverFacts)
+	exp, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, false, nil, nil, loadJudgeCache(""), expander, evalRetrieverFacts)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -101,7 +101,7 @@ func TestRetrieveCommandsRejectInvalidContractsBeforeReadingState(t *testing.T) 
 		"workspace zero limit":               "--limit must be greater than zero",
 		"workspace malformed source":         "source must be one of",
 		"workspace missing manifest":         "missing",
-		"workspace conversation vector":      "vector search is unavailable",
+		"workspace conversation vector":      "vector search was removed",
 		"workspace fact conversation filter": "filters require --source conversation",
 		"workspace fact abstract":            "--include-abstract requires --source conversation",
 	}

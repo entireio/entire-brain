@@ -1013,3 +1013,76 @@ func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool) (shortT
 	})
 	return stats, err
 }
+
+// fuseScoredRankLists is the shared RRF merge over already-ranked record lists
+// (k=60, equal weight). Conversation records fuse by replacement-scoped
+// identity, not globally by a potentially legacy/colliding ID.
+// rrfK is the Reciprocal Rank Fusion constant (canonical 60): survives the
+// semantic removal because lexical two-tier history merging still rank-fuses.
+const rrfK = 60.0
+
+func fuseScoredRankLists(lists [][]scoredHistoryRecord, limit int) []scoredHistoryRecord {
+	type fusedRec struct {
+		s     scoredHistoryRecord
+		score float64
+	}
+	fused := map[historyRecordReplacementKey]*fusedRec{}
+	for _, list := range lists {
+		for rank, s := range list {
+			key := recordReplacementKey(s.Record)
+			f, ok := fused[key]
+			if !ok {
+				f = &fusedRec{s: s}
+				fused[key] = f
+			}
+			f.score += 1.0 / (rrfK + float64(rank+1))
+		}
+	}
+	out := make([]*fusedRec, 0, len(fused))
+	for _, f := range fused {
+		out = append(out, f)
+	}
+	sort.SliceStable(out, func(a, b int) bool {
+		if out[a].score != out[b].score {
+			return out[a].score > out[b].score
+		}
+		left, right := out[a].s.Record, out[b].s.Record
+		if left.ID != right.ID {
+			return left.ID < right.ID
+		}
+		if left.Branch != right.Branch {
+			return left.Branch < right.Branch
+		}
+		if left.SessionID != right.SessionID {
+			return left.SessionID < right.SessionID
+		}
+		if left.Path != right.Path {
+			return left.Path < right.Path
+		}
+		if left.Line != right.Line {
+			return left.Line < right.Line
+		}
+		// Kind and SourceDigest are the two remaining components of
+		// historyRecordReplacementKey. Without them the comparator is not a
+		// total order over its own fusion key: two entries the key deliberately
+		// keeps distinct (degraded, session-less copies of one exchange, whose
+		// key.Session falls back to the source digest; or ID-less legacy records
+		// differing only by digest) compare equal, and sort.SliceStable then
+		// leaves them in the order the fused map happened to range in — so the
+		// same query returns a different ranking from one call to the next.
+		if left.Kind != right.Kind {
+			return left.Kind < right.Kind
+		}
+		return left.SourceDigest < right.SourceDigest
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	result := make([]scoredHistoryRecord, len(out))
+	for i, f := range out {
+		// Same float→int display scaling as rankHistoryViaFTS (RRF scores are
+		// small; ordering is carried by list position, Score is informational).
+		result[i] = scoredHistoryRecord{Record: f.s.Record, Score: int(f.score*1000 + 0.5), Order: f.s.Order}
+	}
+	return result
+}

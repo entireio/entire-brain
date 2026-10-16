@@ -717,11 +717,6 @@ func TestMemoryLifecycleDefensiveHelpersAndCorruptInputs(t *testing.T) {
 	if now := memoryClockNow(nil); now.Location() != time.UTC || time.Since(now) > time.Minute {
 		t.Fatalf("nil clock=%v", now)
 	}
-	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "")
-	if pending, err := syncMemoryProjectionVectors(context.Background(), t.TempDir(), time.Now().UTC()); err != nil || pending {
-		t.Fatalf("unset vector sync pending=%t err=%v", pending, err)
-	}
-
 	brainDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
