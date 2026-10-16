@@ -186,12 +186,26 @@ func semanticProviderRepoKeyMismatchError(providerKey, storageKey, expectedKey, 
 }
 
 // shellQuotedRepoDir makes the remedy copy-pasteable when the repository path
-// contains spaces or quotes.
+// contains anything a shell would act on.
+//
+// Spaces and quotes were the original concern, and they are not the whole set:
+// a path holding $, a backtick, ;, |, &, a glob or a newline is equally
+// hostile to a copy-pasted command, and $ and backtick still EXPAND inside the
+// double quotes a naive fix would reach for. Single quotes suppress all of it,
+// with '\” to carry an embedded single quote through.
+//
+// Quoting more than strictly necessary is free: a single-quoted token is valid
+// wherever a bare one was, so widening this cannot break an existing caller.
 func shellQuotedRepoDir(repoDir string) string {
 	if strings.TrimSpace(repoDir) == "" {
 		return "."
 	}
-	if strings.ContainsAny(repoDir, " \t\"'") {
+	// The wide character set is this branch's point and is kept: main narrowed
+	// the trigger to space/tab/quote, which leaves $, a backtick, ;, |, & and
+	// globs unquoted in a string the user is invited to paste into a shell.
+	// main's shellSingleQuote is byte-identical to the inline form this branch
+	// used, so the body takes the shared helper and only the detection widens.
+	if strings.ContainsAny(repoDir, " \t\n\r\"'$`;|&<>()[]{}*?!#~^\\") {
 		return shellSingleQuote(repoDir)
 	}
 	return repoDir
