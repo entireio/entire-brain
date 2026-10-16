@@ -790,6 +790,10 @@ type memoryWorkerStats struct {
 	AlreadyActive bool `json:"already_active,omitempty"`
 	Paused        bool `json:"paused,omitempty"`
 	PrepassFailed bool `json:"prepass_failed,omitempty"`
+	// PrepassError is why the pass failed. The bool alone told a reader that
+	// something was wrong without telling them what, which is the state the
+	// 1285-failure incident was invisible in.
+	PrepassError string `json:"prepass_error,omitempty"`
 	// PrepassGaveUp reports that the relaunch chain this failure belongs to has
 	// exhausted memoryWorkerPrepassRetryAttempts and will not reschedule
 	// itself. The condition is durable, so the honest answer is to stop rather
@@ -1736,9 +1740,24 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 				// let 1285 consecutive failures accumulate with every health
 				// surface showing a healthy last outcome.
 				outcome = memoryWorkerOutcomeDegraded
-				_ = appendMemoryWorkerLog(storage.BrainDir, opts.Now().UTC(), "prepass_failed", coordinator.token)
+				// Record WHY. Without it the log says a pass failed and the
+				// backoff relaunches for two hours, leaving a reader a retry
+				// storm with no cause attached to any of it.
+				// `entire memory worker --json` is pasted into issues, so the
+				// same redaction the durable log applies is applied here.
+				stats.PrepassError = redactText(err.Error())
+				_ = appendMemoryWorkerLogReason(storage.BrainDir, opts.Now().UTC(), "prepass_failed", coordinator.token, err.Error())
 				failures := prepassFailures + 1
-				if retry, ok := memoryWorkerPrepassRetry(failures); ok {
+				// Some failures are durable: no retry changes the bytes on
+				// disk. A retired manifest field is the one measured here --
+				// it burned a full 1m..30m chain per repository, every chain
+				// ending exactly where it started, each pending retry a live
+				// sleeping process rather than a timer.
+				if durable := errDurablePrepassFailure(err); durable {
+					stats.PrepassGaveUp = true
+					stats.PrepassError = durablePrepassMessage(err)
+					_ = appendMemoryWorkerLogReason(storage.BrainDir, opts.Now().UTC(), "prepass_gave_up", coordinator.token, stats.PrepassError)
+				} else if retry, ok := memoryWorkerPrepassRetry(failures); ok {
 					prepassRetry = &retry
 					relaunchPrepassFailures = failures
 				} else {

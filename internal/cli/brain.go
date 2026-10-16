@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -194,7 +195,129 @@ func loadBrainManifest(outputDir string) (*exportManifest, error) {
 // the reader's concern; not destroying state is this one's.
 func loadBrainManifestForReplace(outputDir string) (*exportManifest, error) {
 	manifest, _, err := readBrainManifest(outputDir, false)
+	// NOT isUnknownFieldError: that matches on a PREFIX, and by the time the
+	// error reaches here it has been wrapped ("parse brain manifest: ..."), so
+	// the prefix never matches and the remedy was silently never attached.
+	if errRetiredManifestField(err) {
+		// Durable, and the bare decoder error says none of this. A field that
+		// was RETIRED without a schema bump leaves every manifest written by
+		// the older build unwritable by this one -- for ever, because nothing
+		// in the normal path rewrites it. On this machine that silently drove
+		// a two-hour relaunch chain per repository, with a live sleeping
+		// process per retry, and the worker log recorded only "prepass_failed".
+		return manifest, errors.New(retiredManifestFieldMessage(err))
+	}
 	return manifest, err
+}
+
+// errRetiredManifestField reports a manifest a writer cannot round-trip because
+// it carries a field this build no longer declares.
+//
+// It is a DURABLE condition: no amount of retrying changes the bytes on disk,
+// so a relaunch chain spends two hours and ends exactly where it started.
+// retiredManifestRemedy is the one wording, so the "already said it" check
+// below cannot drift from the thing it is checking for.
+const retiredManifestRemedy = "; this manifest carries a field this build retired, so it cannot be rewritten without erasing what another build recorded -- rebuild it with `entire brain refresh --force`"
+
+// retiredManifestFieldMessage states the failure AND what to do about it.
+//
+// The remedy has to be attached here rather than at the read, because the
+// manifest is read through several paths and only some of them wrap the error.
+// Measured: the delta-export path reported the bare decoder error, so the one
+// line a reader actually saw named a JSON field and no action at all.
+func retiredManifestFieldMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	// Idempotent. loadBrainManifestForReplace already attaches this remedy, and
+	// the worker then asks for the message again -- appending unconditionally
+	// printed the whole explanation TWICE. Caught by weakening: deleting this
+	// function's retired-field branch made the output better, which is only
+	// possible if the branch was doing harm.
+	if strings.Contains(msg, retiredManifestRemedy) {
+		return msg
+	}
+	return msg + retiredManifestRemedy
+}
+
+// errRepositoryGone reports a prepass that failed because the repository this
+// brain belongs to is no longer there.
+//
+// Also durable. A brain outlives its repository -- scratch clones, benchmark
+// cells, a checkout someone deleted -- and the worker went on relaunching
+// against it. Measured on this machine: nine orphaned brains, three of them
+// holding roughly 2,650 recorded prepass failures each.
+//
+// If the repository comes back, nothing is lost: a new lifecycle event starts a
+// fresh chain, which is exactly how the existing give-up path already behaves.
+func errRepositoryGone(err error) bool {
+	if err == nil {
+		return false
+	}
+	// The common orphan case never reaches git at all. When the repository
+	// DIRECTORY is gone the subprocess fails at chdir, and runExecCommand only
+	// folds stderr into the message when stderr is non-empty -- which it is not
+	// here -- so the error reads
+	//
+	//	entire [checkpoint explain --json --search-all]: chdir /path: no such file or directory
+	//
+	// and neither string below appears in it. That left the exact scenario this
+	// function exists for -- a brain whose repository is gone, relaunching on a
+	// 1m..30m chain, ~2,650 recorded failures apiece -- classified as transient.
+	//
+	// Matched by type rather than by text: a chdir that cannot find its target
+	// is precisely "the working directory is not there", and will not drift
+	// with a git or Go message change. Narrow on purpose -- any other missing
+	// file is NOT a durable failure, and calling it one sends the reader to
+	// `entire brain reset`, which deletes the brain.
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) && pathErr.Op == "chdir" && errors.Is(pathErr, fs.ErrNotExist) {
+		return true
+	}
+	// A directory that exists but holds no repository DOES reach git, which
+	// writes to stderr, which runExecCommand folds into the error.
+	msg := err.Error()
+	return strings.Contains(msg, "not a git repository") ||
+		strings.Contains(msg, "repository does not exist")
+}
+
+// errDurablePrepassFailure reports a failure that retrying cannot change.
+//
+// The relaunch chain is 1m, 2m, 4m, 8m, 16m, 30m, 30m -- about two hours -- and
+// each pending retry is a live sleeping process, not a timer. Spending that on
+// a condition fixed only by a human is the defect this classifies away.
+func errDurablePrepassFailure(err error) bool {
+	return errRetiredManifestField(err) || errRepositoryGone(err)
+}
+
+// durablePrepassMessage states the failure and what to do about it.
+// durablePrepassMessage renders a durable failure for the worker log and for
+// `entire memory worker --json`. Both are durable and both get pasted into
+// issues, so every branch below is redacted at the return rather than at the
+// call sites -- a second caller added later would otherwise reintroduce the
+// leak this closed.
+func durablePrepassMessage(err error) string {
+	return redactText(durablePrepassText(err))
+}
+
+func durablePrepassText(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errRetiredManifestField(err) {
+		return retiredManifestFieldMessage(err)
+	}
+	if errRepositoryGone(err) {
+		return err.Error() + "; the repository this brain belongs to is gone, so nothing here can be refreshed -- remove the brain with `entire brain reset` if the repository is not coming back"
+	}
+	return err.Error()
+}
+
+func errRetiredManifestField(err error) bool {
+	return isUnknownFieldError(err) || (err != nil &&
+		strings.Contains(err.Error(), memoryErrStateCorrupt) &&
+		strings.Contains(err.Error(), "unknown field"))
 }
 
 // readBrainManifest also reports whether it dropped fields written by another
