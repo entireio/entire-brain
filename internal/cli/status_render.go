@@ -317,6 +317,12 @@ func (h statusHealth) nextStepMessage(brainCmd string) string {
 	case h.BrainMissing:
 		return command
 	case h.DirtyWorktree && h.repairCommand() == statusRemedyRefresh:
+		// The ONE remedy resolver for a dirty tree. Line() prints h.Cause
+		// directly underneath this, and the cause used to carry a SECOND,
+		// contradictory remedy of its own ("refresh with --worktree to include
+		// current changes"). Causes state causes; this resolver owns the
+		// remedy, and it names both ways out so neither has to be discovered
+		// elsewhere.
 		return setupDirtyWorktreeHint(brainCmd)
 	case h.Issues > 0 || h.Severity != "" && h.Severity != "ok":
 		return command
@@ -437,9 +443,17 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 		}
 	}
 
-	renderStatusOnboardingBlock(out, render, report, brainCmd)
-
+	// The verdict is computed BEFORE the onboarding block so the block knows
+	// which remedy the screen is already going to state. Without that, the two
+	// halves repeat each other: a dirty tree failing both seed and semantic put
+	// the same sentence on screen three times.
 	health := buildStatusHealth(report)
+	renderStatusOnboardingBlock(out, render, report, brainCmd, health.nextStepMessage(brainCmd))
+
+	// health is already built above, deliberately before the onboarding block.
+	// main added this branch alongside a second `health :=` at this line; the
+	// declaration is dropped here rather than the one above, because the
+	// onboarding block depends on being able to read the verdict first.
 	if report.Integrity == "not_checked" && health.Healthy() {
 		fmt.Fprintf(out, "\n%s up to date\n", render.Mark(tui.MarkDone))
 	} else {
@@ -451,7 +465,9 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 
 // renderStatusOnboardingBlock is the part a person actually came for: is the
 // backfill moving, is the watcher alive, did every source build.
-func renderStatusOnboardingBlock(out io.Writer, render *tui.Renderer, report brainStatusReport, brainCmd string) {
+// stated is the remedy the verdict will print under this block; a component
+// hint identical to it is dropped rather than said twice.
+func renderStatusOnboardingBlock(out io.Writer, render *tui.Renderer, report brainStatusReport, brainCmd, stated string) {
 	brainCmd = setupBrainCommand(brainCmd)
 	onboarding := report.Onboarding
 	if onboarding == nil {
@@ -515,6 +531,36 @@ func renderStatusOnboardingBlock(out io.Writer, render *tui.Renderer, report bra
 			parts = append(parts, render.Mark(mark)+" "+render.PhasePaint(phase, component.Name))
 		}
 		fmt.Fprintf(out, "  %-*s %s\n", statusLabelWidth, "instant", strings.Join(parts, "  "))
+		// A row of names is not a report. Every failed component already
+		// carries the reason it failed and, for the failure modes whose error
+		// text is not actionable on its own, the hint that fixes it -- status
+		// built both and printed neither, so "x semantic" was the whole answer
+		// and the only way to learn why was to run a different command. Say it
+		// here, under the row that names it, in the same shape setup's own
+		// summary uses.
+		// One remedy, one appearance. Two components failing for the same
+		// reason -- the ordinary case for a dirty worktree, which refuses both
+		// seed and semantic -- carry the same hint, and the verdict below
+		// carries it a third time.
+		said := map[string]bool{strings.TrimSpace(stated): true}
+		for _, component := range onboarding.Components {
+			if component.State != "failed" {
+				continue
+			}
+			detail := strings.TrimSpace(component.Detail)
+			if detail == "" {
+				// A failure with no recorded reason is itself worth saying:
+				// silence here would read as "no detail needed".
+				detail = "no reason recorded"
+			}
+			fmt.Fprintf(out, "  %-*s %s %s\n", statusLabelWidth, "",
+				render.Mark(tui.MarkFailed),
+				render.PhasePaint(tui.PhaseFailed, component.Name+": "+detail))
+			if hint := strings.TrimSpace(component.Hint); hint != "" && !said[hint] {
+				said[hint] = true
+				fmt.Fprintf(out, "  %-*s   %s\n", statusLabelWidth, "", render.Dim("hint: "+hint))
+			}
+		}
 	}
 }
 

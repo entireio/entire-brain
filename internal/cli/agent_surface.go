@@ -4633,7 +4633,14 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 		case seed.Commit != live.Head:
 			axes["seed"] = staleAxis{State: "stale", Detail: "seed and docs are based on an older commit; run entire brain refresh --agent none", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeMode != "worktree" && live.Dirty:
-			axes["seed"] = staleAxis{State: "dirty-unindexed", Detail: "seed and docs are based on committed HEAD; refresh with --worktree to include current changes", Current: live.Head, Indexed: seed.Commit}
+			// CAUSE only, no remedy. This axis is rendered as the `Cause`
+			// line directly under the status verdict, which prints the one
+			// remedy a dirty tree has (setupDirtyWorktreeHint). While this
+			// string also carried "refresh with --worktree to include current
+			// changes", the two appeared together on one screen: the verdict
+			// said commit or stash, the next line said index the uncommitted
+			// content instead.
+			axes["seed"] = staleAxis{State: dirtyUnindexedAxisState, Detail: "seed and docs are based on committed HEAD and do not include the uncommitted changes in the working tree", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeMode != "worktree":
 			axes["seed"] = staleAxis{State: "ok", Detail: "seed and docs match committed HEAD", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeHash == "":
@@ -4731,6 +4738,11 @@ func buildConversationStatus(brainDir string, manifest *exportManifest) *brainSt
 	return status
 }
 
+// dirtyUnindexedAxisState is the one spelling of the axis state that means the
+// working tree has uncommitted changes the index does not carry. Named so the
+// producer and the renderer that attaches the remedy cannot drift on a literal.
+const dirtyUnindexedAxisState = "dirty-unindexed"
+
 func renderFreshnessAxes(out io.Writer, axes map[string]staleAxis) {
 	keys := make([]string, 0, len(axes))
 	for key := range axes {
@@ -4742,6 +4754,13 @@ func renderFreshnessAxes(out io.Writer, axes map[string]staleAxis) {
 		line := "    " + key + ": " + axis.State
 		if axis.Detail != "" {
 			line += " (" + axis.Detail + ")"
+		}
+		// The dirty-worktree remedy was moved out of axis.Detail so the short
+		// status would not print it twice. This surface never re-pairs it: it
+		// renders Detail directly, so without this it shows the cause and no way
+		// out at all. Same single resolver, so the two surfaces cannot drift.
+		if axis.State == dirtyUnindexedAxisState {
+			line += " — " + setupDirtyWorktreeHint(setupCommandPrefix(os.LookupEnv))
 		}
 		fmt.Fprintln(out, line)
 	}

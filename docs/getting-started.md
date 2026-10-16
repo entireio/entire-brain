@@ -291,14 +291,20 @@ afterwards finds a dirty worktree and refuses to seed or index it — two red `x
 on a first run, caused by the command directly above it:
 
 ```
-  instant     + sessions  x seed  + history  + docs  x semantic  + patterns  + entities  + memory
+Brain set up, but not queryable in 1.9s
+  no semantic index and no seed baseline -- `entire brain query` and `entire brain brief` have nothing to read for this repo yet
+  instant     + session export  x seed baseline  + history index  + doc index  x semantic index  + pattern layer  + entity index  + memory coordinator
               x seed baseline: dirty_worktree: refusing to seed uncommitted content without --worktree
-                hint: commit or stash the working tree, then re-run `entire brain setup`; `entire enable` writes .entire/ and .claude/ without committing them, which is what a first run usually trips over
+                hint: commit or stash the working tree, then re-run `entire brain setup`, or `entire brain refresh --worktree` to index the uncommitted changes as they are; `entire enable` writes .entire/ and .claude/ without committing them, which is what a first run usually trips over
 ```
 
-Both files are project configuration that belongs in the repository anyway, so
-committing them is the real fix rather than a workaround. (`--worktree`, which
-the refusal names, is a `refresh` flag — `setup` does not accept it.)
+The code index and the baseline are the two sources a query reads, so with both
+refused the summary says the brain is not queryable rather than calling it
+ready: setup still exits 0, and everything else it built is kept. Both files are
+project configuration that belongs in the repository anyway, so committing them
+is the real fix rather than a workaround. (`--worktree`, which the refusal
+names, is a `refresh` flag — `setup` does not accept it, which is why the hint
+spells out the `refresh` form.)
 
 **A repository new to Entire reaches an all-green `setup` with no user action.**
 On a committed `git init` repository with no remote at all, every component
@@ -308,7 +314,7 @@ builds:
 Brain ready in 3.6s
   repo        /path/to/your/repo  (local/your-repo-686eadf04b0f)
   brain       ~/.local/share/entire/plugins/data/brain/repos/local/your-repo-686eadf04b0f
-  instant     + sessions  + seed  + history  + docs  + semantic  + patterns  + entities  + memory  (3.6s)
+  instant     + session export  + seed baseline  + history index  + doc index  + semantic index  + pattern layer  + entity index  + memory coordinator  (3.6s)
   facts       .............. 0/0 sessions distilled
   backfill    - skipped (--no-backfill)  (0s)
   workspace   + default  (20ms)
@@ -329,8 +335,10 @@ before this repo's origin changed, and the hint says to rebuild it with
 ones that did not, so `Brain ready (degraded)` is information rather than
 failure when you do see it. The things that legitimately produce it:
 
-- **an uncommitted worktree** — `x seed` and `x semantic`, almost always the
-  `entire enable` output above, fixed by committing it;
+- **an uncommitted worktree** — `x seed baseline` and `x semantic index`, almost
+  always the `entire enable` output above, fixed by committing it. This one
+  loses both sources a query reads, so the headline is `Brain set up, but not
+  queryable` rather than `(degraded)`;
 - **no `entire graph` provider** — `x semantic index:
   provider_doctor_failed: ...`, fixed by `scripts/install.sh`;
 - **an unreadable checkpoint inventory** — `x session export`, when Entire

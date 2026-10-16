@@ -148,7 +148,17 @@ func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport,
 	brainCmd = setupBrainCommand(brainCmd)
 	headline := "Brain ready"
 	headlinePhase := tui.PhaseDone
-	if report.Instant.State == "degraded" {
+	// "Brain ready (degraded)" was printed for a brain with no code index and
+	// no baseline -- nothing a query can read -- because one surviving
+	// component is enough for setup to succeed. That remains the exit-code
+	// rule; it was never a licence for the headline to claim readiness. Say
+	// what is unavailable instead. See setupUnqueryableCore.
+	unavailable := setupUnqueryableCore(report.Instant.Components)
+	switch {
+	case len(unavailable) > 0:
+		headline = "Brain set up, but not queryable"
+		headlinePhase = tui.PhaseFailed
+	case report.Instant.State == "degraded":
 		headline = "Brain ready (degraded)"
 		headlinePhase = tui.PhaseSkipped
 	}
@@ -156,6 +166,11 @@ func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport,
 		headline += " in " + roundedDuration(total)
 	}
 	fmt.Fprintf(out, "\n%s\n", render.Bold(render.PhasePaint(headlinePhase, headline)))
+	if len(unavailable) > 0 {
+		fmt.Fprintf(out, "  %s\n", render.PhasePaint(tui.PhaseFailed,
+			"no "+strings.Join(unavailable, " and no ")+" "+render.Dash()+" `"+brainCmd+
+				" query` and `"+brainCmd+" brief` have nothing to read for this repo yet"))
+	}
 
 	row := func(label, value, timing string) {
 		line := fmt.Sprintf("  %-*s %s", setupSummaryLabelWidth, label, value)
@@ -171,13 +186,22 @@ func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport,
 	_, failed := partitionSetupComponents(report.Instant.Components)
 	if len(report.Instant.Components) > 0 {
 		row("instant", setupComponentRow(render, report.Instant.Components), phaseTiming(timings, "instant"))
+		// One remedy, one appearance. A dirty working tree fails BOTH seed and
+		// semantic -- the common first run this release's own docs describe --
+		// and every failed component then carries the identical hint, so the
+		// reader was told the same thing twice in six lines. status_render.go
+		// was given the same guard in this change; this path was missed.
+		said := map[string]bool{}
 		for _, component := range failed {
 			fmt.Fprintf(out, "  %-*s %s %s\n", setupSummaryLabelWidth, "",
 				render.Mark(tui.MarkFailed),
 				render.PhasePaint(tui.PhaseFailed, setupComponentLabel(component.Name)+": "+component.Detail))
-			if hint := strings.TrimSpace(component.Hint); hint != "" {
-				fmt.Fprintf(out, "  %-*s   %s\n", setupSummaryLabelWidth, "", render.Dim("hint: "+hint))
+			hint := strings.TrimSpace(component.Hint)
+			if hint == "" || said[hint] {
+				continue
 			}
+			said[hint] = true
+			fmt.Fprintf(out, "  %-*s   %s\n", setupSummaryLabelWidth, "", render.Dim("hint: "+hint))
 		}
 	}
 
@@ -195,13 +219,13 @@ func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport,
 	}
 	row("workspace", workspaceValue, phaseTiming(timings, "workspace"))
 	row("daemon", setupDaemonValue(render, report.Daemon, brainCmd), phaseTiming(timings, "daemon"))
-	// Say plainly, at the moment of install, that this is a persistent service
-	// and where its unit lives. "installed (io.entire.brain-watch.1a2b3c4d)"
-	// does not tell a first-time reader that something now survives reboots.
-	if report.Daemon.Installed && report.Daemon.UnitPath != "" {
-		fmt.Fprintf(out, "  %-*s %s\n", setupSummaryLabelWidth, "",
-			render.Dim("persistent service, starts again at every login: "+report.Daemon.UnitPath))
-	}
+	// The consent text -- "a persistent service that starts again at every
+	// login", the unit path, --no-daemon, --uninstall-daemon -- is printed ONCE,
+	// by setupDaemonPreflightLine, before the install happens. It used to be
+	// printed here as well, so one run said the same thing twice: once as a
+	// warning and once as a footnote, in different words. The summary states
+	// the OUTCOME (the daemon row, the coverage line) and the Next block names
+	// the removal command; neither repeats the warning.
 	// What the ONE machine-wide watcher covers. Render-only: `setup --json` is a
 	// published contract and a new field in it is a breaking change, so this is
 	// derived here from the plan rather than added to setupReport.
@@ -267,7 +291,11 @@ func setupComponentRow(render *tui.Renderer, components []setupComponent) string
 		if component.failed() {
 			phase = tui.PhaseFailed
 		}
-		parts = append(parts, render.Mark(mark)+" "+render.PhasePaint(phase, component.Name))
+		// setupComponentLabel, not the raw id: the live phase line
+		// ("instant core: semantic index") and the failure lines below this row
+		// both use the label, so printing "semantic" here made one run call one
+		// component by two names.
+		parts = append(parts, render.Mark(mark)+" "+render.PhasePaint(phase, setupComponentLabel(component.Name)))
 	}
 	return strings.Join(parts, "  ")
 }

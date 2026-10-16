@@ -382,8 +382,38 @@ func TestSetupSummaryNamesTheWatcherAndHowToRemoveIt(t *testing.T) {
 	if !strings.Contains(printed, "--uninstall-daemon") {
 		t.Fatalf("setup must name the command that removes what it just installed:\n%s", printed)
 	}
-	if !strings.Contains(printed, "persistent service") || !strings.Contains(printed, report.Daemon.UnitPath) {
-		t.Fatalf("setup must say a persistent service was installed, and where:\n%s", printed)
+	// "a persistent service, and where" is still setup's promise, but the
+	// summary is no longer where it is kept: it was being said twice in one run,
+	// once before the install and once after, in different words. The pre-flight
+	// line owns it now, and TestSetupStatesTheWatcherConsentExactlyOnce holds
+	// both halves of that -- said, and said once.
+}
+
+// TestSetupStatesTheWatcherConsentExactlyOnce is the UX-24 guard. A first run
+// printed the consent for the background watcher twice: once as the pre-flight
+// warning before any work started, and again as a footnote under the daemon row
+// in the closing summary. Both named the same persistent service and the same
+// unit file in different words, and the second one arrived after the install it
+// was warning about.
+//
+// This asserts the whole run, not a renderer, because the duplicate only exists
+// when both halves print.
+func TestSetupStatesTheWatcherConsentExactlyOnce(t *testing.T) {
+	f := newSetupTestFixture(t)
+	rec := &recordedSetup{}
+	printed := runSetupForTest(t, f, defaultSetupOptions(), rec)
+
+	const consent = "starts again at every login"
+	if got := strings.Count(printed, consent); got != 1 {
+		t.Fatalf("the watcher consent must be stated exactly once, found %d:\n%s", got, printed)
+	}
+	if rec.state.UnitPath == "" {
+		t.Fatal("fixture produced no unit path to name")
+	}
+	for _, want := range []string{rec.state.UnitPath, "persistent", "--uninstall-daemon"} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("setup must still say a persistent service was installed, and where, naming %q:\n%s", want, printed)
+		}
 	}
 }
 
