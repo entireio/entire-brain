@@ -726,7 +726,13 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	// salt with the resolved agent would predict every cached session as
 	// to-distill — defeating the dry-run's whole purpose of matching the run.
 	if distillOpts.agent == "auto" {
-		distillOpts.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
+		// Announced on stderr, and silent under --json so a machine reader's
+		// stdout document is never shadowed by a human line.
+		var announce io.Writer
+		if !distillOpts.json {
+			announce = cmd.ErrOrStderr()
+		}
+		distillOpts.agent = resolveRefreshAgentAnnounced(ctx, opts.Runner, repoDir, distillOpts.model, announce)
 	}
 	if distillOpts.session != "" && distillOpts.force {
 		// Mirror runDistillForBrain's guard so a dry-run rejects the same

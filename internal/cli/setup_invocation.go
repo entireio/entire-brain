@@ -61,3 +61,26 @@ func setupBrainCommand(brainCmd string) string {
 	}
 	return setupBrainBinaryName
 }
+
+// semanticIndexVerb is the command path that builds the semantic index, as
+// cobra registers it: `index` hangs off `refresh`, not off the root.
+//
+// Twelve strings used to tell the reader to run "entire brain index" (quoted
+// here rather than shown as a command, because it is not one and this package
+// holds every printed command to resolving) -- a verb that has never existed — the binary answers `unknown command "index"`. The
+// advice was unrunnable in both spellings, so every one of them was a dead end
+// handed to a user whose index was already missing. The verb lives here, beside
+// the prefix, so the two halves of a printed command cannot drift apart.
+const semanticIndexVerb = "refresh index"
+
+// brainInvocation renders a command the reader can actually type: the spelling
+// of this program they reached (see setupCommandPrefix) followed by a verb path
+// that cobra resolves. Every printed command goes through it rather than
+// hardcoding one of the two binary names.
+func brainInvocation(lookup tui.EnvLookup, verb string) string {
+	command := setupBrainCommand(setupCommandPrefix(lookup))
+	if verb = strings.TrimSpace(verb); verb != "" {
+		command += " " + verb
+	}
+	return command
+}

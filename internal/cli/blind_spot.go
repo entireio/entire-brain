@@ -165,8 +165,8 @@ func otherBranchBlindSpot(brainDir, branch string) string {
 // mattered most. An agent reads that empty array as "the brain knows nothing
 // about this" and writes the tool off, when the true answer is "there is no
 // brain here yet". brain_code already refuses this state out loud ("semantic
-// index missing; run `entire brain index`"); the text retrieval surface stayed
-// silent about it.
+// index missing", naming the refresh command that builds one); the text
+// retrieval surface stayed silent about it.
 //
 // Same mechanism as every other line in this file: one `note:` string, carried
 // by the existing blind_spot field on JSON responses and printed under the

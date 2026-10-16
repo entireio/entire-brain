@@ -75,7 +75,11 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&refreshOpts.seed.effort, "seed-effort", "", "Override the reasoning effort for seed synthesis (e.g. low)")
 	cmd.Flags().BoolVar(&refreshOpts.semantic, "semantic", true, "Refresh the local semantic index after session and seed refresh")
 	cmd.Flags().BoolVar(&refreshOpts.semanticWorktree, "semantic-worktree", false, "Deprecated: allow semantic indexing of the current dirty worktree")
-	_ = cmd.Flags().MarkDeprecated("semantic-worktree", "use `entire brain index --worktree` for an explicit semantic worktree snapshot")
+	// The deprecation notice is the last thing a user of the old flag reads, so
+	// it has to name a command that runs. It named "entire brain index", which
+	// never existed in either spelling.
+	_ = cmd.Flags().MarkDeprecated("semantic-worktree",
+		fmt.Sprintf("use `%s --worktree` for an explicit semantic worktree snapshot", brainInvocation(os.LookupEnv, semanticIndexVerb)))
 	cmd.Flags().BoolVar(&refreshOpts.historyIndex, "history-index", true, "Build a decision/rationale index from exported sessions")
 	cmd.Flags().StringVar(&refreshOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().BoolVar(&refreshOpts.allBranches, "all-branches", false, "Refresh recent local branch overlays without fetching remotes")
@@ -142,7 +146,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		}
 	}
 	if refreshOpts.seed.agent == "auto" {
-		refreshOpts.seed.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
+		refreshOpts.seed.agent = resolveRefreshAgentAnnounced(ctx, opts.Runner, repoDir, refreshOpts.seed.model, cmd.ErrOrStderr())
 	}
 	progress := newRefreshProgress(cmd.ErrOrStderr())
 	reportStageAndShouldAbort := func(name string, err error) bool {
@@ -833,9 +837,34 @@ func semanticRefreshArtifactsUsable(brainDir string, source *semanticSourceManif
 	return true
 }
 
+// defaultRefreshAgent resolves `--agent auto`.
+//
+// It used to be no-egress → codex → claude-code → none, which meant a user
+// sitting INSIDE Claude Code, who had codex installed for some other purpose,
+// had their repository's own content routed to the other vendor's agent — and
+// nothing said so. The harness the user is actually running under is a stronger
+// signal than PATH order, so it is consulted first.
+//
+// Detection is positive and verified for exactly one harness: CLAUDECODE and
+// CLAUDE_CODE_ENTRYPOINT are genuinely exported by Claude Code. There is NO
+// verified Codex signal — CODEX_HOME resolves a write destination and does not
+// imply a running Codex — so Codex keeps the PATH probe it always had. Guessing
+// one would repeat a mistake this codebase has already paid for: a guard
+// written against a key the real CLI never emits.
 func defaultRefreshAgent(ctx context.Context, runner CommandRunner, repoDir string) string {
 	if brainNoEgressMode() {
 		return "none"
+	}
+	// Prefer the detected harness ONLY IF its binary is runnable. Detection
+	// alone is not enough to return it: distillAgentCommandArgs turns
+	// "claude-code" into an argv that starts with `claude` and there is no
+	// fallback at exec time, so a session whose child PATH lacks `claude` would
+	// have a WORKING codex run replaced by a hard exec failure. A detected but
+	// unavailable harness falls through to the probe order below, unchanged.
+	if harness := detectedAgentHarness(); harness != "" {
+		if binary := agentProbeBinary(harness); binary != "" && commandLooksAvailable(ctx, runner, repoDir, binary) {
+			return harness
+		}
 	}
 	if commandLooksAvailable(ctx, runner, repoDir, "codex") {
 		return "codex"
@@ -844,6 +873,88 @@ func defaultRefreshAgent(ctx context.Context, runner CommandRunner, repoDir stri
 		return "claude-code"
 	}
 	return "none"
+}
+
+// detectedAgentHarness names the agent harness THIS process is running under,
+// or "" when none is recognized. Env-read style follows brainNoEgressMode /
+// envBool in agent_policy.go.
+//
+// CLAUDE_CODE_ENTRYPOINT carries a mode ("cli", "vscode", …), not a boolean, so
+// it is tested for presence; CLAUDECODE is a flag and goes through envBool, so
+// an explicit CLAUDECODE=0 is honoured as "no".
+func detectedAgentHarness() string {
+	if envBool("CLAUDECODE") || strings.TrimSpace(os.Getenv("CLAUDE_CODE_ENTRYPOINT")) != "" {
+		return "claude-code"
+	}
+	return ""
+}
+
+// agentProbeBinary maps an agent NAME to the executable behind it. The two
+// differ for Claude Code — the agent is "claude-code", the binary is "claude" —
+// and that mismatch is exactly where an unverified preference turns into an
+// exec failure.
+func agentProbeBinary(agent string) string {
+	switch agent {
+	case "claude-code":
+		return "claude"
+	case "codex":
+		return "codex"
+	case "ollama":
+		return "ollama"
+	default:
+		return ""
+	}
+}
+
+// resolveRefreshAgentAnnounced is defaultRefreshAgent plus a line saying which
+// agent it picked. Auto-selection used to be silent everywhere except setup's
+// backfill spend label, so on every other path a user's repository content went
+// to an agent they were never told about.
+//
+// It is a WRAPPER on purpose. defaultRefreshAgent has 13 call sites and three
+// tests calling it with its 3-arg shape; threading a writer through all of them
+// would churn the lot to serve the three places a human is actually watching.
+// Internal and non-interactive callers keep the pure function.
+//
+// A nil writer means "say nothing", which is how --json callers stay silent.
+func resolveRefreshAgentAnnounced(ctx context.Context, runner CommandRunner, repoDir, model string, out io.Writer) string {
+	agent := defaultRefreshAgent(ctx, runner, repoDir)
+	announceResolvedAgent(out, agent, model)
+	return agent
+}
+
+// announceResolvedAgent prints the choice BEFORE anything is spent on it,
+// mirroring the ordering rule the backfill cost line already documents: a user
+// who did not want this has to be able to read it and Ctrl-C.
+//
+// It names the MODEL as well as the agent, because the report that prompted
+// this was two sentences and the second one was "idk what model". An unpinned
+// model is stated outright rather than omitted: silence about the model is the
+// exact condition being fixed, and a line that mentions only the agent would
+// leave a reader guessing in the same way for the same reason.
+//
+// It does NOT default the model. setupBackfillDefaultEffort's comment already
+// settled that — "model ids age badly" — and hardcoding one here would be the
+// codex-first mistake again, pointing the other way. The agent's own default
+// applies; this just stops it being a secret.
+//
+// Deliberately a plain line rather than a progress task: this text is asserted
+// in tests and read by users, and routing it through the spinner would make the
+// bytes depend on TTY detection and on elapsed time.
+func announceResolvedAgent(out io.Writer, agent, model string) {
+	if out == nil || agent == "" {
+		return
+	}
+	if agent == "none" {
+		// No agent means no model to name.
+		fmt.Fprintln(out, "agent: auto-selected none — no supported agent CLI found (codex, claude); deterministic steps only")
+		return
+	}
+	if model = strings.TrimSpace(model); model != "" {
+		fmt.Fprintf(out, "agent: auto-selected %s, model %s (SPENDS TOKENS) — override with --agent/--model\n", agent, model)
+		return
+	}
+	fmt.Fprintf(out, "agent: auto-selected %s, model: the agent's own default (SPENDS TOKENS) — override with --agent, pin a model with --model\n", agent)
 }
 
 func commandLooksAvailable(ctx context.Context, runner CommandRunner, repoDir, name string) bool {

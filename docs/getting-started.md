@@ -277,28 +277,37 @@ command, is:
 
 ```sh
 entire enable                              # capture sessions + wire the session-end hook
-git add .entire .claude && git commit      # enable wrote these and did not commit them
 entire brain setup                         # then onboard: build, backfill, watch
 ```
 
 That order is a quality decision, not a correctness one — running `entire enable`
 after `setup` works too, and the next backfill pass picks the new sessions up.
 
-**The commit in the middle is not optional.** `entire enable` writes
+**Entire's own config no longer blocks the install.** `entire enable` writes
 `.entire/settings.json` and your agent's hook settings (`.claude/settings.json`
-for Claude Code) and leaves them uncommitted, so a `setup` run immediately
-afterwards finds a dirty worktree and refuses to seed or index it — two red `x`
-on a first run, caused by the command directly above it:
+for Claude Code, `.codex/hooks.json` for Codex); `entire graph init-agents`
+writes `AGENTS.md` and `CLAUDE.md`.
+A `setup` run immediately afterwards used to find that dirty worktree and refuse
+to seed or index it — two red `x` on a first run, caused by the command directly
+above it, which is not a failure a user can be expected to attribute. The dirty
+check now exempts the files Entire itself authored, so the sequence above works
+from a clean clone with nothing committed in between.
+
+The exemption is deliberately narrow. Uncommitted **source** still stops a seed
+or an index, because a brain attributed to a commit must not absorb work that
+commit does not contain:
 
 ```
   instant     + sessions  x seed  + history  + docs  x semantic  + patterns  + entities  + memory
-              x seed baseline: dirty_worktree: refusing to seed uncommitted content without --worktree
-                hint: commit or stash the working tree, then re-run `entire brain setup`; `entire enable` writes .entire/ and .claude/ without committing them, which is what a first run usually trips over
+              x seed baseline: dirty_worktree: refusing to seed uncommitted content without
+                --worktree (2 uncommitted paths: src/app.ts, src/lib/parse.ts); pass --worktree
+                to seed the working tree as it stands, or commit or stash these changes first
 ```
 
-Both files are project configuration that belongs in the repository anyway, so
-committing them is the real fix rather than a workaround. (`--worktree`, which
-the refusal names, is a `refresh` flag — `setup` does not accept it.)
+The Entire-authored files are still **indexed** — `AGENTS.md` and `CLAUDE.md` are
+exactly the repository docs you want the brain to know about. They just stop
+counting as uncommitted source for the gate. (`--worktree`, which the refusal
+names, is a `refresh` flag — `setup` does not accept it.)
 
 **A repository new to Entire reaches an all-green `setup` with no user action.**
 On a committed `git init` repository with no remote at all, every component

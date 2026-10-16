@@ -131,7 +131,7 @@ func setupRepoKeyMismatchHint(brainCmd string) string {
 // pass to the command they ran. Both halves of the remedy belong here: what to
 // do, and why the tree is dirty when they never edited anything.
 func setupDirtyWorktreeHint(brainCmd string) string {
-	return "commit or stash the working tree, then re-run `" + setupBrainCommand(brainCmd) +
+	return "commit or stash the working tree -- or list the paths in .brainignore, which the seed and index gates both honour -- then re-run `" + setupBrainCommand(brainCmd) +
 		" setup`; `entire enable` writes .entire/ and .claude/ without committing them, which is what a first run usually trips over"
 }
 
@@ -1302,7 +1302,15 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 	}
 	if steps.detectAgent == nil {
 		steps.detectAgent = func(ctx context.Context) string {
-			return defaultRefreshAgent(ctx, opts.Runner, repoDir)
+			// setup resolves the agent once and embeds it in the daemon plan,
+			// so this is the single place a user is told which agent their
+			// repository's content will be sent to — announce it. Silent under
+			// --json, as every other human line in setup already is.
+			var announce io.Writer
+			if !setupOpts.json {
+				announce = cmd.ErrOrStderr()
+			}
+			return resolveRefreshAgentAnnounced(ctx, opts.Runner, repoDir, setupOpts.model, announce)
 		}
 	}
 	if steps.spawnBackfill == nil {

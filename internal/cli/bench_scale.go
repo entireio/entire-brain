@@ -267,8 +267,8 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 		// brain instead of the absence of one, which is the confusion this
 		// whole command exists to avoid.
 		return fmt.Errorf(
-			"--skip-index found no semantic index for %s; run `entire brain index` first, or drop --skip-index to build one",
-			repoDir)
+			"--skip-index found no semantic index for %s; run `%s` first, or drop --skip-index to build one",
+			repoDir, brainInvocation(os.LookupEnv, semanticIndexVerb))
 	}
 
 	// Size on disk, which is the figure the comparison is actually about.
