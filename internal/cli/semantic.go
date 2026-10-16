@@ -6135,6 +6135,19 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 	sort.Strings(included)
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "exported bundle: %s\nsha256: %s\n", output, checksum)
+	// --sha256 is REQUIRED on import, and the digest is only printed here, so a
+	// reader who keeps the archive and not this output cannot import it without
+	// recomputing the hash. Print the whole command rather than the ingredient.
+	// The path is quoted because this line is meant to be copy-pasted: an
+	// --output with a space in it produced a command that ran against the
+	// wrong path. The label above is prose, not a command, so it is not quoted.
+	//
+	// shellQuotedRepoDir is the package's existing single-quoter; its name says
+	// repo dir but it quotes any path, and adding a third one for this would be
+	// worse than reusing it. output is a required flag, so its empty-input
+	// fallback is not reachable here.
+	fmt.Fprintf(out, "import it with: %s bundle import %s --sha256 %s\n",
+		setupBrainCommand(setupCommandPrefix(os.LookupEnv)), shellQuotedRepoDir(output), checksum)
 	fmt.Fprintf(out, "includes: %s\n", strings.Join(included, ", "))
 	if len(sessionFamily) > 0 {
 		sort.Strings(sessionFamily)
@@ -6804,7 +6817,36 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 		return err
 	}
 	if len(conflicts) > 0 && !overwrite {
-		return fmt.Errorf("bundle import would overwrite brain layers this brain already has (%s); re-run with --overwrite to accept that, or import into a brain without them", strings.Join(conflicts, ", "))
+		// "import into a brain without them" named a state a real receiver is
+		// never in: a brain that has run `setup` always holds seed and docs, so
+		// the only reachable choice is to accept the replacement or not make it.
+		return bundleImportConflictError(conflicts)
+	}
+	if len(conflicts) > 0 {
+		// The loss is silent otherwise: the layers are replaced, and the next
+		// empty `recall` blames distillation coverage rather than this import.
+		fmt.Fprintf(cmd.OutOrStdout(), "replacing this brain's %s with the bundle's; anything recorded here and absent from the bundle is no longer retrievable\n", strings.Join(conflicts, ", "))
+	}
+	// Record the import BEFORE replacing anything. Written afterwards, a failed
+	// audit write leaves the facts already destroyed with no trace that an
+	// import did it, and the empty `recall` that follows goes back to blaming
+	// distillation coverage -- the exact defect this entry exists to prevent.
+	// An entry for an import that then fails part way is the honest record:
+	// layers may already have been touched, and the reader needs to know.
+	// Record WHICH layers this import REPLACES -- `conflicts`, the layers
+	// present on BOTH sides -- not the layers the bundle happens to carry.
+	//
+	// This has been raised twice as "it should record what was imported". It
+	// must not. The note this feeds says "facts recorded here before then are
+	// no longer present", which is only true if this brain HELD facts and the
+	// import overwrote them. Recording the bundle's contents instead would fire
+	// that note at a brain that never had facts, telling a reader their
+	// remembered facts are gone when nothing was lost -- and telling them so in
+	// preference to the distillation advice that would actually have helped.
+	//
+	// Pinned by TestAnImportIntoABrainWithNoFactsExplainsNothing.
+	if err := appendSemanticAuditLayers(storage.BrainDir, "bundle_import", archive, sum, conflicts); err != nil {
+		return err
 	}
 	if err := filepath.WalkDir(tmpDir, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -6854,9 +6896,6 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 		if err := writeBrainBundleLayerSources(storage.BrainDir, storage.Key, restored, importManifest); err != nil {
 			return err
 		}
-	}
-	if err := appendSemanticAudit(storage.BrainDir, "bundle_import", archive, sum); err != nil {
-		return err
 	}
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "imported bundle entries: %d\nsha256: %s\n", imported, sum)
@@ -7699,12 +7738,83 @@ func bundleEntryPathAllowed(clean, cleanSlash string) bool {
 	return false
 }
 
+// bundleImportConflictError refuses an import that would replace layers.
+//
+// The old wording ended "or import into a brain without them", naming a state
+// a real receiver is never in: `setup` always writes seed and docs, so by the
+// time anyone has a brain to import into, the empty-brain path is gone. What
+// was missing is the part that matters -- what accepting costs.
+func bundleImportConflictError(conflicts []string) error {
+	return fmt.Errorf("bundle import would replace brain layers this brain already has (%s); re-run with --overwrite to accept that. --overwrite replaces each named layer with the bundle's copy, so anything recorded here and absent from the bundle -- facts remembered locally, for instance -- stops being retrievable. A brain that has been set up always holds seed and docs, so there is no empty-brain path once setup has run", strings.Join(conflicts, ", "))
+}
+
+// lastBundleImportAt reports when a bundle last replaced layers in this brain.
+//
+// An import with --overwrite replaces the fact layer wholesale, so facts the
+// reader remembered here before it are simply gone. Without this the next empty
+// recall blames distillation coverage and sends them to re-distill, which
+// cannot bring back what an import replaced.
+//
+// Best effort by design: the audit log is local operational state and may be
+// absent, truncated or partly unreadable. A malformed line is skipped rather
+// than failing the caller, because a missing explanation must never turn a
+// working recall into an error.
+func lastBundleImportAt(brainDir string) (time.Time, bool) {
+	data, err := os.ReadFile(filepath.Join(brainDir, semanticDirName, semanticAuditLogName))
+	if err != nil {
+		return time.Time{}, false
+	}
+	var newest time.Time
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var entry struct {
+			Action      string   `json:"action"`
+			GeneratedAt string   `json:"generated_at"`
+			Layers      []string `json:"layers"`
+		}
+		if err := json.Unmarshal([]byte(line), &entry); err != nil || entry.Action != "bundle_import" {
+			continue
+		}
+		// Only an import that replaced the FACT layer explains a missing fact.
+		// An entry with no layers predates this field: treat it as unknown and
+		// skip, rather than asserting something the record does not say.
+		if !slices.Contains(entry.Layers, bundleLayerFacts) {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339, entry.GeneratedAt)
+		if err != nil {
+			continue
+		}
+		if at.After(newest) {
+			newest = at
+		}
+	}
+	return newest, !newest.IsZero()
+}
+
 func appendSemanticAudit(brainDir, action, path, checksum string) error {
-	entry := map[string]string{
+	return appendSemanticAuditLayers(brainDir, action, path, checksum, nil)
+}
+
+// appendSemanticAuditLayers records which layers an action replaced.
+//
+// Without this an import of docs alone and an import that destroyed the fact
+// layer were indistinguishable in the log, so the empty-recall note read every
+// bundle_import as proof the facts had been replaced. A note that explains an
+// empty result with something that did not happen is worse than the
+// distillation advice it set out to correct.
+func appendSemanticAuditLayers(brainDir, action, path, checksum string, layers []string) error {
+	entry := map[string]any{
 		"action":       action,
 		"path":         path,
 		"sha256":       checksum,
 		"generated_at": time.Now().UTC().Format(time.RFC3339),
+	}
+	if len(layers) > 0 {
+		entry["layers"] = layers
 	}
 	data, err := json.Marshal(entry)
 	if err != nil {
