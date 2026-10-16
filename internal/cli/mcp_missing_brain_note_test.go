@@ -54,8 +54,8 @@ func TestEmptyResultBlindSpotNamesAMissingBrain(t *testing.T) {
 // TestMCPRetrievalReportsAMissingBrain is the defect over the wire.
 //
 // On a repository with no brain, brain_code refuses out loud ("semantic index
-// missing; run `entire brain index`") while brain_search and brain_query
-// answered
+// missing", naming the refresh command that builds one) while brain_search and
+// brain_query answered
 //
 //	{"branch":"main","query":"Hello","results":[]}
 //

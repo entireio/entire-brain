@@ -323,6 +323,20 @@ func (o semanticIndexOptions) reportPhase(phase string) {
 	}
 }
 
+// semanticIndexMissingError is the single wording of "there is no semantic
+// index here", used by every surface that discovers one is missing.
+//
+// It exists because the remedy was wrong in all nine of them: they told the
+// reader to run "entire brain index", and there is no "index" verb at the root
+// -- the binary answers: unknown command "index". A reader who hit this error
+// was told to fix it with a command that could not run, which is worse than
+// saying nothing. The remedy is now built from the registered verb and the
+// spelling of this binary the reader actually reached, so it is runnable as
+// printed. TestEveryCommandPrintedInSourceResolves holds that.
+func semanticIndexMissingError() error {
+	return fmt.Errorf("semantic index missing; run `%s`", brainInvocation(os.LookupEnv, semanticIndexVerb))
+}
+
 type semanticResetOptions struct {
 	force        bool
 	semanticOnly bool
@@ -575,7 +589,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		return fmt.Errorf("check worktree dirtiness for semantic index: %w", err)
 	}
 	if dirty && !indexOpts.worktree {
-		return errors.New(dirtyWorktreeErrorCode + ": refusing to index uncommitted content without --worktree")
+		return dirtyWorktreeRefusalFor(ctx, opts.Runner, repoDir, ignore, "index")
 	}
 	worktreeHashBefore := ""
 	if indexOpts.worktree {
@@ -890,7 +904,7 @@ func runSemanticRepair(ctx context.Context, cmd *cobra.Command, opts Options, ta
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain index`")
+		return semanticIndexMissingError()
 	}
 	source := manifest.Sources.Semantic
 	// Repair is meant to regenerate a missing/corrupt generation from the
@@ -2617,6 +2631,83 @@ func worktreeDirtyWithIgnore(ctx context.Context, runner CommandRunner, repoDir 
 	return strings.TrimSpace(string(filterWorktreeStatus(stdout, ignore))) != "", nil
 }
 
+// dirtyWorktreeRefusalPathLimit bounds the list in a refusal. The point is to
+// show the reader WHICH files blocked them, not to reproduce `git status`: a
+// tree with 250 dirty files is exactly the case this message exists for, and
+// pasting 250 paths into an error is how it stops being read.
+const dirtyWorktreeRefusalPathLimit = 5
+
+// worktreeDirtyPaths lists the paths that make the worktree dirty, with
+// .brainignore already applied -- the same filter the gate itself uses, so the
+// refusal names only files that actually blocked it and never one the reader
+// has already excluded.
+func worktreeDirtyPaths(ctx context.Context, runner CommandRunner, repoDir string, ignore brainIgnore) ([]string, error) {
+	stdout, err := gitStatusPorcelainAll(ctx, runner, repoDir)
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	seen := map[string]struct{}{}
+	for _, line := range strings.Split(string(filterWorktreeStatus(stdout, ignore)), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		for _, path := range worktreeStatusPaths(line) {
+			if path == "" {
+				continue
+			}
+			if _, ok := seen[path]; ok {
+				continue
+			}
+			seen[path] = struct{}{}
+			paths = append(paths, path)
+		}
+	}
+	return paths, nil
+}
+
+// dirtyWorktreeRefusal is the one wording of both dirty-tree refusals.
+//
+// They used to offer a single way out -- "without --worktree" -- and --worktree
+// is the wrong hatch for the reader who hits this most often: it INDEXES the
+// uncommitted files rather than getting them out of the way. .brainignore is
+// the hatch that fits, the gate already loads and honours it (loadBrainIgnore,
+// worktreeDirtyWithIgnore), and it appeared in zero error strings and zero
+// README lines. A user with ~250 dirty research files was stuck on exactly
+// this, with the answer sitting unmentioned in the code that refused them.
+//
+// The blocking paths are named for the same reason: "the worktree is dirty" is
+// not actionable when the reader cannot see which files are meant.
+func dirtyWorktreeRefusal(verb string, paths []string) error {
+	message := fmt.Sprintf(
+		"%s: refusing to %s uncommitted content without --worktree; commit or stash them, list them in .brainignore to keep them out of the brain, or pass --worktree to %s them as they are",
+		dirtyWorktreeErrorCode, verb, verb)
+	if len(paths) > 0 {
+		shown := paths
+		extra := 0
+		if len(shown) > dirtyWorktreeRefusalPathLimit {
+			extra = len(shown) - dirtyWorktreeRefusalPathLimit
+			shown = shown[:dirtyWorktreeRefusalPathLimit]
+		}
+		message += "; uncommitted: " + strings.Join(shown, ", ")
+		if extra > 0 {
+			message += fmt.Sprintf(" (and %d more)", extra)
+		}
+	}
+	return errors.New(message)
+}
+
+// dirtyWorktreeRefusalFor builds the refusal with the blocking paths named.
+// The lookup is best effort on purpose: we are already failing, and a git error
+// raised while composing the message must not replace the message itself.
+func dirtyWorktreeRefusalFor(ctx context.Context, runner CommandRunner, repoDir string, ignore brainIgnore, verb string) error {
+	paths, err := worktreeDirtyPaths(ctx, runner, repoDir, ignore)
+	if err != nil {
+		paths = nil
+	}
+	return dirtyWorktreeRefusal(verb, paths)
+}
+
 func verifySemanticWorktreeStable(ctx context.Context, runner CommandRunner, repoDir string, worktreeMode, dirtyBefore bool, hashBefore string) error {
 	dirtyAfter, err := worktreeDirty(ctx, runner, repoDir)
 	if err != nil {
@@ -3317,7 +3408,7 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain index`")
+		return semanticIndexMissingError()
 	}
 	snapshotPath, err := validateSemanticSnapshotPath(manifest.Sources.Semantic.SnapshotPath)
 	if err != nil {
@@ -3408,7 +3499,7 @@ func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, c
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain index`")
+		return semanticIndexMissingError()
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -3494,7 +3585,7 @@ func runSemanticImpact(ctx context.Context, cmd *cobra.Command, opts Options, im
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain index`")
+		return semanticIndexMissingError()
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -3561,7 +3652,7 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain index`")
+		return semanticIndexMissingError()
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -3653,7 +3744,7 @@ func runSemanticBoundary(ctx context.Context, cmd *cobra.Command, opts Options, 
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain index`")
+		return semanticIndexMissingError()
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -3719,7 +3810,7 @@ func runSemanticTests(ctx context.Context, cmd *cobra.Command, opts Options, tes
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain index`")
+		return semanticIndexMissingError()
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -5985,7 +6076,7 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain index`")
+		return semanticIndexMissingError()
 	}
 	if manifest.Sources.Semantic.WorktreeMode == "worktree" || manifest.Sources.Semantic.DirtyWorktree || manifest.Sources.Semantic.WorktreeHash != "" {
 		return errors.New("semantic bundle export does not support worktree-backed semantic indexes; refresh a clean semantic index first")

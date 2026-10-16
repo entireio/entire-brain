@@ -75,7 +75,11 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&refreshOpts.seed.effort, "seed-effort", "", "Override the reasoning effort for seed synthesis (e.g. low)")
 	cmd.Flags().BoolVar(&refreshOpts.semantic, "semantic", true, "Refresh the local semantic index after session and seed refresh")
 	cmd.Flags().BoolVar(&refreshOpts.semanticWorktree, "semantic-worktree", false, "Deprecated: allow semantic indexing of the current dirty worktree")
-	_ = cmd.Flags().MarkDeprecated("semantic-worktree", "use `entire brain index --worktree` for an explicit semantic worktree snapshot")
+	// The deprecation notice is the last thing a user of the old flag reads, so
+	// it has to name a command that runs. It named "entire brain index", which
+	// never existed in either spelling.
+	_ = cmd.Flags().MarkDeprecated("semantic-worktree",
+		fmt.Sprintf("use `%s --worktree` for an explicit semantic worktree snapshot", brainInvocation(os.LookupEnv, semanticIndexVerb)))
 	cmd.Flags().BoolVar(&refreshOpts.historyIndex, "history-index", true, "Build a decision/rationale index from exported sessions")
 	cmd.Flags().StringVar(&refreshOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().BoolVar(&refreshOpts.allBranches, "all-branches", false, "Refresh recent local branch overlays without fetching remotes")

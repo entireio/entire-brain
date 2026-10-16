@@ -431,9 +431,10 @@ func TestSkipIndexRefusesARepositoryWithNoIndex(t *testing.T) {
 	if !strings.Contains(err.Error(), "no semantic index") {
 		t.Fatalf("the error does not name the cause: %v", err)
 	}
-	// And it must say what to do about it.
-	if !strings.Contains(err.Error(), "entire brain index") {
-		t.Fatalf("the error does not name the remedy: %v", err)
+	// And it must say what to do about it, with a command that RUNS: this
+	// named `entire brain index`, a verb the binary has never had.
+	if !strings.Contains(err.Error(), brainInvocation(os.LookupEnv, semanticIndexVerb)) {
+		t.Fatalf("the error does not name a runnable remedy: %v", err)
 	}
 }
 

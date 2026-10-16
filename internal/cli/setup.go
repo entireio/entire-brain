@@ -131,7 +131,7 @@ func setupRepoKeyMismatchHint(brainCmd string) string {
 // pass to the command they ran. Both halves of the remedy belong here: what to
 // do, and why the tree is dirty when they never edited anything.
 func setupDirtyWorktreeHint(brainCmd string) string {
-	return "commit or stash the working tree, then re-run `" + setupBrainCommand(brainCmd) +
+	return "commit or stash the working tree -- or list the paths in .brainignore, which the seed and index gates both honour -- then re-run `" + setupBrainCommand(brainCmd) +
 		" setup`; `entire enable` writes .entire/ and .claude/ without committing them, which is what a first run usually trips over"
 }
 

@@ -151,7 +151,7 @@ func loadSemanticEnv(cmd *cobra.Command, opts Options) (semanticEnv, error) {
 		return semanticEnv{}, err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return semanticEnv{}, errors.New("semantic index missing; run `entire brain index`")
+		return semanticEnv{}, semanticIndexMissingError()
 	}
 	return semanticEnv{RepoDir: repoDir, BrainDir: storage.BrainDir, RepoKey: manifest.RepoKey, Source: manifest.Sources.Semantic}, nil
 }
