@@ -31,7 +31,14 @@ func setupRenderFixtureReport() setupReport {
 		Backfill:  setupPhase{State: "skipped", Detail: "--no-backfill"},
 		Workspace: setupWorkspaceState{Name: "default", Registered: true},
 		Daemon:    daemonState{Manager: daemonManagerUnsupported, Detail: "skipped: --no-daemon"},
-		Facts:     factsBackfillStatus{Sessions: 618, Distilled: 300},
+		Agents: setupAgentsState{
+			Installed:   true,
+			Files:       []string{".entire/agent-guide.md", "AGENTS.md", "CLAUDE.md"},
+			Changed:     []string{".entire/agent-guide.md", "AGENTS.md", "CLAUDE.md"},
+			Hook:        "/repo/.claude/settings.json",
+			HookChanged: true,
+		},
+		Facts: factsBackfillStatus{Sessions: 618, Distilled: 300},
 	}
 }
 
@@ -61,6 +68,7 @@ func TestSetupSummaryPlainGolden(t *testing.T) {
 		"  instant     x sessions  + seed  + docs  + semantic  (700ms)\n" +
 		"              x session export: checkpoint_scope_incomplete\n" +
 		"                hint: add a git remote\n" +
+		"  agents      + .entire/agent-guide.md, AGENTS.md, CLAUDE.md + pre-edit hook\n" +
 		"  facts       ######........ 300/618 sessions distilled\n" +
 		"  backfill    - skipped (--no-backfill)  (0s)\n" +
 		"  workspace   + default  (30ms)\n" +

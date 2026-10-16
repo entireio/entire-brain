@@ -61,6 +61,21 @@
     "detail": "no Entire SessionEnd hook found in .claude settings",
     "entire_cli_on_path": true
   },
+  "agent_instructions": {
+    "installed": true,
+    "files": [
+      ".entire/agent-guide.md",
+      "AGENTS.md",
+      "CLAUDE.md"
+    ],
+    "changed": [
+      ".entire/agent-guide.md",
+      "AGENTS.md",
+      "CLAUDE.md"
+    ],
+    "pre_edit_hook": "/home/example/brain-demo/repo/.claude/settings.json",
+    "pre_edit_hook_changed": true
+  },
   "facts": {
     "sessions": 0,
     "distilled": 0,

@@ -586,14 +586,22 @@ repo-wide text search until the brain's targeted context has been used.
 
 ### 4. Hidden Hooks Deliver Context At The Moment Of Relevance
 
-`entire-brain` also has a hidden hook surface for harness integrations. These
-hooks are not installed by the base Entire repository enablement flow; a harness
-must be configured to invoke them, for example from Claude Code
-`PreToolUse`/`PostToolUse` hooks or Entire CLI lifecycle hooks. Until then they
-have no effect. They are not intended as human-facing commands, although they
-can be hand-tested when
-debugging harness wiring. They are designed to surface a small, high-confidence
-fact exactly when it matters:
+`entire-brain` also has a hook surface for harness integrations. A harness must
+be configured to invoke a hook before it can have any effect, and `init-agents`
+— which `setup` runs for you — wires the one that matters for Claude Code: it
+merges a `PreToolUse` entry for `Edit`/`Write`/`MultiEdit`/`NotebookEdit` into
+the repository's `.claude/settings.json`, running
+`entire-brain hook pre-edit --claude-hook`. That flag is the wired spelling: it
+reads the host's `PreToolUse` event from stdin and replies with the
+`hookSpecificOutput` envelope, which is the only stdout shape Claude Code adds
+to the agent's context (plain lines are discarded). Pass
+`setup --no-agent-hooks` to decline it; the decline is remembered on re-runs.
+
+The remaining hooks — `post-failure`, `session-end` — are still harness-wired by
+hand, and have no effect until something calls them. None of them are intended
+as human-facing commands, although they can be hand-tested when debugging
+harness wiring. They are designed to surface a small, high-confidence fact
+exactly when it matters:
 
 - before editing a file, facts anchored to that file
 - after a failed command, gotchas and known dead ends that match the failure

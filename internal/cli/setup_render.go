@@ -181,6 +181,10 @@ func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport,
 		}
 	}
 
+	// What an agent can now see. Without this row the closing block described a
+	// brain nothing would ever consult, and said nothing about it.
+	row("agents", setupAgentsValue(render, report.Agents), phaseTiming(timings, "agents"))
+
 	facts := report.Facts
 	factsValue := fmt.Sprintf("%s %s %s",
 		render.Bar(facts.Distilled, facts.Sessions, summaryBarWidth),
@@ -238,6 +242,13 @@ func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport,
 	if report.Daemon.Installed {
 		next = append(next, [2]string{brainCmd + " setup --uninstall-daemon", "stop and remove the background watcher"})
 	}
+	// Only when the wiring did NOT land. Naming init-agents on a run that
+	// already wrote the guide would send the reader to re-do work setup just
+	// did; naming it on a run that failed is the only way they learn the brain
+	// is invisible.
+	if !report.Agents.Installed {
+		next = append(next, [2]string{brainCmd + " init-agents", "tell agents this brain exists (nothing will use it until this runs)"})
+	}
 	// Size the column to its widest entry rather than to a constant: the
 	// conditional --uninstall-daemon row is longer than any fixed width chosen
 	// for the three static ones, and a row that overflows its column loses the
@@ -256,6 +267,23 @@ func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport,
 			render.PhasePaint(tui.PhaseInstant, fmt.Sprintf("%-*s", width, next[0])),
 			render.Dim(next[1]))
 	}
+}
+
+// setupAgentsValue renders the agent-wiring row: which files now point an agent
+// at this brain, and whether the moment-of-edit hook is live.
+func setupAgentsValue(render *tui.Renderer, agents setupAgentsState) string {
+	if !agents.Installed {
+		detail := strings.TrimSpace(agents.Detail)
+		if detail == "" {
+			detail = "no agent instructions written"
+		}
+		return render.Mark(tui.MarkFailed) + " " + render.PhasePaint(tui.PhaseFailed, detail)
+	}
+	text := strings.Join(agents.Files, ", ")
+	if agents.Hook != "" {
+		text += " + pre-edit hook"
+	}
+	return render.Mark(tui.MarkDone) + " " + render.PhasePaint(tui.PhaseInstant, text)
 }
 
 // setupComponentRow renders the per-component tick row in build order.

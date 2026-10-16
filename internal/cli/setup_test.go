@@ -271,6 +271,29 @@ func setupTestCommand(t *testing.T, out *bytes.Buffer, opts setupCommandOptions)
 	if opts.effort != defaults.effort {
 		typed[setupFlagEffort] = opts.effort
 	}
+	// The declines are REMEMBERED now, so "the user set this field" and "the
+	// user typed this flag" stopped being interchangeable: a test that sets
+	// opts.noDaemon without marking the flag typed would have its decline
+	// overwritten by the (absent) record's default. Marking them keeps every
+	// existing test meaning exactly what it meant — `setup --no-daemon`.
+	if opts.noDaemon != defaults.noDaemon {
+		typed[setupFlagNoDaemon] = fmt.Sprint(opts.noDaemon)
+	}
+	if opts.noBackfill != defaults.noBackfill {
+		typed[setupFlagNoBackfill] = fmt.Sprint(opts.noBackfill)
+	}
+	if opts.noAgentHooks != defaults.noAgentHooks {
+		typed[setupFlagNoAgentHooks] = fmt.Sprint(opts.noAgentHooks)
+	}
+	if opts.daemon != defaults.daemon {
+		typed[setupFlagDaemon] = fmt.Sprint(opts.daemon)
+	}
+	if opts.backfill != defaults.backfill {
+		typed[setupFlagBackfill] = fmt.Sprint(opts.backfill)
+	}
+	if opts.agentHooks != defaults.agentHooks {
+		typed[setupFlagAgentHooks] = fmt.Sprint(opts.agentHooks)
+	}
 	for name, value := range typed {
 		if err := cmd.Flags().Set(name, value); err != nil {
 			t.Fatalf("set --%s=%q: %v", name, value, err)

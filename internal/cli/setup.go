@@ -309,13 +309,22 @@ type setupCommandOptions struct {
 	noDaemon        bool
 	uninstallDaemon bool
 	noBackfill      bool
-	agent           string
-	model           string
-	effort          string
-	backfillBudget  int
-	interval        time.Duration
-	distillEvery    time.Duration
-	json            bool
+	noAgentHooks    bool
+	// daemon/backfill/agentHooks are the AFFIRMATIVE overrides. A decline is
+	// remembered (see setupRecord), so without an affirmative spelling the only
+	// way back from one would be `--no-daemon=false`, which nothing documents
+	// and nobody guesses. Their value is only ever read when cobra reports the
+	// flag as typed.
+	daemon         bool
+	backfill       bool
+	agentHooks     bool
+	agent          string
+	model          string
+	effort         string
+	backfillBudget int
+	interval       time.Duration
+	distillEvery   time.Duration
+	json           bool
 }
 
 func defaultSetupOptions() setupCommandOptions {
@@ -411,6 +420,7 @@ type setupReport struct {
 	Workspace     setupWorkspaceState `json:"workspace"`
 	Daemon        daemonState         `json:"daemon"`
 	Hook          setupHookState      `json:"session_end_hook"`
+	Agents        setupAgentsState    `json:"agent_instructions"`
 	Facts         factsBackfillStatus `json:"facts"`
 	Warnings      []string            `json:"warnings,omitempty"`
 }
@@ -468,9 +478,13 @@ that is still running, and keeps whatever --interval/--distill-every/--model/
 		},
 	}
 	cmd.Flags().StringVar(&setupOpts.workspace, "workspace", setupOpts.workspace, "Workspace the repo joins (created when absent)")
-	cmd.Flags().BoolVar(&setupOpts.noDaemon, "no-daemon", false, "Run the instant phase and backfill but do not install the background watcher")
+	cmd.Flags().BoolVar(&setupOpts.noDaemon, "no-daemon", false, "Run the instant phase and backfill but do not install the background watcher (remembered: later bare re-runs keep declining)")
+	cmd.Flags().BoolVar(&setupOpts.daemon, "daemon", false, "Install the background watcher even if a previous run declined it")
 	cmd.Flags().BoolVar(&setupOpts.uninstallDaemon, "uninstall-daemon", false, "Stop and remove the background watcher, then exit")
-	cmd.Flags().BoolVar(&setupOpts.noBackfill, "no-backfill", false, "Do not start the background fact backfill (no token spend at all)")
+	cmd.Flags().BoolVar(&setupOpts.noBackfill, "no-backfill", false, "Do not start the background fact backfill, which SPENDS TOKENS (remembered: later bare re-runs keep declining)")
+	cmd.Flags().BoolVar(&setupOpts.backfill, "backfill", false, "Start the background fact backfill even if a previous run declined it (SPENDS TOKENS)")
+	cmd.Flags().BoolVar(&setupOpts.noAgentHooks, "no-agent-hooks", false, "Write the agent guide but do not merge the Claude Code PreToolUse entry (remembered)")
+	cmd.Flags().BoolVar(&setupOpts.agentHooks, "agent-hooks", false, "Merge the Claude Code PreToolUse entry even if a previous run declined it")
 	cmd.Flags().StringVar(&setupOpts.agent, "agent", setupOpts.agent, "Agent for the background backfill: auto, none, codex, claude-code")
 	cmd.Flags().StringVar(&setupOpts.model, "model", "", "Cheap/fast model for the background backfill (recommended)")
 	cmd.Flags().StringVar(&setupOpts.effort, "effort", setupOpts.effort, "Reasoning effort for the background backfill")
@@ -533,6 +547,9 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		return fmt.Errorf("%w\nthis repo's setup record is unreadable; delete it and re-run `%s setup` to re-adopt the watcher", recordErr, brainCmd)
 	}
 	changed := setupFlagChanged(cmd)
+	if err := rejectConflictingSetupToggles(changed); err != nil {
+		return err
+	}
 	setupOpts = applySetupRecordDefaults(setupOpts, previous, changed)
 	if steps.observeComponent == nil {
 		steps.observeComponent = &setupComponentObserver{}
@@ -699,6 +716,23 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	instantTask.Finish(nil)
 	reportSetupComponentFailures(progress, failed, brainCmd)
 
+	// Make the brain VISIBLE. "Queryable" is only half of ready: until an agent
+	// is told the brain exists it will never ask, and setup used to end without
+	// writing a guide, a pointer or a hook — `setup.go` did not reference the
+	// agentsetup package at all. A setup-only repository was invisible to every
+	// agent that opened it.
+	//
+	// This runs here, immediately after the instant phase, rather than at the
+	// end: the pointer is what makes the queryable brain worth anything, and it
+	// must survive a later phase failing. It is best-effort for the same reason
+	// the instant phase is — a repository whose AGENTS.md cannot be written
+	// still has a working brain — so a failure is one warning, never an exit
+	// code.
+	agentsStarted := time.Now()
+	report.Agents = wireAgentInstructions(repoDir, !setupOpts.noAgentHooks)
+	timings.record("agents", time.Since(agentsStarted))
+	reportSetupAgents(progress, report.Agents, &report, setupOpts.noAgentHooks, brainCmd)
+
 	report.Facts = factsBackfillStatusForBrain(storage.BrainDir)
 
 	// Phase 2 — BACKFILL (detached, spends tokens).
@@ -810,6 +844,12 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		DistillEvery:   setupOpts.distillEvery.String(),
 		Model:          strings.TrimSpace(setupOpts.model),
 		Effort:         strings.TrimSpace(setupOpts.effort),
+		// The RESOLVED values, not the raw flags: a run that inherited a
+		// decline must re-record it, or the decision would survive exactly one
+		// re-run and then evaporate.
+		NoDaemon:     setupOpts.noDaemon,
+		NoBackfill:   setupOpts.noBackfill,
+		NoAgentHooks: setupOpts.noAgentHooks,
 	}); err != nil {
 		report.Warnings = append(report.Warnings, "setup record not saved: "+err.Error())
 	}
@@ -1352,6 +1392,21 @@ type setupRecord struct {
 	Effort         string `json:"effort,omitempty"`
 	Agent          string `json:"agent,omitempty"`
 	BackfillBudget *int   `json:"backfill_budget,omitempty"`
+	// What the user DECLINED is part of the setup too, and leaving it out was
+	// the sharpest edge on this command: our own output tells a reader to
+	// re-run `setup`, and a bare re-run after `setup --no-daemon --no-backfill`
+	// silently installed the persistent login service they had refused and
+	// started the token spend they had refused. A decline is a decision; it is
+	// remembered exactly like the daemon name and the tuning, and only an
+	// explicit affirmative flag on a later run reverses it.
+	//
+	// A record written by an older build carries none of these, which decodes
+	// to false — "nothing was declined" — and leaves that repo behaving exactly
+	// as it does today. That is why the absent and the "no" case may share a
+	// spelling here: both mean do it.
+	NoDaemon     bool `json:"no_daemon,omitempty"`
+	NoBackfill   bool `json:"no_backfill,omitempty"`
+	NoAgentHooks bool `json:"no_agent_hooks,omitempty"`
 }
 
 // setupFlagNames maps each remembered option to its flag, so "was this passed?"
@@ -1365,7 +1420,48 @@ const (
 	setupFlagDistillEvery   = "distill-every"
 	setupFlagModel          = "model"
 	setupFlagEffort         = "effort"
+	setupFlagNoDaemon       = "no-daemon"
+	setupFlagDaemon         = "daemon"
+	setupFlagNoBackfill     = "no-backfill"
+	setupFlagBackfill       = "backfill"
+	setupFlagNoAgentHooks   = "no-agent-hooks"
+	setupFlagAgentHooks     = "agent-hooks"
 )
+
+// setupToggleConflicts pairs each decline with the affirmative that reverses it.
+// Passing both in one run is a contradiction with no safe reading, and guessing
+// one is how a reader ends up with the service they just declined.
+var setupToggleConflicts = [][2]string{
+	{setupFlagNoDaemon, setupFlagDaemon},
+	{setupFlagNoBackfill, setupFlagBackfill},
+	{setupFlagNoAgentHooks, setupFlagAgentHooks},
+}
+
+// rejectConflictingSetupToggles refuses a run that both declines and demands the
+// same thing.
+func rejectConflictingSetupToggles(changed func(string) bool) error {
+	for _, pair := range setupToggleConflicts {
+		if changed(pair[0]) && changed(pair[1]) {
+			return fmt.Errorf("--%s and --%s contradict each other; pass one", pair[0], pair[1])
+		}
+	}
+	return nil
+}
+
+// resolveSetupToggle answers one decline for this run.
+//
+// Precedence, strictest first: an explicit affirmative wins outright, then an
+// explicit decline, then whatever the previous run recorded. Anything else
+// would make the remembered decline unescapable or make it worthless.
+func resolveSetupToggle(declined, affirmed, recorded bool, changed func(string) bool, declineFlag, affirmFlag string) bool {
+	if changed(affirmFlag) {
+		return !affirmed
+	}
+	if changed(declineFlag) {
+		return declined
+	}
+	return recorded
+}
 
 // setupFlagChanged reports which flags the user actually typed. Comparing a
 // value against its default cannot answer that: `--daemon-name entire-brain-watch`
@@ -1419,6 +1515,9 @@ func applySetupRecordDefaults(setupOpts setupCommandOptions, recorded setupComma
 	if !changed(setupFlagEffort) && strings.TrimSpace(recorded.effort) != "" {
 		setupOpts.effort = recorded.effort
 	}
+	setupOpts.noDaemon = resolveSetupToggle(setupOpts.noDaemon, setupOpts.daemon, recorded.noDaemon, changed, setupFlagNoDaemon, setupFlagDaemon)
+	setupOpts.noBackfill = resolveSetupToggle(setupOpts.noBackfill, setupOpts.backfill, recorded.noBackfill, changed, setupFlagNoBackfill, setupFlagBackfill)
+	setupOpts.noAgentHooks = resolveSetupToggle(setupOpts.noAgentHooks, setupOpts.agentHooks, recorded.noAgentHooks, changed, setupFlagNoAgentHooks, setupFlagAgentHooks)
 	return setupOpts
 }
 
@@ -1530,6 +1629,9 @@ func setupOptionsFromRecord(stateDir string) (setupCommandOptions, bool, error) 
 	if strings.TrimSpace(record.Effort) != "" {
 		opts.effort = record.Effort
 	}
+	opts.noDaemon = record.NoDaemon
+	opts.noBackfill = record.NoBackfill
+	opts.noAgentHooks = record.NoAgentHooks
 	return opts, true, nil
 }
 
@@ -1589,6 +1691,46 @@ func writeSetupBackfillState(stateDir string, state setupBackfillState) error {
 
 func roundedSeconds(seconds float64) string {
 	return time.Duration(seconds * float64(time.Second)).Round(100 * time.Millisecond).String()
+}
+
+// reportSetupAgents says, in one line, whether any agent can now find this
+// brain. A failure is recorded as a warning on the report so it survives into
+// `--json` and the closing summary: silently skipping the one step that makes
+// the brain discoverable is the defect this phase exists to fix, and a silent
+// failure here would reintroduce it.
+func reportSetupAgents(progress *refreshProgress, agents setupAgentsState, report *setupReport, declinedHooks bool, brainCmd string) {
+	dash := progress.dash()
+	if !agents.Installed {
+		warning := "agent instructions not written: " + agents.Detail
+		report.Warnings = append(report.Warnings, warning)
+		progress.Skip(fmt.Sprintf("%s %s no agent will discover this brain; run `%s init-agents`", warning, dash, setupBrainCommand(brainCmd)))
+		return
+	}
+	task := progress.Begin("agent instructions")
+	what := strings.Join(agents.Files, ", ")
+	switch {
+	case len(agents.Changed) == 0 && !agents.HookChanged:
+		task.Update("agent instructions already current (" + what + ")")
+	default:
+		task.Update("agent instructions written (" + what + ") " + dash + " agents are told this brain exists")
+	}
+	task.Finish(nil)
+	switch {
+	case declinedHooks:
+		progress.Skip("pre-edit hook (--no-agent-hooks)")
+	case agents.Hook != "" && agents.HookChanged:
+		// Wiring the hook IS work, so it reports as done. progress.Skip appends
+		// "skipped", which would render "pre-edit hook wired (...) skipped" --
+		// a line that both claims and denies the same action.
+		hookTask := progress.Begin("pre-edit hook")
+		hookTask.Update(fmt.Sprintf("pre-edit hook wired (%s) %s facts about a file arrive as it is edited", agents.Hook, dash))
+		hookTask.Finish(nil)
+	case agents.Hook != "":
+		progress.Skip(fmt.Sprintf("pre-edit hook already wired (%s)", agents.Hook))
+	case agents.Detail != "":
+		report.Warnings = append(report.Warnings, agents.Detail)
+		progress.Skip(agents.Detail)
+	}
 }
 
 func reportSetupHook(progress *refreshProgress, hook setupHookState) {
