@@ -102,7 +102,7 @@ func TestStrictGuidanceContentAndScope(t *testing.T) {
 				"entire graph capabilities --json",
 				"ALWAYS use --head for interactive Graph queries by default, including the first",
 				"Use the working tree ONLY when the answer depends on uncommitted edits",
-				`entire graph query --repo . --profile full --head --query "<task>"`,
+				`entire graph search --repo . --profile full --head --query "<task>"`,
 			},
 			"brain": {
 				"ALWAYS check Brain availability and version once per session",
@@ -125,6 +125,20 @@ func TestStrictGuidanceContentAndScope(t *testing.T) {
 		}
 		if active["graph"] && active["brain"] && !strings.Contains(guide, "They NEVER replace required neighbors or impact analysis") {
 			t.Error("combined guide lost mandatory coordination")
+		}
+	}
+}
+
+func TestGeneratedGraphGuidesUseCompatibleSearchCommand(t *testing.T) {
+	for _, mode := range []Mode{ModeNormal, ModeStrict} {
+		for _, active := range []map[string]bool{{"graph": true}, {"graph": true, "brain": true}} {
+			guide := guideFor(active, mode)
+			if !strings.Contains(guide, "entire graph search --repo . --profile full") {
+				t.Errorf("%s guide omits the Graph search command", mode)
+			}
+			if strings.Contains(guide, "entire graph query --repo") {
+				t.Errorf("%s guide recommends a command absent from Graph v0.4.0", mode)
+			}
 		}
 	}
 }
