@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/tui"
 )
 
@@ -188,7 +189,13 @@ func newSetupComponent(name string, err error, brainCmd string) setupComponent {
 	if err == nil {
 		return setupComponent{Name: name, State: "ok"}
 	}
-	component := setupComponent{Name: name, State: "failed", Detail: strings.TrimSpace(err.Error())}
+	// Flatten is the CLASS guard, applied where EVERY component's detail is
+	// born rather than per component: a stage that shells out to another
+	// program hands us that program's whole stderr, and an unsummarised usage
+	// dump printed here buries setup's real report under sixty lines of
+	// someone else's help screen. A producer that already summarised passes
+	// through untouched; see providerdetail.Flatten.
+	component := setupComponent{Name: name, State: "failed", Detail: providerdetail.Flatten(err.Error())}
 	switch {
 	case setupIsRepoKeyMismatch(component.Detail):
 		component.Hint = setupRepoKeyMismatchHint(brainCmd)

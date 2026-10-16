@@ -27,6 +27,7 @@ import (
 	"unicode"
 
 	"github.com/entireio/entire-brain/internal/entityindex"
+	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/spf13/cobra"
 )
 
@@ -1325,11 +1326,11 @@ func semanticProviderUnverifiedError(graphBinary string, warnings []semanticWarn
 			if binary == "" {
 				binary = entireBinaryName
 			}
-			message += fmt.Sprintf(
-				"; the entire-graph semantic provider is not installed (%s has no `graph` command)"+
-					" -- install it with `scripts/install.sh` from the entire-brain checkout"+
-					" (it builds and registers entire-graph from the sibling clone),"+
-					" then re-run `%s setup`", binary, setupCommandPrefix(os.LookupEnv))
+			// The shared remedy, not an inline copy: the entity index fails
+			// from the same cause and must say the same thing. It also names
+			// `entire plugin install graph` rather than `scripts/install.sh`,
+			// which assumed a source checkout a plugin user does not have.
+			message += "; " + providerdetail.MissingRemedy(binary, os.LookupEnv)
 		}
 		if semanticDetailMeansProviderAbsent(detail) {
 			return semanticProviderAbsentError{errors.New(message)}
@@ -1339,36 +1340,10 @@ func semanticProviderUnverifiedError(graphBinary string, warnings []semanticWarn
 }
 
 // semanticProviderDetailSummary reduces a subprocess failure to one printable
-// line.
-//
-// A CLI answers an unknown command by dumping its ENTIRE usage text -- sixty
-// lines of command groups and flags -- to stderr, and that text arrives here as
-// the error detail. Printed whole it buries the one sentence that matters
-// inside setup's failure line, its summary block, `status` and `doctor` alike.
-// The line the CLI marks with "Error:" is that sentence; the first line is the
-// fallback for tools that do not mark one. Detection still runs against the
-// FULL detail, so shortening what is shown never changes what is recognised.
+// line. The rule lives in internal/providerdetail because the entity index
+// fails from the same cause and must report it identically; see that package.
 func semanticProviderDetailSummary(detail string) string {
-	detail = strings.TrimSpace(detail)
-	if detail == "" {
-		return ""
-	}
-	lines := strings.Split(detail, "\n")
-	summary := strings.TrimSpace(lines[0])
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if after, ok := strings.CutPrefix(line, "Error:"); ok {
-			summary = strings.TrimSpace(after)
-			break
-		}
-	}
-	summary = strings.TrimSuffix(strings.TrimSpace(summary), "Usage:")
-	summary = strings.TrimSpace(summary)
-	const maxProviderDetail = 200
-	if runes := []rune(summary); len(runes) > maxProviderDetail {
-		summary = strings.TrimSpace(string(runes[:maxProviderDetail])) + "..."
-	}
-	return summary
+	return providerdetail.Summary(detail)
 }
 
 // semanticDetailMeansProviderAbsent decides the FATALITY class of a doctor
@@ -1400,32 +1375,11 @@ func semanticDetailMeansProviderAbsent(detail string) bool {
 }
 
 // semanticProviderMissing recognises the provider-absent shape of a doctor
-// failure -- the host CLI rejecting an unknown `graph` command, or the binary
-// not being on PATH at all -- as opposed to a provider that ran and reported
-// something. Matching on text is unavoidable here: the failure is another
-// process's exit status plus its stderr, and there is no typed error to switch
-// on across a process boundary.
+// failure. Shared with the entity index for the same reason, and matched
+// against the FULL detail so summarising what is shown cannot change what is
+// recognised.
 func semanticProviderMissing(detail string) bool {
-	text := strings.ToLower(detail)
-	if text == "" {
-		return false
-	}
-	for _, marker := range []string{
-		`unknown command "graph"`,
-		"unknown command 'graph'",
-		"unknown command graph",
-		"executable file not found",
-		"no such file or directory",
-		"command not found",
-		// Newer host CLIs have a `graph` dispatcher that reports the absent
-		// plugin by name instead of an unknown command.
-		"plugin is not installed",
-	} {
-		if strings.Contains(text, marker) {
-			return true
-		}
-	}
-	return false
+	return providerdetail.Missing(detail)
 }
 
 func boolValue(data map[string]any, key string) bool {

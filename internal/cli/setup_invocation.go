@@ -3,6 +3,7 @@ package cli
 import (
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/tui"
 )
 
@@ -19,37 +20,13 @@ const (
 	setupPluginCommand = setupEntireBinaryName + " " + setupBrainPluginVerb
 )
 
-// setupCommandPrefix answers the question every printed command depends on:
-// WHICH of the two spellings of this program did the reader actually type?
-//
-// The brain ships as a kubectl-style external command of the Entire CLI. A
-// reader who types `entire brain setup` never types the binary's own name, and
-// on a managed install (`entire plugin install`) they cannot: the binary lives
-// in <xdg_data>/entire/plugins/bin, a directory the Entire CLI prepends to PATH
-// inside its OWN process and nowhere else. Printing `entire-brain status` to
-// that reader hands them a command their shell cannot resolve.
-//
-// THE SIGNAL, and it is the host's, not ours: the Entire CLI's plugin
-// dispatcher sets ENTIRE_CLI_VERSION in the child's environment unconditionally
-// on every plugin launch. It is the only unconditional one — ENTIRE_REPO_ROOT is
-// set only inside a worktree, and ENTIRE_PLUGIN_DATA_DIR is dropped when the
-// data dir cannot be resolved. os.Args[0] is NOT a signal: the dispatcher execs
-// the resolved binary path, so argv[0] is the same absolute path a standalone
-// run of that file would carry.
-//
-// The fallback is the standalone name, which is the honest answer when nothing
-// says otherwise: a reader with no ENTIRE_CLI_VERSION reached this binary
-// directly, and may not have the Entire CLI at all.
+// setupCommandPrefix answers WHICH of the two spellings of this program the
+// reader actually typed. The resolution lives in internal/providerdetail so
+// that packages outside internal/cli -- the entity index, which must name the
+// same re-run command the semantic index names -- can reach it; see
+// providerdetail.SetupCommand for the signal and why it is the only one.
 func setupCommandPrefix(lookup tui.EnvLookup) string {
-	if lookup == nil {
-		return setupBrainBinaryName
-	}
-	// A marker present but EMPTY does not count: exporting NAME= to clear it is
-	// how a reader turns a signal off.
-	if value, ok := lookup(envCLIVersion); ok && strings.TrimSpace(value) != "" {
-		return setupPluginCommand
-	}
-	return setupBrainBinaryName
+	return providerdetail.SetupCommand(providerdetail.EnvLookup(lookup))
 }
 
 // setupBrainCommand is the guard every printer goes through, so that a caller
