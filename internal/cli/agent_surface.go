@@ -4780,7 +4780,7 @@ func brainLiveStateReport(ctx context.Context, runner CommandRunner, repoDir str
 	}
 	live.Staged, live.Unstaged, live.Untracked = parseBrainLiveStatus(status)
 	live.Dirty = len(live.Staged)+len(live.Unstaged)+len(live.Untracked) > 0
-	if stat, err := gitScalar(ctx, runner, repoDir, "diff", "--shortstat", "HEAD"); err == nil {
+	if stat, err := gitScalar(ctx, runner, repoDir, "diff-index", "--shortstat", "HEAD"); err == nil {
 		live.DiffStat = stat
 	} else {
 		live.Warnings = append(live.Warnings, "diff stat unavailable: "+err.Error())

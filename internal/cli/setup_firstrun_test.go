@@ -263,7 +263,7 @@ func TestLiveStateIgnoresTheHostsOwnLogFile(t *testing.T) {
 		fakeCommandKey("git", "rev-parse", "HEAD"):                              {stdout: "5cc739747766aaa4202a6f82641ba611a386e0a9\n"},
 		fakeCommandKey("git", "branch", "--show-current"):                       {stdout: "main\n"},
 		fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all"): {stdout: "?? .entire/logs/entire.log\n"},
-		fakeCommandKey("git", "diff", "--shortstat", "HEAD"):                    {stdout: "\n"},
+		fakeCommandKey("git", "diff-index", "--shortstat", "HEAD"):              {stdout: "\n"},
 	}}
 
 	live, err := brainLiveStateReport(context.Background(), runner, repoDir, nil)
@@ -287,7 +287,7 @@ func TestLiveStateStillReportsRealChanges(t *testing.T) {
 		fakeCommandKey("git", "rev-parse", "HEAD"):                              {stdout: "5cc739747766aaa4202a6f82641ba611a386e0a9\n"},
 		fakeCommandKey("git", "branch", "--show-current"):                       {stdout: "main\n"},
 		fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all"): {stdout: "?? .entire/logs/entire.log\n M src/main.go\n"},
-		fakeCommandKey("git", "diff", "--shortstat", "HEAD"):                    {stdout: " 1 file changed\n"},
+		fakeCommandKey("git", "diff-index", "--shortstat", "HEAD"):              {stdout: " 1 file changed\n"},
 	}}
 
 	live, err := brainLiveStateReport(context.Background(), runner, repoDir, nil)
@@ -296,6 +296,9 @@ func TestLiveStateStillReportsRealChanges(t *testing.T) {
 	}
 	if !live.Dirty || len(live.Unstaged) != 1 || live.Unstaged[0] != "src/main.go" {
 		t.Fatalf("a real edit must still read as dirty: dirty=%v unstaged=%v", live.Dirty, live.Unstaged)
+	}
+	if live.DiffStat != "1 file changed" {
+		t.Fatalf("brief must report the non-refreshing diff stat, got %q", live.DiffStat)
 	}
 }
 

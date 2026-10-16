@@ -162,6 +162,7 @@ var (
 	// gitHardenConfig applies to every git invocation. Verified accepted by
 	// every subcommand this binary runs, including clone.
 	gitHardenConfig = []string{
+		"--no-optional-locks",
 		"-c", "core.fsmonitor=false",
 		"-c", "core.hooksPath=" + gitHooksDisabledPath,
 	}
