@@ -25,7 +25,7 @@ func TestAgentGuidePrintsDoctrine(t *testing.T) {
 	}
 	for _, want := range []string{
 		"needed code discovery",
-		"entire graph query",
+		"entire graph search",
 		"--profile full",
 		"VERIFY before stopping",
 		"never trade resolution for fewer turns",
