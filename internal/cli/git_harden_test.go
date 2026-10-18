@@ -91,7 +91,7 @@ func TestHardenedGitArgsCoversEveryInvocation(t *testing.T) {
 		{"diff", "--cached", "--binary", "HEAD"},
 		{"diff", "--name-status", "-M", "-C", "HEAD"},
 		{"diff", "--unified=0", "--no-ext-diff", "--no-color", "--no-prefix", "HEAD"},
-		{"diff", "--shortstat", "HEAD"},
+		{"diff-index", "--shortstat", "HEAD"},
 		{"-c", "core.quotepath=false", "diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z"},
 		{"-c", "core.quotepath=false", "diff-tree", "--no-commit-id", "--name-only", "-z", "-r", "abc"},
 		{"-c", "core.quotepath=false", "log", "--no-merges", "--format=%H"},
@@ -148,6 +148,7 @@ func TestHardenedGitArgsIgnoresPathspecsWhenDeduplicating(t *testing.T) {
 func TestGitHardenConfigIsPinned(t *testing.T) {
 	t.Parallel()
 	want := []string{
+		"--no-optional-locks",
 		"-c", "core.fsmonitor=false",
 		"-c", "core.hooksPath=/dev/null/entire-brain-hooks-disabled",
 	}
