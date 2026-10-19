@@ -1,0 +1,201 @@
+okay this is merged now.
+
+let's move onto the nex toptimization.
+
+first what's our baseline starting point for timing for first cold distillation
+
+---
+
+its merged now.
+
+---
+
+<task-notification>
+<task-id>bs98dm0f5</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hamburg/92c72751-76d5-4d67-ae9d-1b16e5a4c5c8/tasks/bs98dm0f5.output</output-file>
+<status>completed</status>
+<summary>Background command "Run official cold-start baseline on merged main" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+let's update this ticket with the optimziations: https://linear.app/entirehq/issue/COR-2182/distill-spends-75percent-of-wall-time-in-a-serial-per-checkpoint-git
+
+then let's look at the first one -> the export. 
+
+what does the export step do, how does it currently work, what's the overhead and what do you propolse
+
+---
+
+itsounds reasonable but is this an actual mcp procss? this is jsut spawning the git cli right?
+
+---
+
+oh yeah agree with that. okay let's implement this and then benchmark it again on a cold first distill
+
+---
+
+<task-notification>
+<task-id>bii60tlpp</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hamburg/92c72751-76d5-4d67-ae9d-1b16e5a4c5c8/tasks/bii60tlpp.output</output-file>
+<status>completed</status>
+<summary>Background command "Build batch binary and run cold first-run benchmark" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+/review-pr this
+
+---
+
+<task-notification>
+<task-id>ad4a4c397b38bfd7d</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hamburg/92c72751-76d5-4d67-ae9d-1b16e5a4c5c8/tasks/ad4a4c397b38bfd7d.output</output-file>
+<status>completed</status>
+<summary>Agent "Simplification review of batch reader" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Read both new files in full plus the two edits, and checked every call site. Findings, highest value first.
+
+**1. `/Users/evisdrenova/conductor/workspaces/entire-brain/hamburg/internal/cli/git_catfile_batch.go:45` (plus 79-83, 135, 172-174, 194-217)**
+The `check` dimension doubles the registry (a second long-lived child per gitDir), adds a key field, a `mode` branch, a `withBody` parameter and an early return — all to serve one production call site (`transcript_store.go:442`) that only asks "is this a blob". `--batch` already reports the type in the same header `--batch-check` does.
+Simpler: keep one `--batch` child; `request(ctx, spec)` always reads the full record and returns `(body, objType)`; `catFileBatchType` discards the body. That deletes `check` from `catFileBatchKey`, the `mode` branch, the `withBody` param, and the parallel process. Cost is one discarded body read per unique transcript chunk during validation — worth stating explicitly in the comment if you keep `check`, since nothing currently justifies the second child.
+
+**2. `git_catfile_batch.go:113-119` + `:201-203`**
+`catFileBatchDrop` exists only to be called by whoever notices `p.broken`, so the caller re-reads `p.broken` outside `p.mu` and conditionally drops. Two steps that are always paired.
+Simpler: give `fail` the key — `func (p *catFileBatchProc) fail(key catFileBatchKey, err error)` deletes itself from the registry — and `catFileBatchRequest` collapses to `p, err := …; return p.request(ctx, spec, !check)`. Removes the helper, the conditional, and the unsynchronized field read.
+
+**3. `git_catfile_batch.go:175-182`**
+The oversize branch drains `size+1` bytes to resync a stream the caller is about to abandon anyway — a second error path, an `io.CopyN`, and a nested error for a case that needs a &gt;1 GiB blob to reach.
+Simpler: `return fail(fmt.Errorf("git cat-file batch: %s is %d bytes, over the %d byte guard", …))`. Killing the child is the existing recovery for every other irregularity, and the caller falls back to per-exec regardless. 8 lines → 1.
+
+**4. `git_catfile_batch_test.go:13` / `:34` and `:85-98`**
+Two issues in one helper. `newBatchTestRepo` returns a second value that is the constant `"HEAD:blob.txt"` for every caller, and two of five callers discard it (`dir, _ :=` at :102, :119) — derivable state threaded through every test. Simpler: return `dir` only and use a package-level `const batchTestSpec = "HEAD:blob.txt"`. Separately, `TestLocalObjectTypeBatchAndFallbackAgree` and `TestCatFileWithPolicyMatchesPerExec` only ever pass `ExecRunner{}`, so the batch path always wins and neither test exercises the per-exec fallback or compares the two — the names assert a parity the bodies never check. Either drive the fallback (a non-exec `CommandRunner`, which both functions branch on) or rename to say what they test.
+
+**5. `git_catfile_batch.go:65-71`**
+`case ExecRunner, *ExecRunner:` — `*ExecRunner` appears nowhere else in the repo (no `&amp;ExecRunner{}`, no `*ExecRunner` field or parameter); all 72 construction sites are value `ExecRunner{}`.
+Simpler: `_, ok := runner.(ExecRunner); return ok`, or drop the helper and inline the assertion at its two call sites.
+
+Nothing else in the parser or the two edited call sites looked over-built — the header parse (`len(fields) == 2` vs `!= 3`) and the `localObjectType` / `catFileWithPolicy` fallback shape are both already minimal, and the `transcript_store.go` edit is a net simplification (drops the `strings.TrimSpace(string(kind))` repetition).</result>
+<usage><subagent_tokens>44534</subagent_tokens><tool_uses>11</tool_uses><duration_ms>85529</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a2ad1997ca3feb50b</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hamburg/92c72751-76d5-4d67-ae9d-1b16e5a4c5c8/tasks/a2ad1997ca3feb50b.output</output-file>
+<status>completed</status>
+<summary>Agent "Efficiency review of batch reader" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Read everything. Findings below, ordered by impact.
+
+## 1. Global registry mutex is held across the child spawn, including a full `git config` exec
+`/Users/evisdrenova/conductor/workspaces/entire-brain/hamburg/internal/cli/git_catfile_batch.go:73-111` — `catFileBatchProcFor` takes `catFileBatchMu` at line 74 and `defer`s the unlock, then at line 84 calls `repoFilterDriverOverrides`, which is an uncached `git config` exec (see `git_harden_filters.go:90-124`; no cache despite the comment at line 130, and a 5s timeout), followed by pipe setup and `cmd.Start()` at 105.
+
+Everything in the registry serializes behind that: while one key spawns, the other three prefetch goroutines block on `catFileBatchMu` even for a *hit* on an already-running child. Cold start is worse — read-child and check-child, local and non-local, are four distinct keys for the same gitDir (line 42-46), so you pay up to four strictly serialized `git config` probes + spawns before any read starts.
+
+Cheaper: lookup under the lock, release, build outside, re-acquire and insert (losing a race just means killing the loser's child); or install a placeholder entry guarded by a per-entry `sync.Once` so hits never queue behind a spawn. Separately, hoist the overrides probe to a per-gitDir memo so the up-to-4 keys of one repo share one `git config` exec.
+
+## 2. Persistent batch failure degrades to a spawn storm — strictly worse than the code it replaces
+`/Users/evisdrenova/conductor/workspaces/entire-brain/hamburg/internal/cli/git_catfile_batch.go:194-205` and `/Users/evisdrenova/conductor/workspaces/entire-brain/hamburg/internal/cli/export.go:2812`. Nothing remembers that the batch path failed. If spawn fails, `catFileBatchProcFor` returns the error without recording anything, so the next request re-runs the `git config` probe and re-attempts `cmd.Start()`. If the child starts but every record errors, `request` kills it, `catFileBatchDrop` removes it, and the next request spawns a fresh one. Either way each of ~3,000 requests pays probe-exec + spawn + failed round-trip, *then* the per-exec fallback — roughly 2-3x the pre-change exec count on the hot path.
+
+Cheaper: store a failure stamp (or consecutive-failure count) per key in the registry and short-circuit to the per-exec path for a cooldown window, e.g. disable the key after 2-3 consecutive spawn/IO failures. A `*catFileBatchProc` with `broken` left set and a `deadUntil` time, kept in the map rather than deleted, gets you this with no new structure.
+
+## 3. Four prefetch goroutines now fully serialize, including multi-MB body reads
+`/Users/evisdrenova/conductor/workspaces/entire-brain/hamburg/internal/cli/git_catfile_batch.go:142` holds `p.mu` through the `io.ReadFull` at line 184. Where the old path let four goroutines run four `cat-file` execs concurrently (overlapping git's own object decompression), there is now one child and one lock, so decompression of a multi-MB transcript blob blocks the other three. The per-blob win is still large, but the parallelism the prefetcher was built for is gone.
+
+Cheaper: keep a small pool (2-4) of children per key behind a buffered channel used as a free list — acquire a child, do the round-trip, return it. Same serialization guarantee per child, concurrency across them, bounded extra processes. `--batch-command` would also let one pooled child serve both `info` and `contents`, collapsing the read/check key split.
+
+## 4. Per-request allocations are negligible at this volume — do not optimize
+`/Users/evisdrenova/conductor/workspaces/entire-brain/hamburg/internal/cli/git_catfile_batch.go:151` (`spec+"\n"`) and `:158` (`strings.Fields(header)`, a slice plus up to 3 strings) allocate per request. At ~3,000 requests that is on the order of tens of microseconds and a few hundred KB total — invisible next to the 90s of exec overhead being removed. The one allocation that actually matters, `make([]byte, size)` at line 183, escapes to the caller and into `checkpointMetadataCache`, so it cannot be pooled. If you touch line 151 at all, do it for syscall count rather than allocation: a `bufio.Writer` on the proc writing spec + `'\n'` + `Flush` is one write instead of one, so even that is a wash. No change recommended.
+
+## 5. `bufio.Reader` sizing is already correct for multi-MB blobs — no change needed
+`/Users/evisdrenova/conductor/workspaces/entire-brain/hamburg/internal/cli/git_catfile_batch.go:108` uses the default 4096-byte buffer, which looks undersized but is not. `io.ReadFull` at line 184 passes a destination larger than the buffer, and `bufio.Read` with an empty buffer and an oversized destination reads straight from the pipe into the caller's slice, bypassing the buffer entirely; throughput is capped by the 64KB pipe, not the bufio size. Only the final sub-4096 tail and the `ReadString`/`ReadByte` header-and-trailer reads use the buffer, which is what it is sized for. Growing it to 64KB would add a per-child allocation and buy nothing.</result>
+<usage><subagent_tokens>47969</subagent_tokens><tool_uses>10</tool_uses><duration_ms>91382</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a0c39a5c893e0f791</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hamburg/92c72751-76d5-4d67-ae9d-1b16e5a4c5c8/tasks/a0c39a5c893e0f791.output</output-file>
+<status>completed</status>
+<summary>Agent "Reuse review of batch reader" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Reuse findings (5)
+
+**1. `internal/cli/git_catfile_batch.go:79-110` — the git spawn preamble is copy-pasted from the runner, creating a second git spawn point.**
+Lines 83-96 replicate `runExecCommand` (`internal/cli/runner.go:85-104`) and `ExecRunner.Stream` (`runner.go:147-164`) verbatim: `hardenedGitArgs(...)` → `repoFilterDriverOverrides(ctx, dir)` → `gitConfigOverrideEnv(mergeCommandEnv(os.Environ(), env), overrides)`. `hardenedGitArgs`'s own doc comment (`internal/cli/git_harden.go:189-192`) claims it is unbypassable precisely because "it is applied at the single point where this binary actually spawns git (see runner.go)" — this file makes that comment false. Use instead: extract the shared preamble out of `runner.go` (or add a stdin-capable variant alongside `ExecRunner.Stream`) and have the batch child go through it, so hardening/filter-override policy stays in one place.
+
+**2. `internal/cli/git_catfile_batch.go:94-108` — the hand-rolled child drops two safeguards the runner path already provides.**
+No `cmd.WaitDelay = commandWaitDelay` (`runner.go:73`, deliberately set on both existing spawn paths) and no stderr capture, where `cappedBuffer` (`runner.go:198`) is the existing bounded-stderr writer used by `ExecRunner.Stream`; the child's stderr is silently discarded, so a broken child produces only "read header: EOF". Use instead: `cappedBuffer{limit: streamStderrCap}` and `commandWaitDelay` from `runner.go`.
+
+**3. `internal/cli/git_catfile_batch.go:35,175-182` — the size guard reinvents the repo's read-bound helper and its error type.**
+`catFileBatchMaxBlobBytes` plus the `fmt.Errorf("... is %d bytes, over the %d byte guard")` duplicates `readBoundExceededError` (`internal/cli/safe_read.go:154-161`, message "%s exceeds maximum size of %d bytes") and the `safeReadAll(r, max, source)` bound (`safe_read.go:163`). Because it returns a plain error, the existing size-aware callers that classify oversized reads via `errors.As(&amp;readBoundExceededError{})` — `internal/cli/conversation.go:692` and `internal/cli/transcript_store.go:401`, both reachable from `catFileWithPolicy` results — will no longer recognize this as a size failure. Use instead: `&amp;readBoundExceededError{source: spec, max: catFileBatchMaxBlobBytes}`, and `safeReadAll` over an `io.LimitReader` of the record body.
+
+**4. `internal/cli/git_catfile_batch.go:65-71` — `commandRunnerIsExec` uses a concrete-type switch where the package's established seam is an optional capability interface.**
+The codebase detects runner capabilities by interface assertion, never by concrete type: `EnvironmentCommandRunner` (`runner.go:26`, asserted at `export.go:693`) and `CommandStreamer` (`runner.go:36`, asserted at `semantic_stream.go:455`, `brain_brief_git_intent.go:145`, `brain_brief_stale_index.go:306`). The new type switch also silently skips the fast path for any wrapper around `ExecRunner`. Use instead: declare the batch capability as an optional interface in `runner.go` alongside `CommandStreamer` and assert it the same way.
+
+**5. `internal/cli/git_catfile_batch_test.go:13-35` — `newBatchTestRepo` re-implements an existing temp-repo fixture and its git runner.**
+The inner `run` closure (env-neutralized `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM` + pinned author/committer, `CombinedOutput`, `t.Fatalf("git %v: %v\n%s", ...)`) is line-for-line `liveGit` at `internal/cli/entities_live_e2e_test.go:52-76` — which carries a long comment explaining exactly why those env vars are needed. The "temp dir + init + one committed file" fixture already exists as `gitHardenRepo` (`internal/cli/git_harden_security_test.go:65`, with `gitHardenRun` at :53 and the `--template=` hardening these tests also want), and `gitAt` (`internal/cli/degenerate_repo_test.go:20`) is the package-scoped generic git-in-a-dir helper. Use instead: `liveGit` for the git invocations (or promote `gitHardenRun`/`gitAt` to a shared fixture); note the new code also hardcodes `"/dev/null"` where every other call site uses `os.DevNull`.</result>
+<usage><subagent_tokens>73410</subagent_tokens><tool_uses>28</tool_uses><duration_ms>111585</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aec09721f42b66a7e</task-id>
+<tool-use-id>toolu_01G4oU59uaZrngrSKw2cRgZH</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hamburg/92c72751-76d5-4d67-ae9d-1b16e5a4c5c8/tasks/aec09721f42b66a7e.output</output-file>
+<status>completed</status>
+<summary>Agent "Altitude review of batch reader" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Verdict
+
+Mostly right altitude for the *idea* (one long-lived `cat-file --batch` child per repo is the correct fix for N-execs), but the *wiring* is one layer too shallow: it is bolted on at two call sites via a concrete-type check and re-derives the git spawn policy by hand, next to a file that explicitly documents "one spawn point" as a security invariant.
+
+## Findings
+
+**1. `/Users/evisdrenova/conductor/workspaces/entire-brain/hamburg/internal/cli/git_catfile_batch.go:65` — `commandRunnerIsExec` asserts on a concrete type where the codebase already has a capability-interface idiom for exactly this.**
+`runner.go:26` (`EnvironmentCommandRunner`) and `runner.go:36` (`CommandStreamer`) model optional runner capabilities with a buffered fallback — `CommandStreamer`'s doc comment is almost word-for-word this feature's contract. `case ExecRunner, *ExecRunner` instead means any decorator (tracing, metrics, a future remote/sandboxed runner) silently loses batching forever, and no test can exercise the batched path through the seam. Deeper change: declare `CommandObjectReader` (e.g. `ReadObject(ctx, dir, spec string, env map[string]string) ([]byte, string, error)`) in `runner.go`, implement it on `ExecRunner`, and have call sites assert the behavior, not the type.
+
+**2. `git_catfile_batch.go:94` — this is now the second place in the binary that spawns `git`, re-deriving the hardening preamble by hand.**
+`git_harden.go:189-194` states the invariant verbatim: hardening "is applied at the single point where this binary actually spawns git (see runner.go), which is what keeps it unbypassable: every call site in every package ... is covered without each one having to remember." The new child re-does `hardenedGitArgs` + `repoFilterDriverOverrides` + `mergeCommandEnv` + `gitConfigOverrideEnv` itself (and omits `commandWaitDelay`). It is a faithful copy today; the next change to the preamble will cover one path only. Deeper change: factor the preamble into one `startHardenedGit(ctx, dir, env, args...) (*exec.Cmd, error)` in `runner.go` and have both `runExecCommand`/`Stream` and the batch child use it — `ExecRunner.Stream` (runner.go:148-164) already carries a third copy of the same block, so this is a pre-existing duplication the batch file makes a trend.
+
+**3. `git_catfile_batch.go:88` — the local-only (no-egress) policy is re-encoded inline instead of flowing through its chokepoint.**
+`runCheckpointGitLocal` (`export.go:685-698`) is the whole definition of local-only reads: refuse network-capable subcommands **and** fail closed when the runner cannot enforce `GIT_NO_LAZY_FETCH=1`. The batch path reproduces only the env bit, so "local-only" now has two independent definitions, one of which can't fail closed because it bypasses the runner entirely. Deeper change: have the policy be a value (`localGitEnv()` / a `gitReadPolicy` struct) produced in one place and consumed by both the per-exec chokepoint and the batch child, so adding a future bit (`GIT_TERMINAL_PROMPT=0`, a new refusal) can't cover one path only.
+
+**4. `internal/cli/entities_cmd.go:821`, `internal/cli/verify_cmd.go:511`, `internal/entityindex/build.go:453` — the remaining per-object exec loops are not routed through the new reader.**
+`partitionPresentCommits` is a literal `for _, sha := range commits { runner.Run(..., "cat-file", "-e", ...) }` — the exact shape COR-2182 describes; `verifyCommitUncached` does one `cat-file -e` exec per commit (memoized, but still per commit) and is already policy-aware; `isGraftedBoundary` does one `cat-file commit` per commit during the walk and **cannot** use the reader at all because it lives in `internal/entityindex` and the helper is unexported in `internal/cli`. Deeper change: once the reader is a runner capability (finding 1) these become `exists(spec)` / `readObject(spec)` calls against `--batch-check`, and the cross-package site stops being unreachable.
+
+**5. `internal/cli/export.go:2812` + `git_catfile_batch.go:222` — the "batch first, `missing` is definitive, everything else falls back" rule is restated per call site.**
+Both sites repeat the same three-line predicate plus its own explanatory comment; a third caller must re-remember that retrying `errCatFileBatchMissing` on the per-exec path is wrong. Deeper change: one pair of helpers (`readGitObject` / `gitObjectType`) that owns batch-attempt + fallback + policy selection, with `catFileWithPolicy` and `validateLocalTranscriptSessions` reduced to plain calls — which also makes the per-exec branch of `catFileWithPolicy` collapse into the existing `runCheckpointGitWithPolicy` (`export.go:2061`) rather than re-writing its `if localOnly` fork.
+
+## On the header parsing (question 3)
+
+The hand-rolled `&lt;oid&gt; &lt;type&gt; &lt;size&gt;\n&lt;body&gt;\nLF` framing itself is at the right altitude — there is no `internal/git` plumbing package, and inline plumbing parsing has precedent (`semantic_coverage.go:174` parses `ls-tree -z` in place). The parser is tight and keeps the stream in sync on the oversize path. The misplacement is not the parsing but the process management around it: the spawn (finding 2) and the policy (finding 3) belong with `ExecRunner` in `runner.go`; the record parser can stay in `git_catfile_batch.go`.</result>
+<usage><subagent_tokens>59564</subagent_tokens><tool_uses>22</tool_uses><duration_ms>128707</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b68ickwc4</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hamburg/92c72751-76d5-4d67-ae9d-1b16e5a4c5c8/tasks/b68ickwc4.output</output-file>
+<status>completed</status>
+<summary>Background command "Rebuild refactored binary and rerun cold benchmark" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+put up a trail
+
+---
+
+fix the finding: https://entire.io/gh/entireio/entire-brain/trails/326/perf-git-serve-checkpoint-object-reads-from-one-cat-file

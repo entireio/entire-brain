@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M5AX3ED92GGX8PDTCK5WGKDQ",
+  "strategy": "manual-commit",
+  "branch": "cor-2182-catfile-batch",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/git_catfile_batch.go",
+    "internal/cli/git_catfile_batch_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 485,
+    "cache_creation_tokens": 773197,
+    "cache_read_tokens": 54579181,
+    "output_tokens": 197408,
+    "api_call_count": 244,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  }
+}
