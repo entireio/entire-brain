@@ -109,3 +109,15 @@ hm it seems like then it's not worth it? thoughts?
 ---
 
 yeah agree i thihnk we increased peformance by like 90% probably not bad for now?
+
+---
+
+what is the fix on the reconcile serialization?
+
+---
+
+create a ticket for this using this info and we will come back to this later. milestone is after launch
+
+---
+
+assign it to me and make sure it's in our project. then anythign else in the way of closing this workspace down?
