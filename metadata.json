@@ -1,0 +1,24 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "01M5ANDVFEPKZX0Z98H01WRTQF",
+  "strategy": "manual-commit",
+  "branch": "fix/setup-wires-agents",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 7480,
+    "cache_creation_tokens": 51312614,
+    "cache_read_tokens": 1849551137,
+    "output_tokens": 2655241,
+    "api_call_count": 3744
+  }
+}
