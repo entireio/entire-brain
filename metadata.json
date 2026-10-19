@@ -1,0 +1,24 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "01M5AXABAJQ6XF966GGN612A3T",
+  "strategy": "manual-commit",
+  "branch": "fix/brain-nosessions-loop",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 7546,
+    "cache_creation_tokens": 51871544,
+    "cache_read_tokens": 1866980298,
+    "output_tokens": 2669106,
+    "api_call_count": 3777
+  }
+}
