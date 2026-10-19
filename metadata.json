@@ -1,0 +1,24 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "01M5B36NAB6Z0FZAQK9NY20CG8",
+  "strategy": "manual-commit",
+  "branch": "fix/doctor-actionable",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 7678,
+    "cache_creation_tokens": 52477652,
+    "cache_read_tokens": 1904608149,
+    "output_tokens": 2695126,
+    "api_call_count": 3843
+  }
+}

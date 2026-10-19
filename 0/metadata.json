@@ -1,0 +1,81 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "01M5B36NAB6Z0FZAQK9NY20CG8",
+  "session_id": "93ae8948-c612-4072-8e70-2750e80df9ce",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-19T22:06:36.816896Z",
+  "branch": "fix/doctor-actionable",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-5[1m]",
+  "turn_id": "670be0d0c662",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 7678,
+    "cache_creation_tokens": 52477652,
+    "cache_read_tokens": 1904608149,
+    "output_tokens": 2695126,
+    "api_call_count": 3843
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-goal-2026-10-18T02:41:57.710747Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "goal"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "663d4d77ca4c",
+      "timestamp": "2026-10-18T02:41:57.710747Z",
+      "native": {
+        "command": "/goal"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/goal",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_013DJ4ZV2WnnC6aiHwSWtKFh",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "trail-findings"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "670be0d0c662",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 3133,
+        "end": 3134,
+        "entry_ids": [
+          "f3406b51-bccf-40d0-acad-3cff623bbe4d"
+        ],
+        "tool_use_id": "toolu_013DJ4ZV2WnnC6aiHwSWtKFh"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_013DJ4ZV2WnnC6aiHwSWtKFh"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: trail-findings",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 182
+  }
+}
