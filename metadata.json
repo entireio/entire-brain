@@ -1,0 +1,31 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "01M5A5CG9EEP4ZVMDQMVFTA7YA",
+  "strategy": "manual-commit",
+  "branch": "fix/locus-hyphenated-paths",
+  "checkpoints_count": 147,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 6702,
+    "cache_creation_tokens": 50934818,
+    "cache_read_tokens": 1713965385,
+    "output_tokens": 2432746,
+    "api_call_count": 3355,
+    "subagent_tokens": {
+      "input_tokens": 1914,
+      "cache_creation_tokens": 5246031,
+      "cache_read_tokens": 156711461,
+      "output_tokens": 73103,
+      "api_call_count": 957
+    }
+  }
+}
