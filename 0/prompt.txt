@@ -1,0 +1,21 @@
+<task-notification>
+<task-id>b0sb5k9pi</task-id>
+<tool-use-id>toolu_01S8bPR1bWjrTAHeoUuS63SQ</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hamburg/92c72751-76d5-4d67-ae9d-1b16e5a4c5c8/tasks/b0sb5k9pi.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for PR 415 checks to settle and report non-passing" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+hmm the windows testse keep fialling? why
+
+---
+
+<task-notification>
+<task-id>bd7hqznt0</task-id>
+<tool-use-id>toolu_013CoXhRdCuoHZchVYzuYux1</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hamburg/92c72751-76d5-4d67-ae9d-1b16e5a4c5c8/tasks/bd7hqznt0.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for all PR 415 checks to finish" completed (exit code 0)</summary>
+</task-notification>
