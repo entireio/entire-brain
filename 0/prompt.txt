@@ -124,3 +124,13 @@ it shoudl be easy enough
 okay this is merged: https://github.com/entireio/entire-brain/pull/365
 
 let's do extensive local testing on this. ensure that all flows work including local and hosted brain flows as well.
+
+---
+
+yes that's fine. given that we changed out the semantic pipeline, can you look at our tests and dependencies and CI to see if we can simplify it at all? for ex. we have some cgo tests, do we still need that in brain?
+
+---
+
+put up a trail for the removal and simplification. 
+
+then i want to talk about this project-file semantic index
