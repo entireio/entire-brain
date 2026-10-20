@@ -1,0 +1,176 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M5DCV2JDKW1962BW2KN5T8WT",
+  "session_id": "d774cafb-82be-499f-80eb-6d09ee13c683",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-20T19:33:04.696754Z",
+  "branch": "rename-facts-to-memories",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/facts_admin_cmd.go",
+    "internal/cli/facts_sync_cmd.go",
+    "internal/cli/facts_vitality_cmd.go",
+    "internal/cli/root.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "34489472256f",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 460,
+    "cache_creation_tokens": 588126,
+    "cache_read_tokens": 51340100,
+    "output_tokens": 124804,
+    "api_call_count": 230,
+    "subagent_tokens": {
+      "input_tokens": 60,
+      "cache_creation_tokens": 244070,
+      "cache_read_tokens": 1483031,
+      "output_tokens": 23109,
+      "api_call_count": 30
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-review-pr-2026-10-20T19:17:34.984722Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "review-pr"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "888e49ee014e",
+      "timestamp": "2026-10-20T19:17:34.984722Z",
+      "native": {
+        "command": "/review-pr"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/review-pr",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01QqvvyWBxkTZy2iPLACtdMg",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:brainstorming"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "34489472256f",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 97,
+        "end": 98,
+        "entry_ids": [
+          "09cf38c6-ce4f-41f8-afc5-30028661402b"
+        ],
+        "tool_use_id": "toolu_01QqvvyWBxkTZy2iPLACtdMg"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01QqvvyWBxkTZy2iPLACtdMg"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:brainstorming",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01DYKfUo9SfRzkRGgDYFMPAw",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "simplify"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "34489472256f",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1080,
+        "end": 1081,
+        "entry_ids": [
+          "fa645d3e-4cf0-4dd6-abb0-e520a24f068d"
+        ],
+        "tool_use_id": "toolu_01DYKfUo9SfRzkRGgDYFMPAw"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01DYKfUo9SfRzkRGgDYFMPAw"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: simplify",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "initial_attribution": {
+    "calculated_at": "2026-10-20T19:33:04.417766Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 36,
+    "total_committed": 0,
+    "total_lines_changed": 51,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 31,
+      "user_lines_removed": 36,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "internal/agentsetup/guide.go": 1,
+        "internal/cli/blind_spot.go": 1,
+        "internal/cli/blind_spot_branch_test.go": 2,
+        "internal/cli/facts_admin_cmd.go": 1,
+        "internal/cli/facts_sync_cmd.go": 1,
+        "internal/cli/facts_vitality.go": 1,
+        "internal/cli/facts_vitality_cmd.go": 1,
+        "internal/cli/facts_vitality_test.go": 1,
+        "internal/cli/lifecycle_ops.go": 1,
+        "internal/cli/pattern_skill_deep.go": 1,
+        "internal/cli/reconcile.go": 1,
+        "internal/cli/retrieve_cmd.go": 2,
+        "internal/cli/root.go": 13,
+        "internal/cli/session_privacy.go": 2,
+        "internal/cli/skill_cmd.go": 1,
+        "internal/cli/skill_synthesis.go": 1
+      },
+      "user_removed_per_file": {
+        "internal/agentsetup/guide.go": 1,
+        "internal/cli/blind_spot.go": 1,
+        "internal/cli/blind_spot_branch_test.go": 2,
+        "internal/cli/facts_admin_cmd.go": 7,
+        "internal/cli/facts_sync_cmd.go": 7,
+        "internal/cli/facts_vitality.go": 1,
+        "internal/cli/facts_vitality_cmd.go": 7,
+        "internal/cli/facts_vitality_test.go": 1,
+        "internal/cli/lifecycle_ops.go": 1,
+        "internal/cli/pattern_skill_deep.go": 1,
+        "internal/cli/reconcile.go": 1,
+        "internal/cli/retrieve_cmd.go": 2,
+        "internal/cli/session_privacy.go": 2,
+        "internal/cli/skill_cmd.go": 1,
+        "internal/cli/skill_synthesis.go": 1
+      }
+    }
+  ]
+}

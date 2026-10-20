@@ -1,0 +1,127 @@
+put a description in the tgrail body for this
+
+---
+
+wait why was this created at the project level? and not at the repo level? 
+
+https://entire.io/gh/entireio/-/trails/2363/changes/entire-brain/330
+
+---
+
+okay let's jsut work on the repo level trail. 
+
+https://entire.io/gh/entireio/entire-brain/-/trails/2363/changes/330
+
+add a description there i don't see one
+
+---
+
+/review-pr this pr: https://entire.io/gh/entireio/entire-brain/-/trails/2363/changes/330
+
+---
+
+<task-notification>
+<task-id>a0013aaacfcb7df45</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-regina-v1/d774cafb-82be-499f-80eb-6d09ee13c683/tasks/a0013aaacfcb7df45.output</output-file>
+<status>completed</status>
+<summary>Agent "Reuse review of rename diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Reuse review complete.
+
+Tool preflight (recorded): entire-graph v0.4.0 capabilities OK, but the installed binary rejects the `query` subcommand the agent-guide prescribes ("unknown command \"query\""). Recorded as a capability gap; fell back to grep for this discovery question.
+
+**Findings (1):**
+
+1. Three identical SetNormalizeFunc closures duplicate each other — existing helper: **none found**.
+   - /Users/evisdrenova/conductor/workspaces/entire-brain/regina-v1/internal/cli/facts_admin_cmd.go:641 (`min-facts` → `min-memories`)
+   - /Users/evisdrenova/conductor/workspaces/entire-brain/regina-v1/internal/cli/facts_sync_cmd.go:76 (`facts-backend` → `memories-backend`)
+   - /Users/evisdrenova/conductor/workspaces/entire-brain/regina-v1/internal/cli/facts_vitality_cmd.go:97 (`fact` → `memory`)
+   - Cost: the same 7-line closure pasted three times; the next renamed flag gets a fourth copy, and a future edit (e.g. adding a deprecation notice) must touch all sites.
+   - Existing code to reuse: nothing — I checked internal/cli and internal/agentsetup for a flag-alias/normalize helper (`NormalizedName`, alias/deprecated/legacy flag patterns, flag/util helper files); the only prior art is pflag's built-in `MarkDeprecated` at internal/cli/refresh.go:81, which has different semantics (warns and still parses, rather than silently aliasing), so it is not a drop-in substitute. If consolidation is wanted, it would be a new 5-line `aliasFlag(fs *pflag.FlagSet, old, new string)` helper, not reuse of existing code. Optional under the repo's YAGNI rule at three call sites.
+
+No other new code in the diff re-implements existing functionality — outside the three closures and the cobra `Aliases` field, the diff is string rewording and test-assertion updates.</result>
+<usage><subagent_tokens>67195</subagent_tokens><tool_uses>7</tool_uses><duration_ms>52997</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a36ba62c05d35ec38</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-regina-v1/d774cafb-82be-499f-80eb-6d09ee13c683/tasks/a36ba62c05d35ec38.output</output-file>
+<status>completed</status>
+<summary>Agent "Efficiency review of rename diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>No efficiency findings — nothing in the diff qualifies.
+
+Preflight: Brain available (dev build, keyword/BM25, task_briefs). Brief confirmed the rename decision and its deliberate back-compat scope (recorded fact `fact:30746568feb856992d64bbb4`); no Graph query needed since the diff introduces no new code relationships.
+
+What the diff actually adds, cost-wise:
+
+- Three `SetNormalizeFunc` closures (`/Users/evisdrenova/conductor/workspaces/entire-brain/regina-v1/internal/cli/facts_admin_cmd.go` ~line 234 region, `internal/cli/facts_sync_cmd.go`, `internal/cli/facts_vitality_cmd.go`). Each is one string equality per normalize call, scoped to a single subcommand's small flag set. pflag invokes normalize on flag registration, lookup, and parse — for a one-shot CLI process this is tens of calls at nanoseconds each, with no allocation (`pflag.NormalizedName(name)` is a free string conversion) and no captured state. Setting the func after flags are added triggers one re-normalization pass over ~5 flags. Negligible; this is the idiomatic pflag back-compat mechanism and the cheaper alternatives (duplicate hidden flags) would cost more code for the same runtime.
+- One cobra alias and string/test/prose edits — zero runtime cost.
+
+No redundant computation, repeated I/O, startup or hot-path work, or large-scope closures introduced.</result>
+<usage><subagent_tokens>47077</subagent_tokens><tool_uses>7</tool_uses><duration_ms>60936</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a31e1218e5ae5cfb1</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-regina-v1/d774cafb-82be-499f-80eb-6d09ee13c683/tasks/a31e1218e5ae5cfb1.output</output-file>
+<status>completed</status>
+<summary>Agent "Simplification review of rename diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Preflight: Brain available (dev, task_briefs/durable_facts supported); brief retrieved the recorded rename decision (fact:30746568, project.decisions.naming) confirming the alias + SetNormalizeFunc back-compat and the deliberately-unrenamed remainder (JSON keys, `fact:` ids, on-disk names, wire, factmerge) — so none of that is flagged. Graph not consulted: no relationship questions arose (diff-reading only).
+
+Findings (3):
+
+1. **Triplicated SetNormalizeFunc closure** — `internal/cli/facts_admin_cmd.go:641`, `internal/cli/facts_sync_cmd.go:76`, `internal/cli/facts_vitality_cmd.go:97`. Identical 7-line closure + identical "predates the facts→memories rename" comment, three times, plus a new `pflag` import in each file; a fourth legacy flag will be a fourth copy. Simpler form: one helper in internal/cli, e.g. `func legacyFlagAlias(fs *pflag.FlagSet, old, new string)`, one line per call site (`legacyFlagAlias(cmd.Flags(), "min-facts", "min-memories")`). It also centralizes the constraint that `SetNormalizeFunc` is single-slot per FlagSet (a second call clobbers the first), which the inline copies hide. Net: ~15 fewer lines, two fewer imports. At exactly three sites this is the threshold where the helper wins; recommended.
+
+2. **"sample is a sample" redundancy** — `internal/agentsetup/guide.go:49`: "the brief's memories sample is a sample, not the search". The rename turned "facts section is a sample" into a tautology. Fix: "the brief's memories section is a sample, not the search". (The .entire/agent-guide.md and strict.go variants kept "sample alone" phrasing and read fine.)
+
+3. **"%d memory(ies)" is a clunky mechanical substitution** — ~12 occurrences in output strings (e.g. `facts_admin_cmd.go:469` "promoted %d memory(ies)", `:582`, `:764`; `facts_sync_cmd.go:262,265`; `facts_global.go`; `facts_import.go`; `facts_integrity.go`; `status_render.go`) plus matching test assertions. The old "%d fact(s)" parenthetical worked because facts pluralizes with -s; "memory(ies)" forces the reader to splice "memories" together. Simpler form: plain "%d memories" in count contexts (accepting "1 memories", a common CLI convention) — strictly less string noise and the test assertions get shorter. Judgment call; if the team wants grammatical singulars, that's a pluralize helper, which is more code than the problem deserves.
+
+Nothing else qualifies: keeping the internal cobra `GroupID: "facts"` while renaming only the title (internal/cli/root.go:86) is the lazy-correct choice (no churn in group wiring), and the sync long-help naming `envFactsBackend` unchanged matches the recorded compat decision.</result>
+<usage><subagent_tokens>74693</subagent_tokens><tool_uses>8</tool_uses><duration_ms>79047</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ad9cb46923c3d5824</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-regina-v1/d774cafb-82be-499f-80eb-6d09ee13c683/tasks/ad9cb46923c3d5824.output</output-file>
+<status>completed</status>
+<summary>Agent "Altitude review of rename diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Altitude review complete. Preflight recorded: Brain (dev, task_briefs/durable_facts) and Graph (entire-graph v0.4.0) both available; brief retrieved the recorded rename decision directly. Graph impact queries were not needed — no exported shared-library symbol changes in the diff (all renamed constructors are unexported, `factmerge` untouched).
+
+**Findings (ordered by weight):**
+
+1. **Env var left behind on the renamed surface** — `internal/cli/facts_sync_cmd.go:30` (`envFactsBackend = "ENTIRE_BRAIN_FACTS_BACKEND"`). The diff renamed `--facts-backend` → `--memories-backend` but the command's Long help still interpolates this env var, so `memories sync --help` prints `Backends (--memories-backend, or ENTIRE_BRAIN_FACTS_BACKEND)`. Cost: mixed vocabulary on the exact surface this PR renames, and env vars are absent from the recorded out-of-scope list (fact:30746568feb856992d64bbb4 / COR-2190), so nothing tracks it. Deeper change: rename the env var with an old-name fallback (same compat depth as the flag shims), or explicitly add env vars to COR-2190.
+
+2. **root.go special case: re-pointed, not deepened** — `internal/cli/root.go:209`. The `c.Name() == "facts"` usage-builder special case and its hardcoded child list existed on main; the diff only swapped the string. Residual brittleness: it keys on the display name (the thing renames change) while the stable `GroupID: "facts"` was untouched; identifying the command by pointer or group would have made the builder rename-proof. Cost is low — root_test.go asserts the rendered help, so drift is caught. Optional hardening, fine to leave.
+
+3. **Intermediate depth is correct and recorded** — keeping `factRecord`/`newFactsCommand`/`GroupID "facts"` internal while renaming display strings matches the recorded decision (brief returned fact:30746568feb856992d64bbb4: JSON keys, `fact:` ids, disk names, wire, factmerge, eval harness deferred to COR-2190). The one user-visible seam the split creates — output like `no global memory fact:abc123` — is exactly the ticketed id-prefix remainder, and the CHANGELOG discloses it. No change needed in this PR.
+
+4. **Generated artifact handled at the right depth** — verified: `go run ./cmd/entire-brain agent-guide --strict` reproduces the committed `.entire/agent-guide.md` byte-for-byte from the edited sources (`internal/agentsetup/strict.go`, `guide.go`, `brain-reference.md`). No drift test exists, so I recorded the regeneration command as a Brain memory (fact:7cc94b457817989e899ce437).
+
+5. **Three copy-pasted normalize shims** — `facts_admin_cmd.go:641`, `facts_sync_cmd.go:76`, `facts_vitality_cmd.go:97` are identical 6-line `SetNormalizeFunc` closures differing only in the old/new names. A shared `aliasFlag(fs, old, new)` helper is the same total size and gives COR-2190's likely further flag renames one place to extend. Minor; acceptable as-is.
+
+Validation: regenerated guide diffed identical; all claims about pre-existing root.go behavior read from the diff's `-` lines, not inferred.</result>
+<usage><subagent_tokens>81698</subagent_tokens><tool_uses>20</tool_uses><duration_ms>187438</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b69sic0ub</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-regina-v1/d774cafb-82be-499f-80eb-6d09ee13c683/tasks/b69sic0ub.output</output-file>
+<status>completed</status>
+<summary>Background command "Full cli suite with extended timeout" completed (exit code 0)</summary>
+</task-notification>

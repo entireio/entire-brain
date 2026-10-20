@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M5DCV2JDKW1962BW2KN5T8WT",
+  "strategy": "manual-commit",
+  "branch": "rename-facts-to-memories",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/facts_admin_cmd.go",
+    "internal/cli/facts_sync_cmd.go",
+    "internal/cli/facts_vitality_cmd.go",
+    "internal/cli/root.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 460,
+    "cache_creation_tokens": 588126,
+    "cache_read_tokens": 51340100,
+    "output_tokens": 124804,
+    "api_call_count": 230,
+    "subagent_tokens": {
+      "input_tokens": 60,
+      "cache_creation_tokens": 244070,
+      "cache_read_tokens": 1483031,
+      "output_tokens": 23109,
+      "api_call_count": 30
+    }
+  }
+}
