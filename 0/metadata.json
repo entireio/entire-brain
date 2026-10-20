@@ -1,0 +1,225 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M5BRH6HYW5RDRZBP0338V5CS",
+  "session_id": "90583c3d-57d2-464e-80cc-6b508e865269",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-20T04:18:53.491329Z",
+  "branch": "brain-performance-audit",
+  "checkpoints_count": 24,
+  "save_step_count": 6,
+  "files_touched": [
+    "internal/cli/transcript_cache_migration.go",
+    "internal/cli/transcript_fileless_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "08a494146964",
+  "checkpoint_transcript_start": 422,
+  "transcript_lines_at_start": 422,
+  "compact_transcript_start": 85,
+  "token_usage": {
+    "input_tokens": 198,
+    "cache_creation_tokens": 600585,
+    "cache_read_tokens": 16577078,
+    "output_tokens": 56365,
+    "api_call_count": 100,
+    "subagent_tokens": {
+      "input_tokens": 114,
+      "cache_creation_tokens": 111417,
+      "cache_read_tokens": 7580285,
+      "output_tokens": 29377,
+      "api_call_count": 57
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_014YNGrU5R4RJtUEz6EDjYGT",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:test-driven-development"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "08a494146964",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 841,
+        "end": 842,
+        "entry_ids": [
+          "68e5eaa9-df4b-44ca-b1d0-69363b67a972"
+        ],
+        "tool_use_id": "toolu_014YNGrU5R4RJtUEz6EDjYGT"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_014YNGrU5R4RJtUEz6EDjYGT"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:test-driven-development",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 37
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-20T04:18:53.436725Z",
+    "agent_lines": 508,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 508,
+    "total_lines_changed": 508,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 180,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/bench.sh": 13,
+        ".context/bench/cold_repos.log": 19,
+        ".context/bench/cold_repos.sh": 34,
+        ".context/bench/long_big.log": 11,
+        ".context/bench/long_big.sh": 16,
+        ".context/bench/results.csv": 87
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 254,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/bench.sh": 13,
+        ".context/bench/cold_repos.log": 19,
+        ".context/bench/cold_repos.sh": 34,
+        ".context/bench/long_big.log": 11,
+        ".context/bench/long_big.sh": 16,
+        ".context/bench/long_v2.log": 11,
+        ".context/bench/long_v2.sh": 14,
+        ".context/bench/results-v2.csv": 49,
+        ".context/bench/results.csv": 87
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 273,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/bench.sh": 13,
+        ".context/bench/cold_repos.log": 19,
+        ".context/bench/cold_repos.sh": 34,
+        ".context/bench/long_big.log": 11,
+        ".context/bench/long_big.sh": 16,
+        ".context/bench/long_v2.log": 11,
+        ".context/bench/long_v2.sh": 14,
+        ".context/bench/perf-punchlist.md": 17,
+        ".context/bench/results-v2.csv": 49,
+        ".context/bench/results-v3.csv": 2,
+        ".context/bench/results.csv": 87
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 312,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/bench.sh": 13,
+        ".context/bench/cold_repos.log": 19,
+        ".context/bench/cold_repos.sh": 34,
+        ".context/bench/long_big.log": 11,
+        ".context/bench/long_big.sh": 16,
+        ".context/bench/long_v2.log": 11,
+        ".context/bench/long_v2.sh": 14,
+        ".context/bench/perf-punchlist.md": 17,
+        ".context/bench/results-v2.csv": 49,
+        ".context/bench/results-v3.csv": 3,
+        ".context/bench/results.csv": 87,
+        ".context/bench/sweep_v3.sh": 38
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 394,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/bench.sh": 13,
+        ".context/bench/cold_repos.log": 19,
+        ".context/bench/cold_repos.sh": 34,
+        ".context/bench/long_big.log": 11,
+        ".context/bench/long_big.sh": 16,
+        ".context/bench/long_v2.log": 11,
+        ".context/bench/long_v2.sh": 14,
+        ".context/bench/perf-punchlist.md": 17,
+        ".context/bench/results-v2.csv": 49,
+        ".context/bench/results-v3.csv": 46,
+        ".context/bench/results.csv": 87,
+        ".context/bench/sweep_v3.log": 39,
+        ".context/bench/sweep_v3.sh": 38
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 398,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/bench.sh": 13,
+        ".context/bench/cold_repos.log": 19,
+        ".context/bench/cold_repos.sh": 34,
+        ".context/bench/long_big.log": 11,
+        ".context/bench/long_big.sh": 16,
+        ".context/bench/long_v2.log": 11,
+        ".context/bench/long_v2.sh": 14,
+        ".context/bench/perf-punchlist.md": 21,
+        ".context/bench/results-v2.csv": 49,
+        ".context/bench/results-v3.csv": 46,
+        ".context/bench/results.csv": 87,
+        ".context/bench/sweep_v3.log": 39,
+        ".context/bench/sweep_v3.sh": 38
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 398,
+      "user_lines_removed": 0,
+      "agent_lines_added": 81,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        ".context/bench.sh": 13,
+        ".context/bench/cold_repos.log": 19,
+        ".context/bench/cold_repos.sh": 34,
+        ".context/bench/long_big.log": 11,
+        ".context/bench/long_big.sh": 16,
+        ".context/bench/long_v2.log": 11,
+        ".context/bench/long_v2.sh": 14,
+        ".context/bench/perf-punchlist.md": 21,
+        ".context/bench/results-v2.csv": 49,
+        ".context/bench/results-v3.csv": 46,
+        ".context/bench/results.csv": 87,
+        ".context/bench/sweep_v3.log": 39,
+        ".context/bench/sweep_v3.sh": 38
+      }
+    }
+  ]
+}
