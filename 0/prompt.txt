@@ -1,5 +1,75 @@
-give me bulelt udapte from last tunday till now on what we have worked on fixed etc; ismpel enlgih
+pause on goal fro a sec, how to u resolve tha issue and where was it etc
 
 ---
 
-ok remvoe those tags please then and amek sure lieanr is updated accordnly ons tuaus of issues
+Goal set: pause
+
+---
+
+give my stauts report please, and then lenar issue maaping too incledue in that; and lsit wha t lienar issues left to tackel in brian
+
+---
+
+give my stauts report please, like the one u sent before with :reiew etc and if they fro liean rissues map resptiecly|||| WE DON"T care abt M's only p0 ga the lcaol brain COR's
+
+---
+
+for evyerhtign inclduign rpah and otehr sutf fotuside lienar baiscaly look at all prs/trail from last sunday till now
+
+---
+
+<pasted_content id="ecd9">
+:review: brain
+
+ • :review: no issue · Locus extractor cut hyphenated and dot paths into fragments — https://entire.io/gh/entireio/entire-brain/trails/324
+  • :review: COR-2159 · Doctor warns when the install sits in a directory the OS may delete — https://entire.io/gh/entireio/entire-brain/trails/315
+  • :review: COR-2006 · Setup output short-form by default, phases behind --verbose — https://entire.io/gh/entireio/entire-brain/trails/314
+  • :review: COR-2158 · Six compatibility aliases hidden from the advertised MCP surface — https://entire.io/gh/entireio/entire-brain/trails/313
+  • :review: COR-2162 · A recorded component failure ages out once it rebuilds — https://entire.io/gh/entireio/entire-brain/trails/312
+  • :review: COR-2162 · A writer refusing an unknown field is not corruption —  https://entire.io/gh/entireio/entire-brain/trails/311
+  • :review: COR-2163 · brain_recall over MCP, plus a guard against losing a tool again — https://entire.io/gh/entireio/entire-brain/trails/310
+  • :review: COR-2002 · Pre-push gate settled, two env-only failures named — 
+  https://entire.io/gh/entireio/entire-brain/trails/309
+  • :review: COR-2007 · Semantic provider schema 1.3 ingested in full — 
+  https://entire.io/gh/entireio/entire-brain/trails/308
+  • :review: COR-2006 · Seven-phase setup UI, capability block, distill consent — 
+  https://entire.io/gh/entireio/entire-brain/trails/287
+  • :review: COR-2148 · A repo with no captured sessions is no longer reported broken — 
+  https://entire.io/gh/entireio/entire-brain/trails/286
+  • :review: COR-2146 · Provider failure summarised instead of dumping the host CLI's help — 
+  https://entire.io/gh/entireio/entire-brain/trails/285
+  • :review: COR-2002 · Test suite gets a deadline above its own runtime — 
+  https://entire.io/gh/entireio/entire-brain/trails/267
+  • :review: no issue · Ollama envelope guard bound by the client, not the writer — 
+  https://entire.io/gh/entireio/entire-brain/trails/266
+  • :review: COR-2157 · Changelog since 0.1.0 and the integration branch for the fix stack — 
+  https://entire.io/gh/entireio/entire-brain/trails/265
+  • :review: COR-2150 · Three remedies the reader could not follow — 
+  https://entire.io/gh/entireio/entire-brain/trails/264
+  • :review: COR-2150 · Remedies rendered in the reader's own dispatch spelling — 
+  https://entire.io/gh/entireio/entire-brain/trails/263
+  • :review: COR-2150 · Printed advice made runnable, escape hatch named — 
+  https://entire.io/gh/entireio/entire-brain/trails/262
+  • :review: COR-2151 · Our own installers stop blocking our own install — 
+  https://entire.io/gh/entireio/entire-brain/trails/261
+  • :review: COR-2148 · Setup and status say what is true on a first run — 
+  https://entire.io/gh/entireio/entire-brain/trails/260
+  • :review: COR-2155 · Bundle says what sharing a brain costs, at the moment it costs it — 
+  https://entire.io/gh/entireio/entire-brain/trails/259
+  • :review: COR-2152 · Memory prepass says why it failed, stops retrying what can't change — 
+  https://entire.io/gh/entireio/entire-brain/trails/258
+  • :review: COR-2149 · Setup makes the brain discoverable and remembers a decline — 
+  https://entire.io/gh/entireio/entire-brain/trails/257
+  • :review: COR-2150 · Doctor prints only what a reader can act on — 
+  https://entire.io/gh/entireio/entire-brain/trails/256
+  • :review: COR-2029 · Connect fails loudly when the hosted binding can't resolve — 
+  https://entire.io/gh/entireio/entire-brain/trails/255
+  • :review: COR-2153 · Retrieval returns output an agent can accept, and discloses what was dropped — 
+  https://entire.io/gh/entireio/entire-brain/trails/242
+  • :review: COR-2006 · Distill timeout configurable, nested-repo trap named — 
+  https://entire.io/gh/entireio/entire-brain/trails/241
+</pasted_content id="ecd9">
+
+---
+
+please now incorpet brians etup feedbak i f not done alerady, and if done show me it ehre and then if i say good ten merge it
