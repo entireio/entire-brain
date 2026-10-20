@@ -1,0 +1,143 @@
+open a pr
+
+---
+
+/review-pr
+
+---
+
+<task-notification>
+<task-id>a014e7fc74e311760</task-id>
+<tool-use-id>toolu_01JWtArbPThSNjRtt1DTBK6b</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-astana/ed978183-a7b6-439d-9fed-9f65f93af2c6/tasks/a014e7fc74e311760.output</output-file>
+<status>completed</status>
+<summary>Agent "Simplification review of PR diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Four simplification findings (no bugs claimed; all are shape/maintenance):
+
+**1. `/Users/evisdrenova/conductor/workspaces/entire-brain/astana/internal/cli/workspace.go:389-397, 421` — `maintain` and `stale` are two parameters carrying one fact ("am I the installed service"), and the signature lets them disagree.**
+`stale` is assigned only inside `if maintain != nil`, so in production they are always both nil or both non-nil — but `supervisedWatchLoop` is now a 7-parameter function with two independent nil-checks, and `watch_binary_test.go:72-78` already constructs the combination production never creates (`maintain=nil`, `stale` non-nil). Cost: every future reader has to re-derive the invariant from two call sites, and the loop grows a nil-check per new daemon-only behavior.
+Simpler: one optional value — `upkeep *daemonUpkeep{rotate func(); stale func() bool}`, or, since both run back-to-back at the top of the pass, a single `upkeep func() error` that rotates and returns `errWatchBinaryReplaced`. The loop then has one nil-check and one call.
+
+**2. `/Users/evisdrenova/conductor/workspaces/entire-brain/astana/internal/cli/watch_binary.go:43-45` — the staleness predicate ORs three signals where two already decide it.**
+`os.SameFile` catches the rename-over case, `ModTime` catches the in-place rewrite; a same-inode write that changes `Size()` but leaves mtime byte-identical is not a case any build or installer produces (the test exercises only the first two). Cost: three conditions to reason about whenever someone debugs a spurious restart, and one of them has no test and no scenario behind it.
+Simpler: drop the `Size()` clause, or keep size and drop `SameFile` — not all three.
+
+**3. `/Users/evisdrenova/conductor/workspaces/entire-brain/astana/internal/cli/watch_binary.go:76` vs `setup_daemon.go:598-611` — the launchd bootout → enable → bootstrap sequence now exists twice, once as `runner.Run` calls and once as a shell string.**
+The ordering and the `enable` step are load-bearing and hard-won (COR-2174), and they are restated in a quoted `/bin/sh -c` script with positional `$1/$2/$3` that no test covers. Cost: the next correction to the sequence has to be found and applied in a second, differently-shaped copy.
+Simpler: derive both from one place — e.g. a `launchdRegisterCommands(domain, unitPath, label) [][]string` used by `installDaemon` directly and joined into the detached script here — so the verb order lives in a single function.
+
+**4. `/Users/evisdrenova/conductor/workspaces/entire-brain/astana/internal/cli/watch_binary.go:67-75` — two identical "re-registration skipped" branches for what is one question: "can I find the installed unit file?"**
+`installedDaemonUnitPlan` already returns `(daemonPlan, error)` and does three error-returning lookups; the `os.Stat(plan.UnitPath)` check outside it is a fourth lookup with a duplicated five-line failure arm. Cost: two places to keep the message wording in sync, and a reader has to notice the arms are byte-identical before concluding nothing differs.
+Simpler: move the `os.Stat(plan.UnitPath)` into `installedDaemonUnitPlan` (it is part of "resolve the unit the watcher is registered under"), leaving one error branch at the call site.
+
+Lower-signal, not counted: `watchBinaryChanged` (`watch_binary.go:22-29`) is a one-caller wrapper that only does `os.Executable()` before `watchBinaryChangeProbe`; folding the two lines into the caller would remove a name, though it does keep the test seam clean as written.</result>
+<usage><subagent_tokens>49048</subagent_tokens><tool_uses>9</tool_uses><duration_ms>76650</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ad2b006ffbdb0a146</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-astana/ed978183-a7b6-439d-9fed-9f65f93af2c6/tasks/ad2b006ffbdb0a146.output</output-file>
+<status>completed</status>
+<summary>Agent "Efficiency review of PR diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Findings (efficiency only, read-only review):
+
+**1. `/Users/evisdrenova/conductor/workspaces/entire-brain/astana/internal/cli/setup_daemon.go:606-610` — install now forks three launchctl processes per run where the first two are fire-and-forget.** `bootout`, then `enable`, then `bootstrap` are three separate `runner.Run` process spawns on every `setup` (and `setup` runs per repo onboarding, concurrently under the install lock, so the spawns serialize across repos too). Only `bootstrap`'s error is consumed; `bootout` and `enable` discard theirs entirely. Cheaper: collapse the two ignored-result calls into the single `/bin/sh -c` form this same PR already uses in `relaunchInstalledDaemon` (`launchctl bootout "$1" "$2"; launchctl enable "$1/$3"`), leaving one shelled pre-step plus the real `bootstrap` — two spawns instead of three, with identical semantics since neither result is read.
+
+**2. `/Users/evisdrenova/conductor/workspaces/entire-brain/astana/internal/cli/setup_daemon.go:527` — `strings.Contains(string(stdout), ...)` copies the whole launchctl payload to test for one substring.** `runner.Run` returns `[]byte`; the `string(stdout)` conversion allocates and copies the full `launchctl list &lt;label&gt;` output (the whole plist dump for the job, not a one-liner) purely to run a substring search. Cheaper: `bytes.Contains(stdout, []byte(`"PID"`))` — zero allocation, same result. Same pattern is already correct-ish elsewhere in the file only because those conversions feed `TrimSpace` on error paths.
+
+Explicitly cleared (checked, not wasteful):
+
+- `watchBinaryChangeProbe` (`internal/cli/watch_binary.go:31-47`) — the returned closure captures only `path string` and `started os.FileInfo` (a `*os.fileStat`, ~150 bytes). It does not capture `cmd`, `opts`, `ctx`, or any plan struct, so holding it for the daemon's lifetime pins nothing large. Creation cost is one `os.Executable` + one `os.Stat` at startup, gated behind `maintain != nil`, so foreground runs pay nothing.
+- `runSupervisedWatch` → `supervisedWatchLoop` (`internal/cli/workspace.go:389-435`) — the per-tick `stale()` is one stat plus scalar compares; `relaunchInstalledDaemon`'s re-read of the watch plan via `installedDaemonUnitPlan` happens exactly once, on the exit path, so the duplicate `loadSetupWatchPlan` is not worth caching.</result>
+<usage><subagent_tokens>48068</subagent_tokens><tool_uses>7</tool_uses><duration_ms>79050</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a0e088a43bedf5834</task-id>
+<tool-use-id>toolu_01FeUSRioqXKKQWgX34FYxN1</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-astana/ed978183-a7b6-439d-9fed-9f65f93af2c6/tasks/a0e088a43bedf5834.output</output-file>
+<status>completed</status>
+<summary>Agent "Reuse review of PR diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Reuse findings (3):
+
+**1. `/Users/evisdrenova/conductor/workspaces/entire-brain/astana/internal/cli/watch_binary.go:76-79` — the launchd re-registration sequence is hand-copied into a shell string.**
+What's duplicated: the exact three-verb darwin sequence `bootout &lt;domain&gt; &lt;unitPath&gt;` → `enable &lt;domain&gt;/&lt;label&gt;` → `bootstrap &lt;domain&gt; &lt;unitPath&gt;` already lives in `installDaemon`'s `daemonManagerLaunchd` branch (`setup_daemon.go:596-612`), including the `enable` step and the `domain+"/"+plan.Label` service-target form (also at `setup_daemon.go:645`). Two copies in two languages (Go + `/bin/sh`) of a sequence the file's own comments say was carefully derived for COR-2174; any future change (e.g. adding `kickstart`, changing the domain) silently drifts in one of them.
+Helper to use: factor the branch body of `installDaemon` into something like `launchdReregisterArgv(plan)` (returning the command list) and have both `installDaemon` and the detached child consume it — or have the detached child re-exec `plan.Binary` into a path that calls `installDaemon`, rather than `/bin/sh -c`.
+
+**2. `/Users/evisdrenova/conductor/workspaces/entire-brain/astana/internal/cli/watch_binary.go:90-105` — `installedDaemonUnitPlan` re-derives the daemon plan instead of using the one plan builder.**
+What's duplicated: `os.Executable()` + `os.UserHomeDir()` + `planBrainWatchDaemon(runtime.GOOS, home, os.Getenv(xdgConfigHome), os.Getenv(envDaemonUnitDir), daemonSpec{...})` is verbatim `brainWatchDaemonPlanFor` (`setup.go:1572-1600`), minus `NoRegister`, `resolvePluginDirs`, and the error wrapping. It also breaks the invariant documented at `setup.go:1566-1570` ("runtime.GOOS is read in exactly one place (above)... which is what makes the daemon behaviour testable on a windows runner") — `watch_binary.go:103` is now a second `runtime.GOOS` read, and `relaunchInstalledDaemon` gates on `runtime.GOOS` at line 64 as well, so this path can't be exercised off-darwin the way the rest of the daemon code can.
+Helper to use: `brainWatchDaemonPlanFor(goos, opts, setupCommandOptions{daemonName: watchPlan.DaemonName})` (via `brainWatchDaemonPlan`), threading `goos` as a parameter so the function stays testable; it already applies `daemonRegistrationDisabled()` into `plan.NoRegister`, which would also subsume the separate check at line 64.
+
+**3. `/Users/evisdrenova/conductor/workspaces/entire-brain/astana/internal/cli/watch_binary.go:77` — the detached re-register bypasses the existing machine-level daemon lock.**
+What's duplicated/ignored: `withDaemonRegistrationLock` (`setup_daemon.go:446`) exists precisely so that no two processes interleave a `bootout`/`bootstrap` pair against one label (its doc comment describes the "service already bootstrapped" failure this produces). The new spawned helper performs that pair unserialized, so a concurrent `entire-brain setup` on another repo can land between this child's bootout and bootstrap.
+Helper to use: `withDaemonRegistrationLock(env, ...)` around the re-registration (held in the detached child, since the parent exits) — i.e. route the child through the same locked install path rather than a raw launchctl sequence.
+
+Not flagged: the `os.SameFile` + size + mtime comparison in `watchBinaryChangeProbe` (line 38-47) matches an idiom repeated inline across `conversation.go`, `history.go`, `pattern_corpus.go`, and `session_privacy_verify.go`, but there is no shared named helper for it today, so it isn't a reuse miss. `spawnDetached`, `daemonLogMaintainer`, `launchdLabel`, and `loadSetupWatchPlan` are all correctly reused.</result>
+<usage><subagent_tokens>65247</subagent_tokens><tool_uses>17</tool_uses><duration_ms>90285</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aaadb5b9fdb895df2</task-id>
+<tool-use-id>toolu_01MXsRQYM5M3JRWYtSXnHqpB</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-astana/ed978183-a7b6-439d-9fed-9f65f93af2c6/tasks/aaadb5b9fdb895df2.output</output-file>
+<status>completed</status>
+<summary>Agent "Altitude review of PR diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Reviewed the full diff plus `brain.go`, `setup_daemon.go`, `setup.go`, `workspace.go`, `setup_spawn.go`.
+
+First, on the two framing questions you asked me to settle:
+
+- **Exit-on-binary-change vs. classifying the "manifest written by a newer build" refresh error — the probe is the right altitude.** `loadBrainManifestForReplace` (brain.go:199-218) is *correctly* strict; the manifest error is a true statement about a writer that cannot round-trip foreign fields. Teaching `supervisedWatchLoop` to special-case that one error would have made the stale daemon invisible again and would have had to be re-done for the next field, flag or on-disk format the old build cannot read. "The process is running a binary that no longer exists" is the actual root condition and the probe names it. No finding.
+- **`daemonRunning` requiring a PID entry (setup_daemon.go:517-530) is right altitude too** — it repairs the predicate itself rather than adding a caller-side caveat, and `status`/`setup`/`inspectDaemon` all inherit it.
+
+Findings:
+
+**1. internal/cli/watch_binary.go:76-80 — the detached `/bin/sh` re-registration re-implements `installDaemon`'s launchd sequence outside the lock that exists to serialize exactly this sequence.** The depth is wrong because the shared infrastructure for "change this machine's one registration" is already built and is more than the three verbs: `withDaemonRegistrationLock` (setup_daemon.go:429-461) exists precisely because "interleaving two bootout/bootstrap pairs against one label" makes one of them fail with *service already bootstrapped* — and the file's own comment says two repos registering at once is the ordinary case. The helper takes no lock, so an upgrade-triggered self-restart can land inside a concurrent `setup`'s bootout/bootstrap window and leave the machine with no registered watcher — the failure the lock was introduced to end. It also forks the verb string: `installDaemon` and this shell literal must now stay in sync on ordering (`enable` between bootout and bootstrap), domain construction and future launchd changes, with nothing to catch the drift. Deeper change: spawn the *replaced* binary (it is the new build, at `plan.Spec.Binary`) detached on a hidden re-register subcommand that funnels into `withDaemonRegistrationLock(env, func() error { return installDaemon(ctx, runner, plan) })`. One place knows the verbs and the lock, the unit is re-rendered if the new build's plist drifted (an upgrade is the most likely moment for that), and `relaunchInstalledDaemon` shrinks to "spawn the new binary detached".
+
+**2. internal/cli/workspace.go:389-397 — "am I the installed service" is inferred from the nil-ness of the log-rotation closure.** `daemonLogMaintainer` is a log-upkeep concern whose identity test is incidental (`stdoutIsFile(daemonLogPath(env))`, setup_daemon.go:735-744); borrowing it as the gate couples the staleness probe to log plumbing. Anything that breaks the stdout↔log-file identity — a rotation that replaces the file, a plist whose `StandardOutPath` was edited, a state-dir move — silently turns the COR-2174 fix back off with no log line and no way to tell from `status`. Worse, this file now holds *two different* notions of installed-service identity: the stdout check here and `installedDaemonUnitPlan`'s watch-plan reconstruction in the restart path, which can disagree. Deeper change: one predicate, e.g. `installedDaemonSelf(env) (daemonPlan, bool)`, that answers the question once (ideally by the unit the process was launched from) and feeds both the maintainer and the probe, so the two halves of the feature cannot diverge and the gate is a named concept rather than a side effect.
+
+**3. internal/cli/watch_binary.go:87-105 — the running daemon rebuilds its own unit identity from parts instead of reading what was recorded.** `installedDaemonUnitPlan` re-derives label and unit path from `watchPlan.DaemonName` plus `os.UserHomeDir()`/`xdgConfigHome`/`os.Getenv(envDaemonUnitDir)` — environment the *installer* had, not the daemon. `daemonEnv` (setup.go:1640-1658) propagates only the four plugin dirs and `PATH`, so inside the daemon `envDaemonUnitDir` is always empty: a watcher installed into an overridden unit dir reconstructs `daemonScopeSuffix("") == ""` and resolves to the *real* `~/Library/LaunchAgents` plist, which the `os.Stat` guard happily accepts — booting out and bootstrapping a unit this process does not belong to. Same class of risk if `DaemonName` is absent or stale in the machine plan (it then silently becomes `daemonDefaultName`). Deeper change: record `Label` and `UnitPath` in the machine watch plan when `installDaemon` succeeds (or read the identity launchd hands the process) and have the restart path read that one recorded fact — the installer already knows the answer, so no consumer should be re-deriving it from inputs it cannot see.</result>
+<usage><subagent_tokens>67331</subagent_tokens><tool_uses>20</tool_uses><duration_ms>138662</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a8529821add4157f5</task-id>
+<tool-use-id>toolu_01Agq4xorjAFkP841QN9b9Q4</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-astana/ed978183-a7b6-439d-9fed-9f65f93af2c6/tasks/a8529821add4157f5.output</output-file>
+<status>completed</status>
+<summary>Agent "Independent review of PR 420" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>**Request changes.** Reviewed `origin/main...HEAD` at `42387ea`, confirmed against PR #420.
+
+1. **[blocking] [internal/cli/watch_binary.go:76](/Users/evisdrenova/conductor/workspaces/entire-brain/astana/internal/cli/watch_binary.go:76) — Reload helper can undo uninstall.**  
+   The helper bypasses `withDaemonRegistrationLock`. A valid interleaving is: uninstall boots out and disables the job; the helper enables and bootstraps it; uninstall deletes the plist and reports success. A running KeepAlive job remains without its unit file. Concurrent setup can also interleave registration sequences. **Fix:** make the detached helper acquire the existing registration lock, recheck installation intent, and hold it through re-registration.
+
+2. **[important] [internal/cli/watch_binary.go:103](/Users/evisdrenova/conductor/workspaces/entire-brain/astana/internal/cli/watch_binary.go:103) — Scoped installations can restart the default daemon.**  
+   The helper reconstructs its label/path from `ENTIRE_BRAIN_DAEMON_DIR`, but `daemonEnv` does not carry that variable into the installed service. After an upgrade, a daemon installed into an overridden directory resolves the unscoped default plist instead. If that plist exists, it restarts the wrong daemon; otherwise it skips recovery. **Fix:** pass the installed label and unit path explicitly into the service and use that identity for recovery. Test with both default and scoped installations.
+
+3. **[important] [internal/cli/workspace.go:396](/Users/evisdrenova/conductor/workspaces/entire-brain/astana/internal/cli/workspace.go:396) — Existing wedged daemons never acquire the new probe.**  
+   Replacing a pre-PR executable leaves its old process running without this code. That process still has a PID, and the generated unit remains materially unchanged, so `runSetupDaemonLocked` at `setup.go:1233` still reports "already running" and skips re-registration. The original live-but-failing manifest scenario therefore survives upgrading and rerunning setup. **Fix:** add a one-time unit revision or executable/build identity that forces older installations through reinstall.
+
+4. **[important] [internal/cli/setup_daemon.go:639](/Users/evisdrenova/conductor/workspaces/entire-brain/astana/internal/cli/setup_daemon.go:639) — Uninstall fails when the plist exists but the job is already unloaded.**  
+   After manual bootout, a failed installation, or an interrupted reload, `bootout` returns nonzero and this function returns before disabling the label or removing the plist. Legacy `unload` returned success for these operational failures; changing verbs requires changing error handling. The fake-runner tests miss this state. **Fix:** distinguish confirmed absence from genuine stop failures, continue cleanup for absence, and add that case to uninstall tests.
+
+5. **[important] [internal/cli/watch_binary.go:77](/Users/evisdrenova/conductor/workspaces/entire-brain/astana/internal/cli/watch_binary.go:77) — Recovery failures disappear into `/dev/null`.**  
+   No `LogPath` is supplied, so `spawnDetached` discards stdout/stderr and releases the process without observing its exit status. If bootout succeeds but bootstrap fails, the job is unregistered—KeepAlive cannot rescue it—and the only visible message announces re-registration. **Fix:** retain helper diagnostics, check each command's result, and provide bounded bootstrap retries with a final actionable failure message.
+
+No material findings in the normal PID output format, shell argument quoting, no-register guards, or systemd's clean-exit restart behavior. Apple's published implementation supports the quoted PID entry; systemd documents restart on clean exit with `Restart=always`. [Apple source](https://github.com/apple-oss-distributions/launchd/blob/main/support/launchctl.c), [systemd documentation](https://www.freedesktop.org/software/systemd/man/253/systemd.service.html).
+
+`git diff --check` passed. Targeted Go tests were blocked by the read-only sandbox. Live launchd teardown/KeepAlive/bootstrap timing and cdhash refresh were not independently exercised; the concurrency findings above follow from the command interleavings in source.</result>
+<usage><subagent_tokens>25626</subagent_tokens><tool_uses>1</tool_uses><duration_ms>323957</duration_ms></usage>
+</task-notification>
