@@ -1,0 +1,5 @@
+okay show em the trail for it
+
+---
+
+fix the low finding: https://entire.io/gh/entireio/entire-brain/trails/328/require-a-minimum-host-cli-version-for-brain-connect
