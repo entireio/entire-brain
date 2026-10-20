@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M5DK12EQ107P6TBQF4MD4MSG",
+  "strategy": "manual-commit",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "internal/cli/blind_spot.go",
+    "internal/cli/semantic_stream.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 124,
+    "cache_creation_tokens": 361813,
+    "cache_read_tokens": 21102610,
+    "output_tokens": 37743,
+    "api_call_count": 62
+  }
+}
