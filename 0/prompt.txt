@@ -1,0 +1,33 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/roseau directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name. Conductor will automatically rename it in the background to match your task.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/roseau/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+since we use the entire repo view command now when we try to sync to the cli, we shoudl probably require a specific version fo the entire cli in brain? we're going to be cutting a release tomorrow with the updated version. can you set this trail up so i can plug in the version number tomorrow? 
+
+to be fair this is only for entire brain connect... 
+
+so i wonder if we shoudl make it conditional actually. if you run brain just locally, you shouldn't have to call that endpoint
+
+---
+
+<task-notification>
+<task-id>bndr8ngvl</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-roseau/e410673e-869f-4e69-89bc-426815b77e05/tasks/bndr8ngvl.output</output-file>
+<status>completed</status>
+<summary>Background command "Check test run progress" completed (exit code 0)</summary>
+</task-notification>
