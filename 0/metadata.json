@@ -1,0 +1,101 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5FVH3VPKH00PG5E0D72TQNX",
+  "session_id": "90583c3d-57d2-464e-80cc-6b508e865269",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-21T18:28:13.663782Z",
+  "branch": "brain-command-state-audit",
+  "checkpoints_count": 4,
+  "save_step_count": 1,
+  "files_touched": [
+    ".context/bench/perf-punchlist.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "df3abd9dc82e",
+  "checkpoint_transcript_start": 1121,
+  "transcript_lines_at_start": 1121,
+  "compact_transcript_start": 237,
+  "token_usage": {
+    "input_tokens": 26,
+    "cache_creation_tokens": 257811,
+    "cache_read_tokens": 3086793,
+    "output_tokens": 5917,
+    "api_call_count": 13,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_014YNGrU5R4RJtUEz6EDjYGT",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:test-driven-development"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "08a494146964",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 841,
+        "end": 842,
+        "entry_ids": [
+          "68e5eaa9-df4b-44ca-b1d0-69363b67a972"
+        ],
+        "tool_use_id": "toolu_014YNGrU5R4RJtUEz6EDjYGT"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_014YNGrU5R4RJtUEz6EDjYGT"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:test-driven-development",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01QjZPg9YVPM6JTjF2aw9cVc",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:receiving-code-review"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "c328d77bda87",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1055,
+        "end": 1056,
+        "entry_ids": [
+          "a7106035-0719-4a77-a9fc-1ca4778ead8e"
+        ],
+        "tool_use_id": "toolu_01QjZPg9YVPM6JTjF2aw9cVc"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01QjZPg9YVPM6JTjF2aw9cVc"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:receiving-code-review",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 43
+  }
+}

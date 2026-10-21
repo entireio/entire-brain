@@ -1,0 +1,9 @@
+this is merged: https://github.com/entireio/entire-brain/pull/418, validate it locally
+
+---
+
+close out any tickets in linear
+
+---
+
+yeah we're going to handle those tickets separately
