@@ -1,0 +1,53 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/macau directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name. Conductor will automatically rename it in the background to match your task.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/macau/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+here is a list of tickets we need to work on:
+
+COR-2202 validated on main and closed.
+
+| # | Ticket | Title | Priority | Status |
+|---|---|---|---|---|
+| 1 | [COR-2201](https://linear.app/entirehq/issue/COR-2201) | publish fails on connected repo: "fact stream contains multiple branches" | High | ✅ merged + validated |
+| 2 | [COR-2202](https://linear.app/entirehq/issue/COR-2202) | connect exits 0 / says "now syncing" when sync fails or NO_EGRESS suppresses it | High | ✅ merged + validated |
+| 3 | [COR-2203](https://linear.app/entirehq/issue/COR-2203) | refresh hard-fails with cryptic `checkpoint_scope_incomplete`; succeeds under no-egress | Medium | ☐ next |
+| 4 | [COR-2204](https://linear.app/entirehq/issue/COR-2204) | memories proposals list surfaces raw 404 on connected repo | Medium | ☐ |
+| 5 | [COR-2205](https://linear.app/entirehq/issue/COR-2205) | memory retry/cancel/configure print telemetry receipts on human surface | Medium | ☐ |
+| 6 | [COR-2206](https://linear.app/entirehq/issue/COR-2206) | add: clone failure dumps git argv + duplicated stderr | Low | ☐ |
+| 7 | [COR-2207](https://linear.app/entirehq/issue/COR-2207) | connect placement error embeds raw host-CLI noise, dangling `;` clause | Low | ☐ |
+| 8 | [COR-2208](https://linear.app/entirehq/issue/COR-2208) | distill --dry-run blocked by NO_EGRESS despite doing no egress | Low | ☐ |
+| 9 | [COR-2209](https://linear.app/entirehq/issue/COR-2209) | privacy purge of unknown session id exits 0 claiming it purged | Low | ☐ |
+| 10 | [COR-2210](https://linear.app/entirehq/issue/COR-2210) | factsync/publish HTTP errors double status text ("403 Forbidden: Forbidden") | Low | ☐ |
+| 11 | [COR-2211](https://linear.app/entirehq/issue/COR-2211) | Decide: should plain `memories sync` go hosted on a connected repo? | Low | ☐ |
+
+Ready to start COR-2203 whenever you say.
+
+
+let's start on the next one
+
+---
+
+here is more context in a hand off;
+
+Safe to close this workspace — everything is durable now:
+
+- **Working tree is clean**; both fix branches are merged and the remote branches deleted.
+- **Audit report + working list + exit-code matrix** moved to a Linear doc (the `.context` copies die with this workspace): https://linear.app/entirehq/document/brain-cli-state-audit-connected-disconnected-local-only-2026-10-20-4acb8f1094cd
+- **Brain memory** recorded for the next session (`fact:ffac90eddd49c5aff519d699`): progress (2201/2202 done), the Linear doc pointer, and the COR-2203 root cause already pinned (`listRoutedCheckpoints` in `internal/cli/export.go` shelling to `entire checkpoint explain --json --search-all`).
+- **Linear tickets** carry per-ticket repro/expected, so the new workspace can start directly on COR-2203 — a `brain brief` / `recall` there will surface the handoff memory.
+
+One tip for the new workspace: start it from latest `main` and just say "pick up COR-2203 from the brain state-audit list" — recall will do the rest.
