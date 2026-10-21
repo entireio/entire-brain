@@ -1,0 +1,11 @@
+this is merged: https://github.com/entireio/entire-brain/pull/428 
+
+validate it on main
+
+---
+
+what does the tabgble look like
+
+---
+
+alright let's do 2204 and 2205 a the same time and then we can do the rest later
