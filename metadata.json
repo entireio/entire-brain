@@ -1,0 +1,24 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "01M5GB8647AQWCKDCKMJZ3S1K5",
+  "strategy": "manual-commit",
+  "branch": "fix/distill-pipeline",
+  "checkpoints_count": 3,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8328,
+    "cache_creation_tokens": 54998876,
+    "cache_read_tokens": 2148911959,
+    "output_tokens": 2874610,
+    "api_call_count": 4168
+  }
+}
