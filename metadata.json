@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M5DXKFJ3FRJJDXPKSG9RQ4V9",
+  "strategy": "manual-commit",
+  "branch": "cor-2174-watch-daemon-wedged",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/entities_cmd.go",
+    "internal/cli/export.go",
+    "internal/cli/git_catfile_batch.go",
+    "internal/cli/git_catfile_batch_test.go",
+    "internal/cli/git_harden.go",
+    "internal/cli/transcript_store.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 777,
+    "cache_creation_tokens": 2268746,
+    "cache_read_tokens": 127383707,
+    "output_tokens": 317604,
+    "api_call_count": 391
+  }
+}
