@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5GCA3K2Q2XBJ09W5MRTREQQ",
+  "strategy": "manual-commit",
+  "branch": "cor-2205-receipt-text",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "internal/cli/memory_abstract.go",
+    "internal/cli/memory_abstract_hardening_test.go",
+    "internal/cli/memory_admin.go",
+    "internal/cli/memory_admin_contract_test.go",
+    "internal/cli/memory_cmd.go",
+    "internal/cli/memory_operation_output_test.go",
+    "internal/cli/memory_state_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 34,
+    "cache_creation_tokens": 267010,
+    "cache_read_tokens": 3614347,
+    "output_tokens": 17373,
+    "api_call_count": 17
+  }
+}

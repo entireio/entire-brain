@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5GCA3K2Q2XBJ09W5MRTREQQ",
+  "session_id": "22cec224-1c13-4894-b2f1-f126f24bb6ae",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-21T23:21:31.930465Z",
+  "branch": "cor-2205-receipt-text",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "internal/cli/memory_abstract.go",
+    "internal/cli/memory_abstract_hardening_test.go",
+    "internal/cli/memory_admin.go",
+    "internal/cli/memory_admin_contract_test.go",
+    "internal/cli/memory_cmd.go",
+    "internal/cli/memory_operation_output_test.go",
+    "internal/cli/memory_state_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "c6cfff046993",
+  "checkpoint_transcript_start": 501,
+  "transcript_lines_at_start": 501,
+  "compact_transcript_start": 88,
+  "token_usage": {
+    "input_tokens": 34,
+    "cache_creation_tokens": 267010,
+    "cache_read_tokens": 3614347,
+    "output_tokens": 17373,
+    "api_call_count": 17
+  },
+  "session_metrics": {
+    "turn_count": 3
+  }
+}
