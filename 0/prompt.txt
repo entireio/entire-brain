@@ -1,0 +1,17 @@
+<task-notification>
+<task-id>brb11vhr0</task-id>
+<tool-use-id>toolu_01Rgqfc367KF4YagLx1SoYgs</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-astana/ed978183-a7b6-439d-9fed-9f65f93af2c6/tasks/brb11vhr0.output</output-file>
+<status>completed</status>
+<summary>Background command "Real-agent haiku re-test on new architecture" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b2tisnbz1</task-id>
+<tool-use-id>toolu_01BYSiRMk7h22KXWFn2WABZo</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-astana/ed978183-a7b6-439d-9fed-9f65f93af2c6/tasks/b2tisnbz1.output</output-file>
+<status>completed</status>
+<summary>Background command "Rerun deterministic A/B with merging bench agent" completed (exit code 0)</summary>
+</task-notification>

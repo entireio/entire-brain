@@ -1,0 +1,72 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5G85ER5HD5B7SA8FSY41B7K",
+  "session_id": "ed978183-a7b6-439d-9fed-9f65f93af2c6",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-21T22:09:03.408912Z",
+  "branch": "cor-2184-staged-batch-reconcile",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [
+    "internal/cli/distill_cmd.go",
+    "internal/cli/reconcile_batch.go",
+    "internal/cli/reconcile_batch_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "bff6f79c76fa",
+  "checkpoint_transcript_start": 2173,
+  "transcript_lines_at_start": 2173,
+  "compact_transcript_start": 434,
+  "token_usage": {
+    "input_tokens": 26,
+    "cache_creation_tokens": 633242,
+    "cache_read_tokens": 7597122,
+    "output_tokens": 15510,
+    "api_call_count": 14,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01JcT6xerzjf5iBa5gzkKZz7",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "simplify"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b930f3baafba",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 427,
+        "end": 428,
+        "entry_ids": [
+          "068cbf70-1704-4233-9e76-8cc00045f251"
+        ],
+        "tool_use_id": "toolu_01JcT6xerzjf5iBa5gzkKZz7"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01JcT6xerzjf5iBa5gzkKZz7"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: simplify",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 8
+  }
+}

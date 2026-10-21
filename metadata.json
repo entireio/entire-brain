@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5G85ER5HD5B7SA8FSY41B7K",
+  "strategy": "manual-commit",
+  "branch": "cor-2184-staged-batch-reconcile",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/distill_cmd.go",
+    "internal/cli/reconcile_batch.go",
+    "internal/cli/reconcile_batch_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 26,
+    "cache_creation_tokens": 633242,
+    "cache_read_tokens": 7597122,
+    "output_tokens": 15510,
+    "api_call_count": 14,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  }
+}
