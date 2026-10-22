@@ -3,7 +3,7 @@
   "checkpoint_id": "01M5HYEP0A20ZH613BQ171FCJ6",
   "strategy": "manual-commit",
   "branch": "feat/linear-issue-memory",
-  "checkpoints_count": 3,
+  "checkpoints_count": 4,
   "files_touched": [
     ".gitattributes",
     ".github/dependabot.yml",
@@ -511,13 +511,20 @@
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
       "prompt": "/0/prompt.txt"
+    },
+    {
+      "metadata": "/1/metadata.json",
+      "transcript": "/1/full.jsonl",
+      "compact_transcript": "/1/transcript.jsonl",
+      "content_hash": "/1/content_hash.txt",
+      "prompt": "/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 874,
-    "cache_creation_tokens": 184450,
-    "cache_read_tokens": 5744487,
-    "output_tokens": 49390,
-    "api_call_count": 31
+    "input_tokens": 1036,
+    "cache_creation_tokens": 277340,
+    "cache_read_tokens": 6408181,
+    "output_tokens": 56481,
+    "api_call_count": 37
   }
 }
