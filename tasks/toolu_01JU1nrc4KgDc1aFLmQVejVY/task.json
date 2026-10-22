@@ -1,0 +1,7 @@
+{
+  "tool_use_id": "toolu_01JU1nrc4KgDc1aFLmQVejVY",
+  "agent_id": "a41e849b7b5831fb2",
+  "subagent_type": "review-steward",
+  "task_description": "Review steward PR #437",
+  "started_at": "2026-10-22T14:08:49.275232+11:00"
+}

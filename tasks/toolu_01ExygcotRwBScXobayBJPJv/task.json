@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01ExygcotRwBScXobayBJPJv",
+  "agent_id": "ae3ebd694b0ede42c",
+  "subagent_type": "slop-reviewer",
+  "task_description": "Slop review bench override",
+  "token_usage": {
+    "input_tokens": 24,
+    "cache_creation_tokens": 31950,
+    "cache_read_tokens": 307246,
+    "output_tokens": 4488,
+    "api_call_count": 11
+  },
+  "started_at": "2026-10-22T14:04:13.639331+11:00",
+  "completed_at": "2026-10-22T14:07:29.189443+11:00"
+}
