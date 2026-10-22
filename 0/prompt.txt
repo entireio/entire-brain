@@ -1,0 +1,77 @@
+what are the local changes on brain right now not pushed?
+
+---
+
+How can we make the brain session process more efficient? it takes forever for items to load up. and there are also limits right?
+
+---
+
+<task-notification>
+<task-id>b7a3vgt1a</task-id>
+<tool-use-id>toolu_01WiZKff9tNZgxCgidvy3Cpc</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-krk-Desktop-GitStore-entire-brain/2062c94a-87e7-4946-a569-3412abe02555/tasks/b7a3vgt1a.output</output-file>
+<status>completed</status>
+<summary>Background command "Measure the pending distill backlog with a dry run" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Yes. Make the distill cache salt independent of agent/model/effort (keep prompt, taxonomy, threshold), add a test, then run a bounded distill backfill with --agent codex --effort low --newest-first --max-sessions 50 so the facts catch up.
+
+---
+
+<task-notification>
+<task-id>btntnlhss</task-id>
+<tool-use-id>toolu_01D37rPAJP5ozJGeviW3TboX</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-krk-Desktop-GitStore-entire-brain/2062c94a-87e7-4946-a569-3412abe02555/tasks/btntnlhss.output</output-file>
+<status>completed</status>
+<summary>Background command "Run the whole test suite" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm9ldlpq7</task-id>
+<tool-use-id>toolu_01PxZySvHSBkKN3cdpsrQmrt</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-krk-Desktop-GitStore-entire-brain/2062c94a-87e7-4946-a569-3412abe02555/tasks/bm9ldlpq7.output</output-file>
+<status>completed</status>
+<summary>Background command "Rerun the CLI package tests with full output captured to a log and report any failures" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bh2mb54lp</task-id>
+<tool-use-id>toolu_01SVTwS8UupsKxhPVULaX7SK</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-krk-Desktop-GitStore-entire-brain/2062c94a-87e7-4946-a569-3412abe02555/tasks/bh2mb54lp.output</output-file>
+<status>completed</status>
+<summary>Background command "Rerun the full CLI package tests after the test update" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b04cehmj8</task-id>
+<tool-use-id>toolu_01K7fyC4YwBrU5U1Bah34A6w</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-krk-Desktop-GitStore-entire-brain/2062c94a-87e7-4946-a569-3412abe02555/tasks/b04cehmj8.output</output-file>
+<status>completed</status>
+<summary>Background command "Run the bounded distill backfill (codex, effort low, newest first, 50 sessions) with the fixed binary and record its output" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Review the changes before commit :L)
+
+---
+
+Fix all six review findings, rerun the distill tests, then commit on the branch, push and open the PR against main.
+
+---
+
+<task-notification>
+<task-id>bsqxrmemu</task-id>
+<tool-use-id>toolu_01VBuopSrH1UWziDr4BWbQgi</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-krk-Desktop-GitStore-entire-brain/2062c94a-87e7-4946-a569-3412abe02555/tasks/bsqxrmemu.output</output-file>
+<status>completed</status>
+<summary>Background command "Run the full CLI package tests after the review fixes" completed (exit code 0)</summary>
+</task-notification>
