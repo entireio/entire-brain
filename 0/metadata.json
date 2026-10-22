@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5H2KRMT2S4XZHSH8J02XXPY",
+  "session_id": "22cec224-1c13-4894-b2f1-f126f24bb6ae",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-22T05:51:16.147081Z",
+  "branch": "cor-2220-fact-store-duplication",
+  "checkpoints_count": 4,
+  "save_step_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "be5acf0a399c",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 30,
+    "cache_creation_tokens": 925267,
+    "cache_read_tokens": 6163669,
+    "output_tokens": 10556,
+    "api_call_count": 15,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  },
+  "session_metrics": {
+    "turn_count": 51
+  }
+}
