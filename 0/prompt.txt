@@ -1,0 +1,226 @@
+okay both are merged - can you balidate both on main
+
+---
+
+show me the full table
+
+---
+
+okay spin up sub agents and knock out the rest of these tickets
+
+---
+
+<task-notification>
+<task-id>aff06cea9d125e1ed</task-id>
+<tool-use-id>toolu_01JP7vrDD4BgDDxEpX7pCJvB</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-macau/22cec224-1c13-4894-b2f1-f126f24bb6ae/tasks/aff06cea9d125e1ed.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix COR-2206 clone errors" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>The background suite will notify on completion — no monitor needed. Waiting for `go test ./internal/cli/ -count=1` to finish before committing and opening the PR.</result>
+<usage><subagent_tokens>82758</subagent_tokens><tool_uses>31</tool_uses><duration_ms>296259</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-aff06cea9d125e1ed</worktreePath><worktreeBranch>worktree-agent-aff06cea9d125e1ed</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>abbe32a00eb918c64</task-id>
+<tool-use-id>toolu_01KRwjdGyWzsFMJgs2qUdz4b</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-macau/22cec224-1c13-4894-b2f1-f126f24bb6ae/tasks/abbe32a00eb918c64.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix COR-2207 connect error" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Branch sits at the origin/main tip. Nothing left to do until the suite reports — I'll commit, push, and open the PR once it passes.</result>
+<usage><subagent_tokens>94326</subagent_tokens><tool_uses>37</tool_uses><duration_ms>385459</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-abbe32a00eb918c64</worktreePath><worktreeBranch>worktree-agent-abbe32a00eb918c64</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a8828b416e34a6d85</task-id>
+<tool-use-id>toolu_01AEYLusWZCn9sQs3HQ13vpo</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-macau/22cec224-1c13-4894-b2f1-f126f24bb6ae/tasks/a8828b416e34a6d85.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix COR-2208 distill dry-run" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>The full suite is still running (expected ~7 minutes). I'll continue when it completes — the fix, regression test, gofmt, vet, and focused tests are already done; remaining steps are commit, push, and PR.</result>
+<usage><subagent_tokens>112986</subagent_tokens><tool_uses>38</tool_uses><duration_ms>437280</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a8828b416e34a6d85</worktreePath><worktreeBranch>worktree-agent-a8828b416e34a6d85</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aa04a7e60f02028ec</task-id>
+<tool-use-id>toolu_016czV7PfvsS8Mdqnt7ugfvX</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-macau/22cec224-1c13-4894-b2f1-f126f24bb6ae/tasks/aa04a7e60f02028ec.output</output-file>
+<status>completed</status>
+<summary>Agent "COR-2211 sync default analysis" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>The monitor will report the suite result. While it runs, nothing else blocks — the analysis evidence is complete. Summary of where things stand:
+
+- Help text updated in `/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-aa04a7e60f02028ec/internal/cli/facts_sync_cmd.go` and verified by rendering `memories sync --help`: it now states local-gitmeta is the default, that connecting the repo does not change it ("a plain sync never leaves the machine"), and that `--memories-backend=http` opts into hosted sync with the connected binding supplying target and minted token.
+- `gofmt -l -s .` empty, `go vet ./internal/cli/` clean, focused `go test -run 'Sync|Help'` passed. (`oxfmt` is not installed and not in this repo's CI; its CI lint job runs `gofmt -l -s` + `go vet`, which I ran.)
+- Brain preflight recorded: Brain available (dev, bm25/recall/brief/remember supported), but all three `recall` queries returned zero facts and Brain itself warns the memory index has ~14.9k duplicate ids making records unrecallable — so recorded rationale came from in-code ADR citations instead. A `remember` write is pending retry (brain write lock held by pid 4146).</result>
+<usage><subagent_tokens>91413</subagent_tokens><tool_uses>34</tool_uses><duration_ms>424343</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-aa04a7e60f02028ec</worktreePath><worktreeBranch>worktree-agent-aa04a7e60f02028ec</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a794fec2c3536f081</task-id>
+<tool-use-id>toolu_01HgXgLCuBM6dtgPCgYzUdvj</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-macau/22cec224-1c13-4894-b2f1-f126f24bb6ae/tasks/a794fec2c3536f081.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix COR-2209 purge no-match" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Commit is in place. Pausing until the full `go test ./internal/cli/` run (background task b0vkafo1l) reports back; then push and open the PR.</result>
+<usage><subagent_tokens>94618</subagent_tokens><tool_uses>41</tool_uses><duration_ms>463037</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a794fec2c3536f081</worktreePath><worktreeBranch>worktree-agent-a794fec2c3536f081</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aa04a7e60f02028ec</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-macau/22cec224-1c13-4894-b2f1-f126f24bb6ae/tasks/aa04a7e60f02028ec.output</output-file>
+<status>completed</status>
+<summary>Agent "COR-2211 sync default analysis" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Test output file is still empty — the full suite is still running (it took &gt;120s even before my edit; the package ran 3.4s for the focused subset but the whole package suite is large). The monitor remains armed and will fire when `ok`/`FAIL` appears.</result>
+<usage><subagent_tokens>91453</subagent_tokens><tool_uses>35</tool_uses><duration_ms>471150</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-aa04a7e60f02028ec</worktreePath><worktreeBranch>worktree-agent-aa04a7e60f02028ec</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aff06cea9d125e1ed</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-macau/22cec224-1c13-4894-b2f1-f126f24bb6ae/tasks/aff06cea9d125e1ed.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix COR-2206 clone errors" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Rerun started (12m timeout, full log to /tmp/cor2206-cli-test.log). The first run's log kept only the last 5 lines, so the hung test's name is lost — the rerun will capture the full goroutine dump if it recurs. My change is string formatting plus fake-runner unit tests, so a hang is almost certainly environmental (the parallel agent shares the machine and the Brain lock dir) — but I'll verify from the log rather than assume. Waiting for the rerun.</result>
+<usage><subagent_tokens>84300</subagent_tokens><tool_uses>33</tool_uses><duration_ms>837624</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-aff06cea9d125e1ed</worktreePath><worktreeBranch>worktree-agent-aff06cea9d125e1ed</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aa04a7e60f02028ec</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-macau/22cec224-1c13-4894-b2f1-f126f24bb6ae/tasks/aa04a7e60f02028ec.output</output-file>
+<status>completed</status>
+<summary>Agent "COR-2211 sync default analysis" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Durable memory recorded (`fact:df436adbd8bb0c5e1a56f299`, architecture.sync.memories). Now waiting on the suite rerun to identify the failing test and determine whether it's mine or pre-existing on main.</result>
+<usage><subagent_tokens>94500</subagent_tokens><tool_uses>38</tool_uses><duration_ms>804225</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-aa04a7e60f02028ec</worktreePath><worktreeBranch>worktree-agent-aa04a7e60f02028ec</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a8828b416e34a6d85</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-macau/22cec224-1c13-4894-b2f1-f126f24bb6ae/tasks/a8828b416e34a6d85.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix COR-2208 distill dry-run" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Monitoring the rerun. The change itself is complete and locally validated (gofmt, vet, focused tests); commit/push/PR follow once the full suite verdict lands.</result>
+<usage><subagent_tokens>115388</subagent_tokens><tool_uses>42</tool_uses><duration_ms>883917</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a8828b416e34a6d85</worktreePath><worktreeBranch>worktree-agent-a8828b416e34a6d85</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>abbe32a00eb918c64</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-macau/22cec224-1c13-4894-b2f1-f126f24bb6ae/tasks/abbe32a00eb918c64.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix COR-2207 connect error" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Waiting on the suite. I'll act when the notifications arrive.</result>
+<usage><subagent_tokens>97313</subagent_tokens><tool_uses>43</tool_uses><duration_ms>932945</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-abbe32a00eb918c64</worktreePath><worktreeBranch>worktree-agent-abbe32a00eb918c64</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a794fec2c3536f081</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-macau/22cec224-1c13-4894-b2f1-f126f24bb6ae/tasks/a794fec2c3536f081.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix COR-2209 purge no-match" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Memory recorded in Brain (fact:98307d9a4efd6c1e9302cff5). Now waiting on the 25-minute-budget full suite run; once it's green I'll push and open the PR.</result>
+<usage><subagent_tokens>98670</subagent_tokens><tool_uses>47</tool_uses><duration_ms>975435</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a794fec2c3536f081</worktreePath><worktreeBranch>worktree-agent-a794fec2c3536f081</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>abbe32a00eb918c64</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-macau/22cec224-1c13-4894-b2f1-f126f24bb6ae/tasks/abbe32a00eb918c64.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix COR-2207 connect error" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Suite still running at the 2-minute mark — expected for a ~7-minute suite. Waiting for its completion notification.</result>
+<usage><subagent_tokens>98009</subagent_tokens><tool_uses>44</tool_uses><duration_ms>1061256</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-abbe32a00eb918c64</worktreePath><worktreeBranch>worktree-agent-abbe32a00eb918c64</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a240c62a22132ecf3</task-id>
+<tool-use-id>toolu_01HrxWDq8eFibgT25mCVPeZv</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-macau/22cec224-1c13-4894-b2f1-f126f24bb6ae/tasks/a240c62a22132ecf3.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix COR-2210 doubled status" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Sanity check complete: full `go test ./... -count=1` exit 0, `go vet` and `gofmt -l -s` clean, focused factsync/httpx/publish tests pass, PR created.
+
+**PR:** https://github.com/entireio/entire-brain/pull/431
+
+- Added `httpx.StripStatusEcho`, applied inside `httpx.ErrorDetail` — fixes every factsync and hostedbrain error render at once; `publishServerDetail` now takes the status code and strips against `http.StatusText` (body is pre-read there).
+- Before/after, factsync: `unexpected status 403 Forbidden: Forbidden; pull-only` → `unexpected status 403 Forbidden: pull-only`; pure echo `…: 404 Not Found: not found` → `…: 404 Not Found`.
+- Before/after, publish: `publish_failed: unexpected server response (HTTP 404): not found` → `publish_failed: unexpected server response (HTTP 404)`; informative bodies (HTML title `413 …: body exceeds plan limit`) keep the part beyond the echo.
+- Graph impact on `ErrorDetail` confirmed the full blast radius (factsync `detail`/`conflict`/`notFound`, hostedbrain `Client.rpc`); all print the status or a named sentinel beside the detail, and empty-detail branches avoid dangling separators. Sentinel tests (ErrConflict etc.) untouched and green.
+- Risks: matching is exact ASCII-case-insensitive by design — near-miss spellings (nginx `504 Gateway Time-out` vs Go `Gateway Timeout`) still render beside the status; degenerate tiny bodies contained in the status text (e.g. `403`) are suppressed, which loses nothing. Note: the global "run oxfmt before pushing" rule doesn't apply — oxfmt is absent here and this repo's CI checks are `gofmt -s`/`go vet`, both run.
+
+Files: `internal/httpx/errbody.go`, `internal/cli/publish.go`, plus tests in `internal/httpx/errbody_test.go`, `internal/factsync/error_body_test.go`, `internal/cli/publish_error_body_test.go`.
+
+result: COR-2210 fixed — factsync/publish HTTP errors render the status once (PR https://github.com/entireio/entire-brain/pull/431, full test suite green)</result>
+<usage><subagent_tokens>110328</subagent_tokens><tool_uses>42</tool_uses><duration_ms>1269298</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a240c62a22132ecf3</worktreePath><worktreeBranch>worktree-agent-a240c62a22132ecf3</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aa04a7e60f02028ec</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-macau/22cec224-1c13-4894-b2f1-f126f24bb6ae/tasks/aa04a7e60f02028ec.output</output-file>
+<status>completed</status>
+<summary>Agent "COR-2211 sync default analysis" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>CI runs this package with a 45-minute backstop via a coverage runner, so the earlier FAIL was go test's default 10m `-timeout` firing on a long suite, not a test regression. The 25m run should settle it. Waiting.</result>
+<usage><subagent_tokens>97846</subagent_tokens><tool_uses>42</tool_uses><duration_ms>1429387</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-aa04a7e60f02028ec</worktreePath><worktreeBranch>worktree-agent-aa04a7e60f02028ec</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aff06cea9d125e1ed</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-macau/22cec224-1c13-4894-b2f1-f126f24bb6ae/tasks/aff06cea9d125e1ed.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix COR-2206 clone errors" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Waiting for the parallel agent's test runs to drain (background watch armed). Once the machine is quiet I'll run the full suite, then commit, push, and open the PR.</result>
+<usage><subagent_tokens>89083</subagent_tokens><tool_uses>39</tool_uses><duration_ms>1611803</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-aff06cea9d125e1ed</worktreePath><worktreeBranch>worktree-agent-aff06cea9d125e1ed</worktreeBranch></worktree>
+</task-notification>
