@@ -1,0 +1,24 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5HHWY20X2Q8YVFJKFDEXZNR",
+  "session_id": "6c6502fb-c0d6-45f4-b85a-501a04facd45",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-22T10:18:26.845434Z",
+  "branch": "claude/inspiring-wright-68270a",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/watch.go",
+    "internal/cli/watch_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5-1",
+  "turn_id": "39e1e3e921c9",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 418,
+    "cache_creation_tokens": 195508,
+    "cache_read_tokens": 2404523,
+    "output_tokens": 45199,
+    "api_call_count": 14
+  }
+}

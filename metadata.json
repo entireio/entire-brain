@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5HHWY20X2Q8YVFJKFDEXZNR",
+  "strategy": "manual-commit",
+  "branch": "claude/inspiring-wright-68270a",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/watch.go",
+    "internal/cli/watch_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 418,
+    "cache_creation_tokens": 195508,
+    "cache_read_tokens": 2404523,
+    "output_tokens": 45199,
+    "api_call_count": 14
+  }
+}
