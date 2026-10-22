@@ -1,0 +1,54 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5JKCF0B4RMQ7H2JPESFXBEC",
+  "strategy": "manual-commit",
+  "branch": "setup-vs-init-agents-commands",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "CHANGELOG.md",
+    "README.md",
+    "docs/agent-coordination.md",
+    "docs/feature-matrix.csv",
+    "docs/getting-started.md",
+    "docs/reference.md",
+    "docs/semantic_agent_guide.md",
+    "internal/agentsetup/agents_test.go",
+    "internal/agentsetup/claudehooks.go",
+    "internal/agentsetup/coordination_test.go",
+    "internal/agentsetup/files.go",
+    "internal/agentsetup/nested.go",
+    "internal/cli/agent_setup.go",
+    "internal/cli/agent_setup_quoting_test.go",
+    "internal/cli/agent_setup_test.go",
+    "internal/cli/agent_surface.go",
+    "internal/cli/agent_wiring.go",
+    "internal/cli/agent_wiring_test.go",
+    "internal/cli/hook_cmd.go",
+    "internal/cli/hook_payload_test.go",
+    "internal/cli/install_ux_test.go",
+    "internal/cli/root.go",
+    "internal/cli/semantic.go",
+    "internal/cli/setup.go",
+    "internal/cli/setup_status.go",
+    "internal/cli/setup_terse_test.go",
+    "internal/cli/setup_ui.go",
+    "internal/cli/status_agent_wiring_json_test.go",
+    "internal/cli/status_render.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 206,
+    "cache_creation_tokens": 451922,
+    "cache_read_tokens": 13253432,
+    "output_tokens": 58724,
+    "api_call_count": 103
+  }
+}
