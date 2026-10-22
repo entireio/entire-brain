@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01HgXgLCuBM6dtgPCgYzUdvj",
+  "agent_id": "a794fec2c3536f081",
+  "subagent_type": "claude",
+  "task_description": "Fix COR-2209 purge no-match",
+  "token_usage": {
+    "input_tokens": 82,
+    "cache_creation_tokens": 178326,
+    "cache_read_tokens": 3074184,
+    "output_tokens": 23572,
+    "api_call_count": 41
+  },
+  "started_at": "2026-10-21T17:13:39.776833-07:00",
+  "completed_at": "2026-10-21T17:21:22.159389-07:00"
+}

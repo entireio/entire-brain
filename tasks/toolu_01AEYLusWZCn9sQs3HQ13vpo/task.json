@@ -1,0 +1,19 @@
+{
+  "tool_use_id": "toolu_01AEYLusWZCn9sQs3HQ13vpo",
+  "agent_id": "a8828b416e34a6d85",
+  "subagent_type": "claude",
+  "task_description": "Fix COR-2208 distill dry-run",
+  "files": [
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_cmd_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 70,
+    "cache_creation_tokens": 213668,
+    "cache_read_tokens": 2667598,
+    "output_tokens": 19058,
+    "api_call_count": 35
+  },
+  "started_at": "2026-10-21T17:13:26.331249-07:00",
+  "completed_at": "2026-10-21T17:20:43.069346-07:00"
+}

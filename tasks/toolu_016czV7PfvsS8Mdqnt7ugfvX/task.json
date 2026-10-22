@@ -1,0 +1,18 @@
+{
+  "tool_use_id": "toolu_016czV7PfvsS8Mdqnt7ugfvX",
+  "agent_id": "aa04a7e60f02028ec",
+  "subagent_type": "claude",
+  "task_description": "COR-2211 sync default analysis",
+  "files": [
+    "internal/cli/facts_sync_cmd.go"
+  ],
+  "token_usage": {
+    "input_tokens": 70,
+    "cache_creation_tokens": 87392,
+    "cache_read_tokens": 2653325,
+    "output_tokens": 14350,
+    "api_call_count": 35
+  },
+  "started_at": "2026-10-21T17:14:07.501147-07:00",
+  "completed_at": "2026-10-21T17:21:11.156725-07:00"
+}
