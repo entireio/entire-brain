@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.11.7-nightly.202610202101.fedd31ca10",
+  "checkpoint_id": "01M5H1B6Z25RN4SPT6166YKRZS",
+  "strategy": "manual-commit",
+  "branch": "alex/fix-vulns",
+  "checkpoints_count": 17,
+  "files_touched": [
+    "benchmarks/agent-brain/confirmatory/test_check_protocol.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 120,
+    "cache_creation_tokens": 64207,
+    "cache_read_tokens": 8737533,
+    "output_tokens": 28814,
+    "api_call_count": 49,
+    "subagent_tokens": {
+      "input_tokens": 30,
+      "cache_creation_tokens": 12440,
+      "cache_read_tokens": 2246944,
+      "output_tokens": 8242,
+      "api_call_count": 15
+    }
+  }
+}
