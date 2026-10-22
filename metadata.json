@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.12.1-nightly.202610220625.3db7b11f2.0.20261022081953-eb51bb1d7e81",
+  "checkpoint_id": "01M5HQSNVK3368DYW8AENS6R5D",
+  "strategy": "manual-commit",
+  "branch": "soph/releases",
+  "checkpoints_count": 4,
+  "files_touched": [
+    ".github/workflows/nightly.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/test.yml",
+    ".goreleaser.yaml",
+    "CHANGELOG.md",
+    "docs/reference.md",
+    "docs/releasing.md",
+    "mise.toml",
+    "scripts/create-nightly-tag.sh",
+    "scripts/get-brain.sh",
+    "scripts/publish-channel-manifest.sh",
+    "scripts/publish-installers.sh",
+    "scripts/release.sh",
+    "scripts/test-release-origins.sh",
+    "tools/release-hygiene/test_release_hygiene.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 138,
+    "cache_creation_tokens": 287449,
+    "cache_read_tokens": 10514841,
+    "output_tokens": 82141,
+    "api_call_count": 69
+  }
+}

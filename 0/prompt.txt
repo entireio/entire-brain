@@ -1,0 +1,17 @@
+can you give me an overview of the go releaser state of this repo
+
+---
+
+ok, then first take a look at the dependabot PRs open, let me know if they can all be merged
+
+---
+
+can you approve and merge each one
+
+---
+
+ok, now the actual work, can you look at ~/Work/entire/devenv/cli I want the same release tooling using cloudflare, I also want to setup homebrew and scoop and have a nicer curl isntall then:
+
+curl -fsSL https://raw.githubusercontent.com/entireio/entire-brain/main/scripts/get-brain.sh | bash
+
+Question is a bit what url we use there
