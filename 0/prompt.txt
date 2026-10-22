@@ -1,0 +1,119 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/davis directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name. Conductor will automatically rename it in the background to match your task.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/davis/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+okay let's take a look at this here: https://linear.app/entirehq/issue/COR-2214/investigate-distill-extraction-latency-41m43s-across-154-haiku-calls
+
+---
+
+yeah let's profiel what the process does now and let's ese what happens. i don't want to run all 120 sessions every time to test. there's no reason to that many and we have to wait so long. 20 is probably just fine.
+
+---
+
+<task-notification>
+<task-id>bui7okvnv</task-id>
+<tool-use-id>toolu_01Ac1utYNvkpSdZJEWuQDfrf</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-davis/3b8da7c5-8c33-4f0e-9a62-c508d26c9749/tasks/bui7okvnv.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait 90s then check trace progress" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgg59dsrz</task-id>
+<tool-use-id>toolu_01DMPzUC8WvkX3wNgbGjFrxP</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-davis/3b8da7c5-8c33-4f0e-9a62-c508d26c9749/tasks/bgg59dsrz.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full internal/cli test suite" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b2gv3j1lb</task-id>
+<tool-use-id>toolu_01Vc3mbis6rqgKFaeBA8VNnS</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-davis/3b8da7c5-8c33-4f0e-9a62-c508d26c9749/tasks/b2gv3j1lb.output</output-file>
+<status>completed</status>
+<summary>Background command "Run 20-session distill bench with call tracing (background)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>baiz20u1e</task-id>
+<tool-use-id>toolu_01YPQkxW4hhCFZtW2R64CQNz</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-davis/3b8da7c5-8c33-4f0e-9a62-c508d26c9749/tasks/baiz20u1e.output</output-file>
+<status>completed</status>
+<summary>Background command "Run 20-session bench with effort low (background)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bnxid7kcw</task-id>
+<tool-use-id>toolu_013CWhcX2XTjUF1d3YeQQUBo</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-davis/3b8da7c5-8c33-4f0e-9a62-c508d26c9749/tasks/bnxid7kcw.output</output-file>
+<status>completed</status>
+<summary>Background command "Run 20-session bench with thinking disabled (background)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+what is max thinking? what does it do and what is the consequence of turning it off
+
+---
+
+so let's take alook at the output of 0 max thinking and with it on the current setting. it sounds like it's just the reasoning traces. which we weren't using anyways.
+
+---
+
+<task-notification>
+<task-id>b19ia22yf</task-id>
+<tool-use-id>toolu_011Nc1VVukcM6aoQFnqJhTDp</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-davis/3b8da7c5-8c33-4f0e-9a62-c508d26c9749/tasks/b19ia22yf.output</output-file>
+<status>completed</status>
+<summary>Background command "Rerun thinking-on bench for fact diff (background)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b9dwtujol</task-id>
+<tool-use-id>toolu_01DwafagrutGG8diTdTd9vvs</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-davis/3b8da7c5-8c33-4f0e-9a62-c508d26c9749/tasks/b9dwtujol.output</output-file>
+<status>completed</status>
+<summary>Background command "Second no-thinking run for within-mode variance (background)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+yeah we should wire this up. le't simplement it
+
+---
+
+create a trail for this
+
+---
+
+<task-notification>
+<task-id>bgx15b2ej</task-id>
+<tool-use-id>toolu_01FFgcWHVdAmQxz1ke782ra3</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-davis/3b8da7c5-8c33-4f0e-9a62-c508d26c9749/tasks/bgx15b2ej.output</output-file>
+<status>completed</status>
+<summary>Background command "Validation run with no env tweaks, inside Claude Code session (background)" completed (exit code 0)</summary>
+</task-notification>
