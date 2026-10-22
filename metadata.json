@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5GSSXHM1FZPC5QHYP2W5B5C",
+  "strategy": "manual-commit",
+  "branch": "cor-2207-connect-placement-error",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "internal/cli/connect_cmd_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 15312,
+    "cache_read_tokens": 1707563,
+    "output_tokens": 4242,
+    "api_call_count": 5,
+    "subagent_tokens": {
+      "input_tokens": 24,
+      "cache_creation_tokens": 198291,
+      "cache_read_tokens": 1003281,
+      "output_tokens": 7848,
+      "api_call_count": 12
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5GSSXHM1FZPC5QHYP2W5B5C",
+  "session_id": "22cec224-1c13-4894-b2f1-f126f24bb6ae",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-22T03:17:19.999092Z",
+  "branch": "cor-2207-connect-placement-error",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "internal/cli/connect_cmd_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "25f9fc998304",
+  "checkpoint_transcript_start": 1078,
+  "transcript_lines_at_start": 1078,
+  "compact_transcript_start": 209,
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 15312,
+    "cache_read_tokens": 1707563,
+    "output_tokens": 4242,
+    "api_call_count": 5,
+    "subagent_tokens": {
+      "input_tokens": 24,
+      "cache_creation_tokens": 198291,
+      "cache_read_tokens": 1003281,
+      "output_tokens": 7848,
+      "api_call_count": 12
+    }
+  },
+  "session_metrics": {
+    "turn_count": 28
+  }
+}
