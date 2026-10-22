@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5H150FGF8Z4T9GTYE13P08V",
+  "session_id": "22cec224-1c13-4894-b2f1-f126f24bb6ae",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-22T05:25:44.517885Z",
+  "branch": "cor-2220-fact-store-duplication",
+  "checkpoints_count": 19,
+  "save_step_count": 1,
+  "files_touched": [
+    "factmerge/dedup.go",
+    "internal/cli/facts_aliases.go",
+    "internal/cli/facts_integrity.go",
+    "internal/cli/facts_manifest.go",
+    "internal/cli/facts_reclassify_refresh_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "2cdeb41b9105",
+  "checkpoint_transcript_start": 1121,
+  "transcript_lines_at_start": 1121,
+  "compact_transcript_start": 214,
+  "token_usage": {
+    "input_tokens": 166,
+    "cache_creation_tokens": 2789199,
+    "cache_read_tokens": 30883340,
+    "output_tokens": 66786,
+    "api_call_count": 83,
+    "subagent_tokens": {
+      "input_tokens": 38,
+      "cache_creation_tokens": 127425,
+      "cache_read_tokens": 1941741,
+      "output_tokens": 6218,
+      "api_call_count": 19
+    }
+  },
+  "session_metrics": {
+    "turn_count": 47
+  }
+}

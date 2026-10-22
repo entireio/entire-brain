@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5H150FGF8Z4T9GTYE13P08V",
+  "strategy": "manual-commit",
+  "branch": "cor-2220-fact-store-duplication",
+  "checkpoints_count": 19,
+  "files_touched": [
+    "factmerge/dedup.go",
+    "internal/cli/facts_aliases.go",
+    "internal/cli/facts_integrity.go",
+    "internal/cli/facts_manifest.go",
+    "internal/cli/facts_reclassify_refresh_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 166,
+    "cache_creation_tokens": 2789199,
+    "cache_read_tokens": 30883340,
+    "output_tokens": 66786,
+    "api_call_count": 83,
+    "subagent_tokens": {
+      "input_tokens": 38,
+      "cache_creation_tokens": 127425,
+      "cache_read_tokens": 1941741,
+      "output_tokens": 6218,
+      "api_call_count": 19
+    }
+  }
+}
