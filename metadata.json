@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5GFPDKZSS6935X3Q3G8CSGP",
+  "strategy": "manual-commit",
+  "branch": "cor-2209-purge-unknown-session",
+  "checkpoints_count": 6,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 38,
+    "cache_creation_tokens": 286598,
+    "cache_read_tokens": 4737880,
+    "output_tokens": 19346,
+    "api_call_count": 19,
+    "subagent_tokens": {
+      "input_tokens": 294,
+      "cache_creation_tokens": 507161,
+      "cache_read_tokens": 10129077,
+      "output_tokens": 103157,
+      "api_call_count": 147
+    }
+  }
+}

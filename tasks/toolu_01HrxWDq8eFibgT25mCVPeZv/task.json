@@ -1,0 +1,7 @@
+{
+  "tool_use_id": "toolu_01HrxWDq8eFibgT25mCVPeZv",
+  "agent_id": "a240c62a22132ecf3",
+  "subagent_type": "claude",
+  "task_description": "Fix COR-2210 doubled status",
+  "started_at": "2026-10-21T17:13:52.398747-07:00"
+}

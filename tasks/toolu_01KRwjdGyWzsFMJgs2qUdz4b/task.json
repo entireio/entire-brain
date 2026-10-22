@@ -1,0 +1,19 @@
+{
+  "tool_use_id": "toolu_01KRwjdGyWzsFMJgs2qUdz4b",
+  "agent_id": "abbe32a00eb918c64",
+  "subagent_type": "claude",
+  "task_description": "Fix COR-2207 connect error",
+  "files": [
+    "internal/cli/connect_cmd.go",
+    "internal/cli/connect_cmd_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 58,
+    "cache_creation_tokens": 86548,
+    "cache_read_tokens": 2142700,
+    "output_tokens": 20664,
+    "api_call_count": 29
+  },
+  "started_at": "2026-10-21T17:13:14.492254-07:00",
+  "completed_at": "2026-10-21T17:19:39.427417-07:00"
+}

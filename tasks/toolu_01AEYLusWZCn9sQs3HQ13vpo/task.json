@@ -1,0 +1,7 @@
+{
+  "tool_use_id": "toolu_01AEYLusWZCn9sQs3HQ13vpo",
+  "agent_id": "a8828b416e34a6d85",
+  "subagent_type": "claude",
+  "task_description": "Fix COR-2208 distill dry-run",
+  "started_at": "2026-10-21T17:13:26.331249-07:00"
+}
