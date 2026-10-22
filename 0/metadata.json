@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5GSQFN7GWYF0PY2FAKBXRDD",
+  "session_id": "22cec224-1c13-4894-b2f1-f126f24bb6ae",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-22T03:16:00.240672Z",
+  "branch": "cor-2206-add-clone-errors",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "internal/cli/add.go",
+    "internal/cli/add_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "659c8bb7ff92",
+  "checkpoint_transcript_start": 938,
+  "transcript_lines_at_start": 938,
+  "compact_transcript_start": 181,
+  "token_usage": {
+    "input_tokens": 42,
+    "cache_creation_tokens": 951074,
+    "cache_read_tokens": 5830728,
+    "output_tokens": 8296,
+    "api_call_count": 21,
+    "subagent_tokens": {
+      "input_tokens": 32,
+      "cache_creation_tokens": 365665,
+      "cache_read_tokens": 1175485,
+      "output_tokens": 10947,
+      "api_call_count": 16
+    }
+  },
+  "session_metrics": {
+    "turn_count": 28
+  }
+}
