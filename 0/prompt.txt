@@ -1,0 +1,463 @@
+we need to ensure this project's dependencies are up to date. what's the easiest thing? Dependabot?
+
+---
+
+okay, if it's already there, then do a safe merge please on all open dependabot PRs
+
+---
+
+<skill name="dependency-bot-prs" location="/Users/alex/.pi/agent/skills/dependency-bot-prs/SKILL.md">
+References are relative to /Users/alex/.pi/agent/skills/dependency-bot-prs.
+
+# Dependency Bot PRs
+
+Process open Dependabot and Renovate PRs **sequentially**. Every successful merge advances the default branch, so parallel processing would make later safety checks stale.
+
+The user invoking this skill authorizes ordinary branch synchronization, narrowly scoped compatibility fixes, pushes to bot PR branches, and merges that satisfy every gate below. Never use admin merge, bypass branch protection, dismiss human review, or guess through uncertainty.
+
+Read [references/safety-review.md](references/safety-review.md) before processing the first PR.
+
+## Inputs
+
+Use the current repository unless the user supplies `OWNER/REPO` or another repository path. Resolve the canonical repository and default branch:
+
+```bash
+repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+default_branch=$(gh repo view "$repo" --json defaultBranchRef --jq .defaultBranchRef.name)
+```
+
+Fail before making remote changes if:
+
+- `gh auth status` fails;
+- the repository cannot be identified unambiguously;
+- the current checkout has unrelated uncommitted changes and no disposable worktree can be used;
+- the default branch cannot be resolved.
+
+Do not ask for approval again after listing PRs: explicit invocation of this skill is the approval to process all matching PRs conservatively. Ask only if the repository itself is ambiguous.
+
+## 1. Discover and freeze the candidate list
+
+Fetch all open PRs and retain only verified bot authors:
+
+```bash
+gh pr list -R "$repo" --state open --limit 100 \
+  --json number,title,url,author,headRefName,headRefOid,baseRefName,baseRefOid,isDraft,isCrossRepository,maintainerCanModify,mergeable,mergeStateStatus,reviewDecision,labels
+```
+
+Build the trusted candidate set from the GitHub App filters:
+
+```bash
+gh pr list -R "$repo" --state open --limit 100 --app dependabot --json number
+gh pr list -R "$repo" --state open --limit 100 --app renovate --json number
+gh pr list -R "$repo" --state open --limit 100 --app entire-renovate-bot --json number
+```
+
+Membership in one of those App-filtered results is the authoritative identity gate. The GitHub App **`entire-renovate-bot` is explicitly trusted** alongside the standard Dependabot and Renovate Apps. Verify the configured App identity when needed with `gh api apps/entire-renovate-bot`; its PR author login may be rendered with a `[bot]` suffix, so use the App filter rather than an exact author-login comparison.
+
+Do not trust any other author login or bot-looking branch name by itself: GitHub usernames can imitate bot names. If another self-hosted Renovate account is not represented by the `renovate` App, verify its actor type and configuration but record it as `NEEDS_ATTENTION` unless the user explicitly supplied that exact bot account as trusted for this run.
+
+Deduplicate by PR number and sort oldest first unless dependency ordering requires otherwise. Record the initial candidate list in a temporary ledger outside the repository. For every candidate, the final ledger state must be either `UPDATED_AND_MERGED` or `NEEDS_ATTENTION`.
+
+Mark `NEEDS_ATTENTION` immediately and continue when a PR is draft, targets a branch other than the repository default, is from an unverified author, or has `reviewDecision=CHANGES_REQUESTED`.
+
+## 2. Process one PR at a time
+
+Before each PR, refresh its state. If it was closed or superseded while processing earlier PRs, record that as `NEEDS_ATTENTION` with the exact state and continue.
+
+### A. Synchronize with the latest default-branch HEAD
+
+Capture the current default HEAD and PR head immediately before updating:
+
+```bash
+base_sha=$(gh api "repos/$repo/commits/$default_branch" --jq .sha)
+head_sha=$(gh pr view "$number" -R "$repo" --json headRefOid --jq .headRefOid)
+comparison=$(gh api "repos/$repo/compare/$base_sha...$head_sha" --jq .status)
+```
+
+If `comparison` is already `ahead` or `identical`, the branch contains the latest default HEAD and no update is necessary. Otherwise run:
+
+```bash
+gh pr update-branch "$number" -R "$repo"
+```
+
+Use the normal update-branch merge, not a force-push rebase. Treat GitHub's "already up to date" result as a successful no-op. Re-fetch explicitly and verify that `base_sha` is now an ancestor of the new head:
+
+```bash
+head_sha=$(gh pr view "$number" -R "$repo" --json headRefOid --jq .headRefOid)
+gh api "repos/$repo/compare/$base_sha...$head_sha" --jq .status
+```
+
+The result must be `ahead` or `identical`. If GitHub cannot update the branch because of conflicts, resolve only clearly mechanical conflicts in a disposable worktree—for example regenerating a lockfile from unchanged manifests. Never overwrite the user's current checkout. If conflict resolution changes authored source, requires a force push, affects more than the dependency update, or is not obviously correct, record `NEEDS_ATTENTION` and continue.
+
+After synchronization, wait for GitHub to expose the new head before performing the safety review. Every later push invalidates earlier evidence; repeat applicable checks against the new head.
+
+### B. Establish the exact dependency change
+
+Inspect the PR body, commit diff, manifests, lockfiles, workflow files, and image references. Record every direct and transitive package/action/image moving from old version to target version. Grouped updates must be reviewed package by package.
+
+If the exact old/target versions or package identities cannot be established, record `NEEDS_ATTENTION`.
+
+### C. Perform the safety review
+
+Follow every gate in [references/safety-review.md](references/safety-review.md). In particular:
+
+1. Fetch **current authoritative information**, not model memory: upstream release notes/changelog and migration guidance for the exact version range, plus current GitHub Advisory Database/OSV/ecosystem security results.
+2. Inspect how the repository actually uses the dependency: imports, API calls, config, generated code, build scripts, workflows, runtime integrations, and transitive parents.
+3. Evaluate breaking behavior, security regressions, yanks/deprecations, platform/toolchain requirements, and supply-chain anomalies.
+4. Run repository-native verification and focused tests that exercise the identified usage.
+
+A patch/minor label is not proof of safety. A major update is not automatically unsafe, but it needs explicit migration evidence and adequate tests.
+
+When authoritative guidance is missing, contradictory, stale, or cannot be accessed, record `NEEDS_ATTENTION` rather than guessing.
+
+### D. Make only required safe changes
+
+Complete advisory, provenance, release-note, and install-script review **before** executing the updated dependency on the host. If lockfile regeneration is needed, use the ecosystem's no-scripts mode where available and use a sandbox/container for untrusted install/build steps when practical.
+
+If compatibility changes are necessary and their correctness is clear, create a disposable worktree at the current PR head. Require a same-repository bot branch or explicit maintainer write access; never force-push. Make the smallest dependency-scoped change, add or update focused tests, run the project's formatter/linter/test/build commands, commit, and push to the existing bot branch.
+
+Allowed examples:
+
+- regenerate a lockfile or checksum file;
+- update a renamed API or straightforward signature change;
+- adjust configuration to the documented replacement;
+- update focused tests or fixtures for an intentional documented behavior change.
+
+Stop and mark `NEEDS_ATTENTION` if the fix requires product/design decisions, broad refactoring, unexplained behavior changes, new privileges, disabling security controls, weakening tests, or unrelated cleanup. Do not change the proposed dependency to a different version unless the target version is known vulnerable/yanked and the newer version is an unambiguously compatible security fix; otherwise report the stale target for attention.
+
+After pushing, re-fetch the head SHA and repeat the safety checks affected by the change. Renovate may independently rebase or force-push its branch: verify that the observed head still contains the compatibility commit before trusting CI. If the bot replaces the commit, record `NEEDS_ATTENTION`. Record the commit SHA and files changed in the ledger.
+
+### E. Require clean CI
+
+CI must run on the exact head SHA reviewed above. Fetch all checks and the required subset:
+
+```bash
+gh pr checks "$number" -R "$repo" --json name,state,bucket,link,workflow
+gh pr checks "$number" -R "$repo" --required --json name,state,bucket,link,workflow
+```
+
+Interpret `gh pr checks` results by each check's `bucket`, not only the command exit status: exit code `8` means checks are pending, failures return non-zero, and a PR with no checks may return an error instead of JSON. Handle those as states in the ledger rather than aborting the entire run.
+
+Wait in bounded intervals for pending checks. Do not occupy the session with an unbounded sleep loop. Re-fetch PR state and head SHA while waiting; a head change restarts the safety/CI gate.
+
+Clean CI means:
+
+- at least one real CI/check suite exists;
+- every required check is passing or explicitly skipped by repository policy;
+- no non-required test, build, lint, security, dependency-review, or vulnerability check is failing;
+- the head SHA is unchanged since the final safety review.
+
+Treat infrastructure flakes as uncertain unless one rerun succeeds without code changes. Never modify tests or CI merely to turn a check green. If CI remains pending beyond 30 minutes, fails twice, is absent, or cannot be interpreted confidently, record `NEEDS_ATTENTION` and continue.
+
+### F. Merge with head protection
+
+Immediately before merge, re-fetch:
+
+- PR is open and non-draft;
+- head SHA equals the reviewed/green SHA;
+- current default HEAD is still an ancestor of the PR head;
+- mergeability is not conflicting;
+- review decision is not `CHANGES_REQUESTED`;
+- required checks and relevant security checks are clean.
+
+Because earlier merges can advance the default branch, allow at most **two final resynchronization cycles** per PR. If the latest default HEAD is no longer an ancestor or GitHub reports the branch `BEHIND`, return to step A, synchronize again, repeat every safety check affected by the new base, and wait for clean CI on the new head. After two such cycles, record `NEEDS_ATTENTION` instead of chasing a moving base indefinitely. Treat `BLOCKED` as attention; investigate `UNSTABLE` through the concrete check results.
+
+Use the repository's established merge strategy. If it cannot be determined, prefer squash for ordinary dependency-bot PRs. Protect against races:
+
+```bash
+gh pr merge "$number" -R "$repo" --squash --delete-branch --match-head-commit "$head_sha"
+```
+
+Do not pass `--admin`. If the repository requires a merge queue, omit a merge strategy and enqueue with the reviewed head guard:
+
+```bash
+gh pr merge "$number" -R "$repo" --match-head-commit "$head_sha"
+```
+
+Wait until GitHub reports `MERGED`; a queued PR is not yet an updated result. If approval or another policy blocks merge, record `NEEDS_ATTENTION`.
+
+After a confirmed merge, refresh the default-branch HEAD before processing the next PR.
+
+## 3. Continue on uncertainty
+
+One uncertain or failed PR must not abort the list. Record the stage, exact reason, evidence gathered, and suggested human action, clean up its disposable worktree, then continue.
+
+Abort the whole run only for repository-wide failures such as lost GitHub authentication, revoked write access, or inability to identify the repository/default branch. Preserve the ledger and report partial results.
+
+## 4. Final report
+
+Return exactly two primary sections.
+
+### Updated and merged
+
+| PR | Dependency change | Security/compatibility evidence | Additional actions | CI | Merge |
+|---|---|---|---|---|---|
+
+For each merged PR, include:
+
+- PR number, title, and clickable URL;
+- old → target dependency versions;
+- concise authoritative sources consulted;
+- additional commits/files changed, or `none`;
+- CI result on the merged head SHA;
+- merge commit/SHA or queue result.
+
+### Needs attention
+
+| PR | Dependency change | Stopped at | Reason | Suggested next action |
+|---|---|---|---|---|
+
+Include every skipped, uncertain, failed, blocked, superseded, or still-pending candidate. Do not hide partial changes already pushed; state their commit SHA and effect.
+
+End with totals:
+
+`Updated and merged: X | Needs attention: Y | Total candidates: Z`
+</skill>
+
+---
+
+move all the trails into 'ready for review' as well so I can approve them
+
+---
+
+they should be approved now, go through them one by one and check findings/builds etc, and merge them if clean
+
+---
+
+we can skip bugbot for these
+
+---
+
+can we fix those problems?
+
+---
+
+which workflow specifically requires bugbot?
+
+---
+
+I'm saying we can disregard that directive for these dependency fixes, as bugbot is not available
+
+---
+
+okay, so which ones are ready to merge?
+
+---
+
+there's also https://github.com/entireio/entire-brain/network/updates/1628577531
+
+/Users/alex/Library/Application Support/CleanShot/media/media_EEr914Db07/CleanShot 2026-10-15 at 12.39.56@2x.png
+
+---
+
+can you read https://github.com/entireio/entire-brain/network/dependencies ?
+
+---
+
+we have merge conflicts now
+
+---
+
+yes. are we sorting out trail 277?
+
+---
+
+okay.
+
+how do we get to the end of this rabbit warren? guide me through, step by step
+
+---
+
+ok, do it
+
+---
+
+how are we travelling? check on the worker?
+
+---
+
+do we have a PR/Trail?
+
+---
+
+raise it then let's do another update
+
+---
+
+this is going _reaaaaaly_ slow - what's going on?
+
+---
+
+JUST RAISE THE PR
+
+---
+
+it took _how_ many hours to produce a 33 line go.mod(and friends) change????
+
+---
+
+what is the 'fix'?
+
+---
+
+okay, that should be good to merge once the checks are done. what about the other dependabot prs?
+
+---
+
+ok, let's sort those out please
+
+---
+
+<skill name="where-are-we-at" location="/Users/alex/.claude/skills/where-are-we-at/SKILL.md">
+References are relative to /Users/alex/.claude/skills/where-are-we-at.
+
+# Where Are We At
+
+Restore current orchestrator context from live evidence; be concise and read-only.
+
+## Resolve owned work first
+
+1. Confirm `HERDR_ENV=1`; otherwise say that current-orchestrator ownership cannot be resolved and stop. Read `HERDR_WORKSPACE_ID` and `HERDR_PANE_ID`.
+2. Find the ledger under `~/.local/state/herdr/orchestrations/` whose `orchestrator_workspace_id` and `orchestrator_pane_id` exactly match. Its objective and stream rows are authoritative.
+3. A headerless legacy ledger may be used only when its stream IDs are present in current session context or `herdr pane read --current --source recent-unwrapped --lines 400`; label it `matched legacy ledger`. With no matching ledger, reconstruct ownership only from that context and transcript: retain this pane's explicit launch receipts and listed agents, workspaces, issues, PRs, and Trails. Label this `reconstructed from session`.
+4. If multiple candidates remain, list each candidate's objective and identifiers, then ask the user to select one. Never adopt every entry from `herdr agent list`, live workspaces, or another pane.
+
+Never mutate the ledger.
+
+## Refresh before reporting
+
+Refresh each non-`removed` stream:
+
+- Read Herdr state with `herdr agent get <agent>`; use `herdr agent read <agent> --source recent-unwrapped --lines 160` only to explain a recorded blocker or decision.
+- For an open PR, use `gh pr view <number> --json url,state,headRefOid,mergeable,statusCheckRollup`. Refresh it even if no Trail is linked yet.
+- For a recorded Trail, fetch authenticated Trail detail using the wire schema in `interrogating-slopgate` and refresh open findings with `entire trail finding list --freshness any` from its recorded checkout, even if no PR exists. The Trail-detail head field is `head_sha`; `entire trail show --json` is not a head-bound monitor snapshot. If both exist, require the Trail `head_sha` to equal the freshly fetched PR `headRefOid` before presenting Trail findings or monitor aggregates as current. Require each present terminal monitor receipt's evaluated SHA to equal the Trail `head_sha` before presenting its aggregate as current.
+
+Report a source failure as `unknown (<source>)`; never present remembered values as live. On a Trail/PR head mismatch, stale Trail detail, or a present terminal monitor evaluated-SHA mismatch, mark affected findings or monitor aggregates `unknown (Entire)` and identify the exact mismatch in `Watching — no action needed`; do not present stale values as current. Only `.monitors[]` keys are configured; absent keys are `not configured` and non-blocking. Do not read or repeat detailed findings, CI logs, monitor rationale, or per-claim evidence.
+
+Do not prompt or wake agents; answer dialogs; change Linear, PR, Trail, or ledger state; or alter workspaces.
+
+## Report exactly this shape
+
+### What we're doing
+
+State the objective in one or two sentences.
+
+### Where we're up to
+
+One compact row per owned stream: phase, latest meaningful result, and next expected transition.
+
+### Open PRs and Trails
+
+For human-facing reports (not artifact creation), verify a Trail match only from an actual link or association; repository or branch similarity is not evidence. When one or more verified matching Trails exist, show only their full clickable canonical Trail URL(s) and Trail state; do not identify or link the matched PR, including its URL, number, or identity. PR-derived evidence such as mergeability, check status, and unresolved-thread counts may remain in prose without identifying or linking the PR. If the Trail association exists but Trail state/detail is unavailable, show the Trail URL as unknown and do not fall back to the PR. A closed, merged, or unknown matching Trail remains primary; report its state or discrepancy rather than switching artifacts. If no matching Trail exists, show the clickable PR URL with `Trail: pending/not linked`. For multiple verified matching Trails, show all their canonical URLs and no PR. Never guess or manually create a Trail. Keep artifact creation, automatic Trail linking, review mechanics, personal gates, post-merge verification, and structured/internal PR evidence unchanged. Pi and Claude bottom status lines remain Trail-only. Omit closed or removed work unless it explains an active dependency or Trail/PR discrepancy.
+
+### Needs you now
+
+Include only a genuine user decision or intervention. For each item state: the decision; why it is needed now with evidence; concrete options and trade-offs; a recommendation; and what remains blocked if deferred. If the recorded request lacks that context, say it needs clarification rather than inventing it.
+
+### Watching — no action needed
+
+List active agent work and external waits with owner, exact next signal, and last verified state.
+
+Finish with `Freshness: <timestamp>; ownership: <pane-bound ledger|matched legacy ledger|reconstructed from session>; refreshed: <sources>.`
+</skill>
+
+which can be merged?
+
+---
+
+can we fix up the merge conflicts in parallel? use workers
+
+---
+
+and what is the security concern?
+
+---
+
+well it's seriously broken, so give me the command to reinstall python please
+
+---
+
+> /opt/homebrew/bin/python3.14 --version
+Python 3.14.8
+
+---
+
+yes please, that was a massive fail
+
+---
+
+looks like we have some merge conflicts on 276 and 271
+
+---
+
+and the nanoid one also has findings
+
+---
+
+the main build is failing, we just merged PR#356
+
+---
+
+3 PRs/trails are not ready to merge
+
+---
+
+is the fixture fix in a separate PR?
+
+---
+
+alright, I've merged the nanoid trail - update the others
+
+---
+
+I've merged them all
+
+---
+
+we're all done now yes?
+
+---
+
+what are those about?
+
+---
+
+let's have a deeper look at 2145 and 2164
+
+---
+
+273 is merged, let's clean up please.
+
+then let's fire up workers to handle both of those issues
+
+---
+
+how much of a problem is 317 solving really...?
+
+---
+
+and is it 'normal' to pin gh actions to a sha?
+
+---
+
+okay, then can we simplify 317?
+
+---
+
+and is dependabot be watching this as well?
+
+---
+
+merged, let's clean up
+
+---
+
+where is that one at?
+
+---
+
+reloaded
+
+---
+
+if we defer are we done?

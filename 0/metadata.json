@@ -1,0 +1,76 @@
+{
+  "cli_version": "0.11.7-nightly.202610202101.fedd31ca10",
+  "checkpoint_id": "01M5GRTDX80SDXKKXN4D50G0SJ",
+  "session_id": "01a13cf9-b2d7-7659-85fa-866965c99692",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-22T03:00:22.721347Z",
+  "branch": "alex/fix-vulns",
+  "checkpoints_count": 129,
+  "save_step_count": 51,
+  "files_touched": [
+    ".github/workflows/test.yml",
+    "go.mod",
+    "go.sum"
+  ],
+  "agent": "Pi",
+  "model": "gpt-6.1-sol",
+  "turn_id": "ede0365ecc13",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 4242828,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 482959616,
+    "output_tokens": 957197,
+    "api_call_count": 1286
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "pi-skill-dependency-bot-prs-2026-10-15T00:43:39.684Z-0",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "dependency-bot-prs"
+      },
+      "source": {
+        "agent": "pi",
+        "signal": "input_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "6f0fa1c0b909",
+      "timestamp": "2026-10-15T00:43:39.684Z",
+      "native": {
+        "command": "/skill:dependency-bot-prs"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/skill:dependency-bot-prs",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "pi-skill-where-are-we-at-2026-10-15T09:48:56.567Z-0",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "where-are-we-at"
+      },
+      "source": {
+        "agent": "pi",
+        "signal": "input_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "c9c5d480b7af",
+      "timestamp": "2026-10-15T09:48:56.567Z",
+      "native": {
+        "command": "/skill:where-are-we-at"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/skill:where-are-we-at",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 129
+  }
+}
