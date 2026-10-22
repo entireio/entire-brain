@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5J9A3K5M49YNF9V98PQ5A8Y",
+  "session_id": "22cec224-1c13-4894-b2f1-f126f24bb6ae",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-22T17:07:33.638826Z",
+  "branch": "setup-output-cleanup",
+  "checkpoints_count": 18,
+  "save_step_count": 2,
+  "files_touched": [
+    "internal/cli/install_ux_test.go",
+    "internal/cli/setup.go",
+    "internal/cli/setup_status.go",
+    "internal/cli/setup_terse.go",
+    "internal/cli/setup_terse_test.go",
+    "internal/setupui/consent.go",
+    "internal/setupui/consent_test.go",
+    "internal/setupui/terse.go",
+    "internal/setupui/terse_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "a6574b4ff4fc",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 198,
+    "cache_creation_tokens": 3309514,
+    "cache_read_tokens": 51016012,
+    "output_tokens": 81586,
+    "api_call_count": 100,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  },
+  "session_metrics": {
+    "turn_count": 69
+  }
+}
