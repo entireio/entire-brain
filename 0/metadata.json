@@ -1,0 +1,58 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5K50E29F8MPNVEV66K4769K",
+  "session_id": "3b8da7c5-8c33-4f0e-9a62-c508d26c9749",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-23T01:11:38.112828Z",
+  "branch": "investigate-distill-latency",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/distill_env.go",
+    "internal/cli/distill_env_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "8a736afc8f5a",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 278,
+    "cache_creation_tokens": 1347866,
+    "cache_read_tokens": 24583149,
+    "output_tokens": 106998,
+    "api_call_count": 139
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01E9HLaFyom8Qd2mDfR77zBH",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "claude-api"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "8a736afc8f5a",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 477,
+        "end": 478,
+        "entry_ids": [
+          "084697c4-a656-4b89-b7bb-6b54a281ca85"
+        ],
+        "tool_use_id": "toolu_01E9HLaFyom8Qd2mDfR77zBH"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01E9HLaFyom8Qd2mDfR77zBH"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: claude-api",
+        "default_collapsed": true
+      }
+    }
+  ]
+}

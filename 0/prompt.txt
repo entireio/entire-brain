@@ -1,0 +1,21 @@
+<task-notification>
+<task-id>blk2ldkmk</task-id>
+<tool-use-id>toolu_01KG7rSYVZFf6sYpkaBux9SS</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-davis/3b8da7c5-8c33-4f0e-9a62-c508d26c9749/tasks/blk2ldkmk.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full internal/cli test suite (background)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bebw4oq6r</task-id>
+<tool-use-id>toolu_0121BAeFKUm5CtRMWEfD1Xe9</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-davis/3b8da7c5-8c33-4f0e-9a62-c508d26c9749/tasks/bebw4oq6r.output</output-file>
+<status>completed</status>
+<summary>Background command "Rerun full suite capturing failures (background)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+look at the bugbot: https://github.com/entireio/entire-brain/pull/446
