@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5KCXHEDTZCAJM7F3FQF2NCD",
+  "strategy": "manual-commit",
+  "branch": "feat/linear-issue-memory",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "benchmarks/retrieval-regression/README.md",
+    "benchmarks/retrieval-regression/fixture/questions.json",
+    "benchmarks/retrieval-regression/fixture/tasks.json",
+    "benchmarks/retrieval-regression/run.py",
+    "benchmarks/retrieval-regression/test_run.py",
+    "mise.toml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 686,
+    "cache_creation_tokens": 72677,
+    "cache_read_tokens": 6959426,
+    "output_tokens": 20971,
+    "api_call_count": 27,
+    "subagent_tokens": {
+      "input_tokens": 74,
+      "cache_creation_tokens": 124608,
+      "cache_read_tokens": 3363293,
+      "output_tokens": 835,
+      "api_call_count": 37
+    }
+  }
+}

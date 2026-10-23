@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5KCXHEDTZCAJM7F3FQF2NCD",
+  "session_id": "69893dc2-b259-4307-b399-c5dbcb28d166",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-23T03:29:50.454983Z",
+  "branch": "feat/linear-issue-memory",
+  "checkpoints_count": 6,
+  "save_step_count": 2,
+  "files_touched": [
+    "benchmarks/retrieval-regression/README.md",
+    "benchmarks/retrieval-regression/fixture/questions.json",
+    "benchmarks/retrieval-regression/fixture/tasks.json",
+    "benchmarks/retrieval-regression/run.py",
+    "benchmarks/retrieval-regression/test_run.py",
+    "mise.toml"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5-1",
+  "turn_id": "e2fb12fb8e9b",
+  "checkpoint_transcript_start": 572,
+  "transcript_lines_at_start": 572,
+  "compact_transcript_start": 49,
+  "token_usage": {
+    "input_tokens": 686,
+    "cache_creation_tokens": 72677,
+    "cache_read_tokens": 6959426,
+    "output_tokens": 20971,
+    "api_call_count": 27,
+    "subagent_tokens": {
+      "input_tokens": 74,
+      "cache_creation_tokens": 124608,
+      "cache_read_tokens": 3363293,
+      "output_tokens": 835,
+      "api_call_count": 37
+    }
+  },
+  "session_metrics": {
+    "turn_count": 9
+  }
+}

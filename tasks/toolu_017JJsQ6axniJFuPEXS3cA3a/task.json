@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_017JJsQ6axniJFuPEXS3cA3a",
+  "agent_id": "a044de63afb862fe5",
+  "subagent_type": "Explore",
+  "task_description": "Sweep issue layer for gaps",
+  "token_usage": {
+    "input_tokens": 74,
+    "cache_creation_tokens": 124608,
+    "cache_read_tokens": 3363293,
+    "output_tokens": 835,
+    "api_call_count": 37
+  },
+  "started_at": "2026-10-22T19:40:06.446023+05:30",
+  "completed_at": "2026-10-22T19:43:15.656824+05:30"
+}
