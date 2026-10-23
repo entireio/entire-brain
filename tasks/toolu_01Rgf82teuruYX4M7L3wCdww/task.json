@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01Rgf82teuruYX4M7L3wCdww",
+  "agent_id": "a1597856513ac2a07",
+  "subagent_type": "general-purpose",
+  "task_description": "Build docs-team update list",
+  "token_usage": {
+    "input_tokens": 40,
+    "cache_creation_tokens": 102529,
+    "cache_read_tokens": 1492896,
+    "output_tokens": 22920,
+    "api_call_count": 20
+  },
+  "started_at": "2026-10-22T21:23:52.392135-07:00",
+  "completed_at": "2026-10-22T21:30:26.316592-07:00"
+}

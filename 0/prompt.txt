@@ -1,0 +1,281 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/prague directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name. Conductor will automatically rename it in the background to match your task.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/prague/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+okay, we've done a lot of work lately on entire brain and brainstore and graph. 
+
+I now want to get ready for a stable release. 
+
+let's talk through what we need here. 
+
+1. ensuring main is green and working as expected across the main functions (distill, capture, recall, graph query, upload to brainstore, pull from brain and merge)
+2. docs are updated or at least we have an idea of the gaps so we can update them
+3. all output is formatted and styled nicely resembling the entire cli TUI
+4. IMPORTANT -> backwards compatbility. what if anythign is broken
+5. what if graph isn't installed? shoudl we change this to install it automatically with brain? and brain with graph? 
+
+what else?
+
+---
+
+okay put these in a table and let's talk about it one by one
+
+---
+
+okay let's start with your order then and go one by one. start with 10?
+
+---
+
+long term is not the CAS. it is the per fact wire. we shoudl make that consistent through the entire CLI before the stable release. and i don't see why we would use gitmea for anything. 
+
+so i think we should create one ticket or sub tickets to close this work out and i will have a different workspace work on it and then we can cross this one off the stable release list.
+
+---
+
+okay what is the handoff for the #10 work that i can give to another agent/workspace?
+
+---
+
+okay there is an agent working on this. 
+
+Let's update that to inprogress in our table and move onto the next one
+
+---
+
+no major bump to 1.0.0. it's okay if they're not the exact same version complete. but we can bump the minor to 0.2.0 and 0.5.0. that's fine
+
+---
+
+we shoudl create this mise test and run the full end to end flow locally wiht a completel set up. 
+
+give me a hadn off to another agent and i will run it in that workspace and then we can move on to the next one.
+
+---
+
+yeah update the table as in progress and let's go to 4
+
+---
+
+agreed. im running this in another session/workspace. 
+
+what's next
+
+---
+
+we have a team that is updating the actual user facing docs online. so we just need a list of everythign they need to update based on all of our updates and i can give that to them.
+
+---
+
+ideally it's the CLI's palette. give me a hand off for this into another workspace and i'll handle it there and go through every command
+
+---
+
+okay onto the next one
+
+---
+
+<task-notification>
+<task-id>a1597856513ac2a07</task-id>
+<tool-use-id>toolu_01Rgf82teuruYX4M7L3wCdww</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-prague/b4594f25-4dd6-435d-81f8-8368d3a5407a/tasks/a1597856513ac2a07.output</output-file>
+<status>completed</status>
+<summary>Agent "Build docs-team update list" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Deliverable written to `/Users/evisdrenova/conductor/workspaces/entire-brain/prague/.context/docs-team-update-list.md`, verified against built-in help from this tree vs a temp v0.1.0 worktree (now removed), all 314 merges classified.
+
+- Item counts: Retrieval/query 4, Memories 7, Setup &amp; agents 8, Graph integration 4, Distill 4, Sync/hosted 3, MCP 5, Other 3, plus the verbatim Pending section and the entire-graph caveat.
+- Biggest change not in the CHANGELOG: semantic/vector retrieval removed entirely (trail #278, BM25-only); `--semantic`, `recall --no-semantic`, and `brain_vsearch` are no-op compat aliases.
+- Surprising: `init-agents` fails with a bare "unknown command" — no alias, no replacement named — violating the stated "no silent breakage" policy; recorded as Brain memory `fact:4726b585` under project.release.compat.
+- Also stale in the binary itself: root/query help still says "hybrid by default" despite semantic removal — doc told not to copy it.
+- Other unaliased doc-breaking change: `repair` keeps its name but changed meaning (semantic indexes → Graph committed-tree index).
+- MCP: `brain_remember`/`brain_recall` added; six alias tools hidden but still routed; `--http` adds HTTP MCP plus a `/v1/` REST surface whose paths still say `facts`.
+- Brain preflight: available (dev, capabilities validated); one warning (manifest behind store) did not affect this task.</result>
+<usage><subagent_tokens>103635</subagent_tokens><tool_uses>31</tool_uses><duration_ms>394046</duration_ms></usage>
+</task-notification>
+
+---
+
+sorry im getting lost now. 
+
+there are 4 other ones that we're already working on that shoudl be in progress in our table. which one is this one?
+
+---
+
+okay 5 and 9 are in another workspace. now
+
+---
+
+no new numbers are needed for now. 
+
+so let's handle 8 in another workspace too. shoudl be small. give me the ahnd off
+
+---
+
+<system_instruction>
+The user has attached these files. Read them before proceeding.
+- .context/attachments/tDXRro/CleanShot 2026-10-22 at 21.40.50.png (282.4 KB)
+</system_instruction>
+
+
+
+so i pasted the message that you told me for 5 and 9 and got htis answer: 
+
+
+This message looks like it was meant for a different workspace. This surabaya workspace is fresh — no prior session here ran the docs-list agent, and .context/ here is empty except for an empty todos.md.
+
+What I checked:
+
+The deliverable is not in this workspace. It exists at /Users/evisdrenova/conductor/workspaces/entire-brain/prague/.context/docs-team-update-list.md (196 lines, header matches the report: v0.1.0 baseline, verified at commit 0af2e06f, alias/removed classification).
+I have none of the referenced context here — the #2/#4/#8/#12 workspace numbering, the docs-list agent conversation, or the “claim posture” thread all live in the prague session.
+Two options:
+
+Send this in the prague workspace — that agent has the full context and can route findings 2–4 to #4 and finding 1 to #12 as it suggested, and answer the #8 question in context.
+Continue here — I can work from the file itself (it’s readable from this workspace), but I’d need you to tell me what the #4, #8, and #12 workspaces are and what “claim posture” refers to.
+
+
+.context/attachments/tDXRro/CleanShot 2026-10-22 at 21.40.50.png 
+
+unless im off?
+
+---
+
+okay that's done. back to our list, where are we
+
+---
+
+yes i already did that for 8, it's in a workspace. whats next
+
+---
+
+yes that woudl be great. set up a ping and watch
+
+---
+
+i think we have a task to go through and unify the TUI right?
+
+this is the demo that the marketing team is doing: 
+
+setup, status, brief, recall, dash, viz, then enter on agent and do an agentic recall indirectly, then an agentic remember, then ask another agent about that fact, then connect, fix something push trail to see memory
+
+so i want to make sure that the TUI is all consistent across these tasks.
+
+---
+
+yeah i think we'll wait til the end then to test this end to end using this demo and that will be our signal to release
+
+---
+
+/loop watch the stable-release workspaces (open PRs / merges to main in entireio/entire-brain, COR-2233 status) and keep the release table updated; self-paced
+
+---
+
+where is the docs team list? i don't hthink we have that in a workspace?
+
+---
+
+create a linear ticket for it
+
+---
+
+/loop watch the stable-release workspaces (open PRs / merges to main in entireio/entire-brain, COR-2233 status) and keep the release table updated; self-paced
+
+---
+
+latest update on workspaces and progress??
+
+---
+
+this is done now:
+
+Linear: COR-2234, COR-2235, COR-2236, and the parent COR-2233 are all marked Done. The stable-release checklist item “hosted sync surface frozen” is now satisfiable — one wire (per-fact upsert + delta feed), one documented default, help/docs matching behavior.
+Memory: updated my project memory and the brain facts with the final state — per-fact wire only, gitmeta and the CAS client gone, unconnected repos local-only with a graceful error.
+Nothing else pending in this workspace; the branch is merged and the worktree is clean. The only related loose ends live outside this task: the pre-existing launch debt already tracked in Linear (blob GC COR-2037, memories UI COR-2095/2096) and the optional future revisit of a no-egress sharing path for unconnected repos if that need ever comes back.
+
+---
+
+whre is the workspace for this one?
+
+https://github.com/entireio/entire-brain/pull/451
+
+can you fgive me the link
+
+---
+
+<system_instruction>
+The user has attached these files. Read them before proceeding.
+- .context/attachments/CXfCAM/CleanShot 2026-10-22 at 23.09.27.png (43.0 KB)
+</system_instruction>
+
+
+
+i don't see it atually? i wonder if i tgot accidently archived? .context/attachments/CXfCAM/CleanShot 2026-10-22 at 23.09.27.png 
+
+this is what i see
+
+---
+
+okay created
+
+---
+
+The #8 claim-posture workstream is done end to end. Remaining from your table: #11 (PR #455 — its verify windows job was grinding through a redundant full re-test last I checked) and #12 (the full 0.2.0 CHANGELOG/release notes — the semantic-removal entry it needs is now in place on main).
+
+just verifying
+
+---
+
+/loop watch the stable-release workspaces (open PRs / merges to main in entireio/entire-brain, COR-2233 status) and keep the release table updated; self-paced
+
+---
+
+okay PR 451 is done
+
+---
+
+TUI palette PR is up too : https://github.com/entireio/entire-brain/pull/460
+
+---
+
+okay give me current table status
+
+---
+
+/loop watch the stable-release workspaces (open PRs / merges to main in entireio/entire-brain, COR-2233 status) and keep the release table updated; self-paced
+
+---
+
+460 was merged: https://github.com/entireio/entire-brain/pull/460
+
+---
+
+https://github.com/entireio/entire-brain/pull/461 this si now meregd
+
+---
+
+table status?
+
+---
+
+459 merged
+
+---
+
+/loop watch the stable-release workspaces (open PRs / merges to main in entireio/entire-brain, COR-2233 status) and keep the release table updated; self-paced
+
+---
+
+okay 455 is merged in as well
