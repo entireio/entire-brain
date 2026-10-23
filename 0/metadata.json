@@ -1,0 +1,98 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5KXZA81AYPNZ15M9ASRAD6Z",
+  "session_id": "b4594f25-4dd6-435d-81f8-8368d3a5407a",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-23T08:27:55.983439Z",
+  "branch": "cut-0.2.0",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "CHANGELOG.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "ab8c770ac288",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 336,
+    "cache_creation_tokens": 3196229,
+    "cache_read_tokens": 34282530,
+    "output_tokens": 138528,
+    "api_call_count": 170,
+    "subagent_tokens": {
+      "input_tokens": 40,
+      "cache_creation_tokens": 102529,
+      "cache_read_tokens": 1492896,
+      "output_tokens": 22920,
+      "api_call_count": 20
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01G4zeAK3gGTAHLiaQqiAQch",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:brainstorming"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "ab8c770ac288",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 25,
+        "end": 26,
+        "entry_ids": [
+          "c19f14b1-8a54-4b04-9cdd-df57ebdadeff"
+        ],
+        "tool_use_id": "toolu_01G4zeAK3gGTAHLiaQqiAQch"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01G4zeAK3gGTAHLiaQqiAQch"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:brainstorming",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01AfRHhHePfkrJKW2Ngt4xaS",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "loop"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "ab8c770ac288",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 343,
+        "end": 344,
+        "entry_ids": [
+          "bc78143e-07cf-4fa1-83da-352294bbdcf1"
+        ],
+        "tool_use_id": "toolu_01AfRHhHePfkrJKW2Ngt4xaS"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01AfRHhHePfkrJKW2Ngt4xaS"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: loop",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 1
+  }
+}
