@@ -1,0 +1,129 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/luanda directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name. Conductor will automatically rename it in the background to match your task.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/luanda/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+Task: build and run `mise run release:smoke` in entire-brain — one end-to-end smoke
+suite proving the full user journey on a locally complete setup. This is a stable-
+release gate artifact.
+
+Context (decisions already made, do not relitigate):
+- This is a tripwire, not a test suite: one runnable script, ~7 asserts, no
+  frameworks, no fixtures beyond one tiny session transcript and one tiny code repo.
+- Stable release is brain v0.2.0 / graph v0.5.0; the smoke runs against the RC SHA.
+- A separate workspace (COR-2233/2234/2235/2236) is changing memory-sync defaults
+  (per-fact wire becomes the connected default; gitmeta default retired). Pin the
+  smoke's sync legs with EXPLICIT backend flags so the suite stays valid before and
+  after that work lands, and leave a comment noting it.
+
+What the suite must prove, in order, each with one assert that fails loudly:
+1. Setup: create a scratch git repo (temp dir), enable entire + brain on it,
+   assert status reports healthy. Run `entire agent-help` and
+   `entire agent-help <cmd>` to get exact current flags — do not guess commands.
+2. Capture: make a commit with a session present and assert a checkpoint was
+   captured (commits auto-capture; never create checkpoints by hand).
+3. Distill: run real `entire brain distill` over ONE tiny fixture transcript
+   (a few chunks, cheap model/effort if flags allow) and assert >= 1 fact
+   was written. --dry-run is not sufficient; it proves planning, not extraction.
+   Requires a coding agent on PATH — check and fail with a clear message if absent.
+4. Recall: `entire brain recall` for the fixture fact's content, assert it comes
+   back (facts are branch-scoped — query the branch you distilled on).
+5. Graph query: `entire graph query --repo <scratch> --head` for a known symbol
+   in the fixture code, assert it resolves.
+6. Upload: connect the scratch repo to the STAGING brainstore org (document the
+   env vars/credentials the runner must export; never hardcode secrets) and sync
+   memories up with the explicit hosted backend flag; assert success exit + the
+   fact visible remotely. Respect that ENTIRE_BRAIN_NO_EGRESS must be unset here.
+7. Pull + merge: second scratch clone, connect, pull memories down, assert the
+   fact arrives and merges into the local store.
+
+Implementation constraints:
+- One bash script under mise-tasks/ wired as `release:smoke` in the existing mise
+  task convention (read mise.toml and the existing release:evidence task first and
+  match their patterns, including output/evidence conventions).
+- Evidence: write a timestamped summary (pass/fail per leg, versions of brain,
+  graph, and host entire CLI from their version commands) to a file; redact host
+  paths before anything is committed (release:evidence precedent).
+- Cleanup: temp repos removed on exit, including on failure (trap).
+- No new dependencies. Keep it boring.
+
+Definition of done:
+- `mise run release:smoke` passes end-to-end on this machine with a fully set-up
+  environment, and you paste the evidence summary in the PR.
+- Script + task land via the normal PR flow: pull latest main first, branch,
+  explicit `git add` of named files, run the local `oxfmt` CI check before push.
+- If a leg cannot pass because of an environment/credential gap, say so explicitly
+  in the PR rather than skipping silently.
+
+---
+
+<task-notification>
+<task-id>bac0tx4va</task-id>
+<tool-use-id>toolu_01SxtSNHUT4mMG9cVHCjAd9f</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-luanda/943130fa-ac7a-4c11-b7b5-ad315a855ef3/tasks/bac0tx4va.output</output-file>
+<status>completed</status>
+<summary>Background command "Run release:smoke against staging" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b5dzn1sw4</task-id>
+<tool-use-id>toolu_01AMFv1NT9BMPmw7ddJNNphh</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-luanda/943130fa-ac7a-4c11-b7b5-ad315a855ef3/tasks/b5dzn1sw4.output</output-file>
+<status>completed</status>
+<summary>Background command "Re-run release:smoke after CLAUDECODE fix" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b92kr04k1</task-id>
+<tool-use-id>toolu_01RtUrHxK3n27KELbVy1gh2P</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-luanda/943130fa-ac7a-4c11-b7b5-ad315a855ef3/tasks/b92kr04k1.output</output-file>
+<status>completed</status>
+<summary>Background command "Re-run smoke keeping the sandbox for debugging" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b7b4w9et2</task-id>
+<tool-use-id>toolu_01R8nu9mv5pymEaPBJYVDJfm</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-luanda/943130fa-ac7a-4c11-b7b5-ad315a855ef3/tasks/b7b4w9et2.output</output-file>
+<status>completed</status>
+<summary>Background command "Re-run smoke with durable-decision fixture" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b4hbpv7dp</task-id>
+<tool-use-id>toolu_01DAuKdQpUTPRNM2449FWbfC</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-luanda/943130fa-ac7a-4c11-b7b5-ad315a855ef3/tasks/b4hbpv7dp.output</output-file>
+<status>completed</status>
+<summary>Background command "Full smoke run with per-fact hosted legs" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgapqbmtb</task-id>
+<tool-use-id>toolu_01M3jfXe6uxeecosHQMKGuWT</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-luanda/943130fa-ac7a-4c11-b7b5-ad315a855ef3/tasks/bgapqbmtb.output</output-file>
+<status>completed</status>
+<summary>Background command "Shellcheck and re-run full smoke" completed (exit code 0)</summary>
+</task-notification>

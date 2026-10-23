@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5KGNF7E58CF0ETCRQWNRRWR",
+  "strategy": "manual-commit",
+  "branch": "release-smoke-task",
+  "checkpoints_count": 3,
+  "files_touched": [
+    ".gitignore",
+    "mise-tasks/release/smoke"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 184,
+    "cache_creation_tokens": 200204,
+    "cache_read_tokens": 14670387,
+    "output_tokens": 69728,
+    "api_call_count": 92
+  }
+}
