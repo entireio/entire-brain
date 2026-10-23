@@ -1,0 +1,251 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/st-johns directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name. Conductor will automatically rename it in the background to match your task.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/st-johns/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+Task: make entire-brain's human (TUI) output match the entire CLI's look — adopt the
+CLI's palette as brain's default theme and audit every command's output for idiom
+parity. This is a stable-release (v0.2.0) gate item.
+
+Context:
+- All human output already flows through internal/tui (render.go, tui.go, styles.go;
+  charmbracelet lipgloss/bubbletea stack). This is a styling pass, not a refactor.
+- styles.go defines a Theme struct and a themes map ("default", "catppuccin", ...),
+  selected via --theme / ENTIRE_BRAIN_THEME. The current default is a neutral
+  256-color scheme chosen to survive any terminal.
+- Decision already made: the default theme should be the entire CLI's palette.
+
+Work:
+1. Find the entire CLI's canonical palette in its source (the host `entire` binary's
+   repo). If you cannot locate that repo locally, STOP and ask evis for its path —
+   do not reconstruct colors by eyeballing screenshots.
+2. Add the CLI palette as brain's new default theme. Keep the current default
+   available under a name like "neutral" so existing ENTIRE_BRAIN_THEME/--theme
+   values keep working (compat policy for this release: no silent breakage — old
+   theme names stay valid). If the CLI palette uses truecolor hexes, confirm
+   lipgloss/colorprofile downsampling keeps 256-color terminals readable.
+3. In styles.go, add a comment naming the file/commit in the entire CLI repo the
+   palette was copied from, so the next drift is traceable.
+4. Sweep for render-layer bypasses: grep internal/cli (non-test) for fmt.Print*,
+   fmt.Fprint*(os.Stdout/os.Stderr) and route survivors through internal/tui.
+   A first narrow grep found ~1; use a broader pattern.
+5. Build a command census harness: enumerate every command from the help tree and
+   run each one (human mode, in a small set-up scratch repo) capturing output to
+   files, so a human can page through before/after side by side. Evis will do the
+   per-command eyeball pass in this workspace — your job is to make that pass easy
+   (one script, one output dir, stable ordering).
+6. Fix the obvious idiom drift you see while capturing: error/warning prefix
+   style, heading/accent usage, spinner vs progress-bar conventions, table style —
+   matched against the entire CLI's conventions, not your taste.
+
+Out of scope, note in the PR: entire-graph needs the same palette adoption in its
+own repo; JSON output is untouched (byte-stable JSON is a compat surface).
+
+Verify: `go test ./internal/tui ./internal/cli` plus the capture script run clean.
+Normal PR flow: pull latest main, branch, explicit git add of named files, run the
+local oxfmt check before push.
+
+---
+
+<task-notification>
+<task-id>beum2mrnu</task-id>
+<tool-use-id>toolu_01CBFLQWFapgLstSQqG35jSw</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-johns/78defb0c-cec2-415e-8f81-a729f3203fe6/tasks/beum2mrnu.output</output-file>
+<status>completed</status>
+<summary>Background command "Run TUI census capture (after)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bowxxh1cf</task-id>
+<tool-use-id>toolu_01WKJxdBHcE17eHKyht1TrNi</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-johns/78defb0c-cec2-415e-8f81-a729f3203fe6/tasks/bowxxh1cf.output</output-file>
+<status>failed</status>
+<summary>Background command "Wait for census to reach 60+ captures" failed with exit code 144</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bldlfq81r</task-id>
+<tool-use-id>toolu_01XzsgcUofpVSetS4jPja1PC</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-johns/78defb0c-cec2-415e-8f81-a729f3203fe6/tasks/bldlfq81r.output</output-file>
+<status>failed</status>
+<summary>Background command "Re-run census capture" failed with exit code 144</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bg8eir64j</task-id>
+<tool-use-id>toolu_01BxnbaUdbxk4o2m5bA9rV29</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-johns/78defb0c-cec2-415e-8f81-a729f3203fe6/tasks/bg8eir64j.output</output-file>
+<status>failed</status>
+<summary>Background command "Re-run census capture (fixed)" failed with exit code 144</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bz8dvx815</task-id>
+<tool-use-id>toolu_01Vdj8C5MHxNKmxyxdvJ5j5y</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-johns/78defb0c-cec2-415e-8f81-a729f3203fe6/tasks/bz8dvx815.output</output-file>
+<status>completed</status>
+<summary>Background command "Run tui, cli, setupui tests" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bv2rjpzcr</task-id>
+<tool-use-id>toolu_01X8TazQpmYmnnvpToXaoiFY</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-johns/78defb0c-cec2-415e-8f81-a729f3203fe6/tasks/bv2rjpzcr.output</output-file>
+<status>failed</status>
+<summary>Background command "Wait for 40 captures" failed with exit code 144</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bqieq4117</task-id>
+<tool-use-id>toolu_01Y8GYaB8kRqfjJ8kXC6dW6s</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-johns/78defb0c-cec2-415e-8f81-a729f3203fe6/tasks/bqieq4117.output</output-file>
+<status>failed</status>
+<summary>Background command "Restart census with fixes" failed with exit code 144</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bf4ddw0w8</task-id>
+<tool-use-id>toolu_018SoJo9KaTfQAaM24F2uPAH</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-johns/78defb0c-cec2-415e-8f81-a729f3203fe6/tasks/bf4ddw0w8.output</output-file>
+<status>completed</status>
+<summary>Background command "Final test run of tui, cli, setupui" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bawvpv92g</task-id>
+<tool-use-id>toolu_014BRN6JRyKkfTL5qsmyE4bB</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-johns/78defb0c-cec2-415e-8f81-a729f3203fe6/tasks/bawvpv92g.output</output-file>
+<status>completed</status>
+<summary>Background command "Restart census with tr fix" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bjt3gi43v</task-id>
+<tool-use-id>toolu_016eWLjYDywHkSh4K4PG7Lcm</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-johns/78defb0c-cec2-415e-8f81-a729f3203fe6/tasks/bjt3gi43v.output</output-file>
+<status>failed</status>
+<summary>Background command "Wait for census and tests to finish" failed with exit code 144</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b58ybgau2</task-id>
+<tool-use-id>toolu_01AhLAbK4r4XrTa8kW6Bu5ky</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-johns/78defb0c-cec2-415e-8f81-a729f3203fe6/tasks/b58ybgau2.output</output-file>
+<status>failed</status>
+<summary>Background command "Wait for after-census to finish" failed with exit code 144</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bzfgytzi3</task-id>
+<tool-use-id>toolu_01KjsQ1KaJvB43L5h7ucgzN5</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-johns/78defb0c-cec2-415e-8f81-a729f3203fe6/tasks/bzfgytzi3.output</output-file>
+<status>failed</status>
+<summary>Background command "Wait for after-census, then run before-census" failed with exit code 144</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bzewnbg2a</task-id>
+<tool-use-id>toolu_01LFL8wrEUyQE8f19XG9GUEf</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-johns/78defb0c-cec2-415e-8f81-a729f3203fe6/tasks/bzewnbg2a.output</output-file>
+<status>failed</status>
+<summary>Background command "Wait for both census runs" failed with exit code 144</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bk104bmcz</task-id>
+<tool-use-id>toolu_012VDALE7HU7mHF9mQVitVHf</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-johns/78defb0c-cec2-415e-8f81-a729f3203fe6/tasks/bk104bmcz.output</output-file>
+<status>failed</status>
+<summary>Background command "Wait for internal/cli test run to finish" failed with exit code 144</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bqbwfx6qx</task-id>
+<tool-use-id>toolu_01C7T7T3LiGvT4JrdU7Rziof</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-johns/78defb0c-cec2-415e-8f81-a729f3203fe6/tasks/bqbwfx6qx.output</output-file>
+<status>failed</status>
+<summary>Background command "Full census (after+before) then internal/cli tests" failed with exit code 1</summary>
+</task-notification>
+
+---
+
+status?
+
+---
+
+okay is ther ea trail for this?
+
+---
+
+<task-notification>
+<task-id>b7hvkdhg3</task-id>
+<tool-use-id>toolu_01JmTKfi9Xgya8x6EW9eU13p</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-johns/78defb0c-cec2-415e-8f81-a729f3203fe6/tasks/b7hvkdhg3.output</output-file>
+<status>completed</status>
+<summary>Background command "Re-run before-census then internal/cli tests" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+where aer we on this? why is this taking so long?
+
+---
+
+<task-notification>
+<task-id>bwq41rswg</task-id>
+<tool-use-id>toolu_01QZ1qnDXfX1X51dPn29ADRm</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-johns/78defb0c-cec2-415e-8f81-a729f3203fe6/tasks/bwq41rswg.output</output-file>
+<status>failed</status>
+<summary>Background command "Re-run internal/cli with full log" failed with exit code 1</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b1dbak0kx</task-id>
+<tool-use-id>toolu_012YwZW974UcMU5quRnGKgNH</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-johns/78defb0c-cec2-415e-8f81-a729f3203fe6/tasks/b1dbak0kx.output</output-file>
+<status>completed</status>
+<summary>Background command "Clean final test run" completed (exit code 0)</summary>
+</task-notification>

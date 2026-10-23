@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5KPG86GVWBN2C4FYAJ9V42Z",
+  "strategy": "manual-commit",
+  "branch": "adopt-entire-cli-palette",
+  "checkpoints_count": 8,
+  "files_touched": [
+    "internal/cli/agent_policy.go",
+    "internal/cli/bench.go",
+    "internal/cli/hosted_target.go",
+    "internal/cli/mcp_http.go",
+    "internal/cli/push_hook.go",
+    "internal/cli/rest_api.go",
+    "internal/cli/transcript_cache_migration.go",
+    "internal/cli/webhooks.go",
+    "internal/tui/cli_palette.go",
+    "internal/tui/render_test.go",
+    "internal/tui/styles.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 312,
+    "cache_creation_tokens": 1698500,
+    "cache_read_tokens": 24437966,
+    "output_tokens": 74369,
+    "api_call_count": 156
+  }
+}
