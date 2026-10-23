@@ -1,0 +1,17 @@
+<task-notification>
+<task-id>bv364b4my</task-id>
+<tool-use-id>toolu_01LLX3hXUV9ThRR5p9ZzAVMz</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-georges-v1/40556eca-85d1-47ae-b5d7-0d40be2bea9e/tasks/bv364b4my.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch new release run until completion" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b0ryvk6ot</task-id>
+<tool-use-id>toolu_01Pwo5vBVvhiHHPBYLTp5cjd</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-georges-v1/40556eca-85d1-47ae-b5d7-0d40be2bea9e/tasks/b0ryvk6ot.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch Depot-based release run until completion" completed (exit code 0)</summary>
+</task-notification>
