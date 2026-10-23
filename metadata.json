@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5KPXNVE6F8HQQ87GZKQ23WG",
+  "strategy": "manual-commit",
+  "branch": "windows-ci-release-gate",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "docs/releasing.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 42,
+    "cache_creation_tokens": 451008,
+    "cache_read_tokens": 2921887,
+    "output_tokens": 11526,
+    "api_call_count": 21
+  }
+}

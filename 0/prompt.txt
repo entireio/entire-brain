@@ -1,0 +1,31 @@
+<task-notification>
+<task-id>bhz7nqe7o</task-id>
+<tool-use-id>toolu_015hFWsLAnK1jf1DUwyXnVQN</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-georges-v1/40556eca-85d1-47ae-b5d7-0d40be2bea9e/tasks/bhz7nqe7o.output</output-file>
+<status>completed</status>
+<summary>Background command "Re-run internal/cli tests with CGO disabled, capture failures" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+this looks like it's just waiting on the windows release?
+
+https://github.com/entireio/entire-brain/pull/455
+
+but saying that i can merge??
+
+---
+
+<task-notification>
+<task-id>braduigdn</task-id>
+<tool-use-id>toolu_01DSdSAkNYN3zGGFsyCwnLnY</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-georges-v1/40556eca-85d1-47ae-b5d7-0d40be2bea9e/tasks/braduigdn.output</output-file>
+<status>completed</status>
+<summary>Background command "Third local run of internal/cli with 40m budget" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+okay thiis has hung twice now: https://github.com/entireio/entire-brain/pull/455
+
+for liek 30 min each. what is the problem here. we need to close this out
