@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01FDTEkJxYMKuWSGwq1tiqVB",
+  "agent_id": "a77895ec65e12f2e1",
+  "subagent_type": "deep-reasoner",
+  "task_description": "Independent review of COR-2164 disposition",
+  "token_usage": {
+    "input_tokens": 38,
+    "cache_creation_tokens": 129663,
+    "cache_read_tokens": 1940449,
+    "output_tokens": 138,
+    "api_call_count": 19
+  },
+  "started_at": "2026-10-19T13:08:24.527295+11:00",
+  "completed_at": "2026-10-24T08:30:08.849925+11:00"
+}
