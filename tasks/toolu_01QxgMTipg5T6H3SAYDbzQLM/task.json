@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01QxgMTipg5T6H3SAYDbzQLM",
+  "agent_id": "a3ee878072c750c98",
+  "subagent_type": "Explore",
+  "task_description": "Audit store migration/downgrade",
+  "token_usage": {
+    "input_tokens": 102,
+    "cache_creation_tokens": 118452,
+    "cache_read_tokens": 4127557,
+    "output_tokens": 23678,
+    "api_call_count": 51
+  },
+  "started_at": "2026-10-22T21:22:20.125727-07:00",
+  "completed_at": "2026-10-22T21:27:59.187574-07:00"
+}

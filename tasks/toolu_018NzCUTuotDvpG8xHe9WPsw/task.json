@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_018NzCUTuotDvpG8xHe9WPsw",
+  "agent_id": "aba8a3b969d46598b",
+  "subagent_type": "Explore",
+  "task_description": "Audit command rename compat",
+  "token_usage": {
+    "input_tokens": 68,
+    "cache_creation_tokens": 107757,
+    "cache_read_tokens": 2485727,
+    "output_tokens": 22629,
+    "api_call_count": 34
+  },
+  "started_at": "2026-10-22T21:22:09.647926-07:00",
+  "completed_at": "2026-10-22T21:27:23.297158-07:00"
+}

@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01SU8ZEFWPdyyNCmbC2zDzSP",
+  "agent_id": "aa987f2b25e7b7ffb",
+  "subagent_type": "Explore",
+  "task_description": "Audit graph coupling + bundles",
+  "token_usage": {
+    "input_tokens": 78,
+    "cache_creation_tokens": 117726,
+    "cache_read_tokens": 3309127,
+    "output_tokens": 24390,
+    "api_call_count": 39
+  },
+  "started_at": "2026-10-22T21:22:31.09446-07:00",
+  "completed_at": "2026-10-22T21:27:57.499326-07:00"
+}
