@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5KJFX1XQ30XPQVDNA8WBF7Z",
+  "strategy": "manual-commit",
+  "branch": "compat/manifest-v4",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/brain_manifest_compat_test.go",
+    "internal/cli/watch.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 16,
+    "cache_creation_tokens": 14543,
+    "cache_read_tokens": 1543906,
+    "output_tokens": 5441,
+    "api_call_count": 8,
+    "subagent_tokens": {
+      "input_tokens": 104,
+      "cache_creation_tokens": 315071,
+      "cache_read_tokens": 10401418,
+      "output_tokens": 39668,
+      "api_call_count": 52
+    }
+  }
+}
