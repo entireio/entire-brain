@@ -1,0 +1,57 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5KPBMWE3DBJ5BGFXZGWZXC3",
+  "session_id": "690ef6a2-3ff9-40a3-9782-cbb5368344ec",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-23T06:14:51.521552Z",
+  "branch": "fix-pr-451-smoke-and-corpus",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "mise-tasks/release/smoke"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "dfab86010cd3",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 58,
+    "cache_creation_tokens": 71784,
+    "cache_read_tokens": 2049638,
+    "output_tokens": 11310,
+    "api_call_count": 29
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01Uy59UuTkEz43J7PFZ8D3ov",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "entire:address-findings"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "dfab86010cd3",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 125,
+        "end": 126,
+        "entry_ids": [
+          "42d7b3eb-07f7-4a07-8778-165273dc5633"
+        ],
+        "tool_use_id": "toolu_01Uy59UuTkEz43J7PFZ8D3ov"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01Uy59UuTkEz43J7PFZ8D3ov"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: entire:address-findings",
+        "default_collapsed": true
+      }
+    }
+  ]
+}
