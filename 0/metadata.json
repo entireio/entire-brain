@@ -1,0 +1,128 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5K6HX08ANKGK9N7ZDEAVVVN",
+  "session_id": "5f56b923-fd1c-43a5-94a8-3aec704e8601",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-23T01:38:37.519697Z",
+  "branch": "add-model-field-to-memories",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [
+    "factmerge/extractor_test.go",
+    "factmerge/ndjson.go",
+    "factmerge/record.go",
+    "internal/cli/distill.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_extractor_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "440d114869ba",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 90,
+    "cache_creation_tokens": 352153,
+    "cache_read_tokens": 3727744,
+    "output_tokens": 24944,
+    "api_call_count": 45
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_0154mpeKZj5HzwP1p4cmUcUE",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:brainstorming"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "440d114869ba",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 27,
+        "end": 28,
+        "entry_ids": [
+          "3d7987b8-191e-452c-82e4-1ef38ee6a283"
+        ],
+        "tool_use_id": "toolu_0154mpeKZj5HzwP1p4cmUcUE"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_0154mpeKZj5HzwP1p4cmUcUE"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:brainstorming",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01Y7M4uWEsk7eTQd1ui2uFtA",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:test-driven-development"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "440d114869ba",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 134,
+        "end": 135,
+        "entry_ids": [
+          "f211b129-ee50-4e1e-892b-53be387e3497"
+        ],
+        "tool_use_id": "toolu_01Y7M4uWEsk7eTQd1ui2uFtA"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01Y7M4uWEsk7eTQd1ui2uFtA"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:test-driven-development",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_011mBtz3DDSkKZwhjR8Qd5QF",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "commit-commands:commit-push-pr"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "440d114869ba",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 281,
+        "end": 282,
+        "entry_ids": [
+          "a3f577b2-d03e-4c32-a452-ca4e4e1a50e3"
+        ],
+        "tool_use_id": "toolu_011mBtz3DDSkKZwhjR8Qd5QF"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_011mBtz3DDSkKZwhjR8Qd5QF"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: commit-commands:commit-push-pr",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 2
+  }
+}

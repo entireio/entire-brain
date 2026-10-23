@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5K6HX08ANKGK9N7ZDEAVVVN",
+  "strategy": "manual-commit",
+  "branch": "add-model-field-to-memories",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "factmerge/extractor_test.go",
+    "factmerge/ndjson.go",
+    "factmerge/record.go",
+    "internal/cli/distill.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_extractor_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 90,
+    "cache_creation_tokens": 352153,
+    "cache_read_tokens": 3727744,
+    "output_tokens": 24944,
+    "api_call_count": 45
+  }
+}
