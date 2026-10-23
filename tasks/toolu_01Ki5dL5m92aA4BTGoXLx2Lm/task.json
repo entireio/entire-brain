@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01Ki5dL5m92aA4BTGoXLx2Lm",
+  "agent_id": "ad6cf3f6ce30bdf69",
+  "subagent_type": "general-purpose",
+  "task_description": "Adversarial review of retrieval probe",
+  "token_usage": {
+    "input_tokens": 258,
+    "cache_creation_tokens": 149470,
+    "cache_read_tokens": 979646,
+    "output_tokens": 53,
+    "api_call_count": 9
+  },
+  "started_at": "2026-10-22T19:47:22.171883+05:30",
+  "completed_at": "2026-10-22T19:53:53.208793+05:30"
+}

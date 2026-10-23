@@ -3,9 +3,10 @@
   "checkpoint_id": "01M5KCXHEDTZCAJM7F3FQF2NCD",
   "strategy": "manual-commit",
   "branch": "feat/linear-issue-memory",
-  "checkpoints_count": 6,
+  "checkpoints_count": 9,
   "files_touched": [
     "benchmarks/retrieval-regression/README.md",
+    "benchmarks/retrieval-regression/fixture/facts.json",
     "benchmarks/retrieval-regression/fixture/questions.json",
     "benchmarks/retrieval-regression/fixture/tasks.json",
     "benchmarks/retrieval-regression/run.py",
@@ -19,20 +20,27 @@
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
       "prompt": "/0/prompt.txt"
+    },
+    {
+      "metadata": "/1/metadata.json",
+      "transcript": "/1/full.jsonl",
+      "compact_transcript": "/1/transcript.jsonl",
+      "content_hash": "/1/content_hash.txt",
+      "prompt": "/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 686,
-    "cache_creation_tokens": 72677,
-    "cache_read_tokens": 6959426,
-    "output_tokens": 20971,
-    "api_call_count": 27,
+    "input_tokens": 1658,
+    "cache_creation_tokens": 499188,
+    "cache_read_tokens": 14992759,
+    "output_tokens": 128190,
+    "api_call_count": 62,
     "subagent_tokens": {
-      "input_tokens": 74,
-      "cache_creation_tokens": 124608,
-      "cache_read_tokens": 3363293,
-      "output_tokens": 835,
-      "api_call_count": 37
+      "input_tokens": 332,
+      "cache_creation_tokens": 274078,
+      "cache_read_tokens": 4342939,
+      "output_tokens": 888,
+      "api_call_count": 46
     }
   }
 }
