@@ -1,0 +1,620 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/kyoto directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name. Conductor will automatically rename it in the background to match your task.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/kyoto/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+**#4 — backwards compatibility.** The CHANGELOG since `v0.1.0` already names the breaks; the question is what policy each one gets. What shipped on main since the last stable tag:
+
+1. **`facts` → `memories` command rename** — the biggest one. Precedent exists (`search`/`vsearch` live on as compatibility aliases for `query`), but whether `facts` got the same alias treatment needs verification, not assumption.
+2. **`init-agents` removed** (folded into `setup`) — anyone's scripts or muscle memory calling it should get a clear "use `setup`" error, not an unknown-command.
+3. **Code inspection now reads Graph's shared committed-tree store** — creates a real version-coupling: brain 0.2 with an old graph store, or old brain with a new store. There's a handled `errGraphStoreUnsupported` path, but the upgrade-ordering story (which binary do you upgrade first?) is undefined.
+4. **Bundles format changed** (carry runtime observations, no code indexes) — old bundle into new binary and vice versa.
+
+Plus the one nobody's CHANGELOG captures: **`.entire/agent-guide.md` is committed into users' repos.** Every repo that ran setup under 0.1.0 has a guide referencing the old command surface (`facts`, `init-agents`…). New binaries must tolerate stale committed guides, and there needs to be a re-render story (presumably "re-run setup") stated in the release notes.
+
+There is migration machinery in the code (`loadMemoryMigrationProgress` in memory_admin.go) but I haven't verified it covers the full store — that's audit work, not discussion work.
+
+The deliverable I'd scope: a **compat policy + evidence matrix**, roughly:
+
+| Scenario | Required behavior |
+|---|---|
+| 0.1.0 store opened by 0.2.0 | auto-migrate forward, or `refresh` with a clear prompt |
+| 0.2.0 store opened by 0.1.0 (downgrade) | refuse cleanly, never corrupt |
+| brain 0.2 + old graph / old brain + graph 0.5 | work or fail with a named version requirement |
+| Removed/renamed commands (`facts`, `init-agents`, `search`) | alias for ≥1 minor, or error naming the replacement |
+| Stale committed agent-guide | tolerated; setup re-run refreshes it |
+| JSON `schema_version` fields | unchanged or bumped additively |
+| MCP `brain_*` schemas | byte-diff vs 0.1.0: unchanged or additive |
+| Hosted wire | old client vs current server (the ≥-version gate precedent) |
+
+The one policy question that decides how strict this matrix is: for 0.2.0, is your promise **"no silent breakage"** (everything either works, aliases, or fails with a message naming the fix — my recommendation, cheap and honest) or the stronger **"0.1.0 workflows keep working unchanged"** (every rename needs a working alias, which means re-adding whatever's missing)?
+
+
+i agree with the idea that there is no silent breakage. it either works or there is an error mesasge to update. 
+
+let's go through tihs
+
+---
+
+<task-notification>
+<task-id>aba8a3b969d46598b</task-id>
+<tool-use-id>toolu_018NzCUTuotDvpG8xHe9WPsw</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-kyoto/b0422b4f-6d72-48a0-9cac-20abfe60def4/tasks/aba8a3b969d46598b.output</output-file>
+<status>completed</status>
+<summary>Agent "Audit command rename compat" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## 1. `facts` → `memories` — **PASS**
+
+**Registration:** root command builds the whole tree in `NewRootCommand`, `/Users/evisdrenova/conductor/workspaces/entire-brain/kyoto/internal/cli/root.go:106-175` (`addGrouped(...)` / `addHidden(...)` helpers at `root.go:96-104`). The memories family is `addGrouped("facts", newFactsCommand(opts))` at `root.go:125`.
+
+**Alias exists** — a real cobra `Aliases` entry, not a stub, at `/Users/evisdrenova/conductor/workspaces/entire-brain/kyoto/internal/cli/facts_admin_cmd.go:16-21`:
+
+```go
+cmd := &amp;cobra.Command{
+	Use:     "memories",
+	Aliases: []string{"facts"},
+	Short:   "Review, promote, and garbage-collect durable memories",
+	Args:    cobra.NoArgs,
+}
+```
+
+**What `entire brain facts list` actually does (verified by running `go run ./cmd/entire-brain facts list`):** alias dispatch to `memories` succeeds, then — because `memories` has no `Run`/`RunE` and `list` is not one of its 18 subcommands — cobra's `if !c.Runnable() { return flag.ErrHelp }` fires *before* `ValidateArgs`, so it **prints the `memories` help and exits 0**:
+
+```
+Review, promote, and garbage-collect durable memories
+
+Usage:
+  entire-brain memories [command]
+
+Aliases:
+  memories, facts
+...
+```
+
+Note `list` never existed under `facts` at v0.1.0 either (`git show v0.1.0:internal/cli/facts_admin_cmd.go`), so this is not a regression. Every v0.1.0 `facts &lt;sub&gt;` is still registered — the HEAD diff only *adds* subcommands (`files`, `import`, `global`). Existing tests still drive the alias (`internal/cli/facts_status_cmd_test.go:13`, `internal/cli/facts_import_test.go:1001`).
+
+Caveat worth recording: the `!Runnable → help, exit 0` behavior means any *future* removal of a `memories` subcommand would be silently swallowed (exit 0, help text), not an error.
+
+## 2. `init-agents` — **FAIL** (generic unknown-command, no replacement named)
+
+No stub, no tombstone, no hidden command. The constructor was deleted outright: `git diff v0.1.0..HEAD -- internal/cli/agent_setup.go` removes `func newInitAgentsCommand` and the `install` branch; the registration line `addGrouped("setup", newInitAgentsCommand(opts))` was deleted from `root.go:107` (old numbering). Current `/Users/evisdrenova/conductor/workspaces/entire-brain/kyoto/internal/cli/agent_setup.go:9-16` has only the read-only `agent-guide`. The only surviving mentions of the name are comments (`internal/cli/agent_wiring.go:24`) and `CHANGELOG.md:10`.
+
+**Exact user-visible output** (verified: `go run ./cmd/entire-brain init-agents`):
+
+```
+unknown command "init-agents" for "entire-brain"
+```
+
+exit status 1, on stderr, with **no** "Did you mean" block (no command is within cobra's edit distance 2 / prefix match) and **no** usage dump (root sets `SilenceUsage: true, SilenceErrors: true` at `root.go:62-63`; the message is printed by `cmd/entire-brain/main.go:18-23`).
+
+Mechanism of that generic text: cobra `legacyArgs` → `fmt.Errorf("unknown command %q for %q%s", args[0], cmd.CommandPath(), cmd.findSuggestions(args[0]))` (`$GOMODCACHE/github.com/spf13/cobra@v1.10.2/args.go:36`). It does not mention `setup`. The two behaviors that moved (`--strict`/`--normal`) now live at `internal/cli/setup.go:673-674`.
+
+## 3. `search` / `vsearch` precedent — **N/A (informational)**
+
+Not cobra `Aliases` and not hidden: they are **separate, fully visible sibling commands produced by a shared factory with a different mode**, registered side-by-side with `query` at `/Users/evisdrenova/conductor/workspaces/entire-brain/kyoto/internal/cli/root.go:115-117`. Definitions at `/Users/evisdrenova/conductor/workspaces/entire-brain/kyoto/internal/cli/retrieve_cmd.go:71-81`:
+
+```go
+func newVsearchCommand(opts Options) *cobra.Command {
+	return newRetrieveCommand(opts, "vsearch", modeHybrid, "Compatibility alias for query: semantic retrieval was removed (trail #278); runs the same BM25 lexical ranking")
+}
+```
+
+The alias-ness is carried in the `Short` string plus a runtime notice `warnRemovedSemanticAlias(cmd, use, selection.semantic)` (`retrieve_cmd.go:117`). So this repo has **three** distinct compat mechanisms already in use, any of which would fit re-adding `facts`: (a) cobra `Aliases` — `facts_admin_cmd.go:18`, `agent_setup.go:14` (`guide` → `agent-guide`); (b) duplicate command via shared factory — `retrieve_cmd.go:71-81`; (c) flag-level normalization helper `legacyFlagAlias(fs, oldName, newName)` at `root.go:533-543`.
+
+## 4. Other command/flag changes since v0.1.0
+
+`git diff v0.1.0..HEAD --stat` over the registration files: `internal/cli/root.go` +141/-?, `internal/cli/facts_admin_cmd.go` 183, `internal/cli/mcp.go` 326, `internal/cli/retrieve_cmd.go` 137, `internal/agentsetup/*`.
+
+**Commands removed:** only `init-agents`. A diff of every removed `Use:` / `AddCommand(` line across `internal/cli/**` (excluding tests) yields no other unregistration — the remaining removed `Use:` lines are cosmetic (`&lt;fact-id&gt;` → `&lt;memory-id&gt;`, gofmt alignment when a `Hidden:` field was added).
+
+**Commands added (additive):** `webhook` (`root.go:110`), `connect`/`disconnect` (`root.go:126-127`), `docs` + `docs extract` (`root.go:142`), `start`/`stop` (`root.go:146-147`), hidden `daemon-reregister` (`root.go:145`), `memories files`, `memories import`, `memories global`, `bench scale`.
+
+**Commands made hidden (still invokable, dropped from help):** `bench`/`benchmark` (`root.go:159`), plus `graph-schema`, `reclassify`, `eval`, `eval-gen`, `eval-compare` gained `Hidden: true`. Not breakage, but discoverability regressions worth listing in release notes.
+
+**Flags renamed — all three carry a working alias:**
+- `--min-facts` → `--min-memories`, aliased at `internal/cli/facts_admin_cmd.go:670`
+- `--facts-backend` → `--memories-backend`, aliased at `internal/cli/facts_sync_cmd.go:77`
+- `vitality --fact` → `--memory`, aliased at `internal/cli/facts_vitality_cmd.go:96`
+
+**Flag removed with no alias — FAIL:** `refresh seed --interactive`, deleted at `internal/cli/seed.go` (v0.1.0 line `cmd.Flags().BoolVar(&amp;seedOpts.interactive, "interactive", false, "Allow timeout prompts when stdin is a terminal")`). HEAD's replacement comment is at `/Users/evisdrenova/conductor/workspaces/entire-brain/kyoto/internal/cli/seed.go:52-58` ("A flag a user can type, that the binary accepts, and that changes nothing is worse than no flag"). The flag was a verified no-op, but a script passing it now dies with cobra's generic `unknown flag: --interactive`, which names no replacement. `--no-interactive` is still registered (`seed.go:248`).
+
+Also gone with `init-agents`: its `--json` and its positional `[path]` form. `agent-guide` keeps `--repo` and remains `cobra.NoArgs`. Deprecated-but-live flags (`--worktree`, `--graph-inactivity-timeout`, `--semantic-worktree`) still parse — `internal/cli/semantic.go:399,401`, `internal/cli/refresh.go:76-80`.
+
+## 5. MCP tool surface — **PASS (additive), with one advertising change**
+
+Registration: `mcpAllToolDefinitions()` at `/Users/evisdrenova/conductor/workspaces/entire-brain/kyoto/internal/cli/mcp.go:739`; the advertised subset served to `tools/list` is `mcpToolDefinitions()` at `mcp.go:724`, called from the `tools/list` handler at `mcp.go:677`. Dispatch is a name switch at `mcp.go:1118-1650`.
+
+- **Removed/renamed tools: none.** Tool-name sets at both revisions are identical except for two **added** tools: `brain_remember` (required `["fact","path"]`) and `brain_recall` (required `["query"]`).
+- **Required inputs: unchanged** for every pre-existing tool — the `objectSchema([]string{...})` required list per tool is byte-identical v0.1.0 vs HEAD. `"additionalProperties": false` was already present at v0.1.0 (`git show v0.1.0:internal/cli/mcp.go:731`), so no new strictness.
+- Additive schema change: `retrievalSchema()`'s conditional `allOf` that lowers `limit`'s max **only when `concepts` is supplied** (`mcp.go:822-832`), plus new optional args (`source`, `after`, `before`, `session_id`, `agent`, `concepts`, `no_global`, `include_abstract`, `recency`, `recency_half_life`, `keyword`, `semantic`).
+- **New since v0.1.0:** `mcpHiddenAliases` (`/Users/evisdrenova/conductor/workspaces/entire-brain/kyoto/internal/cli/mcp.go:713-721`) removes six previously-advertised tools from `tools/list` — `brain_search`, `brain_vsearch`, `brain_search_code`, `brain_detect_changes`, `brain_get_architecture`, `brain_index_status`. This symbol does not exist at v0.1.0. They **still dispatch** (`mcp.go:1124, 1144, 1361, 1370, 1442, 1465`), so no call breaks; only discovery changes. The comment states the intent explicitly: *"Hidden, not deleted. The dispatch cases stay, so anything that already learned the old name keeps working."* Also note `mcp.go:97` now reports a smaller tool count to clients.
+
+### Net verdict
+Two no-silent-breakage violations to fix before 0.2.0: (a) `init-agents` fails with a generic unknown-command error that never names `setup` — `internal/cli/root.go` needs a hidden tombstone command whose `RunE` returns an error naming `entire brain setup`; (b) `refresh seed --interactive` fails with a generic `unknown flag` — reinstate it as a deprecated no-op via `legacyFlagAlias`/`MarkDeprecated` or accept the loud failure deliberately. Everything else (`facts`, `search`, `vsearch`, the three renamed flags, all MCP aliases) is covered by a working alias.</result>
+<usage><subagent_tokens>112100</subagent_tokens><tool_uses>57</tool_uses><duration_ms>313950</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aa987f2b25e7b7ffb</task-id>
+<tool-use-id>toolu_01SU8ZEFWPdyyNCmbC2zDzSP</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-kyoto/b0422b4f-6d72-48a0-9cac-20abfe60def4/tasks/aa987f2b25e7b7ffb.output</output-file>
+<status>completed</status>
+<summary>Agent "Audit graph coupling + bundles" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result># Backwards-compatibility audit — brain 0.2.0 vs v0.1.0
+
+Environment fact confirmed live: installed provider is `Entire CLI 0.11.6`; `entire graph capabilities --json` → `{"schema_version":"1.4","provider":"entire-graph",...}`; `entire graph store` → `unknown command "store"`. So on this machine brain 0.2.0 already lands in the "store too old" branch.
+
+---
+
+## A. Brain ↔ Graph store coupling
+
+### Q1 — Where brain reads the store; what gates it; error text — **PASS (direction: too old) / FAIL (names no version)**
+
+Read path: `/Users/evisdrenova/conductor/workspaces/entire-brain/kyoto/internal/cli/graph_store.go:38` `fetchGraphStore` shells `entire graph store --repo … --profile …` and decodes `graphStoreDescriptor`; `/Users/evisdrenova/conductor/workspaces/entire-brain/kyoto/internal/cli/graph_store.go:126` `openSemanticReadDB` opens the returned SQLite path `mode=ro` and aliases the provider's versioned views.
+
+Three gates, in order:
+
+1. `graph_store.go:60-63` — stderr/stdout contains `unknown command`/`unknown subcommand` → `errGraphStoreUnsupported`.
+2. `graph_store.go:70-72` — `store_unavailable: true` → `errGraphStoreUnavailable`.
+3. `graph_store.go:73-75` — `if d.ContractVersion != 1 { return d, errGraphStoreUnsupported }`.
+
+Exact user-visible text (`graph_store.go:82`, returned unwrapped to cobra, so it prints as `Error: &lt;text&gt;`):
+
+```
+installed Graph lacks the read-only store interface; upgrade Graph to enable code inspection
+```
+
+The unavailable (not version) case, `graph_store.go:71`:
+```
+Graph store unavailable: &lt;detail&gt;; run `entire brain refresh index`
+```
+
+**Does it name which binary to upgrade?** It names *Graph* ("upgrade Graph"). It does **not** name a required version or build number. Contrast with the pattern this repo uses elsewhere, which does name the binary and situation: `internal/cli/memory_admin.go:1599` `"upgrade entire-brain; this newer manifest remains read-only"`, `internal/cli/memory_health_schema.go:66,256,343`. The graph-store error has no such newer-side wording.
+
+A fourth, unguarded coupling: `graph_store.go:145` (`SELECT value FROM meta WHERE key='entry_digest'`) and `graph_store.go:152-156` (`CREATE TEMP VIEW … AS SELECT * FROM main.brain_&lt;symbols|relations|files|reverse_relations|symbol_fts&gt;_v1`). The `_v1` view names are an unversioned, unchecked schema pin: if Graph renames/ships `_v2`, the failure is a raw driver error (`fail(err)`, `graph_store.go:154`) reading roughly `no such table: main.brain_symbols_v1` — no version, no binary, no remedy. **FAIL** for that sub-path.
+
+### Q2 — Is the check bidirectional? — **PARTIAL / FAIL on message**
+
+Detection: **yes, structurally.** `graph_store.go:73` is `d.ContractVersion != 1`, not `&lt; 1`. A future graph publishing `contract_version: 2` is rejected.
+
+Message: **no.** The same `errGraphStoreUnsupported` fires, telling the operator to *upgrade Graph* when the required action is to *upgrade brain*. It violates "fail with an error naming the required version" in the new-graph/old-brain direction.
+
+No test covers the newer direction: every `ContractVersion` fixture in the tree is `1` (`internal/cli/graph_store_test.go:61`, `internal/cli/semantic_audit_test.go:604`, `internal/cli/graph_provider_fixture_test.go:34,99`). The only `ContractVersion = 2` test in the repo is for an unrelated artifact (`internal/cli/memory_abstract_hardening_test.go:63`).
+
+**Provider schema version pin — FAIL (silent).** Brain pins `semanticSchemaVersion = "1.3"` at `/Users/evisdrenova/conductor/workspaces/entire-brain/kyoto/internal/cli/semantic.go:59`, with major boundary `semanticSupportedMajor = "1"` (`semantic.go:47`). The two enforcement functions are `validateSemanticSchema` (`semantic.go:1030`) and `semanticSchemaMinorSkewWarning` (`semantic.go:1060`). The doc comment at `semantic.go:1048-1058` asserts the skew rule is applied at three sites including "`runSemanticIndex` — a live `entire graph snapshot` header" and "`semanticStaleReport`".
+
+That is no longer true. Non-test call sites of either function are exactly three, and none is the live graph-store path:
+- `semantic.go:6071` / `semantic.go:6074` — bundle import only.
+- `semantic.go:6445` — `readSemanticSnapshotSummary`, the legacy NDJSON snapshot file only.
+
+`graphStoreSource` (`graph_store.go:86-95`) copies `h.SchemaVersion` straight onto `semanticSourceManifest` with no validation and no skew check. So with the installed provider at **1.4** against brain's **1.3**, `provider_schema_newer_minor` never fires on any live command, even though `internal/cli/semantic_schema_skew_test.go:110-118` explicitly pins that `"1.4"` *must* warn. The test passes (it calls the function directly); production never calls it. Additive 1.4 facts are dropped silently — the exact failure mode the warning exists to prevent (`semantic.go:1044-1047`).
+
+Also note: `validateSemanticSchema` is never run on the live store either, so a provider advertising **major 2** on a `contract_version: 1` descriptor would be accepted silently rather than refused by `unsupported semantic schema major version "2": this build reads semantic schema &gt;=1.0 &lt;2.0`.
+
+### Q3 — Degradation vs hard failure — **MIXED: PASS for lifecycle, FAIL for read commands (no remedy), FAIL for status (silent)**
+
+Clean degradation:
+- `refresh`: `internal/cli/refresh.go:371-376` — `semanticForgiven` explicitly includes `errors.Is(err, errGraphStoreUnsupported)`; the stage is reported via `noteDegradedStage` (`refresh.go:631-636`) as `refresh: &lt;component&gt; degraded: installed Graph lacks the read-only store interface; upgrade Graph to enable code inspection`. Refresh completes; all non-graph sources build.
+- `doctor`: `internal/cli/doctor.go:440-447` — `semanticStaleReport` error → `warn` check; coverage error → `semantic coverage` warn. Never fatal.
+- `semanticStaleReport` itself: `internal/cli/semantic.go:2296-2299` returns `staleReport{Severity:"degraded", Axes:{"graph":{State:"missing", Detail: err.Error()}}}, nil`.
+- Pattern corpus: `internal/cli/pattern_corpus.go:458-460` — `fetchGraphStore` error → `return nil`, corpus still builds.
+- `graph index` path: `internal/cli/graph_store.go:231-233` probes first and returns `errGraphStoreUnsupported` before doing work.
+
+Hard failure (correct scope — these *are* code inspection — but the error carries no required version):
+- `internal/cli/semantic.go:2240, 2496, 2672, 2758, 2825, 2917, 2983` — every `loadGraphManifest` caller does `if err != nil { return err }`.
+- `internal/cli/semantic_graph.go:148`, `internal/cli/agent_surface.go:4464` (`brain show`), `internal/cli/workspace.go:3195` (`workspaceSemanticSource`) — same.
+
+Silent degradation (**policy violation: silent**):
+- `internal/cli/agent_surface.go:4538-4543` (`buildBrainStatusReportWithAvailability`): `manifest.Sources.Semantic = nil`, then only repopulates `if graphErr == nil`. The error is discarded entirely — `status` reports "no semantic source" and never says the installed Graph is too old.
+- `internal/cli/workspace.go:4040-4045`: `graphErr` discarded, digest set to the literal `"unavailable"`.
+
+---
+
+## B. Bundles
+
+### Q4 — Old (v0.1.0) bundle → 0.2.0 — **FAIL (accepts, then silently drops the semantic payload); schema_version is never compared**
+
+`SchemaVersion` value: **unchanged at 3** in both versions. `internal/cli/brain.go:14` `const brainManifestSchemaVersion = 3`; `git show v0.1.0:internal/cli/brain.go:13` identical. Bundles stamp it at `internal/cli/semantic.go:5333` (`SchemaVersion: brainManifestSchemaVersion`).
+
+**The import path never compares it.** `validateImportedBundle` (`internal/cli/semantic.go:6045-6149`) checks, in order: manifest parse, `repo_key` present, `repo_key` match, `Sources != nil`, then — only if `Sources.Semantic != nil` — the *provider* schema. `manifest.SchemaVersion` is read nowhere in that function, nor anywhere else in `runSemanticBundleImport` (`semantic.go:5784-5932`). The only `int` schema_version comparisons in the codebase are on different artifacts: `internal/cli/export.go:586-588` (the `--force` output-dir guard) and `internal/cli/brain_manifest_read.go:55-57` (the *local on-disk* manifest).
+
+`brain_version` is write-only: set at `internal/cli/semantic.go:5345`, declared at `internal/cli/export.go:4064-4079`, and read by **no** code path (`grep BrainVersion` non-test → only those two sites).
+
+Behavioral outcome for a v0.1.0 bundle into 0.2.0: **accepted, with a silent loss.**
+- v0.1.0 always wrote `sources.semantic` plus `semantic/snapshots/…` and `semantic/generations/…` (`git show v0.1.0:internal/cli/semantic.go`, bundleSources built as `&amp;brainSources{Semantic: sanitizeSemanticSourceForExport(...)}`).
+- 0.2.0 still *validates* all of it (`semantic.go:6069-6148`: snapshot path exists, sqlite store, `validateBundleSemanticSourceMatchesSnapshot`), and provider schema `1.1` passes `validateSemanticSchema`.
+- But `brainBundleLayers` (`internal/cli/semantic.go:5132-5140`) no longer contains a semantic layer — only `{name:"runtime_traces", dir:"semantic/traces"}`, seed, docs, facts, sessions, history, patterns — and `copyBundleLayerSource` (`semantic.go:5157-5176`) has no `bundleLayerSemantic` case (the constant at `semantic.go:5125` is now dead).
+- Therefore `restoreBundleBrainLayers` (`semantic.go:5982`) never writes `semantic/snapshots` or `semantic/generations`, and the import prints only `imported bundle entries: N` / `sha256: …` / `restored layers: …` (`semantic.go:5928-5930`). **The bundle's entire code index is discarded without a word.** No migration, no message, no mention that Graph now owns it.
+
+Verdict: no rejection (good), no migration, no notice (bad). Not "silent breakage" of data integrity, but silent content loss.
+
+### Q5 — New (0.2.0) bundle → v0.1.0 binary — **FAIL (refuses, but not cleanly and never names a version)**
+
+v0.1.0 did **not** check `schema_version` either (`git show v0.1.0:internal/cli/semantic.go:7035-7058` — same field order, no `manifest.SchemaVersion` read). It refuses a 0.2.0 bundle for two unrelated reasons, both before any write:
+
+1. **Extraction-time, if the bundle carries runtime observations** (the headline new content). `bundleEntryPathAllowed` at `v0.1.0:internal/cli/semantic.go:7480` allowlists only `semantic/snapshots/`, `semantic/generations/`, and the dirs in *its own* `brainBundleLayers` — which has no `semantic/traces` entry (`git show v0.1.0:internal/cli/semantic.go`, layer list is seed/docs/facts/sessions/history/patterns). A 0.2.0 bundle's `semantic/traces/…` entries hit `v0.1.0:internal/cli/semantic.go:7466`:
+   ```
+   bundle entry outside allowed paths: semantic/traces/&lt;file&gt;
+   ```
+2. **Validation-time otherwise.** v0.1.0 requires a semantic source; 0.2.0 never emits one. `v0.1.0:internal/cli/semantic.go:7054-7055`:
+   ```
+   bundle manifest missing semantic source
+   ```
+
+Both are hard errors raised before `restoreBundleBrainLayers`, so the destination brain is untouched — fail-safe. But neither names a version, neither names a binary, and neither says "upgrade entire-brain." An operator reads `bundle entry outside allowed paths: semantic/traces/...` and reasonably concludes the bundle is malformed or hostile, not that their binary is old. This is the clearest "no silent breakage" policy miss in cluster B.
+
+### Q6 — `CheckCompatibility`'s rule — **PASS (rule correct) / UNVERIFIED for bundles (not wired to them)**
+
+`/Users/evisdrenova/conductor/workspaces/entire-brain/kyoto/internal/brainwire/version.go:20`:
+```go
+const BrainSchemaVersion = "1.0"
+```
+Rule, `internal/brainwire/version.go:36-64`:
+- Local const unparseable → `brainwire: invalid local BrainSchemaVersion %q: %w` (programming error).
+- Remote unparseable → `brainwire: unparseable remote brain_schema_version %q: %w`.
+- `remoteMajor != localMajor` (**either direction** — newer *or* older major) → hard error:
+  ```
+  brainwire: incompatible brain_schema_version "X.Y": major X is not supported (local supports major 1)
+  ```
+- `remoteMinor &gt; localMinor` → `ok = true` with warn:
+  ```
+  brainwire: remote brain_schema_version "1.Y" is newer than local 1.0; unknown additive fields will be ignored (tolerant reader)
+  ```
+- Otherwise `ok = true`, empty warn.
+
+So: **major must match exactly (bidirectional refusal); minor is additive-only and tolerated upward with a warning.** Documented at `internal/brainwire/version.go:9-19` and `internal/brainwire/contract.go:16,23,62-65`; `parseSchemaVersion` (`version.go:69-83`) is strict two-component (rejects `"1"`, `"1.2.3"`, `"1.x"`, `"-1.0"`, `""`).
+
+**Scope caveat.** `CheckCompatibility` has exactly one non-test caller: `/Users/evisdrenova/conductor/workspaces/entire-brain/kyoto/internal/hostedbrain/client.go:245` (`Initialize`, hosted-brain MCP handshake), surfacing `hostedbrain: incompatible hosted brain schema %q` at `client.go:250`. It is **not** used by `bundle import`, `bundle export`, or the graph store path. `BrainManifest.ProviderSchemaVersion` (`internal/brainwire/contract.go:72-75`, set via `contract.go:156`) is likewise never compared against anything in cluster A or B. The two schema-policy systems — `brainwire` (`"1.0"`, string, ADR-0001, hosted only) and `internal/cli` (`brainManifestSchemaVersion = 3` int + `semanticSchemaVersion = "1.3"` string, local/bundle) — are entirely disjoint.
+
+---
+
+## Summary table
+
+| # | Topic | Verdict | Primary evidence |
+|---|---|---|---|
+| 1 | Store read + version gate, error text | PASS detection / **FAIL** no version named | `internal/cli/graph_store.go:73-75, 82` |
+| 1b | `brain_*_v1` view-name pin | **FAIL** raw SQL error | `internal/cli/graph_store.go:152-156` |
+| 2 | Bidirectional contract check | PARTIAL — detects newer, **misdirects** operator to upgrade Graph | `internal/cli/graph_store.go:73` + `:82`; no `ContractVersion != 1` test exists |
+| 2b | Provider schema pin 1.3 vs live 1.4 | **FAIL** — skew check dead on live path | `internal/cli/semantic.go:59, 1060`; only callers `6071/6074/6445`; `graph_store.go:94` copies unchecked |
+| 3 | Degradation | PASS refresh/doctor/corpus; **FAIL** silent in `status` | `refresh.go:371-376, 635`; `doctor.go:440-447`; **`agent_surface.go:4538-4543`**, `workspace.go:4040-4045` |
+| 4 | Old bundle → 0.2.0 | **FAIL** — no `schema_version` comparison; accepts and silently drops semantic payload | `semantic.go:6045-6149` (no `manifest.SchemaVersion` read); `semantic.go:5132-5140`, `5157-5176`, `5982` |
+| 5 | New bundle → v0.1.0 | **FAIL** — refuses safely but message names no version/binary | `v0.1.0:internal/cli/semantic.go:7466` and `:7055` |
+| 6 | `CheckCompatibility` rule | PASS as written; **UNVERIFIED** for bundles (hosted-only caller) | `internal/brainwire/version.go:36-64`; sole caller `internal/hostedbrain/client.go:245` |</result>
+<usage><subagent_tokens>129042</subagent_tokens><tool_uses>61</tool_uses><duration_ms>326521</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a3ee878072c750c98</task-id>
+<tool-use-id>toolu_01QxgMTipg5T6H3SAYDbzQLM</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-kyoto/b0422b4f-6d72-48a0-9cac-20abfe60def4/tasks/a3ee878072c750c98.output</output-file>
+<status>completed</status>
+<summary>Agent "Audit store migration/downgrade" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## 1. Store-open path / version stamp — **UNSAFE (silent reinterpretation)**
+
+**Verdict: UNSAFE**
+
+- There is no sqlite `user_version` and no `schema_version` file for the store as a whole. The only on-disk stamp is `schema_version` inside `manifest.json`.
+  - Written: `/Users/evisdrenova/conductor/workspaces/entire-brain/kyoto/internal/cli/brain.go:14` (`brainManifestSchemaVersion = 3`), floor at `:25`.
+  - Checked: `/Users/evisdrenova/conductor/workspaces/entire-brain/kyoto/internal/cli/brain_manifest_read.go:55` (newer → `memory_unsupported_version`) and `:90` (older → refuse).
+- **That stamp did not move.** `v0.1.0:internal/cli/brain.go:13` is also `= 3`. Every persisted-format version constant is byte-identical across `v0.1.0..HEAD` (`historyShortTermVersion=3`, `historyScanCacheVersion=10`, `memoryJobSchemaVersion=2`, `memoryVectorSchema=2`, `historyFTSSchema="3"`, `projectionSchemaVersion=1`, `entityIndexCacheVersion=2`, `patternIndexerVersion=9`). Zero bumps.
+- Meanwhile 0.2.0 added four durable manifest fields at the same version 3: `transcript_storage` (`internal/cli/brain.go:53`), `checkpoint_git_dir` / `checkpoint_primary` (`internal/cli/export.go:329,333`), `suppressed_warnings`, plus `store_owner` / `graph_repo_root` (`internal/cli/semantic.go:106-107`).
+- "Open" is not a gated operation: `resolveSessionsBrain` (`internal/cli/session_privacy.go:357`) only resolves paths; each command lazily calls `loadBrainManifest`. No auto-migrate, no `brain_version` gate (`brain_version` at `internal/cli/export.go:4079` is bundle attribution only, never compared).
+- 0.2.0 reading a 0.1.0 store is itself benign: `checkpointBackedSessions` (`internal/cli/brain.go:48-50`) returns false on the absent field, so `transcriptStore.Open` falls back to materialized files (`internal/cli/transcript_store.go:349`).
+
+**Failure mode:** an incompatible on-disk layout change ships under an unchanged version stamp, so neither binary can detect the mismatch — the discriminator is a value inside a field the old build does not know exists.
+
+## 2. What `loadMemoryMigrationProgress` machinery covers — **UNSAFE (narrow subset)**
+
+**Verdict: UNSAFE (does not cover the 0.2.0 changes at all)**
+
+- `loadMemoryMigrationProgress` (`internal/cli/memory_admin.go:622`) only reads a resume journal at `history/work/v1/migration-progress-v1.json` (`:51`). It is a crash-resume token, not a migrator.
+- It is reachable **only** from the explicit `entire brain memory migrate` command (`internal/cli/memory_admin.go:841`); nothing auto-invokes it. Detection is `detectMemoryMigrations` (`:674-805`).
+- Artifacts `migrate` can actually act on (`:915-940`): the short-term overlay, projection receipts + history index (both via `rebuildMemoryProjection`), and legacy memory job files. Everything else detected is diagnosis-only / read-only error.
+- This machinery is **unchanged since v0.1.0** (`git diff v0.1.0..HEAD -- internal/cli/memory_admin.go` is cosmetic only — receipt rendering and command-name strings).
+
+**NOT migrated and NOT even detected:**
+- `manifest.json` itself (the thing that actually changed).
+- Memories/facts store `facts/&lt;slug&gt;/facts.ndjson` (`internal/cli/facts.go:20,23`).
+- Session transcripts `sessions/**/*.jsonl`.
+- Semantic/code index `semantic/generations`, `semantic/snapshots`.
+- Embeddings/vector **store** (only `vector-progress` state is inspected, `memory_admin.go:688`).
+- Docs source + docs FTS sqlite (`doc_fts.go`), history FTS sqlite (`history_fts.go`), pattern corpus sqlite (`pattern_corpus.go`), entity index, distill cache, checkpoint metadata cache, tombstones.
+
+**Failure mode:** `migrate` reports "every derived schema is current" on a store whose transcript and semantic layout 0.2.0 has silently changed.
+
+## 3. Downgrade (0.1.0 opens a 0.2.0-touched store) — **UNSAFE**
+
+**Verdict: UNSAFE (no clean refusal; split read/write behavior)**
+
+- **No forward-version check fires.** `v0.1.0:internal/cli/brain_manifest_read.go:55` compares `schema_version` — still 3 — so the gate passes.
+- **Writers refuse, but mislabeled.** `v0.1.0:internal/cli/brain.go:195` → `readBrainManifest(dir, false)` → `DisallowUnknownFields` → unknown field `transcript_storage` / `store_owner` → `v0.1.0:internal/cli/brain_manifest_read.go:67` emits `memory_state_corrupt: brain manifest cannot be parsed`. v0.1.0 lacks the remedy text added at HEAD (`internal/cli/brain.go:230-232`), so the operator sees a corruption error with no action.
+- **Readers silently drop.** `tolerateUnknown` re-decodes without the fields (`v0.1.0:internal/cli/brain_manifest_read.go:60-63`), so v0.1.0 proceeds believing `transcript_storage` is empty → expects materialized `sessions/**.jsonl` that 0.2.0 deleted, and believes the semantic source has no `store_path` (`v0.1.0:internal/cli/semantic.go:470`) → code inspection reports unavailable.
+- Recovery exists but is itself destructive and manual: `v0.1.0:internal/cli/refresh.go:180` → `discardManifestThisBuildCannotRewrite` deletes the manifest under `refresh --force`.
+
+**Failure mode:** the old binary does not refuse — it reads the new manifest with the new fields erased, then reports missing transcripts and an absent code index as ordinary emptiness.
+
+## 4. One-way rewrite / backup — **UNSAFE**
+
+**Verdict: UNSAFE (two destructive in-place migrations, no backup, one of them automatic)**
+
+**(a) Transcript cache sweep — automatic, triggered without any `refresh`:**
+- `internal/cli/export.go:338` plans it, `:345` stamps `transcript_storage=checkpoint`, `:367` runs `sweepTranscriptCache` inside the brain write lock.
+- `internal/cli/transcript_cache_migration.go:113-143` — `inventory.root.Remove(file.Rel)` deletes each cached transcript, then removes the directories. Files are proven recoverable from checkpoints first (`:56-92`), but **nothing is copied anywhere**.
+- Reached from the background worker, not just the CLI: `internal/cli/memory_cmd.go:189-197` (`memoryWorkerPrepass`) → `internal/cli/history_delta.go:992` (`runExport`). The worker is auto-launched at MCP startup (`internal/cli/memory_cmd.go:240,257`), so first contact with a 0.2.0 binary rewrites the store.
+
+**(b) Semantic index retirement — on any `refresh`, even with Graph absent:**
+- `internal/cli/graph_store.go:195` calls `migrateBrainGraphStorage` **before** the `skipGraph`/doctor/availability checks at `:200-230` — comment at `:193`: "Retire the duplicate even on installations without Graph."
+- `internal/cli/graph_store.go:282-292` — `os.RemoveAll` on `semantic/generations` and `semantic/snapshots`, the exact directories v0.1.0 wrote its SQLite index into (`v0.1.0:internal/cli/semantic.go:34,1808`).
+- Reached by plain `brain refresh`: `internal/cli/refresh.go:418` → `runRefreshSemanticPhase` → `internal/cli/refresh_phases.go:38` → `runSemanticIndex` → `runGraphOwnedIndex`.
+
+**Backup:** none. The only `.bak`-style path in the tree is `pushHookBackupSuffix` (`internal/cli/push_hook.go:28`), unrelated to brain state.
+
+**Failure mode:** the first 0.2.0 worker launch (not an operator-chosen `refresh`) deletes the 0.1.0 transcript cache and, on first `refresh`, the 0.1.0 semantic index — with no backup and no version stamp change, making downgrade immediately lossy for anyone without local checkpoint refs or an installed Graph.</result>
+<usage><subagent_tokens>126640</subagent_tokens><tool_uses>73</tool_uses><duration_ms>339203</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a82abd3c8c8abccfb</task-id>
+<tool-use-id>toolu_01Ustve53qKh6ATwpqo3sCoS</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-kyoto/b0422b4f-6d72-48a0-9cac-20abfe60def4/tasks/a82abd3c8c8abccfb.output</output-file>
+<status>completed</status>
+<summary>Agent "Audit guide staleness + wire gate" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## A. Committed agent guide
+
+### Q1 — Does the binary READ the committed guide? **PASS (reads it; a stale 0.1.0 guide does not break it)**
+
+**The reader:** `/Users/evisdrenova/conductor/workspaces/entire-brain/kyoto/internal/agentsetup/activation.go:89` `readActivation(repo)` → `parseActivation` (`activation.go:42`), which parses the activation comment `activation.go:12`:
+
+```
+const activationPrefix = "&lt;!-- entire-agent-activation: "
+```
+Record shape (`activation.go:15-19`): `{"schema_version":1,"enabled":["graph","brain"],"mode":…}`, decoded with `DisallowUnknownFields` (`activation.go:63`).
+
+**Only one call site:** `internal/agentsetup/preview.go:24` (`Preview`) — reached by `setup`'s agents phase (`internal/cli/setup.go:1048` → `internal/cli/agent_wiring.go:78-81`) and by `entire brain agent-guide` (`internal/cli/agent_setup.go:27`). Nothing else in the binary reads the guide body; `AgentsWired` (`internal/agentsetup/files.go:2112-2138`) only stats the file and greps `AGENTS.md`/`CLAUDE.md` for `&lt;!-- entire-agent:begin --&gt;`.
+
+**Stale-0.1.0 compatibility:** `git diff v0.1.0..HEAD -- internal/agentsetup/activation.go` is **empty** — the activation format is byte-identical. v0.1.0 installed via the same `Preview`→`renderActivation` path (`git show v0.1.0:internal/cli/agent_setup.go:46`), so every 0.1.0-era guide carries a parseable comment. The heading fallback also still recognizes all v0.1.0 headings (`activation.go:120-125`; v0.1.0 headings from `git show v0.1.0:internal/agentsetup/guide.go:77-81`). `Pointer` (`files.go:22`) and the marker constants (`files.go:35-38`) are unchanged from v0.1.0.
+
+**Only-misleading, with two real residues:**
+- `facts` is still a live alias → a stale guide's `entire brain facts tree` / `facts retract` still work: `internal/cli/facts_admin_cmd.go:18-19` `Use: "memories", Aliases: []string{"facts"}`.
+- `init-agents` is **gone with no alias** (`CHANGELOG.md:8-16`, "### Removed — The `init-agents` command"). It never appeared in the *rendered* guide text (`git grep -n init-agents v0.1.0 -- internal/agentsetup` hits only code comments; v0.1.0 `guide.go` and `brain-reference.md` have zero matches), so committed guides don't name it — but any README/AGENTS.md prose that does now yields cobra's unknown-command error.
+- One command dropped from the reference text but still present in the binary: `inspect graph-schema` (`internal/cli/agent_surface.go:862`).
+
+**The one hard-failure path** (not reachable from a normal 0.1.0 guide): no activation comment *and* an unrecognized first line → `activation.go:132`
+&gt; `unrecognized agent guide .entire/agent-guide.md; preserve or migrate its content before regenerating`
+
+and `activation.go:48`
+&gt; `invalid or unsupported agent activation metadata; repair before regenerating`
+
+This fails `agent-guide` outright and degrades `setup`'s agents phase to a warning (pinned by `scripts/test-agent-coordination.py:199-210`).
+
+### Q2 — Version/hash stamp + stale-guide detection: **FAIL**
+
+- No guide version or content hash is stamped. The only stamp is `"schema_version": 1` on the activation record (`activation.go:38`), which is a *format* version, pinned at 1 since v0.1.0, and is never compared against the binary's build.
+- No command detects a stale guide. `status`/`setup` check **existence only** (`internal/agentsetup/files.go:2112-2138`), producing:
+  - `internal/cli/agent_surface.go:4662`: `"agents not wired: missing &lt;files&gt;; run entire brain setup so your agent uses this brain"`
+  - `internal/cli/setup_status.go:409`: `"  agents: NOT WIRED — run `entire brain setup` so your agent uses this brain"`
+  - `internal/cli/status_render.go:539`: `"not wired — run `entire brain setup` so your agent uses this brain"`
+- A guide that exists but is 0.1.0-era text is reported as **wired and healthy**. `doctor` (`internal/cli/doctor.go:101`) has no guide check at all. Grep for `guide_version|guideHash|stale guide|guide is out of date` returns nothing in non-test code.
+- The only drift control is in-repo tests, not a runtime check: `internal/cli/guide_contract_test.go`, `internal/cli/truthful_advice_test.go`, `scripts/test-agent-coordination.py` (pins the entire-graph/entire-brain mirror).
+
+### Q3 — What re-renders, and is it safe? **PASS**
+
+- `setup` re-renders on **every** run: `internal/cli/setup.go:1048` `report.Agents = wireAgentInstructions(repoDir, !setupOpts.noAgentHooks, mode)` → `internal/cli/agent_wiring.go:80-84` `agentsetup.Preview(repoDir, "brain", …)` + `agentsetup.InstallChanged`. `agent-guide` is read-only preview; `init-agents` no longer exists.
+- Activation comment is **preserved**: `Preview` reads the existing record, adds `brain`, keeps `mode` unless `--strict`/`--normal` is passed (`preview.go:24-31`), and `renderActivation` always re-emits the comment (`activation.go:39`). Normal mode is deliberately omitted from the record "to retain byte-for-byte compatibility with existing guides" (`activation.go:33-37`).
+- Idempotent: `InstallChanged` snapshots before/after and reports only real changes (`internal/agentsetup/report.go:13-56`); the `AGENTS.md`/`CLAUDE.md` block is replaced in place between markers. User-visible on a no-op re-run (`internal/cli/setup.go:2404-2408`):
+  &gt; `agent instructions already current (.entire/agent-guide.md, AGENTS.md, CLAUDE.md)`
+
+  and when rewritten: `agent instructions written (…) — agents are told this brain exists`. Failure is a warning, never an exit code (`setup.go:2398-2402`):
+  &gt; `agent instructions not written: &lt;detail&gt; — no agent will discover this brain; fix the cause and re-run `entire brain setup``
+
+## B. Hosted wire / cloud sync
+
+### Q4 — Version gating: **MIXED — PASS for the host-CLI gate, FAIL for wire-level enforcement**
+
+**(a) Host-CLI minimum (the precedent, client-enforced, connect only):**
+- `/Users/evisdrenova/conductor/workspaces/entire-brain/kyoto/internal/cli/connect_cmd.go:22` `var minHostCLIVersion = "0.11.6"`
+- enforced at `connect_cmd.go:186` inside `resolveHostedPlacement`, implemented `connect_cmd.go:230-262`. Exact user-visible text (`connect_cmd.go:261`):
+  &gt; ``entire CLI %s does not support `entire repo view` (needs 0.11.6 or newer); upgrade the entire CLI and re-run connect``
+- Deliberately fail-open on a missing CLI or unparseable version line (`connect_cmd.go:235-251`); skipped entirely with `--repo-id`/`--api-url` (`connect_cmd.go:76-80`).
+
+**(b) Wire schema negotiation — exists but is dead on the live path:**
+- `internal/brainwire/version.go:20` `const BrainSchemaVersion = "1.0"`; `CheckCompatibility` (`version.go:36-65`) hard-errors on a differing major, warns on a newer minor.
+- Its **only** non-test call site is `internal/hostedbrain/client.go:245` inside `Client.Initialize` (`client.go:243-253`), and `Initialize` has **no non-test caller** in the repo (`grep -rn "\.Initialize(" --include=*.go` → tests only; the sole `hostedbrain` consumer is `internal/cli/facts_proposals_cmd.go:199`, which uses the proposals HTTP surface).
+- The actual sync transport (`internal/factsync/httpserver.go:265-286` `newRequest`) sends **no version header and no client version at all** — only `Authorization` and `Content-Type`. No `426`/upgrade-required handling anywhere in `internal/factsync`, `internal/hostedbrain`, `internal/cli`.
+- Consequence: a too-old-for-the-server client sees only a generic transport error, e.g. `internal/factsync/perfact.go:81` → `factsync: POST facts upsert &lt;repo&gt;: unexpected status 404 …`, surfaced to the user as (`internal/cli/hosted_sync.go:170`):
+  &gt; `hosted sync: branch &lt;b&gt; publish failed (local brain unaffected): &lt;err&gt;; pull-only`
+
+  No upgrade guidance. Hard-error messages that *would* be produced if negotiation ran: `version.go:50-53` `brainwire: incompatible brain_schema_version %q: major %d is not supported (local supports major %d)` and `client.go:250` `hostedbrain: incompatible hosted brain schema %q`.
+
+Server-side enforcement is **UNVERIFIED** — the server lives outside this repo; nothing here reads a server-declared minimum.
+
+### Q5 — Wire schema changes since v0.1.0: **PASS — additive-only on the wire** (one breaking *import path*, one intra-0.2.0 route change)
+
+`git diff v0.1.0..HEAD --stat -- internal/brainwire/` → **no changes at all**. `BrainSchemaVersion` is still `1.0`; `BrainArtifact`/`ContentRef`/`SnapshotRef`/`OverlayRef`/`FactsRef` and the canonical-signing field order (`internal/brainwire/canonical.go:311`) are untouched.
+
+Additive changes elsewhere:
+- **`factmerge.Record` gained 4 optional fields** (`factmerge/record.go:36-50`): `author`, `agent`, `model`, `effort` — all `omitempty`, all documented as outside the content id and outside merge/sort semantics. Decoding is tolerant (`factmerge/ndjson.go:191` plain `json.Unmarshal`, no `DisallowUnknownFields`), so a v0.1.0 reader ignores them.
+- **New status enum value `candidate`** (`factmerge/record.go:23`). Guarded from the wire: `internal/factsync/egress.go:32` drops candidates in `SanitizeForEgress`, and the same function now blanks client-claimed `Author` ("Attribution is server-stamped from the verified JWT", `egress.go:36-40`).
+- **GET `/brain/facts` response gained `authors`** (`internal/factsync/httpserver.go:299-331`), behind a new `CurrentWithAuthors`; the old `Current` signature is preserved as a wrapper (`httpserver.go:292-294`) — "A server without the field yields a nil map — the sync contract is unchanged."
+- **Entirely new per-fact surface** (`internal/factsync/perfact.go`, new file): `UpsertCounts`, `FeedItem`, `FeedPage`, `ErrInvalidPageToken`, `POST /brain/facts` (NDJSON batch upsert) and `GET /brain/facts?pageToken=` (delta feed). The v0.1.0 branch-head CAS endpoints are **not removed** — `factsync.Sync`/`Current`/`Advance` still back `entire brain memories sync` (`internal/cli/facts_sync_cmd.go:120,354`; `internal/factsync/sync.go:93,146`).
+- Local-merge fix, not a wire change: `internal/factsync/sync.go:169` `if l.Status != factmerge.StatusRetracted &amp;&amp; l.Status != factmerge.StatusSuperseded` (was `== "" || == StatusActive`) — required so `candidate` is not mistaken for a retirement.
+
+Two things worth flagging though they do not break a v0.1.0 peer:
+1. **Breaking Go import path:** `internal/factmerge` → `factmerge` (`factmerge/record.go:1-9`, "It is exported (not internal/) because brainstore imports it"). Source-level break for the server repo, not a JSON-wire break.
+2. **Intra-0.2.0 route change:** `facts:upsert` colon path replaced by `POST` on the collection (`internal/factsync/perfact.go:70-72`, COR-2212) and branch-head sync replaced by per-fact push/feed for the hosted path (commit `e2ce8a2b`, COR-2126). Neither path existed in v0.1.0 (`internal/cli/hosted_sync.go` and `connect_cmd.go` are post-v0.1.0 files), so no shipped 0.1.0 client depends on them — but the new client hard-requires a brainstore serving them, with no capability probe and no fallback to the branch-head wire.</result>
+<usage><subagent_tokens>142128</subagent_tokens><tool_uses>75</tool_uses><duration_ms>379816</duration_ms></usage>
+</task-notification>
+
+---
+
+okay ho do we fix the FAILs?
+
+---
+
+put up PRs for all these
+
+---
+
+<task-notification>
+<task-id>aecb1c85d4d9a89e5</task-id>
+<tool-use-id>toolu_01GanjwkTmKbsATDPWWoRsak</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-kyoto/b0422b4f-6d72-48a0-9cac-20abfe60def4/tasks/aecb1c85d4d9a89e5.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Task 3 bundle import" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Full `internal/cli` test suite is running in the background. I'll pause here and resume once it completes to finalize the commit, self-review, and report.</result>
+<usage><subagent_tokens>148459</subagent_tokens><tool_uses>48</tool_uses><duration_ms>524693</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-aecb1c85d4d9a89e5</worktreePath><worktreeBranch>worktree-agent-aecb1c85d4d9a89e5</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a77fb9d711a79840d</task-id>
+<tool-use-id>toolu_01NvX9HB8THJpkUiiQ3Rmx2Q</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-kyoto/b0422b4f-6d72-48a0-9cac-20abfe60def4/tasks/a77fb9d711a79840d.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Task 4 tombstone" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>I'll stop here and wait for the monitor's notification that the full `internal/cli` test suite has finished, then report final status.</result>
+<usage><subagent_tokens>120059</subagent_tokens><tool_uses>55</tool_uses><duration_ms>519839</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a77fb9d711a79840d</worktreePath><worktreeBranch>worktree-agent-a77fb9d711a79840d</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a77fb9d711a79840d</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-kyoto/b0422b4f-6d72-48a0-9cac-20abfe60def4/tasks/a77fb9d711a79840d.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Task 4 tombstone" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Status: DONE
+
+- Commit: `82e40fd9` "Add hidden init-agents tombstone command" on branch `compat/init-agents-tombstone` (base `origin/main`@`0af2e06f`)
+- Test summary: `TestInitAgentsTombstone` RED (cobra's generic unknown-command error) → GREEN after implementation; `gofmt -l -s .`, `go vet ./...`, `go build ./...` all clean
+- Concerns: full `internal/cli` suite timed out at Go's default 10m while stuck in an unrelated symlink/privacy-fixture test, caused by 7+ concurrent `go test ./internal/cli` processes from other sessions on this machine — not a regression from this change (diff touches only `agent_setup.go`/`root.go`/`root_test.go`); details and evidence in the report
+- Report: `/Users/evisdrenova/conductor/workspaces/entire-brain/kyoto/.superpowers/sdd/2026-10-22-compat-fails-fixes/task-4-report.md`</result>
+<usage><subagent_tokens>132033</subagent_tokens><tool_uses>62</tool_uses><duration_ms>863858</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a77fb9d711a79840d</worktreePath><worktreeBranch>worktree-agent-a77fb9d711a79840d</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>afbef97f453fa7656</task-id>
+<tool-use-id>toolu_01HhYHLk5YSVNzji8X68PKUG</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-kyoto/b0422b4f-6d72-48a0-9cac-20abfe60def4/tasks/afbef97f453fa7656.output</output-file>
+<status>completed</status>
+<summary>Agent "Review Task 4 (spec+quality)" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All consistent with codebase style. The implementation is small and matches the brief precisely. Final assessment below.
+
+### Spec Compliance
+- ✅ Spec compliant.
+  - Hidden cobra command `init-agents` added, dispatchable, `RunE` returns error naming `entire brain setup` and `--strict`/`--normal` (`internal/cli/agent_setup.go:33-42`).
+  - Registered via existing `addHidden` closure (`internal/cli/root.go:101-104`, call at `root.go:72` region / diff line "addHidden(newInitAgentsTombstoneCommand())").
+  - Verified `cmd/entire-brain/main.go:18-23`: `Execute()` error path prints the error and `os.Exit(1)` — confirms the report's claim that no main.go change was needed and exit code / message surfacing work as required.
+  - Test (`root_test.go:99-119`) asserts both the error substrings and absence from `--help`, matching brief Step 1 exactly.
+  - `setup`'s own command/flags untouched — diff touches only `agent_setup.go`, `root.go`, `root_test.go`; no changes to `newSetupCommand`.
+
+### Strengths
+- Minimal, surgical diff (44 insertions, 3 files) — no scope creep.
+- Error message wraps the replacement command in backticks and names both flags, satisfying the "name the fix" policy precisely.
+- Test covers both required assertions (error text, help hiding) using the real `NewRootCommand`/`Execute()` path, not a mock.
+- Comments on both the command (`agent_setup.go:28-32`) and registration site (`root.go`, tombstone comment) explain the non-obvious rationale (why hidden, why dispatchable) without restating code.
+
+### Issues
+
+#### Critical (Must Fix)
+None.
+
+#### Important (Should Fix)
+None.
+
+#### Minor (Nice to Have)
+- `agent_setup.go:36`: `Hidden: true` set directly on the command is redundant with `addHidden` (root.go:102) setting it again — but this matches existing repo convention (`bench.go:49`, `facts_eval_gen.go:47`, etc. do the same), so not worth changing.
+- ⚠️ Full `internal/cli` suite run wasn't completed (timed out from reported machine-wide contention, unrelated test file `session_privacy_test.go`). Given the diff's blast radius is 3 files with no overlap with the hung test, and the focused test/vet/build/gofmt are all clean, this is sufficient evidence for a 3-file additive, hidden-command change. Controller may optionally re-run the full package suite once machine load clears, but it is not a blocker for this task.
+
+### Assessment
+**Task quality:** Approved
+**Reasoning:** Diff matches the brief exactly (hidden tombstone command, correct error content, help concealment, setup untouched), verification (gofmt/vet/build/focused test) is clean, and the one incomplete check (full-package test run) is adequately explained and low-risk for this change's scope.</result>
+<usage><subagent_tokens>60459</subagent_tokens><tool_uses>12</tool_uses><duration_ms>41505</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a77fb9d711a79840d</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-kyoto/b0422b4f-6d72-48a0-9cac-20abfe60def4/tasks/a77fb9d711a79840d.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Task 4 tombstone" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>This is a stale duplicate notification from the earlier monitor (same stack trace already analyzed and reported). No new information — my DONE report already covers this finding.
+
+No action needed; standing by.</result>
+<usage><subagent_tokens>134021</subagent_tokens><tool_uses>62</tool_uses><duration_ms>965408</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a77fb9d711a79840d</worktreePath><worktreeBranch>worktree-agent-a77fb9d711a79840d</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a4275c724ee20a941</task-id>
+<tool-use-id>toolu_01XRyDNQGbqeEZd1o7ttbo5E</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-kyoto/b0422b4f-6d72-48a0-9cac-20abfe60def4/tasks/a4275c724ee20a941.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Task 1 manifest v4" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Waiting for the background full test-suite run and the monitor to notify me of completion before finalizing this task. I'll report back once I have results.</result>
+<usage><subagent_tokens>190978</subagent_tokens><tool_uses>118</tool_uses><duration_ms>1050454</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a4275c724ee20a941</worktreePath><worktreeBranch>worktree-agent-a4275c724ee20a941</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aecb1c85d4d9a89e5</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-kyoto/b0422b4f-6d72-48a0-9cac-20abfe60def4/tasks/aecb1c85d4d9a89e5.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Task 3 bundle import" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Waiting for the full verbose `internal/cli` test run to finish before proceeding.</result>
+<usage><subagent_tokens>155593</subagent_tokens><tool_uses>56</tool_uses><duration_ms>1025539</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-aecb1c85d4d9a89e5</worktreePath><worktreeBranch>worktree-agent-aecb1c85d4d9a89e5</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a4275c724ee20a941</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-kyoto/b0422b4f-6d72-48a0-9cac-20abfe60def4/tasks/a4275c724ee20a941.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Task 1 manifest v4" finished</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Still waiting on the verbose full test suite run to determine whether the 10-minute timeout/hang is caused by my changes or is pre-existing. Will investigate as soon as it completes or produces interim output.</result>
+<usage><subagent_tokens>195326</subagent_tokens><tool_uses>126</tool_uses><duration_ms>1162747</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a4275c724ee20a941</worktreePath><worktreeBranch>worktree-agent-a4275c724ee20a941</worktreeBranch></worktree>
+</task-notification>
