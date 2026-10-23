@@ -1,0 +1,77 @@
+<task-notification>
+<task-id>blk2ldkmk</task-id>
+<tool-use-id>toolu_01KG7rSYVZFf6sYpkaBux9SS</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-davis/3b8da7c5-8c33-4f0e-9a62-c508d26c9749/tasks/blk2ldkmk.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full internal/cli test suite (background)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bebw4oq6r</task-id>
+<tool-use-id>toolu_0121BAeFKUm5CtRMWEfD1Xe9</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-davis/3b8da7c5-8c33-4f0e-9a62-c508d26c9749/tasks/bebw4oq6r.output</output-file>
+<status>completed</status>
+<summary>Background command "Rerun full suite capturing failures (background)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+look at the bugbot: https://github.com/entireio/entire-brain/pull/446
+
+---
+
+merged. validate it on main
+
+---
+
+<task-notification>
+<task-id>b313luwg8</task-id>
+<tool-use-id>toolu_01UNt2hjYGvqcY5cv6neAnMx</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-davis/3b8da7c5-8c33-4f0e-9a62-c508d26c9749/tasks/b313luwg8.output</output-file>
+<status>completed</status>
+<summary>Background command "Run validation bench with main-built binary (background)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+okay nice.  let's run another profile now on main with this change included so we can see where we are
+
+---
+
+<task-notification>
+<task-id>bvlbry8w3</task-id>
+<tool-use-id>toolu_017BrbMDAYqJE69BT9J6jE6T</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-davis/3b8da7c5-8c33-4f0e-9a62-c508d26c9749/tasks/bvlbry8w3.output</output-file>
+<status>completed</status>
+<summary>Background command "Second profile run on main binary (background)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+let's model out 1 and 2 and see what we can push
+
+---
+
+<task-notification>
+<task-id>b5v8b69fh</task-id>
+<tool-use-id>toolu_01RSAEx9xR7FQrzJjsXGnpcC</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-davis/3b8da7c5-8c33-4f0e-9a62-c508d26c9749/tasks/b5v8b69fh.output</output-file>
+<status>completed</status>
+<summary>Background command "Sweep concurrency and chunk-size configs sequentially (background)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bqxuqzhlp</task-id>
+<tool-use-id>toolu_01UQYKE4aJvLnxQRhAE6y2NZ</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-davis/3b8da7c5-8c33-4f0e-9a62-c508d26c9749/tasks/bqxuqzhlp.output</output-file>
+<status>completed</status>
+<summary>Background command "Run concurrency-16 config (background)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+yeah okay let's move up the concurrency
