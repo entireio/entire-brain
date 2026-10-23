@@ -1,0 +1,21 @@
+this is failing 2 tests: https://github.com/entireio/entire-brain/pull/462
+
+---
+
+<task-notification>
+<task-id>buza6gank</task-id>
+<tool-use-id>toolu_01RGTodUanQgEKRRzNAPJnrQ</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-surabaya/470136d0-c890-4402-921b-e8667f017548/tasks/buza6gank.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for rerun to complete and report check status" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bfjss2t3c</task-id>
+<tool-use-id>toolu_01Lvd5vGfbm7CsSRyhBLD89F</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-surabaya/470136d0-c890-4402-921b-e8667f017548/tasks/bfjss2t3c.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for full rerun and list any non-green jobs" completed (exit code 0)</summary>
+</task-notification>
