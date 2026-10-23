@@ -1,0 +1,70 @@
+<task-notification>
+<task-id>bp84c12th</task-id>
+<tool-use-id>toolu_014mGhKfu4drPaMQ4pVekV7Q</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-surabaya/470136d0-c890-4402-921b-e8667f017548/tasks/bp84c12th.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for cli suite rerun result" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+so whiel this is running, what do we do this?
+
+Flagged: degraded states with NO remediation path (not text-fixable)
+The generic "X unavailable: " + err wrap class — ~17 brief/live
+warning sites (agent_surface.go). The honest fix is enriching the error
+at its source, as done here for history artifacts; a wrap-site command
+would guess.
+File-lock timeouts (filelock.go, 12 lock codes) — name the holder pid
+but no action (wait/retry/kill is situational).
+memory_unsupported_version / newer-schema refusals — the remedy
+(upgrade the brain binary) has no stable in-product command to name;
+doctor's upgrade remedy covers it interactively.
+fact review queue unreadable; verify fact consistency… — names no
+command, and none exists.
+5 of 6 freshness axes leave their Remedy field empty
+(agent_surface.go:4686-4716).
+7 of 9 semanticDoctorFailureError branches (semantic.go:701-721)
+state the cause without a command.
+Dead code: semanticRefreshNeeded's identity warning is hardcoded ""
+on every path (refresh.go:728-752), so its warning: %s print is
+unreachable.
+Root cause upstream: bench/CI tooling that clones brain state should
+use APFS clonefile (cp -c) or a real copy, never hardlinks — a hardlink
+mutates the nlink of the LIVE store it copies.
+
+---
+
+yes agree
+
+---
+
+okay this si now merged: https://github.com/entireio/entire-brain/pull/458
+
+where are the other PRs?
+
+---
+
+<task-notification>
+<task-id>berjpp8iy</task-id>
+<tool-use-id>toolu_01TBa2zENS9K8gF1mMk79mdZ</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-surabaya/470136d0-c890-4402-921b-e8667f017548/tasks/berjpp8iy.output</output-file>
+<status>completed</status>
+<summary>Background command "Format check and full cli suite" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bt76g84w2</task-id>
+<tool-use-id>toolu_01E7o1deyMi9eeA3rXzGKeGM</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-surabaya/470136d0-c890-4402-921b-e8667f017548/tasks/bt76g84w2.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for follow-up suite completion" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+i thikn this workspace and this one: conductor://workspace?id=b643cf32-d22f-40f4-a784-ff370878409f
+
+are working on the sme one?
