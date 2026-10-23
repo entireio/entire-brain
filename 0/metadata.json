@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5KGZ6PQ4NA17SA5J3PGZEHD",
+  "session_id": "4b0161b1-b2bb-4322-9bac-ffab638af0b4",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-23T04:40:42.530217Z",
+  "branch": "per-fact-wire-memory-sync",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/facts_admin_cmd.go",
+    "internal/cli/facts_hosted_binding.go",
+    "internal/cli/facts_sync_cmd.go",
+    "internal/cli/facts_sync_hosted_cmd_test.go",
+    "internal/cli/hosted_sync.go",
+    "internal/cli/reconcile.go",
+    "internal/factsync/body_limit_test.go",
+    "internal/factsync/dial_retry_test.go",
+    "internal/factsync/error_body_test.go",
+    "internal/factsync/https_floor_test.go",
+    "internal/factsync/httpserver.go",
+    "internal/factsync/httpserver_timeout_test.go",
+    "internal/factsync/proposalid.go",
+    "internal/factsync/repoid_segment_test.go",
+    "internal/factsync/supersede_direction_test.go",
+    "internal/factsync/sync.go",
+    "internal/factsync/token_redaction_test.go",
+    "internal/factsync/wire_fuzz_test.go",
+    "internal/hostedbrain/client_fuzz_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "d5e53cb182fb",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 290,
+    "cache_creation_tokens": 653741,
+    "cache_read_tokens": 36431905,
+    "output_tokens": 116960,
+    "api_call_count": 145
+  }
+}
