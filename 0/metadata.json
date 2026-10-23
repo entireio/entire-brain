@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5KJDWY118R9ERY3NRWV5YSN",
+  "session_id": "40556eca-85d1-47ae-b5d7-0d40be2bea9e",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-23T05:06:13.048925Z",
+  "branch": "windows-ci-release-gate",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/workflows/nightly.yml",
+    ".github/workflows/release.yml",
+    "docs/releasing.md",
+    "tools/windows-sanity.ps1"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "29ec6b54912a",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 56,
+    "cache_creation_tokens": 116170,
+    "cache_read_tokens": 2920748,
+    "output_tokens": 30127,
+    "api_call_count": 28
+  }
+}

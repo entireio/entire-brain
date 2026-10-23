@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5KJDWY118R9ERY3NRWV5YSN",
+  "strategy": "manual-commit",
+  "branch": "windows-ci-release-gate",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/workflows/nightly.yml",
+    ".github/workflows/release.yml",
+    "docs/releasing.md",
+    "tools/windows-sanity.ps1"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 56,
+    "cache_creation_tokens": 116170,
+    "cache_read_tokens": 2920748,
+    "output_tokens": 30127,
+    "api_call_count": 28
+  }
+}
