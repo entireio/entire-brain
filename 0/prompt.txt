@@ -1,0 +1,16 @@
+status?
+
+---
+
+why do i have two diffferente titlles for 452?
+
+https://github.com/entireio/entire-brain/pull/452
+https://github.com/entireio/entire-brain/pull/452
+
+which one is the right??
+
+---
+
+okay i think this is ready to merge?
+
+https://github.com/entireio/entire-brain/pull/452

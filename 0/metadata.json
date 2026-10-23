@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5KMV4FXM4NES0WD0YB1HEM0",
+  "session_id": "4b0161b1-b2bb-4322-9bac-ffab638af0b4",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-23T05:48:24.457001Z",
+  "branch": "per-fact-wire-memory-sync",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "SECURITY.md",
+    "factmerge/ndjson.go",
+    "internal/cli/entities_cmd.go",
+    "internal/factgitmeta/store.go",
+    "internal/factsync/httpserver.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "38482aaf6285",
+  "checkpoint_transcript_start": 1157,
+  "transcript_lines_at_start": 1157,
+  "compact_transcript_start": 230,
+  "token_usage": {
+    "input_tokens": 58,
+    "cache_creation_tokens": 458915,
+    "cache_read_tokens": 12548984,
+    "output_tokens": 15623,
+    "api_call_count": 29
+  },
+  "session_metrics": {
+    "turn_count": 4
+  }
+}
