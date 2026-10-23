@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5KP6P4HZRQ7GK0HHS8QH689",
+  "session_id": "943130fa-ac7a-4c11-b7b5-ad315a855ef3",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-23T06:12:07.580294Z",
+  "branch": "release-smoke-task",
+  "checkpoints_count": 11,
+  "save_step_count": 7,
+  "files_touched": [
+    "mise-tasks/release/smoke"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "0af1431f6c25",
+  "checkpoint_transcript_start": 535,
+  "transcript_lines_at_start": 535,
+  "compact_transcript_start": 114,
+  "token_usage": {
+    "input_tokens": 234,
+    "cache_creation_tokens": 1567705,
+    "cache_read_tokens": 33583577,
+    "output_tokens": 81741,
+    "api_call_count": 117
+  },
+  "session_metrics": {
+    "turn_count": 14
+  }
+}
