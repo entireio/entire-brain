@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5KNRV1QB781CPRF3KJVQR4B",
+  "strategy": "manual-commit",
+  "branch": "degraded-state-remedies",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/export.go",
+    "internal/cli/filelock.go",
+    "internal/cli/filelock_unix.go",
+    "internal/cli/filelock_windows.go",
+    "internal/cli/history.go",
+    "internal/cli/history_hardlink_repair_test.go",
+    "internal/cli/history_legacy_identity.go",
+    "internal/cli/host_cli.go",
+    "internal/cli/memory_admin.go",
+    "internal/cli/memory_receipts.go",
+    "internal/cli/semantic.go",
+    "internal/cli/status_render.go",
+    "internal/cli/status_render_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 252,
+    "cache_creation_tokens": 1022540,
+    "cache_read_tokens": 23848224,
+    "output_tokens": 99294,
+    "api_call_count": 126,
+    "subagent_tokens": {
+      "input_tokens": 68,
+      "cache_creation_tokens": 153087,
+      "cache_read_tokens": 3550150,
+      "output_tokens": 24099,
+      "api_call_count": 34
+    }
+  }
+}

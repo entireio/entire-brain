@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01QFsRVypKJWBMwmgNjoL2ht",
+  "agent_id": "a8cb8aba971c14a11",
+  "subagent_type": "Explore",
+  "task_description": "Inventory degraded-state messages",
+  "token_usage": {
+    "input_tokens": 68,
+    "cache_creation_tokens": 153087,
+    "cache_read_tokens": 3550150,
+    "output_tokens": 24099,
+    "api_call_count": 34
+  },
+  "started_at": "2026-10-22T21:57:34.960708-07:00",
+  "completed_at": "2026-10-22T22:02:59.280887-07:00"
+}

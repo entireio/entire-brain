@@ -1,0 +1,318 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/surabaya directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name. Conductor will automatically rename it in the background to match your task.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/surabaya/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+The docs-list agent finished — **the #2 deliverable is ready** at `.context/docs-team-update-list.md`: 38 items across 8 sections (retrieval/query, memories, setup & agents, graph integration, distill, sync/hosted, MCP, other), verified against built-in help from this tree vs a temp v0.1.0 worktree, all 314 merges classified. It ends with the "pending before stable" section (sync-wire change, 0.2.0/0.5.0, compat policy) and a caveat that entire-graph's own repo needs the same pass.
+
+It also surfaced four findings that matter beyond the docs team — three belong in the **#4 compat workspace**:
+
+1. **Semantic/vector retrieval was removed entirely** (trail #278; BM25 is now the only ranking) and it's **not in the CHANGELOG**. `--semantic`, `recall --no-semantic`, and `brain_vsearch` survive as no-op compat aliases. Biggest single docs-team item, and a must for #12's CHANGELOG entry.
+2. **`init-agents` violates your no-silent-breakage policy today:** it fails with a bare "unknown command" — no alias, no message naming `setup`. The CHANGELOG text promises better than the binary delivers. (Recorded as brain memory `fact:4726b585`.)
+3. **`repair` kept its name but changed meaning** (semantic indexes → Graph committed-tree index) with no notice.
+4. **Stale help in the binary itself:** root/`query` help still says "hybrid by default" despite semantic removal, and the `/v1/` REST surface's paths still say `facts`. The docs list warns the team not to copy current help text verbatim.
+
+Suggested routing: hand the file to the docs team as-is; paste findings 2–4 into the #4 workspace (they're exactly the matrix rows it's testing); finding 1 also goes to #12 when we write the CHANGELOG.
+
+Still open from before: want to take **#8 (claim posture)** next, or deal with these findings first?
+
+---
+
+sorry wrong one. meant this one:
+
+
+
+Task: degraded-state message audit for entire-brain (stable-release v0.2.0 gate).
+Every warning/error a user can hit in normal operation must state: what degraded,
+what stops working, and the ONE command that fixes it.
+
+The standard (already in the codebase): facts_integrity.go:252 —
+"memory count does not match the manifest: ... — run `entire brain refresh`".
+Match that shape everywhere.
+
+Work:
+1. Inventory degraded states. Grep warning/error constructors feeding brief/status/
+   recall/query output (brief "warnings" array, setup_status.go states, host_cli.go,
+   facts_integrity.go, filelock errors in internal/config and internal/cli). Known
+   states: graph/semantic provider absent; host entire CLI not on PATH; manifest
+   behind store; hardlinked history index (filelock refusal); stale/missing index;
+   branch has no memories (brief suggests --branch retry); NO_EGRESS/LOCAL_ONLY
+   suppression; repo identity conflict. Expect a few more — list what you find.
+2. For each: does the message name its fix? Fix the text where remediation exists.
+   Where NONE exists, that's a finding, not a text edit — flag it.
+3. Priority case: "history index must not be hardlinked: <path>" (internal/config/
+   filelock_unix.go:20). This fires in the wild (hit on evis's machine; it silently
+   removes history context from every brief). Determine the actual repair (does
+   `refresh` rebuild the history index? does the daemon re-create it?), make the
+   message name it, and if no repair exists, propose one in the PR before building it.
+4. Graph-absent hint: brain treats graph as encouraged-never-required
+   (hostCLISemanticProviderAbsent, host_cli.go:107 — keep that design). Add/verify a
+   one-line hint in `status` and brief warnings when the semantic provider is absent:
+   what's degraded (code context/semantic queries) and the exact install command via
+   the entire CLI plugin flow (verify the real command; do not invent it). Also
+   verify what happens when an INCOMPATIBLE graph version is present — the pinning
+   guidance is >=1.0 <2.0 provider schema — and that the error names the required
+   version.
+5. Human output goes through internal/tui; JSON warning strings are a compat
+   surface — changing their wording is fine, changing JSON keys/structure is not.
+
+Deliverable: one PR with the message fixes + a short table in the PR body
+(state | trigger | message before | message after | fix command), plus flagged
+findings for states with no remediation path. Normal PR flow: pull main first,
+branch, explicit git add, local oxfmt check before push.
+
+---
+
+<task-notification>
+<task-id>bup0ykrkn</task-id>
+<tool-use-id>toolu_0171d14JHqvQXKQb6TijnR54</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-surabaya/470136d0-c890-4402-921b-e8667f017548/tasks/bup0ykrkn.output</output-file>
+<status>completed</status>
+<summary>Background command "Sweep home directory for the second hardlink by inode" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a8cb8aba971c14a11</task-id>
+<tool-use-id>toolu_01QFsRVypKJWBMwmgNjoL2ht</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-surabaya/470136d0-c890-4402-921b-e8667f017548/tasks/a8cb8aba971c14a11.output</output-file>
+<status>completed</status>
+<summary>Agent "Inventory degraded-state messages" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Conventions the repo already enforces (read these first)
+
+**Command-name helpers — never hardcode `entire brain &lt;verb&gt;`**
+- `/Users/evisdrenova/conductor/workspaces/entire-brain/surabaya/internal/cli/setup_invocation.go:57` — `brainInvocation(os.LookupEnv, "refresh")` renders `entire brain refresh` **or** `entire-brain refresh` depending on `ENTIRE_CLI_VERSION`. This is the required helper for any printed command.
+- `setup_invocation.go:28` — `setupCommandPrefix(lookup)` = prefix only (delegates to `internal/providerdetail/providerdetail.go:SetupCommand`).
+- `setup_invocation.go:34` — `setupBrainCommand(brainCmd)` guards a caller that forgot to resolve (falls back to `entire-brain`).
+- `setup_invocation.go:52` — `semanticIndexVerb = "refresh index"`. There is **no** `entire brain index` verb; twelve strings once named it and were unrunnable.
+- Enforced by `internal/cli/runnable_remedies_test.go` (`TestNoHardcodedBrainSpellingInPrintedRemedies`, regex `entire brain [a-z][a-z-]*`, with an explicit `deliberatelyHardcoded` allowlist of 11 lines: cobra `Long` help, MCP tool descriptions, the persisted seed artifact, the capabilities contract, transcript matchers, the `viz` banner, and doctor's `cd '&lt;your repository&gt;' &amp;&amp; entire brain doctor` template).
+- Enforced by `internal/cli/printed_command_resolves_test.go` — extracts every backticked `` `entire …` `` from advice and **resolves the verbs against the live cobra tree**, in both dispatch modes. A remedy naming a nonexistent subcommand fails the build.
+- `internal/cli/followable_remedies_test.go` — a remedy may not name a flag the reaching command doesn't accept (`--graph-binary` is not on `setup`/`refresh`), may not send readers to `scripts/install.sh` / a source checkout, and may not recommend deleting recoverable state.
+- `internal/cli/doctor_actionable_test.go` — **every** non-ok doctor finding must end in a command; `doctorRemedy` falls back to `doctorVerboseInvocation()` because "no remedy" is the one answer a diagnostic must never give.
+- `internal/cli/doctor_provider_remedy_test.go` — a remedy must act on the side the message says is behind (graph vs brain); classification reads the **full** detail, never the truncated line.
+- `internal/cli/empty_result_messages_test.go` — empty results must be *stated*, using the idiom `no &lt;things&gt; found in the semantic index`, naming the query; exit 0 stays 0.
+
+**JSON compat vs wording**
+- `doctorCheckResult` gains no field for remedies — the remedy is a **render-time table** (`doctor.go:712 doctorRemedies`) so human wording can change without touching `--json`.
+- `brainStatusOnboarding.HostCLIMissing` is `json:"-"` (`setup_status.go:87`); the same diagnostic is exposed to JSON/MCP consumers by *appending to `report.Warnings`* rather than adding keys (`agent_surface.go:4662` comment says so explicitly).
+- `semanticWarning.Code` strings (`provider_doctor_failed`, `provider_no_egress_unknown`, `provider_schema_newer_minor`, …), `declaredIndexDefect` JSON tags, `factStoreIntegrity` fields, and the error-code prefixes (`dirty_worktree:`, `checkpoint_scope_incomplete:`, `repo_identity_conflict:`, `no_egress:`, `host_cli_missing:`, `memory_state_unsafe:`) are **machine contracts matched by code** (`setup.go:284`, `setup.go:291`, `watch.go:368`). Prose after the prefix is free; the prefix is not.
+- `statusCauseWidth = 140` runes (`status_render.go:169`) truncates the status `Cause` line — messages rendered there must stay short (see the deliberately-shortened skew Detail at `semantic.go:1076`).
+
+---
+
+## Surface: facts/memory integrity (the gold standard)
+
+| file:line | trigger | text (template) | names fix? | correct fix |
+|---|---|---|---|---|
+| `facts_integrity.go:223` | declared branch store won't parse | `memory store [for &lt;branches&gt;] is corrupt: &lt;parseErr&gt;; the &lt;N&gt; memory(ies) the manifest declares cannot be recalled — run \`&lt;brain&gt; refresh\` and re-distill` | yes | `refresh` + re-distill |
+| `facts_integrity.go:228-244` | readable &lt; declared / dup ids / unusable lines | `memory count does not match the manifest: &lt;D&gt; declared, &lt;R&gt; readable[ (&lt;L&gt; lost)][; &lt;U&gt; stored line(s) carry no memory id][; &lt;O&gt; more record(s) repeat a memory id (&lt;ids&gt;)] — run \`&lt;brain&gt; refresh\` and re-distill` | yes | `refresh` + re-distill |
+| `facts_integrity.go:246` | duplicate memory ids | `memory ids are not unique: &lt;O&gt; stored record(s) repeat an id the branch already holds (&lt;ids&gt;); an id identifies exactly one memory, so each repeat stands where another memory used to be and that memory can no longer be recalled; the manifest's &lt;D&gt; were counted, not read — run \`&lt;brain&gt; refresh\` and re-distill` | yes | `refresh` + re-distill |
+| `facts_integrity.go:251` | manifest behind store | `memory count does not match the manifest: &lt;D&gt; declared, &lt;R&gt; readable; the manifest is behind the store — run \`&lt;brain&gt; refresh\`` | yes | `refresh` |
+| `facts.go:272` | declared branch has no `facts.ndjson` | `facts declared for branch(es) &lt;b&gt; but their facts.ndjson is missing from the brain; those facts cannot be recalled — run \`&lt;brain&gt; refresh\` and re-distill` | yes | `refresh` + re-distill |
+| `agent_surface.go:4589` | lightweight status: declared facts file unreadable | `memory store for &lt;branch&gt; unavailable: &lt;err&gt;` | **no** | → should use `factsRepairHint()`; **FLAG** |
+| `retrieval_guard.go:351` + `agent_surface.go:1750`, `facts_read_cmd.go:248/282` | `proposals.json` unreadable | `fact review queue unreadable; verify fact consistency before relying on these facts` | **no** | no remediation path exists in code; **FLAG** (unified-path twin caveat code `proposal_state_unavailable`) |
+
+## Surface: brief warnings array (`agent_surface.go`)
+
+| file:line | trigger | text | names fix? | fix |
+|---|---|---|---|---|
+| `:530` | manifest absent | `brain not built yet — run \`&lt;brain&gt; refresh\`; every count in this report is absence of data, not absence of findings` | yes | `refresh` |
+| `:1540` | no semantic source in manifest | `semantic index missing; run \`&lt;brain&gt; refresh\`` | yes | `refresh` (cf. `semantic.go:371` / `agent_surface.go:4469` which say `refresh index`) |
+| `:1665` | no history source | `history index missing; run \`&lt;brain&gt; refresh\`` | yes | `refresh` |
+| `:544`, `:549` | boundary spec/facts read failed | `&lt;kind&gt; boundaries unavailable: &lt;err&gt;` | **no** — generic err wrap | `refresh` likely; **FLAG** |
+| `:568` | manifest declares history index that won't read | `recent decisions unavailable: the manifest declares a history index that could not be read: &lt;err&gt;` | **no** (states cause only) | `refresh history`; **FLAG** — `declaredIndexDefect.Warning()` already has the right shape |
+| `:1140`, `:1488`, `:1495`, `:1512`, `:1527`, `:1612`, `:1637`, `:1660`, `:1677`, `:1707`, `:4626`, `:4644` | each sub-source failed | `&lt;thing&gt; unavailable: &lt;err&gt;` — *blind spots / semantic context / semantic impact context / runtime trace context / test suggestions / history context / raw history fallback / global memories / memories / live state / freshness* | **no** — all 12 are bare `"X unavailable: " + err.Error()` | **FLAG as a class.** This is the single largest audit gap: a generic wrap of an arbitrary Go error, no "what stops working", no command. |
+| `:4806`, `:4811`, `:4828`, `:4855`, `:4862` | live git probe failed | `HEAD / branch / ignore rules / diff stat / changed file list unavailable: &lt;err&gt;` | **no** | **FLAG** (same class, `live.Warnings`) |
+| `:4662` | `.claude`/agent hooks not wired | `agents not wired: missing &lt;list&gt;; run &lt;prefix&gt; setup so your agent uses this brain` | yes (unbackticked) | `setup` |
+| `:4669` | background paused | `background work is paused, so this brain is not updating — \`&lt;prefix&gt; start\` resumes it` | yes | `start` |
+| `hosted_status.go:46` | hosted binding unreadable | `hosted binding unreadable (run '&lt;brain&gt; connect' to rebind): &lt;err&gt;` | yes | `connect` |
+| `hosted_status.go:75` | hosted sync marker unreadable | `hosted sync marker unreadable for branch(es) &lt;b&gt;: &lt;err&gt;` | **no** | `connect` (by analogy); **FLAG** |
+
+## Surface: branch blind spots (brief / recall / query — `blind_spot.go`)
+
+| file:line | trigger | text | fix? |
+|---|---|---|---|
+| `:269` | brief, 0 active facts on this branch, others have them | `no memories on branch %q, but %d branch(es) hold memories: &lt;list&gt;[ (and N more)] — memories are stored per branch; retry with \`--branch &lt;b&gt;\`` | yes (flag, not command) |
+| `:173` | recall/query twin | `note: no matching memories on &lt;b&gt;, but &lt;N&gt; active memory(ies) on &lt;M&gt; other branch(es): &lt;list&gt;[, ...] — retry with --branch` | partial — names the flag but not the value |
+| `:197` | brain unreadable | `note: this repository's brain could not be read, so this empty result is not evidence of absence; run \`&lt;brain&gt; status\`` | yes |
+| `:199` | no brain at all | `note: no brain has been built for this repository, so nothing is indexed here and this empty result is not evidence of absence; run \`&lt;brain&gt; setup\`` | yes |
+| `:65` | empty result over a lossy store | `note: this empty result is NOT evidence of absence — ` + `integrity.Warning()` | yes (inherits) |
+| `:352` | connected repo, branch never synced | `note: this repository is connected to a hosted brain but branch %q has not synced with it; run '&lt;brain&gt; connect' or wait for the next daemon tick` | yes |
+| `:110` | bundle import replaced fact layer | `note: a bundle import on &lt;date&gt; replaced this brain's memory layer with the bundle's, so memories recorded here before then are no longer present; this empty result is not evidence of absence` | **no** — deliberately (nothing fixes it) |
+| `:120-124` | distillation coverage unknown | `note: distillation coverage is unknown for &lt;N&gt; captured session(s); run \`&lt;brain&gt; distill\`` / `note: no distillation timestamp is recorded; run \`&lt;brain&gt; refresh\`, then \`distill\`` | yes |
+| `:126`, `:128` | partial/unknown coverage | `note: last distillation &lt;date&gt;; &lt;N&gt; session(s) captured since; coverage of older sessions is unknown` / `…complete session coverage is unknown, so this empty result is not evidence of absence` | **no** — **FLAG** (`distill` is the implied fix) |
+
+## Surface: status / setup verdicts
+
+| file:line | trigger | text | fix? |
+|---|---|---|---|
+| `status_render.go:398-421` | verdict line | `&lt;parts&gt; — &lt;nextStep&gt;` where parts ∈ {`no brain for this repo yet`, `no semantic index`, `&lt;names&gt; failed`, `N issue(s)`, `N warning(s)`, `freshness &lt;sev&gt;`}; `Cause` printed dimmed underneath | yes, via `nextStepMessage` |
+| `status_render.go:347-355` | `repairCommand()` | BrainMissing→`setup`; SemanticMissing or non-ok severity→`refresh --agent none`; else→`doctor` | yes |
+| `status_render.go:384` | host CLI absent **and** components failed | `` `entire` is not on PATH; install the Entire CLI, then run `&lt;brain&gt; setup` `` | yes |
+| `setup.go:198` | dirty worktree (the ONE resolver) | `commit or stash the working tree -- or list the paths in .brainignore, which the seed and index gates both honour -- then re-run \`&lt;brain&gt; setup\`, or \`&lt;brain&gt; refresh --worktree\` to index the uncommitted changes as they are; \`entire enable\` writes .entire/ and .claude/ without committing them, which is what a first run usually trips over` | yes (two ways out) |
+| `setup.go:211` | no captured sessions yet | `no captured sessions are readable yet — if no agent session has finished in this repo since \`entire enable\`, that is expected: work in a session, then re-run \`&lt;brain&gt; setup\`; \`entire checkpoint list\` shows what Entire itself can see` | yes |
+| `setup.go:174` | snapshot repo_key ≠ this repo | `the snapshot names a different repository than this one, usually a provider snapshot cached before this repo's origin changed; rebuild it with \`&lt;brain&gt; refresh index --force\`` | yes |
+| `semantic.go:1963` | dirty tree at seed/index gate | `dirty_worktree: refusing to &lt;verb&gt; uncommitted content without --worktree; commit or stash them, list them in .brainignore to keep them out of the brain, or pass --worktree to &lt;verb&gt; them as they are` + up to 5 blocking paths | yes (3 ways out) |
+| `setup_ui.go:166` | transient-phase failure | `&lt;flattened detail&gt; — run \`&lt;brain&gt; setup --verbose\` for details` | partial (diagnostic, not fix) |
+| `setup_ui.go:564` | no agent CLI | `install codex or claude, then re-run \`&lt;brain&gt; setup\`` | yes |
+| `setup_ui.go:591-600` | session-end hook state (4 cases) | `session-end hook wired (&lt;src&gt;) but \`entire\` is not on PATH — sessions will NOT distill until the Entire CLI is installed` / `…not wired and \`entire\` is not on PATH — install the Entire CLI, then run \`entire enable\` in this repo` / `session-end hook not wired — run \`entire enable\` in this repo so each session distills as it ends (SPENDS TOKENS per session)` | yes |
+| `setup_status.go:409` | agents unwired (text render) | `agents: NOT WIRED — run \`&lt;brain&gt; setup\` so your agent uses this brain` | yes |
+| `declared_indexes.go:88` | manifest declares seed/docs/history artifact, file gone | `&lt;label&gt; is declared in the manifest but &lt;path&gt; is not on disk — run \`&lt;brain&gt; refresh\`` | yes |
+| `declared_indexes.go:92` | same, but unreadable | `&lt;label&gt; declared in the manifest cannot be read: &lt;err&gt; — run \`&lt;brain&gt; refresh\`` | yes |
+| `agent_surface.go:4683-4760` (freshness axes) | per-axis | `no seed source in manifest; run &lt;brain&gt; refresh --agent none` / `seed and docs are based on an older commit; run &lt;brain&gt; refresh --agent none` / `no docs index in manifest; …` / `docs index declared in the manifest but docs/index.json is absent; …` / `docs index predates the current seed; …` | yes |
+| `agent_surface.go:4686, 4705, 4708, 4711, 4713, 4716` | unsafe/odd axes | `current HEAD unavailable` / `worktree seed snapshot has no verifiable fingerprint; refresh again with --worktree` / `seed was built from dirty content but the worktree is now clean` / `dirty worktree content match not verified; status does not fingerprint contents` / `worktree fingerprint unavailable: &lt;err&gt;` / `dirty worktree changed since seed and docs refresh` | **mostly no** — **FLAG**: 5 of 6 state a cause with no command (the `dirty-unindexed` axis at `:4696` is the one done right — it carries a separate `Remedy` field = `setupDirtyWorktreeHint`) |
+
+## Surface: host CLI absent / semantic provider
+
+| file:line | trigger | text | fix? |
+|---|---|---|---|
+| `host_cli.go:86` | `entire` not on PATH during session export | `host_cli_missing: session capture reads agent checkpoints through the Entire CLI and \`entire\` is not on PATH: &lt;err&gt; -- install the Entire CLI, then run \`entire enable\` in this repo; every other brain source is built without it` | yes |
+| `refresh.go:648-650` | same, progress label | `export sessions: skipped, \`entire\` is not on PATH[; using seed baseline]` | **no** (deliberate — full sentence rides on the component) |
+| `refresh.go:635` | any forgiven degraded stage | `refresh: &lt;component&gt; degraded: &lt;err&gt;` | inherits from `&lt;err&gt;` |
+| `semantic.go:697` | graph binary not found | `provider_doctor_failed: graph binary %q was not found: &lt;detail&gt;; install the provider with \`entire plugin install graph\`` | yes |
+| `semantic.go:699` | graph binary not executable | `provider_doctor_failed: graph binary %q could not be run: &lt;detail&gt;; check its permissions, or reinstall the provider with \`entire plugin install graph\`` | yes |
+| `semantic.go:701, 709, 711, 713, 715, 718, 720` | other doctor failures | `…semantic provider doctor failed to run graph binary %q: &lt;d&gt;` / `…did not respond in time` / `…returned output that could not be parsed` / `provider_network_required: …reports it requires network access, which local-only indexing does not allow` / `provider_no_egress_unknown: …did not confirm a no-egress guarantee` / `provider_no_egress_unverified: …is not verified for graph binary %q` | **no** for all seven — **FLAG** |
+| `semantic.go:754-783` | provider absent (host CLI has no `graph`) | `&lt;code&gt;: semantic provider no-egress status is not verified[: &lt;summary&gt;]` + `providerdetail.MissingSuffix` → appends `entire plugin install graph` **only if** the message doesn't already name it | yes (deduped) |
+| `semantic.go:1037` | `schema_version` major ≠ 1 | `unsupported semantic schema major version %q: this build reads semantic schema &gt;=1.0 &lt;2.0` | **no** — **FLAG**; the pin is `semanticSupportedMajor = "1"` / `semanticSupportedSchemaRange = "semantic schema &gt;=1.0 &lt;2.0"` at `semantic.go:47,60`, enforced in `validateSemanticSchema` (`semantic.go:1031`) |
+| `semantic.go:1033` | malformed version | `semantic schema version %q is not major.minor / has a non-numeric major / has a non-numeric minor (this build reads semantic schema &gt;=1.0 &lt;2.0)` | **no** — **FLAG** |
+| `semantic.go:1071-1078` | provider minor newer than build | code `provider_schema_newer_minor`, effect `additive semantic facts introduced after &lt;v&gt; may not have been ingested`, detail `provider schema_version %q is newer than this build's &lt;v&gt;; minors are additive, so the snapshot is usable -- upgrade to ingest everything` | partial — says "upgrade" without the command; doctor supplies `doctorBrainUpgradeRemedy` by matching the literal `upgrade entire-brain` (`doctor.go:805`) |
+| `graph_store.go:82` | Graph present but too old | `installed Graph lacks the read-only store interface; upgrade Graph to enable code inspection` | partial — no `entire plugin install graph` |
+| `graph_context.go:80-90` | `entire graph context` failed | `graph context: &lt;err&gt;[: &lt;firstLine(stderr)&gt;]` / `graph context returned unparseable output: &lt;err&gt;` | **no** — but by design never surfaced (caller falls back silently) |
+| `refresh.go:734` | `refresh index --worktree` | `Graph store indexes committed HEAD; use graph queries for working-tree inspection` | partial |
+
+## Surface: file locks &amp; state-file security refusals (user-hittable)
+
+| file:line | trigger | text | fix? |
+|---|---|---|---|
+| `internal/cli/filelock.go:164` (`fileLockTimeoutError`) | lock busy past timeout | `&lt;code&gt;: timed out acquiring lock at &lt;path&gt;[ (held by pid N[ for 3s])]` or `(held by this process, pid N …)` | **no** — **FLAG**: there is no "wait / retry / kill" guidance. Codes in use: `brain_locked` (`brain.go:83`, 10s), `memory_privacy_busy` (`brain.go:114`), `distill_pass_locked` (`brain.go:153`, `setup_spawn.go:118`, non-blocking), `brain_manifest_locked` (`brain.go:174`), `index_locked` (`semantic.go:596`), `memory_worker_active` (`memory_coordinator.go:83`), `vitality_locked` (`facts_vitality.go:153`), `watch_locked` (`watch.go:635`), `watch_plan_locked` (`setup_watchplan.go:133`), `daemon_install_locked` (`setup_daemon.go:467`), `workspace_manifest_locked` (`workspace.go:841`), `config_locked` (`internal/config/config.go:133`) |
+| `internal/cli/filelock.go:293,296` and `internal/config/filelock.go:63,66` | planted symlink / fifo at a state path | `&lt;label&gt; must not be a symlink: &lt;path&gt;` · `&lt;label&gt; must be a regular file: &lt;path&gt;` | **no** — **FLAG** (legitimate hit: a backup tool or restore that symlinks into the brain dir) |
+| `internal/cli/filelock_unix.go:18` and `internal/config/filelock_unix.go:19` | `st.Nlink &gt; 1` | `&lt;label&gt; must not be hardlinked: &lt;path&gt;` | **no** — **FLAG**. This is the one most likely hit in normal operation: **any tool that hardlinks (Time Machine, `cp -al`, some rsync/backup modes, container layer copies) makes the brain unusable with no stated remedy.** |
+| `internal/cli/filelock.go:315` | path swapped mid-open | `&lt;label&gt; changed while opening: &lt;path&gt;` | **no** |
+| labels in use (all reach the four messages above) | — | `lock file`, `lock owner file`, `history index`, `history sqlite cache`, `history FTS`, `history generation directory`, `history projection root`, `sqlite cache`, `vitality log`, `projection receipt`, `SQLite snapshot source`, `abstract directory`, `abstract egress directory`, `abstract egress shard`, `hint directory`, plus `docIndexPath` passed as a label at `doc.go:262` | — | — |
+| `memory_state_io.go:95,105,109,111` | state read unsafe | `memory_state_unsafe: open &lt;label&gt; &lt;path&gt;: &lt;err&gt;` · `memory_state_unsafe: &lt;label&gt; changed or became unsafe while opening: &lt;path&gt;` · `memory_state_unsafe: validate opened &lt;label&gt; &lt;path&gt;: &lt;err&gt;` | **no** — **FLAG**. Labels: `coordinator state`, `worker log`, `worker log archive`, `oldest worker log archive`, `distill cache`, `vector progress`, `memory config`, `session abstract`, `short-term history`, `migration progress`, `lifecycle hint`, `projection receipt`, `hosted repo binding`, `hosted fact binding`, `cancellation request`, `pattern run history`, `pattern corpus publication marker`, `derived Brain state`, `history projection input` |
+| `session_privacy.go:72,75,78` | privacy artifact read | `memory_state_corrupt: open/read &lt;label&gt; &lt;path&gt;: &lt;err&gt;` · `memory_state_unsafe: validate opened &lt;label&gt; &lt;path&gt;: &lt;err&gt;` | **no** |
+| `versioned_state.go:47`, `brain_manifest_read.go:56,91`, `memory_abstract.go:161,1062`, `memory_admin.go:637`, `session_privacy_verify.go:89,105` | state written by a newer build | `memory_unsupported_version: &lt;label&gt; schema version &lt;N&gt; is newer than supported version &lt;M&gt;` / `brain manifest declares schema version &lt;N&gt;, older than the first supported version &lt;M&gt;` | **no** — **FLAG**; the only correct fix (upgrade the brain binary) is never named |
+
+## Surface: repo identity conflict
+
+| file:line | trigger | text | fix? |
+|---|---|---|---|
+| `env.go:164` | state under both canonical and pre-upgrade alias repo key (classic trigger: macOS `/tmp` → `/private/tmp` symlinked ancestor) | `repo_identity_conflict: state exists for canonical local repo key %q and pre-upgrade alias key %q; run \`&lt;prefix&gt; repo-identity\` to see both stores, then \`&lt;prefix&gt; repo-identity --keep &lt;repo-key&gt;\` to keep one and move the other aside (canonical brain: &lt;dir&gt;; legacy brain: &lt;dir&gt;)` | **yes — second-best example in the repo after `facts_integrity.go`**: names what degraded, that *every* repo-scoped command is refused, and two exact commands |
+
+## Surface: NO_EGRESS / LOCAL_ONLY
+
+Canonical env var is `ENTIRE_BRAIN_NO_EGRESS`; `ENTIRE_BRAIN_LOCAL_ONLY` is a deprecated alias. `noEgressToggleName()` (`agent_policy.go:34`) returns whichever one is actually set, so messages name the var the user set.
+
+| file:line | trigger | text | fix? |
+|---|---|---|---|
+| `agent_policy.go:23` | deprecated alias set | `warning: ENTIRE_BRAIN_LOCAL_ONLY is a deprecated alias; set ENTIRE_BRAIN_NO_EGRESS instead` (stderr, once per process) | yes |
+| `agent_policy.go:82` | `--agent codex/claude` under no-egress | `no_egress: --agent &lt;a&gt; can send selected brain context outside local loopback; use --agent ollama for local loopback models, --agent none where supported, or unset ENTIRE_BRAIN_NO_EGRESS` | yes (3 ways) |
+| `add.go:56` | `add` under no-egress | `no_egress: add requires cloning or fetching repository history; unset ENTIRE_BRAIN_NO_EGRESS to allow it` | yes |
+| `facts_sync_cmd.go:574` | hosted memory sync | `no_egress: hosted memory sync is disabled while &lt;VAR&gt; is set; unset it or use --memories-backend=local-gitmeta` | yes |
+| `facts_proposals_cmd.go:180` | hosted proposal review | `no_egress: hosted proposal review is disabled while &lt;VAR&gt; is set; unset it, or use 'memories review' for this member's local proposals` | yes |
+| `export.go:913, 923, 1141, 1623` | discovery steps skipped | `no_egress: branch checkpoint fallback skipped` / `no_egress: checkpoint remote discovery skipped` / `no_egress: checkpoint remote snapshot fetch skipped` | **no** — **FLAG**: these land in the warnings array with no statement of *what stops working* and no toggle name |
+| `export.go:232, 234` | can't prove catalog completeness | `no_egress: branch-scoped checkpoint visibility requires routed discovery; refusing a false-empty export` / `no_egress: a complete readable local checkpoint catalog could not be established; refusing routed checkpoint discovery` | **no** — **FLAG** |
+| `hostedbrain/client.go:39` | remote brain access gated | `hostedbrain: remote brain access disabled by ENTIRE_BRAIN_NO_EGRESS` | partial (names the var, not the unset action) |
+
+## Surface: doctor
+
+- `doctor.go:569` healthy: `healthy: N check(s) passed, nothing to fix; run \`&lt;brain&gt; doctor --verbose\` for the full report`
+- `doctor.go:575` summary: `N ok, N warn, N error; run \`&lt;brain&gt; doctor --verbose\` for the full report`
+- `doctor.go:595-601` per-finding: `&lt;detail&gt;; run \`&lt;remedy&gt;\`` — remedy suppressed if the detail already names a command (checked on the **truncated** text, `doctor.go:589`).
+- `doctor.go:712` `doctorRemedies` maps 27 check names → verbs (`refresh`, `refresh index`, `refresh history`, `refresh sessions`, `refresh delta`, `memory rebuild`, `memory migrate`, `memory reconcile`, `memory jobs`, `memory status`, `config show`, `setup`); rendered through `brainInvocation`. Two non-brain remedies: `entire plugin install graph`, `curl -fsSL …/get-brain.sh | bash`, plus `memory_install` → `curl -fsSL https://entire.io/install.sh | bash` and `repo` → `cd '&lt;your repository&gt;' &amp;&amp; entire brain doctor`.
+- `doctor.go:635` directory permission findings → `doctorVerboseInvocation()` fallback.
+
+---
+
+## Flagged: messages with no remediation path in the codebase
+
+1. **The 17 `"X unavailable: " + err.Error()` brief/live warnings** (`agent_surface.go:544,549,1140,1488,1495,1512,1527,1612,1637,1660,1677,1707,4589,4626,4644,4806,4811,4828,4855,4862`) — largest class; none says what stops working or what to run.
+2. **Every file-lock timeout** (`filelock.go:164`) across 12 lock codes — no "wait, or stop the other process" guidance.
+3. **The hardlink / symlink / non-regular-file refusals** (`filelock.go:293,296,315`, `filelock_unix.go:18`, `config/filelock*.go`) — user-hittable via ordinary backup tooling, zero remediation text, and the label vocabulary (19 labels) is inconsistent with `setupComponentLabels`.
+4. **All `memory_state_unsafe` / `memory_unsupported_version` state-read errors** — the fix (upgrade the binary, or remove the swapped file) is never named.
+5. **7 of 9 `semanticDoctorFailureError` branches** (`semantic.go:701-721`) and both `validateSemanticSchema` rejections (`semantic.go:1033,1037`) — notably the `&gt;=1.0 &lt;2.0` major-version refusal, the one place a user most needs "upgrade entire-brain" vs "downgrade graph".
+6. **5 of 6 non-dirty freshness axes** (`agent_surface.go:4686,4708,4711,4713,4716`) — the `Remedy` field on `staleAxis` exists and is rendered (`agent_surface.go:4790`) but only `dirty-unindexed` populates it.
+7. **`no_egress` export skips** (`export.go:913,923,1141,1623`) — bare codes in the warnings array.
+8. **`factReviewQueueUnavailableWarning`** — "verify fact consistency" with no command that does that.
+9. **Dead code worth noting:** `semanticRefreshNeeded`'s `identityWarning` return (`refresh.go:728-752`) is hardcoded `""` on every path, so the `warning: %s` print at `refresh.go:388` and the `": source unchanged; provider identity unverified"` label at `refresh.go:392` are unreachable.</result>
+<usage><subagent_tokens>164432</subagent_tokens><tool_uses>66</tool_uses><duration_ms>324461</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b4lbj2crf</task-id>
+<tool-use-id>toolu_01HyT2ShscHsaLEoWYnSzWAG</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-surabaya/470136d0-c890-4402-921b-e8667f017548/tasks/b4lbj2crf.output</output-file>
+<status>completed</status>
+<summary>Background command "Sweep rest of data volume for the second hardlink" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b19d0pbhe</task-id>
+<tool-use-id>toolu_01LhX3kL66Zeyt6bezgWkKTo</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-surabaya/470136d0-c890-4402-921b-e8667f017548/tasks/b19d0pbhe.output</output-file>
+<status>failed</status>
+<summary>Background command "Run the full test suite" failed with exit code 144</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bo0njfjd9</task-id>
+<tool-use-id>toolu_01BkkJtKiPNffg6DCns8HpR4</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-surabaya/470136d0-c890-4402-921b-e8667f017548/tasks/bo0njfjd9.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full test suite (cold cache)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>beqzwov26</task-id>
+<tool-use-id>toolu_019X2FkS4WNmLG8dhjMq4WXh</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-surabaya/470136d0-c890-4402-921b-e8667f017548/tasks/beqzwov26.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full test suite again after cache settles" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bevsnsagl</task-id>
+<tool-use-id>toolu_01PP3Z2SSbePatX4fhhpZxh1</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-surabaya/470136d0-c890-4402-921b-e8667f017548/tasks/bevsnsagl.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for full suite to finish and show result" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+status?
+
+---
+
+<task-notification>
+<task-id>b9ja5w0rx</task-id>
+<tool-use-id>toolu_01Lx7xntCFtrq61ErebCfax9</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-surabaya/470136d0-c890-4402-921b-e8667f017548/tasks/b9ja5w0rx.output</output-file>
+<status>completed</status>
+<summary>Background command "Rebuild and rerun cli package with 30m timeout" completed (exit code 0)</summary>
+</task-notification>
