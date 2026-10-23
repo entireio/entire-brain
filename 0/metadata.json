@@ -1,0 +1,72 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5KN05D31AGR32FVB397SV97",
+  "session_id": "7a922c8a-af13-4292-829f-237d70d56f4d",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-23T05:51:06.783446Z",
+  "branch": "windows-release-verification-decision",
+  "checkpoints_count": 5,
+  "save_step_count": 5,
+  "files_touched": [
+    "CHANGELOG.md",
+    "README.md",
+    "docs/concepts.md",
+    "docs/ga-readiness.md",
+    "docs/getting-started.md",
+    "docs/reference.md",
+    "docs/release_press_release.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/doc_contract_test.go",
+    "internal/cli/history_eval.go",
+    "internal/cli/rest_api.go",
+    "internal/cli/retrieve_cmd.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "130b2035a29a",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 186,
+    "cache_creation_tokens": 765752,
+    "cache_read_tokens": 11827777,
+    "output_tokens": 56617,
+    "api_call_count": 93
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01QdvYi4CpsZPnsth9VegG9U",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:executing-plans"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "130b2035a29a",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 27,
+        "end": 28,
+        "entry_ids": [
+          "cd2ee4c4-f663-451c-a64c-15e6092a7755"
+        ],
+        "tool_use_id": "toolu_01QdvYi4CpsZPnsth9VegG9U"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01QdvYi4CpsZPnsth9VegG9U"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:executing-plans",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 5
+  }
+}
