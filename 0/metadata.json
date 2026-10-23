@@ -1,0 +1,60 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5MZ8Q4NE309KP9T5JA7NFHX",
+  "session_id": "d4ce8690-d991-4396-9543-d8c22b33190b",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-23T18:09:47.155148Z",
+  "branch": "brief-stale-semantic-index-fallback",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/facts_eval.go",
+    "internal/cli/facts_eval_test.go",
+    "internal/cli/graph_context_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "f4238bd1594e",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 102,
+    "cache_creation_tokens": 389112,
+    "cache_read_tokens": 5556113,
+    "output_tokens": 38324,
+    "api_call_count": 51
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01RMyvt1a6RtZFjUxBw9gn7w",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:systematic-debugging"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "f4238bd1594e",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 50,
+        "end": 51,
+        "entry_ids": [
+          "722e41c2-6374-4f07-8bce-c39cd245b828"
+        ],
+        "tool_use_id": "toolu_01RMyvt1a6RtZFjUxBw9gn7w"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01RMyvt1a6RtZFjUxBw9gn7w"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:systematic-debugging",
+        "default_collapsed": true
+      }
+    }
+  ]
+}
