@@ -5,13 +5,25 @@
   "branch": "per-fact-wire-memory-sync",
   "checkpoints_count": 1,
   "files_touched": [
+    "internal/cli/entities_cmd.go",
+    "internal/cli/entities_cmd_test.go",
+    "internal/cli/facts_proposal_attribution_test.go",
     "internal/cli/facts_sync_cmd.go",
+    "internal/cli/facts_sync_cmd_test.go",
     "internal/cli/facts_sync_hosted_cmd_test.go",
     "internal/cli/https_floor_test.go",
     "internal/cli/session_privacy.go",
     "internal/cli/session_privacy_test.go",
+    "internal/factgitmeta/backend.go",
+    "internal/factgitmeta/backend_test.go",
+    "internal/factgitmeta/cancellation_test.go",
+    "internal/factgitmeta/store.go",
     "internal/factsync/egress_test.go",
-    "internal/factsync/sync.go"
+    "internal/factsync/identity_forgery_test.go",
+    "internal/factsync/retirement_test.go",
+    "internal/factsync/supersede_direction_test.go",
+    "internal/factsync/sync.go",
+    "internal/factsync/sync_test.go"
   ],
   "sessions": [
     {
@@ -19,14 +31,14 @@
       "transcript": "/0/full.jsonl",
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
-      "prompt": "/0/prompt.txt"
+      "prompt": ""
     }
   ],
   "token_usage": {
-    "input_tokens": 122,
-    "cache_creation_tokens": 1639435,
-    "cache_read_tokens": 22497689,
-    "output_tokens": 43620,
-    "api_call_count": 61
+    "input_tokens": 2,
+    "cache_creation_tokens": 1348,
+    "cache_read_tokens": 429719,
+    "output_tokens": 314,
+    "api_call_count": 1
   }
 }
