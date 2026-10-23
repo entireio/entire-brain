@@ -1,0 +1,17 @@
+<task-notification>
+<task-id>bjbhwlvvo</task-id>
+<tool-use-id>toolu_01DosQXRyYo4ryYwxKfUsdfq</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-georges-v1/40556eca-85d1-47ae-b5d7-0d40be2bea9e/tasks/bjbhwlvvo.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch latest release run" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b643vvn36</task-id>
+<tool-use-id>toolu_01NvCBVUiPep29Hy9VzzBxft</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-st-georges-v1/40556eca-85d1-47ae-b5d7-0d40be2bea9e/tasks/b643vvn36.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch release run on latest branch head" completed (exit code 0)</summary>
+</task-notification>
