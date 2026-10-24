@@ -1,0 +1,72 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5PBK9XKEH7Q2EVCPTHR0DH6",
+  "strategy": "manual-commit",
+  "branch": "cor-2258-ticket",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "docs/benchmarks.md",
+    "docs/getting-started.md",
+    "docs/reference.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/bench.go",
+    "internal/cli/bench_scale.go",
+    "internal/cli/bench_scale_test.go",
+    "internal/cli/brief_output_regression_test.go",
+    "internal/cli/dash.go",
+    "internal/cli/dash_test.go",
+    "internal/cli/graph_store.go",
+    "internal/cli/install_ux_test.go",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go",
+    "internal/cli/refresh.go",
+    "internal/cli/refresh_failure_regression_test.go",
+    "internal/cli/refresh_test.go",
+    "internal/cli/regression.go",
+    "internal/cli/root.go",
+    "internal/cli/root_test.go",
+    "internal/cli/seed.go",
+    "internal/cli/semantic_bench_regression_test.go",
+    "internal/cli/setup.go",
+    "internal/cli/setup_component_detail_test.go",
+    "internal/cli/setup_status_output_truth_test.go",
+    "internal/cli/setup_terse.go",
+    "internal/cli/setup_terse_test.go",
+    "internal/cli/setup_test.go",
+    "internal/cli/setup_ui.go",
+    "internal/cli/setup_ui_test.go",
+    "internal/cli/status_render.go",
+    "internal/cli/status_render_test.go",
+    "internal/cli/status_truth_test.go",
+    "internal/cli/testdata/mcp_tool_surface.golden.json",
+    "internal/cli/unrunnable_remedy_test.go",
+    "internal/cli/viz.go",
+    "internal/cli/workspace.go",
+    "internal/tui/layout_test.go",
+    "internal/tui/tui_test.go",
+    "internal/tui/viewmodels.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 98,
+    "cache_creation_tokens": 1686288,
+    "cache_read_tokens": 18229607,
+    "output_tokens": 35132,
+    "api_call_count": 49,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  }
+}
