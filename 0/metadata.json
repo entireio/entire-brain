@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5QCHRRT1SHK068EE1K9KPRG",
+  "session_id": "943130fa-ac7a-4c11-b7b5-ad315a855ef3",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-24T16:40:21.708339Z",
+  "branch": "cor-2258-ticket",
+  "checkpoints_count": 5,
+  "save_step_count": 1,
+  "files_touched": [
+    ".smoke-evidence/release-smoke-20261022-212112.md",
+    ".smoke-evidence/release-smoke-20261022-212246.md",
+    ".smoke-evidence/release-smoke-20261022-212547.md",
+    ".smoke-evidence/release-smoke-20261022-212945.md",
+    ".smoke-evidence/release-smoke-20261022-213252.md",
+    ".smoke-evidence/release-smoke-20261022-213357.md",
+    "internal/cli/entities_cmd.go",
+    "internal/cli/entities_cmd_test.go",
+    "internal/cli/facts_proposal_attribution_test.go",
+    "internal/cli/facts_sync_cmd.go",
+    "internal/cli/facts_sync_hosted_cmd_test.go",
+    "internal/cli/session_privacy.go",
+    "internal/cli/session_privacy_test.go",
+    "internal/factsync/egress_test.go",
+    "internal/factsync/httpserver.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "7cbbe2e53697",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 30,
+    "cache_creation_tokens": 391100,
+    "cache_read_tokens": 5480324,
+    "output_tokens": 5100,
+    "api_call_count": 15
+  },
+  "session_metrics": {
+    "turn_count": 21
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5QCHRRT1SHK068EE1K9KPRG",
+  "strategy": "manual-commit",
+  "branch": "cor-2258-ticket",
+  "checkpoints_count": 5,
+  "files_touched": [
+    ".smoke-evidence/release-smoke-20261022-212112.md",
+    ".smoke-evidence/release-smoke-20261022-212246.md",
+    ".smoke-evidence/release-smoke-20261022-212547.md",
+    ".smoke-evidence/release-smoke-20261022-212945.md",
+    ".smoke-evidence/release-smoke-20261022-213252.md",
+    ".smoke-evidence/release-smoke-20261022-213357.md",
+    "internal/cli/entities_cmd.go",
+    "internal/cli/entities_cmd_test.go",
+    "internal/cli/facts_proposal_attribution_test.go",
+    "internal/cli/facts_sync_cmd.go",
+    "internal/cli/facts_sync_hosted_cmd_test.go",
+    "internal/cli/session_privacy.go",
+    "internal/cli/session_privacy_test.go",
+    "internal/factsync/egress_test.go",
+    "internal/factsync/httpserver.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 30,
+    "cache_creation_tokens": 391100,
+    "cache_read_tokens": 5480324,
+    "output_tokens": 5100,
+    "api_call_count": 15
+  }
+}
