@@ -1,0 +1,75 @@
+<task-notification>
+<task-id>a568d3ee4166853e1</task-id>
+<tool-use-id>toolu_01EnVD3BYGjqtHVYh8fBMjSq</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-puebla/88872ad9-85fb-4000-affc-5a21f2638bd6/tasks/a568d3ee4166853e1.output</output-file>
+<status>completed</status>
+<summary>Agent "Final whole-branch code review" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All verification done. Here is the review.
+
+---
+
+### Strengths
+- The deletion is clean and complete: `gc`, snapshot readers, memo, validators, and vector lane leave zero dangling references (`grep` for `runSemanticGC`/`pruneSemanticChildDirs`/`parseAgeCutoff` is empty); `errSemanticStoreRetired` carries the runnable remedy through `brainInvocation` (semantic.go:3804 in diff).
+- `brainBriefCodeContextWarning` (agent_surface.go:610) is a well-factored extraction with correct precedence (a graph that answered outranks the PATH probe) and a table test pinning all four cases verbatim.
+- Legacy-source safety is structurally sound, not just message-deep: `buildBrainStatusReportWithAvailability` (agent_surface.go:4571-4585) nils the persisted source before overlay, so brief/status/dash/viz can never hand a pre-0.2.0 source to a reader; `errSemanticStoreRetired` is defense-in-depth.
+- `viz_optimization_test.go` was upgraded from a snapshot fixture to a real Graph-store sqlite fixture (views + entry digest) rather than deleted — the viz read path keeps live coverage.
+
+### Issues
+
+#### Critical
+None.
+
+#### Important
+1. **Rename misses: user-visible strings still say "semantic" where the branch's own term rule requires code context/index/graph.** Several sit inside ranges the plan explicitly listed, and the Task 5 audit regex should have caught most:
+   - `internal/cli/mcp.go:934, 988, 993, 998, 1028` — tool description prose: "semantic index counts" (brain_list_projects), "Search the semantic graph" (brain_search_graph), "Read-only semantic graph relation query" (brain_query_graph), "semantic graph schema metadata" (brain_graph_schema), "static semantic graph" (brain_ingest_traces). Plan Task 4 explicitly covers mcp.go:902-999 description prose. The golden file (`testdata/mcp_tool_surface.golden.json`) matches the code, so tests cannot catch this.
+   - `internal/cli/refresh.go:448,450` — `progress.Skip("semantic index: skipped, --worktree …")` / `progress.Skip("semantic index")`: one refresh run can now print "check code index" and "semantic index: skipped" side by side.
+   - `internal/cli/workspace.go:3646` — `"semantic index unsafe/stale — scanned raw sessions only"` while the sibling case in the same switch (`:3307` region, "missing-semantic") was renamed to "code index missing". Also `workspace.go:571,602` command Shorts ("Build semantic context…", "Summarize semantic graph schemas…").
+   - `internal/cli/semantic_graph.go:160` — error "semantic graph command requires the SQLite semantic store; run \`repair\`".
+   - `internal/cli/watch.go:369` — "[watch] semantic index skipped (uncommitted worktree)".
+   - `internal/cli/setup.go:763`, `internal/cli/path.go:360,364` — guidance sentences listing "semantic index" among sources.
+   - Fix: sweep these with the Task 4 vocabulary (code graph for the symbol/relation structure, code index for the artifact, code context for retrieval), regenerate the MCP golden.
+
+#### Minor
+2. **Plan deviation: `writeSemanticOverlayFile` kept the dead `snapshot_path` key** (`internal/cli/semantic.go:1121-1132`). Plan Task 1 ordered its removal; the only caller (refresh.go:971) passes `""` so the key is never written — dead parameter and branch, no behavior effect. Drop the `snapshotRel` parameter and the conditional.
+3. **Stale comment names a deleted command**: `internal/cli/bench_scale.go:23` still says `` `bench semantic` ``. Comments are exempt from the rename rule, but this one tells a cold reader to type a verb that now errors.
+
+### Review Focus verdicts
+1. Legacy 0.1.x manifest: no panic, no silent empty on any production surface. Brief warns with the install/refresh-index remedy; readers never see a persisted source (nil-out at agent_surface.go:4576); `errSemanticStoreRetired` wraps the refresh-index invocation if one slips through. Verified the new sentinel test passes.
+2. Brief JSON shape: struct tags untouched; `brief_output_regression_test.go` changed message text only. (Note: `facts eval` JSON lost the always-false `"semantic"` key — plan-ordered, machine-surface change worth one PR-body line.)
+3. MCP-with-Graph-absent typed note: `mcp_missing_brain_note_test.go` untouched, suite green.
+4. Contract remedies stay opposite: graph_store.go:116 ("upgrade entire-brain") vs :125 ("upgrade Graph"); unsupported-remedy test untouched.
+5. `gc` fully removed; `removeLegacyGraphArtifacts` still runs on every `runGraphOwnedIndex` and `migrateBrainGraphStorage` — the narrowing needs its promised PR-body note.
+- (b) `semanticRuntimeTraceFacts` keeps the `StorePath==""` → empty-not-error guard (semantic.go:3169).
+- (c) Bundle extraction remains guarded per entry by `validateBundleEntry` (regular files only, traversal + allowlist); deleted validators checked only a layer nothing reads anymore, and imported legacy stores can no longer be opened — nothing real lost.
+- (d) No fourth display term introduced; "Code" dash label is the ruled width-constrained exception.
+
+### Declined to judge
+- `+ semantic` component id in the status instant line and `semantic_completeness=` axis display — ledger keeps machine ids/axis names.
+- Doctor check names and the short-report "semantic coverage:" line — explicit ledger ruling.
+- agentsetup guide prose ("semantic change analysis", "Brain semantic answers") — reads as Graph-provider capability vocabulary; matches the checked-in agent-guide.md.
+- Imported legacy snapshot files lingering on disk until the next `refresh index` — consistent with the deliberate focus-#5 narrowing.
+- `bench semantic` → `bench index` instead of the plan's `bench code-context` — ledger ruling, consistent with the term rule.
+- `TestDoctorFailsOnUnreadableSemanticStore` deletion downgrading corrupt-store gating — ledger ruling with named cost.
+- `setup_status.go:356` dead-axis consumers left in place — ledger flagged it as out of scope for final review; it is dead code feeding axes that no longer exist, same class as finding 2.
+
+### Recommendations
+- Add a one-line guard test or extend the Task 5 audit into a regression test: grep display strings for `"semantic` outside the keep-list, so future strings can't reintroduce the old term.
+
+### Assessment
+
+**Ready to merge? With fixes**
+
+**Reasoning:** The deletion and degradation-message work is correct, well-tested, and structurally safe for legacy brains; the only material gap is that the rename — the branch's headline deliverable — missed a cluster of user-visible strings, several inside ranges the plan explicitly enumerated. All fixes are mechanical string edits plus one golden regeneration.</result>
+<usage><subagent_tokens>280349</subagent_tokens><tool_uses>41</tool_uses><duration_ms>396159</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b38c13rbu</task-id>
+<tool-use-id>toolu_01B6CjWd9s2i4LWdhWZXQWqk</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-puebla/88872ad9-85fb-4000-affc-5a21f2638bd6/tasks/b38c13rbu.output</output-file>
+<status>completed</status>
+<summary>Background command "Build check then uncached whole-repo suite" completed (exit code 0)</summary>
+</task-notification>

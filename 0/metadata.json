@@ -1,0 +1,146 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5PDEQD1XYZCE2RCTTB1EY9Z",
+  "session_id": "88872ad9-85fb-4000-affc-5a21f2638bd6",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-24T07:36:57.169936Z",
+  "branch": "cor-2258-ticket",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [
+    "internal/cli/dash.go",
+    "internal/cli/mcp.go",
+    "internal/cli/path.go",
+    "internal/cli/publish.go",
+    "internal/cli/refresh.go",
+    "internal/cli/root.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_graph.go",
+    "internal/cli/setup.go",
+    "internal/cli/testdata/mcp_tool_surface.golden.json",
+    "internal/cli/viz.go",
+    "internal/cli/vocabulary_guard_test.go",
+    "internal/cli/watch.go",
+    "internal/cli/workspace.go",
+    "internal/cli/workspace_patterns.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "f6f0784b92fc",
+  "checkpoint_transcript_start": 1166,
+  "transcript_lines_at_start": 1166,
+  "compact_transcript_start": 268,
+  "token_usage": {
+    "input_tokens": 38,
+    "cache_creation_tokens": 932218,
+    "cache_read_tokens": 7954998,
+    "output_tokens": 14507,
+    "api_call_count": 19,
+    "subagent_tokens": {
+      "input_tokens": 66,
+      "cache_creation_tokens": 275639,
+      "cache_read_tokens": 6409403,
+      "output_tokens": 24937,
+      "api_call_count": 33
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01SfrtZmBhzt4q96Vk5HLcaU",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:writing-plans"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "413c72eb66c7",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 170,
+        "end": 171,
+        "entry_ids": [
+          "c2ddd0af-139b-44bf-aaaa-c3f7a7230ac0"
+        ],
+        "tool_use_id": "toolu_01SfrtZmBhzt4q96Vk5HLcaU"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01SfrtZmBhzt4q96Vk5HLcaU"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:writing-plans",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01AhxEjphsx35we7VbFZ5ziR",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:executing-plans"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "413c72eb66c7",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 256,
+        "end": 257,
+        "entry_ids": [
+          "0c55bcd4-19c8-472e-ac91-c8f41130ffd2"
+        ],
+        "tool_use_id": "toolu_01AhxEjphsx35we7VbFZ5ziR"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01AhxEjphsx35we7VbFZ5ziR"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:executing-plans",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_015yf7LNz3n11GzHPwhFGy1k",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:test-driven-development"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "413c72eb66c7",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 267,
+        "end": 268,
+        "entry_ids": [
+          "c853d0df-3ce3-4ead-9549-da4819f3d8c7"
+        ],
+        "tool_use_id": "toolu_015yf7LNz3n11GzHPwhFGy1k"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_015yf7LNz3n11GzHPwhFGy1k"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:test-driven-development",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 17
+  }
+}

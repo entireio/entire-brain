@@ -1,0 +1,47 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5PDEQD1XYZCE2RCTTB1EY9Z",
+  "strategy": "manual-commit",
+  "branch": "cor-2258-ticket",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/dash.go",
+    "internal/cli/mcp.go",
+    "internal/cli/path.go",
+    "internal/cli/publish.go",
+    "internal/cli/refresh.go",
+    "internal/cli/root.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_graph.go",
+    "internal/cli/setup.go",
+    "internal/cli/testdata/mcp_tool_surface.golden.json",
+    "internal/cli/viz.go",
+    "internal/cli/vocabulary_guard_test.go",
+    "internal/cli/watch.go",
+    "internal/cli/workspace.go",
+    "internal/cli/workspace_patterns.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 38,
+    "cache_creation_tokens": 932218,
+    "cache_read_tokens": 7954998,
+    "output_tokens": 14507,
+    "api_call_count": 19,
+    "subagent_tokens": {
+      "input_tokens": 66,
+      "cache_creation_tokens": 275639,
+      "cache_read_tokens": 6409403,
+      "output_tokens": 24937,
+      "api_call_count": 33
+    }
+  }
+}
