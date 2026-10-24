@@ -1,0 +1,9 @@
+look at the findings: https://entire.com/gh/entireio/-/trails/2498/changes/entire-brain/382
+
+---
+
+what does this PR actually do and what does it add onto the repo? im seeing 3000 lines of code and it's not clear to me waht hat does since we haven't actually run any tests yet?
+
+---
+
+yeah we should not be merging in anything that we haven't validated and tested locally. even if it has tests, we shoudl validate via the eval pipeline if it's actually worth changing
