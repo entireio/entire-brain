@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bxm426dwy</task-id>
+<tool-use-id>toolu_0146iZevBe5AR3eb3tc26wMM</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-puebla/88872ad9-85fb-4000-affc-5a21f2638bd6/tasks/bxm426dwy.output</output-file>
+<status>completed</status>
+<summary>Background command "Full suite for Task 2" completed (exit code 0)</summary>
+</task-notification>
