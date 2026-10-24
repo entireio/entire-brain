@@ -73,7 +73,7 @@ func TestWatchLoopOnceRefreshesNoDistillByDefault(t *testing.T) {
 	cursor := filepath.Join(t.TempDir(), "watch.json")
 	var refreshed, seeded, distilled int
 	w := watchCommandOptions{once: true, distill: false, seedAgent: "none"} // default: no agent work
-	if err := watchLoop(context.Background(), &bytes.Buffer{}, w, cursor, fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled)); err != nil {
+	if err := watchLoop(context.Background(), &bytes.Buffer{}, watchLogFields{repo: "gh/acme/app"}, time.Now, w, cursor, func(io.Writer) watchSteps { return fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled) }); err != nil {
 		t.Fatalf("watchLoop: %v", err)
 	}
 	if refreshed != 1 {
@@ -96,7 +96,7 @@ func TestWatchLoopNoChangeIsNoop(t *testing.T) {
 	}
 	var refreshed, seeded, distilled int
 	w := watchCommandOptions{once: true, distill: true, distillEvery: 0}
-	if err := watchLoop(context.Background(), &bytes.Buffer{}, w, cursor, fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled)); err != nil {
+	if err := watchLoop(context.Background(), &bytes.Buffer{}, watchLogFields{repo: "gh/acme/app"}, time.Now, w, cursor, func(io.Writer) watchSteps { return fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled) }); err != nil {
 		t.Fatalf("watchLoop: %v", err)
 	}
 	if refreshed != 0 || distilled != 0 || seeded != 0 {
@@ -145,7 +145,7 @@ func TestWatchLoopDistillWhenEnabledAndElapsed(t *testing.T) {
 	cursor := filepath.Join(t.TempDir(), "watch.json")
 	var refreshed, seeded, distilled int
 	w := watchCommandOptions{once: true, distill: true, seedAgent: "none", distillEvery: 0} // elapsed always true
-	if err := watchLoop(context.Background(), &bytes.Buffer{}, w, cursor, fakeWatchSteps("ck2:head2", &refreshed, &seeded, &distilled)); err != nil {
+	if err := watchLoop(context.Background(), &bytes.Buffer{}, watchLogFields{repo: "gh/acme/app"}, time.Now, w, cursor, func(io.Writer) watchSteps { return fakeWatchSteps("ck2:head2", &refreshed, &seeded, &distilled) }); err != nil {
 		t.Fatalf("watchLoop: %v", err)
 	}
 	if refreshed != 1 || distilled != 1 {
@@ -240,7 +240,7 @@ func TestWatchSeedAgentIsGatedLikeDistill(t *testing.T) {
 	// every change — the invariant the review caught.
 	var refreshed, seeded, distilled int
 	w := watchCommandOptions{once: true, distill: false, seedAgent: "codex", distillEvery: 0}
-	if err := watchLoop(context.Background(), &bytes.Buffer{}, w, cursor, fakeWatchSteps("ck:orig:head", &refreshed, &seeded, &distilled)); err != nil {
+	if err := watchLoop(context.Background(), &bytes.Buffer{}, watchLogFields{repo: "gh/acme/app"}, time.Now, w, cursor, func(io.Writer) watchSteps { return fakeWatchSteps("ck:orig:head", &refreshed, &seeded, &distilled) }); err != nil {
 		t.Fatalf("watchLoop: %v", err)
 	}
 	if refreshed != 1 || seeded != 1 || distilled != 0 {
@@ -253,7 +253,7 @@ func TestWatchSeedAgentIsGatedLikeDistill(t *testing.T) {
 	}
 	// Second pass, unchanged fingerprint -> no-op (proves seed isn't per-change).
 	refreshed, seeded, distilled = 0, 0, 0
-	if err := watchLoop(context.Background(), &bytes.Buffer{}, w, cursor, fakeWatchSteps("ck:orig:head", &refreshed, &seeded, &distilled)); err != nil {
+	if err := watchLoop(context.Background(), &bytes.Buffer{}, watchLogFields{repo: "gh/acme/app"}, time.Now, w, cursor, func(io.Writer) watchSteps { return fakeWatchSteps("ck:orig:head", &refreshed, &seeded, &distilled) }); err != nil {
 		t.Fatalf("watchLoop 2: %v", err)
 	}
 	if refreshed != 0 || seeded != 0 {
@@ -336,7 +336,7 @@ func TestWatchLoopStopsOnContextCancel(t *testing.T) {
 	cancel() // already cancelled — the daemon loop must exit cleanly without ticking
 	var refreshed, seeded, distilled int
 	w := watchCommandOptions{interval: time.Hour} // not --once: would loop forever if cancel weren't honored
-	if err := watchLoop(ctx, &bytes.Buffer{}, w, cursorPath, fakeWatchSteps("ck", &refreshed, &seeded, &distilled)); err != nil {
+	if err := watchLoop(ctx, &bytes.Buffer{}, watchLogFields{repo: "gh/acme/app"}, time.Now, w, cursorPath, func(io.Writer) watchSteps { return fakeWatchSteps("ck", &refreshed, &seeded, &distilled) }); err != nil {
 		t.Fatalf("graceful shutdown must return nil, got %v", err)
 	}
 	if refreshed != 0 {
