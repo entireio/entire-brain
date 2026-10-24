@@ -2439,26 +2439,51 @@ func cleanHistorySummary(text string) string {
 	return text
 }
 
+// historyTermCandidates is generic domain vocabulary only. The former tail of
+// this list (attributionbasecommit, resolvetranscriptpath, brainignore, ...)
+// was lifted from benchmark task names, which biased FTS text toward benchmark
+// queries on every repository.
+var historyTermCandidates = []string{
+	"decision", "rationale", "validation", "go test", "apply_patch", "exec_command",
+	"semantic", "brief", "stale", "checkpoint", "transcript", "schema", "env",
+	"provenance", "bundle", "sha256", "review", "hook", "plugin", "workspace",
+	"architecture", "contract", "invariant", "tool", "test", "fallback",
+}
+
 func historyTerms(text string) []string {
 	lower := strings.ToLower(text)
-	// Generic domain vocabulary only. The former tail of this list
-	// (attributionbasecommit, resolvetranscriptpath, brainignore, ...) was
-	// lifted from benchmark task names, which biased FTS text toward benchmark
-	// queries on every repository.
-	candidates := []string{
-		"decision", "rationale", "validation", "go test", "apply_patch", "exec_command",
-		"semantic", "brief", "stale", "checkpoint", "transcript", "schema", "env",
-		"provenance", "bundle", "sha256", "review", "hook", "plugin", "workspace",
-		"architecture", "contract", "invariant", "tool", "test", "fallback",
-	}
+	candidates := historyTermCandidates
+	// Normalize the text ONCE. This loop used to call
+	// normalizeHistorySearchText(lower) inside the condition, so every
+	// candidate re-normalized the WHOLE message: 25 full passes over the text
+	// per call, each allocating a rune slice and rebuilding the string, to
+	// compare against a constant. The history index calls this for every
+	// record, which made it the dominant cost of the history step.
+	//
+	// Byte-identical by construction: the same two comparisons in the same
+	// order against the same values, computed once instead of per candidate.
+	// normalizeHistorySearchText is pure (history.go:2505) and the candidate
+	// list is a constant, so hoisting cannot change a single decision.
+	normalized := normalizeHistorySearchText(lower)
 	var terms []string
-	for _, candidate := range candidates {
-		if strings.Contains(lower, candidate) || strings.Contains(normalizeHistorySearchText(lower), normalizeHistorySearchText(candidate)) {
+	for i, candidate := range candidates {
+		if strings.Contains(lower, candidate) || strings.Contains(normalized, normalizedHistoryTermCandidates[i]) {
 			terms = append(terms, candidate)
 		}
 	}
 	return terms
 }
+
+// normalizedHistoryTermCandidates is historyTermCandidates normalized once at
+// init, positionally aligned with it. The candidates are constants, so their
+// normalized forms are too, and recomputing them per record was pure waste.
+var normalizedHistoryTermCandidates = func() []string {
+	out := make([]string, len(historyTermCandidates))
+	for i, candidate := range historyTermCandidates {
+		out[i] = normalizeHistorySearchText(candidate)
+	}
+	return out
+}()
 
 func jsonMap(value any) map[string]any {
 	m, _ := value.(map[string]any)
