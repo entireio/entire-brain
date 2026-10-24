@@ -318,7 +318,7 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 				ps.fingerprint = distillFingerprintForSession(ps.session, ps.branch, distillInput, distillOpts)
 				if !distillOpts.force {
 					cacheKey := distillSessionCacheKeyFor(ps.branch, ps.session, duplicateKeys)
-					if prev, ok := cachedDistillFingerprintForKey(prevCache, cacheKey); ok && (prev == ps.fingerprint || grandfatheredContentFingerprint(prev, ps.session, ps.branch, distillInput, distillOpts)) {
+					if prev, ok := cachedDistillFingerprintForKey(prevCache, cacheKey); ok && (prev == ps.fingerprint || grandfatheredContentFingerprint(prev, ps.session, ps.branch, distillInput, distillOpts) || grandfatheredAgentSaltFingerprint(prev, ps.session, ps.branch, distillInput, distillOpts)) {
 						releaseWork()
 						ps.cached = true
 						f <- ps
@@ -351,7 +351,7 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 					if done := prevCache.chunkSet(distillSessionCacheKeyFor(ps.branch, ps.session, duplicateKeys)); len(done) > 0 {
 						kept := ps.chunks[:0]
 						for i := range ps.chunks {
-							if !done[ps.chunkHashes[i]] {
+							if !done[ps.chunkHashes[i]] && !distillChunkDoneUnderLegacySalt(done, ps.chunks[i].Text, distillOpts.legacyAgentCacheSalts) {
 								kept = append(kept, ps.chunks[i])
 							}
 						}
@@ -516,8 +516,13 @@ type distillCommandOptions struct {
 	dryRun              bool
 	cacheSalt           string
 	legacyCacheSalt     string
-	checkpointBacked    bool
-	transcriptMode      string
+	// legacyAgentCacheSalts are the salts an older binary derived for THIS
+	// run's agent/model/effort, back when those were part of the salt. Cache
+	// entries hashed under them prove the session unchanged just as well, so
+	// they are honored once and rewritten under cacheSalt (zero agent calls).
+	legacyAgentCacheSalts []string
+	checkpointBacked      bool
+	transcriptMode        string
 	// newestFirst distills the most recent sessions BEFORE older ones. The
 	// default (false) keeps the established oldest-first order, where a later
 	// session's fact naturally supersedes an earlier one's. Newest-first is for
@@ -631,10 +636,28 @@ func carryDistillChunks(dst *distillCache, src distillCache, dstKey, srcKey stri
 func distillChunkHashes(chunks []transcriptChunk, salt string) []string {
 	hashes := make([]string, len(chunks))
 	for i, chunk := range chunks {
-		sum := sha256.Sum256([]byte(salt + "\x00" + chunk.Text))
-		hashes[i] = "sha256:" + hex.EncodeToString(sum[:])
+		hashes[i] = distillChunkHash(salt, chunk.Text)
 	}
 	return hashes
+}
+
+func distillChunkHash(salt, text string) string {
+	sum := sha256.Sum256([]byte(salt + "\x00" + text))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// distillChunkDoneUnderLegacySalt reports whether an older binary already
+// extracted this exact chunk text under one of the agent-bearing salts, so a
+// grown transcript re-sends only its genuinely new chunks across the salt
+// change. Computed lazily: only chunks the current salt does not already
+// account for get here.
+func distillChunkDoneUnderLegacySalt(done map[string]bool, text string, legacySalts []string) bool {
+	for _, salt := range legacySalts {
+		if done[distillChunkHash(salt, text)] {
+			return true
+		}
+	}
+	return false
 }
 
 type distillPlan struct {
@@ -1025,7 +1048,8 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	}
 	distillOpts.checkpointBacked = checkpointBackedSessions(manifest)
 	distillOpts.transcriptMode = manifest.Sources.Sessions.TranscriptMode
-	distillOpts.legacyCacheSalt = distillCacheSaltVersion(prompt, reconcilePromptText, threshold, distillOpts, 0)
+	distillOpts.legacyCacheSalt = distillCacheSaltVersion(prompt, reconcilePromptText, threshold, 0)
+	distillOpts.legacyAgentCacheSalts = legacyAgentDistillCacheSalts(prompt, reconcilePromptText, threshold, distillOpts)
 	distillOpts.cacheSalt = distillCacheSalt(prompt, reconcilePromptText, threshold, distillOpts)
 
 	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
@@ -1614,16 +1638,15 @@ func buildDistillDryRunReportContext(ctx context.Context, brainDir string, disti
 	}
 	distillOpts.dryRun = true
 	distillOpts.checkpointBacked = checkpointBackedSessions(manifest)
-	cacheSalt, err := distillCacheSaltForBrain(brainDir, distillOpts, now)
+	prompt, reconcilePromptText, threshold, err := distillSaltInputsForBrain(brainDir, distillOpts, now)
 	if err != nil {
 		return distillDryRunReport{}, err
 	}
-	legacyOpts := distillOpts
-	legacyOpts.checkpointBacked = false
-	distillOpts.legacyCacheSalt, err = distillCacheSaltForBrain(brainDir, legacyOpts, now)
-	if err != nil {
-		return distillDryRunReport{}, err
-	}
+	// Derived exactly as runDistillForBrain derives them, so the prediction
+	// and the run agree on every session's cache disposition.
+	cacheSalt := distillCacheSalt(prompt, reconcilePromptText, threshold, distillOpts)
+	distillOpts.legacyCacheSalt = distillCacheSaltVersion(prompt, reconcilePromptText, threshold, 0)
+	distillOpts.legacyAgentCacheSalts = legacyAgentDistillCacheSalts(prompt, reconcilePromptText, threshold, distillOpts)
 	plan, err := buildDistillPlanContext(ctx, brainDir, manifest, distillOpts, cacheSalt)
 	if err != nil {
 		return distillDryRunReport{}, err
@@ -1844,7 +1867,7 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 		if !distillOpts.force {
 			legacyKey := distillSessionCacheKey(branch, session.SessionID)
 			prev, ok := cachedDistillFingerprintForKey(prevCache, distillSessionCacheKeyFor(branch, session, duplicateKeys))
-			if (ok && (prev == sessionPlan.Fingerprint || grandfatheredContentFingerprint(prev, session, branch, distillInput, distillOpts))) ||
+			if (ok && (prev == sessionPlan.Fingerprint || grandfatheredContentFingerprint(prev, session, branch, distillInput, distillOpts) || grandfatheredAgentSaltFingerprint(prev, session, branch, distillInput, distillOpts))) ||
 				(!duplicateKeys[legacyKey] && (!distillOpts.checkpointBacked || distillPreprocessingVersion == 1) && grandfatheredDistillFingerprint(prevCache, session, branch, distillInput)) {
 				sessionPlan.Cached = true
 				plan.CachedSessions++
@@ -2346,27 +2369,41 @@ func grandfatheredDistillFingerprint(cache distillCache, session exportSession, 
 	return false
 }
 
-func distillCacheSaltForBrain(brainDir string, distillOpts distillCommandOptions, now time.Time) (string, error) {
+// distillSaltInputsForBrain resolves the three inputs every salt is derived
+// from, once: the rendered distill prompt (taxonomy included), the reconcile
+// prompt and the effective confidence threshold.
+func distillSaltInputsForBrain(brainDir string, distillOpts distillCommandOptions, now time.Time) (prompt, reconcilePromptText string, threshold float64, err error) {
 	taxonomy, err := loadFactTaxonomy(brainDir, now)
 	if err != nil {
-		return "", err
+		return "", "", 0, err
 	}
-	prompt, err := renderDistillPrompt(taxonomy)
+	prompt, err = renderDistillPrompt(taxonomy)
+	if err != nil {
+		return "", "", 0, err
+	}
+	return prompt, reconcilePrompt(), distillConfidenceThreshold(distillOpts), nil
+}
+
+func distillCacheSaltForBrain(brainDir string, distillOpts distillCommandOptions, now time.Time) (string, error) {
+	prompt, reconcilePromptText, threshold, err := distillSaltInputsForBrain(brainDir, distillOpts, now)
 	if err != nil {
 		return "", err
 	}
-	threshold := distillConfidenceThreshold(distillOpts)
-	return distillCacheSalt(prompt, reconcilePrompt(), threshold, distillOpts), nil
+	return distillCacheSalt(prompt, reconcilePromptText, threshold, distillOpts), nil
 }
 
 // Bump whenever transcript preprocessing changes what the extractor sees.
 const distillPreprocessingVersion = 1
 
 func distillFingerprintForSession(session exportSession, branch, content string, opts distillCommandOptions) string {
+	return distillFingerprintForSessionWithSalt(session, branch, content, opts, opts.cacheSalt)
+}
+
+func distillFingerprintForSessionWithSalt(session exportSession, branch, content string, opts distillCommandOptions, cacheSalt string) string {
 	if !opts.checkpointBacked || session.LatestCheckpoint == "" {
-		return distillSessionFingerprint(session, branch, content, opts.cacheSalt)
+		return distillSessionFingerprint(session, branch, content, cacheSalt)
 	}
-	sum := sha256.Sum256([]byte(strings.Join([]string{session.SessionID, session.LatestCheckpoint, strconv.Itoa(session.SessionIndex), branch, opts.transcriptMode, opts.cacheSalt}, "\x00")))
+	sum := sha256.Sum256([]byte(strings.Join([]string{session.SessionID, session.LatestCheckpoint, strconv.Itoa(session.SessionIndex), branch, opts.transcriptMode, cacheSalt}, "\x00")))
 	return "checkpoint-sha256:" + hex.EncodeToString(sum[:])
 }
 
@@ -2376,7 +2413,48 @@ func cachedCheckpointDistill(cache distillCache, session exportSession, branch s
 	}
 	fingerprint := distillFingerprintForSession(session, branch, "", opts)
 	prev, ok := cachedDistillFingerprintForKey(cache, distillSessionCacheKeyFor(branch, session, duplicates))
-	return fingerprint, ok && prev == fingerprint
+	if !ok {
+		return fingerprint, false
+	}
+	if prev == fingerprint {
+		return fingerprint, true
+	}
+	// An entry a pre-agent-independent binary wrote for this same
+	// configuration: identity is unchanged, so honor it and let the caller
+	// rewrite it under the current salt.
+	for _, salt := range opts.legacyAgentCacheSalts {
+		if prev == distillFingerprintForSessionWithSalt(session, branch, "", opts, salt) {
+			return fingerprint, true
+		}
+	}
+	return fingerprint, false
+}
+
+// grandfatheredAgentSaltFingerprint reports whether a cache entry written by a
+// binary whose salt still carried agent/model/effort proves this session's
+// preprocessed content unchanged. It only matches when the current run uses
+// the same agent/model/effort the entry was produced with (the legacy salts
+// are derived from THIS run's options), which is exactly the case the
+// backfill hits; the caller then rewrites the entry under the
+// agent-independent salt so every later run, whatever its agent, shares it.
+func grandfatheredAgentSaltFingerprint(previous string, session exportSession, branch, content string, opts distillCommandOptions) bool {
+	if previous == "" {
+		return false
+	}
+	// A file-era entry (content fingerprint) on a brain that has since become
+	// checkpoint-backed is the migration grandfatheredContentFingerprint
+	// handles for agent-independent salts; agent-bearing ones need the same
+	// content-form comparison, under the same preprocessing-version guard.
+	contentForm := opts.checkpointBacked && distillPreprocessingVersion == 1 && content != ""
+	for _, salt := range opts.legacyAgentCacheSalts {
+		if previous == distillFingerprintForSessionWithSalt(session, branch, content, opts, salt) {
+			return true
+		}
+		if contentForm && previous == distillSessionFingerprint(session, branch, content, salt) {
+			return true
+		}
+	}
+	return false
 }
 
 // Read legacy entries once to prove the preprocessed input is unchanged, then
@@ -2385,15 +2463,48 @@ func grandfatheredContentFingerprint(previous string, session exportSession, bra
 	return opts.checkpointBacked && distillPreprocessingVersion == 1 && opts.legacyCacheSalt != "" && previous == distillSessionFingerprint(session, branch, content, opts.legacyCacheSalt)
 }
 
+// distillCacheSalt is the configuration half of every session fingerprint:
+// what the extractor was asked (prompt + taxonomy, reconcile prompt, the
+// auto-apply threshold) and how the transcript was preprocessed. It
+// deliberately EXCLUDES the agent, model and effort. The facts are the
+// product, not the model that produced them; keying the cache on the model
+// meant the setup backfill (codex, effort low) and the session-end hook
+// (auto, no effort) never shared an entry, so each re-spent on every session
+// the other had already distilled, and a bare `distill` reported 0 cached.
 func distillCacheSalt(prompt, reconcilePromptText string, threshold float64, distillOpts distillCommandOptions) string {
 	version := 0
 	if distillOpts.checkpointBacked {
 		version = distillPreprocessingVersion
 	}
-	return distillCacheSaltVersion(prompt, reconcilePromptText, threshold, distillOpts, version)
+	return distillCacheSaltVersion(prompt, reconcilePromptText, threshold, version)
 }
 
-func distillCacheSaltVersion(prompt, reconcilePromptText string, threshold float64, distillOpts distillCommandOptions, preprocessingVersion int) string {
+func distillCacheSaltVersion(prompt, reconcilePromptText string, threshold float64, preprocessingVersion int) string {
+	data, err := json.Marshal(struct {
+		Version              int     `json:"version"`
+		PreprocessingVersion int     `json:"preprocessing_version,omitempty"`
+		Prompt               string  `json:"prompt"`
+		ReconcilePrompt      string  `json:"reconcile_prompt"`
+		Threshold            float64 `json:"threshold"`
+	}{
+		Version:              distillCacheVersion,
+		PreprocessingVersion: preprocessingVersion,
+		Prompt:               prompt,
+		ReconcilePrompt:      reconcilePromptText,
+		Threshold:            threshold,
+	})
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// legacyAgentDistillCacheSalt reproduces EXACTLY the salt formula binaries
+// used while agent/model/effort were still part of it. Retained only so
+// entries those binaries wrote are honored (see grandfatheredAgentSaltFingerprint);
+// nothing writes it.
+func legacyAgentDistillCacheSalt(prompt, reconcilePromptText string, threshold float64, distillOpts distillCommandOptions, preprocessingVersion int) string {
 	data, err := json.Marshal(struct {
 		Version              int     `json:"version"`
 		PreprocessingVersion int     `json:"preprocessing_version,omitempty"`
@@ -2420,6 +2531,63 @@ func distillCacheSaltVersion(prompt, reconcilePromptText string, threshold float
 	}
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// legacyAgentDistillCacheSalts lists every agent-bearing salt an older binary
+// plausibly wrote for this brain: this run's own configuration first, then
+// the KNOWN producers — the setup backfill (a resolved agent, effort low, an
+// optional model) and the session-end hook (a resolved agent, no effort, no
+// model) — across the agents whose names reached the salt (auto resolves to
+// a concrete agent BEFORE salting). Each comes in the pre-checkpoint formula
+// (preprocessing version omitted) and, for a checkpoint-backed brain, the
+// versioned one. Enumerating producers rather than trusting the current
+// flags lets the hook migrate what the backfill wrote and vice versa, so no
+// human has to repeat the writer's exact flags once.
+func legacyAgentDistillCacheSalts(prompt, reconcilePromptText string, threshold float64, distillOpts distillCommandOptions) []string {
+	// uniqueStrings drops blanks, so the "no effort" / "no model" producer is
+	// added back explicitly.
+	agents := uniqueStrings([]string{distillOpts.agent, "codex", "claude-code"})
+	efforts := append([]string{""}, uniqueStrings([]string{distillOpts.effort, "low"})...)
+	models := append([]string{""}, uniqueStrings([]string{distillOpts.model})...)
+	versions := []int{0}
+	if distillOpts.checkpointBacked {
+		versions = append(versions, distillPreprocessingVersion)
+	}
+	seen := make(map[string]struct{}, len(agents)*len(efforts)*len(models)*len(versions))
+	var salts []string
+	add := func(candidate distillCommandOptions, version int) {
+		salt := legacyAgentDistillCacheSalt(prompt, reconcilePromptText, threshold, candidate, version)
+		if _, dup := seen[salt]; dup {
+			return
+		}
+		seen[salt] = struct{}{}
+		salts = append(salts, salt)
+	}
+	for _, version := range versions {
+		add(distillOpts, version)
+	}
+	for _, version := range versions {
+		for _, agent := range agents {
+			for _, effort := range efforts {
+				for _, model := range models {
+					candidate := distillCommandOptions{agent: agent, effort: effort, model: model}
+					if agent == distillOpts.agent {
+						candidate.agentCommand = distillOpts.agentCommand
+					}
+					add(candidate, version)
+				}
+			}
+		}
+	}
+	return salts
+}
+
+func legacyAgentDistillCacheSaltsForBrain(brainDir string, distillOpts distillCommandOptions, now time.Time) ([]string, error) {
+	prompt, reconcilePromptText, threshold, err := distillSaltInputsForBrain(brainDir, distillOpts, now)
+	if err != nil {
+		return nil, err
+	}
+	return legacyAgentDistillCacheSalts(prompt, reconcilePromptText, threshold, distillOpts), nil
 }
 
 func distillSessionCacheKey(branch, sessionID string) string {

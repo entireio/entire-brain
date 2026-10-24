@@ -1477,15 +1477,31 @@ func TestDistillDryRunPredictsCacheAccurately(t *testing.T) {
 		t.Fatalf("same-config dry-run must predict zero agent calls, got %d", report.EstimatedAgentCallsUpperBound)
 	}
 
-	// A different model salts differently: the dry-run must predict re-distill.
+	// The agent, model and effort are NOT part of the salt: the facts are the
+	// product, not the model that produced them, so a run on another model
+	// must predict everything cached (the backfill and the hook share one
+	// cache).
 	changed := opts
-	changed.model = "some-other-model"
+	changed.agent, changed.agentCommand, changed.model, changed.effort = "codex", nil, "some-other-model", "low"
 	report, err = buildDistillDryRunReport(brainDir, changed, now)
 	if err != nil {
 		t.Fatalf("dry-run (changed model): %v", err)
 	}
+	if report.CachedSessions != 2 || report.SessionsToDistill != 0 {
+		t.Fatalf("changed-model dry-run must still predict all cached: cached=%d to_distill=%d", report.CachedSessions, report.SessionsToDistill)
+	}
+
+	// What the extractor is ASKED still salts differently: a changed
+	// confidence threshold changes reconcile outcomes, so the dry-run must
+	// predict re-distill.
+	stricter := opts
+	stricter.confidenceThreshold = 0.95
+	report, err = buildDistillDryRunReport(brainDir, stricter, now)
+	if err != nil {
+		t.Fatalf("dry-run (changed threshold): %v", err)
+	}
 	if report.SessionsToDistill != 2 || report.CachedSessions != 0 {
-		t.Fatalf("changed-model dry-run must predict re-distill: cached=%d to_distill=%d", report.CachedSessions, report.SessionsToDistill)
+		t.Fatalf("changed-threshold dry-run must predict re-distill: cached=%d to_distill=%d", report.CachedSessions, report.SessionsToDistill)
 	}
 }
 
