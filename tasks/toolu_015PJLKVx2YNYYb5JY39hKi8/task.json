@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_015PJLKVx2YNYYb5JY39hKi8",
+  "agent_id": "aa1db5bdf8094a12e",
+  "subagent_type": "Explore",
+  "task_description": "Map semantic deletion surface",
+  "token_usage": {
+    "input_tokens": 74,
+    "cache_creation_tokens": 163150,
+    "cache_read_tokens": 4059820,
+    "output_tokens": 28519,
+    "api_call_count": 37
+  },
+  "started_at": "2026-10-23T22:05:06.552703-07:00",
+  "completed_at": "2026-10-23T22:11:14.013604-07:00"
+}

@@ -1,0 +1,244 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/puebla directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name. Conductor will automatically rename it in the background to match your task.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/puebla/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+let's look at this ticket: Filed COR-2258 in
+
+---
+
+can we combine this with COR-2217?
+
+---
+
+at this point, we've removed teh brain store and jsut query graph. we shoudl be gracefully degrading when graph isn't present but we shoudln't be using the word "Semantic" since that doesn't make sense. 
+
+i think let's just combine the tickets into one and then handle them in one PR
+
+---
+
+okay now summarize the ticket for me in simple straightforward language
+
+---
+
+1. this is fine. when it degrades, it shoudl jsut say to install graph and give the command
+
+2.  yes
+
+---
+
+yes let's implement
+
+---
+
+<task-notification>
+<task-id>aa1db5bdf8094a12e</task-id>
+<tool-use-id>toolu_015PJLKVx2YNYYb5JY39hKi8</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-puebla/88872ad9-85fb-4000-affc-5a21f2638bd6/tasks/aa1db5bdf8094a12e.output</output-file>
+<status>completed</status>
+<summary>Agent "Map semantic deletion surface" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result># COR-2217 deletion scoping — findings
+
+## 1. `loadGraphManifest`
+
+`internal/cli/graph_store.go:150-165`. It **always overlays the live store**: `loadBrainManifest` → force `manifest.Sources = &amp;brainSources{}` if nil → `graphStoreProfile(manifest)` (the one and only field read from the persisted source, `graph_store.go:167-172`) → `fetchGraphStore` → `manifest.Sources.Semantic = graphStoreSource(d, brainDir)` (`:163`). On any `fetchGraphStore` error it returns `nil, err` — it never falls back to the persisted value.
+
+So `runSemanticContext` (`semantic.go:2700`) and `runSemanticImpact` (`semantic.go:2786`) read the **live** descriptor, identical to `buildBrainStatusReport`.
+
+Non-test callers (7 + 2 tests):
+- `semantic.go:2260` `brainBlindSpotsForRepo`, `:2524` `runSemanticQuery`, `:2700` context, `:2786` impact, `:2853` changes, `:2945` boundary, `:3011` tests
+- `agent_surface.go:4486` `runBrainShow`
+- `semantic_graph.go:148` `loadSemanticEnv` (feeds every `graph *` subcommand + `ingestGraphTraces`)
+- `doctor.go:325` `doctorSemanticCoverage`
+- `workspace.go:3197` `workspaceSemanticSource`
+- tests: `agent_ux_test.go:27,187`, `viz_graph_regression_test.go:79`, `semantic_trace_ingest_regression_test.go:37`
+
+Note `semanticFreshnessReport` (`semantic.go:2294-2332`) and `pattern_corpus.go:453-465` bypass it and call `loadBrainManifest` + `fetchGraphStore` directly.
+
+## 2. Writers / readers of the persisted `sources.semantic`
+
+**Writers** — all funnel through `writeBrainSemanticSource` (`semantic.go:581-593`, sets `manifest.Sources.Semantic = semantic` at `:592`):
+- `graph_store.go:337-344` — `runGraphOwnedIndex`, i.e. the `index` command. Crucially `graph_store.go:338` sets `source.StorePath = ""` before persisting, so the persisted record has **neither** `store_path` nor `snapshot_path`; it is a pure inventory (`GeneratedAt`, `Profile`, `GraphRepoRoot`, counts).
+- `graph_store.go:404-409` — `migrateBrainGraphStorage` writes a stub `{StoreOwner:"graph", Provider:"entire-graph", Profile}`.
+- `runRefreshSemanticPhase` (`refresh_phases.go:34-39`) → `runSemanticIndex` (`semantic.go:457-459`) → `runGraphOwnedIndex`. So refresh writes via exactly the same path as `index`.
+- Deleter: `runSemanticReset --semantic-only` sets `manifest.Sources.Semantic = nil` (`semantic.go:496`).
+- Bundle import **validates** but never restores a semantic layer (`semantic.go:5965-5967`, prints "bundle's code index was not imported: code indexing is Graph-owned since 0.2.0"); `semantic.go:6110-6190` is validation-only.
+
+**Readers of the persisted value** (`loadBrainManifest`, no live overlay):
+| site | what it reads | is it a real consumer of refresh's write? |
+|---|---|---|
+| `refresh.go:738-767` `semanticRefreshNeeded` | `StoreOwner`, `GraphRepoRoot`, `GeneratedAt`, `Commit`, `Tree`, `Files`, `Symbols`, `Relations`, `Externals` vs live descriptor | **Yes — the only real one.** This is a self-loop: refresh writes the inventory solely so the *next* refresh can say "current" instead of rebuilding. |
+| `refresh.go:686-706` `refreshSemanticCheckLabel` / `refreshSemanticLabel` / `existingSemanticSource` (`:722`) | counts for the progress label | progress text only |
+| `refresh.go:422-424` | `previous.Files` to scale the progress bar | progress only |
+| `graph_store.go:167` `graphStoreProfile` | `Profile` | **Yes** — chooses the profile passed to `graph store`/`graph index` |
+| `graph_store.go:398-409` `migrateBrainGraphStorage`, `graph_traces.go:69-91` `migrateLegacyGraphTraces` | `StoreOwner`, `StorePath`, `GenerationPath` | legacy one-time migration |
+| `setup_status.go:247,275-281` | presence + `GeneratedAt` | fed the **live** manifest from `agent_surface.go:4688`; `:279` special-cases the live (zero-time) shape |
+| `bench.go:134-155` | counts/provider for the bench report | **Yes** (hidden command) |
+| `bench_scale.go:255-259,270` | counts, `--skip-index` guard | **Yes** (hidden command) |
+| `seed.go:1517-1537` (`renderCombinedBrainReadme`, `seed.go:1458`) | prints a "## Semantic Index" section incl. `- Snapshot:` | yes, cosmetic README |
+| `semantic.go:4955-4966` `prune` | `SnapshotPath`/`GenerationPath` to pick the "active" dir to keep | legacy-only; both fields are always empty now |
+| `semantic.go:6110-6190` bundle import validation | all fields | legacy bundle compat |
+
+Readers that look persisted but are **live** (via `buildBrainStatusReport`'s overlay at `agent_surface.go:4563-4576`): `regression.go:1257-1259`, `regression.go:1498-1500`, `agent_surface.go:1483-1546`, `agent_surface.go:4637-4647`.
+
+Net: **refresh's semantic phase has no consumer other than refresh's own staleness check, `graphStoreProfile`, and the two hidden `bench` commands.** Everything a user reads comes from `fetchGraphStore`.
+
+## 3. `semanticRuntimeTraceFacts` (`semantic.go:3199-3285`)
+
+- Guard: returns empty if `source.StorePath == ""` (`:3203-3205`) — i.e. it only runs on the **live** graph handle.
+- `validateSemanticDeclaredStore` → `graphStore != nil` short-circuit (`semantic.go:3631-3633`) returns the `graph-store-v1:` handle unchanged.
+- `openSemanticReadDB` (`graph_store.go:178-223`) opens Graph's sqlite read-only, creates the `brain_*_v1` TEMP VIEWs, then calls `loadGraphTraceTable` (`:219`).
+- `ensureSemanticRuntimeTraceTable` + the query at `semantic.go:3216-3232` read a **TEMP table** `runtime_traces` populated by `loadGraphTraceTable` (`graph_traces.go:136-161`) from **`&lt;brainDir&gt;/semantic/traces/observations.json`** (`graphTraceFile`, `graph_traces.go:15`, 64 MiB cap at `:16`). Record kind emitted: `RecordType="runtime_trace"`, `Type="RUNTIME_TRACE"`, evidence kind `runtime_trace_import`.
+- Producers: `ingestGraphTraces` (`graph_traces.go:163-216`, the `graph ingest-traces` verb) via `writeGraphTraces` (`:47`); plus the one-shot `migrateLegacyGraphTraces` (`:64-134`) which lifts rows out of a pre-Graph brain-owned sqlite.
+- **It would NOT break** if refresh's semantic build and the NDJSON snapshot go away: it never touches the snapshot, never reads the persisted manifest, and its JSON file is written by trace ingestion. Two cautions: (a) `removeLegacyGraphArtifacts` (`graph_store.go:369-386`) deletes only `semantic/generations` and `semantic/snapshots`, so don't widen it to the whole `semantic/` dir or you destroy `semantic/traces/observations.json`; (b) `ingestGraphTraces` reaches the store through `loadSemanticEnv`→`semanticStorePath` (`semantic_graph.go:139-163`), which must keep working.
+- Callers: `agent_surface.go:1518`, `regression.go:464`, `regression.go:1505`.
+
+## 4. NDJSON-snapshot-only surface
+
+**Decision rule** is uniformly `source.StorePath != ""` → SQLite, else NDJSON. Branch sites (non-test): `semantic.go:2540` (query), `:3149` (context), `:3315` (impact), `:3344` (changed ranges), `:3566` (graph facts / tests), `:3603` (boundary); `agent_surface.go:4943`; `viz.go:1428`, `:1446`; `dash.go:515/521`; inverse guards at `semantic.go:3203`, `semantic_graph.go:159`, `graph_traces.go:73`.
+
+`validateSemanticDeclaredStore` (`semantic.go:3631-3657`): if `source.graphStore != nil` return `source.StorePath` verbatim (the opaque `graph-store-v1:` handle) — **this is the only path any live caller takes**. Otherwise it is the legacy brain-owned generation layout: requires `GenerationPath`, `validateSemanticGenerationPath` (`:6342`), `validateSemanticGenerationFilePath` (`:6355`), symlink rejection, `verifiedSQLiteStore` memo. `validateSemanticSnapshotPath` (`semantic.go:6327-6340`) forces `semantic/snapshots/.../snapshot.ndjson` (constants at `semantic.go:36-43`).
+
+Because `runGraphOwnedIndex` blanks `StorePath` before persisting (`graph_store.go:338`) **and** never writes `SnapshotPath`, the NDJSON branch is unreachable from any current brain: it can only be entered via a legacy 0.1.x manifest, and then only through the few call sites that use the persisted source.
+
+Snapshot-only functions (delete candidates):
+- `semantic.go:3931` `findSemanticSymbols` (vs `findSemanticSymbolsInSQLite` `:3885`)
+- `semantic.go:4238` `traverseSemanticImpactSnapshot` (vs `traverseSemanticImpactSQLite`)
+- `semantic.go:4288` `loadSemanticSymbolsByIDSnapshot`, `:4320` `loadSemanticSymbolsByIDsSnapshot`
+- `semantic.go:4610` `findSemanticSymbolsForFiles` (vs `findSemanticSymbolsForFilesSQLite` `:4363`)
+- `semantic.go:4665` `findSemanticRelationsForSymbols` (vs `findSemanticRelationsForSymbolsInSQLite`)
+- `semantic.go:4709` `findSemanticRelationsByTypesSnapshot`
+- `semantic.go:6327` `validateSemanticSnapshotPath`
+- `semantic.go:6465` `readSemanticSnapshotSummary`, `:6536` `validateSemanticSourceMatchesSnapshot`, `:6567` `validateBundleSemanticSourceMatchesSnapshot`
+- `semantic.go:5496` `sanitizeSemanticSnapshotRecordForBundle`
+- `agent_surface.go:4979` `findSemanticRecordByIDOrNameSnapshot` (the `StorePath != ""` fork is `agent_surface.go:4942-4957`)
+- `semantic_audit.go:156-...` `semanticAuditSnapshotCoverage`
+- `viz.go:1508-1517` `snapshotFullPath` + the else-branches at `viz.go:1435-1439`, `:1480-1484`
+- `dash.go:521-540` snapshot half of `loadSemanticSymbols`
+- `publish.go:379-408` `collectSnapshotArtifacts`
+- `semantic.go:4914-4978` `prune` ("Prune old local semantic overlays and snapshots") + `pruneSemanticChildDirs`
+
+**2 GiB read ceiling**: `safe_read.go:43` `defaultMaxSemanticSnapshotBytes = 2 &lt;&lt; 30` and `safe_read.go:49-56` `semanticSnapshotMaxBytes()` (env `ENTIRE_BRAIN_MAX_SNAPSHOT_BYTES`). **Do not delete** — it is now load-bearing for non-semantic reads: `history.go:1677,1688,3060`, `export.go:2832`, `publish.go:759`, `session_privacy_verify.go:76`. Only `semantic.go:5484` and `:6030` are snapshot uses. Rename at most.
+
+`writeSemanticOverlayFile` (`semantic.go:1118-1142`) is **not** snapshot machinery any more: its only caller, `refresh.go:971` (`refresh --all-branches`), passes `snapshotRel=""`, so the `snapshot_path` key (`:1127-1129`) is dead. Overlays are consumed only by `publish.go:410-450`.
+
+## 5. `semanticIndexVerb`
+
+`setup_invocation.go:51`: `const semanticIndexVerb = "refresh index"` (doc comment `:42-50`).
+
+Usages (all non-test): `semantic.go:380` (`semanticIndexMissingError`), `refresh.go:87` (the `--semantic-worktree` deprecation text), `status_render.go:394`, `setup.go:214`, `bench_scale.go:271`, `agent_surface.go:1556`, `agent_surface.go:1561`. Tests: `bench_scale_test.go:436`, `status_render_test.go:323`.
+
+## 6. The `semantic` status / onboarding component
+
+**Live-graph — should survive (rename only):**
+- `semanticFreshnessReport` (`semantic.go:2294-2332`) and its wrapper `semanticStaleReport` (`semantic.go:2289-2291`). Already 100 % live: `loadBrainManifest` only for the profile, then `fetchGraphStore`; axes are `graph` (ok / degraded on minor schema skew / missing) and `worktree`. No persisted artifact is consulted.
+- `doctor.go:262-311` `semanticDoctorFindings` → emits checks `"semantic"` (`:308`) and `"semantic provider"` (`:309`, environment scope). `doctorSemanticProviderAxis = "provider"` (`:207`). Remedies: `doctor.go:725-726` map `"semantic"`/`"semantic blind spots"` → `"refresh index"`; `doctorSemanticProviderRemedy` (`:793-806`).
+- `doctor.go:434` `"semantic blind spots"` (from `brainBlindSpotsForRepo`, live via `loadGraphManifest`), `:441` `"semantic"` unavailable warn, `:444-447` `"semantic coverage"` (live via `loadGraphManifest` at `:325`), `:504` printed line.
+- `status_render.go:221-240` `SemanticMissing` / `SemanticProviderAbsent`, computed at `:282` from `report.Semantic == nil` (live) and `:287`; `SemanticStoreUnsupported` `:241-245`/`:294-296`. Messages at `:362`, `:373`, `:391-399`, `:435`.
+- `agent_surface.go:1220` `sources: seed=%t sessions=%t semantic=%t ...` — `Sources.Semantic` there is set from the live overlay.
+- `setup.go:87` `brainComponentSemantic = "semantic"`, `:102` label `"semantic index"`, `:116` `setupRetrievalCore`; `setup_terse.go:19` `"semantic search"`, `:36` remedy `` run `entire plugin install graph` ``; `setup_ui.go:410`. `setup_status.go:244-281` presence + the live-descriptor special case at `:279`.
+
+**Brain-side build — delete:**
+- `doctor.go:209-223` `doctorSemanticArtifactAxes` ("persisted semantic artifacts this brain CLAIMS to have": snapshot/store/parse-cache axes) — `semanticFreshnessReport` no longer emits any of them, so this map and the `semanticAxisBroken` escalation at `:288` are already dead.
+- `doctor.go:320-340` `doctorSemanticCoverage`/`semanticAuditStoreCoverage` keeps its sqlite half; `semanticAuditSnapshotCoverage` (`semantic_audit.go:156`) with its `freshness.Axes["snapshot"]` lookup is dead.
+- `refresh.go:367-447` the whole semantic phase, `refresh.go:686-706` the labels, `refresh.go:722-726` `existingSemanticSource`, `refresh.go:738-767` `semanticRefreshNeeded`, `refresh_phases.go:34-39`.
+- `seed.go:1517-1537` README "## Semantic Index" block (reads the persisted inventory + `SnapshotPath`).
+
+## 7. MCP tools
+
+Current names/args — `mcp.go` declarations (dispatch at `mcp.go:1427-1449`, default limits at `:1119-1125`):
+
+| tool | declared | args | routes to |
+|---|---|---|---|
+| `brain_context` | `mcp.go:902-905` | `query` (req), `limit`, `details` | `runSemanticContext` (`mcp.go:1427-1430`); default limit 5 (`:1122`) |
+| `brain_impact` | `mcp.go:907-910` | `query` (req), `limit`, `depth`, `details` | `runSemanticImpact` (`mcp.go:1432-1441`) |
+| `brain_changes` | `mcp.go:912-915` | `limit` | `runSemanticChanges` (`mcp.go:1443`, aliased from `brain_detect_changes`) |
+| `brain_code` | `mcp.go:917-920` | `query` (req), `limit`, `details` | `runSemanticQuery` (`mcp.go:1444-1448`); default limit 10 (`:1124`) |
+| `brain_search_code` | `mcp.go:981-984` | same as `brain_code` | same case at `mcp.go:1444`; **hidden alias** of `brain_code` (`mcp.go:716`) |
+| `brain_search_graph` | `mcp.go:986-989` | `query`, `limit`, `offset` | `runSemanticSearchGraph` |
+| `brain_query_graph` | `mcp.go:991-994` | `query`, `limit` | `runSemanticQueryGraph` |
+| `brain_get_graph_schema` | `mcp.go:996-999` | — | `runSemanticGraphSchema` (alias `brain_get_architecture`, `mcp.go:718`) |
+| `brain_get_code_snippet` | — | `query`, `context_lines` | `runSemanticSnippet` (`mcp.go:1450-1460`) |
+
+There is **no** `brain_code_context` or `brain_impact_analysis` in this tree. Every one of these goes through `loadGraphManifest`, so all are already live-graph-backed. Compat-bearing strings: `mcp.go:715` `"brain_query with semantic=true"`, `mcp.go:848` (`brain_refresh` description, `semantic=true` arg), `mcp.go:868` (`brain_query` — `semantic=true` alias), `mcp.go:1800` `Semantic bool \`json:"semantic"\``.
+
+## 8. `bench`, pattern corpus, viz, workspace, regression
+
+| surface | source | dev-only? |
+|---|---|---|
+| `bench` root (`bench.go:48-57`) | — | **`Hidden: true`** (`bench.go:50`) |
+| `bench semantic` (`bench.go:59-176`) | runs `runSemanticIndex` into a temp brain (`:124`), then reads the **persisted** manifest (`bench.go:134-141`) | hidden |
+| `bench scale` (`bench_scale.go:235-271`) | same: index, then **persisted** (`:255-259`); `--skip-index` error at `:270` | hidden |
+| `pattern_corpus.go:453-465` | **live** `fetchGraphStore` + `graphStoreSource`, guarded by `semanticRepoKeyEqual` and `validateSemanticProviderRepoKey` | no — internal corpus build |
+| `viz.go:1403-1407` (`/search`), also `:976`, `:1235`, `:1352` | `s.semanticSource()` (`viz.go:1210-1215`) = `s.manifest.Sources.Semantic`. Depends on how `s.manifest` was loaded; the snapshot forks at `:1435-1439`, `:1480-1484`, `:1508-1517` are the legacy half | no, user-facing |
+| `workspace.go:944`, `:1002` | `workspaceSemanticSource` (`workspace.go:3193-3215`) → `loadGraphManifest` ⇒ **live**, plus `graphStore.Header.RepoKey` identity check (uses the live descriptor pointer directly at `:3202`) | no |
+| `workspace.go:4042` | **live** `fetchGraphStore` for the cross-repo cache generation digest (`EntryDigest`, or `"unavailable: "+err`) | no |
+| `regression.go:464`, `:485`, `:1505` | `semSource` from `status.Manifest.Sources.Semantic` where `status` came from `buildBrainStatusReport` ⇒ **live** (`regression.go:1257-1259`, `:1498-1500`) | no |
+
+## 9. `VectorPending` / `VectorContinue`
+
+Declared `memory_cmd.go:805` (`json:"vector_pending,omitempty"`) and `:818` (`json:"-"`).
+
+**Never set true in production.** The only producer, `runMemoryVectorLane` (`memory_cmd.go:1203-1214`), returns a zero `memoryWorkerStats` — its body is an env check plus a log append, with the comment "Semantic retrieval was removed (trail #278); the vector lane is a no-op". The only other mutation is the merge in `add` (`memory_cmd.go:1659-1660`), which ORs zeros.
+
+Reads: `memory_cmd.go:1614` (`if stats.VectorContinue { relaunchDelay = 100ms }` — dead branch) and the merge at `:1659-1660`. `VectorPending` additionally serializes into worker-stats JSON but is `omitempty`, so it never appears. Tests: `memory_lifecycle_regression_test.go:677,682`, `review_regressions_test.go:202-221` (the latter asserts `vector_continue` is *absent* from JSON).
+
+## 10. `evalRunConfig.Semantic` (`facts_eval.go:97`)
+
+Confirmed. The local `semantic` var is declared at `facts_eval.go:338`, bound **only** to the removed flag `--semantic` (`facts_eval.go:477`, help text "Removed (trail #278)…"), and the RunE hard-errors if it is true (`facts_eval.go:386-388`). So by the time `Semantic: semantic` is assigned at `facts_eval.go:454` it is provably `false`.
+
+Reads of the field: **none** anywhere in the tree beyond the struct literal at `:454` and JSON serialization of `evalRunConfig` (tag `json:"semantic"`). Grep over `facts_eval*.go` shows no `.Semantic` read.
+
+## 11. "semantic" strings
+
+**Rough counts** (non-test `.go`, quoted-string occurrences excluding struct tags): **~391 lines**. Top files: `semantic.go` 100, `agent_surface.go` 43, `mcp.go` 24, `refresh.go` 21, `semantic_audit.go` 18, `workspace.go` 16, `brain_brief_compact.go` 16, `doctor.go` 14, `semantic_stream.go` 13, `seed.go` 11, `bench.go` 10, `dash.go` 9, `status_render.go` 7, `semantic_test_suggestions.go` 7, `viz.go` 6, `retrieve_cmd.go` 6, `setup.go` 5, `root.go` 5, `graph_store.go` 5. (Total identifier+comment occurrences are much larger: `semantic.go` 807, `agent_surface.go` 337, `semantic_graph.go` 130.)
+
+**Rename candidates (user-visible prose):**
+- Help text: `bench.go:52` "Benchmark semantic indexing performance", `bench.go:63`, `semantic.go:4914` "Prune old local semantic overlays and snapshots", `semantic.go:452` `--semantic-only` description, `refresh.go:81-82` flag descriptions.
+- Progress labels: `refresh.go:369` `refreshSemanticCheckLabel`, `:425-427` `"semantic index: " + phase`, `:686-697` ("check semantic index", "semantic index"), `bench.go:180` "semantic bench: %s".
+- Warnings: `agent_surface.go:1495` "semantic context unavailable", `:1503` "semantic impact context unavailable", `:1548` "semantic index missing; run …", `:1561`; `semantic.go:380` `semanticIndexMissingError`; `viz.go:1235-1260` "no semantic graph yet", "the semantic snapshot has no symbols yet"; `status_render.go:394`, `:435` "no semantic index"; `setup_terse.go:19` "semantic search"; `setup.go:102` "semantic index"; `bench_scale.go:270-271`, `:732`; `seed.go:1522` "## Semantic Index"; `graph_store.go:350`/`:415` "brain: retired the duplicate semantic index…".
+- Doctor check names: `doctor.go:308` `"semantic"`, `:309` `"semantic provider"`, `:434` `"semantic blind spots"`, `:445` `"semantic coverage"`, `:504`.
+
+**MACHINE surfaces that must keep the word:**
+- Manifest key `sources.semantic` — `brain.go:39` `Semantic *semanticSourceManifest \`json:"semantic,omitempty"\``; bundle-compat reader `semantic.go:6316` `Semantic map[string]json.RawMessage \`json:"semantic"\``.
+- JSON tags (~20): `agent_surface.go:83,212,235,318,436`; `brain_brief_profile.go:26,119,120,121`; `doctor.go:137` `semantic_coverage`; `capabilities.go:16,17` `semantic_compiled`/`semantic_requires`; `facts_read_cmd.go:22,23,24`; `mcp.go:1800`; `facts_eval.go:97`; `semantic.go:124` `snapshot_path`, `:219` `effect_on_semantic_completeness`.
+- MCP tool/arg names: see Q7 — plus the `semantic=true` argument of `brain_query` (`mcp.go:868`) and `brain_refresh` (`mcp.go:848`).
+- CLI flags: `--no-semantic` (`facts_read_cmd.go:316`, `agent_surface.go:775`), `--read-only-semantic-cache` (`facts_read_cmd.go:325`), `--semantic` (`retrieve_cmd.go:897` alias; `facts_eval.go:477` removed-but-accepted), `--semantic` / `--semantic-worktree` on refresh (`refresh.go:81-87`, the latter `MarkDeprecated`), `--semantic-only` on reset (`semantic.go:452`).
+- Provider vocabulary: `semanticSchemaVersion`, `semanticHeader`, `graph_store.go:86-92`'s "Graph's semantic schema", `brainwire/contract.go` (15 hits), `internal/tui/viewmodels.go` (18).
+
+## 12. Test coverage by area
+
+| area | tests |
+|---|---|
+| `loadGraphManifest` / live overlay | `agent_ux_test.go:27,187`; `viz_graph_regression_test.go:79`; `semantic_trace_ingest_regression_test.go:37`; `status_truth_test.go:241`; `graph_store_test.go` (whole file: contract/digest/view-mismatch, `:110,118,158,186,255,273,290,340,358,370,415,475`); `honest_reporting_fixes_test.go:363,374`; `graph_provider_fixture_test.go:47`; `brain_overview_source_honesty_test.go` |
+| persisted-write / migration | `graph_store_test.go:158,186,273,290` (`writeBrainSemanticSource`), `semantic_test.go:2328`, `pattern_symbol_links_regression_test.go:135`, `legacy_semantic_fixture_test.go`, `legacy_retired_semantic_fixture_test.go`, `legacy_retired_storage_fixture_test.go`, `brain_manifest_compat_test.go`, `semantic_index_regression_test.go` |
+| refresh semantic phase | `refresh_failure_regression_test.go`, `host_cli_degrade_test.go`, `graph_store_unsupported_remedy_test.go`, `semantic_schema_skew_test.go`, `semantic_identity_test.go`, `semantic_maintenance_regression_test.go` |
+| runtime traces | `semantic_trace_ingest_regression_test.go`, `semantic_trace_fifo_unix_test.go`, `semantic_trace_publication_failure_regression_test.go`, `semantic_boundary_failure_regression_test.go` |
+| snapshot/NDJSON fallback | no test names the snapshot-only readers directly; fixtures touch `snapshot.ndjson` in `semantic_test.go`, `semantic_test_suggestions_test.go`, `semantic_integrity_memo_test.go`, `semantic_audit_regression_test.go`, `bundle_sharing_truth_test.go`, `publish_test.go`, `publish_paths_test.go`, `dash_test.go`, `viz_optimization_test.go`, `brain_brief_compact_test.go`, `honest_reporting_fixes_test.go`; `validateSemanticSnapshotPath` only in `legacy_retired_storage_fixture_test.go` |
+| `semanticIndexVerb` | `status_render_test.go:323`, `bench_scale_test.go:436` |
+| status/onboarding component | `status_render_test.go`, `host_cli_degrade_test.go`, `setup_status_test.go`, `setup_status_output_truth_test.go`, `setup_component_detail_test.go`, `setup_test.go`, `setup_firstrun_test.go`, `setup_ui_test.go`, `firstrun_no_sessions_test.go`, `graph_store_unsupported_remedy_test.go`, `doctor_honest_reporting_test.go`, `doctor_provider_remedy_test.go`, `doctor_actionable_test.go` |
+| MCP tools | `mcp_test.go`, `mcp_bounds_test.go`, `mcp_tool_description_cue_test.go`, `mcp_response_budget_test.go`, `mcp_client_budget_test.go`, `mcp_missing_brain_note_test.go`, `mcp_deadline_test.go` |
+| bench | `semantic_bench_regression_test.go`, `bench_scale_test.go` |
+| Vector* | `memory_lifecycle_regression_test.go:677,682`, `review_regressions_test.go:202-221` |
+| `evalRunConfig.Semantic` | `eval_command_regression_test.go`, `facts_eval_test.go` |
+| brief fallback / tests reservoir | `agent_ux_test.go`, `semantic_test_suggestions_test.go`, `graph_context_test.go`, `brain_brief_semantic_freshness_test.go`, `brain_brief_semantic_dedupe_test.go`, `brief_output_regression_test.go`, `brief_overlay_payload_regression_test.go` |</result>
+<usage><subagent_tokens>174391</subagent_tokens><tool_uses>72</tool_uses><duration_ms>367570</duration_ms></usage>
+</task-notification>
+
+---
+
+native

@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5P72Z2FMR4GJ5MVHS9X9C8N",
+  "strategy": "manual-commit",
+  "branch": "cor-2258-ticket",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/dash.go",
+    "internal/cli/publish.go",
+    "internal/cli/publish_paths_test.go",
+    "internal/cli/root.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_audit.go",
+    "internal/cli/semantic_identity_test.go",
+    "internal/cli/semantic_store_retired_test.go",
+    "internal/cli/viz.go",
+    "internal/cli/viz_optimization_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 174,
+    "cache_creation_tokens": 997748,
+    "cache_read_tokens": 16815553,
+    "output_tokens": 105900,
+    "api_call_count": 87,
+    "subagent_tokens": {
+      "input_tokens": 74,
+      "cache_creation_tokens": 163150,
+      "cache_read_tokens": 4059820,
+      "output_tokens": 28519,
+      "api_call_count": 37
+    }
+  }
+}
