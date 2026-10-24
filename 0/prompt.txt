@@ -1,0 +1,103 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/davis directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name. Conductor will automatically rename it in the background to match your task.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/davis/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+okay let's take a look at this here: https://linear.app/entirehq/issue/COR-2214/investigate-distill-extraction-latency-41m43s-across-154-haiku-calls
+
+---
+
+yeah let's profiel what the process does now and let's ese what happens. i don't want to run all 120 sessions every time to test. there's no reason to that many and we have to wait so long. 20 is probably just fine.
+
+---
+
+what is max thinking? what does it do and what is the consequence of turning it off
+
+---
+
+so let's take alook at the output of 0 max thinking and with it on the current setting. it sounds like it's just the reasoning traces. which we weren't using anyways.
+
+---
+
+yeah we should wire this up. le't simplement it
+
+---
+
+create a trail for this
+
+---
+
+look at the bugbot: https://github.com/entireio/entire-brain/pull/446
+
+---
+
+merged. validate it on main
+
+---
+
+okay nice.  let's run another profile now on main with this change included so we can see where we are
+
+---
+
+let's model out 1 and 2 and see what we can push
+
+---
+
+yeah okay let's move up the concurrency
+
+---
+
+https://entire.com/gh/entireio/-/trails/2456/changes/entire-brain/360 merged
+
+let's run on main and see how much we were able to improve performance
+
+---
+
+what do you recommend for the persistent worker to abvoid the process overhead
+
+---
+
+yeah i mean we don't know what model the customer is using anyways so it has to be generic.
+
+---
+
+it needs to be hands off for the customer. the customer won't confuigure an endpoiint
+
+---
+
+let's measure it first to see what the throttle woudl do
+
+---
+
+okay yeah so giv eme the overall progress now in a nicely summarized table
+
+---
+
+which haiku model did we use here?
+
+---
+
+can we try it with haiku 5.5?
+
+---
+
+yeah that makes sense. 
+
+okay is there anything else left here? or are we good to close this down?/
+
+---
+
+1 and 3/ we're not going to do 2 anytime soon
