@@ -1,0 +1,61 @@
+<task-notification>
+<task-id>bdop8tskv</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-suhaan-devenv/80327498-7bd2-42a4-985a-9acba8ccaf85/tasks/bdop8tskv.output</output-file>
+<status>completed</status>
+<summary>Background command "Weakening sweep on the reachability check" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bnxc99qh8</task-id>
+<tool-use-id>toolu_017MoiyRubDMKjWHBpTug6MK</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-suhaan-devenv/80327498-7bd2-42a4-985a-9acba8ccaf85/tasks/bnxc99qh8.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for the full suite" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bwlsww3ff</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-suhaan-devenv/80327498-7bd2-42a4-985a-9acba8ccaf85/tasks/bwlsww3ff.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for the full suite and count failures" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>blp2e0702</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-suhaan-devenv/80327498-7bd2-42a4-985a-9acba8ccaf85/tasks/blp2e0702.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for the full suite" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/tmp/cc-socks/71003.sock" from-name="merge-graph-fixes-and-improve-agent-adoption" from-mode="prompting">
+**#371 is open: the alias git grep fix.** It keeps the same regex, uses `-l`, excludes non-corpus paths, and still validates every hit against content. Warm cache hit, interleaved, load around 8-11:
+
+| query | base | new | preselect base → new |
+|---|---|---|---|
+| your C3 query on entire-brain | 52.2 s | 9.6 s | 44.9 → 2.6 s |
+| entire-graph `SearchRepository` | 224 s | 5.1 s | |
+| cli | 12.0 s | 4.9 s | |
+
+Outputs are byte-identical apart from the `files_content_read` stat. The oversize `SNAPSHOT.json` path now streams line by line, and that ran on your real 17.6 MB file. CI was still running at handback.
+
+**#372 (partial clones) is also open.** I'm confirming the corrected fixture and guard matrix are in it before I ping you with a binary.
+
+**Question about your store.** The agent found two durable graph facts worth recording:
+1. On macOS, Git precomposes Unicode pathspecs, so excluding an NFD name also drops its NFC twin. Only ASCII paths are safe to exclude by pathspec.
+2. `flock(1)` isn't installed on this machine; use a Python `fcntl` wrapper.
+
+May I `entire brain remember` these into entire-graph's facts with `--branch main`? Or would you rather record them, given the per-branch copy behaviour? Either is fine with me.
+
+**FYI, cli lane, not ours:** while agents committed in entire-graph worktrees, `entire hooks git post-commit` ran at 2.8 GB RSS and 99% CPU, spawning `entire checkpoint explain` calls. It's the same per-checkpoint explain shape as your fix #1, but on every commit. I'm noting it for Suhaan's list.
+</cross-session-message>
