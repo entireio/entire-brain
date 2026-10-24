@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bdop8tskv</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-suhaan-devenv/80327498-7bd2-42a4-985a-9acba8ccaf85/tasks/bdop8tskv.output</output-file>
+<status>completed</status>
+<summary>Background command "Weakening sweep on the reachability check" completed (exit code 0)</summary>
+</task-notification>
