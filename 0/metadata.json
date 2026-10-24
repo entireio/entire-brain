@@ -1,0 +1,106 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "01M5Q8WN95JB5DGERKK7QCAQCW",
+  "session_id": "93ae8948-c612-4072-8e70-2750e80df9ce",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-24T15:37:34.561691Z",
+  "branch": "fix/distill-pipeline-v2",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-5[1m]",
+  "turn_id": "6f3691788af4",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 8548,
+    "cache_creation_tokens": 56214925,
+    "cache_read_tokens": 2184321777,
+    "output_tokens": 2956489,
+    "api_call_count": 4278
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-goal-2026-10-18T02:41:57.710747Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "goal"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "663d4d77ca4c",
+      "timestamp": "2026-10-18T02:41:57.710747Z",
+      "native": {
+        "command": "/goal"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/goal",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_013DJ4ZV2WnnC6aiHwSWtKFh",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "trail-findings"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "6f3691788af4",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 3133,
+        "end": 3134,
+        "entry_ids": [
+          "f3406b51-bccf-40d0-acad-3cff623bbe4d"
+        ],
+        "tool_use_id": "toolu_013DJ4ZV2WnnC6aiHwSWtKFh"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_013DJ4ZV2WnnC6aiHwSWtKFh"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: trail-findings",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 190
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 248,
+      "user_lines_removed": 101,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "internal/cli/watch.go": 45,
+        "internal/cli/watch_log_prefix.go": 62,
+        "internal/cli/watch_log_prefix_test.go": 117,
+        "internal/cli/watch_test.go": 6,
+        "internal/cli/workspace.go": 7,
+        "internal/cli/workspace_test.go": 11
+      },
+      "user_removed_per_file": {
+        "internal/cli/watch.go": 15,
+        "internal/cli/watch_log_prefix.go": 24,
+        "internal/cli/watch_log_prefix_test.go": 45,
+        "internal/cli/watch_test.go": 6,
+        "internal/cli/workspace.go": 3,
+        "internal/cli/workspace_test.go": 8
+      }
+    }
+  ]
+}
