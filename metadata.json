@@ -20,21 +20,14 @@
       "transcript": "/0/full.jsonl",
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
-      "prompt": "/0/prompt.txt"
+      "prompt": ""
     }
   ],
   "token_usage": {
-    "input_tokens": 64,
-    "cache_creation_tokens": 979191,
-    "cache_read_tokens": 9483593,
-    "output_tokens": 24988,
-    "api_call_count": 32,
-    "subagent_tokens": {
-      "input_tokens": 36,
-      "cache_creation_tokens": 177006,
-      "cache_read_tokens": 2295712,
-      "output_tokens": 23809,
-      "api_call_count": 18
-    }
+    "input_tokens": 2,
+    "cache_creation_tokens": 1559,
+    "cache_read_tokens": 342081,
+    "output_tokens": 512,
+    "api_call_count": 1
   }
 }

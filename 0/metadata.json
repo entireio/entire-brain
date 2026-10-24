@@ -3,10 +3,9 @@
   "checkpoint_id": "01M5PCKYP8DCKVS5R7T9X46G6S",
   "session_id": "bfe36b34-bfab-462e-9f8b-68c66b2b684c",
   "strategy": "manual-commit",
-  "created_at": "2026-10-24T07:22:20.209513Z",
+  "created_at": "2026-10-24T07:22:44.627964Z",
   "branch": "memory-generation-eval-loop",
   "checkpoints_count": 4,
-  "save_step_count": 2,
   "files_touched": [
     "internal/cli/distill_cmd.go",
     "internal/cli/distill_raw_out_test.go",
@@ -20,22 +19,15 @@
   "agent": "Claude Code",
   "model": "claude-fable-5",
   "turn_id": "1e65ccfdfce6",
-  "checkpoint_transcript_start": 848,
-  "transcript_lines_at_start": 848,
-  "compact_transcript_start": 195,
+  "checkpoint_transcript_start": 1012,
+  "transcript_lines_at_start": 1012,
+  "compact_transcript_start": 235,
   "token_usage": {
-    "input_tokens": 64,
-    "cache_creation_tokens": 979191,
-    "cache_read_tokens": 9483593,
-    "output_tokens": 24988,
-    "api_call_count": 32,
-    "subagent_tokens": {
-      "input_tokens": 36,
-      "cache_creation_tokens": 177006,
-      "cache_read_tokens": 2295712,
-      "output_tokens": 23809,
-      "api_call_count": 18
-    }
+    "input_tokens": 2,
+    "cache_creation_tokens": 1559,
+    "cache_read_tokens": 342081,
+    "output_tokens": 512,
+    "api_call_count": 1
   },
   "skill_events_version": 1,
   "skill_events": [
