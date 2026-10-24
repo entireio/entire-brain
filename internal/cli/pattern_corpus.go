@@ -52,6 +52,17 @@ const (
 // passed integrity checks but before the live corpus transaction begins.
 var beforePatternCorpusPublish = func() error { return nil }
 
+// onPatternCorpusSessionIndexed names each session a build actually re-indexed.
+//
+// It is a test seam because there is no other way to tell a SKIP from a
+// re-index: nothing in indexed_sessions changes when a byte-identical
+// transcript is re-indexed (no indexed_at column, and content_sha, size,
+// mtime and parser_version are all unchanged by definition). A test that
+// compared those columns passed whether the session was skipped or rebuilt --
+// proven by a weakening run that restored the global fingerprint and left the
+// guard green. Counting the work is the only honest assertion.
+var onPatternCorpusSessionIndexed = func(id string) {}
+
 // patternCorpusPublishBoundary is a deterministic crash-boundary seam. Once
 // the durable publication marker exists, an injected error deliberately leaves
 // the marker (and, when still present, the candidate) in place. Readers then
@@ -557,7 +568,50 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 		return err
 	}
 	factFingerprint := hexSHA(string(factData))
-	factsCurrent := corpusMeta(db, "facts_fingerprint") == factFingerprint
+	// Fact freshness is PER BRANCH, not global.
+	//
+	// This was one fingerprint over every branch's facts, so a fact recorded
+	// on any branch invalidated it and re-indexed every session in the corpus
+	// -- "even for byte-identical transcripts", as the comment above says.
+	// That rebuild runs inside the brain write lock, which is the same lock a
+	// retrieval holds to emit its response, so it is what made a concurrent
+	// `brief` fail brain_locked: one `remember` anywhere, and every reader
+	// waited on a full link rebuild.
+	//
+	// Per-branch is sound rather than merely cheaper, and the link builder is
+	// what proves it: episodes are linked from factsByBranch[s.Branch]
+	// (indexSessionIntoCorpus, see linkEpisodeFacts below), so a fact on
+	// branch X can never enrich a session on branch Y. The global fingerprint
+	// was strictly more conservative than the actual data dependency.
+	//
+	// Migration needs no version bump: a corpus written before this has no
+	// per-branch keys, every lookup misses, and one full re-index writes them.
+	// Computed per branch ON DEMAND, including for a branch with no facts at
+	// all. An earlier version only hashed branches present in factsByBranch,
+	// which left a factless branch comparing "" against the unset meta value
+	// and skipping by coincidence rather than by a recorded fingerprint -- and
+	// it recorded nothing, so the branch could never be invalidated later.
+	// json.Marshal(nil) is "null", a real hash, so every branch gets one.
+	factFingerprintByBranch := map[string]string{}
+	branchFactFingerprint := func(branch string) (string, error) {
+		if known, ok := factFingerprintByBranch[branch]; ok {
+			return known, nil
+		}
+		branchData, err := json.Marshal(factsByBranch[branch])
+		if err != nil {
+			return "", err
+		}
+		fingerprint := hexSHA(string(branchData))
+		factFingerprintByBranch[branch] = fingerprint
+		return fingerprint, nil
+	}
+	factsCurrentFor := func(branch string) (bool, error) {
+		fingerprint, err := branchFactFingerprint(branch)
+		if err != nil {
+			return false, err
+		}
+		return corpusMeta(db, patternCorpusFactsMetaKey(branch)) == fingerprint, nil
+	}
 	present := map[string]bool{}
 	for _, s := range sessions {
 		rel := strings.TrimSpace(s.TranscriptPath)
@@ -577,12 +631,17 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 			return readErr
 		}
 		present[id] = true
-		if factsCurrent && corpusSessionUnchanged(db, id, size, mtime, sha) {
+		factsFresh, err := factsCurrentFor(s.Branch)
+		if err != nil {
+			return err
+		}
+		if factsFresh && corpusSessionUnchanged(db, id, size, mtime, sha) {
 			continue
 		}
 		if err := indexSessionIntoCorpus(db, repoKey, s, id, rel, content, size, mtime, sha, factsByBranch); err != nil {
 			return err
 		}
+		onPatternCorpusSessionIndexed(id)
 	}
 
 	// Prune sessions no longer in the manifest (deleted transcripts).
@@ -620,6 +679,27 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	}
 	if finalPolicy.Identity != guard.policyIdentity {
 		return fmt.Errorf("%s: session tombstones changed while building the pattern corpus", memoryErrPrivacyDirty)
+	}
+	// Record a fingerprint for every branch that HAS facts. Branches that only
+	// have sessions need no loop of their own: the freshness gate above calls
+	// branchFactFingerprint(s.Branch) for each indexed session and memoizes
+	// it, so they are already in the map. (A loop over sessions was written
+	// here first and a weakening run showed removing it changed nothing --
+	// dead code, deleted rather than kept with a guard that cannot justify
+	// it.)
+	for branch := range factsByBranch {
+		if _, err := branchFactFingerprint(branch); err != nil {
+			return err
+		}
+	}
+	factsMeta := map[string]string{}
+	for branch, fingerprint := range factFingerprintByBranch {
+		factsMeta[patternCorpusFactsMetaKey(branch)] = fingerprint
+	}
+	if len(factsMeta) > 0 {
+		if err := setCorpusMeta(db, factsMeta); err != nil {
+			return err
+		}
 	}
 	if err := setCorpusMeta(db, map[string]string{
 		"schema_version":          strconv.Itoa(patternCorpusSchemaVersion),
@@ -1518,6 +1598,14 @@ func readPatternCorpusTranscript(ctx context.Context, brainDir, rel string) (dat
 	}
 	sum := sha256.Sum256(data)
 	return data, int64(len(data)), 0, hex.EncodeToString(sum[:]), nil
+}
+
+// patternCorpusFactsMetaKey names a branch's fact fingerprint. The branch is
+// hashed rather than interpolated: branch names contain slashes and arbitrary
+// bytes, and a raw name would collide with the unprefixed keys beside it (a
+// branch literally called "facts_fingerprint" being the obvious one).
+func patternCorpusFactsMetaKey(branch string) string {
+	return "facts_fingerprint/" + hexSHA(branch)
 }
 
 func corpusMeta(db *sql.DB, key string) string {
