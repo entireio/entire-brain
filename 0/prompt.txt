@@ -1,0 +1,104 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/tianjin directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name. Conductor will automatically rename it in the background to match your task.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/tianjin/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+i want to design an eval loop for our memory generation to see if our prompt is the right one and if we can improve it at all. 
+
+let's talk through how to do that
+
+---
+
+it seems liek we're just generating a lot of memories depending on the work. like when i look at brainstore, just for teh entire-brain repo we have seemingly hundreds if not thousands of memories already despite like maybe 50 PRs since we started collecting memories? i suppose those could also be left over from previous work? not sure?
+
+so i just want to gain teh confidence that the meomries we're creating are very high quality and we're not spamming memories
+
+---
+
+i'd have to look at it. and im happy to create a golden set as well from some sessions to give some guidance. we shoudl be very purpsoeful with our memories and not creating extra just because.
+
+---
+
+1 is fine. we shouldn't have to do too many, and ideally the sessions are short.
+
+---
+
+yes
+
+---
+
+so it's a hard cap of 0-6 lines per 48kb session?
+
+---
+
+that prompt sounds fine but the way that we're actually generating doesn't really make sense then i think. 
+
+espeically since we've changed the way that we're doing syncing and distillation. 
+
+since we push now on the commit hook, the facts shoudl line up witht he chekcpoints. 
+
+distllation is another story too but that has checkpoints in the sessinos. 
+
+let's think through what makes the most sense here. it doesn't make sense ot generate 88 memorires per session. most sessions ahve only a few checkpoints and im thinkign we generate only a few memories per checkpoint at most. if not just 1 or 2.
+
+---
+
+yes this is right. the chunking of big checkpoints is somethign that we'll need to handle as well but yes i think this is the right path
+
+---
+
+<task-notification>
+<task-id>a5076eeb29d8b3237</task-id>
+<tool-use-id>toolu_01LgSLcAMynNawrKSH3S8Yej</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tianjin/bfe36b34-bfab-462e-9f8b-68c66b2b684c/tasks/a5076eeb29d8b3237.output</output-file>
+<status>completed</status>
+<summary>Agent "Builder check on eval design" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Preflight and grounding notes (per repo guide): Brain available v0.2.0 (capabilities validated, BM25-only); brief ran but returned unrelated history matches; recall on branch `main` found no recorded decision on the questions below, so they stand as genuinely open. Graph was not needed — no relationship question arose; findings come from direct reads of the files the task named.
+
+## Questions I'd need answered before planning, ranked
+
+**1. Which fact population gets scored: raw extraction output, or the post-reconcile store?**
+`entire brain distill` is extract + reconcile in one run (`internal/cli/distill_cmd.go:1013-1290`): near-duplicate candidates are promoted, agent-adjudicated in similarity clusters, or queued as review proposals — prod holds 24.5K facts against 59K proposals. The design's run flow says "run distill → collect fact records," and the non-goal "reconciliation quality out of scope" reads either way: bypass reconcile and score raw per-chunk output, or run it and score active facts (and then: do queued proposals count toward volume?). Every metric moves by a large factor depending on the answer — volume and redundancy are partially laundered by reconcile, cost includes or excludes reconcile agent calls, and the redundancy metric is near-meaningless post-merge. The harness shape differs too (capture extraction records mid-run vs read the sandbox store afterward). A wrong guess here can flip A/B results.
+
+**2. The canonical baseline agent+model (the doc's own open question — it blocks the critical path, so it must be answered first, not eventually).**
+Golden labels attach to facts the baseline produces, and judge calibration sits on those labels, so nothing downstream starts until this is pinned. It is also not discoverable from "what production does": `--agent auto` resolves by PATH probing (recalled fact f94c8cb4…: auto picks `codex` before `claude-code`, choice never printed), so the de facto production distiller varies by machine. And the existing 24.5K facts were produced by mixed agents over time (facts carry per-record Agent/Model stamps, `distill.go:341`), so "match the store" is not an answer either. If the answer is "several agents," corpus cost, golden-set size, and the compare matrix all multiply.
+
+**3. Is the judge one fixed agent+model across all variants, and may it be the same model as a variant's distiller?**
+The design pins the judge's invocation path (`distillAgentCommandArgs`, judge-cache from `facts_eval_gen.go`) but not its identity. Cross-variant comparability requires one fixed judge; calibration against golden labels is only valid for that one judge configuration. If the judge model equals the baseline distiller (likely, given Q2), judge-scored precision claims about that variant are self-judging — the owner should say whether that's acceptable or whether the judge must differ from every distiller under test. This decides cost per judge-scored run and which claims the loop is allowed to make.
+
+**4. For paired per-session precision, how do zero-fact sessions enter the test?**
+Zero facts is the *desired* outcome for most sessions, and per-session precision is 0/0 there. The compare machinery (`facts_eval_compare.go`) needs a paired value per unit; silently dropping undefined pairs conditions the precision comparison on "both variants emitted facts," which biases exactly the variant that succeeds at silence. Pooled precision + paired volume is a defensible fix, but it weakens the promised "B beats A on precision with Holm-corrected significance" to a pooled claim — worth confirming that's acceptable before building the summary schema around it.
+
+Verified non-questions (so the plan can assume them): `--dry-run --json`, `--session`, `--model`/`--effort` pinning, `--max-chunk-bytes`, `--call-trace`, and the judge cache all exist; the template is compiled in with no override hook (`distill.go:55`, `entirebrain.Templates`), confirming the design's "adding one is in scope"; `factsMaxPerChunk` is a const (`facts.go:24`) needing a similar hidden hook for budget variants — small, builder-decidable; per-fact `CheckpointID` provenance exists (`factmerge/record.go:67`), though baseline checkpoint stamping is heuristic, so facts-per-checkpoint should normalize by checkpoint count rather than trust attribution.</result>
+<usage><subagent_tokens>89527</subagent_tokens><tool_uses>25</tool_uses><duration_ms>239185</duration_ms></usage>
+</task-notification>
+
+---
+
+haiku 4.5 i think?
+
+1. yes raw output
+2. yes can use fable as the scorer/judge
+3. yes
+
+---
+
+yeah let's go for it
+
+---
+
+native

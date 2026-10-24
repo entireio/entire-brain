@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01LgSLcAMynNawrKSH3S8Yej",
+  "agent_id": "a5076eeb29d8b3237",
+  "subagent_type": "general-purpose",
+  "task_description": "Builder check on eval design",
+  "token_usage": {
+    "input_tokens": 42,
+    "cache_creation_tokens": 85190,
+    "cache_read_tokens": 1389689,
+    "output_tokens": 15843,
+    "api_call_count": 21
+  },
+  "started_at": "2026-10-23T22:53:30.554602-07:00",
+  "completed_at": "2026-10-23T22:57:29.620432-07:00"
+}
