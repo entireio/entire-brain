@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bi2m0wkxa</task-id>
+<tool-use-id>toolu_018HURW5GV3vodFrJZXVRTnB</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-puebla/88872ad9-85fb-4000-affc-5a21f2638bd6/tasks/bi2m0wkxa.output</output-file>
+<status>completed</status>
+<summary>Background command "Full suite for Task 3" completed (exit code 0)</summary>
+</task-notification>
