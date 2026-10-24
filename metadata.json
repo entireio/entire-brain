@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5P9GTXGJ209YC3YBV25ZZR6",
+  "strategy": "manual-commit",
+  "branch": "memory-generation-eval-loop",
+  "checkpoints_count": 11,
+  "files_touched": [
+    "internal/cli/facts_admin_cmd.go",
+    "internal/cli/facts_distill_eval.go",
+    "internal/cli/facts_distill_eval_run.go",
+    "internal/cli/facts_distill_eval_run_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 24,
+    "cache_creation_tokens": 23369,
+    "cache_read_tokens": 2674890,
+    "output_tokens": 19039,
+    "api_call_count": 12
+  }
+}
