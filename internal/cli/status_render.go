@@ -516,6 +516,9 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 	if h := report.Hosted; h != nil {
 		identity = append(identity, "Brainstore: "+hostedStateLabel(h.State))
 	}
+	if s := report.IssueSource; s != nil {
+		identity = append(identity, fmt.Sprintf("%d issue records (%d stale, %d incomplete)", s.Records, s.Stale, s.Incomplete))
+	}
 	for _, item := range identity {
 		fmt.Fprintf(out, "  %s\n", render.Dim(item))
 	}

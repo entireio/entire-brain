@@ -16,6 +16,7 @@ import (
 // scores don't fight.
 
 type unifiedResult struct {
+	Issue                *issueCitation    `json:"issue,omitempty"`
 	Source               string            `json:"source"` // fact | fact-review | history | conversation | doc | consolidation | theme | workspace_pattern | workspace_graph
 	ID                   string            `json:"id"`     // prefixed, addressable by get/multi-get
 	Path                 string            `json:"path,omitempty"`
@@ -84,6 +85,7 @@ const (
 	retrievalSourceHistory      = "history"
 	retrievalSourceConversation = "conversation"
 	retrievalSourceDoc          = "doc"
+	retrievalSourceIssue        = "issue"
 )
 
 // retrievalOptions is the shared CLI/MCP retrieval-options contract; extend it
@@ -167,10 +169,10 @@ func parseRetrievalSource(value string) (string, error) {
 	switch source {
 	case "":
 		return retrievalSourceAll, nil
-	case retrievalSourceAll, retrievalSourceFact, retrievalSourceHistory, retrievalSourceConversation, retrievalSourceDoc:
+	case retrievalSourceAll, retrievalSourceFact, retrievalSourceHistory, retrievalSourceConversation, retrievalSourceDoc, retrievalSourceIssue:
 		return source, nil
 	default:
-		return "", fmt.Errorf("source must be one of all, fact, history, conversation, doc (got %q)", value)
+		return "", fmt.Errorf("source must be one of all, fact, history, conversation, doc, issue (got %q)", value)
 	}
 }
 
@@ -276,6 +278,15 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	}
 
 	var lists [][]unifiedResult
+	if source == retrievalSourceAll || source == retrievalSourceIssue {
+		issueHits, issueErr := retrieveIssues(brainDir, query, candidateLimit)
+		if issueErr != nil {
+			return nil, issueErr
+		}
+		if len(issueHits) > 0 {
+			lists = append(lists, issueHits)
+		}
+	}
 
 	// Facts.
 	if includeFacts && len(active) > 0 {
@@ -1089,6 +1100,13 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			}
 			if r, ok := convByID[id]; ok {
 				found = append(found, conversationGetResult(brainDir, r))
+				continue
+			}
+		case strings.HasPrefix(id, "issue:"):
+			if r, ok, issueErr := getIssueEvidence(brainDir, id); issueErr != nil {
+				return nil, nil, issueErr
+			} else if ok {
+				found = append(found, r)
 				continue
 			}
 		case strings.HasPrefix(id, "doc:"):

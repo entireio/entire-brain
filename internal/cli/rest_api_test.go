@@ -322,6 +322,44 @@ func TestRESTRetrievalPrivacyRefusalIsNotSuccess(t *testing.T) {
 	}
 }
 
+func TestRESTSearchRejectsIssuePurgeBeforeDelivery(t *testing.T) {
+	for _, source := range []string{"", "&source=issue"} {
+		t.Run(source, func(t *testing.T) {
+			f := newBrainBriefProfileFixture(t)
+			s := seedIssueTest(t, f.brainDir)
+			req := httptest.NewRequest(http.MethodGet, "/v1/search?q=retry"+source, nil)
+			baseline := httptest.NewRecorder()
+			restSearch(baseline, req, f.opts)
+			if baseline.Code != http.StatusOK || !strings.Contains(baseline.Body.String(), s.Text) {
+				t.Fatalf("baseline omitted issue: %d %s", baseline.Code, baseline.Body)
+			}
+			original := beforeRetrievalResponsePrivacyEmissionCheck
+			t.Cleanup(func() { beforeRetrievalResponsePrivacyEmissionCheck = original })
+			called := false
+			beforeRetrievalResponsePrivacyEmissionCheck = func() {
+				if called {
+					return
+				}
+				called = true
+				if err := issueStore(f.brainDir).Disconnect(issueTestProject, true); err != nil {
+					t.Fatal(err)
+				}
+			}
+			response := httptest.NewRecorder()
+			restSearch(response, req, f.opts)
+			if !called || response.Code != http.StatusServiceUnavailable || strings.Contains(response.Body.String(), s.Text) {
+				t.Fatalf("purged issue escaped: called=%v status=%d body=%s", called, response.Code, response.Body)
+			}
+			beforeRetrievalResponsePrivacyEmissionCheck = original
+			retry := httptest.NewRecorder()
+			restSearch(retry, req, f.opts)
+			if retry.Code != http.StatusOK || strings.Contains(retry.Body.String(), s.Text) {
+				t.Fatalf("retry after purge: %d %s", retry.Code, retry.Body)
+			}
+		})
+	}
+}
+
 type partialRESTResponseWriter struct {
 	*httptest.ResponseRecorder
 	calls int

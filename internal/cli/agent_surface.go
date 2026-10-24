@@ -22,6 +22,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/issues"
 	"github.com/entireio/entire-brain/internal/tui"
 )
 
@@ -49,6 +50,7 @@ type agentStatusOptions struct {
 }
 
 type brainBriefOptions struct {
+	issue       string
 	json        bool
 	limit       int
 	noSemantic  bool
@@ -72,7 +74,8 @@ type brainShowOptions struct {
 // blind spots — the former `stale` and `semantic-audit` commands), and live
 // workspace state.
 type brainStatusReport struct {
-	GeneratedAt time.Time `json:"generated_at"`
+	IssueSource *issues.Status `json:"issue_source,omitempty"`
+	GeneratedAt time.Time      `json:"generated_at"`
 	// Integrity distinguishes a freshness overview from a deep store audit.
 	Integrity string                `json:"integrity,omitempty"`
 	Repo      brainStatusRepo       `json:"repo"`
@@ -229,6 +232,7 @@ type brainLiveState struct {
 }
 
 type brainBriefReport struct {
+	Issues        []unifiedResult    `json:"issues,omitempty"`
 	GeneratedAt   time.Time          `json:"generated_at"`
 	Task          string             `json:"task"`
 	Status        brainStatusReport  `json:"status"`
@@ -301,6 +305,7 @@ type brainBriefSemantic struct {
 // last. A brief that was correct but truncated before its facts section is how
 // an agent misses a decision the brain had already retrieved (issue #335).
 type brainBriefJSONReport struct {
+	Issues             []unifiedResult             `json:"issues,omitempty"`
 	GeneratedAt        time.Time                   `json:"generated_at"`
 	Task               string                      `json:"task"`
 	Facts              []brainBriefJSONFact        `json:"facts,omitempty"`
@@ -756,6 +761,9 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if handoff {
+				if briefOpts.issue != "" {
+					return errors.New("--issue cannot be combined with --handoff")
+				}
 				if briefOpts.profileJSON != "" {
 					return errors.New("--profile-json is only supported for task briefs, not --handoff")
 				}
@@ -764,6 +772,9 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 				// blocked" for an agent resuming cold (Phase 2 item 3).
 				return runBrainHandoff(cmd.Context(), cmd, opts, handoffSessions, briefOpts.json)
 			}
+			if len(args) == 0 && briefOpts.issue != "" {
+				return runBrainBrief(cmd.Context(), cmd, opts, briefOpts, "")
+			}
 			if len(args) != 1 {
 				return fmt.Errorf("brief requires a <task> argument (or --handoff for a resumption packet)")
 			}
@@ -771,6 +782,7 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&briefOpts.json, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().StringVar(&briefOpts.issue, "issue", "", "Pin cached issue by identifier, URL or UUID; refresh via the agent host first")
 	cmd.Flags().IntVar(&briefOpts.limit, "limit", brainBriefDefaultLimit, "Maximum records per section; raise only when the compact packet is insufficient")
 	cmd.Flags().BoolVar(&briefOpts.noSemantic, "no-semantic", false, "Accepted for compatibility: semantic retrieval was removed, memory ranking is always BM25 lexical")
 	cmd.Flags().StringVar(&briefOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
@@ -1430,7 +1442,19 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	if err := requirePrivacyDerivedRead(status.Brain.Path); err != nil {
 		return err
 	}
+	issueIdentity, err := issueVisibilityIdentity(status.Brain.Path)
+	if err != nil {
+		return err
+	}
+	task, issueHits, issueErr := issueBriefEvidence(status.Brain.Path, task, briefOpts.issue, briefOpts.limit)
+	if issueErr != nil {
+		return issueErr
+	}
+	if strings.TrimSpace(task) == "" {
+		return errors.New("task required unless --issue supplies it")
+	}
 	report := brainBriefReport{
+		Issues:      issueHits,
 		GeneratedAt: opts.Now().UTC(),
 		Task:        task,
 		Status:      brainBriefOutputStatus(status),
@@ -1441,6 +1465,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			"Inspect full diffs or source files when the task intersects dirty files or when confidence is low.",
 		},
 	}
+	report.Guidance = append(report.Guidance, issueBriefGuidance(issueHits)...)
 	var receiptBranch, receiptSurface string
 	var receiptFactIDs []string
 	// The graph plugin's store answers first (COR-2217): `graph context` reads
@@ -1870,7 +1895,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	// even on the non-profiling path; emitBrainBriefPacket dispatches text,
 	// legacy JSON, and the compact formats alike, so one wrapper covers all of
 	// them.
-	privacyPolicy := retrievalPrivacyPolicy{BrainDir: status.Brain.Path, Identity: briefPrivacyGuard.policyIdentity}
+	privacyPolicy := retrievalPrivacyPolicy{BrainDir: status.Brain.Path, Identity: briefPrivacyGuard.policyIdentity, IssueIdentity: issueIdentity}
 	privacyPolicy.RequireDerivedClean = true
 	if profile == nil {
 		var packet bytes.Buffer
@@ -2048,6 +2073,13 @@ func brainBriefConversationHits(brainDir, task string, limit int) []brainBriefCo
 
 func brainBriefOutputStatus(status brainStatusReport) brainStatusReport {
 	status.Manifest = nil
+	if status.IssueSource != nil {
+		summary := *status.IssueSource
+		summary.Runs = nil
+		summary.Links = nil
+		summary.Operations = nil
+		status.IssueSource = &summary
+	}
 	if status.Facts != nil {
 		facts := *status.Facts
 		facts.Verification = nil
@@ -2689,6 +2721,7 @@ func brainBriefPromoteSuggestedTestFiles(existing []string, preferred []semantic
 
 func brainBriefJSONProjection(report brainBriefReport) brainBriefJSONReport {
 	out := brainBriefJSONReport{
+		Issues:             report.Issues,
 		GeneratedAt:        report.GeneratedAt,
 		Task:               report.Task,
 		Status:             report.Status,
@@ -4586,6 +4619,12 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		},
 		Manifest: manifest,
 		Issues:   healthIssues,
+	}
+	issueStatus, issueStatusErr := issueStore(storage.BrainDir).Status(generatedAt)
+	if issueStatusErr != nil {
+		report.Warnings = append(report.Warnings, "issue source unavailable: "+issueStatusErr.Error())
+	} else if issueStatus.Binding.Workspace != "" {
+		report.IssueSource = &issueStatus
 	}
 	if graphStatusWarning != "" {
 		report.Warnings = append(report.Warnings, graphStatusWarning)

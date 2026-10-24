@@ -301,8 +301,8 @@ func TestMCPBrainBriefToolDefinitionGolden(t *testing.T) {
 	}
 
 	// Pin serialized schema bytes; tokenizer measurements are not part of this test.
-	if len(got) != 1038 {
-		t.Fatalf("brain_brief tool definition bytes = %d, want 1038", len(got))
+	if len(got) != 1301 {
+		t.Fatalf("brain_brief tool definition bytes = %d, want 1301", len(got))
 	}
 }
 
