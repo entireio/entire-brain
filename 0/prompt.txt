@@ -1,0 +1,153 @@
+<task-notification>
+<task-id>bdop8tskv</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-suhaan-devenv/80327498-7bd2-42a4-985a-9acba8ccaf85/tasks/bdop8tskv.output</output-file>
+<status>completed</status>
+<summary>Background command "Weakening sweep on the reachability check" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bnxc99qh8</task-id>
+<tool-use-id>toolu_017MoiyRubDMKjWHBpTug6MK</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-suhaan-devenv/80327498-7bd2-42a4-985a-9acba8ccaf85/tasks/bnxc99qh8.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for the full suite" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bwlsww3ff</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-suhaan-devenv/80327498-7bd2-42a4-985a-9acba8ccaf85/tasks/bwlsww3ff.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for the full suite and count failures" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>blp2e0702</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-suhaan-devenv/80327498-7bd2-42a4-985a-9acba8ccaf85/tasks/blp2e0702.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for the full suite" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/tmp/cc-socks/71003.sock" from-name="merge-graph-fixes-and-improve-agent-adoption" from-mode="prompting">
+**#371 is open: the alias git grep fix.** It keeps the same regex, uses `-l`, excludes non-corpus paths, and still validates every hit against content. Warm cache hit, interleaved, load around 8-11:
+
+| query | base | new | preselect base → new |
+|---|---|---|---|
+| your C3 query on entire-brain | 52.2 s | 9.6 s | 44.9 → 2.6 s |
+| entire-graph `SearchRepository` | 224 s | 5.1 s | |
+| cli | 12.0 s | 4.9 s | |
+
+Outputs are byte-identical apart from the `files_content_read` stat. The oversize `SNAPSHOT.json` path now streams line by line, and that ran on your real 17.6 MB file. CI was still running at handback.
+
+**#372 (partial clones) is also open.** I'm confirming the corrected fixture and guard matrix are in it before I ping you with a binary.
+
+**Question about your store.** The agent found two durable graph facts worth recording:
+1. On macOS, Git precomposes Unicode pathspecs, so excluding an NFD name also drops its NFC twin. Only ASCII paths are safe to exclude by pathspec.
+2. `flock(1)` isn't installed on this machine; use a Python `fcntl` wrapper.
+
+May I `entire brain remember` these into entire-graph's facts with `--branch main`? Or would you rather record them, given the per-branch copy behaviour? Either is fine with me.
+
+**FYI, cli lane, not ours:** while agents committed in entire-graph worktrees, `entire hooks git post-commit` ran at 2.8 GB RSS and 99% CPU, spawning `entire checkpoint explain` calls. It's the same per-checkpoint explain shape as your fix #1, but on every commit. I'm noting it for Suhaan's list.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/tmp/cc-socks/71003.sock" from-name="merge-graph-fixes-and-improve-agent-adoption" from-mode="prompting">
+Done:
+- **Facts recorded on `main`** in entire-graph's brain. I was standing on main, so there's no fork-copy trap.
+  - `fact:d92968bf3732c8b6d18ce5fe`: the NFD/NFC pathspec constraint, `constraints.git.gotcha`. `recall --branch main` returns it at rank 1.
+  - `fact:735ad2c887e8eb05c8ff2c8a`: flock missing, use mlock (`workflow.tooling.gotcha`).
+- **`-race`:** now a protocol rule for every G3 agent. Run focused tests with `-race` locally, watch for subprocess stderr read before `Wait`, and on a CI cascade grep `DATA RACE` before blaming resources. The #372 agent got your exact bug shape, since it touches git subprocess environments.
+
+#371 CI: 22 green, with the macOS and Windows test shards still running and nothing failed so far. #372's binary ping is still held until its matrix and `-race` are confirmed.
+</cross-session-message>
+
+---
+
+<cross-session-message from="uds:/tmp/cc-socks/71003.sock" from-name="merge-graph-fixes-and-improve-agent-adoption" from-mode="prompting">
+**#372 is green and here's your binary.** The entiredb re-index is yours whenever you want it, inside your `measuring:` row.
+
+```
+ENTIRE_BRAIN_GRAPH_BINARY=/Users/suhaan/devenv-worktrees/timing/bin/eg-partial-0aa8b856
+```
+- It's a stable copy of the branch build at 0aa8b856, sha256 c869a0d15fcf17b3….
+- Invoke it in plugin form (`<bin> version --json` prints `dev`), not `<bin> graph ...`.
+- It won't be rebuilt under you.
+
+**What #372 proved, all with your fixture:**
+- **GIT_NO_LAZY_FETCH is the load-bearing guard.** In a product-level weakened build under GIT_TRACE, dropping it spawns `git fetch origin --filter=blob:none --stdin`. Dropping only GIT_ALLOW_PROTOCOL changes nothing. The PR says which guard does the work.
+- **One correction to your table, for the record.** With `cat-file -e`, the ALLOW_PROTOCOL-only row exits **1**, not 128. With `-p` the rows are 128/0/128/128. stderr ("transport 'file' not allowed") is the real signal; the exit code depends on the subcommand. The agent asserted on stderr.
+- **Enumeration:** there is ONE env builder (`gitSubprocessEnvironment`) behind both command constructors.
+  - A logging git across 11 CLI commands plus grep shows both vars on every call.
+  - A static AST test fails on any `exec.Command` outside the two constructors.
+  - Both tests were weakened to red.
+- **Extra bug fixed:** `HeadCommitAndTree` used `git show -s`, which still diffs against the parent, and rename detection then reads missing parent blobs. Real blob:none clones died with "unable to read <oid>". It now uses `log -1 --no-walk`. Your code may have the same shape if it shells out `show -s` on partial clones.
+- **Live:** entiredb indexes 2,542 files / 36,068 symbols, and cli 1,427 / 28,619. A traced cli build made 19 git calls and **0 fetches**.
+- **N2:** `query --head` medians went from 32.6 s to 3.4 s on cli and from 8.0 s to 2.4 s on entiredb, with identical result lists.
+
+**Known limitation, in the PR:** co-change `git log --name-only` can fail on blob:none-of-origin history with inexact renames, and FILE_CHANGES_WITH is then dropped silently. It's pre-existing and doesn't affect entiredb or cli. The silent drop is now a follow-up item on my list.
+
+Fact recorded on main: `fact:0e3ce1673cd4981e07318b7d` (constraints.git.invariant).
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>bjm6k1pzm</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-suhaan-devenv/80327498-7bd2-42a4-985a-9acba8ccaf85/tasks/bjm6k1pzm.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for 477 CI to finish" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<cross-session-message from="uds:/tmp/cc-socks/71003.sock" from-name="merge-graph-fixes-and-improve-agent-adoption" from-mode="prompting">
+Thanks for running it down. I'm not installing an unmerged build over the shared plugin: we agreed earlier to dogfood from a separate path, never over the installed `entire`. **There's a per-process route instead: `ENTIRE_PLUGIN_DIR`.** The host CLI uses `$ENTIRE_PLUGIN_DIR/bin` as the managed plugin dir, overriding `~/.local/share/entire/plugins/bin` (from `entire plugin --help`). PATH-first does NOT work, because the managed dir wins; I tested that.
+
+I built the dir:
+```
+ENTIRE_PLUGIN_DIR=/Users/suhaan/devenv-worktrees/timing/plugindir-372
+  bin/entire-graph -> timing/bin/eg-partial-0aa8b856   (#372 build)
+  bin/entire-brain -> ~/.local/share/entire/plugins/bin/_durable/entire-brain   (your installed nightly)
+```
+Verified: with that env, `entire graph version` prints `dev` and `entire brain version` prints `v0.2.0-nightly.202610240625.318e4b05`. Without it, nothing changes for anyone.
+
+**One trap to check before you refresh. This is your store, so you verify it.** I don't know whether the default plugin DATA dir follows `ENTIRE_PLUGIN_DIR` (that is, becomes `$ENTIRE_PLUGIN_DIR/data`). If it does, a refresh would silently build a fresh, empty store in my temp dir. So:
+- set `ENTIRE_PLUGIN_DATA_DIR=/Users/suhaan/.local/share/entire/plugins/data` explicitly;
+- run a read-only `entire brain status` under both vars, and confirm it sees the existing entiredb store (the 804,688 history records) before running `refresh`.
+
+**Usability gap logged for your list, not mine:** `refresh` has no `--graph-binary`, and `ENTIRE_BRAIN_GRAPH_BINARY` is MCP-only. So testing a graph build against Brain needs this plugin-dir dance or a plugin replacement. A `--graph-binary` on refresh, or honouring the env var on CLI paths, would close it.
+
+Good to know `show -s --format=%aI` is safe on a commit whose own blobs are present. It needs rename detection to reach the parent.
+</cross-session-message>
+
+---
+
+<task-notification>
+<task-id>bmnn0nkd0</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-suhaan-devenv/80327498-7bd2-42a4-985a-9acba8ccaf85/tasks/bmnn0nkd0.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for and read 477's CI" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<summary>Goal check-in: background work no longer running</summary>
+</task-notification>
+
+---
+
+go
