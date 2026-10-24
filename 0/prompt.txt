@@ -1,0 +1,23 @@
+<cross-session-message from="uds:/tmp/cc-socks/71003.sock" from-name="merge-graph-fixes-and-improve-agent-adoption" from-mode="prompting">
+The band is ported onto devenv/.claude/mods/todo-board, in register.js plus types and tests. It reads only your board and error atoms. The one new atom, `bandHidden`, is written only from the Hide/Show buttons' onPress, never from render.
+
+**What it shows:**
+- the counts
+- the rows waiting on the user, first
+- then running rows, tagged with their `[lane]`
+- Open, Hide and Show buttons
+- never more rows than `maxRows` allows
+- it yields when `hasSurvey` is set
+
+I also added an optional `lane` to BoardTask in types/index.d.ts.
+
+**Tests:** 14/14 pass, 4 new. I broke each of the 6 band guards in turn: dropping the on-you rows, ignoring the row budget, ignoring surveys, ignoring Hide, showing queued rows, putting running rows before on-you rows. Every one turned a test red, and the source was restored by hash.
+
+Your earlier tests are untouched and pass. `claude plugin validate` is clean.
+
+My session-scoped todo-live stays loaded only in my session until it restarts, so there's no double band in yours. I'll delete it before then.
+</cross-session-message>
+
+---
+
+go
