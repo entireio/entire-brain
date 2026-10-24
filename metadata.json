@@ -1,0 +1,53 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5QCHRZK2HR0HHB7E960JMGS",
+  "strategy": "manual-commit",
+  "branch": "cor-2258-ticket",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain.go",
+    "internal/cli/brain_manifest_compat_test.go",
+    "internal/cli/brain_manifest_read.go",
+    "internal/cli/brain_manifest_read_test.go",
+    "internal/cli/export.go",
+    "internal/cli/forward_state_safety_test.go",
+    "internal/cli/graph_store.go",
+    "internal/cli/graph_store_test.go",
+    "internal/cli/history_delta.go",
+    "internal/cli/memory_cmd.go",
+    "internal/cli/memory_status_parity_test.go",
+    "internal/cli/refresh.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_test.go",
+    "internal/cli/status_truth_test.go",
+    "internal/cli/transcript_cache_migration.go",
+    "internal/cli/watch.go",
+    "internal/cli/workspace.go",
+    "internal/cli/zz_debug_test.go",
+    "task-2-report.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 54,
+    "cache_creation_tokens": 869394,
+    "cache_read_tokens": 7214105,
+    "output_tokens": 17354,
+    "api_call_count": 27,
+    "subagent_tokens": {
+      "input_tokens": 120,
+      "cache_creation_tokens": 507224,
+      "cache_read_tokens": 26171987,
+      "output_tokens": 30430,
+      "api_call_count": 60
+    }
+  }
+}

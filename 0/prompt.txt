@@ -1,0 +1,15 @@
+there is a finding in this trail: https://entire.com/gh/entireio/-/trails/2467/changes/entire-brain/370
+
+review it and fix
+
+---
+
+okay this is merged nwo: https://github.com/entireio/entire-brain/pull/459
+
+---
+
+do we have tickets for thse?
+
+---
+
+okay good. i thikn we're good to close this workspae out then?
