@@ -126,7 +126,18 @@ func TestFilelessMigrationPreservesUnrecoverableExcludedCache(t *testing.T) {
 			cmd := &cobra.Command{}
 			cmd.SetOut(io.Discard)
 			err = runExport(context.Background(), cmd, opts, exportCommandOptions{scope: exportScopeAll, entireBinary: "entire", rawTranscript: true})
-			if err == nil || !strings.Contains(err.Error(), "retain transcript cache") {
+			// The two variants diverge here on purpose, and the difference is
+			// the fix: an UNREADABLE checkpoint still refuses the migration,
+			// because nothing can prove what the cached file is; DIVERGENT
+			// bytes do not, because one stray file must not abort the whole
+			// export. Blocking on divergence froze a real brain's manifest for
+			// thirteen days and left the memory worker relaunching forever.
+			// Either way the cached copy below must survive.
+			if variant == "different-checkpoint-bytes" {
+				if err != nil {
+					t.Fatalf("divergent bytes must retain the file, not abort the export: %v", err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), "retain transcript cache") {
 				t.Fatalf("migration error = %v", err)
 			}
 			got, err := os.ReadFile(cachedPath)
@@ -134,8 +145,15 @@ func TestFilelessMigrationPreservesUnrecoverableExcludedCache(t *testing.T) {
 				t.Fatalf("cache lost: %q %v", got, err)
 			}
 			after, err := os.ReadFile(filepath.Join(brain, exportManifestFileName))
-			if err != nil || string(before) != string(after) {
-				t.Fatalf("migration changed manifest: %v", err)
+			if err != nil {
+				t.Fatalf("read manifest: %v", err)
+			}
+			// A refused migration must leave the manifest exactly as it was. A
+			// retained one is allowed to rewrite it -- that is the export
+			// completing, which is the entire point -- so asserting it
+			// unchanged there would be asserting the bug.
+			if variant != "different-checkpoint-bytes" && string(before) != string(after) {
+				t.Fatal("refused migration changed the manifest")
 			}
 		})
 	}
