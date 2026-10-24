@@ -5,6 +5,17 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-23
+
+### Fixed
+
+- Semantic provider schema 1.4 (graph v0.5.0) is ingested in full. The 0.2.0 /
+  graph v0.5.0 released pair skewed: this build advertised 1.3, so
+  `provider_schema_newer_minor` fired on every index against a current
+  provider and `doctor` degraded the graph freshness axis on a clean released
+  install. 1.4's one addition — the derived relation `provenance` label — is
+  now modeled so the streaming filter round-trips it (#466).
+
 ## [0.2.0] - 2026-10-23
 
 ### Removed
