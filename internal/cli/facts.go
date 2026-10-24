@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +23,10 @@ const (
 	factsTaxonomyPath     = factsDirName + "/" + factsTaxonomyFileName
 	factsFileName         = "facts.ndjson"
 	factsMaxPerChunk      = 6 // quality-gate output cap per source chunk
+	// envFactsMaxPerChunk overrides factsMaxPerChunk for eval runs comparing
+	// per-chunk budgets. Validated once at distill startup; mixed into the
+	// distill cache salt only when set.
+	envFactsMaxPerChunk = "ENTIRE_BRAIN_FACTS_MAX_PER_CHUNK"
 
 	factOriginDistilled = "distilled"
 	factOriginAuthored  = "authored"
@@ -109,6 +114,32 @@ type factPathDef struct {
 
 // factTopLevel returns the top-level category of a taxonomy path (the segment
 // before the first dot), or "" if the path is empty.
+// factsMaxPerChunkFromEnv returns the per-chunk fact cap, honoring the
+// envFactsMaxPerChunk override. A set-but-invalid value is an error so distill
+// startup can refuse it once instead of every chunk guessing.
+func factsMaxPerChunkFromEnv() (int, error) {
+	raw, ok := os.LookupEnv(envFactsMaxPerChunk)
+	if !ok || raw == "" {
+		return factsMaxPerChunk, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("%s must be a positive integer, got %q", envFactsMaxPerChunk, raw)
+	}
+	return n, nil
+}
+
+// factsMaxPerChunkValue is factsMaxPerChunkFromEnv for callers past startup
+// validation: an invalid override (already rejected there) falls back to the
+// compiled default rather than failing mid-extraction.
+func factsMaxPerChunkValue() int {
+	n, err := factsMaxPerChunkFromEnv()
+	if err != nil {
+		return factsMaxPerChunk
+	}
+	return n
+}
+
 func factTopLevel(path string) string {
 	if i := strings.IndexByte(path, '.'); i >= 0 {
 		return path[:i]
