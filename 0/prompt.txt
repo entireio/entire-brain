@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bdvu3bdzr</task-id>
+<tool-use-id>toolu_01Cu3BqrpttHVAZjf9EJJYgs</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tianjin/bfe36b34-bfab-462e-9f8b-68c66b2b684c/tasks/bdvu3bdzr.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full internal/cli suite" completed (exit code 0)</summary>
+</task-notification>
