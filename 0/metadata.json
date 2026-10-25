@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5RVK8G6HN9CHBT0K3FS7T6K",
+  "session_id": "919deb02-e4d9-49d4-89d3-e0044ef99bfc",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-25T06:22:34.405859Z",
+  "branch": "remove-repo-uuid-from-connect-output",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "internal/cli/connect_cmd.go",
+    "internal/cli/connect_cmd_test.go",
+    "internal/cli/disconnect_cmd.go",
+    "internal/cli/disconnect_cmd_test.go",
+    "internal/cli/setup_ui.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "002b424c622a",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 70,
+    "cache_creation_tokens": 154497,
+    "cache_read_tokens": 2586600,
+    "output_tokens": 13256,
+    "api_call_count": 35
+  },
+  "session_metrics": {
+    "turn_count": 1
+  }
+}
