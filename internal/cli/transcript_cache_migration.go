@@ -93,7 +93,26 @@ func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDi
 			// A divergent override of a checkpoint-backed session is an
 			// untrusted stray; sweeping it is the established cleanup.
 		default:
-			return nil, fmt.Errorf("retain transcript cache: checkpoint bytes differ from %s", file.Rel)
+			// Divergent, and nothing proves which copy is whole: neither is a
+			// prefix of the other, and this brain is not checkpoint-backed, so
+			// the cached file may hold bytes the checkpoint never saw.
+			//
+			// This used to return an error, which aborted the WHOLE delta
+			// export over one stray file -- and never self-healed, because
+			// nothing in the export path reconciles a divergence. Observed:
+			// one session file froze a real brain's manifest at 2026-10-11 for
+			// thirteen days, and because the source never advanced, the memory
+			// worker's receipt digest never matched its job digest, so it
+			// failed `memory_source_stale` and relaunched on backoff forever.
+			// Every symptom was two layers away from this line.
+			//
+			// Retaining is both safer and unblocking: the file is kept either
+			// way (the error path deleted nothing), so refusing to sweep it
+			// loses no bytes, while the export goes on and every other session
+			// gets through. It is exactly what the newer-than-its-checkpoint
+			// case above already does, for the reason stated there -- "instead
+			// of blocking every future export".
+			retain(file.Rel, "checkpoint bytes differ")
 		}
 	}
 	if len(retained) > 0 {
