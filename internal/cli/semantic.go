@@ -1251,6 +1251,30 @@ var entireAuthoredGatePaths = []string{
 	".codex/config.toml",
 	".codex/hooks.json",
 	".codex/skills/",
+	// One entry per agent `entire enable` installs hooks for, read off the
+	// cli's own HookConfigRelPath implementations rather than guessed:
+	//
+	//	.claude/settings.json             agent/claudecode/hooks.go:692  (above)
+	//	.codex/hooks.json                 agent/codex/hooks.go:795       (above)
+	//	.cursor/hooks.json                agent/cursor/hooks.go:412
+	//	.gemini/settings.json             agent/geminicli/hooks.go:550
+	//	.github/hooks/entire.json         agent/copilotcli/hooks.go:363
+	//	.factory/settings.json            agent/factoryaidroid/hooks.go:508
+	//	.pi/extensions/entire/index.ts    agent/pi/hooks.go:174
+	//	.opencode/plugins/entire.ts       agent/opencode/hooks.go:158
+	//
+	// The list covered two of those eight, so six of the agents Entire
+	// supports left their user at the refusal above, blocked by the file
+	// Entire had just written for them — the same failure this list was
+	// created to end, fixed for Claude Code and Codex only. The membership
+	// rule is unchanged and is what admits them: Entire's own installer
+	// writes it, so it is config rather than source.
+	".cursor/hooks.json",
+	".gemini/settings.json",
+	".github/hooks/entire.json",
+	".factory/settings.json",
+	".pi/extensions/entire/index.ts",
+	".opencode/plugins/entire.ts",
 }
 
 // worktreeGateIgnore is loadBrainIgnore plus entireAuthoredGatePaths, for the
