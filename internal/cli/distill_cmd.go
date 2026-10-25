@@ -344,12 +344,14 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 				}
 				ps.chunks = chunkTranscript(distillInput, distillOpts.maxChunkBytes)
 				ps.chunkHashes = distillChunkHashes(ps.chunks, distillOpts.cacheSalt)
-				if !distillOpts.force {
+				if !distillOpts.force && distillOpts.rawFactsOut == "" {
 					// Re-dispatch only chunks the cache has not seen succeed.
 					// Facts from skipped chunks are already in the store, and
 					// upsert-by-content-id makes even a stale skip harmless. A
 					// force run bypasses reuse: it just DROPPED the distilled
-					// facts it is about to regenerate.
+					// facts it is about to regenerate. Raw eval mode also
+					// bypasses it: its output IS the deliverable, and a
+					// filtered chunk would silently undercount facts/chunks.
 					if done := prevCache.chunkSet(distillSessionCacheKeyFor(ps.branch, ps.session, duplicateKeys)); len(done) > 0 {
 						kept := ps.chunks[:0]
 						for i := range ps.chunks {
@@ -520,6 +522,11 @@ type distillCommandOptions struct {
 	legacyCacheSalt     string
 	checkpointBacked    bool
 	transcriptMode      string
+	// rawFactsOut puts the run in extraction-only eval mode: parsed chunk
+	// output streams to this JSONL path, and nothing else happens — no
+	// reconcile, no store writes, no cache fingerprints — so a rerun
+	// re-processes every session and the real store is never touched.
+	rawFactsOut string
 	// newestFirst distills the most recent sessions BEFORE older ones. The
 	// default (false) keeps the established oldest-first order, where a later
 	// session's fact naturally supersedes an earlier one's. Newest-first is for
@@ -782,6 +789,8 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&distillOpts.newestFirst, "newest-first", false, "Distill the most recent sessions first so the most useful memories land early (default: oldest first)")
 	cmd.Flags().IntVar(&distillOpts.maxSessions, "max-sessions", 0, "Cap how many not-yet-distilled sessions this run processes (0 = no cap); pairs with --newest-first as a backfill budget")
 	cmd.Flags().StringVar(&distillOpts.callTracePath, "call-trace", "", "Write one JSON line per extraction agent call (latency, slot wait, tokens) to this file for profiling")
+	cmd.Flags().StringVar(&distillOpts.rawFactsOut, "raw-facts-out", "", "Extraction-only eval mode: stream parsed chunk output to this JSONL path; skip reconcile, store writes, and cache fingerprints")
+	_ = cmd.Flags().MarkHidden("raw-facts-out")
 	return cmd
 }
 
@@ -802,6 +811,9 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	}
 	if distillOpts.concurrency <= 0 {
 		return fmt.Errorf("--concurrency must be greater than 0")
+	}
+	if _, err := factsMaxPerChunkFromEnv(); err != nil {
+		return err
 	}
 	if cmd.Flags().Changed("timeout") && distillOpts.timeout <= 0 {
 		return fmt.Errorf("--timeout must be greater than 0")
@@ -1049,6 +1061,18 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		return resolveDistillBranch(manifest, session)
 	})
 
+	var rawFactsEnc *json.Encoder
+	if distillOpts.rawFactsOut != "" {
+		rawFile, err := os.Create(distillOpts.rawFactsOut)
+		if err != nil {
+			return nil, fmt.Errorf("create raw facts output: %w", err)
+		}
+		// Unbuffered file writes: each encoded line hits disk, so a killed run
+		// keeps every completed chunk.
+		defer rawFile.Close()
+		rawFactsEnc = json.NewEncoder(rawFile)
+	}
+
 	byBranch := map[string][]factRecord{}
 	baselineByBranch := map[string][]factRecord{}
 	proposalsByBranch := map[string][]factProposal{}
@@ -1280,6 +1304,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 
 	batchTotals := reconcileBatchStats{}
 	reconcileBranch := func(b string) {
+		if rawFactsEnc != nil {
+			return // extraction-only eval mode: raw output is the deliverable
+		}
 		reconcileStarted := time.Now()
 		updated, pending, stats, recWarnings := reconcileStagedCandidates(ctx, distillOpts.run, reconcileArgs, byBranch[b], append(append([]factProposal(nil), queuedByBranch[b]...), proposalsByBranch[b]...), repoDir, distillOpts.timeout, distillOpts.concurrency, now)
 		if stats.Candidates == 0 {
@@ -1409,6 +1436,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		}
 		preprocessedBytes += int64(ps.preBytes)
 		if ps.cached {
+			if rawFactsEnc != nil {
+				warnings = append(warnings, fmt.Sprintf("raw mode: session %s is cached and produced no raw output; eval runs need a fresh store (or --force)", session.SessionID))
+			}
 			cacheHits++
 			cachedKey := distillSessionCacheKeyFor(branch, session, duplicateKeys)
 			newCache.Sessions[cachedKey] = ps.fingerprint // unchanged; retain in cache and keep existing facts
@@ -1459,6 +1489,14 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			// locus; a no-op (and never an error) when the index is absent.
 			records = entities.ApplyProvenance(records, distillOpts.entityProvenance)
 			warnings = append(warnings, chunkWarnings...)
+			if rawFactsEnc != nil {
+				writeRawEvalLines(rawFactsEnc, session, branch, chunkIdx, len(ps.chunks), records, &warnings)
+				if len(records) > 0 {
+					factsFound += len(records)
+					chunksDistilled++
+				}
+				continue
+			}
 			if len(records) == 0 {
 				maybeFlush()
 				continue
@@ -1483,8 +1521,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		}
 		// Only cache a session as distilled when every chunk succeeded, so a
 		// session whose agent calls failed is retried on the next run rather
-		// than being silently treated as done.
-		if !sessionFailed {
+		// than being silently treated as done. Raw eval mode never caches:
+		// nothing was persisted, so a rerun must re-process the session.
+		if !sessionFailed && rawFactsEnc == nil {
 			doneKey := distillSessionCacheKeyFor(branch, session, duplicateKeys)
 			newCache.Sessions[doneKey] = ps.fingerprint
 			if newCache.Chunks == nil {
@@ -1529,6 +1568,32 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	// A much higher persist bound does apply, so a pathological run cannot grow
 	// the manifest without limit; it keeps the exact total either way.
 	warnings = distillWarningsForPersist(warnings)
+
+	if rawFactsEnc != nil {
+		// Extraction-only eval mode: the raw JSONL is the whole deliverable.
+		// Leave the store, distill cache, taxonomy, and manifest untouched — a
+		// raw run against a REAL store must not drop session fingerprints or
+		// stamp the production manifest with an eval variant's identity.
+		source := summarizeFactSource(now, map[string][]factRecord{}, chunksScanned, chunksDistilled, 0, warnings)
+		source.CacheHits = cacheHits
+		source.FailedChunks = failedChunks
+		source.PreprocessedBytes = preprocessedBytes
+		source.Agent = strings.TrimSpace(distillOpts.agent)
+		source.Model = strings.TrimSpace(distillOpts.model)
+		source.Effort = strings.TrimSpace(distillOpts.effort)
+		source.Branch = strings.TrimSpace(distillOpts.branch)
+		source.Jobs = distillRequestedJobs(distillOpts)
+		source.MaxChunkBytes = distillMaxChunkBytes(distillOpts)
+		source.ExtractionCalls = extractionAgentCalls
+		source.TotalAgentCalls = extractionAgentCalls
+		source.TokenUsage = usageCollector.summary(extractionAgentCalls)
+		source.ExtractionWaitSeconds = extractionSeconds
+		source.TotalSeconds = time.Since(runStarted).Seconds()
+		if distillOpts.onDeferredSessions != nil {
+			distillOpts.onDeferredSessions(budgetDeferred)
+		}
+		return source, nil
+	}
 
 	writeStarted := time.Now()
 	var source *factSourceManifest
@@ -2348,6 +2413,54 @@ func grandfatheredDistillFingerprint(cache distillCache, session exportSession, 
 	return false
 }
 
+// distillRawChunkLine and distillRawFactLine are the two JSONL line types
+// `--raw-facts-out` emits; the distill-eval harness consumes them. chunk_index
+// is 1-based. checkpoint_id carries the chunk anchor's heuristic stamp and
+// must not be trusted for per-checkpoint attribution.
+type distillRawChunkLine struct {
+	Type         string `json:"type"`
+	SessionID    string `json:"session_id"`
+	Branch       string `json:"branch"`
+	ChunkIndex   int    `json:"chunk_index"`
+	ChunkCount   int    `json:"chunk_count"`
+	FactsEmitted int    `json:"facts_emitted"`
+	Cap          int    `json:"cap"`
+}
+
+type distillRawFactLine struct {
+	Type         string   `json:"type"`
+	SessionID    string   `json:"session_id"`
+	Branch       string   `json:"branch"`
+	ChunkIndex   int      `json:"chunk_index"`
+	FactID       string   `json:"fact_id"`
+	Kind         string   `json:"kind"`
+	Paths        []string `json:"paths"`
+	Text         string   `json:"text"`
+	CheckpointID string   `json:"checkpoint_id"`
+}
+
+func writeRawEvalLines(enc *json.Encoder, session exportSession, branch string, chunkIdx, chunkCount int, records []factRecord, warnings *[]string) {
+	lines := make([]any, 0, len(records)+1)
+	lines = append(lines, distillRawChunkLine{
+		Type: "chunk", SessionID: session.SessionID, Branch: branch,
+		ChunkIndex: chunkIdx + 1, ChunkCount: chunkCount,
+		FactsEmitted: len(records), Cap: factsMaxPerChunkValue(),
+	})
+	for _, r := range records {
+		lines = append(lines, distillRawFactLine{
+			Type: "fact", SessionID: session.SessionID, Branch: branch,
+			ChunkIndex: chunkIdx + 1, FactID: r.ID, Kind: r.Kind,
+			Paths: r.Paths, Text: r.Text, CheckpointID: r.Provenance[0].CheckpointID,
+		})
+	}
+	for _, line := range lines {
+		if err := enc.Encode(line); err != nil {
+			*warnings = append(*warnings, fmt.Sprintf("raw facts output write failed: %v", err))
+			return
+		}
+	}
+}
+
 func distillCacheSaltForBrain(brainDir string, distillOpts distillCommandOptions, now time.Time) (string, error) {
 	taxonomy, err := loadFactTaxonomy(brainDir, now)
 	if err != nil {
@@ -2406,6 +2519,7 @@ func distillCacheSaltVersion(prompt, reconcilePromptText string, threshold float
 		AgentCommand         string  `json:"agent_command,omitempty"`
 		Model                string  `json:"model,omitempty"`
 		Effort               string  `json:"effort,omitempty"`
+		CapOverride          string  `json:"cap_override,omitempty"`
 	}{
 		Version:              distillCacheVersion,
 		PreprocessingVersion: preprocessingVersion,
@@ -2416,6 +2530,9 @@ func distillCacheSaltVersion(prompt, reconcilePromptText string, threshold float
 		AgentCommand:         strings.Join(distillOpts.agentCommand, "\x00"),
 		Model:                distillOpts.model,
 		Effort:               distillOpts.effort,
+		// omitempty: unset override leaves the salt bytes identical to
+		// pre-override builds, so production caches stay valid.
+		CapOverride: os.Getenv(envFactsMaxPerChunk),
 	})
 	if err != nil {
 		return ""

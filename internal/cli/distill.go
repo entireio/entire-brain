@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -15,7 +16,11 @@ import (
 )
 
 const (
-	distillTemplateName   = "templates/entire-brain-distill.md"
+	distillTemplateName = "templates/entire-brain-distill.md"
+	// envDistillTemplate points distillTemplate at an alternate prompt file for
+	// eval runs comparing prompt variants. The prompt is a cache-salt input, so
+	// an override never reuses chunks cached under another template.
+	envDistillTemplate    = "ENTIRE_BRAIN_DISTILL_TEMPLATE"
 	distillTaxonomyMarker = "${TAXONOMY_BLOCK}"
 	distillMaxOutputBytes = 256 * 1024
 	// distillAgentPromptMarker separates the agent's real argv from its system
@@ -55,6 +60,13 @@ const (
 // them from stdin here, but `--agent command` wrappers may not). A missing
 // template is a build error, not runtime.
 func distillTemplate() (string, error) {
+	if path := os.Getenv(envDistillTemplate); path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("read distill template override %s: %w", path, err)
+		}
+		return stripTemplateFrontmatter(string(data)), nil
+	}
 	data, err := entirebrain.Templates.ReadFile(distillTemplateName)
 	if err != nil {
 		return "", fmt.Errorf("read distill template: %w", err)
@@ -247,6 +259,7 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 	var warnings []string
 	capped := false
 	sawContent := false
+	maxPerChunk := factsMaxPerChunkValue()
 	for _, raw := range strings.Split(output, "\n") {
 		line := strings.TrimRight(raw, "\r")
 		if strings.TrimSpace(line) == "" {
@@ -284,7 +297,7 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 			warnings = append(warnings, "dropped fact with no valid taxonomy path: "+distillUntrustedExcerpt(text))
 			continue
 		}
-		if len(records) >= factsMaxPerChunk {
+		if len(records) >= maxPerChunk {
 			capped = true
 			continue
 		}
@@ -320,7 +333,7 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 		})
 	}
 	if capped {
-		warnings = append(warnings, fmt.Sprintf("chunk produced more than %d facts; extra lines dropped", factsMaxPerChunk))
+		warnings = append(warnings, fmt.Sprintf("chunk produced more than %d facts; extra lines dropped", maxPerChunk))
 	}
 	// The agent said SOMETHING and none of it became a fact, yet nothing above
 	// found it worth explaining — the per-line drops are deliberately quiet
