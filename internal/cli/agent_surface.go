@@ -287,6 +287,32 @@ type brainBriefSemantic struct {
 	// plugin's store (COR-2217) rather than the brain's internal semantic
 	// index; empty means the internal path answered.
 	Source string `json:"source,omitempty"`
+	// Staleness is set only when the graph answered from an ancestor of the
+	// committed tree. Its absence means the section is exact. It is reported
+	// rather than hidden because a reader has to know that an absence of
+	// results for a changed file is not evidence of an absence of consumers.
+	Staleness *semanticContextStaleness `json:"staleness,omitempty"`
+}
+
+// semanticContextStaleness is what a reader needs in order to judge an answer
+// served from an ancestor commit: how far back it is, and which paths it
+// cannot speak for.
+type semanticContextStaleness struct {
+	AncestorCommit string   `json:"ancestor_commit"`
+	CommitsBehind  int      `json:"commits_behind"`
+	ChangedFiles   []string `json:"changed_files"`
+	// Unreliable names the paths this answer must not be read as negative
+	// evidence about: the ancestor store had their records dropped.
+	//
+	// It can only name paths the answer actually RETURNED records for, and an
+	// ancestor store has already dropped the records for changed files -- so
+	// an empty Unreliable is the common case even when the answer is
+	// incomplete. On its own it would read as "nothing to worry about".
+	// ExcludedRecords is what separates the two: empty Unreliable with a
+	// non-zero count means nothing returned is tainted BUT records are
+	// missing, which is the state a reader must not mistake for completeness.
+	Unreliable      []string `json:"unreliable,omitempty"`
+	ExcludedRecords int      `json:"excluded_records"`
 }
 
 // brainBriefJSONReport is the agent-facing projection of the in-process brief.
@@ -324,6 +350,11 @@ type brainBriefJSONSemantic struct {
 	RuntimeTraces []compactSemanticRecord `json:"runtime_traces,omitempty"`
 	Tests         brainBriefJSONTests     `json:"tests"`
 	Source        string                  `json:"source,omitempty"`
+	// Staleness has to live here as well as on the internal report: this is
+	// the struct the --json payload is built from, and a field present only
+	// on the report would leave every actual consumer unable to see that the
+	// section was answered from an ancestor commit.
+	Staleness *semanticContextStaleness `json:"staleness,omitempty"`
 }
 
 type brainBriefJSONContext struct {
@@ -1492,6 +1523,16 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		// missing-index warning. Commit/tree coherence needs no check here —
 		// the provider keys the store by the current committed tree and
 		// reports any mismatch as store_unavailable.
+		// An ancestor answer whose own account of itself is inconsistent is
+		// refused outright: brain would be unable to say which results are
+		// incomplete, which is the only reason to accept one at all. Falling
+		// through here lands on the internal semantic path, i.e. exactly what
+		// happens with no graph plugin.
+		if graphErr == nil && !graphContext.Stale.usable() {
+			graphContext = graphTaskContext{}
+			graphStoreMissing = true
+			graphStoreMissingDetail = "graph answered from an ancestor commit but could not say which files it excluded; ignoring it"
+		}
 		if graphErr == nil && !graphContext.StoreUnavailable && len(graphContext.Symbols) > 0 {
 			report.Semantic.Context = semanticContextResult{
 				Symbols:   nonNil(graphContextSymbolRecords(graphContext.Symbols)),
@@ -1499,6 +1540,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			}
 			report.Semantic.Tests = graphContextTestsResult(graphContext.Tests)
 			report.Semantic.Source = "graph-context"
+			report.Semantic.Staleness = semanticStalenessFor(graphContext.Stale, graphContext.Symbols, graphContext.Tests)
 			semanticDelegated = true
 			if profile != nil {
 				outputs := len(graphContext.Symbols) + len(graphContext.Relations) + len(graphContext.Tests)
@@ -2717,6 +2759,7 @@ func brainBriefJSONProjection(report brainBriefReport) brainBriefJSONReport {
 		Warnings:           report.Warnings,
 	}
 	out.Semantic.Source = report.Semantic.Source
+	out.Semantic.Staleness = report.Semantic.Staleness
 	out.Semantic.Context.Symbols = compactSemanticRecords(report.Semantic.Context.Symbols)
 	out.Semantic.Context.Relations = compactSemanticRecords(report.Semantic.Context.Relations)
 	out.Semantic.Context.Neighbors = compactSemanticRecords(report.Semantic.Context.Neighbors)
