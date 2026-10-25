@@ -42,10 +42,29 @@ const catFileBatchMaxBlobBytes = 1 << 30
 // child would respawn per read — a spawn storm costlier than no batching.
 const catFileBatchRetryInterval = time.Minute
 
-// errCatFileBatchMissing is git's definitive "object not found" answer. It is
+// errGitObjectMissing is git's definitive "object not found" answer. It is
 // a real result, not an infrastructure failure: callers must NOT retry it on
 // the per-exec path, which would answer the same thing one spawn later.
-var errCatFileBatchMissing = errors.New("object missing")
+//
+// It is the ONLY signal a caller may read as "these bytes are not in this
+// repository". Both object-probe paths wrap it — the batch child from git's
+// machine-readable `<spec> missing` record, the per-exec path from an exit
+// code (see localObjectMissingConfirmed) — so no caller has to decide what a
+// bare `err != nil` from git meant.
+var errGitObjectMissing = errors.New("object missing")
+
+// gitObjectAbsentExitCode is the status `git cat-file -e <spec>` exits with,
+// silently and with no stderr, when the spec resolved to an object name that
+// is not present in this repository. Git's other refusals — a spec that does
+// not resolve, a repository that cannot be opened, a bad config value — all
+// use 128 instead.
+const gitObjectAbsentExitCode = 1
+
+// exitCoder is the capability an error has when it carries a process exit
+// status. *exec.ExitError satisfies it through its embedded *os.ProcessState,
+// so this classification does not have to assert a concrete os/exec type —
+// and a test runner can model an exit status without spawning anything.
+type exitCoder interface{ ExitCode() int }
 
 // catFileBatchKey separates children by policy as well as repository. check
 // children run `--batch-check` because a type probe must not stream the
@@ -273,7 +292,7 @@ func (p *catFileBatchProc) request(ctx context.Context, spec string, withBody bo
 	if len(fields) == 2 {
 		// "<spec> missing" and friends ("ambiguous") are answers from a
 		// healthy child, not failures.
-		return nil, "", fmt.Errorf("git cat-file batch: %s %s: %w", spec, fields[1], errCatFileBatchMissing)
+		return nil, "", fmt.Errorf("git cat-file batch: %s %s: %w", spec, fields[1], errGitObjectMissing)
 	}
 	if len(fields) != 3 {
 		return fail(fmt.Errorf("unexpected header %q for %s", strings.TrimSpace(header), spec))
@@ -326,16 +345,106 @@ func catFileBatchType(ctx context.Context, gitDir, spec string, localOnly bool) 
 // localObjectType answers `git cat-file -t` under the local-only policy,
 // batched for batch-capable runners and per-exec for every other runner.
 // A batch "missing" answer is definitive; other batch errors fall back.
+//
+// Either path reports a definitively absent object as errGitObjectMissing and
+// everything else as a plain error, so a caller can tell git's ANSWER from a
+// failure to ask it. partitionLocalTranscriptSessions depends on exactly that
+// distinction: it skips a session on the former and refuses the export on the
+// latter.
 func localObjectType(ctx context.Context, runner CommandRunner, gitDir, spec string) (string, error) {
 	if runnerAllowsCatFileBatch(runner) {
 		objType, err := catFileBatchType(ctx, gitDir, spec, true)
-		if err == nil || errors.Is(err, errCatFileBatchMissing) {
+		if err == nil || errors.Is(err, errGitObjectMissing) {
 			return objType, err
 		}
 	}
 	kind, _, err := runCheckpointGitLocal(ctx, runner, gitDir, "cat-file", "-t", spec)
 	if err != nil {
+		if localObjectMissingConfirmed(ctx, runner, gitDir, spec) {
+			return "", fmt.Errorf("%w: %w", errGitObjectMissing, err)
+		}
 		return "", err
 	}
 	return strings.TrimSpace(string(kind)), nil
+}
+
+// localObjectMissingConfirmed asks git a second, narrower question whose
+// answer is an EXIT CODE rather than prose, so "this object is not here" can
+// be told apart from "git could not be asked".
+//
+// `git cat-file -t` gives the per-exec path no machine-readable missing
+// answer: it exits 128 and prints a `fatal:` line, and 128 is also what a
+// repository that cannot be opened, an unparseable config value and a spec
+// that does not resolve produce. Treating any `err != nil` as "the bytes are
+// gone" is the defect this exists to prevent: because the export is fatal
+// only when NOTHING is servable, one cancelled context or transient git
+// fault would silently republish a shrunken corpus.
+//
+// `git cat-file -e` is narrower. Exit 0 means the object IS present, so the
+// type probe failed for some other reason and must stay an error. Exit 1 —
+// silent, no stderr — is git's answer for an object name that is not present
+// here, which is the pruned or promisor-absent blob a vanished checkpoint
+// leaves behind. Reading that exit code rather than git's stderr prose is the
+// same route enumerateRepoFilterDrivers already takes for `git config`'s exit
+// 1, and it cannot rot the way a stderr substring can.
+//
+// Everything else stays an error, git's 128 included. That makes the per-exec
+// path STRICTER than the batch child, whose `<spec> missing` record is
+// definitive for an unresolvable spec too. The asymmetry is deliberate and in
+// the safe direction: this path can only refuse an export the batch path would
+// have partitioned, never silently drop a session from one.
+//
+// The extra spawn is paid only by a probe that already failed, so a healthy
+// repository never reaches it.
+func localObjectMissingConfirmed(ctx context.Context, runner CommandRunner, gitDir, spec string) bool {
+	// A cancelled or expired context is never evidence about an object: the
+	// confirming probe would be killed on arrival and report nothing at all.
+	if ctx != nil && ctx.Err() != nil {
+		return false
+	}
+	if _, _, err := runCheckpointGitLocal(ctx, runner, gitDir, "cat-file", "-e", spec); err != nil {
+		var coder exitCoder
+		return errors.As(err, &coder) && coder.ExitCode() == gitObjectAbsentExitCode
+	}
+	return false
+}
+
+// promisorRemoteAnswers caches, per git directory, whether the repository has a
+// promisor remote. The answer is a local config read and cannot change during
+// an export.
+var promisorRemoteAnswers sync.Map
+
+// gitDirHasPromisorRemote reports whether this repository is a partial clone
+// whose absent objects might still be FETCHABLE.
+//
+// It matters because "the object is not here" and "the object does not exist"
+// are the same answer from `cat-file` and different facts. In a partial clone
+// an unfetched blob reports exactly what a pruned one does -- measured on git
+// 2.54.0, `cat-file -e` exits 1 silently for both under GIT_NO_LAZY_FETCH=1,
+// which is how every local-policy probe runs. Partitioning on that answer
+// would drop a session whose bytes a sync would recover, and republish a
+// corpus smaller than the one already published.
+//
+// The marker is `remote.<name>.promisor`, matched by SUFFIX across every
+// remote. It is deliberately not a lookup of `remote.origin.promisor` or of
+// `extensions.partialclone`: the real case this exists for is the cli
+// checkpoint repository, whose promisor remote is named by URL
+// (`remote.https://github.com/entireio/cli-checkpoints.git.promisor`) while
+// `extensions.partialclone` is not set at all. A check on either would miss it.
+//
+// A repository with no promisor remote is unaffected: an absent object there is
+// absent for good, and the caller still partitions.
+func gitDirHasPromisorRemote(ctx context.Context, runner CommandRunner, gitDir string) bool {
+	if cached, ok := promisorRemoteAnswers.Load(gitDir); ok {
+		answer, _ := cached.(bool)
+		return answer
+	}
+	stdout, _, err := runCheckpointGitLocal(ctx, runner, gitDir, "config", "--get-regexp", `\.promisor$`)
+	// `config --get-regexp` exits 1 when nothing matches, so only a match with
+	// a non-empty value counts. A failure to ask is treated as "no promisor
+	// remote", which keeps this helper from turning a config-read fault into a
+	// refusal; the probe's own error handling already covers that class.
+	answer := err == nil && strings.TrimSpace(string(stdout)) != ""
+	promisorRemoteAnswers.Store(gitDir, answer)
+	return answer
 }

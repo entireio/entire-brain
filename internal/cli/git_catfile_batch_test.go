@@ -61,8 +61,8 @@ func TestCatFileBatchReadReturnsBlobContent(t *testing.T) {
 func TestCatFileBatchMissingIsDefinitiveAndNonFatal(t *testing.T) {
 	dir := newBatchTestRepo(t, "hello\n")
 	_, err := catFileBatchRead(context.Background(), dir, "HEAD:absent.txt", true)
-	if !errors.Is(err, errCatFileBatchMissing) {
-		t.Fatalf("want errCatFileBatchMissing, got %v", err)
+	if !errors.Is(err, errGitObjectMissing) {
+		t.Fatalf("want errGitObjectMissing, got %v", err)
 	}
 	// The child must survive a missing answer and serve the next read.
 	got, err := catFileBatchRead(context.Background(), dir, batchTestSpec, true)
@@ -88,7 +88,7 @@ func TestCatFileBatchFailureCoolsDownThenRespawns(t *testing.T) {
 	entry.proc.fail(errors.New("induced failure"))
 	entry.proc.mu.Unlock()
 	// During the cooldown the key answers an error without spawning.
-	if _, err := catFileBatchRead(ctx, dir, batchTestSpec, true); err == nil || errors.Is(err, errCatFileBatchMissing) {
+	if _, err := catFileBatchRead(ctx, dir, batchTestSpec, true); err == nil || errors.Is(err, errGitObjectMissing) {
 		t.Fatalf("want a cooldown error, got %v", err)
 	}
 	// An expired tombstone respawns a working child.
@@ -119,8 +119,8 @@ func TestLocalObjectTypeBatchAndFallbackAgree(t *testing.T) {
 	// errors — just not with the batch sentinel.
 	if _, err := localObjectType(ctx, ExecRunner{}, dir, "HEAD:absent.txt"); err == nil {
 		t.Fatal("want an error for a missing object")
-	} else if runnerAllowsCatFileBatch(ExecRunner{}) && !errors.Is(err, errCatFileBatchMissing) {
-		t.Fatalf("want errCatFileBatchMissing, got %v", err)
+	} else if runnerAllowsCatFileBatch(ExecRunner{}) && !errors.Is(err, errGitObjectMissing) {
+		t.Fatalf("want errGitObjectMissing, got %v", err)
 	}
 	if _, err := localObjectType(ctx, perExecOnlyRunner{}, dir, "HEAD:absent.txt"); err == nil {
 		t.Fatal("per-exec path must also error for a missing object")
@@ -238,7 +238,7 @@ func TestCatFileBatchConcurrentReadsStayInSync(t *testing.T) {
 					errs <- errors.New("content mismatch under concurrency")
 					return
 				}
-				if _, err := catFileBatchRead(ctx, dir, "HEAD:absent.txt", true); !errors.Is(err, errCatFileBatchMissing) {
+				if _, err := catFileBatchRead(ctx, dir, "HEAD:absent.txt", true); !errors.Is(err, errGitObjectMissing) {
 					errs <- err
 					return
 				}
@@ -249,5 +249,43 @@ func TestCatFileBatchConcurrentReadsStayInSync(t *testing.T) {
 	close(errs)
 	for err := range errs {
 		t.Fatal(err)
+	}
+}
+
+// The per-exec path has to classify from an exit code, because `cat-file -t`
+// answers a missing object with exit 128 and a `fatal:` line -- the same status
+// a repository that cannot be opened produces. Against REAL git: a resolvable
+// spec whose object has been pruned is typed as errGitObjectMissing, and an
+// unresolvable spec is deliberately not, because its 128 is indistinguishable
+// from an unusable repository without reading git's prose.
+func TestLocalObjectTypePerExecClassifiesMissingByExitCode(t *testing.T) {
+	dir := newBatchTestRepo(t, "pruned\n")
+	ctx := context.Background()
+	oid := strings.TrimSpace(liveGit(t, dir, "rev-parse", batchTestSpec))
+	if len(oid) < 3 {
+		t.Fatalf("rev-parse %s returned %q", batchTestSpec, oid)
+	}
+	// Present: the per-exec probe answers the type and asks nothing further.
+	if kind, err := localObjectType(ctx, perExecOnlyRunner{}, dir, batchTestSpec); err != nil || kind != "blob" {
+		t.Fatalf("want blob, got %q %v", kind, err)
+	}
+	// Prune the object itself, leaving the tree entry that names it. This is
+	// the shape a partial clone or a pruned checkpoint leaves behind, and the
+	// one case the export may skip a session over.
+	if err := os.Remove(filepath.Join(dir, ".git", "objects", oid[:2], oid[2:])); err != nil {
+		t.Fatalf("pruning the blob: %v", err)
+	}
+	_, err := localObjectType(ctx, perExecOnlyRunner{}, dir, batchTestSpec)
+	if !errors.Is(err, errGitObjectMissing) {
+		t.Fatalf("a pruned object must be typed as missing, got %v", err)
+	}
+	// An unresolvable spec errors, but NOT as a missing object: on this path
+	// that verdict is reserved for git's exit 1.
+	_, err = localObjectType(ctx, perExecOnlyRunner{}, dir, "HEAD:absent.txt")
+	if err == nil {
+		t.Fatal("an unresolvable spec must still error")
+	}
+	if errors.Is(err, errGitObjectMissing) {
+		t.Fatalf("git's generic exit 128 was read as a missing object: %v", err)
 	}
 }
