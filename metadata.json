@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5RE7DXHGB3KKM4X7KB3H9TS",
+  "strategy": "manual-commit",
+  "branch": "cor-2268-ci-work-ticket",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "internal/cli/internal/clitest/clitest.go",
+    "internal/cli/internal/clitest/clitest_test.go",
+    "internal/cli/internal/clitest/main_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 64,
+    "cache_creation_tokens": 199510,
+    "cache_read_tokens": 3067985,
+    "output_tokens": 46405,
+    "api_call_count": 32
+  }
+}
