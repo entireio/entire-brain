@@ -352,7 +352,35 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			manifest.TranscriptMode = actualTranscriptMode(exportOpts.rawTranscript, local)
 		}
 		if len(sessions) > 0 {
-			if err := validateLocalTranscriptSessions(ctx, opts.Runner, snapshot, sessions, manifest.TranscriptMode); err != nil {
+			// A tombstoned session is exempt from this check, and only from
+			// this check. The guard refuses to record a session whose bytes
+			// this brain cannot serve — but an excluded session is one it has
+			// been told never to serve, so demanding its bytes refuses an
+			// export for a promise nobody is making.
+			//
+			// It stays in the selection and in the manifest. That is not an
+			// oversight to tidy up: the cache sweep learns which cached
+			// transcripts to RETAIN from the selection, and retention is what
+			// makes `privacy include` able to recover the session later. Drop
+			// it from the selection instead and include can no longer recover
+			// it (TestFilelessMigrationRecoversExcludedSessionAfterInclude
+			// fails exactly that way), so exclusion would stop being
+			// reversible. Only the derived projections exclude it, which is
+			// what the history index already does.
+			//
+			// Observed on a real brain: one mock-agent fixture (session
+			// "test", agent "Mock Lifecycle Agent") whose transcript bytes are
+			// not local blocked all 2,561 real sessions, and `privacy exclude`
+			// could not get past it because this check ran regardless.
+			validated, exempt, tombErr := partitionTombstonedSessions(ctx, opts, repoDir, outputExplicit, sessions)
+			if tombErr != nil {
+				warnings = append(warnings, "session tombstones unreadable, validating every session: "+tombErr.Error())
+				validated = sessions
+			}
+			if exempt > 0 {
+				warnings = append(warnings, fmt.Sprintf("%d excluded session(s) exempt from local-transcript validation", exempt))
+			}
+			if err := validateLocalTranscriptSessions(ctx, opts.Runner, snapshot, validated, manifest.TranscriptMode); err != nil {
 				return err
 			}
 		}
@@ -4245,4 +4273,43 @@ type exportCursorSession struct {
 	TranscriptMode   string    `json:"transcript_mode"`
 	TranscriptPath   string    `json:"transcript_path"`
 	CreatedAt        time.Time `json:"created_at"`
+}
+
+// partitionTombstonedSessions returns the sessions that must still satisfy
+// local-transcript validation, plus how many were exempted as excluded.
+//
+// It deliberately does not remove anything from the export: the caller keeps
+// the full selection so the cache sweep still retains an excluded session's
+// transcript, which is what `privacy include` needs to recover it.
+func partitionTombstonedSessions(ctx context.Context, opts Options, repoDir string, outputExplicit bool, sessions []exportSession) ([]exportSession, int, error) {
+	if outputExplicit || len(sessions) == 0 {
+		return sessions, 0, nil
+	}
+	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+	if err != nil {
+		return sessions, 0, nil
+	}
+	return partitionTombstonedSessionsAt(storage.BrainDir, sessions)
+}
+
+// partitionTombstonedSessionsAt is the brainDir-addressable half, so the
+// exemption can be tested without resolving a repository's storage.
+func partitionTombstonedSessionsAt(brainDir string, sessions []exportSession) ([]exportSession, int, error) {
+	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	if err != nil {
+		return sessions, 0, err
+	}
+	if len(stones.Excluded) == 0 {
+		return sessions, 0, nil
+	}
+	validated := make([]exportSession, 0, len(sessions))
+	exempt := 0
+	for _, session := range sessions {
+		if _, excluded := stones.Excluded[session.SessionID]; excluded {
+			exempt++
+			continue
+		}
+		validated = append(validated, session)
+	}
+	return validated, exempt, nil
 }
