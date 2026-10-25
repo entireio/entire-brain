@@ -1072,6 +1072,14 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 				continue
 			}
 			digest, digestErr := digestHistorySessionInventoryFile(ctx, inventory, file)
+			if errors.Is(digestErr, errHistoryTranscriptTooLarge) {
+				// Left out of the content identity, exactly as the build leaves
+				// it out of the index. Both decide from the same reader on the
+				// same inventory, so the two sets cannot drift apart; and the
+				// identity stays stable run to run, so skipping does not drive
+				// an endless rebuild.
+				continue
+			}
 			if digestErr != nil {
 				return historyProjectionIdentity{}, nil, sessionTombstones{}, digestErr
 			}
@@ -1248,6 +1256,16 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 		var records []historyRecord
 		var incomplete int
 		content, contentDigest, readErr := readHistorySessionInventoryFile(ctx, inventory, file)
+		if errors.Is(readErr, errHistoryTranscriptTooLarge) {
+			// One file too large to read says nothing about the other 322.
+			// Skipped, reported, and deliberately NOT fingerprinted below: it
+			// was never read, so it must not be committed to the set that was.
+			index.Warnings = append(index.Warnings, fmt.Sprintf("skipped %s: %v", rel, readErr))
+			if progress != nil {
+				progress(i+1, total)
+			}
+			continue
+		}
 		if readErr != nil {
 			return index, nil, historyScanCache{}, readErr
 		}
@@ -1381,6 +1399,31 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 // contents of the exact descriptor-rooted leaf captured by the inventory. It
 // streams into the hash so large line-oriented transcripts do not require a
 // second in-memory copy.
+// errHistoryTranscriptTooLarge classifies the one failure that is a statement
+// about a single file's size rather than about the corpus being unsound.
+//
+// It exists because all three readers of the transcript inventory refused the
+// whole operation over one file: identity capture (which runs first), the
+// index build, and the freshness check. On a real brain one checkpoint held a
+// 438.9MB raw transcript and the history index came out 0 of 323 sessions —
+// every other session was readable and none of them were read. The loop in
+// buildBrainHistoryIndexSnapshotContext already says this is not the intent:
+// "every candidate advances progress exactly once even when a later open or
+// identity check fails ... only clean parses are cached and indexed".
+//
+// All three sites classify through this sentinel rather than their own string
+// match, because they MUST agree on the skipped set: if the freshness check
+// counted a file the build skipped, the index would be permanently stale and
+// rebuild forever.
+//
+// Its message is deliberately the bare memory_input_too_large code, so
+// wrapping it with %w reproduces the previous wording byte for byte.
+var errHistoryTranscriptTooLarge = errors.New(memoryErrInputTooLarge)
+
+func historyTranscriptTooLargeError(rel string) error {
+	return fmt.Errorf("%w: canonical transcript %s exceeds maximum size of %d bytes", errHistoryTranscriptTooLarge, rel, clibase.MaxDocumentTranscriptBytes)
+}
+
 func digestHistorySessionInventoryFile(ctx context.Context, inventory *historySessionInventory, file historySessionFile) (string, error) {
 	beforeHistoryProjectionContentDigest(file.Rel)
 	if inventory.store != nil {
@@ -1388,7 +1431,7 @@ func digestHistorySessionInventoryFile(ctx context.Context, inventory *historySe
 		return digest, err
 	}
 	if file.Size > clibase.MaxDocumentTranscriptBytes {
-		return "", fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, clibase.MaxDocumentTranscriptBytes)
+		return "", historyTranscriptTooLargeError(file.Rel)
 	}
 	f, err := inventory.open(ctx, file)
 	if err != nil {
@@ -1399,7 +1442,7 @@ func digestHistorySessionInventoryFile(ctx context.Context, inventory *historySe
 	limit := clibase.MaxDocumentTranscriptBytes + 1
 	written, readErr := io.Copy(h, io.LimitReader(contextCheckingReader{ctx: ctx, r: f}, limit))
 	if written > clibase.MaxDocumentTranscriptBytes {
-		readErr = errors.Join(readErr, fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, clibase.MaxDocumentTranscriptBytes))
+		readErr = errors.Join(readErr, historyTranscriptTooLargeError(file.Rel))
 	}
 	finishErr := inventory.validateAfterRead(file, f)
 	if readErr != nil || finishErr != nil {
@@ -1428,6 +1471,12 @@ func collectHistorySessionDigests(ctx context.Context, brainDir string, excluded
 			continue
 		}
 		_, digest, readErr := readHistorySessionInventoryFile(ctx, inventory, file)
+		if errors.Is(readErr, errHistoryTranscriptTooLarge) {
+			// Must skip whatever the build skips. A freshness check that
+			// counted a file the build left out would find the index short of
+			// its own inventory forever and rebuild on every refresh.
+			continue
+		}
 		if readErr != nil {
 			return nil, readErr
 		}
@@ -1450,7 +1499,7 @@ func readHistorySessionInventoryFile(ctx context.Context, inventory *historySess
 		return data, "sha256:" + hex.EncodeToString(sum[:]), nil
 	}
 	if file.Size > clibase.MaxDocumentTranscriptBytes {
-		return nil, "", fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, clibase.MaxDocumentTranscriptBytes)
+		return nil, "", historyTranscriptTooLargeError(file.Rel)
 	}
 	f, err := inventory.open(ctx, file)
 	if err != nil {
@@ -1462,7 +1511,7 @@ func readHistorySessionInventoryFile(ctx context.Context, inventory *historySess
 	if readErr != nil || finishErr != nil || closeErr != nil {
 		combined := errors.Join(readErr, finishErr, closeErr)
 		if readErr != nil && strings.Contains(readErr.Error(), "exceeds maximum size") {
-			return nil, "", fmt.Errorf("%s: %w", memoryErrInputTooLarge, combined)
+			return nil, "", fmt.Errorf("%w: %w", errHistoryTranscriptTooLarge, combined)
 		}
 		return nil, "", combined
 	}

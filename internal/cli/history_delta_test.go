@@ -240,7 +240,16 @@ func TestShortTermDeltaRejectsPriorOverlayOnSameMetadataReplacement(t *testing.T
 	}
 }
 
-func TestShortTermDeltaBoundFailurePreservesPriorOverlay(t *testing.T) {
+// A transcript past the per-file cap is recorded, not refused. This test used
+// to assert the opposite — that the bound preserved the prior generation —
+// which is precisely how one oversize transcript kept blocking the overlay for
+// every other session. The prior generation is deliberately NOT preserved: the
+// file grew, so the records it had in the overlay describe content it no longer
+// holds, and the sessions that ARE readable must be republished. The property
+// that a genuine canonical refusal leaves the prior overlay untouched is pinned
+// by TestHistorySessionInventoryCeilingPreservesProjectionAndOverlay and
+// TestShortTermDeltaMembershipRacePreservesOverlay.
+func TestShortTermDeltaOversizeTranscriptIsRecordedNotRefused(t *testing.T) {
 	brainDir, rel, _ := historyProjectionFixture(t)
 	target := filepath.Join(brainDir, filepath.FromSlash(rel))
 	replaceDeltaTranscriptSameMetadata(t, target, "commit the manifest last", "commit the content first")
@@ -255,15 +264,33 @@ func TestShortTermDeltaBoundFailurePreservesPriorOverlay(t *testing.T) {
 	oldMax := base.MaxDocumentTranscriptBytes
 	base.MaxDocumentTranscriptBytes = 8
 	t.Cleanup(func() { base.MaxDocumentTranscriptBytes = oldMax })
-	if _, err := buildShortTermResult(t, brainDir); err == nil || !strings.Contains(err.Error(), memoryErrInputTooLarge) {
-		t.Fatalf("bounded delta error = %v", err)
+	stats, err := buildShortTermResult(t, brainDir)
+	if err != nil {
+		t.Fatalf("the per-file transcript cap refused the whole delta: %v", err)
+	}
+	if stats.Failed != 1 || stats.Scanned != 0 {
+		t.Fatalf("stats = %+v, want the one oversize transcript recorded as failed", stats)
 	}
 	after, err := os.ReadFile(overlayPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(after, before) {
-		t.Fatal("bounded delta failure changed the prior overlay")
+	if bytes.Equal(after, before) {
+		t.Fatal("the overlay was not republished, so the delta still refused over the bound")
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlay, state := loadHistoryShortTermState(brainDir, manifest.Sources.History)
+	if state != shortTermStateCurrent {
+		t.Fatalf("overlay state = %s after the skip", state)
+	}
+	if len(overlay.FailedFiles) != 1 || overlay.FailedFiles[0] != rel {
+		t.Fatalf("the skipped transcript was not recorded durably: %v", overlay.FailedFiles)
+	}
+	if overlay.complete() {
+		t.Fatal("an overlay that skipped a transcript claimed complete coverage")
 	}
 }
 
