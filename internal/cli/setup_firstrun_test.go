@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -534,7 +535,7 @@ func TestWatchBannerNamesTheCapThatBinds(t *testing.T) {
 	w.distillMaxSessions = setupDefaultBackfillBudget
 	out := &bytes.Buffer{}
 	agentCalls := 0
-	if err := workspaceWatchLoop(context.Background(), out, Options{Env: env, Runner: runner, Now: time.Now}, w, "ws", &agentCalls, func(string, *int) {}); err != nil {
+	if err := workspaceWatchLoop(context.Background(), out, Options{Env: env, Runner: runner, Now: time.Now}, w, "ws", &agentCalls, time.Now, func(io.Writer, string, *int) {}); err != nil {
 		t.Fatalf("workspaceWatchLoop: %v", err)
 	}
 	printed := out.String()

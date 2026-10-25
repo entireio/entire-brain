@@ -408,30 +408,44 @@ func runWorkspaceWatch(ctx context.Context, cmd *cobra.Command, opts Options, w 
 // owns instead of installing a second signal handler per workspace per pass.
 func runWorkspaceWatchPass(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, workspaceName string, now func() time.Time, agentCalls *int) error {
 	out := cmd.OutOrStdout()
-	repoTick := func(repoDir string, agentCalls *int) {
+	// repoOut is the member's already-attributed writer, handed down by the
+	// loop (see workspaceWatchLoop): the fan-out is the case that needs the
+	// prefix most, because without it a tick's lines name no repo at all --
+	// only a header line several lines above them.
+	repoTick := func(repoOut io.Writer, repoDir string, agentCalls *int) {
 		storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 		if err != nil {
-			fmt.Fprintf(out, "  skipped: %v\n", err)
+			fmt.Fprintf(repoOut, "  skipped: %v\n", err)
 			return
 		}
 		cursorPath := filepath.Join(filepath.Dir(storage.HeadPath), "watch.json")
-		watchTick(ctx, out, w, cursorPath, watchStepsForRepo(cmd, opts, w, repoDir, now), agentCalls)
+		watchTick(ctx, repoOut, w, cursorPath, watchStepsForRepo(watchStepCommand(cmd, repoOut), opts, w, repoDir, now), agentCalls)
 	}
-	return workspaceWatchLoop(ctx, out, opts, w, workspaceName, agentCalls, repoTick)
+	return workspaceWatchLoop(ctx, out, opts, w, workspaceName, agentCalls, now, repoTick)
 }
 
 // workspaceWatchLoop iterates the workspace members, resolving each to a local repo and handing it to
 // repoTick with a single shared agentCalls counter (so --budget caps total token spend across the whole
 // workspace, not per-repo). repoTick is injected so the fan-out is testable without a real refresh.
-func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watchCommandOptions, workspaceName string, agentCalls *int, repoTick func(repoDir string, agentCalls *int)) error {
+func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watchCommandOptions, workspaceName string, agentCalls *int, now func() time.Time, repoTick func(out io.Writer, repoDir string, agentCalls *int)) error {
 	if w.interval <= 0 {
 		w.interval = 5 * time.Minute
 	}
+	// The loop, not the tick, decides a line's attribution, so a tick cannot
+	// forget it: workspace-level lines carry the clock alone, and every member
+	// gets a writer already stamped with its repo key. Wrapped exactly once
+	// per sink -- nesting two of these would stamp every line twice.
+	raw := out
+	// pass counts the fan-out sweeps so a member's lines say which sweep they
+	// belong to, the same way a single-repo daemon's lines say which tick.
+	pass := 0
+	out = newWatchLogPrefixWriter(raw, watchLogFields{build: opts.Version, tick: &pass}, now)
 	for {
 		if ctx.Err() != nil {
 			fmt.Fprintln(out, "[watch] stopping")
 			return nil
 		}
+		pass++
 		manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
 		if err != nil {
 			return err
@@ -450,7 +464,7 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 				continue
 			}
 			fmt.Fprintf(out, "[watch] %s:\n", repo.RepoKey)
-			repoTick(repoDir, agentCalls)
+			repoTick(newWatchLogPrefixWriter(raw, watchLogFields{build: opts.Version, tick: &pass, repo: repo.RepoKey}, now), repoDir, agentCalls)
 		}
 		if w.once {
 			return nil

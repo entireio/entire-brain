@@ -190,16 +190,23 @@ func runWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchComm
 		return err
 	}
 	cursorPath := filepath.Join(filepath.Dir(storage.HeadPath), "watch.json")
-	steps := watchStepsForRepo(cmd, opts, w, repoDir, now)
 	// Wire SIGINT/SIGTERM so a long-running daemon stops cleanly between ticks instead of being killed
 	// mid-refresh; this is what makes the loop's ctx-cancel paths live (the root command runs with a
 	// Background context otherwise).
 	ctx, stop := watchSignalContext(ctx)
 	defer stop()
-	fmt.Fprintf(cmd.OutOrStdout(), "[watch] %s — interval %s, distill=%v (every %s, agent=%s, jobs=%d, model=%q, max-sessions=%s, run-budget=%s)\n",
+	// Every line this daemon writes carries when, which process and build,
+	// which tick and which repo (see watchLogFields). The banner is written
+	// before the first tick, so it carries no tick number; watchLoop stamps
+	// everything from there on, and the two writers never nest.
+	banner := newWatchLogPrefixWriter(cmd.OutOrStdout(), watchLogFields{build: opts.Version, repo: storage.Key}, now)
+	fmt.Fprintf(banner, "[watch] %s — interval %s, distill=%v (every %s, agent=%s, jobs=%d, model=%q, max-sessions=%s, run-budget=%s)\n",
 		storage.Key, w.interval, w.distill, w.distillEvery, w.distillAgent, w.distillJobs, w.model,
 		watchCapLabel(w.distillMaxSessions), watchCapLabel(w.budget))
-	return watchLoop(ctx, cmd.OutOrStdout(), w, cursorPath, steps)
+	return watchLoop(ctx, cmd.OutOrStdout(), watchLogFields{build: opts.Version, repo: storage.Key}, now, w, cursorPath,
+		func(sink io.Writer) watchSteps {
+			return watchStepsForRepo(watchStepCommand(cmd, sink), opts, w, repoDir, now)
+		})
 }
 
 // watchCapLabel renders a cap where a non-positive value means "no cap".
@@ -224,9 +231,23 @@ func watchSignalContext(ctx context.Context) (context.Context, context.CancelFun
 	return signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 }
 
-func watchLoop(ctx context.Context, out io.Writer, w watchCommandOptions, cursorPath string, steps watchSteps) error {
+// watchLoop drives the single-repo daemon. It owns the attribution of every
+// line its ticks write -- stamped once per line by watchLogPrefixWriter -- so
+// a tick cannot forget it and a line added later inherits it. The steps are
+// built FROM the attributed sink rather than passed in already built, so the
+// refresh/seed/distill progress lines land in the same stream, carrying the
+// same tick and repo, instead of going unattributed to the raw stdout.
+//
+// out must be the RAW sink: wrapping it again outside would stamp every line
+// twice.
+func watchLoop(ctx context.Context, out io.Writer, fields watchLogFields, now func() time.Time, w watchCommandOptions, cursorPath string, stepsFor func(io.Writer) watchSteps) error {
+	tick := 0
+	fields.tick = &tick
+	out = newWatchLogPrefixWriter(out, fields, now)
+	steps := stepsFor(out)
 	agentCalls := 0
 	for {
+		tick++
 		if ctx.Err() != nil {
 			fmt.Fprintln(out, "[watch] stopping")
 			return nil
@@ -478,6 +499,26 @@ func (w watchCommandOptions) agentWorkEnabled() bool {
 // watchStepsForRepo builds the per-repo side effects the watch loop drives. refresh is ALWAYS the free
 // (seed-agent none) deterministic refresh; seed and distill are the gated token steps. Shared by the
 // single-repo `watch` and the workspace fan-out so both stay token-frugal the same way.
+// watchStepCommand hands the refresh/seed/distill steps the daemon's own
+// attributed log sink. Those steps take a *cobra.Command only to find their
+// output (they write progress through cmd.OutOrStdout and warnings through
+// cmd.ErrOrStderr), and on the daemon path both belong in watch.log with the
+// same stamp as the tick lines around them -- the `refresh: seed baseline
+// failed` line is the exact line COR-2176 was filed about. Stderr and stdout
+// are the same sink here because a supervised daemon's two streams are
+// already redirected to the one file.
+func watchStepCommand(parent *cobra.Command, sink io.Writer) *cobra.Command {
+	sub := &cobra.Command{}
+	sub.SetOut(sink)
+	sub.SetErr(sink)
+	if parent != nil {
+		if ctx := parent.Context(); ctx != nil {
+			sub.SetContext(ctx)
+		}
+	}
+	return sub
+}
+
 func watchStepsForRepo(cmd *cobra.Command, opts Options, w watchCommandOptions, repoDir string, now func() time.Time) watchSteps {
 	return watchSteps{
 		now:         now,

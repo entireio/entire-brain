@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,7 +38,7 @@ func TestWorkspaceWatchFansOverMembersWithSharedBudget(t *testing.T) {
 
 	var ticked []string
 	var seen []int
-	repoTick := func(repoDir string, agentCalls *int) {
+	repoTick := func(_ io.Writer, repoDir string, agentCalls *int) {
 		ticked = append(ticked, repoDir)
 		seen = append(seen, *agentCalls)
 		*agentCalls++ // simulate a token-spending step to prove the counter is shared, not per-repo
@@ -46,7 +48,7 @@ func TestWorkspaceWatchFansOverMembersWithSharedBudget(t *testing.T) {
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
 	out := &bytes.Buffer{}
 	agentCalls := 0
-	if err := workspaceWatchLoop(context.Background(), out, opts, w, "ws", &agentCalls, repoTick); err != nil {
+	if err := workspaceWatchLoop(context.Background(), out, opts, w, "ws", &agentCalls, time.Now, repoTick); err != nil {
 		t.Fatalf("workspaceWatchLoop: %v", err)
 	}
 	// repoc is unresolvable, so only the two resolvable members tick.
@@ -185,7 +187,7 @@ func TestWorkspaceWatchOnceSkipsStaleLocalPathHintBeforeTick(t *testing.T) {
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
 	out := &bytes.Buffer{}
 	agentCalls := 0
-	if err := workspaceWatchLoop(context.Background(), out, opts, w, "ws", &agentCalls, func(repoDir string, agentCalls *int) {
+	if err := workspaceWatchLoop(context.Background(), out, opts, w, "ws", &agentCalls, time.Now, func(_ io.Writer, repoDir string, agentCalls *int) {
 		t.Fatalf("repoTick must not run for stale hint %s", repoDir)
 	}); err != nil {
 		t.Fatalf("workspaceWatchLoop: %v", err)
@@ -2099,4 +2101,68 @@ func TestWorkspaceAddValidatesTheMemberDisplayName(t *testing.T) {
 			t.Fatalf("workspace add rejected --name %q: %v", name, err)
 		}
 	}
+}
+
+// TestWorkspaceWatchStampsEveryLineWithClockAndRepo is the fan-out half of
+// COR-2176. The single-repo daemon could be read by assuming every line was
+// about the one repo; a workspace log cannot. The loop, not the tick, decides
+// attribution, so this drives the real loop and asserts what a reader of
+// watch.log would see.
+func TestWorkspaceWatchStampsEveryLineWithClockAndRepo(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	repoA, repoAKey := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "a.go", "package x\n")
+	repoB, repoBKey := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "b.go", "package x\n")
+	manifest := workspacelib.Manifest{
+		SchemaVersion: workspacelib.SchemaVersion,
+		Name:          "ws",
+		Repos: []workspacelib.Repo{
+			{RepoKey: repoAKey, LocalPathHint: repoA},
+			{RepoKey: repoBKey, LocalPathHint: repoB},
+		},
+	}
+	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	at := time.Date(2026, 10, 24, 9, 30, 15, 0, time.UTC)
+	// The member's writer is the loop's decision; the tick only writes to it.
+	repoTick := func(out io.Writer, repoDir string, agentCalls *int) {
+		fmt.Fprintf(out, "[watch] refresh failed: %v\n", errors.New("brain_locked"))
+	}
+	w := defaultWatchOptions()
+	w.once = true
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return at }}
+	out := &bytes.Buffer{}
+	agentCalls := 0
+	if err := workspaceWatchLoop(context.Background(), out, opts, w, "ws", &agentCalls, func() time.Time { return at }, repoTick); err != nil {
+		t.Fatalf("workspaceWatchLoop: %v", err)
+	}
+
+	stamp := "2026-10-24T09:30:15Z pid="
+	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+	for i, line := range lines {
+		if !strings.HasPrefix(line, stamp) {
+			t.Fatalf("line %d carries no clock or process: %q\nfull log:\n%s", i, line, out.String())
+		}
+		if !strings.Contains(line, " tick=1 ") {
+			t.Fatalf("line %d does not say which sweep it belongs to: %q", i, line)
+		}
+	}
+	// Each member's tick line must name THAT member, not the one above it.
+	for _, key := range []string{repoAKey, repoBKey} {
+		want := " tick=1 repo=" + key + " [watch] refresh failed: brain_locked"
+		if !slicesContainsSuffix(lines, want) {
+			t.Fatalf("no tick line attributed to %s; want a line ending %q\nfull log:\n%s", key, want, out.String())
+		}
+	}
+}
+
+func slicesContainsSuffix(lines []string, want string) bool {
+	for _, l := range lines {
+		if strings.HasSuffix(l, want) {
+			return true
+		}
+	}
+	return false
 }
