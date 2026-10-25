@@ -164,8 +164,8 @@ func TestRefreshWorktreeSaysWhichStageItSkipped(t *testing.T) {
 	addRefreshSemanticFixture(runner, repoDir)
 	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef)] = fakeCommandResponse{err: os.ErrNotExist}
 	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1OriginRef)] = fakeCommandResponse{err: os.ErrNotExist}
-	runner.responses[fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all")] = fakeCommandResponse{stdout: "[]"}
-	runner.responses[fakeCommandKey("entire-test", "checkpoint", "explain", "--json")] = fakeCommandResponse{stdout: "[]"}
+	runner.responses[fakeRoutedCheckpointListKey("entire-test", true)] = fakeCommandResponse{stdout: "[]"}
+	runner.responses[fakeRoutedCheckpointListKey("entire-test", false)] = fakeCommandResponse{stdout: "[]"}
 	opts := Options{
 		Version: "test-version",
 		Env: EntireEnv{

@@ -551,7 +551,7 @@ func newSetupRefreshFixture(t *testing.T) (*setupTestFixture, *fakeCommandRunner
 	runner := seedFixtureRunner(repoDir)
 	addRefreshSemanticFixture(runner, repoDir)
 	addSetupEntityIndexFixture(runner)
-	runner.responses[fakeCommandKey("entire", "checkpoint", "explain", "--json", "--search-all")] = fakeCommandResponse{stdout: "[]\n"}
+	runner.responses[fakeRoutedCheckpointListKey("entire", true)] = fakeCommandResponse{stdout: "[]\n"}
 	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef)] = fakeCommandResponse{err: os.ErrNotExist}
 	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1OriginRef)] = fakeCommandResponse{err: os.ErrNotExist}
 	previousLaunch := memoryWorkerLaunch

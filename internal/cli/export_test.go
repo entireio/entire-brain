@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -176,6 +177,23 @@ func (s *fakeCommandStream) Close() error          { return nil }
 
 func fakeCommandKey(name string, args ...string) string {
 	return name + "\x00" + strings.Join(args, "\x00")
+}
+
+// routedCheckpointListArgs is how listRoutedCheckpoints spells a request for
+// the whole catalog, including the explicit unlimited --limit that "all" has
+// to be expressed as. Both the fixtures and the assertions go through here, so
+// a change to how the brain asks for an uncapped list cannot quietly turn
+// fifteen stubs into misses and a guard into a no-op.
+func routedCheckpointListArgs(searchAll bool) []string {
+	args := []string{"checkpoint", "explain", "--json"}
+	if searchAll {
+		args = append(args, "--search-all")
+	}
+	return append(args, "--limit", strconv.Itoa(routedCheckpointListUnlimited))
+}
+
+func fakeRoutedCheckpointListKey(name string, searchAll bool) string {
+	return fakeCommandKey(name, routedCheckpointListArgs(searchAll)...)
 }
 
 func fakeCommandIsSemanticSnapshotAnyRepo(name string, args []string) bool {
@@ -448,9 +466,14 @@ func TestDiscoverCheckpointsUnknownBackendCombinesLocalAndRoutedResults(t *testi
 	}
 }
 
-func TestListAllRoutedCheckpointsOmitsLimitWhenUnbounded(t *testing.T) {
+// Renamed from TestListAllRoutedCheckpointsOmitsLimitWhenUnbounded, which
+// asserted the defect: that an unbounded list omits --limit. The host reads an
+// absent --limit as 100, so omitting it asked for a hundred checkpoints rather
+// than all of them. What this still uniquely covers is the --search-all form
+// and a clean run reporting no warnings.
+func TestListAllRoutedCheckpointsAsksEntireForTheWholeCatalog(t *testing.T) {
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all"): {
+		fakeRoutedCheckpointListKey("entire-test", true): {
 			stdout: `[{"checkpoint_id":"01KVBJCWYA4YW6J5M9GP655HZN","is_logs_only":true}]`,
 		},
 	}}
@@ -458,15 +481,16 @@ func TestListAllRoutedCheckpointsOmitsLimitWhenUnbounded(t *testing.T) {
 	if err != nil || len(warnings) != 0 || len(checkpoints) != 1 {
 		t.Fatalf("unbounded routed list = checkpoints:%+v warnings:%v err:%v", checkpoints, warnings, err)
 	}
-	if len(runner.calls) != 1 || strings.Join(runner.calls[0].args, " ") != "checkpoint explain --json --search-all" {
-		t.Fatalf("unexpected routed argv: %+v", runner.calls)
+	want := strings.Join(routedCheckpointListArgs(true), " ")
+	if len(runner.calls) != 1 || strings.Join(runner.calls[0].args, " ") != want {
+		t.Fatalf("unexpected routed argv: want %q, got %+v", want, runner.calls)
 	}
 }
 
 func TestListAllRoutedCheckpointsClassifiesStructuredIncompleteScope(t *testing.T) {
 	stderr := entireCheckpointScopePrefix + `{"schema_version":1,"code":"checkpoint_scope_incomplete","complete":false,"issues":[{"code":"checkpoint_remote_enumeration_failed","count":1}]}` + "\n"
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all"): {
+		fakeRoutedCheckpointListKey("entire-test", true): {
 			stdout: `[{"checkpoint_id":"aaa111aaa111","is_logs_only":true}]`, stderr: stderr,
 		},
 	}}
@@ -488,7 +512,7 @@ func TestListAllRoutedCheckpointsClassifiesStructuredIncompleteScope(t *testing.
 // brains that already hold sessions.
 func TestDiscoverCheckpointsTreatsIncompleteZeroResultAsEmpty(t *testing.T) {
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all"): {
+		fakeRoutedCheckpointListKey("entire-test", true): {
 			stdout: `[]`,
 			stderr: entireCheckpointScopePrefix + `{"schema_version":1,"code":"checkpoint_scope_incomplete","complete":false,"issues":[{"code":"local_checkpoint_unreadable","count":1}]}` + "\n",
 		},

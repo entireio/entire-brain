@@ -133,8 +133,8 @@ func refreshWithoutHostCLI(t *testing.T, exportErr error, args ...string) (strin
 	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef)] = fakeCommandResponse{err: os.ErrNotExist}
 	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1OriginRef)] = fakeCommandResponse{err: os.ErrNotExist}
 	// The session export reaches the host CLI here.
-	runner.responses[fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all")] = fakeCommandResponse{err: exportErr}
-	runner.responses[fakeCommandKey("entire-test", "checkpoint", "explain", "--json")] = fakeCommandResponse{err: exportErr}
+	runner.responses[fakeRoutedCheckpointListKey("entire-test", true)] = fakeCommandResponse{err: exportErr}
+	runner.responses[fakeRoutedCheckpointListKey("entire-test", false)] = fakeCommandResponse{err: exportErr}
 
 	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "example", "repo")
 	opts := Options{

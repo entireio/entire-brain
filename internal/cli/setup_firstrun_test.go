@@ -40,7 +40,7 @@ func TestCheckpointListSurvivesTheHostUpdateBanner(t *testing.T) {
 	t.Parallel()
 	repoDir := t.TempDir()
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("entire", "checkpoint", "explain", "--json", "--search-all"): {
+		fakeRoutedCheckpointListKey("entire", true): {
 			stdout: "[\n  {\n    \"checkpoint_id\": \"abcdef012345\",\n    \"session_id\": \"s1\"\n  }\n]\n\n" + hostUpdateBannerStdout,
 		},
 	}}

@@ -394,14 +394,14 @@ func TestEgressAllowedEmptyCatalogStillAsksEntire(t *testing.T) {
 		runner.responses[key] = response
 	}
 	// ...while Entire can see a checkpoint that only exists remotely.
-	runner.responses[fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all")] = fakeCommandResponse{
+	runner.responses[fakeRoutedCheckpointListKey("entire-test", true)] = fakeCommandResponse{
 		stdout: `[{"checkpoint_id":"cccccccccccc"}]`,
 	}
 	opts := noCapturedSessionsOptions(t)
 	opts.Env.RepoRoot = repoDir
 	opts.Runner = runner
 	out, _ := execute(t, NewRootCommand(opts), "refresh", "--agent", "none", "--semantic=false", "--entire-binary", "entire-test")
-	if !runnerCalled(runner, "entire-test", "checkpoint", "explain", "--json", "--search-all") {
+	if !runnerCalled(runner, "entire-test", routedCheckpointListArgs(true)...) {
 		t.Fatalf("with egress allowed, an empty LOCAL catalog does not prove the inventory empty -- Entire must still be asked:\n%s", out)
 	}
 }
@@ -416,7 +416,7 @@ func TestEgressAllowedEmptyCatalogStillAsksEntire(t *testing.T) {
 func TestEgressAllowedIncompleteEmptyInventoryIsNotAFailure(t *testing.T) {
 	assertNoEgressRailsUnset(t)
 	f, runner := newSetupRefreshFixture(t)
-	runner.responses[fakeCommandKey("entire", "checkpoint", "explain", "--json", "--search-all")] = fakeCommandResponse{
+	runner.responses[fakeRoutedCheckpointListKey("entire", true)] = fakeCommandResponse{
 		stdout: "[]\n",
 		stderr: routedScopeIncompleteStderr,
 	}

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -29,12 +30,19 @@ const (
 	// Unlimited by default: the brain's value is recovering old decisions, and a
 	// cap silently truncates exactly the history that makes it useful. 0 means
 	// all; --checkpoint-limit stays available for callers who want a bound.
-	defaultCheckpointLimit  = 0
-	exportManifestFileName  = "manifest.json"
-	exportReadmeFileName    = "README.md"
-	exportSessionsDirectory = "sessions"
-	exportBranchesDirectory = "branches"
-	exportUnknownDirectory  = "unknown"
+	defaultCheckpointLimit = 0
+	// routedCheckpointListUnlimited is how "no cap" is spelled to the host CLI,
+	// which has no sentinel for it: --limit defaults to 100 and must be
+	// positive. Measured against the host: --limit 0 and -1 are rejected,
+	// while both math.MaxInt32 and math.MaxInt return the whole catalog.
+	// int32's maximum is the smaller of the two that still sits far beyond any
+	// real catalog, so it does not depend on the host's int being 64-bit.
+	routedCheckpointListUnlimited = math.MaxInt32
+	exportManifestFileName        = "manifest.json"
+	exportReadmeFileName          = "README.md"
+	exportSessionsDirectory       = "sessions"
+	exportBranchesDirectory       = "branches"
+	exportUnknownDirectory        = "unknown"
 
 	exportScopeAll    = "all"
 	exportScopeBranch = "branch"
@@ -1047,11 +1055,18 @@ func listRoutedCheckpoints(ctx context.Context, runner CommandRunner, repoDir, e
 	if searchAll {
 		args = append(args, "--search-all")
 	}
-	// The external CLI rejects an explicitly passed non-positive --limit, and
-	// the unlimited default here is 0: omit the flag entirely to mean "all".
-	if limit > 0 {
-		args = append(args, "--limit", strconv.Itoa(limit))
+	// "All" has to be spelled out. The host CLI's --limit defaults to 100 and
+	// it rejects a non-positive value ("--limit must be positive"), so omitting
+	// the flag does not mean "no cap" — it asks for the first hundred. This
+	// function used to omit it for limit <= 0, which silently truncated every
+	// catalog larger than that while defaultCheckpointLimit's own comment
+	// promised the opposite. Measured on a repository with 499 routed
+	// checkpoints: no flag returned 100, --limit 2147483647 returned all 499.
+	effective := limit
+	if effective <= 0 {
+		effective = routedCheckpointListUnlimited
 	}
+	args = append(args, "--limit", strconv.Itoa(effective))
 	stdout, stderr, err := runner.Run(ctx, repoDir, entireBinary, args...)
 	warnings := routedCheckpointWarnings(stderr)
 	if err != nil {
@@ -1128,6 +1143,19 @@ func routedCheckpointWarnings(data []byte) []string {
 		// Brain before Entire cannot reintroduce a false-complete manifest.
 		if strings.Contains(line, "could not reach checkpoint remote; showing local checkpoints only") {
 			warnings = append(warnings, checkpointScopeIncompleteCode+": Entire could not enumerate the configured checkpoint remote")
+			continue
+		}
+		// A cap the host applied is a truncated inventory, and the host reports
+		// it in prose only — there is no scope record for it. Asking for an
+		// explicit unlimited --limit above should mean this never fires, but if
+		// the host caps the list anyway, the catalog MUST NOT then be described
+		// as complete: discoverCheckpoints reads this classification to decide
+		// whether to call the routed list complete, and selectRoutedCheckpoint-
+		// Sessions' verdict gates replacing the persistent brain. Matching the
+		// host's prose is fragile, which is why it is the second line of
+		// defence rather than the first.
+		if strings.Contains(line, "capped at") && strings.Contains(line, "checkpoint") {
+			warnings = append(warnings, checkpointScopeIncompleteCode+": Entire capped the checkpoint list, so this inventory is truncated: "+line)
 			continue
 		}
 		warnings = append(warnings, "checkpoint list: "+line)

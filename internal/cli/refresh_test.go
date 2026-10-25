@@ -102,7 +102,7 @@ func TestRefreshSkipsCurrentSemanticIndex(t *testing.T) {
 		PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
 	}
 	runner := seedFixtureRunner(repoDir)
-	runner.responses[fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all")] = fakeCommandResponse{stdout: "[]\n"}
+	runner.responses[fakeRoutedCheckpointListKey("entire-test", true)] = fakeCommandResponse{stdout: "[]\n"}
 	addRefreshSemanticFixture(runner, repoDir)
 	opts := Options{
 		Version: "test-version",

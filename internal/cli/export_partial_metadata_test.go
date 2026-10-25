@@ -23,7 +23,7 @@ func TestRoutedExportPartialMetadataPreservesPublishedBrain(t *testing.T) {
 	} {
 		t.Run(failure.name, func(t *testing.T) {
 			env := EntireEnv{RepoRoot: t.TempDir(), PluginDataDir: t.TempDir(), PluginStateDir: t.TempDir(), PluginConfigDir: t.TempDir(), PluginCacheDir: t.TempDir()}
-			listKey := fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all")
+			listKey := fakeRoutedCheckpointListKey("entire-test", true)
 			firstKey := fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "aaa111aaa111")
 			firstDetail := fakeCommandResponse{stdout: `{"checkpoint_id":"aaa111aaa111","branch":"main","sessions":[{"session_id":"first-session","branch":"main"}]}`}
 			runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{

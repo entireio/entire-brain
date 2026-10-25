@@ -143,7 +143,7 @@ func TestWatchConsolidationRefreshSkipsTranscriptSweep(t *testing.T) {
 	// manifest exists yet to make it fatal), while the SECOND direct refresh
 	// call below has a manifest by then and the identical failure turns fatal
 	// -- hiding what this test means to exercise behind an unrelated fixture gap.
-	opts.Runner.(*fakeCommandRunner).responses[fakeCommandKey("entire", "checkpoint", "explain", "--json", "--search-all")] = fakeCommandResponse{stdout: `[]`}
+	opts.Runner.(*fakeCommandRunner).responses[fakeRoutedCheckpointListKey("entire", true)] = fakeCommandResponse{stdout: `[]`}
 
 	// Establish the persistent brain the way the real daemon's first-ever tick
 	// does (the first refresh always runs).
@@ -177,7 +177,7 @@ func TestWatchConsolidationRefreshSkipsTranscriptSweep(t *testing.T) {
 // `refresh`, `path --ensure`, `export`, and `setup`.
 func TestWorkspaceFullRefreshSweepsTranscriptCache(t *testing.T) {
 	opts, repoDir, storage, _ := watchCommandFixture(t)
-	opts.Runner.(*fakeCommandRunner).responses[fakeCommandKey("entire", "checkpoint", "explain", "--json", "--search-all")] = fakeCommandResponse{stdout: `[]`}
+	opts.Runner.(*fakeCommandRunner).responses[fakeRoutedCheckpointListKey("entire", true)] = fakeCommandResponse{stdout: `[]`}
 
 	// Establish the persistent brain the same way a real first refresh does.
 	if out, err := execute(t, NewRootCommand(opts), "watch", repoDir, "--once"); err != nil {
