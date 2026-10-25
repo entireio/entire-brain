@@ -44,6 +44,21 @@ type GitCatFileBatcher interface {
 
 func (ExecRunner) CatFileBatchAllowed() bool { return true }
 
+// ConcurrentCommandRunner is an optional capability: a runner whose Run holds
+// no per-call state may have independent read-only commands spawned several at
+// a time. Like GitCatFileBatcher this is a deliberate opt-in rather than an
+// inherited seam — a wrapper runner that records calls, replays fixtures, or
+// otherwise keeps unsynchronised state must not claim it by accident, and a
+// caller that cannot keep its own accumulation deterministic must not ask.
+type ConcurrentCommandRunner interface {
+	ConcurrentRunAllowed() bool
+}
+
+// ExecRunner spawns a fresh child per call and shares nothing between them, so
+// concurrent Run calls are independent. (The cat-file batch child is reached
+// through CatFileBatchAllowed, not Run, and is not covered by this claim.)
+func (ExecRunner) ConcurrentRunAllowed() bool { return true }
+
 // hardenedGitInvocation is the one assembly point for how this binary spawns
 // git: hardened args plus the repository filter-driver overrides merged into
 // the environment. The buffered runner, the streaming runner, and the cat-file

@@ -2949,8 +2949,22 @@ func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, r
 	complete := true
 	requestedCheckpointDetails := 0
 	readableCheckpointDetails := 0
+
+	// The detail reads are the whole cost of this pass — one `checkpoint
+	// explain` child per checkpoint, seconds each, thousands of them on a
+	// mature repository — and they are independent of one another. A runner
+	// that allows it reads them several at a time; the pass below still walks
+	// the list in order and takes every decision from it sequentially.
+	details := prefetchCheckpointDetails(ctx, runner, repoDir, entireBinary, checkpoints, progress)
+	loopProgress := progress
+	if details != nil {
+		// Already reported while the details were read; reporting again here
+		// would walk the same bar back to the start.
+		loopProgress = nil
+	}
+
 	for i, checkpoint := range checkpoints {
-		reportExportProgress(progress, i+1, len(checkpoints), len(selected))
+		reportExportProgress(loopProgress, i+1, len(checkpoints), len(selected))
 		if !checkpoint.IsLogsOnly {
 			warnings = append(warnings, fmt.Sprintf("skipped non-committed checkpoint list entry %s", checkpoint.CheckpointID))
 			continue
@@ -2962,7 +2976,13 @@ func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, r
 		}
 
 		requestedCheckpointDetails++
-		detail, detailErr := checkpointDetail(ctx, runner, repoDir, entireBinary, checkpoint.CheckpointID)
+		var detail checkpointExportEnvelope
+		var detailErr error
+		if i < len(details) && details[i].fetched {
+			detail, detailErr = details[i].detail, details[i].err
+		} else {
+			detail, detailErr = checkpointDetail(ctx, runner, repoDir, entireBinary, checkpoint.CheckpointID)
+		}
 		if detailErr != nil {
 			complete = false
 			warnings = append(warnings, fmt.Sprintf("%s: skipped checkpoint %s because its routed detail metadata was unreadable", checkpointScopeIncompleteCode, checkpoint.CheckpointID))
@@ -3006,7 +3026,10 @@ func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, r
 			}
 			addSelectedSession(selected, candidate, branchDestinations)
 		}
-		reportExportProgress(progress, i+1, len(checkpoints), len(selected))
+		reportExportProgress(loopProgress, i+1, len(checkpoints), len(selected))
+	}
+	if details != nil {
+		reportExportProgress(progress, len(checkpoints), len(checkpoints), len(selected))
 	}
 	if requestedCheckpointDetails > 0 && readableCheckpointDetails == 0 {
 		return nil, warnings, false, fmt.Errorf("%s: none of %d listed checkpoints had readable detail metadata", checkpointScopeIncompleteCode, requestedCheckpointDetails)
