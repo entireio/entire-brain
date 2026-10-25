@@ -241,7 +241,35 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		warnings = append(warnings, discoverWarnings...)
 		checkpointsScanned = len(checkpoints)
 
-		routedSelected, routedWarnings, metadataComplete, selectErr := selectRoutedCheckpointSessions(ctx, opts.Runner, repoDir, exportOpts.entireBinary, checkpoints, branchDestinations, exportOpts.progress)
+		// Discovery has settled membership. The metadata for the checkpoints
+		// whose bytes are already here does not need a child process each, so
+		// read the local store once and ask Entire only about the remainder.
+		// A failure here is not fatal: it only means every checkpoint is asked
+		// about, which is what happened before this existed.
+		var localMetadata *localCheckpointMetadata
+		if localSnapshot, localSnapshotWarnings, localErr := loadLocalCheckpointSnapshotLocalOnly(ctx, opts.Runner, repoDir, exportOpts.rawTranscript, branchDestinations, metadataCache); localErr == nil {
+			var localWarnings []string
+			localMetadata, localWarnings = newLocalCheckpointMetadata(localSnapshot, checkpoints)
+			if localMetadata != nil {
+				// Only when the shortcut is actually used. These are the
+				// snapshot's own diagnostics — sessions it skipped for absent
+				// transcript bytes, metadata it could not parse — and once its
+				// reading stands in for a detail read, those skips are part of
+				// what this export did. Dropping them would hide them, exactly
+				// as the direct snapshot path above does not.
+				warnings = append(warnings, localSnapshotWarnings...)
+			}
+			warnings = append(warnings, localWarnings...)
+			// Deliberately not kept as THE snapshot. That variable decides
+			// the manifest's transcript mode and which transcript writer a
+			// standalone --output bundle uses, and this shortcut is about
+			// metadata only. The write phase below loads its own snapshot as
+			// it always did; one extra 3.6s read is nothing against the hours
+			// of child processes this removes.
+			localSnapshot.Cleanup()
+		}
+
+		routedSelected, routedWarnings, metadataComplete, selectErr := selectRoutedCheckpointSessions(ctx, opts.Runner, repoDir, exportOpts.entireBinary, checkpoints, branchDestinations, exportOpts.progress, localMetadata)
 		warnings = append(warnings, routedWarnings...)
 		if selectErr != nil {
 			return selectErr
@@ -1033,6 +1061,13 @@ func listRoutedCheckpoints(ctx context.Context, runner CommandRunner, repoDir, e
 	var checkpoints []checkpointListEntry
 	if err := decodeHostCLIJSON(stdout, &checkpoints); err != nil {
 		return nil, nil, fmt.Errorf("parse checkpoint list json: %w", err)
+	}
+	// Marked at the source, not at the merge: branch scope returns this list
+	// directly without ever being merged, and an unmarked routed entry would
+	// be mistaken for one only the local refs know about — which would hand
+	// authority over its session list to the local store.
+	for i := range checkpoints {
+		checkpoints[i].RoutedOrigin = true
 	}
 	return checkpoints, warnings, nil
 }
@@ -2943,19 +2978,25 @@ func checkpointDetail(ctx context.Context, runner CommandRunner, repoDir, entire
 	return detail, nil
 }
 
-func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, checkpoints []checkpointListEntry, branchDestinations checkpointBranchDestinations, progress func(exportProgress)) (map[string]selectedSession, []string, bool, error) {
+func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, checkpoints []checkpointListEntry, branchDestinations checkpointBranchDestinations, progress func(exportProgress), local *localCheckpointMetadata) (map[string]selectedSession, []string, bool, error) {
 	selected := make(map[string]selectedSession)
 	var warnings []string
 	complete := true
 	requestedCheckpointDetails := 0
 	readableCheckpointDetails := 0
 
+	// Whatever the local store already accounts for is taken from it; the rest
+	// is asked of Entire below, checkpoint by checkpoint as before.
+	if local != nil {
+		local.seed(selected)
+	}
+
 	// The detail reads are the whole cost of this pass — one `checkpoint
 	// explain` child per checkpoint, seconds each, thousands of them on a
 	// mature repository — and they are independent of one another. A runner
 	// that allows it reads them several at a time; the pass below still walks
 	// the list in order and takes every decision from it sequentially.
-	details := prefetchCheckpointDetails(ctx, runner, repoDir, entireBinary, checkpoints, progress)
+	details := prefetchCheckpointDetails(ctx, runner, repoDir, entireBinary, checkpoints, local, progress)
 	loopProgress := progress
 	if details != nil {
 		// Already reported while the details were read; reporting again here
@@ -2972,6 +3013,11 @@ func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, r
 		if checkpoint.CheckpointID == "" {
 			complete = false
 			warnings = append(warnings, "skipped checkpoint list entry with no checkpoint_id")
+			continue
+		}
+
+		if local.covers(checkpoint.CheckpointID) {
+			// Its sessions are already in the seeded selection.
 			continue
 		}
 
@@ -3033,6 +3079,9 @@ func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, r
 	}
 	if requestedCheckpointDetails > 0 && readableCheckpointDetails == 0 {
 		return nil, warnings, false, fmt.Errorf("%s: none of %d listed checkpoints had readable detail metadata", checkpointScopeIncompleteCode, requestedCheckpointDetails)
+	}
+	if served := local.count(); served > 0 {
+		warnings = append(warnings, fmt.Sprintf("resolved metadata for %d of %d checkpoints from the local checkpoint store; asked Entire about the remaining %d", served, len(checkpoints), requestedCheckpointDetails))
 	}
 	return selected, warnings, complete, nil
 }
@@ -3888,6 +3937,18 @@ type checkpointListEntry struct {
 	IsLogsOnly       bool      `json:"is_logs_only,omitempty"`
 	SessionCount     int       `json:"session_count,omitempty"`
 	SessionIDs       []string  `json:"session_ids,omitempty"`
+
+	// RoutedOrigin records that this entry came from Entire's routed list
+	// rather than from enumerating local refs. It is not part of the host's
+	// JSON; listRoutedCheckpoints sets it on everything it produces.
+	//
+	// It matters because the two origins have different authorities over a
+	// checkpoint's session list. When the routed catalog names a session, that
+	// claim must be honoured or refused — it is how a session the local refs
+	// cannot resolve stops an export instead of being quietly dropped. A
+	// checkpoint only the local refs know about carries no routed claim at
+	// all, so there the local store is the only authority there is.
+	RoutedOrigin bool `json:"-"`
 }
 
 type checkpointExportEnvelope struct {

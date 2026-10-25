@@ -149,9 +149,9 @@ func TestRoutedDetailFanoutMatchesTheSequentialSelection(t *testing.T) {
 	sequential.concurrent = false
 
 	gotSelected, gotWarnings, gotComplete, gotErr := selectRoutedCheckpointSessions(
-		context.Background(), concurrent, "/repo", "entire-test", checkpoints, checkpointBranchDestinations{}, nil)
+		context.Background(), concurrent, "/repo", "entire-test", checkpoints, checkpointBranchDestinations{}, nil, nil)
 	wantSelected, wantWarnings, wantComplete, wantErr := selectRoutedCheckpointSessions(
-		context.Background(), sequential, "/repo", "entire-test", checkpoints, checkpointBranchDestinations{}, nil)
+		context.Background(), sequential, "/repo", "entire-test", checkpoints, checkpointBranchDestinations{}, nil, nil)
 
 	if gotErr != nil || wantErr != nil {
 		t.Fatalf("fixture was expected to survive: concurrent err:%v sequential err:%v", gotErr, wantErr)
@@ -191,7 +191,7 @@ func TestRoutedDetailFanoutReadsSeveralCheckpointsAtOnce(t *testing.T) {
 	runner := newExplainFanoutRunner(details).withBarrier(2)
 
 	selected, warnings, complete, err := selectRoutedCheckpointSessions(
-		context.Background(), runner, "/repo", "entire-test", checkpoints, checkpointBranchDestinations{}, nil)
+		context.Background(), runner, "/repo", "entire-test", checkpoints, checkpointBranchDestinations{}, nil, nil)
 	if err != nil || !complete || len(selected) != 8 {
 		t.Fatalf("fan-out selection = selected:%d warnings:%v complete:%v err:%v", len(selected), warnings, complete, err)
 	}
@@ -213,14 +213,14 @@ func TestRoutedDetailFanoutSkipsARunnerThatHasNotOptedIn(t *testing.T) {
 
 	declined := newExplainFanoutRunner(details)
 	declined.concurrent = false
-	if got := prefetchCheckpointDetails(context.Background(), declined, "/repo", "entire-test", checkpoints, nil); got != nil {
+	if got := prefetchCheckpointDetails(context.Background(), declined, "/repo", "entire-test", checkpoints, nil, nil); got != nil {
 		t.Fatalf("a runner answering ConcurrentRunAllowed()=false was fanned out: %d results", len(got))
 	}
 
 	// runOnlyCommandRunner forwards nothing but Run, which is how a wrapper
 	// drops a capability it must not claim on the inner runner's behalf.
 	opaque := runOnlyCommandRunner{inner: &fakeCommandRunner{}}
-	if got := prefetchCheckpointDetails(context.Background(), opaque, "/repo", "entire-test", checkpoints, nil); got != nil {
+	if got := prefetchCheckpointDetails(context.Background(), opaque, "/repo", "entire-test", checkpoints, nil, nil); got != nil {
 		t.Fatalf("a runner with no concurrency capability was fanned out: %d results", len(got))
 	}
 }
@@ -238,7 +238,7 @@ func TestRoutedDetailFanoutDoesNotTreatAnUnreachedPositionAsRead(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	results := prefetchCheckpointDetails(ctx, runner, "/repo", "entire-test", checkpoints, nil)
+	results := prefetchCheckpointDetails(ctx, runner, "/repo", "entire-test", checkpoints, nil, nil)
 	for i, result := range results {
 		if result.fetched && result.err == nil {
 			t.Fatalf("position %d reported a successful read under a cancelled context", i)
@@ -249,7 +249,7 @@ func TestRoutedDetailFanoutDoesNotTreatAnUnreachedPositionAsRead(t *testing.T) {
 	}
 
 	selected, warnings, complete, err := selectRoutedCheckpointSessions(
-		ctx, runner, "/repo", "entire-test", checkpoints, checkpointBranchDestinations{}, nil)
+		ctx, runner, "/repo", "entire-test", checkpoints, checkpointBranchDestinations{}, nil, nil)
 	if err == nil {
 		t.Fatalf("a cancelled pass with no readable detail must fail: selected:%d warnings:%v complete:%v", len(selected), warnings, complete)
 	}
@@ -285,7 +285,7 @@ func TestRoutedDetailFanoutReportsProgressWhileReading(t *testing.T) {
 	}
 
 	if _, _, _, err := selectRoutedCheckpointSessions(
-		context.Background(), runner, "/repo", "entire-test", checkpoints, checkpointBranchDestinations{}, progress); err != nil {
+		context.Background(), runner, "/repo", "entire-test", checkpoints, checkpointBranchDestinations{}, progress, nil); err != nil {
 		t.Fatalf("fan-out selection failed: %v", err)
 	}
 

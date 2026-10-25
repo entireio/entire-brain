@@ -63,7 +63,7 @@ type checkpointDetailResult struct {
 // detail. The fan-out only moves the reads, and every decision taken from them
 // — the warnings, the counters, which session wins a collision — still happens
 // in one sequential pass over the list.
-func prefetchCheckpointDetails(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, checkpoints []checkpointListEntry, progress func(exportProgress)) []checkpointDetailResult {
+func prefetchCheckpointDetails(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, checkpoints []checkpointListEntry, local *localCheckpointMetadata, progress func(exportProgress)) []checkpointDetailResult {
 	concurrent, ok := runner.(ConcurrentCommandRunner)
 	if !ok || !concurrent.ConcurrentRunAllowed() {
 		return nil
@@ -76,6 +76,12 @@ func prefetchCheckpointDetails(ctx context.Context, runner CommandRunner, repoDi
 	wanted := make([]int, 0, len(checkpoints))
 	for i, checkpoint := range checkpoints {
 		if !checkpoint.IsLogsOnly || checkpoint.CheckpointID == "" {
+			continue
+		}
+		// A checkpoint the local store already accounts for is never asked
+		// about, so prefetching it would spend a child on an answer nobody
+		// reads — the whole saving this shortcut exists for.
+		if local.covers(checkpoint.CheckpointID) {
 			continue
 		}
 		wanted = append(wanted, i)
