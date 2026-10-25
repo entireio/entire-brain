@@ -352,6 +352,12 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	// plugin living in a temp directory is about to break every command here,
 	// and that is true whether or not the target is a repository.
 	checkEphemeralInstall(add)
+	// Durability says the binary is in a sane place. It does not say a host
+	// can reach the tools through it, and every failure in that class has been
+	// silent (safe-mode stripping MCP, a comma in CLAUDE_CODE_PLUGIN_DIRS, a
+	// purged plugin path reported as CONNECTION_CLOSED). Opt-in, because it
+	// spawns a subprocess.
+	doctorMCPSurfaceCheck(ctx, os.Getenv, os.Executable, add)
 	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil || !local {
 		add("brain", "warn", "not a local repository; brain checks skipped")

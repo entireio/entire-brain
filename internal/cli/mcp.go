@@ -2794,6 +2794,12 @@ var errMCPRecoverable = errors.New("recoverable mcp frame error")
 
 // mcpOversizeFrameError reports a Content-Length past the frame limit whose body
 // has NOT been consumed yet. The serve loop answers it, then drains.
+//
+// Both of this package's framed readers return it, for the same reason and with
+// the same message: readMCPMessage for a host's request, readMCPFrame for a
+// probed server's response. Only the serve loop drains afterwards -- the probe
+// has no session to resynchronise -- so the shared part is the refusal and its
+// wording, not the recovery.
 type mcpOversizeFrameError struct{ length int }
 
 func (e *mcpOversizeFrameError) Error() string {
