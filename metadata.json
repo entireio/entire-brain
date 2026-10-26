@@ -1,0 +1,45 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M5WTM7C5YS13DPHWH8RDBZFE",
+  "strategy": "manual-commit",
+  "branch": "evisdren/plugins-update-notification",
+  "checkpoints_count": 14,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 265,
+    "cache_creation_tokens": 293207,
+    "cache_read_tokens": 23891737,
+    "output_tokens": 103382,
+    "api_call_count": 133,
+    "subagent_tokens": {
+      "input_tokens": 68,
+      "cache_creation_tokens": 214347,
+      "cache_read_tokens": 1485141,
+      "output_tokens": 20630,
+      "api_call_count": 34
+    }
+  },
+  "redaction": {
+    "replacements": 34,
+    "layers": {
+      "betterleaks": 8,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 26,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
