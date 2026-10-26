@@ -3,7 +3,7 @@
   "checkpoint_id": "01M5WF3TEJDFVWGGKYZ487MBBP",
   "strategy": "manual-commit",
   "branch": "claude/inspiring-wright-68270a",
-  "checkpoints_count": 8,
+  "checkpoints_count": 9,
   "files_touched": [
     "CHANGELOG.md",
     "internal/cli/watch.go",
@@ -23,14 +23,21 @@
       "compact_transcript": "/1/transcript.jsonl",
       "content_hash": "/1/content_hash.txt",
       "prompt": "/1/prompt.txt"
+    },
+    {
+      "metadata": "/2/metadata.json",
+      "transcript": "/2/full.jsonl",
+      "compact_transcript": "/2/transcript.jsonl",
+      "content_hash": "/2/content_hash.txt",
+      "prompt": "/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 1616,
-    "cache_creation_tokens": 885050,
-    "cache_read_tokens": 18348772,
-    "output_tokens": 107709,
-    "api_call_count": 57,
+    "input_tokens": 2164,
+    "cache_creation_tokens": 1061163,
+    "cache_read_tokens": 21493249,
+    "output_tokens": 163892,
+    "api_call_count": 76,
     "subagent_tokens": {
       "input_tokens": 0,
       "cache_creation_tokens": 0,
