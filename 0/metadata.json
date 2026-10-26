@@ -1,0 +1,63 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5V5DBK6156909DGVD853103",
+  "session_id": "e6894fd5-ccab-4eb7-92b0-4d1a0f0dd355",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-26T03:52:35.668591Z",
+  "branch": "evisdren/subprocesses-performance-check",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [
+    "internal/cli/refresh.go",
+    "internal/cli/refresh_all_branches_spawn_test.go",
+    "internal/cli/semantic_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "6b69870ea505",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 122,
+    "cache_creation_tokens": 240295,
+    "cache_read_tokens": 6876787,
+    "output_tokens": 37655,
+    "api_call_count": 61
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_017a6rpsZCjR37MBVJ6VURb5",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "commit-commands:commit-push-pr"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "6b69870ea505",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 524,
+        "end": 525,
+        "entry_ids": [
+          "95dd757c-a6f2-4fd0-bce2-f8d69997f52d"
+        ],
+        "tool_use_id": "toolu_017a6rpsZCjR37MBVJ6VURb5"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_017a6rpsZCjR37MBVJ6VURb5"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: commit-commands:commit-push-pr",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 2
+  }
+}
