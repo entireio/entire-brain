@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5V89XXMY5D8KXQFX5VNBCY6",
+  "strategy": "manual-commit",
+  "branch": "evisdren/hwwg9",
+  "checkpoints_count": 10,
+  "files_touched": [
+    "internal/cli/facts_distill_eval_judge.go",
+    "internal/cli/facts_distill_eval_judge_test.go",
+    "internal/cli/facts_distill_eval_run.go",
+    "internal/cli/facts_distill_eval_run_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 600,
+    "cache_creation_tokens": 3916380,
+    "cache_read_tokens": 80345040,
+    "output_tokens": 243715,
+    "api_call_count": 302,
+    "subagent_tokens": {
+      "input_tokens": 78,
+      "cache_creation_tokens": 262196,
+      "cache_read_tokens": 3685401,
+      "output_tokens": 39652,
+      "api_call_count": 39
+    }
+  }
+}

@@ -1,0 +1,119 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/tianjin directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name. Conductor will automatically rename it in the background to match your task.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/tianjin/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+i want to design an eval loop for our memory generation to see if our prompt is the right one and if we can improve it at all. 
+
+let's talk through how to do that
+
+---
+
+it seems liek we're just generating a lot of memories depending on the work. like when i look at brainstore, just for teh entire-brain repo we have seemingly hundreds if not thousands of memories already despite like maybe 50 PRs since we started collecting memories? i suppose those could also be left over from previous work? not sure?
+
+so i just want to gain teh confidence that the meomries we're creating are very high quality and we're not spamming memories
+
+---
+
+i'd have to look at it. and im happy to create a golden set as well from some sessions to give some guidance. we shoudl be very purpsoeful with our memories and not creating extra just because.
+
+---
+
+1 is fine. we shouldn't have to do too many, and ideally the sessions are short.
+
+---
+
+yes
+
+---
+
+so it's a hard cap of 0-6 lines per 48kb session?
+
+---
+
+that prompt sounds fine but the way that we're actually generating doesn't really make sense then i think. 
+
+espeically since we've changed the way that we're doing syncing and distillation. 
+
+since we push now on the commit hook, the facts shoudl line up witht he chekcpoints. 
+
+distllation is another story too but that has checkpoints in the sessinos. 
+
+let's think through what makes the most sense here. it doesn't make sense ot generate 88 memorires per session. most sessions ahve only a few checkpoints and im thinkign we generate only a few memories per checkpoint at most. if not just 1 or 2.
+
+---
+
+yes this is right. the chunking of big checkpoints is somethign that we'll need to handle as well but yes i think this is the right path
+
+---
+
+haiku 4.5 i think?
+
+1. yes raw output
+2. yes can use fable as the scorer/judge
+3. yes
+
+---
+
+yeah let's go for it
+
+---
+
+native
+
+---
+
+put up a trail
+
+---
+
+look at the findings: https://entire.com/gh/entireio/-/trails/2498/changes/entire-brain/382
+
+---
+
+what does this PR actually do and what does it add onto the repo? im seeing 3000 lines of code and it's not clear to me waht hat does since we haven't actually run any tests yet?
+
+---
+
+yeah we should not be merging in anything that we haven't validated and tested locally. even if it has tests, we shoudl validate via the eval pipeline if it's actually worth changing
+
+---
+
+give me the patht ot eh sheet so i can open in ghostty
+
+---
+
+show me the facts here and i'll respoind
+
+---
+
+how can i view the files?
+
+---
+
+let;s have fable rank these. make sure to give it the session as context as well
+
+---
+
+why did fable think that they didn't deserve to be kept?
+
+---
+
+yeah that's interesting. i wonder if we can replay the last maybe 3 days of sessions and compare the memories generated from those esssions just in the entire-brain repo with our new approach here and see what the difference is and what scores better on our eval pipeline
+
+---
+
+status?
