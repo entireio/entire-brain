@@ -1,0 +1,15 @@
+explain to me what this PR actually does in simple terms
+
+---
+
+okay this is merged now: https://github.com/entireio/entire-brain/pull/510
+
+---
+
+<task-notification>
+<task-id>bjzn5misz</task-id>
+<tool-use-id>toolu_01RVrgQY6qT2EnWvKZWvZJMh</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/bjzn5misz.output</output-file>
+<status>completed</status>
+<summary>Background command "Mutation checks then full race suite" completed (exit code 0)</summary>
+</task-notification>
