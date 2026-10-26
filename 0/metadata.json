@@ -1,0 +1,66 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5V6VDXE14AP86DK5SGSBMXR",
+  "session_id": "6011f02d-f157-41bc-96b3-dc42ec0d68ef",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-26T04:17:45.221578Z",
+  "branch": "evisdren/brain-s-mcp-server",
+  "checkpoints_count": 7,
+  "save_step_count": 3,
+  "files_touched": [
+    ".github/workflows/test.yml",
+    "benchmarks/agent-brain/run.py",
+    "scripts/install.sh",
+    "templates/entire-brain-recall-claude-agent.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "17d46f837d65",
+  "checkpoint_transcript_start": 2258,
+  "transcript_lines_at_start": 2258,
+  "compact_transcript_start": 281,
+  "token_usage": {
+    "input_tokens": 168,
+    "cache_creation_tokens": 440832,
+    "cache_read_tokens": 33011478,
+    "output_tokens": 34458,
+    "api_call_count": 84
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01Ap11TzqJ3awGD6NfpnGNgR",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "entire:address-findings"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "17d46f837d65",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 2754,
+        "end": 2755,
+        "entry_ids": [
+          "030abc46-64c8-405a-a983-4ae2c0544d26"
+        ],
+        "tool_use_id": "toolu_01Ap11TzqJ3awGD6NfpnGNgR"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01Ap11TzqJ3awGD6NfpnGNgR"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: entire:address-findings",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 16
+  }
+}
