@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5VFJW5TVDM4WV4Q06DGRY3M",
+  "strategy": "manual-commit",
+  "branch": "evisdren/checkpoint-detail-breaker",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/export.go",
+    "internal/cli/export_detail_breaker_test.go",
+    "internal/cli/export_detail_fanout.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 52,
+    "cache_creation_tokens": 490529,
+    "cache_read_tokens": 11198213,
+    "output_tokens": 18348,
+    "api_call_count": 26,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  }
+}
