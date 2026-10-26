@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M5X554M9MWCSWWF1CJ77K69V",
+  "session_id": "c99ba3d3-870e-41fe-88a0-a855f693c2c9",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-26T22:26:36.775739Z",
+  "branch": "cor-2268-isolate-agent-exec",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/install_ux_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "e36fda2ea5a4",
+  "checkpoint_transcript_start": 3165,
+  "transcript_lines_at_start": 3165,
+  "compact_transcript_start": 448,
+  "token_usage": {
+    "input_tokens": 32,
+    "cache_creation_tokens": 15677,
+    "cache_read_tokens": 9828205,
+    "output_tokens": 9044,
+    "api_call_count": 16
+  },
+  "redaction": {
+    "replacements": 7,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 7,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "session_metrics": {
+    "turn_count": 23
+  }
+}
