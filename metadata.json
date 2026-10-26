@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5VDACWPDMAGJF64M43GD3AE",
+  "strategy": "manual-commit",
+  "branch": "evisdren/release-evidence-rerecord",
+  "checkpoints_count": 10,
+  "files_touched": [
+    "benchmarks/agent-brain/evidence/distill-perf/dry-run.json",
+    "benchmarks/agent-brain/evidence/distill-perf/go-test-internal-cli-ollama-distill.jsonl",
+    "benchmarks/agent-brain/evidence/distill-perf/jobs-1.json",
+    "benchmarks/agent-brain/evidence/distill-perf/jobs-4.json",
+    "benchmarks/agent-brain/evidence/distill-perf/manifest.json",
+    "benchmarks/agent-brain/evidence/radar-tool/go-test-internal-cli-radar.jsonl",
+    "benchmarks/agent-brain/evidence/radar-tool/manifest.json",
+    "benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.json",
+    "benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 138,
+    "cache_creation_tokens": 359392,
+    "cache_read_tokens": 20497042,
+    "output_tokens": 64175,
+    "api_call_count": 69,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  }
+}

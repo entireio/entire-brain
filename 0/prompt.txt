@@ -1,0 +1,91 @@
+okay is there a trail for this
+
+---
+
+does this fix blocker one?
+
+---
+
+this is merged :https://github.com/entireio/entire-brain/pull/511
+
+validate it again locally
+
+---
+
+<task-notification>
+<task-id>brdbeua0w</task-id>
+<tool-use-id>toolu_01VtZCikMbACEzyYiJkqgjVt</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-bangalore/e69a1322-e468-4c19-9a3e-f540cbb3faaa/tasks/brdbeua0w.output</output-file>
+<status>completed</status>
+<summary>Background command "Run release smoke on merged main RC" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+work on blocker 2 - first what is it and what caused it and then start working to resolve it
+
+---
+
+<task-notification>
+<task-id>blfwtisdf</task-id>
+<tool-use-id>toolu_01Wvk3pJ6A7N24qJVXUGjd9D</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-bangalore/e69a1322-e468-4c19-9a3e-f540cbb3faaa/tasks/blfwtisdf.output</output-file>
+<status>completed</status>
+<summary>Background command "Re-record radar tool-contract evidence" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bdci7hv9t</task-id>
+<tool-use-id>toolu_01Ep92ZYpCMWjH7SBDb6XZ1k</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-bangalore/e69a1322-e468-4c19-9a3e-f540cbb3faaa/tasks/bdci7hv9t.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full five-pair distill measurement" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bb0g0egm2</task-id>
+<tool-use-id>toolu_01R7roE3awQu1N4r78mkoKve</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-bangalore/e69a1322-e468-4c19-9a3e-f540cbb3faaa/tasks/bb0g0egm2.output</output-file>
+<status>completed</status>
+<summary>Background command "Clone entireio/cli with Entire checkpoint refs" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+what is the update for blocker 2?
+
+---
+
+can we do a smaller repO? entire cli has a lot of sessions, i don't want to wit for a long time for htis.
+
+---
+
+<task-notification>
+<task-id>bto8h87k8</task-id>
+<tool-use-id>toolu_019DF7DEC9ujyRMBfDtAADFr</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-bangalore/e69a1322-e468-4c19-9a3e-f540cbb3faaa/tasks/bto8h87k8.output</output-file>
+<status>completed</status>
+<summary>Background command "Build fresh entire-brain store in isolated root" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+what is the actual problem we're encountering here?
+
+---
+
+okay so then let's update that test or release-evidence to be more generic so it can work in general and is fast. waitng 30-60m for a release doesn't work. in general we shouldn't need that since that shoudl be captured in the work itself. the release should be simpler than that adn publish the binaries
+
+---
+
+<task-notification>
+<task-id>bx3y1wod5</task-id>
+<tool-use-id>toolu_01Shu5r5QsPRYDUVtwEMDf6o</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-bangalore/e69a1322-e468-4c19-9a3e-f540cbb3faaa/tasks/bx3y1wod5.output</output-file>
+<status>completed</status>
+<summary>Background command "Re-run five-pair measurement against fresh store" completed (exit code 0)</summary>
+</task-notification>
