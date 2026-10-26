@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M5X2W4H6T7WPXJABY2N4XYZQ",
+  "strategy": "manual-commit",
+  "branch": "cor-2268-ci-selection",
+  "checkpoints_count": 3,
+  "files_touched": [
+    ".github/workflows/test.yml",
+    "tools/coverage/affected.py",
+    "tools/coverage/test_affected.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 60,
+    "cache_creation_tokens": 1120385,
+    "cache_read_tokens": 15993465,
+    "output_tokens": 28089,
+    "api_call_count": 30
+  },
+  "redaction": {
+    "replacements": 3,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 3,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
