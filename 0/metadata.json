@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5WGD68AR065V1310JZR642D",
+  "session_id": "69893dc2-b259-4307-b399-c5dbcb28d166",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-26T16:23:58.369362Z",
+  "branch": "fix/distill-cache-salt-agent-independent",
+  "checkpoints_count": 1,
+  "save_step_count": 4,
+  "files_touched": [
+    "internal/cli/distill_cache_salt_test.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_order_test.go",
+    "internal/cli/setup_status.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5-1",
+  "turn_id": "c519b2deb115",
+  "checkpoint_transcript_start": 1825,
+  "transcript_lines_at_start": 1825,
+  "compact_transcript_start": 179,
+  "token_usage": {
+    "input_tokens": 96,
+    "cache_creation_tokens": 3335,
+    "cache_read_tokens": 1356240,
+    "output_tokens": 2216,
+    "api_call_count": 3,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  },
+  "session_metrics": {
+    "turn_count": 20
+  }
+}
