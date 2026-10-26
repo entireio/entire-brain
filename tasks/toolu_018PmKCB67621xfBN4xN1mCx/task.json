@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_018PmKCB67621xfBN4xN1mCx",
+  "agent_id": "a3b007be6d19359f5",
+  "subagent_type": "entire-search",
+  "task_description": "Fetch 10-23 smoke session leg-1 output",
+  "token_usage": {
+    "input_tokens": 58,
+    "cache_creation_tokens": 100106,
+    "cache_read_tokens": 1447121,
+    "output_tokens": 20627,
+    "api_call_count": 29
+  },
+  "started_at": "2026-10-25T22:13:56.651638-07:00",
+  "completed_at": "2026-10-25T22:16:14.01549-07:00"
+}

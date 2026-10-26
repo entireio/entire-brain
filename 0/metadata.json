@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5VB41BT0VJRXKXQFYY85D73",
+  "session_id": "e69a1322-e468-4c19-9a3e-f540cbb3faaa",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-26T05:32:21.892179Z",
+  "branch": "evisdren/release-command-workflow-review",
+  "checkpoints_count": 6,
+  "save_step_count": 3,
+  "files_touched": [
+    "CHANGELOG.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_audit_test.go",
+    "internal/cli/setup_firstrun_test.go",
+    "mise-tasks/release/smoke"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "38bff0cdddc7",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 214,
+    "cache_creation_tokens": 361236,
+    "cache_read_tokens": 17169853,
+    "output_tokens": 99624,
+    "api_call_count": 107,
+    "subagent_tokens": {
+      "input_tokens": 58,
+      "cache_creation_tokens": 100106,
+      "cache_read_tokens": 1447121,
+      "output_tokens": 20627,
+      "api_call_count": 29
+    }
+  },
+  "session_metrics": {
+    "turn_count": 6
+  }
+}
