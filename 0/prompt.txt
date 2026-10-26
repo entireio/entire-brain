@@ -1,0 +1,45 @@
+<task-notification>
+<task-id>bkv3py5g3</task-id>
+<tool-use-id>toolu_0179xbCRpVCMPYJt2B9Q3aiR</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/bkv3py5g3.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch PR 515 CI" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+this is merged in now: https://github.com/entireio/entire-brain/pull/515
+
+---
+
+<task-notification>
+<task-id>b68p21ws0</task-id>
+<tool-use-id>toolu_01QRYjWiYBA92ssBsoNAYQVt</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/b68p21ws0.output</output-file>
+<status>completed</status>
+<summary>Background command "Focused CLI race over affected seams" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b6mibu6pj</task-id>
+<tool-use-id>toolu_01XUCm48fnow9GRvJpcpwtLg</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/b6mibu6pj.output</output-file>
+<status>completed</status>
+<summary>Background command "Focused result; mutation checks; full race suite" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bg4rd17kw</task-id>
+<tool-use-id>toolu_01MxL7nWEMijDpPi1PS8VWYH</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/bg4rd17kw.output</output-file>
+<status>completed</status>
+<summary>Background command "Record memory; watch CI" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+thisis merged: https://github.com/entireio/entire-brain/pull/516
