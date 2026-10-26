@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
@@ -45,6 +48,10 @@ var beforeRetrievalResponseWrite = func() {}
 // package-local name for the many existing readers and tests.
 type retrievalPrivacyPolicy = brainstore.RetrievalPrivacyPolicy
 
+// errIssueEvidenceChanged is the refusal every surface returns when the issue
+// evidence a response was assembled from moved before it could be delivered.
+var errIssueEvidenceChanged = errors.New("issue evidence changed while assembling response; retry retrieval")
+
 // bufferRetrievalCommandOutput preserves each command's exact legacy bytes
 // while moving the authoritative privacy check to one shared final boundary.
 // Rendering failures discard the private buffer and emit nothing.
@@ -76,6 +83,23 @@ func (w privacyLinearizedWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// captureRetrievalPrivacyPolicy is the CLI adapter's capture: brainstore pins
+// the checked tombstone identity, and the issue-evidence identity is pinned
+// beside it so a disconnect or purge landing during ranking cannot deliver
+// previously assembled issue evidence.
+func captureRetrievalPrivacyPolicy(brainDir string) (retrievalPrivacyPolicy, error) {
+	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
+	if err != nil {
+		return retrievalPrivacyPolicy{}, err
+	}
+	issueIdentity, err := issueVisibilityIdentity(brainDir)
+	if err != nil {
+		return retrievalPrivacyPolicy{}, err
+	}
+	policy.IssueIdentity = issueIdentity
+	return policy, nil
+}
+
 // writeRetrievalResponseBytes is the only final write boundary for retrieval,
 // get, brief, and workspace payloads. Callers must buffer the exact response
 // first. A policy change never produces a partial stale response: every checked
@@ -101,11 +125,52 @@ func writeRetrievalResponseBytes(out io.Writer, data []byte, policies ...retriev
 // (brainstore owns the lock ordering and identity revalidation); the CLI
 // adapters bind the derived-read gate.
 func withLockedRetrievalPrivacyPolicies(policies []retrievalPrivacyPolicy, fn func() error) error {
-	return brainstore.WithLockedRetrievalPrivacyPolicies(policies, requirePrivacyDerivedRead, fn)
+	unlock, err := acquireRetrievalPrivacyPolicies(policies)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return fn()
 }
 
+// acquireRetrievalPrivacyPolicies binds the CLI adapter's gates around
+// brainstore's lock ordering and tombstone revalidation: the derived-read gate
+// is injected, and the pinned issue-evidence identity of every policy is
+// re-read under the lock so a concurrent disconnect or purge refuses delivery
+// instead of exposing evidence that is no longer available.
 func acquireRetrievalPrivacyPolicies(policies []retrievalPrivacyPolicy) (func(), error) {
-	return brainstore.AcquireRetrievalPrivacyPolicies(policies, requirePrivacyDerivedRead)
+	issueByBrain := make(map[string]string, len(policies))
+	for _, policy := range policies {
+		if policy.BrainDir == "" || policy.IssueIdentity == "" {
+			continue
+		}
+		brainDir := filepath.Clean(policy.BrainDir)
+		if prior := issueByBrain[brainDir]; prior != "" && prior != policy.IssueIdentity {
+			return nil, errIssueEvidenceChanged
+		}
+		issueByBrain[brainDir] = policy.IssueIdentity
+	}
+	release, err := brainstore.AcquireRetrievalPrivacyPolicies(policies, requirePrivacyDerivedRead)
+	if err != nil {
+		return nil, err
+	}
+	brainDirs := make([]string, 0, len(issueByBrain))
+	for brainDir := range issueByBrain {
+		brainDirs = append(brainDirs, brainDir)
+	}
+	sort.Strings(brainDirs)
+	for _, brainDir := range brainDirs {
+		actual, err := issueVisibilityIdentity(brainDir)
+		if err != nil {
+			release()
+			return nil, err
+		}
+		if actual != issueByBrain[brainDir] {
+			release()
+			return nil, errIssueEvidenceChanged
+		}
+	}
+	return release, nil
 }
 
 // revalidateRetrievalResponsePrivacy closes the ranking-to-write window. A
@@ -508,6 +573,12 @@ func qualifyAbstractStatement(repoKey, workspaceName string, statement abstractS
 func qualifyWorkspaceUnifiedResult(repoKey, workspaceName string, result unifiedResult) unifiedResult {
 	qualify := func(id string) string { return qualifyWorkspaceAddressableID(repoKey, workspaceName, id) }
 	result.ID = qualify(result.ID)
+	if result.Issue != nil {
+		citation := *result.Issue
+		citation.Snapshot = qualify(citation.Snapshot)
+		citation.NextID = qualify(citation.NextID)
+		result.Issue = &citation
+	}
 	result.SessionRef = qualify(result.SessionRef)
 	result.TargetID = qualify(result.TargetID)
 	result.RelatedIDs = append([]string(nil), result.RelatedIDs...)

@@ -246,7 +246,7 @@ func (s *vizServer) privacyResponseMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		policy, err := brainstore.CaptureRetrievalPrivacyPolicy(s.brainDir)
+		policy, err := captureRetrievalPrivacyPolicy(s.brainDir)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return

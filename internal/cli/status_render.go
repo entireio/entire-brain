@@ -730,6 +730,10 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 	if h := report.Hosted; h != nil {
 		fmt.Fprintln(out, statusFactLine(render, "Brainstore", hostedStateLabel(h.State)))
 	}
+	if s := report.IssueSource; s != nil {
+		fmt.Fprintln(out, statusFactLine(render, "Issues",
+			fmt.Sprintf("%s records (%d stale, %d incomplete)", groupDigits(s.Records), s.Stale, s.Incomplete)))
+	}
 
 	if warnings := statusWarningLines(render, report, brainCmd, health); len(warnings) > 0 {
 		fmt.Fprintln(out)

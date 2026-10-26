@@ -291,10 +291,17 @@ func restSearch(w http.ResponseWriter, r *http.Request, opts Options) {
 	}
 	// Read the policy before the slow phase so an unreadable tombstone file
 	// fails the request up front instead of after a full retrieval. The
-	// identity captured here deliberately does not govern the write: a clean
-	// exclusion landing during ranking legitimately moves it, and the rows are
-	// re-cleared against the fresh guard below.
-	if _, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir); err != nil {
+	// session-exclusion identity captured here does not govern the write: a
+	// clean exclusion landing during ranking legitimately moves it, and the
+	// rows are re-cleared against the fresh guard below. The issue identity
+	// stays pinned through delivery so a racing disconnect or purge cannot
+	// expose previously assembled issue evidence.
+	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
+	if err != nil {
+		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
+		return
+	}
+	if policy.IssueIdentity, err = issueVisibilityIdentity(brainDir); err != nil {
 		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
 		return
 	}
@@ -315,6 +322,7 @@ func restSearch(w http.ResponseWriter, r *http.Request, opts Options) {
 	// The identity the rows were cleared under, matching every other retrieval
 	// surface. The pre-ranking snapshot could refuse a response whose rows
 	// have already been revalidated under a newer, clean policy.
+	policy.Identity = policyAfter
 	writeRESTRetrieval(w, map[string]any{"branch": branch, "query": query, "count": len(results), "results": results},
-		retrievalPrivacyPolicy{BrainDir: brainDir, Identity: policyAfter})
+		policy)
 }

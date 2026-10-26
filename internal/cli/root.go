@@ -123,6 +123,7 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	addGrouped("facts", newPatternsCommand(opts))
 
 	addGrouped("operations", newMemoryCommand(opts))
+	addGrouped("operations", newIssuesCommand(opts))
 	addGrouped("operations", newPrivacyCommand(opts))
 
 	addGrouped("code", newBrainInspectCommand(opts))

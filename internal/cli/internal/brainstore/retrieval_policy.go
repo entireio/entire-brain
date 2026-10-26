@@ -10,8 +10,12 @@ import (
 // response was assembled. Keeping the brain path beside the identity lets the
 // same final writer cover single-repository, workspace, get, and brief output.
 type RetrievalPrivacyPolicy struct {
-	BrainDir            string
-	Identity            string
+	BrainDir string
+	Identity string
+	// IssueIdentity pins the adapter-owned issue-evidence identity a response
+	// was assembled under. brainstore carries it beside the tombstone identity
+	// and does not interpret it; the CLI adapter revalidates it under the lock.
+	IssueIdentity       string
 	RequireDerivedClean bool
 }
 

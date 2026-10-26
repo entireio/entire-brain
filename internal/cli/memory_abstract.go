@@ -1685,7 +1685,7 @@ func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDi
 		return sessionAbstract{}, err
 	}
 	defer privacyUnlock()
-	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
+	policy, err := captureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		return sessionAbstract{}, err
 	}
@@ -2565,7 +2565,7 @@ func newMemoryAbstractCommand(opts Options) *cobra.Command {
 				}
 				return finishMemoryOperationFailure(cmd, &receipt, jsonOut, opts.Now(), cause)
 			}
-			responsePolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
+			responsePolicy, err := captureRetrievalPrivacyPolicy(brainDir)
 			if err != nil {
 				return fail(err)
 			}

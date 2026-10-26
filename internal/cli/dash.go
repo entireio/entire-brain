@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"os"
 	"path/filepath"
@@ -77,7 +76,7 @@ func runDash(ctx context.Context, cmd *cobra.Command, opts Options, flags dashFl
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
+	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		return err
 	}

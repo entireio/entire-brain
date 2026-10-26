@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -1251,7 +1250,7 @@ func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, 
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(status.Brain.Path)
+	privacyPolicy, err := captureRetrievalPrivacyPolicy(status.Brain.Path)
 	if err != nil {
 		return err
 	}
@@ -1483,7 +1482,7 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(status.Brain.Path)
+	privacyPolicy, err := captureRetrievalPrivacyPolicy(status.Brain.Path)
 	if err != nil {
 		return err
 	}

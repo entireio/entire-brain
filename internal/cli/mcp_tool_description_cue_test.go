@@ -32,6 +32,15 @@ var mcpToolsExemptFromSubstitutionCue = map[string]string{
 	"brain_ingest_traces":    "imports a runtime trace file into the graph; no built-in equivalent",
 	"brain_patterns":         "reads the mined pattern corpus; no built-in produces it",
 	"brain_patterns_status":  "freshness of the pattern layer; no built-in reports it",
+	// Local issue evidence is written by the host's Linear workflow and read
+	// back through brain_query/brain_brief; none of these six is a retrieval
+	// an agent could swap for grep or a file read.
+	"brain_issues_configure":  "selects tracker projects for local issue evidence (a write); no built-in equivalent",
+	"brain_issues_import":     "stores host-fetched issue batches locally (a write); no built-in equivalent",
+	"brain_issues_status":     "freshness and coverage of the local issue evidence; no built-in reports it",
+	"brain_issues_link":       "records work links on issue evidence (a write); no built-in equivalent",
+	"brain_issues_operation":  "records receipts of host-requested tracker writes (a write); no built-in equivalent",
+	"brain_issues_disconnect": "destructive local issue evidence administration; no built-in equivalent",
 }
 
 // Naming a built-in is half the cue. A description that says "use instead of"
