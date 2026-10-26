@@ -51,15 +51,22 @@ func writeOrderedDistillFixture(t *testing.T, now time.Time, ids ...string) stri
 }
 
 // recordingDistillRunner returns a fake agent whose calls append the marker of
-// the session being distilled, in visit order.
+// the session being distilled, in visit order. It returns one VALID fact per
+// session, on a path unique to that session: a record the taxonomy rejects
+// makes the session an all-empty extraction, which is recorded as tentative
+// (not distilled) rather than cached, and a shared path would pull reconcile
+// into the agent-call accounting.
 func recordingDistillRunner(visited *[]string) clibase.DistillAgentRunner {
 	return func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		path := "workflow.testing.convention"
 		for _, line := range strings.Split(string(input), "\n") {
 			if _, marker, ok := strings.Cut(line, "marker "); ok {
-				*visited = append(*visited, strings.TrimSpace(marker))
+				marker = strings.TrimSpace(marker)
+				*visited = append(*visited, marker)
+				path = "workflow.testing." + marker
 			}
 		}
-		return "conventions.testing\tA convention.\n", nil
+		return path + "\tA convention.\n", nil
 	}
 }
 

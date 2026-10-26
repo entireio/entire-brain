@@ -120,8 +120,13 @@ func factsBackfillStatusForBrain(brainDir string) factsBackfillStatus {
 	for _, session := range sessions {
 		status.Sessions++
 		branch := resolveDistillBranch(manifest, session)
-		if _, ok := cachedDistillSessionFingerprint(cache, branch, session.SessionID); ok {
-			status.Distilled++
+		if fp, ok := cachedDistillSessionFingerprint(cache, branch, session.SessionID); ok {
+			// A tentative entry (every chunk came back empty once) does not
+			// stop a re-run from spending on the session, so it does not
+			// count as distilled until the retry confirms it.
+			if !isDistillEmptyFingerprint(fp) {
+				status.Distilled++
+			}
 			continue
 		}
 		// A pre-upgrade entry still means the session was distilled; matching
