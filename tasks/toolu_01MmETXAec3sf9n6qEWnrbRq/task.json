@@ -1,0 +1,26 @@
+{
+  "tool_use_id": "toolu_01MmETXAec3sf9n6qEWnrbRq",
+  "agent_id": "a636d19960f2fe59f",
+  "subagent_type": "general-purpose",
+  "task_description": "Move recall and verify commands",
+  "files": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/command/facts/deps.go",
+    "internal/cli/command/facts/facts_eligibility_test.go",
+    "internal/cli/command/facts/facts_read_cmd.go",
+    "internal/cli/facts_commands.go",
+    "internal/cli/facts_global.go",
+    "internal/cli/inspect_blame_cmd.go",
+    "internal/cli/internal/factstore/factstore.go",
+    "internal/cli/internal/factstore/global.go"
+  ],
+  "token_usage": {
+    "input_tokens": 146,
+    "cache_creation_tokens": 202776,
+    "cache_read_tokens": 11335859,
+    "output_tokens": 73635,
+    "api_call_count": 73
+  },
+  "started_at": "2026-10-27T14:13:40.381403-07:00",
+  "completed_at": "2026-10-27T14:33:26.104903-07:00"
+}

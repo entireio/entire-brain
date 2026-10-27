@@ -1,0 +1,18 @@
+{
+  "tool_use_id": "toolu_01HczsqqYm74myLYW6uuMgUr",
+  "agent_id": "af0d71640811920b5",
+  "subagent_type": "general-purpose",
+  "task_description": "Move repo-identity, bench, publish",
+  "files": [
+    "internal/cli/publish.go"
+  ],
+  "token_usage": {
+    "input_tokens": 296,
+    "cache_creation_tokens": 917286,
+    "cache_read_tokens": 32372256,
+    "output_tokens": 123021,
+    "api_call_count": 148
+  },
+  "started_at": "2026-10-27T11:48:09.683503-07:00",
+  "completed_at": "2026-10-27T12:17:51.877412-07:00"
+}
