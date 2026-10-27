@@ -63,11 +63,18 @@ type watchCommandOptions struct {
 // watchCursor persists across restarts so the daemon never re-refreshes unchanged state and never
 // re-runs the gated agent work within --distill-every after a restart.
 type watchCursor struct {
-	PendingSeed      bool      `json:"pending_seed,omitempty"`
-	PendingDistill   bool      `json:"pending_distill,omitempty"`
-	LastFingerprint  string    `json:"last_fingerprint"`
-	LastRefreshAt    time.Time `json:"last_refresh_at,omitempty"`
-	LastAgentSpendAt time.Time `json:"last_agent_spend_at,omitempty"`
+	PendingSeed     bool      `json:"pending_seed,omitempty"`
+	PendingDistill  bool      `json:"pending_distill,omitempty"`
+	LastFingerprint string    `json:"last_fingerprint"`
+	LastRefreshAt   time.Time `json:"last_refresh_at,omitempty"`
+	// LastSuccessfulRefreshAt is stamped ONLY when the free refresh ran to
+	// completion. LastRefreshAt is stamped on a dirty-worktree refusal too
+	// (issue #327 lets the tick make progress while someone is working), so it
+	// says when the cursor last moved, not when the brain was last ingested.
+	// Anything that authorizes token spend on the strength of the brain's
+	// freshness (watchPendingAgentWorkUsable) must anchor on this one.
+	LastSuccessfulRefreshAt time.Time `json:"last_successful_refresh_at,omitempty"`
+	LastAgentSpendAt        time.Time `json:"last_agent_spend_at,omitempty"`
 	// ConsolidationRepairs counts CONSECUTIVE full refreshes that ran early
 	// because the short-term delta failed. It is the backoff state for
 	// watchRepairWait: a single failure repairs promptly, a persistent one
@@ -80,6 +87,40 @@ type watchCursor struct {
 // watchRepairBackoffMax caps ConsolidationRepairs so the persisted counter stays
 // bounded and the doubling in watchRepairWait can never overflow.
 const watchRepairBackoffMax = 16
+
+// watchRefreshLockRetries bounds how many times one tick re-attempts the free
+// refresh after it lost the brain write lock; watchRefreshLockRetryBaseWait is
+// the wait before the first retry, doubling per retry (15s, 30s, 60s).
+//
+// The brain write lock is taken with a 10s timeout (brainWriteLockTimeout),
+// tuned for an interactive command that should fail fast rather than hang a
+// terminal. The daemon tick is the opposite case: nobody is waiting on it, the
+// next tick is minutes away, and the holders it meets are short-lived workers.
+// Above all it meets the detached `memory worker --once` that the tick's own
+// reconcile step launched moments earlier: that worker's prepass export and
+// projection publish hold write.lock for 10-25s on a real brain, so a refresh
+// that gave up after one 10s wait lost that race almost every time. On one
+// machine 576 of 724 ticks over 20 days aborted with brain_locked ("held by
+// pid N for 12s..25s"), and because a failed refresh skips the tick's agent
+// work, the 24h-gated distill ran three times in those 20 days. A 15s first
+// wait outlasts the remainder of a hold that was already 12-25s old when the
+// first attempt timed out; the doubling covers the occasional minute-long
+// pass. The schedule waits 105s in total, well inside the default 5-minute
+// interval; watchRefreshLockWait caps each wait at the tick interval so a
+// short --interval is never overrun by its own retries.
+const (
+	watchRefreshLockRetries       = 3
+	watchRefreshLockRetryBaseWait = 15 * time.Second
+)
+
+// watchReconcileLaunchTimeout bounds the memory worker launch (runReconcile in
+// watchTick), which runs detached from the tick's own context so a shutdown
+// during the refresh retries cannot strand the overlay work. Queueing the
+// worker is a brain resolution, at most two write-lock waits of
+// brainstore.BrainWriteLockTimeout (reconcileMemoryJobsForAdmin retries once on
+// a stale manifest) and a detached spawn; the bound keeps a shutdown prompt
+// when the lock is wedged.
+const watchReconcileLaunchTimeout = 30 * time.Second
 
 const watchCursorLockName = "watch.lock"
 
@@ -108,6 +149,10 @@ type watchSteps struct {
 	// non-fatal and cursor-throttled (hostedSyncMinInterval).
 	factsSync func(context.Context) (bool, error)
 	paused    func() bool
+	// sleep waits between refresh attempts that lost the brain write lock
+	// (watchRefreshWithLockRetry). Nil means a real, context-aware wait; tests
+	// inject one so the retry schedule is asserted rather than slept through.
+	sleep func(context.Context, time.Duration) error
 }
 
 // hostedSyncMinInterval throttles the hosted fact sync step across ticks: the
@@ -301,16 +346,47 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 			}
 		}
 	}
-	// Delta state is itself a source-change signal. Do this before the git
-	// fingerprint gate so a changed/failed/overflowed export is never stranded
-	// in the short-term overlay waiting for an unrelated commit or restart.
-	if deltaNeedsReconcile && steps.reconcile != nil {
-		if err := steps.reconcile(ctx); err != nil {
+	// Delta state is itself a source-change signal, so the reconcile runs on
+	// every tick regardless of the git fingerprint gate: a changed/failed/
+	// overflowed export must never be stranded in the short-term overlay
+	// waiting for an unrelated commit or restart. It runs AFTER the refresh
+	// outcome, though, never before it. reconcileMemoryAndLaunch spawns a
+	// detached `memory worker --once`, whose prepass export and projection
+	// publish hold the brain write lock for 10-25s on a real brain. Launching
+	// it a second before the heavy refresh asked for the same lock made the
+	// tick race its own child and lose (see watchRefreshLockRetries for the
+	// numbers). The deferred call covers every early exit — consolidation
+	// deferred, nothing changed, refresh failed — and the explicit call on the
+	// main path runs before the agent steps so the worker is nudged now, not
+	// after a long distill. The launch runs on its own bounded context,
+	// detached from the tick's: the retry loop is a window of up to 105s in
+	// which a SIGTERM cancels the tick, and a deferred launch that inherited
+	// that cancellation never queued the worker — the overlay work was
+	// stranded until the next daemon start and shutdown printed a spurious
+	// "reconciliation failed". The worker is a detached process that outlives
+	// the daemon anyway, so queueing it on the way out is the right thing;
+	// watchReconcileLaunchTimeout keeps the exit prompt. A successful refresh
+	// nudges the worker itself at its end (watchDeterministicRefreshComponents);
+	// the second launch then exits at once on the coordinator lease.
+	reconcileRan := false
+	runReconcile := func() {
+		if reconcileRan || !deltaNeedsReconcile || steps.reconcile == nil {
+			return
+		}
+		reconcileRan = true
+		parent := ctx
+		if parent == nil { // some tick tests pass no context at all
+			parent = context.Background()
+		}
+		launchCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), watchReconcileLaunchTimeout)
+		defer cancel()
+		if err := steps.reconcile(launchCtx); err != nil {
 			fmt.Fprintf(out, "[watch] memory reconciliation failed (durable overlay retained): %v\n", err)
 		} else {
 			fmt.Fprintln(out, "[watch] long-term memory reconciliation queued")
 		}
 	}
+	defer runReconcile()
 	cursor := loadWatchCursor(cursorPath)
 	// The hosted step pulls teammates' facts as much as it publishes local
 	// ones, so it must run on idle (no-change) ticks too — a machine that only
@@ -380,30 +456,68 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 			return
 		}
 	}
+	// reserveFingerprint is what the cursor is advanced to. It is the new
+	// fingerprint when this tick refreshed (or was refused for a dirty tree),
+	// and the cursor's OWN fingerprint when the refresh lost the write lock
+	// but earlier pending agent work may still run: then the reserve sees no
+	// change, leaves the refresh cursor alone, and the next tick retries.
+	reserveFingerprint := fp
+	refreshLostLock := false
+	// refreshed is true only when the free refresh ran to completion; it is
+	// what stamps LastSuccessfulRefreshAt. The dirty-tree refusal below still
+	// advances the cursor so the watcher makes progress, but it is not one.
+	refreshed := false
 	if changed {
-		if err := steps.refresh(ctx); err != nil {
+		if err := watchRefreshWithLockRetry(ctx, out, w, steps); err == nil {
+			refreshed = true
+		} else {
+			switch {
 			// A refusal to index an uncommitted worktree is not a failure: it
 			// is the expected answer while someone is working, and it recurs
 			// every tick until they commit. Treating it as a failure aborted
 			// the tick and left the cursor where it was, so the watcher made no
 			// progress at all for the whole time the tree stayed dirty
-			// (issue #327). Everything else still aborts, because an
-			// unrefreshed brain must not have tokens spent against it.
-			if strings.Contains(err.Error(), dirtyWorktreeErrorCode+":") {
+			// (issue #327).
+			case strings.Contains(err.Error(), dirtyWorktreeErrorCode+":"):
 				fmt.Fprintf(out, "[watch] code index skipped (uncommitted worktree); continuing\n")
-			} else {
+			// A lock the retries could not outwait is contention, not a broken
+			// brain: this tick's short-term delta ran, and the brain was
+			// ingested by an earlier SUCCESSFUL refresh (LastSuccessfulRefreshAt,
+			// never the dirty-tree stamp, see watchCursor). The no-change path
+			// already runs pending agent work without refreshing, so a tick
+			// that merely lost the lock may do the same, bounded by one spend
+			// window of staleness (watchPendingAgentWorkUsable). Without this
+			// a holder that outlives the retries — a 15-minute worker pass was
+			// seen — cost the whole window, and a brain whose refresh kept
+			// losing was never distilled at all.
+			case isBrainLockContention(err) && watchPendingAgentWorkUsable(w, cursor, steps.now().UTC()):
+				refreshLostLock = true
+				reserveFingerprint = cursor.LastFingerprint
+				fmt.Fprintf(out, "[watch] refresh lost the brain write lock %d times; running pending agent work against the last successful refresh (%s ago): %v\n",
+					watchRefreshLockRetries+1, steps.now().UTC().Sub(cursor.LastSuccessfulRefreshAt).Round(time.Second), err)
+			// Everything else still aborts, because an unrefreshed brain must
+			// not have tokens spent against it.
+			default:
 				fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
 				return
 			}
 		}
 	}
+	// Hosted sync BEFORE the worker launch: pullHostedFacts takes the brain
+	// write lock, and the worker the reconcile spawns holds that lock for
+	// 10-25s from the moment it starts, so the other way round the sync lost
+	// the lock microseconds after the launch — and markFactsSyncAttempt
+	// charges the 15-minute throttle window either way. The deferred calls
+	// already run in this order (defer is LIFO: runFactsSync, then
+	// runReconcile); the main path must match it.
 	runFactsSync()
-	reserved, reason, err := reserveWatchAgentSpend(cursorPath, fp, w, agentCalls, steps.now().UTC(), !deltaHealthy)
+	runReconcile()
+	reserved, reason, err := reserveWatchAgentSpend(cursorPath, reserveFingerprint, w, agentCalls, steps.now().UTC(), !deltaHealthy, refreshed)
 	if err != nil {
 		fmt.Fprintf(out, "[watch] cursor update failed (skipping agent work this tick): %v\n", err)
 		return
 	}
-	if changed {
+	if changed && !refreshLostLock {
 		fmt.Fprintln(out, "[watch] refreshed (deterministic, no agent tokens)")
 	}
 
@@ -472,6 +586,116 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 	}); err != nil {
 		fmt.Fprintf(out, "[watch] completion cursor update failed: %v\n", err)
 	}
+}
+
+// isBrainLockContention reports whether err is a timed-out wait for the brain
+// WRITE lock (brainstore.WithBrainWriteLock, code "brain_locked") rather than
+// a refresh that failed on its own merits. It is deliberately that narrow: the
+// retry schedule and the pending-work path it unlocks were sized for the
+// memory worker's 10-25s hold of write.lock. The code index lock
+// ("index_locked", semantic.go) is a different resource with its own, longer
+// timeout, held by a whole index build; a wedged one would buy 105s of
+// retries per tick for nothing. The code string is what is matched, not the
+// brainstore.ErrFileLockTimeout sentinel: the sentinel cannot tell the two
+// locks apart, brainstore always prefixes the code, and a layer that
+// formatted with %v keeps the code while dropping the chain (the same test
+// history_fts.go uses).
+func isBrainLockContention(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "brain_locked:")
+}
+
+// watchRefreshLockWait is the wait before retry number attempt (0-based): the
+// base wait doubled per retry, never longer than the tick interval.
+func watchRefreshLockWait(w watchCommandOptions, attempt int) time.Duration {
+	wait := watchRefreshLockRetryBaseWait << attempt
+	if w.interval > 0 && wait > w.interval {
+		wait = w.interval
+	}
+	return wait
+}
+
+// watchRefreshWithLockRetry runs the free refresh, re-attempting it after a
+// bounded, growing wait when the only thing wrong was a held lock. Any other
+// failure returns at once. When every attempt lost, the last lock error is
+// returned so the caller can tell contention from a broken refresh.
+//
+// A context cancelled during the loop — in a wait, or before a losing attempt
+// returned — ends it promptly, but with the CANCELLATION, never the lock
+// error: the caller's lost-lock path reads a lock error as "contention, run
+// the pending agent work", and a shutdown that arrived as a lock error made
+// it reserve a spend window and call seed/distill on a dead context, which
+// failed at once and left the window consumed for up to --distill-every
+// (trail-review finding on #442). The lock error is kept out of the message
+// so isBrainLockContention cannot match it.
+func watchRefreshWithLockRetry(ctx context.Context, out io.Writer, w watchCommandOptions, steps watchSteps) error {
+	sleep := steps.sleep
+	if sleep == nil {
+		sleep = watchSleep
+	}
+	for attempt := 0; ; attempt++ {
+		err := steps.refresh(ctx)
+		if err == nil || !isBrainLockContention(err) {
+			return err
+		}
+		if ctx != nil && ctx.Err() != nil {
+			return watchRefreshInterrupted(attempt+1, ctx.Err())
+		}
+		if attempt >= watchRefreshLockRetries {
+			return err
+		}
+		wait := watchRefreshLockWait(w, attempt)
+		fmt.Fprintf(out, "[watch] refresh lost the brain write lock (attempt %d of %d); retrying in %s: %v\n",
+			attempt+1, watchRefreshLockRetries+1, wait, err)
+		if sleepErr := sleep(ctx, wait); sleepErr != nil {
+			return watchRefreshInterrupted(attempt+1, sleepErr)
+		}
+	}
+}
+
+// watchRefreshInterrupted is the error a cancelled retry loop returns: the
+// cancellation, wrapped, with the attempt count and no lock text.
+func watchRefreshInterrupted(attempts int, cause error) error {
+	return fmt.Errorf("refresh retry interrupted after %d lost attempt(s): %w", attempts, cause)
+}
+
+// watchSleep is the production wait between refresh attempts.
+func watchSleep(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+// watchPendingAgentWorkUsable reports whether a tick whose refresh lost the
+// brain write lock may still run the agent work an EARLIER successful refresh
+// left pending. Three conditions: there was such a refresh (a brain that has
+// never been ingested gets no tokens spent against it); at least one enabled
+// agent step is pending (otherwise there is nothing to run and the tick ends
+// as before); and that refresh is no older than one spend window, which is
+// the staleness the --distill-every gate itself tolerates between runs. A
+// distillEvery of 0 means spend on every tick and therefore no bound.
+//
+// The anchor is LastSuccessfulRefreshAt, never LastRefreshAt: the latter is
+// also stamped when the refresh was REFUSED for a dirty worktree, and the
+// pending flags are set on that tick too. Anchored there, a tick whose every
+// attempt lost the lock spent against a brain that had only ever been refused
+// — the exact case the "unrefreshed brain" abort in watchTick exists for.
+func watchPendingAgentWorkUsable(w watchCommandOptions, cursor watchCursor, now time.Time) bool {
+	if cursor.LastSuccessfulRefreshAt.IsZero() {
+		return false
+	}
+	pending := cursor.PendingDistill && w.distill || cursor.PendingSeed && w.seedAgent != "none"
+	if !pending {
+		return false
+	}
+	return w.distillEvery <= 0 || now.Sub(cursor.LastSuccessfulRefreshAt) <= w.distillEvery
 }
 
 // releaseWatchAgentSpend gives back a window reserved by reserveWatchAgentSpend
@@ -627,11 +851,14 @@ func watchRepairWait(w watchCommandOptions, repairs int) time.Duration {
 	return wait
 }
 
-// reserveWatchAgentSpend advances the refresh cursor after a successful full
-// refresh and decides whether the gated token work may run. repair reports
-// whether THIS refresh ran early because the short-term delta failed; it drives
-// the watchRepairWait backoff and is cleared by the first healthy delta.
-func reserveWatchAgentSpend(cursorPath, fingerprint string, w watchCommandOptions, agentCalls *int, now time.Time, repair bool) (bool, string, error) {
+// reserveWatchAgentSpend advances the refresh cursor after a full refresh and
+// decides whether the gated token work may run. repair reports whether THIS
+// refresh ran early because the short-term delta failed; it drives the
+// watchRepairWait backoff and is cleared by the first healthy delta. refreshed
+// reports whether the refresh actually ran to completion: the cursor also
+// advances on a dirty-worktree refusal, and only a real refresh may stamp
+// LastSuccessfulRefreshAt, the anchor the lost-lock spend path is gated on.
+func reserveWatchAgentSpend(cursorPath, fingerprint string, w watchCommandOptions, agentCalls *int, now time.Time, repair, refreshed bool) (bool, string, error) {
 	var cursor watchCursor
 	var reserved bool
 	var reason string
@@ -643,6 +870,9 @@ func reserveWatchAgentSpend(cursorPath, fingerprint string, w watchCommandOption
 			cursor.PendingDistill = cursor.PendingDistill || w.distill
 			cursor.LastFingerprint = fingerprint
 			cursor.LastRefreshAt = now
+			if refreshed {
+				cursor.LastSuccessfulRefreshAt = now
+			}
 			if repair {
 				if cursor.ConsolidationRepairs < watchRepairBackoffMax {
 					cursor.ConsolidationRepairs++

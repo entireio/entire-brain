@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -341,5 +343,495 @@ func TestWatchLoopStopsOnContextCancel(t *testing.T) {
 	}
 	if refreshed != 0 {
 		t.Fatalf("a cancelled context must not tick, got %d refreshes", refreshed)
+	}
+}
+
+// brainLockedRefreshError is the shape runRefresh returns when a stage inside
+// it timed out on the brain write lock: the sentinel wrapped under a stage
+// prefix, exactly as the seed and export stages produce it.
+// fileLockTimeoutErrorForTest mirrors brainstore's unexported formatter: the
+// code string first, the sentinel wrapped.
+func fileLockTimeoutErrorForTest(code, path string) error {
+	return fmt.Errorf("%s: timed out acquiring lock at %s: %w", code, path, brainstore.ErrFileLockTimeout)
+}
+
+// brainLockedRefreshError is the error the real refresh step returns when the
+// seed baseline loses the brain write lock. runRefresh returns the stage error
+// bare, so the fake must not wrap it.
+func brainLockedRefreshError() error {
+	return fileLockTimeoutErrorForTest("brain_locked", filepath.Join("brain", "locks", "write.lock"))
+}
+
+// lockRetrySteps are fake steps whose refresh loses the brain write lock for
+// the first `lostFor` attempts and whose sleep records the schedule instead of
+// waiting.
+func lockRetrySteps(now time.Time, fp string, lostFor int, refreshed, distilled *int, waits *[]time.Duration, order *[]string) watchSteps {
+	return watchSteps{
+		now:         func() time.Time { return now },
+		fingerprint: func(context.Context) string { return fp },
+		delta: func(context.Context) (shortTermStats, error) {
+			*order = append(*order, "delta")
+			return shortTermStats{Files: 1}, nil
+		},
+		reconcile: func(context.Context) error { *order = append(*order, "reconcile"); return nil },
+		refresh: func(context.Context) error {
+			*refreshed++
+			*order = append(*order, "refresh")
+			if *refreshed <= lostFor {
+				return brainLockedRefreshError()
+			}
+			return nil
+		},
+		seed:    func(context.Context) error { return nil },
+		distill: func(context.Context) error { *distilled++; *order = append(*order, "distill"); return nil },
+		factsSync: func(context.Context) (bool, error) {
+			*order = append(*order, "factsSync")
+			return true, nil
+		},
+		sleep: func(_ context.Context, d time.Duration) error {
+			*waits = append(*waits, d)
+			*order = append(*order, "sleep")
+			return nil
+		},
+	}
+}
+
+func TestWatchTickRetriesRefreshAfterBrieflyHeldLock(t *testing.T) {
+	cursorPath := filepath.Join(t.TempDir(), "watch.json")
+	now := time.Date(2026, 10, 22, 10, 0, 0, 0, time.UTC)
+	var refreshed, distilled int
+	var waits []time.Duration
+	var order []string
+	steps := lockRetrySteps(now, "ck:new", 1, &refreshed, &distilled, &waits, &order)
+	w := watchCommandOptions{distill: true, seedAgent: "none", distillEvery: 24 * time.Hour}
+	var out bytes.Buffer
+	calls := 0
+	watchTick(context.Background(), &out, w, cursorPath, steps, &calls)
+	if refreshed != 2 {
+		t.Fatalf("a lock lost once must be retried once, got %d refresh attempts", refreshed)
+	}
+	if len(waits) != 1 || waits[0] != watchRefreshLockRetryBaseWait {
+		t.Fatalf("waits = %v, want one wait of %s", waits, watchRefreshLockRetryBaseWait)
+	}
+	if distilled != 1 || calls != 1 {
+		t.Fatalf("a retried refresh must not starve the gated distill: distill=%d budget=%d", distilled, calls)
+	}
+	got := readWatchCursor(t, cursorPath)
+	if got.LastFingerprint != "ck:new" || !got.LastRefreshAt.Equal(now) || !got.LastSuccessfulRefreshAt.Equal(now) || got.PendingDistill {
+		t.Fatalf("cursor must record the successful retry: %+v", got)
+	}
+	if !strings.Contains(out.String(), "retrying in 15s") || !strings.Contains(out.String(), "[watch] refreshed (deterministic, no agent tokens)") {
+		t.Fatalf("tick output should show the retry and the refresh:\n%s", out.String())
+	}
+}
+
+func TestWatchTickLaunchesReconcileAfterRefreshNotBefore(t *testing.T) {
+	// The reconcile step spawns a detached memory worker that holds the brain
+	// write lock for 10-25s; launching it BEFORE the heavy refresh made every
+	// tick race its own child for the lock. It must run after the refresh on
+	// the main path, and still run exactly once on every early exit. The
+	// hosted fact sync takes the same lock (pullHostedFacts), so it must run
+	// BEFORE the launch on every path too, or it loses the lock to the worker
+	// microseconds after the launch and burns its 15-minute throttle window.
+	now := time.Date(2026, 10, 22, 10, 0, 0, 0, time.UTC)
+	t.Run("refresh succeeds", func(t *testing.T) {
+		cursorPath := filepath.Join(t.TempDir(), "watch.json")
+		var refreshed, distilled int
+		var waits []time.Duration
+		var order []string
+		steps := lockRetrySteps(now, "ck:new", 0, &refreshed, &distilled, &waits, &order)
+		calls := 0
+		watchTick(context.Background(), io.Discard, watchCommandOptions{distill: true, seedAgent: "none"}, cursorPath, steps, &calls)
+		want := []string{"delta", "refresh", "factsSync", "reconcile", "distill"}
+		if strings.Join(order, ",") != strings.Join(want, ",") {
+			t.Fatalf("step order = %v, want %v", order, want)
+		}
+	})
+	t.Run("refresh keeps losing the lock", func(t *testing.T) {
+		cursorPath := filepath.Join(t.TempDir(), "watch.json")
+		if err := saveWatchCursor(cursorPath, watchCursor{LastFingerprint: "ck:old", LastRefreshAt: now.Add(-time.Hour), LastSuccessfulRefreshAt: now.Add(-time.Hour), PendingDistill: true}); err != nil {
+			t.Fatal(err)
+		}
+		var refreshed, distilled int
+		var waits []time.Duration
+		var order []string
+		steps := lockRetrySteps(now, "ck:new", 1<<30, &refreshed, &distilled, &waits, &order)
+		calls := 0
+		watchTick(context.Background(), io.Discard, watchCommandOptions{distill: true, seedAgent: "none", distillEvery: 24 * time.Hour}, cursorPath, steps, &calls)
+		want := []string{"delta", "refresh", "sleep", "refresh", "sleep", "refresh", "sleep", "refresh", "factsSync", "reconcile", "distill"}
+		if strings.Join(order, ",") != strings.Join(want, ",") {
+			t.Fatalf("step order = %v, want %v (sync before the launch, launch before the spend)", order, want)
+		}
+	})
+	t.Run("refresh fails", func(t *testing.T) {
+		cursorPath := filepath.Join(t.TempDir(), "watch.json")
+		var refreshed, distilled int
+		var waits []time.Duration
+		var order []string
+		steps := lockRetrySteps(now, "ck:new", 0, &refreshed, &distilled, &waits, &order)
+		steps.refresh = func(context.Context) error { order = append(order, "refresh"); return errors.New("export failed") }
+		calls := 0
+		watchTick(context.Background(), io.Discard, watchCommandOptions{distill: true, seedAgent: "none"}, cursorPath, steps, &calls)
+		want := []string{"delta", "refresh", "factsSync", "reconcile"}
+		if strings.Join(order, ",") != strings.Join(want, ",") {
+			t.Fatalf("step order = %v, want %v (reconcile once, after the failed refresh)", order, want)
+		}
+	})
+	t.Run("consolidation deferred", func(t *testing.T) {
+		cursorPath := filepath.Join(t.TempDir(), "watch.json")
+		if err := saveWatchCursor(cursorPath, watchCursor{LastFingerprint: "ck:old", LastRefreshAt: now.Add(-time.Minute)}); err != nil {
+			t.Fatal(err)
+		}
+		var refreshed, distilled int
+		var waits []time.Duration
+		var order []string
+		steps := lockRetrySteps(now, "ck:new", 0, &refreshed, &distilled, &waits, &order)
+		calls := 0
+		watchTick(context.Background(), io.Discard, watchCommandOptions{consolidateEvery: time.Hour}, cursorPath, steps, &calls)
+		want := []string{"delta", "factsSync", "reconcile"}
+		if strings.Join(order, ",") != strings.Join(want, ",") {
+			t.Fatalf("step order = %v, want %v (reconcile still runs when the refresh is deferred)", order, want)
+		}
+	})
+}
+
+func TestWatchTickGivesUpAfterBoundedLockRetries(t *testing.T) {
+	cursorPath := filepath.Join(t.TempDir(), "watch.json")
+	now := time.Date(2026, 10, 22, 10, 0, 0, 0, time.UTC)
+	var refreshed, distilled int
+	var waits []time.Duration
+	var order []string
+	// Lost on every attempt; no earlier refresh, so nothing is pending.
+	steps := lockRetrySteps(now, "ck:new", 1<<30, &refreshed, &distilled, &waits, &order)
+	w := watchCommandOptions{distill: true, seedAgent: "none", distillEvery: 24 * time.Hour}
+	var out bytes.Buffer
+	calls := 0
+	watchTick(context.Background(), &out, w, cursorPath, steps, &calls)
+	if refreshed != watchRefreshLockRetries+1 {
+		t.Fatalf("refresh attempts = %d, want %d", refreshed, watchRefreshLockRetries+1)
+	}
+	wantWaits := []time.Duration{15 * time.Second, 30 * time.Second, 60 * time.Second}
+	if len(waits) != len(wantWaits) {
+		t.Fatalf("waits = %v, want %v", waits, wantWaits)
+	}
+	for i := range wantWaits {
+		if waits[i] != wantWaits[i] {
+			t.Fatalf("waits = %v, want %v", waits, wantWaits)
+		}
+	}
+	if distilled != 0 || calls != 0 {
+		t.Fatalf("no agent work against a brain that was never refreshed: distill=%d budget=%d", distilled, calls)
+	}
+	if c := loadWatchCursor(cursorPath); !c.LastRefreshAt.IsZero() || c.LastFingerprint != "" {
+		t.Fatalf("cursor must not advance when every attempt lost the lock: %+v", c)
+	}
+	if !strings.Contains(out.String(), "[watch] refresh failed (skipping agent work this tick): brain_locked:") {
+		t.Fatalf("the final failure must still be reported:\n%s", out.String())
+	}
+}
+
+func TestWatchTickDoesNotRetryNonLockFailures(t *testing.T) {
+	cursorPath := filepath.Join(t.TempDir(), "watch.json")
+	now := time.Date(2026, 10, 22, 10, 0, 0, 0, time.UTC)
+	var refreshed, distilled int
+	var waits []time.Duration
+	var order []string
+	steps := lockRetrySteps(now, "ck:new", 0, &refreshed, &distilled, &waits, &order)
+	steps.refresh = func(context.Context) error { refreshed++; return errors.New("export failed") }
+	calls := 0
+	watchTick(context.Background(), io.Discard, watchCommandOptions{distill: true, seedAgent: "none"}, cursorPath, steps, &calls)
+	if refreshed != 1 || len(waits) != 0 {
+		t.Fatalf("an ordinary failure must not be retried: attempts=%d waits=%v", refreshed, waits)
+	}
+}
+
+func TestWatchTickLockRetryStopsOnContextCancel(t *testing.T) {
+	cursorPath := filepath.Join(t.TempDir(), "watch.json")
+	now := time.Date(2026, 10, 22, 10, 0, 0, 0, time.UTC)
+	var refreshed, distilled int
+	var waits []time.Duration
+	var order []string
+	steps := lockRetrySteps(now, "ck:new", 1<<30, &refreshed, &distilled, &waits, &order)
+	ctx, cancel := context.WithCancel(context.Background())
+	steps.sleep = func(ctx context.Context, d time.Duration) error {
+		waits = append(waits, d)
+		cancel() // the daemon is asked to stop mid-wait
+		return ctx.Err()
+	}
+	launches := 0
+	var launchCtxErr error
+	var launchDeadline bool
+	steps.reconcile = func(c context.Context) error {
+		launches++
+		launchCtxErr = c.Err()
+		_, launchDeadline = c.Deadline()
+		return nil
+	}
+	calls := 0
+	var out bytes.Buffer
+	watchTick(ctx, &out, watchCommandOptions{distill: true, seedAgent: "none"}, cursorPath, steps, &calls)
+	if refreshed != 1 || len(waits) != 1 {
+		t.Fatalf("a cancelled wait must end the retries: attempts=%d waits=%v", refreshed, waits)
+	}
+	if distilled != 0 {
+		t.Fatalf("no agent work after a cancelled retry, got %d", distilled)
+	}
+	// The retry window is new cancellation surface: before it, the worker was
+	// launched before the refresh and a SIGTERM could not reach it. The
+	// deferred launch must still queue the worker, on a live, bounded context,
+	// or the overlay work is stranded until the next daemon start.
+	if launches != 1 || launchCtxErr != nil || !launchDeadline {
+		t.Fatalf("the worker launch must still run on a cancelled tick, detached and bounded: launches=%d ctxErr=%v deadline=%v", launches, launchCtxErr, launchDeadline)
+	}
+	if strings.Contains(out.String(), "memory reconciliation failed") {
+		t.Fatalf("a cancelled tick must not report a spurious reconcile failure:\n%s", out.String())
+	}
+}
+
+func TestWatchTickCancelledRetryIsNotLockContention(t *testing.T) {
+	// trail-review finding on #442: a shutdown during a retry wait came back
+	// as the last lock error, which the lost-lock case read as contention. With
+	// work pending, the tick reserved a spend window and ran seed/distill on a
+	// cancelled context; they failed at once and the window stayed consumed
+	// for up to --distill-every. The interrupted loop must surface the
+	// cancellation, and the tick must spend nothing.
+	now := time.Date(2026, 10, 22, 10, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name          string
+		cancelIn      string // "sleep": cancel during the wait; "refresh": cancel before a losing attempt returns
+		wantAttempts  int
+		wantWaits     int
+		wantInterrupt string
+	}{
+		{name: "cancelled during the wait", cancelIn: "sleep", wantAttempts: 1, wantWaits: 1, wantInterrupt: "refresh retry interrupted after 1 lost attempt(s): context canceled"},
+		{name: "cancelled before the last losing attempt returned", cancelIn: "refresh", wantAttempts: 1, wantWaits: 0, wantInterrupt: "refresh retry interrupted after 1 lost attempt(s): context canceled"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cursorPath := filepath.Join(t.TempDir(), "watch.json")
+			if err := saveWatchCursor(cursorPath, watchCursor{LastFingerprint: "ck:old", LastRefreshAt: now.Add(-time.Hour), LastSuccessfulRefreshAt: now.Add(-time.Hour), PendingDistill: true}); err != nil {
+				t.Fatal(err)
+			}
+			var refreshed, distilled int
+			var waits []time.Duration
+			var order []string
+			steps := lockRetrySteps(now, "ck:new", 1<<30, &refreshed, &distilled, &waits, &order)
+			ctx, cancel := context.WithCancel(context.Background())
+			if tc.cancelIn == "refresh" {
+				inner := steps.refresh
+				steps.refresh = func(c context.Context) error { cancel(); return inner(c) }
+			}
+			steps.sleep = func(c context.Context, d time.Duration) error {
+				waits = append(waits, d)
+				cancel()
+				return c.Err()
+			}
+			steps.distill = func(c context.Context) error { distilled++; return c.Err() }
+			calls := 0
+			var out bytes.Buffer
+			watchTick(ctx, &out, watchCommandOptions{distill: true, seedAgent: "none", distillEvery: 24 * time.Hour}, cursorPath, steps, &calls)
+			if refreshed != tc.wantAttempts || len(waits) != tc.wantWaits {
+				t.Fatalf("attempts=%d waits=%v, want %d and %d", refreshed, waits, tc.wantAttempts, tc.wantWaits)
+			}
+			if distilled != 0 || calls != 0 {
+				t.Fatalf("a cancelled tick must not spend: distill=%d budget=%d\n%s", distilled, calls, out.String())
+			}
+			got := readWatchCursor(t, cursorPath)
+			if !got.LastAgentSpendAt.IsZero() || !got.PendingDistill || got.LastFingerprint != "ck:old" {
+				t.Fatalf("the window must not be reserved and the cursor must not move: %+v", got)
+			}
+			if !strings.Contains(out.String(), "[watch] refresh failed (skipping agent work this tick): "+tc.wantInterrupt) {
+				t.Fatalf("the tick must report the interruption, not lock contention:\n%s", out.String())
+			}
+			if strings.Contains(out.String(), "running pending agent work") {
+				t.Fatalf("a shutdown is not lock contention:\n%s", out.String())
+			}
+		})
+	}
+}
+
+func TestWatchTickRunsPendingDistillWhenRefreshKeepsLosingLock(t *testing.T) {
+	now := time.Date(2026, 10, 22, 10, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name        string
+		w           watchCommandOptions
+		cursor      watchCursor // LastFingerprint is always "ck:old"
+		wantSeed    int
+		wantDistill int
+	}{
+		{
+			name:        "pending distill from a recent refresh",
+			w:           watchCommandOptions{distill: true, seedAgent: "none", distillEvery: 24 * time.Hour},
+			cursor:      watchCursor{LastRefreshAt: now.Add(-time.Hour), LastSuccessfulRefreshAt: now.Add(-time.Hour), PendingDistill: true},
+			wantDistill: 1,
+		},
+		{
+			// `watch --seed-agent <x>` is the other token-spending path.
+			name:     "pending seed from a recent refresh",
+			w:        watchCommandOptions{distill: false, seedAgent: "claude", distillEvery: 24 * time.Hour},
+			cursor:   watchCursor{LastRefreshAt: now.Add(-time.Hour), LastSuccessfulRefreshAt: now.Add(-time.Hour), PendingSeed: true},
+			wantSeed: 1,
+		},
+		{
+			name:   "pending but last successful refresh older than one spend window",
+			w:      watchCommandOptions{distill: true, seedAgent: "none", distillEvery: 24 * time.Hour},
+			cursor: watchCursor{LastRefreshAt: now.Add(-48 * time.Hour), LastSuccessfulRefreshAt: now.Add(-48 * time.Hour), PendingDistill: true},
+		},
+		{
+			name:   "nothing pending",
+			w:      watchCommandOptions{distill: true, seedAgent: "none", distillEvery: 24 * time.Hour},
+			cursor: watchCursor{LastRefreshAt: now.Add(-time.Hour), LastSuccessfulRefreshAt: now.Add(-time.Hour)},
+		},
+		{
+			// A pending flag for a step that is turned off is not pending work;
+			// the window must not be reserved for nothing.
+			name:   "pending distill but distill disabled",
+			w:      watchCommandOptions{distill: false, seedAgent: "claude", distillEvery: 24 * time.Hour},
+			cursor: watchCursor{LastRefreshAt: now.Add(-time.Hour), LastSuccessfulRefreshAt: now.Add(-time.Hour), PendingDistill: true},
+		},
+		{
+			// The cursor a dirty-worktree refusal leaves: stamped and pending,
+			// but the brain was never ingested.
+			name:   "cursor stamped only by a refused refresh",
+			w:      watchCommandOptions{distill: true, seedAgent: "none", distillEvery: 24 * time.Hour},
+			cursor: watchCursor{LastRefreshAt: now.Add(-time.Hour), PendingDistill: true},
+		},
+		{
+			// Same, with no spend bound at all (--distill-every 0): the
+			// staleness check cannot mask a missing never-refreshed guard here.
+			name:   "cursor stamped only by a refused refresh, no spend bound",
+			w:      watchCommandOptions{distill: true, seedAgent: "none", distillEvery: 0},
+			cursor: watchCursor{LastRefreshAt: now.Add(-time.Hour), PendingDistill: true},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cursorPath := filepath.Join(t.TempDir(), "watch.json")
+			before := tc.cursor
+			before.LastFingerprint = "ck:old"
+			if err := saveWatchCursor(cursorPath, before); err != nil {
+				t.Fatal(err)
+			}
+			var refreshed, seeded, distilled int
+			var waits []time.Duration
+			var order []string
+			steps := lockRetrySteps(now, "ck:new", 1<<30, &refreshed, &distilled, &waits, &order)
+			steps.seed = func(context.Context) error { seeded++; return nil }
+			var out bytes.Buffer
+			calls := 0
+			watchTick(context.Background(), &out, tc.w, cursorPath, steps, &calls)
+			if refreshed != watchRefreshLockRetries+1 {
+				t.Fatalf("refresh attempts = %d, want %d", refreshed, watchRefreshLockRetries+1)
+			}
+			if seeded != tc.wantSeed || distilled != tc.wantDistill {
+				t.Fatalf("seed runs = %d, distill runs = %d, want %d and %d\n%s", seeded, distilled, tc.wantSeed, tc.wantDistill, out.String())
+			}
+			got := readWatchCursor(t, cursorPath)
+			// A lost lock never claims a refresh: the next tick retries it.
+			if got.LastFingerprint != "ck:old" || !got.LastRefreshAt.Equal(before.LastRefreshAt) || !got.LastSuccessfulRefreshAt.Equal(before.LastSuccessfulRefreshAt) {
+				t.Fatalf("refresh cursor must not advance on a lost lock: %+v", got)
+			}
+			if strings.Contains(out.String(), "[watch] refreshed (deterministic, no agent tokens)") {
+				t.Fatalf("a lost lock must not be reported as a refresh:\n%s", out.String())
+			}
+			if tc.wantSeed+tc.wantDistill > 0 {
+				if got.PendingDistill != (tc.wantDistill == 0 && before.PendingDistill) || got.PendingSeed != (tc.wantSeed == 0 && before.PendingSeed) || got.LastAgentSpendAt.IsZero() || calls != 1 {
+					t.Fatalf("the pending work must be consumed and charged: cursor=%+v budget=%d", got, calls)
+				}
+				if !strings.Contains(out.String(), "running pending agent work against the last successful refresh (1h0m0s ago)") {
+					t.Fatalf("tick should say why it spent without refreshing:\n%s", out.String())
+				}
+				return
+			}
+			if got.PendingDistill != before.PendingDistill || got.PendingSeed != before.PendingSeed || !got.LastAgentSpendAt.IsZero() || calls != 0 {
+				t.Fatalf("nothing may be spent or cleared: cursor=%+v budget=%d", got, calls)
+			}
+			if !strings.Contains(out.String(), "[watch] refresh failed (skipping agent work this tick): brain_locked:") {
+				t.Fatalf("a tick that could not spend must report the lost lock as a failure:\n%s", out.String())
+			}
+		})
+	}
+}
+
+func TestWatchTickLostLockNeverSpendsAgainstARefusedRefresh(t *testing.T) {
+	// A dirty-worktree refusal stamps LastRefreshAt and sets PendingDistill
+	// (issue #327 lets the tick make progress while someone is working). A
+	// lost-lock gate anchored on LastRefreshAt therefore authorised spend
+	// against a brain that had never been ingested: tick A refused, tick B
+	// lost every attempt, distill ran. The gate anchors on
+	// LastSuccessfulRefreshAt, which only a completed refresh stamps.
+	cursorPath := filepath.Join(t.TempDir(), "watch.json")
+	now := time.Date(2026, 10, 22, 10, 0, 0, 0, time.UTC)
+	// Spent an hour short of the window so tick A keeps its distill pending
+	// instead of running it (the pre-existing dirty-tree spend is not under
+	// test here).
+	if err := saveWatchCursor(cursorPath, watchCursor{LastAgentSpendAt: now.Add(-23 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	var refreshed, distilled int
+	var waits []time.Duration
+	var order []string
+	steps := lockRetrySteps(now, "ck:dirty", 0, &refreshed, &distilled, &waits, &order)
+	steps.refresh = func(context.Context) error {
+		refreshed++
+		return errors.New(dirtyWorktreeErrorCode + ": uncommitted edits")
+	}
+	w := watchCommandOptions{distill: true, seedAgent: "none", distillEvery: 24 * time.Hour}
+	calls := 0
+	var out bytes.Buffer
+	watchTick(context.Background(), &out, w, cursorPath, steps, &calls)
+	after := readWatchCursor(t, cursorPath)
+	if refreshed != 1 || distilled != 0 || !after.PendingDistill || !after.LastRefreshAt.Equal(now) || after.LastFingerprint != "ck:dirty" {
+		t.Fatalf("tick A should be refused, advance the cursor and leave distill pending: refresh=%d distill=%d cursor=%+v\n%s", refreshed, distilled, after, out.String())
+	}
+	if !after.LastSuccessfulRefreshAt.IsZero() {
+		t.Fatalf("a refused refresh is not a successful one: %+v", after)
+	}
+
+	later := now.Add(2 * time.Hour) // the spend window has elapsed; the refusal is recent
+	refreshed, out = 0, bytes.Buffer{}
+	steps = lockRetrySteps(later, "ck:dirty-and-new", 1<<30, &refreshed, &distilled, &waits, &order)
+	watchTick(context.Background(), &out, w, cursorPath, steps, &calls)
+	if refreshed != watchRefreshLockRetries+1 {
+		t.Fatalf("refresh attempts = %d, want %d", refreshed, watchRefreshLockRetries+1)
+	}
+	if distilled != 0 || calls != 0 {
+		t.Fatalf("no tokens against a brain that was only ever refused: distill=%d budget=%d\n%s", distilled, calls, out.String())
+	}
+	if !strings.Contains(out.String(), "[watch] refresh failed (skipping agent work this tick): brain_locked:") {
+		t.Fatalf("tick B must abort as unrefreshed:\n%s", out.String())
+	}
+	if got := readWatchCursor(t, cursorPath); !got.PendingDistill || got.LastFingerprint != "ck:dirty" || !got.LastAgentSpendAt.Equal(now.Add(-23*time.Hour)) {
+		t.Fatalf("tick B must leave the cursor exactly as tick A did: %+v", got)
+	}
+}
+
+func TestWatchRefreshLockWaitIsCappedByInterval(t *testing.T) {
+	if got := watchRefreshLockWait(watchCommandOptions{}, 2); got != 60*time.Second {
+		t.Fatalf("uncapped third wait = %s, want 60s", got)
+	}
+	if got := watchRefreshLockWait(watchCommandOptions{interval: 20 * time.Second}, 2); got != 20*time.Second {
+		t.Fatalf("a short --interval must cap the wait, got %s", got)
+	}
+}
+
+func TestIsBrainLockContention(t *testing.T) {
+	cases := []struct {
+		err  error
+		want bool
+	}{
+		{nil, false},
+		{errors.New("export failed"), false},
+		{brainLockedRefreshError(), true},
+		// A layer that formatted with %v keeps the code string.
+		{errors.New("refresh: brain_locked: timed out acquiring lock at x: file lock timeout"), true},
+		// Only the brain WRITE lock counts: the code index lock is a different
+		// resource with its own timeout, and the retry schedule was sized for
+		// the memory worker's hold of write.lock.
+		{fileLockTimeoutErrorForTest("index_locked", "x"), false},
+		{errors.New("export: brain_locked"), false}, // the code, but not a lock timeout
+	}
+	for _, tc := range cases {
+		if got := isBrainLockContention(tc.err); got != tc.want {
+			t.Errorf("isBrainLockContention(%v) = %v, want %v", tc.err, got, tc.want)
+		}
 	}
 }

@@ -5,6 +5,20 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The watch daemon no longer loses the brain write lock to the memory worker
+  it launched moments earlier. The worker launch now runs after the refresh
+  outcome (and after the hosted fact sync, which takes the same lock), the
+  refresh is retried up to three times with growing waits when the only thing
+  wrong was a held lock, and a tick whose every attempt still lost may run the
+  distill or seed left pending by the last successful refresh within one spend
+  window. Only a completed refresh counts there: a dirty-worktree refusal
+  advances the cursor but never authorizes spend. The launch runs detached
+  from the tick's context, so a stop during the retries still queues the
+  worker. Only the write lock counts as contention; a timed-out code index
+  lock still fails the tick as before.
+
 ## [0.3.0] - 2026-10-26
 
 ### Removed
