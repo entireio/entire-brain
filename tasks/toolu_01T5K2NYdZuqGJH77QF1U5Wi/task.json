@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01T5K2NYdZuqGJH77QF1U5Wi",
+  "agent_id": "a54fce9b736fcbb39",
+  "subagent_type": "general-purpose",
+  "task_description": "Move facts-link commands to packages",
+  "token_usage": {
+    "input_tokens": 208,
+    "cache_creation_tokens": 997948,
+    "cache_read_tokens": 18680825,
+    "output_tokens": 106781,
+    "api_call_count": 104
+  },
+  "started_at": "2026-10-26T18:40:38.868297-07:00",
+  "completed_at": "2026-10-26T19:28:26.39805-07:00"
+}

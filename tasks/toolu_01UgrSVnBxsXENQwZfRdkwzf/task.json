@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01UgrSVnBxsXENQwZfRdkwzf",
+  "agent_id": "ad83defe37e32779a",
+  "subagent_type": "general-purpose",
+  "task_description": "Move facts commands to packages",
+  "token_usage": {
+    "input_tokens": 50,
+    "cache_creation_tokens": 166056,
+    "cache_read_tokens": 2951063,
+    "output_tokens": 31973,
+    "api_call_count": 25
+  },
+  "started_at": "2026-10-26T19:39:17.783271-07:00",
+  "completed_at": "2026-10-26T19:47:38.790609-07:00"
+}
