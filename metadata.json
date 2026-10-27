@@ -1,0 +1,75 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M5ZRGMZJ9H3M5DJ5V8G4FBA9",
+  "strategy": "manual-commit",
+  "branch": "cor-2268-cmd-retrieve",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/blind_spot.go",
+    "internal/cli/command/retrieve/deps.go",
+    "internal/cli/command/retrieve/main_test.go",
+    "internal/cli/command/retrieve/retrieve.go",
+    "internal/cli/command/retrieve/retrieve_test.go",
+    "internal/cli/conversation_multiconcept.go",
+    "internal/cli/conversation_phase2_test.go",
+    "internal/cli/conversation_session.go",
+    "internal/cli/facts_global.go",
+    "internal/cli/facts_global_test.go",
+    "internal/cli/facts_vitality.go",
+    "internal/cli/internal/cmdutil/errors.go",
+    "internal/cli/internal/cmdutil/output.go",
+    "internal/cli/internal/factstore/files.go",
+    "internal/cli/internal/factstore/global.go",
+    "internal/cli/internal/retrieval/payload.go",
+    "internal/cli/internal/retrieval/payload_test.go",
+    "internal/cli/memory_abstract.go",
+    "internal/cli/pattern_surface.go",
+    "internal/cli/retrieval_aliases.go",
+    "internal/cli/retrieval_hints.go",
+    "internal/cli/retrieval_transport.go",
+    "internal/cli/retrieval_transport_test.go",
+    "internal/cli/retrieve.go",
+    "internal/cli/retrieve_commands.go",
+    "internal/cli/root.go",
+    "internal/cli/runnable_remedies_test.go",
+    "internal/cli/workspace.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 16,
+    "cache_creation_tokens": 66795,
+    "cache_read_tokens": 1434528,
+    "output_tokens": 5158,
+    "api_call_count": 8,
+    "subagent_tokens": {
+      "input_tokens": 22,
+      "cache_creation_tokens": 667256,
+      "cache_read_tokens": 2947374,
+      "output_tokens": 9248,
+      "api_call_count": 11
+    }
+  },
+  "redaction": {
+    "replacements": 17,
+    "layers": {
+      "betterleaks": 10,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 7,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
