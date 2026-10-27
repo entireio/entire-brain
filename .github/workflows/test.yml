@@ -6,6 +6,14 @@ on:
   pull_request:
   workflow_dispatch:
 
+# A force-push or restack queues a new run without this; the superseded run
+# kept waiting in the small depot-macos-26 pool and backed up every PR behind
+# it. Pushes to main keep their own ref-scoped group and are never cancelled,
+# so merged evidence stays complete.
+concurrency:
+  group: test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
