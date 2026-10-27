@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M5XC0R3KW2P87C3P2WK93TWJ",
+  "strategy": "manual-commit",
+  "branch": "evisdren/facts-integrity-pending-reconcile",
+  "checkpoints_count": 11,
+  "files_touched": [
+    "internal/cli/facts_integrity.go",
+    "internal/cli/facts_integrity_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 180,
+    "cache_creation_tokens": 963205,
+    "cache_read_tokens": 41576982,
+    "output_tokens": 41374,
+    "api_call_count": 90
+  },
+  "redaction": {
+    "replacements": 25,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 25,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
