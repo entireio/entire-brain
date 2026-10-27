@@ -1,0 +1,76 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M5Z5PD4BMF1P624WMFSE59VZ",
+  "session_id": "6b7295ce-9f79-4141-9037-38333368180b",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-27T17:14:31.263418Z",
+  "branch": "evisdren/cor-2279-client-issue",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/hosted_sync.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "f5a3a92a598f",
+  "checkpoint_transcript_start": 692,
+  "transcript_lines_at_start": 692,
+  "compact_transcript_start": 95,
+  "token_usage": {
+    "input_tokens": 22,
+    "cache_creation_tokens": 188311,
+    "cache_read_tokens": 1926372,
+    "output_tokens": 7642,
+    "api_call_count": 11
+  },
+  "redaction": {
+    "replacements": 19,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 19,
+      "credentialed_uri": 0,
+      "entropy": 0,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01GVuP3fF4HoM5hLrE1ytLWt",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "entire:address-findings"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "f5a3a92a598f",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 700,
+        "end": 701,
+        "entry_ids": [
+          "698700cd-ea4b-4a0e-a5c1-71d01d212677"
+        ],
+        "tool_use_id": "toolu_01GVuP3fF4HoM5hLrE1ytLWt"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01GVuP3fF4HoM5hLrE1ytLWt"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: entire:address-findings",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 4
+  }
+}
