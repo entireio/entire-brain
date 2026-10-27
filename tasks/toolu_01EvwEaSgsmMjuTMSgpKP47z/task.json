@@ -1,0 +1,26 @@
+{
+  "tool_use_id": "toolu_01EvwEaSgsmMjuTMSgpKP47z",
+  "agent_id": "aa3c943e9e964af24",
+  "subagent_type": "general-purpose",
+  "task_description": "Move dash command",
+  "files": [
+    "internal/cli/command/dash/dash.go",
+    "internal/cli/command/dash/dash_test.go",
+    "internal/cli/command/dash/deps.go",
+    "internal/cli/command/dash/main_test.go",
+    "internal/cli/command/viz/viz.go",
+    "internal/cli/dash_config.go",
+    "internal/cli/dash_home_test.go",
+    "internal/cli/internal/historystore/guard.go",
+    "internal/cli/root.go"
+  ],
+  "token_usage": {
+    "input_tokens": 132,
+    "cache_creation_tokens": 384096,
+    "cache_read_tokens": 9375762,
+    "output_tokens": 72364,
+    "api_call_count": 66
+  },
+  "started_at": "2026-10-27T14:57:57.464308-07:00",
+  "completed_at": "2026-10-27T15:14:20.535195-07:00"
+}

@@ -1,0 +1,40 @@
+{
+  "tool_use_id": "toolu_01KzZ4yAJLfdGoTJbneVF9i1",
+  "agent_id": "a85026ea100a275da",
+  "subagent_type": "general-purpose",
+  "task_description": "Move viz command (retry)",
+  "files": [
+    "internal/cli/command/viz/deps.go",
+    "internal/cli/command/viz/main_test.go",
+    "internal/cli/command/viz/viz.go",
+    "internal/cli/command/viz/viz_graph_regression_test.go",
+    "internal/cli/command/viz/viz_test.go",
+    "internal/cli/dash.go",
+    "internal/cli/env.go",
+    "internal/cli/internal/base/env.go",
+    "internal/cli/internal/base/strings.go",
+    "internal/cli/internal/cmdutil/errors.go",
+    "internal/cli/internal/factstore/guard.go",
+    "internal/cli/internal/historystore/guard.go",
+    "internal/cli/internal/manifest/guard.go",
+    "internal/cli/retrieval_transport.go",
+    "internal/cli/retrieval_transport_test.go",
+    "internal/cli/root.go",
+    "internal/cli/runnable_remedies_test.go",
+    "internal/cli/session_privacy.go",
+    "internal/cli/session_tombstone_fail_closed_test.go",
+    "internal/cli/viz_config.go",
+    "internal/cli/viz_graph_regression_test.go",
+    "internal/cli/viz_seams_test.go",
+    "tools/coverage/mutations.json"
+  ],
+  "token_usage": {
+    "input_tokens": 264,
+    "cache_creation_tokens": 655210,
+    "cache_read_tokens": 31456256,
+    "output_tokens": 139428,
+    "api_call_count": 132
+  },
+  "started_at": "2026-10-27T14:13:27.930053-07:00",
+  "completed_at": "2026-10-27T14:47:30.73979-07:00"
+}
