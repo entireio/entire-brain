@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M5ZV2R7Z67V4B67C3JMDW1ST",
+  "session_id": "79fdefc1-ffe7-4f80-b645-1704e1511ede",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-27T23:28:14.555598Z",
+  "branch": "evisdren/cut-0.4.0",
+  "checkpoints_count": 2,
+  "save_step_count": 2,
+  "files_touched": [
+    "CHANGELOG.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "8ad2eb00730d",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 66,
+    "cache_creation_tokens": 250770,
+    "cache_read_tokens": 2455760,
+    "output_tokens": 21100,
+    "api_call_count": 33
+  },
+  "redaction": {
+    "replacements": 10,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 6,
+      "credentialed_uri": 0,
+      "entropy": 4,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "session_metrics": {
+    "turn_count": 2
+  }
+}
