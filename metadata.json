@@ -1,0 +1,68 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M5ZR80D11JRMEXAN8T2QBAFD",
+  "strategy": "manual-commit",
+  "branch": "cor-2268-cmd-patterns",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/command/patternscmd/deps.go",
+    "internal/cli/command/patternscmd/main_test.go",
+    "internal/cli/command/patternscmd/patterns_cmd.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/internal/brainstore/brain_relative.go",
+    "internal/cli/pattern_surface.go",
+    "internal/cli/patterns/legacy_views.go",
+    "internal/cli/patterns/skill_memory_test.go",
+    "internal/cli/patterns/theme_views.go",
+    "internal/cli/patterns/views.go",
+    "internal/cli/patterns_aliases.go",
+    "internal/cli/patterns_commands.go",
+    "internal/cli/practices.go",
+    "internal/cli/procedures.go",
+    "internal/cli/retrieval_transport_test.go",
+    "internal/cli/root.go",
+    "internal/cli/runnable_remedies_test.go",
+    "internal/cli/session_privacy.go",
+    "internal/cli/skill_memory_status_test.go",
+    "internal/cli/versioned_state_test.go",
+    "tools/coverage/mutations.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 952652,
+    "cache_read_tokens": 3862682,
+    "output_tokens": 1364,
+    "api_call_count": 5,
+    "subagent_tokens": {
+      "input_tokens": 124,
+      "cache_creation_tokens": 58243,
+      "cache_read_tokens": 20677103,
+      "output_tokens": 34640,
+      "api_call_count": 62
+    }
+  },
+  "redaction": {
+    "replacements": 17,
+    "layers": {
+      "betterleaks": 10,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 7,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "tool_use_id": "toolu_01PvKkaRMj7a4d15FqUG4aTe",
+  "agent_id": "a037e8e4ceac22fd5",
+  "subagent_type": "general-purpose",
+  "task_description": "Move patterns command",
+  "files": [
+    "internal/cli/command/patternscmd/deps.go",
+    "internal/cli/command/patternscmd/main_test.go",
+    "internal/cli/command/patternscmd/patterns_cmd.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/internal/brainstore/brain_relative.go",
+    "internal/cli/pattern_surface.go",
+    "internal/cli/patterns/legacy_views.go",
+    "internal/cli/patterns/skill_memory_test.go",
+    "internal/cli/patterns/theme_views.go",
+    "internal/cli/patterns/views.go",
+    "internal/cli/patterns_aliases.go",
+    "internal/cli/patterns_commands.go",
+    "internal/cli/practices.go",
+    "internal/cli/procedures.go",
+    "internal/cli/runnable_remedies_test.go",
+    "internal/cli/skill_memory_status_test.go",
+    "internal/cli/versioned_state_test.go",
+    "tools/coverage/mutations.json"
+  ],
+  "token_usage": {
+    "input_tokens": 260,
+    "cache_creation_tokens": 589035,
+    "cache_read_tokens": 26598343,
+    "output_tokens": 141024,
+    "api_call_count": 130
+  },
+  "started_at": "2026-10-27T14:58:18.216185-07:00",
+  "completed_at": "2026-10-27T15:30:48.519937-07:00"
+}
