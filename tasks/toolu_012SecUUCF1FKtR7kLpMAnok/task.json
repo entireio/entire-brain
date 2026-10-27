@@ -1,0 +1,27 @@
+{
+  "tool_use_id": "toolu_012SecUUCF1FKtR7kLpMAnok",
+  "agent_id": "a546778e733d018be",
+  "subagent_type": "general-purpose",
+  "task_description": "Sink manifest schema package",
+  "files": [
+    ".manifest-split/imports.py",
+    ".manifest-split/move.py",
+    ".manifest-split/spans.py",
+    ".manifest-split/verify.py",
+    ".manifest-split/verify2.py",
+    "internal/cli/command/webhook/webhooks_test.go",
+    "internal/cli/internal/manifest/main_test.go",
+    "internal/cli/internal/manifest/read_test.go",
+    "internal/cli/internal/manifest/read_unix_test.go",
+    "internal/cli/versioned_state_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 182,
+    "cache_creation_tokens": 246095,
+    "cache_read_tokens": 15686023,
+    "output_tokens": 86425,
+    "api_call_count": 91
+  },
+  "started_at": "2026-10-26T19:48:46.472554-07:00",
+  "completed_at": "2026-10-26T20:09:28.983731-07:00"
+}

@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_012tKnuqoZyWfHTi8VaXuaES",
+  "agent_id": "a9b05892a5b3c6c9f",
+  "subagent_type": "general-purpose",
+  "task_description": "Move add and guide commands",
+  "token_usage": {
+    "input_tokens": 126,
+    "cache_creation_tokens": 398951,
+    "cache_read_tokens": 6920682,
+    "output_tokens": 42988,
+    "api_call_count": 63
+  },
+  "started_at": "2026-10-26T21:30:03.466409-07:00",
+  "completed_at": "2026-10-26T21:35:08.576598-07:00"
+}

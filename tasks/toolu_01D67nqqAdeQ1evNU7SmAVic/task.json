@@ -1,0 +1,26 @@
+{
+  "tool_use_id": "toolu_01D67nqqAdeQ1evNU7SmAVic",
+  "agent_id": "a8ddb73f54e6e417d",
+  "subagent_type": "general-purpose",
+  "task_description": "Sink facts store package",
+  "files": [
+    "internal/cli/facts_locus.go",
+    "internal/cli/facts_locus_test.go",
+    "internal/cli/facts_manifest.go",
+    "internal/cli/internal/factstore/factstore.go",
+    "internal/cli/internal/factstore/integrity.go",
+    "internal/cli/internal/factstore/locus.go",
+    "internal/cli/internal/factstore/main_test.go",
+    "internal/cli/runnable_remedies_test.go",
+    "internal/cli/versioned_state_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 220,
+    "cache_creation_tokens": 450815,
+    "cache_read_tokens": 17780208,
+    "output_tokens": 80207,
+    "api_call_count": 110
+  },
+  "started_at": "2026-10-26T20:17:48.996277-07:00",
+  "completed_at": "2026-10-26T20:39:18.873763-07:00"
+}

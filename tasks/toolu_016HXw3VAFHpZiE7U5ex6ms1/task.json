@@ -1,0 +1,31 @@
+{
+  "tool_use_id": "toolu_016HXw3VAFHpZiE7U5ex6ms1",
+  "agent_id": "ac33b53a2a9620605",
+  "subagent_type": "general-purpose",
+  "task_description": "Move facts commands (retry)",
+  "files": [
+    "internal/cli/command/facts/deps.go",
+    "internal/cli/command/facts/facts_write_cmd.go",
+    "internal/cli/command/facts/facts_write_cmd_test.go",
+    "internal/cli/command/facts/main_test.go",
+    "internal/cli/distill.go",
+    "internal/cli/facts_commands.go",
+    "internal/cli/facts_global.go",
+    "internal/cli/facts_global_test.go",
+    "internal/cli/facts_read_cmd.go",
+    "internal/cli/facts_write_ollama_test.go",
+    "internal/cli/internal/factstore/factstore.go",
+    "internal/cli/internal/factstore/global.go",
+    "internal/cli/root.go",
+    "internal/cli/webhooks_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 228,
+    "cache_creation_tokens": 449672,
+    "cache_read_tokens": 17866140,
+    "output_tokens": 91426,
+    "api_call_count": 114
+  },
+  "started_at": "2026-10-26T20:49:15.795418-07:00",
+  "completed_at": "2026-10-26T21:12:46.051632-07:00"
+}

@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01Jm8EApYqV2inDnmo3CoxSr",
+  "agent_id": "ac9b3ea0d8dc538d4",
+  "subagent_type": "general-purpose",
+  "task_description": "Move memory and privacy commands",
+  "token_usage": {
+    "input_tokens": 58,
+    "cache_creation_tokens": 108321,
+    "cache_read_tokens": 2346296,
+    "output_tokens": 22896,
+    "api_call_count": 29
+  },
+  "started_at": "2026-10-26T21:22:09.808528-07:00",
+  "completed_at": "2026-10-26T21:29:02.965255-07:00"
+}

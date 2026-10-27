@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01XCEgQs14tdjEV35c8aN3eC",
+  "agent_id": "acbde5373b76f37cf",
+  "subagent_type": "general-purpose",
+  "task_description": "Sink history store package",
+  "token_usage": {
+    "input_tokens": 268,
+    "cache_creation_tokens": 432634,
+    "cache_read_tokens": 23725173,
+    "output_tokens": 94926,
+    "api_call_count": 134
+  },
+  "started_at": "2026-10-26T21:21:59.250696-07:00",
+  "completed_at": "2026-10-26T21:35:08.527652-07:00"
+}
