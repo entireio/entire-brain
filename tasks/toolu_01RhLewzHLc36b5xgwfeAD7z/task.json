@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01RhLewzHLc36b5xgwfeAD7z",
+  "agent_id": "a72ee90ff4b49d517",
+  "subagent_type": "general-purpose",
+  "task_description": "Move viz command to package",
+  "token_usage": {
+    "input_tokens": 26,
+    "cache_creation_tokens": 122127,
+    "cache_read_tokens": 1155522,
+    "output_tokens": 17560,
+    "api_call_count": 13
+  },
+  "started_at": "2026-10-26T18:09:15.6209-07:00",
+  "completed_at": "2026-10-26T18:13:13.443379-07:00"
+}

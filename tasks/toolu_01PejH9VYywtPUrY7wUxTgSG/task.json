@@ -1,0 +1,20 @@
+{
+  "tool_use_id": "toolu_01PejH9VYywtPUrY7wUxTgSG",
+  "agent_id": "a11e41580c1a28e1e",
+  "subagent_type": "general-purpose",
+  "task_description": "Move ops commands to packages",
+  "files": [
+    "internal/cli/command/webhook/main_test.go",
+    "internal/cli/internal/clitest/webhookfakes.go",
+    "internal/cli/webhooks_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 126,
+    "cache_creation_tokens": 222872,
+    "cache_read_tokens": 10642771,
+    "output_tokens": 87261,
+    "api_call_count": 63
+  },
+  "started_at": "2026-10-26T18:40:29.878896-07:00",
+  "completed_at": "2026-10-26T19:01:59.120264-07:00"
+}
