@@ -1,0 +1,1608 @@
+<task-notification>
+<task-id>a72ee90ff4b49d517</task-id>
+<tool-use-id>toolu_01RhLewzHLc36b5xgwfeAD7z</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a72ee90ff4b49d517.output</output-file>
+<status>completed</status>
+<summary>Agent "Move viz command to package" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>**VERDICT: viz is NOT movable in this wave — category (c) is large. Nothing committed; this closure map is the deliverable.**
+
+## Branch + commit
+
+- Branch `cor-2268-cmd-viz` created from `cor-2268-cmdutil` (57a9aac5); working tree clean, **no commit** per mandate.
+- Tool preflight: Brain v0.3.0-17-g98a7c172 and Graph entire-graph v0.6.0 both available. Brief run; recall (branch + `--branch main`) found no recorded retrieval-surface wave decision. All closure symbols are unexported, so per recipe step 3 grep (not `graph impact`, which covers exported/shared symbols) is the sanctioned evidence; counts below exclude `viz*` files. Finding recorded as durable memory `fact:b80d6f198d42a3c09bfdfc13`.
+
+## Cluster files
+
+Prod: `/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a72ee90ff4b49d517/internal/cli/viz.go` (1496 lines). Tests: `viz_test.go` (447), `viz_graph_regression_test.go` (137), `viz_optimization_test.go` (303). No other `*_test.go` roots exercise only viz.
+
+## Closure map (symbol → category → proposed home → knock-on = non-viz refs in cli)
+
+**(a) already importable — no work:** `entirebrain.WebUI` (viz.go:201), `base.BrainInvocation`/`SemanticIndexVerb` (979, 1067, 1238), `base.Options`/`base.BrainDirForKey`, `brainstore.CaptureRetrievalPrivacyPolicy` (249), `brainstore.LoadSessionTombstonesChecked` + tombstone state consts (452–462), `brainstore` save/empty/path/corrupt-code (tests), `sqlitedriver.Name` (tests), `clitest`. Viz-local symbols (`parseRepoFromKey`, `openBrowser`, `vizShortID`, `writeJSONHTTP`, all handlers/view models) move free.
+
+**(b) small sinkable helpers (rule 5) — insufficient alone:**
+| Symbol | Def | Used at | Proposed home | Knock-on |
+|---|---|---|---|---|
+| `firstNonEmpty` | dash.go:618 | viz.go:863,944,1158 | cmdutil | 9 refs |
+| `commandErrorCode` | root.go:519 | viz.go:455 | cmdutil (depends on brainstore error codes) | 6 refs |
+| `knownRepoDomainSlugs` | env.go:24 | viz.go:534 | base | 7 refs |
+
+**(c) retrieval/presentation internals — large closure, blocks the move:**
+- **Manifest schema**: `exportManifest` (semantic.go; viz.go:92,123 — 271 refs), `exportSession` (795,830,922 — 245), `brainSources` (149), `semanticSourceManifest` (semantic.go:110 — 82), `sessionSourceManifest` (92), `historySourceManifest` (120), `factSourceManifest` (39), `checkpointSummary` (14). Proposed home: new `internal/cli/internal/manifest`. Knock-on: ~900 references across nearly every cli file.
+- **Semantic read path** (semantic.go): `semanticRecord` (:261 — **415 refs**), `semanticContextFacts` (:3163), `semanticSymbolsForFiles` (:3315), `validateSemanticDeclaredStore` (:3557), `findSemanticRelationsForSymbolsInSQLite` (:3835), `loadSemanticSymbolsByIDsSQLite` (:4039), `neighborCandidateIDs` (:3091), `resolveContextNeighbors` (:3124), `loadSemanticSymbols` (dash.go:516). Used at viz.go:987, 1192–1474. Proposed home: `internal/cli/internal/semantic`; entangled with dash/search/regression/agent-surface.
+- **Session read guard** (session_privacy.go): `sessionReadGuard`, `loadSessionReadGuard` (:232), `guardExportSessions` (:242), `guardBlocksRecord` (:255), `guardFactRecords` (:281), `excludedTranscriptPaths` (:57). Used at viz.go:94,127,432–472,729,1080. Proposed home: brainstore — but `excludedTranscriptPaths` takes `*exportManifest`, so manifest must sink first. ~120 refs combined.
+- **Retrieval transport** (retrieval_transport.go): `retrievalPrivacyPolicy` (:45), `withLockedRetrievalPrivacyPolicies` (:102), hook-seam vars `beforeRetrievalResponsePrivacyEmissionCheck` (:35) and `beforeRetrievalResponseWrite` (:41) — used at viz.go:260–262. Rule 4: vars get ONE home; swap sites in `retrieval_transport_test.go`, `memory_abstract_privacy_linearization_test.go`, `pattern_corpus_read_safety_test.go` all rename.
+- **Stores**: `loadFacts`/`factRecord`/`factAnchor` (facts.go:159; viz.go:722–729 — factRecord alone **707 refs**); `loadBrainHistoryIndex`/`historyRecord`/`historyIndex`/`historyIndexPath` (history.go:3142; viz.go:1070–1080 — ~570 refs); `loadDocIndex`/`docIndex`/`docRecord` (doc.go:272; viz.go:425,1136,1144 — ~64 refs).
+- **Unified retrieval**: `retrieveUnified` (retrieve.go:183), `modeLexical` (retrieve.go:74) at viz.go:1412; closure spans retrieve.go's `unifiedResult` (162 refs) and all four stores.
+- **Agent surface**: `agentSurfaceTarget` (agent_surface.go:5795; viz.go:76 — 49 refs), `buildBrainStatusReport` + `brainStatusReport` (agent_surface.go:4595; viz.go:124 — 96 refs), `resolveFactsTarget` (facts_read_cmd.go:46; viz.go:116 — 39 refs). Rule-3 wrappers can't help: these run inside `RunE` in the new package.
+- **Test-only fixtures the moved tests would need** (rule 2 forbids rewriting): `writeFacts`, `factsFileRelPath`, `factStatusActive`, `semanticTestEnv`, `semanticFixtureRunner`, `semanticFixtureSnapshotWithCallerSymbol` (semantic_test.go:1763), `runSemanticIndex`/`semanticIndexOptions`, `loadGraphManifest`, `loadBrainManifest`, `writeBrainManifestAndReadme`, `writeSessionTombstoneBytes` (session_tombstone_fail_closed_test.go:17), `loadBrainIgnore`, `filterSemanticSnapshot`, `buildSemanticGeneration`, `semanticSQLiteName`, `graphStoreDescriptor`/`graphStoreSource`, `historyIndex` writers — each with 10–378 non-viz refs.
+
+## Gates
+
+Not run — nothing moved, nothing to gate. Inventory snapshots not taken for the same reason.
+
+## Conclusion
+
+viz is the thinnest possible shim over the entire cli retrieval surface: every handler is manifest + store-loader + guard + privacy-transport. It must wait for the retrieval-surface wave; the sensible wave order is manifest schema → stores (facts/history/docs/semantic) → session guard + retrieval transport (hook vars, rule 4) → `retrieveUnified` → then viz (and dash, which shares ~80% of this closure) move almost mechanically.</result>
+<usage><subagent_tokens>132280</subagent_tokens><tool_uses>17</tool_uses><duration_ms>238295</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a72ee90ff4b49d517</worktreePath><worktreeBranch>worktree-agent-a72ee90ff4b49d517</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a084c625ecd013f9f</task-id>
+<tool-use-id>toolu_01AfbxhHVWyivq3TZKGCLC7C</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a084c625ecd013f9f.output</output-file>
+<status>completed</status>
+<summary>Agent "Move system commands to packages" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Waiting for the race-suite result; the monitor will fire when it completes.</result>
+<usage><subagent_tokens>158194</subagent_tokens><tool_uses>81</tool_uses><duration_ms>709711</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a084c625ecd013f9f</worktreePath><worktreeBranch>worktree-agent-a084c625ecd013f9f</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a084c625ecd013f9f</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a084c625ecd013f9f.output</output-file>
+<status>completed</status>
+<summary>Agent "Move system commands to packages" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Still mid-`internal/cli` under race — expected, it's the long package. Waiting for the completion notifications.</result>
+<usage><subagent_tokens>157922</subagent_tokens><tool_uses>82</tool_uses><duration_ms>941412</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a084c625ecd013f9f</worktreePath><worktreeBranch>worktree-agent-a084c625ecd013f9f</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a084c625ecd013f9f</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a084c625ecd013f9f.output</output-file>
+<status>completed</status>
+<summary>Agent "Move system commands to packages" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Waiting for the rerun result.</result>
+<usage><subagent_tokens>167344</subagent_tokens><tool_uses>90</tool_uses><duration_ms>1115228</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a084c625ecd013f9f</worktreePath><worktreeBranch>worktree-agent-a084c625ecd013f9f</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bnogg3ubu</task-id>
+<tool-use-id>toolu_012o1To8QcQJjfrJ417daWg5</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/bnogg3ubu.output</output-file>
+<status>completed</status>
+<summary>Background command "Full race suite for wave 0" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a084c625ecd013f9f</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a084c625ecd013f9f.output</output-file>
+<status>completed</status>
+<summary>Agent "Move system commands to packages" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Report — COR-2268 system-command cluster
+
+**Branch / commit:** `cor-2268-cmd-system` @ `83b5fb5b` (from `cor-2268-cmdutil`). Not pushed.
+
+**Preflights:** Brain v0.3.0-17-g98a7c172 and Graph entire-graph v0.6.0 both available; brief run. One Graph gap: `impact` could not resolve the unexported Go consts (`brainCGOBuild`, `retrievalSourceFact`) — fuzzy-matched unrelated JSON/Markdown sections — so consumer enumeration for unexported symbols fell back to grep, which the recipe permits.
+
+**Moved (prod):**
+- `internal/cli/version.go` → `internal/cli/command/version/version.go`, `version.New(version string)` — IDENTICAL under rename map (`newVersionCommand`→`New`).
+- `internal/cli/capabilities.go` → `internal/cli/command/capabilities/capabilities.go`, `capabilities.New(opts base.Options)` — IDENTICAL under rename map (+2 import lines). `brainCapabilities`/`brainSourceCapability` exported (`BrainCapabilities`/`BrainSourceCapability`) because `agent_setup_test.go`, a root-routing test staying in cli, decodes the JSON contract into them.
+- `root.go` registrations updated; new packages import only base/brainstore/sqlitedriver — never `internal/cli`.
+
+**Helpers sunk (grep evidence, per-file counts cited in-session):**
+- `brainCGOBuild` → `sqlitedriver.BrainCGO`; `sqlite_driver_purego.go` deleted; call sites: memory_admin.go + 2 tests.
+- `retrievalSourceAll/Fact/History/Conversation/Doc` → `brainstore.RetrievalSource*` (new `brainstore/retrieval_sources.go`, comment verbatim); all 20 cli files renamed (6 prod, 14 test).
+
+**Tests:** none moved. `capabilities_report_regression_test.go` stays in cli — it drives `NewRootCommand` and depends on cli-private fixtures (`fakeCommandRunner`, `execute`, `evalCommandFailWriter`) shared by hundreds of cli tests; moving it would mean duplicating or mass-sinking fixtures. Only symbol-qualification edits applied (`newCapabilitiesCommand`→`capabilities.New`, `brainCGOBuild`→`sqlitedriver.BrainCGO`). Inventory: before 3252 roots in ./internal/cli, after 3252, diff empty — IDENTICAL. New packages report `[no test files]`, so no `main_test.go` was created.
+
+**Did not fit the rules (left in cli):**
+- **doctor** — closure spans 18 cli-private symbols across nine files (`doctorCheckResult`/`brainDoctorReadOnlyReport` in lifecycle_ops.go, `memoryInstallDirectoryHealth`/`inspectAbsoluteInstallDirectory` in memory_admin.go, `staleReport`/`semanticStaleReport`/`brainBlindSpotsForRepo` in semantic.go, `repoStoragePaths` (34 prod files) and `valueOrUnset` (14) in env.go, `loadGraphManifest`, `failedSetupComponents`/`setupComponentLabel`, `groupStatusBlindSpots`, `semanticAudit*`, `renderedCommandError`). Far over the ~3 budget.
+- **path** — `runPathRefresh` drives the whole refresh pipeline (`runRefresh`, `refreshCommandOptions`, `seedCommandOptions`), plus `resolveRepoStorageSetWithSlug`/`repoKeyFromRemoteWithSlug`/`repoStorageContainsState`, slug hooks, `repoRemoteSCPRegex`, `exportManifestFileName` (12 prod files); and path.go itself hosts `gitWorkTreeRoot`/`nameDegenerateRepoFailure`/`notARepositoryError` consumed by 3–4 other cli files. Extractable only after a refresh/storage-resolution sink wave.
+- One cli-test edit outside the cluster's files: `runnable_remedies_test.go` dropped its capabilities.go allowlist entry — the static scan reads only `internal/cli/*.go`, so the moved file left its scope (entities precedent); the hardcoded contract strings stay pinned by the regression test.
+
+**Gates (real output):**
+- `go build ./...`, `go vet ./...`, `gofmt -l -s` — clean.
+- `go test -race -count=1 ./internal/cli/command/...` — `[no test files]` (both packages).
+- Focused `go test -race -count=1 ./internal/cli -run 'Capabilities'` — ok 1.5s.
+- `GOOS=windows GOARCH=amd64 go build ./...` — OK (4.9s).
+- ci-bench unittest — `Ran 41 tests in 1.031s OK`. `mutation_check.py` — 4/4 PASS.
+- Full race suite `go test -race -p=1 ./... -count=1 -timeout=30m`: first run — 20 packages ok, internal/cli FAIL solely on `TestNoHardcodedBrainSpellingInPrintedRemedies` (the stale allowlist above). After the fix: targeted rerun ok, then full `go test -race -count=1 -timeout=20m ./internal/cli` — **ok 580.3s**. The other 20 packages were not rerun after that test-only edit (it cannot affect them); stated per the recipe's honesty rule.
+
+Durable memory recorded (`fact:52ce141c61686f90ee191378`, architecture.cli.decision).</result>
+<usage><subagent_tokens>174334</subagent_tokens><tool_uses>96</tool_uses><duration_ms>1750221</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a084c625ecd013f9f</worktreePath><worktreeBranch>worktree-agent-a084c625ecd013f9f</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a11e41580c1a28e1e</task-id>
+<tool-use-id>toolu_01PejH9VYywtPUrY7wUxTgSG</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a11e41580c1a28e1e.output</output-file>
+<status>completed</status>
+<summary>Agent "Move ops commands to packages" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Four packages green so far; the big `internal/cli` package is still running (it takes ~10 minutes per the format-gate memory). Waiting for the suite to finish before committing.</result>
+<usage><subagent_tokens>229118</subagent_tokens><tool_uses>82</tool_uses><duration_ms>1289806</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a11e41580c1a28e1e</worktreePath><worktreeBranch>worktree-agent-a11e41580c1a28e1e</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a11e41580c1a28e1e</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a11e41580c1a28e1e.output</output-file>
+<status>completed</status>
+<summary>Agent "Move ops commands to packages" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Report — cor-2268-cmd-ops cluster
+
+**Branch / commit:** `cor-2268-cmd-ops` (base `cor-2268-cmd-system` per orchestrator) — `bdd6446298fd7c996f8b91d95da1f934cea10782`. Not pushed.
+
+**Preflight (recorded):** Brain v0.3.0-17-g98a7c172 available (task_briefs, durable_facts, bm25); Graph entire-graph v0.6.0 available (Go CALLS/IMPORTS/USES_TYPE, impact). Brief run first; recall on base branch returned fact:52ce141c61686f90ee191378 (doctor/path deliberately left in cli, 18-symbol closure). One coverage limit: Graph does not model Go consts as impact nodes (Webhook* consts fuzzy-matched unrelated symbols, 0 callers) — fell back to grep for those four; impact confirmed grep exactly for every modeled function (notify* callers: facts_admin_cmd.go, facts_write_cmd.go, refresh.go, webhooks_test.go; both constructors only root.go).
+
+**Moved**
+- `config.go` → `internal/cli/command/config` (`config.New(env base.EntireEnv)`); fully self-contained (the `configPath` hit in memory_admin_contract_test.go is a local variable). No test files existed.
+- `webhooks.go` + `webhooks_cmd.go` → `internal/cli/command/webhook`, wholesale: the engine's only cli-private dep was `factRecord` = `factmerge.Record` alias. Exports: `New`, `NewStatusCommand`, `NewTestCommand`, `NotifyFactWebhook`, `NotifyGlobalFactWebhook`, `NotifyBrainWebhook`, `WebhookEvent`, `WebhookFact`, `WebhookEventNames`, `WebhookRepoIdentity`, `WebhookURLEnv`, `WebhookIncludeTextEnv` (+ the four already-capitalized event consts). cli callers renamed in facts_write_cmd.go, facts_admin_cmd.go, refresh.go (sanctioned: they already called the moved code); root.go mounts `webhook.New` / `config.New`.
+
+**Helpers sunk:** webhook test fakes → `internal/cli/internal/clitest/webhookfakes.go` (`WebhookRecorder`, `WebhookRecordedRequest`, `WebhookEndpointServer`, `SampleWebhookFact`, `WebhookTestNow`), used by both cli and webhook tests (grep: only webhooks_test.go used them before). One deliberate signature extension: `WebhookEndpointServer(t, urlEnv)` takes the env-var name — clitest cannot import command/webhook (webhook's internal tests import clitest; compiler cycle). None of `firstNonEmpty`/`commandErrorCode`/`knownRepoDomainSlugs` was needed; left alone.
+
+**Tests:** inventory before 3252 = after 3235 (cli) + 17 (webhook); union diff empty. 17 moved roots all IDENTICAL under the rename map (incl. TestWebhookEndpointComesOnlyFromTheEnvironment, which moves with the file it reads). 13 webhook-related roots stay in cli (remember/retract write paths, fixture-dependent command tests, source scanners); 11 IDENTICAL under qualification, 2 DIFFER by one forced edit: TestEveryAdvertisedEventIsActuallyEmitted and TestEveryWebhookCallSiteUsesOneRepoIdentity now scan `.` plus `command/webhook` (the `webhook test` emitter moved there); assertions unchanged. Nothing re-pointed from NewRootCommand.
+
+**Gates (verbatim results)**
+- `go test -race -count=1 ./internal/cli/command/webhook` — ok 1.585s (config: no test files; clitest ok 1.251s)
+- focused `go test -race -count=1 ./internal/cli -run 'Webhook|Remember|GlobalFact|EveryAdvertisedEvent|Config'` — ok 4.657s
+- `GOOS=windows GOARCH=amd64 go build ./...` — OK
+- ci-bench unittest — Ran 41 tests, OK
+- `mutation_check.py` — 4/4 PASS
+- full `go test -race -p=1 ./... -count=1 -timeout=30m` — exit 0, 22 ok / 0 FAIL (internal/cli 332.8s)
+- gofmt -l -s clean; go vet clean
+
+**Deferred (left in cli, closures mapped)**
+- **docs** (`docs_cmd.go`): needs `extractDocumentText`, `documentFormatFor`, `documentExtractionError`, `maxExtractDocumentBytes` — all in `docextract.go`/`docextract_pdf.go` (2,422 lines, pure stdlib), shared with `seed.go` (4 refs). &gt;3 non-storage/output/env helpers; proposed home: new leaf package `internal/cli/internal/docextract`, then command/docs is trivial.
+- **repo-identity** (`repo_identity_cmd.go`): needs `resolveRepoStorageSet` (env.go:137), `repoStorageSet` (env.go:102, also consumed by `repoStoragePaths`, which ~90 cli files use), `localRepoIdentityConflictCode` (env.go:33); transitive sink closure is ~half of env.go's identity machinery (resolveRepoStorageIdentityWithSlug, repoDomainSlug, knownRepoDomainSlugs, …) — that belongs to the `cor-2268-env-resolution` cluster; sink to base there first.
+- **bench** (`bench.go` + `bench_scale.go`): needs `runSemanticIndex`/`semanticIndexOptions` (semantic.go, 30+ consumers, off-limits), `repoStoragePaths`, `loadBrainManifest`/`exportManifest` (brain.go, 100+ consumers), `loadFacts` — ≥5 shared cli-core helpers.
+
+Decision + deferral map recorded in Brain (fact:7d44edb10660fe505c4d7448, architecture.cli.decision).</result>
+<usage><subagent_tokens>233138</subagent_tokens><tool_uses>85</tool_uses><duration_ms>1644911</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a11e41580c1a28e1e</worktreePath><worktreeBranch>worktree-agent-a11e41580c1a28e1e</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a6416692688be5c85</task-id>
+<tool-use-id>toolu_018QDRRvQaYT1BD1Z1Hqhi6X</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a6416692688be5c85.output</output-file>
+<status>completed</status>
+<summary>Agent "Extract docextract; move docs command" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>I'll wait for the monitor/background notifications.</result>
+<usage><subagent_tokens>208521</subagent_tokens><tool_uses>86</tool_uses><duration_ms>755112</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a6416692688be5c85</worktreePath><worktreeBranch>worktree-agent-a6416692688be5c85</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a54fce9b736fcbb39</task-id>
+<tool-use-id>toolu_01T5K2NYdZuqGJH77QF1U5Wi</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a54fce9b736fcbb39.output</output-file>
+<status>completed</status>
+<summary>Agent "Move facts-link commands to packages" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Report — cluster cor-2268-cmd-connect
+
+**Branch** `cor-2268-cmd-connect` (from `cor-2268-cmd-system`), commit `f5284d40117d6978442fd279b7f062c063fe41d6`. Not pushed. Tree clean.
+
+Preflight: Brain v0.3.0-17-g98a7c172 available (brief + recall run; recall cited COR-2109 disconnect semantics and the hosted.json never-rewrite invariant). Graph entire-graph v0.6.0 available (query + neighbors used for caller analysis).
+
+**Moved files**
+- Prod: `connect_cmd.go` → `internal/cli/command/connect/connect.go`; `disconnect_cmd.go` → `internal/cli/command/disconnect/disconnect.go`.
+- Tests: 4 connect unit roots → `command/connect/connect_test.go` (+ `main_test.go` clitest pin); `hosted_binding_test.go` (4 roots) → brainstore.
+- Moved roots (8): TestPlacementFailureErrorWithoutStderrNamesTheCommand, TestCheckHostCLIVersion, TestResolveHostedPlacementBoundsTheShellOut, TestResolveHostedPlacementRefusesAnOldHostCLI; TestHostedRepoBinding{RoundTrip,OptOutRoundTrip,Absent,Corrupt}.
+- Inventory: cli before 3252 → after 3244; +4 command/connect, +4 brainstore; union equals before-list exactly. Body comparison: all 8 IDENTICAL under the rename map.
+
+**Design deviation (flagged):** the recipe's `New(opts base.Options)` was not achievable — connect's closure spans the hosted sync engine (`hostedFactsSyncAndPull`, shared with watch.go/hook_cmd.go per Graph) and the env.go repo-identity subsystem (`repoStoragePaths`, 54 call sites). Instead of a foundation-sized sink, both packages follow the in-repo COR-2268 pilot (`entities_config.go`): `New(cfg Config)` with Deps bound in cli's `connect_config.go` (RepoStoragePaths, AgentSurfaceTarget, InstallPushHook, HostedFactsSyncAndPull, HostedSyncBranch / UninstallPushHook). One home kept for every helper; no shims, no duplication.
+
+**Helpers sunk** (grep + graph-cited shared use): `hosted_binding.go` → `brainstore.{HostedRepoBinding,Read/Write…,SetHostedOptOut,HostedRepoBindingFile}` (9 cli files renamed); `renderHostedBanner` → `cmdutil.RenderHostedBanner`; `hostEntireBinary`/`hostedShellOutTimeout`/`decodeHostCLIJSON` → `base` (hostcli.go); `commandRunnerFunc` fake → `clitest.CommandRunnerFunc` (6 test files).
+
+**Re-pointed constructors:** e2e TestConnect*/TestDisconnect* roots stay in cli (they drive the shared sync engine via `hostedFake` fixtures and assert through cli-private `loadFacts`/`repoStoragePaths`); edits are qualification-only, `newConnectCommand(opts)` → `connect.New(connectConfig(opts))` etc.
+
+**Gates (verbatim results)**
+- `go test -race -count=1` new/touched pkgs: connect ok 1.330s, brainstore ok 3.096s, clitest ok 1.388s, base ok 1.849s (disconnect: no test files, so no pin added).
+- focused `./internal/cli -run 'TestConnect|TestDisconnect|TestHosted|TestPublish|…'`: ok 4.723s.
+- `GOOS=windows GOARCH=amd64 go build ./...`: OK.
+- ci-bench unittest: Ran 41 tests, OK. `mutation_check.py`: 4/4 PASS.
+- Full `go test -race -p=1 ./... -count=1 -timeout=30m`: first run FAILED only on `TestNoHardcodedBrainSpellingInPrintedRemedies` ("8 of 10 allowlist entries"); fixed (below); rerun exit 0, 22 pkgs ok, cli 384.0s. `gofmt -l -s` clean. `tools/ci-bench/` and cli `main_test.go` untouched.
+
+**Out-of-cluster fix (forced):** removed two stale remedies-allowlist entries — `disconnect_cmd.go` (left the scanned dir) and `mcp.go` (file deleted upstream; previously masked because disconnect matched two lines, holding the count exactly at the floor). Coverage gap for the orchestrator: that guard scans only `internal/cli/*.go`, so the moved packages' Long-help hardcodes now escape it.
+
+**Deferred: publish.** Closure beyond importable packages (all cli-private, all shared): `resolveManualHostedTarget`/`manualHostedTarget`+`mintHostedToken` (shared with facts_sync_cmd), `loadBrainManifest`+`exportManifest`+`semanticSourceManifest` (export/refresh layer), `loadSessionReadGuard`+`guardFactRecords`+`factRecord`, `factsBranchRelDir`/`factsFileRelPath`/`factsDirName`/`factsFileName`/`semanticDirName`, `runGitOutput`, `parseRepoRemote`/`normalizeRepoHost` (env.go), `repoStoragePaths`, `brainExportExists` — ≥8 non-obvious helpers, and `exportManifest`/`sessionReadGuard`-typed values cross the boundary, so Deps injection can't carry them. Needs the manifest/facts-store sink first. Decision recorded as a Brain memory (fact:972b6b795fcb5d82bd13f5a5).</result>
+<usage><subagent_tokens>266949</subagent_tokens><tool_uses>127</tool_uses><duration_ms>2868027</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a54fce9b736fcbb39</worktreePath><worktreeBranch>worktree-agent-a54fce9b736fcbb39</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a6416692688be5c85</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a6416692688be5c85.output</output-file>
+<status>completed</status>
+<summary>Agent "Extract docextract; move docs command" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>I'll wait for the completion notification.</result>
+<usage><subagent_tokens>211178</subagent_tokens><tool_uses>89</tool_uses><duration_ms>1238519</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a6416692688be5c85</worktreePath><worktreeBranch>worktree-agent-a6416692688be5c85</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bs77hzyar</task-id>
+<tool-use-id>toolu_01KPHV4z5mPh4Hd1oYyUnwSX</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/bs77hzyar.output</output-file>
+<status>killed</status>
+<summary>Background command "Check trail link; watch CI" was stopped after reaching its background time limit</summary>
+<note>If the work in progress still needs it, start it again with `run_in_background` and a longer `timeout`. If it already had the longest `timeout` allowed, do not restart it. Either way, report that it was stopped.</note>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a6416692688be5c85</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a6416692688be5c85.output</output-file>
+<status>completed</status>
+<summary>Agent "Extract docextract; move docs command" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All done. Final report.
+
+---
+
+## Report — docs cluster (COR-2268 command-assembly split)
+
+**Branch + commit:** `cor-2268-cmd-docs` (base `cor-2268-cmd-ops` per task override), commit `7ebcf6d9`. Not pushed.
+
+**Preflight (recorded):** Brain v0.3.0-17-g98a7c172 — available (bm25 retrieval, durable facts, briefs). Graph entire-graph v0.6.0 — available, full Go semantic coverage incl. impact. Brief run before work. Deferral map recalled: fact:7d44edb10660fe505c4d7448 (`--branch cor-2268-cmd-ops`; this worktree branch holds no memories, which the recall output flagged).
+
+**Moved files**
+
+*Prod*
+- `internal/cli/docextract.go` + `docextract_pdf.go` → `internal/cli/internal/docextract/` (pure stdlib, zero cli deps confirmed). Exports limited to the consumer closure: `ExtractDocumentText`, `DocumentFormatFor`, `DocumentFormat`, `FormatUnknown`, `DocumentExtractionError`, `MaxExtractDocumentBytes`. All PDF/Office internals stay unexported.
+- `internal/cli/docs_cmd.go` → `internal/cli/command/docs/docs.go`, `docs.New(opts base.Options)`; `root.go` mounts `docs.New(opts)`. Beyond docextract, docs_cmd had zero cli-private helpers — no deferral needed.
+
+*Tests* (split by what each root exercises)
+- `docextract_test.go` → docextract pkg wholesale (26 roots).
+- `docextract_review_test.go` → docextract pkg (10 roots); its one seed-coupled root (`TestExtractedSeedPathsDoNotOverwriteMarkdown`, uses `scanSeedRepository`/`writeSeedArtifacts`) relocated into cli's `docextract_seed_test.go`.
+- 8 pure PDF/Office-budget roots from `docextract_seed_test.go` → `docextract/docextract_budget_test.go`; the 13 seed-integration roots stay in cli.
+- `docs_cmd_safe_read_test.go` → `command/docs/docs_safe_read_test.go` (2 roots).
+- New `main_test.go` (clitest pin) in both new test packages, created before test moves.
+
+**Helpers sunk** (rule 5; evidence: exhaustive grep of every docextract symbol across `internal/` + `cmd/`, plus `entire graph impact --head` on `extractDocumentText` (32 callers, all docextract tests/docs/seed), `documentFormatFor` (docs_cmd.go, seed.go, docextract tests), `extractableDocumentExtensions` (package-internal only), `documentExtractionError`/`maxExtractDocumentBytes` (grep: seed.go + docs_cmd.go)):
+- `docextract_fixtures_test.go` → `clitest/docfixtures.go`: `ZipFile`, `DocxFixture`, `DocxParagraph`, `PDFBuilder` (`Add`/`AddStream`/`Build`), `SimplePDF`, `IdentityHPDF` — needed by both docextract tests and cli seed tests.
+- `allocatedBy` (seed_bounded_read_test.go) → `clitest.AllocatedBy` — shared by a moved review test and 4 staying cli call sites; all 5 renamed.
+- Hook-seam vars: none in this cluster.
+
+**Re-pointed from NewRootCommand:** none — no moved test drove the root command.
+
+**Inventory:** before 3235 roots in `./internal/cli`; after 3189 (cli) + 44 (docextract) + 2 (command/docs) = 3235; `diff` of sorted union vs before-list: identical.
+
+**Body verification:** all 59 compared roots (moved + fixture-repointed stayers + the relocated seed root) **IDENTICAL** under the rename map.
+
+**Gates (all run, real output):**
+- `go build ./...` + `go vet ./...` clean; `gofmt -l -s internal/` empty.
+- `go test -race -count=1 ./internal/cli/internal/docextract ./internal/cli/command/docs ./internal/cli/internal/clitest` — ok (4.2s / 1.5s / 1.7s).
+- Focused `go test -race -count=1 ./internal/cli -run 'TestSeed|TestExtractable|…'` — ok 6.8s.
+- `GOOS=windows GOARCH=amd64 go build ./...` — ok.
+- `python3 -B -m unittest discover -s tools/ci-bench/windows-production/tests` — 41 tests OK.
+- `python3 -B tools/coverage/mutation_check.py` — 4/4 PASS.
+- Full `go test -race -p=1 ./... -count=1 -timeout=30m` — exit 0, 24 ok packages, no FAIL/panic (`internal/cli` 317s). Note: my first full run piped through `tail -60`, masking the exit code, so I reran it with the exit code captured — the verdict above is from the clean rerun.
+
+**Left in cli / deviations:** none beyond plan. `extractableDocumentExtensions` and the format constants stay unexported (no external callers). Decision recorded as Brain fact:2a2d698ef2261d85adde81da.</result>
+<usage><subagent_tokens>217020</subagent_tokens><tool_uses>92</tool_uses><duration_ms>1686371</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a6416692688be5c85</worktreePath><worktreeBranch>worktree-agent-a6416692688be5c85</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ad83defe37e32779a</task-id>
+<tool-use-id>toolu_01UgrSVnBxsXENQwZfRdkwzf</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/ad83defe37e32779a.output</output-file>
+<status>completed</status>
+<summary>Agent "Move facts commands to packages" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Report, in the recipe's format.
+
+---
+
+## cor-2268-cmd-facts — cluster report: DEFERRED (all four commands), no commit
+
+**Branch:** `cor-2268-cmd-facts` (created from `cor-2268-cmd-docs` @ 7ebcf6d9 as instructed). **Commit:** none — nothing movable under the rules; working tree left clean, `go build ./...` green.
+
+**Moved files / roots / inventory:** none moved. Before-inventory 3189 roots (`/tmp/facts-before-inventory.txt`); after = before (no change). No body comparisons, no NewRootCommand re-pointing, no helpers sunk.
+
+**Preflight (recorded):** Brain v0.3.0-17-g98a7c172 available (durable_facts, task_briefs, bm25). Graph entire-graph v0.6.0 available, full profile, index built clean (52131 symbols, completeness ok). Brief run; recall (branch main) confirmed COR-2268 as-built history and PR #509 MCP removal.
+
+### Why deferred — measured closure, not impression
+
+Method: Graph `neighbors` (CALLS, in) on every constructor and shared helper, plus a compile probe — the four files copied into an isolated `internal/cli/command/` package — so the closure is the compiler's list, not an estimate. Probe result: **124 distinct undefined cli-package symbols across 24 cli prod files** (probe removed afterward).
+
+`factmerge` aliases (facts_aliases.go: `factRecord = factmerge.Record` etc.) absorb the record/proposal types, consts, and pure merge functions. What remains still disqualifies every command under your criterion (&gt;8 deps or cli-private typed values crossing):
+
+- **remember** (facts_write_cmd.go): ~18 deps from 8 files (facts.go store I/O, facts_global.go, facts_locus.go, distill_cmd.go runners, facts_manifest.go, distill.go taxonomy helpers) + `factTaxonomy` (facts.go:96, cli-private) crosses in load/filter/block/write signatures.
+- **recall + blame** (facts_read_cmd.go): ~31 deps from 13 files + types `factEligibilityAudit`, `factReviewNotice` (retrieval_guard.go — the guard you flagged as not mine), brain manifest type; `runRecallEvidence` drags the whole recall_evidence.go subsystem. Also hosts `resolveFactsTarget`, which Graph shows has **~28 callers** across dash, handoff, hook_cmd, retrieve_cmd, viz, history_eval and every facts_* file — it must stay/sink regardless.
+- **facts admin group** (facts_admin_cmd.go): ~24 deps in-file + **10 sibling constructors** (tree/files/import/status/sync/vitality/eval×3/global) defined in other cli files with their own closures; types `factTaxonomy`, `outlineGenOptions` + outline types cross.
+- **verify** (verify_cmd.go): ~22 deps from 9 files + **8 cli-private types cross**: `exportManifest` (your named disqualifier), `exportSession`, `checkpointSnapshot`, `sessionCheckpoint`, `checkpointBranchDestinations`, `checkpointMetadataCache`, `factStoreIntegrity`, `brainStatusRepo`, `renderedCommandError`. Reverse edge: doctor (`lifecycle_ops.go:442` → `verificationSummaryForBranch`); `loadLocalCheckpointSnapshotLocalOnly` also serves export.go, entities_storage.go, transcript_store.go.
+
+Collapsing these into connect-style Deps would need mega-closures (`PersistAuthoredMemory`, `ResolvePaths`) that keep all orchestration in cli — shim-shaped, against rule 3/5; rule 5's "&gt;3 non-storage helpers → STOP and report" also triggers. Grouping note: the probe shows heavy overlap (resolveFactsTarget/loadFacts/rankFacts shared), so **one `command/facts` package** is the right grouping when this becomes movable.
+
+**Unblocker:** the manifest/stores wave. Once facts store I/O, taxonomy, manifest, and the checkpoint-snapshot types sink to shared internal packages, each command's residue is a handful of Deps on exported types.
+
+**Gates:** not run beyond `go build ./...` (pass) — zero diff on the branch, so race/windows/mutation/ci-bench suites would validate the base, not this work. Said explicitly per the recipe.
+
+**Recorded:** Brain memory `fact:160632ec1be48eef267364f7` (architecture.cli.decision) capturing the deferral, the 124-symbol/24-file measurement, and the stores-wave dependency.</result>
+<usage><subagent_tokens>174992</subagent_tokens><tool_uses>35</tool_uses><duration_ms>501373</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-ad83defe37e32779a</worktreePath><worktreeBranch>worktree-agent-ad83defe37e32779a</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a12b1031d0bf4ae0b</task-id>
+<tool-use-id>toolu_01JgQ4RR7wo12WJGtFiZKMiz</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a12b1031d0bf4ae0b.output</output-file>
+<status>completed</status>
+<summary>Agent "Move lifecycle commands to packages" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>All other gates are green. Waiting on the full race suite (background task `bfz6ip5ui`) before committing.</result>
+<usage><subagent_tokens>135480</subagent_tokens><tool_uses>53</tool_uses><duration_ms>581708</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a12b1031d0bf4ae0b</worktreePath><worktreeBranch>worktree-agent-a12b1031d0bf4ae0b</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a12b1031d0bf4ae0b</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a12b1031d0bf4ae0b.output</output-file>
+<status>completed</status>
+<summary>Agent "Move lifecycle commands to packages" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Done. Report:
+
+**Branch + commit**
+- `cor-2268-cmd-lifecycle` (based on `cor-2268-cmd-docs` per the base-branch override), commit `a76b389f3507b210d827950edf9a22d408a566c0`. Not pushed.
+
+**Moved files**
+- Prod: `internal/cli/pause.go` → `internal/cli/command/pause/pause.go` (exports `NewStop`/`NewStart`, both taking `base.Options`); `newDaemonReregisterCommand` cut from `internal/cli/watch_binary.go` → new `internal/cli/command/daemonreregister/daemonreregister.go` with `New(cfg Config)`, Config/Deps per the connect precedent (fact:972b6b795fcb5d82bd13f5a5). Binding `daemonReregisterConfig(opts)` lives in `watch_binary.go`; `root.go` mounts `pause.NewStop/NewStart` and `addHidden(daemonreregister.New(...))` (root's `addHidden` still sets Hidden).
+- Tests: none moved. Moved roots: 0; inventory 3189 before = 3189 after, lists byte-identical. Body verdicts: `base/pause.go` helpers IDENTICAL, `command/pause` commands IDENTICAL, `pause_test.go` IDENTICAL (only two import lines added) — all under the rename map.
+
+**Package decision (the "say why")**
+- Two packages, not one lifecycle package: after sinking the pause marker to base, stop/start's closure is base-only, while daemon-reregister's closure is injected — they share zero helpers.
+- daemon-reregister implementation (`runDaemonReregister`, `installedDaemonUnitPlan`) stays in cli: Graph impact shows its closure is `withDaemonRegistrationLock`/`installDaemon`/`daemonPlan` (setup_daemon.go), `brainWatchDaemonPlan`/`defaultSetupOptions` (setup.go), `loadSetupWatchPlan` (setup_watchplan.go) — setup-shared machinery with a type crossing the boundary, so one injected `Deps.Reregister` (bound directly, no adapter) beats a foundation-sized sink.
+
+**Helpers sunk**
+- `backgroundPaused`/`setBackgroundPaused`/`backgroundPausedPath`/`backgroundPausedFile` → `base.BackgroundPaused`/`base.SetBackgroundPaused` (+unexported path/const) in new `internal/cli/internal/base/pause.go`. Evidence: Graph impact + grep show seven cli prod consumers (memory_cmd ×2, hook_cmd, setup_status, agent_surface, setup, workspace, watch) plus the moved commands. All call sites renamed (`clibase` alias where files already alias base, and in pause_test.go where two tests shadow `base` locally).
+- Stays in cli (supervised-loop consumers in workspace.go, per impact): `watchBinaryChanged`, `watchBinaryChangeProbe`, `errWatchBinaryReplaced`, `relaunchInstalledDaemon`.
+
+**Tests left in cli (and why)**
+- `pause_test.go` and `watch_binary_test.go` roots all stay: the command roots depend on cli-private `newSetupTestFixture` and `execute` (capabilities-regression-test precedent in 83b5fb5b), the rest exercise watch/setup/hook/memory internals that stay. Symbol qualification only; nothing re-pointed from `NewRootCommand`. Consequently the two new packages have no test files (and no main_test.go — the recipe pin applies to new test packages).
+
+**Gates (all run, verbatim results)**
+- `go test -race -count=1 ./internal/cli/command/{pause,daemonreregister}` — `[no test files]` (0.1s).
+- Focused `go test -race -count=1 ./internal/cli -run '&lt;15 cluster roots&gt;'` — ok 4.9s.
+- `GOOS=windows GOARCH=amd64 go build ./...` — ok 2.8s.
+- ci-bench windows-production unittest — Ran 41 tests, OK (1.1s).
+- `tools/coverage/mutation_check.py` — all PASS (32s).
+- Full race suite `go test -race -p=1 ./... -count=1 -timeout=30m` — exit 0, 24 packages ok, `internal/cli` 307s. No fallback needed.
+- `go build`, `go vet`, `gofmt -l -s internal/` clean (no oxfmt binary exists; CI gates on gofmt+vet per recorded memory).
+
+**Preflights/evidence**: Brain v0.3.0-17 and Graph v0.6.0 both available and capability-checked; brief + recall run (connect-precedent and pause-semantics facts cited above); decision recorded as fact:4e3bfe5ef9c47a27b2265ae1 on this branch.
+
+**Nothing deferred**; no rule violations encountered.</result>
+<usage><subagent_tokens>139741</subagent_tokens><tool_uses>56</tool_uses><duration_ms>918675</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a12b1031d0bf4ae0b</worktreePath><worktreeBranch>worktree-agent-a12b1031d0bf4ae0b</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a546778e733d018be</task-id>
+<tool-use-id>toolu_012SecUUCF1FKtR7kLpMAnok</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a546778e733d018be.output</output-file>
+<status>completed</status>
+<summary>Agent "Sink manifest schema package" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Full race suite is running in the background (task `bswk29qd2`); everything else is staged and verified. I'll complete the commit, durable-memory record, and final report when the suite finishes.
+
+Status so far, all green:
+- New package `internal/cli/internal/manifest` (schema + checked read layer), builds and races clean.
+- Inventory reconciled exactly: 3189 before = 3185 (cli) + 4 (moved roots).
+- Body identity: 44/45 IDENTICAL modulo rename map; the single real diff is the deliberate `GraphStore ... json:"-"` field export.
+- Gates passed: windows build, new-package race test, focused cli `-run 'Manifest'` race test, ci-bench unittests (41 OK), mutation check (all PASS).</result>
+<usage><subagent_tokens>248030</subagent_tokens><tool_uses>98</tool_uses><duration_ms>1242873</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a546778e733d018be</worktreePath><worktreeBranch>worktree-agent-a546778e733d018be</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a546778e733d018be</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a546778e733d018be.output</output-file>
+<status>completed</status>
+<summary>Agent "Sink manifest schema package" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Committed. Final report.
+
+---
+
+## Report — manifest-schema sink (COR-2268 keystone)
+
+**Branch + commit:** `cor-2268-manifest-schema` (from `cor-2268-cmd-docs`), commit `fef71d5d`. Not pushed. 209 files, +1967/−1644.
+
+**Preflight/evidence:** Brain v0.3.0-17 and Graph v0.6.0 available, capabilities validated. Brief run; the three closure facts retrieved (per-branch: viz on `cor-2268-cmd-viz`, publish on `cor-2268-cmd-connect`, facts on `cor-2268-cmd-facts`). Impact cited: `loadBrainManifest` 827 callers (325 direct), `exportManifest` 188 type consumers — all inside package cli, so aliases + sed cover the full blast radius.
+
+**Moved (prod)** → new package `internal/cli/internal/manifest`:
+- `manifest.go` — 25 schema types extracted from export/brain/facts/history/semantic/doc/episodes/seed/graph_store/distill_usage.go, plus `FileName`, `SchemaVersion`, `MinSchemaVersion`.
+- `read.go` — git-mv of `brain_manifest_read.go` plus brain.go's load layer.
+- Rename map (1:1): `exportManifest→Manifest`, `exportBranch→Branch`, `exportSession→Session`, `exportAuthor→Author`, `brainSources→Sources`, `sessionSourceManifest→SessionSource`, `seedSourceManifest→SeedSource` (+`SeedDocument/SeedCommand/SeedHistoryBaseline/SeedHistoryCoverage/SeedCoveredCommit/SeedAgent/SeedAgentPhase`), `semanticSourceManifest→SemanticSource`, `semanticWarning→SemanticWarning`, `semanticHeader→SemanticHeader`, `graphStoreDescriptor→GraphStoreDescriptor`, `historySourceManifest→HistorySource`, `factSourceManifest→FactSource`, `docSourceManifest→DocSource`, `patternSourceManifest→PatternSource`, `checkpointTokenUsage→CheckpointTokenUsage`, `checkpointSummary→CheckpointSummary`, `distillTokenUsageSummary→DistillTokenUsageSummary`; `exportManifestFileName→FileName`, `brainManifestSchemaVersion→SchemaVersion`, `brainManifestMinSchemaVersion→MinSchemaVersion`; `loadBrainManifest→Load`, `loadBrainManifestForReplace→LoadForReplace`, `readBrainManifest→Read`, `readBrainManifestFile→ReadFile`, `decodeBrainManifestFile→DecodeFile`, `normalizeBrainManifest→Normalize`, `sessionSourceFromExport→SessionSourceFromExport`, `oldestSessionAt→OldestSessionAt`, `latestCheckpointID→LatestCheckpointID`, `errRetiredManifestField→IsRetiredFieldError`, `retiredManifestFieldMessage→RetiredFieldMessage`; internal: `decodeManifestPass→decodePass`, `shouldReplaceExportSession→shouldReplaceSession`, `retiredManifestRemedy→retiredRemedy`. Downstream-wave names from the recorded closure facts (`manifest.Manifest/Sources/Session/Load`) are all exported.
+- JSON wire shape: every tag byte-for-byte. One real body diff (verified): `SemanticSource.GraphStore` exported with `json:"-"` — previously unexported and skipped, still skipped; 4 access sites renamed.
+- `PatternSource.Reinforcement` now references `patterncore.ReinforcementCounts` directly (it was already an alias in cli).
+
+**Kept in cli:** writers (`writeBrainManifestAndReadme`, readme renderers, `writeBrainSessionSource*`, `writeBrainSeedSource*`, `applySessionSourceAliases`, `discardManifestThisBuildCannotRewrite`), worker durable-failure classifiers (`errRepositoryGone`, `durablePrepass*` — they call `bmanifest.IsRetiredFieldError/RetiredFieldMessage`), `checkpointBackedSessions`/`transcriptStorageCheckpoint`. Type aliases live in `internal/cli/manifest_aliases.go`; cli imports the package as `bmanifest` because `manifest` is a pervasive local-variable name (~200 files compile unchanged via aliases; 54 prod + 147 test files got qualified function/const renames, no shims).
+
+**Tests moved (4 roots, inventory 3189 → 3185 cli + 4 pkg, union exact):** `TestLoadBrainManifest_RetiredFieldFromOlderBuildStillReads`, `TestLoadBrainManifestForReplace_StillRefusesUnknownFields` (from versioned_state_test.go), `TestWriterRefusalExplainsItselfInsteadOfSayingCorrupt` (from brain_manifest_read_test.go), `TestBrainManifestReaderRejectsFIFOSwap` (git-mv'd unix file). `main_test.go` clitest pin created before any move. The `writeTestManifest` fixture (4 lines) is duplicated into the new test package — it still serves the staying cli tests. Nothing re-pointed from `NewRootCommand`. Body verification: 45/45 IDENTICAL modulo rename map and gofmt column realignment; sole real diff is the GraphStore field above.
+
+**Landmines handled (flagged):**
+- `TestPersistedStateDecodersRouteThroughTheSharedDecoder`: scan minimally widened to also read `internal/manifest`; allowlist entry re-keyed to `internal/manifest/read.go` (webhook-scanner widening precedent).
+- `TestEveryManifestWriterGatesOnTheStrictReader`: regex/contains strings self-updated by the mechanical rename to `bmanifest.FileName` / `bmanifest.LoadForReplace`; still finds the 3 known writers (brain.go, history.go, history_legacy_identity.go).
+- `forward_state_safety_test.go`: qualification-only edits (10/9 lines), passes unchanged.
+- `main_test.go` TestMain untouched; nothing under `tools/ci-bench/` touched.
+- Webhook source scanner (`command/webhook/webhooks_test.go`): dead forbidden string `loadBrainManifest` replaced with the package import path `internal/cli/internal/manifest`, which is strictly stronger.
+- No hook-seam vars in the moved closure (`brainstore.MemoryStateOpenFile` already lives in brainstore).
+
+**Gates (all run, verbatim results):**
+- `go test -race -count=1 ./internal/cli/internal/manifest` — ok 1.405s
+- `go test -race -count=1 ./internal/cli -run 'Manifest'` — ok 12.303s (25.8s wall)
+- `GOOS=windows GOARCH=amd64 go build ./...` — ok
+- ci-bench unittests — Ran 41 tests, OK
+- `python3 -B tools/coverage/mutation_check.py` — all PASS
+- Full race suite `go test -race -p=1 ./... -count=1 -timeout=30m` — exit 0, every package ok (`internal/cli` 298.3s); no fallback needed
+- `gofmt -l -s internal/` clean; `go vet ./...` clean
+
+**Recorded:** durable memory `fact:5a998dfa3852aa833d5c23e9` (architecture.cli.decision) naming the exported surface for the viz/publish/facts waves.</result>
+<usage><subagent_tokens>256105</subagent_tokens><tool_uses>104</tool_uses><duration_ms>1602964</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a546778e733d018be</worktreePath><worktreeBranch>worktree-agent-a546778e733d018be</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+status here? it's been a while
+
+---
+
+give me links for all o fthe PRs so far
+
+---
+
+<task-notification>
+<task-id>a8ddb73f54e6e417d</task-id>
+<tool-use-id>toolu_01D67nqqAdeQ1evNU7SmAVic</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a8ddb73f54e6e417d.output</output-file>
+<status>completed</status>
+<summary>Agent "Sink facts store package" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>The full race suite (`go test -race -p=1 ./... -count=1 -timeout=30m`) is running in the background; I'll commit and report once it completes. All other gates have already passed:
+
+- factstore race suite: ok (1.4s)
+- focused cli `-run 'Fact|Locus|Taxonomy'`: ok (20.1s)
+- Windows cross-build: ok
+- ci-bench windows-production unittest: 41 tests OK
+- mutation_check: all PASS
+- inventory: 3185 before = 3171 (cli) + 14 (factstore) after, exact
+- all 14 moved test bodies verified IDENTICAL under the rename map</result>
+<usage><subagent_tokens>225040</subagent_tokens><tool_uses>108</tool_uses><duration_ms>1290318</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a8ddb73f54e6e417d</worktreePath><worktreeBranch>worktree-agent-a8ddb73f54e6e417d</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a8ddb73f54e6e417d</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a8ddb73f54e6e417d.output</output-file>
+<status>completed</status>
+<summary>Agent "Sink facts store package" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Report — stores wave 2: durable-facts store → `internal/cli/internal/factstore`
+
+**Branch + commit:** `cor-2268-facts-store` (base `cor-2268-manifest-schema`), commit `76e0a204`. Not pushed. 154 files changed.
+
+**Preflight/evidence:** Brain v0.3.0-17 and Graph entire-graph v0.6.0 both available and capability-checked. Brief ran; its semantic code-context was unavailable (search store not built for this commit) — Graph impact queries themselves worked and were used. Facts recalled (branch-scoped, found via `multi-get --branch`): fact:5a998dfa (manifest surface, `bmanifest`), fact:160632ec (cmd-facts deferral this unblocks, on `cor-2268-cmd-facts`), fact:972b6b79 (publish deferral, on `cor-2268-cmd-connect`). Brain went down mid-session (plugin symlink pointed at a deleted dev binary in the miami workspace); it recovered before finish and the closing memory was recorded as fact:c04f2531.
+
+**Moved (prod):**
+- `facts.go` → `factstore/factstore.go` (path helpers, Load/Write, taxonomy, SummarizeSource, store warnings)
+- `facts_integrity.go` → `factstore/integrity.go` (Integrity/Inspect/InspectBrain/IsFactRecord/RepairHint/Defect modes)
+- `facts_locus.go` → `factstore/locus.go` (ScopeOf, InferKind, KindOrInferred, Reclassify, FilterBy*, LocusOverlap*)
+- `LoadStoreFiles`/`WriteStoreFile`/`LoadAllBranches` out of `facts_manifest.go` → `factstore/files.go`
+- `factOriginImported` (one home) out of `facts_import.go`
+
+**Helpers sunk:** `safePathComponent` → `base.SafePathComponent` (impact: callers only export.go ×5, skill_form.go ×1, facts.go — all renamed). Impact was run per exported-to-be symbol (~40 symbols); every caller is inside internal/cli, so no external blast radius. `writeFacts` impact needed disambiguation: a `verifyFixture.writeFacts` method exists; method declaration and `f.writeFacts(...)` call sites were deliberately left untouched.
+
+**Stayed in cli (bindings, per rules):** `reportFactStoreIntegrity` + `errFactStoreIncomplete` (cobra + cli-private `renderedCommandError`), `factsRelevantToChange` (binds `semanticRecord`), manifest-update layer (`updateFactSourceManifest*`, `reclassifyAllFactBranches`, `preserveFactDistillEvidence` — bind `writeBrainManifestAndReadme`), proposals I/O (`reconcile.go`), guard composition (`loadSessionReadGuard`/`guardFactRecords` in session_privacy.go — no store function called the guard, so no adapter was needed). No shims; all ~380 call sites sed-renamed to `factstore.X`. No hook-seam vars in moved files.
+
+**Tests:** clitest-pinned `main_test.go` created first; 14 store-level roots moved (5 from facts_test.go, 9 from facts_locus_test.go) into external package `factstore_test`. All 14 verified IDENTICAL under the published rename map (cli map + alias qualifications factRecord→factmerge.Record etc.). facts_integrity_test.go stayed whole (cli fixtures: semanticTestEnv/repoStoragePaths). Nothing re-pointed from NewRootCommand. Inventory: before 3185 = after 3171 (cli) + 14 (factstore), exact.
+
+**Landmines flagged:** two source-scan guards widened minimally with the manifest-wave precedent — `versioned_state_test.go` decoder-scan dir list and `runnable_remedies_test.go` remedy walk now include `internal/factstore`. Manifest-writer regex untouched (writers stay in cli). Pinned TestMain and tools/ci-bench untouched.
+
+**Gates (all run, all pass):**
+- `go test -race -count=1 ./internal/cli/internal/factstore` — ok 1.4s
+- `go test -race -count=1 ./internal/cli -run 'Fact|Locus|Taxonomy'` — ok 20.1s
+- `GOOS=windows GOARCH=amd64 go build ./...` — ok
+- ci-bench windows-production unittest — 41 tests OK (0.9s)
+- `mutation_check.py` — all PASS
+- Full race suite `go test -race -p=1 ./... -count=1 -timeout=30m` — all packages ok, exit 0 (internal/cli 324.7s); no fallback needed
+- `gofmt -l -s internal/` clean, `go vet ./...` clean</result>
+<usage><subagent_tokens>236216</subagent_tokens><tool_uses>118</tool_uses><duration_ms>1712203</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a8ddb73f54e6e417d</worktreePath><worktreeBranch>worktree-agent-a8ddb73f54e6e417d</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+merged:
+- https://github.com/entireio/entire-brain/pull/522
+- https://github.com/entireio/entire-brain/pull/523
+- https://github.com/entireio/entire-brain/pull/524
+- https://github.com/entireio/entire-brain/pull/525
+- https://github.com/entireio/entire-brain/pull/526
+- https://github.com/entireio/entire-brain/pull/527
+
+waitng on 528 and 529 to finish up their tests.
+
+what else is left over after those merge?
+
+---
+
+this is merged: https://github.com/entireio/entire-brain/pull/529
+
+this needs rebasing: https://github.com/entireio/entire-brain/pull/528
+
+---
+
+okay good, where are we now?
+
+---
+
+<task-notification>
+<task-id>ac33b53a2a9620605</task-id>
+<tool-use-id>toolu_016HXw3VAFHpZiE7U5ex6ms1</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/ac33b53a2a9620605.output</output-file>
+<status>completed</status>
+<summary>Agent "Move facts commands (retry)" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>The full race suite is running in the background (task `bapgdmr5s`); all other gates passed. I'll complete the commit, Brain memory, and final report when it finishes.
+
+Status so far:
+- Moved `remember` into `internal/cli/command/facts` (Config/Deps pattern, 7 injected seams)
+- Sunk to factstore: TaxonomyBlock, FilterPathsByTaxonomy, ValidateKindFlag, GlobalBrainDir/LoadGlobal/ResolveGlobalTarget/GlobalBranch
+- recall, facts-admin, verify re-measured and deferred (fresh probe; details in final report)
+- Inventory reconciles 3171 = 3167 + 4; moved bodies identical modulo rename map
+- Passed: facts package race, focused cli race (28.6s), windows build, ci-bench unittests (41), mutation check, gofmt, vet
+- One scan-guard widened: webhooks_test.go event-emitter scan now includes command/facts</result>
+<usage><subagent_tokens>228342</subagent_tokens><tool_uses>120</tool_uses><duration_ms>1410658</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-ac33b53a2a9620605</worktreePath><worktreeBranch>worktree-agent-ac33b53a2a9620605</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ac33b53a2a9620605</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/ac33b53a2a9620605.output</output-file>
+<status>completed</status>
+<summary>Agent "Move facts commands (retry)" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Report — facts command surface (COR-2268 retry)
+
+**Branch** `cor-2268-cmd-facts2` (base `cor-2268-facts-store`), commit **6f9a7730**. Not pushed. Memory recorded: fact:72b6ebb5672967b949b67947 (on this branch).
+
+**Preflights/recall**: Brain dev + Graph entire-graph v0.6.0 both available (capabilities validated). One recorded gap: semantic code context unavailable for this commit (search store not built) — keyword recall and Graph queries unaffected. Retrieved fact:160632ec (deferral), fact:c04f2531 (factstore surface), fact:5a998dfa (bmanifest surface).
+
+**Fresh probe verdict** (isolated-package compile, per file): remember 20 undefined symbols → MOVED; recall 36 → residue ~17 injected deps + cli-private type `factReviewNotice` → DEFERRED; facts-admin 44 incl. ten sibling constructors → DEFERRED; verify → cli-private `checkpointSnapshot`/`sessionCheckpoint` + ~15 export.go loaders → DEFERRED. Updated map in the recorded memory (unblockers: retrieval/guard wave for recall; checkpoint-snapshot wave for verify).
+
+**Moved files**: prod `facts_write_cmd.go` → `internal/cli/command/facts/` (+ new `deps.go`, `main_test.go` with clitest pin, cli-side `facts_commands.go` wiring); test `facts_write_cmd_test.go` → same. Config/Deps pattern established: 7 injected seams (ResolveFactsTarget, InARepository, AgentSurfaceTarget, DefaultRefreshAgent, DistillAgentRunner, UpdateFactSourceManifest, DistillTimeout) — under the 8-dep budget, no cli-private types cross.
+
+**Moved roots (4)**: TestParseClassifyOutput, TestResolveRememberPathsExplicit, TestResolveRememberPathsAgentClassification, TestResolveRememberPathsNoAgentRequiresPath. **Stayed in cli**: TestResolveRememberPathsOllamaUsesLoopbackRunner (new file `facts_write_ollama_test.go` — needs the real ollama runner, a cli-private seam); fixture-heavy remember tests (revive, branch-anchor, global, webhooks) stayed with qualification-only edits. Inventory: 3171 before = 3167 cli + 4 facts after. Body comparison: all 5 relocated roots IDENTICAL modulo the published rename map (resolveRememberPaths→ResolveRememberPaths, Options{}→Config{}, rememberCommandOptions→RememberCommandOptions with field exports, rememberSessionEnv→RememberSessionEnv, runRemember→RunRemember).
+
+**Helpers sunk to factstore** (impact + grep evidence cited per symbol): `factTaxonomyBlock`→TaxonomyBlock, `filterFactPathsByTaxonomy`→FilterPathsByTaxonomy, `validateKindFlag`→ValidateKindFlag, `globalBrainDir`/`loadGlobalFacts`/`resolveGlobalFactsTarget`/`globalFactBranch`→GlobalBrainDir/LoadGlobal/ResolveGlobalTarget/GlobalBranch; all cli call sites renamed, no shims. `globalFactNotice` moved with remember (sole caller). `resolveFactsTarget` stayed in cli (88 transitive callers per Graph impact) and is injected, never duplicated. `validateScopeFlag`, `mergeGlobalFacts`, `globalFactsEnabled` stayed (no moved caller needed them).
+
+**Scan-guard edits (flagged)**: webhooks_test.go event-emitter scan widened to `command/facts` (the WebhookFactRecorded emitter moved; the guard would otherwise fail). Remedies/versioned-state/truthful-advice guards verified unaffected — moved source contains none of their patterns.
+
+**Gates (all run, all pass)**: facts package race 1.3s; focused cli race `-run 'Remember|Global…'` 28.6s; GOOS=windows build OK; ci-bench unittests 41/41 (0.87s); mutation_check 3/3 PASS; **full** `go test -race -p=1 ./... -count=1 -timeout=30m` exit 0, 27 packages ok, internal/cli 309s — no fallback needed. gofmt -s and go vet clean (no oxfmt binary exists; gofmt+vet is this repo's CI gate per recorded memory).</result>
+<usage><subagent_tokens>232420</subagent_tokens><tool_uses>124</tool_uses><duration_ms>1808407</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-ac33b53a2a9620605</worktreePath><worktreeBranch>worktree-agent-ac33b53a2a9620605</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ac9b3ea0d8dc538d4</task-id>
+<tool-use-id>toolu_01Jm8EApYqV2inDnmo3CoxSr</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/ac9b3ea0d8dc538d4.output</output-file>
+<status>completed</status>
+<summary>Agent "Move memory and privacy commands" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Report — memops cluster (memory + privacy commands)
+
+**Branch:** `cor-2268-cmd-memops` (from origin/main 243ab4f8). **Commit: none — both commands deferred; zero diff, tree verified clean.**
+
+**Outcome:** Compile probes (facts precedent) put BOTH commands roughly 10x over the &gt;8 deps/typed-crossings budget. Deferral map recorded as `fact:902df1cf6855e87f2a8f6dae` (path `project.cli.extraction`).
+
+**Measured maps** (copy-probe into an isolated package, `go build -gcflags=-e`, every symbol classified by definition site):
+
+- `newMemoryCommand` (memory_cmd.go, 2185 lines): **89 undefined cli symbols**, ~80 genuine cli-private after discounting aliases — the entire memoryJob state machine (memory_state.go: type + 9 state consts, save/transition/claim/recover), coordinator lease/cancellation, projectionState/receipts, abstract lanes, history projection publish. Reverse direction: the file IS the worker engine — 17 prod symbols consumed elsewhere (`recordMemoryLifecycleAndLaunch` ← hook_cmd.go, `reconcileMemoryAndLaunch` ← watch.go, hook-seam var `memoryWorkerLaunch` ← memory_notify_sync.go, drain/stats ← memory_abstract.go). No command-layer slice exists.
+- `newPrivacyCommand` (session_privacy.go + verify/retention in session_privacy_verify.go): **56 undefined symbols**, ~45 genuine after discounting sunk aliases (exportManifest/exportSession/brainSources/sessionSourceManifest → bmanifest, factRecord → factmerge, repoStorage → base). Crossings include purge-plan engines rendered field-by-field in RunE, episodeRecord/historyRecord/factProposal, history + facts-proposals store internals, patterns path consts, verifySessionPrivacy. Reverse direction: the file hosts the shared read-guard layer — 30 prod symbols consumed across cli (loadSessionReadGuard/guardFactRecords/guardExportSessions ← dash, handoff, publish, agent_surface, retrieval; resolveSessionsBrain ← the whole memory family).
+
+**Conclusion:** Both commands funnel through the manifest/stores wave (history store, facts-proposals store, memory job state machine, guard-over-model helpers) that the orchestration pivot (fact:a95a9aa45754658c7a6d7d23) already promoted to the critical path. The facts-cluster precedent (124 undefined → defer) applies identically. A Deps-bound move would need ≥10 injected engine funcs plus ≥8 cli-private typed crossings per command — rule 5's STOP condition, not a Config/Deps binding.
+
+**Moved files/roots:** none. Before-inventory: 3163 cli roots, unchanged. No helpers sunk, no guards widened, no clitest pin needed.
+
+**Gates:** not run — they attach to a move and there is no diff against origin/main (running the 30m race suite would validate upstream, not this work). Sanity check performed: probe dirs removed, `git status` clean, `go build ./internal/cli` exit 0.
+
+**Preflights/evidence:** Brain (dev; briefs/recall/remember supported) and Graph (entire-graph v0.6.0) both verified. One Brain coverage gap: the orchestrator's per-cluster deferral facts (fact:7d44edb1…, fact:160632ec…, fact:52ce141c…) are unretrievable by id — `multi-get` reports missing with a stale-manifest blind spot (`entire brain refresh` suggested). Brief + recall ran before source work; the Graph discovery query located both constructors and root.go mounting.</result>
+<usage><subagent_tokens>116945</subagent_tokens><tool_uses>36</tool_uses><duration_ms>413563</duration_ms></usage>
+</task-notification>
+
+---
+
+this is faililng a few testes https://github.com/entireio/entire-brain/pull/530
+
+---
+
+<task-notification>
+<task-id>bo63ns9su</task-id>
+<tool-use-id>toolu_01NUHKwDPj8hLKMeqHzu167V</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/bo63ns9su.output</output-file>
+<status>completed</status>
+<summary>Background command "Rerun failed Windows jobs; watch" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+okay this is merged in now: https://github.com/entireio/entire-brain/pull/530
+
+---
+
+<task-notification>
+<task-id>a9b05892a5b3c6c9f</task-id>
+<tool-use-id>toolu_01YQ1bMPurocEBm49BDgsLNk</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a9b05892a5b3c6c9f.output</output-file>
+<status>completed</status>
+<summary>Agent "Move add and guide commands" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Six packages passed so far, no failures. The full race suite is still running in the background; the cli package alone takes several minutes under `-race`. I'll proceed when the completion notification arrives — commit comes only after the suite passes.</result>
+<usage><subagent_tokens>153369</subagent_tokens><tool_uses>35</tool_uses><duration_ms>380991</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a9b05892a5b3c6c9f</worktreePath><worktreeBranch>worktree-agent-a9b05892a5b3c6c9f</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>acbde5373b76f37cf</task-id>
+<tool-use-id>toolu_01TLKy4LChfXV7SsoWFfCQjA</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/acbde5373b76f37cf.output</output-file>
+<status>completed</status>
+<summary>Agent "Sink history store package" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>The full race suite (`go test -race -p=1 ./... -count=1 -timeout=30m`) is still running in the background (task bt5pye9c5); everything else is done and green. I'll finish the commit and deliver the report when it completes.</result>
+<usage><subagent_tokens>251892</subagent_tokens><tool_uses>68</tool_uses><duration_ms>733790</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-acbde5373b76f37cf</worktreePath><worktreeBranch>worktree-agent-acbde5373b76f37cf</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a9b05892a5b3c6c9f</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a9b05892a5b3c6c9f.output</output-file>
+<status>completed</status>
+<summary>Agent "Move add and guide commands" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All done. Report in the recipe's format:
+
+**Branch + commit:** `cor-2268-cmd-addguide` (from `origin/main` @ 243ab4f8, per orchestrator instruction overriding the recipe's `cor-2268-cmdutil` base) — commit `5090636c8f5fcb6c9babb24afdace51ec8cd7125`. Not pushed.
+
+**Moved files**
+- Prod: `internal/cli/add.go` → `internal/cli/command/add/add.go` (`newAddCommand` → `New(opts base.Options)`); `newBrainGuideCommand` cut from `internal/cli/agent_setup.go` → `internal/cli/command/guide/guide.go` as `New(opts base.Options)`. `newInitAgentsTombstoneCommand` stays in cli (setup machinery, not guide). `root.go` mounts `add.New(opts)` / `guide.New(opts)`.
+- Test: `internal/cli/add_test.go` → `internal/cli/command/add/add_test.go` plus new `main_test.go` (clitest pin, created first). `command/guide` has no tests (none exercised only the guide layer — the alias test routes through root).
+
+**Moved roots:** 7 — TestRunBrainAddRejectsUnsafeNames, TestRunBrainAddCloneUsesEndOfOptions, TestRepoDirName, TestIsGitCheckout, TestRunBrainAddHonorsNoEgress, TestRunBrainAddCloneFailureIsOneCleanLine, TestRunBrainAddChecksExistingOrigin. Inventory: before 3163; after 3156 (cli) + 7 (command/add) = 3163, diff empty (INVENTORY-IDENTICAL). `TestSearchResultFromUnifiedGatesOpenPath` stayed in cli, relocated verbatim from add_test.go to dash_test.go (it tests dash.go's `searchResultFromUnified`).
+
+**Body verdicts:** all moved test roots IDENTICAL under the published rename map (`Options{Runner:` → `base.Options{Runner:`, package clause, base import); relocated search test IDENTICAL verbatim; moved prod bodies IDENTICAL under {`newAddCommand(opts Options)`→`New(opts base.Options)`, `repoRemoteSCPRegex`→`base.RemoteSCPRegex`, guide doc-comment identifier spelling}.
+
+**Helpers sunk:** `repoRemoteSCPRegex` → `base.RemoteSCPRegex` (internal/cli/internal/base/git.go). Evidence: Graph impact could not model the package-level var (fuzzy-matched unrelated JSON — recorded coverage gap); grep supplement: def env.go:23, uses env.go:420, path.go:200, add.go:243 — all three call sites renamed, no shim left.
+
+**Guards widened (flagged):** `runnable_remedies_test.go` (scan dirs + "command/add", allowlist entry now `command/add/add.go`) and `truthful_advice_test.go` `printedInvocations` (+ "command/add") — precedent: the internal/factstore and command/webhook widenings. `command/guide` deliberately not added: guide.go has no `entire brain` literals and no `BrainInvocation` sites.
+
+**Re-pointed from NewRootCommand:** none (the one candidate, TestAgentGuideAliasAndOutsideRepository, tests the `guide` alias, which is root routing — stayed in cli).
+
+**Gates (all run, all pass):**
+- `go test -race -count=1 ./internal/cli/command/add ./internal/cli/command/guide` — ok 1.294s / guide [no test files]
+- focused `go test -race -count=1 ./internal/cli -run '&lt;9 cluster/guard tests&gt;'` — 9/9 PASS, ok 3.077s
+- `GOOS=windows GOARCH=amd64 go build ./...` — OK
+- ci-bench unittest — Ran 41 tests in 0.968s, OK
+- `mutation_check.py` — 4/4 PASS (32s)
+- Full race suite `go test -race -p=1 ./... -count=1 -timeout=30m` — EXIT=0, no fallback needed (internal/cli 371.3s; every package ok)
+- `go vet` clean, `gofmt -l -s internal/` clean (repo has no oxfmt binary; CI gates on gofmt+vet per recorded memory)
+
+**Stretch `newBrainReviewCommand`: DEFERRED.** Measured probe (isolated package, `-gcflags=-e`): 19 distinct undefined. Discountable aliases: only `Options` (base) and `retrievalPrivacyPolicy` (brainstore.RetrievalPrivacyPolicy). The remaining 17 exceed the ≤8-func seam budget and cross cli-private types (`semanticSourceManifest` in `detectRegressionAnomaliesCapped`'s signature, `brainStatusReport`, `sessionReadGuard`/`exportManifest`): semanticRuntimeTraceFacts, semanticRecord, buildBrainStatusReport, bufferRetrievalCommandOutput, agentSurfaceTarget, semanticFirstNonEmpty, semanticDirName, semanticContextFacts, requirePrivacyDerivedRead, requirePatternCorpusAvailable, rejectSymlinkPathComponents, normalizeHistoryTextForExcerpt, loadSessionReadGuard, loadReviewPatternContextChecked, brainRawScanSkipsDerived, brainBriefRawHistoryQueries, semanticSourceManifest. Structural blocker confirmed via Graph impact: `detectRegressionAnomaliesCapped` has 24 direct callers including `newInspectRegressionsCommand` (stays in cli) and the cli regression test suite — the engine is shared and blocked on the semantic/stores wave.
+
+Preflights recorded: Brain dev (capabilities validated), Graph entire-graph v0.6.0; decision memory recorded as fact:3205eeda461252f4f5fad58d on this branch.</result>
+<usage><subagent_tokens>158507</subagent_tokens><tool_uses>38</tool_uses><duration_ms>885550</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a9b05892a5b3c6c9f</worktreePath><worktreeBranch>worktree-agent-a9b05892a5b3c6c9f</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>acbde5373b76f37cf</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/acbde5373b76f37cf.output</output-file>
+<status>completed</status>
+<summary>Agent "Sink history store package" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Report follows (recipe format).
+
+**Branch / commit:** `cor-2268-history-store` @ `0cd62bef` (based on merged main `243ab4f8`), committed, NOT pushed. Note: task directed branching from origin/main, overriding the recipe's cor-2268-cmdutil base.
+
+**Moved (prod):** no whole files moved; the read layer was extracted into the new package:
+- `internal/cli/internal/historystore/historystore.go` — from history.go: consts `IndexFileName/IndexPath/GenerationsDir/StagingDir`; types `Index`, `Record`; `LoadIndex`, `LoadIndexWithLegacyIdentity`, `DecodeIndex`, `IndexReadError`, `HardlinkRepairHint`, `loadIndexOnce`/`readIndexBytes` (unexported — no outside callers), `ValidateIndexPath`, `ValidGenerationArtifactPath`, `ValidStagingArtifactPath`, `GenerationArtifactPath`, `RecordsFingerprint`, `IndexBytesFingerprint`; `ValidSHA256` (was history_fts.go's `validHistorySHA256`).
+- `internal/cli/internal/historystore/legacy.go` — from history_legacy_identity.go: `LegacyIdentity`, `sourceNeedsIdentityUpgrade` (unexported, in-package caller only), `DeriveLegacyIdentity`, `SourceWithIdentity`.
+- cli keeps type aliases `historyIndex`/`historyRecord`/`historyLegacyIdentity` (historystore_aliases.go) — allowed aliases, no function shims.
+
+**Helpers sunk (symbol → new home, evidence):**
+- `rejectSymlinkPathComponents` → `base.RejectSymlinkPathComponents` (impact: 20 direct callers across 12 files; grep found one more, session_privacy.go — Graph missed it, grep supplemented; all 14 files renamed).
+- `validSHA256Identity` → `brainstore.ValidSHA256Identity` (impact: 12 callers in 5 files).
+- Declared-index defect family → `brainstore.DeclaredIndexDefect/DeclaredIndexSource/DeclaredIndexSeed|History|Docs/DeclaredIndexRepairHint`; the three status labels moved into `DeclaredIndexSource.Label()`, and setup.go derives `brainComponentSeed/Docs/History` + `setupComponentLabels` entries from brainstore (one home per string). This was the single non-obvious binding (moved `IndexReadError` constructs the defect; history_fts.go `errors.As`-matches it) — within the ≤3 budget.
+
+**Stays in cli (bindings, per scope):** full prepare/publish/prune build pipeline, scan cache, hook-seam vars (`historyProjectionWriteFile`, `beforeHistoryProjectionContentDigest` — functions reading them stayed, so vars stayed with all swap sites), `historyTranscriptFilesFingerprint` (binds build inventory type), `persistHistoryLegacyIdentity`/`rankHistoryViaLegacyDirectPayload` (bind manifest writer + FTS ranking), declared_indexes.go inspect layer (binds `exportManifest`/`docIndexPath`).
+
+**Moved test roots:** 0. Every loader test builds a brain via the cli pipeline, so per rule 2 all stay; historystore has no test files (no clitest pin needed). Inventory: before 3163, after 3163 (cli) + 0 (historystore), union diff empty — IDENTICAL. Nothing re-pointed from NewRootCommand.
+
+**Body verdicts:** all moved prod bodies IDENTICAL under the published rename map, except two forced deltas, both flagged: (1) `Index` fields `StorageIdentity/ContentIdentity/RecordsFingerprint` exported with `json:"-"` (manifest-wave GraphStore precedent; staying cli code reads them) — wire shape unchanged; (2) `DeclaredIndexDefect.Warning()` label lookup `setupComponentLabel(string(d.Source))` → `d.Source.Label()`. Test files received only forced qualification/field-rename edits (spot-verified).
+
+**Landmines handled:** manifest-writer regex guard — both history writers stayed in cli with their `bmanifest.LoadForReplace` gates; guard passes. Decoder-allowlist walk + remedies walk widened minimally to `internal/historystore` (remedies also `internal/brainstore`) with precedent comments — flagged. Pinned TestMain and tools/ci-bench untouched.
+
+**Gates (verbatim results):**
+- `go test -race -count=1 ./internal/cli/internal/historystore ./internal/cli/internal/brainstore ./internal/cli/internal/base` → historystore `[no test files]`, brainstore ok 4.423s, base ok 1.516s
+- focused `go test -race -count=1 ./internal/cli -run 'History|DeclaredIndex|Hardlink|LegacyIdentity|Symlink|…'` → ok 34.893s
+- `GOOS=windows GOARCH=amd64 go build ./...` → exit 0 (4.6s)
+- ci-bench unittest → `Ran 41 tests in 1.850s OK`
+- `mutation_check.py` → all 4 PASS (37.1s)
+- FULL race suite `go test -race -p=1 ./... -count=1 -timeout=30m` → all packages ok, exit 0 (internal/cli 424.859s); no fallback needed
+- `go build ./... &amp;&amp; go vet ./...` clean; `gofmt -l -s internal/` empty; all four scan-guard tests pass.
+
+**Preflights/recall:** Brain (dev, durable_facts/briefs — available) and Graph (entire-graph v0.6.0, Go semantic — available) recorded; recalled facts b80d6f19 (viz closure), 5a998dfa (manifest surface), c04f2531 (factstore precedent), 72b6ebb5 (remember move). Durable memory recorded for downstream waves: fact:10a2cb94f5bbd9680685977e + correction fact:1c97b3170aea0b19c25dc2b9 (branch cor-2268-history-store).</result>
+<usage><subagent_tokens>258832</subagent_tokens><tool_uses>72</tool_uses><duration_ms>1100660</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-acbde5373b76f37cf</worktreePath><worktreeBranch>worktree-agent-acbde5373b76f37cf</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+this is merged: https://github.com/entireio/entire-brain/pull/531
+
+---
+
+<task-notification>
+<task-id>a87c5a7fc3839356f</task-id>
+<tool-use-id>toolu_01AwQxbf6W5PhYdrKunaYuhu</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a87c5a7fc3839356f.output</output-file>
+<status>completed</status>
+<summary>Agent "Sink semantic read path" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Done. Final report in the recipe's format:
+
+## Branch + commit
+`cor-2268-semantic-store` @ `a0845b03` (based on origin/cor-2268-history-store, PR #532). Committed, not pushed. 56 files, +1518/−1394.
+
+## Package name
+`semstore` (over `semanticstore`): ~150 renamed call sites make brevity material, and short single-word names match the sibling packages (base, cmdutil, clitest).
+
+## Moved files / symbols
+New prod files (no test files): `internal/cli/internal/semstore/{record,schema,store,sqlite,query,facts,traces}.go`, `internal/cli/internal/brainstore/query_stopwords.go`, alias file `internal/cli/semstore_aliases.go` (type aliases `semanticRecord=semstore.Record`, `semanticEvidence=semstore.Evidence` — the 415-ref type churn collapses to these two aliases).
+- record.go: Record/Evidence + SemanticPath/SetSemanticPath, CompletenessLevelFromStats, TrustForCompleteness
+- schema.go: SchemaVersion/SupportedMajor/SupportedSchemaRange, ParseSchemaVersion, ValidateSchema, SchemaMinorSkewWarning
+- store.go: DirName, SQLiteName, ErrStoreRetired, ValidateDeclaredStore, GraphStoreSource (handle encoder), OpenReadDB (handle decoder — the handle grammar now has one home), viewMismatch/schemaWarnings/handlePrefix unexported
+- sqlite.go: FindSymbolsInSQLite, FindRelationsForSymbolsInSQLite, LoadSymbolsByIDsSQLite, LoadSymbols (from dash.go), + 5 unexported in-package readers
+- query.go: QueryTokens, QueryMorphologyVariants, TokenIDFWeight, QueryLooksLikePath
+- facts.go: ContextFacts, ImpactFacts, GraphFacts, SymbolsForFiles, LoadBoundaryRecords, NeighborCandidateIDs, ResolveContextNeighbors
+- traces.go: TraceObservation, TraceFile, TraceMaxBytes, ReadTraces, loadTraceTable
+
+Every symbol the viz-closure fact (fact:b80d6f198d42a3c09bfdfc13) lists is now importable. `semanticHeader`/`semanticSourceManifest`/`graphStoreDescriptor` were already bmanifest aliases — reused, not duplicated. `semanticCounts` stays in cli (build-metrics only, not bmanifest material).
+
+## Stays in cli (verified build-bound)
+Index build pipeline, the three semantic commands, bundle import/export, stream ingest + path validators (validateSemanticProviderPath/RecordPath, semanticEndpointPath), fetchGraphStore/loadGraphManifest/runGraphOwnedIndex (shell-outs), writeGraphTraces/ingestGraphTraces, semanticRuntimeTraceFacts (binds brief terms), semanticSymbolsForChangedRanges/BoundaryFacts/TestFacts (bind command types), semanticPage/semanticCounts/newSemanticScanner, all manifest writers (writer-gate regex unaffected — verified, test passes).
+
+## Helpers sunk
+`historyQueryStopword`→`brainstore.QueryStopword`, `genericQueryStopwords`→`brainstore.GenericQueryStopwords` (forced: FindSymbolsInSQLite's token fallback needs it; brainstore holds retrieval policy per the layering doc). Graph impact evidence: historyQueryStopword had 5 direct callers across history.go/facts_bm25.go/semantic.go (+episodes.go, agent_surface.go for the map) — all renamed. Impact run on all 24 to-be-exported symbols (committed-tree `--head`, cache hit); inbound files matched the grep-driven rename set; no consumers outside internal/cli found.
+
+## Tests
+Zero roots moved (store-level roots only; every semantic read test builds a brain through the cli pipeline, exactly like historystore). Inventory: before 3159 = after 3159 (cli) + 0 (semstore), union diff empty. No clitest pin needed (no semstore test files). Nothing re-pointed from NewRootCommand. Hook-seam vars: none in the moved set. Pinned TestMain and tools/ci-bench untouched. Guards widened: versioned_state_test.go decoder walk + runnable_remedies_test.go walk add internal/semstore; truthful-advice scan unaffected (no moved backtick-quoted `entire brain` literal).
+
+## Body identity
+41/41 moved decls IDENTICAL to pre-move source modulo the published rename map (checker normalized gofmt alignment only).
+
+## Gates (verbatim)
+- `go test -race -count=1 ./internal/cli/internal/semstore ./internal/cli/internal/brainstore` → semstore `[no test files]`, brainstore `ok 2.428s`
+- focused `go test -race -count=1 ./internal/cli -run 'Semantic|GraphStore|GraphTrace|RuntimeTrace|Viz|Dash|Stopword|QueryToken'` → `ok 18.869s`
+- `GOOS=windows GOARCH=amd64 go build ./...` → OK
+- ci-bench unittest discover → `Ran 41 tests in 0.892s OK`
+- `mutation_check.py` → 4× PASS
+- full `go test -race -p=1 ./... -count=1 -timeout=30m` → EXIT=0, all packages ok (internal/cli 415.991s), zero FAIL/DATA RACE. Note: my first full-suite invocation piped through `tail` and returned a useless exit code; I reran with a captured exit code — the EXIT=0 run is authoritative, and the two overlapped briefly without failures.
+- `gofmt -l -s .` clean, `go vet ./...` clean; all four source-scan guard tests pass.
+
+Durable memory recorded: fact:a998fd97d3cc3bd8747f6c53 (exported surface + stays-in-cli map for downstream waves). Preflights: Brain dev (capabilities validated), Graph entire-graph v0.6.0 — both available; no fallbacks needed. All four cited facts retrieved (per-branch: viz fact on cor-2268-cmd-viz, manifest fact on cor-2268-manifest-schema).</result>
+<usage><subagent_tokens>278253</subagent_tokens><tool_uses>123</tool_uses><duration_ms>2075094</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a87c5a7fc3839356f</worktreePath><worktreeBranch>worktree-agent-a87c5a7fc3839356f</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+this is merged: https://github.com/entireio/entire-brain/pull/532
+
+and this: https://github.com/entireio/entire-brain/pull/533
+
+---
+
+<task-notification>
+<task-id>a14d0a91be2dcad0c</task-id>
+<tool-use-id>toolu_01EWuo7AdeaCY43YFifUmxkv</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a14d0a91be2dcad0c.output</output-file>
+<status>completed</status>
+<summary>Agent "Move brain-review and doctor" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>The full race suite is still running in the background (task byf1ip366); I'll commit once it reports. All other gates are green: package race test ok (1.3s), focused cli race tests ok (13.2s), Windows cross-build ok, ci-bench unittests 41/41 ok, mutation check 4/4 PASS, inventory reconciled (3152 = 3150 + 2), both moved test bodies IDENTICAL under the rename map.</result>
+<usage><subagent_tokens>265789</subagent_tokens><tool_uses>101</tool_uses><duration_ms>1457209</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a14d0a91be2dcad0c</worktreePath><worktreeBranch>worktree-agent-a14d0a91be2dcad0c</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>af0d71640811920b5</task-id>
+<tool-use-id>toolu_01HczsqqYm74myLYW6uuMgUr</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/af0d71640811920b5.output</output-file>
+<status>completed</status>
+<summary>Agent "Move repo-identity, bench, publish" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>**Branch:** `cor-2268-cmd-pubops` (from origin/main e476c590) — commit `4a5a8320c9f8b27fe3ddde0ef67d388b58d75d46`. Not pushed.
+
+**Preflights:** Brain dev (bm25, durable_facts, briefs, recall — available; brief run; recalled fact:972b6b79 publish deferral + stores-wave facts 5a998dfa/c04f2531/10a2cb94/a998fd97, fetched per-branch since memories are branch-scoped). Graph entire-graph v0.6.0, full Go semantic coverage — available; impact run on every sunk/shared symbol (runGitOutput 13 callers, brainExportExists 4, publishFlagOrEnv 3, roundMillis 4; `localRepoIdentityConflictCode` is a const the graph does not model — grep map cited instead: env.go, env_test.go, repo_identity_cmd.go). Note: `entire graph prewarm` does not exist in this provider; `--head` queries used throughout.
+
+**Moved files (prod):**
+- `internal/cli/repo_identity_cmd.go` → `internal/cli/command/repoidentity/repoidentity.go` — `New(cfg)`, `Run`, `RunOptions`, `ConflictSuffix`; Deps: `ResolveRepoStorageSet` (adapter converts cli `repoStorageSet` → package-owned `StorageSet{Canonical, Populated []base.RepoStorage}`).
+- `internal/cli/bench.go` → `internal/cli/command/bench/bench.go` — `New(cfg)`, `RunIndexBench`, `IndexBenchOptions/Report`, `RoundMillis`; Deps: `RepoStoragePaths`, `RunSemanticIndex` (bench-owned `IndexRequest`), `ProcessMaxRSSBytes`, `ScaleCommand`. **bench_scale.go stays in cli**: its closure binds `retrieveUnified`/`retrievalMode`/`loadFreshHistory`/`loadDocIndex`/`runSemanticQuery` (~10 funcs, several cli-private types) — over the ≤8/no-types budget; mounted via `Deps.ScaleCommand`, calls `bench.RoundMillis`.
+- `internal/cli/publish.go` → `internal/cli/command/publish/publish.go` — `New(cfg)`, `Run`, `Flags`; Deps (6, no cli-private types cross): `RepoStoragePaths`, `ResolveManualHostedTarget` (adapted to 3 strings), `LoadSessionReadGuard`, `GuardFactRecords`, `ParseRepoRemote`, `NormalizeRepoHost`. `CollectFactArtifacts`/`CollectOverlayArtifacts`/`redactFactsForEgress` are methods on `Deps` so staying tests keep 2-arg method-value shapes. Bindings: `repo_identity_config.go`, `bench_config.go`, `publish_config.go` (connect precedent).
+
+**Helpers sunk (impact/grep-cited):** `runGitOutput` → `base.GitOutput` (12 call sites across export/refresh/seed/facts_status/publish renamed); `brainExportExists` → `bmanifest.Exists` (path.go + publish); `localRepoIdentityConflictCode` → `base.RepoIdentityConflictCode` (env.go, env_test.go, moved file); `publishFlagOrEnv` + `envAPIBaseURL/Token/RepoID` relocated to `hosted_target.go` (only remaining callers). Hook-seam var `maxPublishBodyBytes` → exported `publish.MaxBodyBytes`, one home, swap site in publish_test.go renamed.
+
+**Tests:** moved 8 roots (publish_client_bound_test.go 1, publish_error_body_test.go 7) — the only publish tests free of cli-wide fixtures; body comparison vs pre-move normalized for the rename map: **IDENTICAL** both files. `main_test.go` clitest pin created before the moves. All other listed candidates (publish_test, publish_privacy, publish_paths, repo_identity_test, plus correctness/egress/repoid-segment/bench tests) **stay in cli** — they depend on cli-wide fixtures (`fakeCommandRunner`, `execute`, `NewRootCommand`, `writePublishBrainFixture` shared with https_floor_test.go, `tombstonePrivacyFixture`) — with qualification-only edits (publish./bench./repoidentity. renames; `runRepoIdentity(...)`→`repoidentity.Run(..., repoIdentityConfig(opts), ...)` re-points). Inventory: before 3152; after cli 3144 + publish 8 = union exactly equals before. Pinned `internal/cli/main_test.go` and `tools/ci-bench/` untouched.
+
+**Scan guards (flagged):** `runnable_remedies_test.go` dir walk widened with `command/{bench,publish,repoidentity}` and the `publish.go` allowlist entry re-pathed to `command/publish/publish.go` (command/add precedent). `versioned_state_test.go` unchanged — moved files call no `DisallowUnknownFields`; webhook scanner scope unaffected.
+
+**Gates (all run, real output):**
+- `go test -race -count=1 ./internal/cli/command/{publish,bench,repoidentity}` — publish ok 1.371s; bench/repoidentity [no test files].
+- focused `go test -race -count=1 ./internal/cli -run 'Publish|RepoIdentity|Bench|CanonicalWireRepoKey|...'` — ok 7.960s.
+- `GOOS=windows GOARCH=amd64 go build ./...` — ok 4.4s.
+- ci-bench unittest — Ran 41 tests, OK. `mutation_check.py` — all 4 PASS.
+- Full race suite `go test -race -p=1 ./... -count=1 -timeout=30m` — SUITE-EXIT=0, 33 packages ok, internal/cli ok 570.397s, no FAIL/panic. (Three earlier background attempts were killed by the sandbox when foreground commands ran concurrently; the final run executed with no concurrent activity and completed — no fallback needed.)
+- `gofmt -l -s internal/` clean, `go vet ./...` clean. `oxfmt` does not exist in this repo (recorded memory: CI gates on gofmt+vet, which were run).
+
+**Memory recorded:** fact:f1c0dca94d0f549c4abbb00a (architecture.cli.decision) with the full extraction/sink/export map.
+
+**Did not fit the rules (left in cli, and why):** bench_scale.go + its tests (retrieval-engine closure over budget; re-probe after the retrieveUnified/unifiedResult sink); the guard composition `loadSessionReadGuard`/`guardFactRecords` stays in session_privacy.go (sinking would drag `excludedTranscriptPaths` + guard family, &gt;3 non-storage helpers) — injected instead.</result>
+<usage><subagent_tokens>313387</subagent_tokens><tool_uses>158</tool_uses><duration_ms>1782720</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-af0d71640811920b5</worktreePath><worktreeBranch>worktree-agent-af0d71640811920b5</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a14d0a91be2dcad0c</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a14d0a91be2dcad0c.output</output-file>
+<status>completed</status>
+<summary>Agent "Move brain-review and doctor" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>**Report — cor-2268-cmd-diag**
+
+- **Branch + commit:** `cor-2268-cmd-diag` (from origin/main @ e476c590) — commit `15bf2e5d4e9eb5f7e2ffbe3e3da57561ba265841`. Not pushed.
+
+**brainreview — moved**
+- Prod: command layer of `internal/cli/regression.go` → `internal/cli/command/brainreview/brainreview.go` (`New`, `RunBrainReview`, `ReviewSummary`, `AnomalyToReviewFinding`, unexported `regressionSeverity`, types `Anomaly`/`ScanCaps`/`DetectorOptions`/`Finding`/`Report`/`PatternRef`, `ReportSchemaVersion`, diff-less contract comment block). New cli files: `brainreview_config.go` (wiring), `brainreview_aliases.go` (6 type aliases). `root.go` mounts `brainreview.New(brainReviewConfig(opts))`.
+- Engine untouched in cli: `detectRegressionAnomaliesCapped` + scan stay, injected via Deps — exactly 8 funcs (AgentSurfaceTarget, BrainStatus narrowing closure over `buildBrainStatusReport` — the only closure, precedent connect's InstallPushHook; DetectAnomalies; RuntimeTraceFacts; RequirePrivacyDerivedRead; RequirePatternCorpusAvailable; LoadReviewPatternContextChecked; BufferRetrievalOutput). No cli-private type crosses: `semanticSourceManifest`/`retrievalPrivacyPolicy`/`semanticRecord` were already bmanifest/brainstore/semstore aliases; the engine result types now live in brainreview with cli aliases (allowed-alias rule), which required exporting `rankBoost` → `RankBoost` with `json:"-"` (JSON bytes unchanged) and `DetectorOptions` fields (`limit`→`Limit` etc., mechanical renames in regression.go/workspace.go/4 test files).
+- Moved test roots (2): `TestBrainReviewMapsAnomalyToFinding`, `TestReviewSummaryQualifiesATruncatedScan` → `brainreview_test.go`; `main_test.go` clitest pin created first. Body comparison: **both IDENTICAL** under the published rename map (`anomalyToReviewFinding→AnomalyToReviewFinding`, `regressionAnomaly{→Anomaly{`, `reviewSummary(→ReviewSummary(`).
+- Inventory: before 3152; after cli 3150 + brainreview 2; union diff **identical**.
+- Nothing re-pointed from NewRootCommand. Four staying tests qualified in place (`brainreview.RunBrainReview(..., brainReviewConfig(opts), ...)`): regression_test.go:261, regression_privacy_test.go:48, retrieval_transport_test.go:671/705, regression_caps_surfaces_test.go:73.
+- Guard widenings (flagged): `TestNoUncappedRegressionDetectorRemains` now reads `command/brainreview/brainreview.go` for the `ReviewSummary(len(findings), scanned, caps.Truncated())` literal and asserts `brainreview_config.go` binds `detectRegressionAnomaliesCapped,`. The file's shared header comment was split: verbatim copy heads the moved test; the staying workspace test got a trimmed version pointing at the moved test. runnable_remedies/truthful_advice guards unaffected (moved code prints no invocations/remedies). Pinned TestMain and tools/ci-bench untouched.
+
+**doctor — measured deferral (per "a measured deferral is success")**
+- Probe at this main: 22 distinct undefined (matches orchestrator). Only `Options` is alias-importable. Needs 13 cli-bound funcs (≥10 after max collapse: blind-spot pair merged, `valueOrUnset`→cmdutil, `gitWorkTreeRoot`→base/git.go) — over the ≤8 budget — and ≥6 cli-private types cross any seam: `memoryInstallDirectoryHealth` (JSON field + probe return), `staleReport`/`staleAxis` (26 non-test refs, shared with status), `brainStatusSemanticCoverage` (status report type — can't home in command/doctor, agent_surface.go never called doctor code), `semanticAuditCount`/`Coverage`, `setupComponent`, `statusBlindSpotGroup`, plus `renderedCommandError`. Blocked on a semantic-freshness/audit + install-health sink wave — consistent with fact:52ce141c. Doctor tests untouched.
+
+**Gates (verbatim results)**
+- `go test -race -count=1 ./internal/cli/command/brainreview` → ok 1.349s
+- `go test -race -count=1 ./internal/cli -run 'Regression|Review|Capped|Retrieval'` → ok 13.170s
+- `GOOS=windows GOARCH=amd64 go build ./...` → OK
+- ci-bench unittests → Ran 41 tests in 0.870s, OK
+- `mutation_check.py` → 4/4 PASS
+- Full `go test -race -p=1 ./... -count=1 -timeout=30m` → **29 packages ok, 0 FAIL, exit 0** (internal/cli 486s). No fallback needed.
+- `go vet ./...` clean, `gofmt -l -s internal/` clean.
+
+**Preflight/Brain:** Brain (dev, BM25) and Graph (entire-graph v0.6.0) both available and used (impact run on all moved/shared symbols). All three recalled facts retrieved on their source branches. Durable memory recorded: fact:638cf22b1dd55f40f5ad8f1a (project.cli.extraction).</result>
+<usage><subagent_tokens>269727</subagent_tokens><tool_uses>104</tool_uses><duration_ms>2113578</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a14d0a91be2dcad0c</worktreePath><worktreeBranch>worktree-agent-a14d0a91be2dcad0c</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>af0d71640811920b5</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/af0d71640811920b5.output</output-file>
+<status>completed</status>
+<summary>Agent "Move repo-identity, bench, publish" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Stale notification from an earlier superseded suite run — no action needed. Work is complete and committed.
+
+**Branch:** `cor-2268-cmd-pubops` (from origin/main e476c590) — commit `4a5a8320c9f8b27fe3ddde0ef67d388b58d75d46`. Not pushed.
+
+**Moved (prod):**
+- `repo_identity_cmd.go` → `internal/cli/command/repoidentity/repoidentity.go` — `New/Run/RunOptions/ConflictSuffix`; Deps: `ResolveRepoStorageSet` (cli `repoStorageSet` adapted to package-owned `StorageSet` of `base.RepoStorage`).
+- `bench.go` → `internal/cli/command/bench/bench.go` — `New/RunIndexBench/IndexBenchOptions/IndexBenchReport/RoundMillis`; Deps: `RepoStoragePaths`, `RunSemanticIndex` (bench-owned `IndexRequest`), `ProcessMaxRSSBytes`, `ScaleCommand`. **bench_scale.go stays in cli** — closure binds `retrieveUnified`/`retrievalMode`/`loadFreshHistory`/`loadDocIndex`/`runSemanticQuery` (~10 funcs, cli-private types; over the ≤8 budget); mounted via `Deps.ScaleCommand`.
+- `publish.go` → `internal/cli/command/publish/publish.go` — `New/Run/Flags`; Deps (6, no cli-private types crossing): `RepoStoragePaths`, `ResolveManualHostedTarget` (adapted to 3 strings), `LoadSessionReadGuard`, `GuardFactRecords`, `ParseRepoRemote`, `NormalizeRepoHost`; collectors are methods on `Deps`. Bindings in `repo_identity_config.go`, `bench_config.go`, `publish_config.go`.
+
+**Sinks (impact/grep cited):** `runGitOutput`→`base.GitOutput` (12 sites), `brainExportExists`→`bmanifest.Exists` (2), `localRepoIdentityConflictCode`→`base.RepoIdentityConflictCode` (3); `publishFlagOrEnv`+`ENTIRE_API_*` consts relocated to `hosted_target.go`. Seam var `maxPublishBodyBytes`→`publish.MaxBodyBytes`, one home.
+
+**Tests:** 8 roots moved (publish_client_bound 1, publish_error_body 7 — the only publish tests free of cli-wide fixtures); bodies **IDENTICAL** modulo rename map; clitest-pin `main_test.go` created first. All other candidates stay in cli (fixture-coupled: `fakeCommandRunner`/`execute`/`NewRootCommand`/`writePublishBrainFixture` shared with https_floor_test.go/`tombstonePrivacyFixture`) with qualification-only edits. Inventory: 3152 before = 3144 cli + 8 publish after, union exact. Pinned `main_test.go` and `tools/ci-bench/` untouched.
+
+**Guards flagged:** `runnable_remedies_test.go` walk widened with `command/{bench,publish,repoidentity}`; `publish.go` allowlist entry re-pathed. `versioned_state_test.go` needed no change (no `DisallowUnknownFields` in moved files).
+
+**Gates:** new-pkg race ok (publish 1.371s; bench/repoidentity no test files); focused cli race ok 7.960s; windows build ok; ci-bench unittest 41 tests OK; mutation_check 4/4 PASS; full race suite `-p=1 -count=1` SUITE-EXIT=0, 33 packages ok, internal/cli ok 570.397s, no FAIL/panic (completed on the run with no concurrent foreground activity; earlier background attempts were killed by the sandbox — no fallback used); gofmt -s and go vet clean (no oxfmt binary exists; recorded CI gate is gofmt+vet).
+
+**Recorded:** Brain memory fact:f1c0dca94d0f549c4abbb00a (architecture.cli.decision) with the extraction/sink/export map and the bench_scale deferral rationale.</result>
+<usage><subagent_tokens>311036</subagent_tokens><tool_uses>158</tool_uses><duration_ms>2431538</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-af0d71640811920b5</worktreePath><worktreeBranch>worktree-agent-af0d71640811920b5</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>af0d71640811920b5</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/af0d71640811920b5.output</output-file>
+<status>completed</status>
+<summary>Agent "Move repo-identity, bench, publish" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Stale notification from another superseded suite attempt — no action required. The final, authoritative suite run (bhukfmmdz) already passed and the work is committed.
+
+**Final state (unchanged):**
+- Branch `cor-2268-cmd-pubops`, commit `4a5a8320c9f8b27fe3ddde0ef67d388b58d75d46`, not pushed.
+- Moved: `internal/cli/command/repoidentity/repoidentity.go`, `internal/cli/command/bench/bench.go`, `internal/cli/command/publish/publish.go` (+ `publish_client_bound_test.go`, `publish_error_body_test.go`, new `main_test.go` pin); cli bindings `repo_identity_config.go`, `bench_config.go`, `publish_config.go`; root.go mounts via the new packages.
+- bench_scale.go deferred in cli (retrieval-engine closure ~10 deps with cli-private types, over the ≤8 budget), mounted through `bench.Deps.ScaleCommand`.
+- Sinks with all call sites renamed: `base.GitOutput`, `bmanifest.Exists`, `base.RepoIdentityConflictCode`; `publishFlagOrEnv` + `ENTIRE_API_*` consts relocated to `hosted_target.go`.
+- Tests: 8 roots moved, bodies IDENTICAL under the rename map; inventory exact (3152 = 3144 cli + 8 publish); remaining tests stay in cli with qualification-only edits; `runnable_remedies_test.go` guard widened and the publish allowlist entry re-pathed.
+- Gates all green: new-pkg race, focused cli race, windows cross-build, ci-bench unittest (41 OK), mutation_check (4/4), full race suite `-p=1` exit 0 (internal/cli ok 570.397s, no FAIL/panic), gofmt -s + go vet clean.
+- Brain memory recorded: fact:f1c0dca94d0f549c4abbb00a.</result>
+<usage><subagent_tokens>312149</subagent_tokens><tool_uses>158</tool_uses><duration_ms>2763764</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-af0d71640811920b5</worktreePath><worktreeBranch>worktree-agent-af0d71640811920b5</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>af0d71640811920b5</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/af0d71640811920b5.output</output-file>
+<status>completed</status>
+<summary>Agent "Move repo-identity, bench, publish" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Stale notification from a third superseded suite attempt — no action required. The task is complete.
+
+**Report (final, unchanged):**
+- **Branch/commit:** `cor-2268-cmd-pubops` @ `4a5a8320c9f8b27fe3ddde0ef67d388b58d75d46` (from origin/main e476c590). Not pushed.
+- **Moved prod:** `internal/cli/command/repoidentity/repoidentity.go`, `internal/cli/command/bench/bench.go`, `internal/cli/command/publish/publish.go`; bindings `repo_identity_config.go` / `bench_config.go` / `publish_config.go`; root.go mounts `repoidentity.New`, `bench.New`, `publish.New`. bench_scale.go deferred in cli (closure binds retrieveUnified/retrievalMode/loadFreshHistory/loadDocIndex/runSemanticQuery — ~10 deps with cli-private types, over the ≤8 budget), mounted via `bench.Deps.ScaleCommand`.
+- **Sinks (all call sites renamed):** `runGitOutput`→`base.GitOutput` (12 sites), `brainExportExists`→`bmanifest.Exists`, `localRepoIdentityConflictCode`→`base.RepoIdentityConflictCode`; `publishFlagOrEnv`+`ENTIRE_API_*` consts relocated to `hosted_target.go`. Seam var `maxPublishBodyBytes`→`publish.MaxBodyBytes` (one home).
+- **Tests:** 8 roots moved (`publish_client_bound_test.go`, `publish_error_body_test.go` — only publish tests free of cli-wide fixtures), bodies IDENTICAL under the rename map, clitest pin created first; all other candidates stay in cli with qualification-only edits (fixture-coupled). Inventory exact: 3152 before = 3144 cli + 8 publish after. Pinned `main_test.go` and `tools/ci-bench/` untouched. `runnable_remedies_test.go` walk widened with `command/{bench,publish,repoidentity}` and the publish allowlist entry re-pathed; `versioned_state_test.go` unchanged.
+- **Gates:** new-pkg race ok (publish 1.371s); focused cli race ok 7.960s; `GOOS=windows` build ok; ci-bench unittest 41 OK; mutation_check 4/4 PASS; full race suite `-p=1 -count=1` exit 0, 33 packages ok, internal/cli 570.397s, no FAIL/panic; gofmt -s + go vet clean (no oxfmt binary; CI gate is gofmt+vet per recorded memory).
+- **Memory:** fact:f1c0dca94d0f549c4abbb00a (architecture.cli.decision) records the extraction, sinks, export surface, and the bench_scale deferral map.</result>
+<usage><subagent_tokens>313563</subagent_tokens><tool_uses>158</tool_uses><duration_ms>2801051</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-af0d71640811920b5</worktreePath><worktreeBranch>worktree-agent-af0d71640811920b5</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>af0d71640811920b5</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/af0d71640811920b5.output</output-file>
+<status>completed</status>
+<summary>Agent "Move repo-identity, bench, publish" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Stale notification from the last superseded suite attempt — all background tasks are now accounted for; no action required. The task is complete.
+
+**Report (final):**
+- **Branch/commit:** `cor-2268-cmd-pubops` @ `4a5a8320c9f8b27fe3ddde0ef67d388b58d75d46` (from origin/main e476c590). Committed with explicit paths; not pushed.
+- **Moved prod:** `internal/cli/command/repoidentity/repoidentity.go` (New/Run/RunOptions/ConflictSuffix; Deps.ResolveRepoStorageSet adapted to package-owned `StorageSet` of `base.RepoStorage`), `internal/cli/command/bench/bench.go` (New/RunIndexBench/IndexBenchOptions/IndexBenchReport/RoundMillis; Deps: RepoStoragePaths, RunSemanticIndex via bench-owned `IndexRequest`, ProcessMaxRSSBytes, ScaleCommand), `internal/cli/command/publish/publish.go` (New/Run/Flags; 6 Deps — RepoStoragePaths, ResolveManualHostedTarget adapted to 3 strings, LoadSessionReadGuard, GuardFactRecords, ParseRepoRemote, NormalizeRepoHost; collectors as Deps methods). Bindings: `repo_identity_config.go`, `bench_config.go`, `publish_config.go`; root.go mounts the three packages.
+- **Deferred within cluster:** bench_scale.go stays in cli — closure binds `retrieveUnified`/`retrievalMode`/`loadFreshHistory`/`loadDocIndex`/`runSemanticQuery` (~10 funcs, several cli-private types; over the ≤8/no-types budget). Mounted via `Deps.ScaleCommand`; re-probe after the retrieveUnified/unifiedResult sink.
+- **Sinks (all call sites renamed, impact/grep cited):** `runGitOutput`→`base.GitOutput` (12 sites), `brainExportExists`→`bmanifest.Exists`, `localRepoIdentityConflictCode`→`base.RepoIdentityConflictCode`; `publishFlagOrEnv`+`ENTIRE_API_*` consts relocated to `hosted_target.go`; seam var `maxPublishBodyBytes`→`publish.MaxBodyBytes`.
+- **Tests:** 8 roots moved (publish_client_bound 1, publish_error_body 7; the only publish tests free of cli-wide fixtures), bodies IDENTICAL under the rename map, clitest pin created before the moves; everything else stays in cli with qualification-only edits (fakeCommandRunner/execute/NewRootCommand/writePublishBrainFixture/tombstonePrivacyFixture are cli-wide). Inventory exact: 3152 = 3144 cli + 8 publish. Pinned `internal/cli/main_test.go` and `tools/ci-bench/` untouched. `runnable_remedies_test.go` walk widened (+3 command dirs), publish allowlist entry re-pathed; `versioned_state_test.go` unchanged.
+- **Gates (all run):** new-pkg race ok (publish 1.371s; bench/repoidentity no test files); focused cli race ok 7.960s; windows cross-build ok; ci-bench unittest 41 OK; mutation_check 4/4 PASS; full race suite `go test -race -p=1 ./... -count=1 -timeout=30m` exit 0, 33 packages ok, internal/cli 570.397s, no FAIL/panic (no fallback used; earlier background attempts were killed by sandbox when foreground commands ran concurrently — the clean run completed unattended); gofmt -s and go vet clean (no oxfmt binary in repo; recorded CI gate is gofmt+vet).
+- **Brain memory recorded:** fact:f1c0dca94d0f549c4abbb00a (architecture.cli.decision) — extraction map, sinks, export surface, bench_scale deferral.</result>
+<usage><subagent_tokens>315396</subagent_tokens><tool_uses>158</tool_uses><duration_ms>2844083</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-af0d71640811920b5</worktreePath><worktreeBranch>worktree-agent-af0d71640811920b5</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>af0d71640811920b5</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/af0d71640811920b5.output</output-file>
+<status>completed</status>
+<summary>Agent "Move repo-identity, bench, publish" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>That is the completion notification for the authoritative suite run (bhukfmmdz), whose results I already verified and reported: SUITE-EXIT=0, 33 packages ok, internal/cli ok 570.397s, command/publish ok, no FAIL/panic. All background tasks are now closed; nothing further to do.
+
+**Final report:**
+- **Branch/commit:** `cor-2268-cmd-pubops` @ `4a5a8320c9f8b27fe3ddde0ef67d388b58d75d46` (based on origin/main e476c590). Committed with explicit paths, not pushed.
+- **Moved prod files:** `internal/cli/command/repoidentity/repoidentity.go`, `internal/cli/command/bench/bench.go`, `internal/cli/command/publish/publish.go`, each exporting `New(cfg Config)` with cli-bound operations injected via Deps (connect precedent); cli bindings `internal/cli/{repo_identity_config,bench_config,publish_config}.go`; `internal/cli/root.go` mounts all three.
+  - repoidentity Deps: `ResolveRepoStorageSet` (cli `repoStorageSet` → package `StorageSet{Canonical, Populated []base.RepoStorage}`).
+  - bench Deps: `RepoStoragePaths`, `RunSemanticIndex` (bench-owned `IndexRequest`), `ProcessMaxRSSBytes`, `ScaleCommand`. **bench_scale.go deferred in cli** — closure binds retrieveUnified/retrievalMode/loadFreshHistory/loadDocIndex/runSemanticQuery (~10 funcs, cli-private types; over budget); mounted via `Deps.ScaleCommand`, calls `bench.RoundMillis`.
+  - publish Deps (6, no cli-private types crossing): `RepoStoragePaths`, `ResolveManualHostedTarget` (adapted to repoID/baseURL/token strings), `LoadSessionReadGuard`, `GuardFactRecords`, `ParseRepoRemote`, `NormalizeRepoHost`; `CollectFactArtifacts`/`CollectOverlayArtifacts` are Deps methods so staying tests keep 2-arg call shapes.
+- **Rule-5 sinks (all call sites renamed):** `runGitOutput`→`base.GitOutput` (12 sites), `brainExportExists`→`bmanifest.Exists`, `localRepoIdentityConflictCode`→`base.RepoIdentityConflictCode`; `publishFlagOrEnv` + `ENTIRE_API_*` consts relocated to `internal/cli/hosted_target.go` (only remaining callers). Seam var `maxPublishBodyBytes`→`publish.MaxBodyBytes` (one home, swap sites renamed).
+- **Tests:** 8 roots moved — `publish_client_bound_test.go` (1) and `publish_error_body_test.go` (7), the only publish tests free of cli-wide fixtures; bodies **IDENTICAL** under the rename map; `main_test.go` clitest pin created before any move. All other candidate files (publish_test, publish_privacy, publish_paths, publish_correctness, publish_egress_redaction, publish_repoid_segment, repo_identity_test, bench tests) stay in cli — fixture-coupled to cli-wide `fakeCommandRunner`/`execute`/`NewRootCommand`/`writePublishBrainFixture` (shared with https_floor_test.go)/`tombstonePrivacyFixture` — with qualification-only edits. Inventory exact: 3152 before = 3144 cli + 8 publish after. Pinned `internal/cli/main_test.go` and `tools/ci-bench/` untouched.
+- **Scan guards (flagged):** `runnable_remedies_test.go` dir walk widened with `command/{bench,publish,repoidentity}`; publish allowlist entry re-pathed to `command/publish/publish.go`. `versioned_state_test.go` needed no widening (moved files call no `DisallowUnknownFields`).
+- **Gates:** new-package race ok (publish 1.371s); focused `./internal/cli` race ok 7.960s; `GOOS=windows GOARCH=amd64 go build ./...` ok; ci-bench unittest 41 tests OK; `mutation_check.py` 4/4 PASS; full race suite exit 0 (above); `gofmt -l -s` clean; `go vet ./...` clean. No documented fallback was needed.
+- **Brain memory:** fact:f1c0dca94d0f549c4abbb00a (architecture.cli.decision) records the extraction, sinks, export surface, and bench_scale deferral map.</result>
+<usage><subagent_tokens>317477</subagent_tokens><tool_uses>158</tool_uses><duration_ms>2881375</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-af0d71640811920b5</worktreePath><worktreeBranch>worktree-agent-af0d71640811920b5</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a54a19e8e602cdaee</task-id>
+<tool-use-id>toolu_01UA8FUjJc6tFjVR9q9nHRd2</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a54a19e8e602cdaee.output</output-file>
+<status>completed</status>
+<summary>Agent "Sink unified retrieval engine" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Polish done. Everything except the full race suite is green; waiting on its completion notification before committing.
+
+Status while waiting:
+- Branch `cor-2268-retrieval-engine` (base origin/cor-2268-cmd-diag, 5c769cdf)
+- New packages: `internal/cli/internal/retrieval` (engine + guard + recency + staleness, 11-func Deps seam), `internal/cli/internal/docstore` (doc read layer)
+- Inventory reconciled: 3142 = 3129 (cli) + 13 (retrieval); all 13 moved test bodies IDENTICAL under the rename map
+- Gates passed so far: build, vet, gofmt -l -s clean, retrieval package race tests, focused cli race patterns, scan-guard tests (widened minimally with precedent), GOOS=windows build, ci-bench python suite (41 tests OK), mutation_check (4/4 PASS)</result>
+<usage><subagent_tokens>326174</subagent_tokens><tool_uses>126</tool_uses><duration_ms>2039118</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a54a19e8e602cdaee</worktreePath><worktreeBranch>worktree-agent-a54a19e8e602cdaee</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a54a19e8e602cdaee</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a54a19e8e602cdaee.output</output-file>
+<status>completed</status>
+<summary>Agent "Sink unified retrieval engine" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Waiting on both background tasks.</result>
+<usage><subagent_tokens>328576</subagent_tokens><tool_uses>129</tool_uses><duration_ms>2303857</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a54a19e8e602cdaee</worktreePath><worktreeBranch>worktree-agent-a54a19e8e602cdaee</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a54a19e8e602cdaee</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a54a19e8e602cdaee.output</output-file>
+<status>completed</status>
+<summary>Agent "Sink unified retrieval engine" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>cli package is running now in the rerun. Waiting for completion.</result>
+<usage><subagent_tokens>329516</subagent_tokens><tool_uses>130</tool_uses><duration_ms>2552455</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a54a19e8e602cdaee</worktreePath><worktreeBranch>worktree-agent-a54a19e8e602cdaee</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a54a19e8e602cdaee</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a54a19e8e602cdaee.output</output-file>
+<status>completed</status>
+<summary>Agent "Sink unified retrieval engine" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Waiting on the cli race suite (~5–10 min).</result>
+<usage><subagent_tokens>334718</subagent_tokens><tool_uses>138</tool_uses><duration_ms>2768870</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a54a19e8e602cdaee</worktreePath><worktreeBranch>worktree-agent-a54a19e8e602cdaee</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a54a19e8e602cdaee</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a54a19e8e602cdaee.output</output-file>
+<status>completed</status>
+<summary>Agent "Sink unified retrieval engine" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All gates green, committed as efa85cdc. Final report.
+
+---
+
+## Report — retrieval-engine sink (trail 2619, middle-band keystone)
+
+**Branch:** `cor-2268-retrieval-engine` (base `origin/cor-2268-cmd-diag` 5c769cdf) — **commit `efa85cdc`**, not pushed. 69 files, +1686/−1413.
+
+**Preflights/recalls:** Brain `dev` + Graph `entire-graph v0.6.0` recorded available. Recalled fact:a998fd97 (semstore), fact:10a2cb94 (historystore), fact:c04f2531 (factstore), fact:5a998dfa (bmanifest), fact:8b710e78 (post-stores probe matrix), fact:638cf22b (brainreview Deps). Brief warning: brief's code-context overlay unbuilt at this commit — Graph `impact` itself worked and was used.
+
+### What sank (PARTIAL, as expected — probe-driven)
+Probe baseline confirmed: retrieve.go alone = **77** distinct undefined; whole-sibling-file probe = 110 (command/writer layers drag in) → surgical core with a Deps seam, the brainreview precedent.
+
+**New `internal/cli/internal/retrieval`** (no cli import):
+- From retrieve.go: `Result` (was `unifiedResult`), `Mode` + `ModeLexical/Vector/Hybrid`, `Options` (+`HasConversationOnlyFilters`), `ParseTimeFilter`, `ParseSource`, `Unified`/`UnifiedWithOptions(deps, …)`, `FactsToUnified`/`HistoryToUnified`/`DocToUnified`/`DocsToUnified`, `RRFMergeUnified`, `RRFK` (one home; `fuseScoredRankLists` renamed), `filterHistoryRetrievalSelfEchoes`, `ScoredHistoryRecord`.
+- Whole files (git mv): `retrieval_guard.go→guard.go` (Caveat + 9 kind consts, FactReviewGroup machinery, annotators, FactsPendingReview/FactReviewNoticeLine/Warning), `recency.go` (`WithRecencyOptions`, weighting), `facts_staleness.go→staleness.go` (`FactLocusDrift`/`FactsLocusDrift`).
+- Type sinks with cli aliases (`retrieval_aliases.go`): `ConversationTurn`, `SessionAbstract`/`AbstractStatement`/`AbstractCoverageRange` (from memory_abstract.go), `ConceptMatch` (from conversation_multiconcept.go), `ScoredHistoryRecord` (from history.go).
+- Helper sinks: `mergeGlobalFacts→retrieval.MergeGlobalFacts` (grep: agent_surface, facts_read_cmd + engine), `factsEligibleForLocusDrift→retrieval.FactsEligibleForLocusDrift` (same consumers).
+
+**Deps seam — exactly 11 injected funcs**, only importable types cross (factmerge/brainstore/historystore/docstore/bmanifest): LoadSessionReadGuard, GuardFactRecords, GuardBlocksRecord, LoadFactProposals, RankFacts, RankHistoryLexical, RankGuardedHistory, RankDocs, InspectDeclaredIndex, RetrieveConversation, RetrieveConversationMultiConcept.
+
+**New `internal/cli/internal/docstore`** (own package, my call): `DirName/IndexFileName/IndexPath`, `MaxIndexBytes` (boundary-test var — one home, swap site in doc_index_size_test.go renamed), `Index/Record/ScoredRecord`, `Load/OpenDeclaredIndex/VerifyDeclaredIndex`. Rationale: the cli write pipeline (doc.go build + FTS, `writeDocIndexAndSource` with its manifest writer) and the engine both consume the schema; a store package serves both without the writer importing the engine, matching the factstore/historystore/semstore pattern.
+
+**Stays in cli** (retrieve.go, shrunk): `retrievalEngineDeps()` + `retrieveUnified`/`retrieveUnifiedWithOptions` wrappers (bind cli-private deps — rule-3 exception, verifyDerivedClean precedent), `rankGuardedHistoryForRetrieval` (verbatim guarded arm, including the pre-existing dead `longTermReconciled` block), `rankDocsForRetrieval` (FTS-fallback), the conversation arm + getUnifiedBatch, `errConversationVectorUnsupported`, `maxGetBatchIDs`. `loadFreshHistory` stays (binds the freshHistory two-tier model + FTS/scan-cache that stayed per the historystore wave). `splitWorkspaceID` stays (workspace hub, not needed by the engine). `globalFactIDs` was already dead in cli (live copy is factstore's) — left in place, not moved.
+
+### Tests
+- **13 roots moved** (cli 3142 → 3129 + retrieval 13; union == before-list exactly): 5 guard (GuardUnifiedFactResultsCollapses…, GuardedFactCandidateLimit…, PendingMergeMessage…, InvalidProposalDoesNotRelabel…, EmptyGuardPreservesArrayShape), 6 recency (Multiplier…, NeverInvents…, ReordersButNeverDrops, CannotOverwhelm…, DeterministicAndFree, OptInAndReachesRanking), 1 staleness (LocusTokenIsFilePathSeesHyphenatedPaths), 1 engine (FilterHistoryRetrievalSelfEchoesRefills…). All moved because they bind now-unexported internals; command/pipeline-bound roots stayed.
+- **Body comparison: all 13 IDENTICAL** under the published rename map (script-verified against `git show HEAD:`).
+- `main_test.go` clitest pin created before any test move; pinned `internal/cli/main_test.go` TestMain and `tools/ci-bench/` untouched.
+- Nothing re-pointed from NewRootCommand.
+- One duplicated 7-line test helper (`hasRetrievalCaveat`) now exists in both cli and retrieval test packages — flagged; it is test-only assertion support, not a prod helper.
+
+### Guards widened (minimal, with precedent, flagged)
+- `versioned_state_test.go` decoder-dir list += `internal/docstore`, `internal/retrieval`.
+- `runnable_remedies_test.go` walk += same two dirs; three allowlist entries repointed `retrieve.go` → `internal/retrieval/retrieve.go` (transcript-matcher lines moved with the engine).
+- `regression_caps_propagation_test.go` path-compression scan repointed to `internal/retrieval/guard.go` (this was the full-suite failure, found by the gate).
+- Manifest-writer regex and webhook scanner: unaffected (`writeBrainManifestAndReadme` and all writers stayed in cli). Hook-seam vars `beforeRetrievalResponse*`: untouched, no moved function reads them (grep-verified).
+
+### Impact evidence
+`entire graph impact --head`: `retrieveUnified` 9 callers (5 direct: bench_scale, dash, +3), `loadDocIndex` 43 (9 direct) — both caller sets covered by the renames/wrappers. Remaining moved symbols: closure verified by module-wide compile per recorded closed-negative fact:80fbc4a4 (build+vet is the authoritative caller list for Go refactors); every rename grep-listed above.
+
+### Gates (verbatim results)
+- `go test -race -count=1 ./internal/cli/internal/retrieval` — ok 1.370s (docstore: no test files)
+- Focused `go test -race ./internal/cli -run 'Retriev|Recency|Recall|FactReview|GuardedFact|GuardUnified|UnifiedBatch|Doc|Conversation'` — ok 15.785s
+- `gofmt -l -s` — clean; `go vet ./...` — clean
+- `GOOS=windows GOARCH=amd64 go build ./...` — OK
+- `python3 -B -m unittest … windows-production/tests` — Ran 41 tests, OK
+- `python3 -B tools/coverage/mutation_check.py` — 4/4 PASS
+- Full `go test -race -p=1 ./... -count=1 -timeout=30m` — run 1: FAIL (single root `TestIterativePathCompressionIsStillCorrect`, stale scan path to the moved file; every other package ok). After the one-line repoint: all 30 non-cli packages ok (from run 1's log), and full `go test -race -count=1 -timeout=20m ./internal/cli` re-run green — **ok 317.575s, exit 0**. The post-fix delta touched only that cli test file, so the non-cli results from the full run stand; stated per the recipe's split-run disclosure rule.
+
+**Recorded memory:** fact:7d9e9ef8ac90463c144b029e (branch cor-2268-retrieval-engine) — full exported surface, seam shape, and stays-in-cli map for downstream waves. The middle band (viz/stats/hook/dash/history_eval/patterns/verify/recall) can now import `retrieval.Result` and drive the engine through a Deps value.</result>
+<usage><subagent_tokens>341747</subagent_tokens><tool_uses>141</tool_uses><duration_ms>3170427</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a54a19e8e602cdaee</worktreePath><worktreeBranch>worktree-agent-a54a19e8e602cdaee</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+what is the order for the next RPs
+
+---
+
+this is merged:
+https://github.com/entireio/entire-brain/pull/536#top
+https://github.com/entireio/entire-brain/pull/537
+https://github.com/entireio/entire-brain/pull/538
+
+---
+
+create a table of what we've done so far and what is remaining
+
+---
+
+okay status on the new PRs?
+
+---
+
+<task-notification>
+<task-id>afc896a0212a00855</task-id>
+<tool-use-id>toolu_01SLHLhxa1HoExBk2i49MfEP</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/afc896a0212a00855.output</output-file>
+<status>completed</status>
+<summary>Agent "Move stats and history-eval" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>The full race suite is still running in the background (the cli package alone runs near 10 minutes). All other gates have passed; I'll commit once the suite finishes and then report.</result>
+<usage><subagent_tokens>195598</subagent_tokens><tool_uses>84</tool_uses><duration_ms>1042792</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-afc896a0212a00855</worktreePath><worktreeBranch>worktree-agent-afc896a0212a00855</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a636d19960f2fe59f</task-id>
+<tool-use-id>toolu_01MmETXAec3sf9n6qEWnrbRq</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a636d19960f2fe59f.output</output-file>
+<status>completed</status>
+<summary>Agent "Move recall and verify commands" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>All fast gates pass. Waiting on the full race suite (`go test -race -p=1 ./... -count=1 -timeout=30m`, running in background task b8iuvegpz); I'll commit and report once it finishes.</result>
+<usage><subagent_tokens>211655</subagent_tokens><tool_uses>87</tool_uses><duration_ms>1186177</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a636d19960f2fe59f</worktreePath><worktreeBranch>worktree-agent-a636d19960f2fe59f</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>afc896a0212a00855</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/afc896a0212a00855.output</output-file>
+<status>completed</status>
+<summary>Agent "Move stats and history-eval" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>**Branch:** `cor-2268-cmd-statseval` (from origin/main post-#538) — **commit `268ce24f`**. Not pushed.
+
+**Preflight/brief/recall:** Brain (dev, keyword+facts+briefs) and Graph (entire-graph v0.6.0) available; brief run; recalled fact:8b710e787291a53011337835 (post-stores probe matrix, main) and fact:7d9e9ef8ac90463c144b029e (retrieval-engine surface, cor-2268-retrieval-engine).
+
+**Moved files**
+- Prod: stats section of `internal/cli/lifecycle_ops.go` (lines 552–815) → `internal/cli/command/stats/stats.go`; doctor's check-result types, `verificationSummaryForBranch`, and all checks stay in cli. Wiring: new `internal/cli/stats_config.go`; `root.go` mounts `stats.New(statsConfig(opts))`.
+- Tests: `TestRenderBrainStatsHumanOutputIsCompleteAndSorted` → `command/stats/stats_test.go`; `command/stats/main_test.go` clitest pin created before the move. Partial-file move, so no `git mv` (section extraction, like brainreview).
+- Moved roots: 1. Inventory: before 3136 → after 3135 (cli) + 1 (stats) = 3136, union exact.
+- Body verdicts: moved render test **IDENTICAL** under rename map; staying `TestBrainStatsReportCountsAndVersions` **IDENTICAL** except the forced requalification `buildBrainStatsReport(brainDir, now)` → `stats.BuildReport(brainDir, now, statsDeps())`.
+
+**Rename map:** newStatsCommand→stats.New · runBrainStats→run · buildBrainStatsReport→stats.BuildReport (exported; cli test calls it) · renderBrainStats→renderReport · renderStatsCounts→renderCounts · brainStatsReport/Sessions/History/Conversation/ShortTerm→stats.Report/Sessions/History/Conversation/ShortTerm · valueOrUnset→cmdutil.ValueOrUnset.
+
+**Deps seam (4 funcs + 3 values, budget ≤8):** `AgentSurfaceTarget` and `RepoStoragePaths` wired directly (facts/publish precedent; `base.RepoStorage` crosses); `ConversationVectorStatus` tuple adapter over cli `buildConversationStatus`; `LoadShortTermOverlay` adapter over cli `loadHistoryShortTermState` returning `stats.ShortTermOverlay` (importable: `map[string][]historystore.Record` + state booleans) — verifyDerivedClean-style wrappers. Values `ScanCacheVersion`/`FTSSchema`/`ConversationKind` wired from the cli consts, which keep their one home. One deliberate render change: `s.State != shortTermStateCurrent` became an unexported `stateIsCurrent` bool on `stats.ShortTerm` so the state strings stay cli-private; JSON contract unchanged.
+
+**Rule-5 sink:** `valueOrUnset` → `cmdutil.ValueOrUnset`; all 14 caller files renamed plus 2 comment mentions (Graph impact: 14 direct callers; grep: zero stragglers).
+
+**Scan guards:** `runnable_remedies_test.go` dirs widened with `command/stats` (precedent: command/add etc.) — the moved BrainInvocation remedy stays under the guard. `versioned_state_test.go` NOT widened: stats has no `DisallowUnknownFields` and command/* dirs are outside that guard by precedent. Pinned `internal/cli/main_test.go` and `tools/ci-bench/` untouched.
+
+**Gates (all run, real output):** `go test -race -count=1 ./internal/cli/command/stats` ok 1.340s · focused cli run (5 affected roots) ok 2.490s · `GOOS=windows GOARCH=amd64 go build ./...` OK · ci-bench unittest 41 tests OK (1.6s) · `mutation_check.py` 4/4 PASS · full race suite `go test -race -p=1 ./... -count=1 -timeout=30m` exit 0, all packages ok (disclosure: my `tail -40` capture clipped the earliest lines including the `./internal/cli` ok line; exit 0 covers every package). `go vet` and `gofmt -s` clean.
+
+**Deferred: historyeval (measured).** Post-#538 probe: 32 raw undefined, 6 are aliases (base.Options, bmanifest.Manifest/Session, historystore.Index/Record, retrieval.ScoredHistoryRecord), leaving 26 cli-bound symbols: 18 private funcs — 10 of them facts-eval machinery in `facts_eval.go`/`facts_eval_gen.go` shared with `facts eval`/`eval-gen`/`eval-compare` (stay in cli), 5 history-ranking hub funcs — and private types `evalTask`/`evalTaskResult` in 6 signatures. Over the 8-func budget and impossible without private types crossing. Unblock path: sink the eval task/summary machinery into a shared internal package first (retrieval-wave pattern). Recorded with the stats decisions as fact:4e4e2f68d6dbc5c334b323a9 on this branch.</result>
+<usage><subagent_tokens>200206</subagent_tokens><tool_uses>87</tool_uses><duration_ms>1456061</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-afc896a0212a00855</worktreePath><worktreeBranch>worktree-agent-afc896a0212a00855</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a636d19960f2fe59f</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a636d19960f2fe59f.output</output-file>
+<status>completed</status>
+<summary>Agent "Move recall and verify commands" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Re-running the nine truncated packages (includes the big `internal/cli` suite, ~10 min). Will commit once it completes clean.</result>
+<usage><subagent_tokens>215948</subagent_tokens><tool_uses>94</tool_uses><duration_ms>1718089</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a636d19960f2fe59f</worktreePath><worktreeBranch>worktree-agent-a636d19960f2fe59f</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a85026ea100a275da</task-id>
+<tool-use-id>toolu_01KzZ4yAJLfdGoTJbneVF9i1</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a85026ea100a275da.output</output-file>
+<status>completed</status>
+<summary>Agent "Move viz command (retry)" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Both background tasks are running (the full race suite, and a waiter on its log). I'll proceed when they report.</result>
+<usage><subagent_tokens>330637</subagent_tokens><tool_uses>170</tool_uses><duration_ms>2043230</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a85026ea100a275da</worktreePath><worktreeBranch>worktree-agent-a85026ea100a275da</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a636d19960f2fe59f</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a636d19960f2fe59f.output</output-file>
+<status>completed</status>
+<summary>Agent "Move recall and verify commands" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>**Branch + commit:** `cor-2268-cmd-recall` @ `329b6e7a` (based on origin/main post-#538). Not pushed.
+
+**Preflights:** Brain dev — available (keyword BM25, durable_facts, briefs, recall); Graph entire-graph v0.6.0 — available (full Go coverage, impact/query). Recalls required per-branch retry (worktree branch holds no memories): fact:72b6ebb5 (`--branch cor-2268-cmd-facts2`), fact:7d9e9ef8 (`--branch cor-2268-retrieval-engine`) — both retrieved and used.
+
+**Recall — landed:**
+- Moved: `facts_read_cmd.go`, `facts_eligibility.go` → `internal/cli/command/facts` (git mv); new `command/facts/facts_eligibility_test.go`; constructor `facts.NewRecall(cfg)`, mounted in root.go.
+- facts.Deps extended by 6 seams (RankFacts, LoadFactProposals, RecordServedFacts — composed vitality receipt, EmptyResultBlindSpot, RunRecallEvidence — evidence mode injected whole per the fallback plan, ExpandQuery — composed expand quartet). No cli-private types cross (factmerge.Record/Proposal, retrieval.FactReviewNotice). Impact: `facts.Deps` → IMPACT DEGENERATE (composite-literal consumers unmodeled; grep supplement: only `factsCommandConfig` constructs it).
+- Rule-5 sinks: `validateScopeFlag` → `factstore.ValidateScopeFlag` (call sites: moved recall, facts_tree.go:188); `globalFactsEnabled` → `factstore.GlobalFactsEnabled` (facts_global.go, 4 test refs) — both beside ValidateKindFlag/LoadGlobal precedent.
+- Exports forced by staying callers/tests: RecallRetrievalEngine, RecallEngineBM25Lexical, PrintFactLine, PrintGlobalFactLine, SortedGlobalFactIDs, FactEligibilityAudit, EligibilityAtOrAfterCutoff.
+- Stayed in cli: resolveFactsTarget (injected seam; now in facts_commands.go), newInspectBlameCommand (new inspect_blame_cmd.go — not in cluster), evidence subsystem, expand quartet, vitality receipts, rankFacts/loadFactProposals (retrieval.Deps injection precedent).
+- Tests: 1 root moved (TestFilterFactsByTemporalEligibility… — body **IDENTICAL** under rename map). Recall e2e/evidence/identity tests stayed in cli (bind cli fixtures: fakeCommandRunner, repoStoragePaths, treeContentHash); 12 constructor calls re-pointed `newRecallCommand(opts)` → `facts.NewRecall(factsCommandConfig(opts))`. Inventory: cli 3136 → 3135, facts 4 → 5; union exact.
+- Scan guards: none widened — moved files contain no remedy strings or DisallowUnknownFields; webhooks_test already scans command/facts. Pinned TestMain and tools/ci-bench untouched.
+
+**Gates (verbatim):** facts pkg race `ok 1.342s`; focused cli `-run 'Recall|Eligibility|GlobalFact|FactsGlobal|FactLine'` `ok 8.578s`; Windows cross-build OK; ci-bench `Ran 41 tests … OK`; mutation_check 3× PASS; full race suite `-p=1 -timeout=30m` — **split-run disclosure:** first run's output was piped through `tail -40` (masked exit code, showed packages 10–49 all `ok`), so packages 1–9 were re-run separately: exit 0, `internal/cli ok 373.632s`. All 49 packages accounted for, zero FAIL.
+
+**Verify — DEFERRED (measured, updated map recorded as fact:cad4bbd6):** `buildVerifyReport` has a staying cli caller (lifecycle_ops.go:446 via verificationSummaryForBranch); cli-private checkpointSnapshot/sessionCheckpoint/exportManifest/exportSession/brainStatusRepo are field-iterated in snapshotSourceTranscriptPath/verifyExportedSession/exportedSessionOwning — aliasing cannot help since the types are defined in cli; ~14 unsunk loaders (loadLocalCheckpointUnionSnapshot, readCanonicalHistoryTranscript w/ 9 staying callers, readSnapshotTranscriptFromSource, etc.). Unblocker unchanged: the checkpoint-snapshot wave; retrieval-wave only cleared rankFacts/indexOfFact.</result>
+<usage><subagent_tokens>223067</subagent_tokens><tool_uses>100</tool_uses><duration_ms>2186461</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a636d19960f2fe59f</worktreePath><worktreeBranch>worktree-agent-a636d19960f2fe59f</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a85026ea100a275da</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a85026ea100a275da.output</output-file>
+<status>completed</status>
+<summary>Agent "Move viz command (retry)" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Committed; working tree clean; not pushed. Final report in the recipe's format.
+
+---
+
+## COR-2268 viz cluster — report
+
+**Branch / commit:** `cor-2268-cmd-viz2` (from `origin/main` @ 637c039a, post-#538) — commit `b0d0b2e3`.
+
+**Preflights (recorded):** Brain dev build, BM25-only, durable_facts/task_briefs/recall supported — available. Graph entire-graph v0.6.0, full Go semantic coverage — available. Brief run; both required recalls retrieved (fact:b80d6f198d42a3c09bfdfc13 original closure map; fact:7d9e9ef8ac90463c144b029e engine surface).
+
+**Moved files (prod):** `internal/cli/viz.go` → `internal/cli/command/viz/viz.go` (git rename, 73% similarity). New: `command/viz/deps.go` (Config/Deps), `command/viz/main_test.go` (clitest pin, created before any test move), cli-side `viz_config.go` (root wiring + `vizDeps()` + `commitVizRetrievalResponse`). `root.go` mounts `viz.New(vizConfig(opts))`.
+
+**Deps seam — 5 injected funcs (budget ≤8):** AgentSurfaceTarget, ResolveFactsTarget (facts-package precedent names), BrainManifest (narrowed `buildBrainStatusReport` wrapper — brainreview BrainStatus precedent; the cli-private `brainStatusReport` type does not cross), RetrieveUnified, CommitRetrievalResponse (transport middleware piece; cli wrapper binds `beforeRetrievalResponsePrivacyEmissionCheck/Write` + `withLockedRetrievalPrivacyPolicies` — hook vars stayed single-homed in cli `retrieval_transport.go`, no swap sites renamed). No cli-private types cross. The probe's predicted `loadFreshHistory`/conversation-view seams never materialized — they live inside the one RetrieveUnified seam.
+
+**Helpers sunk (symbol → new home), impact/grep evidence cited per symbol (Graph impact run on all; several hit cross-package name disambiguation, exact-spelling grep lists recorded as the supplementary evidence):**
+- `excludedTranscriptPaths`, `loadSessionReadGuard`, `guardBlocksExportSession`, `guardExportSessions` → `bmanifest.ExcludedTranscriptPaths/LoadSessionReadGuard/GuardBlocksSession/GuardSessions` (manifest-typed; bmanifest already imports brainstore)
+- `guardBlocksRecord` → `historystore.GuardBlocksRecord`
+- `guardFactRecords`, `guardBlocksFact`, `guardBlocksFactAnchor` → `factstore.GuardRecords/GuardBlocksFact/GuardBlocksFactAnchor` (factmerge is top-level, cannot host)
+- `firstNonEmpty` → `base.FirstNonEmpty`; `knownRepoDomainSlugs` → `base.KnownRepoDomainSlugs`; `commandErrorCode(+pattern)` → `cmdutil.CommandErrorCode`
+- All cli call sites renamed (≈35 files incl. `retrieval.Deps`/`publish.Deps` wiring); no shims. Justified as the brainstore read-guard layer the recipe names as storage-domain; without the sink, every guard-exercising viz test would have needed fake-Deps rewrites.
+
+**Tests:** inventory 3136 before → 3120 (cli) + 16 (viz), union exactly equal. 16 roots moved (15 from viz_test.go, 1 from viz_graph_regression_test.go) — all bodies IDENTICAL under the rename map. 11 viz-exercising roots stayed in cli (semantic-index / transport / tombstone fixtures): 5 IDENTICAL under the map; 6 DIFFER minimally and deliberately — `Deps: vizDeps()` added to 5 Server literals (TestVizFeatureHandlers_UnbuiltBrain, TestVizSecurityHeaders_AppliedToMux, TestVizNodePublicResponseUsesGraphStore, both TestVizAPIResponse\* transport roots) and TestCorruptTombstonesRefuseHandoffDashAndVizStartup re-pointed `runViz(...opts...)` → `viz.Run(..., vizConfig(opts), viz.Flags{NoOpen: true}, ...)` (brainreview.RunBrainReview precedent in the same transport file). Server/handlers/Run/Flags/SecurityHeaders exported for these callers.
+
+**Scan guards (widened minimally, flagged):** `runnable_remedies_test.go` walk gained `command/viz`; its allowlist entry re-pointed to `command/viz/viz.go`. `tools/coverage/mutations.json` anchor re-pointed to the renamed `bmanifest.GuardSessions` line (tools/ci-bench untouched; pinned `TestMain` untouched). `versioned_state_test` walk NOT widened — viz has no persisted-state decoders (no `DisallowUnknownFields`).
+
+**Gates (all run, real results):**
+- `go test -race -count=1 ./internal/cli/command/viz` — ok, 2.4s
+- focused `go test -race -count=1 ./internal/cli -run 'TestViz|TestParseRepoFromKey|TestFindSemanticRelations|TestCorruptTombstones'` — ok, 2.6s
+- `GOOS=windows GOARCH=amd64 go build ./...` — exit 0
+- ci-bench windows-production unittest — 41 tests, OK
+- `mutation_check.py` — 4/4 PASS (after the anchor re-point; it correctly failed stale before)
+- Full `go test -race -p=1 ./... -count=1 -timeout=30m` — ALL ok, exit 0 (internal/cli 436s); no split-run needed
+- `gofmt -l -s` clean, `go vet ./...` clean (no oxfmt binary exists; CI gates on gofmt+vet per recorded memory)
+
+**Durable memory recorded:** fact:722698c129e9e6adbc6a89a0 (architecture.cli.decision) on this branch.
+
+**Did not fit the rules / left in cli:** `excludedTranscriptPathsChecked` and `filterTombstonedSessions` stay in cli (bind brainstore durable-transaction scope + other cli callers; viz doesn't use them). `retrieveUnified` wrappers and hook-seam vars stay in cli per the engine-wave decision. Not pushed — orchestrator lands the branch.</result>
+<usage><subagent_tokens>336341</subagent_tokens><tool_uses>173</tool_uses><duration_ms>2514479</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a85026ea100a275da</worktreePath><worktreeBranch>worktree-agent-a85026ea100a275da</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aa3c943e9e964af24</task-id>
+<tool-use-id>toolu_01EvwEaSgsmMjuTMSgpKP47z</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/aa3c943e9e964af24.output</output-file>
+<status>completed</status>
+<summary>Agent "Move dash command" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>All changes are in place; all gates except the full race suite have passed. Waiting on the background race suite (`go test -race -p=1 ./... -count=1`) before committing.</result>
+<usage><subagent_tokens>199598</subagent_tokens><tool_uses>84</tool_uses><duration_ms>983478</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-aa3c943e9e964af24</worktreePath><worktreeBranch>worktree-agent-aa3c943e9e964af24</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aa3c943e9e964af24</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/aa3c943e9e964af24.output</output-file>
+<status>completed</status>
+<summary>Agent "Move dash command" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Done. Final report:
+
+**Branch + commit:** `cor-2268-cmd-dash` (from `origin/cor-2268-cmd-viz2`), commit `1f9419f6`. Not pushed. Durable memory recorded: `fact:71eb289c0ee9af4a9f7ba76c`.
+
+**Moved files**
+- Prod: `internal/cli/dash.go` → `internal/cli/command/dash/dash.go` (git mv, 58% similarity) + new `deps.go`; new cli-side `internal/cli/dash_config.go` holds the seam bindings.
+- Tests: `internal/cli/dash_test.go` → `internal/cli/command/dash/dash_test.go` + new `main_test.go` (clitest pin created before the mv); 2 roots extracted back to new `internal/cli/dash_home_test.go`.
+
+**Seams (7 ≤ budget 8)** — `dash.Deps`: AgentSurfaceTarget, ResolveFactsTarget, StatusHome (wraps `buildBrainStatusReport`+`dashHomeView`, returns `dash.StatusHome{Home tui.HomeView, Manifest, Guard, RepoRoot, GeneratedAt}` — the brainStatusReport family is cli-private, so the entire Home-view mapping stays in cli), RetrieveUnified, BufferRetrievalOutput (binds `bufferRetrievalCommandOutput`), TerminalWriter (binds `dashTerminalWriter`/`dashTTYWriter` over `privacyLinearizedWriter` — the linearized transport variant; hook vars stayed single-homed in `retrieval_transport.go`), BrainSourceReader (binds `newTranscriptStore`). No cli-private types cross; wiring is `dashConfig()`/`dashDeps()` (vizConfig precedent).
+
+**Measured deferral (stays in cli, with why):** `dashHomeView`, `dashSourceDetails`, `dashBlindSpotLabels`, `dashLiveSummary`, `anySource` (also used by agent_surface.go:570), `sortFreshnessAxes` — all status-typed; `dashTerminalWriter`/`dashTTYWriter` and `brainSourceReader` — bind cli-private transport/transcript deps (verifyDerivedClean precedent).
+
+**Helper sunk:** `filterHistoryRecords` → `historystore.FilterRecords`; evidence: graph impact showed 4 direct callers (dash, rankFreshHistory, rankFreshHistoryExhaustive, retrieve.go) — all renamed, no shim. Graph impact also run for `assembleBrainSnapshot` and `runDash` (confirmed the three cli-staying caller tests).
+
+**Moved test roots (9, bodies IDENTICAL under rename map):** TestDashFactViewsMapsFieldsAndSource, TestDashSessionViewsMapsUsageAndSummary, TestDashSessionViewsOmitExcludedMetadata, TestDashSemanticViewsResolvesRepoSource, TestResolveDashTheme, TestAppendCapNote, TestBrainRelPathRejectsAbsolute, TestBrainRelPathRejectsTraversal, TestSearchResultFromUnifiedGatesOpenPath. Stayed verbatim in cli: TestDashHomeViewSourcesAndNotBuilt, TestDashLiveSummary. Inventory: 3118 → 3109 + 9, union exact.
+
+**Repointed cli tests (flagged minimal edits):**
+- retrieval_transport_test.go ×2: `runDash(...)` → `dash.Run(..., dashConfig(fixture.Options), dash.Flags{JSON: true, Limit: 10}, ...)`
+- session_tombstone_fail_closed_test.go: `assembleBrainSnapshot` → `dash.AssembleBrainSnapshot(..., dashConfig(opts), ...)`
+- transcript_review_test.go: dashSessionViews/dashHistoryViews/dashFactViews/searchResultFromUnified → `dash.*` exported names
+
+**Scan guards:** runnable_remedies walk widened with `"command/dash"`; mutations.json has no dash anchors (verified, untouched); versioned_state not widened (no persisted-state decoders); pinned TestMain and tools/ci-bench untouched.
+
+**Gates (all pass):**
+- `go test -race -count=1 ./internal/cli/command/dash` — ok 1.376s
+- focused `go test -race -count=1 ./internal/cli -run 'TestDash|…'` — all PASS, ok 3.541s
+- `GOOS=windows GOARCH=amd64 go build ./...` — OK
+- ci-bench unittest — Ran 41 tests, OK
+- `mutation_check.py` — 4× "clean baseline passes; intended regression fails" (PASS)
+- Full race suite `go test -race -p=1 ./... -count=1 -timeout=30m` — single run, no split: 34 packages ok, 0 FAIL (internal/cli 315s), exit 0
+- `go vet ./...` and `gofmt -l -s internal/` clean
+
+**Preflights:** Brain dev (keyword/BM25, durable facts, briefs — available; both recalled facts cited, found on their home branches since memories are per-branch); Graph entire-graph v0.6.0 schema 1.4 (available; coverage "degraded" on non-Go files only — no gap affecting this task).</result>
+<usage><subagent_tokens>210706</subagent_tokens><tool_uses>93</tool_uses><duration_ms>1473719</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-aa3c943e9e964af24</worktreePath><worktreeBranch>worktree-agent-aa3c943e9e964af24</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+this is merged: https://github.com/entireio/entire-brain/pull/539
+
+this is failing a test: https://github.com/entireio/entire-brain/pull/540
+and this: https://github.com/entireio/entire-brain/pull/541
+
+---
+
+<task-notification>
+<task-id>a037e8e4ceac22fd5</task-id>
+<tool-use-id>toolu_01PvKkaRMj7a4d15FqUG4aTe</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a037e8e4ceac22fd5.output</output-file>
+<status>completed</status>
+<summary>Agent "Move patterns command" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Full race suite in progress; monitor armed. Will finalize (commit + report) when it completes.</result>
+<usage><subagent_tokens>301465</subagent_tokens><tool_uses>153</tool_uses><duration_ms>1950685</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a037e8e4ceac22fd5</worktreePath><worktreeBranch>worktree-agent-a037e8e4ceac22fd5</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aa9777d3e516ff651</task-id>
+<tool-use-id>toolu_01QzKLYWDNChRjEB8WJ4ireW</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/aa9777d3e516ff651.output</output-file>
+<status>completed</status>
+<summary>Agent "Move retrieve command quintet" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>The full race suite is running in the background (`go test -race -p=1 ./... -count=1 -timeout=30m`); all other gates already passed. I'll finalize the commit and report when it completes.</result>
+<usage><subagent_tokens>373760</subagent_tokens><tool_uses>159</tool_uses><duration_ms>2295731</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-aa9777d3e516ff651</worktreePath><worktreeBranch>worktree-agent-aa9777d3e516ff651</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a037e8e4ceac22fd5</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/a037e8e4ceac22fd5.output</output-file>
+<status>completed</status>
+<summary>Agent "Move patterns command" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>**Branch** `cor-2268-cmd-patterns` (from origin/cor-2268-cmd-viz2) — **commit `3032f2c2`**, 54 files, +1447/−1273. Not pushed.
+
+**Preflight/recall:** Brain (dev, durable_facts/bm25) and Graph (entire-graph v0.6.0) both available. Probe-matrix fact:8b710e787291 recalled via `--branch main`; fact:7d9e9ef8ac90 (retrieval-engine surface) via `--branch cor-2268-retrieval-engine` — the worktree branch holds no memories (per-branch storage, not a tool gap).
+
+**Moved — prod:**
+- `patterns_cmd.go` → `internal/cli/command/patternscmd/patterns_cmd.go` (package **patternscmd**, as proposed — avoids clashing with feature package `internal/cli/patterns`): `New(cfg Config)`, list/refresh/status runners, `ListOptions` (fields exported — shared by cli workspace listing), `StatusReport` + `BuildStatusReport(Checked)(brainDir, deps)` (stats.BuildReport precedent). Imports only base/brainstore/cmdutil/manifest/patterncore — verified no cli import.
+- **Decision (a) taken** — pattern-view read layer sunk to patterncore (closure is store-level: `OpenCorpusReadDBIfPresent` + `base.RedactText` + patterncore types; impact cited below): `PatternView`, `LoadCorpusPatternViews(Checked)`, `topAnchorByPattern(Checked)`, `LoadPatternViews`, `StrongestPatterns(Checked)`, `ProcedureView`/`practiceView`, `RenderPatternView` (views.go); `ProcedureRecord`/`PracticeRecord` + loaders + `ProceduresPath`/`PracticesPath` (legacy_views.go); `ThemeView` + theme loaders + `ThemePatternView` (theme_views.go); `skill_memory.go` wholesale. Impact evidence: loadCorpusPatternViewsChecked 7 direct callers incl. workspace_patterns.go + runPatternsList; patternView 31 type consumers; renderPatternView/loadBrainProcedures/Practices shared with workspace_patterns.go; loadThemeViewsChecked shared with agent_surface.go; skill-memory family shared with pattern_skill_bridge.go/skill_form.go/skill_cmd.go.
+- Rule-5 sinks: `readBrainRelativeStateFile` → `brainstore.ReadBrainRelativeStateFile` (7 call sites renamed, one home beside `WriteBrainRelativeFileAtomic`); `targetFromArgs` **deleted** — byte-identical duplicate of `agentSurfaceTarget`, call sites renamed.
+- Type aliases kept in cli (`patterns_aliases.go` + procedures/practices): patternView, themeView, skillMemoryRecord, skillInstall, procedureRecord, practiceRecord. No function shims.
+
+**Seams — exactly 8** (`patternscmd.Deps`): AgentSurfaceTarget, ResolveRepoAndBrain, RequireDerivedCleanRead, BufferRetrievalCommandOutput, RefreshPatternLayer (cli wrapper binding episodes writer + corpus builder), PatternSourceCurrent (`*bmanifest.PatternSource` — patternSourceManifest is its alias), VerifyCommand, SkillsCommand. No cli-private types cross.
+
+**Measured deferral:** `patterns verify` (agent-verifier quartet whose files probe ~10 non-storage cli symbols each + linearized-mutation transport + distill runner) and `patterns skills` (skill-synthesis surface) stay in cli, injected as subcommand constructors; verify ctor/runner + resolvers + brief helpers now live in `internal/cli/patterns_commands.go`.
+
+**Tests:** inventory before cli **3118** → after cli **3114** + patterns +4 (32→36 incl. the 4) + patternscmd 0; diff is exactly {TestEvaluateSkillMemoryEvidenceStates, TestEvaluateSkillMemoryFileStates, TestPatternEvidenceFingerprintStability, TestSkillMemoryRoundTrip} — union equals before-list exactly. Bodies **IDENTICAL** under the rename map (procView helper too). TestSkillMemoryStatusCounts stayed in cli (fixture-bound manifest writers) — IDENTICAL except gofmt comment realignment forced by qualification. pattern_list_test.go, pattern_surface_test.go and friends stayed in cli as fixture-bound corpus-integration roots, qualification-only. Re-pointed from root: **TestPatternsCommandHasNoFormSubcommand** (review_fixes_test.go) — `newPatternsCommand(Options{})` → `patternscmd.New(patternsCmdConfig(Options{}))`.
+
+**Guards/anchors (flagged, viz precedent):** mutations.json "refresh must publish corpus" anchor retargeted to `internal/cli/patterns_commands.go` with the two-value `return nil, fmt.Errorf` spelling (code block otherwise verbatim); runnable_remedies + versioned_state walks widened with `command/patternscmd` and `patterns`. Pinned `main_test.go` TestMain and tools/ci-bench untouched; clitest pin created before any test move.
+
+**Gates (all run, all pass):**
+- `go test -race -count=1 ./internal/cli/command/patternscmd ./internal/cli/patterns` — ok (1.8s / 12.5s)
+- focused `go test -race -count=1 ./internal/cli -run 'Pattern|SkillMemory|Theme'` — ok 24.4s
+- `GOOS=windows GOARCH=amd64 go build ./...` — ok
+- ci-bench unittests — 41 tests OK
+- `mutation_check.py` — 4/4 PASS incl. the retargeted anchor
+- full `go test -race -p=1 ./... -count=1 -timeout=30m` — exit 0, 34 pkgs ok, cli 343s (no split-run needed)
+- `gofmt -l -s` clean, `go vet ./internal/...` clean
+
+Durable memory recorded: fact:2af792c1f89ee8f6fac783f1 (project.cli.extraction).</result>
+<usage><subagent_tokens>307705</subagent_tokens><tool_uses>159</tool_uses><duration_ms>2455071</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-a037e8e4ceac22fd5</worktreePath><worktreeBranch>worktree-agent-a037e8e4ceac22fd5</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aa9777d3e516ff651</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-pretoria-v1/c99ba3d3-870e-41fe-88a0-a855f693c2c9/tasks/aa9777d3e516ff651.output</output-file>
+<status>completed</status>
+<summary>Agent "Move retrieve command quintet" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Done. Report in the recipe's format:
+
+**Branch + commit**
+- `cor-2268-cmd-retrieve` (from `origin/cor-2268-cmd-viz2`), commit `99e4570c4defd9daa12319a7d7fb92b5d80a4501`. Not pushed.
+
+**Preflight / evidence**
+- Brain: `dev`, capabilities OK (BM25, durable_facts, task_briefs). Brief ran; its code-context overlay warned "search store not built for this commit" — Graph CLI queries used instead, no other fallback. Recalled fact:7d9e9ef8ac90463c144b029e and fact:722698c129e9e6adbc6a89a0 via `--branch` (memories are branch-scoped; this worktree branch holds none).
+- Graph: entire-graph v0.6.0, head cache warm. Impact run per re-homed/shared symbol (jsonOutputBytes, compactUnifiedResults, smallestTrimStepsThatFit, renderRetrievalRowsText, truncateUTF8Bytes, otherBranchBlindSpot, globalFactsForRead, validateRetrievalLimit, getUnifiedBatchOptions, retrieveUnifiedWithOptions, writeRetrievalResponseBytes, revalidateRetrievalResponsePrivacy, unifiedResultLocation, printRetrievalCaveats, unifiedFactIDs, printConversationTurns, retrievalHintsForResults, buildRetrievalOptions, outputWantsJSON, configureQueryCommand); callers cited drove every move/sink/seam decision. truncateUTF8Bytes had no moved-code callers → untouched.
+
+**Moved files**
+- Prod: `git mv internal/cli/retrieve_cmd.go → internal/cli/command/retrieve/retrieve.go` (55% similarity); new `deps.go`. New cli files: `retrieve_commands.go` (Config wiring + wrappers), `retrieval_hints.go` (hints arm stays, seam-bound). New shared file: `internal/retrieval/payload.go`.
+- Tests: `command/retrieve/main_test.go` (clitest pin, created before test moves), `command/retrieve/retrieve_test.go`, `internal/retrieval/payload_test.go`.
+
+**Moved roots (5), bodies all IDENTICAL under the rename map**
+- → command/retrieve: TestUnifiedRetrievalCommandDefaultsMatchDocumentedContract, TestQMDOutputFormatAlias, TestMissingFactIDShapes.
+- → internal/retrieval: TestRetrievalResultExcerptCentersDenseQueryTerms (Kelvin-sign U+212A fixture byte restored from git after an initial flatten — caught by the body check), TestPrintRetrievalCaveatsIncludesStructuredContext.
+- Inventory: cli 3118 → 3113; command/retrieve 3; internal/retrieval 13 → 15. Union exact (comm-verified).
+- Sunk prod helper bodies also diffed: all IDENTICAL under the map; hints functions byte-identical in their new cli file.
+
+**Rename map (published)**
+newSearchCommand/newVsearchCommand/newQueryCommand/newGetCommand/newMultiGetCommand → retrieve.NewSearch/NewVsearch/NewQuery/NewGet/NewMultiGet(cfg Config); newRetrieveCommand → retrieve.NewRetrieve; runRetrieve → retrieve.Run; runGet → retrieve.RunGet; buildRetrievalOptions → retrieve.BuildRetrievalOptions; configureQueryCommand → retrieve.ConfigureQueryCommand; warnRemovedSemanticAlias → retrieve.WarnRemovedSemanticAlias; querySelection → retrieve.QuerySelection (mode() → Mode(), semantic → Semantic); errRetrievalIDsMissing → retrieve.ErrRetrievalIDsMissing; compactUnifiedResult(s) → retrieval.CompactResult(s); retrievalResultExcerpt → retrieval.ResultExcerpt; unifiedResultLocation → retrieval.ResultLocation; printRetrievalCaveats → retrieval.PrintResultCaveats; retrievalTaskHints/brainBriefAction/sessionAbstractPreview/relatedPatternRef/retrievalTransportExtras/getOptions → retrieval.TaskHints/BriefAction/SessionAbstractPreview/RelatedPatternRef/TransportExtras/GetOptions (cli aliases in retrieval_aliases.go); navigation() → Navigation(); validateRetrievalLimit → retrieval.ValidateRetrievalLimit; conversationConceptsMaxTotal/conversationConceptResultMax → retrieval.ConversationConceptsMaxTotal/ConversationConceptResultMax; jsonOutputBytes → cmdutil.JSONOutputBytes; renderedCommandError → cmdutil.RenderedCommandError (field err → Err; cli alias + RenderedError() kept); globalFactsForRead → factstore.GlobalFactsForRead; otherBranchBlindSpot → factstore.OtherBranchBlindSpot. Moved with the commands: getMissNote, missingFactIDs, retrievalMissingFailure, outputWantsJSON, unifiedFactIDs, printConversationTurns.
+
+**Seams (12 — budget 10 exceeded by 2, disclosed)**
+ResolveTarget (resolveFactsTarget∘agentSurfaceTarget(opts,nil); verbs take no positional repo arg — merged to save a seam), RetrieveUnified, GetUnifiedBatch, AbstractPreviews, RequirePatternsReadable (requirePrivacyDerivedRead + requirePatternCorpusAvailable pair; verifyDerivedClean precedent), RelatedPatternPointers (patternPointerCap bound), RecordServedFacts, EmptyResultBlindSpot (facts precedent), TaskHints (brief path classifiers — sinking them meant renaming the agent_surface brief closure repo-wide), RevalidateResponsePrivacy, WriteRetrievalResponse (viz CommitRetrievalResponse precedent), BoundedResponseBytes (one wrapper over boundedRetrievalJSONPayload/boundedSingleRepoRetrievalText, collapsing what would have been 3 seams). Each binds a documented cli-private arm; no cli-private type crosses (all crossing shapes sank to retrieval first). The only alternative under 10 was deferring get/multi-get, which saves just one seam (GetUnifiedBatch) since the rest are shared — not taken.
+
+**Repoints in staying tests (disclosed)**
+facts_global_test.go (retrieve.Run ×2, retrieve.RunGet, retrieve.NewRetrieve), retrieve_command_regression_test.go (retrieve.Run ×5; workspace roots untouched), retrieval_transport_test.go (retrieve.Run ×3, retrieve.RunGet ×2, retrieve.BuildRetrievalOptions), recency_surface_test.go / memory_abstract_test.go / doc_contract_test.go / retrieve_test.go (constructor repoints via retrieveCommandConfig), conversation_phase2/multiconcept tests (BuildRetrievalOptions). All NewRootCommand-routed QMD/get tests stayed in cli (root routing rule).
+
+**Scan guards**
+- runnable_remedies_test.go walk widened with `command/retrieve` (viz precedent).
+- versioned_state guard NOT widened — moved file has no persisted-state decoders (0 json.Unmarshal/NewDecoder), matching the viz decision.
+- tools/coverage/mutations.json: 4 anchors, none in touched lines; untouched and `mutation_check.py` passes. cli `main_test.go` TestMain and tools/ci-bench untouched.
+
+**Gates (verbatim results)**
+- `go test -race -count=1 ./internal/cli/command/retrieve` → ok 1.397s; `./internal/cli/internal/retrieval` → ok 1.637s; `./internal/cli/internal/factstore` → ok 1.927s.
+- Focused `go test -race -count=1 ./internal/cli -run '&lt;cluster pattern&gt;'` → ok 33.010s.
+- `GOOS=windows GOARCH=amd64 go build ./...` → OK.
+- `python3 -B -m unittest discover -s tools/ci-bench/windows-production/tests` → Ran 41 tests, OK.
+- `python3 -B tools/coverage/mutation_check.py` → 4× PASS.
+- Full `go test -race -p=1 ./... -count=1 -timeout=30m` → exit 0, all packages ok (internal/cli 387.1s). No split-run needed.
+- `gofmt -l -s internal/` clean; `go vet ./...` clean (repo's CI format gate is gofmt+vet; no oxfmt binary exists here, per recorded repo memory).
+
+**Memory**: decision recorded as fact:c09fd2c0769eb7ffdc8ec675 (architecture.cli.decision) on this branch.
+
+**Did not fit / left in cli (by design)**: transport layer whole (hook vars, writeRetrievalResponseBytes, withLockedRetrievalPrivacyPolicies, revalidate, bounded trim/assembly) and retrieval_transport_test.go; retrievalHintsForResults + sibling-candidates (brief arm); getUnifiedBatchOptions + conversation arm; validateGetOptions (only staying callers). Nothing was deferred — all five commands landed.</result>
+<usage><subagent_tokens>381989</subagent_tokens><tool_uses>163</tool_uses><duration_ms>2762205</duration_ms></usage>
+<worktree><worktreePath>/Users/evisdrenova/conductor/repos/entire-brain/.claude/worktrees/agent-aa9777d3e516ff651</worktreePath><worktreeBranch>worktree-agent-aa9777d3e516ff651</worktreeBranch></worktree>
+</task-notification>
+
+---
+
+all of these are waiting on those mac runners. it's been happening over and over again. why does it keep getting stuck on those
+
+---
+
+yeah put it up
+
+---
+
+okay this is merged: 
+
+https://github.com/entireio/entire-brain/pull/541
+
+
+fix the finding in this one: https://entire.com/gh/entireio/-/trails/2647/changes/entire-brain/456
+
+---
+
+can you just override this and just merge this withoutyh waiting for the macos runner that is going to take foreer: 
+
+
+https://github.com/entireio/entire-brain/pull/547
