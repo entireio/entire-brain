@@ -1,0 +1,25 @@
+{
+  "tool_use_id": "toolu_01EWuo7AdeaCY43YFifUmxkv",
+  "agent_id": "a14d0a91be2dcad0c",
+  "subagent_type": "general-purpose",
+  "task_description": "Move brain-review and doctor",
+  "files": [
+    "internal/cli/brainreview_aliases.go",
+    "internal/cli/brainreview_config.go",
+    "internal/cli/command/brainreview/brainreview.go",
+    "internal/cli/command/brainreview/brainreview_test.go",
+    "internal/cli/command/brainreview/main_test.go",
+    "internal/cli/regression.go",
+    "internal/cli/regression_caps_propagation_test.go",
+    "internal/cli/regression_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 162,
+    "cache_creation_tokens": 256682,
+    "cache_read_tokens": 16025078,
+    "output_tokens": 99290,
+    "api_call_count": 81
+  },
+  "started_at": "2026-10-27T11:48:21.639804-07:00",
+  "completed_at": "2026-10-27T12:12:38.408819-07:00"
+}

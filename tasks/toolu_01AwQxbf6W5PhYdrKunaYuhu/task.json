@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01AwQxbf6W5PhYdrKunaYuhu",
+  "agent_id": "a87c5a7fc3839356f",
+  "subagent_type": "general-purpose",
+  "task_description": "Sink semantic read path",
+  "token_usage": {
+    "input_tokens": 212,
+    "cache_creation_tokens": 531181,
+    "cache_read_tokens": 20129854,
+    "output_tokens": 102342,
+    "api_call_count": 106
+  },
+  "started_at": "2026-10-27T09:18:22.624258-07:00",
+  "completed_at": "2026-10-27T09:52:57.28891-07:00"
+}
