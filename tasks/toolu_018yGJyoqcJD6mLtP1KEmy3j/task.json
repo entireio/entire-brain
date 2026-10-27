@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_018yGJyoqcJD6mLtP1KEmy3j",
+  "agent_id": "abc8f80490cd7c288",
+  "subagent_type": "entire-search",
+  "task_description": "Find rationale for per-branch facts",
+  "token_usage": {
+    "input_tokens": 6,
+    "cache_creation_tokens": 66063,
+    "cache_read_tokens": 66590,
+    "output_tokens": 5323,
+    "api_call_count": 3
+  },
+  "started_at": "2026-10-26T20:38:27.073501-07:00",
+  "completed_at": "2026-10-26T20:39:13.996429-07:00"
+}
