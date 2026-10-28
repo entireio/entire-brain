@@ -1,0 +1,112 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M629AK4XVB9GBFK1F1R1YT4P",
+  "session_id": "41f22359-2ce2-4b59-992b-486ec87b6f97",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-28T22:15:40.775299Z",
+  "branch": "evisdren/brain-compact-format-issue",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [
+    "CHANGELOG.md",
+    "internal/cli/conversation.go",
+    "internal/cli/conversation_compact_etf_test.go",
+    "internal/cli/facts_eval_gen.go",
+    "internal/cli/history.go",
+    "internal/cli/verify_cmd.go",
+    "internal/cli/verify_compact_mode_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "f2d41d703cc7",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 230,
+    "cache_creation_tokens": 234827,
+    "cache_read_tokens": 18059423,
+    "output_tokens": 67345,
+    "api_call_count": 115
+  },
+  "redaction": {
+    "replacements": 7,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 7,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01FdtRyTbf7XxH4BKLCty2Jt",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:systematic-debugging"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "f2d41d703cc7",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 30,
+        "end": 31,
+        "entry_ids": [
+          "81c41093-9195-4ad8-a1ec-d57cb207d25e"
+        ],
+        "tool_use_id": "toolu_01FdtRyTbf7XxH4BKLCty2Jt"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01FdtRyTbf7XxH4BKLCty2Jt"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:systematic-debugging",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01RjkCwv441TtirqNUyGzPYn",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:test-driven-development"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "f2d41d703cc7",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 656,
+        "end": 657,
+        "entry_ids": [
+          "0eaee6c7-6652-4048-b23f-c10cf5a77753"
+        ],
+        "tool_use_id": "toolu_01RjkCwv441TtirqNUyGzPYn"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01RjkCwv441TtirqNUyGzPYn"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:test-driven-development",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 2
+  }
+}

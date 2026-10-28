@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M629AK4XVB9GBFK1F1R1YT4P",
+  "strategy": "manual-commit",
+  "branch": "evisdren/brain-compact-format-issue",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "CHANGELOG.md",
+    "internal/cli/conversation.go",
+    "internal/cli/conversation_compact_etf_test.go",
+    "internal/cli/facts_eval_gen.go",
+    "internal/cli/history.go",
+    "internal/cli/verify_cmd.go",
+    "internal/cli/verify_compact_mode_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 230,
+    "cache_creation_tokens": 234827,
+    "cache_read_tokens": 18059423,
+    "output_tokens": 67345,
+    "api_call_count": 115
+  },
+  "redaction": {
+    "replacements": 7,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 7,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
