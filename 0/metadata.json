@@ -1,0 +1,81 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M6030PVSCJYMGT50CWJ62PY9",
+  "session_id": "c99ba3d3-870e-41fe-88a0-a855f693c2c9",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-28T01:46:57.114749Z",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "cefc64e98a72",
+  "checkpoint_transcript_start": 6729,
+  "transcript_lines_at_start": 6729,
+  "compact_transcript_start": 921,
+  "token_usage": {
+    "input_tokens": 30,
+    "cache_creation_tokens": 304237,
+    "cache_read_tokens": 2171581,
+    "output_tokens": 9993,
+    "api_call_count": 15,
+    "subagent_tokens": {
+      "input_tokens": 12,
+      "cache_creation_tokens": 313626,
+      "cache_read_tokens": 1551673,
+      "output_tokens": 5448,
+      "api_call_count": 6
+    }
+  },
+  "redaction": {
+    "replacements": 19,
+    "layers": {
+      "betterleaks": 12,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 7,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01YHKH7WKZfYuubeXWasTKqr",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "entire:address-findings"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "dfb423d13344",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 6260,
+        "end": 6261,
+        "entry_ids": [
+          "b827fb01-886e-4cb7-bfc6-aebee5aa91cf"
+        ],
+        "tool_use_id": "toolu_01YHKH7WKZfYuubeXWasTKqr"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01YHKH7WKZfYuubeXWasTKqr"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: entire:address-findings",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 111
+  }
+}
