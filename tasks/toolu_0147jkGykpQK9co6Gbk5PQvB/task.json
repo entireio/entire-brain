@@ -1,0 +1,31 @@
+{
+  "tool_use_id": "toolu_0147jkGykpQK9co6Gbk5PQvB",
+  "agent_id": "a1b02e6ddc323e07d",
+  "task_description": "Move hook command package",
+  "files": [
+    "internal/cli/agent_wiring_test.go",
+    "internal/cli/command/hook/deps.go",
+    "internal/cli/command/hook/hook.go",
+    "internal/cli/command/hook/hook_payload_test.go",
+    "internal/cli/command/hook/hook_test.go",
+    "internal/cli/command/hook/main_test.go",
+    "internal/cli/facts_eval.go",
+    "internal/cli/facts_eval_test.go",
+    "internal/cli/hook_cmd_test.go",
+    "internal/cli/hook_config.go",
+    "internal/cli/hook_hosted_test.go",
+    "internal/cli/hook_payload_test.go",
+    "internal/cli/internal/base/env.go",
+    "internal/cli/root.go",
+    "internal/cli/seed.go"
+  ],
+  "token_usage": {
+    "input_tokens": 190,
+    "cache_creation_tokens": 451008,
+    "cache_read_tokens": 15818935,
+    "output_tokens": 88377,
+    "api_call_count": 95
+  },
+  "started_at": "2026-10-27T17:42:03.683424-07:00",
+  "completed_at": "2026-10-27T18:03:53.139807-07:00"
+}
