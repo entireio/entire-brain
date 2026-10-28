@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M627N9RTZRQDH4CE38FGNK01",
+  "strategy": "manual-commit",
+  "checkpoints_count": 3,
+  "files_touched": [
+    ".github/workflows/test.yml",
+    "benchmarks/agent-brain/run.py",
+    "scripts/install.sh",
+    "templates/entire-brain-recall-claude-agent.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 22,
+    "cache_creation_tokens": 536842,
+    "cache_read_tokens": 5407197,
+    "output_tokens": 6498,
+    "api_call_count": 11
+  },
+  "redaction": {
+    "replacements": 25,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 25,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
