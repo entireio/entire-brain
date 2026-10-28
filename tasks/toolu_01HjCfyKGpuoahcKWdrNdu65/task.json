@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01HjCfyKGpuoahcKWdrNdu65",
+  "agent_id": "ad273c98da1a08666",
+  "subagent_type": "fork",
+  "task_description": "Fix COR-2291 Memories page",
+  "token_usage": {
+    "input_tokens": 206,
+    "cache_creation_tokens": 738047,
+    "cache_read_tokens": 32540115,
+    "output_tokens": 48695,
+    "api_call_count": 103
+  },
+  "started_at": "2026-10-28T15:21:21.749822-07:00",
+  "completed_at": "2026-10-28T15:28:26.55999-07:00"
+}

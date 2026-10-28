@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01KeopV1cwaZXYzYkmiCNBPj",
+  "agent_id": "ae18f2de8def2b8ea",
+  "subagent_type": "fork",
+  "task_description": "Fix COR-2290 native publish",
+  "token_usage": {
+    "input_tokens": 270,
+    "cache_creation_tokens": 107894,
+    "cache_read_tokens": 42256665,
+    "output_tokens": 63496,
+    "api_call_count": 135
+  },
+  "started_at": "2026-10-28T15:21:42.05455-07:00",
+  "completed_at": "2026-10-28T15:24:03.723415-07:00"
+}
