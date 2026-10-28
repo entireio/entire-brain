@@ -49,13 +49,15 @@ another visible memory change.
 
 ## Scan-cache compatibility
 
-History extraction revision 11 adds compact transcript parsing. Its cache record
-schema is the same as version 10, which all three stable releases understand.
-New caches therefore use wire version 10 and an `extractor_version: 11` field.
+History extraction revision 11 adds compact transcript parsing, and revision 12
+also mines the tool output that compact transcripts inline into `tool_use`
+blocks. Their cache record schema is the same as version 10, which all three
+stable releases understand. New caches therefore use wire version 10 and an
+`extractor_version: 12` field.
 
 Current history readers reuse a version 10 cache only when that field matches.
-Older writers omit the field, so the next current refresh rescans the transcripts.
-Existing version 11 files remain readable by current clients. Current privacy
+Older writers omit the field, and revision 11 writers record 11, so the next
+current refresh rescans the transcripts. Current privacy
 inspection accepts both known formats and still rejects unsupported formats.
 The extraction invalidation check remains in place.
 
