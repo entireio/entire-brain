@@ -5,9 +5,7 @@
   "branch": "evisdren/brain-compact-format-issue",
   "checkpoints_count": 28,
   "files_touched": [
-    "CHANGELOG.md",
-    "internal/cli/conversation_compact_etf_test.go",
-    "internal/cli/history.go"
+    "CHANGELOG.md"
   ],
   "sessions": [
     {
@@ -15,32 +13,25 @@
       "transcript": "/0/full.jsonl",
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
-      "prompt": "/0/prompt.txt"
+      "prompt": ""
     }
   ],
   "token_usage": {
-    "input_tokens": 180,
-    "cache_creation_tokens": 664090,
-    "cache_read_tokens": 25323213,
-    "output_tokens": 57267,
-    "api_call_count": 91,
-    "subagent_tokens": {
-      "input_tokens": 472,
-      "cache_creation_tokens": 845251,
-      "cache_read_tokens": 74275648,
-      "output_tokens": 106768,
-      "api_call_count": 236
-    }
+    "input_tokens": 18,
+    "cache_creation_tokens": 12428,
+    "cache_read_tokens": 2923452,
+    "output_tokens": 4559,
+    "api_call_count": 9
   },
   "redaction": {
-    "replacements": 9,
+    "replacements": 12,
     "layers": {
       "betterleaks": 2,
       "connection_string": 0,
       "credential_key": 0,
       "credential_value": 0,
       "credentialed_uri": 0,
-      "entropy": 7,
+      "entropy": 10,
       "key_context": 0,
       "provider_token": 0,
       "shell_stdin": 0
