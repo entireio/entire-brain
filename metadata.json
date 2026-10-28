@@ -1,0 +1,77 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M601BVJHBA51Z9Z54GXETF3V",
+  "strategy": "manual-commit",
+  "branch": "cor-2268-cmd-watch",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/command/watch/binary.go",
+    "internal/cli/command/watch/deps.go",
+    "internal/cli/command/watch/main_test.go",
+    "internal/cli/command/watch/watch.go",
+    "internal/cli/dead_surface_test.go",
+    "internal/cli/dirty_gate_reconciled_test.go",
+    "internal/cli/distill_order_test.go",
+    "internal/cli/history_delta.go",
+    "internal/cli/install_ux_test.go",
+    "internal/cli/internal/brainstore/errors.go",
+    "internal/cli/internal/historystore/short_term_stats.go",
+    "internal/cli/local_agent_preference_test.go",
+    "internal/cli/pause_test.go",
+    "internal/cli/root.go",
+    "internal/cli/runnable_remedies_test.go",
+    "internal/cli/setup_daemon_concurrency_test.go",
+    "internal/cli/setup_firstrun_test.go",
+    "internal/cli/setup_pr89_test.go",
+    "internal/cli/setup_status_test.go",
+    "internal/cli/setup_test.go",
+    "internal/cli/setup_ui_test.go",
+    "internal/cli/setup_watchplan.go",
+    "internal/cli/setup_watchplan_test.go",
+    "internal/cli/truthful_advice_test.go",
+    "internal/cli/versioned_state_test.go",
+    "internal/cli/watch_binary.go",
+    "internal/cli/watch_binary_test.go",
+    "internal/cli/watch_steps.go",
+    "internal/cli/watch_steps_test.go",
+    "internal/cli/workspace.go",
+    "internal/cli/workspace_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 142004,
+    "cache_read_tokens": 637294,
+    "output_tokens": 2462,
+    "api_call_count": 5,
+    "subagent_tokens": {
+      "input_tokens": 88,
+      "cache_creation_tokens": 262582,
+      "cache_read_tokens": 12141846,
+      "output_tokens": 23166,
+      "api_call_count": 44
+    }
+  },
+  "redaction": {
+    "replacements": 19,
+    "layers": {
+      "betterleaks": 12,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 7,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
