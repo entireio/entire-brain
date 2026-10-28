@@ -1207,6 +1207,7 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 	source := &historySourceManifest{
 		GeneratedAt:            now,
 		IndexPath:              historystore.IndexPath,
+		ExtractionVersion:      historyScanCacheVersion,
 		TranscriptsFingerprint: transcriptsFingerprint,
 		SessionsFingerprint: func() string {
 			if manifest == nil {
