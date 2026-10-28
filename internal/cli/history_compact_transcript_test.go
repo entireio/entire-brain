@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
@@ -174,6 +175,70 @@ func TestHistoryIndexBuildsRecordsFromCompactTranscript(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestHistoryDeltaRescansOverlayFromPreCompactReader pins the upgrade path
+// for the short-term overlay. A delta run with the pre-compact reader stored
+// compact transcripts as entries with no records, and the delta carries an
+// entry forward without re-parsing when the file's size, mtime and content
+// digest still match. After upgrading, the old scan cache no longer loads,
+// so the transcript is short-term material again; the overlay written by the
+// old reader must be rejected and the transcript re-scanned, not carried
+// forward empty.
+func TestHistoryDeltaRescansOverlayFromPreCompactReader(t *testing.T) {
+	brainDir, source := buildConversationBrainFixtureWithTranscript(t, "sess-codex", compactCodexTranscriptFixture)
+	const rel = "sessions/main/20260801T120000Z_fix-lock.jsonl"
+	cache := loadHistoryScanCache(brainDir)
+	entry, ok := cache.Files[rel]
+	if !ok || entry.ContentDigest == "" {
+		t.Fatalf("fixture scan cache has no content identity for %s: %+v", rel, cache.Files)
+	}
+	// What the previous binary left on disk: a scan cache from the older
+	// extraction version (it no longer loads), and an overlay pinned to the
+	// current long-term build whose entry for this transcript is empty.
+	cache.Version = historyScanCacheVersion - 1
+	saveHistoryScanCache(brainDir, cache)
+	if got := loadHistoryScanCache(brainDir); len(got.Files) != 0 {
+		t.Fatalf("an older scan cache must not load: %d files", len(got.Files))
+	}
+	const preCompactOverlayVersion = 3
+	stale := shortTermIndex{
+		Version:           preCompactOverlayVersion,
+		ReconcilerVersion: historyShortTermReconcilerVersion,
+		BaseGeneratedAt:   source.GeneratedAt,
+		GeneratedAt:       source.GeneratedAt.Add(time.Minute),
+		Files: map[string]shortTermFile{
+			rel: {Size: entry.Size, ModUnixNano: entry.ModUnixNano, ContentDigest: entry.ContentDigest},
+		},
+	}
+	data, err := json.Marshal(stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historyShortTermPath, append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := buildHistoryShortTermLocked(brainDir, source.GeneratedAt.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("delta: %v", err)
+	}
+	if stats.Reused != 0 || stats.Scanned != 1 {
+		t.Fatalf("delta stats = %d reused / %d scanned, want 0/1: the empty entry from the old reader was carried forward", stats.Reused, stats.Scanned)
+	}
+	overlay, state := loadHistoryShortTermState(brainDir, source)
+	if state != shortTermStateCurrent {
+		t.Fatalf("overlay state after delta = %s, want %s", state, shortTermStateCurrent)
+	}
+	exchanges := 0
+	for _, record := range overlay.Files[rel].Records {
+		if record.Kind == conversationKind {
+			exchanges++
+		}
+	}
+	if exchanges != 2 {
+		t.Fatalf("overlay exchanges for the compact transcript = %d, want 2 (records: %d)", exchanges, len(overlay.Files[rel].Records))
 	}
 }
 

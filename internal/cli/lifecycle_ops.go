@@ -181,7 +181,7 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 	// There is deliberately no memory_schema_capabilities check either. Its
 	// state was the literal "ok" and its detail was formatted purely from
 	// untyped compile-time constants (bmanifest.SchemaVersion = 3,
-	// historyShortTermVersion = 3, historyFTSSchema = "3", memoryVectorSchema
+	// historyShortTermVersion = 4, historyFTSSchema = "3", memoryVectorSchema
 	// = 2, abstractSchemaVersion = 1, memoryJobSchemaVersion = 2): the same
 	// sentence for every brain built from a given binary. What this build
 	// SUPPORTS is a property of the build, not a diagnosis of the brain --

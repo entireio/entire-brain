@@ -77,6 +77,10 @@ const (
 	// inlines into each tool_use block (tool_use.result.output) instead of a
 	// separate tool_result record. A v11 cache holds compact scans without
 	// those facts.
+	// The value is also persisted as the history source's ExtractionVersion
+	// so refresh rebuilds an otherwise-unchanged index built by an older
+	// extractor; the short-term overlay has its own historyShortTermVersion,
+	// which must be bumped with it.
 	historyScanCacheVersion = 12
 	// Extraction revisions 11 and 12 change parser behavior, not the record
 	// schema. Keep the wire version readable by supported stable clients. Old
