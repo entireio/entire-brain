@@ -1,0 +1,14 @@
+{
+  "tool_use_id": "toolu_01UbShG3ZWfr8KQvnbUKxkTg",
+  "agent_id": "a9af662914f0b0d7b",
+  "task_description": "Windows CI PR selection",
+  "token_usage": {
+    "input_tokens": 116,
+    "cache_creation_tokens": 215841,
+    "cache_read_tokens": 9557220,
+    "output_tokens": 67503,
+    "api_call_count": 58
+  },
+  "started_at": "2026-10-27T18:49:29.699237-07:00",
+  "completed_at": "2026-10-27T19:04:37.947339-07:00"
+}
