@@ -1,0 +1,279 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/pretoria-v1 directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+Conductor shows the PR for whichever branch is checked out. After you open a PR from a different branch, or a PR stack, check out that PR's branch (for a stack, the top-most branch) so Conductor shows it.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/pretoria-v1/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+
+<system_instruction>
+The user has attached these files. Read them before proceeding.
+- .context/plans/2026-10-24-cor-2268-pr2-workspace-extraction.md (19.0 KB)
+- .context/plans/2026-10-24-cor-2268-pr1-entities-extraction.md (16.7 KB)
+- .context/attachments/r2U8l1/session-transcript-0926c81c-90b3-4bfe-a488-ad00ae39a770.md (18.6 KB)
+- .context/attachments/EPVnzl/session-transcript-b54be2a6-2258-49ad-85ca-2f750f8c7119.md (7.0 KB)
+</system_instruction>
+
+
+
+.context/plans/2026-10-24-cor-2268-pr2-workspace-extraction.md .context/plans/2026-10-24-cor-2268-pr1-entities-extraction.md .context/attachments/r2U8l1/session-transcript-0926c81c-90b3-4bfe-a488-ad00ae39a770.md .context/attachments/EPVnzl/session-transcript-b54be2a6-2258-49ad-85ca-2f750f8c7119.md let's kleep goign here
+
+---
+
+status here?
+
+---
+
+what's next here?
+
+---
+
+okay this si mergd in now: https://github.com/entireio/entire-brain/pull/507
+
+---
+
+explain to me what this PR actually does in simple terms
+
+---
+
+okay this is merged now: https://github.com/entireio/entire-brain/pull/510
+
+---
+
+thisis merged: https://github.com/entireio/entire-brain/pull/516
+
+---
+
+okay this is merged: https://github.com/entireio/entire-brain/pull/517
+
+whta is the enxt step here and how we do get to a point where small updaters aren't re-running the entire test suite
+
+---
+
+yes agreed let's do it
+
+---
+
+fix teh bugbot issue: https://github.com/entireio/entire-brain/pull/518
+
+---
+
+okay this is merged in: https://github.com/entireio/entire-brain/pull/518
+
+---
+
+this is now merged: https://github.com/entireio/entire-brain/pull/519
+
+---
+
+yeah update the linear ticket
+
+---
+
+so did we actually get to realize the faster CI upgrades? did we actually get to see that a simple change doesn't require running eveyrtyihhnh g
+
+---
+
+hmmm yeah the first option is no good, the second option could work but i need think more about it. 
+
+what do you mean splitting command assembly?
+
+---
+
+i removed the mcp so it's not logner a thing.
+
+---
+
+do you think it's owrth it?
+
+---
+
+is this idiomatic go in terms of repo structure?
+
+---
+
+yeah okay, spin up sub agents then and let's clean this up and put each command into it's own pacakge. 
+
+create one project trail for this with as many sub trails as needed
+
+---
+
+status here? it's been a while
+
+---
+
+give me links for all o fthe PRs so far
+
+---
+
+merged:
+- https://github.com/entireio/entire-brain/pull/522
+- https://github.com/entireio/entire-brain/pull/523
+- https://github.com/entireio/entire-brain/pull/524
+- https://github.com/entireio/entire-brain/pull/525
+- https://github.com/entireio/entire-brain/pull/526
+- https://github.com/entireio/entire-brain/pull/527
+
+waitng on 528 and 529 to finish up their tests.
+
+what else is left over after those merge?
+
+---
+
+this is merged: https://github.com/entireio/entire-brain/pull/529
+
+this needs rebasing: https://github.com/entireio/entire-brain/pull/528
+
+---
+
+okay good, where are we now?
+
+---
+
+this is faililng a few testes https://github.com/entireio/entire-brain/pull/530
+
+---
+
+okay this is merged in now: https://github.com/entireio/entire-brain/pull/530
+
+---
+
+this is merged: https://github.com/entireio/entire-brain/pull/531
+
+---
+
+this is merged: https://github.com/entireio/entire-brain/pull/532
+
+and this: https://github.com/entireio/entire-brain/pull/533
+
+---
+
+what is the order for the next RPs
+
+---
+
+this is merged:
+https://github.com/entireio/entire-brain/pull/536#top
+https://github.com/entireio/entire-brain/pull/537
+https://github.com/entireio/entire-brain/pull/538
+
+---
+
+create a table of what we've done so far and what is remaining
+
+---
+
+okay status on the new PRs?
+
+---
+
+all of these are waiting on those mac runners. it's been happening over and over again. why does it keep getting stuck on those
+
+---
+
+yeah put it up
+
+---
+
+okay this is merged: 
+
+https://github.com/entireio/entire-brain/pull/541
+
+
+fix the finding in this one: https://entire.com/gh/entireio/-/trails/2647/changes/entire-brain/456
+
+---
+
+can you just override this and just merge this withoutyh waiting for the macos runner that is going to take foreer: 
+
+
+https://github.com/entireio/entire-brain/pull/547
+
+---
+
+okay this is merged too: https://github.com/entireio/entire-brain/pull/544
+
+---
+
+these are still waiting 16 minutes + place for the mac os runner?
+
+https://github.com/entireio/entire-brain/pull/542
+https://github.com/entireio/entire-brain/pull/543
+
+---
+
+okay we have a new release. 
+
+how is this still running???
+
+https://github.com/entireio/entire-brain/pull/542
+
+---
+
+okay this is merged now: https://github.com/entireio/entire-brain/pull/542
+
+---
+
+is this the last wave?
+
+---
+
+yeah agreed with your recommendation
+
+---
+
+this is merged: https://github.com/entireio/entire-brain/pull/549
+
+and this: https://github.com/entireio/entire-brain/pull/550
+
+---
+
+yeah if we're done with the splitting up we still need to set up the ci so taht we're not running every test. essentially everythign after once we pslit upt he commands.
+
+---
+
+fix the findingl https://github.com/entireio/entire-brain/pull/553
+
+---
+
+this is merged in : https://github.com/entireio/entire-brain/pull/553
+
+---
+
+give me the trail for it
+
+---
+
+alright nice. so nothing left to merge then for brain. we're all done here?
+
+---
+
+let me see the trail for 550
+
+---
+
+there's nothing on this one? 
+
+https://entire.com/gh/entireio/-/trails/2651/changes/entire-brain/460
+
+no code changes or anything
+
+---
+
+okay so is there anything left to merge or clean up? or are we done
+
+---
+
+550 is merged: https://github.com/entireio/entire-brain/pull/550
