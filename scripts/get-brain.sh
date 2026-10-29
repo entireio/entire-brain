@@ -70,24 +70,70 @@ case "$arch" in
 esac
 
 # ---- version -----------------------------------------------------------
+# Scratch space for the API lookup and the download. Created here, before the
+# version lookup, so the lookup can keep the response headers and body.
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+# The API lookup keeps the HTTP status, headers and body instead of letting
+# curl -f collapse every failure into an empty string. Unauthenticated GitHub
+# API calls are capped per IP address, and an exhausted cap answers 403 (or
+# 429). Reporting that as "check your network" sends the user after the wrong
+# problem, so say what actually happened and how to get past it.
+api_status=""
+api_get() {
+  api_status="$(curl -sSL -D "${tmp}/api.headers" -o "${tmp}/api.json" \
+    -w '%{http_code}' "$1" 2>/dev/null)" || api_status="000"
+}
+
+api_rate_limited() {
+  case "$api_status" in 403|429) : ;; *) return 1 ;; esac
+  grep -qiE '^x-ratelimit-remaining: *0[[:space:]]*$' "${tmp}/api.headers" 2>/dev/null \
+    || grep -qi 'rate limit' "${tmp}/api.json" 2>/dev/null
+}
+
+rate_limit_error() {
+  local reset="" wait=""
+  reset="$({ grep -iE '^x-ratelimit-reset:' "${tmp}/api.headers" 2>/dev/null || true; } \
+    | tail -1 | tr -dc '0-9')"
+  if [ -n "$reset" ]; then
+    wait=" It resets in about $(( (reset - $(date +%s) + 59) / 60 )) minute(s)."
+  fi
+  error "GitHub's API rate limit is exhausted (HTTP ${api_status} from api.github.com),
+  so the newest ${CHANNEL} release could not be looked up.${wait}
+  Wait and re-run, or skip the lookup by naming a release:
+    curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/get-brain.sh | bash -s -- --version vX.Y.Z
+  Releases: https://github.com/${GITHUB_REPO}/releases"
+}
+
 resolve_version() {
   local api="https://api.github.com/repos/${GITHUB_REPO}/releases"
-  local out=""
   if [ "$CHANNEL" = "nightly" ]; then
-    out="$(curl -fsSL "${api}?per_page=20" 2>/dev/null \
-      | grep -o '"tag_name": *"[^"]*"' | sed 's/.*"\([^"]*\)"$/\1/' \
-      | grep -- '-nightly\.' | head -1 || true)"
+    api_get "${api}?per_page=20"
   else
-    out="$(curl -fsSL "${api}/latest" 2>/dev/null \
-      | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)"
+    api_get "${api}/latest"
   fi
-  printf '%s' "$out"
+  api_rate_limited && rate_limit_error
+  case "$api_status" in
+    000) error "could not reach api.github.com to resolve a ${CHANNEL} release. Check your network, or
+  pass --version vX.Y.Z. Releases: https://github.com/${GITHUB_REPO}/releases" ;;
+    2??) : ;;
+    *) error "could not resolve a ${CHANNEL} release: api.github.com answered HTTP ${api_status}.
+  Pass --version vX.Y.Z to skip the lookup. Releases: https://github.com/${GITHUB_REPO}/releases" ;;
+  esac
+  if [ "$CHANNEL" = "nightly" ]; then
+    version="$({ grep -o '"tag_name": *"[^"]*"' "${tmp}/api.json" || true; } \
+      | sed 's/.*"\([^"]*\)"$/\1/' | { grep -- '-nightly\.' || true; } | head -1)"
+  else
+    version="$({ grep -o '"tag_name": *"[^"]*"' "${tmp}/api.json" || true; } \
+      | head -1 | sed 's/.*"\([^"]*\)"$/\1/')"
+  fi
 }
 
 version="${WANT_VERSION:-}"
-[ -n "$version" ] || version="$(resolve_version || true)"
-[ -n "$version" ] || error "could not resolve a ${CHANNEL} release. Check your network, or
-  pass --version vX.Y.Z. Releases: https://github.com/${GITHUB_REPO}/releases"
+[ -n "$version" ] || resolve_version
+[ -n "$version" ] || error "could not resolve a ${CHANNEL} release: the GitHub API response
+  named no matching tag. Pass --version vX.Y.Z. Releases: https://github.com/${GITHUB_REPO}/releases"
 bare="${version#v}"
 
 info "Installing Entire Brain ${BOLD}${version}${NC} (${os}/${arch})"
@@ -95,8 +141,6 @@ info "Installing Entire Brain ${BOLD}${version}${NC} (${os}/${arch})"
 # ---- download and verify ----------------------------------------------
 asset="entire-brain_${bare}_${os}_${arch}.tar.gz"
 base="https://github.com/${GITHUB_REPO}/releases/download/${version}"
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
 
 curl -fsSL -o "${tmp}/${asset}" "${base}/${asset}" \
   || error "no build for ${os}/${arch} in ${version}
