@@ -313,3 +313,38 @@ func TestHistoryIndexesDefaultCompactExport(t *testing.T) {
 		}
 	}
 }
+
+// transcriptRecordContent decides which content a record's readers see when a
+// record does not have exactly one content location. A null or empty
+// "message" falls back to the top level (what the history and conversation
+// readers did before the shared helper), and a non-empty "message" wins over
+// top-level content, so native claude-code records read as they always have.
+func TestTranscriptRecordContentPrecedence(t *testing.T) {
+	tests := []struct {
+		name   string
+		record string
+		want   []string
+	}{
+		{"nested only", `{"type":"user","message":{"content":[{"type":"text","text":"NESTED"}]}}`, []string{"NESTED"}},
+		{"top level only", `{"v":1,"type":"user","content":[{"text":"TOP"}]}`, []string{"TOP"}},
+		{"message null", `{"type":"user","message":null,"content":[{"type":"text","text":"TOP"}]}`, []string{"TOP"}},
+		{"message empty object", `{"type":"user","message":{},"content":[{"type":"text","text":"TOP"}]}`, []string{"TOP"}},
+		{"both locations", `{"type":"user","message":{"content":[{"type":"text","text":"NESTED"}]},"content":[{"type":"text","text":"TOP"}]}`, []string{"NESTED"}},
+		{"neither location", `{"type":"user","message":{"role":"user"}}`, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var obj map[string]any
+			if err := json.Unmarshal([]byte(tt.record), &obj); err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, fragment := range extractClaudeMessageFragments(obj, "user") {
+				got = append(got, fragment.Text)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("history fragments = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

@@ -2151,10 +2151,12 @@ func extractClaudeMessageFragments(obj map[string]any, role string) []historyFra
 // v1 (the compact transcript.jsonl the default export reads, written for
 // every agent including codex and pi) puts the content blocks at the RECORD's
 // top level with no wrapper. Reading only the nested one indexed every compact
-// session to nothing. Same routing as distillConversationText.
+// session to nothing. A "message" that is null or an empty object counts as
+// absent, so the record's top-level content is read, matching what the
+// history and conversation readers did before this helper existed.
 func transcriptRecordContent(obj map[string]any) any {
-	if message, ok := obj["message"]; ok {
-		return jsonMap(message)["content"]
+	if message := jsonMap(obj["message"]); len(message) > 0 {
+		return message["content"]
 	}
 	return obj["content"]
 }
