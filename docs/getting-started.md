@@ -122,10 +122,6 @@ and the brain tag invokes `entire sem` -- so do not combine them with the
 
 A versioned `go install` path is still not available.
 
-`entire plugin install` currently supports local executable paths only. It does
-not fetch from a git URL or a GitHub release, and it does not auto-install the
-provider dependency.
-
 ### Managing the provider checkout yourself
 
 The one command above is the source install: until matching Graph-based tags are
