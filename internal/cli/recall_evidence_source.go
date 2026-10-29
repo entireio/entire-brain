@@ -95,6 +95,9 @@ func evidenceJSONFields(obj map[string]any, prefix string, line int) []evidenceF
 	timestamp := jsonString(obj["timestamp"])
 	add := func(value any, pointer, role string) {
 		if s, ok := value.(string); ok && strings.TrimSpace(s) != "" {
+			if role == "user" && isSystemReminderOnly(s) {
+				return
+			}
 			fields = append(fields, evidenceField{s, prefix + pointer, role, timestamp, line})
 		}
 	}
@@ -155,6 +158,32 @@ func evidenceJSONFields(obj map[string]any, prefix string, line int) []evidenceF
 		}
 	}
 	return fields
+}
+
+// isSystemReminderOnly reports whether text is nothing but harness-injected
+// <system-reminder>...</system-reminder> elements and whitespace. Harnesses put
+// these system instructions inside user turns; they are not what the user said.
+// Narrower on purpose than isWrapperRequest, which drops any text starting with
+// "<": evidence must keep a user's own text even when it begins with markup or
+// mentions the tag. A field mixing a reminder with user text is kept whole,
+// because spans address the unchanged field string.
+func isSystemReminderOnly(text string) bool {
+	const open, closing = "<system-reminder>", "</system-reminder>"
+	rest := strings.TrimSpace(text)
+	if rest == "" {
+		return false
+	}
+	for rest != "" {
+		if !strings.HasPrefix(rest, open) {
+			return false
+		}
+		end := strings.Index(rest, closing)
+		if end < 0 {
+			return false
+		}
+		rest = strings.TrimSpace(rest[end+len(closing):])
+	}
+	return true
 }
 
 func evidenceFields(data []byte, path string) ([]evidenceField, bool) {

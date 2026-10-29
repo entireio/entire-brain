@@ -16,6 +16,11 @@ All notable changes to `entire-brain` are recorded here. The format follows
 - Report pending cleanup, retained recovery data, and recorded reclaimed bytes
   through `memories storage status --json`. Reads remain read-only. Background
   pause settings remain effective.
+- `recall --evidence` no longer returns harness-injected `<system-reminder>`
+  text as `role: "user"` evidence. A user-role string or text block that holds
+  only `<system-reminder>` blocks is now skipped like system-role records
+  already were; user text that merely starts with markup is still returned,
+  and assistant text is unchanged (#565).
 
 ## [0.5.0] - 2026-11-03
 
