@@ -3,6 +3,7 @@ package cli
 import (
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestNormalizeCommand(t *testing.T) {
@@ -57,5 +58,48 @@ func TestEpisodeToolSequencesClaudeDialect(t *testing.T) {
 	}
 	if !reflect.DeepEqual(commands, []string{"go test"}) {
 		t.Errorf("commands = %v, want [go test]", commands)
+	}
+}
+
+// Compact v1 transcripts (the default export) keep an assistant turn's
+// content at the record's top level, with no "message" wrapper. Uses the
+// fixtures from compact_transcript_ops_fixtures_test.go.
+func TestEpisodeToolSequencesCompactTranscript(t *testing.T) {
+	cases := []struct {
+		name, fixture string
+		tools         []string
+		commands      []string
+	}{
+		{"claude-code", compactOpsClaudeTranscript, []string{"bash"}, []string{"go test"}},
+		{"codex", compactOpsCodexTranscript, []string{"exec_command", "apply_patch"}, []string{"grep"}},
+		{"pi", compactOpsPiTranscript, []string{"read"}, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tools, commands := episodeToolAndCommandSequences(c.fixture)
+			if !reflect.DeepEqual(tools, c.tools) {
+				t.Errorf("tools = %v, want %v", tools, c.tools)
+			}
+			if !reflect.DeepEqual(commands, c.commands) {
+				t.Errorf("commands = %v, want %v", commands, c.commands)
+			}
+		})
+	}
+}
+
+func TestBuildBrainEpisodesCompactTranscriptToolSequences(t *testing.T) {
+	now := time.Now()
+	brainDir := writeEpisodeFixture(t, now, "gh/acme/cli", []sessionFixture{{id: "s1", branch: "main", agent: "codex", relPath: "sessions/main/s1.jsonl", transcript: compactOpsCodexTranscript}})
+	episodes, _, err := buildBrainEpisodes(brainDir, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got [][]string
+	for _, ep := range episodes {
+		got = append(got, ep.ToolSequence, ep.CommandSequence)
+	}
+	want := [][]string{{"exec_command"}, {"grep"}, {"apply_patch"}, nil}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("episode tool/command sequences = %q, want %q", got, want)
 	}
 }

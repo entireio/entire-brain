@@ -77,7 +77,12 @@ func toolCallsFromObj(obj map[string]any) []episodeToolCall {
 			return []episodeToolCall{{name: strings.ToLower(strings.TrimSpace(jsonString(p["name"])))}}
 		}
 	case "assistant":
-		return toolCallsFromContent(jsonMap(obj["message"])["content"])
+		if message := jsonMap(obj["message"]); len(message) > 0 {
+			return toolCallsFromContent(message["content"])
+		}
+		// ETF compact records carry the content blocks at the record's top
+		// level (see distillConversationText).
+		return toolCallsFromContent(obj["content"])
 	case "message": // pi wraps every turn as {"type":"message","message":{role,content}}
 		m := jsonMap(obj["message"])
 		if jsonString(m["role"]) == "assistant" {

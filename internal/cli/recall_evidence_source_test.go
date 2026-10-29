@@ -240,3 +240,78 @@ func TestRecallEvidenceCandidateCostIncludesLongMetadata(t *testing.T) {
 		t.Fatal("valid oversized timestamp bypassed candidate budget")
 	}
 }
+
+// Compact v1 transcripts (the default export) keep a turn's content at the
+// record's top level, and user text blocks carry no "type". Uses the fixtures
+// from compact_transcript_ops_fixtures_test.go. Every pointer must resolve to the
+// exact string it reports, and tool output must stay out.
+func TestRecallEvidenceCompactTranscript(t *testing.T) {
+	cases := []struct {
+		name, fixture string
+		want          []string // line pointer role text
+		leaked        string
+	}{
+		{"claude-code", compactOpsClaudeTranscript, []string{
+			"1 /content/0/text user <system-reminder>wrapper that must not open an exchange</system-reminder>",
+			"2 /content/0/text user Fix   the flaky lock test\non Windows",
+			"3 /content/0/text assistant Looking at the lock timeout now.",
+			"4 /content/0/text assistant Root cause: the write lock timeout is too short on Windows; raising it.",
+			"5 /content/0/text user Now update the docs",
+			"6 /content assistant Docs updated.",
+		}, "raw tool output"},
+		{"codex", compactOpsCodexTranscript, []string{
+			"1 /content/0/text user Why does the export cursor skip sessions?",
+			"2 /content/1/text assistant The cursor reuses unchanged transcripts; only new checkpoints are exported.",
+			"4 /content/0/text user Now patch it",
+			"5 /content/1/text assistant Patched the export cursor.",
+		}, "transcriptPath"},
+		{"pi", compactOpsPiTranscript, []string{
+			"1 /content/1/text user Summarize the retry policy",
+			"2 /content/1/text assistant Retries use exponential backoff with a 5-attempt cap.",
+		}, "raw tool result"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fields, partial := evidenceFields([]byte(c.fixture), "sessions/main/transcript.jsonl")
+			if partial {
+				t.Errorf("compact transcript reported as unreadable or unsupported (fields=%d)", len(fields))
+			}
+			lines := strings.Split(c.fixture, "\n")
+			var got []string
+			for _, f := range fields {
+				got = append(got, fmt.Sprintf("%d %s %s %s", f.line, f.pointer, f.role, f.text))
+				if strings.Contains(f.text, c.leaked) {
+					t.Errorf("tool output leaked into evidence: %q", f.text)
+				}
+				var obj any
+				if err := json.Unmarshal([]byte(lines[f.line-1]), &obj); err != nil {
+					t.Fatal(err)
+				}
+				if resolved := resolveTestJSONPointer(obj, f.pointer); resolved != f.text {
+					t.Errorf("line %d pointer %s resolves to %#v, field text %q", f.line, f.pointer, resolved, f.text)
+				}
+			}
+			if strings.Join(got, "\n") != strings.Join(c.want, "\n") {
+				t.Errorf("fields:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(c.want, "\n"))
+			}
+		})
+	}
+}
+
+func resolveTestJSONPointer(doc any, pointer string) any {
+	for _, token := range strings.Split(strings.TrimPrefix(pointer, "/"), "/") {
+		switch v := doc.(type) {
+		case map[string]any:
+			doc = v[token]
+		case []any:
+			var i int
+			if _, err := fmt.Sscanf(token, "%d", &i); err != nil || i < 0 || i >= len(v) {
+				return nil
+			}
+			doc = v[i]
+		default:
+			return nil
+		}
+	}
+	return doc
+}
