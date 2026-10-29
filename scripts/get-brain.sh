@@ -93,11 +93,23 @@ api_rate_limited() {
 }
 
 rate_limit_error() {
-  local reset="" wait=""
-  reset="$({ grep -iE '^x-ratelimit-reset:' "${tmp}/api.headers" 2>/dev/null || true; } \
-    | tail -1 | tr -dc '0-9')"
-  if [ -n "$reset" ]; then
-    wait=" It resets in about $(( (reset - $(date +%s) + 59) / 60 )) minute(s)."
+  # Two different clocks. An exhausted primary quota (remaining: 0) resets at
+  # x-ratelimit-reset, an epoch. A secondary limit can leave the primary quota
+  # untouched and asks for a pause in retry-after, in seconds; its
+  # x-ratelimit-reset belongs to the unrelated primary quota, so ignore it.
+  local secs="" reset="" after="" wait=""
+  if grep -qiE '^x-ratelimit-remaining: *0[[:space:]]*$' "${tmp}/api.headers" 2>/dev/null; then
+    reset="$({ grep -iE '^x-ratelimit-reset:' "${tmp}/api.headers" || true; } \
+      | tail -1 | tr -dc '0-9')"
+    [ -z "$reset" ] || secs=$(( reset - $(date +%s) ))
+  else
+    after="$({ grep -iE '^retry-after:' "${tmp}/api.headers" 2>/dev/null || true; } \
+      | tail -1 | tr -dc '0-9')"
+    [ -z "$after" ] || secs="$after"
+  fi
+  if [ -n "$secs" ]; then
+    [ "$secs" -ge 1 ] || secs=1
+    wait=" It resets in about $(( (secs + 59) / 60 )) minute(s)."
   fi
   error "GitHub's API rate limit is exhausted (HTTP ${api_status} from api.github.com),
   so the newest ${CHANNEL} release could not be looked up.${wait}

@@ -249,6 +249,21 @@ func TestInstallerLookupSecondaryLimit429WithoutHeaders(t *testing.T) {
 	requireNamesRateLimit(t, stderr, err)
 }
 
+// A secondary limit can leave the primary quota untouched. Its
+// x-ratelimit-reset then describes the primary quota, and the time to wait is
+// retry-after.
+func TestInstallerLookupSecondaryLimitWaitsForRetryAfter(t *testing.T) {
+	_, stderr, err := runInstallerLookup(t, 403, `{"message":"You have exceeded a secondary rate limit."}`, map[string]string{
+		"retry-after":           "120",
+		"x-ratelimit-remaining": "41",
+		"x-ratelimit-reset":     strconv.FormatInt(time.Now().Add(50*time.Minute).Unix(), 10),
+	}, false)
+	requireNamesRateLimit(t, stderr, err)
+	if !strings.Contains(stderr, "resets in about 2 minute") {
+		t.Fatalf("a secondary limit should wait for retry-after: %q", stderr)
+	}
+}
+
 func TestInstallerLookupOtherHTTPErrorsReportStatus(t *testing.T) {
 	_, stderr, err := runInstallerLookup(t, 502, "<html>Bad Gateway</html>", nil, false)
 	if err == nil {
