@@ -131,6 +131,9 @@ func corpusEpisodeOps(workText string) (tools []corpusToolOp, commands []corpusC
 				// ETF compact records carry the content blocks at the record's
 				// top level (see distillConversationText).
 				content = obj["content"]
+				if strings.EqualFold(jsonString(obj["agent"]), "codex") {
+					compactCodexExitCodes(content, exitByCall)
+				}
 			}
 			t, c, f := claudeContentOps(content, ln)
 			tools = append(tools, t...)
@@ -213,6 +216,29 @@ func parseExitCode(output string) (int, bool) {
 		n = n*10 + int(c-'0')
 	}
 	return n, true
+}
+
+// compactCodexExitCodes records the exit codes a compact v1 codex record
+// carries in its tool_use blocks' inlined result.output, keyed by call id for
+// the same correlation the native function_call_output case feeds. The codex
+// converter writes every result as status "success", so the exit code is only
+// in the output text. Other agents' compact results are not read: their
+// status "error" is not the same as a non-zero exit.
+func compactCodexExitCodes(content any, exitByCall map[string]int) {
+	blocks, _ := content.([]any)
+	for _, b := range blocks {
+		bm := jsonMap(b)
+		if t := jsonString(bm["type"]); t != "tool_use" && t != "tool" {
+			continue
+		}
+		id := jsonString(bm["id"])
+		if id == "" {
+			continue
+		}
+		if code, ok := parseExitCode(jsonString(jsonMap(bm["result"])["output"])); ok {
+			exitByCall[id] = code
+		}
+	}
 }
 
 func dedupeFileRefs(in []corpusFileRef) []corpusFileRef {
