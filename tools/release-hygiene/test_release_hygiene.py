@@ -232,6 +232,156 @@ class InstallerFailsClosed(unittest.TestCase):
         )
 
 
+class InstallerExplainsReleaseLookupFailures(unittest.TestCase):
+    """Without --version the installer asks the GitHub API for the newest
+    release. Unauthenticated API calls are capped per IP address, and an
+    exhausted cap answers 403 with x-ratelimit-remaining: 0. The installer used
+    to fetch with curl -f and discard the error, so a rate-limited user was told
+    to check their network (entireio/entire-brain#555)."""
+
+    def _run_lookup(self, status: int, body: str, headers: dict[str, str],
+                    *args: str, network_down: bool = False):
+        """Run the installer against a curl stub that answers the release
+        lookup with the given status, headers and body, the way real curl
+        would: -f turns a 4xx/5xx into exit 22 with no output, -D writes the
+        headers, -o writes the body and -w prints the status code."""
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        (tmp / "body").write_text(body)
+        header_lines = [f"HTTP/2 {status}"] + [f"{k}: {v}" for k, v in headers.items()]
+        (tmp / "headers").write_text("\r\n".join(header_lines) + "\r\n\r\n")
+
+        fake_curl = tmp / "bin" / "curl"
+        fake_curl.parent.mkdir()
+        fake_curl.write_text(
+            textwrap.dedent(
+                f"""\
+                #!/usr/bin/env bash
+                fail=0; out=""; hdr=""; fmt=""; url=""
+                while [ $# -gt 0 ]; do
+                  case "$1" in
+                    -o) out="$2"; shift 2 ;;
+                    -D) hdr="$2"; shift 2 ;;
+                    -w) fmt="$2"; shift 2 ;;
+                    -*f*) fail=1; shift ;;
+                    -*) shift ;;
+                    *) url="$1"; shift ;;
+                  esac
+                done
+                case "$url" in
+                  https://api.github.com/*) : ;;
+                  # Anything past the lookup is the download; this test only
+                  # covers the lookup, so make the download fail visibly.
+                  *) echo "download not stubbed: $url" >&2; exit 22 ;;
+                esac
+                {"echo 'curl: (6) Could not resolve host: api.github.com' >&2; [ -n \"$fmt\" ] && printf 000; exit 6" if network_down else ":"}
+                status={status}
+                if [ "$fail" = 1 ] && [ "$status" -ge 400 ]; then
+                  echo "curl: (22) The requested URL returned error: $status" >&2
+                  exit 22
+                fi
+                [ -n "$hdr" ] && cp "{tmp / 'headers'}" "$hdr"
+                if [ -n "$out" ]; then cp "{tmp / 'body'}" "$out"; else cat "{tmp / 'body'}"; fi
+                [ -n "$fmt" ] && printf '%s' "$status"
+                exit 0
+                """
+            )
+        )
+        fake_curl.chmod(fake_curl.stat().st_mode | stat.S_IEXEC)
+        fake_entire = fake_curl.parent / "entire"
+        fake_entire.write_text("#!/usr/bin/env bash\nexit 0\n")
+        fake_entire.chmod(fake_entire.stat().st_mode | stat.S_IEXEC)
+
+        env = dict(os.environ)
+        env["PATH"] = f"{fake_curl.parent}:{env['PATH']}"
+        env["ENTIRE_BRAIN_INSTALL_DIR"] = str(tmp / "install")
+        env["NO_COLOR"] = "1"
+        return subprocess.run(
+            ["bash", str(INSTALLER), *args],
+            capture_output=True, text=True, env=env, timeout=60,
+        )
+
+    RATE_LIMIT_BODY = (
+        '{"message":"API rate limit exceeded for 203.0.113.7. (But here\'s the '
+        'good news: Authenticated requests get a higher rate limit.)",'
+        '"documentation_url":"https://docs.github.com/rest/overview/rate-limits-for-the-rest-api"}'
+    )
+
+    def _rate_limit_headers(self) -> dict[str, str]:
+        import time
+        return {
+            "x-ratelimit-limit": "60",
+            "x-ratelimit-remaining": "0",
+            "x-ratelimit-reset": str(int(time.time()) + 20 * 60),
+        }
+
+    def _assert_names_the_rate_limit(self, result) -> None:
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rate limit", result.stderr,
+                      f"a rate-limited lookup must say so; stderr={result.stderr!r}")
+        self.assertIn("--version", result.stderr,
+                      "the error must name the --version escape hatch")
+        self.assertNotIn("Check your network", result.stderr,
+                         "a rate limit is not a network problem")
+
+    def test_rate_limited_stable_lookup_names_the_rate_limit(self) -> None:
+        result = self._run_lookup(403, self.RATE_LIMIT_BODY, self._rate_limit_headers())
+        self._assert_names_the_rate_limit(result)
+        self.assertIn("403", result.stderr)
+        self.assertRegex(result.stderr, r"resets in about (19|20) minute")
+
+    def test_rate_limited_nightly_lookup_names_the_rate_limit(self) -> None:
+        result = self._run_lookup(403, self.RATE_LIMIT_BODY, self._rate_limit_headers(),
+                                  "--nightly")
+        self._assert_names_the_rate_limit(result)
+
+    def test_secondary_rate_limit_429_without_headers_is_recognised(self) -> None:
+        result = self._run_lookup(
+            429, '{"message":"You have exceeded a secondary rate limit."}', {})
+        self._assert_names_the_rate_limit(result)
+
+    def test_secondary_limit_waits_for_retry_after_not_the_primary_reset(self) -> None:
+        """A secondary limit can leave the primary quota untouched. Its
+        x-ratelimit-reset then describes the primary quota, and the time to
+        wait is retry-after."""
+        import time
+        result = self._run_lookup(
+            403, '{"message":"You have exceeded a secondary rate limit."}',
+            {"retry-after": "120", "x-ratelimit-remaining": "41",
+             "x-ratelimit-reset": str(int(time.time()) + 50 * 60)})
+        self._assert_names_the_rate_limit(result)
+        self.assertIn("resets in about 2 minute", result.stderr)
+
+    def test_other_http_errors_report_their_status(self) -> None:
+        result = self._run_lookup(502, "<html>Bad Gateway</html>", {})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("HTTP 502", result.stderr)
+        self.assertNotIn("rate limit", result.stderr)
+
+    def test_unreachable_api_still_points_at_the_network(self) -> None:
+        result = self._run_lookup(200, "", {}, network_down=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Check your network", result.stderr)
+
+    def test_successful_lookup_still_resolves_the_tag(self) -> None:
+        result = self._run_lookup(
+            200, '{"tag_name": "v9.9.9", "name": "v9.9.9"}',
+            {"x-ratelimit-remaining": "59"})
+        # The download is deliberately unstubbed, so the run fails after the
+        # lookup; what matters is that the lookup picked the right tag.
+        self.assertIn("Installing Entire Brain v9.9.9", result.stdout,
+                      f"stdout={result.stdout!r} stderr={result.stderr!r}")
+
+    def test_successful_nightly_lookup_picks_the_first_nightly(self) -> None:
+        result = self._run_lookup(
+            200,
+            '[{"tag_name": "v1.0.0"}, {"tag_name": "v1.1.0-nightly.202610280000.abc1234"}]',
+            {}, "--nightly")
+        self.assertIn("Installing Entire Brain v1.1.0-nightly.202610280000.abc1234",
+                      result.stdout,
+                      f"stdout={result.stdout!r} stderr={result.stderr!r}")
+
+
 class InstallerRunsWhenPiped(unittest.TestCase):
     """The documented invocation is curl | bash, where $0 is "bash" and the
     script has no file to read itself back out of. Anything that reads $0 works
