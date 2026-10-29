@@ -174,6 +174,11 @@ func claudeContentOps(content any, ln int) (tools []corpusToolOp, commands []cor
 			if action, isFile := claudeFileTools[name]; isFile {
 				if p := filePathFromInput(bm["input"]); p != "" {
 					files = append(files, corpusFileRef{path: p, action: action, line: ln})
+				} else if name == "apply_patch" {
+					// Compact codex has no path: the converter wraps the
+					// custom_tool_call patch text as {"input": <patch>}, so read
+					// it the way the native custom_tool_call case does.
+					files = append(files, patchFiles(jsonString(asObject(bm["input"])["input"]), ln)...)
 				}
 			}
 		}
