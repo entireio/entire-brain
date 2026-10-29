@@ -892,9 +892,9 @@ model or by fetching over the network:
 - query expansion with `recall --expand`
 - pattern verification and skill synthesis
 - judged evaluation commands
-- `publish` uploads the serialized local brain to hosted Entire; opt-in and off
-  by default, requiring the command plus a target — the connected binding by
-  default, else explicit `--repo-id`/`--api-url`/`--token`
+- `memories sync` uploads this branch's memories to the team's hosted memory
+  set; opt-in and off by default, requiring the command plus a target — the
+  connected binding by default, else explicit `--repo-id`/`--api-url`/`--token`
 
 Use `--agent none`, `--dry-run`, local loopback Ollama, or
 `ENTIRE_BRAIN_NO_EGRESS=1` when the repo must stay
