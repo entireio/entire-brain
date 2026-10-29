@@ -290,6 +290,9 @@ func TestRecallEvidenceCompactTranscript(t *testing.T) {
 				if resolved := resolveTestJSONPointer(obj, f.pointer); resolved != f.text {
 					t.Errorf("line %d pointer %s resolves to %#v, field text %q", f.line, f.pointer, resolved, f.text)
 				}
+				if ts := jsonString(jsonMap(obj)["ts"]); f.timestamp != ts {
+					t.Errorf("line %d timestamp = %q, want the record's ts %q", f.line, f.timestamp, ts)
+				}
 			}
 			if strings.Join(got, "\n") != strings.Join(c.want, "\n") {
 				t.Errorf("fields:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(c.want, "\n"))
