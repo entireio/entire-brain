@@ -120,3 +120,47 @@ func TestRecallEvidenceSystemReminderAcrossSchemas(t *testing.T) {
 		})
 	}
 }
+
+// A session whose only user-role text is reminders is readable; skipping
+// those reminders must not report it as unreadable or degrade the result.
+func TestRecallEvidenceReminderOnlySessionIsNotPartial(t *testing.T) {
+	opts, brain := setupRecallIdentityTest(t)
+	sessions := map[string]string{
+		"real":    `{"type":"user","message":{"role":"user","content":"please fix the zebrafoo parser"}}`,
+		"remonly": `{"type":"user","message":{"role":"user","content":"<system-reminder>zebrafoo reminder</system-reminder>"}}`,
+	}
+	var list []exportSession
+	for _, id := range []string{"real", "remonly"} {
+		rel := "sessions/main/" + id + ".jsonl"
+		if err := os.MkdirAll(filepath.Join(brain, "sessions", "main"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(brain, filepath.FromSlash(rel)), []byte(sessions[id]+"\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		list = append(list, exportSession{SessionID: id, Branch: "main", TranscriptPath: rel, CreatedAt: opts.Now()})
+	}
+	m := exportManifest{SchemaVersion: bmanifest.SchemaVersion, DefaultBranch: "main", Sources: &brainSources{Sessions: &sessionSourceManifest{DefaultBranch: "main", Sessions: list}}}
+	if err := writeBrainManifestAndReadme(brain, m); err != nil {
+		t.Fatal(err)
+	}
+	c, err := collectEvidence(context.Background(), brain, "main", "zebrafoo", 10, 8192)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.State != "available" || len(c.Warnings) != 0 {
+		t.Fatalf("reminder-only session degraded retrieval: state=%s warnings=%v", c.State, c.Warnings)
+	}
+	if len(c.Spans) != 1 || c.Spans[0].Text != "please fix the zebrafoo parser" {
+		t.Fatalf("spans=%+v", c.Spans)
+	}
+	for path, data := range map[string]string{
+		"s.jsonl":       sessions["remonly"] + "\n",
+		"doc.json":      `{"role":"user","content":"<system-reminder>x</system-reminder>"}`,
+		"opencode.json": `{"messages":[{"info":{"role":"user"},"parts":[{"type":"text","text":"<system-reminder>x</system-reminder>"}]}]}`,
+	} {
+		if fields, partial := evidenceFields([]byte(data), path); partial || len(fields) != 0 {
+			t.Errorf("%s: reminder-only transcript: fields=%+v partial=%v", path, fields, partial)
+		}
+	}
+}
