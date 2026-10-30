@@ -160,10 +160,19 @@ wires it.`,
 				file = repoRel
 			}
 			rel := filepath.ToSlash(file)
-			stem := strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
-			// The stem ("distill_cmd") matches facts that name the file without
-			// its extension or talk about its symbols' shared prefix.
-			hits := cfg.Deps.FactsRelevantToChange([]string{rel, stem}, facts, 8)
+			// The path is always asked for. The stem ("distill_cmd") matches
+			// memories that name the file without its extension or talk about
+			// its symbols' shared prefix -- but only when the stem is rare
+			// enough in this branch's memories to mean anything. An ordinary
+			// word ("query", "state", "build") retrieves on the word, not on
+			// the file, and an irrelevant injection at the moment of an edit
+			// teaches agents to ignore the channel, which is worse than the
+			// silence it replaced.
+			terms := []string{rel}
+			if stem := fileStem(rel); hookStemIsDistinctive(stem, facts) {
+				terms = append(terms, stem)
+			}
+			hits := cfg.Deps.FactsRelevantToChange(terms, facts, 8)
 			var kept []factmerge.Record
 			var err error
 			if claudeHook {
@@ -546,4 +555,9 @@ func hookFileFromStdin(in io.Reader) (path string, sawInput bool) {
 		return p, true
 	}
 	return strings.TrimSpace(payload.ToolInput.NotebookPath), true
+}
+
+// fileStem is the file's base name without its extension.
+func fileStem(rel string) string {
+	return strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
 }
