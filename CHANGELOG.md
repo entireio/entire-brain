@@ -5,6 +5,20 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Memory bodies now share one repository-level store. Existing branch visibility,
+  lifecycle state, and Brainstore sync records are preserved. Writes and refresh
+  migrate existing stores automatically; legacy NDJSON projections remain readable
+  and writable by older clients during the compatibility window.
+
+### Added
+
+- `memories storage status`, `migrate`, and `rollback` (also with `--global`).
+  Rollback exports current memories, including changes made after migration.
+- Released-client compatibility checks against v0.3.0 and v0.4.0, including
+  concurrent old/new writers and upgrade/downgrade cycles.
+
 ## [0.3.0] - 2026-10-26
 
 ### Removed

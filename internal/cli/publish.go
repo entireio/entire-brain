@@ -443,6 +443,19 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 	}
 
 	dirs := subdirNames(entries)
+	if s, native, err := readRepoFactStore(brainDir); err != nil {
+		return nil, err
+	} else if native {
+		seenDirs := map[string]bool{}
+		for _, dir := range dirs {
+			seenDirs[dir] = true
+		}
+		for dir := range s.Views {
+			if !seenDirs[dir] {
+				dirs = append(dirs, dir)
+			}
+		}
+	}
 	sort.Strings(dirs)
 
 	type factStream struct {
@@ -452,7 +465,10 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 	var streams []factStream
 	seen := make(map[string]struct{})
 	for _, dir := range dirs {
-		data, ok, err := readBrainBlob(brainDir, filepath.Join(factsDirName, dir, factsFileName))
+		data, ok, err := nativeFactProjection(brainDir, dir)
+		if err == nil && !ok {
+			data, ok, err = readBrainBlob(brainDir, filepath.Join(factsDirName, dir, factsFileName))
+		}
 		if err != nil {
 			return nil, fmt.Errorf("read facts %s: %w", dir, err)
 		}

@@ -888,6 +888,22 @@ func loadAllFactBranchesForPrivacy(brainDir string) (map[string][]factRecord, er
 			}
 		}
 	}
+	// The native store can retain a view after a compatibility projection was
+	// removed. Include those records in both privacy planning and verification.
+	if _, present, err := readRepoFactStore(brainDir); err != nil {
+		return nil, err
+	} else if present {
+		views, err := loadRepoFactViews(brainDir)
+		if err != nil {
+			return nil, err
+		}
+		byBranch = map[string][]factRecord{}
+		for _, records := range views {
+			for _, rec := range records {
+				byBranch[rec.Branch] = append(byBranch[rec.Branch], rec)
+			}
+		}
+	}
 	return byBranch, nil
 }
 
@@ -1424,12 +1440,16 @@ func filterEpisodesFile(brainDir, sessionID string, transcriptRels map[string]bo
 // physically delete facts left with no provenance, and prune proposals that
 // reference a deleted fact. Returns (deleted, strippedAnchors).
 func purgeSessionFacts(brainDir, sessionID string, transcriptRels map[string]bool) (int, int, error) {
-	byBranch, err := loadAllFactBranchesForPrivacy(brainDir)
+	_, err := loadAllFactBranchesForPrivacy(brainDir)
+	if err != nil {
+		return 0, 0, err
+	}
+	byView, err := loadRepoFactViews(brainDir)
 	if err != nil {
 		return 0, 0, err
 	}
 	deletedTotal, strippedTotal := 0, 0
-	for branch, facts := range byBranch {
+	for dir, facts := range byView {
 		changed := false
 		deletedIDs := map[string]bool{}
 		kept := make([]factRecord, 0, len(facts))
@@ -1459,10 +1479,11 @@ func purgeSessionFacts(brainDir, sessionID string, transcriptRels map[string]boo
 		if !changed {
 			continue
 		}
-		if err := writeFacts(brainDir, branch, kept); err != nil {
+		if err := writeFactStoreFile(brainDir, dir, kept); err != nil {
 			return deletedTotal, strippedTotal, err
 		}
-		proposals, perr := loadFactProposals(brainDir, branch)
+		proposalRel := filepath.ToSlash(filepath.Join(factsDirName, dir, factsProposalsFileName))
+		proposals, perr := loadFactProposalsAt(brainDir, proposalRel)
 		if perr != nil {
 			return deletedTotal, strippedTotal, perr
 		}
@@ -1475,11 +1496,14 @@ func purgeSessionFacts(brainDir, sessionID string, transcriptRels map[string]boo
 				keptProposals = append(keptProposals, proposal)
 			}
 			if len(keptProposals) != len(proposals) {
-				if err := writeFactProposals(brainDir, branch, keptProposals); err != nil {
+				if err := writeFactProposalsAt(brainDir, proposalRel, keptProposals); err != nil {
 					return deletedTotal, strippedTotal, err
 				}
 			}
 		}
+	}
+	if err := withRepoFactStoreLock(brainDir, func() error { return cleanupRepoFactTemps(brainDir) }); err != nil {
+		return deletedTotal, strippedTotal, err
 	}
 	return deletedTotal, strippedTotal, nil
 }

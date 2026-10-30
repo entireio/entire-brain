@@ -51,6 +51,11 @@ func factsAvailabilityFixture(t *testing.T) (Options, string, string) {
 
 func removeFactStore(t *testing.T, brainDir, branch string) {
 	t.Helper()
+	// Remove the authoritative snapshot as well as the compatibility view.
+	// Removing only a projection no longer destroys the memory collection.
+	if err := os.Remove(filepath.Join(brainDir, repoFactsPath)); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
 	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath(branch)))); err != nil {
 		t.Fatal(err)
 	}
