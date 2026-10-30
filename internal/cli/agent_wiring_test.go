@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -821,4 +822,75 @@ func posixHookScript(t *testing.T) string {
 		t.Fatalf("the generated command is not a single-quoted sh script, so this test cannot run it: %s", command)
 	}
 	return strings.TrimSuffix(strings.TrimPrefix(command, prefix), "'")
+}
+
+// TestInstallingTheHookDoesNotRewriteOtherCommands.
+//
+// The merge's stated contract is that it preserves every other key
+// byte-for-value. json.MarshalIndent broke it: it escapes <, > and & for
+// safety inside a <script> tag, which a settings file is never read in. Every
+// real hook command contains `>/dev/null 2>&1`, so merging ONE entry rewrote
+// every unrelated command into `>/dev/null 2>&1`.
+//
+// The JSON stays equivalent and the hooks still run, which is exactly why it
+// survived. What it costs is the reader's diff: measured on this repository, a
+// one-line addition arrived as 58 insertions and 49 deletions in a file the
+// reader is expected to review and commit.
+func TestInstallingTheHookDoesNotRewriteOtherCommands(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	const existing = "sh -c 'if ! command -v entire >/dev/null 2>&1; then exit 0; fi; exec entire hooks claude-code session-end'"
+	body := `{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ` + strconv.Quote(existing) + `
+          }
+        ]
+      }
+    ]
+  }
+}
+`
+	if err := os.MkdirAll(filepath.Join(repo, claudeSettingsDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(repo, claudeSettingsDir, claudeSettingsFile)
+	if err := os.WriteFile(settingsPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, changed, err := installPreEditHook(repo); err != nil || !changed {
+		t.Fatalf("install: changed=%v err=%v", changed, err)
+	}
+
+	got := readFileString(t, settingsPath)
+	// The needles are assembled from parts rather than written literally. A
+	// source file that spells the escape it is looking for is one text filter
+	// away from spelling the character instead, and the assertion then passes
+	// against exactly the bug it exists to catch.
+	for _, hex := range []string{"003c", "003e", "0026"} {
+		if escape := `\u` + hex; strings.Contains(got, escape) {
+			t.Errorf("merging one entry wrote %s into unrelated commands, so the reader's diff buries the change:\n%s", escape, got)
+		}
+	}
+	if !strings.Contains(got, existing) {
+		t.Errorf("the untouched session-end command did not survive byte-for-value:\n%s", got)
+	}
+	// And the file must still parse, with both hooks present.
+	var settings struct {
+		Hooks map[string][]struct {
+			Hooks []struct{ Command string } `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(got), &settings); err != nil {
+		t.Fatalf("the merged file does not parse: %v\n%s", err, got)
+	}
+	if len(settings.Hooks["SessionEnd"]) != 1 || len(settings.Hooks["PreToolUse"]) != 1 {
+		t.Fatalf("merge lost or duplicated an event: %+v", settings.Hooks)
+	}
 }

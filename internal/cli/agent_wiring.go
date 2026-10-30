@@ -260,11 +260,26 @@ func installPreEditHook(repoDir string) (string, bool, error) {
 	hooks["PreToolUse"] = entries
 	settings["hooks"] = hooks
 
-	encoded, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
+	// An encoder with HTML escaping OFF, not json.MarshalIndent.
+	//
+	// The merge's contract is that it preserves every other key byte-for-value,
+	// and json.MarshalIndent breaks it: it escapes <, > and & as \u003c, \u003e
+	// and \u0026 for safety inside a <script> tag, which this file is never
+	// read in. Every hook command in a real settings file contains
+	// `>/dev/null 2>&1`, so merging one entry rewrote SEVEN unrelated commands
+	// into \u003e/dev/null 2\u003e\u00261. The JSON is equivalent and the hooks
+	// still run, so nothing breaks -- which is why it went unnoticed. What it
+	// costs is the reader's diff: a one-line addition arrived as 58 insertions
+	// and 49 deletions, in a file they are expected to review and commit.
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(settings); err != nil {
 		return path, false, err
 	}
-	encoded = append(encoded, '\n')
+	// Encode already terminates with a newline.
+	encoded := buf.Bytes()
 	if err := root.MkdirAll(claudeSettingsDir, 0o755); err != nil {
 		return path, false, err
 	}
