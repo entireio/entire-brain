@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -53,7 +54,7 @@ type hostedSyncOutcome struct {
 // deferred to the async pipeline.
 //
 // It is a NEVER-FAILS step: every gated or soft failure is one stderr line and
-// a nil return, because its callers (daemon tick, session-end hook, connect)
+// a nil return, because its callers (commit hints, distillation completion, connect)
 // must not fail on hosted outages. The error return exists for programming
 // errors only.
 //
@@ -245,6 +246,17 @@ func pauseHostedSyncNoAccess(errW io.Writer, opts Options, brainDir string, stal
 // caller owns presentation: background sync degrades to pull-only with one
 // stderr line, manual sync fails the command (COR-2202 honesty).
 func pushHostedFacts(ctx context.Context, storage repoStorage, srv *factsync.HTTPServer, repoID, branch string) (factsync.UpsertCounts, int, error) {
+	lock, err := acquireHostedUploadLock(ctx, storage.BrainDir)
+	if err != nil {
+		return factsync.UpsertCounts{}, 0, err
+	}
+	defer lock.Close()
+	receiptPath := hostedUploadReceiptPath(srv.BaseURL, repoID)
+	receipts, err := loadHostedUploadReceipts(storage.BrainDir, receiptPath)
+	if err != nil {
+		return factsync.UpsertCounts{}, 0, err
+	}
+
 	facts, err := factstore.Load(storage.BrainDir, branch)
 	if err != nil {
 		return factsync.UpsertCounts{}, 0, err
@@ -277,6 +289,22 @@ func pushHostedFacts(ctx context.Context, storage repoStorage, srv *factsync.HTT
 		return factsync.UpsertCounts{}, skipped, errors.New("no publishable records")
 	}
 	var total factsync.UpsertCounts
+	pending := egress[:0]
+	versions := map[string]bool{}
+	for _, rec := range egress {
+		body, err := json.Marshal(rec)
+		if err != nil {
+			return total, skipped, err
+		}
+		version := hostedUploadHash(body)
+		if receipts.Versions[version] || versions[version] {
+			total.Unchanged++
+			continue
+		}
+		versions[version] = true
+		pending = append(pending, rec)
+	}
+	egress = pending
 	for start := 0; start < len(egress); start += hostedUpsertChunk {
 		end := min(start+hostedUpsertChunk, len(egress))
 		var buf bytes.Buffer
@@ -290,6 +318,18 @@ func pushHostedFacts(ctx context.Context, storage repoStorage, srv *factsync.HTT
 		total.Added += counts.Added
 		total.Changed += counts.Changed
 		total.Unchanged += counts.Unchanged
+		// Acknowledge only the snapshot actually sent, not a concurrent writer's
+		// newer version. Persist each successful chunk before sending the next.
+		for _, rec := range egress[start:end] {
+			body, err := json.Marshal(rec)
+			if err != nil {
+				return total, skipped, err
+			}
+			receipts.Versions[hostedUploadHash(body)] = true
+		}
+		if err := saveHostedUploadReceipts(storage.BrainDir, receiptPath, receipts); err != nil {
+			return total, skipped, err
+		}
 	}
 	return total, skipped, nil
 }

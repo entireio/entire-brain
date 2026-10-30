@@ -503,7 +503,7 @@ func inspectSessionEndHook(repoDir string) setupHookState {
 		if command, ok := entireSessionEndHookCommand(data); ok {
 			state := setupHookState{Installed: true, Source: path, Command: command, EntireCLI: onPath}
 			if !onPath {
-				state.Detail = "hook is wired but `" + entireBinaryName + "` is not on PATH; sessions will not distill"
+				state.Detail = "hook is wired but `" + entireBinaryName + "` is not on PATH; the host command cannot run"
 			}
 			return state
 		}

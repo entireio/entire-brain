@@ -53,23 +53,7 @@ func watchStepsForRepo(cmd *cobra.Command, opts base.Options, w watch.Flags, rep
 		Refresh: func(c context.Context) error { return watchDeterministicRefresh(c, cmd, opts, repoDir, true) },
 		Seed:    func(c context.Context) error { return watchSeed(c, cmd, opts, w, repoDir) },
 		Distill: func(c context.Context) error { return watchDistill(c, cmd, opts, w, repoDir) },
-		FactsSync: func(c context.Context) (bool, error) {
-			storage, err := repoStoragePaths(c, opts.Runner, opts.Env, repoDir)
-			if err != nil {
-				return false, err
-			}
-			branch := hostedSyncBranch(c, opts.Runner, repoDir)
-			outcome, err := hostedFactsSyncAndPull(c, cmd.ErrOrStderr(), opts, repoDir, storage, branch)
-			if err != nil {
-				return outcome.Attempted, err
-			}
-			if branch != distillDefaultBranch {
-				also, err := hostedFactsSyncAndPull(c, cmd.ErrOrStderr(), opts, repoDir, storage, distillDefaultBranch)
-				return outcome.Attempted || also.Attempted, err
-			}
-			return outcome.Attempted, nil
-		},
-		Paused: func() bool { return base.BackgroundPaused(opts.Env) },
+		Paused:  func() bool { return base.BackgroundPaused(opts.Env) },
 	}
 }
 

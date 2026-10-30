@@ -108,16 +108,8 @@ type Steps struct {
 	Refresh   func(context.Context) error
 	Seed      func(context.Context) error
 	Distill   func(context.Context) error
-	// FactsSync publishes-and-pulls hosted facts (hostedFactsSyncAndPull) for
-	// the current + default branch. Nil when the surface has no hosted step;
-	// non-fatal and cursor-throttled (hostedSyncMinInterval).
-	FactsSync func(context.Context) (bool, error)
 	Paused    func() bool
 }
-
-// hostedSyncMinInterval throttles the hosted fact sync step across ticks: the
-// tick interval is minutes, a team's fact churn is hours.
-const hostedSyncMinInterval = 15 * time.Minute
 
 // DefaultFlags are the shared defaults for `watch` and `workspace watch`.
 func DefaultFlags() Flags {
@@ -319,41 +311,6 @@ func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps 
 		}
 	}
 	cursor := LoadCursor(cursorPath)
-	// The hosted step pulls teammates' facts as much as it publishes local
-	// ones, so it must run on idle (no-change) ticks too — a machine that only
-	// receives would otherwise never sync. The defer below makes it run on
-	// every exit path from here down, including a failed refresh: a failed
-	// refresh never advances the main cursor, so a machine whose refresh
-	// always fails (e.g. the graph plugin is missing) takes that path on every
-	// tick and would otherwise be starved of the team's facts forever
-	// (COR-2114; a hand-placed call per return had already missed a path
-	// twice). It is token-free and throttled by its own cursor timestamp,
-	// advanced regardless of outcome so a failing hosted endpoint cannot turn
-	// every tick into an egress attempt. The success path still calls it
-	// explicitly BEFORE the agent steps — the `ran` guard makes the deferred
-	// call a no-op then — so the sync never inherits a context cancelled
-	// during a long agent step and burns its throttle window on an attempt
-	// that never happened.
-	factsSyncRan := false
-	runFactsSync := func() {
-		if factsSyncRan {
-			return
-		}
-		factsSyncRan = true
-		now := steps.Now().UTC()
-		if steps.FactsSync == nil || now.Sub(cursor.LastFactsSyncAt) < hostedSyncMinInterval {
-			return
-		}
-		attempted, err := steps.FactsSync(ctx)
-		switch {
-		case err != nil:
-			fmt.Fprintf(out, "[watch] hosted fact sync failed (local brain unaffected): %v\n", err)
-		case attempted:
-			fmt.Fprintln(out, "[watch] hosted fact sync ran")
-		}
-		markFactsSyncAttempt(cursorPath, now)
-	}
-	defer runFactsSync()
 	fp := steps.Fingerprint(ctx)
 	changed := fp != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero() || cursor.PendingRefresh
 	if !changed && !(cursor.PendingSeed && w.SeedAgent != "none" || cursor.PendingDistill && w.Distill) {
@@ -433,7 +390,6 @@ func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps 
 			}
 		}
 	}
-	runFactsSync()
 	reserved, reason, err := reserveWatchAgentSpend(cursorPath, fp, w, agentCalls, steps.Now().UTC(), !deltaHealthy, refresh)
 	if err != nil {
 		fmt.Fprintf(out, "[watch] cursor update failed (skipping agent work this tick): %v\n", err)
@@ -551,17 +507,6 @@ func StepCommand(parent *cobra.Command, sink io.Writer) *cobra.Command {
 		}
 	}
 	return sub
-}
-
-// markFactsSyncAttempt persists the hosted-sync throttle timestamp. Failures
-// are silent for the same reason as releaseWatchAgentSpend: a watcher must
-// never die on cursor bookkeeping.
-func markFactsSyncAttempt(cursorPath string, now time.Time) {
-	_ = withWatchCursorLock(cursorPath, func() error {
-		cursor := LoadCursor(cursorPath)
-		cursor.LastFactsSyncAt = now
-		return SaveCursor(cursorPath, cursor)
-	})
 }
 
 // watchShouldSpend decides whether the token-spending agent work (seed and/or distill) runs this tick:

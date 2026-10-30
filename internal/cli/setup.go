@@ -674,11 +674,9 @@ that way. It runs three phases:
                row to that plan; it does not rewrite, restart or steal the
                watcher the first repo is relying on.
 
-TOKEN SPEND: phases 2 and 3 call an agent. This is the first release in which
-the watcher's --distill step and the session-end hook's distill actually run
-(both were dead before), so setup is a real, recurring cost, bounded by five
-gates: the fact phase ASKS before it spends (default no, and a run with no
-terminal never spends unless --yes is passed), --backfill-budget sessions per
+TOKEN SPEND: phases 2 and 3 call an agent. Background distillation has a
+recurring cost, bounded by five gates: the fact phase ASKS before it spends
+(default no, and a run with no terminal never spends unless --yes is passed), --backfill-budget sessions per
 background pass, one gated agent run per --distill-every per repo, the
 persisted distill cache (a session is never distilled twice), and the cheap
 --model/--effort. Passing --no-backfill with --no-daemon spends nothing at all,
@@ -1073,7 +1071,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// without anyone remembering to run anything.
 	agentsPhase := run.Begin(setupui.PhaseAgents)
 	ui.StartTask("Configuring agent integration…")
-	agentsPhase.Step("session-end hook")
+	agentsPhase.Step("memory sync triggers")
 	report.Hook = inspectSessionEndHook(repoDir)
 	hookLine, hookWired := setupHookSummary(report.Hook, rend.Dash())
 

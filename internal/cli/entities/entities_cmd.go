@@ -104,7 +104,7 @@ changed it.
 
 The index lives as git-meta records beside the brain, is built once by
 ` + "`entities backfill`" + `, and is kept current by the deterministic (token-free)
-refresh the watch loop and the session-end hook already run.`,
+refresh in the watch loop.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 	}

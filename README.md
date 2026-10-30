@@ -166,6 +166,19 @@ entire brain setup --no-backfill --no-daemon
 
 Configured remote history sources and hosted memories sync also use the network; see [privacy and egress](docs/reference.md#privacy-and-egress) for controls.
 
+### Background maintenance and memory sync
+
+The watcher updates local repository context and runs distillation within the configured budget.
+For connected repositories, Brain syncs after a post-commit checkpoint notification and after distillation saves its results.
+Existing push notifications and manual sync remain supported.
+The watcher does not upload or pull memories on idle ticks.
+Brain no longer processes session-end notifications.
+
+Sync sends new or changed record versions and saves server acknowledgements locally.
+Overlapping uploads use one process lock; successful batches do not need another upload.
+Failed or interrupted uploads remain eligible for the next sync event.
+Original session, checkpoint, and commit references remain unchanged.
+
 ## Usage Examples
 
 ### Check what the brain knows

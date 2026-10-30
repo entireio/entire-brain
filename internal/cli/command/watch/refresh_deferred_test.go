@@ -73,7 +73,7 @@ func TestWatchDirtyRefreshRetriesAreBoundedWithoutRepeatingAgentWork(t *testing.
 			flags.ConsolidateEvery = consolidation
 			flags.Distill, flags.SeedAgent = true, "codex"
 			flags.DistillEvery = 0 // No spend throttle to hide accidental requeueing.
-			refreshes, seeds, distills, deltas, syncs, agentCalls := 0, 0, 0, 0, 0, 0
+			refreshes, seeds, distills, deltas, agentCalls := 0, 0, 0, 0, 0
 			dirty := true
 			steps := Steps{
 				Now:         func() time.Time { return now },
@@ -82,7 +82,6 @@ func TestWatchDirtyRefreshRetriesAreBoundedWithoutRepeatingAgentWork(t *testing.
 					deltas++
 					return historystore.ShortTermStats{}, nil
 				},
-				FactsSync: func(context.Context) (bool, error) { syncs++; return true, nil },
 				Refresh: func(context.Context) error {
 					refreshes++
 					if dirty {
@@ -113,8 +112,8 @@ func TestWatchDirtyRefreshRetriesAreBoundedWithoutRepeatingAgentWork(t *testing.
 			if refreshes != 3 || seeds != 1 || distills != 1 || agentCalls != 0 {
 				t.Fatalf("recovery repeated agent work: refreshes=%d seeds=%d distills=%d agent calls=%d", refreshes, seeds, distills, agentCalls)
 			}
-			if deltas != 4 || syncs != 3 {
-				t.Fatalf("deferred refresh blocked background work: delta=%d sync=%d", deltas, syncs)
+			if deltas != 4 {
+				t.Fatalf("deferred refresh blocked background work: delta=%d", deltas)
 			}
 		})
 	}

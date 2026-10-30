@@ -879,7 +879,7 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	}
 	// One pass at a time per brain. Every in-process caller funnels through here
 	// — the detached `setup` backfill child, the watcher's gated distill step,
-	// the session-end hook, and a human running `distill` — so this is the one
+	// and a human running `distill` — so this is the one
 	// place that can stop two of them spending tokens on the same sessions.
 	var source *factSourceManifest
 	skipped := false
@@ -911,9 +911,8 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 		// Built once per run, before any agent call: reading the derived index
 		// is cheap and bounded, and a missing/empty index yields nil, which
 		// restores the pre-index anchoring exactly. Built INSIDE the pass lock
-		// so a run that skips never pays for it and a run that proceeds reads
-		// the index as of the moment it actually owns the pass — the session-end
-		// hook refreshes that index just before calling in.
+		// so a run that skips never pays for it. A running pass reads the
+		// current index from local repository maintenance.
 		distillOpts.entityProvenance = entities.NewProvenanceResolver(ctx, entityConfig(opts), repoDir)
 		distillOpts.checkpointCommits = newCheckpointCommitResolver(ctx, opts, repoDir)
 		var runErr error
@@ -927,6 +926,9 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	if skipped {
 		return nil
 	}
+	// Results are durable and the distillation/write locks have been released.
+	// This event must not depend on another commit or on a watcher timer.
+	syncHostedMemoriesOnEvent(ctx, cmd.ErrOrStderr(), opts, repoDir, storage, distillOpts.branch)
 	if distillOpts.json {
 		data, err := json.MarshalIndent(source, "", "  ")
 		if err != nil {
