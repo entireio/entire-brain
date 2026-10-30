@@ -27,6 +27,7 @@ func newFactsCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newFactsFilesCommand(opts))
 	cmd.AddCommand(newFactsImportCommand(opts))
 	cmd.AddCommand(newFactsStatusCommand(opts))
+	cmd.AddCommand(newFactsStorageCommand(opts))
 	cmd.AddCommand(newFactsSyncCommand(opts))
 	cmd.AddCommand(newFactsVitalityCommand(opts))
 	cmd.AddCommand(newFactsEvalCommand(opts))

@@ -3600,7 +3600,8 @@ var brainBundleLayers = []brainBundleLayer{
 	{name: "runtime_traces", dir: "semantic/traces"},
 	{name: bundleLayerSeed, dir: seedDirName},
 	{name: bundleLayerDocs, dir: docstore.DirName},
-	{name: bundleLayerFacts, dir: factstore.DirName},
+	// Old-format bundles carry NDJSON projections, not local view metadata.
+	{name: bundleLayerFacts, dir: factstore.DirName, skip: []string{"store.json"}},
 	{name: bundleLayerSessions, dir: brainstore.SessionsDirName, withSessions: true},
 	{name: bundleLayerHistory, dir: brainstore.HistoryDirName, skip: []string{brainstore.SessionTombstonesFileName, "privacy", "work"}, withSessions: true},
 	{name: bundleLayerPatterns, dir: brainPatternsDirName, withSessions: true},
@@ -3609,6 +3610,9 @@ var brainBundleLayers = []brainBundleLayer{
 // skipsPath reports whether a brain-relative slash path falls inside one of the
 // layer's never-bundled subtrees.
 func (l brainBundleLayer) skipsPath(relSlash string) bool {
+	if l.name == bundleLayerFacts && strings.HasPrefix(relSlash, factstore.DirName+"/.store.json.tmp-") {
+		return true
+	}
 	for _, skip := range l.skip {
 		full := l.dir + "/" + skip
 		if relSlash == full || strings.HasPrefix(relSlash, full+"/") {
@@ -3689,6 +3693,24 @@ func collectBrainBundleLayerPaths(root string, layer brainBundleLayer) ([]string
 	})
 	if err != nil {
 		return nil, err
+	}
+	if layer.name == bundleLayerFacts {
+		dirs, native, err := factstore.RepositoryViewDirs(root)
+		if err != nil {
+			return nil, err
+		}
+		if native {
+			seen := map[string]bool{}
+			for _, path := range paths {
+				seen[filepath.ToSlash(path)] = true
+			}
+			for _, dir := range dirs {
+				rel := filepath.ToSlash(filepath.Join(factstore.DirName, dir, factstore.FileName))
+				if !seen[rel] {
+					paths = append(paths, filepath.FromSlash(rel))
+				}
+			}
+		}
 	}
 	sort.Strings(paths)
 	return paths, nil
@@ -3903,6 +3925,20 @@ func addBundleManifest(tw *tar.Writer, manifest exportManifest) error {
 }
 
 func addBundlePath(tw *tar.Writer, root, rel string) error {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	if len(parts) == 3 && parts[0] == factstore.DirName && parts[2] == factstore.FileName {
+		data, native, err := factstore.NativeProjection(root, parts[1])
+		if err != nil {
+			return err
+		}
+		if native {
+			if err := tw.WriteHeader(&tar.Header{Name: filepath.ToSlash(rel), Mode: 0o600, Size: int64(len(data))}); err != nil {
+				return err
+			}
+			_, err := tw.Write(data)
+			return err
+		}
+	}
 	if err := clibase.RejectSymlinkPathComponents(root, rel); err != nil {
 		return err
 	}

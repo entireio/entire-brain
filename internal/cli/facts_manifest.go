@@ -70,6 +70,11 @@ func reclassifyAllFactBranches(brainDir string, now time.Time) (int, error) {
 			}
 			changed += c + folded
 		}
+		// Refresh upgrades even an unchanged legacy store. Ordinary read
+		// commands remain read-only, including on read-only installations.
+		if err := factstore.MigrateRepository(brainDir); err != nil {
+			return err
+		}
 		return updateFactSourceManifestLocked(brainDir, now)
 	})
 	return changed, err

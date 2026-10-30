@@ -202,6 +202,45 @@ one, pass it yourself: `--path constraints.retry.policy`, shaped
 `verify` reports hand-written facts as `unverifiable-here` — they have no source
 anchor in the repository. Expected, not a failure.
 
+Memory bodies are stored once per repository in `facts/store.json`, using the
+existing memory IDs and record fields. Views retain the current branch visibility
+and any differing provenance or lifecycle state. Brainstore's per-record API and
+wire format are unchanged.
+
+Each legacy view migrates on its next memory write; refresh migrates all views.
+Reads also understand the legacy layout and do not modify disk. During the compatibility
+window, the adapter maintains the old `facts/<branch>/facts.ndjson` projections
+and incorporates writes from older clients. Outlines, review proposals, usage
+receipts, and other existing view metadata retain their compatible layouts.
+
+```bash
+entire brain memories storage status --json
+entire brain memories storage migrate       # migrate now; safe to repeat
+entire brain memories storage rollback      # materialize CURRENT data for downgrade
+```
+
+Each command also accepts `--global`. Rollback includes post-migration writes;
+it does not restore an outdated backup. The next write by a new client migrates
+again. Stop new-client background writers before an intentional downgrade.
+
+The adapter commits the legacy projection before the atomic native snapshot, so
+an interrupted snapshot write can recover from the projection. Removing only a
+projection does not delete native memories; use the memory commands for deletion.
+Privacy cleanup strips affected bodies and anchors from the native store as well
+as the views. Old-format exports render views without exporting native metadata.
+
+To run released-binary compatibility checks locally:
+`bash scripts/test-memory-storage-compat.sh`. The script builds pinned releases
+in a temporary directory and uses isolated data directories; it never changes
+your installed plugin or your memories.
+
+Compatibility coverage uses all four stable releases. Tests cover direct upgrades
+from v0.1.0 through v0.4.0. Mixed writers and full downgrade cycles cover v0.2.0
+through v0.4.0. v0.1.0 can read legacy memory files, but its manifest schema limit
+prevents full operation after a newer client writes a schema 4 manifest. This
+limit also exists on `main`. Storage rollback restores memory files; it does not
+convert the repository manifest to an older schema.
+
 ### Remember something that is not about one repository
 
 Most facts belong to a codebase. Some — a preference, a team convention, where

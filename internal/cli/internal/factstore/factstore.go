@@ -1,7 +1,6 @@
 package factstore
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -94,33 +93,19 @@ func BranchStoreExists(brainDir, branch string) bool {
 		return false
 	}
 	_, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(FileRelPath(branch))))
-	return err == nil
+	if err == nil {
+		return true
+	}
+	s, present, readErr := readRepoFactStore(brainDir)
+	_, exists := s.Views[repoFactViewDir(branch)]
+	return present && readErr == nil && exists
 }
 
-// Load reads a branch's facts.ndjson. A missing file is not an error: it
-// yields an empty slice so first-run callers do not special-case it. Blank
-// lines are skipped; a malformed line is a hard error so a corrupt store is
-// surfaced rather than silently dropping records.
+// Load selects a branch view from the repository collection, reconciling
+// legacy writers without mutating disk. Unknown views are empty; corrupt or
+// forward-version stores fail closed.
 func Load(brainDir, branch string) ([]factmerge.Record, error) {
-	rel := FileRelPath(branch)
-	if err := base.RejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
-		return nil, err
-	}
-	path := filepath.Join(brainDir, filepath.FromSlash(rel))
-	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("fact store is not a regular file: %s", rel)
-	}
-	records, err := parseFactsFile(path)
-	if err != nil {
-		// The bare parse error names the damage but not the repair, and this
-		// is the error every read surface shows a user. Name the repair here,
-		// once, the way the history index names `refresh history`.
-		// parseFactsFile itself stays clean so the integrity report (which
-		// quotes it inside a fuller sentence) does not say it twice.
-		return nil, fmt.Errorf("%w; %s", err, RepairHint())
-	}
-	return records, nil
-
+	return loadRepoFactView(brainDir, branch)
 }
 
 // parseFactsFile reads a facts.ndjson file at an absolute path. A missing file
@@ -163,12 +148,16 @@ func MissingBranchStores(brainDir string, source *bmanifest.FactSource) []string
 		return nil
 	}
 	var missing []string
+	s, native, storeErr := readRepoFactStore(brainDir)
 	for _, branch := range source.Branches {
 		if branch == "" {
 			continue
 		}
 		path := filepath.Join(brainDir, filepath.FromSlash(FileRelPath(branch)))
 		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			if _, exists := s.Views[repoFactViewDir(branch)]; native && storeErr == nil && exists {
+				continue
+			}
 			missing = append(missing, branch)
 		}
 	}
@@ -226,17 +215,10 @@ func MissingStoreWarning(missing []string) string {
 	)
 }
 
-// Write persists a branch's facts as newline-delimited JSON, one record
-// per line, sorted deterministically so the file is stable across rebuilds and
-// diffs cleanly. The branch directory is created if needed. The byte-level
-// sort+marshal lives in factmerge.WriteNDJSON; this keeps the atomic,
-// symlink-rejecting disk write in the store.
+// Write replaces one view in the repository collection and publishes its
+// legacy NDJSON projection. Callers hold the brain lock over read/modify/write.
 func Write(brainDir, branch string, records []factmerge.Record) error {
-	var buf bytes.Buffer
-	if err := factmerge.WriteNDJSON(&buf, records); err != nil {
-		return err
-	}
-	return brainstore.WriteBrainRelativeFileAtomic(brainDir, FileRelPath(branch), buf.Bytes(), 0o600)
+	return writeRepoFactView(brainDir, repoFactViewDir(branch), records)
 }
 
 // --- taxonomy -------------------------------------------------------------
