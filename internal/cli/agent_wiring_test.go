@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -740,4 +741,84 @@ func TestSetupStrictModePersistsAcrossBareReruns(t *testing.T) {
 	if guide := readFileString(t, guidePath); strings.Contains(guide, `"mode":"strict"`) {
 		t.Fatalf("--normal did not reset the saved mode:\n%s", guide)
 	}
+}
+
+// TestPreEditHookCommandFallsThroughAPresentButFailingBinary EXECUTES the
+// generated POSIX command against a fabricated PATH, because every other
+// assertion in this file is a substring check and a substring check is exactly
+// what missed the bug this covers.
+//
+// The bug: the first spelling ran under `exec`, which replaces the shell, so a
+// binary that was PRESENT but FAILED took the hook down and the plugin
+// fallback was never reached. `command -v` proves a name resolves, never that
+// the build behind it understands --claude-hook. On this machine a v0.1.0
+// `entire-brain` in ~/.local/bin shadowed the managed v0.4.0 plugin and exited
+// 1 on every edit for eight days for precisely that reason.
+func TestPreEditHookCommandFallsThroughAPresentButFailingBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the POSIX branch is what this executes; the windows branch chains with || and always recovered")
+	}
+	t.Parallel()
+	bin := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "fallback-ran")
+	// Stands in for the stale standalone binary: on PATH, and fails the way a
+	// build predating --claude-hook fails.
+	writeFakeBin(t, bin, base.SetupBrainBinaryName, "#!/bin/sh\necho 'unknown flag: --claude-hook' >&2\nexit 1\n")
+	// Stands in for the host CLI, whose plugin dispatch reaches a current brain.
+	writeFakeBin(t, bin, base.SetupEntireBinaryName, "#!/bin/sh\nprintf '%s' \"$*\" >"+marker+"\nexit 0\n")
+
+	cmd := exec.Command("sh", "-c", posixHookScript(t))
+	cmd.Env = append(os.Environ(), "PATH="+bin)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("the hook must never fail the edit it was trying to inform: %v (%s)", err, out)
+	}
+	got, readErr := os.ReadFile(marker)
+	if readErr != nil {
+		t.Fatalf("the plugin fallback never ran, so a present-but-failing binary still silences memory delivery: %v (hook output: %s)", readErr, out)
+	}
+	wantArgs := base.SetupBrainPluginVerb + " hook pre-edit --claude-hook"
+	if string(got) != wantArgs {
+		t.Fatalf("the fallback ran with the wrong arguments: %q, want %q", got, wantArgs)
+	}
+}
+
+// TestPreEditHookCommandStaysSilentWhenNoBinaryIsInstalled is the other half of
+// the contract: an environment problem is silence, never noise, and never a
+// non-zero exit that interrupts the edit.
+func TestPreEditHookCommandStaysSilentWhenNoBinaryIsInstalled(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX branch only")
+	}
+	t.Parallel()
+	cmd := exec.Command("sh", "-c", posixHookScript(t))
+	cmd.Env = append(os.Environ(), "PATH="+t.TempDir())
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("a machine with neither binary gets a failing hook on every edit: %v", err)
+	}
+	if len(strings.TrimSpace(string(out))) != 0 {
+		t.Fatalf("a machine with neither binary gets noise on every edit: %q", out)
+	}
+}
+
+// writeFakeBin installs an executable shell stub under dir.
+func writeFakeBin(t *testing.T, dir, name, script string) {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// posixHookScript peels the `sh -c '...'` wrapper off the generated command so
+// the script inside can be handed to a real shell.
+func posixHookScript(t *testing.T) string {
+	t.Helper()
+	const prefix = "sh -c '"
+	command := preEditHookCommandFor("linux")
+	if !strings.HasPrefix(command, prefix) || !strings.HasSuffix(command, "'") {
+		t.Fatalf("the generated command is not a single-quoted sh script, so this test cannot run it: %s", command)
+	}
+	return strings.TrimSuffix(strings.TrimPrefix(command, prefix), "'")
 }

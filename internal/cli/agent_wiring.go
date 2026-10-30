@@ -166,10 +166,30 @@ func preEditHookCommandFor(goos string) string {
 		return `cmd /c "` + base.SetupBrainBinaryName + " hook pre-edit --claude-hook || " +
 			base.SetupEntireBinaryName + " " + base.SetupBrainPluginVerb + ` hook pre-edit --claude-hook || exit /b 0"`
 	}
+	// `command -v` establishes only that SOMETHING by that name is on PATH --
+	// never that it is a build which understands this hook. The first spelling
+	// used to run under `exec`, which replaces the shell, so a binary that was
+	// present but failed took the whole hook down and the plugin fallback below
+	// became unreachable. That is not hypothetical: a v0.1.0 `entire-brain`
+	// left in ~/.local/bin shadowed a managed v0.4.0 plugin on this machine and
+	// exited 1 on every single edit for eight days, because it predates
+	// --claude-hook. The windows branch above chains with `||` and would have
+	// recovered; only the POSIX branch could not.
+	//
+	// So: no `exec`, and the chain advances on failure, exactly as windows
+	// does. stderr of the first attempt is dropped because its failure is
+	// RECOVERABLE -- the fallback is about to answer, and a wrong-version
+	// binary must not narrate that on every edit. The last attempt keeps its
+	// stderr, so a genuine fault stays diagnosable under `claude --debug`.
+	//
+	// The trailing `exit 0` is now unconditional, and that is the second half
+	// of the fix. A PreToolUse hook that exits non-zero reports a problem to
+	// the agent on every edit; memory delivery failing is never a reason to
+	// interrupt the edit it was trying to inform.
 	plugin := base.SetupEntireBinaryName + " " + base.SetupBrainPluginVerb
-	return "sh -c 'if command -v " + base.SetupBrainBinaryName + " >/dev/null 2>&1; then exec " + base.SetupBrainBinaryName +
-		" hook pre-edit --claude-hook; fi; if command -v " + base.SetupEntireBinaryName + " >/dev/null 2>&1; then exec " +
-		plugin + " hook pre-edit --claude-hook; fi; exit 0'"
+	return "sh -c 'if command -v " + base.SetupBrainBinaryName + " >/dev/null 2>&1 && " + base.SetupBrainBinaryName +
+		" hook pre-edit --claude-hook 2>/dev/null; then exit 0; fi; if command -v " + base.SetupEntireBinaryName +
+		" >/dev/null 2>&1; then " + plugin + " hook pre-edit --claude-hook; fi; exit 0'"
 }
 
 // errSettingsShape reports a settings file whose `hooks` tree is not the shape
