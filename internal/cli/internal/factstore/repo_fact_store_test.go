@@ -292,6 +292,9 @@ func TestRepoFactStoreConcurrentViewsDoNotLoseUpdates(t *testing.T) {
 // binary. Ordinary unit tests do not fetch/build historical dependencies.
 
 func TestRepoFactStoreReleasedBinary(t *testing.T) {
+	if os.Getenv("ENTIRE_BRAIN_TEST_LEGACY_VERSION") == "v0.1.0" {
+		t.Skip("v0.1.0 has no global memory store; repository compatibility is tested separately")
+	}
 	binary := os.Getenv("ENTIRE_BRAIN_TEST_LEGACY_BINARY")
 	if binary == "" {
 		t.Skip("run scripts/test-memory-storage-compat.sh for real released-binary coverage")
@@ -428,6 +431,9 @@ func TestRepoFactStoreCrashAfterProjection(t *testing.T) {
 }
 
 func TestRepoFactStoreReleasedMixedProcesses(t *testing.T) {
+	if os.Getenv("ENTIRE_BRAIN_TEST_LEGACY_VERSION") == "v0.1.0" {
+		t.Skip("v0.1.0 has no global memory store; repository compatibility is tested separately")
+	}
 	old, current := os.Getenv("ENTIRE_BRAIN_TEST_LEGACY_BINARY"), os.Getenv("ENTIRE_BRAIN_TEST_BINARY")
 	if old == "" || current == "" {
 		t.Skip("run scripts/test-memory-storage-compat.sh")
@@ -513,22 +519,35 @@ func TestRepoFactStoreReleasedRepositoryVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, binary := range []string{old, current} {
-		out := run(binary, "recall", "--branch", "main", "--no-global", "--json")
+		out := run(binary, "recall", "--branch", "main", "--json")
 		if !bytes.Contains(out, []byte(a.ID)) || bytes.Contains(out, []byte(b.ID)) {
 			t.Fatalf("main visibility changed: %s", out)
 		}
-		out = run(binary, "recall", "--branch", "feature", "--no-global", "--json")
+		out = run(binary, "recall", "--branch", "feature", "--json")
 		if !bytes.Contains(out, []byte(b.ID)) || bytes.Contains(out, []byte(a.ID)) {
 			t.Fatalf("feature visibility changed: %s", out)
 		}
 	}
-	run(old, "memories", "retract", a.ID, "--branch", "main", "--json")
-	out := run(current, "recall", "--branch", "main", "--no-global", "--json")
+	// v0.1.0 supports manifest schema 3. Existing releases already write
+	// schema 4, so v0.1.0 is an upgrade source and legacy reader, not a
+	// supported mixed writer or full downgrade destination.
+	retractor := old
+	if os.Getenv("ENTIRE_BRAIN_TEST_LEGACY_VERSION") == "v0.1.0" {
+		retractor = current
+		cmd := exec.Command(old, "facts", "status", "--json")
+		cmd.Dir, cmd.Env = repo, env
+		out, err := cmd.CombinedOutput()
+		if err == nil || !bytes.Contains(out, []byte("memory_unsupported_version")) {
+			t.Fatalf("v0.1.0 manifest compatibility limit changed: %v: %s", err, out)
+		}
+	}
+	run(retractor, "facts", "retract", a.ID, "--branch", "main", "--json")
+	out := run(current, "recall", "--branch", "main", "--json")
 	if bytes.Contains(out, []byte(a.ID)) {
 		t.Fatalf("old retraction leaked into new recall: %s", out)
 	}
 	run(current, "memories", "storage", "rollback", "--json")
-	out = run(old, "recall", "--branch", "feature", "--no-global", "--json")
+	out = run(old, "recall", "--branch", "feature", "--json")
 	if !bytes.Contains(out, []byte(b.ID)) {
 		t.Fatalf("downgrade lost feature memory: %s", out)
 	}

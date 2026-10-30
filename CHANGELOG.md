@@ -16,8 +16,10 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 - `memories storage status`, `migrate`, and `rollback` (also with `--global`).
   Rollback exports current memories, including changes made after migration.
-- Released-client compatibility checks against v0.3.0 and v0.4.0, including
-  concurrent old/new writers and upgrade/downgrade cycles.
+- Released-client checks cover upgrades from v0.1.0 through v0.4.0, plus
+  concurrent old/new writers and downgrade cycles for v0.2.0 through v0.4.0.
+  v0.1.0 retains its existing manifest schema limit after an upgrade.
+
 ### Removed
 
 - `entire brain publish` and the brain-bundle wire package (`internal/brainwire`).

@@ -3,7 +3,9 @@ package cli
 import (
 	"archive/tar"
 	"bytes"
+	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"io"
 	"os"
 	"path/filepath"
@@ -109,5 +111,39 @@ func TestRepoFactStoreBundleKeepsLegacyContract(t *testing.T) {
 		if err != nil || !bytes.Contains(payload, []byte(`"text":"bundle"`)) {
 			t.Fatalf("missing projection exported wrong bytes: %s, %v", payload, err)
 		}
+	}
+}
+
+func TestRepoFactStoreRefreshMigratesUnchangedLegacyViews(t *testing.T) {
+	root := t.TempDir()
+	rec := repoStoreFact("stable observation", "main")
+	rec.Kind = factKindConvention
+	// Build a real legacy-only fixture. Using factstore.Write here would
+	// migrate it before refresh and would not test the upgrade entry point.
+	for _, branch := range []string{"main", "feature"} {
+		path := filepath.Join(root, factstore.FileRelPath(branch))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		var data bytes.Buffer
+		if err := factmerge.WriteNDJSON(&data, []factRecord{rec}); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data.Bytes(), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writeBrainManifestAndReadme(root, exportManifest{SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: rec.CreatedAt}); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := reclassifyAllFactBranches(root, rec.CreatedAt); err != nil || changed != 0 {
+		t.Fatalf("refresh: changed=%d, %v", changed, err)
+	}
+	report, err := factstore.RepositoryStatus(root)
+	if err != nil || report.Format != "repository" || report.Views != 2 || report.Records != 1 {
+		t.Fatalf("refresh did not migrate unchanged views: %+v, %v", report, err)
+	}
+	for _, branch := range []string{"main", "feature"} {
+		requireRepoView(t, root, branch, []factRecord{rec})
 	}
 }

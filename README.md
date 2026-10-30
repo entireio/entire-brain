@@ -234,6 +234,13 @@ To run released-binary compatibility checks locally:
 in a temporary directory and uses isolated data directories; it never changes
 your installed plugin or your memories.
 
+Compatibility coverage uses all four stable releases. Tests cover direct upgrades
+from v0.1.0 through v0.4.0. Mixed writers and full downgrade cycles cover v0.2.0
+through v0.4.0. v0.1.0 can read legacy memory files, but its manifest schema limit
+prevents full operation after a newer client writes a schema 4 manifest. This
+limit also exists on `main`. Storage rollback restores memory files; it does not
+convert the repository manifest to an older schema.
+
 ### Remember something that is not about one repository
 
 Most facts belong to a codebase. Some — a preference, a team convention, where
