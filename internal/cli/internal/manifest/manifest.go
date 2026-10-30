@@ -206,6 +206,10 @@ type FactSource struct {
 type HistorySource struct {
 	GeneratedAt time.Time `json:"generated_at"`
 	IndexPath   string    `json:"index_path"`
+	// ExtractionVersion identifies the history record extraction logic used to
+	// build the persisted index. A changed extractor must rebuild even when the
+	// transcript files themselves are unchanged.
+	ExtractionVersion int `json:"extraction_version,omitempty"`
 	// IndexBytes/IndexSHA256/RecordsFingerprint let a reader rank straight from
 	// the FTS payload table without loading index.json, and give the FTS
 	// freshness check an O(1) key.

@@ -73,7 +73,15 @@ const (
 	// sole reuse authority — unchanged transcripts would keep those empty
 	// results forever, so an upgraded brain would never recover its history
 	// without a manual rebuild (COR-2289).
-	historyScanCacheVersion = 11
+	// v12: also mine code facts from the tool output the compact dialect
+	// inlines into each tool_use block (tool_use.result.output) instead of a
+	// separate tool_result record. A v11 cache holds compact scans without
+	// those facts.
+	// The value is also persisted as the history source's ExtractionVersion
+	// so refresh rebuilds an otherwise-unchanged index built by an older
+	// extractor; the short-term overlay has its own historyShortTermVersion,
+	// which must be bumped with it.
+	historyScanCacheVersion = 12
 )
 
 type historyFragment struct {
@@ -1241,6 +1249,7 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 	source := &historySourceManifest{
 		GeneratedAt:            now,
 		IndexPath:              historystore.IndexPath,
+		ExtractionVersion:      historyScanCacheVersion,
 		TranscriptsFingerprint: transcriptsFingerprint,
 		SessionsFingerprint: func() string {
 			if manifest == nil {
@@ -2169,12 +2178,21 @@ func extractClaudeToolResultFragments(obj map[string]any) []historyFragment {
 }
 
 func extractClaudeMessageFragments(obj map[string]any, role string) []historyFragment {
-	if message := jsonMap(obj["message"]); len(message) > 0 {
-		return extractContentFragments(message["content"], role+"_message")
+	return extractContentFragments(transcriptRecordContent(obj), role+"_message")
+}
+
+// transcriptRecordContent returns the content of a "user" or "assistant"
+// record in either dialect that uses those record types. The claude-code
+// native dialect nests the turn under "message"; the Entire Transcript Format
+// v1 (the compact transcript.jsonl the default export reads, written for
+// every agent including codex and pi) puts the content blocks at the RECORD's
+// top level with no wrapper. Reading only the nested one indexed every compact
+// session to nothing. Same routing as distillConversationText.
+func transcriptRecordContent(obj map[string]any) any {
+	if message, ok := obj["message"]; ok {
+		return jsonMap(message)["content"]
 	}
-	// ETF compact records carry the content blocks at the record's top level
-	// (see distillConversationText).
-	return extractContentFragments(obj["content"], role+"_message")
+	return obj["content"]
 }
 
 func extractContentFragments(content any, source string) []historyFragment {
@@ -2198,6 +2216,9 @@ func extractContentFragments(content any, source string) []historyFragment {
 				text := strings.TrimSpace(name + " " + compactJSONValue(block["input"]))
 				fragments = append(fragments, historyFragment{Text: text, Source: historyToolCallSource(name)})
 				fragments = append(fragments, extractToolResultFacts(text)...)
+				// The compact v1 dialect inlines the tool's output into the
+				// tool_use block instead of a separate tool_result record.
+				fragments = append(fragments, extractToolResultFacts(jsonString(jsonMap(block["result"])["output"]))...)
 			case "tool_result":
 				fragments = append(fragments, extractToolResultFacts(firstNonEmptyString(block["content"], block["text"]))...)
 			default:

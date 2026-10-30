@@ -48,7 +48,11 @@ const (
 	// historyShortTermVersion 3 binds per-file reuse to the exact bounded
 	// descriptor-rooted content digest. Older size+mtime-only overlays are
 	// disposable and rebuild on the next delta.
-	historyShortTermVersion = 3
+	// 4: compact v1 transcripts (top-level content, inline tool_use.result)
+	// are read; a v3 overlay can hold empty entries for them that the delta
+	// would otherwise carry forward by content digest without re-parsing.
+	// Bump this alongside historyScanCacheVersion whenever extraction changes.
+	historyShortTermVersion = 4
 	// historyShortTermReconcilerVersion stamps the record-reconciliation rule
 	// the overlay was built to participate in (3 = newest-valid-copy selection
 	// scoped by logical conversation session, preserving legacy ID collisions

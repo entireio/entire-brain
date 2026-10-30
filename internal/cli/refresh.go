@@ -557,7 +557,7 @@ func historyIndexCurrent(brainDir string, manifest *exportManifest) bool {
 		return false
 	}
 	history := manifest.Sources.History
-	if history.IndexPath == "" || history.SessionsFingerprint == "" || history.IndexBytes <= 0 ||
+	if history.ExtractionVersion != historyScanCacheVersion || history.IndexPath == "" || history.SessionsFingerprint == "" || history.IndexBytes <= 0 ||
 		!historystore.ValidSHA256(history.IndexSHA256) || !historystore.ValidSHA256(history.RecordsFingerprint) ||
 		!historystore.ValidSHA256(history.TranscriptsFingerprint) {
 		return false

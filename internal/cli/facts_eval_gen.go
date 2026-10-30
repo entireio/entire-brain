@@ -605,13 +605,8 @@ func transcriptUserText(obj map[string]any) string {
 			return jsonString(payload["message"])
 		}
 	case "user":
-		if msg, ok := obj["message"]; ok {
-			return transcriptContentText(jsonMap(msg)["content"])
-		}
-		// The compact dialect the CLI writes (Entire Transcript Format) puts
-		// the content blocks at the record's top level with no "message"
-		// wrapper; distillConversationText documents the same split.
-		return transcriptContentText(obj["content"])
+		// claude-code nests the turn under "message"; compact v1 does not.
+		return transcriptContentText(transcriptRecordContent(obj))
 	case "message":
 		// pi wraps every turn as {"type":"message","message":{role,content}};
 		// keep user turns (same blind spot distillConversationText covers).

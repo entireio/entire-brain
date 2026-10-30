@@ -336,6 +336,11 @@ func TestValidateConversationSourcePath(t *testing.T) {
 // brain dir and the built source manifest.
 func buildConversationBrainFixture(t *testing.T, sessionID string) (string, *historySourceManifest) {
 	t.Helper()
+	return buildConversationBrainFixtureWithTranscript(t, sessionID, conversationClaudeFixture)
+}
+
+func buildConversationBrainFixtureWithTranscript(t *testing.T, sessionID, transcript string) (string, *historySourceManifest) {
+	t.Helper()
 	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
 	brainDir := t.TempDir()
 	rel := "sessions/main/20260801T120000Z_fix-lock.jsonl"
@@ -343,7 +348,7 @@ func buildConversationBrainFixture(t *testing.T, sessionID string) (string, *his
 	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(full, []byte(conversationClaudeFixture), 0o600); err != nil {
+	if err := os.WriteFile(full, []byte(transcript), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{

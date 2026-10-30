@@ -364,12 +364,8 @@ func conversationAssistantNarrative(obj map[string]any) []string {
 			return conversationTextBlocks(payload["content"])
 		}
 	case "assistant":
-		if message := jsonMap(obj["message"]); len(message) > 0 {
-			return conversationTextBlocks(message["content"])
-		}
-		// ETF compact records carry the content blocks at the record's top
-		// level (see distillConversationText).
-		return conversationTextBlocks(obj["content"])
+		// claude-code nests the turn under "message"; compact v1 does not.
+		return conversationTextBlocks(transcriptRecordContent(obj))
 	case "message":
 		// pi: {"type":"message","message":{role,content}}.
 		if message := jsonMap(obj["message"]); jsonString(message["role"]) == "assistant" {
@@ -425,13 +421,7 @@ func conversationToolNames(obj map[string]any) []string {
 			return []string{"apply_patch"}
 		}
 	case "assistant":
-		message := jsonMap(obj["message"])
-		content, ok := message["content"].([]any)
-		if !ok {
-			// ETF compact records carry the content blocks at the record's
-			// top level (see distillConversationText).
-			content, ok = obj["content"].([]any)
-		}
+		content, ok := transcriptRecordContent(obj).([]any)
 		if !ok {
 			return nil
 		}
