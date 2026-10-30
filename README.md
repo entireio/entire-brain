@@ -202,44 +202,44 @@ one, pass it yourself: `--path constraints.retry.policy`, shaped
 `verify` reports hand-written facts as `unverifiable-here` — they have no source
 anchor in the repository. Expected, not a failure.
 
-Memory bodies are stored once per repository in `facts/store.json`, using the
-existing memory IDs and record fields. Views retain the current branch visibility
-and any differing provenance or lifecycle state. Brainstore's per-record API and
-wire format are unchanged.
+Memory access uses one repository API. Branch visibility, record IDs, and provenance
+remain unchanged. Brainstore's per-record API and wire format also remain unchanged.
 
-Each legacy view migrates on its next memory write; refresh migrates all views.
-Reads also understand the legacy layout and do not modify disk. During the compatibility
-window, the adapter maintains the old `facts/<branch>/facts.ndjson` projections
-and incorporates writes from older clients. Outlines, review proposals, usage
-receipts, and other existing view metadata retain their compatible layouts.
+During support for v0.2.0 through v0.4.0, memory content stays in
+`facts/<branch>/facts.ndjson`. These releases can read, change, and physically delete
+those files. `facts/store.json` contains only a schema 2 compatibility marker.
+It contains no memory content or provenance. Physical consolidation must wait
+until these older clients leave support.
+
+Existing schema 1 snapshots remain readable. The next memory write or refresh
+converts them. Conversion reconciles old-client changes across all views, publishes
+missing legacy files, and replaces the snapshot last. A failed conversion can be
+retried. Corrupt or unsupported snapshots cause an error before conversion.
+Reads do not change disk. Outlines, review proposals, and usage receipts keep
+their existing layouts.
 
 ```bash
 entire brain memories storage status --json
-entire brain memories storage migrate       # migrate now; safe to repeat
-entire brain memories storage rollback      # materialize CURRENT data for downgrade
+entire brain memories storage migrate       # convert or repair; safe to repeat
+entire brain memories storage rollback      # keep current data; remove the marker
 ```
 
-Each command also accepts `--global`. Rollback includes post-migration writes;
-it does not restore an outdated backup. The next write by a new client migrates
-again. Stop new-client background writers before an intentional downgrade.
+Each command also accepts `--global`. Status reports `legacy`, `repository`
+(schema 1), or `compatibility` (schema 2). Rollback includes post-migration writes;
+it does not restore an outdated backup. Use memory commands for deletion.
+Deleting a legacy file after conversion removes the only stored copy of that view.
 
-The adapter commits the legacy projection before the atomic native snapshot, so
-an interrupted snapshot write can recover from the projection. Removing only a
-projection does not delete native memories; use the memory commands for deletion.
-Privacy cleanup strips affected bodies and anchors from the native store as well
-as the views. Old-format exports render views without exporting native metadata.
+If a pre-fix schema 1 snapshot exists, run `memories storage migrate` before
+using an older client for privacy cleanup. An older client cannot remove that
+snapshot. New-client privacy verification inspects physical snapshot bodies,
+overrides, and abandoned temporary snapshots. New-client purge repairs these
+artifacts even when an older client already removed the visible records.
 
-To run released-binary compatibility checks locally:
-`bash scripts/test-memory-storage-compat.sh`. The script builds pinned releases
-in a temporary directory and uses isolated data directories; it never changes
-your installed plugin or your memories.
-
-Compatibility coverage uses all four stable releases. Tests cover direct upgrades
-from v0.1.0 through v0.4.0. Mixed writers and full downgrade cycles cover v0.2.0
-through v0.4.0. v0.1.0 can read legacy memory files, but its manifest schema limit
-prevents full operation after a newer client writes a schema 4 manifest. This
-limit also exists on `main`. Storage rollback restores memory files; it does not
-convert the repository manifest to an older schema.
+Run `bash scripts/test-memory-storage-compat.sh` for released-binary checks.
+The script builds pinned stable releases v0.2.0, v0.3.0, and v0.4.0.
+Nightly releases are excluded. Tests use temporary repositories and isolated
+data directories. They do not change your installed plugin or your memories.
+See [compatibility coverage](docs/memory-storage-compatibility.md) for test scope.
 
 ### Remember something that is not about one repository
 

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"io"
 	"net/url"
@@ -92,7 +93,9 @@ func loadHistoryScanCacheForPrivacy(brainDir string) (historyScanCache, error) {
 	if err := json.Unmarshal(decoded, &cache); err != nil || cache.Files == nil {
 		return empty, fmt.Errorf("%s: decode %s", brainstore.StateCorruptCode, historyScanCachePath)
 	}
-	if cache.Version != historyScanCacheVersion {
+	// Privacy inspects records without reusing their extraction results.
+	// Both known formats have the same record/provenance schema.
+	if cache.Version != historyScanCacheVersion && cache.Version != historyScanCacheWireVersion {
 		return empty, fmt.Errorf("%s: unsupported %s schema version %d", brainstore.UnsupportedVersionCode, historyScanCachePath, cache.Version)
 	}
 	return cache, nil
@@ -519,6 +522,18 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	if err != nil {
 		return report, err
 	}
+	// An interrupted schema 1 write can leave an incomplete private snapshot.
+	// It cannot be safely parsed or assigned to one session; require cleanup.
+	factEntries, _, err := brainstore.ReadPrivacyDirectory(brainDir, factstore.DirName, "facts directory")
+	if err != nil {
+		return report, err
+	}
+	for _, entry := range factEntries {
+		if strings.HasPrefix(entry.Name(), ".store.json.tmp-") {
+			report.Findings = append(report.Findings, privacyVerifyFinding{Artifact: "facts", Detail: "abandoned memory snapshot: " + entry.Name()})
+		}
+	}
+
 	for branch, facts := range byBranch {
 		for _, fact := range facts {
 			for _, anchor := range fact.Provenance {

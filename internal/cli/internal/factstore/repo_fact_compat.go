@@ -3,9 +3,9 @@ package factstore
 // This adapter is the only place the repository store knows about legacy
 // branch files. Keep it until pre-store binaries are no longer supported.
 //
-// The old file is written BEFORE the snapshot. It is a durable redo source:
-// after interruption, its digest differs from the snapshot's checkpoint and
-// the next read imports it. A successful write has published both copies.
+// Memory payloads remain in the old files so released clients can physically
+// delete them. The marker contains no private content. During conversion from
+// schema 1, publish every view before replacing the old snapshot.
 // Legacy writers already use the brain write lock; callers retain that lock
 // around read/modify/write. The store lock additionally serializes snapshot
 // commits (including direct internal writers), never the other way around.
@@ -22,6 +22,7 @@ import (
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func repoFactViewDir(branch string) string { return filepath.Base(BranchRelDir(branch)) }
@@ -199,15 +200,35 @@ func commitRepoFactView(brainDir, dir string, records []factmerge.Record, persis
 		if err != nil {
 			return err
 		}
-		// A branch write must not depend on unrelated legacy projections
-		// being readable. Full reconciliation belongs to inventory and
-		// migration; retain other native views exactly as stored here.
+		// Converting schema 1 must preserve old-client changes in every view.
+		// Once converted, ordinary writes depend only on their target view.
+		if s.SchemaVersion == 1 {
+			s, err = reconcileRepoFactStore(brainDir)
+			if err != nil {
+				return err
+			}
+		}
 		if err := s.reconcileView(brainDir, dir); err != nil {
 			return err
 		}
 		sum := sha256.Sum256(buf.Bytes())
 		if err := s.replaceView(dir, records, hex.EncodeToString(sum[:])); err != nil {
 			return err
+		}
+
+		if s.SchemaVersion == 1 {
+			// Validate privacy state before changing any legacy bytes.
+			if err := s.excludePurgedSnapshotAnchors(brainDir); err != nil {
+				return err
+			}
+			filtered, err := s.view(dir)
+			if err != nil {
+				return err
+			}
+			buf.Reset()
+			if err := factmerge.WriteNDJSON(&buf, filtered); err != nil {
+				return err
+			}
 		}
 		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, legacyFactViewRel(dir), buf.Bytes(), 0o600); err != nil {
 			return err
@@ -238,23 +259,11 @@ func RollbackRepository(brainDir string) error {
 		if err != nil {
 			return err
 		}
-		dirs := make([]string, 0, len(s.Views))
-		for dir := range s.Views {
-			dirs = append(dirs, dir)
+		if err := s.excludePurgedSnapshotAnchors(brainDir); err != nil {
+			return err
 		}
-		sort.Strings(dirs)
-		for _, dir := range dirs {
-			records, err := s.view(dir)
-			if err != nil {
-				return err
-			}
-			var buf bytes.Buffer
-			if err := factmerge.WriteNDJSON(&buf, records); err != nil {
-				return err
-			}
-			if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, legacyFactViewRel(dir), buf.Bytes(), 0o600); err != nil {
-				return err
-			}
+		if err := publishRepoFactViews(brainDir, &s); err != nil {
+			return err
 		}
 		if err := cleanupRepoFactTemps(brainDir); err != nil {
 			return err
@@ -265,4 +274,83 @@ func RollbackRepository(brainDir string) error {
 		}
 		return err
 	})
+}
+
+func publishRepoFactViews(brainDir string, s *repoFactStore) error {
+	dirs := make([]string, 0, len(s.Views))
+	for dir := range s.Views {
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	for _, dir := range dirs {
+		records, err := s.view(dir)
+		if err != nil {
+			return err
+		}
+		var buf bytes.Buffer
+		if err := factmerge.WriteNDJSON(&buf, records); err != nil {
+			return err
+		}
+		current, present, err := readLegacyFactView(brainDir, dir)
+		if err != nil {
+			return err
+		}
+		if present && bytes.Equal(current, buf.Bytes()) {
+			continue
+		}
+		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, legacyFactViewRel(dir), buf.Bytes(), 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// A schema 1 view can outlive the file an old purge knew about. Do not
+// materialize it after exclusion, even when the legacy projection is missing.
+// Keep multi-source memories after stripping only the excluded provenance.
+func (s *repoFactStore) excludePurgedSnapshotAnchors(brainDir string) error {
+	if s.SchemaVersion != 1 {
+		return nil
+	}
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
+	if err != nil {
+		return err
+	}
+	if len(stones.Excluded) == 0 {
+		return nil
+	}
+	manifest, err := bmanifest.Load(brainDir)
+	if err != nil {
+		return err
+	}
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
+	if err != nil {
+		return err
+	}
+	for dir, view := range s.Views {
+		records, err := s.view(dir)
+		if err != nil {
+			return err
+		}
+		kept := make([]factmerge.Record, 0, len(records))
+		for _, rec := range records {
+			anchors := make([]factmerge.Anchor, 0, len(rec.Provenance))
+			for _, anchor := range rec.Provenance {
+				if !guard.BlocksSession(anchor.SessionID) && !guard.BlocksPath(anchor.Transcript) {
+					anchors = append(anchors, anchor)
+				}
+			}
+			if len(anchors) != len(rec.Provenance) {
+				if len(anchors) == 0 {
+					continue
+				}
+				rec.Provenance = anchors
+			}
+			kept = append(kept, rec)
+		}
+		if err := s.replaceView(dir, kept, view.LegacyDigest); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -30,7 +30,7 @@ jobs:
         with: { fetch-depth: 0 }
       - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
         with: { go-version: "1.27.2" }
-      - name: Upgrade, mixed-version writes, and rollback against released CLIs
+      - name: Storage, privacy, memory commands, and sync against stable CLIs
         run: bash scripts/test-memory-storage-compat.sh
 
   lint:

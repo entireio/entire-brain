@@ -3,6 +3,7 @@ package cli
 import (
 	"archive/tar"
 	"bytes"
+	"encoding/json"
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
@@ -44,6 +45,7 @@ func TestRepoFactStorePrivacyPurgesMirrorsAndMissingProjections(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	writeSchema1Fixture(t, root)
 	if err := os.Remove(filepath.Join(root, factstore.FileRelPath("feature"))); err != nil {
 		t.Fatal(err)
 	}
@@ -77,6 +79,7 @@ func TestRepoFactStoreBundleKeepsLegacyContract(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, factstore.DirName, ".store.json.tmp-crashed"), []byte("private partial native snapshot"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	writeSchema1Fixture(t, root)
 	for _, layer := range brainBundleLayers {
 		if layer.name != bundleLayerFacts {
 			continue
@@ -140,10 +143,35 @@ func TestRepoFactStoreRefreshMigratesUnchangedLegacyViews(t *testing.T) {
 		t.Fatalf("refresh: changed=%d, %v", changed, err)
 	}
 	report, err := factstore.RepositoryStatus(root)
-	if err != nil || report.Format != "repository" || report.Views != 2 || report.Records != 1 {
+	if err != nil || report.Format != "compatibility" || report.Views != 2 || report.Records != 1 {
 		t.Fatalf("refresh did not migrate unchanged views: %+v, %v", report, err)
 	}
 	for _, branch := range []string{"main", "feature"} {
 		requireRepoView(t, root, branch, []factRecord{rec})
+	}
+}
+
+func writeSchema1Fixture(t *testing.T, root string) {
+	t.Helper()
+	views, err := factstore.LoadStoreFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := map[string]factRecord{}
+	selections := map[string]any{}
+	for dir, rows := range views {
+		entries := []map[string]string{}
+		for _, rec := range rows {
+			records[rec.ID] = rec
+			entries = append(entries, map[string]string{"id": rec.ID})
+		}
+		selections[dir] = map[string]any{"entries": entries}
+	}
+	data, err := json.Marshal(map[string]any{"schema_version": 1, "records": records, "views": selections})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, factstore.RepositoryPath), data, 0600); err != nil {
+		t.Fatal(err)
 	}
 }

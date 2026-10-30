@@ -53,7 +53,7 @@ func TestRepoFactStoreReadOnlyMigrationPreservesData(t *testing.T) {
 				t.Fatal(err)
 			}
 			for action, call := range map[string]func(string) error{"migrate": MigrateRepository, "rollback": RollbackRepository} {
-				if err := call(root); err == nil {
+				if err := call(root); err == nil && (migrated || action != "rollback") {
 					t.Fatalf("%s succeeded on read-only data", action)
 				}
 			}
