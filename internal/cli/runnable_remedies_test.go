@@ -2,6 +2,8 @@ package cli
 
 import (
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"os"
 	"regexp"
 	"strings"
@@ -28,30 +30,40 @@ var hardcodedBrainVerb = regexp.MustCompile(`entire brain [a-z][a-z-]*\b`)
 // deliberatelyHardcoded names the lines that keep the literal spelling, and why.
 // Each reason is a category, not a per-line excuse.
 var deliberatelyHardcoded = []struct{ file, contains, reason string }{
-	{"add.go", "with ` + \"`entire brain dash`\"", "cobra Long help text built at command-construction time, before any lookup exists"},
-	{"retrieve.go", `"entire brain search`, "matcher over transcript text, not a printed remedy"},
-	{"mcp.go", "entire brain", "MCP tool descriptions are pinned by TestMCPToolSurfaceGolden; env-dependent descriptions would make the golden vary by shell"},
+	{"command/add/add.go", "with ` + \"`entire brain dash`\"", "cobra Long help text built at command-construction time, before any lookup exists"},
+	{"internal/retrieval/retrieve.go", `"entire brain search`, "matcher over transcript text, not a printed remedy"},
 	{"seed.go", "Intake: run `entire brain inspect", "written into the persisted seed artifact; spelling must be deterministic, not reader-dependent"},
-	{"capabilities.go", `"entire brain status --details --json"`, "machine-readable capabilities contract pinned by capabilities_report_regression_test.go"},
-	{"retrieve.go", `"entire brain query`, "matcher over transcript text, not a printed remedy"},
-	{"retrieve.go", `"entire brain brief`, "matcher over transcript text, not a printed remedy"},
-	{"viz.go", `"entire brain viz — %s`, "banner naming the surface being shown, not a command to run"},
-	{"publish.go", "(see 'entire brain connect')", "cobra Long help text built at command-construction time, before any lookup exists"},
-	{"disconnect_cmd.go", "'entire brain connect'", "cobra Long help text built at command-construction time, before any lookup exists"},
+	{"internal/retrieval/retrieve.go", `"entire brain query`, "matcher over transcript text, not a printed remedy"},
+	{"internal/retrieval/retrieve.go", `"entire brain brief`, "matcher over transcript text, not a printed remedy"},
+	{"command/viz/viz.go", `"entire brain viz — %s`, "banner naming the surface being shown, not a command to run"},
 	{"doctor.go", "cd '<your repository>' && entire brain doctor", "a shell TEMPLATE with a cd and a placeholder, not a verb the lookup can render"},
 }
 
 func TestNoHardcodedBrainSpellingInPrintedRemedies(t *testing.T) {
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
-	}
 	scanned, helperSites, allowed := 0, 0, 0
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || name == "setup_invocation.go" {
-			continue
+	// "." plus the packages remedies have sunk into (COR-2268): the fact-store
+	// remedies, the add command, the stats command, the declared-index repair
+	// hint, and the history-store, semantic-store, doc-store, and
+	// retrieval-engine read layers must stay under this guard rather than
+	// escape it by moving.
+	var names []string
+	for _, dir := range []string{".", "internal/factstore", "command/add", "command/bench", "command/dash", "command/patternscmd", "command/repoidentity", "command/retrieve", "command/stats", "command/viz", "command/watch", "internal/brainstore", "internal/historystore", "internal/semstore", "internal/docstore", "internal/retrieval", "patterns"} {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
 		}
+		for _, entry := range entries {
+			name := entry.Name()
+			if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || name == "setup_invocation.go" {
+				continue
+			}
+			if dir != "." {
+				name = dir + "/" + name
+			}
+			names = append(names, name)
+		}
+	}
+	for _, name := range names {
 		data, err := os.ReadFile(name)
 		if err != nil {
 			t.Fatal(err)
@@ -94,9 +106,9 @@ func TestNoHardcodedBrainSpellingInPrintedRemedies(t *testing.T) {
 func TestConvertedRemediesFollowTheDispatchSpelling(t *testing.T) {
 	render := func() map[string]string {
 		return map[string]string{
-			"declaredIndexRepairHint": declaredIndexRepairHint(),
-			"factsRepairHint":         factsRepairHint(),
-			"declaredIndexDefect":     declaredIndexDefect{Source: declaredIndexSeed, Absent: true, Path: "seed.json"}.Warning(),
+			"brainstore.DeclaredIndexRepairHint": brainstore.DeclaredIndexRepairHint(),
+			"factstore.RepairHint":               factstore.RepairHint(),
+			"brainstore.DeclaredIndexDefect":     brainstore.DeclaredIndexDefect{Source: brainstore.DeclaredIndexSeed, Absent: true, Path: "seed.json"}.Warning(),
 		}
 	}
 	for _, mode := range []struct{ name, cliVersion, want, forbid string }{

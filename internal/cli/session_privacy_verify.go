@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"io"
 	"net/url"
 	"os"
@@ -19,6 +21,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
@@ -279,10 +282,10 @@ func newPrivacyVerifyCommand(opts Options) *cobra.Command {
 				return err
 			}
 			if jsonOut {
-				if err := writeJSON(cmd, report); err != nil {
+				if err := cmdutil.WriteJSON(cmd, report); err != nil {
 					return err
 				}
-			} else if err := writeText(cmd, func(out io.Writer) {
+			} else if err := cmdutil.WriteText(cmd, func(out io.Writer) {
 				fmt.Fprintf(out, "verified %d excluded/purged sessions\n", report.CheckedSessions)
 				for _, finding := range report.Findings {
 					fmt.Fprintf(out, "VIOLATION %s: %s (%s)\n", finding.SessionID, finding.Artifact, finding.Detail)
@@ -313,7 +316,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	if err != nil {
 		return report, err
 	}
-	manifestForStorage, err := loadBrainManifest(brainDir)
+	manifestForStorage, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return report, err
 	}
@@ -361,7 +364,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		report.Clean = len(report.Findings) == 0
 		return report, nil
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return report, err
 	}
@@ -433,7 +436,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		source = manifest.Sources.History
 	}
 	if source != nil {
-		index, err := loadBrainHistoryIndex(brainDir, source)
+		index, err := historystore.LoadIndex(brainDir, source)
 		if err != nil {
 			return report, err
 		}
@@ -603,7 +606,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		// content-bearing formats before treating that mtime as proof: corrupt
 		// or opaque state can never make the read gate return clean.
 		switch rel {
-		case patternsTasksPath, patternsProceduresPath, patternsPracticesPath, patterncore.RunsRelPath:
+		case patternsTasksPath, patterncore.ProceduresPath, patterncore.PracticesPath, patterncore.RunsRelPath:
 			if err := validatePrivacyJSONLines(brainDir, rel); err != nil {
 				return report, err
 			}
@@ -778,8 +781,8 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 
 func inactiveHistoryProjectionArtifact(rel string) bool {
 	rel = filepath.ToSlash(rel)
-	return rel == historyIndexPath || rel == projectionStateRel ||
-		strings.HasPrefix(rel, historyGenerationsDir+"/") || strings.HasPrefix(rel, historyStagingDir+"/")
+	return rel == historystore.IndexPath || rel == projectionStateRel ||
+		strings.HasPrefix(rel, historystore.GenerationsDir+"/") || strings.HasPrefix(rel, historystore.StagingDir+"/")
 }
 
 // --- retention policy ---
@@ -815,7 +818,7 @@ func newPrivacyRetentionCommand(opts Options) *cobra.Command {
 }
 
 func privacyRetentionPlan(brainDir string, cutoff time.Time, branch string, purge bool) ([]retentionPlanEntry, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -925,16 +928,16 @@ func runPrivacyRetention(cmd *cobra.Command, opts Options, maxAge time.Duration,
 		if len(caveats) > 0 {
 			payload["caveats"] = caveats
 		}
-		return writeJSON(cmd, payload)
+		return cmdutil.WriteJSON(cmd, payload)
 	}
-	return writeText(cmd, func(out io.Writer) {
+	return cmdutil.WriteText(cmd, func(out io.Writer) {
 		mode := "applied"
 		if dryRun {
 			mode = "dry-run: would apply"
 		}
 		fmt.Fprintf(out, "%s retention (older than %s) to %d sessions\n", mode, cutoff.Format(time.RFC3339), len(plan))
 		for _, entry := range plan {
-			fmt.Fprintf(out, "  %s %s (%s, %s)\n", entry.Action, entry.SessionID, valueOrUnset(entry.Branch), valueOrUnset(entry.CreatedAt))
+			fmt.Fprintf(out, "  %s %s (%s, %s)\n", entry.Action, entry.SessionID, cmdutil.ValueOrUnset(entry.Branch), cmdutil.ValueOrUnset(entry.CreatedAt))
 		}
 		for _, caveat := range caveats {
 			fmt.Fprintf(out, "  NOT purged: %s\n", caveat)

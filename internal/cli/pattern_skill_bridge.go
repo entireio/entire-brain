@@ -15,7 +15,7 @@ import (
 // the existing synthesize/preview/record path works unchanged AND records
 // skill-memory under the corpus pattern id. That id alignment is what makes the
 // skill lifecycle (current/update/declined/reconsider) work against the V2
-// `patterns` listing. The recorded fingerprint is patternEvidenceFingerprint of
+// `patterns` listing. The recorded fingerprint is patterncore.PatternEvidenceFingerprint of
 // the same view the listing computes, so drift detection agrees across surfaces.
 
 // loadSkillProposals returns the formable skill proposals: a promotable task
@@ -107,11 +107,11 @@ func filterSkillCandidatesByMemory(brainDir string, cands []taskCandidate) []tas
 }
 
 func filterSkillCandidatesByMemoryChecked(brainDir string, cands []taskCandidate) ([]taskCandidate, error) {
-	records, err := loadBrainSkillMemory(brainDir)
+	records, err := patterncore.LoadBrainSkillMemory(brainDir)
 	if err != nil {
 		return nil, err
 	}
-	mem := skillMemoryByPatternID(records)
+	mem := patterncore.SkillMemoryByPatternID(records)
 	if len(mem) == 0 {
 		return cands, nil
 	}
@@ -119,7 +119,7 @@ func filterSkillCandidatesByMemoryChecked(brainDir string, cands []taskCandidate
 	for _, c := range cands {
 		if rec, ok := mem[c.ID]; ok {
 			view := taskView(c)
-			if evaluateSkillMemory(rec, &view).suppressInListing() {
+			if patterncore.EvaluateSkillMemory(rec, &view).SuppressInListing() {
 				continue
 			}
 		}

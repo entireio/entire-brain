@@ -8,6 +8,10 @@ import (
 	"path/filepath"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // declared_indexes.go cross-checks the retrieval indexes the manifest DECLARES
@@ -30,7 +34,7 @@ import (
 // `vsearch` exited 0 with "no results" and a note blaming missing FACTS — over
 // a brain that had answered the same query with six doc hits minutes earlier.
 //
-// Shape, deliberately copied from inspectFactStore rather than invented again:
+// Shape, deliberately copied from factstore.Inspect rather than invented again:
 //
 //   - The check lives beside the artifact's own reader, not inside it, so the
 //     REBUILD path can still run against the damaged brain.
@@ -40,96 +44,36 @@ import (
 //   - One report, read by every surface: the status instant line and the
 //     retrieval error path ask the same function and get the same sentence.
 
-// declaredIndexSource names which declared artifact is being checked. The ids
-// are the component ids `status` already prints on its instant line, so a
-// source reported as broken here and a source reported as failed there are
-// visibly the same thing.
-type declaredIndexSource string
-
-const (
-	declaredIndexSeed    declaredIndexSource = brainComponentSeed
-	declaredIndexHistory declaredIndexSource = brainComponentHistory
-	declaredIndexDocs    declaredIndexSource = brainComponentDocs
-)
-
 // declaredIndexOrder is build order, matching the instant line's.
-var declaredIndexOrder = []declaredIndexSource{declaredIndexSeed, declaredIndexDocs, declaredIndexHistory}
-
-// declaredIndexRepairHint is the repair. Rebuilding is the whole answer here —
-// unlike a lossy fact store, nothing has to be re-distilled, because every one
-// of these artifacts is derived deterministically from sources the brain still
-// holds.
-func declaredIndexRepairHint() string {
-	return "run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "`"
-}
-
-// declaredIndexDefect is one declared artifact the store cannot produce. The
-// zero value is a healthy source, so callers may use it unconditionally.
-type declaredIndexDefect struct {
-	Source declaredIndexSource `json:"source"`
-	// Path is the brain-relative artifact the manifest names. Naming it is the
-	// difference between a repair the reader can aim and a raw internal lstat.
-	Path string `json:"path,omitempty"`
-	// Absent separates the two situations a reader reacts to differently: the
-	// file is gone (something deleted it) versus the file is there and will not
-	// open (permissions, a symlink swap, a directory where a file belongs).
-	Absent bool `json:"absent,omitempty"`
-	// Err is the underlying failure, kept for anyone debugging a real fault.
-	Err error `json:"-"`
-}
-
-// OK reports a source that can produce what the manifest declares.
-func (d declaredIndexDefect) OK() bool { return d.Source == "" }
-
-// Warning renders the single caller-facing line, or "" when nothing is wrong.
-// It is written to work as a status detail AND as an error message, because a
-// reader hitting this from `status` and a reader hitting it from `vsearch` need
-// the identical sentence.
-func (d declaredIndexDefect) Warning() string {
-	if d.OK() {
-		return ""
-	}
-	// setupComponentLabels is the one vocabulary: a source named here and the
-	// same source named on the instant line must read as the same thing.
-	label := setupComponentLabel(string(d.Source))
-	if d.Absent {
-		return fmt.Sprintf("%s is declared in the manifest but %s is not on disk — %s",
-			label, d.Path, declaredIndexRepairHint())
-	}
-	return fmt.Sprintf("%s declared in the manifest cannot be read: %v — %s",
-		label, d.Err, declaredIndexRepairHint())
-}
-
-// Error lets a defect be returned straight from a read path.
-func (d declaredIndexDefect) Error() string { return d.Warning() }
+var declaredIndexOrder = []brainstore.DeclaredIndexSource{brainstore.DeclaredIndexSeed, brainstore.DeclaredIndexDocs, brainstore.DeclaredIndexHistory}
 
 // declaredIndexPath returns the artifact a source declares, or "" when the
 // source is not declared at all. A declared source with no path is treated as
 // undeclared: there is nothing to check it against, and inventing a default
 // would be this file asserting a claim the manifest never made.
-func declaredIndexPath(manifest *exportManifest, source declaredIndexSource) string {
+func declaredIndexPath(manifest *exportManifest, source brainstore.DeclaredIndexSource) string {
 	if manifest == nil || manifest.Sources == nil {
 		return ""
 	}
 	switch source {
-	case declaredIndexSeed:
+	case brainstore.DeclaredIndexSeed:
 		if manifest.Sources.Seed == nil {
 			return ""
 		}
 		return manifest.Sources.Seed.SummaryPath
-	case declaredIndexHistory:
+	case brainstore.DeclaredIndexHistory:
 		if manifest.Sources.History == nil {
 			return ""
 		}
 		return manifest.Sources.History.IndexPath
-	case declaredIndexDocs:
+	case brainstore.DeclaredIndexDocs:
 		if manifest.Sources.Docs == nil {
 			return ""
 		}
 		// The docs source records index_path, but every reader of the doc index
-		// opens the constant (see openDeclaredDocIndex). Report the path that is
+		// opens the constant (see docstore.OpenDeclaredIndex). Report the path that is
 		// actually read, so the remedy names the file that is actually missing.
-		return docIndexPath
+		return docstore.IndexPath
 	}
 	return ""
 }
@@ -139,13 +83,13 @@ func declaredIndexPath(manifest *exportManifest, source declaredIndexSource) str
 // An undeclared source returns a healthy result: "this brain has no doc index"
 // is not index loss, and reporting it as such would turn every brand-new brain
 // into a corrupt one.
-func inspectDeclaredIndex(brainDir string, manifest *exportManifest, source declaredIndexSource) declaredIndexDefect {
+func inspectDeclaredIndex(brainDir string, manifest *exportManifest, source brainstore.DeclaredIndexSource) brainstore.DeclaredIndexDefect {
 	rel := declaredIndexPath(manifest, source)
 	if brainDir == "" || rel == "" {
-		return declaredIndexDefect{}
+		return brainstore.DeclaredIndexDefect{}
 	}
 	var err error
-	if source == declaredIndexHistory {
+	if source == brainstore.DeclaredIndexHistory {
 		// The history index is generation-addressed and has its own path
 		// grammar; validateHistoryIndexPath is the reader's own gate, so a path
 		// this brain would refuse to READ is not reported as a missing file.
@@ -154,9 +98,9 @@ func inspectDeclaredIndex(brainDir string, manifest *exportManifest, source decl
 		err = verifyDeclaredBrainFile(brainDir, rel)
 	}
 	if err == nil {
-		return declaredIndexDefect{}
+		return brainstore.DeclaredIndexDefect{}
 	}
-	return declaredIndexDefect{
+	return brainstore.DeclaredIndexDefect{
 		Source: source,
 		Path:   rel,
 		Absent: errors.Is(err, fs.ErrNotExist),
@@ -166,8 +110,8 @@ func inspectDeclaredIndex(brainDir string, manifest *exportManifest, source decl
 
 // inspectDeclaredIndexes runs the cross-check over every declared retrieval
 // index, in build order. Empty slice when the brain is whole.
-func inspectDeclaredIndexes(brainDir string, manifest *exportManifest) []declaredIndexDefect {
-	var defects []declaredIndexDefect
+func inspectDeclaredIndexes(brainDir string, manifest *exportManifest) []brainstore.DeclaredIndexDefect {
+	var defects []brainstore.DeclaredIndexDefect
 	for _, source := range declaredIndexOrder {
 		if defect := inspectDeclaredIndex(brainDir, manifest, source); !defect.OK() {
 			defects = append(defects, defect)
@@ -181,10 +125,10 @@ func inspectDeclaredIndexes(brainDir string, manifest *exportManifest) []declare
 // manifest's own health is a separate check that owns that message, and a read
 // path must not answer "your doc index is gone" when what it actually found was
 // an unparseable manifest.
-func inspectBrainDeclaredIndex(brainDir string, source declaredIndexSource) declaredIndexDefect {
-	manifest, err := loadBrainManifest(brainDir)
+func inspectBrainDeclaredIndex(brainDir string, source brainstore.DeclaredIndexSource) brainstore.DeclaredIndexDefect {
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
-		return declaredIndexDefect{}
+		return brainstore.DeclaredIndexDefect{}
 	}
 	return inspectDeclaredIndex(brainDir, manifest, source)
 }
@@ -201,7 +145,7 @@ func verifyDeclaredBrainFile(brainDir, rel string) error {
 	// surfaces here as fs.ErrNotExist — which is exactly the condition being
 	// reported, and is why `rm -rf history/` is caught and not only a deleted
 	// index.json.
-	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := base.RejectSymlinkPathComponents(brainDir, clean); err != nil {
 		return err
 	}
 	info, err := os.Lstat(filepath.Join(brainDir, clean))
@@ -217,7 +161,7 @@ func verifyDeclaredBrainFile(brainDir, rel string) error {
 // verifyDeclaredHistoryIndex is verifyDeclaredBrainFile behind the history
 // index's own path grammar.
 func verifyDeclaredHistoryIndex(brainDir, indexPath string) error {
-	clean, err := validateHistoryIndexPath(indexPath)
+	clean, err := historystore.ValidateIndexPath(indexPath)
 	if err != nil {
 		return err
 	}

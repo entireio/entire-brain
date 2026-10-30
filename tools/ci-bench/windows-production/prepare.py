@@ -176,6 +176,46 @@ def classify_listing(lines: Iterable[str], label: str) -> tuple[list[dict[str, s
     return sorted(roots, key=lambda item: item["name"]), sorted(benchmarks)
 
 
+def load_affected_selection(path: Path | None) -> frozenset[str] | None:
+    """Return the affected package set, or None for the full suite.
+
+    FAIL SAFE: any read, parse, or shape problem selects the full suite,
+    never a silently empty one. Only {"mode": "selected", "packages": [...]}
+    from tools/coverage/affected.py narrows the plan.
+    """
+    if path is None:
+        return None
+    try:
+        decision = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, ValueError) as error:
+        print(f"warning: unreadable affected decision, running the full suite: {error}", file=sys.stderr)
+        return None
+    if not isinstance(decision, dict) or decision.get("mode") != "selected":
+        return None
+    packages = decision.get("packages")
+    if (
+        not isinstance(packages, list)
+        or not packages
+        or any(not isinstance(item, str) or not item or any(c.isspace() for c in item) for item in packages)
+    ):
+        print("warning: malformed affected package list, running the full suite", file=sys.stderr)
+        return None
+    return frozenset(packages)
+
+
+def consistent_selection(
+    selected: frozenset[str] | None, known_packages: set[str]
+) -> frozenset[str] | None:
+    """Drop a selection naming packages the target-Windows listing lacks (fail safe)."""
+    if selected is None or selected <= known_packages:
+        return selected
+    print(
+        f"warning: affected packages absent from target-Windows go list, running the full suite: {sorted(selected - known_packages)!r}",
+        file=sys.stderr,
+    )
+    return None
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", type=Path, required=True)
@@ -184,6 +224,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--weights", type=Path, required=True)
     parser.add_argument("--expected-repository-sha", required=True)
     parser.add_argument("--go-command", default="go")
+    parser.add_argument(
+        "--affected",
+        type=Path,
+        default=None,
+        help="affected.py decision JSON; mode=selected narrows the plan, anything else runs full",
+    )
     return parser.parse_args(argv)
 
 
@@ -203,6 +249,7 @@ def prepare(args: argparse.Namespace) -> None:
     settings = plan_shards.load_settings(settings_path)
     if not re.fullmatch(r"[0-9a-f]{40}", args.expected_repository_sha):
         raise ValueError("expected repository SHA must be 40 lowercase hexadecimal characters")
+    selected = load_affected_selection(args.affected)
 
     environment = dict(os.environ)
     environment.update({"GOOS": "windows", "GOARCH": "amd64", "CGO_ENABLED": "1"})
@@ -312,6 +359,7 @@ def prepare(args: argparse.Namespace) -> None:
         raise ValueError(
             f"configured heavy packages absent from target-Windows go list: {sorted(configured_heavy - seen_packages)!r}"
         )
+    selected = consistent_selection(selected, seen_packages)
     package_rows.sort(key=lambda item: item["importPath"])
     package_inventory = {
         "schema": PACKAGE_SCHEMA,
@@ -504,10 +552,15 @@ def prepare(args: argparse.Namespace) -> None:
 
     weights, weight_metadata = plan_shards.load_weights(weights_path)
     inventories = plan_shards.load_inventories(inventory_paths)
-    plan = plan_shards.create_plan(inventories, settings, weights, weight_metadata)
+    plan = plan_shards.create_plan(
+        inventories, settings, weights, weight_metadata, selected_packages=selected
+    )
     write_json(output / "plan.json", plan)
     shutil.copyfile(settings_path, output / "settings.json")
     shutil.copyfile(weights_path, output / "historical-weights.json")
+    if selected is not None:
+        # The verifier authenticates the narrowed plan against this decision.
+        shutil.copyfile(args.affected.resolve(strict=True), output / "affected.json")
     clean_after, clean_after_seconds = run_command(
         ["git", "-C", str(repository), "status", "--porcelain=v1", "--untracked-files=no"],
         cwd=repository,
@@ -556,6 +609,7 @@ def prepare(args: argparse.Namespace) -> None:
             "heavyPackageCount": len(inventory_paths),
             "rootCount": plan["rootCount"],
             "shardCount": plan["shardCount"],
+            **({"selection": plan["selection"]} if selected is not None else {}),
         },
     )
 

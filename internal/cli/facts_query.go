@@ -5,10 +5,11 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // factLocusBoost is added per shared code identifier between the query and a
-// fact (see locusOverlap) — a strong, high-precision signal.
+// fact (see factstore.LocusOverlap) — a strong, high-precision signal.
 const factLocusBoost = 60
 
 // factClosedNegativeBoost lifts a closed-negative fact above similarly-matching
@@ -26,10 +27,10 @@ const factClosedNegativeBoost = 30
 // threshold semantics (hookPostFailureMinScore is calibrated to this scale).
 func factLexicalScore(f factRecord, query string, queryLocus []string) int {
 	score := factQueryScore(f, query)
-	if overlap := locusOverlapTokens(queryLocus, base.FactLocusOf(f)); overlap > 0 {
+	if overlap := factstore.LocusOverlapTokens(queryLocus, base.FactLocusOf(f)); overlap > 0 {
 		score += overlap * factLocusBoost
 	}
-	if score > 0 && factKindOrInferred(f) == factKindClosedNegative {
+	if score > 0 && factstore.KindOrInferred(f) == factKindClosedNegative {
 		score += factClosedNegativeBoost
 	}
 	return score

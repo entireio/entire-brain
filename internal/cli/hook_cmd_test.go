@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/command/hook"
 )
 
 func hookTestFacts(now time.Time) []factRecord {
@@ -26,7 +28,7 @@ func TestHookMatchFailureKindsAndThreshold(t *testing.T) {
 	// A failure mentioning the coverage gate matches the closed-negative but
 	// must NOT surface the equally-matching convention (wrong kind for a
 	// failure moment).
-	hits := hookMatchFailure(facts, "test failed: history term-coverage gate admitted weak matches")
+	hits := hook.MatchFailure(facts, "test failed: history term-coverage gate admitted weak matches", factLexicalScore)
 	if len(hits) == 0 || hits[0].ID != "f:neg" {
 		t.Fatalf("expected the closed-negative to match the failure, got %+v", hits)
 	}
@@ -37,7 +39,7 @@ func TestHookMatchFailureKindsAndThreshold(t *testing.T) {
 	}
 
 	// An unrelated failure stays silent — the precision bar holds.
-	if hits := hookMatchFailure(facts, "compile error: undefined variable in renderer"); len(hits) != 0 {
+	if hits := hook.MatchFailure(facts, "compile error: undefined variable in renderer", factLexicalScore); len(hits) != 0 {
 		t.Fatalf("unrelated failure should match nothing, got %+v", hits)
 	}
 }
@@ -57,7 +59,7 @@ func TestHookPreEditLocusMatch(t *testing.T) {
 
 func TestHookEmitSilentAndBudget(t *testing.T) {
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
-	cmd := newHookCommand(Options{})
+	cmd := hook.New(hookCommandConfig(Options{}))
 
 	// Empty hits: complete silence (the contract; even a "no facts" line is noise).
 	out, err := execute(t, cmd, "post-failure")
@@ -72,15 +74,15 @@ func TestHookEmitSilentAndBudget(t *testing.T) {
 		{ID: "2", Kind: factKindGotcha, Text: long, Status: factStatusActive, UpdatedAt: now},
 		{ID: "3", Kind: factKindGotcha, Text: long, Status: factStatusActive, UpdatedAt: now},
 	}
-	c := newHookPostFailureCommand(Options{})
+	c := hook.NewPostFailure(hookCommandConfig(Options{}))
 	var sb strings.Builder
 	c.SetOut(&sb)
-	kept, err := hookEmit(c, hits, 150, false)
+	kept, err := hook.Emit(c, hits, 150, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(kept) == 0 || len(kept) >= 3 {
-		t.Fatalf("hookEmit should report the capped emission it made, got %d facts", len(kept))
+		t.Fatalf("hook.Emit should report the capped emission it made, got %d facts", len(kept))
 	}
 	lines := strings.Split(strings.TrimSpace(sb.String()), "\n")
 	if len(lines) >= 3 {
@@ -96,11 +98,11 @@ func TestHookEmitSilentAndBudget(t *testing.T) {
 // a hook must never break the harness it is wired into.
 func TestHookNeverFailsOutsideARepo(t *testing.T) {
 	opts := Options{Env: EntireEnv{RepoRoot: t.TempDir()}, Runner: ExecRunner{}, Now: time.Now}
-	out, err := execute(t, newHookCommand(opts), "pre-edit", "--file", "x.go")
+	out, err := execute(t, hook.New(hookCommandConfig(opts)), "pre-edit", "--file", "x.go")
 	if err != nil || strings.TrimSpace(out) != "" {
 		t.Fatalf("pre-edit outside a repo must be silent success, got %q (err %v)", out, err)
 	}
-	c := newHookCommand(opts)
+	c := hook.New(hookCommandConfig(opts))
 	c.SetIn(strings.NewReader("some failure text"))
 	out, err = execute(t, c, "post-failure", "--command", "go test")
 	if err != nil || strings.TrimSpace(out) != "" {
@@ -108,7 +110,7 @@ func TestHookNeverFailsOutsideARepo(t *testing.T) {
 	}
 
 	// Flag misuse still errors (hand-testing stays debuggable).
-	if _, err := execute(t, newHookCommand(opts), "pre-edit"); err == nil {
+	if _, err := execute(t, hook.New(hookCommandConfig(opts)), "pre-edit"); err == nil {
 		t.Fatal("pre-edit without --file should error")
 	}
 }

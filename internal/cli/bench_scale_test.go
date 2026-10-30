@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 )
 
 // A benchmark's failure mode is not crashing, it is reporting a number that
@@ -171,7 +172,7 @@ func TestEveryRetrievalModeHasAName(t *testing.T) {
 	// name. That shipped blank column headings with authoritative-looking
 	// numbers underneath them, which is worse than no table at all.
 	seen := map[string]bool{}
-	for _, mode := range []retrievalMode{modeLexical, modeVector, modeHybrid} {
+	for _, mode := range []retrievalMode{retrieval.ModeLexical, retrieval.ModeVector, retrieval.ModeHybrid} {
 		name := retrievalModeName(mode)
 		// "Non-empty" is not enough: string(rune(mode)) yields "\x00", which is
 		// non-empty, unique, and renders as nothing in a terminal. The name has

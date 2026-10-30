@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/command/disconnect"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
 	"strings"
 	"testing"
 	"time"
@@ -12,7 +14,7 @@ import (
 
 func runDisconnectCommand(t *testing.T, opts Options) (string, error) {
 	t.Helper()
-	cmd := newDisconnectCommand(opts)
+	cmd := disconnect.New(disconnectConfig(opts))
 	cmd.SetArgs(nil)
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
@@ -24,7 +26,7 @@ func runDisconnectCommand(t *testing.T, opts Options) (string, error) {
 func disconnectTestOptions(t *testing.T, repoDir string) (Options, repoStorage) {
 	t.Helper()
 	env := connectTestEnv(t, repoDir)
-	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		return nil, nil, errors.New("not available")
 	})
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
@@ -37,7 +39,7 @@ func disconnectTestOptions(t *testing.T, repoDir string) (Options, repoStorage) 
 
 func TestDisconnectRecordsOptOutKeepingCoordinates(t *testing.T) {
 	opts, storage := disconnectTestOptions(t, t.TempDir())
-	if err := writeHostedRepoBinding(storage.BrainDir, hostedRepoBinding{
+	if err := brainstore.WriteHostedRepoBinding(storage.BrainDir, brainstore.HostedRepoBinding{
 		RepoID: "01M2Q9WATHXVM46CD8Y4D3AX8W", BaseURL: "https://cell.api.example.com",
 	}); err != nil {
 		t.Fatal(err)
@@ -47,7 +49,7 @@ func TestDisconnectRecordsOptOutKeepingCoordinates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, present, err := readHostedRepoBinding(storage.BrainDir)
+	binding, present, err := brainstore.ReadHostedRepoBinding(storage.BrainDir)
 	if err != nil || !present {
 		t.Fatalf("disconnect must keep the state file: present=%v err=%v", present, err)
 	}
@@ -94,7 +96,7 @@ func TestDisconnectWhenNeverConnectedRecordsOptOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, present, err := readHostedRepoBinding(storage.BrainDir)
+	binding, present, err := brainstore.ReadHostedRepoBinding(storage.BrainDir)
 	if err != nil || !present {
 		t.Fatalf("disconnect must record the opt-out even when never connected: present=%v err=%v", present, err)
 	}
@@ -118,7 +120,7 @@ func TestDisconnectWhenNeverConnectedRecordsOptOut(t *testing.T) {
 
 func TestDisconnectIsIdempotent(t *testing.T) {
 	opts, storage := disconnectTestOptions(t, t.TempDir())
-	if err := writeHostedRepoBinding(storage.BrainDir, hostedRepoBinding{
+	if err := brainstore.WriteHostedRepoBinding(storage.BrainDir, brainstore.HostedRepoBinding{
 		RepoID: "repo1", BaseURL: "https://cell.api.example.com",
 	}); err != nil {
 		t.Fatal(err)
@@ -130,7 +132,7 @@ func TestDisconnectIsIdempotent(t *testing.T) {
 	if _, err := runDisconnectCommand(t, opts); err != nil {
 		t.Fatalf("a second disconnect must succeed, got %v", err)
 	}
-	binding, present, err := readHostedRepoBinding(storage.BrainDir)
+	binding, present, err := brainstore.ReadHostedRepoBinding(storage.BrainDir)
 	if err != nil || !present || !binding.OptedOut || binding.RepoID != "repo1" {
 		t.Fatalf("state must be unchanged after the second disconnect: present=%v err=%v binding=%+v", present, err, binding)
 	}
@@ -138,14 +140,14 @@ func TestDisconnectIsIdempotent(t *testing.T) {
 
 func TestDisconnectHealsACorruptStateFile(t *testing.T) {
 	opts, storage := disconnectTestOptions(t, t.TempDir())
-	if err := brainstore.WriteBrainRelativeFileAtomic(storage.BrainDir, hostedRepoBindingFile, []byte("{not json"), 0600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(storage.BrainDir, brainstore.HostedRepoBindingFile, []byte("{not json"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
 	if _, err := runDisconnectCommand(t, opts); err != nil {
 		t.Fatalf("disconnect must succeed over a corrupt state file, got %v", err)
 	}
-	binding, present, err := readHostedRepoBinding(storage.BrainDir)
+	binding, present, err := brainstore.ReadHostedRepoBinding(storage.BrainDir)
 	if err != nil || !present || !binding.OptedOut {
 		t.Fatalf("disconnect must overwrite a corrupt state file with the opt-out: present=%v err=%v binding=%+v", present, err, binding)
 	}

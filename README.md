@@ -164,7 +164,7 @@ To build without fact extraction or a background service, use:
 entire brain setup --no-backfill --no-daemon
 ```
 
-Configured remote history sources and publishing also use the network; see [privacy and egress](docs/reference.md#privacy-and-egress) for controls.
+Configured remote history sources and hosted memories sync also use the network; see [privacy and egress](docs/reference.md#privacy-and-egress) for controls.
 
 ## Usage Examples
 
@@ -462,7 +462,7 @@ the binary.
 | --- | --- |
 | `entire brain workspace` | Manage local multi-repo brain workspaces |
 | `entire brain bundle` | Import or export local brain bundles |
-| `entire brain publish` | Publish the local brain to hosted Entire (opt-in) |
+| `entire brain memories sync` | Sync this branch's memories with the hosted memory set (opt-in) |
 
 ## Limitations
 

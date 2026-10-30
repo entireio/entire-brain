@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,7 +35,7 @@ func writeSessionNavigationFixture(t *testing.T) (brainDir string, records []his
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: "test/nav", DefaultBranch: "main",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now, RepoKey: "test/nav", DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
 			{SessionID: "nav-sess", Branch: "main", Agent: "claude", LatestCheckpoint: "cp", TranscriptPath: rel, CreatedAt: now.Add(-time.Hour)},
 		}}},
@@ -43,11 +46,11 @@ func writeSessionNavigationFixture(t *testing.T) (brainDir string, records []his
 	if _, err := writeBrainHistoryIndexAndSource(brainDir, now, nil); err != nil {
 		t.Fatal(err)
 	}
-	onDisk, err := loadBrainManifest(brainDir)
+	onDisk, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	index, err := loadBrainHistoryIndex(brainDir, onDisk.Sources.History)
+	index, err := historystore.LoadIndex(brainDir, onDisk.Sources.History)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +86,7 @@ func TestConversationSessionRefIdentity(t *testing.T) {
 
 func TestConversationSearchCarriesSessionRef(t *testing.T) {
 	brainDir, _ := writeSessionNavigationFixture(t)
-	results, err := retrieveConversation(brainDir, "flag parser stage", 5, modeLexical, retrievalOptions{})
+	results, err := retrieveConversation(brainDir, "flag parser stage", 5, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil || len(results) == 0 {
 		t.Fatalf("search: %v (%d)", err, len(results))
 	}
@@ -243,12 +246,12 @@ func TestConversationLegacyIDCollisionIsAmbiguous(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath)), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: generated, RepoKey: "test/collide",
-		Sources: &brainSources{History: &historySourceManifest{GeneratedAt: generated, IndexPath: historyIndexPath, Records: 2}},
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: generated, RepoKey: "test/collide",
+		Sources: &brainSources{History: &historySourceManifest{GeneratedAt: generated, IndexPath: historystore.IndexPath, Records: 2}},
 	}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
 		t.Fatal(err)
@@ -273,7 +276,7 @@ func TestConversationLegacyIDCollisionIsAmbiguous(t *testing.T) {
 	// permission to choose a global winner.
 	assertBothScopesVisible := func(stage string) {
 		t.Helper()
-		results, err := retrieveConversation(brainDir, "shared request", 10, modeLexical, retrievalOptions{})
+		results, err := retrieveConversation(brainDir, "shared request", 10, retrieval.ModeLexical, retrievalOptions{})
 		if err != nil {
 			t.Fatalf("%s search: %v", stage, err)
 		}
@@ -287,7 +290,7 @@ func TestConversationLegacyIDCollisionIsAmbiguous(t *testing.T) {
 			t.Fatalf("%s search hid a colliding session scope: results=%+v", stage, results)
 		}
 
-		coverage, err := retrieveConversationMultiConcept(brainDir, "shared", 10, modeLexical, retrievalOptions{
+		coverage, err := retrieveConversationMultiConcept(brainDir, "shared", 10, retrieval.ModeLexical, retrievalOptions{
 			Concepts: []string{"request"},
 		})
 		if err != nil {

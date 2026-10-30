@@ -95,6 +95,42 @@ func RejectOpenFileAlias(path string, f *os.File, label string) error {
 	return nil
 }
 
+func RejectSymlinkPathComponents(root, rel string) error {
+	clean := filepath.Clean(rel)
+	// clean == ".." must be listed explicitly: filepath.Clean("..") is "..",
+	// which is neither "." nor prefixed with "../", so a bare ".." otherwise
+	// falls through this whole test. The per-component walk below then Lstats
+	// the PARENT of root — a real directory, not a symlink — and passes it, and
+	// the closing containment check returns nil early whenever root does not
+	// exist yet. One level up is exactly the escape the guard exists to stop.
+	if filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("path is outside root: %s", rel)
+	}
+	current := root
+	for _, part := range strings.Split(clean, string(filepath.Separator)) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("path component must not be a symlink: %s", rel)
+		}
+	}
+	rootResolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	pathResolved, err := filepath.EvalSymlinks(filepath.Join(root, clean))
+	if err != nil {
+		return err
+	}
+	if !PathInside(rootResolved, pathResolved) {
+		return fmt.Errorf("path escapes root through symlinks: %s", rel)
+	}
+	return nil
+}
+
 func RejectExistingSymlinkPathComponents(root, rel string) error {
 	clean := filepath.Clean(rel)
 	// clean == ".." must be listed explicitly: filepath.Clean("..") is "..",
@@ -122,7 +158,7 @@ func RejectExistingSymlinkPathComponents(root, rel string) error {
 		}
 		deepestExisting = current
 	}
-	// Parity with rejectSymlinkPathComponents (the read path): verify the existing
+	// Parity with RejectSymlinkPathComponents (the read path): verify the existing
 	// prefix still resolves inside root once symlinks in root's own ancestry are
 	// normalized. The per-component checks alone miss an ancestor-symlink escape,
 	// which is exactly the gap the write path previously had. The root may not be

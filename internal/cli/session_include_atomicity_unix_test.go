@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestIncludeSessionPostRenameFailureRestoresExactlyAndRetries(t *testing.T) {
@@ -29,7 +30,7 @@ func TestIncludeSessionPostRenameFailureRestoresExactlyAndRetries(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifestBefore, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	manifestBefore, err := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +72,7 @@ func TestIncludeSessionPostRenameFailureRestoresExactlyAndRetries(t *testing.T) 
 	if !bytes.Equal(transactionAfterFailure, transactionBefore) {
 		t.Fatalf("post-rename failure changed privacy transaction\n before: %q\n  after: %q", transactionBefore, transactionAfterFailure)
 	}
-	manifestAfterFailure, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	manifestAfterFailure, err := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatal(err)
 	}

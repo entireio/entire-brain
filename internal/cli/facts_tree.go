@@ -2,10 +2,12 @@ package cli
 
 import (
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"sort"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
@@ -36,7 +38,7 @@ func buildFactTree(facts []factRecord, includeAll bool) *factTreeNode {
 			continue
 		}
 		for _, path := range f.Paths {
-			cat := factTopLevel(path)
+			cat := factstore.TopLevel(path)
 			if cats[cat] == nil {
 				cats[cat] = map[string]*leaf{}
 			}
@@ -183,21 +185,21 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 			if leaves < 0 {
 				return fmt.Errorf("--leaves must be nonnegative")
 			}
-			if err := validateScopeFlag(scope); err != nil {
+			if err := factstore.ValidateScopeFlag(scope); err != nil {
 				return err
 			}
-			if err := validateKindFlag(kind); err != nil {
+			if err := factstore.ValidateKindFlag(kind); err != nil {
 				return err
 			}
 			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
 			if err != nil {
 				return err
 			}
-			facts, err := loadFacts(brainDir, resolvedBranch)
+			facts, err := factstore.Load(brainDir, resolvedBranch)
 			if err != nil {
 				return err
 			}
-			facts = filterFactsByKind(filterFactsByScope(facts, scope), kind)
+			facts = factstore.FilterByKind(factstore.FilterByScope(facts, scope), kind)
 			tree := buildFactTree(facts, includeAll)
 			if path != "" {
 				if pruned := filterTreeByPath(tree, path); pruned != nil {
@@ -211,7 +213,7 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 			// same lie `facts map` told. Qualify it, and exit nonzero.
 			integrityErr := reportFactStoreIntegrity(cmd, brainDir, jsonOut)
 			if jsonOut {
-				if err := writeJSON(cmd, tree); err != nil {
+				if err := cmdutil.WriteJSON(cmd, tree); err != nil {
 					return err
 				}
 				return integrityErr

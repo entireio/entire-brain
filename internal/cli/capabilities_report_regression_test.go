@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/entireio/entire-brain/internal/cli/command/capabilities"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -17,7 +18,7 @@ func TestCapabilitiesHumanReportNamesBuildGatesWithoutRepositoryAccess(t *testin
 	}
 	for _, want := range []string{
 		"Entire Brain regression-capability-version",
-		fmt.Sprintf("Build: %s (brain_cgo=%t)", sqlitedriver.Name, brainCGOBuild),
+		fmt.Sprintf("Build: %s (brain_cgo=%t)", sqlitedriver.Name, sqlitedriver.BrainCGO),
 		"Retrieval: BM25 keyword (semantic retrieval removed)",
 		"fact: keyword; semantic compiled=false (default)",
 		"conversation: keyword; semantic compiled=false (experimental, explicit opt-in)",
@@ -33,7 +34,7 @@ func TestCapabilitiesHumanReportNamesBuildGatesWithoutRepositoryAccess(t *testin
 		t.Fatalf("capabilities invoked repository/provider commands: %+v", runner.calls)
 	}
 	for _, args := range [][]string{nil, {"--json"}} {
-		cmd := newCapabilitiesCommand(opts)
+		cmd := capabilities.New(opts)
 		cmd.SetOut(evalCommandFailWriter{})
 		cmd.SetArgs(args)
 		if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "eval output failure") {

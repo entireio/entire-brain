@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -108,7 +110,7 @@ func TestMemoryLifecycleMaintenanceConsumesExcludedHintAndRejectsStaleSnapshot(t
 		t.Fatalf("maintenance stats=%+v hints=%+v err=%v", stats, loadMemoryHints(brainDir), err)
 	}
 
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +129,7 @@ func TestMemoryLifecycleProjectionFailureRetriesThenCompletes(t *testing.T) {
 	originalWrite := historyProjectionWriteFile
 	failures := 0
 	historyProjectionWriteFile = func(dir, rel string, data []byte, mode os.FileMode) error {
-		if failures == 0 && filepath.Base(rel) == historyIndexFileName {
+		if failures == 0 && filepath.Base(rel) == historystore.IndexFileName {
 			failures++
 			return os.ErrPermission
 		}
@@ -183,7 +185,7 @@ func TestMemoryLifecycleProjectionPreclaimCancellationRestoresEarlierClaim(t *te
 func TestMemoryLifecycleMaintenanceScopesHintsAgainstReceipts(t *testing.T) {
 	brainDir, _, newRel := shortTermFixture(t)
 	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +297,7 @@ func TestMemoryLifecycleProjectionCancellationDuringPreparationRestoresPeer(t *t
 			}
 		}
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +316,7 @@ func TestMemoryLifecycleProjectionCancellationDuringPreparationRestoresPeer(t *t
 func TestMemoryLifecycleProjectionOwnershipTakeoverRejectsStaleSettlement(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	now := time.Date(2026, 9, 18, 13, 30, 0, 0, time.UTC)
-	beforeManifest, err := loadBrainManifest(brainDir)
+	beforeManifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +352,7 @@ func TestMemoryLifecycleProjectionOwnershipTakeoverRejectsStaleSettlement(t *tes
 	if loadErr != nil || job.State != memoryJobStateRunning || job.OwnerToken != "new-owner" {
 		t.Fatalf("takeover durable job=%+v err=%v", job, loadErr)
 	}
-	manifest, loadErr := loadBrainManifest(brainDir)
+	manifest, loadErr := bmanifest.Load(brainDir)
 	if loadErr != nil {
 		t.Fatal(loadErr)
 	}
@@ -719,7 +721,7 @@ func TestMemoryLifecycleDefensiveHelpersAndCorruptInputs(t *testing.T) {
 		t.Fatalf("nil clock=%v", now)
 	}
 	brainDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), []byte("{"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := reconcileMemoryJobsLockedDetailed(brainDir, "corrupt", time.Now().UTC(), nil, false, nil); err == nil {
@@ -753,7 +755,7 @@ func TestMemoryLifecycleDefensiveHelpersAndCorruptInputs(t *testing.T) {
 func TestMemoryLifecycleJobsTextIncludesErrorsIssuesAndFilters(t *testing.T) {
 	opts, brainDir := memoryAdminCommandFixture(t)
 	now := opts.Now().UTC()
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -35,6 +35,20 @@ func WriteBrainRelativeFileAtomic(brainDir, rel string, data []byte, perm os.Fil
 	return WriteFileAtomic(abs, data, perm)
 }
 
+// ReadBrainRelativeStateFile is for small derived Brain state, never canonical
+// session transcripts. It shares the hardened state reader and an explicit
+// whole-file bound so derived JSON cannot revive the legacy unbounded read.
+func ReadBrainRelativeStateFile(brainDir, rel string) (string, error) {
+	data, present, err := ReadMemoryStateFile(brainDir, filepath.ToSlash(rel), "derived Brain state", clibase.DefaultMaxReadBytes)
+	if err != nil {
+		return "", err
+	}
+	if !present {
+		return "", os.ErrNotExist
+	}
+	return string(data), nil
+}
+
 // RemoveBrainRelativeFile removes a brain-relative file through the same
 // path-safety checks as the atomic writer. A missing file is not an error.
 func RemoveBrainRelativeFile(brainDir, rel string) error {

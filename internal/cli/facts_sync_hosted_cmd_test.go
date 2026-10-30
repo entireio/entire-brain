@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // newHostedSyncCmdFixture wires a CLI fixture whose repo is CONNECTED to a fake
@@ -21,7 +24,7 @@ func newHostedSyncCmdFixture(t *testing.T, fake *hostedFake) (verifyFixture, str
 		fake.callerHandle = "caller"
 	}
 	srv := newHostedFakeServer(t, fake)
-	if err := writeHostedRepoBinding(f.brainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(f.brainDir, brainstore.HostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL}); err != nil {
 		t.Fatal(err)
 	}
 	f.opts.Env.PluginCacheDir = t.TempDir()
@@ -51,7 +54,7 @@ func TestMemoriesSyncConnectedDefaultsToHostedWire(t *testing.T) {
 	if !fake.has(localFact.ID) {
 		t.Fatal("plain sync on a connected repo must upsert local facts to the hosted store")
 	}
-	local, err := loadFacts(f.brainDir, "main")
+	local, err := factstore.Load(f.brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +108,7 @@ func TestMemoriesSyncConnectedPushFailureStillPullsAndFails(t *testing.T) {
 	if !strings.Contains(err.Error(), "push failed") {
 		t.Fatalf("error must name the failed half, got %v", err)
 	}
-	local, loadErr := loadFacts(f.brainDir, "main")
+	local, loadErr := factstore.Load(f.brainDir, "main")
 	if loadErr != nil {
 		t.Fatal(loadErr)
 	}

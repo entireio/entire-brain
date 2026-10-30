@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 )
 
 // A flag a user can type, that the binary accepts, and that changes nothing is
@@ -95,7 +97,7 @@ func TestDistillRequestedJobsReadsOneValue(t *testing.T) {
 	if got := distillRequestedJobs(distillCommandOptions{}); got != 1 {
 		t.Fatalf("an unset concurrency must fall back to 1, got %d", got)
 	}
-	if got := watchDistillOptions(defaultWatchOptions()); got.concurrency <= 0 {
+	if got := watchDistillOptions(watch.DefaultFlags()); got.concurrency <= 0 {
 		t.Fatalf("the watcher must still set the one value runDistill guards: %+v", got)
 	}
 }

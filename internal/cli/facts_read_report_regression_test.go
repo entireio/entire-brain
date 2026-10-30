@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func factsReportFixture(t *testing.T) (verifyFixture, []factRecord) {
@@ -19,7 +21,7 @@ func factsReportFixture(t *testing.T) (verifyFixture, []factRecord) {
 	fact := func(text, path, locus, kind string) factRecord {
 		return factRecord{
 			ID: factRecordID(text, []string{path}), Paths: []string{path}, Locus: []string{locus},
-			Text: text, Branch: "main", Kind: kind, Origin: factOriginAuthored, Status: factStatusActive,
+			Text: text, Branch: "main", Kind: kind, Origin: factstore.OriginAuthored, Status: factStatusActive,
 			CreatedAt: now, UpdatedAt: now,
 		}
 	}
@@ -45,7 +47,7 @@ func fileDigest(t *testing.T, path string) string {
 
 func TestFactsReadReportsOutlineMapTreeExactAndReadOnlyFacts(t *testing.T) {
 	f, facts := factsReportFixture(t)
-	factsPath := filepath.Join(f.brainDir, filepath.FromSlash(factsBranchRelDir("main")), factsFileName)
+	factsPath := filepath.Join(f.brainDir, filepath.FromSlash(factstore.BranchRelDir("main")), factstore.FileName)
 	beforeFacts := fileDigest(t, factsPath)
 
 	outlineOut, err := execute(t, NewRootCommand(f.opts), "facts", "outline", "--agent", "none", "--min-facts", "2", "--json")
@@ -124,7 +126,7 @@ func TestFactsRetractRootCommandChangesOnlyExplicitFact(t *testing.T) {
 	if result.ID != target.ID || result.Branch != "main" || result.Status != factStatusRetracted || !result.Changed {
 		t.Fatalf("retract result = %+v", result)
 	}
-	stored, err := loadFacts(f.brainDir, "main")
+	stored, err := factstore.Load(f.brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}

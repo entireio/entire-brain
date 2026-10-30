@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func historyProjectionFixture(t *testing.T) (string, string, time.Time) {
@@ -28,7 +30,7 @@ func historyProjectionFixture(t *testing.T) (string, string, time.Time) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		RepoKey:       "test/projection-atomicity",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{
@@ -47,14 +49,14 @@ func historyProjectionFixture(t *testing.T) (string, string, time.Time) {
 
 func activeHistoryProjection(t *testing.T, brainDir string) (*historySourceManifest, historyIndex) {
 	t.Helper()
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if manifest.Sources == nil || manifest.Sources.History == nil {
 		t.Fatal("history source missing")
 	}
-	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+	index, err := historystore.LoadIndex(brainDir, manifest.Sources.History)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +73,7 @@ func TestHistoryProjectionPublishFailurePreservesPreviousGeneration(t *testing.T
 
 	originalWrite := historyProjectionWriteFile
 	historyProjectionWriteFile = func(brainDir, rel string, data []byte, perm os.FileMode) error {
-		if rel == exportManifestFileName {
+		if rel == bmanifest.FileName {
 			return errors.New("injected manifest replacement failure")
 		}
 		return originalWrite(brainDir, rel, data, perm)
@@ -274,8 +276,8 @@ func TestPrivacyInventoryIncludesEveryHistoryGenerationArtifact(t *testing.T) {
 	}
 	second, _ := activeHistoryProjection(t, brainDir)
 	orphanGeneration := strings.Repeat("a", 40)
-	orphanIndex := historyGenerationArtifactPath(orphanGeneration, historyIndexFileName)
-	orphanReceipt := historyGenerationArtifactPath(orphanGeneration, projectionStateFileName)
+	orphanIndex := historystore.GenerationArtifactPath(orphanGeneration, historystore.IndexFileName)
+	orphanReceipt := historystore.GenerationArtifactPath(orphanGeneration, projectionStateFileName)
 	for source, target := range map[string]string{second.IndexPath: orphanIndex, second.ProjectionStatePath: orphanReceipt} {
 		data, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(source)))
 		if err != nil {
@@ -346,7 +348,7 @@ func TestPrivacyGenerationInventoryFailsClosedOnWalkError(t *testing.T) {
 	brainDir, _, _ := historyProjectionFixture(t)
 	originalWalk := privacyWalkDir
 	privacyWalkDir = func(root string, fn fs.WalkDirFunc) error {
-		if strings.HasSuffix(filepath.ToSlash(root), historyGenerationsDir) {
+		if strings.HasSuffix(filepath.ToSlash(root), historystore.GenerationsDir) {
 			return fs.ErrPermission
 		}
 		return originalWalk(root, fn)
@@ -363,7 +365,7 @@ func TestPrivacyGenerationInventoryFailsClosedOnWalkError(t *testing.T) {
 func TestPrivacyCleanupRemovesInactiveLegacyProjectionAndEgressReceipt(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
 	now := time.Date(2026, 8, 9, 18, 0, 0, 0, time.UTC)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +373,7 @@ func TestPrivacyCleanupRemovesInactiveLegacyProjectionAndEgressReceipt(t *testin
 	// active manifest already references a generation, so these copies are
 	// inactive and must be inventoried rather than silently retained.
 	for source, target := range map[string]string{
-		manifest.Sources.History.IndexPath:           historyIndexPath,
+		manifest.Sources.History.IndexPath:           historystore.IndexPath,
 		manifest.Sources.History.ProjectionStatePath: projectionStateRel,
 	} {
 		data, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(source)))
@@ -400,7 +402,7 @@ func TestPrivacyCleanupRemovesInactiveLegacyProjectionAndEgressReceipt(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantDerived := map[string]bool{historyIndexPath: true, projectionStateRel: true}
+	wantDerived := map[string]bool{historystore.IndexPath: true, projectionStateRel: true}
 	for _, artifact := range plan.DerivedStores {
 		delete(wantDerived, artifact.Path)
 	}
@@ -418,7 +420,7 @@ func TestPrivacyCleanupRemovesInactiveLegacyProjectionAndEgressReceipt(t *testin
 	if err := executeSessionCleanup(brainDir, "secret-sess", plan, now, "test", true); err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{historyIndexPath, projectionStateRel, egressRel} {
+	for _, rel := range []string{historystore.IndexPath, projectionStateRel, egressRel} {
 		if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(rel))); !os.IsNotExist(err) {
 			t.Fatalf("privacy cleanup retained %s: %v", rel, err)
 		}
@@ -427,12 +429,12 @@ func TestPrivacyCleanupRemovesInactiveLegacyProjectionAndEgressReceipt(t *testin
 
 func TestHistoryProjectionMigrationRemovesLegacyFilesOnlyAfterSwitch(t *testing.T) {
 	brainDir, _, now := historyProjectionFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	old := manifest.Sources.History
-	for source, target := range map[string]string{old.IndexPath: historyIndexPath, old.ProjectionStatePath: projectionStateRel} {
+	for source, target := range map[string]string{old.IndexPath: historystore.IndexPath, old.ProjectionStatePath: projectionStateRel} {
 		data, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(source)))
 		if err != nil {
 			t.Fatal(err)
@@ -442,7 +444,7 @@ func TestHistoryProjectionMigrationRemovesLegacyFilesOnlyAfterSwitch(t *testing.
 		}
 	}
 	legacy := *old
-	legacy.IndexPath = historyIndexPath
+	legacy.IndexPath = historystore.IndexPath
 	legacy.ProjectionStatePath = projectionStateRel
 	manifest.Sources.History = &legacy
 	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
@@ -452,10 +454,10 @@ func TestHistoryProjectionMigrationRemovesLegacyFilesOnlyAfterSwitch(t *testing.
 		t.Fatal(err)
 	}
 	current, _ := activeHistoryProjection(t, brainDir)
-	if current.IndexPath == historyIndexPath || current.ProjectionStatePath == projectionStateRel {
+	if current.IndexPath == historystore.IndexPath || current.ProjectionStatePath == projectionStateRel {
 		t.Fatalf("migration did not switch to generation paths: %+v", current)
 	}
-	for _, rel := range []string{historyIndexPath, projectionStateRel} {
+	for _, rel := range []string{historystore.IndexPath, projectionStateRel} {
 		if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(rel))); !os.IsNotExist(err) {
 			t.Fatalf("inactive legacy artifact survived successful switch: %s err=%v", rel, err)
 		}

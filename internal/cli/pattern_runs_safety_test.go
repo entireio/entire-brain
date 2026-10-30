@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"os"
 	"path/filepath"
@@ -15,7 +17,7 @@ import (
 func TestPatternRunHistoryErrorsAreNotStatusEmpty(t *testing.T) {
 	brainDir := t.TempDir()
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		Sources:       &brainSources{Patterns: &patternSourceManifest{GeneratedAt: time.Now().UTC()}},
 	}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
@@ -30,7 +32,7 @@ func TestPatternRunHistoryErrorsAreNotStatusEmpty(t *testing.T) {
 	if _, err := patterncore.LoadRunsChecked(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 		t.Fatalf("malformed run history error = %v, want %s", err, brainstore.StateCorruptCode)
 	}
-	if _, err := buildPatternsStatusReportChecked(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
+	if _, err := patternscmd.BuildStatusReportChecked(brainDir, patternsCmdDeps()); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 		t.Fatalf("status malformed run error = %v, want %s", err, brainstore.StateCorruptCode)
 	}
 }

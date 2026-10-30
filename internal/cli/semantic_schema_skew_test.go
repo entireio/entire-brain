@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"strings"
 	"testing"
 )
@@ -33,12 +34,12 @@ func TestValidateSemanticSchemaFollowsTheTolerantReaderContract(t *testing.T) {
 		{version: "1.", wantErr: true},
 		{version: "x.1", wantErr: true},
 	} {
-		err := validateSemanticSchema(tc.version)
+		err := semstore.ValidateSchema(tc.version)
 		if tc.wantErr && err == nil {
-			t.Fatalf("validateSemanticSchema(%q) = nil, want an error", tc.version)
+			t.Fatalf("semstore.ValidateSchema(%q) = nil, want an error", tc.version)
 		}
 		if !tc.wantErr && err != nil {
-			t.Fatalf("validateSemanticSchema(%q) = %v, want nil", tc.version, err)
+			t.Fatalf("semstore.ValidateSchema(%q) = %v, want nil", tc.version, err)
 		}
 	}
 }
@@ -49,12 +50,12 @@ func TestValidateSemanticSchemaFollowsTheTolerantReaderContract(t *testing.T) {
 func TestSemanticSchemaErrorsNameTheSupportedRange(t *testing.T) {
 	t.Parallel()
 	for _, version := range []string{"2.0", "", "1.abc"} {
-		err := validateSemanticSchema(version)
+		err := semstore.ValidateSchema(version)
 		if err == nil {
-			t.Fatalf("validateSemanticSchema(%q) = nil, want an error", version)
+			t.Fatalf("semstore.ValidateSchema(%q) = nil, want an error", version)
 		}
-		if !strings.Contains(err.Error(), semanticSupportedSchemaRange) {
-			t.Fatalf("error for %q does not name the supported range %q: %v", version, semanticSupportedSchemaRange, err)
+		if !strings.Contains(err.Error(), semstore.SupportedSchemaRange) {
+			t.Fatalf("error for %q does not name the supported range %q: %v", version, semstore.SupportedSchemaRange, err)
 		}
 	}
 }
@@ -69,10 +70,10 @@ func TestSemanticSchemaNewerMinorWarns(t *testing.T) {
 		wantWarn bool
 	}{
 		{version: "1.0"},
-		{version: semanticSchemaVersion},
+		{version: semstore.SchemaVersion},
 		{version: "1.99", wantWarn: true},
 	} {
-		warning := semanticSchemaMinorSkewWarning(tc.version)
+		warning := semstore.SchemaMinorSkewWarning(tc.version)
 		if tc.wantWarn && warning == nil {
 			t.Fatalf("schema %q produced no newer-minor warning", tc.version)
 		}
@@ -82,7 +83,7 @@ func TestSemanticSchemaNewerMinorWarns(t *testing.T) {
 		if warning == nil {
 			continue
 		}
-		for _, want := range []string{tc.version, semanticSchemaVersion} {
+		for _, want := range []string{tc.version, semstore.SchemaVersion} {
 			if !strings.Contains(warning.Detail, want) {
 				t.Fatalf("newer-minor warning does not name %q: %+v", want, warning)
 			}
@@ -92,14 +93,14 @@ func TestSemanticSchemaNewerMinorWarns(t *testing.T) {
 
 // semanticSchemaNewerMinor is the first minor after what this build reads.
 // Derived, not a literal: a hardcoded version stops meaning "newer than
-// supported" the moment semanticSchemaVersion is bumped past it, and silently
+// supported" the moment semstore.SchemaVersion is bumped past it, and silently
 // starts testing the wrong thing instead of failing (the COR-2007 bump turned
 // the hardcoded 1.4 fixtures stale exactly this way).
 func semanticSchemaNewerMinor(t *testing.T) string {
 	t.Helper()
-	major, minor, err := parseSemanticSchemaVersion(semanticSchemaVersion)
+	major, minor, err := semstore.ParseSchemaVersion(semstore.SchemaVersion)
 	if err != nil {
-		t.Fatalf("parse semanticSchemaVersion %q: %v", semanticSchemaVersion, err)
+		t.Fatalf("parse semstore.SchemaVersion %q: %v", semstore.SchemaVersion, err)
 	}
 	return fmt.Sprintf("%d.%d", major, minor+1)
 }
@@ -120,23 +121,23 @@ func semanticSchemaNewerMinor(t *testing.T) string {
 func TestCurrentProviderSchemaDoesNotWarn(t *testing.T) {
 	t.Parallel()
 	for _, version := range []string{"1.0", "1.1", "1.2", "1.3", "1.4"} {
-		if w := semanticSchemaMinorSkewWarning(version); w != nil {
+		if w := semstore.SchemaMinorSkewWarning(version); w != nil {
 			t.Fatalf("schema %q warned (%s: %s); this build ingests it in full",
 				version, w.Code, w.Effect)
 		}
 	}
 	for _, version := range []string{semanticSchemaNewerMinor(t), "1.17"} {
-		w := semanticSchemaMinorSkewWarning(version)
+		w := semstore.SchemaMinorSkewWarning(version)
 		if w == nil {
 			t.Fatalf("schema %q did not warn; a minor this build has not been taught must warn", version)
 		}
-		if !strings.Contains(w.Detail, semanticSchemaVersion) {
+		if !strings.Contains(w.Detail, semstore.SchemaVersion) {
 			t.Fatalf("warning for %q must name what this build reads (%s), got: %s",
-				version, semanticSchemaVersion, w.Detail)
+				version, semstore.SchemaVersion, w.Detail)
 		}
 	}
 	// A new major is a refusal, not a warning: that boundary is unchanged.
-	if err := validateSemanticSchema("2.0"); err == nil {
+	if err := semstore.ValidateSchema("2.0"); err == nil {
 		t.Fatal("schema 2.0 accepted; a new major must still be refused")
 	}
 }

@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"strings"
 	"testing"
 )
@@ -14,7 +16,7 @@ import (
 // stepwise semantics.
 
 func referenceBoundedRetrievalJSONPayload(query, branch string, results []unifiedResult, extras retrievalTransportExtras) (map[string]any, error) {
-	allRows := compactUnifiedResults(results, query)
+	allRows := retrieval.CompactResults(results, query)
 	extras = cloneRetrievalTransportExtras(extras)
 	count := len(allRows)
 	anythingTruncated := false
@@ -22,7 +24,7 @@ func referenceBoundedRetrievalJSONPayload(query, branch string, results []unifie
 		rows := append([]compactUnifiedResult{}, allRows[:count]...)
 		truncated := anythingTruncated || count != len(allRows)
 		payload := buildRetrievalJSONPayload(query, branch, rows, extras, truncated)
-		data, err := jsonOutputBytes(payload)
+		data, err := cmdutil.JSONOutputBytes(payload)
 		if err != nil {
 			return nil, err
 		}
@@ -86,7 +88,7 @@ func referenceBoundedWorkspaceRetrievalJSONPayload(workspaceName, query string, 
 		if truncated {
 			payload["response_truncated"] = true
 		}
-		data, err := jsonOutputBytes(payload)
+		data, err := cmdutil.JSONOutputBytes(payload)
 		if err != nil {
 			return nil, err
 		}
@@ -146,7 +148,7 @@ func referenceBoundedWorkspaceRetrievalText(workspaceName string, groups []works
 
 func jsonPayloadBytes(t *testing.T, payload map[string]any) []byte {
 	t.Helper()
-	data, err := jsonOutputBytes(payload)
+	data, err := cmdutil.JSONOutputBytes(payload)
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}

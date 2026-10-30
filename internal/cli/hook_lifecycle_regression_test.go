@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestHookSessionEndRecordsRecoveryHintAfterExportFailure(t *testing.T) {
@@ -15,7 +17,7 @@ func TestHookSessionEndRecordsRecoveryHintAfterExportFailure(t *testing.T) {
 		t.Run("branch="+branch, func(t *testing.T) {
 			opts, brainDir := privacyRegressionCommandFixture(t, time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC))
 
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -24,7 +26,7 @@ func TestHookSessionEndRecordsRecoveryHintAfterExportFailure(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), data, 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), data, 0o600); err != nil {
 				t.Fatal(err)
 			}
 			t.Setenv(memoryWorkerOriginEnv, "")

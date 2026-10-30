@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // brainStatusHosted is the status report's hosted-brain connection section,
@@ -26,6 +28,11 @@ type brainStatusHosted struct {
 	// matches the current binding; a marker left by an older target does not
 	// count.
 	SyncedBranches []string `json:"synced_branches,omitempty"`
+	// NoAccessUntil is the ACTIVE no-access pause (COR-2279): background sync
+	// skips the repo until then because the server denied access. An expired
+	// pause is dead state (the next successful sync retires it) and is not
+	// reported.
+	NoAccessUntil time.Time `json:"no_access_until,omitzero"`
 }
 
 const (
@@ -39,10 +46,10 @@ const (
 // decides. The binding stays visible under the kill switch so the reader sees
 // what it suppresses. A corrupt binding degrades to disconnected with a warning
 // rather than failing status over a sync-state file.
-func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHosted, string) {
+func buildHostedStatus(brainDir string, factBranches []string, now time.Time) (*brainStatusHosted, string) {
 	var warning string
 	hosted := &brainStatusHosted{RepoState: hostedStateDisconnected}
-	binding, present, err := readHostedRepoBinding(brainDir)
+	binding, present, err := brainstore.ReadHostedRepoBinding(brainDir)
 	switch {
 	case err != nil:
 		warning = "hosted binding unreadable (run '" + base.BrainInvocation(os.LookupEnv, "connect") + "' to rebind): " + err.Error()
@@ -55,6 +62,9 @@ func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHost
 		hosted.RepoState = hostedStateConnected
 		hosted.RepoID = binding.RepoID
 		hosted.BaseURL = binding.BaseURL
+		if binding.NoAccessUntil.After(now) {
+			hosted.NoAccessUntil = binding.NoAccessUntil
+		}
 		// A broken marker is corruption, not "never synced" — report it like
 		// the unreadable top-level binding above instead of posing as a
 		// healthy unsynced branch. The two warnings cannot co-occur: markers
@@ -103,6 +113,10 @@ func hostedStateLabel(state string) string {
 func hostedStatusLine(h *brainStatusHosted) string {
 	switch h.State {
 	case hostedStateConnected:
+		if !h.NoAccessUntil.IsZero() {
+			return fmt.Sprintf("Connected to Brainstore, but sync is paused until %s — the server denied access to this repo; run '%s' once access is granted",
+				h.NoAccessUntil.UTC().Format(time.RFC3339), base.BrainInvocation(os.LookupEnv, "connect"))
+		}
 		if n := len(h.SyncedBranches); n > 0 {
 			word := "branches"
 			if n == 1 {

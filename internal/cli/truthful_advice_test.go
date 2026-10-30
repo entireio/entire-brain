@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // Three defects shared one shape: a string telling the reader something that is
@@ -48,33 +49,41 @@ type printedInvocation struct {
 
 func printedInvocations(t *testing.T) []printedInvocation {
 	t.Helper()
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatalf("read internal/cli: %v", err)
-	}
 	var found []printedInvocation
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		data, err := os.ReadFile(name)
+	// "." plus command/add: the add command moved there (COR-2268) and its
+	// printed commands must stay under this guard rather than escape it by
+	// moving.
+	for _, dir := range []string{".", "command/add"} {
+		entries, err := os.ReadDir(dir)
 		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
+			t.Fatalf("read %s: %v", dir, err)
 		}
-		for number, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
-			for _, match := range printedCommand.FindAllStringSubmatch(line, -1) {
-				invocation := printedInvocation{file: name, line: number + 1, text: strings.TrimSpace(match[0])}
-				for _, token := range strings.Fields(match[1]) {
-					if !commandToken.MatchString(token) {
-						break
+		for _, entry := range entries {
+			name := entry.Name()
+			if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+				continue
+			}
+			if dir != "." {
+				name = dir + "/" + name
+			}
+			data, err := os.ReadFile(name)
+			if err != nil {
+				t.Fatalf("read %s: %v", name, err)
+			}
+			for number, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+				for _, match := range printedCommand.FindAllStringSubmatch(line, -1) {
+					invocation := printedInvocation{file: name, line: number + 1, text: strings.TrimSpace(match[0])}
+					for _, token := range strings.Fields(match[1]) {
+						if !commandToken.MatchString(token) {
+							break
+						}
+						invocation.path = append(invocation.path, token)
 					}
-					invocation.path = append(invocation.path, token)
+					if len(invocation.path) == 0 {
+						continue
+					}
+					found = append(found, invocation)
 				}
-				if len(invocation.path) == 0 {
-					continue
-				}
-				found = append(found, invocation)
 			}
 		}
 	}
@@ -169,8 +178,8 @@ func assertDirtyRefusalIsActionable(t *testing.T, what string, err error, wantPa
 	}
 	message := err.Error()
 	// The machine-readable prefix, by constant: setup keys its remedy off it.
-	if !strings.Contains(message, dirtyWorktreeErrorCode+":") {
-		t.Errorf("%s refusal lost the %s code: %q", what, dirtyWorktreeErrorCode, message)
+	if !strings.Contains(message, brainstore.DirtyWorktreeCode+":") {
+		t.Errorf("%s refusal lost the %s code: %q", what, brainstore.DirtyWorktreeCode, message)
 	}
 	for _, want := range []string{".brainignore", "--worktree"} {
 		if !strings.Contains(message, want) {
@@ -207,7 +216,7 @@ func TestBrainignoredPathsDoNotTriggerTheDirtyRefusal(t *testing.T) {
 
 	err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"},
 		Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir)
-	if err != nil && strings.Contains(err.Error(), dirtyWorktreeErrorCode) {
+	if err != nil && strings.Contains(err.Error(), brainstore.DirtyWorktreeCode) {
 		t.Fatalf("a worktree dirty only in .brainignore'd paths was refused: %v", err)
 	}
 }

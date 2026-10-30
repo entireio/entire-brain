@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,7 +14,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	workspacelib "github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -43,8 +47,8 @@ func TestWorkspaceWatchFansOverMembersWithSharedBudget(t *testing.T) {
 		seen = append(seen, *agentCalls)
 		*agentCalls++ // simulate a token-spending step to prove the counter is shared, not per-repo
 	}
-	w := defaultWatchOptions()
-	w.once = true
+	w := watch.DefaultFlags()
+	w.Once = true
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
 	out := &bytes.Buffer{}
 	agentCalls := 0
@@ -107,7 +111,7 @@ func TestWorkspaceWatchMemoryQueuesStayIsolatedAcrossRepoCopies(t *testing.T) {
 	writeQueueManifest := func(storage repoStorage, sessionID string) {
 		t.Helper()
 		manifest := exportManifest{
-			SchemaVersion: brainManifestSchemaVersion,
+			SchemaVersion: bmanifest.SchemaVersion,
 			RepoKey:       storage.Key,
 			Sources: &brainSources{Sessions: &sessionSourceManifest{
 				DefaultBranch: "main",
@@ -135,10 +139,10 @@ func TestWorkspaceWatchMemoryQueuesStayIsolatedAcrossRepoCopies(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	w := defaultWatchOptions()
+	w := watch.DefaultFlags()
 	for _, repoDir := range []string{aliasA, repoB} {
 		steps := watchStepsForRepo(cmd, opts, w, repoDir, opts.Now)
-		if err := steps.reconcile(context.Background()); err != nil {
+		if err := steps.Reconcile(context.Background()); err != nil {
 			t.Fatalf("reconcile %s: %v", repoDir, err)
 		}
 	}
@@ -182,8 +186,8 @@ func TestWorkspaceWatchOnceSkipsStaleLocalPathHintBeforeTick(t *testing.T) {
 		t.Fatalf("write workspace: %v", err)
 	}
 
-	w := defaultWatchOptions()
-	w.once = true
+	w := watch.DefaultFlags()
+	w.Once = true
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
 	out := &bytes.Buffer{}
 	agentCalls := 0
@@ -460,7 +464,7 @@ func TestWorkspaceRejectsDotNamesBeforePathResolution(t *testing.T) {
 			t.Fatalf("workspace create accepted %q", name)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, exportManifestFileName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, bmanifest.FileName)); !os.IsNotExist(err) {
 		t.Fatalf("dot workspace wrote outside workspaces: %v", err)
 	}
 }
@@ -1006,7 +1010,7 @@ func TestWorkspaceReviewFlagsRegressedRepoOnly(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
 		t.Fatalf("parse review json: %v\n%s", err, out)
 	}
-	if payload.SchemaVersion != reviewReportSchemaVersion || payload.Mode != "diff-less (brain memory vs current tree)" {
+	if payload.SchemaVersion != brainreview.ReportSchemaVersion || payload.Mode != "diff-less (brain memory vs current tree)" {
 		t.Fatalf("review envelope schema_version/mode wrong: v=%d mode=%q", payload.SchemaVersion, payload.Mode)
 	}
 	if !strings.Contains(payload.Summary, "1 suspected regression(s) across 1/2 repo(s)") {
@@ -1458,14 +1462,14 @@ func TestWorkspaceRefreshReportsMissingBrains(t *testing.T) {
 func writeWorkspaceDocIndex(t *testing.T, env EntireEnv, key string, records ...docRecord) {
 	t.Helper()
 	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, filepath.FromSlash(key))
-	if err := os.MkdirAll(filepath.Join(brainDir, docDirName), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, docstore.DirName), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	data, err := json.Marshal(docIndex{Records: records})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(docIndexPath)), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(docstore.IndexPath)), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1739,7 +1743,7 @@ func TestWorkspaceConversationRecallFanOut(t *testing.T) {
 		if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1871,7 +1875,7 @@ func TestWorkspaceConversationSourceIsolationAndBranchPropagation(t *testing.T) 
 		if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2130,8 +2134,8 @@ func TestWorkspaceWatchStampsEveryLineWithClockAndRepo(t *testing.T) {
 	repoTick := func(out io.Writer, repoDir string, agentCalls *int) {
 		fmt.Fprintf(out, "[watch] refresh failed: %v\n", errors.New("brain_locked"))
 	}
-	w := defaultWatchOptions()
-	w.once = true
+	w := watch.DefaultFlags()
+	w.Once = true
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return at }}
 	out := &bytes.Buffer{}
 	agentCalls := 0

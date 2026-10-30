@@ -15,6 +15,8 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // memory_receipts.go is the projection receipt: the durable, content-free
@@ -230,13 +232,13 @@ func encodeProjectionState(state projectionState) (data []byte, digest string, e
 // It is strictly read-only and never rewrites or removes an unknown file.
 func loadProjectionStateChecked(brainDir string, source *historySourceManifest) (projectionState, projectionStateReadState, error) {
 	state, readState, err := loadProjectionStateCheckedOnce(brainDir, source)
-	if readState == projectionStateCurrent || source == nil || !validHistoryGenerationArtifactPath(strings.TrimSpace(source.ProjectionStatePath), projectionStateFileName) {
+	if readState == projectionStateCurrent || source == nil || !historystore.ValidGenerationArtifactPath(strings.TrimSpace(source.ProjectionStatePath), projectionStateFileName) {
 		return state, readState, err
 	}
 	// Match the history-index race contract: a caller may hold manifest A while
 	// a writer commits B and prunes A. Retry once only when the current manifest
 	// names a different receipt identity; never mask damage to the current one.
-	manifest, manifestErr := loadBrainManifest(brainDir)
+	manifest, manifestErr := bmanifest.Load(brainDir)
 	if manifestErr != nil || manifest.Sources == nil || manifest.Sources.History == nil {
 		return state, readState, err
 	}
@@ -260,7 +262,7 @@ func loadProjectionStateCheckedOnce(brainDir string, source *historySourceManife
 	if err != nil {
 		return projectionState{}, projectionStateUnsafe, newProjectionStateLoadError(projectionStateUnsafe, rel, err.Error(), 0)
 	}
-	if !validSHA256Identity(source.ProjectionStateDigest) {
+	if !brainstore.ValidSHA256Identity(source.ProjectionStateDigest) {
 		return projectionState{}, projectionStateCorrupt, newProjectionStateLoadError(projectionStateCorrupt, rel, "manifest content digest is invalid", 0)
 	}
 	if err := base.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
@@ -327,7 +329,7 @@ func decodeProjectionStateDocument(data []byte, rel string) (projectionState, pr
 	previousRef := ""
 	for _, receipt := range state.Sessions {
 		if !strings.HasPrefix(receipt.SessionRef, brainstore.ConversationSessionIDPrefix) || strings.TrimSpace(receipt.SessionID) == "" ||
-			!validSHA256Identity(receipt.InputDigest) || receipt.ExchangeCount < 0 || receipt.CompletedAt.IsZero() || receipt.CompletedAt.After(state.GeneratedAt) {
+			!brainstore.ValidSHA256Identity(receipt.InputDigest) || receipt.ExchangeCount < 0 || receipt.CompletedAt.IsZero() || receipt.CompletedAt.After(state.GeneratedAt) {
 			return projectionState{}, projectionStateCorrupt, newProjectionStateLoadError(projectionStateCorrupt, rel, "receipt has invalid identity or timestamp", state.SchemaVersion)
 		}
 		if previousRef != "" && receipt.SessionRef <= previousRef {
@@ -357,7 +359,7 @@ func validateProjectionStatePath(rel string) (string, error) {
 		return "", fmt.Errorf("projection_state_path must be canonical: %s", rel)
 	}
 	if filepath.IsAbs(clean) || strings.HasPrefix(clean, ".."+string(filepath.Separator)) ||
-		(cleanSlash != projectionStateRel && !validHistoryGenerationArtifactPath(cleanSlash, projectionStateFileName)) {
+		(cleanSlash != projectionStateRel && !historystore.ValidGenerationArtifactPath(cleanSlash, projectionStateFileName)) {
 		return "", fmt.Errorf("projection_state_path is unsafe: %s", rel)
 	}
 	return clean, nil

@@ -78,7 +78,7 @@ func TestWorkspaceCorpusAggregatesSharedTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	views, _, ok := loadCorpusPatternViews(wsDir)
+	views, _, ok := patterncore.LoadCorpusPatternViews(wsDir)
 	if !ok {
 		t.Fatal("expected a workspace corpus")
 	}
@@ -225,7 +225,7 @@ func TestWorkspaceAggregationExcludesRejectedMemberPatterns(t *testing.T) {
 
 func workspaceHasDeploy(t *testing.T, wsDir string) bool {
 	t.Helper()
-	views, _, ok, err := loadCorpusPatternViewsChecked(wsDir)
+	views, _, ok, err := patterncore.LoadCorpusPatternViewsChecked(wsDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestWorkspaceRebuildClearsStaleVerifierCache(t *testing.T) {
 	}
 	db.Close()
 
-	// Rebuild must drop the stale verdict (else loadCorpusPatternViews suppresses it).
+	// Rebuild must drop the stale verdict (else patterncore.LoadCorpusPatternViews suppresses it).
 	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +293,7 @@ func TestWorkspaceRebuildClearsStaleVerifierCache(t *testing.T) {
 	if themes != 0 {
 		t.Errorf("workspace rebuild must clear stray themes, got %d", themes)
 	}
-	views, _, _ := loadCorpusPatternViews(wsDir)
+	views, _, _ := patterncore.LoadCorpusPatternViews(wsDir)
 	found := false
 	for _, v := range views {
 		if v.ID == pid {

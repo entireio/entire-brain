@@ -17,6 +17,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // transcript_store.go is COR-2128's single direct-transcript read path.
@@ -99,7 +100,7 @@ type transcriptManifestStamp struct {
 const transcriptResolveRetryInterval = time.Minute
 
 func (s *transcriptStore) currentManifestStamp() transcriptManifestStamp {
-	info, err := os.Stat(filepath.Join(s.brainDir, exportManifestFileName))
+	info, err := os.Stat(filepath.Join(s.brainDir, bmanifest.FileName))
 	if err != nil {
 		return transcriptManifestStamp{}
 	}
@@ -137,7 +138,7 @@ func (s *transcriptStore) storageMode() (bool, error) {
 	if s.storageKnown && stamp == s.storageStamp {
 		return s.checkpointStorage, nil
 	}
-	manifest, err := loadBrainManifest(s.brainDir)
+	manifest, err := bmanifest.Load(s.brainDir)
 	if err != nil {
 		return false, err
 	}
@@ -152,7 +153,7 @@ func (s *transcriptStore) storageMode() (bool, error) {
 // file read; only tombstoned brains pay the manifest read that maps sessions
 // to paths (the same two-step every guarded surface uses — see retrieve.go).
 func (s *transcriptStore) guardNow() (sessionReadGuard, error) {
-	guard, err := loadSessionReadGuard(s.brainDir, nil)
+	guard, err := bmanifest.LoadSessionReadGuard(s.brainDir, nil)
 	if err != nil {
 		// Fail closed: an unreadable tombstone file must not open purged
 		// transcripts back up.
@@ -161,11 +162,11 @@ func (s *transcriptStore) guardNow() (sessionReadGuard, error) {
 	if guard.Empty() {
 		return guard, nil
 	}
-	manifest, err := loadBrainManifest(s.brainDir)
+	manifest, err := bmanifest.Load(s.brainDir)
 	if err != nil {
 		return sessionReadGuard{}, fmt.Errorf("transcript store: tombstones present but manifest unreadable: %w", err)
 	}
-	guard, err = loadSessionReadGuard(s.brainDir, manifest)
+	guard, err = bmanifest.LoadSessionReadGuard(s.brainDir, manifest)
 	if err != nil {
 		return sessionReadGuard{}, fmt.Errorf("transcript store: %w", err)
 	}
@@ -221,7 +222,7 @@ func (s *transcriptStore) lookupLocation(ctx context.Context, rel string) (trans
 }
 
 func (s *transcriptStore) resolveSnapshot(ctx context.Context) error {
-	manifest, err := loadBrainManifest(s.brainDir)
+	manifest, err := bmanifest.Load(s.brainDir)
 	if err != nil {
 		return fmt.Errorf("transcript store: %w", err)
 	}

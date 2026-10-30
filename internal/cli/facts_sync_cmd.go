@@ -2,10 +2,12 @@ package cli
 
 import (
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/factsync"
 	"github.com/spf13/cobra"
 )
@@ -26,7 +28,7 @@ const (
 type factsSyncOptions struct {
 	branch  string
 	backend string
-	// explicit hosted target (mirror publish's flag/env resolution):
+	// explicit hosted target (flag wins over its ENTIRE_* env variable):
 	apiURL string
 	token  string
 	repoID string
@@ -114,7 +116,7 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 		// the remedy. The no-egress kill switch always wins — it suppresses the
 		// sync rather than failing it, because the suppression is the user's
 		// own configuration doing exactly what it promises.
-		binding, present, bindErr := readHostedRepoBinding(storage.BrainDir)
+		binding, present, bindErr := brainstore.ReadHostedRepoBinding(storage.BrainDir)
 		if bindErr != nil {
 			return fmt.Errorf("memories sync: hosted binding unreadable: %w; run '%s' to rebind", bindErr, base.BrainInvocation(os.LookupEnv, "connect"))
 		}
@@ -125,7 +127,7 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 			// A suppressed sync is the user's own kill switch working, so it
 			// exits 0 — but it must still answer in the caller's format.
 			if syncOpts.jsonOut {
-				return writeJSON(cmd, map[string]any{
+				return cmdutil.WriteJSON(cmd, map[string]any{
 					"branch":  branch,
 					"skipped": true,
 					"reason":  base.NoEgressToggleName() + " is set",
@@ -156,7 +158,7 @@ func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOpti
 	if err != nil {
 		return err
 	}
-	srv := &factsync.HTTPServer{BaseURL: target.baseURL, Token: target.token}
+	srv := &factsync.HTTPServer{BaseURL: target.baseURL, Token: target.token, Version: opts.Version}
 	backendLabel := "hosted (" + strings.TrimRight(target.baseURL, "/") + ")"
 
 	counts, skipped, pushErr := pushHostedFacts(ctx, storage, srv, target.repoID, branch)
@@ -186,7 +188,7 @@ func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOpti
 	}
 
 	if syncOpts.jsonOut {
-		return writeJSON(cmd, map[string]any{
+		return cmdutil.WriteJSON(cmd, map[string]any{
 			"branch":                branch,
 			"backend":               backendLabel,
 			"pushed_added":          counts.Added,

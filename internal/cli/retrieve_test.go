@@ -3,13 +3,17 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 )
@@ -36,12 +40,12 @@ func (*wrongDimensionQueryEmbedder) ID() string                  { return "wrong
 
 func TestGetUnifiedBatchPreservesOrderAndReportsMissing(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, docDirName), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, docstore.DirName), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	idx := docIndex{Records: []docRecord{{ID: "aaa", Text: "alpha"}, {ID: "bbb", Text: "beta"}}}
 	data, _ := json.Marshal(idx)
-	if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(docIndexPath)), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(docstore.IndexPath)), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	found, missing, err := getUnifiedBatch("", dir, "main", []string{"doc:bbb", "doc:nope", "doc:aaa"})
@@ -58,30 +62,16 @@ func TestGetUnifiedBatchPreservesOrderAndReportsMissing(t *testing.T) {
 
 func TestUnifiedIDsNotDoublePrefixed(t *testing.T) {
 	// fact/history ids are already source-prefixed; docs are not.
-	f := factsToUnified([]factRecord{{ID: "fact:abc", Text: "x"}})
+	f := retrieval.FactsToUnified([]factRecord{{ID: "fact:abc", Text: "x"}})
 	if f[0].ID != "fact:abc" {
 		t.Fatalf("fact id double-prefixed: %s", f[0].ID)
 	}
-	h := historyToUnified([]scoredHistoryRecord{{Record: historyRecord{ID: "history:def", Summary: "y"}}})
+	h := retrieval.HistoryToUnified([]scoredHistoryRecord{{Record: historyRecord{ID: "history:def", Summary: "y"}}})
 	if h[0].ID != "history:def" {
 		t.Fatalf("history id double-prefixed: %s", h[0].ID)
 	}
-	if d := docToUnified(docRecord{ID: "ghi", Text: "z"}); d.ID != "doc:ghi" {
+	if d := retrieval.DocToUnified(docRecord{ID: "ghi", Text: "z"}); d.ID != "doc:ghi" {
 		t.Fatalf("doc id: %s", d.ID)
-	}
-}
-
-func TestUnifiedRetrievalCommandDefaultsMatchDocumentedContract(t *testing.T) {
-	for _, command := range []*cobra.Command{
-		newQueryCommand(Options{}),
-		newSearchCommand(Options{}),
-		newVsearchCommand(Options{}),
-	} {
-		for _, flag := range []string{"limit", "number"} {
-			if got := command.Flags().Lookup(flag).DefValue; got != "10" {
-				t.Errorf("%s --%s default = %s, want 10", command.Name(), flag, got)
-			}
-		}
 	}
 }
 
@@ -90,52 +80,9 @@ func TestRRFMergeUnifiedFavorsCrossListMatches(t *testing.T) {
 		{{ID: "a"}, {ID: "b"}},
 		{{ID: "b"}, {ID: "c"}},
 	}
-	out := rrfMergeUnified(lists, 10)
+	out := retrieval.RRFMergeUnified(lists, 10)
 	if len(out) != 3 || out[0].ID != "b" {
 		t.Fatalf("expected b (in both lists) ranked first, got %v", out)
-	}
-}
-
-func TestQMDOutputFormatAlias(t *testing.T) {
-	got, err := outputWantsJSON(false, "json")
-	if err != nil || !got {
-		t.Fatalf("--format json should request JSON, got %t err=%v", got, err)
-	}
-	got, err = outputWantsJSON(true, "cli")
-	if err != nil || got {
-		t.Fatalf("--format cli should force CLI output, got %t err=%v", got, err)
-	}
-	if _, err := outputWantsJSON(false, "text"); err == nil {
-		t.Fatal("--format text should be rejected; supported formats are json or cli")
-	}
-	if _, err := outputWantsJSON(false, "xml"); err == nil {
-		t.Fatal("unknown --format should error")
-	}
-}
-
-func TestRetrievalResultExcerptCentersDenseQueryTerms(t *testing.T) {
-	text := strings.Repeat("irrelevant preface ", 50) +
-		"inspect code and inspect context JSON are compact by default; use get for full details " +
-		strings.Repeat("irrelevant suffix ", 50)
-	excerpt := retrievalResultExcerpt(text, "inspect context JSON compact full details", 180)
-	for _, want := range []string{"inspect context", "JSON", "compact", "full details"} {
-		if !strings.Contains(excerpt, want) {
-			t.Fatalf("query-centered excerpt missing %q: %q", want, excerpt)
-		}
-	}
-	if len(excerpt) > 186 { // bounded window plus leading/trailing ellipses
-		t.Fatalf("excerpt is not bounded: %d bytes: %q", len(excerpt), excerpt)
-	}
-	unicodeExcerpt := retrievalResultExcerpt(strings.Repeat("界", 300)+" compact context details", "compact context", 80)
-	if !utf8.ValidString(unicodeExcerpt) {
-		t.Fatalf("excerpt split UTF-8: %q", unicodeExcerpt)
-	}
-	// Unicode lowercase can change byte length (K is three UTF-8 bytes but
-	// lowercases to one-byte k). Search offsets must still point into the
-	// original string and center the actual match.
-	foldedExcerpt := retrievalResultExcerpt(strings.Repeat("K", 100)+" TARGET context details", "target context", 64)
-	if !utf8.ValidString(foldedExcerpt) || !strings.Contains(foldedExcerpt, "TARGET context") {
-		t.Fatalf("case-folded Unicode offset missed the query window: %q", foldedExcerpt)
 	}
 }
 
@@ -214,18 +161,6 @@ func TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions(t *testing.T) {}
 	}
 }
 
-func TestFilterHistoryRetrievalSelfEchoesRefillsWithEvidence(t *testing.T) {
-	scored := []scoredHistoryRecord{
-		{Record: historyRecord{Kind: "tool_call", Summary: `entire brain search '.github symbol was unexpectedly ignored' --json`}},
-		{Record: historyRecord{Kind: "code_fact", Summary: `t.Fatalf(".github symbol was unexpectedly ignored")`}},
-		{Record: historyRecord{Kind: "tool_call", Summary: `go test ./internal/cli -run TestSemantic`}},
-	}
-	got := filterHistoryRetrievalSelfEchoes(scored, ".github symbol was unexpectedly ignored")
-	if len(got) != 2 || got[0].Record.Kind != "code_fact" || got[1].Record.Kind != "tool_call" {
-		t.Fatalf("filtered history = %+v", got)
-	}
-}
-
 func TestHistoryRetrievalPathFiltersSelfEchoesAndRefills(t *testing.T) {
 	query := ".github symbol was unexpectedly ignored"
 	index := historyIndex{Records: []historyRecord{
@@ -234,7 +169,7 @@ func TestHistoryRetrievalPathFiltersSelfEchoesAndRefills(t *testing.T) {
 		{ID: "history:evidence", Kind: "code_fact", Path: "sessions/main/a.jsonl", Line: 3, Summary: `Regression coverage proves the .github symbol was unexpectedly ignored.`},
 	}}
 	brainDir, _ := writeDirectHistoryFTSFixture(t, index)
-	got, err := retrieveUnifiedWithOptions("", brainDir, "main", query, 1, modeLexical, retrievalOptions{Source: retrievalSourceHistory})
+	got, err := retrieveUnifiedWithOptions("", brainDir, "main", query, 1, retrieval.ModeLexical, retrievalOptions{Source: brainstore.RetrievalSourceHistory})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +190,7 @@ func executeExpectingMissing(t *testing.T, cmd *cobra.Command, args ...string) s
 	if err == nil {
 		t.Fatalf("%s: a missing id did not fail the command:\n%s", strings.Join(args, " "), out)
 	}
-	if !errors.Is(err, errRetrievalIDsMissing) {
+	if !errors.Is(err, retrieve.ErrRetrievalIDsMissing) {
 		t.Fatalf("%s: %v\n%s", strings.Join(args, " "), err, out)
 	}
 	return out
@@ -285,7 +220,7 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 		{ID: factRecordID("alpha checkpoint retrieval contract", paths), Text: "alpha checkpoint retrieval contract", Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: now},
 		{ID: factRecordID("alpha checkpoint second result", paths), Text: "alpha checkpoint second result", Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: now},
 	}
-	if err := writeFacts(storage.BrainDir, "feature", facts); err != nil {
+	if err := factstore.Write(storage.BrainDir, "feature", facts); err != nil {
 		t.Fatal(err)
 	}
 
@@ -421,10 +356,10 @@ func TestQMDBranchOverrideAcrossRetrievalVerbs(t *testing.T) {
 	branch := "feature/qmd"
 	featureFact := factRecord{ID: factRecordID("zephyr branch override feature contract", paths), Text: "zephyr branch override feature contract", Paths: paths, Branch: branch, Status: factStatusActive, UpdatedAt: now}
 	mainFact := factRecord{ID: factRecordID("zephyr branch override main contract", paths), Text: "zephyr branch override main contract", Paths: paths, Branch: "main", Status: factStatusActive, UpdatedAt: now}
-	if err := writeFacts(storage.BrainDir, branch, []factRecord{featureFact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, branch, []factRecord{featureFact}); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{mainFact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{mainFact}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -509,7 +444,7 @@ func TestQMDLimitAliasesAndPrecedence(t *testing.T) {
 		{ID: factRecordID("alpha checkpoint first contract", paths), Text: "alpha checkpoint first contract", Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: now},
 		{ID: factRecordID("alpha checkpoint second contract", paths), Text: "alpha checkpoint second contract", Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: now},
 	}
-	if err := writeFacts(storage.BrainDir, "feature", facts); err != nil {
+	if err := factstore.Write(storage.BrainDir, "feature", facts); err != nil {
 		t.Fatal(err)
 	}
 
@@ -582,36 +517,6 @@ func TestQMDTopLevelHelpListsRetrievalVerbs(t *testing.T) {
 	}
 }
 
-func TestPrintRetrievalCaveatsIncludesStructuredContext(t *testing.T) {
-	var out strings.Builder
-	printRetrievalCaveats(&out, unifiedResult{Caveats: []retrievalCaveat{
-		{
-			Kind:    retrievalCaveatStaleLocus,
-			Message: "Current code no longer contains every recorded path.",
-			Paths:   []string{"internal/old.go", "pkg/removed.go"},
-		},
-		{
-			Kind:       retrievalCaveatUnresolvedReview,
-			Message:    "A pending supersede proposal requires review.",
-			ReviewID:   "review:abc",
-			Action:     factActionSupersede,
-			Confidence: 0.55,
-		},
-	}})
-	text := out.String()
-	for _, want := range []string{
-		"Current code no longer contains every recorded path.",
-		"paths=internal/old.go,pkg/removed.go",
-		"review=review:abc",
-		"action=supersede",
-		"confidence=0.55",
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("caveat output missing %q:\n%s", want, text)
-		}
-	}
-}
-
 func TestQMDFormatCLIOverridesJSONAndReportsMissingIDs(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -631,7 +536,7 @@ func TestQMDFormatCLIOverridesJSONAndReportsMissingIDs(t *testing.T) {
 		Status:    factStatusActive,
 		UpdatedAt: now,
 	}
-	if err := writeFacts(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -720,7 +625,7 @@ func TestGetAndMultiGetExitNonzeroOnAMissingID(t *testing.T) {
 		Status:    factStatusActive,
 		UpdatedAt: now,
 	}
-	if err := writeFacts(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 

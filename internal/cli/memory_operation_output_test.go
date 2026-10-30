@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -95,7 +96,7 @@ func TestMemoryMaintenanceOutputFailurePreservesSuccessfulMutationOutcome(t *tes
 	t.Run("repair", func(t *testing.T) {
 		opts, brainDir := memoryAdminCommandFixture(t)
 		addMemoryAdminConversationFixture(t, brainDir, time.Date(2026, 8, 10, 8, 3, 0, 0, time.UTC))
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil || manifest.Sources == nil || manifest.Sources.History == nil {
 			t.Fatalf("load repair fixture: manifest=%+v err=%v", manifest, err)
 		}
@@ -112,7 +113,7 @@ func TestMemoryMaintenanceOutputFailurePreservesSuccessfulMutationOutcome(t *tes
 		if receipt.Operation != "repair" || len(receipt.Artifacts) == 0 {
 			t.Fatalf("repair receipt = %+v", receipt)
 		}
-		manifest, err = loadBrainManifest(brainDir)
+		manifest, err = bmanifest.Load(brainDir)
 		if err != nil || manifest.Sources == nil || manifest.Sources.History == nil || manifest.Sources.History.IndexDigest == "" {
 			t.Fatalf("repair mutation was not durable: manifest=%+v err=%v", manifest, err)
 		}
@@ -131,7 +132,7 @@ func TestMemoryMaintenanceOutputFailurePreservesSuccessfulMutationOutcome(t *tes
 		if receipt.Operation != "rebuild" || len(receipt.Artifacts) == 0 {
 			t.Fatalf("rebuild receipt = %+v", receipt)
 		}
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil || manifest.Sources == nil || manifest.Sources.History == nil || manifest.Sources.History.IndexDigest == "" {
 			t.Fatalf("rebuild mutation was not durable: manifest=%+v err=%v", manifest, err)
 		}
@@ -211,7 +212,7 @@ func TestOtherMemoryMutatorsClassifyOutputFailureAfterSuccessfulMutation(t *test
 
 	t.Run("retry", func(t *testing.T) {
 		opts, brainDir := memoryAdminCommandFixture(t)
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -226,7 +227,7 @@ func TestOtherMemoryMutatorsClassifyOutputFailureAfterSuccessfulMutation(t *test
 
 	t.Run("cancel", func(t *testing.T) {
 		opts, brainDir := memoryAdminCommandFixture(t)
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			t.Fatal(err)
 		}

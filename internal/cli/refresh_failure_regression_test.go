@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,7 +51,7 @@ func TestRefreshBestEffortReportsHistoryAndDocsFailuresAndPreservesInputs(t *tes
 	historyMarker := "committed-history-directory-marker"
 	docsMarker := "committed-doc-directory-marker"
 	replaceRefreshComponentDirWithFile(t, brainDir, brainstore.HistoryDirName, historyMarker)
-	replaceRefreshComponentDirWithFile(t, brainDir, docDirName, docsMarker)
+	replaceRefreshComponentDirWithFile(t, brainDir, docstore.DirName, docsMarker)
 
 	outcomes := map[string]error{}
 	cmd := &cobra.Command{}
@@ -77,13 +80,13 @@ func TestRefreshBestEffortReportsHistoryAndDocsFailuresAndPreservesInputs(t *tes
 	if !strings.Contains(stderr.String(), "history index") || !strings.Contains(stderr.String(), "doc index") || !strings.Contains(stdout.String(), "refreshed brain:") {
 		t.Fatalf("best-effort reporting incomplete\nstdout=%s\nstderr=%s", stdout.String(), stderr.String())
 	}
-	for rel, want := range map[string]string{brainstore.HistoryDirName: historyMarker, docDirName: docsMarker} {
+	for rel, want := range map[string]string{brainstore.HistoryDirName: historyMarker, docstore.DirName: docsMarker} {
 		got, err := os.ReadFile(filepath.Join(brainDir, rel))
 		if err != nil || string(got) != want {
 			t.Fatalf("failed %s input was replaced: got=%q err=%v", rel, got, err)
 		}
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil || manifest.Sources == nil || manifest.Sources.Seed == nil {
 		t.Fatalf("successful seed stage was not committed: manifest=%+v err=%v", manifest, err)
 	}
@@ -118,15 +121,15 @@ func TestRefreshStrictHistoryFailureStopsBeforeSuccess(t *testing.T) {
 
 func TestRefreshBestEffortReportsFactsFailure(t *testing.T) {
 	opts, brainDir := refreshFailureFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest.Sources.Facts = &factSourceManifest{GeneratedAt: opts.Now(), TaxonomyPath: factsTaxonomyPath, Branches: []string{"main"}, Facts: 1}
+	manifest.Sources.Facts = &factSourceManifest{GeneratedAt: opts.Now(), TaxonomyPath: factstore.TaxonomyPath, Branches: []string{"main"}, Facts: 1}
 	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 		t.Fatal(err)
 	}
-	factPath := filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath("main")))
+	factPath := filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath("main")))
 	if err := os.MkdirAll(filepath.Dir(factPath), 0o700); err != nil {
 		t.Fatal(err)
 	}

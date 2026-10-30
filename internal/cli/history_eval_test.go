@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // historyEvalFixture returns a brain dir with two session transcripts and the
@@ -29,7 +31,7 @@ func historyEvalFixture(t *testing.T) (string, *exportManifest, historyIndex) {
 	}
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 	manifest := &exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{

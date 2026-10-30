@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
@@ -62,7 +64,7 @@ for (const item of items) {
 func TestBriefResidualMalformedKnowledgeStoresEmitNoPacket(t *testing.T) {
 	t.Run("legacy patterns", func(t *testing.T) {
 		fixture := newBrainBriefOutputFixture(t)
-		path := filepath.Join(fixture.brainDir, filepath.FromSlash(patternsProceduresPath))
+		path := filepath.Join(fixture.brainDir, filepath.FromSlash(patterncore.ProceduresPath))
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -114,14 +116,14 @@ func TestBriefResidualCorruptFTSPayloadRebuildsFromCanonicalHistory(t *testing.T
 	fixture := newBrainBriefProfileFixture(t)
 	canonical := ftsTestIndex()
 	donor, source := writeDirectHistoryFTSFixture(t, canonical)
-	indexData, err := os.ReadFile(filepath.Join(donor, filepath.FromSlash(historyIndexPath)))
+	indexData, err := os.ReadFile(filepath.Join(donor, filepath.FromSlash(historystore.IndexPath)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := brainstore.WriteBrainRelativeFileAtomic(fixture.brainDir, historyIndexPath, indexData, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(fixture.brainDir, historystore.IndexPath, indexData, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := loadBrainManifest(fixture.brainDir)
+	manifest, err := bmanifest.Load(fixture.brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +131,7 @@ func TestBriefResidualCorruptFTSPayloadRebuildsFromCanonicalHistory(t *testing.T
 	if err := writeBrainManifestAndReadme(fixture.brainDir, *manifest); err != nil {
 		t.Fatal(err)
 	}
-	index, err := loadBrainHistoryIndex(fixture.brainDir, manifest.Sources.History)
+	index, err := historystore.LoadIndex(fixture.brainDir, manifest.Sources.History)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +176,7 @@ func TestBriefResidualLegacyHistoryFallsBackInMemoryWhenFTSUnavailable(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +204,7 @@ func TestBriefResidualLegacyHistoryFallsBackInMemoryWhenFTSUnavailable(t *testin
 
 func TestBriefResidualProfileRecordsCanonicalHistoryLoadFailure(t *testing.T) {
 	fixture := newBrainBriefProfileFixture(t)
-	manifest, err := loadBrainManifest(fixture.brainDir)
+	manifest, err := bmanifest.Load(fixture.brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +221,7 @@ func TestBriefResidualProfileRecordsCanonicalHistoryLoadFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest.Sources.History.IndexBytes = int64(len(data))
-	manifest.Sources.History.IndexSHA256 = historyIndexBytesFingerprint(data)
+	manifest.Sources.History.IndexSHA256 = historystore.IndexBytesFingerprint(data)
 	if err := writeBrainManifestAndReadme(fixture.brainDir, *manifest); err != nil {
 		t.Fatal(err)
 	}
@@ -249,14 +251,14 @@ func TestBriefResidualCorruptFTSRebuildContentionFallsBackAndRetries(t *testing.
 	fixture := newBrainBriefProfileFixture(t)
 	canonical := ftsTestIndex()
 	donor, source := writeDirectHistoryFTSFixture(t, canonical)
-	data, err := os.ReadFile(filepath.Join(donor, filepath.FromSlash(historyIndexPath)))
+	data, err := os.ReadFile(filepath.Join(donor, filepath.FromSlash(historystore.IndexPath)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := brainstore.WriteBrainRelativeFileAtomic(fixture.brainDir, historyIndexPath, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(fixture.brainDir, historystore.IndexPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := loadBrainManifest(fixture.brainDir)
+	manifest, err := bmanifest.Load(fixture.brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +266,7 @@ func TestBriefResidualCorruptFTSRebuildContentionFallsBackAndRetries(t *testing.
 	if err := writeBrainManifestAndReadme(fixture.brainDir, *manifest); err != nil {
 		t.Fatal(err)
 	}
-	index, err := loadBrainHistoryIndex(fixture.brainDir, source)
+	index, err := historystore.LoadIndex(fixture.brainDir, source)
 	if err != nil {
 		t.Fatal(err)
 	}

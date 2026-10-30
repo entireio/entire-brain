@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -299,7 +300,7 @@ func TestRetentionRecomputesPlanAfterWaitingForProviderSideEffect(t *testing.T) 
 		t.Fatal(err)
 	}
 	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return err
 		}
@@ -341,7 +342,7 @@ func TestRetentionRecomputesPlanAfterWaitingForProviderSideEffect(t *testing.T) 
 
 func TestPrivacyCleanupRetryUsesDurableRefsAfterManifestDropsSession(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +350,7 @@ func TestPrivacyCleanupRetryUsesDurableRefsAfterManifestDropsSession(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,7 +410,7 @@ func TestPrivacyCleanupRetryUsesDurableRefsAfterManifestDropsSession(t *testing.
 	// A later refresh drops the session from the manifest before the user
 	// retries. Only the durable transaction can now identify its abstract artifacts.
 	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		current, err := loadBrainManifest(brainDir)
+		current, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return err
 		}

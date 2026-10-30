@@ -1,6 +1,7 @@
 package cli
 
 import (
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"strings"
 	"testing"
 	"time"
@@ -50,32 +51,32 @@ func TestRecordSkillDecisionUpsert(t *testing.T) {
 	t0 := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	t1 := time.Date(2026, 6, 16, 0, 0, 0, 0, time.UTC)
 
-	if err := recordSkillDecision(brainDir, skillMemoryRecord{PatternID: "P1", Status: skillStatusActive, SkillName: "v1", CreatedAt: t0, UpdatedAt: t0}); err != nil {
+	if err := recordSkillDecision(brainDir, skillMemoryRecord{PatternID: "P1", Status: patterncore.SkillStatusActive, SkillName: "v1", CreatedAt: t0, UpdatedAt: t0}); err != nil {
 		t.Fatal(err)
 	}
-	if err := recordSkillDecision(brainDir, skillMemoryRecord{PatternID: "P2", Status: skillStatusDeclined, CreatedAt: t0, UpdatedAt: t0}); err != nil {
+	if err := recordSkillDecision(brainDir, skillMemoryRecord{PatternID: "P2", Status: patterncore.SkillStatusDeclined, CreatedAt: t0, UpdatedAt: t0}); err != nil {
 		t.Fatal(err)
 	}
 	// Update P1: same id replaces, preserves original CreatedAt.
-	if err := recordSkillDecision(brainDir, skillMemoryRecord{PatternID: "P1", Status: skillStatusActive, SkillName: "v2", CreatedAt: t1, UpdatedAt: t1}); err != nil {
+	if err := recordSkillDecision(brainDir, skillMemoryRecord{PatternID: "P1", Status: patterncore.SkillStatusActive, SkillName: "v2", CreatedAt: t1, UpdatedAt: t1}); err != nil {
 		t.Fatal(err)
 	}
 
-	recs, err := loadBrainSkillMemory(brainDir)
+	recs, err := patterncore.LoadBrainSkillMemory(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(recs) != 2 {
 		t.Fatalf("got %d records, want 2 (P1 upserted, P2 kept)", len(recs))
 	}
-	byID := skillMemoryByPatternID(recs)
+	byID := patterncore.SkillMemoryByPatternID(recs)
 	if byID["P1"].SkillName != "v2" {
 		t.Errorf("P1 not updated: %q", byID["P1"].SkillName)
 	}
 	if !byID["P1"].CreatedAt.Equal(t0) {
 		t.Errorf("P1 CreatedAt = %v, want preserved %v", byID["P1"].CreatedAt, t0)
 	}
-	if byID["P2"].Status != skillStatusDeclined {
+	if byID["P2"].Status != patterncore.SkillStatusDeclined {
 		t.Errorf("P2 lost: %+v", byID["P2"])
 	}
 }

@@ -384,6 +384,15 @@ def compressed_run_regex(names: Iterable[str]) -> str:
     return "^" + _render_trie(root) + "$"
 
 
+def effective_shard_count(configured: int, root_count: int) -> int:
+    """Shard count for a selected plan: never above the roots, never below one.
+
+    The workflow's matrix validation requires at least one shard whose index
+    set matches shardCount, so an empty selection still plans one empty shard.
+    """
+    return max(1, min(configured, root_count))
+
+
 def _inventory_digest(inventories: list[dict[str, Any]]) -> str:
     encoded = json.dumps(
         inventories, sort_keys=True, ensure_ascii=False, separators=(",", ":")
@@ -396,6 +405,7 @@ def create_plan(
     settings: dict[str, Any],
     weights: dict[tuple[str, str], float],
     weight_metadata: dict[str, Any],
+    selected_packages: frozenset[str] | set[str] | None = None,
 ) -> dict[str, Any]:
     if not inventories:
         raise ValueError("at least one compiled inventory is required")
@@ -446,8 +456,22 @@ def create_plan(
             )
 
     shard_count = settings["shardCount"]
-    if len(work) < shard_count:
-        raise ValueError(f"{len(work)} runnable roots cannot populate {shard_count} non-empty shards")
+    if selected_packages is None:
+        if len(work) < shard_count:
+            raise ValueError(f"{len(work)} runnable roots cannot populate {shard_count} non-empty shards")
+    else:
+        # Selection filters which roots are planned; every heavy package is
+        # still compiled, hashed, and inventoried exactly as for a full run.
+        work = [item for item in work if item["importPath"] in selected_packages]
+        # Weight accounting must describe the planned roots, not the full
+        # inventory, or defaultedCount goes negative when selection drops
+        # weighted roots.
+        used_weight_keys = {
+            (item["importPath"], item["name"])
+            for item in work
+            if item["weightSource"] == "historical-windows"
+        }
+        shard_count = effective_shard_count(shard_count, len(work))
     work.sort(key=lambda item: (-item["weightSeconds"], item["importPath"], item["name"]))
     bins: list[list[dict[str, Any]]] = [[] for _ in range(shard_count)]
     totals = [0.0] * shard_count
@@ -507,7 +531,7 @@ def create_plan(
         }
         for item in inventories
     ]
-    return {
+    plan = {
         "schema": PLAN_SCHEMA,
         "algorithm": "deterministic-longest-processing-time-first-v1",
         "repositorySha": next(iter(repository_shas)),
@@ -536,6 +560,9 @@ def create_plan(
         "packages": packages,
         "shards": shards,
     }
+    if selected_packages is not None:
+        plan["selection"] = {"mode": "selected", "packages": sorted(set(selected_packages))}
+    return plan
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:

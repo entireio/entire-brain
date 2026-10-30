@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
@@ -16,7 +17,7 @@ func TestRootCommandPatternsRefreshTextContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh: %v\nstdout=%s\nstderr=%s", err, out, stderr)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func TestFactsStatusEmptyStoreJSON(t *testing.T) {
@@ -51,12 +53,12 @@ func TestFactsStatusCountsBranchJSON(t *testing.T) {
 	f := newVerifyFixture(t)
 	now := f.now
 	records := []factRecord{
-		factsStatusTestFact("Authored verified fact.", "feature", factOriginAuthored, factStatusActive, now, []factAnchor{{SessionID: "s1", Verified: true}}),
-		factsStatusTestFact("Distilled unsigned fact.", "feature", factOriginDistilled, factStatusActive, now, []factAnchor{{SessionID: "s2"}}),
-		factsStatusTestFact("Superseded mixed anchors.", "feature", factOriginDistilled, factStatusSuperseded, now, []factAnchor{{SessionID: "s3", Verified: true}, {SessionID: "s4"}}),
-		factsStatusTestFact("Retracted authored fact.", "feature", factOriginAuthored, factStatusRetracted, now, nil),
+		factsStatusTestFact("Authored verified fact.", "feature", factstore.OriginAuthored, factStatusActive, now, []factAnchor{{SessionID: "s1", Verified: true}}),
+		factsStatusTestFact("Distilled unsigned fact.", "feature", factstore.OriginDistilled, factStatusActive, now, []factAnchor{{SessionID: "s2"}}),
+		factsStatusTestFact("Superseded mixed anchors.", "feature", factstore.OriginDistilled, factStatusSuperseded, now, []factAnchor{{SessionID: "s3", Verified: true}, {SessionID: "s4"}}),
+		factsStatusTestFact("Retracted authored fact.", "feature", factstore.OriginAuthored, factStatusRetracted, now, nil),
 	}
-	if err := writeFacts(f.brainDir, "feature", records); err != nil {
+	if err := factstore.Write(f.brainDir, "feature", records); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 	if err := writeFactProposals(f.brainDir, "feature", []factProposal{
@@ -109,12 +111,12 @@ func TestFactsStatusCountsBranchJSON(t *testing.T) {
 func TestFactsStatusAllBranchesJSON(t *testing.T) {
 	f := newVerifyFixture(t)
 	now := f.now
-	mainFact := factsStatusTestFact("Main active fact.", "main", factOriginDistilled, factStatusActive, now, []factAnchor{{SessionID: "m1"}})
-	featureFact := factsStatusTestFact("Feature superseded fact.", "feature", factOriginAuthored, factStatusSuperseded, now, []factAnchor{{SessionID: "f1", Verified: true}})
-	if err := writeFacts(f.brainDir, "main", []factRecord{mainFact}); err != nil {
+	mainFact := factsStatusTestFact("Main active fact.", "main", factstore.OriginDistilled, factStatusActive, now, []factAnchor{{SessionID: "m1"}})
+	featureFact := factsStatusTestFact("Feature superseded fact.", "feature", factstore.OriginAuthored, factStatusSuperseded, now, []factAnchor{{SessionID: "f1", Verified: true}})
+	if err := factstore.Write(f.brainDir, "main", []factRecord{mainFact}); err != nil {
 		t.Fatalf("write main facts: %v", err)
 	}
-	if err := writeFacts(f.brainDir, "feature", []factRecord{featureFact}); err != nil {
+	if err := factstore.Write(f.brainDir, "feature", []factRecord{featureFact}); err != nil {
 		t.Fatalf("write feature facts: %v", err)
 	}
 	if err := updateFactSourceManifest(f.brainDir, now); err != nil {

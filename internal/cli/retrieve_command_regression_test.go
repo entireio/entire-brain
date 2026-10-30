@@ -3,14 +3,18 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -40,11 +44,11 @@ func retrieveRegressionWorkspace(t *testing.T) (Options, workspace.Manifest, map
 		text := []string{"nebula alpha public record", "nebula beta public record"}[i]
 		paths := normalizeFactPaths([]string{"architecture/retrieval.go"})
 		fact := factRecord{ID: factRecordID(text, paths), Text: text, Paths: paths, Branch: "main", Status: factStatusActive, UpdatedAt: time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)}
-		if err := writeFacts(brainDir, "main", []factRecord{fact}); err != nil {
+		if err := factstore.Write(brainDir, "main", []factRecord{fact}); err != nil {
 			t.Fatal(err)
 		}
 		manifestBytes := []byte(`{"schema_version":3,"sources":{"sessions":{"default_branch":"main","sessions":[]}}}`)
-		if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), manifestBytes, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), manifestBytes, 0o600); err != nil {
 			t.Fatal(err)
 		}
 		ids[repo.RepoKey] = fact.ID
@@ -77,7 +81,7 @@ func TestRetrieveRootRouteSourceIsolationNoResultsAndLimit(t *testing.T) {
 		t.Fatalf("groups=%d, want 2: %s", len(payload.Results), out)
 	}
 	for _, group := range payload.Results {
-		if len(group.Results) != 1 || group.Results[0].Source != retrievalSourceFact || group.Results[0].ID != group.RepoKey+"/"+ids[group.RepoKey] {
+		if len(group.Results) != 1 || group.Results[0].Source != brainstore.RetrievalSourceFact || group.Results[0].ID != group.RepoKey+"/"+ids[group.RepoKey] {
 			t.Fatalf("source/limit/qualification contract failed: %+v", group)
 		}
 	}
@@ -109,13 +113,13 @@ func TestRetrieveCommandsRejectInvalidContractsBeforeReadingState(t *testing.T) 
 		"workspace fact abstract":            "--include-abstract requires --source conversation",
 	}
 	for name, err := range map[string]error{
-		"single zero limit":                  runRetrieve(cmd.Context(), cmd, Options{}, "q", modeLexical, 0, "", retrievalOptions{}, false, false, "search"),
-		"workspace zero limit":               runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 0}, modeLexical, "missing", "q"),
-		"workspace malformed source":         runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 1, source: "private"}, modeLexical, "missing", "q"),
-		"workspace missing manifest":         runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 1, source: retrievalSourceFact}, modeLexical, "missing", "q"),
-		"workspace conversation vector":      runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 1, source: retrievalSourceConversation}, modeVector, "missing", "q"),
-		"workspace fact conversation filter": runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 1, source: retrievalSourceFact, session: "secret-session"}, modeLexical, "missing", "q"),
-		"workspace fact abstract":            runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 1, source: retrievalSourceFact, includeAbstract: true}, modeLexical, "missing", "q"),
+		"single zero limit":                  retrieve.Run(cmd.Context(), cmd, retrieveCommandConfig(Options{}), "q", retrieval.ModeLexical, 0, "", retrievalOptions{}, false, false, "search"),
+		"workspace zero limit":               runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 0}, retrieval.ModeLexical, "missing", "q"),
+		"workspace malformed source":         runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 1, source: "private"}, retrieval.ModeLexical, "missing", "q"),
+		"workspace missing manifest":         runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 1, source: brainstore.RetrievalSourceFact}, retrieval.ModeLexical, "missing", "q"),
+		"workspace conversation vector":      runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 1, source: brainstore.RetrievalSourceConversation}, retrieval.ModeVector, "missing", "q"),
+		"workspace fact conversation filter": runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 1, source: brainstore.RetrievalSourceFact, session: "secret-session"}, retrieval.ModeLexical, "missing", "q"),
+		"workspace fact abstract":            runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 1, source: brainstore.RetrievalSourceFact, includeAbstract: true}, retrieval.ModeLexical, "missing", "q"),
 	} {
 		if err == nil || !strings.Contains(err.Error(), wantErrors[name]) {
 			t.Errorf("%s: got %v, want %q", name, err, wantErrors[name])
@@ -137,14 +141,14 @@ func TestRunRetrieveRealFactTextJSONNoResultsAndWriterFailure(t *testing.T) {
 	}
 	paths := normalizeFactPaths([]string{"architecture/retrieval.go"})
 	visible := factRecord{ID: factRecordID("orion visible retrieval fact", paths), Text: "orion visible retrieval fact", Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: opts.Now()}
-	if err := writeFacts(storage.BrainDir, "feature", []factRecord{visible}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "feature", []factRecord{visible}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(storage.BrainDir, "hidden.txt"), []byte("HIDDEN-ORION-CANARY"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	invalidAbstract := &cobra.Command{}
-	if err := runRetrieve(invalidAbstract.Context(), invalidAbstract, opts, "orion", modeLexical, 1, "feature", retrievalOptions{Source: retrievalSourceFact, IncludeAbstract: true}, false, false, "search"); err == nil || !strings.Contains(err.Error(), "conversation") {
+	if err := retrieve.Run(invalidAbstract.Context(), invalidAbstract, retrieveCommandConfig(opts), "orion", retrieval.ModeLexical, 1, "feature", retrievalOptions{Source: brainstore.RetrievalSourceFact, IncludeAbstract: true}, false, false, "search"); err == nil || !strings.Contains(err.Error(), "conversation") {
 		t.Fatalf("fact abstract error = %v", err)
 	}
 
@@ -152,7 +156,7 @@ func TestRunRetrieveRealFactTextJSONNoResultsAndWriterFailure(t *testing.T) {
 		cmd := &cobra.Command{}
 		var out strings.Builder
 		cmd.SetOut(&out)
-		err := runRetrieve(cmd.Context(), cmd, opts, "orion", modeLexical, 1, "feature", retrievalOptions{Source: retrievalSourceFact}, jsonOut, false, "search")
+		err := retrieve.Run(cmd.Context(), cmd, retrieveCommandConfig(opts), "orion", retrieval.ModeLexical, 1, "feature", retrievalOptions{Source: brainstore.RetrievalSourceFact}, jsonOut, false, "search")
 		if err != nil || !strings.Contains(out.String(), visible.ID) || strings.Contains(out.String(), "HIDDEN-ORION-CANARY") {
 			t.Fatalf("json=%v result contract: err=%v output=%s", jsonOut, err, out.String())
 		}
@@ -161,13 +165,13 @@ func TestRunRetrieveRealFactTextJSONNoResultsAndWriterFailure(t *testing.T) {
 	empty := &cobra.Command{}
 	var emptyOut strings.Builder
 	empty.SetOut(&emptyOut)
-	if err := runRetrieve(empty.Context(), empty, opts, "not-present", modeLexical, 2, "feature", retrievalOptions{Source: retrievalSourceFact}, false, false, "search"); err != nil || !strings.Contains(emptyOut.String(), `no results for "not-present"`) {
+	if err := retrieve.Run(empty.Context(), empty, retrieveCommandConfig(opts), "not-present", retrieval.ModeLexical, 2, "feature", retrievalOptions{Source: brainstore.RetrievalSourceFact}, false, false, "search"); err != nil || !strings.Contains(emptyOut.String(), `no results for "not-present"`) {
 		t.Fatalf("no-results contract: err=%v output=%s", err, emptyOut.String())
 	}
 
 	failing := &cobra.Command{}
 	failing.SetOut(retrieveRegressionFailWriter{})
-	if err := runRetrieve(failing.Context(), failing, opts, "orion", modeLexical, 1, "feature", retrievalOptions{Source: retrievalSourceFact}, true, false, "search"); err == nil || !strings.Contains(err.Error(), "output failure") {
+	if err := retrieve.Run(failing.Context(), failing, retrieveCommandConfig(opts), "orion", retrieval.ModeLexical, 1, "feature", retrievalOptions{Source: brainstore.RetrievalSourceFact}, true, false, "search"); err == nil || !strings.Contains(err.Error(), "output failure") {
 		t.Fatalf("writer error = %v", err)
 	}
 }
@@ -175,13 +179,13 @@ func TestRunRetrieveRealFactTextJSONNoResultsAndWriterFailure(t *testing.T) {
 func TestWorkspaceRetrieveMalformedMemberAndOutputFailure(t *testing.T) {
 	opts, manifest, _ := retrieveRegressionWorkspace(t)
 	badBrain := mustBrainDirForKey(t, opts.Env, manifest.Repos[1].RepoKey)
-	if err := os.WriteFile(filepath.Join(badBrain, exportManifestFileName), []byte("{"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(badBrain, bmanifest.FileName), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cmd := &cobra.Command{}
 	var out strings.Builder
 	cmd.SetOut(&out)
-	err := runWorkspaceRetrieve(cmd, opts, workspaceRetrieveOptions{limit: 2, source: retrievalSourceFact}, modeLexical, manifest.Name, "nebula")
+	err := runWorkspaceRetrieve(cmd, opts, workspaceRetrieveOptions{limit: 2, source: brainstore.RetrievalSourceFact}, retrieval.ModeLexical, manifest.Name, "nebula")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +194,7 @@ func TestWorkspaceRetrieveMalformedMemberAndOutputFailure(t *testing.T) {
 	}
 
 	cmd.SetOut(retrieveRegressionFailWriter{})
-	err = runWorkspaceRetrieve(cmd, opts, workspaceRetrieveOptions{limit: 2, source: retrievalSourceFact, json: true}, modeLexical, manifest.Name, "nebula")
+	err = runWorkspaceRetrieve(cmd, opts, workspaceRetrieveOptions{limit: 2, source: brainstore.RetrievalSourceFact, json: true}, retrieval.ModeLexical, manifest.Name, "nebula")
 	if err == nil || !strings.Contains(err.Error(), "output failure") {
 		t.Fatalf("writer error = %v", err)
 	}
@@ -210,7 +214,7 @@ func TestWorkspaceRetrieveGraphGroupSuccessAndMalformedState(t *testing.T) {
 	cmd := &cobra.Command{}
 	var out strings.Builder
 	cmd.SetOut(&out)
-	if err := runWorkspaceRetrieve(cmd, opts, workspaceRetrieveOptions{limit: 3, json: true, branch: "main"}, modeLexical, manifest.Name, "nebula route"); err != nil {
+	if err := runWorkspaceRetrieve(cmd, opts, workspaceRetrieveOptions{limit: 3, json: true, branch: "main"}, retrieval.ModeLexical, manifest.Name, "nebula route"); err != nil {
 		t.Fatal(err)
 	}
 	graphID := workspace.GraphCrossEdgeID(edge)
@@ -228,7 +232,7 @@ func TestWorkspaceRetrieveGraphGroupSuccessAndMalformedState(t *testing.T) {
 		t.Fatal(err)
 	}
 	out.Reset()
-	if err := runWorkspaceRetrieve(cmd, opts, workspaceRetrieveOptions{limit: 3, json: true, branch: "main"}, modeLexical, manifest.Name, "nebula"); err != nil {
+	if err := runWorkspaceRetrieve(cmd, opts, workspaceRetrieveOptions{limit: 3, json: true, branch: "main"}, retrieval.ModeLexical, manifest.Name, "nebula"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), `"name": "workspace graph"`) || !strings.Contains(out.String(), `"error":`) || !strings.Contains(out.String(), "nebula alpha public record") {
@@ -253,7 +257,7 @@ func TestWorkspaceRetrieveMultiConceptJSONAndTextProofs(t *testing.T) {
 	}
 	opts := Options{Version: "test", Env: env, Now: func() time.Time { return time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC) }}
 	retrieveOpts := workspaceRetrieveOptions{
-		limit: 10, source: retrievalSourceConversation,
+		limit: 10, source: brainstore.RetrievalSourceConversation,
 		concepts: []string{"beta cache eviction", "gamma flag"}, includeAbstract: true,
 	}
 	for _, jsonOut := range []bool{false, true} {
@@ -261,7 +265,7 @@ func TestWorkspaceRetrieveMultiConceptJSONAndTextProofs(t *testing.T) {
 		var out strings.Builder
 		cmd.SetOut(&out)
 		retrieveOpts.json = jsonOut
-		if err := runWorkspaceRetrieve(cmd, opts, retrieveOpts, modeLexical, manifest.Name, "alpha rollout"); err != nil {
+		if err := runWorkspaceRetrieve(cmd, opts, retrieveOpts, retrieval.ModeLexical, manifest.Name, "alpha rollout"); err != nil {
 			t.Fatalf("json=%v: %v", jsonOut, err)
 		}
 		got := out.String()
@@ -285,13 +289,13 @@ func TestWorkspaceRetrieveMultiConceptJSONAndTextProofs(t *testing.T) {
 func TestWorkspaceRetrieveCorruptMemberCorpusIsReported(t *testing.T) {
 	opts, manifest, ids := retrieveRegressionWorkspace(t)
 	badBrain := mustBrainDirForKey(t, opts.Env, manifest.Repos[1].RepoKey)
-	if err := os.WriteFile(filepath.Join(badBrain, filepath.FromSlash(factsFileRelPath("main"))), []byte("{broken\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(badBrain, filepath.FromSlash(factstore.FileRelPath("main"))), []byte("{broken\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cmd := &cobra.Command{}
 	var out strings.Builder
 	cmd.SetOut(&out)
-	if err := runWorkspaceRetrieve(cmd, opts, workspaceRetrieveOptions{limit: 3, source: retrievalSourceFact, branch: "main"}, modeLexical, manifest.Name, "nebula"); err != nil {
+	if err := runWorkspaceRetrieve(cmd, opts, workspaceRetrieveOptions{limit: 3, source: brainstore.RetrievalSourceFact, branch: "main"}, retrieval.ModeLexical, manifest.Name, "nebula"); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), manifest.Repos[0].RepoKey+"/"+ids[manifest.Repos[0].RepoKey]) || !strings.Contains(out.String(), manifest.Repos[1].RepoKey+" error ") || !strings.Contains(out.String(), "facts.ndjson") {
@@ -304,14 +308,14 @@ func TestWorkspaceRetrieveLimitTruncatesEachMember(t *testing.T) {
 	secondIDs := map[string]string{}
 	for _, repo := range manifest.Repos {
 		dir := mustBrainDirForKey(t, opts.Env, repo.RepoKey)
-		facts, err := loadFacts(dir, "main")
+		facts, err := factstore.Load(dir, "main")
 		if err != nil {
 			t.Fatal(err)
 		}
 		second := factFor(t, "nebula companion public record "+repo.Name, []string{"architecture.retrieval.contract"}, opts.Now())
 		second.Branch = "main"
 		secondIDs[repo.RepoKey] = second.ID
-		if err := writeFacts(dir, "main", append(facts, second)); err != nil {
+		if err := factstore.Write(dir, "main", append(facts, second)); err != nil {
 			t.Fatal(err)
 		}
 	}

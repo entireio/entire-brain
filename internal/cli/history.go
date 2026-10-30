@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -23,14 +22,12 @@ import (
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
 const (
-	historyIndexFileName     = "index.json"
-	historyIndexPath         = brainstore.HistoryDirName + "/" + historyIndexFileName
-	historyGenerationsDir    = brainstore.HistoryDirName + "/generations"
-	historyStagingDir        = brainstore.HistoryDirName + "/staging"
 	historyScanCacheFileName = "scan-cache.json.gz"
 	historyScanCachePath     = brainstore.HistoryDirName + "/" + historyScanCacheFileName
 	historyMaxLineBytes      = 1024 * 1024
@@ -69,100 +66,15 @@ const (
 	// would silently keep that lineage's behavior, so both are invalidated.
 	// v10: admit all transcript JSON for authoritative extraction and include
 	// wrapper-filtered user requests from document transcripts.
-	historyScanCacheVersion = 10
+	// v11: read the compact (Entire Transcript Format) dialect, whose records
+	// carry their content blocks at the record's top level. A v10 cache was
+	// filled by a scanner that saw no requests, no assistant narrative and no
+	// exchanges in a default (compact) export, and the content digest is the
+	// sole reuse authority — unchanged transcripts would keep those empty
+	// results forever, so an upgraded brain would never recover its history
+	// without a manual rebuild (COR-2289).
+	historyScanCacheVersion = 11
 )
-
-type historySourceManifest struct {
-	GeneratedAt time.Time `json:"generated_at"`
-	IndexPath   string    `json:"index_path"`
-	// IndexBytes/IndexSHA256/RecordsFingerprint let a reader rank straight from
-	// the FTS payload table without loading index.json, and give the FTS
-	// freshness check an O(1) key.
-	IndexBytes             int64  `json:"index_bytes,omitempty"`
-	IndexSHA256            string `json:"index_sha256,omitempty"`
-	RecordsFingerprint     string `json:"records_fingerprint,omitempty"`
-	TranscriptsFingerprint string `json:"transcripts_fingerprint,omitempty"`
-	// IndexDigest commits the exact bounded index bytes selected by IndexPath.
-	// It is optional only for manifests written before generation integrity was
-	// introduced; every new projection publishes it with the manifest-last
-	// commit so readers can distinguish legacy from corrupt state.
-	IndexDigest string `json:"index_digest,omitempty"`
-	// PrivacyIdentity binds this generation to the exact tombstone bytes used
-	// while building it. Vector backfill refuses to consume an index whose
-	// privacy epoch is not the current one.
-	PrivacyIdentity     string `json:"privacy_identity,omitempty"`
-	SessionsFingerprint string `json:"sessions_fingerprint,omitempty"`
-	Records             int    `json:"records"`
-	Decisions           int    `json:"decisions"`
-	Learnings           int    `json:"learnings"`
-	Validations         int    `json:"validations"`
-	ToolCalls           int    `json:"tool_calls"`
-	CodeFacts           int    `json:"code_facts"`
-	Exchanges           int    `json:"exchanges,omitempty"`
-	IncompleteExchanges int    `json:"incomplete_exchanges,omitempty"`
-	// ExcludedSessions counts tombstoned sessions skipped before derived
-	// indexing (their content is never retained; see session_privacy.go).
-	ExcludedSessions int      `json:"excluded_sessions,omitempty"`
-	Warnings         []string `json:"warnings,omitempty"`
-	// ProjectionStatePath/Digest publish the projection receipt file; the
-	// manifest's atomic replacement is the commit point, so an interruption
-	// before it leaves readers on the previous receipt set.
-	ProjectionStatePath   string `json:"projection_state_path,omitempty"`
-	ProjectionStateDigest string `json:"projection_state_digest,omitempty"`
-}
-
-type historyIndex struct {
-	GeneratedAt time.Time       `json:"generated_at"`
-	Records     []historyRecord `json:"records"`
-	Warnings    []string        `json:"warnings,omitempty"`
-	// storageIdentity is the manifest-addressed immutable generation path when
-	// this index was loaded from one. It is not serialized into the index; local
-	// accelerators use it to distinguish equal-time/equal-count generations.
-	storageIdentity string
-	// contentIdentity hashes the bounded bytes read from disk. It detects local
-	// corruption/tampering within an otherwise immutable generation path.
-	contentIdentity string
-	// recordsFingerprint is populated after build/load validation so the FTS
-	// freshness check stays O(1). Any caller that replaces Records must clear it.
-	recordsFingerprint string
-}
-
-type historyRecord struct {
-	ID      string   `json:"id"`
-	Kind    string   `json:"kind"`
-	Branch  string   `json:"branch,omitempty"`
-	Path    string   `json:"path"`
-	Line    int      `json:"line"`
-	Summary string   `json:"summary"`
-	Terms   []string `json:"terms,omitempty"`
-
-	// Experimental conversation-exchange extension (kind "exchange", see
-	// conversation.go). All fields are additive and omitted for classic
-	// records, so the established history JSON is byte-identical for them.
-	// Summary holds the bounded deterministic search projection; the only
-	// conversation body stored in the index; full text lives only in the
-	// exported transcript and is re-parsed by get.
-	SessionID   string `json:"session_id,omitempty"`
-	Agent       string `json:"agent,omitempty"`
-	CreatedAt   string `json:"created_at,omitempty"` // RFC3339 session time
-	EndLine     int    `json:"end_line,omitempty"`   // inclusive 1-based range end
-	TurnOrdinal int    `json:"turn_ordinal,omitempty"`
-	// RangeIncomplete is set when the exact source range could not be proven
-	// (range_complete=false in the contract; inverted so omitempty works).
-	RangeIncomplete     bool     `json:"range_incomplete,omitempty"`
-	ContentRole         string   `json:"content_role,omitempty"` // "historical_evidence"
-	ProjectionTruncated bool     `json:"projection_truncated,omitempty"`
-	SourceDigest        string   `json:"source_digest,omitempty"` // transcript digest at extraction
-	RequestDigest       string   `json:"request_digest,omitempty"`
-	IdentityDegraded    bool     `json:"identity_degraded,omitempty"`
-	ToolNames           []string `json:"tool_names,omitempty"`
-}
-
-type scoredHistoryRecord struct {
-	Record historyRecord
-	Score  int
-	Order  int
-}
 
 type historyFragment struct {
 	Text   string
@@ -383,10 +295,10 @@ func prepareBrainHistoryProjectionContext(ctx context.Context, outputDir string,
 	_, _ = generationHash.Write(indexData)
 	_, _ = generationHash.Write(receiptData)
 	generation := hex.EncodeToString(generationHash.Sum(nil))[:40]
-	indexPath := historyGenerationArtifactPath(generation, historyIndexFileName)
-	receiptPath := historyGenerationArtifactPath(generation, projectionStateFileName)
-	stagingDir := filepath.ToSlash(filepath.Join(historyStagingDir, generation))
-	stagedIndexPath := filepath.ToSlash(filepath.Join(stagingDir, historyIndexFileName))
+	indexPath := historystore.GenerationArtifactPath(generation, historystore.IndexFileName)
+	receiptPath := historystore.GenerationArtifactPath(generation, projectionStateFileName)
+	stagingDir := filepath.ToSlash(filepath.Join(historystore.StagingDir, generation))
+	stagedIndexPath := filepath.ToSlash(filepath.Join(stagingDir, historystore.IndexFileName))
 	stagedReceiptPath := filepath.ToSlash(filepath.Join(stagingDir, projectionStateFileName))
 	if err := historyProjectionWriteFile(outputDir, stagedIndexPath, indexData, 0o600); err != nil {
 		return nil, fmt.Errorf("stage history index: %w", err)
@@ -405,9 +317,9 @@ func prepareBrainHistoryProjectionContext(ctx context.Context, outputDir string,
 	// the generation-addressed path silently degraded every one of those to the
 	// slow path.
 	source.IndexBytes = int64(len(indexData))
-	source.IndexSHA256 = historyIndexBytesFingerprint(indexData)
-	source.RecordsFingerprint = historyRecordsFingerprint(index.Records)
-	index.recordsFingerprint = source.RecordsFingerprint
+	source.IndexSHA256 = historystore.IndexBytesFingerprint(indexData)
+	source.RecordsFingerprint = historystore.RecordsFingerprint(index.Records)
+	index.RecordsFingerprint = source.RecordsFingerprint
 	source.ProjectionStatePath = receiptPath
 	source.ProjectionStateDigest = receiptDigest
 	return &preparedHistoryProjection{
@@ -441,7 +353,7 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 	if !current.sameMetadata(prepared.identity) {
 		return nil, errors.New("memory_source_stale: sessions, privacy state, or short-term overlay changed before history commit")
 	}
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		return nil, err
 	}
@@ -480,7 +392,7 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 	if !current.sameMetadata(prepared.identity) {
 		return nil, errors.New("memory_source_stale: sessions, privacy state, or short-term overlay changed at history commit")
 	}
-	normalizeBrainManifest(manifest)
+	bmanifest.Normalize(manifest)
 	// Normalization may fill default fields on the canonical sessions source.
 	// Publish the fingerprint of the exact normalized source written below so
 	// checked receipt readers do not mistake our own commit for source drift.
@@ -488,10 +400,10 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 		manifest.Sources.History.SessionsFingerprint = sessionSourceFingerprint(manifest.Sources.Sessions)
 		source = *manifest.Sources.History
 	}
-	manifest.SchemaVersion = brainManifestSchemaVersion
+	manifest.SchemaVersion = bmanifest.SchemaVersion
 	manifestData, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
-		return nil, fmt.Errorf("encode %s: %w", exportManifestFileName, err)
+		return nil, fmt.Errorf("encode %s: %w", bmanifest.FileName, err)
 	}
 	if err := promotePreparedHistoryProjection(outputDir, prepared); err != nil {
 		return nil, err
@@ -504,12 +416,12 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 		// The strict reader is what makes that refusal happen: the bytes below
 		// are marshalled from a struct, so a field it could not name would be
 		// erased here.
-		if _, err := loadBrainManifestForReplace(outputDir); err != nil {
+		if _, err := bmanifest.LoadForReplace(outputDir); err != nil {
 			return err
 		}
-		return historyProjectionWriteFile(outputDir, exportManifestFileName, append(manifestData, '\n'), 0o600)
+		return historyProjectionWriteFile(outputDir, bmanifest.FileName, append(manifestData, '\n'), 0o600)
 	}); err != nil {
-		return nil, fmt.Errorf("write %s: %w", exportManifestFileName, err)
+		return nil, fmt.Errorf("write %s: %w", bmanifest.FileName, err)
 	}
 	committed = true
 	// README is descriptive, not a projection pointer. Refresh it best-effort
@@ -560,24 +472,24 @@ func promotePreparedHistoryProjection(outputDir string, prepared *preparedHistor
 	if prepared == nil || prepared.stagingDir == "" || prepared.generation == "" {
 		return errors.New("history projection staging identity is missing")
 	}
-	if !validHistoryGenerationArtifactPath(prepared.indexPath, historyIndexFileName) ||
-		!validHistoryGenerationArtifactPath(prepared.receiptPath, projectionStateFileName) {
+	if !historystore.ValidGenerationArtifactPath(prepared.indexPath, historystore.IndexFileName) ||
+		!historystore.ValidGenerationArtifactPath(prepared.receiptPath, projectionStateFileName) {
 		return errors.New("history projection generation path is invalid")
 	}
 	if err := recoverHistoryProjectionQuarantines(outputDir); err != nil {
 		return fmt.Errorf("recover interrupted history projection cleanup: %w", err)
 	}
-	finalRel := filepath.ToSlash(filepath.Join(historyGenerationsDir, prepared.generation))
-	wantStagingRel := filepath.ToSlash(filepath.Join(historyStagingDir, prepared.generation))
+	finalRel := filepath.ToSlash(filepath.Join(historystore.GenerationsDir, prepared.generation))
+	wantStagingRel := filepath.ToSlash(filepath.Join(historystore.StagingDir, prepared.generation))
 	if prepared.stagingDir != wantStagingRel || !validHistoryProjectionDirectoryPath(prepared.stagingDir) || !validHistoryProjectionDirectoryPath(finalRel) {
 		return errors.New("history projection directory path is invalid")
 	}
 	staging := filepath.Join(outputDir, filepath.FromSlash(prepared.stagingDir))
 	final := filepath.Join(outputDir, filepath.FromSlash(finalRel))
-	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, historyStagingDir); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, historystore.StagingDir); err != nil {
 		return err
 	}
-	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, historyGenerationsDir); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, historystore.GenerationsDir); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(final), 0o700); err != nil {
@@ -590,7 +502,7 @@ func promotePreparedHistoryProjection(outputDir string, prepared *preparedHistor
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 			return fmt.Errorf("history projection generation must be an exact directory, not a symlink or special file: %s", finalRel)
 		}
-		manifest, manifestErr := loadBrainManifest(outputDir)
+		manifest, manifestErr := bmanifest.Load(outputDir)
 		if manifestErr != nil {
 			return manifestErr
 		}
@@ -598,7 +510,7 @@ func promotePreparedHistoryProjection(outputDir string, prepared *preparedHistor
 			currentSource := manifest.Sources.History
 			referencesFinal := filepath.ToSlash(currentSource.IndexPath) == prepared.indexPath || filepath.ToSlash(currentSource.ProjectionStatePath) == prepared.receiptPath
 			if referencesFinal {
-				if _, indexErr := loadBrainHistoryIndex(outputDir, currentSource); indexErr != nil {
+				if _, indexErr := historystore.LoadIndex(outputDir, currentSource); indexErr != nil {
 					return fmt.Errorf("current history generation is unreadable and was left untouched: %w", indexErr)
 				}
 				if _, receiptState, receiptErr := loadProjectionStateChecked(outputDir, currentSource); receiptState != projectionStateCurrent {
@@ -645,12 +557,12 @@ func discardPreparedHistoryProjection(outputDir string, prepared *preparedHistor
 	if err := removeHistoryProjectionDirectory(outputDir, prepared.stagingDir); err != nil {
 		cleanupErr = err
 	}
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err == nil && manifest.Sources != nil && manifest.Sources.History != nil &&
 		filepath.ToSlash(manifest.Sources.History.IndexPath) == prepared.indexPath {
 		return cleanupErr
 	}
-	finalRel := filepath.ToSlash(filepath.Join(historyGenerationsDir, prepared.generation))
+	finalRel := filepath.ToSlash(filepath.Join(historystore.GenerationsDir, prepared.generation))
 	if err := removeHistoryProjectionDirectory(outputDir, finalRel); err != nil && cleanupErr == nil {
 		cleanupErr = err
 	}
@@ -658,7 +570,7 @@ func discardPreparedHistoryProjection(outputDir string, prepared *preparedHistor
 }
 
 func pruneInactiveHistoryGenerations(outputDir string) {
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil || manifest.Sources == nil || manifest.Sources.History == nil {
 		return
 	}
@@ -672,8 +584,8 @@ func pruneInactiveHistoryGenerations(outputDir string) {
 	}
 	active := filepath.ToSlash(strings.TrimSpace(manifest.Sources.History.IndexPath))
 	activeReceipt := filepath.ToSlash(strings.TrimSpace(manifest.Sources.History.ProjectionStatePath))
-	if active != historyIndexPath {
-		_ = os.Remove(filepath.Join(outputDir, filepath.FromSlash(historyIndexPath)))
+	if active != historystore.IndexPath {
+		_ = os.Remove(filepath.Join(outputDir, filepath.FromSlash(historystore.IndexPath)))
 	}
 	if activeReceipt != projectionStateRel {
 		legacyReceipt := filepath.Join(outputDir, filepath.FromSlash(projectionStateRel))
@@ -683,24 +595,24 @@ func pruneInactiveHistoryGenerations(outputDir string) {
 		}
 	}
 	activeParts := strings.Split(active, "/")
-	if len(activeParts) != 4 || !validHistoryGenerationArtifactPath(active, historyIndexFileName) {
+	if len(activeParts) != 4 || !historystore.ValidGenerationArtifactPath(active, historystore.IndexFileName) {
 		return
 	}
-	if err := rejectSymlinkPathComponents(outputDir, historyGenerationsDir); err != nil {
+	if err := clibase.RejectSymlinkPathComponents(outputDir, historystore.GenerationsDir); err != nil {
 		return
 	}
-	directory, err := brainstore.ReadMemoryStateDirectory(outputDir, historyGenerationsDir, "history generation directory", brainstore.MemoryStateInventoryMaxEntries)
+	directory, err := brainstore.ReadMemoryStateDirectory(outputDir, historystore.GenerationsDir, "history generation directory", brainstore.MemoryStateInventoryMaxEntries)
 	if err != nil || directory.Truncated {
 		return
 	}
 	entries := directory.Entries
 	for _, entry := range entries {
 		generation := entry.Name()
-		candidateIndex := historyGenerationArtifactPath(generation, historyIndexFileName)
-		if generation == activeParts[2] || !validHistoryGenerationArtifactPath(candidateIndex, historyIndexFileName) {
+		candidateIndex := historystore.GenerationArtifactPath(generation, historystore.IndexFileName)
+		if generation == activeParts[2] || !historystore.ValidGenerationArtifactPath(candidateIndex, historystore.IndexFileName) {
 			continue
 		}
-		dirRel := filepath.ToSlash(filepath.Join(historyGenerationsDir, generation))
+		dirRel := filepath.ToSlash(filepath.Join(historystore.GenerationsDir, generation))
 		dir := filepath.Join(outputDir, filepath.FromSlash(dirRel))
 		if err := validateHistoryProjectionDirectory(outputDir, dirRel, false); err != nil {
 			continue
@@ -801,7 +713,7 @@ func inspectHistoryProjectionDirectory(abs, display string, requireComplete bool
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		name := entry.Name()
-		if name != historyIndexFileName && name != projectionStateFileName {
+		if name != historystore.IndexFileName && name != projectionStateFileName {
 			return nil, nil, fmt.Errorf("history projection directory contains unknown entry %q: %s", name, display)
 		}
 		childInfo, err := entry.Info()
@@ -814,7 +726,7 @@ func inspectHistoryProjectionDirectory(abs, display string, requireComplete bool
 		found[name] = true
 		names = append(names, name)
 	}
-	if requireComplete && (!found[historyIndexFileName] || !found[projectionStateFileName]) {
+	if requireComplete && (!found[historystore.IndexFileName] || !found[projectionStateFileName]) {
 		return nil, nil, fmt.Errorf("history projection directory is incomplete: %s", display)
 	}
 	current, err := os.Lstat(abs)
@@ -931,7 +843,7 @@ func removeKnownHistoryProjectionContents(abs, display string, expected os.FileI
 // restored; every other valid quarantine is deleted through the same closed
 // two-file remover. Invalid or unknown contents fail closed.
 func recoverHistoryProjectionQuarantines(outputDir string) error {
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		return err
 	}
@@ -941,14 +853,14 @@ func recoverHistoryProjectionQuarantines(outputDir string) error {
 		for _, artifact := range []struct {
 			path string
 			name string
-		}{{source.IndexPath, historyIndexFileName}, {source.ProjectionStatePath, projectionStateFileName}} {
+		}{{source.IndexPath, historystore.IndexFileName}, {source.ProjectionStatePath, projectionStateFileName}} {
 			path := filepath.ToSlash(strings.TrimSpace(artifact.path))
-			if validHistoryGenerationArtifactPath(path, artifact.name) {
+			if historystore.ValidGenerationArtifactPath(path, artifact.name) {
 				active[filepath.ToSlash(filepath.Dir(path))] = true
 			}
 		}
 	}
-	for _, rootRel := range []string{historyGenerationsDir, historyStagingDir} {
+	for _, rootRel := range []string{historystore.GenerationsDir, historystore.StagingDir} {
 		directory, err := brainstore.ReadMemoryStateDirectory(outputDir, rootRel, "history projection root", brainstore.MemoryStateInventoryMaxEntries)
 		if err != nil {
 			return err
@@ -1005,10 +917,6 @@ func recoverHistoryProjectionQuarantines(outputDir string) error {
 	return nil
 }
 
-func historyGenerationArtifactPath(generation, name string) string {
-	return filepath.ToSlash(filepath.Join(historyGenerationsDir, generation, name))
-}
-
 func captureHistoryProjectionIdentity(outputDir string) (historyProjectionIdentity, *exportManifest, sessionTombstones, error) {
 	return captureHistoryProjectionIdentityContext(context.Background(), outputDir)
 }
@@ -1034,7 +942,7 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		return historyProjectionIdentity{}, nil, sessionTombstones{}, err
 	}
@@ -1136,36 +1044,8 @@ func historyProjectionFileIdentity(outputDir, rel string, limit int64) (string, 
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-// historyRecordsFingerprint is the content identity shared by history/index.json
-// and its derived indexes. It covers every record field in stable record order,
-// while deliberately excluding generation time and warnings: neither changes
-// retrieval content. Empty and nil term slices have the same JSON representation
-// in index.json (omitempty), so canonicalize them to the same identity here too.
-func historyRecordsFingerprint(records []historyRecord) string {
-	h := sha256.New()
-	_, _ = io.WriteString(h, "entire-brain/history-records/v1\x00")
-	_, _ = io.WriteString(h, strconv.Itoa(len(records))+"\x00")
-	for _, record := range records {
-		if len(record.Terms) == 0 {
-			record.Terms = nil
-		}
-		data, err := json.Marshal(record)
-		if err != nil {
-			return ""
-		}
-		_, _ = io.WriteString(h, strconv.Itoa(len(data))+":")
-		_, _ = h.Write(data)
-	}
-	return "sha256:" + hex.EncodeToString(h.Sum(nil))
-}
-
-func historyIndexBytesFingerprint(data []byte) string {
-	sum := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
 func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyIndexProgress) (historyIndex, *historySourceManifest, error) {
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		return historyIndex{}, nil, err
 	}
@@ -1360,7 +1240,7 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 	transcriptsFingerprint := historyTranscriptFilesFingerprint(fingerprintedFiles)
 	source := &historySourceManifest{
 		GeneratedAt:            now,
-		IndexPath:              historyIndexPath,
+		IndexPath:              historystore.IndexPath,
 		TranscriptsFingerprint: transcriptsFingerprint,
 		SessionsFingerprint: func() string {
 			if manifest == nil {
@@ -1852,7 +1732,7 @@ func encodeHistoryScanCache(cache historyScanCache) ([]byte, error) {
 const sessionSourceFingerprintAbsent = "absent"
 
 func brainSessionsFingerprint(outputDir string) string {
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		// The manifest itself is unreadable, so the current source cannot be
 		// named at all. Unknown, which is not the same as absent.
@@ -2289,11 +2169,12 @@ func extractClaudeToolResultFragments(obj map[string]any) []historyFragment {
 }
 
 func extractClaudeMessageFragments(obj map[string]any, role string) []historyFragment {
-	message := jsonMap(obj["message"])
-	if len(message) == 0 {
-		return nil
+	if message := jsonMap(obj["message"]); len(message) > 0 {
+		return extractContentFragments(message["content"], role+"_message")
 	}
-	return extractContentFragments(message["content"], role+"_message")
+	// ETF compact records carry the content blocks at the record's top level
+	// (see distillConversationText).
+	return extractContentFragments(obj["content"], role+"_message")
 }
 
 func extractContentFragments(content any, source string) []historyFragment {
@@ -2995,7 +2876,7 @@ func historyQueryTerms(query string) []string {
 	seen := map[string]struct{}{}
 	var terms []string
 	for _, term := range strings.Fields(normalized) {
-		if historyQueryStopword(term) {
+		if brainstore.QueryStopword(term) {
 			continue
 		}
 		if len(term) < 3 && !historyShortQueryTerm(term) {
@@ -3047,7 +2928,7 @@ func historyIdentifierQueryTerms(query string) []string {
 		if !strings.Contains(upper, "_") && !historyIdentifierLike(candidate) {
 			continue
 		}
-		if historyQueryStopword(strings.ToLower(upper)) {
+		if brainstore.QueryStopword(strings.ToLower(upper)) {
 			continue
 		}
 		if _, ok := seen[upper]; ok {
@@ -3098,231 +2979,6 @@ func historyShortQueryTerm(term string) bool {
 	}
 }
 
-// genericQueryStopwords are generic English fillers and generic task verbs with
-// no retrieval signal. It is the SINGLE source of truth shared by every query
-// tokenizer in the package — history/semantic specialist search
-// (historyQueryStopword) and brain-brief filename matching
-// (brainBriefFileMatchTerms) — so the common list never drifts between the two.
-// Each call site layers only its own domain-specific noise words on top; those
-// legitimately differ (e.g. "regression"/"preserve" are noise for free-text
-// history search but valid filename-match terms like regression.go for brief).
-var genericQueryStopwords = map[string]bool{
-	"and": true, "are": true, "but": true, "can": true,
-	"did": true, "does": true, "fix": true, "for": true, "from": true,
-	"has": true, "have": true, "how": true, "into": true, "its": true,
-	"make": true, "must": true, "need": true, "new": true, "not": true,
-	"run": true, "runs": true, "should": true, "than": true, "that": true,
-	"the": true, "then": true, "this": true, "use": true, "via": true,
-	"want": true, "what": true, "when": true, "where": true, "which": true,
-	"why": true, "with": true, "would": true,
-}
-
-func historyQueryStopword(term string) bool {
-	if genericQueryStopwords[term] {
-		return true
-	}
-	// History/semantic-search-specific noise words layered on the generic set:
-	// natural-language filler plus domain verbs/nouns ("regression", "preserve",
-	// "restore", ...) that carry no signal for a free-text record search.
-	switch term {
-	case "a", "an", "as", "at", "be", "been", "by", "current", "do",
-		"during", "existing", "in", "is", "it", "keep", "local", "of", "on",
-		"only", "or", "other", "previous", "prior", "preserve", "regression",
-		"restore", "same", "task", "to", "without":
-		return true
-	case "behavior", "entire", "fresh", "parent", "setting", "value", "values":
-		return true
-	case "done", "over", "instead", "we", "our", "could", "about":
-		return true
-	default:
-		return false
-	}
-}
-
-func loadBrainHistoryIndex(brainDir string, source *historySourceManifest) (historyIndex, error) {
-	index, err := loadBrainHistoryIndexOnce(brainDir, source)
-	if err == nil || source == nil || !validHistoryGenerationArtifactPath(source.IndexPath, historyIndexFileName) {
-		return index, err
-	}
-
-	// A reader may have loaded the previous manifest immediately before a
-	// writer committed and pruned that generation. Resolve the manifest again
-	// and retry once only when it names a different index. A corrupt current
-	// generation is never hidden by this race recovery path.
-	manifest, manifestErr := loadBrainManifest(brainDir)
-	if manifestErr != nil || manifest.Sources == nil || manifest.Sources.History == nil {
-		return historyIndex{}, err
-	}
-	current := manifest.Sources.History
-	if current.IndexPath == source.IndexPath {
-		return historyIndex{}, err
-	}
-	retried, retryErr := loadBrainHistoryIndexOnce(brainDir, current)
-	if retryErr != nil {
-		return historyIndex{}, fmt.Errorf("history generation changed while reading; current generation is also unreadable: %w", retryErr)
-	}
-	return retried, nil
-}
-
-// readBrainHistoryIndexBytes performs the hardened read: canonical path, no
-// symlinked components, regular file, no open-alias, bounded read, and (for a
-// generation-addressed source) the manifest content digest. It returns the
-// exact bytes that were verified so hashing and parsing can never straddle two
-// generations.
-func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) ([]byte, string, bool, error) {
-	if source == nil || source.IndexPath == "" {
-		return nil, "", false, errors.New("history index missing; run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + "`")
-	}
-	generationAddressed := validHistoryGenerationArtifactPath(source.IndexPath, historyIndexFileName)
-	if generationAddressed && source.IndexDigest == "" {
-		return nil, "", false, fmt.Errorf("%s: generation-addressed history index is missing its manifest content digest; run `"+clibase.BrainInvocation(os.LookupEnv, "refresh")+"`", brainstore.MigrationRequiredCode)
-	}
-	clean, err := validateHistoryIndexPath(source.IndexPath)
-	if err != nil {
-		return nil, "", false, err
-	}
-	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
-		return nil, "", false, historyIndexReadError(source, err)
-	}
-	path := filepath.Join(brainDir, clean)
-	info, err := os.Lstat(path)
-	if err != nil {
-		return nil, "", false, historyIndexReadError(source, err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return nil, "", false, fmt.Errorf("%s: history index must be a regular file and must not be a symlink: %s", brainstore.StateCorruptCode, source.IndexPath)
-	}
-	f, err := os.OpenFile(path, os.O_RDONLY|clibase.FileLockOpenFlags()|clibase.MemoryStateReadOpenFlags(), 0)
-	if err != nil {
-		return nil, "", false, err
-	}
-	defer f.Close()
-	if err := clibase.RejectOpenFileAlias(path, f, "history index"); err != nil {
-		return nil, "", false, fmt.Errorf("%s: %w", brainstore.StateCorruptCode, historyHardlinkRepairHint(err))
-	}
-	data, err := clibase.SafeReadAll(f, clibase.SemanticSnapshotMaxBytes(), path)
-	if err != nil {
-		return nil, "", false, err
-	}
-	contentSum := sha256.Sum256(data)
-	contentDigest := "sha256:" + hex.EncodeToString(contentSum[:])
-	if source.IndexDigest != "" {
-		if !validSHA256Identity(source.IndexDigest) {
-			return nil, "", false, fmt.Errorf("%s: history index digest in manifest is invalid", brainstore.StateCorruptCode)
-		}
-		if source.IndexDigest != contentDigest {
-			return nil, "", false, fmt.Errorf("%s: history index digest does not match the manifest commit", brainstore.StateCorruptCode)
-		}
-	}
-	return data, contentDigest, generationAddressed, nil
-}
-
-// historyIndexReadError names the one condition the hardened read path could
-// otherwise only express as a raw filesystem error.
-//
-// The guard lstats every path component, so deleting the brain's history/
-// directory surfaced as `load history index: lstat <brainDir>/history: no such
-// file or directory` — an internal path, no condition, no remedy. The nil-source
-// case three lines above already says "history index missing; run `entire brain
-// refresh`"; a DECLARED index that is not on disk is the same sentence with the
-// artifact named. Every other failure keeps its own words.
-func historyIndexReadError(source *historySourceManifest, err error) error {
-	if errors.Is(err, clibase.ErrFileHardlinked) {
-		return historyHardlinkRepairHint(err)
-	}
-	if !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	return declaredIndexDefect{Source: declaredIndexHistory, Path: source.IndexPath, Absent: true, Err: err}
-}
-
-// historyHardlinkRepairHint names the remedy for an externally hardlinked
-// history artifact. Backup and bench tooling hardlink-copies state trees, the
-// nlink>1 guard then refuses every read, and that silently drops history
-// context from every brief, recall, and query. The canonical sessions are
-// untouched, so one deterministic rebuild is always the fix.
-func historyHardlinkRepairHint(err error) error {
-	if err == nil || !errors.Is(err, clibase.ErrFileHardlinked) {
-		return err
-	}
-	return fmt.Errorf("%w — history context is dropped from briefs and recall until the projection is rebuilt; run `%s`", err, clibase.BrainInvocation(os.LookupEnv, "memory repair"))
-}
-
-func loadBrainHistoryIndexOnce(brainDir string, source *historySourceManifest) (historyIndex, error) {
-	data, contentDigest, generationAddressed, err := readBrainHistoryIndexBytes(brainDir, source)
-	if err != nil {
-		return historyIndex{}, err
-	}
-	index, err := decodeBrainHistoryIndex(data, source)
-	if err != nil {
-		return historyIndex{}, err
-	}
-	index.contentIdentity = contentDigest
-	if generationAddressed {
-		index.storageIdentity = source.IndexPath
-	}
-	return index, nil
-}
-
-// loadBrainHistoryIndexWithLegacyIdentity returns the same verified index as
-// loadBrainHistoryIndex plus an optional identity upgrade derived from the
-// exact byte slice that was parsed. Older manifests predate the strong source
-// identity fields required by direct FTS hydration. Keeping hashing and parsing
-// on one immutable slice prevents a path replacement from producing a hash of
-// generation A and parsed records from generation B.
-func loadBrainHistoryIndexWithLegacyIdentity(brainDir string, source *historySourceManifest) (historyIndex, *historyLegacyIdentity, error) {
-	data, contentDigest, generationAddressed, err := readBrainHistoryIndexBytes(brainDir, source)
-	if err != nil {
-		return historyIndex{}, nil, err
-	}
-	index, err := decodeBrainHistoryIndex(data, source)
-	if err != nil {
-		return historyIndex{}, nil, err
-	}
-	index.contentIdentity = contentDigest
-	if generationAddressed {
-		index.storageIdentity = source.IndexPath
-	}
-	legacyIdentity := deriveHistoryLegacyIdentity(source, data, index)
-	if legacyIdentity != nil {
-		// The direct/index-backed FTS freshness check consumes this private
-		// identity. It is derived from the parsed truth, not trusted from a
-		// legacy manifest, and avoids recomputing it later in this same request.
-		index.recordsFingerprint = legacyIdentity.RecordsFingerprint
-	}
-	return index, legacyIdentity, nil
-}
-
-func decodeBrainHistoryIndex(data []byte, source *historySourceManifest) (historyIndex, error) {
-	if source.IndexBytes > 0 && int64(len(data)) != source.IndexBytes {
-		return historyIndex{}, fmt.Errorf("history index size mismatch: got %d bytes, manifest declares %d; run `"+clibase.BrainInvocation(os.LookupEnv, "refresh history")+"` to rebuild it", len(data), source.IndexBytes)
-	}
-	if source.IndexSHA256 != "" && historyIndexBytesFingerprint(data) != source.IndexSHA256 {
-		return historyIndex{}, errors.New("history index checksum does not match manifest")
-	}
-	var index historyIndex
-	if err := json.Unmarshal(data, &index); err != nil {
-		return historyIndex{}, fmt.Errorf("%s: decode history index: %w", brainstore.StateCorruptCode, err)
-	}
-	if source.RecordsFingerprint != "" {
-		if !validHistorySHA256(source.RecordsFingerprint) {
-			return historyIndex{}, errors.New("history records fingerprint is invalid")
-		}
-		if len(index.Records) != source.Records {
-			return historyIndex{}, fmt.Errorf("history record count mismatch: got %d, manifest declares %d", len(index.Records), source.Records)
-		}
-		if !source.GeneratedAt.IsZero() && !index.GeneratedAt.Equal(source.GeneratedAt) {
-			return historyIndex{}, errors.New("history index generation does not match manifest")
-		}
-		// IndexSHA256 binds the exact serialized record set to this manifest.
-		// Recomputing the canonical per-record hash here would marshal hundreds
-		// of thousands of records on every semantic/get path; the exact byte
-		// checksum above already provides the integrity check we need.
-		index.recordsFingerprint = source.RecordsFingerprint
-	}
-	return index, nil
-}
-
 // historyTranscriptFilesFingerprint commits the exact transcript set an index
 // was built from. It consumes the content digest each file already carries from
 // its single verified read, so recomputing it never re-hashes the corpus.
@@ -3346,35 +3002,4 @@ func historyTranscriptFilesFingerprint(files []historySessionFile) string {
 		_, _ = io.WriteString(h, entry.digest)
 	}
 	return "sha256:" + hex.EncodeToString(h.Sum(nil))
-}
-
-func validateHistoryIndexPath(indexPath string) (string, error) {
-	clean := filepath.Clean(filepath.FromSlash(indexPath))
-	cleanSlash := filepath.ToSlash(clean)
-	if cleanSlash != indexPath {
-		return "", fmt.Errorf("history index_path must be canonical: %s", indexPath)
-	}
-	if strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.IsAbs(clean) ||
-		(cleanSlash != historyIndexPath && !validHistoryGenerationArtifactPath(cleanSlash, historyIndexFileName)) {
-		return "", fmt.Errorf("history index_path is unsafe: %s", indexPath)
-	}
-	return clean, nil
-}
-
-func validHistoryGenerationArtifactPath(rel, fileName string) bool {
-	parts := strings.Split(rel, "/")
-	if len(parts) != 4 || parts[0] != brainstore.HistoryDirName || parts[1] != "generations" || parts[3] != fileName || len(parts[2]) != 40 {
-		return false
-	}
-	_, err := hex.DecodeString(parts[2])
-	return err == nil
-}
-
-func validHistoryStagingArtifactPath(rel, fileName string) bool {
-	parts := strings.Split(rel, "/")
-	if len(parts) != 4 || parts[0] != brainstore.HistoryDirName || parts[1] != "staging" || parts[3] != fileName || len(parts[2]) != 40 {
-		return false
-	}
-	_, err := hex.DecodeString(parts[2])
-	return err == nil
 }

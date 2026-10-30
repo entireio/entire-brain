@@ -4,12 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -81,7 +85,7 @@ func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []fa
 		return sr
 	}
 	for _, r := range index.Records {
-		if guardBlocksRecord(guard, r) {
+		if historystore.GuardBlocksRecord(guard, r) {
 			continue
 		}
 		switch r.Kind {
@@ -104,7 +108,7 @@ func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []fa
 		}
 	}
 
-	sessions := guardExportSessions(guard, append([]exportSession(nil), manifest.Sources.Sessions.Sessions...))
+	sessions := bmanifest.GuardSessions(guard, append([]exportSession(nil), manifest.Sources.Sessions.Sessions...))
 	sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].CreatedAt.After(sessions[j].CreatedAt) })
 	branches := map[string]bool{}
 	// A session continued across branches is exported once per branch with the
@@ -138,7 +142,7 @@ func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []fa
 	}
 	sort.Strings(p.Branches)
 
-	facts = guardFactRecords(guard, facts)
+	facts = factstore.GuardRecords(guard, facts)
 	active := make([]factRecord, 0, len(facts))
 	for _, f := range facts {
 		if f.Status == factStatusActive {
@@ -193,14 +197,14 @@ func runBrainHandoff(ctx context.Context, cmd *cobra.Command, opts Options, sess
 	if err != nil {
 		return err
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
 		return errors.New("no exported sessions; run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` first")
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return err
 	}
@@ -209,11 +213,11 @@ func runBrainHandoff(ctx context.Context, cmd *cobra.Command, opts Options, sess
 	if err := requirePrivacyDerivedRead(brainDir); err != nil {
 		return err
 	}
-	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+	index, err := historystore.LoadIndex(brainDir, manifest.Sources.History)
 	if err != nil {
 		index = historyIndex{} // a handoff without history detail beats no handoff
 	}
-	facts, err := loadFacts(brainDir, branch)
+	facts, err := factstore.Load(brainDir, branch)
 	if err != nil {
 		facts = nil
 	}
@@ -224,7 +228,7 @@ func runBrainHandoff(ctx context.Context, cmd *cobra.Command, opts Options, sess
 	}
 	return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
 		if jsonOut {
-			return writeJSON(cmd, packet)
+			return cmdutil.WriteJSON(cmd, packet)
 		}
 		renderHandoff(cmd, packet)
 		return nil
@@ -269,7 +273,7 @@ func renderHandoff(cmd *cobra.Command, p handoffPacket) {
 	if len(p.RecentFacts) > 0 {
 		fmt.Fprintf(w, "\n## Recently updated facts\n")
 		for _, f := range p.RecentFacts {
-			fmt.Fprintf(w, "- [%s] %s\n", factKindOrInferred(f), base.TruncateString(f.Text, 200))
+			fmt.Fprintf(w, "- [%s] %s\n", factstore.KindOrInferred(f), base.TruncateString(f.Text, 200))
 		}
 	}
 	if len(p.Consolidations) > 0 {

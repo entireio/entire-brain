@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"io"
 	"strconv"
 	"strings"
@@ -24,7 +25,7 @@ func newPrepassBackoffBrain(t *testing.T, now time.Time) (Options, repoStorage) 
 		t.Fatal(err)
 	}
 	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, RepoKey: storage.Key,
+		SchemaVersion: bmanifest.SchemaVersion, RepoKey: storage.Key,
 	}); err != nil {
 		t.Fatal(err)
 	}

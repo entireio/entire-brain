@@ -2,11 +2,13 @@ package cli
 
 import (
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
@@ -82,7 +84,7 @@ func newFactsVitalityCommand(opts Options) *cobra.Command {
 				report.Facts = report.Facts[:limit]
 			}
 			if jsonOut {
-				return writeJSON(cmd, report)
+				return cmdutil.WriteJSON(cmd, report)
 			}
 			printFactsVitality(cmd, report, factID)
 			return nil
@@ -132,7 +134,7 @@ func buildFactsVitalityReport(brainDir, branch string, compact bool, now time.Ti
 	// store degrades the join, never the receipts.
 	factsByID := map[string]factRecord{}
 	storeLoaded := false
-	if facts, factsErr := loadFacts(brainDir, branch); factsErr != nil {
+	if facts, factsErr := factstore.Load(brainDir, branch); factsErr != nil {
 		report.Warnings = append(report.Warnings, "memory store unavailable for join: "+factsErr.Error())
 	} else {
 		storeLoaded = true
@@ -186,7 +188,7 @@ func printFactsVitality(cmd *cobra.Command, report factsVitalityReport, factID s
 			marker = " (" + entry.Status + ")"
 		}
 		fmt.Fprintf(out, "%s served=%d last=%s surface=%s%s\n",
-			entry.ID, entry.Served, entry.LastServed.UTC().Format(time.RFC3339), valueOrUnset(entry.LastSurface), marker)
+			entry.ID, entry.Served, entry.LastServed.UTC().Format(time.RFC3339), cmdutil.ValueOrUnset(entry.LastSurface), marker)
 		if text := strings.TrimSpace(entry.Text); text != "" {
 			fmt.Fprintf(out, "  %s\n", base.TruncateString(text, 120))
 		}

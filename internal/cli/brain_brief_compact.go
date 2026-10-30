@@ -3,6 +3,7 @@ package cli
 import (
 	"crypto/sha256"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"io"
 	"math"
 	"sort"
@@ -274,7 +275,7 @@ func emitBrainBriefCompactV1(cmd *cobra.Command, report brainBriefReport) error 
 			// Reuse the existing warning family so every compact version retains
 			// the trust notice without changing its positional fact schema.
 			compactV1Record(&out, "warning", compactV1StringAlways("source", fact.ID),
-				compactV1StringAlways("text", factReviewNoticeLine(notice)+" "+notice.Message))
+				compactV1StringAlways("text", retrieval.FactReviewNoticeLine(notice)+" "+notice.Message))
 		}
 		seenFacts[fact.ID] = struct{}{}
 	}

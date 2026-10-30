@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"io"
 	"os"
 	"os/exec"
@@ -17,6 +19,7 @@ import (
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -188,41 +191,6 @@ func saveMemoryConfig(brainDir string, config memoryConfig) error {
 	return brainstore.WriteBrainRelativeFileAtomic(brainDir, memoryConfigRel, append(data, '\n'), 0o600)
 }
 
-// abstractStatement is one evidence-linked claim; the evidence ids must cite
-// exchanges of the same session.
-type abstractStatement struct {
-	Text        string   `json:"text"`
-	EvidenceIDs []string `json:"evidence_ids"`
-}
-
-type abstractCoverageRange struct {
-	StartTurn int `json:"start_turn"`
-	EndTurn   int `json:"end_turn"`
-}
-
-type sessionAbstract struct {
-	SchemaVersion int       `json:"schema_version"`
-	SessionRef    string    `json:"session_ref"`
-	SessionDigest string    `json:"session_digest"`
-	GeneratedAt   time.Time `json:"generated_at"`
-	Generator     struct {
-		Kind            string `json:"kind"` // local | hosted
-		Provider        string `json:"provider"`
-		Model           string `json:"model"`
-		ContractVersion int    `json:"contract_version"`
-	} `json:"generator"`
-	Overview       abstractStatement   `json:"overview"`
-	Outcomes       []abstractStatement `json:"outcomes,omitempty"`
-	Decisions      []abstractStatement `json:"decisions,omitempty"`
-	Unresolved     []abstractStatement `json:"unresolved,omitempty"`
-	InputTruncated bool                `json:"input_truncated,omitempty"`
-	Coverage       struct {
-		TotalTurns     int                     `json:"total_turns"`
-		IncludedTurns  int                     `json:"included_turns"`
-		IncludedRanges []abstractCoverageRange `json:"included_ranges,omitempty"`
-	} `json:"coverage"`
-}
-
 type abstractEgressReceipt struct {
 	SchemaVersion int       `json:"schema_version"`
 	OperationID   string    `json:"operation_id"`
@@ -262,7 +230,7 @@ func validAbstractEgressReceipt(receipt abstractEgressReceipt, version int, expe
 	if receipt.SchemaVersion != version || len(receipt.OperationID) != 20 || operationHexErr != nil ||
 		!strings.HasPrefix(receipt.SessionRef, brainstore.ConversationSessionIDPrefix) ||
 		(expectedRef != "" && receipt.SessionRef != expectedRef) ||
-		!validSHA256Identity(receipt.SessionDigest) ||
+		!brainstore.ValidSHA256Identity(receipt.SessionDigest) ||
 		(provider != "codex" && provider != "claude-code") || strings.TrimSpace(receipt.Model) == "" ||
 		receipt.StartedAt.IsZero() ||
 		(receipt.Status != "started" && receipt.Status != "completed" && receipt.Status != "failed") ||
@@ -569,15 +537,6 @@ func loadAbstractEgressReceiptsChecked(brainDir string) ([]abstractEgressReceipt
 	return inventory.Receipts, nil
 }
 
-func validSHA256Identity(value string) bool {
-	const prefix = "sha256:"
-	if !strings.HasPrefix(value, prefix) || len(value) != len(prefix)+64 {
-		return false
-	}
-	_, err := hex.DecodeString(strings.TrimPrefix(value, prefix))
-	return err == nil
-}
-
 func writeAbstractEgressReceipt(brainDir string, receipt abstractEgressReceipt) error {
 	receipt.SchemaVersion = abstractEgressSchemaVersion
 	if err := validAbstractEgressReceipt(receipt, abstractEgressSchemaVersion, receipt.SessionRef); err != nil {
@@ -646,14 +605,6 @@ func reconcileStaleAbstractEgressReceiptsLocked(brainDir string, now time.Time) 
 	return reconciled, nil
 }
 
-type sessionAbstractPreview struct {
-	SessionRef     string             `json:"session_ref"`
-	AbstractStatus string             `json:"abstract_status"`
-	AbstractIssue  string             `json:"abstract_issue,omitempty"`
-	Overview       *abstractStatement `json:"overview,omitempty"`
-	InputTruncated bool               `json:"input_truncated,omitempty"`
-}
-
 // abstractPreviewsForResults builds the bounded top-level retrieval envelope.
 // It is read-only: status lookup never calls a provider. The caller links each
 // hit to a preview through its existing session_ref.
@@ -682,7 +633,7 @@ func abstractPreviewsForResults(brainDir string, results []unifiedResult) ([]ses
 		return []sessionAbstractPreview{}, truncated, nil
 	}
 
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, false, err
 	}
@@ -693,7 +644,7 @@ func abstractPreviewsForResults(brainDir string, results []unifiedResult) ([]ses
 	if err != nil {
 		return nil, false, err
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return nil, false, err
 	}
@@ -1035,7 +986,7 @@ const (
 )
 
 func loadSessionAbstractChecked(brainDir, sessionDigest string) (sessionAbstract, sessionAbstractReadState, error) {
-	if !validSHA256Identity(sessionDigest) {
+	if !brainstore.ValidSHA256Identity(sessionDigest) {
 		return sessionAbstract{}, sessionAbstractCorrupt, fmt.Errorf("%s: invalid abstract digest identity", brainstore.StateCorruptCode)
 	}
 	rel := abstractRel(sessionDigest)
@@ -1156,7 +1107,7 @@ func loadSessionAbstractInventory(brainDir string) sessionAbstractInventory {
 			inventory.recordIssue(memoryStateIssue{Kind: "abstract", File: entry.Name(), Code: brainstore.StateUnsafeCode})
 			if strings.HasSuffix(entry.Name(), ".json") {
 				digest := "sha256:" + strings.TrimSuffix(entry.Name(), ".json")
-				if validSHA256Identity(digest) {
+				if brainstore.ValidSHA256Identity(digest) {
 					inventory.ByDigest[digest] = sessionAbstractInventoryEntry{State: sessionAbstractUnsafe}
 				}
 			}
@@ -1168,7 +1119,7 @@ func loadSessionAbstractInventory(brainDir string) sessionAbstractInventory {
 		if entry.IsDir() {
 			inventory.recordIssue(memoryStateIssue{Kind: "abstract", File: entry.Name(), Code: brainstore.StateUnsafeCode})
 			digest := "sha256:" + strings.TrimSuffix(entry.Name(), ".json")
-			if validSHA256Identity(digest) {
+			if brainstore.ValidSHA256Identity(digest) {
 				inventory.ByDigest[digest] = sessionAbstractInventoryEntry{State: sessionAbstractUnsafe}
 			}
 			continue
@@ -1177,7 +1128,7 @@ func loadSessionAbstractInventory(brainDir string) sessionAbstractInventory {
 		if infoErr != nil || !info.Mode().IsRegular() {
 			inventory.recordIssue(memoryStateIssue{Kind: "abstract", File: entry.Name(), Code: brainstore.StateUnsafeCode})
 			digest := "sha256:" + strings.TrimSuffix(entry.Name(), ".json")
-			if validSHA256Identity(digest) {
+			if brainstore.ValidSHA256Identity(digest) {
 				inventory.ByDigest[digest] = sessionAbstractInventoryEntry{State: sessionAbstractUnsafe}
 			}
 			continue
@@ -1185,7 +1136,7 @@ func loadSessionAbstractInventory(brainDir string) sessionAbstractInventory {
 		inventory.Scanned++
 		base := strings.TrimSuffix(entry.Name(), ".json")
 		digest := "sha256:" + base
-		if !validSHA256Identity(digest) {
+		if !brainstore.ValidSHA256Identity(digest) {
 			inventory.recordIssue(memoryStateIssue{Kind: "abstract", File: entry.Name(), Code: brainstore.StateCorruptCode})
 			continue
 		}
@@ -1240,7 +1191,7 @@ func newSessionAbstractResolver(brainDir string) *sessionAbstractResolver {
 	resolver := &sessionAbstractResolver{inventory: loadSessionAbstractInventory(brainDir), jobStatus: map[string]string{}}
 	resolver.config, resolver.configState, resolver.configErr = loadMemoryConfigChecked(brainDir)
 	resolver.jobInventory = loadMemoryJobInventory(brainDir)
-	if manifest, err := loadBrainManifest(brainDir); err == nil {
+	if manifest, err := bmanifest.Load(brainDir); err == nil {
 		resolver.repoKey = manifest.RepoKey
 	}
 	for _, job := range resolver.jobInventory.Jobs {
@@ -1473,7 +1424,7 @@ func abstractWindows(view conversationSessionView) ([][]conversationTurn, []abst
 }
 
 func validateSessionAbstractSchema(artifact sessionAbstract) error {
-	if !strings.HasPrefix(artifact.SessionRef, brainstore.ConversationSessionIDPrefix) || strings.TrimSpace(strings.TrimPrefix(artifact.SessionRef, brainstore.ConversationSessionIDPrefix)) == "" || !validSHA256Identity(artifact.SessionDigest) {
+	if !strings.HasPrefix(artifact.SessionRef, brainstore.ConversationSessionIDPrefix) || strings.TrimSpace(strings.TrimPrefix(artifact.SessionRef, brainstore.ConversationSessionIDPrefix)) == "" || !brainstore.ValidSHA256Identity(artifact.SessionDigest) {
 		return errors.New("session_ref and session_digest identities are required")
 	}
 	if artifact.GeneratedAt.IsZero() {
@@ -1634,16 +1585,16 @@ func generateSessionAbstractContext(ctx context.Context, repoDir, brainDir strin
 }
 
 func ensureSessionAbstractPrivacyAllowed(brainDir string, view conversationSessionView) error {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return err
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return err
 	}
 	for _, record := range view.Records {
-		if guardBlocksRecord(guard, record) {
+		if historystore.GuardBlocksRecord(guard, record) {
 			return fmt.Errorf("%s: session %s is excluded", brainstore.PrivacyExcludedCode, view.Ref)
 		}
 	}
@@ -1908,7 +1859,7 @@ func runSessionAbstractJobGuardedWithOverride(ctx context.Context, repoDir, brai
 }
 
 func loadConversationSessionViewByRef(brainDir, ref string) (conversationSessionView, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return conversationSessionView{}, err
 	}
@@ -1919,7 +1870,7 @@ func loadConversationSessionViewByRef(brainDir, ref string) (conversationSession
 	if err != nil {
 		return conversationSessionView{}, err
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return conversationSessionView{}, err
 	}
@@ -1944,7 +1895,7 @@ func sessionAbstractJobStatus(brainDir, sessionRef, digest string) (string, bool
 	if _, affected := inventory.issueForSessionRef(sessionRef); affected {
 		return abstractStatusCorrupt, true
 	}
-	if manifest, err := loadBrainManifest(brainDir); err == nil {
+	if manifest, err := bmanifest.Load(brainDir); err == nil {
 		jobID := memoryJobID(manifest.RepoKey, sessionRef, digest, memoryJobKindSessionAbstract)
 		if _, affected := inventory.issueForJobID(jobID); affected {
 			return abstractStatusCorrupt, true
@@ -2075,7 +2026,7 @@ func purgeSessionAbstractsForRefs(brainDir string, refs map[string]bool) error {
 			return fmt.Errorf("%s: abstract cleanup entry is not a regular file: %s", brainstore.StateUnsafeCode, entry.Name())
 		}
 		digest := "sha256:" + strings.TrimSuffix(entry.Name(), ".json")
-		if !validSHA256Identity(digest) {
+		if !brainstore.ValidSHA256Identity(digest) {
 			return fmt.Errorf("%s: abstract cleanup entry has an invalid identity: %s", brainstore.StateCorruptCode, entry.Name())
 		}
 		rel := filepath.ToSlash(filepath.Join(abstractsDirRel, entry.Name()))
@@ -2372,7 +2323,7 @@ func enqueueManualAbstractJobWithReceipt(brainDir, sessionRef string, override m
 		if err := ensureSessionAbstractReplaceable(brainDir, view); err != nil {
 			return err
 		}
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return err
 		}
@@ -2590,7 +2541,7 @@ func newMemoryAbstractCommand(opts Options) *cobra.Command {
 				}
 				return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{responsePolicy}, func() error {
 					if jsonOut {
-						return writeJSON(cmd, payload)
+						return cmdutil.WriteJSON(cmd, payload)
 					}
 					_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s abstract for %s\n", status, ref)
 					return err

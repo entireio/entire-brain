@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestEmptyResultBlindSpot(t *testing.T) {
@@ -17,7 +19,7 @@ func TestEmptyResultBlindSpot(t *testing.T) {
 	}
 
 	// Distilled, but sessions captured since: name the gap.
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

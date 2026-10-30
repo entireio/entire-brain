@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,11 +11,11 @@ import (
 )
 
 func TestDocIndexSizeBoundPreservesExistingIndex(t *testing.T) {
-	previous := maxDocIndexBytes
-	maxDocIndexBytes = 32
-	t.Cleanup(func() { maxDocIndexBytes = previous })
+	previous := docstore.MaxIndexBytes
+	docstore.MaxIndexBytes = 32
+	t.Cleanup(func() { docstore.MaxIndexBytes = previous })
 	dir := t.TempDir()
-	path := filepath.Join(dir, filepath.FromSlash(docIndexPath))
+	path := filepath.Join(dir, filepath.FromSlash(docstore.IndexPath))
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -22,8 +23,8 @@ func TestDocIndexSizeBoundPreservesExistingIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, read := range []func() error{
-		func() error { return verifyDeclaredDocIndex(dir) },
-		func() error { _, err := loadDocIndex(dir); return err },
+		func() error { return docstore.VerifyDeclaredIndex(dir) },
+		func() error { _, err := docstore.Load(dir); return err },
 	} {
 		var bound *readBoundExceededError
 		if err := read(); !errors.As(err, &bound) {
@@ -45,7 +46,7 @@ func TestDocIndexSizeBoundPreservesExistingIndex(t *testing.T) {
 	if string(data) != original {
 		t.Fatal("rejected write replaced the readable index")
 	}
-	if _, err := loadDocIndex(dir); err != nil {
+	if _, err := docstore.Load(dir); err != nil {
 		t.Fatal(err)
 	}
 }

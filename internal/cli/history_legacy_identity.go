@@ -9,66 +9,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
-
-// historyLegacyIdentity is a complete strong identity derived from one fully
-// read and parsed legacy index. Observed* binds a later best-effort manifest
-// update to the exact source generation the caller used.
-type historyLegacyIdentity struct {
-	ObservedGeneratedAt time.Time
-	ObservedIndexPath   string
-	ObservedRecords     int
-	IndexBytes          int64
-	IndexSHA256         string
-	RecordsFingerprint  string
-}
-
-func historySourceNeedsIdentityUpgrade(source *historySourceManifest) bool {
-	return source != nil && (source.IndexBytes == 0 || source.IndexSHA256 == "" || source.RecordsFingerprint == "")
-}
-
-// deriveHistoryLegacyIdentity accepts only a complete, internally consistent
-// legacy generation. Existing non-empty fields remain authoritative: a partial
-// migration with a conflicting field is not repaired opportunistically.
-func deriveHistoryLegacyIdentity(source *historySourceManifest, data []byte, index historyIndex) *historyLegacyIdentity {
-	if !historySourceNeedsIdentityUpgrade(source) || source.IndexPath == "" || source.GeneratedAt.IsZero() ||
-		source.Records < 0 || len(index.Records) != source.Records || !index.GeneratedAt.Equal(source.GeneratedAt) {
-		return nil
-	}
-	identity := &historyLegacyIdentity{
-		ObservedGeneratedAt: source.GeneratedAt,
-		ObservedIndexPath:   source.IndexPath,
-		ObservedRecords:     source.Records,
-		IndexBytes:          int64(len(data)),
-		IndexSHA256:         historyIndexBytesFingerprint(data),
-		RecordsFingerprint:  historyRecordsFingerprint(index.Records),
-	}
-	if source.IndexBytes != 0 && source.IndexBytes != identity.IndexBytes {
-		return nil
-	}
-	if source.IndexSHA256 != "" && source.IndexSHA256 != identity.IndexSHA256 {
-		return nil
-	}
-	if source.RecordsFingerprint != "" && source.RecordsFingerprint != identity.RecordsFingerprint {
-		return nil
-	}
-	return identity
-}
-
-func (identity *historyLegacyIdentity) sourceWithIdentity(source *historySourceManifest) *historySourceManifest {
-	if identity == nil || source == nil {
-		return source
-	}
-	upgraded := *source
-	upgraded.IndexBytes = identity.IndexBytes
-	upgraded.IndexSHA256 = identity.IndexSHA256
-	upgraded.RecordsFingerprint = identity.RecordsFingerprint
-	return &upgraded
-}
 
 // rankHistoryViaLegacyDirectPayload is deliberately scoped to a legacy manifest
 // paired with an already-present schema-v2 FTS cache. It validates the cache's
@@ -81,7 +27,7 @@ func rankHistoryViaLegacyDirectPayload(brainDir string, source *historySourceMan
 	if identity == nil {
 		return nil, false
 	}
-	upgraded := identity.sourceWithIdentity(source)
+	upgraded := identity.SourceWithIdentity(source)
 	scored, used, err := rankHistoryViaFreshFTSCutoffDetailed(brainDir, upgraded, kind, query, limit, cutoff)
 	if err != nil || !used {
 		return nil, false
@@ -107,7 +53,7 @@ func persistHistoryLegacyIdentity(brainDir string, identity *historyLegacyIdenti
 	// Strict: this migration rewrites the manifest from this struct further
 	// down, so a field this build cannot name must stop it rather than be
 	// dropped on the way through.
-	manifest, err := loadBrainManifestForReplace(brainDir)
+	manifest, err := bmanifest.LoadForReplace(brainDir)
 	if err != nil {
 		return err
 	}
@@ -166,16 +112,16 @@ func historyIndexFingerprintForIdentityRecheck(brainDir, indexPath string, expec
 	if expectedBytes <= 0 {
 		return "", errors.New("history index identity has invalid size")
 	}
-	clean, err := validateHistoryIndexPath(indexPath)
+	clean, err := historystore.ValidateIndexPath(indexPath)
 	if err != nil {
 		return "", err
 	}
-	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := base.RejectSymlinkPathComponents(brainDir, clean); err != nil {
 		return "", err
 	}
 	path := filepath.Join(brainDir, clean)
 	if err := base.RejectUnsafeExistingRegularFile(path, "history index"); err != nil {
-		return "", historyHardlinkRepairHint(err)
+		return "", historystore.HardlinkRepairHint(err)
 	}
 	f, err := os.OpenFile(path, os.O_RDONLY|base.FileLockOpenFlags(), 0)
 	if err != nil {
@@ -183,7 +129,7 @@ func historyIndexFingerprintForIdentityRecheck(brainDir, indexPath string, expec
 	}
 	defer f.Close()
 	if err := base.RejectOpenFileAlias(path, f, "history index"); err != nil {
-		return "", historyHardlinkRepairHint(err)
+		return "", historystore.HardlinkRepairHint(err)
 	}
 	before, err := f.Stat()
 	if err != nil {
@@ -215,7 +161,7 @@ func historyIndexFingerprintForIdentityRecheck(brainDir, indexPath string, expec
 		return "", errors.New("history index changed while verifying identity")
 	}
 	if err := base.RejectOpenFileAlias(path, f, "history index"); err != nil {
-		return "", historyHardlinkRepairHint(err)
+		return "", historystore.HardlinkRepairHint(err)
 	}
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
@@ -225,11 +171,11 @@ func historyIndexFingerprintForIdentityRecheck(brainDir, indexPath string, expec
 func writeHistoryIdentityManifestAtomic(brainDir string, manifest exportManifest) error {
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encode %s: %w", exportManifestFileName, err)
+		return fmt.Errorf("encode %s: %w", bmanifest.FileName, err)
 	}
 	data = append(data, '\n')
-	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, exportManifestFileName, data, 0o600); err != nil {
-		return fmt.Errorf("write %s: %w", exportManifestFileName, err)
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, bmanifest.FileName, data, 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", bmanifest.FileName, err)
 	}
 	return nil
 }

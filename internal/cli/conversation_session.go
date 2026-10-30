@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
-	"io"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"sort"
 	"strings"
 )
@@ -90,7 +90,7 @@ type conversationSessionView struct {
 func buildConversationSessionViews(fresh freshHistory, repoKey string, manifest *exportManifest, guard sessionReadGuard) map[string]conversationSessionView {
 	views := map[string]conversationSessionView{}
 	for _, record := range fresh.mergedRecords() {
-		if record.Kind != conversationKind || guardBlocksRecord(guard, record) {
+		if record.Kind != conversationKind || historystore.GuardBlocksRecord(guard, record) {
 			continue
 		}
 		ref, degraded := recordSessionRef(record, repoKey, manifest)
@@ -120,21 +120,6 @@ func buildConversationSessionViews(fresh freshHistory, repoKey string, manifest 
 		views[ref] = view
 	}
 	return views
-}
-
-// conversationTurn is one bounded outline or context entry. Outline entries
-// carry the request excerpt; context entries carry the expanded bounded text.
-// Neither ever contains hidden reasoning or raw tool output.
-type conversationTurn struct {
-	ConversationID  string            `json:"conversation_id"`
-	TurnOrdinal     int               `json:"turn_ordinal"`
-	CreatedAt       string            `json:"created_at,omitempty"`
-	Request         string            `json:"request,omitempty"`
-	Text            string            `json:"text,omitempty"`
-	RangeIncomplete bool              `json:"range_incomplete,omitempty"`
-	ToolNames       []string          `json:"tool_names,omitempty"`
-	Truncated       bool              `json:"truncated,omitempty"`
-	Caveats         []retrievalCaveat `json:"caveats,omitempty"`
 }
 
 func conversationOutlineEntry(record historyRecord) conversationTurn {
@@ -171,7 +156,7 @@ func conversationSessionOutline(view conversationSessionView, afterTurn, limit i
 		limit = conversationOutlineMaxLimit
 	}
 	result := unifiedResult{
-		Source:               retrievalSourceConversation,
+		Source:               brainstore.RetrievalSourceConversation,
 		ID:                   view.Ref,
 		Heading:              "session_outline",
 		SessionRef:           view.Ref,
@@ -301,48 +286,6 @@ func conversationContextPacket(brainDir string, view conversationSessionView, ta
 	}
 	return result
 }
-
-// printConversationTurns renders outline or context entries for the text
-// surface; JSON callers get the structured turns directly.
-func printConversationTurns(out io.Writer, r unifiedResult) {
-	for _, turn := range r.Turns {
-		body := turn.Request
-		if body == "" {
-			body = turn.Text
-		}
-		fmt.Fprintf(out, "  turn %d [%s] %s\n", turn.TurnOrdinal, turn.ConversationID, strings.Join(strings.Fields(body), " "))
-		for _, caveat := range turn.Caveats {
-			if caveat.Kind != retrievalCaveatHistoricalConversation {
-				fmt.Fprintf(out, "    caveat %s: %s\n", caveat.Kind, caveat.Message)
-			}
-		}
-	}
-	if r.NextTurn > 0 {
-		fmt.Fprintf(out, "  next turn: %d\n", r.NextTurn)
-	}
-	if r.PacketTruncated {
-		fmt.Fprintln(out, "  packet truncated: byte cap reached")
-	}
-}
-
-// getOptions is the navigation contract for get: context counts for a
-// conversation: target, cursor and limit for a conversation-session: target.
-// Options are type-specific and never silently ignored.
-type getOptions struct {
-	ContextBefore int
-	ContextAfter  int
-	AfterTurn     int
-	OutlineLimit  int
-	// set marks which options the caller supplied explicitly.
-	ContextSet bool
-	OutlineSet bool
-	// GlobalFacts are facts from the global store, so an id that query or
-	// search returned can be fetched back by get. Nil means the caller did not
-	// offer them and get sees only this repository's facts, as before.
-	GlobalFacts []factRecord
-}
-
-func (o getOptions) navigation() bool { return o.ContextSet || o.OutlineSet }
 
 func validateGetOptions(o getOptions) error {
 	if o.ContextBefore < 0 || o.ContextBefore > conversationContextMax || o.ContextAfter < 0 || o.ContextAfter > conversationContextMax {

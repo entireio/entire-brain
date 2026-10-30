@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,7 +83,7 @@ func TestTokenizedSearchRanksRareTokenAboveCommonTokens(t *testing.T) {
 	_, storePath, _ := indexFixtureBrain(t, idfRankingSnapshot())
 	// Multi-word query that matches no single symbol verbatim, so the tokenized
 	// IDF fallback decides the ordering.
-	results, err := findSemanticSymbolsInSQLite(storePath, "zebra common1 common2", 20, 0)
+	results, err := semstore.FindSymbolsInSQLite(storePath, "zebra common1 common2", 20, 0)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
@@ -99,7 +101,7 @@ func TestTokenizedSearchRanksRareTokenAboveCommonTokens(t *testing.T) {
 func TestTokenizedSearchUsesDiscriminatingTermAfterFirstEightCandidates(t *testing.T) {
 	_, storePath, _ := indexFixtureBrain(t, idfRankingSnapshot())
 	query := "alpha beta gamma delta epsilon theta lambda omega zebra"
-	results, err := findSemanticSymbolsInSQLite(storePath, query, 20, 0)
+	results, err := semstore.FindSymbolsInSQLite(storePath, query, 20, 0)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
@@ -111,7 +113,7 @@ func TestTokenizedSearchUsesDiscriminatingTermAfterFirstEightCandidates(t *testi
 func TestTokenizedSearchKeepsLeadingTaskIntentAlongsideRareTailTerms(t *testing.T) {
 	_, storePath, _ := indexFixtureBrain(t, leadingIntentRankingSnapshot())
 	query := "plugin env xdg prefix subprocess allowlist credential withheld namespace desktop directory forwarded"
-	results, err := findSemanticSymbolsInSQLite(storePath, query, 20, 0)
+	results, err := semstore.FindSymbolsInSQLite(storePath, query, 20, 0)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
@@ -122,14 +124,14 @@ func TestTokenizedSearchKeepsLeadingTaskIntentAlongsideRareTailTerms(t *testing.
 
 func TestTokenizedSearchConnectsTaskNounsToIdentifierVerbs(t *testing.T) {
 	_, storePath, _ := indexFixtureBrain(t, morphologyRankingSnapshot())
-	results, err := findSemanticSymbolsInSQLite(storePath, "fix repository name normalization", 20, 0)
+	results, err := semstore.FindSymbolsInSQLite(storePath, "fix repository name normalization", 20, 0)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
 	if len(results) == 0 || results[0].ID != "normalize" {
 		t.Fatalf("normalization did not resolve NormalizeRepositoryName: %s", summarizeIDs(results))
 	}
-	tokens := semanticQueryTokens("normalization validation authentication environment")
+	tokens := semstore.QueryTokens("normalization validation authentication environment")
 	for _, want := range []string{"normalize", "validate", "authenticate", "env"} {
 		if !containsToken(tokens, want) {
 			t.Fatalf("derived identifier term %q missing from %v", want, tokens)
@@ -140,7 +142,7 @@ func TestTokenizedSearchConnectsTaskNounsToIdentifierVerbs(t *testing.T) {
 func TestSearchResolvesByExactRecordID(t *testing.T) {
 	_, storePath, _ := indexFixtureBrain(t, semanticFixtureSnapshot("1.0"))
 	id := "gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken"
-	results, err := findSemanticSymbolsInSQLite(storePath, id, 10, 0)
+	results, err := semstore.FindSymbolsInSQLite(storePath, id, 10, 0)
 	if err != nil {
 		t.Fatalf("search by id: %v", err)
 	}
@@ -153,7 +155,7 @@ func TestSearchPathQueryDoesNotTriggerTokenFallback(t *testing.T) {
 	_, storePath, _ := indexFixtureBrain(t, semanticFixtureSnapshot("1.0"))
 	// A path that does not exist must resolve to nothing, not match half the
 	// index on a common token like "file".
-	results, err := findSemanticSymbolsInSQLite(storePath, "nonexistent/file.go", 10, 0)
+	results, err := semstore.FindSymbolsInSQLite(storePath, "nonexistent/file.go", 10, 0)
 	if err != nil {
 		t.Fatalf("search nonexistent path: %v", err)
 	}
@@ -161,7 +163,7 @@ func TestSearchPathQueryDoesNotTriggerTokenFallback(t *testing.T) {
 		t.Fatalf("expected no results for nonexistent path, got %s", summarizeIDs(results))
 	}
 	// A real path still resolves via substring match on file_path.
-	hit, err := findSemanticSymbolsInSQLite(storePath, "internal/auth/token.go", 10, 0)
+	hit, err := semstore.FindSymbolsInSQLite(storePath, "internal/auth/token.go", 10, 0)
 	if err != nil {
 		t.Fatalf("search real path: %v", err)
 	}
@@ -193,7 +195,7 @@ func TestInspectImpactSurfacesNeighborsBeyondRoots(t *testing.T) {
 	}
 	// ValidateToken has one caller via a CALLS relation; with the generous
 	// default budget the impacted set must include more than the root itself.
-	roots, symbols, relations, err := semanticImpactFacts(brainDir, source.Sources.Semantic, "ValidateToken", 1, 200)
+	roots, symbols, relations, err := semstore.ImpactFacts(brainDir, source.Sources.Semantic, "ValidateToken", 1, 200)
 	if err != nil {
 		t.Fatalf("impact: %v", err)
 	}
@@ -215,12 +217,12 @@ func TestInspectImpactSurfacesNeighborsBeyondRoots(t *testing.T) {
 }
 
 func TestTokenIDFWeightFavorsRareTokens(t *testing.T) {
-	rare := tokenIDFWeight(1000, 1)
-	common := tokenIDFWeight(1000, 800)
+	rare := semstore.TokenIDFWeight(1000, 1)
+	common := semstore.TokenIDFWeight(1000, 800)
 	if rare <= common {
 		t.Fatalf("expected rare token weight (%d) > common token weight (%d)", rare, common)
 	}
-	if tokenIDFWeight(1000, 1000) < 1 {
+	if semstore.TokenIDFWeight(1000, 1000) < 1 {
 		t.Fatal("weight must never drop below 1")
 	}
 }
@@ -243,14 +245,14 @@ func TestSemanticQueryLooksLikePath(t *testing.T) {
 		{"ValidateToken", false},
 		{"feed refresh worker", false},
 	} {
-		if got := semanticQueryLooksLikePath(tc.query); got != tc.want {
-			t.Errorf("semanticQueryLooksLikePath(%q) = %v, want %v", tc.query, got, tc.want)
+		if got := semstore.QueryLooksLikePath(tc.query); got != tc.want {
+			t.Errorf("semstore.QueryLooksLikePath(%q) = %v, want %v", tc.query, got, tc.want)
 		}
 	}
 }
 
 func TestSemanticQueryTokensDropsStopwordsAndShortTerms(t *testing.T) {
-	tokens := semanticQueryTokens("why did we refresh the feed worker at scale")
+	tokens := semstore.QueryTokens("why did we refresh the feed worker at scale")
 	joined := strings.Join(tokens, ",")
 	for _, dropped := range []string{"why", "did", "we", "the", "at"} {
 		if containsToken(tokens, dropped) {
@@ -317,7 +319,7 @@ func TestSemanticAgentFollowUpsDefaultToCompactBudgets(t *testing.T) {
 }
 
 // TestQueryStopwordRegimesShareGenericBase locks in the reconciliation of the
-// two token regimes: history/semantic search (historyQueryStopword) and
+// two token regimes: history/semantic search (brainstore.QueryStopword) and
 // brain-brief filename matching (brainBriefFileMatchTermStop) consult ONE shared
 // generic-stopword set, but each keeps its own domain layer. It guards against
 // the lists silently drifting apart again, and against the divergence being
@@ -325,10 +327,10 @@ func TestSemanticAgentFollowUpsDefaultToCompactBudgets(t *testing.T) {
 func TestQueryStopwordRegimesShareGenericBase(t *testing.T) {
 	// Generic fillers must be stopwords for BOTH regimes (shared source of truth).
 	for _, w := range []string{"the", "and", "with", "fix", "should", "when"} {
-		if !genericQueryStopwords[w] {
-			t.Errorf("%q must be in the shared genericQueryStopwords set", w)
+		if !brainstore.GenericQueryStopwords[w] {
+			t.Errorf("%q must be in the shared brainstore.GenericQueryStopwords set", w)
 		}
-		if !historyQueryStopword(w) {
+		if !brainstore.QueryStopword(w) {
 			t.Errorf("history regime must treat generic %q as a stopword", w)
 		}
 		if !brainBriefFileMatchTermStop(w) {
@@ -339,13 +341,13 @@ func TestQueryStopwordRegimesShareGenericBase(t *testing.T) {
 	// search but are valid filename-match terms for the brief (e.g.
 	// "regression" must still match regression.go).
 	for _, w := range []string{"regression", "preserve", "restore"} {
-		if !historyQueryStopword(w) {
+		if !brainstore.QueryStopword(w) {
 			t.Errorf("history regime should drop domain word %q", w)
 		}
 		if brainBriefFileMatchTermStop(w) {
 			t.Errorf("brief regime must KEEP domain word %q as a filename term", w)
 		}
-		if genericQueryStopwords[w] {
+		if brainstore.GenericQueryStopwords[w] {
 			t.Errorf("domain word %q must not leak into the shared generic set", w)
 		}
 	}
@@ -353,13 +355,13 @@ func TestQueryStopwordRegimesShareGenericBase(t *testing.T) {
 	// before sending Y") but are filename noise, just like the existing
 	// filename-only treatment of "after". Neither belongs in the generic base.
 	for _, w := range []string{"before", "after"} {
-		if historyQueryStopword(w) {
+		if brainstore.QueryStopword(w) {
 			t.Errorf("history regime must KEEP temporal relation %q", w)
 		}
 		if !brainBriefFileMatchTermStop(w) {
 			t.Errorf("brief filename regime should drop temporal relation %q", w)
 		}
-		if genericQueryStopwords[w] {
+		if brainstore.GenericQueryStopwords[w] {
 			t.Errorf("temporal relation %q must not be a generic stopword", w)
 		}
 	}

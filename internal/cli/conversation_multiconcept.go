@@ -2,8 +2,13 @@ package cli
 
 import (
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"sort"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 )
 
 // conversation_multiconcept.go implements multi-concept session recall:
@@ -12,15 +17,10 @@ import (
 // the session's virtual identity plus the exact supporting exchanges, so the
 // caller keeps the deterministic query-then-get workflow.
 
+// retrieval.ConversationConceptsMaxTotal and retrieval.ConversationConceptResultMax moved to
+// retrieval (payload.go) with the extracted command surface.
 const (
-	// conversationConceptsMaxTotal bounds primary query plus extra concepts.
-	conversationConceptsMaxTotal = 5
-	conversationConceptMaxBytes  = 512
-	// conversationConceptResultMax is shared by the core, CLI, workspace,
-	// transports. It bounds candidate/result allocations before any
-	// ranking work starts; transport byte budgets are enforced separately on
-	// the exact serialized response shape.
-	conversationConceptResultMax = 50
+	conversationConceptMaxBytes = 512
 	// conversationConceptResponseMaxBytes caps the complete multi-concept
 	// response; whole tail results drop, never a cut record.
 	conversationConceptResponseMaxBytes = 128 * 1024
@@ -30,22 +30,12 @@ const (
 // overflow contract without building ten thousand-record fixtures.
 var conversationConceptScanCeiling = 10000
 
-// conceptMatch names the best supporting exchange for one concept inside a
-// matching session.
-type conceptMatch struct {
-	Concept        string   `json:"concept"`
-	ConversationID string   `json:"conversation_id"`
-	Rank           int      `json:"rank"` // 1-based rank in the concept's own list
-	MatchedTerms   []string `json:"matched_terms,omitempty"`
-	Arm            string   `json:"arm"` // lexical | semantic | fused
-}
-
 // normalizeConversationConcepts merges the primary query with the extra
 // concepts: whitespace-normalized, case-insensitively deduplicated, bounded,
 // two to five total. Every violation is a structured input error.
 func normalizeConversationConcepts(query string, extras []string) ([]string, error) {
-	if len(extras) > conversationConceptsMaxTotal-1 {
-		return nil, fmt.Errorf("multi-concept search takes at most %d additional concepts (got %d)", conversationConceptsMaxTotal-1, len(extras))
+	if len(extras) > retrieval.ConversationConceptsMaxTotal-1 {
+		return nil, fmt.Errorf("multi-concept search takes at most %d additional concepts (got %d)", retrieval.ConversationConceptsMaxTotal-1, len(extras))
 	}
 	all := append([]string{query}, extras...)
 	seen := map[string]bool{}
@@ -65,8 +55,8 @@ func normalizeConversationConcepts(query string, extras []string) ([]string, err
 		seen[key] = true
 		out = append(out, concept)
 	}
-	if len(out) < 2 || len(out) > conversationConceptsMaxTotal {
-		return nil, fmt.Errorf("multi-concept search takes two to %d concepts including the query (got %d)", conversationConceptsMaxTotal, len(out))
+	if len(out) < 2 || len(out) > retrieval.ConversationConceptsMaxTotal {
+		return nil, fmt.Errorf("multi-concept search takes two to %d concepts including the query (got %d)", retrieval.ConversationConceptsMaxTotal, len(out))
 	}
 	return out, nil
 }
@@ -87,19 +77,19 @@ type conceptRankList struct {
 // (memory_query_too_broad) beyond it; vector and hybrid modes are explicitly
 // approximate but never violate filters.
 func retrieveConversationMultiConcept(brainDir, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {
-	if err := validateRetrievalLimit(limit); err != nil {
+	if err := retrieval.ValidateRetrievalLimit(limit); err != nil {
 		return nil, err
 	}
 	concepts, err := normalizeConversationConcepts(query, opts.Concepts)
 	if err != nil {
 		return nil, err
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
 	if manifest.Sources == nil || manifest.Sources.History == nil {
-		if mode == modeVector {
+		if mode == retrieval.ModeVector {
 			return nil, errConversationVectorUnsupported
 		}
 		return nil, nil
@@ -108,16 +98,16 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 	if err != nil {
 		return nil, fmt.Errorf("load history index: %w", err)
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return nil, err
 	}
 	winners := fresh.duplicateRecordWinners()
-	filtered := opts.hasConversationOnlyFilters() || strings.TrimSpace(opts.Branch) != ""
+	filtered := opts.HasConversationOnlyFilters() || strings.TrimSpace(opts.Branch) != ""
 	// The predicate is always non-nil here: complete enumeration rides the
 	// same exhaustive-scan machinery as filtered single-concept search.
 	pred := func(r historyRecord) bool {
-		if guardBlocksRecord(guard, r) {
+		if historystore.GuardBlocksRecord(guard, r) {
 			return false
 		}
 		if w, ok := winners[recordReplacementKey(r)]; ok && !sameRecordCopy(w, r) {
@@ -132,9 +122,9 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 	rankOne := func(concept string) (conceptRankList, error) {
 		list := conceptRankList{concept: concept}
 		switch mode {
-		case modeVector:
+		case retrieval.ModeVector:
 			return list, errConversationVectorUnsupported
-		case modeHybrid:
+		case retrieval.ModeHybrid:
 			fallthrough
 		default:
 			var exhaustiveState historyExhaustiveRankState
@@ -240,7 +230,7 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 	out := make([]unifiedResult, 0, len(sessions))
 	for _, session := range sessions {
 		result := unifiedResult{
-			Source:               retrievalSourceConversation,
+			Source:               brainstore.RetrievalSourceConversation,
 			ID:                   session.ref,
 			Heading:              "session_coverage",
 			SessionRef:           session.ref,
@@ -257,13 +247,6 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 		out = append(out, result)
 	}
 	return out, nil
-}
-
-func validateRetrievalLimit(limit int) error {
-	if limit < 1 || limit > conversationConceptResultMax {
-		return fmt.Errorf("limit must be between 1 and %d (got %d)", conversationConceptResultMax, limit)
-	}
-	return nil
 }
 
 func errConversationConceptTooBroad(concept string) error {

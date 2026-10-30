@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
@@ -453,7 +454,7 @@ func newFactsFilesCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			facts, err := loadFacts(brainDir, resolvedBranch)
+			facts, err := factstore.Load(brainDir, resolvedBranch)
 			if err != nil {
 				return err
 			}

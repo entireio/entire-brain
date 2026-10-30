@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -28,7 +29,7 @@ func TestHistoryScanCacheReappliesManifestBranch(t *testing.T) {
 	writeManifest := func(branch string) {
 		t.Helper()
 		manifest := exportManifest{
-			SchemaVersion: brainManifestSchemaVersion,
+			SchemaVersion: bmanifest.SchemaVersion,
 			GeneratedAt:   now,
 			DefaultBranch: "main",
 			Sources: &brainSources{Sessions: &sessionSourceManifest{

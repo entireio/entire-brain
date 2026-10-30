@@ -24,6 +24,13 @@ import (
 // resets its cursor and cache and refetches from the start.
 var ErrInvalidPageToken = errors.New("factsync: hosted feed rejected the page token")
 
+// ErrNoAccess is returned on 403: the bound repo is gone or this caller lost
+// its grant (brainstore deliberately maps a deleted repo to 403 too, so the
+// two are indistinguishable here). The caller stops retrying the binding
+// instead of hammering the same denial (COR-2279). 401 stays a plain error —
+// an auth-plumbing break should keep reaching the server-side monitor.
+var ErrNoAccess = errors.New("access denied")
+
 // UpsertCounts is the facts upsert response: how the batch landed.
 type UpsertCounts struct {
 	Added     int `json:"added"`
@@ -79,6 +86,9 @@ func (h *HTTPServer) UpsertFacts(ctx context.Context, repoID string, ndjson []by
 		return UpsertCounts{}, fmt.Errorf("factsync: POST facts upsert %s: %w", repoID, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusForbidden {
+		return UpsertCounts{}, fmt.Errorf("factsync: POST facts upsert %s: %w: status %s%s", repoID, ErrNoAccess, resp.Status, h.detail(resp))
+	}
 	if resp.StatusCode != http.StatusOK {
 		return UpsertCounts{}, fmt.Errorf("factsync: POST facts upsert %s: unexpected status %s%s", repoID, resp.Status, h.detail(resp))
 	}
@@ -118,6 +128,8 @@ func (h *HTTPServer) FactsFeedPage(ctx context.Context, repoID, pageToken string
 	defer resp.Body.Close()
 	switch {
 	case resp.StatusCode == http.StatusOK:
+	case resp.StatusCode == http.StatusForbidden:
+		return FeedPage{}, fmt.Errorf("factsync: GET facts feed %s: %w: status %s%s", repoID, ErrNoAccess, resp.Status, h.detail(resp))
 	case resp.StatusCode == http.StatusBadRequest && pageToken != "":
 		return FeedPage{}, fmt.Errorf("%w%s", ErrInvalidPageToken, h.detail(resp))
 	default:

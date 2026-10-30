@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/repoidentity"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
@@ -276,7 +277,7 @@ func TestRepoIdentityResolvesTheConflictWithoutDeleting(t *testing.T) {
 	listCmd := &cobra.Command{}
 	var listed strings.Builder
 	listCmd.SetOut(&listed)
-	if err := runRepoIdentity(context.Background(), listCmd, opts, repoIdentityOptions{}, logical); err != nil {
+	if err := repoidentity.Run(context.Background(), listCmd, repoIdentityConfig(opts), repoidentity.RunOptions{}, logical); err != nil {
 		t.Fatalf("repo-identity must not be blocked by the conflict it repairs: %v", err)
 	}
 	for _, key := range []string{canonical.Key, legacy.Key} {
@@ -291,7 +292,7 @@ func TestRepoIdentityResolvesTheConflictWithoutDeleting(t *testing.T) {
 	keepCmd := &cobra.Command{}
 	var kept strings.Builder
 	keepCmd.SetOut(&kept)
-	if err := runRepoIdentity(context.Background(), keepCmd, opts, repoIdentityOptions{keep: legacy.Key}, logical); err != nil {
+	if err := repoidentity.Run(context.Background(), keepCmd, repoIdentityConfig(opts), repoidentity.RunOptions{Keep: legacy.Key}, logical); err != nil {
 		t.Fatalf("repo-identity --keep: %v", err)
 	}
 
@@ -319,7 +320,7 @@ func TestRepoIdentityResolvesTheConflictWithoutDeleting(t *testing.T) {
 
 	// Nothing was deleted: the history the caller did NOT pick is still on disk
 	// under a dated name, so a wrong choice is undone with mv.
-	suffix := repoIdentityConflictSuffix(opts.Now())
+	suffix := repoidentity.ConflictSuffix(opts.Now())
 	retired, err := os.ReadFile(filepath.Join(canonical.BrainDir+suffix, "which-history"))
 	if err != nil {
 		t.Fatalf("the store that was not kept must be MOVED, not deleted: %v", err)
@@ -355,7 +356,7 @@ func TestRepoIdentityRefusesAKeyThatIsNotAStore(t *testing.T) {
 	opts := Options{Version: "test", Env: env, Runner: repoIdentityFixtureRunner(physical)}
 	cmd := &cobra.Command{}
 	cmd.SetOut(&strings.Builder{})
-	err = runRepoIdentity(context.Background(), cmd, opts, repoIdentityOptions{keep: "local/not-a-real-key"}, logical)
+	err = repoidentity.Run(context.Background(), cmd, repoIdentityConfig(opts), repoidentity.RunOptions{Keep: "local/not-a-real-key"}, logical)
 	if err == nil {
 		t.Fatal("--keep with an unknown key must be refused")
 	}

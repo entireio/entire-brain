@@ -3,6 +3,9 @@ package cli
 import (
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -32,7 +35,7 @@ func TestPrivacyRetryPreservesTranscriptScope(t *testing.T) {
 			if err := brainstore.SaveSessionTombstones(b, stones); err != nil {
 				t.Fatal(err)
 			}
-			m, err := loadBrainManifest(b)
+			m, err := bmanifest.Load(b)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -47,14 +50,14 @@ func TestPrivacyRetryPreservesTranscriptScope(t *testing.T) {
 				t.Fatal(err)
 			}
 			fact := factRecord{ID: "path-only", Text: "secret", Branch: "main", Status: factStatusActive, CreatedAt: now, UpdatedAt: now, Provenance: []factAnchor{{Transcript: old}}}
-			if err := writeFacts(b, "main", []factRecord{fact}); err != nil {
+			if err := factstore.Write(b, "main", []factRecord{fact}); err != nil {
 				t.Fatal(err)
 			}
-			guard, err := loadSessionReadGuard(b, m)
+			guard, err := bmanifest.LoadSessionReadGuard(b, m)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !guardBlocksRecord(guard, historyRecord{Path: old}) || !guardBlocksFactAnchor(guard, fact.Provenance[0]) {
+			if !historystore.GuardBlocksRecord(guard, historyRecord{Path: old}) || !factstore.GuardBlocksFactAnchor(guard, fact.Provenance[0]) {
 				t.Error("durable path lost from serving guard")
 			}
 			retry, err := buildSessionPurgePlan(b, "secret-sess")
@@ -67,7 +70,7 @@ func TestPrivacyRetryPreservesTranscriptScope(t *testing.T) {
 			if err := executeSessionCleanup(b, "secret-sess", retry, now.Add(time.Minute), name, keep); err != nil {
 				t.Fatal(err)
 			}
-			m, err = loadBrainManifest(b)
+			m, err = bmanifest.Load(b)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -81,7 +84,7 @@ func TestPrivacyRetryPreservesTranscriptScope(t *testing.T) {
 				t.Fatalf("old transcript after %s: %v", name, err)
 			}
 			// A later refresh drops every manifest entry for the excluded session.
-			m, err = loadBrainManifest(b)
+			m, err = bmanifest.Load(b)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -132,14 +135,14 @@ func TestPrivacyRetryRejectsUnsafeDurableScope(t *testing.T) {
 			if err := brainstore.SaveSessionTombstones(b, stones); err != nil {
 				t.Fatal(err)
 			}
-			m, err := loadBrainManifest(b)
+			m, err := bmanifest.Load(b)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if _, err := buildSessionPurgePlan(b, "secret-sess"); err == nil {
 				t.Error("plan accepted unsafe durable path")
 			}
-			if _, err := loadSessionReadGuard(b, m); err == nil {
+			if _, err := bmanifest.LoadSessionReadGuard(b, m); err == nil {
 				t.Error("guard accepted unsafe durable path")
 			}
 			if _, err := verifySessionPrivacy(b); err == nil {

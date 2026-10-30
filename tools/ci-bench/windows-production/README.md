@@ -22,6 +22,18 @@ identity, and command-line limits. It requires all planned roots to run and
 terminate successfully (including legitimate skips), and rejects duplicates
 and omissions. The compiled inventory is authoritative for newly added tests.
 
+On pull requests the prepare job also runs `tools/coverage/affected.py` (the
+same decision the ubuntu/mac test jobs use) and passes it to
+`prepare.py --affected`. A `mode=selected` decision narrows the shard plan and
+the non-heavy run to the affected packages; every heavy package is still
+compiled, hashed, and inventoried unchanged, so selection never alters how a
+planned root runs. Anything else — pushes to main, non-.go changes, a
+malformed decision, or packages absent from the target-Windows listing —
+keeps the full plan. An empty selection still emits one valid shard with zero
+assignments and a skipped non-heavy run, both exiting zero. The verifier
+authenticates a narrowed plan against the bundled `affected.json` and requires
+exactly the selected roots and packages to run.
+
 The same shard processes also collect atomic, cross-package statement coverage.
 Each invocation writes a separate profile with its path and SHA-256 bound into
 execution metadata; the non-heavy package run writes one additional profile.

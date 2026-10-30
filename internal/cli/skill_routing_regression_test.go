@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"os"
 	"path/filepath"
 	"strings"
@@ -141,7 +142,7 @@ func isolateSkillFormHome(t *testing.T) {
 
 func assertNoSkillFormWrites(t *testing.T, brainDir, repoDir string) {
 	t.Helper()
-	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patternsSkillMemoryPath))); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patterncore.SkillMemoryPath))); !os.IsNotExist(err) {
 		t.Fatalf("rejected form persisted skill memory: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(repoDir, ".agents", "skills")); !os.IsNotExist(err) {

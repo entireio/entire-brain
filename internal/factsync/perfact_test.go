@@ -80,6 +80,36 @@ func TestUpsertFactsNon2xx(t *testing.T) {
 	}
 }
 
+// 403 is the stale-binding shape (repo deleted or grant lost — COR-2279):
+// both wire calls must surface the ErrNoAccess sentinel so the sync stops
+// retrying. 401 stays a plain error — auth-plumbing breaks must keep looking
+// like failures that reach the server-side monitor.
+func TestForbiddenIsErrNoAccess(t *testing.T) {
+	status := http.StatusForbidden
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(`{"error":"no repo grant"}`))
+	}))
+	defer srv.Close()
+	h := &HTTPServer{BaseURL: srv.URL, Token: "tok"}
+
+	if _, err := h.UpsertFacts(context.Background(), "r1", []byte("x")); !errors.Is(err, ErrNoAccess) {
+		t.Fatalf("UpsertFacts(403) = %v, want ErrNoAccess", err)
+	}
+	if _, err := h.FactsFeedPage(context.Background(), "r1", "", 50); !errors.Is(err, ErrNoAccess) {
+		t.Fatalf("FactsFeedPage(403) = %v, want ErrNoAccess", err)
+	}
+
+	status = http.StatusUnauthorized
+	if _, err := h.UpsertFacts(context.Background(), "r1", []byte("x")); err == nil || errors.Is(err, ErrNoAccess) {
+		t.Fatalf("UpsertFacts(401) = %v, want a plain error", err)
+	}
+	if _, err := h.FactsFeedPage(context.Background(), "r1", "", 50); err == nil || errors.Is(err, ErrNoAccess) {
+		t.Fatalf("FactsFeedPage(401) = %v, want a plain error", err)
+	}
+}
+
 func TestFactsFeedPageWire(t *testing.T) {
 	var gotPath, gotToken, gotPageSize string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // distillConcurrentWriterFixture seeds a brain with one active fact and returns
@@ -17,17 +18,17 @@ func distillConcurrentWriterFixture(t *testing.T, now time.Time) (string, factRe
 	seeded := factRecord{
 		ID: factRecordID("Always run go test before pushing.", paths), Paths: paths,
 		Text: "Always run go test before pushing.", Branch: "main",
-		Origin: factOriginAuthored, Status: factStatusActive,
+		Origin: factstore.OriginAuthored, Status: factStatusActive,
 		Provenance: []factAnchor{{SessionID: "seed"}}, CreatedAt: now, UpdatedAt: now,
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{seeded}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{seeded}); err != nil {
 		t.Fatal(err)
 	}
 	newPaths := normalizeFactPaths([]string{"preferences.coding.style"})
 	authored := factRecord{
 		ID: factRecordID("The user prefers tabs.", newPaths), Paths: newPaths,
 		Text: "The user prefers tabs.", Branch: "main",
-		Origin: factOriginAuthored, Status: factStatusActive,
+		Origin: factstore.OriginAuthored, Status: factStatusActive,
 		Provenance: []factAnchor{{SessionID: "mid-run"}},
 		CreatedAt:  now.Add(time.Minute), UpdatedAt: now.Add(time.Minute),
 	}
@@ -54,13 +55,13 @@ func TestDistillFlushKeepsConcurrentWrites(t *testing.T) {
 					// Exactly what `facts retract` and `remember` do: a whole
 					// transaction under the brain write lock, mid-run.
 					if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-						facts, err := loadFacts(brainDir, "main")
+						facts, err := factstore.Load(brainDir, "main")
 						if err != nil {
 							return err
 						}
 						retractFact(facts, seeded.ID, now.Add(time.Minute))
 						facts = upsertFact(facts, authored)
-						return writeFacts(brainDir, "main", facts)
+						return factstore.Write(brainDir, "main", facts)
 					}); err != nil {
 						t.Errorf("concurrent write: %v", err)
 					}
@@ -73,7 +74,7 @@ func TestDistillFlushKeepsConcurrentWrites(t *testing.T) {
 				t.Fatalf("distill: %v", err)
 			}
 
-			facts, err := loadFacts(brainDir, "main")
+			facts, err := factstore.Load(brainDir, "main")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -90,7 +91,7 @@ func TestDistillFlushKeepsConcurrentWrites(t *testing.T) {
 			// The run's own work still lands.
 			distilled := 0
 			for _, f := range facts {
-				if f.Origin == factOriginDistilled {
+				if f.Origin == factstore.OriginDistilled {
 					distilled++
 				}
 			}
@@ -110,10 +111,10 @@ func TestDistillForceStillDropsStaleDistilledFacts(t *testing.T) {
 	staleText := "The project deploys from a bespoke shell script."
 	stale := factRecord{
 		ID: factRecordID(staleText, stalePaths), Paths: stalePaths, Text: staleText, Branch: "main",
-		Origin: factOriginDistilled, Status: factStatusActive,
+		Origin: factstore.OriginDistilled, Status: factStatusActive,
 		Provenance: []factAnchor{{SessionID: "s1"}}, CreatedAt: now, UpdatedAt: now,
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{stale}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{stale}); err != nil {
 		t.Fatal(err)
 	}
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
@@ -124,7 +125,7 @@ func TestDistillForceStillDropsStaleDistilledFacts(t *testing.T) {
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
 		t.Fatalf("distill: %v", err)
 	}
-	facts, err := loadFacts(brainDir, "main")
+	facts, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}

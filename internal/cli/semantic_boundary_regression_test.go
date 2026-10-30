@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,7 +87,7 @@ func TestSemanticBoundaryRootEmptyAndInvalidState(t *testing.T) {
 		}
 	}
 	brainDir := filepath.Join(opts.Env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
-	if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), []byte("{broken"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), []byte("{broken"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := execute(t, NewRootCommand(opts), "inspect", "boundaries", "--json"); err == nil || strings.Contains(out, `"boundary"`) {
@@ -98,7 +99,7 @@ func TestSemanticBoundaryRootMissingStaleAndCorruptIndex(t *testing.T) {
 	t.Run("missing semantic source", func(t *testing.T) {
 		opts := boundaryRegressionFixture(t, semanticBoundaryFixtureSnapshot())
 		brainDir := filepath.Join(opts.Env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			t.Fatal(err)
 		}

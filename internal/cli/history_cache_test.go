@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -123,7 +124,7 @@ func TestHistoryScanCacheRejectsSameSizeSameMtimeReplacement(t *testing.T) {
 	if err := os.WriteFile(path, []byte(oldLine), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, Sources: &brainSources{Sessions: &sessionSourceManifest{
+	manifest := exportManifest{SchemaVersion: bmanifest.SchemaVersion, Sources: &brainSources{Sessions: &sessionSourceManifest{
 		DefaultBranch: "main", Sessions: []exportSession{{SessionID: "s1", Branch: "main", TranscriptPath: rel}},
 	}}}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {

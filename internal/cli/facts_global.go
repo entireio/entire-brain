@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"strings"
 
+	factscmd "github.com/entireio/entire-brain/internal/cli/command/facts"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
@@ -32,48 +33,6 @@ import (
 // the write lock for free, and `facts` reads them with the code that already
 // exists. Recall merges them in; everything else about them is ordinary.
 
-const (
-	// globalStoreDirName sits beside "repos" in the plugin data directory, so a
-	// global brain is visible next to the per-repo ones rather than buried
-	// inside one of them.
-	globalStoreDirName = "global"
-
-	// globalFactBranch is the branch component of the global store's filename.
-	// Global facts are not on a branch; this is the storage layer's requirement,
-	// not a claim about the fact. Display never takes a fact's scope from this
-	// value — see globalFactIDs — because a repository may legitimately have a
-	// branch called "global" and a fact on it is not a global fact.
-	globalFactBranch = "global"
-)
-
-// globalBrainDir returns the global store's directory, creating nothing. The
-// caller creates it on first write, so merely reading never materialises a
-// directory for somebody who has no global memories.
-func globalBrainDir(env EntireEnv) (string, error) {
-	dirs, err := base.ResolvePluginDirs(env)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dirs.Data, globalStoreDirName), nil
-}
-
-// loadGlobalFacts reads the global store. A store that does not exist yet is
-// not an error: it is the state of every brain before the first global fact,
-// and recall must not fail because of it.
-func loadGlobalFacts(env EntireEnv) ([]factRecord, error) {
-	brainDir, err := globalBrainDir(env)
-	if err != nil {
-		return nil, err
-	}
-	if _, statErr := os.Stat(brainDir); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return nil, nil
-		}
-		return nil, statErr
-	}
-	return loadFacts(brainDir, globalFactBranch)
-}
-
 // globalFactIDs is how the rest of the code knows which facts are global.
 //
 // Taking it from the records that were actually loaded out of the global store
@@ -86,78 +45,6 @@ func globalFactIDs(facts []factRecord) map[string]bool {
 		ids[fact.ID] = true
 	}
 	return ids
-}
-
-// mergeGlobalFacts appends global facts to a repository's, dropping any whose
-// id a repository fact already has.
-//
-// The repository's copy wins on a collision. Fact ids are content-derived, so a
-// collision means the same statement is recorded in both places; the local one
-// is the more specific claim and carries that repo's provenance, which is the
-// evidence somebody would check.
-func mergeGlobalFacts(repoFacts, global []factRecord) ([]factRecord, map[string]bool) {
-	// Only a live repository fact shadows. The precedence above is justified by
-	// the local copy being the more specific claim carrying checkable
-	// provenance; a retracted or superseded fact makes no claim, so it has
-	// nothing to shadow with. Letting it shadow anyway would mean retracting a
-	// local duplicate silently removed the global statement from this one repo.
-	seen := make(map[string]bool, len(repoFacts))
-	for _, fact := range repoFacts {
-		switch fact.Status {
-		case "", factStatusActive:
-			seen[fact.ID] = true
-		}
-	}
-	merged := repoFacts
-	globalIDs := map[string]bool{}
-	for _, fact := range global {
-		if seen[fact.ID] {
-			continue
-		}
-		// A retracted or superseded global fact is filtered by the same code
-		// that filters repository ones; nothing special happens here.
-		merged = append(merged, fact)
-		globalIDs[fact.ID] = true
-	}
-	return merged, globalIDs
-}
-
-// globalFactsEnabled reports whether global facts should be merged into a
-// repository read.
-//
-// Default on: a preference somebody recorded once is meant to apply, and a
-// memory layer that makes you ask for what you already told it is not one.
-// ENTIRE_BRAIN_NO_GLOBAL_FACTS and --no-global turn it off, for a machine where
-// repository answers must not be influenced by anything outside the repository.
-func globalFactsEnabled(noGlobalFlag bool) bool {
-	if noGlobalFlag {
-		return false
-	}
-	return !base.SecurityToggleEnabled("ENTIRE_BRAIN_NO_GLOBAL_FACTS")
-}
-
-// globalFactsForRead loads the global store for a read surface, honouring the
-// off switches. A damaged global store must not take retrieval down with it, so
-// the error comes back for the caller to warn about rather than to propagate:
-// the repository's own facts are still the answer to most queries.
-func globalFactsForRead(env EntireEnv, noGlobal bool) ([]factRecord, error) {
-	if !globalFactsEnabled(noGlobal) {
-		return nil, nil
-	}
-	return loadGlobalFacts(env)
-}
-
-// resolveGlobalFactsTarget is the global counterpart of resolveFactsTarget, for
-// commands operating on the global store directly.
-func resolveGlobalFactsTarget(env EntireEnv) (brainDir, branch string, err error) {
-	brainDir, err = globalBrainDir(env)
-	if err != nil {
-		return "", "", err
-	}
-	if err := os.MkdirAll(brainDir, 0o700); err != nil {
-		return "", "", fmt.Errorf("create global brain: %w", err)
-	}
-	return brainDir, globalFactBranch, nil
 }
 
 // inARepository reports whether the current directory is actually inside a git
@@ -196,16 +83,6 @@ func inARepository(ctx context.Context, opts Options) (bool, error) {
 	return strings.TrimSpace(inside) == "true", nil
 }
 
-// globalFactNotice is what the user sees when a fact was filed globally without
-// them asking. Silence here would be the worst option: the fact is recorded
-// somewhere they did not choose, and they would only find out by missing it.
-func globalFactNotice(explicit bool) string {
-	if explicit {
-		return ""
-	}
-	return "not in a repository, so this was remembered globally; it will be recalled from every repo"
-}
-
 // describeFactScope labels a fact for display.
 func describeFactScope(fact factRecord, globalIDs map[string]bool) string {
 	if globalIDs[fact.ID] {
@@ -230,7 +107,7 @@ func newFactsGlobalCommand(opts Options) *cobra.Command {
 		Short: "List memories recorded globally rather than for one repository",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			facts, err := loadGlobalFacts(opts.Env)
+			facts, err := factstore.LoadGlobal(opts.Env)
 			if err != nil {
 				return err
 			}
@@ -241,12 +118,12 @@ func newFactsGlobalCommand(opts Options) *cobra.Command {
 				}
 				active = append(active, fact)
 			}
-			brainDir, dirErr := globalBrainDir(opts.Env)
+			brainDir, dirErr := factstore.GlobalBrainDir(opts.Env)
 			if dirErr != nil {
 				return dirErr
 			}
 			if jsonOut {
-				return writeJSON(cmd, map[string]any{
+				return cmdutil.WriteJSON(cmd, map[string]any{
 					"store": brainDir,
 					"count": len(active),
 					"facts": active,
@@ -262,7 +139,7 @@ func newFactsGlobalCommand(opts Options) *cobra.Command {
 				return nil
 			}
 			for _, fact := range active {
-				printFactLine(out, fact)
+				factscmd.PrintFactLine(out, fact)
 			}
 			fmt.Fprintf(out, "\n%d global memory(ies) in %s\n", len(active), brainDir)
 			return nil

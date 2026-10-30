@@ -12,6 +12,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // firstrun_no_sessions_test.go covers one defect with three faults, observed on
@@ -339,7 +340,7 @@ func captureCheckFor(t *testing.T, sessionsStageRan bool) doctorCheckResult {
 		t.Fatalf("create brain dir: %v", err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   opts.Now().UTC(),
 		RepoRoot:      opts.Env.RepoRoot,
 		RepoKey:       storage.Key,

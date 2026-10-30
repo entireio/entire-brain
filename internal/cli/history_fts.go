@@ -2,7 +2,6 @@ package cli
 
 import (
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +14,8 @@ import (
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -104,9 +105,9 @@ func historyFTSIdentityFromIndex(index historyIndex) historyFTSIdentity {
 	// path. The records fingerprint already discriminates two generations that
 	// share a GeneratedAt and a record count but not their rows, and it is
 	// populated from the manifest on load, so this stays O(1) in practice.
-	fingerprint := index.recordsFingerprint
-	if !validHistorySHA256(fingerprint) {
-		fingerprint = historyRecordsFingerprint(index.Records)
+	fingerprint := index.RecordsFingerprint
+	if !historystore.ValidSHA256(fingerprint) {
+		fingerprint = historystore.RecordsFingerprint(index.Records)
 	}
 	return historyFTSIdentity{
 		RecordsFingerprint: fingerprint,
@@ -115,15 +116,10 @@ func historyFTSIdentityFromIndex(index historyIndex) historyFTSIdentity {
 }
 
 func historyFTSIdentityFromSource(source *historySourceManifest) (historyFTSIdentity, bool) {
-	if source == nil || source.Records < 0 || !validHistorySHA256(source.RecordsFingerprint) {
+	if source == nil || source.Records < 0 || !historystore.ValidSHA256(source.RecordsFingerprint) {
 		return historyFTSIdentity{}, false
 	}
 	return historyFTSIdentity{RecordsFingerprint: source.RecordsFingerprint, RecordCount: source.Records}, true
-}
-
-func validHistorySHA256(value string) bool {
-	raw, err := hex.DecodeString(strings.TrimPrefix(value, "sha256:"))
-	return strings.HasPrefix(value, "sha256:") && err == nil && len(raw) == 32
 }
 
 // openHistoryFTS opens (and rebuilds if stale) the derived BM25 index. The index
@@ -224,7 +220,7 @@ type historyFTSQueryer interface {
 }
 
 func historyFTSFreshIdentity(q historyFTSQueryer, identity historyFTSIdentity) bool {
-	if !validHistorySHA256(identity.RecordsFingerprint) || identity.RecordCount < 0 {
+	if !historystore.ValidSHA256(identity.RecordsFingerprint) || identity.RecordCount < 0 {
 		return false
 	}
 	rows, err := q.Query(`SELECT key, value FROM history_fts_meta`)
@@ -369,10 +365,10 @@ func rebuildHistoryFTSFromTruth(brainDir string, index historyIndex) error {
 // JSON path.
 func validateHistoryFTSDirectSource(brainDir string, source *historySourceManifest) (historyFTSIdentity, bool, bool, error) {
 	identity, ok := historyFTSIdentityFromSource(source)
-	if !ok || source.IndexBytes <= 0 || !validHistorySHA256(source.IndexSHA256) {
+	if !ok || source.IndexBytes <= 0 || !historystore.ValidSHA256(source.IndexSHA256) {
 		return historyFTSIdentity{}, false, false, nil // legacy source: use the verified full-index path
 	}
-	clean, err := validateHistoryIndexPath(source.IndexPath)
+	clean, err := historystore.ValidateIndexPath(source.IndexPath)
 	if err != nil {
 		return historyFTSIdentity{}, false, false, err
 	}
@@ -380,16 +376,16 @@ func validateHistoryFTSDirectSource(brainDir string, source *historySourceManife
 	// declared index (the FTS payload fast path `search` takes), and a defect
 	// named by one reader and left raw by the other is how the same broken brain
 	// produced a sentence from `vsearch` and an `lstat` from `search`.
-	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
-		return historyFTSIdentity{}, false, false, historyIndexReadError(source, err)
+	if err := clibase.RejectSymlinkPathComponents(brainDir, clean); err != nil {
+		return historyFTSIdentity{}, false, false, historystore.IndexReadError(source, err)
 	}
 	path := filepath.Join(brainDir, clean)
 	if err := clibase.RejectUnsafeExistingRegularFile(path, "history index"); err != nil {
-		return historyFTSIdentity{}, false, false, historyIndexReadError(source, err)
+		return historyFTSIdentity{}, false, false, historystore.IndexReadError(source, err)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		return historyFTSIdentity{}, false, false, historyIndexReadError(source, err)
+		return historyFTSIdentity{}, false, false, historystore.IndexReadError(source, err)
 	}
 	if !info.Mode().IsRegular() {
 		return historyFTSIdentity{}, false, false, fmt.Errorf("history index must be a regular file: %s", source.IndexPath)
@@ -409,7 +405,7 @@ func openHistoryFTSReadOnly(brainDir string) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := clibase.RejectSymlinkPathComponents(brainDir, clean); err != nil {
 		return nil, err
 	}
 	path := filepath.Join(brainDir, clean)
@@ -462,7 +458,7 @@ func rankHistoryViaFreshFTSCutoff(brainDir string, source *historySourceManifest
 
 func rankHistoryViaFreshFTSCutoffDetailed(brainDir string, source *historySourceManifest, kind, query string, limit int, cutoff float64, predicates ...func(historyRecord) bool) ([]scoredHistoryRecord, bool, error) {
 	out, used, retry, err := rankHistoryViaFreshFTSCutoffOnce(brainDir, source, kind, query, limit, cutoff, predicates...)
-	var defect declaredIndexDefect
+	var defect brainstore.DeclaredIndexDefect
 	missing := errors.Is(err, os.ErrNotExist) || (errors.As(err, &defect) && defect.Absent)
 	if !missing && (err != nil || retry == historyFTSDirectNoRetry) {
 		return out, used, err
@@ -505,7 +501,7 @@ func rankHistoryViaFreshFTSCutoffDetailed(brainDir string, source *historySource
 }
 
 func currentHistorySource(brainDir string) (*historySourceManifest, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -714,7 +710,7 @@ const (
 type historyIndexLoadFunc func(string, *historySourceManifest) (historyIndex, error)
 
 func rankHistoryLexicalFromSource(brainDir string, source *historySourceManifest, kind, query string, limit int) ([]scoredHistoryRecord, string, int, error) {
-	return rankHistoryLexicalFromSourceWithLoader(brainDir, source, kind, query, limit, loadBrainHistoryIndex)
+	return rankHistoryLexicalFromSourceWithLoader(brainDir, source, kind, query, limit, historystore.LoadIndex)
 }
 
 func rankHistoryLexicalFromSourceWithLoader(brainDir string, source *historySourceManifest, kind, query string, limit int, loader historyIndexLoadFunc) ([]scoredHistoryRecord, string, int, error) {

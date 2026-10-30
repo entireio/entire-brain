@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -55,12 +56,12 @@ func TestRetrievalPrivacyRecheckDoesNotTreatCorruptionAsEmptyEvidence(t *testing
 			if _, err := execute(t, NewRootCommand(opts), "privacy", "exclude", "secret-sess", "--json"); err != nil {
 				t.Fatal(err)
 			}
-			rel := exportManifestFileName
+			rel := bmanifest.FileName
 			if kind == "tombstones" {
 				rel = brainstore.SessionTombstonesPath
 			}
 			if kind == "history" {
-				manifest, err := loadBrainManifest(dir)
+				manifest, err := bmanifest.Load(dir)
 				if err != nil {
 					t.Fatal(err)
 				}

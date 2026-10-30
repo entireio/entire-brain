@@ -13,6 +13,8 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // historyOversizeFixture writes a brain holding three sessions: two small
@@ -50,7 +52,7 @@ func historyOversizeFixture(t *testing.T, now time.Time) (brainDir string, overs
 		{SessionID: "huge", Branch: "main", LatestCheckpoint: "cp3", TranscriptPath: oversizeRel, CreatedAt: now.Add(-time.Hour)},
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now.Add(-time.Hour), DefaultBranch: "main",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now.Add(-time.Hour), DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now.Add(-time.Hour), DefaultBranch: "main", Sessions: sessions}},
 	}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
@@ -90,7 +92,7 @@ func TestHistoryIndexSkipsAnOversizeTranscriptAndIndexesTheRest(t *testing.T) {
 		t.Fatal("no history source manifest was written")
 	}
 
-	index, err := loadBrainHistoryIndex(brainDir, source)
+	index, err := historystore.LoadIndex(brainDir, source)
 	if err != nil {
 		t.Fatalf("load history index: %v", err)
 	}
@@ -156,7 +158,7 @@ func TestOversizeTranscriptIsSkippedByEveryInventoryReader(t *testing.T) {
 	if _, err := writeBrainHistoryIndexAndSource(brainDir, now, nil); err != nil {
 		t.Fatalf("index build: %v", err)
 	}
-	manifest, err = loadBrainManifest(brainDir)
+	manifest, err = bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatalf("reload manifest: %v", err)
 	}

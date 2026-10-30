@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestFactRecordIDStableForCanonicalPaths(t *testing.T) {
@@ -68,40 +71,10 @@ func TestValidFactPath(t *testing.T) {
 	}
 }
 
-func TestFactsRoundTrip(t *testing.T) {
-	brainDir := t.TempDir()
-	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	paths := normalizeFactPaths([]string{"preferences.coding.style"})
-	record := factRecord{
-		ID:         factRecordID("Prefers table-driven tests", paths),
-		Paths:      paths,
-		Text:       "Prefers table-driven tests",
-		Branch:     "main",
-		Origin:     factOriginAuthored,
-		Status:     factStatusActive,
-		Provenance: []factAnchor{{SessionID: "s1", Commit: "abc123", Line: 42}},
-		CreatedAt:  now,
-		UpdatedAt:  now,
-	}
-	if err := writeFacts(brainDir, "main", []factRecord{record}); err != nil {
-		t.Fatalf("writeFacts: %v", err)
-	}
-	got, err := loadFacts(brainDir, "main")
-	if err != nil {
-		t.Fatalf("loadFacts: %v", err)
-	}
-	if len(got) != 1 || got[0].ID != record.ID || got[0].Text != record.Text {
-		t.Fatalf("round trip mismatch: %+v", got)
-	}
-	if len(got[0].Provenance) != 1 || got[0].Provenance[0].Line != 42 {
-		t.Fatalf("provenance not preserved: %+v", got[0].Provenance)
-	}
-}
-
 func TestFactWritesRejectSymlinkedFactsBranch(t *testing.T) {
 	brainDir := t.TempDir()
 	outside := t.TempDir()
-	branchDir := filepath.Join(brainDir, filepath.FromSlash(factsBranchRelDir("main")))
+	branchDir := filepath.Join(brainDir, filepath.FromSlash(factstore.BranchRelDir("main")))
 	if err := os.MkdirAll(filepath.Dir(branchDir), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -115,14 +88,14 @@ func TestFactWritesRejectSymlinkedFactsBranch(t *testing.T) {
 		Paths:      paths,
 		Text:       "Reject symlink facts branch",
 		Branch:     "main",
-		Origin:     factOriginAuthored,
+		Origin:     factstore.OriginAuthored,
 		Status:     factStatusActive,
 		Provenance: []factAnchor{{SessionID: "s1"}},
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{record}); err == nil || !strings.Contains(err.Error(), "symlink") {
-		t.Fatalf("writeFacts should reject symlinked branch dir, got %v", err)
+	if err := factstore.Write(brainDir, "main", []factRecord{record}); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("factstore.Write should reject symlinked branch dir, got %v", err)
 	}
 	if err := writeFactProposals(brainDir, "main", []factProposal{{Action: "merge", CandidateID: "fact:a", TargetID: "fact:b"}}); err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("writeFactProposals should reject symlinked branch dir, got %v", err)
@@ -134,33 +107,8 @@ func TestFactWritesRejectSymlinkedFactsBranch(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outside, distillCacheFileName)); !os.IsNotExist(err) {
 		t.Fatalf("distill cache should not be written through symlink, stat err=%v", err)
 	}
-	if _, err := os.Stat(filepath.Join(outside, factsFileName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(outside, factstore.FileName)); !os.IsNotExist(err) {
 		t.Fatalf("facts file should not be written through symlink, stat err=%v", err)
-	}
-}
-
-func TestFactTaxonomyRejectsSymlinkedFactsRoot(t *testing.T) {
-	brainDir := t.TempDir()
-	outside := t.TempDir()
-	if err := os.Symlink(outside, filepath.Join(brainDir, factsDirName)); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
-	err := writeFactTaxonomy(brainDir, defaultFactTaxonomy(time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)))
-	if err == nil || !strings.Contains(err.Error(), "symlink") {
-		t.Fatalf("writeFactTaxonomy should reject symlinked facts root, got %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(outside, factsTaxonomyFileName)); !os.IsNotExist(err) {
-		t.Fatalf("taxonomy should not be written through symlink, stat err=%v", err)
-	}
-}
-
-func TestLoadFactsMissingFileIsEmpty(t *testing.T) {
-	records, err := loadFacts(t.TempDir(), "main")
-	if err != nil {
-		t.Fatalf("expected nil error for missing file, got %v", err)
-	}
-	if len(records) != 0 {
-		t.Fatalf("expected no records, got %d", len(records))
 	}
 }
 
@@ -173,7 +121,7 @@ func TestUpsertFactDedupesAndUnionsProvenance(t *testing.T) {
 		ID:         id,
 		Paths:      paths,
 		Text:       "Uses Go 1.26",
-		Origin:     factOriginDistilled,
+		Origin:     factstore.OriginDistilled,
 		Status:     factStatusActive,
 		Provenance: []factAnchor{{SessionID: "s1", Line: 10}},
 		CreatedAt:  now,
@@ -214,108 +162,16 @@ func TestUpsertFactDedupesAndUnionsProvenance(t *testing.T) {
 	}
 }
 
-func TestFactTaxonomyDefaultAndRoundTrip(t *testing.T) {
-	brainDir := t.TempDir()
-	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-
-	// Missing taxonomy falls back to the shipped default.
-	taxonomy, err := loadFactTaxonomy(brainDir, now)
-	if err != nil {
-		t.Fatalf("loadFactTaxonomy: %v", err)
-	}
-	if len(taxonomy.Categories) == 0 || len(taxonomy.Paths) == 0 {
-		t.Fatalf("default taxonomy is empty: %+v", taxonomy)
-	}
-	for _, def := range taxonomy.Paths {
-		if !validFactPath(def.Path) {
-			t.Fatalf("default taxonomy ships invalid path: %q", def.Path)
-		}
-		if !factPathKnownTopLevel(taxonomy, def.Path) {
-			t.Fatalf("default taxonomy path %q has unknown top-level", def.Path)
-		}
-	}
-
-	// A path under an unknown top-level is an orphan.
-	if factPathKnownTopLevel(taxonomy, "nonsense.foo.bar") {
-		t.Fatalf("unknown top-level should not be recognized")
-	}
-
-	if err := writeFactTaxonomy(brainDir, taxonomy); err != nil {
-		t.Fatalf("writeFactTaxonomy: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(factsTaxonomyPath))); err != nil {
-		t.Fatalf("taxonomy not written: %v", err)
-	}
-	reloaded, err := loadFactTaxonomy(brainDir, now)
-	if err != nil {
-		t.Fatalf("reload taxonomy: %v", err)
-	}
-	if len(reloaded.Paths) != len(taxonomy.Paths) {
-		t.Fatalf("taxonomy round trip changed path count: %d != %d", len(reloaded.Paths), len(taxonomy.Paths))
-	}
-}
-
-func TestSummarizeFactSource(t *testing.T) {
-	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	// Every record carries an id, because that is what makes it a fact.
-	// summarizeFactSource counts only records that have one (see isFactRecord),
-	// so the fixture has to be a store of real facts rather than a bag of
-	// half-populated structs.
-	byBranch := map[string][]factRecord{
-		"main": {
-			{ID: "fact:main-1", Origin: factOriginDistilled, Status: factStatusActive, Provenance: []factAnchor{{SessionID: "s1", Verified: true}}},
-			{ID: "fact:main-2", Origin: factOriginAuthored, Status: factStatusActive, Provenance: []factAnchor{{SessionID: "s2"}}},
-		},
-		"feature": {
-			{ID: "fact:feature-1", Origin: factOriginDistilled, Status: factStatusSuperseded, Provenance: []factAnchor{{SessionID: "s3"}}},
-		},
-	}
-	source := summarizeFactSource(now, byBranch, 100, 7, 4, []string{"w"})
-	if source.Facts != 3 {
-		t.Errorf("Facts = %d, want 3", source.Facts)
-	}
-	if source.Proposals != 4 {
-		t.Errorf("Proposals = %d, want 4", source.Proposals)
-	}
-	if source.Distilled != 2 || source.Authored != 1 {
-		t.Errorf("origin counts wrong: distilled=%d authored=%d", source.Distilled, source.Authored)
-	}
-	if source.Superseded != 1 {
-		t.Errorf("Superseded = %d, want 1", source.Superseded)
-	}
-	if source.Verified != 1 || source.Unsigned != 2 {
-		t.Errorf("anchor counts wrong: verified=%d unsigned=%d", source.Verified, source.Unsigned)
-	}
-	if source.ChunksScanned != 100 || source.ChunksDistilled != 7 {
-		t.Errorf("chunk counts wrong: scanned=%d distilled=%d", source.ChunksScanned, source.ChunksDistilled)
-	}
-	if len(source.Branches) != 2 || source.Branches[0] != "feature" || source.Branches[1] != "main" {
-		t.Errorf("branches not sorted: %v", source.Branches)
-	}
-	if source.TaxonomyPath != factsTaxonomyPath {
-		t.Errorf("TaxonomyPath = %q, want %q", source.TaxonomyPath, factsTaxonomyPath)
-	}
-
-	// A stored line that parses but carries no id is not a fact and must never
-	// be declared as one: counting it here is how a damaged store re-declared
-	// its own damage as whole on the next `remember` or `refresh`, hiding the
-	// loss from the integrity cross-check that reads this number back.
-	byBranch["main"] = append(byBranch["main"], factRecord{Status: factStatusActive, Origin: factOriginAuthored})
-	if got := summarizeFactSource(now, byBranch, 100, 7, 4, nil).Facts; got != 3 {
-		t.Errorf("Facts = %d after adding an id-less line, want 3", got)
-	}
-}
-
 func TestUpdateFactSourceManifestPreservesDistillEvidence(t *testing.T) {
 	brainDir := t.TempDir()
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	paths := normalizeFactPaths([]string{"preferences.coding.style"})
-	if err := writeFacts(brainDir, "main", []factRecord{{
+	if err := factstore.Write(brainDir, "main", []factRecord{{
 		ID:         factRecordID("Keep distill evidence", paths),
 		Paths:      paths,
 		Text:       "Keep distill evidence",
 		Branch:     "main",
-		Origin:     factOriginAuthored,
+		Origin:     factstore.OriginAuthored,
 		Status:     factStatusActive,
 		Provenance: []factAnchor{{SessionID: "s1"}},
 		CreatedAt:  now,
@@ -325,7 +181,7 @@ func TestUpdateFactSourceManifestPreservesDistillEvidence(t *testing.T) {
 	}
 	prior := &factSourceManifest{
 		GeneratedAt:           now.Add(-time.Hour),
-		TaxonomyPath:          factsTaxonomyPath,
+		TaxonomyPath:          factstore.TaxonomyPath,
 		ChunksScanned:         42,
 		ChunksDistilled:       17,
 		CacheHits:             9,
@@ -336,14 +192,14 @@ func TestUpdateFactSourceManifestPreservesDistillEvidence(t *testing.T) {
 		WriteSeconds:          0.125,
 		Warnings:              []string{"agent timeout"},
 	}
-	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, Sources: &brainSources{Facts: prior}}); err != nil {
+	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now, Sources: &brainSources{Facts: prior}}); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
 
 	if err := updateFactSourceManifestLocked(brainDir, now.Add(time.Minute)); err != nil {
 		t.Fatalf("update fact source: %v", err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}

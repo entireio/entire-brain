@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -65,7 +66,7 @@ func TestMemoryReadOnlyHealthClassifiesObservedOverlayJobAndFTSSchemas(t *testin
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir := t.TempDir()
-			writeHealthFixtureFile(t, brainDir, exportManifestFileName, []byte(fmt.Sprintf(`{"schema_version":%d}`, brainManifestSchemaVersion)+"\n"))
+			writeHealthFixtureFile(t, brainDir, bmanifest.FileName, []byte(fmt.Sprintf(`{"schema_version":%d}`, bmanifest.SchemaVersion)+"\n"))
 			tc.prepare(t, brainDir)
 			before := healthFixtureTree(t, brainDir)
 
@@ -98,7 +99,7 @@ func TestMemoryReadOnlyHealthClassifiesObservedOverlayJobAndFTSSchemas(t *testin
 func TestMemoryReadOnlyHealthReportsAbsentVectorAndCanonicalSourceSchema(t *testing.T) {
 	brainDir := t.TempDir()
 	now := time.Date(2026, 8, 10, 8, 30, 0, 0, time.UTC)
-	writeHealthFixtureFile(t, brainDir, exportManifestFileName, []byte(fmt.Sprintf(`{"schema_version":%d}`, brainManifestSchemaVersion)+"\n"))
+	writeHealthFixtureFile(t, brainDir, bmanifest.FileName, []byte(fmt.Sprintf(`{"schema_version":%d}`, bmanifest.SchemaVersion)+"\n"))
 
 	snapshot := memoryReadOnlyHealth(brainDir, now)
 	vector, _ := snapshot.Payload["vector_progress"].(map[string]any)
@@ -109,11 +110,11 @@ func TestMemoryReadOnlyHealthReportsAbsentVectorAndCanonicalSourceSchema(t *test
 		t.Fatalf("absent vector falsely claims an observed schema: %#v", vector)
 	}
 	source, _ := snapshot.Payload["source_manifest"].(map[string]any)
-	if source["state"] != "current" || source["schema_version"] != brainManifestSchemaVersion || source["supported_schema_version"] != brainManifestSchemaVersion || source["authority"] != "canonical_brain_manifest" {
+	if source["state"] != "current" || source["schema_version"] != bmanifest.SchemaVersion || source["supported_schema_version"] != bmanifest.SchemaVersion || source["authority"] != "canonical_brain_manifest" {
 		t.Fatalf("source manifest health = %#v", source)
 	}
 	canonical, _ := snapshot.Payload["canonical_sessions"].(map[string]any)
-	if canonical["source_manifest_schema_version"] != brainManifestSchemaVersion || canonical["supported_source_manifest_schema_version"] != brainManifestSchemaVersion {
+	if canonical["source_manifest_schema_version"] != bmanifest.SchemaVersion || canonical["supported_source_manifest_schema_version"] != bmanifest.SchemaVersion {
 		t.Fatalf("canonical source schema = %#v", canonical)
 	}
 	schemas, _ := snapshot.Payload["schemas"].(map[string]any)

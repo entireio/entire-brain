@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"slices"
@@ -36,7 +37,7 @@ func TestReadRuntimeTracesArrayAndNDJSON(t *testing.T) {
 func TestReadRuntimeTracesRejectsOversizedFile(t *testing.T) {
 
 	big := writeTraceFile(t, "")
-	if err := os.Truncate(big, graphTraceMaxBytes+1); err != nil {
+	if err := os.Truncate(big, semstore.TraceMaxBytes+1); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := readRuntimeTraces(big); err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {

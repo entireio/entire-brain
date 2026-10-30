@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"strings"
 	"testing"
 	"time"
@@ -106,7 +107,7 @@ func TestThemeProposalGroupsByMeaningNotIntentSig(t *testing.T) {
 	}
 
 	// One accepted theme; it spans the worktree episodes regardless of wording.
-	views := queryThemeViews(db, true)
+	views := patterncore.QueryThemeViews(db, true)
 	if len(views) != 1 {
 		t.Fatalf("expected 1 accepted theme, got %d", len(views))
 	}
@@ -220,7 +221,7 @@ func TestThemeProposalUnknownVerdictNotAccepted(t *testing.T) {
 		if stats.Verified != 0 {
 			t.Errorf("verdict %q must not count as Verified, got %+v", v, stats)
 		}
-		if n := len(queryThemeViews(db, true)); n != 0 {
+		if n := len(patterncore.QueryThemeViews(db, true)); n != 0 {
 			t.Errorf("verdict %q must not surface as an accepted theme, got %d", v, n)
 		}
 		var stored string

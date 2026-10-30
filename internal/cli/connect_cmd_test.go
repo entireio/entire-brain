@@ -8,13 +8,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/command/connect"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
-
-type commandRunnerFunc func(context.Context, string, string, ...string) ([]byte, []byte, error)
-
-func (f commandRunnerFunc) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
-	return f(ctx, dir, name, args...)
-}
 
 func connectTestEnv(t *testing.T, repoDir string) EntireEnv {
 	t.Helper()
@@ -29,7 +28,7 @@ func connectTestEnv(t *testing.T, repoDir string) EntireEnv {
 
 func runConnectCommand(t *testing.T, opts Options, args ...string) (string, string, error) {
 	t.Helper()
-	cmd := newConnectCommand(opts)
+	cmd := connect.New(connectConfig(opts))
 	cmd.SetArgs(args)
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
@@ -42,7 +41,7 @@ func TestConnectWithExplicitFlagsWritesBindingWithoutShellOut(t *testing.T) {
 	repoDir := t.TempDir()
 	env := connectTestEnv(t, repoDir)
 	placementCalls := 0
-	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
 			placementCalls++
 		}
@@ -66,7 +65,7 @@ func TestConnectWithExplicitFlagsWritesBindingWithoutShellOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, present, err := readHostedRepoBinding(storage.BrainDir)
+	binding, present, err := brainstore.ReadHostedRepoBinding(storage.BrainDir)
 	if err != nil || !present {
 		t.Fatalf("binding must be written: present=%v err=%v", present, err)
 	}
@@ -81,7 +80,7 @@ func TestConnectWithExplicitFlagsWritesBindingWithoutShellOut(t *testing.T) {
 func TestConnectResolvesViaRepoView(t *testing.T) {
 	repoDir := t.TempDir()
 	env := connectTestEnv(t, repoDir)
-	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
 			return []byte(`{"repoId":"01AAAAAAAAAAAAAAAAAAAAAAAA","apiUrl":"https://eu.api.example.com/api/v1","name":"test/repo"}` + "\nUpdate available! 1 -> 2\n"), nil, nil
 		}
@@ -98,7 +97,7 @@ func TestConnectResolvesViaRepoView(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, present, err := readHostedRepoBinding(storage.BrainDir)
+	binding, present, err := brainstore.ReadHostedRepoBinding(storage.BrainDir)
 	if err != nil || !present {
 		t.Fatalf("binding must be written: present=%v err=%v", present, err)
 	}
@@ -111,7 +110,7 @@ func TestConnectResolvesViaRepoView(t *testing.T) {
 func TestConnectPlacementUnavailableIsCleanError(t *testing.T) {
 	repoDir := t.TempDir()
 	env := connectTestEnv(t, repoDir)
-	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		return nil, nil, errors.New("unknown command")
 	})
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
@@ -127,7 +126,7 @@ func TestConnectPlacementUnavailableIsCleanError(t *testing.T) {
 	if storageErr != nil {
 		t.Fatal(storageErr)
 	}
-	if _, present, _ := readHostedRepoBinding(storage.BrainDir); present {
+	if _, present, _ := brainstore.ReadHostedRepoBinding(storage.BrainDir); present {
 		t.Fatal("no binding may be written on failure")
 	}
 }
@@ -140,7 +139,7 @@ func TestConnectPlacementErrorKeepsHostMessageAndFlagsHint(t *testing.T) {
 	env := connectTestEnv(t, repoDir)
 	hostMessage := `no repo matching "sandbox-audit/brain-sbx" visible from your login (GitHub repos you could onboard: ` + "`entire repo mirror list --available`" + `)`
 	stderr := "Using context 'auth.example.invalid'.\n" + hostMessage + "\n"
-	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if name == "entire" && len(args) > 0 && args[0] == "version" {
 			return []byte("Entire CLI 0.12.0\n"), nil, nil
 		}
@@ -161,22 +160,10 @@ func TestConnectPlacementErrorKeepsHostMessageAndFlagsHint(t *testing.T) {
 	}
 }
 
-func TestPlacementFailureErrorWithoutStderrNamesTheCommand(t *testing.T) {
-	err := placementFailureError(fmt.Errorf("entire [repo view --json]: %w", errors.New("exit status 1")), nil)
-	if got, want := err.Error(), "`entire repo view --json`: exit status 1"; got != want {
-		t.Fatalf("got %q, want %q", got, want)
-	}
-	bannerOnly := []byte("Using context 'auth.example.invalid'.\n")
-	err = placementFailureError(errors.New("exit status 1"), bannerOnly)
-	if got, want := err.Error(), "`entire repo view --json`: exit status 1"; got != want {
-		t.Fatalf("banner-only stderr must fall back to the command, got %q, want %q", got, want)
-	}
-}
-
 func TestConnectRejectsInvalidAPIURL(t *testing.T) {
 	repoDir := t.TempDir()
 	env := connectTestEnv(t, repoDir)
-	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		return nil, nil, errors.New("not available")
 	})
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
@@ -191,7 +178,7 @@ func TestConnectRejectsInvalidAPIURL(t *testing.T) {
 	if storageErr != nil {
 		t.Fatal(storageErr)
 	}
-	if _, present, _ := readHostedRepoBinding(storage.BrainDir); present {
+	if _, present, _ := brainstore.ReadHostedRepoBinding(storage.BrainDir); present {
 		t.Fatal("no binding may be written for a rejected URL")
 	}
 }
@@ -205,7 +192,7 @@ func TestConnectRunsInitialPull(t *testing.T) {
 
 	repoDir := t.TempDir()
 	env := connectTestEnv(t, repoDir)
-	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
 			return []byte(fakeJWT + "\n"), nil, nil
 		}
@@ -234,7 +221,7 @@ func TestConnectRunsInitialPull(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,74 +233,6 @@ func TestConnectRunsInitialPull(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("connect must perform the initial pull, got %d local records", len(local))
-	}
-}
-
-func TestResolveHostedPlacementBoundsTheShellOut(t *testing.T) {
-	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
-		if _, ok := ctx.Deadline(); !ok {
-			t.Error("the placement shell-out must carry a deadline")
-		}
-		return []byte(`{"repoId":"r","apiUrl":"https://cell.api.example.com"}`), nil, nil
-	})
-	if _, err := resolveHostedPlacement(context.Background(), runner, "/repo"); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestCheckHostCLIVersion(t *testing.T) {
-	runnerReporting := func(version string) CommandRunner {
-		return commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
-			return []byte(version), nil, nil
-		})
-	}
-	cases := []struct {
-		name    string
-		runner  CommandRunner
-		min     string
-		wantErr bool
-	}{
-		{"too old is refused", runnerReporting("Entire CLI 0.11.3\nGo version: go1.27.1\n"), "0.12.0", true},
-		{"too old with commit suffix is refused", runnerReporting("Entire CLI 0.11.3 (abc1234)\n"), "0.12.0", true},
-		{"new enough with commit suffix passes", runnerReporting("Entire CLI 0.12.0 (abc1234)\n"), "0.12.0", false},
-		{"prerelease of the minimum passes", runnerReporting("Entire CLI 0.12.0-nightly.20261020\n"), "0.12.0", false},
-		{"pseudo-version above the minimum passes", runnerReporting("Entire CLI v0.12.1-0.20261020123456-abcdef123456\n"), "0.12.0", false},
-		{"prerelease of an older release is refused", runnerReporting("Entire CLI 0.11.3-nightly.1\n"), "0.12.0", true},
-		{"unset minimum disables the gate", runnerReporting("Entire CLI 0.11.3\n"), "", false},
-		{"minimum passes", runnerReporting("Entire CLI 0.12.0\n"), "0.12.0", false},
-		{"newer passes", runnerReporting("Entire CLI 0.13.1\n"), "0.12.0", false},
-		{"dev build passes", runnerReporting("Entire CLI dev\n"), "0.12.0", false},
-		{"missing CLI passes", commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
-			return nil, nil, errors.New("not found")
-		}), "0.12.0", false},
-	}
-	for _, tc := range cases {
-		err := checkHostCLIVersion(context.Background(), tc.runner, "/repo", tc.min)
-		if (err != nil) != tc.wantErr {
-			t.Errorf("%s: got err=%v, want error=%v", tc.name, err, tc.wantErr)
-		}
-	}
-}
-
-func TestResolveHostedPlacementRefusesAnOldHostCLI(t *testing.T) {
-	prev := minHostCLIVersion
-	minHostCLIVersion = "0.12.0"
-	t.Cleanup(func() { minHostCLIVersion = prev })
-	repoViewCalled := false
-	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
-		if len(args) > 0 && args[0] == "version" {
-			return []byte("Entire CLI 0.11.3\n"), nil, nil
-		}
-		repoViewCalled = true
-		return []byte(`{"repoId":"r","apiUrl":"https://cell.api.example.com"}`), nil, nil
-	})
-	if _, err := resolveHostedPlacement(context.Background(), runner, "/repo"); err == nil {
-		t.Fatal("placement on a host CLI older than minHostCLIVersion must fail with upgrade guidance")
-	} else if !strings.Contains(err.Error(), "upgrade") {
-		t.Fatalf("error must tell the user to upgrade, got %v", err)
-	}
-	if repoViewCalled {
-		t.Fatal("repo view must not run once the version gate refused")
 	}
 }
 
@@ -329,7 +248,7 @@ func TestConnectReusesTheExistingBindingWhenPlacementUnavailable(t *testing.T) {
 
 	repoDir := t.TempDir()
 	env := connectTestEnv(t, repoDir)
-	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
 			return []byte(fakeJWT + "\n"), nil, nil
 		}
@@ -340,14 +259,14 @@ func TestConnectReusesTheExistingBindingWhenPlacementUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeHostedRepoBinding(storage.BrainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(storage.BrainDir, brainstore.HostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL}); err != nil {
 		t.Fatal(err)
 	}
 
 	if _, _, err := runConnectCommand(t, opts); err != nil {
 		t.Fatalf("connect on an already-connected repo must not require placement resolution, got %v", err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +288,7 @@ func TestConnectClearsOptOut(t *testing.T) {
 	env := connectTestEnv(t, repoDir)
 	fake := &hostedFake{}
 	srv := newHostedFakeServer(t, fake)
-	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
 			return []byte(fakeJWT + "\n"), nil, nil
 		}
@@ -380,14 +299,14 @@ func TestConnectClearsOptOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeHostedRepoBinding(storage.BrainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL, OptedOut: true}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(storage.BrainDir, brainstore.HostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL, OptedOut: true}); err != nil {
 		t.Fatal(err)
 	}
 
 	if _, _, err := runConnectCommand(t, opts); err != nil {
 		t.Fatal(err)
 	}
-	binding, present, err := readHostedRepoBinding(storage.BrainDir)
+	binding, present, err := brainstore.ReadHostedRepoBinding(storage.BrainDir)
 	if err != nil || !present {
 		t.Fatalf("binding must be present: present=%v err=%v", present, err)
 	}
@@ -408,7 +327,7 @@ func TestConnectReportsFirstSyncFailure(t *testing.T) {
 	env := connectTestEnv(t, repoDir)
 	fake := &hostedFake{denyFeed: true}
 	srv := newHostedFakeServer(t, fake)
-	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
 			return []byte(fakeJWT + "\n"), nil, nil
 		}
@@ -427,7 +346,7 @@ func TestConnectReportsFirstSyncFailure(t *testing.T) {
 	if storageErr != nil {
 		t.Fatal(storageErr)
 	}
-	if _, present, readErr := readHostedRepoBinding(storage.BrainDir); readErr != nil || !present {
+	if _, present, readErr := brainstore.ReadHostedRepoBinding(storage.BrainDir); readErr != nil || !present {
 		t.Fatalf("binding must survive a failed first sync: present=%v err=%v", present, readErr)
 	}
 }
@@ -439,7 +358,7 @@ func TestConnectUnderNoEgressSaysNothingSyncs(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
 	repoDir := t.TempDir()
 	env := connectTestEnv(t, repoDir)
-	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		return nil, nil, errors.New("not available")
 	})
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
@@ -455,7 +374,7 @@ func TestConnectUnderNoEgressSaysNothingSyncs(t *testing.T) {
 	if storageErr != nil {
 		t.Fatal(storageErr)
 	}
-	if _, present, readErr := readHostedRepoBinding(storage.BrainDir); readErr != nil || !present {
+	if _, present, readErr := brainstore.ReadHostedRepoBinding(storage.BrainDir); readErr != nil || !present {
 		t.Fatalf("binding must be recorded under no-egress: present=%v err=%v", present, readErr)
 	}
 }
@@ -467,7 +386,7 @@ func TestConnectAcknowledgesExistingConnection(t *testing.T) {
 	env := connectTestEnv(t, repoDir)
 	fake := &hostedFake{}
 	srv := newHostedFakeServer(t, fake)
-	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
 			return []byte(fakeJWT + "\n"), nil, nil
 		}
@@ -478,7 +397,7 @@ func TestConnectAcknowledgesExistingConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeHostedRepoBinding(storage.BrainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(storage.BrainDir, brainstore.HostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL}); err != nil {
 		t.Fatal(err)
 	}
 

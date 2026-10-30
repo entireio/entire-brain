@@ -2,55 +2,13 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"runtime"
 
-	"github.com/spf13/cobra"
+	"github.com/entireio/entire-brain/internal/cli/command/daemonreregister"
 )
-
-// errWatchBinaryReplaced ends the supervised loop when the executable this
-// daemon was started from has been replaced on disk. A long-running daemon
-// otherwise outlives its binary: after an upgrade it keeps running the old
-// build, whose writer-path manifest load correctly refuses the new build's
-// fields, and every tick fails forever while `status` still says running
-// (COR-2174). Exiting hands the restart to the service manager, which spawns
-// the current binary.
-var errWatchBinaryReplaced = errors.New("binary replaced on disk")
-
-// watchBinaryChanged returns a probe reporting whether this process's
-// executable has been replaced since the probe was created, or nil when the
-// executable cannot be resolved (then the staleness check is simply off).
-func watchBinaryChanged() func() bool {
-	path, err := os.Executable()
-	if err != nil {
-		return nil
-	}
-	return watchBinaryChangeProbe(path)
-}
-
-func watchBinaryChangeProbe(path string) func() bool {
-	started, err := os.Stat(path)
-	if err != nil {
-		return nil
-	}
-	return func() bool {
-		current, err := os.Stat(path)
-		if err != nil {
-			// Mid-replace or unreadable: decide on a later pass rather than
-			// restarting onto a binary that may be half-written.
-			return false
-		}
-		// All three signals carry weight: SameFile catches install-by-rename,
-		// ModTime catches the in-place rebuild, Size catches an in-place copy
-		// that preserved mtime (cp -p, rsync -t).
-		return !os.SameFile(started, current) ||
-			!current.ModTime().Equal(started.ModTime()) ||
-			current.Size() != started.Size()
-	}
-}
 
 // relaunchInstalledDaemon re-registers the launchd agent after the supervised
 // daemon exits over a replaced binary.
@@ -89,17 +47,13 @@ func relaunchInstalledDaemon(out io.Writer, env EntireEnv) {
 	}
 }
 
-// newDaemonReregisterCommand is the internal command the exiting daemon spawns
-// (detached, on the replaced binary) to re-register the installed watcher.
-func newDaemonReregisterCommand(opts Options) *cobra.Command {
-	return &cobra.Command{
-		Use:   "daemon-reregister",
-		Short: "Re-register the installed background watcher with the service manager (internal)",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDaemonReregister(cmd.Context(), cmd.OutOrStdout(), opts)
-		},
-	}
+// daemonReregisterConfig binds the re-registration engine at the assembly
+// boundary: the command package never imports cli, and the unit plan, the
+// registration lock, and the installer verbs stay here with `setup`.
+func daemonReregisterConfig(opts Options) daemonreregister.Config {
+	return daemonreregister.Config{Options: opts, Deps: daemonreregister.Deps{
+		Reregister: runDaemonReregister,
+	}}
 }
 
 // runDaemonReregister reinstalls the machine's one watcher under the same lock

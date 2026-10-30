@@ -3,7 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
-	"io"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"os"
 	"sort"
 	"strings"
@@ -11,16 +12,16 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
-	"github.com/spf13/cobra"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // lifecycle_ops.go is Phase 3 (lifecycle reliability and operations) of the
 // conversational-memory plan: observability for the capture -> export -> index
 // -> recall chain. Automatic indexing itself is inherited (`watch` already
 // drives the deterministic refresh that builds exchanges), so what lives here
-// is the explanation layer: doctor's capture-to-recall checks and the stats
+// is the explanation layer: doctor's capture-to-recall checks. The stats
 // surface (counts/ranges by branch, agent, source, completion state, and index
-// version).
+// version) moved to internal/cli/command/stats (COR-2268).
 
 // doctorScope says what kind of claim a finding is making, because doctor makes
 // two of them -- its own Short is "Check the plugin environment AND the
@@ -179,7 +180,7 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 	}
 	// There is deliberately no memory_schema_capabilities check either. Its
 	// state was the literal "ok" and its detail was formatted purely from
-	// untyped compile-time constants (brainManifestSchemaVersion = 3,
+	// untyped compile-time constants (bmanifest.SchemaVersion = 3,
 	// historyShortTermVersion = 3, historyFTSSchema = "3", memoryVectorSchema
 	// = 2, abstractSchemaVersion = 1, memoryJobSchemaVersion = 2): the same
 	// sentence for every brain built from a given binary. What this build
@@ -412,7 +413,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	// unreadable docs layer here rather than letting doctor pass while the
 	// whole layer contributes nothing.
 	if manifest.Sources != nil && manifest.Sources.Docs != nil {
-		if err := verifyDeclaredDocIndex(brainDir); err != nil {
+		if err := docstore.VerifyDeclaredIndex(brainDir); err != nil {
 			add("docs_index", "error", "declared but unreadable: "+err.Error())
 		} else {
 			add("docs_index", "ok", fmt.Sprintf("%d records from %d files", manifest.Sources.Docs.Records, manifest.Sources.Docs.Files))
@@ -420,14 +421,14 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	}
 
 	// Durable facts: the manifest's fact counts are a claim about the store,
-	// not an observation of it. loadFacts reads an absent store as an empty
+	// not an observation of it. factstore.Load reads an absent store as an empty
 	// branch, and a readable-but-short facts.ndjson reads as a complete one, so
 	// "facts: ok (5 fact(s))" survived a store that could only produce four.
 	// Cross-check the claim and report the failure at error level; the exit
 	// gate belongs to `doctor --fail-on`, not to this check.
 	if manifest.Sources != nil && manifest.Sources.Facts != nil {
 		facts := manifest.Sources.Facts
-		if integrity := inspectFactStore(brainDir, facts); !integrity.OK() {
+		if integrity := factstore.Inspect(brainDir, facts); !integrity.OK() {
 			add("facts", "error", integrity.Warning())
 		} else {
 			add("facts", "ok", fmt.Sprintf("%d memory(ies) across %d branch(es)", facts.Facts, len(facts.Branches)))
@@ -459,7 +460,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 		return checks, payload
 	}
 	history := manifest.Sources.History
-	index, err := loadBrainHistoryIndex(brainDir, history)
+	index, err := historystore.LoadIndex(brainDir, history)
 	if err != nil {
 		add("history_index", "error", "declared but unreadable: "+err.Error())
 		return checks, payload
@@ -542,269 +543,4 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	}
 
 	return checks, payload
-}
-
-// --- stats ---
-
-type brainStatsReport struct {
-	GeneratedAt  time.Time               `json:"generated_at"`
-	RepoKey      string                  `json:"repo_key,omitempty"`
-	Sessions     brainStatsSessions      `json:"sessions"`
-	History      brainStatsHistory       `json:"history"`
-	Conversation *brainStatsConversation `json:"conversation,omitempty"`
-	// ShortTerm reports the short-term memory overlay (changed transcripts
-	// indexed since the last consolidation), when present.
-	ShortTerm *brainStatsShortTerm `json:"short_term,omitempty"`
-}
-
-type brainStatsShortTerm struct {
-	Files       int    `json:"files"`
-	Records     int    `json:"records"`
-	Exchanges   int    `json:"exchanges"`
-	GeneratedAt string `json:"generated_at"`
-	Truncated   bool   `json:"truncated,omitempty"`
-	// State is the typed overlay load state; FailedFiles are the
-	// transcripts the last delta could not scan.
-	State       string   `json:"state,omitempty"`
-	FailedFiles []string `json:"failed_files,omitempty"`
-}
-
-type brainStatsSessions struct {
-	Count    int            `json:"count"`
-	ByBranch map[string]int `json:"by_branch,omitempty"`
-	ByAgent  map[string]int `json:"by_agent,omitempty"`
-	Oldest   string         `json:"oldest,omitempty"`
-	Latest   string         `json:"latest,omitempty"`
-}
-
-type brainStatsHistory struct {
-	Records     int            `json:"records"`
-	ByKind      map[string]int `json:"by_kind,omitempty"`
-	GeneratedAt string         `json:"generated_at,omitempty"`
-	// Index versions: bumping either invalidates/rebuilds the derived layer.
-	ScanCacheVersion int    `json:"scan_cache_version"`
-	FTSSchema        string `json:"fts_schema"`
-}
-
-type brainStatsConversation struct {
-	Exchanges           int            `json:"exchanges"`
-	IncompleteExchanges int            `json:"incomplete_exchanges"`
-	ByBranch            map[string]int `json:"by_branch,omitempty"`
-	ByAgent             map[string]int `json:"by_agent,omitempty"`
-	// Completion state of indexed exchanges: complete ranges vs degraded
-	// (range_incomplete / identity_degraded / projection_truncated).
-	RangeIncomplete     int    `json:"range_incomplete"`
-	IdentityDegraded    int    `json:"identity_degraded"`
-	ProjectionTruncated int    `json:"projection_truncated"`
-	OldestCreatedAt     string `json:"oldest_created_at,omitempty"`
-	LatestCreatedAt     string `json:"latest_created_at,omitempty"`
-	VectorState         string `json:"vector_state"`
-	VectorModelID       string `json:"vector_model_id,omitempty"`
-	Vectors             int    `json:"vectors,omitempty"`
-}
-
-func newStatsCommand(opts Options) *cobra.Command {
-	var jsonOut bool
-	cmd := &cobra.Command{
-		Use:   "stats",
-		Short: "Show brain record counts and breakdowns",
-		Long:  "Report brain counts and ranges by branch, agent, source, completion state, and index version",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBrainStats(cmd.Context(), cmd, opts, jsonOut)
-		},
-	}
-	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
-	return cmd
-}
-
-func runBrainStats(ctx context.Context, cmd *cobra.Command, opts Options, jsonOut bool) error {
-	target := agentSurfaceTarget(opts, nil)
-	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
-	if err != nil {
-		return err
-	}
-	if !local {
-		return fmt.Errorf("stats requires a local repository path: %s", target)
-	}
-	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
-	if err != nil {
-		return err
-	}
-	report, err := buildBrainStatsReport(storage.BrainDir, opts.Now().UTC())
-	if err != nil {
-		return err
-	}
-	if jsonOut {
-		return writeJSON(cmd, report)
-	}
-	return writeText(cmd, func(out io.Writer) { renderBrainStats(out, report) })
-}
-
-func buildBrainStatsReport(brainDir string, now time.Time) (brainStatsReport, error) {
-	report := brainStatsReport{GeneratedAt: now}
-	manifest, err := loadBrainManifest(brainDir)
-	if err != nil {
-		return report, err
-	}
-	report.RepoKey = manifest.RepoKey
-	if manifest.Sources != nil && manifest.Sources.Sessions != nil {
-		sessions := manifest.Sources.Sessions.Sessions
-		stats := brainStatsSessions{Count: len(sessions), ByBranch: map[string]int{}, ByAgent: map[string]int{}}
-		var oldest, latest time.Time
-		for _, session := range sessions {
-			if session.Branch != "" {
-				stats.ByBranch[session.Branch]++
-			}
-			if session.Agent != "" {
-				stats.ByAgent[session.Agent]++
-			}
-			if !session.CreatedAt.IsZero() {
-				if oldest.IsZero() || session.CreatedAt.Before(oldest) {
-					oldest = session.CreatedAt
-				}
-				if session.CreatedAt.After(latest) {
-					latest = session.CreatedAt
-				}
-			}
-		}
-		if !oldest.IsZero() {
-			stats.Oldest = oldest.UTC().Format(time.RFC3339)
-			stats.Latest = latest.UTC().Format(time.RFC3339)
-		}
-		report.Sessions = stats
-	}
-	report.History = brainStatsHistory{ScanCacheVersion: historyScanCacheVersion, FTSSchema: historyFTSSchema}
-	if manifest.Sources == nil || manifest.Sources.History == nil {
-		return report, nil
-	}
-	history := manifest.Sources.History
-	report.History.GeneratedAt = history.GeneratedAt.UTC().Format(time.RFC3339)
-	index, err := loadBrainHistoryIndex(brainDir, history)
-	if err != nil {
-		return report, fmt.Errorf("load history index: %w", err)
-	}
-	report.History.Records = len(index.Records)
-	report.History.ByKind = map[string]int{}
-	conversation := brainStatsConversation{
-		IncompleteExchanges: history.IncompleteExchanges,
-		ByBranch:            map[string]int{},
-		ByAgent:             map[string]int{},
-	}
-	var oldest, latest time.Time
-	for _, record := range index.Records {
-		report.History.ByKind[record.Kind]++
-		if record.Kind != conversationKind {
-			continue
-		}
-		conversation.Exchanges++
-		if record.Branch != "" {
-			conversation.ByBranch[record.Branch]++
-		}
-		if record.Agent != "" {
-			conversation.ByAgent[record.Agent]++
-		}
-		if record.RangeIncomplete {
-			conversation.RangeIncomplete++
-		}
-		if record.IdentityDegraded {
-			conversation.IdentityDegraded++
-		}
-		if record.ProjectionTruncated {
-			conversation.ProjectionTruncated++
-		}
-		if created, err := time.Parse(time.RFC3339, record.CreatedAt); err == nil {
-			if oldest.IsZero() || created.Before(oldest) {
-				oldest = created
-			}
-			if created.After(latest) {
-				latest = created
-			}
-		}
-	}
-	if !oldest.IsZero() {
-		conversation.OldestCreatedAt = oldest.UTC().Format(time.RFC3339)
-		conversation.LatestCreatedAt = latest.UTC().Format(time.RFC3339)
-	}
-	if vectorStatus := buildConversationStatus(brainDir, manifest); vectorStatus != nil {
-		conversation.VectorState = vectorStatus.VectorState
-		conversation.VectorModelID = vectorStatus.VectorModelID
-		conversation.Vectors = vectorStatus.Vectors
-	}
-	report.Conversation = &conversation
-	if shortTerm, state := loadHistoryShortTermState(brainDir, history); state != shortTermStateAbsent && (len(shortTerm.Files) > 0 || !shortTerm.complete() || state != shortTermStateCurrent) {
-		stats := brainStatsShortTerm{
-			Files:       len(shortTerm.Files),
-			GeneratedAt: shortTerm.GeneratedAt.UTC().Format(time.RFC3339),
-			Truncated:   shortTerm.Truncated,
-			State:       state,
-			FailedFiles: shortTerm.FailedFiles,
-		}
-		for _, entry := range shortTerm.Files {
-			stats.Records += len(entry.Records)
-			for _, record := range entry.Records {
-				if record.Kind == conversationKind {
-					stats.Exchanges++
-				}
-			}
-		}
-		report.ShortTerm = &stats
-	}
-	return report, nil
-}
-
-func renderBrainStats(out io.Writer, report brainStatsReport) {
-	fmt.Fprintf(out, "repo: %s\n", valueOrUnset(report.RepoKey))
-	fmt.Fprintf(out, "sessions: %d", report.Sessions.Count)
-	if report.Sessions.Oldest != "" {
-		fmt.Fprintf(out, " (%s .. %s)", report.Sessions.Oldest, report.Sessions.Latest)
-	}
-	fmt.Fprintln(out)
-	renderStatsCounts(out, "  by branch", report.Sessions.ByBranch)
-	renderStatsCounts(out, "  by agent", report.Sessions.ByAgent)
-	fmt.Fprintf(out, "history: %d records (scan cache v%d, fts schema %s)\n", report.History.Records, report.History.ScanCacheVersion, report.History.FTSSchema)
-	renderStatsCounts(out, "  by kind", report.History.ByKind)
-	if c := report.Conversation; c != nil {
-		fmt.Fprintf(out, "conversation: %d exchanges (%d incomplete, %d range-incomplete, %d degraded-identity, %d truncated-projection)\n",
-			c.Exchanges, c.IncompleteExchanges, c.RangeIncomplete, c.IdentityDegraded, c.ProjectionTruncated)
-		if c.OldestCreatedAt != "" {
-			fmt.Fprintf(out, "  sessions span %s .. %s\n", c.OldestCreatedAt, c.LatestCreatedAt)
-		}
-		renderStatsCounts(out, "  by branch", c.ByBranch)
-		renderStatsCounts(out, "  by agent", c.ByAgent)
-		line := "  vectors: " + c.VectorState
-		if c.VectorState == "current" {
-			line += fmt.Sprintf(" (%d, %s)", c.Vectors, c.VectorModelID)
-		}
-		fmt.Fprintln(out, line)
-	}
-	if s := report.ShortTerm; s != nil {
-		line := fmt.Sprintf("short-term memory: %d records (%d exchanges) from %d changed transcripts (built %s)", s.Records, s.Exchanges, s.Files, s.GeneratedAt)
-		if s.State != "" && s.State != shortTermStateCurrent {
-			line += "; state " + s.State
-		}
-		if s.Truncated {
-			line += "; buffer full, consolidate with `" + base.BrainInvocation(os.LookupEnv, "refresh") + "`"
-		}
-		if len(s.FailedFiles) > 0 {
-			line += fmt.Sprintf("; %d transcripts failed to scan", len(s.FailedFiles))
-		}
-		fmt.Fprintln(out, line)
-	}
-}
-
-func renderStatsCounts(out io.Writer, label string, counts map[string]int) {
-	if len(counts) == 0 {
-		return
-	}
-	keys := make([]string, 0, len(counts))
-	for key := range counts {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	fmt.Fprint(out, label+":")
-	for _, key := range keys {
-		fmt.Fprintf(out, " %s=%d", key, counts[key])
-	}
-	fmt.Fprintln(out)
 }

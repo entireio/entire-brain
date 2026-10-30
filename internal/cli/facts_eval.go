@@ -6,6 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,6 +19,8 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -130,17 +136,6 @@ type evalRetrievedItem struct {
 	Path string
 }
 
-// estimateTokens is a deterministic ~4-chars-per-token estimate over the text
-// an agent would actually load (fact text plus its paths). It is a relative
-// measure for comparing retrieval configurations, not an exact tokenizer.
-func estimateTokens(facts []factRecord) int {
-	chars := 0
-	for _, f := range facts {
-		chars += len(f.Text) + len(strings.Join(f.Paths, ",")) + 4 // small per-fact framing
-	}
-	return (chars + 3) / 4
-}
-
 func estimateRetrievedTokens(items []evalRetrievedItem) int {
 	chars := 0
 	for _, item := range items {
@@ -251,7 +246,7 @@ func fileSHA256Hex(path string) string {
 }
 
 func evalBrainManifestSHA256(brainDir string) string {
-	return fileSHA256Hex(filepath.Join(brainDir, exportManifestFileName))
+	return fileSHA256Hex(filepath.Join(brainDir, bmanifest.FileName))
 }
 
 // --- agent judge ----------------------------------------------------------
@@ -459,7 +454,7 @@ The tasks file is a JSON array:
 				TurnSigningLimitation: "turn-level cryptographic verification remains pending CLI-side turn signing",
 			})
 			if jsonOut {
-				return writeJSON(cmd, summary)
+				return cmdutil.WriteJSON(cmd, summary)
 			}
 			printEvalSummary(cmd, summary)
 			return nil
@@ -629,14 +624,14 @@ func retrieveEvalItems(ctx context.Context, brainDir, branch, query string, limi
 		}
 		return factsToEvalItems(arm(facts, query, limit)), nil
 	case evalRetrieverHistory:
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return nil, err
 		}
 		if manifest.Sources == nil || manifest.Sources.History == nil {
 			return nil, nil
 		}
-		index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+		index, err := historystore.LoadIndex(brainDir, manifest.Sources.History)
 		if err != nil {
 			return nil, err
 		}
@@ -667,32 +662,32 @@ func retrieveEvalUnifiedLexical(brainDir, branch, query string, limit int, facts
 		}
 	}
 	if len(active) > 0 {
-		lists = append(lists, factsToUnified(rankFacts(active, query, limit*2, false)))
+		lists = append(lists, retrieval.FactsToUnified(rankFacts(active, query, limit*2, false)))
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
 	if manifest.Sources != nil && manifest.Sources.History != nil {
-		index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+		index, err := historystore.LoadIndex(brainDir, manifest.Sources.History)
 		if err != nil {
 			return nil, fmt.Errorf("load history index: %w", err)
 		}
 		index = filterHistoryIndexForEvalBranch(index, branch, manifest)
 		if scored := rankHistoryRecordsScored(index, "history", query, limit*2, 0); len(scored) > 0 {
-			lists = append(lists, historyToUnified(scored))
+			lists = append(lists, retrieval.HistoryToUnified(scored))
 		}
 	}
-	docIdx, derr := loadDocIndex(brainDir)
+	docIdx, derr := docstore.Load(brainDir)
 	switch {
 	case derr == nil && len(docIdx.Records) > 0:
 		if scored := rankDocsLexical(docIdx, query, limit*2); len(scored) > 0 {
-			lists = append(lists, docsToUnified(scored))
+			lists = append(lists, retrieval.DocsToUnified(scored))
 		}
 	case derr != nil && !os.IsNotExist(derr):
 		return nil, fmt.Errorf("load doc index: %w", derr)
 	}
-	return rrfMergeUnified(lists, limit), nil
+	return retrieval.RRFMergeUnified(lists, limit), nil
 }
 
 func filterHistoryIndexForEvalBranch(index historyIndex, branch string, manifest *exportManifest) historyIndex {
@@ -713,7 +708,7 @@ func filterHistoryIndexForEvalBranch(index historyIndex, branch string, manifest
 		}
 	}
 	index.Records = filtered
-	index.recordsFingerprint = ""
+	index.RecordsFingerprint = ""
 	return index
 }
 
@@ -752,7 +747,7 @@ type scoredEvalItem struct {
 }
 
 func rankRawSessionChunks(ctx context.Context, brainDir, branch, query string, limit int) ([]evalRetrievedItem, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -1063,7 +1058,7 @@ func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDi
 			var ok bool
 			facts, ok = factsByBranch[branch]
 			if !ok {
-				loaded, err := loadFacts(brainDir, branch)
+				loaded, err := factstore.Load(brainDir, branch)
 				if err != nil {
 					return nil, err
 				}
@@ -1205,8 +1200,8 @@ func printEvalSummary(cmd *cobra.Command, s evalSummary) {
 		if r.Labeled {
 			recall = fmt.Sprintf("%.2f", r.Recall)
 		}
-		relevance := base.TruncateString(valueOrUnset(r.RelevanceSource), 24)
-		label := base.TruncateString(valueOrUnset(r.LabelSource), 13)
+		relevance := base.TruncateString(cmdutil.ValueOrUnset(r.RelevanceSource), 24)
+		label := base.TruncateString(cmdutil.ValueOrUnset(r.LabelSource), 13)
 		if showLatencyBreakdown {
 			fmt.Fprintf(out, "%-14s %-24s %-13s %8d %8d %8d %8d %7.2f %7s %9.2f\n", base.TruncateString(r.ID, 14), relevance, label, r.Tokens, r.LatencyMS, r.ExpansionLatencyMS, evalEndToEndLatencyMS(r), r.Precision, recall, r.UsefulPer1k)
 		} else {

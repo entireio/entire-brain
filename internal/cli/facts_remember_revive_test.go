@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/command/facts"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -30,8 +32,8 @@ func runRememberForTest(t *testing.T, opts Options, text string) string {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	rememberOpts := rememberCommandOptions{path: "preferences.coding.style", agent: "none"}
-	if err := runRemember(context.Background(), cmd, opts, rememberOpts, text); err != nil {
+	rememberOpts := facts.RememberCommandOptions{Path: "preferences.coding.style", Agent: "none"}
+	if err := facts.RunRemember(context.Background(), cmd, factsCommandConfig(opts), rememberOpts, text); err != nil {
 		t.Fatalf("runRemember: %v", err)
 	}
 	return out.String()
@@ -50,17 +52,17 @@ func TestRememberRevivesRetractedFact(t *testing.T) {
 	id := factRecordID(text, paths)
 	seed := []factRecord{{
 		ID: id, Paths: paths, Kind: factKindPreference, Text: text, Branch: branch,
-		Origin: factOriginAuthored, Status: factStatusRetracted,
+		Origin: factstore.OriginAuthored, Status: factStatusRetracted,
 		Provenance: []factAnchor{{SessionID: "s1"}},
 		CreatedAt:  now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour),
 	}}
-	if err := writeFacts(brainDir, branch, seed); err != nil {
+	if err := factstore.Write(brainDir, branch, seed); err != nil {
 		t.Fatal(err)
 	}
 
 	printed := runRememberForTest(t, opts, text)
 
-	got, err := loadFacts(brainDir, branch)
+	got, err := factstore.Load(brainDir, branch)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,16 +92,16 @@ func TestRememberRevivesSupersededFact(t *testing.T) {
 	id := factRecordID(text, paths)
 	seed := []factRecord{{
 		ID: id, Paths: paths, Kind: factKindPreference, Text: text, Branch: branch,
-		Origin: factOriginDistilled, Status: factStatusSuperseded, SupersededBy: "fact:newer",
+		Origin: factstore.OriginDistilled, Status: factStatusSuperseded, SupersededBy: "fact:newer",
 		Provenance: []factAnchor{{SessionID: "s1"}}, CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour),
 	}}
-	if err := writeFacts(brainDir, branch, seed); err != nil {
+	if err := factstore.Write(brainDir, branch, seed); err != nil {
 		t.Fatal(err)
 	}
 
 	runRememberForTest(t, opts, text)
 
-	got, err := loadFacts(brainDir, branch)
+	got, err := factstore.Load(brainDir, branch)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +120,7 @@ func TestRememberActiveFactIsStillIdempotent(t *testing.T) {
 	runRememberForTest(t, opts, text)
 	runRememberForTest(t, opts, text)
 
-	got, err := loadFacts(brainDir, branch)
+	got, err := factstore.Load(brainDir, branch)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,13 +140,13 @@ func TestRememberJSONReportsPersistedMergedFact(t *testing.T) {
 	createdAt := now.Add(-time.Hour)
 	seed := factRecord{
 		ID: factRecordID(text, paths), Paths: paths, Kind: factKindPreference,
-		Text: text, Branch: branch, Origin: factOriginDistilled,
+		Text: text, Branch: branch, Origin: factstore.OriginDistilled,
 		Status: factStatusSuperseded, SupersededBy: "fact:newer",
 		Confidence: "high", RelatedIDs: []string{"fact:related"},
 		Provenance: []factAnchor{{SessionID: "prior-session", Commit: "prior111"}},
 		CreatedAt:  createdAt, UpdatedAt: createdAt,
 	}
-	if err := writeFacts(brainDir, branch, []factRecord{seed}); err != nil {
+	if err := factstore.Write(brainDir, branch, []factRecord{seed}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -159,7 +161,7 @@ func TestRememberJSONReportsPersistedMergedFact(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &reported); err != nil {
 		t.Fatalf("decode remember JSON: %v\n%s", err, out)
 	}
-	stored, err := loadFacts(brainDir, branch)
+	stored, err := factstore.Load(brainDir, branch)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +171,7 @@ func TestRememberJSONReportsPersistedMergedFact(t *testing.T) {
 	if !reflect.DeepEqual(reported, stored[0]) {
 		t.Fatalf("remember JSON did not report the persisted fact:\nreported: %+v\nstored:   %+v", reported, stored[0])
 	}
-	if reported.Origin != factOriginDistilled || !reported.CreatedAt.Equal(createdAt) {
+	if reported.Origin != factstore.OriginDistilled || !reported.CreatedAt.Equal(createdAt) {
 		t.Fatalf("original metadata was not retained: %+v", reported)
 	}
 	if reported.Status != factStatusActive || reported.SupersededBy != "" || reported.Kind != factKindDecision {

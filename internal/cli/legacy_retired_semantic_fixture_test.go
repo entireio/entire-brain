@@ -15,6 +15,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // semanticIndexStageDeadline stops an index at a stage boundary when its caller's
@@ -57,7 +59,7 @@ func semanticSnapshotFileCount(raw []byte) int {
 		}
 		switch record.RecordType {
 		case "file", "symbol":
-			if path := record.semanticPath(); path != "" {
+			if path := record.SemanticPath(); path != "" {
 				files[path] = struct{}{}
 			}
 		}
@@ -132,8 +134,8 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 		if err := validateSemanticRecordPath(&record); err != nil {
 			return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
 		}
-		if record.ID != "" && record.semanticPath() != "" {
-			ignoredIDs[record.ID] = ignoredIDs[record.ID] || ignore.Ignored(record.semanticPath())
+		if record.ID != "" && record.SemanticPath() != "" {
+			ignoredIDs[record.ID] = ignoredIDs[record.ID] || ignore.Ignored(record.SemanticPath())
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -165,7 +167,7 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 		}
 		switch record.RecordType {
 		case "file", "symbol", "relation":
-			if ignore.Ignored(record.semanticPath()) {
+			if ignore.Ignored(record.SemanticPath()) {
 				continue
 			}
 			if record.RecordType == "relation" && relationEndpointIgnored(record, header.RepoKey, ignore, ignoredIDs) {
@@ -173,11 +175,11 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 			}
 			switch record.RecordType {
 			case "file":
-				if path := record.semanticPath(); path != "" {
+				if path := record.SemanticPath(); path != "" {
 					files[path] = struct{}{}
 				}
 			case "symbol":
-				if path := record.semanticPath(); path != "" {
+				if path := record.SemanticPath(); path != "" {
 					files[path] = struct{}{}
 				}
 				counts.Symbols++
@@ -230,7 +232,7 @@ func semanticFileContentHash(repoDir, path string) string {
 	if err != nil {
 		return ""
 	}
-	if err := rejectSymlinkPathComponents(repoDir, filepath.FromSlash(clean)); err != nil {
+	if err := base.RejectSymlinkPathComponents(repoDir, filepath.FromSlash(clean)); err != nil {
 		return ""
 	}
 	f, err := os.Open(filepath.Join(repoDir, filepath.FromSlash(clean)))

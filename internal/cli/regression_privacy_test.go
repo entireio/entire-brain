@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -19,7 +21,7 @@ import (
 func regressionPrivacyFixture(t *testing.T) retrievalEmissionPrivacyFixture {
 	t.Helper()
 	f := writeRetrievalEmissionPrivacyFixture(t)
-	manifest, err := loadBrainManifest(f.BrainDir)
+	manifest, err := bmanifest.Load(f.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,14 +39,14 @@ func regressionPrivacyFixture(t *testing.T) retrievalEmissionPrivacyFixture {
 }
 
 func runRegressionPrivacySurface(cmd *cobra.Command, f retrievalEmissionPrivacyFixture, surface string, json bool) error {
-	ro := regressionDetectorOptions{limit: 10, json: json}
+	ro := regressionDetectorOptions{Limit: 10, JSON: json}
 	query := "fix scopeBaseRef"
 	manifest := workspace.Manifest{Name: "privacy", Repos: []workspace.Repo{{RepoKey: f.RepoKey, LocalPathHint: f.Options.Env.RepoRoot}}}
 	switch surface {
 	case "regressions":
 		return runRegressionDetect(context.Background(), cmd, f.Options, ro, query)
 	case "review":
-		return runBrainReview(context.Background(), cmd, f.Options, ro, query)
+		return brainreview.RunBrainReview(context.Background(), cmd, brainReviewConfig(f.Options), ro, query)
 	case "workspace regressions":
 		return runWorkspaceRegressionsManifest(cmd, f.Options, ro, manifest, query, nil)
 	default:
@@ -80,7 +82,7 @@ func TestRegressionPrivacySurfaces(t *testing.T) {
 				}); err != nil {
 					t.Fatal(err)
 				}
-				m, err := loadBrainManifest(f.BrainDir)
+				m, err := bmanifest.Load(f.BrainDir)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -142,7 +144,7 @@ func TestRegressionPrivacySkipsDerivedAndFailsClosed(t *testing.T) {
 	for _, state := range []string{"derived", "manifest", "tombstones"} {
 		t.Run(state, func(t *testing.T) {
 			f := regressionPrivacyFixture(t)
-			m, err := loadBrainManifest(f.BrainDir)
+			m, err := bmanifest.Load(f.BrainDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -163,7 +165,7 @@ func TestRegressionPrivacySkipsDerivedAndFailsClosed(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else if state == "manifest" {
-				if err := os.WriteFile(filepath.Join(f.BrainDir, exportManifestFileName), []byte("{"), 0o600); err != nil {
+				if err := os.WriteFile(filepath.Join(f.BrainDir, bmanifest.FileName), []byte("{"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			} else {

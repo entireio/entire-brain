@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // chunkCacheFixture lays down a single-session brain whose transcript can be
@@ -83,7 +85,7 @@ func TestDistillReusesCachedChunksForGrownTranscript(t *testing.T) {
 	}
 
 	// Facts from skipped chunks must survive the incremental run.
-	facts, err := loadFacts(brainDir, "main")
+	facts, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}

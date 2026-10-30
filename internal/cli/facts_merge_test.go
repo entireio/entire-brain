@@ -3,6 +3,8 @@ package cli
 import (
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func factFor(t *testing.T, text string, paths []string, now time.Time) factRecord {
@@ -13,7 +15,7 @@ func factFor(t *testing.T, text string, paths []string, now time.Time) factRecor
 		Paths:      p,
 		Text:       text,
 		Branch:     "main",
-		Origin:     factOriginDistilled,
+		Origin:     factstore.OriginDistilled,
 		Status:     factStatusActive,
 		Provenance: []factAnchor{{SessionID: "s", Line: 1}},
 		CreatedAt:  now,

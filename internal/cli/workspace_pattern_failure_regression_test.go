@@ -19,8 +19,8 @@ func TestWorkspacePatternStatusRejectsMalformedLegacyState(t *testing.T) {
 		rel  string
 		want string
 	}{
-		{name: "procedures", rel: patternsProceduresPath, want: "parse procedure line"},
-		{name: "practices", rel: patternsPracticesPath, want: "parse practice line"},
+		{name: "procedures", rel: patterncore.ProceduresPath, want: "parse procedure line"},
+		{name: "practices", rel: patterncore.PracticesPath, want: "parse practice line"},
 		{name: "runs", rel: patterncore.RunsRelPath, want: "parse pattern run history"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -68,8 +68,8 @@ func TestWorkspacePatternRefreshWriteFailuresPreserveUnrelatedState(t *testing.T
 		rel  string
 		want string
 	}{
-		{name: "procedures", rel: patternsProceduresPath, want: "write procedures"},
-		{name: "practices", rel: patternsPracticesPath, want: "write practices"},
+		{name: "procedures", rel: patterncore.ProceduresPath, want: "write procedures"},
+		{name: "practices", rel: patterncore.PracticesPath, want: "write practices"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts, _, manifest := workspaceCommandFixture(t)

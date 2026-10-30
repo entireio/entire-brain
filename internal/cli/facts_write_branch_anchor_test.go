@@ -2,6 +2,9 @@ package cli
 
 import (
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/command/facts"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // releaseBranchTip is a commit that exists only on `release`.
@@ -25,7 +28,7 @@ func TestRememberAnchorsToTheBranchItFilesTheFactOn(t *testing.T) {
 
 	fixture.run(t, "remember", "--branch", "release", "--path", "architecture.data.flow", "The release branch pins the v1 payload schema.")
 
-	facts, err := loadFacts(fixture.storage.BrainDir, "release")
+	facts, err := factstore.Load(fixture.storage.BrainDir, "release")
 	if err != nil {
 		t.Fatalf("load facts: %v", err)
 	}
@@ -50,7 +53,7 @@ func TestRememberKeepsHeadWhenNoBranchOverrideIsGiven(t *testing.T) {
 
 	fixture.run(t, "remember", "--path", "architecture.data.flow", "The payload schema is versioned.")
 
-	facts, err := loadFacts(fixture.storage.BrainDir, "main")
+	facts, err := factstore.Load(fixture.storage.BrainDir, "main")
 	if err != nil {
 		t.Fatalf("load facts: %v", err)
 	}
@@ -68,15 +71,15 @@ func TestRememberKeepsHeadWhenNoBranchOverrideIsGiven(t *testing.T) {
 func TestRememberStampsSessionID(t *testing.T) {
 	fixture := newEntityIndexFixture(t)
 	fixture.runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: entityFixtureCommitB + "\n"}
-	t.Setenv(rememberSessionEnv, "env-session-id")
+	t.Setenv(facts.RememberSessionEnv, "env-session-id")
 
 	fixture.run(t, "remember", "--session", "flag-session-id", "--path", "architecture.data.flow", "Session flag wins over the environment.")
 	fixture.run(t, "remember", "--path", "architecture.data.flow", "The environment supplies the session id.")
 
-	t.Setenv(rememberSessionEnv, "")
+	t.Setenv(facts.RememberSessionEnv, "")
 	fixture.run(t, "remember", "--path", "architecture.data.flow", "No session anywhere stays valid.")
 
-	facts, err := loadFacts(fixture.storage.BrainDir, "main")
+	facts, err := factstore.Load(fixture.storage.BrainDir, "main")
 	if err != nil {
 		t.Fatalf("load facts: %v", err)
 	}

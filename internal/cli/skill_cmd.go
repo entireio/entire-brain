@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
 	"strings"
@@ -29,7 +30,7 @@ func newPatternsSkillsCommand(opts Options) *cobra.Command {
 		Short: "List recurring task candidates that can be synthesized into skills",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPatternsSkillsList(cmd.Context(), cmd, opts, targetFromArgs(opts, args), asJSON, limit)
+			return runPatternsSkillsList(cmd.Context(), cmd, opts, agentSurfaceTarget(opts, args), asJSON, limit)
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Emit task candidates as JSON")
@@ -45,7 +46,7 @@ func newPatternsSkillsFormCommand(opts Options) *cobra.Command {
 		Short: "Synthesize a SKILL.md from a task candidate (previews until --yes)",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			target := targetFromArgs(opts, nil)
+			target := agentSurfaceTarget(opts, nil)
 			if len(args) == 2 {
 				target = args[1]
 			}
@@ -119,7 +120,7 @@ func runPatternsSkillsList(ctx context.Context, cmd *cobra.Command, opts Options
 			for i, t := range tasks {
 				redacted[i] = redactCandidate(t)
 			}
-			return writeJSON(cmd, redacted)
+			return cmdutil.WriteJSON(cmd, redacted)
 		}
 		out := cmd.OutOrStdout()
 		if len(tasks) == 0 {
@@ -290,7 +291,7 @@ func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandida
 	}
 	if !res.IsSkill {
 		if s.asJSON {
-			return writeJSON(cmd, map[string]any{"task_id": cand.ID, "is_skill": false, "reason": res.Reason})
+			return cmdutil.WriteJSON(cmd, map[string]any{"task_id": cand.ID, "is_skill": false, "reason": res.Reason})
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "not a skill: %s\n", res.Reason)
 		return nil
@@ -306,7 +307,7 @@ func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandida
 
 	if s.draftOnly {
 		if s.asJSON {
-			return writeJSON(cmd, map[string]any{"task_id": cand.ID, "is_skill": true, "name": name, "skill": skillText})
+			return cmdutil.WriteJSON(cmd, map[string]any{"task_id": cand.ID, "is_skill": true, "name": name, "skill": skillText})
 		}
 		fmt.Fprintln(cmd.OutOrStdout(), skillText)
 		return nil
@@ -321,7 +322,7 @@ func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandida
 	// draft and the exact would-write destinations. Nothing is written.
 	if !s.yes {
 		if s.asJSON {
-			return writeJSON(cmd, map[string]any{
+			return cmdutil.WriteJSON(cmd, map[string]any{
 				"task_id": cand.ID, "is_skill": true, "name": name,
 				"evidence": redactCandidate(cand), "skill": skillText, "would_write": dests,
 			})
@@ -356,14 +357,14 @@ func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandida
 		installs = append(installs, skillInstall{Agents: d.Agents, Path: d.Path, ContentSHA: sha})
 	}
 	if err := recordSkillDecision(storeDir, skillMemoryRecord{
-		PatternID: cand.ID, Scope: candScope(cand), Status: skillStatusActive, SkillName: name,
-		Installs: installs, Fingerprint: patternEvidenceFingerprint(taskView(cand)),
+		PatternID: cand.ID, Scope: candScope(cand), Status: patterncore.SkillStatusActive, SkillName: name,
+		Installs: installs, Fingerprint: patterncore.PatternEvidenceFingerprint(taskView(cand)),
 		Support: cand.Support, Reinforcement: cand.Reinforcement, CreatedAt: now, UpdatedAt: now,
 	}); err != nil {
 		return err
 	}
 	if s.asJSON {
-		return writeJSON(cmd, map[string]any{"task_id": cand.ID, "name": name, "status": "active", "installs": installs})
+		return cmdutil.WriteJSON(cmd, map[string]any{"task_id": cand.ID, "name": name, "status": "active", "installs": installs})
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "formed skill %q from %s:\n", name, cand.ID)
 	for _, in := range installs {

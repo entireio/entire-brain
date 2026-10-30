@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/cli/command/hook"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // agent_wiring_test.go covers the first-run defect that made a successful
@@ -371,15 +373,15 @@ func TestCommandInvokesPreEditHookRejectsOtherEntireHooks(t *testing.T) {
 func TestDecodeClaudeHookEventPath(t *testing.T) {
 	event := `{"session_id":"s","hook_event_name":"PreToolUse","tool_name":"Edit",` +
 		`"tool_input":{"file_path":"/repo/internal/cli/history_fts.go","old_string":"a","new_string":"b"}}`
-	path, ok := decodeClaudeHookEventPath(strings.NewReader(event))
+	path, ok := hook.DecodeClaudeHookEventPath(strings.NewReader(event))
 	if !ok || path != "/repo/internal/cli/history_fts.go" {
 		t.Fatalf("tool_input.file_path not read: path=%q ok=%v", path, ok)
 	}
-	if path, ok := decodeClaudeHookEventPath(strings.NewReader(`{"tool_input":{"notebook_path":"/repo/a.ipynb"}}`)); !ok || path != "/repo/a.ipynb" {
+	if path, ok := hook.DecodeClaudeHookEventPath(strings.NewReader(`{"tool_input":{"notebook_path":"/repo/a.ipynb"}}`)); !ok || path != "/repo/a.ipynb" {
 		t.Fatalf("notebook_path not read: path=%q ok=%v", path, ok)
 	}
 	for _, bad := range []string{"", "   ", "not json", `{"tool_input":{}}`, `{"tool_name":"Bash"}`} {
-		if path, ok := decodeClaudeHookEventPath(strings.NewReader(bad)); ok {
+		if path, ok := hook.DecodeClaudeHookEventPath(strings.NewReader(bad)); ok {
 			t.Fatalf("%q must yield no path, got %q", bad, path)
 		}
 	}
@@ -394,14 +396,14 @@ func TestHookPreEditClaudeHookEmitsTheHostEnvelope(t *testing.T) {
 	paths := []string{"architecture.boundaries.rationale"}
 	fact := factRecord{
 		ID: factRecordID(text, paths), Text: text, Paths: paths, Kind: factKindDecision,
-		Branch: "main", Origin: factOriginAuthored, Status: factStatusActive,
+		Branch: "main", Origin: factstore.OriginAuthored, Status: factStatusActive,
 		CreatedAt: opts.Now(), UpdatedAt: opts.Now(),
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 
-	cmd := newHookCommand(opts)
+	cmd := hook.New(hookCommandConfig(opts))
 	cmd.SetIn(strings.NewReader(`{"hook_event_name":"PreToolUse","tool_name":"Edit",` +
 		`"tool_input":{"file_path":"internal/cli/history_fts.go"}}`))
 	out, err := execute(t, cmd, "pre-edit", "--claude-hook")
@@ -434,24 +436,24 @@ func TestHookPreEditClaudeHookStaysSilentWithoutAMatch(t *testing.T) {
 	// would pass however the emitter behaved.
 	text := "The export cursor is advanced only after a successful flush."
 	paths := []string{"architecture.data.flow"}
-	if err := writeFacts(brainDir, "main", []factRecord{{
+	if err := factstore.Write(brainDir, "main", []factRecord{{
 		ID: factRecordID(text, paths), Text: text, Paths: paths, Kind: factKindDecision,
-		Branch: "main", Origin: factOriginAuthored, Status: factStatusActive,
+		Branch: "main", Origin: factstore.OriginAuthored, Status: factStatusActive,
 		CreatedAt: opts.Now(), UpdatedAt: opts.Now(),
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	if facts, err := loadFacts(brainDir, "main"); err != nil || len(facts) == 0 {
+	if facts, err := factstore.Load(brainDir, "main"); err != nil || len(facts) == 0 {
 		t.Fatalf("fixture must hold facts for this test to mean anything: %d facts, err %v", len(facts), err)
 	}
-	cmd := newHookCommand(opts)
+	cmd := hook.New(hookCommandConfig(opts))
 	cmd.SetIn(strings.NewReader(`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`))
 	out, err := execute(t, cmd, "pre-edit", "--claude-hook")
 	if err != nil || strings.TrimSpace(out) != "" {
 		t.Fatalf("a pathless event must be silent success, got %q (err %v)", out, err)
 	}
 
-	cmd = newHookCommand(opts)
+	cmd = hook.New(hookCommandConfig(opts))
 	cmd.SetIn(strings.NewReader(`{"hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"internal/cli/nothing_matches_here.go"}}`))
 	out, err = execute(t, cmd, "pre-edit", "--claude-hook")
 	if err != nil || strings.TrimSpace(out) != "" {
@@ -532,7 +534,7 @@ func setupLineContaining(t *testing.T, out, want string) string {
 // while the comment two lines above claimed a terminal stdin is never read.
 // Raised as a finding on this PR, and correct.
 //
-// stdinIsPipe treats ANY non-*os.File reader as a pipe, so a stub cannot stand
+// hook.StdinIsPipe treats ANY non-*os.File reader as a pipe, so a stub cannot stand
 // in for a terminal here — it would take the pipe branch and prove nothing.
 // /dev/null is a real character device, which is exactly what the guard tests.
 func TestClaudeHookOnATerminalSaysSoInsteadOfHanging(t *testing.T) {
@@ -542,9 +544,9 @@ func TestClaudeHookOnATerminalSaysSoInsteadOfHanging(t *testing.T) {
 		t.Skipf("no character device available: %v", err)
 	}
 	defer tty.Close()
-	if stdinIsPipe(tty) {
+	if hook.StdinIsPipe(tty) {
 		// Not a character device here. On Windows os.DevNull is "NUL", whose
-		// mode does not necessarily report ModeCharDevice, so stdinIsPipe takes
+		// mode does not necessarily report ModeCharDevice, so hook.StdinIsPipe takes
 		// the pipe branch and there is no terminal to simulate. Skip rather than
 		// fail: the guard is about POSIX terminal stdin, and a fixture that
 		// cannot represent one proves nothing either way.
@@ -552,7 +554,7 @@ func TestClaudeHookOnATerminalSaysSoInsteadOfHanging(t *testing.T) {
 	}
 
 	opts, _, _ := commandRegressionFixture(t)
-	cmd := newHookCommand(opts)
+	cmd := hook.New(hookCommandConfig(opts))
 	cmd.SetIn(tty)
 	out, err := execute(t, cmd, "pre-edit", "--claude-hook")
 	if err == nil {
@@ -633,7 +635,7 @@ func TestAGivenFileIsNotWaitedOnByAnEventRead(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		cmd := newHookCommand(Options{Env: EntireEnv{RepoRoot: repo}, Runner: ExecRunner{}, Now: time.Now})
+		cmd := hook.New(hookCommandConfig(Options{Env: EntireEnv{RepoRoot: repo}, Runner: ExecRunner{}, Now: time.Now}))
 		cmd.SetIn(blocked)
 		cmd.SetOut(io.Discard)
 		cmd.SetErr(io.Discard)

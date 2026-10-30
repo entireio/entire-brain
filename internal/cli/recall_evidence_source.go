@@ -13,6 +13,9 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 const evidenceInputBytes = 128 * 1024
@@ -207,7 +210,7 @@ func collectEvidence(ctx context.Context, brainDir, branch, query string, limit,
 	// Keep the research pool at the default output budget, but let larger
 	// requests retrieve larger blocks and more context before exact packing.
 	candidateBudget := max(evidenceCandidateBytes, 3*outputBudget)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		c.State = "unavailable"
 		c.Warnings = append(c.Warnings, "session manifest unavailable")
@@ -218,26 +221,26 @@ func collectEvidence(ctx context.Context, brainDir, branch, query string, limit,
 		c.Warnings = append(c.Warnings, "no canonical sessions declared; absence of evidence is not evidence of absence")
 		return c, nil
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return c, err
 	}
 	// Facts are retrieval handles only. Never substitute distilled claims for bytes.
 	anchored := map[string]bool{}
-	facts, err := loadFacts(brainDir, branch)
+	facts, err := factstore.Load(brainDir, branch)
 	if err != nil {
 		c.Warnings = append(c.Warnings, "fact store unavailable; searching canonical sessions only")
 	} else {
-		for _, f := range rankFacts(guardFactRecords(guard, facts), query, limit, false) {
+		for _, f := range rankFacts(factstore.GuardRecords(guard, facts), query, limit, false) {
 			for _, a := range f.Provenance {
-				if !guardBlocksFactAnchor(guard, a) {
+				if !factstore.GuardBlocksFactAnchor(guard, a) {
 					anchored[a.SessionID] = true
 				}
 			}
 		}
 	}
 	if manifest.Sources.Facts != nil {
-		if warning := missingFactStoreWarningForBranch(brainDir, manifest.Sources.Facts, branch); warning != "" {
+		if warning := factstore.MissingStoreWarningForBranch(brainDir, manifest.Sources.Facts, branch); warning != "" {
 			c.Warnings = append(c.Warnings, warning)
 		}
 	}
@@ -261,7 +264,7 @@ func collectEvidence(ctx context.Context, brainDir, branch, query string, limit,
 		if b == "" {
 			b = distillDefaultBranch
 		}
-		if b != branch || guardBlocksExportSession(guard, s) {
+		if b != branch || bmanifest.GuardBlocksSession(guard, s) {
 			continue
 		}
 		if prev, ok := seen[s.SessionID]; ok {

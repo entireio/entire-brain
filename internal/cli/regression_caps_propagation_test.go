@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -9,39 +10,11 @@ import (
 
 // The uncapped detectRegressionAnomalies wrapper discarded regressionScanCaps,
 // so every caller except runRegressionDetect lost the "history scan stopped
-// early" signal. `brain review` and the workspace regressions/review surfaces
-// could then print an unqualified clean bill of health over a raw-history scan
-// that hit a cap and never finished -- the exact bug class the caps were added
-// to eliminate, simply not propagated.
-//
-// regressionNoAnomaliesLine had said this correctly since the caps existed.
-// These two summaries could not, because they never received the flag.
-func TestReviewSummaryQualifiesATruncatedScan(t *testing.T) {
-	t.Parallel()
-
-	clean := reviewSummary(0, 7, false)
-	if !strings.Contains(clean, "no suspected regressions") {
-		t.Fatalf("an untruncated clean scan must still read clean: %q", clean)
-	}
-	partial := reviewSummary(0, 7, true)
-	if strings.Contains(partial, "no suspected regressions") {
-		t.Errorf("a truncated scan must not read as a clean bill of health: %q", partial)
-	}
-	for _, want := range []string{"PARTIAL", "stopped at a cap", "not a clean result"} {
-		if !strings.Contains(partial, want) {
-			t.Errorf("the partial summary must contain %q: %q", want, partial)
-		}
-	}
-	// Findings outrank the qualifier: there is nothing clean to qualify.
-	if got := reviewSummary(2, 7, true); !strings.Contains(got, "suspected regression(s)") {
-		t.Errorf("findings must still be reported first: %q", got)
-	}
-	// Nothing compared stays INCONCLUSIVE, which is stronger than PARTIAL.
-	if got := reviewSummary(0, 0, true); !strings.Contains(got, "INCONCLUSIVE") {
-		t.Errorf("a scan that compared nothing is inconclusive, not partial: %q", got)
-	}
-}
-
+// early" signal. The workspace regressions/review surfaces could then print an
+// unqualified clean bill of health over a raw-history scan that hit a cap and
+// never finished -- the exact bug class the caps were added to eliminate,
+// simply not propagated. (`brain review`'s summary is covered by
+// TestReviewSummaryQualifiesATruncatedScan in command/brainreview.)
 func TestWorkspaceReviewSummaryQualifiesATruncatedScan(t *testing.T) {
 	t.Parallel()
 
@@ -81,9 +54,15 @@ func TestNoUncappedRegressionDetectorRemains(t *testing.T) {
 			t.Errorf("%s still defines the uncapped wrapper, which is how the caps got discarded", file)
 		}
 	}
+	// The review command moved to command/brainreview (COR-2268); its wiring
+	// must still hand it the capped detector, not an uncapped wrapper.
+	cfgSrc := readGoSourceForTest(t, "brainreview_config.go")
+	if !strings.Contains(cfgSrc, "detectRegressionAnomaliesCapped,") {
+		t.Error("brain review is not wired to the capped detector")
+	}
 	// Both summaries must receive a real flag, not a literal false.
-	src := readGoSourceForTest(t, "regression.go")
-	if !strings.Contains(src, "reviewSummary(len(findings), scanned, caps.Truncated())") {
+	src := readGoSourceForTest(t, filepath.Join("command", "brainreview", "brainreview.go"))
+	if !strings.Contains(src, "ReviewSummary(len(findings), scanned, caps.Truncated())") {
 		t.Error("brain review does not pass the truncation flag into its summary")
 	}
 	ws := readGoSourceForTest(t, "workspace.go")
@@ -162,7 +141,7 @@ func TestCauseTruncationReservesTheEllipsisInRunes(t *testing.T) {
 func TestIterativePathCompressionIsStillCorrect(t *testing.T) {
 	t.Parallel()
 
-	src := readGoSourceForTest(t, "retrieval_guard.go")
+	src := readGoSourceForTest(t, "internal/retrieval/guard.go")
 	if strings.Contains(src, "findRoot = func(id string) string") {
 		t.Error("findRoot is still the recursive closure, so deep chains are bounded only by the stack")
 	}

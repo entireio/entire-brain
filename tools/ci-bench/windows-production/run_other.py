@@ -115,6 +115,28 @@ def require_tracked_worktree_clean(
         raise RuntimeError(f"{label}: tracked worktree modifications detected")
 
 
+def apply_plan_selection(packages: list[str], plan: dict[str, Any]) -> list[str]:
+    """Narrow the non-heavy package list to a selected plan's affected packages.
+
+    A full plan (no selection block) returns the list unchanged. A malformed
+    selection block fails closed: the bundle is authoritative and prepare.py
+    never writes one.
+    """
+    selection = plan.get("selection")
+    if selection is None:
+        return packages
+    if (
+        not isinstance(selection, dict)
+        or selection.get("mode") != "selected"
+        or not isinstance(selection.get("packages"), list)
+        or not selection["packages"]
+        or any(not isinstance(item, str) or not item for item in selection["packages"])
+    ):
+        raise ValueError("plan selection block is malformed")
+    selected = set(selection["packages"])
+    return [package for package in packages if package in selected]
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", type=Path, required=True)
@@ -185,6 +207,7 @@ def run(args: argparse.Namespace, metadata: dict[str, Any]) -> int:
     planned_heavy = {row.get("importPath") for row in plan.get("packages", [])}
     if declared_heavy != planned_heavy:
         raise ValueError("package inventory and shard plan disagree on heavy packages")
+    packages = apply_plan_selection(packages, plan)
 
     environment = dict(os.environ)
     environment.update({"GOOS": "windows", "GOARCH": "amd64", "CGO_ENABLED": "1"})
@@ -251,6 +274,14 @@ def run(args: argparse.Namespace, metadata: dict[str, Any]) -> int:
         metadata["cleanTestCacheExitCode"] = clean.returncode
         if clean.returncode != 0:
             return clean.returncode
+
+        if not packages:
+            # The selection left no non-heavy package to run. Emit the empty
+            # event stream the verifier authenticates; there is no coverage.
+            (output / "other-events.jsonl").write_bytes(b"")
+            metadata["durationSeconds"] = 0.0
+            metadata["testExitCode"] = 0
+            return 0
 
         coverage_directory = (output / "coverage").resolve()
         try:

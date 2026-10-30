@@ -2,6 +2,7 @@ package cli
 
 import (
 	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"testing"
 	"time"
 )
@@ -11,7 +12,7 @@ import (
 func TestPatternsListFromCorpus(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
 
-	views, idx, ok := loadCorpusPatternViews(brainDir)
+	views, idx, ok := patterncore.LoadCorpusPatternViews(brainDir)
 	if !ok {
 		t.Fatal("expected corpus-backed views")
 	}
@@ -61,7 +62,7 @@ func TestPatternsListSuppressesRejected(t *testing.T) {
 	}
 	db.Close()
 
-	views, _, ok := loadCorpusPatternViews(brainDir)
+	views, _, ok := patterncore.LoadCorpusPatternViews(brainDir)
 	if !ok {
 		t.Fatal("expected corpus-backed views")
 	}
@@ -73,7 +74,7 @@ func TestPatternsListSuppressesRejected(t *testing.T) {
 }
 
 func TestPatternsListDegradesWithoutCorpus(t *testing.T) {
-	if _, _, ok := loadCorpusPatternViews(t.TempDir()); ok {
+	if _, _, ok := patterncore.LoadCorpusPatternViews(t.TempDir()); ok {
 		t.Error("no corpus on disk must report not-corpus-backed")
 	}
 }

@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 type sessionFixture struct {
@@ -46,7 +49,7 @@ func writeEpisodeFixture(t *testing.T, now time.Time, repoKey string, sessions [
 		manifestSessions = append(manifestSessions, es)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		RepoKey:       repoKey,
 		DefaultBranch: "main",
@@ -175,7 +178,7 @@ func TestRefreshPatternLayer(t *testing.T) {
 			t.Errorf("missing %s after refresh: %v", rel, statErr)
 		}
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +195,7 @@ func TestRefreshPatternLayer(t *testing.T) {
 		t.Errorf("forced refresh rebuilt=%v err=%v, want true/nil", rebuilt, err)
 	}
 	// Changed session fingerprint -> rebuild.
-	manifest, _ = loadBrainManifest(brainDir)
+	manifest, _ = bmanifest.Load(brainDir)
 	manifest.Sources.Sessions.Sessions[0].LatestCheckpoint = "cp1-moved"
 	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 		t.Fatal(err)
@@ -266,7 +269,7 @@ func TestWriteLoadAndStatus(t *testing.T) {
 	})
 
 	// Missing before refresh.
-	if got := buildPatternsStatusReport(brainDir); got.Present || got.Freshness != "missing" {
+	if got := patternscmd.BuildStatusReport(brainDir, patternsCmdDeps()); got.Present || got.Freshness != "missing" {
 		t.Errorf("pre-refresh status = %+v, want present=false freshness=missing", got)
 	}
 
@@ -284,7 +287,7 @@ func TestWriteLoadAndStatus(t *testing.T) {
 		t.Fatal("persisted episodes differ from freshly built")
 	}
 
-	status := buildPatternsStatusReport(brainDir)
+	status := patternscmd.BuildStatusReport(brainDir, patternsCmdDeps())
 	if !status.Present || status.Freshness != "current" {
 		t.Errorf("status = %+v, want present=true freshness=current", status)
 	}
@@ -293,7 +296,7 @@ func TestWriteLoadAndStatus(t *testing.T) {
 	}
 
 	// Mutating the session fingerprint makes the layer stale without rebuilding.
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +304,7 @@ func TestWriteLoadAndStatus(t *testing.T) {
 	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 		t.Fatal(err)
 	}
-	if got := buildPatternsStatusReport(brainDir); got.Freshness != "stale" {
+	if got := patternscmd.BuildStatusReport(brainDir, patternsCmdDeps()); got.Freshness != "stale" {
 		t.Errorf("post-mutation freshness = %q, want stale", got.Freshness)
 	}
 }

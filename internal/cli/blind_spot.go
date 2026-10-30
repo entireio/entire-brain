@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // distillCoverage reports the last recorded distillation and sessions created
@@ -45,9 +48,9 @@ func emptyResultBlindSpot(brainDir string) string {
 // "nothing anywhere" are different answers and only this variant can tell them
 // apart.
 func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	// A missing manifest loads as an empty struct, not an error, and a nil
-	// Sources is exactly that case: normalizeBrainManifest gives every manifest
+	// Sources is exactly that case: bmanifest.Normalize gives every manifest
 	// it actually parsed a non-nil Sources, so only the absent-manifest path
 	// reaches here with nil. That is the NO-BRAIN case, and it is the one this
 	// line most needs to cover — see noBrainBlindSpot.
@@ -63,7 +66,7 @@ func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
 	//
 	// This single choke point is why recall, search, query and retrieve all
 	// inherit the correction without each having to remember to ask.
-	if integrity := inspectFactStore(brainDir, manifest.Sources.Facts); !integrity.OK() {
+	if integrity := factstore.Inspect(brainDir, manifest.Sources.Facts); !integrity.OK() {
 		return "note: this empty result is NOT evidence of absence — " + integrity.Warning()
 	}
 	// A connected repo whose branch never synced may be missing the whole
@@ -93,7 +96,7 @@ func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
 	//
 	// The integrity check above still wins: a store that lost facts must never
 	// be reported as merely the wrong branch.
-	if note := otherBranchBlindSpot(brainDir, branch); note != "" {
+	if note := factstore.OtherBranchBlindSpot(brainDir, branch); note != "" {
 		return note
 	}
 	// An import with --overwrite replaced the fact layer wholesale, so facts
@@ -131,50 +134,8 @@ func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
 	return fmt.Sprintf("note: last distillation %s; complete session coverage is unknown, so this empty result is not evidence of absence", last.Format("2006-01-02")) + suffix
 }
 
-// otherBranchBlindSpot reports active facts held on branches other than the one
-// queried. It returns empty when the caller did not say which branch it
-// queried, when the store cannot be read, or when no other branch holds
-// anything active — in each case the caller falls through to its normal note.
-func otherBranchBlindSpot(brainDir, branch string) string {
-	branch = strings.TrimSpace(branch)
-	if branch == "" {
-		return ""
-	}
-	byBranch, err := loadAllFactBranches(brainDir)
-	if err != nil {
-		return ""
-	}
-	total := 0
-	var names []string
-	for other, records := range byBranch {
-		if other == branch {
-			continue
-		}
-		active := 0
-		for _, record := range records {
-			if record.Status == factStatusActive {
-				active++
-			}
-		}
-		if active == 0 {
-			continue
-		}
-		total += active
-		names = append(names, other)
-	}
-	if total == 0 {
-		return ""
-	}
-	// Deterministic: loadAllFactBranches returns a map, and Go randomises map
-	// iteration, so an unsorted list would reorder between identical runs.
-	sort.Strings(names)
-	shown, suffix := names, ""
-	if len(shown) > 3 {
-		shown, suffix = shown[:3], ", ..."
-	}
-	return fmt.Sprintf("note: no matching memories on %s, but %d active memory(ies) on %d other branch(es): %s%s — retry with --branch",
-		branch, total, len(names), strings.Join(shown, ", "), suffix)
-}
+// otherBranchBlindSpot moved to factstore.OtherBranchBlindSpot with the
+// extracted command surface; get's miss note shares it from there.
 
 // noBrainBlindSpot is the note for a repository whose brain does not exist or
 // cannot be read.
@@ -223,7 +184,7 @@ func briefBranchBlindSpot(brainDir, branch string) string {
 	if brainDir == "" {
 		return ""
 	}
-	byBranch, err := loadAllFactBranches(brainDir)
+	byBranch, err := factstore.LoadAllBranches(brainDir)
 	if err != nil || len(byBranch) == 0 {
 		return ""
 	}
@@ -293,7 +254,7 @@ func otherBranchSessionBlindSpot(brainDir, branch string) string {
 	if branch == "" {
 		return ""
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil || manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
 		return ""
 	}
@@ -341,7 +302,7 @@ func unsyncedHostedFactsBlindSpot(brainDir, branch string) string {
 	if strings.TrimSpace(branch) == "" {
 		return ""
 	}
-	binding, connected, err := readHostedRepoBinding(brainDir)
+	binding, connected, err := brainstore.ReadHostedRepoBinding(brainDir)
 	if err != nil || !connected || binding.OptedOut {
 		return ""
 	}

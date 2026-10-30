@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 )
 
 // pathVaryingSpec is fixedDaemonSpec with a different inherited search path and
@@ -365,12 +367,12 @@ func TestDaemonLogMaintainerIsNilForAWatcherThatIsNotTheService(t *testing.T) {
 // the upkeep would never have run because no workspace pass ever did.
 func TestSupervisedWatchMaintainsItsLogEvenWithNothingToWatch(t *testing.T) {
 	f := newSetupTestFixture(t)
-	base := defaultWatchOptions()
-	base.once = true
+	base := watch.DefaultFlags()
+	base.Once = true
 	maintained := 0
 	passes := 0
 	if err := supervisedWatchLoop(context.Background(), io.Discard, f.env, base,
-		func(string, watchCommandOptions, *int) error { passes++; return nil },
+		func(string, watch.Flags, *int) error { passes++; return nil },
 		func() { maintained++ }, nil); err != nil {
 		t.Fatalf("supervised loop: %v", err)
 	}

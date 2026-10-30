@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"os"
 	"os/exec"
@@ -165,7 +167,7 @@ func TestFactsImportRemainsRunnableFromRoot(t *testing.T) {
 	if report.Source != "mem0" || report.Branch != "main" || report.Read != 1 || report.Imported != 1 || report.DryRun {
 		t.Fatalf("unexpected import report: %+v", report)
 	}
-	facts, err := loadFacts(brainDir, "main")
+	facts, err := factstore.Load(brainDir, "main")
 	if err != nil || len(facts) != 1 {
 		t.Fatalf("imported facts: %v %+v", err, facts)
 	}
@@ -188,10 +190,10 @@ func TestHiddenDeveloperCommandsRemainRunnable(t *testing.T) {
 	paths := []string{"constraints.invariants.general"}
 	fact := factRecord{
 		ID: factRecordID(text, paths), Text: text, Paths: paths, Locus: []string{"internal/cli"},
-		Branch: "main", Origin: factOriginAuthored, Status: factStatusActive,
+		Branch: "main", Origin: factstore.OriginAuthored, Status: factStatusActive,
 		CreatedAt: opts.Now(), UpdatedAt: opts.Now(),
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 	out, err := execute(t, NewRootCommand(opts), "facts", "reclassify", "--json")
@@ -210,7 +212,7 @@ func TestHiddenDeveloperCommandsRemainRunnable(t *testing.T) {
 	if reclassified.Branch != "main" || reclassified.Changed != 1 || reclassified.Facts != 1 || len(reclassified.ByKind) != 1 || reclassified.ByKind[factKindInvariant] != 1 {
 		t.Fatalf("reclassify result = %+v, want main/1 changed/1 invariant fact", reclassified)
 	}
-	stored, err := loadFacts(brainDir, "main")
+	stored, err := factstore.Load(brainDir, "main")
 	if err != nil || len(stored) != 1 || stored[0].ID != fact.ID || stored[0].Kind != factKindInvariant {
 		t.Fatalf("reclassify did not persist the inferred kind: facts=%+v err=%v", stored, err)
 	}
@@ -279,7 +281,7 @@ func TestRootCommandPatternsLifecycleAndPrivacyFailures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("patterns status: %v\n%s", err, out)
 	}
-	var status patternsStatusReport
+	var status patternscmd.StatusReport
 	if err := json.Unmarshal([]byte(out), &status); err != nil {
 		t.Fatalf("decode status JSON: %v\n%s", err, out)
 	}
@@ -338,7 +340,7 @@ func TestRootCommandPatternsLifecycleAndPrivacyFailures(t *testing.T) {
 	if out, err = execute(t, NewRootCommand(opts), "patterns", "skills", "form", taskID, repoDir, "--yes"); err == nil || !strings.Contains(err.Error(), "needs deep verification first") {
 		t.Fatalf("form shallow task error = %v\n%s", err, out)
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patternsSkillMemoryPath))); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patterncore.SkillMemoryPath))); !os.IsNotExist(err) {
 		t.Fatalf("failed form persisted skill memory: %v", err)
 	}
 
@@ -378,7 +380,7 @@ func TestRootCommandPatternsLifecycleAndPrivacyFailures(t *testing.T) {
 	if preview.TaskID != taskID || !preview.IsSkill || preview.Name != "deploy-release" || !strings.Contains(preview.Skill, "## Verification") {
 		t.Fatalf("skill preview lost synthesis contract: %+v", preview)
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patternsSkillMemoryPath))); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patterncore.SkillMemoryPath))); !os.IsNotExist(err) {
 		t.Fatalf("draft-only form persisted skill memory: %v", err)
 	}
 	out, stderr, err = executeSplit(t, NewRootCommand(opts), "patterns", "skills", "form", taskID, repoDir, "--scope", "repo", "--agent", "codex")

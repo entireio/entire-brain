@@ -197,7 +197,7 @@ func TestSetupSummaryUnchangedWhenNoComponentsWereReported(t *testing.T) {
 // property. It used to assert exit 0 ("one component built, so the brain is
 // worth keeping"), which main has since superseded: `setup --help` now states
 // the contract outright -- setup exits 0 whenever the brain is QUERYABLE, and
-// queryable means at least one of the semantic index, the seed baseline or the
+// queryable means at least one of the semantic index, the repository context or the
 // history index built. Session export is none of those.
 //
 // The half of this PR that stands is the other one, and it is what is asserted
@@ -221,7 +221,7 @@ func TestSetupSaysWhatIsUnavailableWhenNothingCanAnswer(t *testing.T) {
 	}
 	// The failure has to NAME both missing sources. "setup failed" alone sends
 	// the reader back to the output they already could not act on.
-	for _, want := range []string{"seed baseline", "code index"} {
+	for _, want := range []string{"repository context", "code index"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("setup must name what is unavailable (%q): %v", want, err)
 		}
@@ -338,7 +338,7 @@ func TestDirtyWorktreeGetsExactlyOneRemedy(t *testing.T) {
 	}
 	// Non-vacuity: the cause line must actually be on screen, or the count
 	// above is counting nothing.
-	if !strings.Contains(got, "seed=dirty-unindexed") || !strings.Contains(got, seed.Detail) {
+	if !strings.Contains(got, "repository context=dirty-unindexed") || !strings.Contains(got, seed.Detail) {
 		t.Fatalf("the cause never reached the output, so nothing above was tested:\n%s", got)
 	}
 }
@@ -642,7 +642,7 @@ func TestQueryabilityClauseNeverOverclaims(t *testing.T) {
 	if strings.Contains(got, "queryable now") {
 		t.Fatalf("no index and no baseline is not queryable: %q", got)
 	}
-	for _, want := range []string{"code index", "seed baseline"} {
+	for _, want := range []string{"code index", "repository context"} {
 		if !strings.Contains(got, "no "+want) {
 			t.Fatalf("the clause must name what is unavailable (%q): %q", want, got)
 		}

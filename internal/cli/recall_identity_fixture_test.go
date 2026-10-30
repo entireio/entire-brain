@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/command/facts"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // setupRecallIdentityTest builds a one-fact brain and the Options to run
@@ -44,7 +48,7 @@ func setupRecallIdentityTest(t *testing.T) (Options, string) {
 		Status:    factStatusActive,
 		UpdatedAt: opts.Now(),
 	}
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 	return opts, storage.BrainDir
@@ -55,14 +59,14 @@ func setupRecallIdentityTest(t *testing.T) (Options, string) {
 // removed flags are accepted as warning no-ops rather than errors.
 func TestRecallIdentityIsBM25Lexical(t *testing.T) {
 	opts, _ := setupRecallIdentityTest(t)
-	out, err := execute(t, newRecallCommand(opts), "target regression", "--json", "--no-semantic")
+	out, err := execute(t, facts.NewRecall(factsCommandConfig(opts)), "target regression", "--json", "--no-semantic")
 	if err != nil {
 		t.Fatalf("recall: %v\n%s", err, out)
 	}
 	var payload struct {
-		EffectiveEngine string                `json:"effective_engine"`
-		Engine          recallRetrievalEngine `json:"retrieval_engine"`
-		Facts           []json.RawMessage     `json:"facts"`
+		EffectiveEngine string                      `json:"effective_engine"`
+		Engine          facts.RecallRetrievalEngine `json:"retrieval_engine"`
+		Facts           []json.RawMessage           `json:"facts"`
 	}
 	if i := strings.Index(out, "{"); i > 0 {
 		out = out[i:]
@@ -70,7 +74,7 @@ func TestRecallIdentityIsBM25Lexical(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
 		t.Fatalf("parse: %v\n%s", err, out)
 	}
-	if payload.EffectiveEngine != recallEngineBM25Lexical || !payload.Engine.IdentityVerified {
+	if payload.EffectiveEngine != facts.RecallEngineBM25Lexical || !payload.Engine.IdentityVerified {
 		t.Fatalf("engine identity = %+v", payload.Engine)
 	}
 	if payload.Engine.SemanticApplied || payload.Engine.SemanticAvailable || payload.Engine.SemanticRequested {

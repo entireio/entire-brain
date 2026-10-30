@@ -8,6 +8,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 type hostedFactsBinding struct {
@@ -16,7 +17,7 @@ type hostedFactsBinding struct {
 }
 
 func hostedFactsBindingPath(branch string) string {
-	return filepath.ToSlash(filepath.Join(factsBranchRelDir(branch), "hosted-target.json"))
+	return filepath.ToSlash(filepath.Join(factstore.BranchRelDir(branch), "hosted-target.json"))
 }
 
 func writeHostedFactsBinding(brainDir, branch, repoID, baseURL string) error {

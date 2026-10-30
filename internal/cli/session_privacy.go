@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"io"
 	"io/fs"
 	"net/url"
@@ -20,6 +22,8 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
 )
@@ -50,29 +54,6 @@ type (
 	sessionTombstoneFileState = brainstore.SessionTombstoneFileState
 	sessionTombstoneLoadError = brainstore.SessionTombstoneLoadError
 )
-
-// excludedTranscriptPaths resolves the brain-relative transcript paths that
-// belong to excluded sessions, from the trusted manifest only.
-func excludedTranscriptPaths(manifest *exportManifest, stones sessionTombstones) map[string]string {
-	out := map[string]string{}
-	if len(stones.Excluded) == 0 || manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
-		return out
-	}
-	for _, session := range manifest.Sources.Sessions.Sessions {
-		id := strings.TrimSpace(session.SessionID)
-		if id == "" {
-			continue
-		}
-		if _, excluded := stones.Excluded[id]; !excluded {
-			continue
-		}
-		rel := brainstore.NormalizePrivacyTranscriptPath(session.TranscriptPath)
-		if rel != "" {
-			out[rel] = id
-		}
-	}
-	return out
-}
 
 // --- administration commands ---
 
@@ -136,7 +117,7 @@ func newSessionsListCommand(opts Options) *cobra.Command {
 				return err
 			}
 			brainDir := storage.BrainDir
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				return err
 			}
@@ -178,9 +159,9 @@ func newSessionsListCommand(opts Options) *cobra.Command {
 				if entries == nil {
 					entries = []sessionListEntry{}
 				}
-				return writeJSON(cmd, map[string]any{"sessions": entries})
+				return cmdutil.WriteJSON(cmd, map[string]any{"sessions": entries})
 			}
-			return writeText(cmd, func(out io.Writer) {
+			return cmdutil.WriteText(cmd, func(out io.Writer) {
 				// An empty session list is the normal state of a brain that has
 				// never captured a session, and printing nothing for it made the
 				// one command a privacy-conscious user reaches for indistinguishable
@@ -204,7 +185,7 @@ func newSessionsListCommand(opts Options) *cobra.Command {
 					case entry.Excluded:
 						state = "EXCLUDED"
 					}
-					fmt.Fprintf(out, "%-10s %s  %s  %s  %s\n", state, valueOrUnset(entry.SessionID), valueOrUnset(entry.CreatedAt), valueOrUnset(entry.Agent), entry.TranscriptPath)
+					fmt.Fprintf(out, "%-10s %s  %s  %s  %s\n", state, cmdutil.ValueOrUnset(entry.SessionID), cmdutil.ValueOrUnset(entry.CreatedAt), cmdutil.ValueOrUnset(entry.Agent), entry.TranscriptPath)
 				}
 				if unmatched > 0 {
 					fmt.Fprintf(out, "UNMATCHED: %d tombstone(s) match no captured session in this brain; each stays recorded and applies if such a session is captured later\n", unmatched)
@@ -219,84 +200,20 @@ func newSessionsListCommand(opts Options) *cobra.Command {
 // excludedTranscriptPathsChecked extends the manifest with durable transaction
 // paths so refresh cannot reopen or reindex an excluded export it no longer names.
 func excludedTranscriptPathsChecked(brainDir string, manifest *exportManifest, stones sessionTombstones) (map[string]string, error) {
-	return brainstore.DurableExcludedTranscriptPaths(brainDir, stones, excludedTranscriptPaths(manifest, stones))
+	return brainstore.DurableExcludedTranscriptPaths(brainDir, stones, bmanifest.ExcludedTranscriptPaths(manifest, stones))
 }
 
 // The session read guard lives in brainstore; the alias keeps the
 // package-local name for the many existing readers and tests.
 type sessionReadGuard = brainstore.SessionReadGuard
 
-// loadSessionReadGuard builds the guard, resolving the manifest's excluded
-// transcript paths alongside brainstore's durable transaction scope.
-func loadSessionReadGuard(brainDir string, manifest *exportManifest) (sessionReadGuard, error) {
-	return brainstore.LoadSessionReadGuard(brainDir, func(stones brainstore.SessionTombstones) map[string]string {
-		return excludedTranscriptPaths(manifest, stones)
-	})
-}
-
-func guardBlocksExportSession(g sessionReadGuard, session exportSession) bool {
-	return g.BlocksSession(session.SessionID) || g.BlocksPath(session.TranscriptPath)
-}
-
-func guardExportSessions(guard sessionReadGuard, sessions []exportSession) []exportSession {
-	if guard.Empty() || len(sessions) == 0 {
-		return sessions
-	}
-	kept := make([]exportSession, 0, len(sessions))
-	for _, session := range sessions {
-		if !guardBlocksExportSession(guard, session) {
-			kept = append(kept, session)
-		}
-	}
-	return kept
-}
-
-func guardBlocksRecord(g sessionReadGuard, r historyRecord) bool {
-	return g.BlocksSession(r.SessionID) || g.BlocksPath(r.Path)
-}
-
-func guardBlocksFactAnchor(g sessionReadGuard, anchor factAnchor) bool {
-	return g.BlocksSession(anchor.SessionID) || g.BlocksPath(anchor.Transcript)
-}
-
-// guardBlocksFact mirrors the purge rule at read time: a fact whose every
-// provenance anchor points at excluded sessions is unreadable; a fact still
-// corroborated by a non-excluded session (or with no session provenance at
-// all, e.g. seed-derived) stays visible.
-func guardBlocksFact(g sessionReadGuard, f factRecord) bool {
-	if g.Empty() || len(f.Provenance) == 0 {
-		return false
-	}
-	for _, anchor := range f.Provenance {
-		if !guardBlocksFactAnchor(g, anchor) {
-			return false
-		}
-	}
-	return true
-}
-
-// guardFactRecords filters a fact slice through the exclusion guard,
-// returning the input unchanged when nothing is excluded.
-func guardFactRecords(guard sessionReadGuard, facts []factRecord) []factRecord {
-	if guard.Empty() || len(facts) == 0 {
-		return facts
-	}
-	kept := make([]factRecord, 0, len(facts))
-	for _, fact := range facts {
-		if !guardBlocksFact(guard, fact) {
-			kept = append(kept, fact)
-		}
-	}
-	return kept
-}
-
 func filterTombstonedSessions(brainDir string, sessions []exportSession) ([]exportSession, error) {
 	manifest := &exportManifest{Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: sessions}}}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return nil, err
 	}
-	return guardExportSessions(guard, sessions), nil
+	return bmanifest.GuardSessions(guard, sessions), nil
 }
 
 func newSessionsExcludeCommand(opts Options) *cobra.Command {
@@ -339,7 +256,7 @@ func runSessionsExclude(ctx context.Context, cmd *cobra.Command, opts Options, s
 			if planErr != nil {
 				return planErr
 			}
-			manifest, manifestErr := loadBrainManifest(brainDir)
+			manifest, manifestErr := bmanifest.Load(brainDir)
 			if manifestErr != nil {
 				return manifestErr
 			}
@@ -350,7 +267,7 @@ func runSessionsExclude(ctx context.Context, cmd *cobra.Command, opts Options, s
 		return err
 	}
 	if jsonOut {
-		return writeJSON(cmd, map[string]any{
+		return cmdutil.WriteJSON(cmd, map[string]any{
 			"excluded": sessionID,
 			// matched says whether anything in this brain answered to the id.
 			// A false here is not a failure: the tombstone is recorded and
@@ -365,7 +282,7 @@ func runSessionsExclude(ctx context.Context, cmd *cobra.Command, opts Options, s
 			"transcripts":           len(plan.Transcripts),
 		})
 	}
-	return writeText(cmd, func(out io.Writer) {
+	return cmdutil.WriteText(cmd, func(out io.Writer) {
 		// Report what happened, not what the command is for. Excluding an id no
 		// session in this brain answers to is a legitimate PRE-EMPTIVE privacy
 		// operation -- arming the tombstone before capture is strictly safer
@@ -448,7 +365,7 @@ func newSessionsIncludeCommand(opts Options) *cobra.Command {
 				return err
 			}
 			if jsonOut {
-				return writeJSON(cmd, map[string]any{"included": sessionID})
+				return cmdutil.WriteJSON(cmd, map[string]any{"included": sessionID})
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "re-included %s and rebuilt the history projection\n", sessionID)
 			return nil
@@ -760,7 +677,7 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 			if planErr != nil {
 				return planErr
 			}
-			manifest, manifestErr := loadBrainManifest(brainDir)
+			manifest, manifestErr := bmanifest.Load(brainDir)
 			if manifestErr != nil {
 				return manifestErr
 			}
@@ -781,9 +698,9 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 		return err
 	}
 	if jsonOut {
-		return writeJSON(cmd, plan)
+		return cmdutil.WriteJSON(cmd, plan)
 	}
-	return writeText(cmd, func(out io.Writer) {
+	return cmdutil.WriteText(cmd, func(out io.Writer) {
 		// Same honesty rule as exclude: an id no captured session answers to
 		// must not report as a cleanup. The tombstone still lands (pre-emptive
 		// arming is strictly safer than refusing and losing the race), so the
@@ -830,7 +747,7 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 // trusted manifest and the current index. Purging an unknown or already-purged
 // session yields an empty plan (idempotent), not an error.
 func loadAllFactBranchesForPrivacy(brainDir string) (map[string][]factRecord, error) {
-	entries, present, err := brainstore.ReadPrivacyDirectory(brainDir, factsDirName, "facts directory")
+	entries, present, err := brainstore.ReadPrivacyDirectory(brainDir, factstore.DirName, "facts directory")
 	if err != nil || !present {
 		if err != nil {
 			return nil, err
@@ -852,7 +769,7 @@ func loadAllFactBranchesForPrivacy(brainDir string) (map[string][]factRecord, er
 			}
 			continue // taxonomy and other root-level metadata are not fact stores.
 		}
-		rel := filepath.ToSlash(filepath.Join(factsDirName, entry.Name(), factsFileName))
+		rel := filepath.ToSlash(filepath.Join(factstore.DirName, entry.Name(), factstore.FileName))
 		data, exists, err := brainstore.ReadPrivacyArtifact(brainDir, rel, "fact store", 256<<20)
 		if err != nil {
 			return nil, err
@@ -870,7 +787,7 @@ func loadAllFactBranchesForPrivacy(brainDir string) (map[string][]factRecord, er
 				byBranch[record.Branch] = append(byBranch[record.Branch], record)
 			}
 		}
-		proposalRel := filepath.ToSlash(filepath.Join(factsDirName, entry.Name(), factsProposalsFileName))
+		proposalRel := filepath.ToSlash(filepath.Join(factstore.DirName, entry.Name(), factsProposalsFileName))
 		proposalData, proposalExists, err := brainstore.ReadPrivacyArtifact(brainDir, proposalRel, "fact proposal store", 64<<20)
 		if err != nil {
 			return nil, err
@@ -890,10 +807,10 @@ func loadAllFactBranchesForPrivacy(brainDir string) (map[string][]factRecord, er
 	}
 	// The native store can retain a view after a compatibility projection was
 	// removed. Include those records in both privacy planning and verification.
-	if _, present, err := readRepoFactStore(brainDir); err != nil {
+	if _, present, err := factstore.RepositoryViewDirs(brainDir); err != nil {
 		return nil, err
 	} else if present {
-		views, err := loadRepoFactViews(brainDir)
+		views, err := factstore.LoadStoreFiles(brainDir)
 		if err != nil {
 			return nil, err
 		}
@@ -917,7 +834,7 @@ func factAnchorMatchesSession(anchor factAnchor, sessionID string, transcriptRel
 
 func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error) {
 	plan := sessionPurgePlan{SessionID: sessionID}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return plan, err
 	}
@@ -966,7 +883,7 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 		// A declared-but-unreadable index is a real storage problem: failing
 		// here beats an under-reported plan that execution would then trust
 		// (dry-run and execution inventories must match).
-		index, ierr := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+		index, ierr := historystore.LoadIndex(brainDir, manifest.Sources.History)
 		if ierr != nil {
 			return plan, fmt.Errorf("load history index: %w", ierr)
 		}
@@ -1109,8 +1026,8 @@ func privacyDerivedStoreRels() []string {
 		filepath.ToSlash(filepath.Join(brainstore.HistoryDirName, embedStoreDirName, historyVecStoreFileNamePortable)),
 		filepath.ToSlash(filepath.Join(brainstore.HistoryDirName, embedStoreDirName, conversationVecStoreFileNamePortable)),
 		patternsTasksPath,
-		patternsProceduresPath,
-		patternsPracticesPath,
+		patterncore.ProceduresPath,
+		patterncore.PracticesPath,
 		patterncore.RunsRelPath,
 	}
 	rels = append(rels, patterncore.CorpusPrivacyArtifactRels()...)
@@ -1136,7 +1053,7 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 		// both leaves are transient/content-bearing and privacy cleanup owns them.
 		rels = append(rels, filepath.ToSlash(filepath.Join("patterns", publication.Candidate)))
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -1151,7 +1068,7 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 	for _, legacy := range []struct {
 		path   string
 		active string
-	}{{historyIndexPath, activeIndex}, {projectionStateRel, activeReceipt}} {
+	}{{historystore.IndexPath, activeIndex}, {projectionStateRel, activeReceipt}} {
 		if legacy.path == legacy.active {
 			continue
 		}
@@ -1170,7 +1087,7 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 	// History generations are immutable publication artifacts. Every old
 	// generation may still contain the excluded session even though only one is
 	// manifest-referenced, so privacy cleanup inventories and deletes them all.
-	for _, rootRel := range []string{historyGenerationsDir, historyStagingDir} {
+	for _, rootRel := range []string{historystore.GenerationsDir, historystore.StagingDir} {
 		root := filepath.Join(brainDir, filepath.FromSlash(rootRel))
 		err := privacyWalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
@@ -1191,8 +1108,8 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 			}
 			if rel, relErr := filepath.Rel(brainDir, path); relErr == nil {
 				rel = filepath.ToSlash(rel)
-				if validHistoryGenerationArtifactPath(rel, historyIndexFileName) || validHistoryGenerationArtifactPath(rel, projectionStateFileName) ||
-					validHistoryStagingArtifactPath(rel, historyIndexFileName) || validHistoryStagingArtifactPath(rel, projectionStateFileName) {
+				if historystore.ValidGenerationArtifactPath(rel, historystore.IndexFileName) || historystore.ValidGenerationArtifactPath(rel, projectionStateFileName) ||
+					historystore.ValidStagingArtifactPath(rel, historystore.IndexFileName) || historystore.ValidStagingArtifactPath(rel, projectionStateFileName) {
 					if rel == activeIndex || rel == activeReceipt {
 						return nil
 					}
@@ -1237,7 +1154,7 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 	// names may contain glob metacharacters, and Glob cannot report unreadable
 	// directories or unsafe entry types. Only the two exact store basenames and
 	// their SQLite sidecars are allowed in an embeddings directory.
-	factEntries, factsPresent, err := brainstore.ReadPrivacyDirectory(brainDir, factsDirName, "facts directory")
+	factEntries, factsPresent, err := brainstore.ReadPrivacyDirectory(brainDir, factstore.DirName, "facts directory")
 	if err != nil {
 		return nil, err
 	}
@@ -1256,7 +1173,7 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 				}
 				continue
 			}
-			embedRel := filepath.ToSlash(filepath.Join(factsDirName, branchEntry.Name(), embedStoreDirName))
+			embedRel := filepath.ToSlash(filepath.Join(factstore.DirName, branchEntry.Name(), embedStoreDirName))
 			embedEntries, embedPresent, readErr := brainstore.ReadPrivacyDirectory(brainDir, embedRel, "fact embedding directory")
 			if readErr != nil {
 				return nil, readErr
@@ -1444,7 +1361,7 @@ func purgeSessionFacts(brainDir, sessionID string, transcriptRels map[string]boo
 	if err != nil {
 		return 0, 0, err
 	}
-	byView, err := loadRepoFactViews(brainDir)
+	byView, err := factstore.LoadStoreFiles(brainDir)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -1479,10 +1396,10 @@ func purgeSessionFacts(brainDir, sessionID string, transcriptRels map[string]boo
 		if !changed {
 			continue
 		}
-		if err := writeFactStoreFile(brainDir, dir, kept); err != nil {
+		if err := factstore.WriteStoreFile(brainDir, dir, kept); err != nil {
 			return deletedTotal, strippedTotal, err
 		}
-		proposalRel := filepath.ToSlash(filepath.Join(factsDirName, dir, factsProposalsFileName))
+		proposalRel := filepath.ToSlash(filepath.Join(factstore.DirName, dir, factsProposalsFileName))
 		proposals, perr := loadFactProposalsAt(brainDir, proposalRel)
 		if perr != nil {
 			return deletedTotal, strippedTotal, perr
@@ -1502,7 +1419,7 @@ func purgeSessionFacts(brainDir, sessionID string, transcriptRels map[string]boo
 			}
 		}
 	}
-	if err := withRepoFactStoreLock(brainDir, func() error { return cleanupRepoFactTemps(brainDir) }); err != nil {
+	if err := factstore.CleanupRepositoryTemps(brainDir); err != nil {
 		return deletedTotal, strippedTotal, err
 	}
 	return deletedTotal, strippedTotal, nil
@@ -1686,7 +1603,7 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	if !keepTranscripts {
 		for _, artifact := range plan.Transcripts {
 			path := filepath.Join(brainDir, filepath.FromSlash(artifact.Path))
-			if err := rejectSymlinkPathComponents(brainDir, filepath.FromSlash(artifact.Path)); err != nil {
+			if err := clibase.RejectSymlinkPathComponents(brainDir, filepath.FromSlash(artifact.Path)); err != nil {
 				if os.IsNotExist(err) {
 					continue
 				}
@@ -1738,7 +1655,7 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	if err := purgeDistillCacheEntries(brainDir, sessionID); err != nil {
 		return err
 	}
-	cleanupManifest, manifestErr := loadBrainManifest(brainDir)
+	cleanupManifest, manifestErr := bmanifest.Load(brainDir)
 	if manifestErr != nil {
 		return manifestErr
 	}

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 var errLegacyBrainLayout = errors.New("this brain uses an old layout")
@@ -32,7 +33,7 @@ func checkLegacyBrainLayout(brainDir string, manifest *exportManifest) error {
 }
 
 func requireCurrentBrainLayout(brainDir string) error {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return err
 	}

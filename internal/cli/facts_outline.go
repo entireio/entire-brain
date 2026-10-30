@@ -13,6 +13,7 @@ import (
 	"time"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // facts_outline.go builds the Appendix-D "synthesized hierarchical outline": a
@@ -47,7 +48,7 @@ type factOutline struct {
 }
 
 func factsOutlineRelPath(branch string) string {
-	return filepath.ToSlash(filepath.Join(factsBranchRelDir(branch), factsOutlineFileName))
+	return filepath.ToSlash(filepath.Join(factstore.BranchRelDir(branch), factsOutlineFileName))
 }
 
 // parentKey returns the parent tier of a node key ("internal/cli" -> "internal"
@@ -74,7 +75,7 @@ func outlineLabel(key string) string {
 // fact — slash-bearing prose tokens (`allow/deny`, `agent/model`) do not — so
 // the outline mirrors the code layout rather than fragmenting into noise nodes.
 func factHomeKey(f factRecord) string {
-	if factScope(f.Paths) == factScopeCrossCutting {
+	if factstore.ScopeOf(f.Paths) == factstore.ScopeCrossCutting {
 		return ""
 	}
 	best := ""
@@ -148,7 +149,7 @@ func buildFactOutlineTree(branch string, facts []factRecord, now time.Time) fact
 		}
 		n := nodes[key]
 		n.LeafFactIDs = append(n.LeafFactIDs, f.ID)
-		n.Counts[factKindOrInferred(f)]++
+		n.Counts[factstore.KindOrInferred(f)]++
 	}
 	// Wire children and sort everything for determinism.
 	for key := range nodes {

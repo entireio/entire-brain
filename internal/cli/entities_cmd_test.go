@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/entities"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/entityindex"
 )
 
@@ -185,7 +186,7 @@ func entityFixtureGitFallback(name string, args []string) (fakeCommandResponse, 
 func (f *entityIndexFixture) writeSessionManifest(t *testing.T) {
 	t.Helper()
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC),
 		DefaultBranch: "main",
 		Sessions: []exportSession{{
@@ -196,7 +197,7 @@ func (f *entityIndexFixture) writeSessionManifest(t *testing.T) {
 			TranscriptPath:   "sessions/s.jsonl",
 		}},
 	}
-	if err := writeJSONFile(filepath.Join(f.storage.BrainDir, exportManifestFileName), manifest); err != nil {
+	if err := writeJSONFile(filepath.Join(f.storage.BrainDir, bmanifest.FileName), manifest); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
 }

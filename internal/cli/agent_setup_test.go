@@ -11,6 +11,9 @@ import (
 	"testing"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/cli/command/capabilities"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
 func TestAgentSetupDoesNotActivateFromBrainRecords(t *testing.T) {
@@ -77,18 +80,18 @@ func TestCapabilitiesWithoutRepository(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var c brainCapabilities
+	var c capabilities.BrainCapabilities
 	if err := json.Unmarshal([]byte(out), &c); err != nil {
 		t.Fatal(err)
 	}
-	if c.Version != "test-build" || c.SchemaVersion != 1 || c.Build.BrainCGO != brainCGOBuild || c.Query.DefaultMode != "keyword" {
+	if c.Version != "test-build" || c.SchemaVersion != 1 || c.Build.BrainCGO != sqlitedriver.BrainCGO || c.Query.DefaultMode != "keyword" {
 		t.Fatalf("capabilities: %+v", c)
 	}
 	if len(c.Sources) != 4 {
 		t.Fatalf("sources: %+v", c.Sources)
 	}
 	for _, source := range c.Sources {
-		if source.Name == retrievalSourceConversation && (source.Default || !source.Experimental || source.SemanticCompiled) {
+		if source.Name == brainstore.RetrievalSourceConversation && (source.Default || !source.Experimental || source.SemanticCompiled) {
 			t.Fatalf("conversation availability overstated: %+v", source)
 		}
 	}

@@ -164,7 +164,7 @@ func TestSkillWriteRefusesSymlinkedBase(t *testing.T) {
 
 // TestSkillDestinationsDisambiguateUnrepresentableNames pins that two skill
 // names with no representable characters do not collapse onto one directory.
-// safePathComponent returns its fallback for both, so without a stable
+// base.SafePathComponent returns its fallback for both, so without a stable
 // disambiguator the second install silently overwrites the first.
 func TestSkillDestinationsDisambiguateUnrepresentableNames(t *testing.T) {
 	t.Parallel()

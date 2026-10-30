@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,7 +50,7 @@ func TestUnsafeSkillEvidenceStopsBeforeProviderOutputAndPersistence(t *testing.T
 	if providerCalled || stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Fatalf("unsafe evidence escaped preflight: provider=%v stdout=%q stderr=%q", providerCalled, stdout.String(), stderr.String())
 	}
-	if _, err := os.Lstat(filepath.Join(brainDir, filepath.FromSlash(patternsSkillMemoryPath))); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(brainDir, filepath.FromSlash(patterncore.SkillMemoryPath))); !os.IsNotExist(err) {
 		t.Fatalf("unsafe evidence persisted skill memory: %v", err)
 	}
 	got, err := os.ReadFile(externalPath)

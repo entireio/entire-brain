@@ -8,7 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // writeOrderedDistillFixture lays down N same-branch sessions whose transcripts
@@ -37,7 +40,7 @@ func writeOrderedDistillFixture(t *testing.T, now time.Time, ids ...string) stri
 		})
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources: &brainSources{
@@ -280,7 +283,7 @@ func TestForcedCappedDistillDoesNotStrandDeferredSessions(t *testing.T) {
 func TestBuildDistillPlanHonorsOrderAndBudget(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	brainDir := writeOrderedDistillFixture(t, now, "old", "mid", "new")
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -307,12 +310,12 @@ func TestBuildDistillPlanHonorsOrderAndBudget(t *testing.T) {
 // token-spending path and the session-end write loop were dead.
 func TestInProcessDistillOptionsPassTheConcurrencyGuard(t *testing.T) {
 	t.Parallel()
-	w := defaultWatchOptions()
+	w := watch.DefaultFlags()
 	if got := watchDistillOptions(w); got.concurrency <= 0 {
 		t.Fatalf("watch's distill options must set concurrency, got %d", got.concurrency)
 	}
 	// A caller that raises --jobs must raise the pool the pipeline actually reads.
-	w.distillJobs = 4
+	w.DistillJobs = 4
 	if got := watchDistillOptions(w); got.concurrency != 4 {
 		t.Fatalf("--jobs must drive the distill pool, got concurrency %d", got.concurrency)
 	}
@@ -334,7 +337,7 @@ func TestNewestFirstDoesNotAutomaticallySupersedeNewerFacts(t *testing.T) {
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
 		t.Fatal(err)
 	}
-	facts, err := loadFacts(brainDir, "main")
+	facts, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}

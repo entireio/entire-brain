@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,10 +23,10 @@ func TestStrongestPatternsCheckedRejectsUnsafeLegacyState(t *testing.T) {
 	if err := os.WriteFile(external, externalData, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(external, filepath.Join(brainDir, filepath.FromSlash(patternsProceduresPath))); err != nil {
+	if err := os.Symlink(external, filepath.Join(brainDir, filepath.FromSlash(patterncore.ProceduresPath))); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	if _, err := strongestPatternsChecked(brainDir, 3); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+	if _, err := patterncore.StrongestPatternsChecked(brainDir, 3); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("unsafe strongest-pattern state error = %v, want %s", err, brainstore.StateUnsafeCode)
 	}
 	got, err := os.ReadFile(external)

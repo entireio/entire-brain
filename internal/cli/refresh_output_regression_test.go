@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestRefreshExplicitOutputBuildsIndependentSeedAndDocs(t *testing.T) {
@@ -18,7 +20,7 @@ func TestRefreshExplicitOutputBuildsIndependentSeedAndDocs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("explicit output: %v stdout=%s stderr=%s", err, stdout, stderr)
 	}
-	manifest, err := loadBrainManifest(output)
+	manifest, err := bmanifest.Load(output)
 	if err != nil || manifest.Sources == nil || manifest.Sources.Seed == nil || manifest.Sources.Docs == nil || manifest.Sources.Docs.Records == 0 {
 		t.Fatalf("missing materialized seed/docs: %+v err=%v", manifest, err)
 	}
@@ -29,7 +31,7 @@ func TestRefreshExplicitOutputBuildsIndependentSeedAndDocs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(storage.BrainDir, exportManifestFileName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(storage.BrainDir, bmanifest.FileName)); !os.IsNotExist(err) {
 		t.Fatalf("explicit output also wrote default brain: %v", err)
 	}
 	if !strings.Contains(stdout+stderr, output) {

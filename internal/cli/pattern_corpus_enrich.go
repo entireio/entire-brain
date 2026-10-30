@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
@@ -354,7 +355,7 @@ func linkEpisodeFacts(facts []factRecord, intent string, files []corpusFileRef) 
 		if len(out) >= 5 {
 			break
 		}
-		out = append(out, corpusFactLink{factID: m.f.ID, branch: m.f.Branch, kind: factKindOrInferred(m.f), paths: strings.Join(m.f.Paths, ","), weight: float64(m.overlap)})
+		out = append(out, corpusFactLink{factID: m.f.ID, branch: m.f.Branch, kind: factstore.KindOrInferred(m.f), paths: strings.Join(m.f.Paths, ","), weight: float64(m.overlap)})
 	}
 	return out
 }

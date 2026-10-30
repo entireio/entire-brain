@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"strings"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // sessionBranchByID maps a session id to the branch the brain exported it on.
@@ -12,7 +14,7 @@ func sessionBranchByID(ctx context.Context, opts Options, repoDir string) map[st
 	if err != nil {
 		return out
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := bmanifest.Load(storage.BrainDir)
 	if err != nil || manifest == nil {
 		return out
 	}

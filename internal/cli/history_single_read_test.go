@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // TestHistoryTranscriptSingleReadYieldsDigestAndRecords locks the single-read
@@ -123,7 +125,7 @@ func TestHistoryTranscriptAggregateFingerprintIsStableAndContentBound(t *testing
 		t.Fatalf("collected %d files, want %d", len(files), len(contents))
 	}
 	first := historyTranscriptFilesFingerprint(files)
-	if !validHistorySHA256(first) {
+	if !historystore.ValidSHA256(first) {
 		t.Fatalf("fingerprint = %q, want a sha256", first)
 	}
 	// Enumeration order must not matter.
@@ -216,7 +218,7 @@ func buildBrainHistoryIndexHashThenScanReference(outputDir string, now time.Time
 		return index, nil, err
 	}
 	transcriptsFingerprint := historyTranscriptFilesFingerprint(files)
-	manifest, _ := loadBrainManifest(outputDir)
+	manifest, _ := bmanifest.Load(outputDir)
 	branchByPath := historyBranchByTranscriptPath(manifest)
 	newCache := historyScanCache{Version: historyScanCacheVersion, Files: make(map[string]historyScanCacheEntry, len(files))}
 	seenDecisions := map[string]struct{}{}
@@ -256,7 +258,7 @@ func buildBrainHistoryIndexHashThenScanReference(outputDir string, now time.Time
 	})
 	source := &historySourceManifest{
 		GeneratedAt:            now,
-		IndexPath:              historyIndexPath,
+		IndexPath:              historystore.IndexPath,
 		SessionsFingerprint:    brainSessionsFingerprint(outputDir),
 		TranscriptsFingerprint: transcriptsFingerprint,
 		Records:                len(index.Records),
@@ -327,12 +329,12 @@ func publishHistoryComparisonIndex(brainDir string, index historyIndex, source *
 	data = append(data, '\n')
 	publishedSource := *source
 	publishedSource.IndexBytes = int64(len(data))
-	publishedSource.IndexSHA256 = historyIndexBytesFingerprint(data)
-	publishedSource.RecordsFingerprint = historyRecordsFingerprint(index.Records)
-	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
+	publishedSource.IndexSHA256 = historystore.IndexBytesFingerprint(data)
+	publishedSource.RecordsFingerprint = historystore.RecordsFingerprint(index.Records)
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historystore.IndexPath, data, 0o600); err != nil {
 		return err
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return err
 	}

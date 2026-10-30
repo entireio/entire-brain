@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestHistorySessionInventoryDeterministic(t *testing.T) {
@@ -71,7 +72,7 @@ func TestHistoryProjectionRejectsExternalTranscriptSymlinkWithoutPublication(t *
 		t.Skip("creating symlinks requires privileges on many Windows builders")
 	}
 	brainDir, _, now := historyProjectionFixture(t)
-	manifestPath := filepath.Join(brainDir, exportManifestFileName)
+	manifestPath := filepath.Join(brainDir, bmanifest.FileName)
 	before, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +107,7 @@ func TestHistoryProjectionRejectsExternalTranscriptSymlinkWithoutPublication(t *
 
 func TestHistoryProjectionRejectsLeafSwapWithoutPublication(t *testing.T) {
 	brainDir, rel, now := historyProjectionFixture(t)
-	manifestPath := filepath.Join(brainDir, exportManifestFileName)
+	manifestPath := filepath.Join(brainDir, bmanifest.FileName)
 	before, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +160,7 @@ func TestHistoryProjectionRejectsLeafSwapWithoutPublication(t *testing.T) {
 func TestHistorySessionInventoryCeilingPreservesProjectionAndOverlay(t *testing.T) {
 	t.Run("full projection", func(t *testing.T) {
 		brainDir, _, now := historyProjectionFixture(t)
-		manifestPath := filepath.Join(brainDir, exportManifestFileName)
+		manifestPath := filepath.Join(brainDir, bmanifest.FileName)
 		before, err := os.ReadFile(manifestPath)
 		if err != nil {
 			t.Fatal(err)

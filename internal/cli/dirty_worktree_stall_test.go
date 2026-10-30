@@ -40,9 +40,9 @@ func TestDirtyWorktreeDoesNotForceARebuildItCannotPerform(t *testing.T) {
 func TestWatchContinuesWhenTheWorktreeIsMerelyDirty(t *testing.T) {
 	t.Parallel()
 
-	src := readSourceForTest(t, "watch.go")
-	// The constant, not its value: watch.go refers to it by name.
-	if !strings.Contains(src, "dirtyWorktreeErrorCode") {
+	src := readSourceForTest(t, "command/watch/watch.go")
+	// The constant, not its value: command/watch/watch.go refers to it by name.
+	if !strings.Contains(src, "brainstore.DirtyWorktreeCode") {
 		t.Fatal("watch.go does not distinguish the dirty-worktree refusal, so a dirty tree still aborts the tick (#327)")
 	}
 	if !strings.Contains(src, "continuing") {

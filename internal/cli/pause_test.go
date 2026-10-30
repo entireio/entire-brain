@@ -8,29 +8,33 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/pause"
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"github.com/spf13/cobra"
 )
 
 func TestStopPausesAndStartResumesBackgroundWork(t *testing.T) {
 	f := newSetupTestFixture(t)
 
-	if out, err := execute(t, newStopCommand(f.opts)); err != nil {
+	if out, err := execute(t, pause.NewStop(f.opts)); err != nil {
 		t.Fatalf("stop: %v\n%s", err, out)
 	}
-	if !backgroundPaused(f.env) {
+	if !clibase.BackgroundPaused(f.env) {
 		t.Fatal("stop did not pause background work")
 	}
-	if out, err := execute(t, newStartCommand(f.opts)); err != nil {
+	if out, err := execute(t, pause.NewStart(f.opts)); err != nil {
 		t.Fatalf("start: %v\n%s", err, out)
 	}
-	if backgroundPaused(f.env) {
+	if clibase.BackgroundPaused(f.env) {
 		t.Fatal("start did not resume background work")
 	}
 }
 
 func TestStartWhenNotPausedIsANoOp(t *testing.T) {
 	f := newSetupTestFixture(t)
-	if out, err := execute(t, newStartCommand(f.opts)); err != nil {
+	if out, err := execute(t, pause.NewStart(f.opts)); err != nil {
 		t.Fatalf("start on a running machine must succeed: %v\n%s", err, out)
 	}
 }
@@ -46,7 +50,7 @@ func TestStatusReportsThePause(t *testing.T) {
 		t.Fatal("status reports a pause nobody asked for")
 	}
 
-	if err := setBackgroundPaused(f.env, true); err != nil {
+	if err := clibase.SetBackgroundPaused(f.env, true); err != nil {
 		t.Fatal(err)
 	}
 	report, err = buildBrainStatusReport(context.Background(), f.opts, f.repoDir)
@@ -74,15 +78,15 @@ func TestSupervisedWatchIdlesWhilePaused(t *testing.T) {
 	if _, err := recordSetupWatchPlan(f.env, daemonDefaultName, setupWatchPlanEntry{Workspace: "alpha", Interval: "5m"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := setBackgroundPaused(f.env, true); err != nil {
+	if err := clibase.SetBackgroundPaused(f.env, true); err != nil {
 		t.Fatal(err)
 	}
 	out := &bytes.Buffer{}
-	base := defaultWatchOptions()
-	base.once = true
+	base := watch.DefaultFlags()
+	base.Once = true
 	passes := 0
 	if err := supervisedWatchLoop(context.Background(), out, f.env, base,
-		func(string, watchCommandOptions, *int) error { passes++; return nil }, nil, nil); err != nil {
+		func(string, watch.Flags, *int) error { passes++; return nil }, nil, nil); err != nil {
 		t.Fatalf("a paused watcher must keep running, not exit: %v", err)
 	}
 	if passes != 0 {
@@ -102,13 +106,13 @@ func TestSupervisedWatchStopsVisitingWorkspacesWhenPausedMidPass(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	base := defaultWatchOptions()
-	base.once = true
+	base := watch.DefaultFlags()
+	base.Once = true
 	var seen []string
 	if err := supervisedWatchLoop(context.Background(), &bytes.Buffer{}, f.env, base,
-		func(workspace string, _ watchCommandOptions, _ *int) error {
+		func(workspace string, _ watch.Flags, _ *int) error {
 			seen = append(seen, workspace)
-			return setBackgroundPaused(f.env, true)
+			return clibase.SetBackgroundPaused(f.env, true)
 		}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -122,23 +126,23 @@ func TestSupervisedWatchStopsVisitingWorkspacesWhenPausedMidPass(t *testing.T) {
 // themselves, so each tick has to honour the pause on its own.
 func TestWatchTickDoesNothingWhilePaused(t *testing.T) {
 	f := newSetupTestFixture(t)
-	if err := setBackgroundPaused(f.env, true); err != nil {
+	if err := clibase.SetBackgroundPaused(f.env, true); err != nil {
 		t.Fatal(err)
 	}
-	steps := watchStepsForRepo(&cobra.Command{}, f.opts, defaultWatchOptions(), f.repoDir, time.Now)
+	steps := watchStepsForRepo(&cobra.Command{}, f.opts, watch.DefaultFlags(), f.repoDir, time.Now)
 	var ran []string
-	steps.fingerprint = func(context.Context) string { ran = append(ran, "fingerprint"); return "changed" }
-	steps.delta = func(context.Context) (shortTermStats, error) {
+	steps.Fingerprint = func(context.Context) string { ran = append(ran, "fingerprint"); return "changed" }
+	steps.Delta = func(context.Context) (historystore.ShortTermStats, error) {
 		ran = append(ran, "delta")
-		return shortTermStats{}, nil
+		return historystore.ShortTermStats{}, nil
 	}
-	steps.reconcile = func(context.Context) error { ran = append(ran, "reconcile"); return nil }
-	steps.refresh = func(context.Context) error { ran = append(ran, "refresh"); return nil }
-	steps.seed = func(context.Context) error { ran = append(ran, "seed"); return nil }
-	steps.distill = func(context.Context) error { ran = append(ran, "distill"); return nil }
+	steps.Reconcile = func(context.Context) error { ran = append(ran, "reconcile"); return nil }
+	steps.Refresh = func(context.Context) error { ran = append(ran, "refresh"); return nil }
+	steps.Seed = func(context.Context) error { ran = append(ran, "seed"); return nil }
+	steps.Distill = func(context.Context) error { ran = append(ran, "distill"); return nil }
 	out := &bytes.Buffer{}
 	agentCalls := 0
-	watchTick(context.Background(), out, defaultWatchOptions(), filepath.Join(t.TempDir(), "watch.json"), steps, &agentCalls)
+	watch.Tick(context.Background(), out, watch.DefaultFlags(), filepath.Join(t.TempDir(), "watch.json"), steps, &agentCalls)
 	if len(ran) != 0 {
 		t.Fatalf("paused, but the tick ran %v", ran)
 	}
@@ -149,7 +153,7 @@ func TestWatchTickDoesNothingWhilePaused(t *testing.T) {
 
 func TestSetupSkipsBackfillWhilePaused(t *testing.T) {
 	f := newSetupTestFixture(t, "s1")
-	if err := setBackgroundPaused(f.env, true); err != nil {
+	if err := clibase.SetBackgroundPaused(f.env, true); err != nil {
 		t.Fatal(err)
 	}
 	rec := &recordedSetup{agent: "codex"}
@@ -174,7 +178,7 @@ func TestHookSessionEndDoesNothingWhilePaused(t *testing.T) {
 	old := memoryWorkerLaunch
 	memoryWorkerLaunch = func(string) error { t.Error("paused hook launched a worker"); return nil }
 	t.Cleanup(func() { memoryWorkerLaunch = old })
-	if err := setBackgroundPaused(opts.Env, true); err != nil {
+	if err := clibase.SetBackgroundPaused(opts.Env, true); err != nil {
 		t.Fatal(err)
 	}
 	before := privacyTreeDigest(t, brainDir)
@@ -197,7 +201,7 @@ func TestMemoryWorkerDoesNothingWhilePaused(t *testing.T) {
 	memoryWorkerLaunchAfter = func(string, time.Duration, int) error { relaunches++; return nil }
 
 	opts, _ := newPrepassBackoffBrain(t, time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC))
-	if err := setBackgroundPaused(opts.Env, true); err != nil {
+	if err := clibase.SetBackgroundPaused(opts.Env, true); err != nil {
 		t.Fatal(err)
 	}
 	out, err := execute(t, newMemoryWorkerCommand(opts), "--once")
@@ -226,7 +230,7 @@ func TestMemoryWorkerHonoursAPauseDuringItsLeasedSleep(t *testing.T) {
 	// leased; the pause lands 50ms into it.
 	go func() {
 		time.Sleep(50 * time.Millisecond)
-		_ = setBackgroundPaused(opts.Env, true)
+		_ = clibase.SetBackgroundPaused(opts.Env, true)
 	}()
 	out, err := execute(t, newMemoryWorkerCommand(opts), "--once", "--delay", "2s")
 	if err != nil {

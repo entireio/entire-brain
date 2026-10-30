@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"io"
 	"os"
 	"os/exec"
@@ -73,7 +74,7 @@ func runFilelessExport(t *testing.T, opts Options, output string, history bool) 
 func TestFilelessExportIndexesAndReadsWithoutSessionsTree(t *testing.T) {
 	opts, brain, _ := filelessCheckpointFixture(t)
 	runFilelessExport(t, opts, "", true)
-	manifest, err := loadBrainManifest(brain)
+	manifest, err := bmanifest.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +132,7 @@ func TestFilelessMigrationAndStandaloneBundle(t *testing.T) {
 	opts, brain, _ := filelessCheckpointFixture(t)
 	bundle := filepath.Join(t.TempDir(), "bundle")
 	runFilelessExport(t, opts, bundle, false)
-	manifest, err := loadBrainManifest(bundle)
+	manifest, err := bmanifest.Load(bundle)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +182,7 @@ func TestFilelessMigrationRetainsDivergentCache(t *testing.T) {
 	opts, brain, _ := filelessCheckpointFixture(t)
 	bundle := filepath.Join(t.TempDir(), "bundle")
 	runFilelessExport(t, opts, bundle, false)
-	manifest, _ := loadBrainManifest(bundle)
+	manifest, _ := bmanifest.Load(bundle)
 	rel := manifest.Sources.Sessions.Sessions[0].TranscriptPath
 	if err := os.MkdirAll(filepath.Dir(brain), 0700); err != nil {
 		t.Fatal(err)
@@ -223,7 +224,7 @@ func TestFilelessMigrationSweepsCacheBehindCheckpoint(t *testing.T) {
 	opts, brain, _ := filelessCheckpointFixture(t)
 	bundle := filepath.Join(t.TempDir(), "bundle")
 	runFilelessExport(t, opts, bundle, false)
-	manifest, _ := loadBrainManifest(bundle)
+	manifest, _ := bmanifest.Load(bundle)
 	rel := manifest.Sources.Sessions.Sessions[0].TranscriptPath
 	if err := os.MkdirAll(filepath.Dir(brain), 0700); err != nil {
 		t.Fatal(err)
@@ -251,7 +252,7 @@ func TestFilelessMigrationRetainsUnrecoverableCache(t *testing.T) {
 	opts, brain, repo := filelessCheckpointFixture(t)
 	bundle := filepath.Join(t.TempDir(), "bundle")
 	runFilelessExport(t, opts, bundle, false)
-	manifest, _ := loadBrainManifest(bundle)
+	manifest, _ := bmanifest.Load(bundle)
 	rel := manifest.Sources.Sessions.Sessions[0].TranscriptPath
 	if err := os.MkdirAll(filepath.Dir(brain), 0700); err != nil {
 		t.Fatal(err)
@@ -278,7 +279,7 @@ func TestFilelessMigrationRetainsUnrecoverableCache(t *testing.T) {
 func TestFilelessDistillCacheSkipsReadsAndInvalidatesIdentity(t *testing.T) {
 	opts, brain, _ := filelessCheckpointFixture(t)
 	runFilelessExport(t, opts, "", false)
-	manifest, _ := loadBrainManifest(brain)
+	manifest, _ := bmanifest.Load(brain)
 	session := manifest.Sources.Sessions.Sessions[0]
 	distillOpts := distillCommandOptions{checkpointBacked: true, transcriptMode: "raw", cacheSalt: "salt"}
 	fingerprint := distillFingerprintForSession(session, "main", "", distillOpts)
@@ -333,7 +334,7 @@ func TestFilelessDistillCacheSkipsReadsAndInvalidatesIdentity(t *testing.T) {
 func TestFilelessLegacyDistillCacheGrandfathersOnce(t *testing.T) {
 	opts, brain, _ := filelessCheckpointFixture(t)
 	runFilelessExport(t, opts, "", false)
-	manifest, err := loadBrainManifest(brain)
+	manifest, err := bmanifest.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +375,7 @@ func TestFilelessSourceIdentitySurvivesBundleMaterialization(t *testing.T) {
 func TestFilelessReadFinishRechecksTombstone(t *testing.T) {
 	opts, brain, _ := filelessCheckpointFixture(t)
 	runFilelessExport(t, opts, "", false)
-	manifest, _ := loadBrainManifest(brain)
+	manifest, _ := bmanifest.Load(brain)
 	session := manifest.Sources.Sessions.Sessions[0]
 	_, finish, err := newTranscriptStore(opts.Runner, brain).Open(context.Background(), session.TranscriptPath)
 	if err != nil {

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -47,11 +49,11 @@ func evalCommandFixture(t *testing.T) (Options, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(storage.BrainDir, filepath.FromSlash(historyIndexPath)), append(indexBytes, '\n'), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(storage.BrainDir, filepath.FromSlash(historystore.IndexPath)), append(indexBytes, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest.RepoKey = "gh/example/eval"
-	manifest.Sources.History = &historySourceManifest{GeneratedAt: index.GeneratedAt, IndexPath: historyIndexPath, Records: len(index.Records)}
+	manifest.Sources.History = &historySourceManifest{GeneratedAt: index.GeneratedAt, IndexPath: historystore.IndexPath, Records: len(index.Records)}
 	if err := writeBrainManifestAndReadme(storage.BrainDir, *manifest); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +119,7 @@ func TestHistoryEvalCommandsMalformedEmptyAndOutputFailure(t *testing.T) {
 		t.Fatalf("invalid arm error = %v", err)
 	}
 
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +136,7 @@ func TestHistoryEvalCommandsMalformedEmptyAndOutputFailure(t *testing.T) {
 	// Restore the fixture so generation reaches stdout transport.
 	_, _, index := historyEvalFixture(t)
 	manifest.Sources.Sessions.Sessions = []exportSession{{SessionID: "session-aaaa-1111", Branch: "main", TranscriptPath: "sessions/main/s1.jsonl", CreatedAt: opts.Now()}}
-	manifest.Sources.History = &historySourceManifest{GeneratedAt: index.GeneratedAt, IndexPath: historyIndexPath, Records: len(index.Records)}
+	manifest.Sources.History = &historySourceManifest{GeneratedAt: index.GeneratedAt, IndexPath: historystore.IndexPath, Records: len(index.Records)}
 	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 		t.Fatal(err)
 	}

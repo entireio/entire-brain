@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestManualFactUpdateDoesNotClaimDistillation(t *testing.T) {
@@ -29,7 +31,7 @@ func TestPreserveDistillTokenUsage(t *testing.T) {
 func TestRecentFactManifestDoesNotProveSessionCoverage(t *testing.T) {
 	now := time.Now()
 	d := writeDistillFixture(t, now)
-	m, err := loadBrainManifest(d)
+	m, err := bmanifest.Load(d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +47,7 @@ func TestRecentFactManifestDoesNotProveSessionCoverage(t *testing.T) {
 func TestManualUpdatePreservesDistillTimestampAndUsage(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	d := writeDistillFixture(t, now)
-	m, err := loadBrainManifest(d)
+	m, err := bmanifest.Load(d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +59,7 @@ func TestManualUpdatePreservesDistillTimestampAndUsage(t *testing.T) {
 	if err := updateFactSourceManifest(d, now); err != nil {
 		t.Fatal(err)
 	}
-	m, err = loadBrainManifest(d)
+	m, err = bmanifest.Load(d)
 	if err != nil {
 		t.Fatal(err)
 	}

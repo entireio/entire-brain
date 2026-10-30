@@ -5,16 +5,38 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
 	"reflect"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
+	"github.com/entireio/entire-brain/internal/cli/command/add"
+	"github.com/entireio/entire-brain/internal/cli/command/bench"
+	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
+	"github.com/entireio/entire-brain/internal/cli/command/capabilities"
+	"github.com/entireio/entire-brain/internal/cli/command/config"
+	"github.com/entireio/entire-brain/internal/cli/command/connect"
+	"github.com/entireio/entire-brain/internal/cli/command/daemonreregister"
+	"github.com/entireio/entire-brain/internal/cli/command/dash"
+	"github.com/entireio/entire-brain/internal/cli/command/disconnect"
+	"github.com/entireio/entire-brain/internal/cli/command/docs"
+	"github.com/entireio/entire-brain/internal/cli/command/facts"
+	"github.com/entireio/entire-brain/internal/cli/command/guide"
+	"github.com/entireio/entire-brain/internal/cli/command/hook"
+	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
+	"github.com/entireio/entire-brain/internal/cli/command/pause"
+	"github.com/entireio/entire-brain/internal/cli/command/repoidentity"
+	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
+	"github.com/entireio/entire-brain/internal/cli/command/stats"
+	"github.com/entireio/entire-brain/internal/cli/command/version"
+	"github.com/entireio/entire-brain/internal/cli/command/viz"
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
+	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -58,7 +80,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 		SilenceErrors: true,
 		Long: `entire-brain is an external-command plugin for the Entire CLI.
 
-It builds a local, inspectable repository brain from retained sessions, seed
+It builds a local, inspectable repository brain from retained sessions, repository
 context, docs, history, code-index records, and durable memories, then exposes
 retrieval, verification, and evaluation surfaces for agents.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -99,28 +121,28 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	}
 
 	addGrouped("setup", newSetupCommand(opts))
-	addGrouped("setup", newAddCommand(opts))
-	addGrouped("setup", newBrainGuideCommand(opts))
-	addGrouped("setup", newWebhookCommand(opts))
-	addGrouped("setup", newConfigCommand(opts.Env))
+	addGrouped("setup", add.New(opts))
+	addGrouped("setup", guide.New(opts))
+	addGrouped("setup", webhook.New(opts))
+	addGrouped("setup", config.New(opts.Env))
 
 	addGrouped("explore", newBrainOverviewCommand(opts))
 	addGrouped("explore", newBrainBriefCommand(opts))
-	addGrouped("explore", newQueryCommand(opts))
-	addGrouped("explore", newSearchCommand(opts))
-	addGrouped("explore", newVsearchCommand(opts))
-	addGrouped("explore", newGetCommand(opts))
-	addGrouped("explore", newMultiGetCommand(opts))
-	addGrouped("explore", newDashCommand(opts))
+	addGrouped("explore", retrieve.NewQuery(retrieveCommandConfig(opts)))
+	addGrouped("explore", retrieve.NewSearch(retrieveCommandConfig(opts)))
+	addGrouped("explore", retrieve.NewVsearch(retrieveCommandConfig(opts)))
+	addGrouped("explore", retrieve.NewGet(retrieveCommandConfig(opts)))
+	addGrouped("explore", retrieve.NewMultiGet(retrieveCommandConfig(opts)))
+	addGrouped("explore", dash.New(dashConfig(opts)))
 
-	addGrouped("facts", newRecallCommand(opts))
-	addGrouped("facts", newRememberCommand(opts))
+	addGrouped("facts", facts.NewRecall(factsCommandConfig(opts)))
+	addGrouped("facts", facts.NewRemember(factsCommandConfig(opts)))
 	addGrouped("facts", newDistillCommand(opts))
 	addGrouped("facts", newFactsCommand(opts))
-	addGrouped("facts", newConnectCommand(opts))
-	addGrouped("facts", newDisconnectCommand(opts))
+	addGrouped("facts", connect.New(connectConfig(opts)))
+	addGrouped("facts", disconnect.New(disconnectConfig(opts)))
 	addGrouped("facts", newVerifyCommand(opts))
-	addGrouped("facts", newPatternsCommand(opts))
+	addGrouped("facts", patternscmd.New(patternsCmdConfig(opts)))
 
 	addGrouped("operations", newMemoryCommand(opts))
 	addGrouped("operations", newPrivacyCommand(opts))
@@ -128,34 +150,33 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	addGrouped("code", newBrainInspectCommand(opts))
 	addGrouped("code", newBrainShowCommand(opts))
 	addGrouped("operations", entities.NewCommand(entityConfig(opts)))
-	addGrouped("code", newVizCommand(opts))
+	addGrouped("code", viz.New(vizConfig(opts)))
 	addGrouped("operations", newSemanticRepairCommand(opts))
 
 	addGrouped("maintain", newAgentStatusCommand(opts))
-	addGrouped("maintain", newStatsCommand(opts))
-	addGrouped("operations", newDocsCommand(opts))
+	addGrouped("maintain", stats.New(statsConfig(opts)))
+	addGrouped("operations", docs.New(opts))
 	addGrouped("operations", newRefreshCommand(opts))
-	addGrouped("operations", newWatchCommand(opts))
-	addHidden(newDaemonReregisterCommand(opts))
-	addGrouped("operations", newStopCommand(opts))
-	addGrouped("operations", newStartCommand(opts))
+	addGrouped("operations", watch.New(watchConfig(opts)))
+	addHidden(daemonreregister.New(daemonReregisterConfig(opts)))
+	addGrouped("operations", pause.NewStop(opts))
+	addGrouped("operations", pause.NewStart(opts))
 	addGrouped("operations", newSemanticResetCommand(opts))
 
 	addGrouped("share", newWorkspaceCommand(opts))
 	addGrouped("share", newSemanticBundleCommand(opts))
-	addGrouped("share", newPublishCommand(opts))
 
 	addGrouped("misc", newPathCommand(opts))
-	addGrouped("operations", newRepoIdentityCommand(opts))
-	addGrouped("misc", newCapabilitiesCommand(opts))
+	addGrouped("operations", repoidentity.New(repoIdentityConfig(opts)))
+	addGrouped("misc", capabilities.New(opts))
 	addGrouped("misc", newDoctorCommand(opts))
-	addHidden(newBenchmarkCommand(opts))
-	addGrouped("misc", newVersionCommand(opts.Version))
+	addHidden(bench.New(benchConfig(opts)))
+	addGrouped("misc", version.New(opts.Version))
 
 	// Hidden: `review` is the machine contract `entire review`'s diff-less mode shells
 	// (`entire-brain review --json`), NOT a human-facing verb — the human
 	// review surface is `entire review` in the cli, not a standalone brain command.
-	addHidden(newBrainReviewCommand(opts))
+	addHidden(brainreview.New(brainReviewConfig(opts)))
 
 	// Hidden measurement harness for the history retrieval layer (the facts
 	// analog lives under `facts eval`/`eval-gen`; summaries are compatible with
@@ -165,12 +186,18 @@ retrieval, verification, and evaluation surfaces for agents.`,
 
 	// Hidden agent-harness hook surface (Phase 2 item 2): wired into hooks by
 	// the harness (Claude Code, Entire CLI), not invoked by humans or agents.
-	addHidden(newHookCommand(opts))
+	addHidden(hook.New(hookCommandConfig(opts)))
 
 	// Tombstone: `init-agents` was removed (folded into `setup`). Hidden so
 	// scripts calling the old name fail with a pointer to the replacement
 	// instead of cobra's generic "unknown command".
 	addHidden(newInitAgentsTombstoneCommand())
+
+	// Tombstone: `publish` was removed (the brain-bundle endpoint it posted
+	// to was never deployed; memories travel the per-fact wire). Hidden so
+	// old invocations fail with a pointer to `memories sync` instead of
+	// cobra's generic "unknown command".
+	addHidden(newPublishTombstoneCommand())
 
 	cmd.SetHelpCommandGroupID("misc")
 	setRootUsage(cmd, helpCommands)
@@ -318,30 +345,14 @@ type commandJSONError struct {
 	Message string `json:"message"`
 }
 
-type renderedCommandError struct {
-	err error
-}
+// The rendered-error marker lives in cmdutil so extracted command packages can
+// construct it; the alias keeps the package-local name for existing callers.
+type renderedCommandError = cmdutil.RenderedCommandError
 
 var errRenderedCommand = renderedCommandError{}
 
 func RenderedError() error {
 	return errRenderedCommand
-}
-
-func (e renderedCommandError) Error() string {
-	if e.err == nil {
-		return "command error rendered"
-	}
-	return e.err.Error()
-}
-
-func (e renderedCommandError) Unwrap() error {
-	return e.err
-}
-
-func (e renderedCommandError) Is(target error) bool {
-	_, ok := target.(renderedCommandError)
-	return ok
 }
 
 func commandErrorWasRendered(err error) bool {
@@ -358,7 +369,7 @@ func wrapJSONErrorRendering(cmd *cobra.Command) {
 				return err
 			}
 			_ = writeCommandJSONError(cmd.ErrOrStderr(), err)
-			return renderedCommandError{err: err}
+			return renderedCommandError{Err: err}
 		}
 	}
 	if cmd.RunE != nil {
@@ -372,7 +383,7 @@ func wrapJSONErrorRendering(cmd *cobra.Command) {
 				return err
 			}
 			_ = writeCommandJSONError(cmd.ErrOrStderr(), err)
-			return renderedCommandError{err: err}
+			return renderedCommandError{Err: err}
 		}
 	}
 	// CHAIN, do not replace. This walks every child, and a plain
@@ -392,7 +403,7 @@ func wrapJSONErrorRendering(cmd *cobra.Command) {
 			return err
 		}
 		_ = writeCommandJSONError(cmd.ErrOrStderr(), err)
-		return renderedCommandError{err: err}
+		return renderedCommandError{Err: err}
 	})
 	for _, child := range cmd.Commands() {
 		wrapJSONErrorRendering(child)
@@ -501,11 +512,9 @@ func commandRawArgs(cmd *cobra.Command) []string {
 	return out
 }
 
-var commandErrorCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
-
 func writeCommandJSONError(w io.Writer, err error) error {
 	envelope := commandJSONError{
-		Code:    commandErrorCode(err),
+		Code:    cmdutil.CommandErrorCode(err),
 		Message: err.Error(),
 	}
 	data, marshalErr := json.MarshalIndent(envelope, "", "  ")
@@ -514,18 +523,6 @@ func writeCommandJSONError(w io.Writer, err error) error {
 	}
 	_, writeErr := fmt.Fprintln(w, string(data))
 	return writeErr
-}
-
-func commandErrorCode(err error) string {
-	message := err.Error()
-	code, _, ok := strings.Cut(message, ":")
-	if ok {
-		code = strings.TrimSpace(code)
-		if commandErrorCodePattern.MatchString(code) {
-			return code
-		}
-	}
-	return "command_failed"
 }
 
 // legacyFlagAlias keeps a renamed flag's old spelling parseable by normalizing

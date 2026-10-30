@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"path/filepath"
 	"testing"
 	"time"
@@ -21,7 +22,7 @@ func TestSemanticRefreshIdentityWithUnchangedTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	brain := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
-	manifest, err := loadBrainManifest(brain)
+	manifest, err := bmanifest.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -18,6 +18,83 @@ All notable changes to `entire-brain` are recorded here. The format follows
   Rollback exports current memories, including changes made after migration.
 - Released-client compatibility checks against v0.3.0 and v0.4.0, including
   concurrent old/new writers and upgrade/downgrade cycles.
+### Removed
+
+- `entire brain publish` and the brain-bundle wire package (`internal/brainwire`).
+  The `/brain/artifacts` endpoint publish posted to was never deployed — the
+  server exists only in unmerged entire-api PRs — so the command failed for
+  every host, and its github.com-only client gate dead-ended Entire-native
+  users with a misleading refusal (COR-2290). Memories travel the per-fact
+  wire: `entire brain memories sync` on a connected repo works for any host
+  and is the manual push path. Invoking `publish` now fails with a tombstone
+  naming that replacement, following the `init-agents` precedent. The https
+  floor and malformed-URL fences moved from publish to the memories-sync
+  surface, which shares the same hosted-target resolution.
+
+### Fixed
+
+- The conversation and history parsers now read the compact transcript
+  dialect the Entire CLI stores per checkpoint (Entire Transcript Format:
+  content blocks at the record's top level, no `message` wrapper). A default
+  (compact) export previously produced zero conversation exchanges — no
+  searchable exchanges, no user-prompt history records — until the user
+  re-exported with `refresh sessions --raw` (COR-2289).
+
+  Upgrading rebuilds the history index once: the scan cache version is bumped
+  so caches filled by the pre-compact scanner — which recorded none of those
+  records — are discarded instead of reused. No re-export is needed; the next
+  `refresh` rescans the transcripts already on disk, and stored memories,
+  their anchors and their ids are unaffected.
+
+- `verify` no longer byte-compares transcripts in checkpoint-backed brains,
+  where the transcript it just read came out of the checkpoint store itself —
+  the comparison re-resolved the transcript flavor through an all-or-nothing
+  switch, so one session without a compact transcript anywhere in the store
+  marked every session-anchored memory "stale: exported transcript differs
+  from local checkpoint transcript" on each default (compact) refresh
+  (COR-2289). Brains with materialized transcript files (standalone bundles,
+  pre-0.4.0 brains) keep the comparison in the manifest's declared flavor and
+  report "unverifiable here" instead of a false stale when the local store
+  can no longer resolve that flavor.
+
+## [0.4.0] - 2026-10-27
+
+### Removed
+
+- The local MCP surface: `brain mcp` (stdio and `--http`), the `/v1` REST API
+  it mounted, and the Python/TypeScript SDKs with their LangChain/LlamaIndex
+  integrations. The CLI is the canonical agent surface — the agent guide
+  drives every interaction through `entire brain` verbs, and the MCP tools
+  were thin wrappers returning the same `--json` payloads — so the surfaces
+  carried ~15k lines and an HTTP listener with bearer tokens that SECURITY.md
+  had to reason about, with no recorded dependency. `capabilities` no longer
+  reports an `mcp` feature. The CLI behavior `docs/semantic_mcp_guide.md`
+  described stays, rewritten as `docs/semantic_features.md`.
+
+### Fixed
+
+- Hosted facts sync no longer retries a 403 forever against a stale repo
+  binding (COR-2279: deleted or access-revoked repos tripped brainstore's
+  auth-failure monitor from every session-end hook, daemon tick, and push
+  hint). A pull denial now re-resolves placement once — a repo deleted and
+  re-onboarded in the same cell rebinds and retries — and otherwise records
+  a 24h no-access pause that background triggers skip, with one actionable
+  line naming `connect`. A push-only 403 (read-only grant) keeps pulling,
+  and 401 still reaches the monitor.
+
+- The no-access pause unwinds on its own once access returns: a successful
+  hosted pull retires the recorded pause, and `status` only reports a pause
+  that was actually written and is still in the future. Previously a
+  restored grant kept `status` claiming the repo was paused and
+  recommending `connect` forever, and a declined pause write still printed
+  "sync paused".
+
+- `doctor` and the brief warnings no longer flag a brain holding staged
+  distill candidates as a stale facts manifest. The readable-count
+  cross-check now includes `pending_reconcile` records, so the
+  "memory count does not match the manifest — run refresh" error that
+  survived every refresh is gone; the stale/lossy messages name the staged
+  share so their arithmetic adds up.
 
 ## [0.3.0] - 2026-10-26
 

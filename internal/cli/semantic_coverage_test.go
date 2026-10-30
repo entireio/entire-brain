@@ -3,6 +3,8 @@ package cli
 import (
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"os"
 	"path/filepath"
@@ -97,7 +99,7 @@ func semanticCoverageIndex(t *testing.T, env EntireEnv, runner *fakeCommandRunne
 	}
 	// semanticFixtureRunner scripts an origin remote, so the store lands under
 	// the remote-derived key rather than a local one.
-	manifest, err := loadBrainManifest(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo"))
+	manifest, err := bmanifest.Load(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo"))
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -136,7 +138,7 @@ func brainIgnoreForTest(t *testing.T, patterns ...string) brainIgnore {
 }
 
 func semanticCoverageSnapshot() string {
-	return `{"schema_version":"` + semanticSchemaVersion + `","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","warnings":[],"partial_failures":[]}
+	return `{"schema_version":"` + semstore.SchemaVersion + `","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","warnings":[],"partial_failures":[]}
 {"record_type":"file","path":"internal/shop/pricing.go","language":"Go"}
 {"record_type":"symbol","id":"gh/example/repo:Go:internal/shop/pricing.go:function:ApplyTax","kind":"function","name":"ApplyTax","qualified_name":"ApplyTax","file_path":"internal/shop/pricing.go","start_line":1,"end_line":3,"language":"Go","stable_id_version":"1"}
 {"record_type":"summary","warnings":[],"partial_failures":[],"stats":{"files":1,"parsed_files":1,"symbols":1,"relations":0,"partial_failures":0,"completeness_level":"ok"}}
@@ -144,7 +146,7 @@ func semanticCoverageSnapshot() string {
 }
 
 func semanticCoverageSnapshotWithPartialFailure() string {
-	return `{"schema_version":"` + semanticSchemaVersion + `","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","warnings":[],"partial_failures":[]}
+	return `{"schema_version":"` + semstore.SchemaVersion + `","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","warnings":[],"partial_failures":[]}
 {"record_type":"file","path":"internal/shop/pricing.go","language":"Go"}
 {"record_type":"symbol","id":"gh/example/repo:Go:internal/shop/pricing.go:function:ApplyTax","kind":"function","name":"ApplyTax","qualified_name":"ApplyTax","file_path":"internal/shop/pricing.go","start_line":1,"end_line":3,"language":"Go","stable_id_version":"1"}
 {"record_type":"summary","warnings":[],"partial_failures":[{"code":"` + semanticParseErrorCode + `","severity":"warning","file_path":"internal/shop/broken.go","effect_on_semantic_completeness":"file parsed with syntax errors"}],"stats":{"files":2,"parsed_files":1,"symbols":1,"relations":0,"partial_failures":1,"completeness_level":"degraded"}}

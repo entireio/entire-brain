@@ -12,6 +12,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // The failure these pin was found on a real machine, not imagined: a field
@@ -26,7 +27,7 @@ import (
 func writeManifestWithRetiredField(t *testing.T, dir string) {
 	t.Helper()
 	body := map[string]any{
-		"schema_version": brainManifestSchemaVersion,
+		"schema_version": bmanifest.SchemaVersion,
 		"repo_key":       "local/demo-1234",
 		"generated_at":   "2026-10-11T22:00:00Z",
 		// A field this build RETIRED. It must be one no release will ever
@@ -41,7 +42,7 @@ func writeManifestWithRetiredField(t *testing.T, dir string) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, exportManifestFileName), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, bmanifest.FileName), data, 0o600); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
 }
@@ -51,7 +52,7 @@ func TestAWriterRefusingARetiredFieldNamesTheRemedy(t *testing.T) {
 	dir := t.TempDir()
 	writeManifestWithRetiredField(t, dir)
 
-	_, err := loadBrainManifestForReplace(dir)
+	_, err := bmanifest.LoadForReplace(dir)
 	if err == nil {
 		t.Fatal("a manifest a writer cannot round-trip must be refused, or it silently erases another build's state")
 	}
@@ -69,7 +70,7 @@ func TestAReaderStillOpensAManifestWithARetiredField(t *testing.T) {
 	dir := t.TempDir()
 	writeManifestWithRetiredField(t, dir)
 
-	manifest, err := loadBrainManifest(dir)
+	manifest, err := bmanifest.Load(dir)
 	if err != nil {
 		t.Fatalf("readers must tolerate a retired field: %v", err)
 	}
@@ -82,18 +83,18 @@ func TestRetiredManifestFieldIsRecognisedAsDurable(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeManifestWithRetiredField(t, dir)
-	_, err := loadBrainManifestForReplace(dir)
+	_, err := bmanifest.LoadForReplace(dir)
 	if err == nil {
 		t.Fatal("fixture did not produce the failure, so this guard would pass on any change")
 	}
 
-	if !errRetiredManifestField(err) {
+	if !bmanifest.IsRetiredFieldError(err) {
 		t.Fatalf("a retired field is durable and must stop the relaunch chain: %v", err)
 	}
 	// The exact string the worker sees, through the delta-export path that
 	// wraps it -- that wrapper is why the check cannot rely on the typed error.
 	wrapped := wrapTestError("delta session export", err)
-	if !errRetiredManifestField(wrapped) {
+	if !bmanifest.IsRetiredFieldError(wrapped) {
 		t.Fatalf("the wrapped form the worker actually receives was not recognised: %v", wrapped)
 	}
 }
@@ -106,11 +107,11 @@ func TestAnOrdinaryFailureStillRetries(t *testing.T) {
 		wrapTestError("delta session export", os.ErrDeadlineExceeded),
 		wrapTestError("delta session export", os.ErrPermission),
 	} {
-		if errRetiredManifestField(err) {
+		if bmanifest.IsRetiredFieldError(err) {
 			t.Fatalf("a transient failure was treated as durable, so it would never be retried: %v", err)
 		}
 	}
-	if errRetiredManifestField(nil) {
+	if bmanifest.IsRetiredFieldError(nil) {
 		t.Fatal("no error is not a durable failure")
 	}
 }
@@ -119,16 +120,16 @@ func TestTheRemedyMessageKeepsTheOriginalCause(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeManifestWithRetiredField(t, dir)
-	_, err := loadBrainManifestForReplace(dir)
+	_, err := bmanifest.LoadForReplace(dir)
 
-	msg := retiredManifestFieldMessage(err)
+	msg := bmanifest.RetiredFieldMessage(err)
 	if !strings.Contains(msg, "zz_field_no_release_will_define") {
 		t.Fatalf("the remedy replaced the cause instead of adding to it: %s", msg)
 	}
 	if !strings.Contains(msg, "refresh --force") {
 		t.Fatalf("the message states a problem and no action: %s", msg)
 	}
-	if retiredManifestFieldMessage(nil) != "" {
+	if bmanifest.RetiredFieldMessage(nil) != "" {
 		t.Fatal("no error must produce no message")
 	}
 }
@@ -168,7 +169,7 @@ func TestTheTwoDurableCausesKeepTheirOwnRemedies(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeManifestWithRetiredField(t, dir)
-	_, err := loadBrainManifestForReplace(dir)
+	_, err := bmanifest.LoadForReplace(dir)
 	if err == nil {
 		t.Fatal("fixture produced no error, so this guard would pass on anything")
 	}
@@ -198,7 +199,7 @@ func TestATransientFailureIsNotDurable(t *testing.T) {
 	}
 }
 
-// The remedy must appear exactly ONCE. loadBrainManifestForReplace attaches it
+// The remedy must appear exactly ONCE. bmanifest.LoadForReplace attaches it
 // and the worker asks for the message again, so an unconditional append printed
 // the whole explanation twice. Found by weakening, not by reading: deleting the
 // retired-field branch of durablePrepassMessage made the output BETTER, which is
@@ -207,13 +208,13 @@ func TestTheRemedyIsStatedExactlyOnce(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeManifestWithRetiredField(t, dir)
-	_, err := loadBrainManifestForReplace(dir)
+	_, err := bmanifest.LoadForReplace(dir)
 	if err == nil {
 		t.Fatal("fixture produced no error, so this guard would pass on anything")
 	}
 	for name, msg := range map[string]string{
-		"retiredManifestFieldMessage": retiredManifestFieldMessage(err),
-		"durablePrepassMessage":       durablePrepassMessage(err),
+		"bmanifest.RetiredFieldMessage": bmanifest.RetiredFieldMessage(err),
+		"durablePrepassMessage":         durablePrepassMessage(err),
 	} {
 		if n := strings.Count(msg, "refresh --force"); n != 1 {
 			t.Errorf("%s states the remedy %d times, want 1: %s", name, n, msg)
@@ -228,7 +229,7 @@ func TestARetiredFieldSatisfiesTheGeneralClassifier(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeManifestWithRetiredField(t, dir)
-	_, err := loadBrainManifestForReplace(dir)
+	_, err := bmanifest.LoadForReplace(dir)
 	if err == nil {
 		t.Fatal("fixture produced no error")
 	}
@@ -240,7 +241,7 @@ func TestARetiredFieldSatisfiesTheGeneralClassifier(t *testing.T) {
 // The worker does NOT always see the wrapped form. The live prepass error was
 // bare -- "parse brain manifest: ...: json: unknown field" with no remedy --
 // because the delta-export path reads the manifest without going through
-// loadBrainManifestForReplace. That bare form is the one a reader actually got,
+// bmanifest.LoadForReplace. That bare form is the one a reader actually got,
 // and the one that named no action at all.
 //
 // Without this case the retired-field branch of durablePrepassMessage looks
@@ -255,7 +256,7 @@ func TestABarePrepassErrorStillGetsTheRemedy(t *testing.T) {
 	if strings.Contains(bare.Error(), "refresh --force") {
 		t.Fatal("the fixture already carries the remedy, so it cannot show that the branch adds it")
 	}
-	if !errRetiredManifestField(bare) {
+	if !bmanifest.IsRetiredFieldError(bare) {
 		t.Fatalf("the bare form must still be recognised as durable: %v", bare)
 	}
 	msg := durablePrepassMessage(bare)

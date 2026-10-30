@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/entities"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 const (
@@ -98,7 +99,7 @@ func TestDistillStampsAnchorCommit(t *testing.T) {
 		if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
 			t.Fatalf("%s: runDistillForBrain: %v", name, err)
 		}
-		facts, err := loadFacts(brainDir, "main")
+		facts, err := factstore.Load(brainDir, "main")
 		if err != nil || len(facts) != 1 || len(facts[0].Provenance) != 1 {
 			t.Fatalf("%s: facts = %+v (%v)", name, facts, err)
 		}

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // gitKnowsBranches teaches a fixture runner that these branch names resolve, so
@@ -23,7 +25,7 @@ func promoteFixtureWithSourceFacts(t *testing.T) (verifyFixture, factRecord) {
 	paths := normalizeFactPaths([]string{"ops.deploy.strategy"})
 	fact := factRecord{
 		ID: factRecordID("deploys use blue-green cutover", paths), Paths: paths,
-		Text: "deploys use blue-green cutover", Branch: "feature", Origin: factOriginDistilled,
+		Text: "deploys use blue-green cutover", Branch: "feature", Origin: factstore.OriginDistilled,
 		Status: factStatusActive, CreatedAt: f.now, UpdatedAt: f.now,
 	}
 	f.writeFacts(t, "feature", []factRecord{fact})
@@ -35,7 +37,7 @@ func promoteFixtureWithSourceFacts(t *testing.T) (verifyFixture, factRecord) {
 // asked whether the branch names it was handed meant anything.
 //
 // Both halves failed silently, and the --into half destroyed data:
-// writeFacts creates the target store on demand, so a typo forked the fact set
+// factstore.Write creates the target store on demand, so a typo forked the fact set
 // into a directory keyed to a branch that does not exist. No branch can reach
 // it, no command names it, and promote reported success — the facts were gone.
 func TestFactsPromoteValidatesBothBranchEndpoints(t *testing.T) {
@@ -63,10 +65,10 @@ func TestFactsPromoteValidatesBothBranchEndpoints(t *testing.T) {
 		}
 
 		// The orphan store is the damage: it must never have been written.
-		if factBranchStoreExists(f.storage.BrainDir, bogus) {
+		if factstore.BranchStoreExists(f.storage.BrainDir, bogus) {
 			t.Fatalf("refused promote still wrote a memory store for %q", bogus)
 		}
-		orphanDir := filepath.Join(f.storage.BrainDir, filepath.FromSlash(factsBranchRelDir(bogus)))
+		orphanDir := filepath.Join(f.storage.BrainDir, filepath.FromSlash(factstore.BranchRelDir(bogus)))
 		if _, statErr := os.Stat(orphanDir); statErr == nil {
 			t.Fatalf("refused promote still created the branch directory %s", orphanDir)
 		}
@@ -92,7 +94,7 @@ func TestFactsPromoteValidatesBothBranchEndpoints(t *testing.T) {
 		if !strings.Contains(out, "promoted 1 memory(ies) from feature into main") {
 			t.Fatalf("unexpected promote summary:\n%s", out)
 		}
-		facts, loadErr := loadFacts(f.storage.BrainDir, "main")
+		facts, loadErr := factstore.Load(f.storage.BrainDir, "main")
 		if loadErr != nil {
 			t.Fatal(loadErr)
 		}
@@ -112,7 +114,7 @@ func TestFactsPromoteAcceptsADeletedBranchThatStillHasFacts(t *testing.T) {
 	paths := normalizeFactPaths([]string{"ops.deploy.strategy"})
 	fact := factRecord{
 		ID: factRecordID("deploys use blue-green cutover", paths), Paths: paths,
-		Text: "deploys use blue-green cutover", Branch: "shipped", Origin: factOriginDistilled,
+		Text: "deploys use blue-green cutover", Branch: "shipped", Origin: factstore.OriginDistilled,
 		Status: factStatusActive, CreatedAt: f.now, UpdatedAt: f.now,
 	}
 	f.writeFacts(t, "shipped", []factRecord{fact})
@@ -121,7 +123,7 @@ func TestFactsPromoteAcceptsADeletedBranchThatStillHasFacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("promote from a deleted branch that still has facts was refused: %v\n%s", err, out)
 	}
-	facts, loadErr := loadFacts(f.storage.BrainDir, "main")
+	facts, loadErr := factstore.Load(f.storage.BrainDir, "main")
 	if loadErr != nil {
 		t.Fatal(loadErr)
 	}
@@ -142,12 +144,12 @@ func TestFactsReviewRefusesContradictoryFlags(t *testing.T) {
 		paths := normalizeFactPaths([]string{"ops.deploy.strategy"})
 		target := factRecord{
 			ID: factRecordID("deploys use blue-green cutover", paths), Paths: paths,
-			Text: "deploys use blue-green cutover", Branch: "main", Origin: factOriginDistilled,
+			Text: "deploys use blue-green cutover", Branch: "main", Origin: factstore.OriginDistilled,
 			Status: factStatusActive, CreatedAt: f.now, UpdatedAt: f.now,
 		}
 		candidate := factRecord{
 			ID: factRecordID("deploys use in-place rolling restart", paths), Paths: paths,
-			Text: "deploys use in-place rolling restart", Branch: "main", Origin: factOriginDistilled,
+			Text: "deploys use in-place rolling restart", Branch: "main", Origin: factstore.OriginDistilled,
 			Status: factStatusActive, CreatedAt: f.now, UpdatedAt: f.now,
 		}
 		f.writeFacts(t, "main", []factRecord{target, candidate})
@@ -189,7 +191,7 @@ func TestFactsReviewRefusesContradictoryFlags(t *testing.T) {
 			if len(queued) != 1 || queued[0].CandidateID != proposal.CandidateID {
 				t.Fatalf("refused review still settled the queue: %+v", queued)
 			}
-			facts, loadErr := loadFacts(f.storage.BrainDir, "main")
+			facts, loadErr := factstore.Load(f.storage.BrainDir, "main")
 			if loadErr != nil {
 				t.Fatal(loadErr)
 			}

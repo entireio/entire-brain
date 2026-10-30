@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -29,7 +31,7 @@ func TestFilelessBundleOmitsExcludedSessions(t *testing.T) {
 		t.Run(map[bool]string{false: "all-excluded", true: "mixed"}[keepIncluded], func(t *testing.T) {
 			realOpts, realBrain, _ := filelessCheckpointFixture(t)
 			runFilelessExport(t, realOpts, "", false)
-			realManifest, err := loadBrainManifest(realBrain)
+			realManifest, err := bmanifest.Load(realBrain)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -37,7 +39,7 @@ func TestFilelessBundleOmitsExcludedSessions(t *testing.T) {
 			if err := os.RemoveAll(filepath.Join(brain, brainstore.HistoryDirName, "privacy")); err != nil {
 				t.Fatal(err)
 			}
-			manifest, err := loadBrainManifest(brain)
+			manifest, err := bmanifest.Load(brain)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -82,7 +84,7 @@ func TestFilelessBundleOmitsExcludedSessions(t *testing.T) {
 					t.Fatalf("bundle branches = %+v", branches)
 				}
 			}
-			current, err := loadBrainManifest(brain)
+			current, err := bmanifest.Load(brain)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -98,7 +100,7 @@ func TestFilelessMigrationPreservesUnrecoverableExcludedCache(t *testing.T) {
 		t.Run(variant, func(t *testing.T) {
 			opts, brain, _ := filelessCheckpointFixture(t)
 			runFilelessExport(t, opts, brain, false)
-			manifest, err := loadBrainManifest(brain)
+			manifest, err := bmanifest.Load(brain)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -120,7 +122,7 @@ func TestFilelessMigrationPreservesUnrecoverableExcludedCache(t *testing.T) {
 			if err := brainstore.SaveSessionTombstones(brain, stones); err != nil {
 				t.Fatal(err)
 			}
-			before, err := os.ReadFile(filepath.Join(brain, exportManifestFileName))
+			before, err := os.ReadFile(filepath.Join(brain, bmanifest.FileName))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -145,7 +147,7 @@ func TestFilelessMigrationPreservesUnrecoverableExcludedCache(t *testing.T) {
 			if err != nil || string(got) != preserved {
 				t.Fatalf("cache lost: %q %v", got, err)
 			}
-			after, err := os.ReadFile(filepath.Join(brain, exportManifestFileName))
+			after, err := os.ReadFile(filepath.Join(brain, bmanifest.FileName))
 			if err != nil {
 				t.Fatalf("read manifest: %v", err)
 			}
@@ -167,7 +169,7 @@ func TestFilelessRefreshPreparesHistoryOutsideWriteLock(t *testing.T) {
 			originalWrite := historyProjectionWriteFile
 			checked := false
 			historyProjectionWriteFile = func(dir, rel string, data []byte, mode os.FileMode) error {
-				if !checked && strings.HasPrefix(rel, historyStagingDir+"/") {
+				if !checked && strings.HasPrefix(rel, historystore.StagingDir+"/") {
 					checked = true
 					unlock, err := brainstore.AcquireBrainWriteLockTimeout(brain, 100*time.Millisecond)
 					if err != nil {
@@ -196,7 +198,7 @@ func TestFilelessRefreshPreparesHistoryOutsideWriteLock(t *testing.T) {
 				if err == nil || !strings.Contains(err.Error(), "memory_source_stale") {
 					t.Fatalf("stale publication error = %v", err)
 				}
-				manifest, loadErr := loadBrainManifest(brain)
+				manifest, loadErr := bmanifest.Load(brain)
 				if loadErr != nil {
 					t.Fatal(loadErr)
 				}
@@ -213,7 +215,7 @@ func TestFilelessRefreshPreparesHistoryOutsideWriteLock(t *testing.T) {
 func TestFilelessMigrationRecoversExcludedSessionAfterInclude(t *testing.T) {
 	opts, brain, _ := filelessCheckpointFixture(t)
 	runFilelessExport(t, opts, brain, false)
-	manifest, err := loadBrainManifest(brain)
+	manifest, err := bmanifest.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}

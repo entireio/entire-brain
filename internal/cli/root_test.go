@@ -307,7 +307,7 @@ func TestRefreshExposesBuildStageSubcommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh --help: %v\n%s", err, out)
 	}
-	for _, want := range []string{"sessions", "index", "seed"} {
+	for _, want := range []string{"sessions", "index"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("refresh --help missing stage %q:\n%s", want, out)
 		}

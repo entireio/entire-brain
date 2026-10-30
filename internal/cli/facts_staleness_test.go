@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,14 +26,14 @@ func TestFactLocusDrift(t *testing.T) {
 		"departed.go",
 		"rankfactsfused",
 	}}
-	drift := factLocusDrift(repo, f)
+	drift := retrieval.FactLocusDrift(repo, f)
 	if len(drift) != 1 || drift[0] != "internal/cli/departed.go" {
 		t.Fatalf("drift = %v, want only the departed path token", drift)
 	}
 
 	// Path traversal tokens are never resolved.
 	evil := factRecord{ID: "f2", Text: "x", Locus: []string{"../outside/secret.go"}}
-	if drift := factLocusDrift(repo, evil); len(drift) != 0 {
+	if drift := retrieval.FactLocusDrift(repo, evil); len(drift) != 0 {
 		t.Fatalf("traversal token must be skipped, got %v", drift)
 	}
 
@@ -42,19 +43,19 @@ func TestFactLocusDrift(t *testing.T) {
 	prose := factRecord{ID: "f4", Text: "x", Locus: []string{
 		"a/b", "expected/current", "provider/head", "install/list/remove", "seed/*", "rpc/mcp",
 	}}
-	if drift := factLocusDrift(repo, prose); len(drift) != 0 {
+	if drift := retrieval.FactLocusDrift(repo, prose); len(drift) != 0 {
 		t.Fatalf("prose slash-tokens must not drift, got %v", drift)
 	}
 
 	// No repo dir (bundle-only brain): no drift claims at all.
-	if drift := factLocusDrift("", f); len(drift) != 0 {
+	if drift := retrieval.FactLocusDrift("", f); len(drift) != 0 {
 		t.Fatalf("empty repoDir must report nothing, got %v", drift)
 	}
 
 	// Derived locus (no stored field) drifts the same way: the fact names a
 	// departed path in its text.
 	derived := factRecord{ID: "f3", Text: "the chunker in `internal/cli/old_chunker.go` caps lines"}
-	if drift := factLocusDrift(repo, derived); len(drift) != 1 || drift[0] != "internal/cli/old_chunker.go" {
+	if drift := retrieval.FactLocusDrift(repo, derived); len(drift) != 1 || drift[0] != "internal/cli/old_chunker.go" {
 		t.Fatalf("derived-locus drift = %v, want the departed path", drift)
 	}
 }
@@ -69,11 +70,11 @@ func TestFactsLocusDriftMapsOnlyDrifted(t *testing.T) {
 		{ID: "drifted", Locus: []string{"gone/missing.go"}},
 	}
 
-	got := factsLocusDrift(repo, facts)
+	got := retrieval.FactsLocusDrift(repo, facts)
 	if len(got) != 1 || len(got["drifted"]) != 1 {
 		t.Fatalf("expected only the drifted fact in the map, got %v", got)
 	}
-	if factsLocusDrift(repo, facts[:1]) != nil {
+	if retrieval.FactsLocusDrift(repo, facts[:1]) != nil {
 		t.Fatal("no drift should yield a nil map (clean JSON omission)")
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"os"
 	"path/filepath"
@@ -568,8 +569,8 @@ func TestPatternCorpusBuildRejectsNewerManifestWithoutMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifestPath := filepath.Join(brainDir, exportManifestFileName)
-	vNext := []byte(fmt.Sprintf("{\"schema_version\":%d,\"future\":{\"must_survive\":true}}\n", brainManifestSchemaVersion+1))
+	manifestPath := filepath.Join(brainDir, bmanifest.FileName)
+	vNext := []byte(fmt.Sprintf("{\"schema_version\":%d,\"future\":{\"must_survive\":true}}\n", bmanifest.SchemaVersion+1))
 	if err := os.WriteFile(manifestPath, vNext, 0o600); err != nil {
 		t.Fatal(err)
 	}

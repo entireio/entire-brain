@@ -45,7 +45,7 @@ func workspaceSkillInstallPath(t *testing.T) string {
 
 func assertWorkspaceSkillNotWritten(t *testing.T, wsDir string) {
 	t.Helper()
-	for _, path := range []string{workspaceSkillInstallPath(t), filepath.Join(wsDir, filepath.FromSlash(patternsSkillMemoryPath))} {
+	for _, path := range []string{workspaceSkillInstallPath(t), filepath.Join(wsDir, filepath.FromSlash(patterncore.SkillMemoryPath))} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("workspace form wrote %s: %v", path, err)
 		}
@@ -135,7 +135,7 @@ func TestWorkspaceCommandLifecycleThroughRootRoutes(t *testing.T) {
 	if err != nil || !strings.Contains(string(installed), "# Deploy release") {
 		t.Fatalf("workspace install content missing: %q, err=%v", installed, err)
 	}
-	if _, err := os.Stat(filepath.Join(wsDir, filepath.FromSlash(patternsSkillMemoryPath))); err != nil {
+	if _, err := os.Stat(filepath.Join(wsDir, filepath.FromSlash(patterncore.SkillMemoryPath))); err != nil {
 		t.Fatalf("workspace skill memory missing: %v", err)
 	}
 }

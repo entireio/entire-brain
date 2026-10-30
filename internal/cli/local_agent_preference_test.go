@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 )
 
 // availabilityRunner reports a fixed set of commands as present on PATH.
@@ -74,7 +76,7 @@ func TestLocalModelIsPreferredOverACloudAgent(t *testing.T) {
 func TestWatchDefaultsToDetectionNotAHardcodedCloudAgent(t *testing.T) {
 	t.Parallel()
 
-	got := defaultWatchOptions().distillAgent
+	got := watch.DefaultFlags().DistillAgent
 	if got == "codex" || got == "claude-code" {
 		t.Fatalf("the watcher hardcodes the cloud agent %q (#328)", got)
 	}

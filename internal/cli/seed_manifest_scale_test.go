@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // coverageFixture builds a history-coverage record whose per-commit gap list has
@@ -147,14 +148,14 @@ func TestSeedOnAManyCommitRepositoryLeavesAReadableManifest(t *testing.T) {
 	}
 
 	brainDir := filepath.Join(dataDir, base.RepoStoreDirName, "gh", "example", "repo")
-	info, err := os.Stat(filepath.Join(brainDir, exportManifestFileName))
+	info, err := os.Stat(filepath.Join(brainDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatalf("stat manifest: %v", err)
 	}
 	if info.Size() > base.MaxManifestBytes {
 		t.Fatalf("seed wrote a %d byte manifest against a %d byte read bound", info.Size(), base.MaxManifestBytes)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatalf("the brain cannot read the manifest it just wrote: %v", err)
 	}
@@ -221,20 +222,20 @@ func TestWriteBrainManifestLargeCoverageRoundTrip(t *testing.T) {
 		t.Cleanup(func() { base.MaxManifestBytes = prev })
 	}
 	brainDir := t.TempDir()
-	manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, RepoKey: "local/example", Sources: &brainSources{Seed: &seedSourceManifest{
+	manifest := exportManifest{SchemaVersion: bmanifest.SchemaVersion, RepoKey: "local/example", Sources: &brainSources{Seed: &seedSourceManifest{
 		GeneratedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), HistoryCoverage: coverageFixture(records),
 	}}}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(filepath.Join(brainDir, exportManifestFileName))
+	info, err := os.Stat(filepath.Join(brainDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if info.Size() <= base.MaxManifestBytes {
 		t.Fatal("fixture did not exceed old ceiling")
 	}
-	got, err := loadBrainManifest(brainDir)
+	got, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

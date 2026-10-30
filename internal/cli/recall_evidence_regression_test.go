@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"testing"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestRecallEvidenceBracketPlainText(t *testing.T) {
@@ -37,7 +39,7 @@ func TestRecallEvidenceSessionDefaultBranch(t *testing.T) {
 	} {
 		t.Run(tc.source+"/"+tc.manifest, func(t *testing.T) {
 			_, brain := evidenceFixture(t)
-			m, err := loadBrainManifest(brain)
+			m, err := bmanifest.Load(brain)
 			if err != nil {
 				t.Fatal(err)
 			}

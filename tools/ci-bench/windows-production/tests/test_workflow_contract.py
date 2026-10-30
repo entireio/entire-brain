@@ -78,6 +78,26 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("needs.windows-test-prepare.result == 'success'", verify_block)
         self.assertNotIn("needs.windows-test-shards.result == 'success'", verify_block)
 
+    def test_windows_prepare_selects_affected_packages_on_pull_requests_only(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        prepare_block = workflow.split("  windows-test-prepare:\n", 1)[1].split(
+            "  windows-test-shards:\n", 1
+        )[0]
+        self.assertIn("fetch-depth: 2", prepare_block)
+        self.assertIn("if: github.event_name == 'pull_request'", prepare_block)
+        self.assertIn(
+            "python -B tools/coverage/affected.py --base HEAD^1 --head HEAD",
+            prepare_block,
+        )
+        self.assertIn("'${{ github.event_name }}' -eq 'pull_request'", prepare_block)
+        self.assertIn("'--affected'", prepare_block)
+        # Shard and non-heavy jobs take selection from the bundled plan only.
+        downstream = workflow.split("  windows-test-shards:\n", 1)[1].split(
+            "  windows-test-vet:\n", 1
+        )[0]
+        self.assertNotIn("--affected", downstream)
+        self.assertNotIn("affected.py", downstream)
+
     def test_every_workflow_python_command_disables_bytecode_writes(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         commands = [

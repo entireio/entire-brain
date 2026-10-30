@@ -9,17 +9,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 )
 
 // seedCapabilityFactsFile writes durable facts to brainDir/facts/main/facts.ndjson.
 func seedCapabilityFactsFile(t *testing.T, brainDir string, facts []factRecord) {
 	t.Helper()
-	dir := filepath.Join(brainDir, factsDirName, "main")
+	dir := filepath.Join(brainDir, factstore.DirName, "main")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	f, err := os.Create(filepath.Join(dir, factsFileName))
+	f, err := os.Create(filepath.Join(dir, factstore.FileName))
 	if err != nil {
 		t.Fatal(err)
 	}

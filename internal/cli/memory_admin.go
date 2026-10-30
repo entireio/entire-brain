@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"io"
 	"os"
 	"os/exec"
@@ -16,6 +18,8 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
 
@@ -127,7 +131,7 @@ func finishMemoryOperationFailure(cmd *cobra.Command, receipt *memoryOperationRe
 		receipt.ErrorCode = brainstore.MemoryErrorCode(cause)
 	}
 	if jsonOut {
-		if emitErr := writeJSON(cmd, receipt); emitErr != nil {
+		if emitErr := cmdutil.WriteJSON(cmd, receipt); emitErr != nil {
 			return errors.Join(cause, fmt.Errorf("emit %s failure receipt: %w", receipt.Operation, emitErr))
 		}
 	}
@@ -154,9 +158,9 @@ func emitMemoryOperationSuccess(
 		if jsonValue != nil {
 			value = jsonValue(*receipt)
 		}
-		emitErr = writeJSON(cmd, value)
+		emitErr = cmdutil.WriteJSON(cmd, value)
 	} else {
-		emitErr = writeText(cmd, func(out io.Writer) {
+		emitErr = cmdutil.WriteText(cmd, func(out io.Writer) {
 			if renderText != nil {
 				renderText(out, *receipt)
 				return
@@ -175,9 +179,9 @@ func emitMemoryOperationSuccess(
 // derived artifact for receipts and dry-runs.
 func memoryDerivedArtifactStates(brainDir string) []memoryReceiptArtifact {
 	var artifacts []memoryReceiptArtifact
-	indexRel := historyIndexPath
+	indexRel := historystore.IndexPath
 	receiptRel := projectionStateRel
-	if manifest, err := loadBrainManifest(brainDir); err == nil && manifest.Sources != nil && manifest.Sources.History != nil {
+	if manifest, err := bmanifest.Load(brainDir); err == nil && manifest.Sources != nil && manifest.Sources.History != nil {
 		if manifest.Sources.History.IndexPath != "" {
 			indexRel = manifest.Sources.History.IndexPath
 		}
@@ -204,7 +208,7 @@ func markProjectionRefreshStates(brainDir string, artifacts *[]memoryReceiptArti
 		return nil
 	}
 	current := map[string]bool{}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return fmt.Errorf("%s: load rebuilt manifest for receipt: %w", brainstore.StateCorruptCode, err)
 	}
@@ -247,9 +251,9 @@ func markProjectionRefreshStates(brainDir string, artifacts *[]memoryReceiptArti
 var markMemoryProjectionRefreshStates = markProjectionRefreshStates
 
 func isHistoryProjectionPointerArtifact(path string) bool {
-	return path == historyIndexPath || path == projectionStateRel ||
-		(strings.HasPrefix(path, historyGenerationsDir+"/") &&
-			(strings.HasSuffix(path, "/"+historyIndexFileName) || strings.HasSuffix(path, "/"+projectionStateFileName)))
+	return path == historystore.IndexPath || path == projectionStateRel ||
+		(strings.HasPrefix(path, historystore.GenerationsDir+"/") &&
+			(strings.HasSuffix(path, "/"+historystore.IndexFileName) || strings.HasSuffix(path, "/"+projectionStateFileName)))
 }
 
 // memoryProjectionRefreshArtifactOutcome is the shared transition planner for
@@ -408,7 +412,7 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 			fail := func(cause error) error {
 				return finishMemoryOperationFailure(cmd, &receipt, jsonOut, opts.Now(), cause)
 			}
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				return fail(err)
 			}
@@ -421,7 +425,7 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 			// treats a missing legacy digest or any bounded-read/digest failure as
 			// a deterministic rebuild request instead of becoming unable to repair
 			// the very state it is responsible for recovering.
-			_, indexErr := loadBrainHistoryIndex(brainDir, source)
+			_, indexErr := historystore.LoadIndex(brainDir, source)
 			indexCurrent := indexErr == nil && source != nil && source.IndexDigest != ""
 			verifyAvailable := indexErr == nil
 			verify := privacyVerifyReport{Findings: []privacyVerifyFinding{}}
@@ -467,7 +471,7 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 					return fail(fmt.Errorf("%s: repair rebuilt the active projection but %d privacy violations remain; run `"+base.BrainInvocation(os.LookupEnv, "privacy purge")+" <session-id>` and retry repair", brainstore.PrivacyDirtyCode, len(postVerify.Findings)))
 				}
 				verify = postVerify
-				postManifest, manifestErr := loadBrainManifest(brainDir)
+				postManifest, manifestErr := bmanifest.Load(brainDir)
 				if manifestErr != nil {
 					return fail(manifestErr)
 				}
@@ -478,7 +482,7 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 				if postSource == nil || postSource.IndexDigest == "" {
 					return fail(fmt.Errorf("%s: repair did not publish an integrity-protected history index", brainstore.StateCorruptCode))
 				}
-				if _, postIndexErr := loadBrainHistoryIndex(brainDir, postSource); postIndexErr != nil {
+				if _, postIndexErr := historystore.LoadIndex(brainDir, postSource); postIndexErr != nil {
 					return fail(fmt.Errorf("%s: repair published an unreadable history index: %w", brainstore.StateCorruptCode, postIndexErr))
 				}
 				indexCurrent = true
@@ -550,7 +554,7 @@ func newMemoryRebuildCommand(opts Options) *cobra.Command {
 				return finishMemoryOperationFailure(cmd, &receipt, jsonOut, opts.Now(), cause)
 			}
 			if sessionRef != "" {
-				manifest, err := loadBrainManifest(brainDir)
+				manifest, err := bmanifest.Load(brainDir)
 				if err != nil {
 					return fail(err)
 				}
@@ -686,11 +690,11 @@ func detectMemoryMigrations(brainDir string, source *historySourceManifest) []me
 	if source != nil {
 		path := strings.TrimSpace(source.IndexPath)
 		if path == "" {
-			path = historyIndexPath
+			path = historystore.IndexPath
 		}
-		if source.IndexDigest == "" && validHistoryGenerationArtifactPath(path, historyIndexFileName) {
+		if source.IndexDigest == "" && historystore.ValidGenerationArtifactPath(path, historystore.IndexFileName) {
 			findings = append(findings, memoryMigrationFinding{Path: path, State: brainstore.MigrationRequiredCode, Action: "rebuild the generation and publish its manifest content digest (full refresh)"})
-		} else if _, err := loadBrainHistoryIndex(brainDir, source); err != nil {
+		} else if _, err := historystore.LoadIndex(brainDir, source); err != nil {
 			findings = append(findings, memoryMigrationFinding{Path: path, State: brainstore.StateCorruptCode, Action: "rebuild the disposable history projection from canonical sessions"})
 		} else if source.IndexDigest == "" {
 			findings = append(findings, memoryMigrationFinding{Path: path, State: brainstore.MigrationRequiredCode, Action: "publish a manifest-committed index content digest (full refresh)"})
@@ -796,7 +800,7 @@ func rewriteLegacyMemoryJob(brainDir, rel string) error {
 	if !strings.HasPrefix(filepath.ToSlash(clean), memoryJobsDirRel+"/") {
 		return fmt.Errorf("%s: unsafe legacy job path", brainstore.StateCorruptCode)
 	}
-	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := base.RejectSymlinkPathComponents(brainDir, clean); err != nil {
 		return fmt.Errorf("%s: unsafe legacy job path", brainstore.StateCorruptCode)
 	}
 	data, present, err := brainstore.ReadMemoryStateFile(brainDir, filepath.ToSlash(clean), "legacy memory job", base.MaxManifestBytes)
@@ -839,7 +843,7 @@ func newMemoryMigrateCommand(opts Options) *cobra.Command {
 				return err
 			}
 			now := opts.Now().UTC()
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				return err
 			}
@@ -885,7 +889,7 @@ func newMemoryMigrateCommand(opts Options) *cobra.Command {
 				if source != nil {
 					indexPath = strings.TrimSpace(source.IndexPath)
 					if indexPath == "" {
-						indexPath = historyIndexPath
+						indexPath = historystore.IndexPath
 					}
 					if configured := filepath.ToSlash(strings.TrimSpace(source.ProjectionStatePath)); configured != "" {
 						receiptPath = configured
@@ -942,7 +946,7 @@ func newMemoryMigrateCommand(opts Options) *cobra.Command {
 					}
 					migrated++
 				}
-				postManifest, postManifestErr := loadBrainManifest(brainDir)
+				postManifest, postManifestErr := bmanifest.Load(brainDir)
 				if postManifestErr != nil {
 					return fail(postManifestErr)
 				}
@@ -1237,8 +1241,8 @@ func memoryInstallHealth(brainDir string) map[string]any {
 		},
 	}
 	return map[string]any{
-		"cgo_build":     brainCGOBuild,
-		"vector_build":  brainCGOBuild,
+		"cgo_build":     sqlitedriver.BrainCGO,
+		"vector_build":  sqlitedriver.BrainCGO,
 		"build_profile": buildProfile,
 		"entire_binary": inspectEntireBinary(),
 		"directories": map[string]memoryInstallDirectoryHealth{
@@ -1484,11 +1488,11 @@ func memoryAbstractHealth(brainDir string) map[string]any {
 		health["error_code"] = configState
 	}
 	validated := false
-	prerequisiteIssue := memoryStateIssue{Kind: "manifest", File: exportManifestFileName, Code: "unverifiable"}
-	manifest, manifestErr := loadBrainManifest(brainDir)
+	prerequisiteIssue := memoryStateIssue{Kind: "manifest", File: bmanifest.FileName, Code: "unverifiable"}
+	manifest, manifestErr := bmanifest.Load(brainDir)
 	if manifestErr == nil && manifest.Sources != nil && manifest.Sources.History != nil {
 		fresh, freshErr := loadFreshHistory(brainDir, manifest.Sources.History)
-		guard, guardErr := loadSessionReadGuard(brainDir, manifest)
+		guard, guardErr := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 		prerequisiteIssue = memoryStateIssue{Kind: "history", File: manifest.Sources.History.IndexPath, Code: "unverifiable"}
 		var tombstoneErr *sessionTombstoneLoadError
 		if errors.As(guardErr, &tombstoneErr) {
@@ -1549,16 +1553,16 @@ type memoryHealthIssue struct {
 
 func inspectBrainManifestHealth(brainDir string) (*exportManifest, memoryManifestHealth, *memoryHealthIssue) {
 	health := memoryManifestHealth{
-		Path:                   exportManifestFileName,
+		Path:                   bmanifest.FileName,
 		State:                  "absent",
-		SupportedSchemaVersion: brainManifestSchemaVersion,
+		SupportedSchemaVersion: bmanifest.SchemaVersion,
 		RecommendedAction:      "run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` to create the canonical manifest",
 	}
-	manifest, version, droppedUnknownFields, present, err := readBrainManifestFile(brainDir, true)
+	manifest, version, droppedUnknownFields, present, err := bmanifest.ReadFile(brainDir, true)
 	if !present && err == nil {
 		// Preserve the established status shape for a not-yet-built Brain while
 		// keeping absence distinct from a current on-disk manifest.
-		return &exportManifest{SchemaVersion: brainManifestSchemaVersion, Sources: &brainSources{}}, health, nil
+		return &exportManifest{SchemaVersion: bmanifest.SchemaVersion, Sources: &brainSources{}}, health, nil
 	}
 	health.Present = present
 	health.SchemaVersion = version
@@ -1578,13 +1582,13 @@ func inspectBrainManifestHealth(brainDir string) (*exportManifest, memoryManifes
 			// declares no version this project ever wrote, so no build reads it
 			// and there is nothing to upgrade INTO -- the way out is to rebuild
 			// it from the canonical sources it was derived from.
-			if version < brainManifestMinSchemaVersion {
+			if version < bmanifest.MinSchemaVersion {
 				health.RecommendedAction = "run `" + base.BrainInvocation(os.LookupEnv, "refresh") + " --force` to rebuild the manifest from canonical sources"
 			} else {
 				health.RecommendedAction = "upgrade entire-brain; this newer manifest remains read-only"
 			}
 		}
-		issue := memoryHealthIssue{Kind: "manifest", Path: exportManifestFileName, Code: code, Version: version, Action: health.RecommendedAction}
+		issue := memoryHealthIssue{Kind: "manifest", Path: bmanifest.FileName, Code: code, Version: version, Action: health.RecommendedAction}
 		return nil, health, &issue
 	}
 	health.State = "current"
@@ -1648,8 +1652,8 @@ func memoryLockHealth(brainDir string) map[string]any {
 
 func memorySchemaHealth(manifestHealth memoryManifestHealth, payload map[string]any) map[string]any {
 	compiled := map[string]any{
-		"brain_manifest":     brainManifestSchemaVersion,
-		"source_manifest":    brainManifestSchemaVersion,
+		"brain_manifest":     bmanifest.SchemaVersion,
+		"source_manifest":    bmanifest.SchemaVersion,
 		"history_scan_cache": historyScanCacheVersion,
 		"overlay":            historyShortTermVersion,
 		"overlay_reconciler": historyShortTermReconcilerVersion,

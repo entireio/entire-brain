@@ -17,6 +17,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 const (
@@ -427,7 +428,7 @@ func removeMemoryCancellationRequest(brainDir, jobID string) error {
 }
 
 func pruneMemoryJobsLocked(brainDir string, jobs []memoryJob, now time.Time) (int, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return 0, err
 	}

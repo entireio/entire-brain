@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
@@ -178,36 +179,6 @@ func TestRegressionIntactInvariantNotFlagged(t *testing.T) {
 	}
 }
 
-func TestBrainReviewMapsAnomalyToFinding(t *testing.T) {
-	// Honest severity: nothing the heuristic detector emits is "high" — that tier is reserved for a
-	// future high-confidence (locus+recency) signal. changed (0.8) is rename-ambiguous -> medium;
-	// deleted (0.65) is noisier/opt-in -> low.
-	if regressionSeverity(0.95) != "high" || regressionSeverity(0.8) != "medium" || regressionSeverity(0.65) != "low" {
-		t.Fatalf("severity thresholds wrong: %s/%s/%s", regressionSeverity(0.95), regressionSeverity(0.8), regressionSeverity(0.65))
-	}
-	f := anomalyToReviewFinding(regressionAnomaly{
-		File: "pkg/review_context.go", Line: 412, Kind: "changed", Identifier: "scopebaseref",
-		Expected: `scopeBaseRef+"..HEAD"`, Current: `"master..HEAD"`, Confidence: 0.8, Evidence: "sessions/x.jsonl:1",
-	})
-	// A hedged "could be a rename" changed-finding must NOT surface as HIGH — the machine severity
-	// must not contradict the prose hedge.
-	if f.Severity != "medium" || f.File != "pkg/review_context.go" || f.Line != 412 {
-		t.Fatalf("finding fields wrong: %+v", f)
-	}
-	if !strings.Contains(f.Title, "Suspected regression") || !strings.Contains(f.Detail, `scopeBaseRef+"..HEAD"`) || !strings.Contains(f.Detail, "master..HEAD") {
-		t.Fatalf("finding title/detail wrong: %+v", f)
-	}
-
-	// Location-only branch: Expected/Current blanked → generic detail, no expected/current leak.
-	loc := anomalyToReviewFinding(regressionAnomaly{
-		File: "pkg/review_context.go", Line: 412, Kind: "changed", Identifier: "scopebaseref",
-		Expected: "", Current: "", Confidence: 0.8, Evidence: "sessions/x.jsonl:1",
-	})
-	if !strings.Contains(loc.Detail, "verify against the brain's history") || strings.Contains(loc.Detail, "history shows") {
-		t.Fatalf("location-only finding must use the generic detail (no expected/current), got %q", loc.Detail)
-	}
-}
-
 func TestBrainReviewUsesRuntimeTraceForRankingAndContext(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -258,7 +229,7 @@ func TestBrainReviewUsesRuntimeTraceForRankingAndContext(t *testing.T) {
 	var out strings.Builder
 	reviewCmd := &cobra.Command{Use: "review"}
 	reviewCmd.SetOut(&out)
-	if err := runBrainReview(reviewCmd.Context(), reviewCmd, opts, regressionDetectorOptions{limit: 5, json: true}, "ValidateToken token regression"); err != nil {
+	if err := brainreview.RunBrainReview(reviewCmd.Context(), reviewCmd, brainReviewConfig(opts), regressionDetectorOptions{Limit: 5, JSON: true}, "ValidateToken token regression"); err != nil {
 		t.Fatalf("review: %v\n%s", err, out.String())
 	}
 	var report reviewReport
@@ -316,8 +287,8 @@ func TestInspectRegressionsCommandJSONAndLocationOnly(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &rep); err != nil {
 		t.Fatalf("parse regressionReport: %v\n%s", err, out)
 	}
-	if rep.SchemaVersion != reviewReportSchemaVersion {
-		t.Fatalf("regressionReport schema_version = %d, want %d", rep.SchemaVersion, reviewReportSchemaVersion)
+	if rep.SchemaVersion != brainreview.ReportSchemaVersion {
+		t.Fatalf("regressionReport schema_version = %d, want %d", rep.SchemaVersion, brainreview.ReportSchemaVersion)
 	}
 	if !strings.Contains(out, `"schema_version"`) {
 		t.Fatalf("regressionReport JSON missing the literal schema_version tag:\n%s", out)
@@ -387,7 +358,7 @@ func TestRegressionDeletionIsOptIn(t *testing.T) {
 	// command-level blanking itself is covered for the changed kind in TestMCPBrainReviewTool.)
 	del := an[0]
 	del.Expected, del.Current = "", ""
-	if f := anomalyToReviewFinding(del); strings.Contains(f.Detail, "history shows") {
+	if f := brainreview.AnomalyToReviewFinding(del); strings.Contains(f.Detail, "history shows") {
 		t.Fatalf("location-only deleted finding must not leak expected/current: %q", f.Detail)
 	}
 }
@@ -621,7 +592,7 @@ func TestRegressionDedupeRankPrefersBoostedCallDeletion(t *testing.T) {
 			Kind:       "deleted",
 			Expected:   "state.RealignAttributionBase(newHead)",
 			Confidence: 0.65,
-			rankBoost:  2,
+			RankBoost:  2,
 		},
 	})
 	if len(ranked) != 2 {

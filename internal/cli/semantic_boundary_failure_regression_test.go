@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,12 +19,12 @@ import (
 
 func TestSemanticIngestRejectsTraceInputBeforePublishing(t *testing.T) {
 	brainDir, _, opts := indexFixtureBrain(t, semanticFixtureSnapshot("1.0"))
-	manifestPath := filepath.Join(brainDir, exportManifestFileName)
+	manifestPath := filepath.Join(brainDir, bmanifest.FileName)
 	before, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil || manifest.Sources == nil || manifest.Sources.Semantic == nil {
 		t.Fatalf("semantic manifest: %+v err=%v", manifest.Sources, err)
 	}
@@ -55,7 +57,7 @@ func TestSemanticIngestRejectsTraceInputBeforePublishing(t *testing.T) {
 			if readErr != nil || !bytes.Equal(after, before) {
 				t.Fatalf("failed ingest changed manifest: read=%v bytes_equal=%v", readErr, bytes.Equal(after, before))
 			}
-			current, loadErr := loadBrainManifest(brainDir)
+			current, loadErr := bmanifest.Load(brainDir)
 			if loadErr != nil || current.Sources == nil || current.Sources.Semantic == nil || current.Sources.Semantic.GenerationPath != priorGeneration {
 				t.Fatalf("failed ingest changed generation: manifest=%+v err=%v", current, loadErr)
 			}
@@ -67,7 +69,7 @@ func TestSemanticRuntimeTraceFactsRejectsInvalidDeclaredStore(t *testing.T) {
 	brainDir := t.TempDir()
 	for _, source := range []*semanticSourceManifest{
 		{StorePath: "../outside/semantic.sqlite"},
-		{StorePath: filepath.ToSlash(filepath.Join(semanticDirName, "missing", semanticSQLiteName))},
+		{StorePath: filepath.ToSlash(filepath.Join(semstore.DirName, "missing", semstore.SQLiteName))},
 	} {
 		records, err := semanticRuntimeTraceFacts(brainDir, source, "", 10)
 		if err == nil || records != nil {
@@ -136,7 +138,7 @@ func TestSemanticBoundaryPropagatesGetwdFailureInUnixChild(t *testing.T) {
 func TestSemanticBoundaryReportsMissingLocalRepoDuringFreshnessCheck(t *testing.T) {
 	opts := boundaryRegressionFixture(t, semanticBoundaryFixtureSnapshot())
 	brainDir := filepath.Join(opts.Env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
-	manifestPath := filepath.Join(brainDir, exportManifestFileName)
+	manifestPath := filepath.Join(brainDir, bmanifest.FileName)
 	before, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatal(err)

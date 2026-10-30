@@ -327,8 +327,16 @@ class ProtocolCheckTest(unittest.TestCase):
                 "engine runtime pin package_lock hash is stale",
                 "source_artifacts[0]: content hash mismatch: benchmarks/agent-brain/run.py",
                 "source_artifacts[1]: content hash mismatch: benchmarks/agent-brain/run_test.py",
+                # The COR-2268 command split moved facts_eligibility.go and
+                # facts_read_cmd.go into internal/cli/command/facts (missing
+                # files now, same treatment as the trail #278 deletions below);
+                # facts_eligibility.go previously matched its recorded hash and
+                # only became a stale binding with the move. The eligibility
+                # test file stays in cli with one root moved out, so it remains
+                # a hash mismatch.
+                "source_artifacts[7]: file does not exist: internal/cli/facts_eligibility.go",
                 "source_artifacts[8]: content hash mismatch: internal/cli/facts_eligibility_test.go",
-                "source_artifacts[9]: content hash mismatch: internal/cli/facts_read_cmd.go",
+                "source_artifacts[9]: file does not exist: internal/cli/facts_read_cmd.go",
                 # The semantic-retrieval removal (trail #278) deleted the next
                 # four recorded sources outright, so the stale bindings now
                 # fail as missing files rather than hash mismatches.

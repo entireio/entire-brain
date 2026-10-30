@@ -57,7 +57,7 @@ func TestPatternCorpusReadRejectsExternalSymlinkWithoutTouchingTarget(t *testing
 	if err := patterncore.ValidateCorpusReadSafety(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("surface safety gate error = %v, want %s", err, brainstore.StateUnsafeCode)
 	}
-	if _, _, _, err := loadCorpusPatternViewsChecked(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+	if _, _, _, err := patterncore.LoadCorpusPatternViewsChecked(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("checked pattern loader error = %v, want %s", err, brainstore.StateUnsafeCode)
 	}
 	if allowed, err := privacyDerivedReadGate(brainDir); err == nil || allowed || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {

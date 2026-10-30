@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"os"
 	"path/filepath"
@@ -45,8 +46,8 @@ func buildSemanticGeneration(ctx context.Context, brainDir, repoDir, generationI
 		return "", semanticBuildMetrics{}, err
 	}
 	start := time.Now()
-	generationsRoot := filepath.Join(brainDir, semanticDirName, semanticGenerationsDir)
-	if err := base.RejectExistingSymlinkPathComponents(brainDir, filepath.Join(semanticDirName, semanticGenerationsDir)); err != nil {
+	generationsRoot := filepath.Join(brainDir, semstore.DirName, semanticGenerationsDir)
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, filepath.Join(semstore.DirName, semanticGenerationsDir)); err != nil {
 		return "", semanticBuildMetrics{}, err
 	}
 	if err := os.MkdirAll(generationsRoot, 0o700); err != nil {
@@ -67,7 +68,7 @@ func buildSemanticGeneration(ctx context.Context, brainDir, repoDir, generationI
 		}
 	}()
 
-	dbPath := filepath.Join(tmpDir, semanticSQLiteName)
+	dbPath := filepath.Join(tmpDir, semstore.SQLiteName)
 	db, err := sql.Open(sqlitedriver.Name, dbPath)
 	if err != nil {
 		return "", semanticBuildMetrics{}, err
@@ -99,7 +100,7 @@ func buildSemanticGeneration(ctx context.Context, brainDir, repoDir, generationI
 	}
 
 	finalDir := filepath.Join(generationsRoot, finalID)
-	if err := base.RejectExistingSymlinkPathComponents(brainDir, filepath.Join(semanticDirName, semanticGenerationsDir, finalID)); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, filepath.Join(semstore.DirName, semanticGenerationsDir, finalID)); err != nil {
 		return "", semanticBuildMetrics{}, err
 	}
 	if _, err := os.Lstat(finalDir); err == nil {
@@ -111,7 +112,7 @@ func buildSemanticGeneration(ctx context.Context, brainDir, repoDir, generationI
 		return "", semanticBuildMetrics{}, err
 	}
 	cleanup = false
-	return filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir, finalID)), metrics, nil
+	return filepath.ToSlash(filepath.Join(semstore.DirName, semanticGenerationsDir, finalID)), metrics, nil
 }
 
 func initializeSemanticSQLite(db *sql.DB) error {
@@ -204,23 +205,23 @@ func populateSemanticSQLite(ctx context.Context, db *sql.DB, repoDir, generation
 		}
 		switch record.RecordType {
 		case "file":
-			path := record.semanticPath()
+			path := record.SemanticPath()
 			if path != "" {
 				path, err = validateSemanticProviderPath(path)
 				if err != nil {
 					return commit(err)
 				}
-				record.setSemanticPath(path)
+				record.SetSemanticPath(path)
 				files[path] = record
 			}
 		case "symbol":
-			path := record.semanticPath()
+			path := record.SemanticPath()
 			if path != "" {
 				path, err = validateSemanticProviderPath(path)
 				if err != nil {
 					return commit(err)
 				}
-				record.setSemanticPath(path)
+				record.SetSemanticPath(path)
 				if existing, ok := files[path]; ok {
 					if strings.TrimSpace(existing.Language) == "" && strings.TrimSpace(record.Language) != "" {
 						existing.Language = record.Language

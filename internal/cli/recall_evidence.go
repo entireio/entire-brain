@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -80,7 +81,7 @@ func runRecallEvidence(cmd *cobra.Command, brainDir, branch, query string, limit
 		// An empty evidence result on a branch that captured no sessions is the
 		// wrong-branch trap, not an answer. `--evidence` returned before
 		// reaching the blind-spot checks the other recall paths run
-		// (facts_read_cmd.go:412,430), so this surface said nothing at all.
+		// (command/facts/facts_read_cmd.go), so this surface said nothing at all.
 		//
 		// The note is in the result's OWN unit -- sessions, which is what
 		// evidence scans -- rather than the fact-branch note, which would
@@ -92,7 +93,7 @@ func runRecallEvidence(cmd *cobra.Command, brainDir, branch, query string, limit
 			return err
 		}
 		if jsonOut {
-			return writeJSON(cmd, out)
+			return cmdutil.WriteJSON(cmd, out)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "%d evidence spans for %q on %s (deterministic)\n", out.ReturnedCount, query, branch)
 		for _, warning := range out.Warnings {

@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 type verifyFixture struct {
@@ -53,7 +56,7 @@ func newVerifyFixture(t *testing.T) verifyFixture {
 func (f verifyFixture) writeSessions(t *testing.T, sessions []exportSession) {
 	t.Helper()
 	manifest := exportManifest{
-		SchemaVersion:      brainManifestSchemaVersion,
+		SchemaVersion:      bmanifest.SchemaVersion,
 		GeneratedAt:        f.now,
 		RepoRoot:           f.repoDir,
 		RepoKey:            f.storage.Key,
@@ -70,7 +73,7 @@ func (f verifyFixture) writeSessions(t *testing.T, sessions []exportSession) {
 
 func (f verifyFixture) writeFacts(t *testing.T, branch string, facts []factRecord) {
 	t.Helper()
-	if err := writeFacts(f.brainDir, branch, facts); err != nil {
+	if err := factstore.Write(f.brainDir, branch, facts); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 	if err := updateFactSourceManifest(f.brainDir, f.now); err != nil {
@@ -180,7 +183,7 @@ func TestVerifySharpenedAnchorOnAnEarlierCheckpointVerifies(t *testing.T) {
 	})
 
 	// The sharpened anchor: an EARLIER checkpoint of the same session.
-	f.writeFacts(t, "main", []factRecord{verifyFactFixture("fact:sharpened", "Provenance points at the checkpoint that changed the entity.", "main", factOriginDistilled, factStatusActive, f.now, []factAnchor{{
+	f.writeFacts(t, "main", []factRecord{verifyFactFixture("fact:sharpened", "Provenance points at the checkpoint that changed the entity.", "main", factstore.OriginDistilled, factStatusActive, f.now, []factAnchor{{
 		SessionID: "sess1", CheckpointID: earlyID, Transcript: transcriptRel, Line: 1,
 	}})})
 
@@ -317,7 +320,7 @@ func TestVerifyAnchorOnAForeignCheckpointIsStale(t *testing.T) {
 		{checkpointID: lateID, sessionID: "sess1", createdAt: "2026-06-09T12:00:00Z", transcript: transcript},
 		{checkpointID: foreignID, sessionID: "sess2", createdAt: "2026-06-09T13:00:00Z", transcript: transcript},
 	})
-	f.writeFacts(t, "main", []factRecord{verifyFactFixture("fact:foreign", "This anchor names another session's checkpoint.", "main", factOriginDistilled, factStatusActive, f.now, []factAnchor{{
+	f.writeFacts(t, "main", []factRecord{verifyFactFixture("fact:foreign", "This anchor names another session's checkpoint.", "main", factstore.OriginDistilled, factStatusActive, f.now, []factAnchor{{
 		SessionID: "sess1", CheckpointID: foreignID, Transcript: transcriptRel, Line: 1,
 	}})})
 
@@ -381,7 +384,7 @@ func TestVerifyDistilledFactAtCheckpointGranularity(t *testing.T) {
 		TranscriptPath:   transcriptRel,
 	}})
 	f.addLocalCheckpoint(t, checkpointID, "sess1", "turn1", transcript)
-	fact := verifyFactFixture("fact:verified", "The verifier reuses the local checkpoint reader.", "main", factOriginDistilled, factStatusActive, f.now, []factAnchor{{
+	fact := verifyFactFixture("fact:verified", "The verifier reuses the local checkpoint reader.", "main", factstore.OriginDistilled, factStatusActive, f.now, []factAnchor{{
 		SessionID: "sess1", CheckpointID: checkpointID, TurnID: "turn1", Transcript: transcriptRel, Line: 1,
 	}})
 	f.writeFacts(t, "main", []factRecord{fact})
@@ -435,7 +438,7 @@ func TestVerifyDistilledFactFromGitRefsCheckpoint(t *testing.T) {
 		TurnID:           "turn-refs",
 		TranscriptPath:   transcriptRel,
 	}})
-	f.writeFacts(t, "main", []factRecord{verifyFactFixture("fact:git-refs", "Git-refs checkpoints are verifiable locally.", "main", factOriginDistilled, factStatusActive, f.now, []factAnchor{{
+	f.writeFacts(t, "main", []factRecord{verifyFactFixture("fact:git-refs", "Git-refs checkpoints are verifiable locally.", "main", factstore.OriginDistilled, factStatusActive, f.now, []factAnchor{{
 		SessionID: "sess-refs", CheckpointID: checkpointID, TurnID: "turn-refs", Transcript: transcriptRel, Line: 1,
 	}})})
 
@@ -552,7 +555,7 @@ func TestVerifyDoesNotMutateStoredAnchorMetadata(t *testing.T) {
 	}})
 	f.addLocalCheckpoint(t, checkpointID, "sess1", "turn1", transcript)
 	f.writeFacts(t, "main", []factRecord{
-		verifyFactFixture("fact:readonly", "Verify should not persist anchor verdicts.", "main", factOriginDistilled, factStatusActive, f.now, []factAnchor{{
+		verifyFactFixture("fact:readonly", "Verify should not persist anchor verdicts.", "main", factstore.OriginDistilled, factStatusActive, f.now, []factAnchor{{
 			SessionID: "sess1", CheckpointID: checkpointID, TurnID: "turn1", Transcript: transcriptRel, Line: 1,
 		}}),
 	})
@@ -566,7 +569,7 @@ func TestVerifyDoesNotMutateStoredAnchorMetadata(t *testing.T) {
 	if report.Results[0].Verdict != verifyVerdictVerified {
 		t.Fatalf("expected verified report, got %+v", report.Results[0])
 	}
-	stored, err := loadFacts(f.brainDir, "main")
+	stored, err := factstore.Load(f.brainDir, "main")
 	if err != nil {
 		t.Fatalf("reload facts: %v", err)
 	}
@@ -576,7 +579,7 @@ func TestVerifyDoesNotMutateStoredAnchorMetadata(t *testing.T) {
 	if stored[0].Provenance[0].Verified {
 		t.Fatalf("verify mutated stored anchor metadata: %+v", stored[0].Provenance[0])
 	}
-	manifest, err := loadBrainManifest(f.brainDir)
+	manifest, err := bmanifest.Load(f.brainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -591,7 +594,7 @@ func TestVerifyDoesNotMutateStoredAnchorMetadata(t *testing.T) {
 func TestVerifyReportsOrphanedAnchorAndStillEmitsJSON(t *testing.T) {
 	f := newVerifyFixture(t)
 	f.writeSessions(t, nil)
-	fact := verifyFactFixture("fact:orphan", "The fact cites a missing session.", "main", factOriginDistilled, factStatusActive, f.now, []factAnchor{{
+	fact := verifyFactFixture("fact:orphan", "The fact cites a missing session.", "main", factstore.OriginDistilled, factStatusActive, f.now, []factAnchor{{
 		SessionID: "missing", CheckpointID: "aaa111aaa111", Transcript: "sessions/main/missing.jsonl", Line: 1,
 	}})
 	f.writeFacts(t, "main", []factRecord{fact})
@@ -617,7 +620,7 @@ func TestVerifySessionLookupIsBranchScoped(t *testing.T) {
 		{SessionID: "shared", Branch: "main", LatestCheckpoint: "cp-main", TranscriptPath: mainTranscript, CreatedAt: f.now},
 		{SessionID: "shared", Branch: "feature", LatestCheckpoint: "cp-feature", TranscriptPath: featureTranscript, CreatedAt: f.now.Add(time.Minute)},
 	})
-	fact := verifyFactFixture("fact:feature", "Feature branch fact cites shared session.", "feature", factOriginDistilled, factStatusActive, f.now, []factAnchor{{
+	fact := verifyFactFixture("fact:feature", "Feature branch fact cites shared session.", "feature", factstore.OriginDistilled, factStatusActive, f.now, []factAnchor{{
 		SessionID: "shared", CheckpointID: "cp-main", Transcript: featureTranscript, Line: 1,
 	}})
 	f.writeFacts(t, "feature", []factRecord{fact})
@@ -645,8 +648,8 @@ func TestVerifyAuthoredFactsAreUnverifiableUnlessCommitMissing(t *testing.T) {
 	f.runner.responses[fakeCommandKey("git", "for-each-ref", "--format=%(refname)", "--contains", reachableCommit, "refs/heads", "refs/remotes", "refs/tags")] = fakeCommandResponse{stdout: "refs/heads/main\n"}
 	f.runner.responses[fakeCommandKey("git", "cat-file", "-e", missingCommit+"^{commit}")] = fakeCommandResponse{err: os.ErrNotExist}
 	f.writeSessions(t, nil)
-	authored := verifyFactFixture("fact:authored", "Authored facts may cite only a commit.", "main", factOriginAuthored, factStatusActive, f.now, []factAnchor{{Commit: reachableCommit}})
-	missing := verifyFactFixture("fact:missing-commit", "Missing commit anchors are orphaned.", "main", factOriginAuthored, factStatusActive, f.now, []factAnchor{{Commit: missingCommit}})
+	authored := verifyFactFixture("fact:authored", "Authored facts may cite only a commit.", "main", factstore.OriginAuthored, factStatusActive, f.now, []factAnchor{{Commit: reachableCommit}})
+	missing := verifyFactFixture("fact:missing-commit", "Missing commit anchors are orphaned.", "main", factstore.OriginAuthored, factStatusActive, f.now, []factAnchor{{Commit: missingCommit}})
 	f.writeFacts(t, "main", []factRecord{authored, missing})
 
 	cmd := NewRootCommand(f.opts)
@@ -681,7 +684,7 @@ func TestVerifyReportsStaleTranscript(t *testing.T) {
 		TranscriptPath:   transcriptRel,
 	}})
 	f.addLocalCheckpoint(t, checkpointID, "sess1", "", "new transcript\n")
-	fact := verifyFactFixture("fact:stale", "The exported transcript can drift from its checkpoint source.", "main", factOriginDistilled, factStatusActive, f.now, []factAnchor{{
+	fact := verifyFactFixture("fact:stale", "The exported transcript can drift from its checkpoint source.", "main", factstore.OriginDistilled, factStatusActive, f.now, []factAnchor{{
 		SessionID: "sess1", CheckpointID: checkpointID, Transcript: transcriptRel, Line: 1,
 	}})
 	f.writeFacts(t, "main", []factRecord{fact})
@@ -699,8 +702,8 @@ func TestVerifyReportsStaleTranscript(t *testing.T) {
 
 func TestVerifySelectionModes(t *testing.T) {
 	f := newVerifyFixture(t)
-	active := verifyFactFixture("fact:active", "Lexical verify query matches this active fact.", "main", factOriginAuthored, factStatusActive, f.now, nil)
-	superseded := verifyFactFixture("fact:superseded", "Lexical verify query matches this superseded fact.", "main", factOriginAuthored, factStatusSuperseded, f.now.Add(-time.Hour), nil)
+	active := verifyFactFixture("fact:active", "Lexical verify query matches this active fact.", "main", factstore.OriginAuthored, factStatusActive, f.now, nil)
+	superseded := verifyFactFixture("fact:superseded", "Lexical verify query matches this superseded fact.", "main", factstore.OriginAuthored, factStatusSuperseded, f.now.Add(-time.Hour), nil)
 	f.writeSessions(t, nil)
 	f.writeFacts(t, "main", []factRecord{active, superseded})
 
@@ -765,7 +768,7 @@ func TestVerifyDoesNotFetchConfiguredCheckpointRemote(t *testing.T) {
 	}})
 	f.runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef)] = fakeCommandResponse{err: os.ErrNotExist}
 	f.runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1OriginRef)] = fakeCommandResponse{err: os.ErrNotExist}
-	fact := verifyFactFixture("fact:local-only", "Verification must not fetch checkpoint remotes.", "main", factOriginDistilled, factStatusActive, f.now, []factAnchor{{
+	fact := verifyFactFixture("fact:local-only", "Verification must not fetch checkpoint remotes.", "main", factstore.OriginDistilled, factStatusActive, f.now, []factAnchor{{
 		SessionID: "sess1", CheckpointID: "aaa111aaa111", Transcript: transcriptRel, Line: 1,
 	}})
 	f.writeFacts(t, "main", []factRecord{fact})
@@ -795,7 +798,7 @@ func TestVerifyStrictFlagsFailOnUnverifiableAfterJSON(t *testing.T) {
 			f := newVerifyFixture(t)
 			f.writeSessions(t, nil)
 			f.writeFacts(t, "main", []factRecord{
-				verifyFactFixture("fact:unverifiable", "Strict verify should gate locally unverifiable facts.", "main", factOriginAuthored, factStatusActive, f.now, nil),
+				verifyFactFixture("fact:unverifiable", "Strict verify should gate locally unverifiable facts.", "main", factstore.OriginAuthored, factStatusActive, f.now, nil),
 			})
 
 			cmd := NewRootCommand(f.opts)
@@ -829,17 +832,17 @@ func TestFactVerificationBelongsToDoctorNotStatus(t *testing.T) {
 	}})
 	facts := make([]factRecord, 12)
 	for i := range facts {
-		facts[i] = verifyFactFixture(fmt.Sprintf("fact:status%d", i), "Doctor verifies fact anchors.", "main", factOriginAuthored, factStatusActive, f.now, nil)
+		facts[i] = verifyFactFixture(fmt.Sprintf("fact:status%d", i), "Doctor verifies fact anchors.", "main", factstore.OriginAuthored, factStatusActive, f.now, nil)
 	}
 	facts = append(facts,
-		verifyFactFixture("fact:superseded", "Superseded fact has a stale transcript path.", "main", factOriginDistilled, factStatusSuperseded, f.now, []factAnchor{{
+		verifyFactFixture("fact:superseded", "Superseded fact has a stale transcript path.", "main", factstore.OriginDistilled, factStatusSuperseded, f.now, []factAnchor{{
 			SessionID: "sess1", Transcript: retiredTranscript, Line: 1,
 		}}),
-		verifyFactFixture("fact:retracted", "Retracted fact has a missing session.", "main", factOriginDistilled, factStatusRetracted, f.now, []factAnchor{{SessionID: "missing"}}),
+		verifyFactFixture("fact:retracted", "Retracted fact has a missing session.", "main", factstore.OriginDistilled, factStatusRetracted, f.now, []factAnchor{{SessionID: "missing"}}),
 	)
 	f.writeFacts(t, "main", facts)
 	f.writeFacts(t, "other", []factRecord{
-		verifyFactFixture("fact:other", "Other branch.", "other", factOriginAuthored, factStatusActive, f.now, nil),
+		verifyFactFixture("fact:other", "Other branch.", "other", factstore.OriginAuthored, factStatusActive, f.now, nil),
 	})
 
 	cmd := NewRootCommand(f.opts)

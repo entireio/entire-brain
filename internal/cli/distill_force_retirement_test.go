@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // forceDistillFixture seeds the standard distill fixture plus one retired
@@ -16,10 +18,10 @@ func forceDistillFixture(t *testing.T, now time.Time, status, supersededBy strin
 	paths := normalizeFactPaths([]string{"project.tooling.stack"})
 	retired := factRecord{
 		ID: factRecordID(text, paths), Paths: paths, Text: text, Branch: "main",
-		Origin: factOriginDistilled, Status: status, SupersededBy: supersededBy,
+		Origin: factstore.OriginDistilled, Status: status, SupersededBy: supersededBy,
 		Provenance: []factAnchor{{SessionID: "s1"}}, CreatedAt: now, UpdatedAt: now,
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{retired}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{retired}); err != nil {
 		t.Fatal(err)
 	}
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
@@ -40,7 +42,7 @@ func TestForceDistillDoesNotResurrectRetractedFact(t *testing.T) {
 		t.Fatalf("force run: %v", err)
 	}
 
-	facts, err := loadFacts(brainDir, "main")
+	facts, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +66,7 @@ func TestForceDistillDoesNotResurrectSupersededFact(t *testing.T) {
 		t.Fatalf("force run: %v", err)
 	}
 
-	facts, err := loadFacts(brainDir, "main")
+	facts, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,10 +88,10 @@ func TestForceDistillStillRebuildsActiveDistilledFacts(t *testing.T) {
 	staleText := "The project deploys from a bespoke shell script."
 	stale := factRecord{
 		ID: factRecordID(staleText, stalePaths), Paths: stalePaths, Text: staleText, Branch: "main",
-		Origin: factOriginDistilled, Status: factStatusActive,
+		Origin: factstore.OriginDistilled, Status: factStatusActive,
 		Provenance: []factAnchor{{SessionID: "s1"}}, CreatedAt: now, UpdatedAt: now,
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{stale}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{stale}); err != nil {
 		t.Fatal(err)
 	}
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
@@ -99,7 +101,7 @@ func TestForceDistillStillRebuildsActiveDistilledFacts(t *testing.T) {
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
 		t.Fatalf("force run: %v", err)
 	}
-	facts, err := loadFacts(brainDir, "main")
+	facts, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}

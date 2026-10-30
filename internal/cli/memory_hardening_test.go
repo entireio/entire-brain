@@ -13,13 +13,15 @@ import (
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func checkedProjectionFixture(t *testing.T, state projectionState) (string, *historySourceManifest) {
 	t.Helper()
 	brainDir := t.TempDir()
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		RepoKey:       "test/receipt-health",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{
 			DefaultBranch: "main",
@@ -110,7 +112,7 @@ func TestProjectionStateCheckedClassifiesFailures(t *testing.T) {
 	})
 	t.Run("canonical sessions stale", func(t *testing.T) {
 		brainDir, source := checkedProjectionFixture(t, validProjectionStateForTest(now))
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -138,7 +140,7 @@ func TestMemoryStatusReportsJobIssuesWithoutMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, RepoKey: storage.Key}); err != nil {
+	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, RepoKey: storage.Key}); err != nil {
 		t.Fatal(err)
 	}
 	jobsDir := filepath.Join(storage.BrainDir, filepath.FromSlash(memoryJobsDirRel))
@@ -439,7 +441,7 @@ func TestMemoryRepairRefusesFalseSuccessWhenPrivacyRemainsDirty(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now.Add(-time.Hour), RepoKey: storage.Key, DefaultBranch: "main",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now.Add(-time.Hour), RepoKey: storage.Key, DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now.Add(-time.Hour), DefaultBranch: "main", Sessions: []exportSession{{
 			SessionID: "private-session", Branch: "main", TranscriptPath: rel, CreatedAt: now.Add(-2 * time.Hour),
 		}}}},
@@ -474,13 +476,13 @@ func TestMemoryRepairRefusesFalseSuccessWhenPrivacyRemainsDirty(t *testing.T) {
 func TestGenerationPruningPreservesUnknownNewerReceipts(t *testing.T) {
 	brainDir, _ := writeSessionNavigationFixture(t)
 	futureGeneration := strings.Repeat("f", 40)
-	futureDir := filepath.Join(brainDir, filepath.FromSlash(historyGenerationsDir), futureGeneration)
+	futureDir := filepath.Join(brainDir, filepath.FromSlash(historystore.GenerationsDir), futureGeneration)
 	if err := os.MkdirAll(futureDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	futureReceipt := []byte(`{"schema_version":999}`)
 	for path, data := range map[string][]byte{
-		filepath.Join(futureDir, historyIndexFileName):                  []byte(`{"generated_at":"2026-08-09T00:00:00Z","records":[]}`),
+		filepath.Join(futureDir, historystore.IndexFileName):            []byte(`{"generated_at":"2026-08-09T00:00:00Z","records":[]}`),
 		filepath.Join(futureDir, projectionStateFileName):               futureReceipt,
 		filepath.Join(brainDir, filepath.FromSlash(projectionStateRel)): futureReceipt,
 	} {

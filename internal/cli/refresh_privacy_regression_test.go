@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,7 +13,7 @@ import (
 
 func TestHistoryFreshnessRejectsCorruptPrivacyWithoutPanic(t *testing.T) {
 	b := writePrivacyFixture(t)
-	m, e := loadBrainManifest(b)
+	m, e := bmanifest.Load(b)
 	if e != nil {
 		t.Fatal(e)
 	}

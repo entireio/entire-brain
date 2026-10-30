@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
 	"sort"
 	"strings"
@@ -120,7 +121,7 @@ func compareEvalSummariesInternalWithOptions(a, b evalSummary, alpha float64, op
 					proofComparable = false
 				}
 				if !opts.AllowProxyComparison && !evalRelevanceSourcesComparable(ar, br) {
-					return nil, 0, missingFromA, missingFromB, fmt.Errorf("task %q compares %s across different ground truths (A=%s label_source=%s labeled=%t, B=%s label_source=%s labeled=%t); rerun both sides on the same labels or pass --allow-proxy-comparison", id, m.name, valueOrUnset(ar.RelevanceSource), valueOrUnset(ar.LabelSource), ar.Labeled, valueOrUnset(br.RelevanceSource), valueOrUnset(br.LabelSource), br.Labeled)
+					return nil, 0, missingFromA, missingFromB, fmt.Errorf("task %q compares %s across different ground truths (A=%s label_source=%s labeled=%t, B=%s label_source=%s labeled=%t); rerun both sides on the same labels or pass --allow-proxy-comparison", id, m.name, cmdutil.ValueOrUnset(ar.RelevanceSource), cmdutil.ValueOrUnset(ar.LabelSource), ar.Labeled, cmdutil.ValueOrUnset(br.RelevanceSource), cmdutil.ValueOrUnset(br.LabelSource), br.Labeled)
 				}
 			}
 			av = append(av, m.get(ar))
@@ -458,12 +459,12 @@ it to report a lift honestly instead of eyeballing two means.`,
 			releasePairingReady := evalSummariesReleasePairingReadyWithOptions(a, b, compareOpts, missingFromA, missingFromB)
 			releasePairingNote := evalCompareReleasePairingNote(a, b, compareOpts, missingFromA, missingFromB)
 			if jsonOut {
-				return writeJSON(cmd, map[string]any{"n": n, "alpha": alpha, "a_retriever": a.Retriever, "b_retriever": b.Retriever, "a_tasks_sha256": evalSummaryTasksSHA256(a), "b_tasks_sha256": evalSummaryTasksSHA256(b), "a_brain_manifest_sha256": evalSummaryBrainManifestSHA256(a), "b_brain_manifest_sha256": evalSummaryBrainManifestSHA256(b), "release_pairing_ready": releasePairingReady, "release_claimable": evalComparisonsReleaseClaimable(comparisons), "release_pairing_note": releasePairingNote, "allow_proxy_comparison": allowProxyComparison, "allow_missing_tasks": allowMissingTasks, "allow_task_hash_mismatch": allowTaskHashMismatch, "allow_brain_manifest_mismatch": allowBrainManifestMismatch, "missing_from_a": missingFromA, "missing_from_b": missingFromB, "metrics": comparisons})
+				return cmdutil.WriteJSON(cmd, map[string]any{"n": n, "alpha": alpha, "a_retriever": a.Retriever, "b_retriever": b.Retriever, "a_tasks_sha256": evalSummaryTasksSHA256(a), "b_tasks_sha256": evalSummaryTasksSHA256(b), "a_brain_manifest_sha256": evalSummaryBrainManifestSHA256(a), "b_brain_manifest_sha256": evalSummaryBrainManifestSHA256(b), "release_pairing_ready": releasePairingReady, "release_claimable": evalComparisonsReleaseClaimable(comparisons), "release_pairing_note": releasePairingNote, "allow_proxy_comparison": allowProxyComparison, "allow_missing_tasks": allowMissingTasks, "allow_task_hash_mismatch": allowTaskHashMismatch, "allow_brain_manifest_mismatch": allowBrainManifestMismatch, "missing_from_a": missingFromA, "missing_from_b": missingFromB, "metrics": comparisons})
 			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "paired A/B over %d shared tasks (Holm-corrected at alpha=%.2f)\n", n, alpha)
 			if a.Retriever != "" || b.Retriever != "" {
-				fmt.Fprintf(out, "A=%s B=%s\n", valueOrUnset(a.Retriever), valueOrUnset(b.Retriever))
+				fmt.Fprintf(out, "A=%s B=%s\n", cmdutil.ValueOrUnset(a.Retriever), cmdutil.ValueOrUnset(b.Retriever))
 			}
 			if allowProxyComparison {
 				fmt.Fprintln(out, "warning: relevance metrics may mix explicit labels, source-match proxies, and/or judge labels")

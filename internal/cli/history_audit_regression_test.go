@@ -5,6 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -22,7 +27,7 @@ func TestHistoryAuditDeclaredDocLossFailsExpansion(t *testing.T) {
 	if err := writeBrainManifestAndReadme(dir, *m); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(filepath.Join(dir, filepath.FromSlash(docIndexPath))); err != nil {
+	if err := os.Remove(filepath.Join(dir, filepath.FromSlash(docstore.IndexPath))); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := getUnifiedBatch("", dir, "main", []string{"doc:d1"}); err == nil {
@@ -57,7 +62,7 @@ func TestHistoryAuditRetiredGenerationRecovers(t *testing.T) {
 	if _, err := writeBrainHistoryIndexAndSource(dir, now.Add(time.Minute), nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadBrainHistoryIndex(dir, old); err != nil {
+	if _, err := historystore.LoadIndex(dir, old); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, _, err := rankHistoryLexicalFromSource(dir, old, "history", "manifest", 10); err != nil {
@@ -146,7 +151,7 @@ func TestHistoryAuditEmptyReplacementHidesAllOldViews(t *testing.T) {
 	if _, err := buildShortTermResult(t, brainDir); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +165,7 @@ func TestHistoryAuditEmptyReplacementHidesAllOldViews(t *testing.T) {
 	if len(fresh.mergedRecords()) != 0 || len(fresh.longTermActive().Records) != 0 {
 		t.Error("old history survived empty replacement")
 	}
-	hits, err := retrieveUnifiedWithOptions("", brainDir, "main", "lock timeout", 10, modeLexical, retrievalOptions{Source: retrievalSourceHistory})
+	hits, err := retrieveUnifiedWithOptions("", brainDir, "main", "lock timeout", 10, retrieval.ModeLexical, retrievalOptions{Source: brainstore.RetrievalSourceHistory})
 	if err != nil || len(hits) != 0 {
 		t.Fatalf("empty replacement retrieval: %v %v", hits, err)
 	}
@@ -199,7 +204,7 @@ func TestHistoryAuditNoProposalsAllocatesNoReviewGraph(t *testing.T) {
 		facts[i] = factRecord{ID: fmt.Sprint(i), Status: factStatusActive}
 	}
 	allocations := testing.AllocsPerRun(10, func() {
-		if len(buildFactReviewGroups(facts, nil)) != 0 {
+		if len(retrieval.BuildFactReviewGroups(facts, nil)) != 0 {
 			t.Fatal("unexpected groups")
 		}
 	})
@@ -274,7 +279,7 @@ func TestHistoryAuditEvidenceScoreIsTopicNeutral(t *testing.T) {
 func TestHistoryAuditOverlayRepairsCorruptPayload(t *testing.T) {
 	dir, _, _ := shortTermFixture(t)
 	buildShortTerm(t, dir)
-	manifest, err := loadBrainManifest(dir)
+	manifest, err := bmanifest.Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

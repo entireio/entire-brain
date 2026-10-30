@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func evidenceFixture(t *testing.T) (Options, string) {
@@ -22,7 +24,7 @@ func evidenceFixture(t *testing.T) (Options, string) {
 	if err := os.WriteFile(filepath.Join(brain, filepath.FromSlash(rel)), []byte(body), 0600); err != nil {
 		t.Fatal(err)
 	}
-	m := exportManifest{SchemaVersion: brainManifestSchemaVersion, DefaultBranch: "main", Sources: &brainSources{Sessions: &sessionSourceManifest{DefaultBranch: "main", Sessions: []exportSession{{SessionID: "evidence", Branch: "main", TranscriptPath: rel, CreatedAt: opts.Now()}}}}}
+	m := exportManifest{SchemaVersion: bmanifest.SchemaVersion, DefaultBranch: "main", Sources: &brainSources{Sessions: &sessionSourceManifest{DefaultBranch: "main", Sessions: []exportSession{{SessionID: "evidence", Branch: "main", TranscriptPath: rel, CreatedAt: opts.Now()}}}}}
 	if err := writeBrainManifestAndReadme(brain, m); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +97,7 @@ func TestRecallEvidenceMissingBranchAndSource(t *testing.T) {
 	if err != nil || len(c.Spans) != 0 {
 		t.Fatalf("cross-branch evidence: %+v %v", c, err)
 	}
-	m, err := loadBrainManifest(brain)
+	m, err := bmanifest.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +112,7 @@ func TestRecallEvidenceMissingBranchAndSource(t *testing.T) {
 
 func TestRecallEvidenceRejectsAmbiguousIdentity(t *testing.T) {
 	_, brain := evidenceFixture(t)
-	m, err := loadBrainManifest(brain)
+	m, err := bmanifest.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +129,7 @@ func TestRecallEvidenceRejectsAmbiguousIdentity(t *testing.T) {
 
 func TestRecallEvidenceCandidateCapAndMalformedContent(t *testing.T) {
 	_, brain := evidenceFixture(t)
-	m, err := loadBrainManifest(brain)
+	m, err := bmanifest.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +189,7 @@ func TestRecallEvidenceDiverseNaturalLanguageCandidates(t *testing.T) {
 		}
 		sessions = append(sessions, exportSession{SessionID: fmt.Sprintf("kit-%d", i), Branch: "main", TranscriptPath: rel, CreatedAt: opts.Now()})
 	}
-	m := exportManifest{SchemaVersion: brainManifestSchemaVersion, DefaultBranch: "main", Sources: &brainSources{Sessions: &sessionSourceManifest{DefaultBranch: "main", Sessions: sessions}}}
+	m := exportManifest{SchemaVersion: bmanifest.SchemaVersion, DefaultBranch: "main", Sources: &brainSources{Sessions: &sessionSourceManifest{DefaultBranch: "main", Sessions: sessions}}}
 	if err := writeBrainManifestAndReadme(brain, m); err != nil {
 		t.Fatal(err)
 	}

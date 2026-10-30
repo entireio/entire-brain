@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestSeedWritesExpectedBrainBaseline(t *testing.T) {
@@ -40,7 +41,7 @@ func TestSeedWritesExpectedBrainBaseline(t *testing.T) {
 	}
 	brainDir := filepath.Join(dataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	var manifest exportManifest
-	data, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	data, err := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
@@ -163,7 +164,7 @@ func TestSeedSkipsSymlinkedRepoInputs(t *testing.T) {
 	}
 	brainDir := filepath.Join(dataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	var manifest exportManifest
-	data, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	data, err := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
@@ -381,7 +382,7 @@ func TestSeedWorktreeIncludesSelectedUntrackedDocs(t *testing.T) {
 		t.Fatalf("seed --worktree: %v", err)
 	}
 	var manifest exportManifest
-	data, err := os.ReadFile(filepath.Join(outputDir, exportManifestFileName))
+	data, err := os.ReadFile(filepath.Join(outputDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}

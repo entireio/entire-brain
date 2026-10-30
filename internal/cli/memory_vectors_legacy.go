@@ -112,8 +112,8 @@ func decodeMemoryVectorProgress(data []byte) (memoryVectorProgress, error) {
 	// output, not report as a healthy pending/current state.
 	if progress.SchemaVersion != memoryVectorSchema || progress.ModelID == "" || progress.UpdatedAt.IsZero() ||
 		progress.HistoryAdded < 0 || progress.ConversationAdded < 0 ||
-		!validSHA256Identity(progress.SourceDigest) ||
-		(progress.CompleteSourceDigest != "" && !validSHA256Identity(progress.CompleteSourceDigest)) ||
+		!brainstore.ValidSHA256Identity(progress.SourceDigest) ||
+		(progress.CompleteSourceDigest != "" && !brainstore.ValidSHA256Identity(progress.CompleteSourceDigest)) ||
 		(!progress.Pending && (!progress.ResetComplete || progress.CompleteSourceDigest != progress.SourceDigest)) ||
 		(progress.ErrorCode != "" && progress.ErrorCode != "memory_vector_sync_failed") {
 		return memoryVectorProgress{}, newMemoryVectorProgressLoadError(fmt.Errorf("vector progress has invalid identity or bounds"), header.SchemaVersion)

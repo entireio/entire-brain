@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,9 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 )
 
 func TestConfiguredConversationAbstractorsAreExplicitAndBounded(t *testing.T) {
@@ -133,11 +137,11 @@ func TestMemoryInstallHealthIsReadOnly(t *testing.T) {
 }
 
 func TestAbstractRetrievalOptionParity(t *testing.T) {
-	cmd := newSearchCommand(Options{})
+	cmd := retrieve.NewSearch(retrieveCommandConfig(Options{}))
 	if cmd.Flags().Lookup("include-abstract") == nil {
 		t.Fatal("CLI retrieval must expose --include-abstract")
 	}
-	if _, err := retrieveUnifiedWithOptions("", t.TempDir(), "", "q", 1, modeLexical, retrievalOptions{Source: retrievalSourceFact, IncludeAbstract: true}); err == nil || !strings.Contains(err.Error(), "include_abstract") {
+	if _, err := retrieveUnifiedWithOptions("", t.TempDir(), "", "q", 1, retrieval.ModeLexical, retrievalOptions{Source: brainstore.RetrievalSourceFact, IncludeAbstract: true}); err == nil || !strings.Contains(err.Error(), "include_abstract") {
 		t.Fatalf("non-conversation include_abstract must fail, got %v", err)
 	}
 }
@@ -301,7 +305,7 @@ func TestLocalAbstractLinearizesProviderAndPublicationBeforePurge(t *testing.T) 
 
 func sessionViewForTest(t *testing.T, brainDir string) conversationSessionView {
 	t.Helper()
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +313,7 @@ func sessionViewForTest(t *testing.T, brainDir string) conversationSessionView {
 	if err != nil {
 		t.Fatal(err)
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,8 +384,8 @@ func TestSessionAbstractLifecycle(t *testing.T) {
 		t.Fatalf("status after generation = %s", status)
 	}
 	previews, truncated, err := abstractPreviewsForResults(brainDir, []unifiedResult{
-		{Source: retrievalSourceConversation, ID: view.Records[0].ID, SessionRef: view.Ref},
-		{Source: retrievalSourceConversation, ID: view.Records[1].ID, SessionRef: view.Ref},
+		{Source: brainstore.RetrievalSourceConversation, ID: view.Records[0].ID, SessionRef: view.Ref},
+		{Source: brainstore.RetrievalSourceConversation, ID: view.Records[1].ID, SessionRef: view.Ref},
 	})
 	if err != nil || truncated || len(previews) != 1 || previews[0].Overview == nil || previews[0].Overview.Text != artifact.Overview.Text {
 		t.Fatalf("previews=%+v truncated=%v err=%v", previews, truncated, err)
@@ -471,7 +475,7 @@ func TestSessionAbstractLifecycle(t *testing.T) {
 func TestMemoryMigrateDetectsAndRepairsOldOverlay(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	buildShortTerm(t, brainDir)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,7 +520,7 @@ func TestMemoryAdminScopedAndResumeFlags(t *testing.T) {
 		t.Fatal("migrate missing --resume")
 	}
 	brainDir, _ := writeSessionNavigationFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -529,7 +533,7 @@ func TestMemoryAdminScopedAndResumeFlags(t *testing.T) {
 
 func TestMemoryRebuildFailurePreservesVectorStores(t *testing.T) {
 	opts, brainDir := memoryAdminCommandFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -537,7 +541,7 @@ func TestMemoryRebuildFailurePreservesVectorStores(t *testing.T) {
 		manifest.Sources = &brainSources{}
 	}
 	fixtureDir, transcriptRel, _ := historyProjectionFixture(t)
-	fixtureManifest, err := loadBrainManifest(fixtureDir)
+	fixtureManifest, err := bmanifest.Load(fixtureDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -581,10 +585,10 @@ func TestMemoryRebuildFailurePreservesVectorStores(t *testing.T) {
 	}
 	generation := strings.Repeat("a", 40)
 	if err := writeBrainManifestAndReadme(brainDir, exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		Sources: &brainSources{History: &historySourceManifest{
-			IndexPath:           historyGenerationArtifactPath(generation, historyIndexFileName),
-			ProjectionStatePath: historyGenerationArtifactPath(generation, projectionStateFileName),
+			IndexPath:           historystore.GenerationArtifactPath(generation, historystore.IndexFileName),
+			ProjectionStatePath: historystore.GenerationArtifactPath(generation, projectionStateFileName),
 		}},
 	}); err != nil {
 		t.Fatal(err)
@@ -658,7 +662,7 @@ func TestProjectionReceiptsCommitThroughManifest(t *testing.T) {
 	if _, err := writeBrainHistoryIndexAndSource(brainDir, time.Date(2026, 8, 7, 13, 0, 0, 0, time.UTC), nil); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

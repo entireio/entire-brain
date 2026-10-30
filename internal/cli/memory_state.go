@@ -15,6 +15,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // memory_state.go is the durable work record: content-free lifecycle hint
@@ -87,7 +88,7 @@ func writeMemoryHint(brainDir, repoKey, sessionID, branch, event string, now tim
 	if strings.TrimSpace(sessionID) == "" {
 		return memoryLifecycleHint{}, fmt.Errorf("a non-empty session id is required; sessions without one are discovered by reconciliation")
 	}
-	if manifest, err := loadBrainManifest(brainDir); err != nil {
+	if manifest, err := bmanifest.Load(brainDir); err != nil {
 		return memoryLifecycleHint{}, err
 	} else if strings.TrimSpace(manifest.RepoKey) != "" && repoKey != manifest.RepoKey {
 		return memoryLifecycleHint{}, fmt.Errorf("%s: lifecycle hint repository identity does not match this Brain", brainstore.StateUnsafeCode)
@@ -205,7 +206,7 @@ func loadMemoryHintInventory(brainDir string) memoryHintInventory {
 	if directory.Truncated {
 		inventory.Issues = appendMemoryStateIssue(inventory.Issues, memoryStateIssue{Kind: "hint_directory", File: filepath.Base(memoryHintsDirRel), Code: brainstore.StateUnsafeCode})
 	}
-	manifest, manifestErr := loadBrainManifest(brainDir)
+	manifest, manifestErr := bmanifest.Load(brainDir)
 	expectedRepoKey := ""
 	if manifestErr == nil {
 		expectedRepoKey = manifest.RepoKey
@@ -275,7 +276,7 @@ func removeMemoryHint(brainDir string, hint memoryLifecycleHint) error {
 }
 
 func removeMemoryHintIfCurrent(brainDir string, hint memoryLifecycleHint) (bool, error) {
-	if manifest, err := loadBrainManifest(brainDir); err == nil && strings.TrimSpace(manifest.RepoKey) != "" && hint.RepoKey != manifest.RepoKey {
+	if manifest, err := bmanifest.Load(brainDir); err == nil && strings.TrimSpace(manifest.RepoKey) != "" && hint.RepoKey != manifest.RepoKey {
 		return false, fmt.Errorf("%s: lifecycle hint repository identity does not match this Brain", brainstore.StateUnsafeCode)
 	}
 	rel := memoryHintRel(hint.RepoKey, hint.SessionID, hint.Branch)
@@ -513,7 +514,7 @@ func loadMemoryJobInventoryPage(brainDir string, maxAccepted int, accept func(me
 		inventory.recordIssue(memoryStateIssue{Kind: "job_directory", File: filepath.Base(memoryJobsDirRel), Code: brainstore.StateUnsafeCode})
 	}
 	entries := directory.Entries
-	manifest, manifestErr := loadBrainManifest(brainDir)
+	manifest, manifestErr := bmanifest.Load(brainDir)
 	expectedRepoKey := ""
 	if manifestErr == nil {
 		expectedRepoKey = strings.TrimSpace(manifest.RepoKey)

@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // Imported text is UNTRUSTED CONTENT, not merely untrusted size.
@@ -185,7 +188,7 @@ func TestAnImportedRecordWithALocalAnchorStillChecksThatAnchor(t *testing.T) {
 		ID:     "fact:mixed",
 		Text:   "We deploy on Thursdays.",
 		Branch: "main",
-		Origin: factOriginImported,
+		Origin: factstore.OriginImported,
 		Status: factStatusActive,
 		Provenance: []factAnchor{
 			{SessionID: "mem0:abc123"},                            // foreign
@@ -235,7 +238,7 @@ func TestAFabricatedRepositoryAnchorOnAnImportedRecordIsChecked(t *testing.T) {
 		ID:         "fact:fab",
 		Text:       "We deploy on Thursdays.",
 		Branch:     "main",
-		Origin:     factOriginImported,
+		Origin:     factstore.OriginImported,
 		Status:     factStatusActive,
 		Provenance: []factAnchor{{SessionID: "sess-nope", Commit: "0123456789abcdef"}},
 	}
@@ -287,7 +290,7 @@ func TestImportOntoARetractedFactIsCountedAndReported(t *testing.T) {
 	}
 }
 
-// A manifest refresh that fails AFTER writeFacts succeeded must not present as
+// A manifest refresh that fails AFTER factstore.Write succeeded must not present as
 // a failed import: the facts are on disk, and telling the user it failed
 // invites a re-run of something that already happened.
 //
@@ -501,7 +504,7 @@ func TestADoomedImportDoesNotTouchTheBrainFirst(t *testing.T) {
 	f := newVerifyFixture(t)
 	writeDistillFixtureAt(t, f.brainDir, f.now)
 
-	manifestPath := filepath.Join(f.brainDir, exportManifestFileName)
+	manifestPath := filepath.Join(f.brainDir, bmanifest.FileName)
 	before, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
@@ -612,7 +615,7 @@ func TestTheAnchorImportWritesIsDetectedAsForeign(t *testing.T) {
 
 // Foreign ids are untrusted text, exactly like the memory body. ForeignID is
 // embedded in the anchor and `facts show` prints anchor.SessionID straight
-// through valueOrUnset with %s (facts_read_cmd.go:540), which neither quotes
+// through cmdutil.ValueOrUnset with %s (inspect_blame_cmd.go), which neither quotes
 // nor strips.
 func TestForeignIDsAreSanitisedLikeTheMemoryText(t *testing.T) {
 	t.Parallel()
@@ -670,7 +673,7 @@ func TestVerifyDoesNotCallAForeignAnchorOrphaned(t *testing.T) {
 		ID:         "fact:collided",
 		Text:       "We deploy on Thursdays.",
 		Branch:     "main",
-		Origin:     factOriginAuthored,
+		Origin:     factstore.OriginAuthored,
 		Status:     factStatusActive,
 		Provenance: []factAnchor{{SessionID: "mem0:abc123"}},
 	}

@@ -3,6 +3,10 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"strings"
 	"testing"
 	"time"
@@ -24,7 +28,7 @@ func TestRecencyPublicRetrievalSurfaces(t *testing.T) {
 		{ID: "fact:old", Text: "alpha beta retrieval", Branch: "feature", Status: factStatusActive, CreatedAt: now.Add(-4 * 365 * 24 * time.Hour), UpdatedAt: now.Add(-3 * 365 * 24 * time.Hour)},
 		{ID: "fact:fresh", Text: "alpha retrieval", Branch: "feature", Status: factStatusActive, CreatedAt: now.Add(-4 * 365 * 24 * time.Hour), UpdatedAt: now.Add(-24 * time.Hour)},
 	}
-	if err := writeFacts(storage.BrainDir, "feature", facts); err != nil {
+	if err := factstore.Write(storage.BrainDir, "feature", facts); err != nil {
 		t.Fatal(err)
 	}
 	for _, enabled := range []bool{false, true} {
@@ -57,7 +61,7 @@ func TestRecencyPublicRetrievalSurfaces(t *testing.T) {
 		}
 	}
 	// All three compatibility surfaces advertise the same opt-in contract.
-	for _, cmd := range []*cobra.Command{newQueryCommand(opts), newSearchCommand(opts), newVsearchCommand(opts)} {
+	for _, cmd := range []*cobra.Command{retrieve.NewQuery(retrieveCommandConfig(opts)), retrieve.NewSearch(retrieveCommandConfig(opts)), retrieve.NewVsearch(retrieveCommandConfig(opts))} {
 		if cmd.Flags().Lookup("recency") == nil || cmd.Flags().Lookup("recency-half-life") == nil {
 			t.Fatalf("missing recency flags: %s", cmd.Name())
 		}
@@ -83,7 +87,7 @@ func TestRecencySurfaceValidation(t *testing.T) {
 			}
 		})
 	}
-	if _, err := retrieveUnifiedWithOptions("", t.TempDir(), "", "q", 1, modeLexical, retrievalOptions{Source: retrievalSourceConversation, Recency: true}); err == nil {
+	if _, err := retrieveUnifiedWithOptions("", t.TempDir(), "", "q", 1, retrieval.ModeLexical, retrievalOptions{Source: brainstore.RetrievalSourceConversation, Recency: true}); err == nil {
 		t.Fatal("conversation must reject recency at retrieval boundary")
 	}
 }

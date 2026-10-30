@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -47,10 +48,10 @@ func workerPrepassSweepFixture(t *testing.T) (Options, string, repoStorage, stri
 }
 
 // A v3 manifest is what every 0.1.0-era brain has on disk. Bumping
-// brainManifestSchemaVersion must not turn those brains unreadable.
+// bmanifest.SchemaVersion must not turn those brains unreadable.
 func TestManifestV3StillReadable(t *testing.T) {
 	dir := writeTestManifest(t, `{"schema_version":3}`)
-	if _, err := loadBrainManifest(dir); err != nil {
+	if _, err := bmanifest.Load(dir); err != nil {
 		t.Fatalf("v3 manifest must still be readable: %v", err)
 	}
 }
@@ -59,10 +60,10 @@ func TestManifestV3StillReadable(t *testing.T) {
 // message must tell the reader what to do about it.
 func TestManifestNewerRefusedWithRemedy(t *testing.T) {
 	// Derived, not a literal: a hardcoded "5" stops meaning "newer than
-	// supported" the moment brainManifestSchemaVersion is bumped to 5, and
+	// supported" the moment bmanifest.SchemaVersion is bumped to 5, and
 	// silently starts testing the wrong thing instead of failing.
-	dir := writeTestManifest(t, fmt.Sprintf(`{"schema_version":%d}`, brainManifestSchemaVersion+1))
-	_, err := loadBrainManifest(dir)
+	dir := writeTestManifest(t, fmt.Sprintf(`{"schema_version":%d}`, bmanifest.SchemaVersion+1))
+	_, err := bmanifest.Load(dir)
 	if err == nil {
 		t.Fatal("newer manifest must be refused")
 	}
@@ -82,14 +83,14 @@ func TestManifestWrittenAtV4(t *testing.T) {
 	if err := writeBrainManifestAndReadme(dir, exportManifest{}); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, exportManifestFileName))
+	data, err := os.ReadFile(filepath.Join(dir, bmanifest.FileName))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(data), `"schema_version": 4`) {
 		t.Fatalf("manifest was not written at schema version 4: %s", data)
 	}
-	manifest, err := loadBrainManifest(dir)
+	manifest, err := bmanifest.Load(dir)
 	if err != nil || manifest.SchemaVersion != 4 {
 		t.Fatalf("round trip: manifest=%+v err=%v", manifest, err)
 	}

@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,8 +17,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
+	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
@@ -249,7 +256,7 @@ func newWorkspaceRefreshCommand(opts Options) *cobra.Command {
 }
 
 func newWorkspaceWatchCommand(opts Options) *cobra.Command {
-	w := defaultWatchOptions()
+	w := watch.DefaultFlags()
 	cmd := &cobra.Command{
 		Use:   "watch [workspace]",
 		Short: "Keep every repo in a workspace fresh automatically (deterministic refresh is free; agent steps gated)",
@@ -268,7 +275,7 @@ func newWorkspaceWatchCommand(opts Options) *cobra.Command {
 			return runWorkspaceWatch(cmd.Context(), cmd, opts, w, args[0])
 		},
 	}
-	bindWatchFlags(cmd, &w)
+	watch.BindFlags(cmd, &w)
 	return cmd
 }
 
@@ -281,17 +288,17 @@ func newWorkspaceWatchCommand(opts Options) *cobra.Command {
 // non-zero because nothing is registered yet is a restart loop, and the honest
 // state of a machine mid-onboarding is "nothing to watch yet", so it says that
 // once per pass and keeps waiting.
-func runSupervisedWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions) error {
-	if w.distillJobs <= 0 {
+func runSupervisedWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watch.Flags) error {
+	if w.DistillJobs <= 0 {
 		return fmt.Errorf("--jobs must be greater than 0")
 	}
 	now := opts.Now
 	if now == nil {
 		now = time.Now
 	}
-	ctx, stop := watchSignalContext(ctx)
+	ctx, stop := watch.SignalContext(ctx)
 	defer stop()
-	onePass := func(workspaceName string, pass watchCommandOptions, agentCalls *int) error {
+	onePass := func(workspaceName string, pass watch.Flags, agentCalls *int) error {
 		return runWorkspaceWatchPass(ctx, cmd, opts, pass, workspaceName, now, agentCalls)
 	}
 	maintain := daemonLogMaintainer(opts.Env)
@@ -301,10 +308,10 @@ func runSupervisedWatch(ctx context.Context, cmd *cobra.Command, opts Options, w
 		// is attended, and exiting it over an upgrade would surprise the person
 		// who started it. The maintainer is already the "am I the installed
 		// service" test (stdout is the unit's log file).
-		stale = watchBinaryChanged()
+		stale = watch.BinaryChanged()
 	}
 	err := supervisedWatchLoop(ctx, cmd.OutOrStdout(), opts.Env, w, onePass, maintain, stale)
-	if errors.Is(err, errWatchBinaryReplaced) {
+	if errors.Is(err, watch.ErrBinaryReplaced) {
 		relaunchInstalledDaemon(cmd.OutOrStdout(), opts.Env)
 		// Exit cleanly: KeepAlive/Restart=always makes the service manager
 		// restart on the current binary; a non-zero exit adds nothing but noise.
@@ -323,10 +330,10 @@ func runSupervisedWatch(ctx context.Context, cmd *cobra.Command, opts Options, w
 // anyway — an empty or unreadable plan logs once per interval forever. It is
 // nil for any watcher that is not the installed service.
 // stale reports that the executable this daemon started from was replaced on
-// disk (nil = never check); the loop then returns errWatchBinaryReplaced so the
+// disk (nil = never check); the loop then returns watch.ErrBinaryReplaced so the
 // caller can exit and let the service manager restart on the current binary,
 // instead of running an outdated build forever (COR-2174).
-func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w watchCommandOptions, onePass func(workspace string, pass watchCommandOptions, agentCalls *int) error, maintain func(), stale func() bool) error {
+func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w watch.Flags, onePass func(workspace string, pass watch.Flags, agentCalls *int) error, maintain func(), stale func() bool) error {
 	// This counter belongs to the supervised process, not to an individual
 	// workspace pass. --budget is documented as a lifetime cap, so it must
 	// survive both workspace fan-out and every outer-plan tick.
@@ -341,7 +348,7 @@ func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w wa
 		}
 		if stale != nil && stale() {
 			fmt.Fprintln(out, "[watch] binary replaced on disk; exiting so the service manager restarts on the current build")
-			return errWatchBinaryReplaced
+			return watch.ErrBinaryReplaced
 		}
 		plan, err := loadSetupWatchPlan(env)
 		if err != nil {
@@ -357,14 +364,14 @@ func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w wa
 			// Checked per workspace so a `stop` mid-pass spares the rest. Pausing
 			// skips work but keeps the loop and its cadence: the unit is
 			// KeepAlive, so exiting would only be restarted straight back here.
-			if backgroundPaused(env) {
+			if base.BackgroundPaused(env) {
 				fmt.Fprintln(out, "[watch] paused — `entire-brain start` resumes")
 				break
 			}
 			pass := applyWatchPlanEntry(w, entry)
 			// once: this loop owns the waiting, so the inner workspace loop runs
 			// exactly one pass over its members and returns.
-			pass.once = true
+			pass.Once = true
 			if err := onePass(entry.Workspace, pass, &agentCalls); err != nil {
 				// One broken workspace must not stop the others. A manifest
 				// deleted by hand is a normal state, not a fatal one.
@@ -375,14 +382,14 @@ func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w wa
 				return nil
 			}
 		}
-		if w.once {
+		if w.Once {
 			return nil
 		}
 		select {
 		case <-ctx.Done():
 			fmt.Fprintln(out, "[watch] stopping")
 			return nil
-		case <-time.After(watchPlanSleep(plan, w.interval)):
+		case <-time.After(watchPlanSleep(plan, w.Interval)):
 		}
 	}
 }
@@ -390,8 +397,8 @@ func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w wa
 // runWorkspaceWatch fans the WS3 watch loop over every member repo, reusing the same per-repo
 // deterministic-refresh + gated-distill + per-repo cursor. The --budget cap is shared across all members
 // so the --budget distill-run cap (and thus token spend) can't be multiplied across repos.
-func runWorkspaceWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, workspaceName string) error {
-	if w.distillJobs <= 0 {
+func runWorkspaceWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watch.Flags, workspaceName string) error {
+	if w.DistillJobs <= 0 {
 		return fmt.Errorf("--jobs must be greater than 0")
 	}
 	now := opts.Now
@@ -399,7 +406,7 @@ func runWorkspaceWatch(ctx context.Context, cmd *cobra.Command, opts Options, w 
 		now = time.Now
 	}
 	// Stop cleanly between ticks on SIGINT/SIGTERM (same as single-repo watch).
-	ctx, stop := watchSignalContext(ctx)
+	ctx, stop := watch.SignalContext(ctx)
 	defer stop()
 	agentCalls := 0
 	return runWorkspaceWatchPass(ctx, cmd, opts, w, workspaceName, now, &agentCalls)
@@ -408,7 +415,7 @@ func runWorkspaceWatch(ctx context.Context, cmd *cobra.Command, opts Options, w 
 // runWorkspaceWatchPass is runWorkspaceWatch without the signal plumbing, so the
 // supervised loop can drive one workspace at a time under a context it already
 // owns instead of installing a second signal handler per workspace per pass.
-func runWorkspaceWatchPass(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, workspaceName string, now func() time.Time, agentCalls *int) error {
+func runWorkspaceWatchPass(ctx context.Context, cmd *cobra.Command, opts Options, w watch.Flags, workspaceName string, now func() time.Time, agentCalls *int) error {
 	out := cmd.OutOrStdout()
 	// repoOut is the member's already-attributed writer, handed down by the
 	// loop (see workspaceWatchLoop): the fan-out is the case that needs the
@@ -421,7 +428,7 @@ func runWorkspaceWatchPass(ctx context.Context, cmd *cobra.Command, opts Options
 			return
 		}
 		cursorPath := filepath.Join(filepath.Dir(storage.HeadPath), "watch.json")
-		watchTick(ctx, repoOut, w, cursorPath, watchStepsForRepo(watchStepCommand(cmd, repoOut), opts, w, repoDir, now), agentCalls)
+		watch.Tick(ctx, repoOut, w, cursorPath, watchStepsForRepo(watch.StepCommand(cmd, repoOut), opts, w, repoDir, now), agentCalls)
 	}
 	return workspaceWatchLoop(ctx, out, opts, w, workspaceName, agentCalls, now, repoTick)
 }
@@ -429,9 +436,9 @@ func runWorkspaceWatchPass(ctx context.Context, cmd *cobra.Command, opts Options
 // workspaceWatchLoop iterates the workspace members, resolving each to a local repo and handing it to
 // repoTick with a single shared agentCalls counter (so --budget caps total token spend across the whole
 // workspace, not per-repo). repoTick is injected so the fan-out is testable without a real refresh.
-func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watchCommandOptions, workspaceName string, agentCalls *int, now func() time.Time, repoTick func(out io.Writer, repoDir string, agentCalls *int)) error {
-	if w.interval <= 0 {
-		w.interval = 5 * time.Minute
+func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watch.Flags, workspaceName string, agentCalls *int, now func() time.Time, repoTick func(out io.Writer, repoDir string, agentCalls *int)) error {
+	if w.Interval <= 0 {
+		w.Interval = 5 * time.Minute
 	}
 	// The loop, not the tick, decides a line's attribution, so a tick cannot
 	// forget it: workspace-level lines carry the clock alone, and every member
@@ -441,7 +448,7 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 	// pass counts the fan-out sweeps so a member's lines say which sweep they
 	// belong to, the same way a single-repo daemon's lines say which tick.
 	pass := 0
-	out = newWatchLogPrefixWriter(raw, watchLogFields{build: opts.Version, tick: &pass}, now)
+	out = watch.NewLogPrefixWriter(raw, watch.LogFields{Build: opts.Version, Tick: &pass}, now)
 	for {
 		if ctx.Err() != nil {
 			fmt.Fprintln(out, "[watch] stopping")
@@ -453,8 +460,8 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 			return err
 		}
 		fmt.Fprintf(out, "[watch] workspace %s — %d repos, distill=%v (every %s, max-sessions=%s, run-budget=%s)\n",
-			manifest.Name, len(manifest.Repos), w.distill, w.distillEvery,
-			watchCapLabel(w.distillMaxSessions), watchCapLabel(w.budget))
+			manifest.Name, len(manifest.Repos), w.Distill, w.DistillEvery,
+			watch.CapLabel(w.DistillMaxSessions), watch.CapLabel(w.Budget))
 		dirs, err := base.ResolvePluginDirs(opts.Env)
 		if err != nil {
 			return err
@@ -466,16 +473,16 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 				continue
 			}
 			fmt.Fprintf(out, "[watch] %s:\n", repo.RepoKey)
-			repoTick(newWatchLogPrefixWriter(raw, watchLogFields{build: opts.Version, tick: &pass, repo: repo.RepoKey}, now), repoDir, agentCalls)
+			repoTick(watch.NewLogPrefixWriter(raw, watch.LogFields{Build: opts.Version, Tick: &pass, Repo: repo.RepoKey}, now), repoDir, agentCalls)
 		}
-		if w.once {
+		if w.Once {
 			return nil
 		}
 		select {
 		case <-ctx.Done():
 			fmt.Fprintln(out, "[watch] stopping")
 			return nil
-		case <-time.After(w.interval):
+		case <-time.After(w.Interval):
 		}
 	}
 }
@@ -527,38 +534,38 @@ func newWorkspaceGraphCommand(opts Options) *cobra.Command {
 }
 
 func newWorkspaceSearchCommand(opts Options) *cobra.Command {
-	return newWorkspaceRetrieveCommand(opts, "search", modeLexical, "Lexical keyword search across every workspace repo's brain (facts, history, docs)")
+	return newWorkspaceRetrieveCommand(opts, "search", retrieval.ModeLexical, "Lexical keyword search across every workspace repo's brain (facts, history, docs)")
 }
 
 func newWorkspaceVsearchCommand(opts Options) *cobra.Command {
-	return newWorkspaceRetrieveCommand(opts, "vsearch", modeHybrid, "Compatibility alias for workspace query: semantic retrieval was removed (trail #278); runs the same BM25 lexical ranking")
+	return newWorkspaceRetrieveCommand(opts, "vsearch", retrieval.ModeHybrid, "Compatibility alias for workspace query: semantic retrieval was removed (trail #278); runs the same BM25 lexical ranking")
 }
 
 func newWorkspaceQueryCommand(opts Options) *cobra.Command {
-	return newWorkspaceRetrieveCommand(opts, "query", modeHybrid, "Search every workspace repo's brain (BM25 lexical)")
+	return newWorkspaceRetrieveCommand(opts, "query", retrieval.ModeHybrid, "Search every workspace repo's brain (BM25 lexical)")
 }
 
 // newWorkspaceRetrieveCommand mirrors the top-level search/vsearch/query verbs
-// (retrieve_cmd.go) as a per-member fan-out: each repo's brain is ranked
+// (command/retrieve) as a per-member fan-out: each repo's brain is ranked
 // independently and results stay grouped by repo — scores from different brains'
 // indexes are not comparable, so there is no cross-repo fusion.
 func newWorkspaceRetrieveCommand(opts Options, use string, mode retrievalMode, short string) *cobra.Command {
-	var selection querySelection
+	var selection retrieve.QuerySelection
 	retrieveOpts := workspaceRetrieveOptions{limit: 10}
 	cmd := &cobra.Command{
 		Use:   use + " <workspace> <query>",
 		Short: short,
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			selectedMode, err := selection.mode(mode)
+			selectedMode, err := selection.Mode(mode)
 			if err != nil {
 				return err
 			}
-			warnRemovedSemanticAlias(cmd, use, selection.semantic)
+			retrieve.WarnRemovedSemanticAlias(cmd, use, selection.Semantic)
 			return runWorkspaceRetrieve(cmd, opts, retrieveOpts, selectedMode, args[0], args[1])
 		},
 	}
-	configureQueryCommand(cmd, use, &selection, 1)
+	retrieve.ConfigureQueryCommand(cmd, use, &selection, 1)
 	cmd.Flags().IntVar(&retrieveOpts.limit, "limit", 10, "Maximum results per repo")
 	cmd.Flags().StringVar(&retrieveOpts.branch, "branch", "", "Branch for facts in every repo (default: each repo's distill default)")
 	cmd.Flags().BoolVar(&retrieveOpts.json, "json", false, "Emit machine-readable JSON")
@@ -729,7 +736,7 @@ func runWorkspaceContext(cmd *cobra.Command, opts Options, contextOpts workspace
 			results = append(results, result)
 			continue
 		}
-		symbols, _, _, err := semanticContextFacts(brainDir, source, query, contextOpts.limit, 0)
+		symbols, _, _, err := semstore.ContextFacts(brainDir, source, query, contextOpts.limit, 0)
 		unlock()
 		if err != nil {
 			result.Error = err.Error()
@@ -739,7 +746,7 @@ func runWorkspaceContext(cmd *cobra.Command, opts Options, contextOpts workspace
 		results = append(results, result)
 	}
 	if contextOpts.json {
-		return writeJSON(cmd, struct {
+		return cmdutil.WriteJSON(cmd, struct {
 			Workspace string                   `json:"workspace"`
 			Results   []workspaceContextResult `json:"results"`
 		}{Workspace: manifest.Name, Results: results})
@@ -787,7 +794,7 @@ func runWorkspaceImpact(cmd *cobra.Command, opts Options, impactOpts workspaceIm
 			results = append(results, result)
 			continue
 		}
-		roots, symbols, relations, err := semanticImpactFacts(brainDir, source, query, impactOpts.depth, impactOpts.limit)
+		roots, symbols, relations, err := semstore.ImpactFacts(brainDir, source, query, impactOpts.depth, impactOpts.limit)
 		unlock()
 		if err != nil {
 			result.Error = err.Error()
@@ -799,7 +806,7 @@ func runWorkspaceImpact(cmd *cobra.Command, opts Options, impactOpts workspaceIm
 		results = append(results, result)
 	}
 	if impactOpts.json {
-		return writeJSON(cmd, struct {
+		return cmdutil.WriteJSON(cmd, struct {
 			Workspace string                  `json:"workspace"`
 			Results   []workspaceImpactResult `json:"results"`
 		}{Workspace: manifest.Name, Results: results})
@@ -856,7 +863,7 @@ func runWorkspaceGraphManifest(cmd *cobra.Command, opts Options, graphOpts works
 		return err
 	}
 	if graphOpts.json {
-		return writeJSON(cmd, payload)
+		return cmdutil.WriteJSON(cmd, payload)
 	}
 	for _, result := range payload.Results {
 		if result.Error != "" {
@@ -911,14 +918,14 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 		result.CompletenessLevel = source.CompletenessLevel
 		result.Trust = source.Trust
 		result.LanguageTiers = source.LanguageTiers
-		storePath, err := validateSemanticDeclaredStore(brainDir, source)
+		storePath, err := semstore.ValidateDeclaredStore(brainDir, source)
 		if err != nil {
 			unlock()
 			result.Error = err.Error()
 			results = append(results, result)
 			continue
 		}
-		db, err := openSemanticReadDB(storePath)
+		db, err := semstore.OpenReadDB(storePath)
 		if err != nil {
 			unlock()
 			result.Error = err.Error()
@@ -1006,7 +1013,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 		return errors.New("--limit must be greater than zero")
 	}
 	if len(retrieveOpts.concepts) > 0 {
-		if err := validateRetrievalLimit(retrieveOpts.limit); err != nil {
+		if err := retrieval.ValidateRetrievalLimit(retrieveOpts.limit); err != nil {
 			return fmt.Errorf("--%s", err.Error())
 		}
 	}
@@ -1017,18 +1024,18 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	// to that captured branch in each member brain, exactly like the
 	// top-level verbs. Members without that branch simply return no
 	// conversation hits.
-	ropts, err := buildRetrievalOptions(retrieveOpts.source, retrieveOpts.after, retrieveOpts.before, retrieveOpts.session, retrieveOpts.agent, retrieveOpts.branch, retrieveOpts.concepts)
+	ropts, err := retrieve.BuildRetrievalOptions(retrieveOpts.source, retrieveOpts.after, retrieveOpts.before, retrieveOpts.session, retrieveOpts.agent, retrieveOpts.branch, retrieveOpts.concepts)
 	if err != nil {
 		return fmt.Errorf("--%s", err.Error())
 	}
 	ropts.IncludeAbstract = retrieveOpts.includeAbstract
-	if ropts.IncludeAbstract && ropts.Source != retrievalSourceConversation {
+	if ropts.IncludeAbstract && ropts.Source != brainstore.RetrievalSourceConversation {
 		return fmt.Errorf(`--include-abstract requires --source conversation (got %q)`, ropts.Source)
 	}
-	if mode == modeVector && ropts.Source == retrievalSourceConversation {
+	if mode == retrieval.ModeVector && ropts.Source == brainstore.RetrievalSourceConversation {
 		return errConversationVectorUnsupported
 	}
-	if ropts.hasConversationOnlyFilters() && ropts.Source != retrievalSourceConversation {
+	if ropts.HasConversationOnlyFilters() && ropts.Source != brainstore.RetrievalSourceConversation {
 		return fmt.Errorf(`after/before/session/agent filters require --source conversation (got %q)`, ropts.Source)
 	}
 	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(workspaceName)
@@ -1065,7 +1072,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 		} else {
 			if found != nil {
 				if repoDir == "" {
-					found = annotateCurrentCodeUnavailable(found)
+					found = retrieval.AnnotateCurrentCodeUnavailable(found)
 				}
 				result.Results = found
 			}
@@ -1085,7 +1092,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	// single-source selection (conversation, fact, history, doc) is a source
 	// isolation contract: no fan-out or append stage may add records from any
 	// other source.
-	if mode != modeVector && ropts.Source == retrievalSourceAll {
+	if mode != retrieval.ModeVector && ropts.Source == brainstore.RetrievalSourceAll {
 		graphResults, err := retrieveWorkspaceGraphCrossEdges(opts.Env, manifest.Name, query, retrieveOpts.limit)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			results = append(results, workspaceRetrieveResult{
@@ -1131,14 +1138,14 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 			if budgetErr != nil {
 				return budgetErr
 			}
-			serialized, marshalErr := jsonOutputBytes(payload)
+			serialized, marshalErr := cmdutil.JSONOutputBytes(payload)
 			if marshalErr != nil {
 				return marshalErr
 			}
 			return writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized, privacyPolicies...)
 		}
 		qualified := qualifyWorkspaceRetrieveGroups(manifest.Name, results)
-		serialized, marshalErr := jsonOutputBytes(struct {
+		serialized, marshalErr := cmdutil.JSONOutputBytes(struct {
 			Workspace string                    `json:"workspace"`
 			Query     string                    `json:"query"`
 			Results   []workspaceRetrieveResult `json:"results"`
@@ -1174,7 +1181,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 				label += " verify"
 			}
 			fmt.Fprintf(out, "[%s] %s  %s\n    %s\n", label, printedID, loc, ex)
-			printRetrievalCaveats(out, r)
+			retrieval.PrintResultCaveats(out, r)
 		}
 		if result.Error != "" {
 			fmt.Fprintf(out, "%s error %s\n", result.RepoKey, result.Error)
@@ -1302,7 +1309,7 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 		}
 		if found != nil {
 			if repoDir == "" {
-				found = annotateCurrentCodeUnavailable(found)
+				found = retrieval.AnnotateCurrentCodeUnavailable(found)
 			}
 			result.Results = found
 		}
@@ -1321,7 +1328,7 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 				qualified[i].Results[j] = qualifyWorkspaceUnifiedResult(result.RepoKey, manifest.Name, item)
 			}
 		}
-		serialized, marshalErr := jsonOutputBytes(struct {
+		serialized, marshalErr := cmdutil.JSONOutputBytes(struct {
 			Workspace string               `json:"workspace"`
 			Results   []workspaceGetResult `json:"results"`
 		}{Workspace: manifest.Name, Results: qualified})
@@ -1343,7 +1350,7 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 				label += " verify"
 			}
 			fmt.Fprintf(out, "[%s] %s/%s  %s\n%s\n", label, result.RepoKey, r.ID, loc, r.Text)
-			printRetrievalCaveats(out, r)
+			retrieval.PrintResultCaveats(out, r)
 			fmt.Fprintln(out)
 		}
 		for _, id := range result.Missing {
@@ -1474,7 +1481,7 @@ func workspaceMemberBranch(brainDir, override string) (string, error) {
 	if b := strings.TrimSpace(override); b != "" {
 		return b, nil
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return "", err
 	}
@@ -1562,7 +1569,7 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 		status.Detail = err.Error()
 		return status
 	}
-	manifestPath := filepath.Join(brainDir, exportManifestFileName)
+	manifestPath := filepath.Join(brainDir, bmanifest.FileName)
 	_, manifestErr := os.Stat(manifestPath)
 	manifestMissing := os.IsNotExist(manifestErr)
 	if manifestErr != nil && !manifestMissing {
@@ -1611,7 +1618,7 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 		status.State = "missing-brain"
 		return status
 	}
-	brainManifest, err := loadBrainManifest(brainDir)
+	brainManifest, err := bmanifest.Load(brainDir)
 	switch {
 	case err != nil:
 		status.State = "unsafe"
@@ -1659,7 +1666,7 @@ func workspaceSemanticSource(ctx context.Context, opts Options, repo workspace.R
 		return nil, err
 	}
 	source := manifest.Sources.Semantic
-	if !semanticRepoKeyEqual(source.graphStore.Header.RepoKey, repo.RepoKey) {
+	if !semanticRepoKeyEqual(source.GraphStore.Header.RepoKey, repo.RepoKey) {
 		storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repo.LocalPathHint)
 		if err != nil {
 			return nil, err
@@ -1667,56 +1674,11 @@ func workspaceSemanticSource(ctx context.Context, opts Options, repo workspace.R
 		if !semanticRepoKeyEqual(storage.Key, repo.RepoKey) {
 			return nil, errors.New("Graph repository identity does not match workspace member")
 		}
-		if err := validateSemanticProviderRepoKey(ctx, opts.Runner, repo.LocalPathHint, repo.RepoKey, source.graphStore.Header.RepoKey, "", ""); err != nil {
+		if err := validateSemanticProviderRepoKey(ctx, opts.Runner, repo.LocalPathHint, repo.RepoKey, source.GraphStore.Header.RepoKey, "", ""); err != nil {
 			return nil, err
 		}
 	}
 	return source, nil
-}
-
-func writeJSON(cmd *cobra.Command, value any) error {
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return err
-	}
-	n, err := fmt.Fprintln(cmd.OutOrStdout(), string(data))
-	if err == nil && n != len(data)+1 {
-		return io.ErrShortWrite
-	}
-	return err
-}
-
-func writeText(cmd *cobra.Command, render func(io.Writer)) error {
-	// Stream directly to stdout instead of buffering the whole rendered body:
-	// large multi-get/fact output must not be held in memory in full. The
-	// sticky writer short-circuits after the first failure and preserves the
-	// error, so callers still skip receipt recording when output fails.
-	return writeTextToWriter(cmd.OutOrStdout(), render)
-}
-
-func writeTextToWriter(writer io.Writer, render func(io.Writer)) error {
-	out := &stickyErrorWriter{writer: writer}
-	render(out)
-	return out.err
-}
-
-type stickyErrorWriter struct {
-	writer io.Writer
-	err    error
-}
-
-func (w *stickyErrorWriter) Write(p []byte) (int, error) {
-	if w.err != nil {
-		return 0, w.err
-	}
-	n, err := w.writer.Write(p)
-	if err == nil && n != len(p) {
-		err = io.ErrShortWrite
-	}
-	if err != nil {
-		w.err = err
-	}
-	return n, err
 }
 
 // ---- workspace list / remove (ergonomics) ----
@@ -1772,7 +1734,7 @@ func runWorkspaceList(cmd *cobra.Command, opts Options, asJSON bool) error {
 	}
 	sort.Slice(summaries, func(i, j int) bool { return summaries[i].Name < summaries[j].Name })
 	if asJSON {
-		return writeJSON(cmd, struct {
+		return cmdutil.WriteJSON(cmd, struct {
 			Workspaces []workspace.Summary `json:"workspaces"`
 		}{Workspaces: summaries})
 	}
@@ -1861,7 +1823,7 @@ func runWorkspaceRemove(cmd *cobra.Command, opts Options, workspaceName, repoKey
 // repo_key, mirroring runWorkspaceContext.
 
 func newWorkspaceRegressionsCommand(opts Options) *cobra.Command {
-	ro := regressionDetectorOptions{limit: 20}
+	ro := regressionDetectorOptions{Limit: 20}
 	cmd := &cobra.Command{
 		Use:   "regressions <workspace> <query>",
 		Short: "Flag suspected regressions across workspace repos (brain memory vs each current tree)",
@@ -1870,15 +1832,15 @@ func newWorkspaceRegressionsCommand(opts Options) *cobra.Command {
 			return runWorkspaceRegressions(cmd, opts, ro, args[0], args[1])
 		},
 	}
-	cmd.Flags().IntVar(&ro.limit, "limit", 20, "Maximum suspected regressions per repo")
-	cmd.Flags().BoolVar(&ro.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&ro.includeDeletions, "include-deletions", false, "Also flag deleted assignments (higher recall, noisier)")
-	cmd.Flags().BoolVar(&ro.locationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
+	cmd.Flags().IntVar(&ro.Limit, "limit", 20, "Maximum suspected regressions per repo")
+	cmd.Flags().BoolVar(&ro.JSON, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&ro.IncludeDeletions, "include-deletions", false, "Also flag deleted assignments (higher recall, noisier)")
+	cmd.Flags().BoolVar(&ro.LocationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
 	return cmd
 }
 
 func newWorkspaceReviewCommand(opts Options) *cobra.Command {
-	ro := regressionDetectorOptions{limit: 20}
+	ro := regressionDetectorOptions{Limit: 20}
 	cmd := &cobra.Command{
 		Use:   "review <workspace> <query>",
 		Short: "Diff-less review across workspace repos: suspected regressions as severity-ranked findings",
@@ -1887,10 +1849,10 @@ func newWorkspaceReviewCommand(opts Options) *cobra.Command {
 			return runWorkspaceReview(cmd, opts, ro, args[0], args[1])
 		},
 	}
-	cmd.Flags().IntVar(&ro.limit, "limit", 20, "Maximum findings per repo")
-	cmd.Flags().BoolVar(&ro.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&ro.includeDeletions, "include-deletions", false, "Also flag deleted assignments (lower confidence, noisier)")
-	cmd.Flags().BoolVar(&ro.locationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
+	cmd.Flags().IntVar(&ro.Limit, "limit", 20, "Maximum findings per repo")
+	cmd.Flags().BoolVar(&ro.JSON, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&ro.IncludeDeletions, "include-deletions", false, "Also flag deleted assignments (lower confidence, noisier)")
+	cmd.Flags().BoolVar(&ro.LocationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
 	return cmd
 }
 
@@ -1973,8 +1935,8 @@ func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo worksp
 	// uncapped wrapper discarded this flag, which let the workspace surfaces
 	// print an unqualified clean bill of health over a scan that stopped at a
 	// cap -- the exact bug class the caps were added to eliminate.
-	anomalies, scanned, warnings, caps := detectRegressionAnomaliesCapped(brainDir, repoDir, semSource, query, ro.limit, ro.includeDeletions)
-	if ro.locationOnly {
+	anomalies, scanned, warnings, caps := detectRegressionAnomaliesCapped(brainDir, repoDir, semSource, query, ro.Limit, ro.IncludeDeletions)
+	if ro.LocationOnly {
 		for i := range anomalies {
 			anomalies[i].Expected = ""
 			anomalies[i].Current = ""
@@ -1996,7 +1958,7 @@ func runWorkspaceRegressions(cmd *cobra.Command, opts Options, ro regressionDete
 }
 
 func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, manifest workspace.Manifest, query string, skipped []workspace.RepoFreshness) error {
-	if ro.limit <= 0 {
+	if ro.Limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
 	privacyPolicies, _, err := patterncore.CaptureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
@@ -2030,12 +1992,12 @@ func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regres
 		results = append(results, result)
 	}
 	render := func() error {
-		if ro.json {
-			return writeJSON(cmd, struct {
+		if ro.JSON {
+			return cmdutil.WriteJSON(cmd, struct {
 				Workspace     string                      `json:"workspace"`
 				SchemaVersion int                         `json:"schema_version"`
 				Results       []workspaceRegressionResult `json:"results"`
-			}{Workspace: manifest.Name, SchemaVersion: reviewReportSchemaVersion, Results: results})
+			}{Workspace: manifest.Name, SchemaVersion: brainreview.ReportSchemaVersion, Results: results})
 		}
 		out := cmd.OutOrStdout()
 		total := 0
@@ -2144,7 +2106,7 @@ func runWorkspaceReview(cmd *cobra.Command, opts Options, ro regressionDetectorO
 }
 
 func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, manifest workspace.Manifest, query string, skipped []workspace.RepoFreshness) error {
-	if ro.limit <= 0 {
+	if ro.Limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
 	privacyPolicies, _, err := patterncore.CaptureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
@@ -2183,7 +2145,7 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 		}
 		result.Findings = []reviewFinding{} // [] not null in JSON, even when empty
 		for _, a := range anomalies {
-			result.Findings = append(result.Findings, anomalyToReviewFinding(a))
+			result.Findings = append(result.Findings, brainreview.AnomalyToReviewFinding(a))
 		}
 		switch {
 		case scanErr != "":
@@ -2197,7 +2159,7 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 			result.Summary = workspaceReviewSummary(result.Checked, result.FilesScanned, result.HistoryTruncated)
 		}
 		if result.HistoryTruncated && len(result.Findings) > 0 {
-			result.Summary = reviewSummary(len(result.Findings), scanned, true)
+			result.Summary = brainreview.ReviewSummary(len(result.Findings), scanned, true)
 		}
 		results = append(results, result)
 	}
@@ -2234,14 +2196,14 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 		summary = fmt.Sprintf("PARTIAL: %s History scans stopped at a cap in %d member(s); this is not a clean result.", summary, partialMembers)
 	}
 	render := func() error {
-		if ro.json {
-			return writeJSON(cmd, struct {
+		if ro.JSON {
+			return cmdutil.WriteJSON(cmd, struct {
 				Workspace     string                  `json:"workspace"`
 				SchemaVersion int                     `json:"schema_version"`
 				Mode          string                  `json:"mode"`
 				Summary       string                  `json:"summary"`
 				Results       []workspaceReviewResult `json:"results"`
-			}{Workspace: manifest.Name, SchemaVersion: reviewReportSchemaVersion, Mode: "diff-less (brain memory vs current tree)", Summary: summary, Results: results})
+			}{Workspace: manifest.Name, SchemaVersion: brainreview.ReportSchemaVersion, Mode: "diff-less (brain memory vs current tree)", Summary: summary, Results: results})
 		}
 		out := cmd.OutOrStdout()
 		fmt.Fprintln(out, summary)
@@ -2292,7 +2254,7 @@ func workspaceGraphGeneration(env EntireEnv, manifest workspace.Manifest) (strin
 		if err != nil {
 			return "", err
 		}
-		source, err := loadBrainManifest(brainDir)
+		source, err := bmanifest.Load(brainDir)
 		// The builder reports source failures per member and still serves healthy
 		// repositories. Bind that degraded state too, so recovery invalidates it.
 		member := memberSource{Repo: repo, Manifest: source, Unavailable: err != nil}

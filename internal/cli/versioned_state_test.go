@@ -8,66 +8,16 @@ import (
 	"testing"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func writeTestManifest(t *testing.T, body string) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, exportManifestFileName), []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, bmanifest.FileName), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return dir
-}
-
-// The real-world regression: manifests written before commit cc5c5798 carry
-// sources.seed.history_coverage.checkpointed_unexported_commits, a field since
-// retired at the same schema version 3. Every such brain read as corrupt, which
-// turned off all sources and left the memory worker retrying forever.
-func TestLoadBrainManifest_RetiredFieldFromOlderBuildStillReads(t *testing.T) {
-	t.Parallel()
-
-	dir := writeTestManifest(t, `{
-	  "schema_version": 3,
-	  "repo_key": "gh/entirehq/devenv",
-	  "sources": {
-	    "seed": {
-	      "history_coverage": {
-	        "path": "seed/history-gaps.md",
-	        "total_commits": 34,
-	        "checkpointed_unexported_commits": 0
-	      }
-	    }
-	  }
-	}`)
-
-	got, err := loadBrainManifest(dir)
-	if err != nil {
-		t.Fatalf("manifest from an older build must load, not read as corrupt: %v", err)
-	}
-	if got.RepoKey != "gh/entirehq/devenv" {
-		t.Fatalf("known fields lost: %+v", got)
-	}
-	if got.Sources == nil || got.Sources.Seed == nil || got.Sources.Seed.HistoryCoverage == nil {
-		t.Fatalf("nested known fields lost: %+v", got.Sources)
-	}
-	if got.Sources.Seed.HistoryCoverage.TotalCommits != 34 {
-		t.Fatalf("sibling of the retired field lost: %+v", got.Sources.Seed.HistoryCoverage)
-	}
-}
-
-// The reader getting more forgiving must not make the writer forgiving: a
-// rewrite that cannot round-trip the bytes it observed still has to refuse.
-func TestLoadBrainManifestForReplace_StillRefusesUnknownFields(t *testing.T) {
-	t.Parallel()
-
-	dir := writeTestManifest(t, `{"schema_version":3,"repo_key":"gh/entirehq/devenv","retired_field":0}`)
-
-	if _, err := loadBrainManifest(dir); err != nil {
-		t.Fatalf("the reader must accept it: %v", err)
-	}
-	if _, err := loadBrainManifestForReplace(dir); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
-		t.Fatalf("the writer must refuse to erase it, got: %v", err)
-	}
 }
 
 // decodersAllowedToRejectUnknownFields are the only files that may call
@@ -77,35 +27,45 @@ func TestLoadBrainManifestForReplace_StillRefusesUnknownFields(t *testing.T) {
 // whether it is guarding a rewrite or only reading — the distinction this
 // package got wrong. Each entry carries its reason at the call site.
 var decodersAllowedToRejectUnknownFields = map[string]string{
-	"brain_manifest_read.go": "dedicated file-backed manifest decoder: strict rewrites, tolerant read retry with unknown-field reporting",
-	"export.go":              "user-authored settings, where an unknown key is usually a typo",
-	"memory_abstract.go":     "untrusted model output, not state a build of ours wrote",
+	"internal/manifest/read.go": "dedicated file-backed manifest decoder: strict rewrites, tolerant read retry with unknown-field reporting",
+	"export.go":                 "user-authored settings, where an unknown key is usually a typo",
+	"memory_abstract.go":        "untrusted model output, not state a build of ours wrote",
 }
 
 func TestPersistedStateDecodersRouteThroughTheSharedDecoder(t *testing.T) {
 	t.Parallel()
 
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		source, err := os.ReadFile(name)
+	// "." plus internal/manifest, internal/factstore, internal/historystore,
+	// internal/semstore, internal/docstore and internal/retrieval: the manifest
+	// decoder, the durable-facts store, and the history-store, semantic-store,
+	// doc-store and retrieval-engine read layers sank there (COR-2268) and
+	// must stay under this guard rather than escape it by moving.
+	for _, dir := range []string{".", "internal/manifest", "internal/factstore", "internal/historystore", "internal/semstore", "internal/docstore", "internal/retrieval", "patterns", "command/patternscmd", "command/watch"} {
+		entries, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(source), "DisallowUnknownFields()") {
-			continue
-		}
-		if _, ok := decodersAllowedToRejectUnknownFields[name]; !ok {
-			t.Errorf("%s calls DisallowUnknownFields() directly; read persisted brain state through "+
-				"brainstore.DecodeVersionedJSONBody and state whether the decode guards a rewrite, or add %s to "+
-				"decodersAllowedToRejectUnknownFields with the reason it may reject a field another "+
-				"build wrote", name, name)
+		for _, entry := range entries {
+			name := entry.Name()
+			if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+				continue
+			}
+			if dir != "." {
+				name = dir + "/" + name
+			}
+			source, err := os.ReadFile(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(source), "DisallowUnknownFields()") {
+				continue
+			}
+			if _, ok := decodersAllowedToRejectUnknownFields[name]; !ok {
+				t.Errorf("%s calls DisallowUnknownFields() directly; read persisted brain state through "+
+					"brainstore.DecodeVersionedJSONBody and state whether the decode guards a rewrite, or add %s to "+
+					"decodersAllowedToRejectUnknownFields with the reason it may reject a field another "+
+					"build wrote", name, name)
+			}
 		}
 	}
 }
@@ -117,16 +77,16 @@ func TestBrainManifestSkewIsReadOnlyAndRecoverableByRemoval(t *testing.T) {
 	t.Parallel()
 
 	dir := writeTestManifest(t, `{"schema_version":3,"repo_key":"gh/entirehq/devenv","retired_field":0}`)
-	rebuilt := exportManifest{SchemaVersion: brainManifestSchemaVersion, RepoKey: "gh/entirehq/devenv"}
+	rebuilt := exportManifest{SchemaVersion: bmanifest.SchemaVersion, RepoKey: "gh/entirehq/devenv"}
 
-	if _, err := loadBrainManifest(dir); err != nil {
+	if _, err := bmanifest.Load(dir); err != nil {
 		t.Fatalf("skewed manifest must stay readable: %v", err)
 	}
 	if err := writeBrainManifestAndReadme(dir, rebuilt); err == nil {
 		t.Fatal("a writer must not re-encode a manifest whose fields it never saw")
 	}
 
-	if err := os.Remove(filepath.Join(dir, exportManifestFileName)); err != nil {
+	if err := os.Remove(filepath.Join(dir, bmanifest.FileName)); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeBrainManifestAndReadme(dir, rebuilt); err != nil {
@@ -138,13 +98,13 @@ func TestBrainManifestSkewIsReadOnlyAndRecoverableByRemoval(t *testing.T) {
 // directory: a write-named helper taking the brain dir and the manifest name.
 // It deliberately does not match a manifest packed into a bundle tar, which
 // copies a freshly built value rather than rewriting live state.
-var manifestBrainWrite = regexp.MustCompile(`(?i)write[A-Za-z]*\(\s*(outputDir|brainDir)\s*,\s*exportManifestFileName`)
+var manifestBrainWrite = regexp.MustCompile(`(?i)write[A-Za-z]*\(\s*(outputDir|brainDir)\s*,\s*bmanifest.FileName`)
 
 // Every file that rewrites the manifest into the brain directory gates on the
 // strict reader.
 //
 // The tolerant reader exists for the ~280 call sites that only consume the
-// manifest, but three writers used loadBrainManifest's strictness as their write
+// manifest, but three writers used bmanifest.Load's strictness as their write
 // guard and two of them are nowhere near writeBrainManifestAndReadme. Making the
 // reader tolerant silently disarmed those two: the bytes they write are
 // marshalled from a struct, so a field the reader dropped would be erased. This
@@ -172,9 +132,9 @@ func TestEveryManifestWriterGatesOnTheStrictReader(t *testing.T) {
 			continue
 		}
 		writers++
-		if !strings.Contains(text, "loadBrainManifestForReplace") {
-			t.Errorf("%s rewrites the brain manifest but never calls loadBrainManifestForReplace; a writer "+
-				"gated on the tolerant loadBrainManifest erases fields another build wrote", name)
+		if !strings.Contains(text, "bmanifest.LoadForReplace") {
+			t.Errorf("%s rewrites the brain manifest but never calls bmanifest.LoadForReplace; a writer "+
+				"gated on the tolerant bmanifest.Load erases fields another build wrote", name)
 		}
 	}
 	if writers < 3 {
@@ -189,17 +149,17 @@ func TestDiscardManifestThisBuildCannotRewrite_RecoversASkewedManifest(t *testin
 
 	dir := writeTestManifest(t, `{"schema_version":3,"repo_key":"gh/entirehq/devenv","retired_field":0}`)
 
-	if _, err := loadBrainManifestForReplace(dir); err == nil {
+	if _, err := bmanifest.LoadForReplace(dir); err == nil {
 		t.Fatal("precondition: a writer should refuse this manifest")
 	}
 	discarded, err := discardManifestThisBuildCannotRewrite(dir)
 	if err != nil || !discarded {
 		t.Fatalf("discarded=%v err=%v, want discarded with no error", discarded, err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, exportManifestFileName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, bmanifest.FileName)); !os.IsNotExist(err) {
 		t.Fatalf("manifest should be gone: %v", err)
 	}
-	rebuilt := exportManifest{SchemaVersion: brainManifestSchemaVersion, RepoKey: "gh/entirehq/devenv"}
+	rebuilt := exportManifest{SchemaVersion: bmanifest.SchemaVersion, RepoKey: "gh/entirehq/devenv"}
 	if err := writeBrainManifestAndReadme(dir, rebuilt); err != nil {
 		t.Fatalf("the rebuild must now succeed: %v", err)
 	}
@@ -228,7 +188,7 @@ func TestDiscardManifestThisBuildCannotRewrite_KeepsWhatItMustNotDelete(t *testi
 			if err == nil || !strings.Contains(err.Error(), tc.wantCode) {
 				t.Fatalf("%s: err=%v, want %s", name, err, tc.wantCode)
 			}
-			got, readErr := os.ReadFile(filepath.Join(dir, exportManifestFileName))
+			got, readErr := os.ReadFile(filepath.Join(dir, bmanifest.FileName))
 			if readErr != nil || string(got) != tc.body {
 				t.Fatalf("%s: bytes changed: %q err=%v", name, got, readErr)
 			}
@@ -248,7 +208,7 @@ func TestDiscardManifestThisBuildCannotRewrite_LeavesAGoodManifestAlone(t *testi
 	if discarded || err != nil {
 		t.Fatalf("discarded=%v err=%v, want neither", discarded, err)
 	}
-	got, readErr := os.ReadFile(filepath.Join(dir, exportManifestFileName))
+	got, readErr := os.ReadFile(filepath.Join(dir, bmanifest.FileName))
 	if readErr != nil || string(got) != body {
 		t.Fatalf("bytes changed: %q err=%v", got, readErr)
 	}
@@ -285,7 +245,7 @@ func TestDiscardManifestThisBuildCannotRewrite_KeepsOutOfRangeVersions(t *testin
 			if err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 				t.Fatalf("%s: err=%v, want %s", name, err, brainstore.UnsupportedVersionCode)
 			}
-			got, readErr := os.ReadFile(filepath.Join(dir, exportManifestFileName))
+			got, readErr := os.ReadFile(filepath.Join(dir, bmanifest.FileName))
 			if readErr != nil || string(got) != body {
 				t.Fatalf("%s: bytes changed: %q err=%v", name, got, readErr)
 			}

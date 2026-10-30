@@ -4,21 +4,23 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func TestBriefReportsOtherBranchesWhenCurrentFactsAreInactive(t *testing.T) {
 	for _, status := range []string{factStatusActive, factStatusRetracted, factStatusSuperseded} {
 		t.Run(status, func(t *testing.T) {
 			f := newBrainBriefProfileFixture(t)
-			facts, err := loadFacts(f.brainDir, "feature")
+			facts, err := factstore.Load(f.brainDir, "feature")
 			if err != nil || len(facts) != 1 {
 				t.Fatalf("fixture facts: %d, %v", len(facts), err)
 			}
 			facts[0].Status = status
-			if err := writeFacts(f.brainDir, "feature", facts); err != nil {
+			if err := factstore.Write(f.brainDir, "feature", facts); err != nil {
 				t.Fatal(err)
 			}
-			if err := writeFacts(f.brainDir, "main", []factRecord{vitalityTestFact("retries are capped at three", "main", f.opts.Now())}); err != nil {
+			if err := factstore.Write(f.brainDir, "main", []factRecord{vitalityTestFact("retries are capped at three", "main", f.opts.Now())}); err != nil {
 				t.Fatal(err)
 			}
 			if err := updateFactSourceManifest(f.brainDir, f.opts.Now()); err != nil {
@@ -57,7 +59,7 @@ func TestBriefExplainsAnEmptyBranchAndNamesTheOnesWithFacts(t *testing.T) {
 	t.Parallel()
 
 	f := newVerifyFixture(t)
-	if err := writeFacts(f.brainDir, "main", []factRecord{
+	if err := factstore.Write(f.brainDir, "main", []factRecord{
 		vitalityTestFact("retries are capped at three", "main", f.now),
 	}); err != nil {
 		t.Fatalf("write facts: %v", err)
@@ -81,7 +83,7 @@ func TestBriefStaysQuietWhenTheCurrentBranchIsTheOneWithFacts(t *testing.T) {
 	t.Parallel()
 
 	f := newVerifyFixture(t)
-	if err := writeFacts(f.brainDir, "main", []factRecord{
+	if err := factstore.Write(f.brainDir, "main", []factRecord{
 		vitalityTestFact("retries are capped at three", "main", f.now),
 	}); err != nil {
 		t.Fatal(err)
@@ -111,7 +113,7 @@ func TestBriefStaysQuietWhenNoBranchHasFacts(t *testing.T) {
 // so the guard has to drive the surface a user actually runs.
 func TestBriefCommandEmitsTheBranchNoteItself(t *testing.T) {
 	f := newVerifyFixture(t)
-	if err := writeFacts(f.brainDir, "main", []factRecord{
+	if err := factstore.Write(f.brainDir, "main", []factRecord{
 		vitalityTestFact("retries are capped at three", "main", f.now),
 	}); err != nil {
 		t.Fatalf("write facts: %v", err)
@@ -148,10 +150,10 @@ func TestBriefBranchNoteIgnoresBranchesHoldingOnlyDeadFacts(t *testing.T) {
 	dead.Status = factStatusRetracted
 	gone := vitalityTestFact("this was replaced", "feat/dead", f.now)
 	gone.Status = factStatusSuperseded
-	if err := writeFacts(f.brainDir, "feat/dead", []factRecord{dead, gone}); err != nil {
+	if err := factstore.Write(f.brainDir, "feat/dead", []factRecord{dead, gone}); err != nil {
 		t.Fatalf("write dead facts: %v", err)
 	}
-	if err := writeFacts(f.brainDir, "feat/live", []factRecord{
+	if err := factstore.Write(f.brainDir, "feat/live", []factRecord{
 		vitalityTestFact("retries are capped at three", "feat/live", f.now),
 	}); err != nil {
 		t.Fatalf("write live fact: %v", err)
@@ -177,7 +179,7 @@ func TestBriefBranchNoteIsSilentWhenNothingIsLiveAnywhere(t *testing.T) {
 	f := newVerifyFixture(t)
 	dead := vitalityTestFact("this was retired", "feat/dead", f.now)
 	dead.Status = factStatusRetracted
-	if err := writeFacts(f.brainDir, "feat/dead", []factRecord{dead}); err != nil {
+	if err := factstore.Write(f.brainDir, "feat/dead", []factRecord{dead}); err != nil {
 		t.Fatalf("write dead fact: %v", err)
 	}
 	if note := briefBranchBlindSpot(f.brainDir, "main"); note != "" {

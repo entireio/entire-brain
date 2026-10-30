@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // This file is the thin compatibility shim between internal/cli and the
@@ -92,8 +93,8 @@ func retractFact(facts []factRecord, id string, now time.Time) (found, changed b
 
 // gcFacts injects the taxonomy's top-level membership into the pure GC core so
 // factmerge stays free of the taxonomy loader.
-func gcFacts(facts []factRecord, taxonomy factTaxonomy, now time.Time, retention time.Duration) gcResult {
+func gcFacts(facts []factRecord, taxonomy factstore.Taxonomy, now time.Time, retention time.Duration) gcResult {
 	return factmerge.GC(facts, func(path string) bool {
-		return factPathKnownTopLevel(taxonomy, path)
+		return factstore.PathKnownTopLevel(taxonomy, path)
 	}, now, retention)
 }

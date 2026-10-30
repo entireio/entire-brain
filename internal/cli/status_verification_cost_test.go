@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // status_verification_cost_test.go pins issue #325: `brain status` / `brain
@@ -52,7 +54,7 @@ func statusVerificationFixture(t *testing.T) (Options, string, *fakeCommandRunne
 			Paths:  []string{"project.tooling.stack"},
 			Text:   text,
 			Branch: "feature",
-			Origin: factOriginAuthored,
+			Origin: factstore.OriginAuthored,
 			Status: factStatusActive,
 			Provenance: []factAnchor{{
 				SessionID: "session-1",
@@ -62,7 +64,7 @@ func statusVerificationFixture(t *testing.T) (Options, string, *fakeCommandRunne
 			UpdatedAt: now.Add(time.Duration(i) * time.Minute),
 		})
 	}
-	if err := writeFacts(storage.BrainDir, "feature", facts); err != nil {
+	if err := factstore.Write(storage.BrainDir, "feature", facts); err != nil {
 		t.Fatal(err)
 	}
 	if err := updateFactSourceManifest(storage.BrainDir, now); err != nil {

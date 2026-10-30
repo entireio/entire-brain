@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func TestFactsGCRootPreservesDryRunAndPrunesOnlyEligibleRecords(t *testing.T) {
@@ -21,13 +23,13 @@ func TestFactsGCRootPreservesDryRunAndPrunesOnlyEligibleRecords(t *testing.T) {
 	recent := factFor(t, "recent superseded", []string{"project.tooling.stack"}, now.Add(-24*time.Hour))
 	recent.Status = factStatusSuperseded
 	orphan := factFor(t, "active orphan", []string{"gone.sub.type"}, now)
-	if err := writeFacts(brainDir, "main", []factRecord{active, retracted, old, recent, orphan}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{active, retracted, old, recent, orphan}); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFacts(brainDir, "other", []factRecord{retracted}); err != nil {
+	if err := factstore.Write(brainDir, "other", []factRecord{retracted}); err != nil {
 		t.Fatal(err)
 	}
-	otherPath := filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath("other")))
+	otherPath := filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath("other")))
 	otherBefore, err := os.ReadFile(otherPath)
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +58,7 @@ func TestFactsGCRootPreservesDryRunAndPrunesOnlyEligibleRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertFactsGCSummary(t, out, true, 2, 1, 3)
-	kept, err := loadFacts(brainDir, "main")
+	kept, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +100,7 @@ func assertFactsGCSummary(t *testing.T, out string, applied bool, pruned, orphan
 
 func TestFactsGCRootFailsClosedOnMalformedStore(t *testing.T) {
 	opts, brainDir := privacyRegressionCommandFixture(t, time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC))
-	path := filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath("main")))
+	path := filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath("main")))
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}

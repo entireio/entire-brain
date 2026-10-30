@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 type gitlessRunner struct{}
@@ -62,6 +64,27 @@ func TestPushHintSyncsDefaultBranchOnce(t *testing.T) {
 	}
 	if len(*calls) != 1 || (*calls)[0] != distillDefaultBranch {
 		t.Fatalf("expected one %s sync, got %v", distillDefaultBranch, *calls)
+	}
+}
+
+// A recorded no-access pause (COR-2279) bails before the throttle claim, like
+// an opt-out: the push beat must not spend a sync slot — or a server round
+// trip — on a repo the server already denied.
+func TestPushHintSkipsPausedRepo(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	opts, storage := notifySyncHarness(t, &now)
+	calls := captureNotifyHostedSync(t)
+	if err := brainstore.WriteHostedRepoBinding(storage.BrainDir, brainstore.HostedRepoBinding{
+		RepoID: "repo1", BaseURL: "https://cell.example", NoAccessUntil: now.Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if hostedSyncOnPushHint(context.Background(), io.Discard, opts, t.TempDir(), storage, "feat-x") {
+		t.Fatal("a paused repo must not sync on a push hint")
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("expected no sync calls, got %v", *calls)
 	}
 }
 

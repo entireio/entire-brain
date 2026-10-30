@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
 )
 
 // The extractor tests prove a document can be read. These prove it actually
@@ -56,7 +59,7 @@ func TestDocumentsOutsideDocsDoNotBypassTheBinaryChecks(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	pdf := simplePDF(t, "BT /F1 12 Tf (Fixture data, not documentation.) Tj ET")
+	pdf := clitest.SimplePDF(t, "BT /F1 12 Tf (Fixture data, not documentation.) Tj ET")
 	for _, rel := range []string{"testdata/fixture.pdf", "vendor/manual.pdf"} {
 		if err := os.WriteFile(filepath.Join(repoDir, filepath.FromSlash(rel)), pdf, 0o644); err != nil {
 			t.Fatal(err)
@@ -78,7 +81,7 @@ func TestExtractableDocumentSurvivesTheBinaryChecks(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(repoDir, "docs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	pdf := simplePDF(t, "BT /F1 12 Tf (The retry budget is thirty seconds.) Tj ET")
+	pdf := clitest.SimplePDF(t, "BT /F1 12 Tf (The retry budget is thirty seconds.) Tj ET")
 	if err := os.WriteFile(filepath.Join(repoDir, "docs", "spec.pdf"), pdf, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +137,7 @@ func seedWithDocument(t *testing.T, name string, content []byte) (*seedScanResul
 
 func TestSeedWritesExtractedTextAsMarkdown(t *testing.T) {
 	t.Parallel()
-	pdf := simplePDF(t, "BT /F1 12 Tf (The retry budget is thirty seconds.) Tj ET")
+	pdf := clitest.SimplePDF(t, "BT /F1 12 Tf (The retry budget is thirty seconds.) Tj ET")
 	scan, outputDir := seedWithDocument(t, "spec.pdf", pdf)
 
 	// The .md suffix is what makes the text reachable at all: the doc indexer
@@ -166,7 +169,7 @@ func TestSeedIndexesExtractedTextForRetrieval(t *testing.T) {
 	t.Parallel()
 	// The whole point: text out of a PDF has to become retrievable chunks, the
 	// same as text out of a markdown file.
-	pdf := simplePDF(t, "BT /F1 12 Tf (Compaction runs only when the segment count exceeds eight.) Tj ET")
+	pdf := clitest.SimplePDF(t, "BT /F1 12 Tf (Compaction runs only when the segment count exceeds eight.) Tj ET")
 	_, outputDir := seedWithDocument(t, "storage.pdf", pdf)
 
 	records, files, warnings, err := loadDocRecordsFromSeed(outputDir)
@@ -196,25 +199,25 @@ func TestSeedReadsTheWholeContainerNotAPrefix(t *testing.T) {
 	// END of the file, so the prefix read used for markdown hands the extractor
 	// something it cannot parse. A small fixture hides this — it fits inside any
 	// prefix — so this one puts its evidence on the last page of a long document.
-	b := &pdfBuilder{}
-	b.add("<< /Type /Catalog /Pages 2 0 R >>")
+	b := &clitest.PDFBuilder{}
+	b.Add("<< /Type /Catalog /Pages 2 0 R >>")
 	const pages = 40
 	kids := make([]string, 0, pages)
 	for i := 0; i < pages; i++ {
 		kids = append(kids, fmt.Sprintf("%d 0 R", 3+i*2))
 	}
-	b.add(fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", strings.Join(kids, " "), pages))
+	b.Add(fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", strings.Join(kids, " "), pages))
 	for i := 0; i < pages; i++ {
 		content := fmt.Sprintf("Page %d of routine filler text that exists only to make this document long. ", i)
 		if i == pages-1 {
 			content = "Compaction thresholds are documented on the final page."
 		}
-		b.add(fmt.Sprintf("<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 %d 0 R >> >> /Contents %d 0 R >>",
+		b.Add(fmt.Sprintf("<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 %d 0 R >> >> /Contents %d 0 R >>",
 			3+pages*2, 4+i*2))
-		b.addStream(t, "", "BT /F1 12 Tf ("+content+") Tj ET")
+		b.AddStream(t, "", "BT /F1 12 Tf ("+content+") Tj ET")
 	}
-	b.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
-	data := b.build()
+	b.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+	data := b.Build()
 	if len(data) < 4096 {
 		t.Fatalf("the fixture is too small to test a prefix read (%d bytes)", len(data))
 	}
@@ -234,13 +237,13 @@ func TestSeedReportsADocumentItCouldNotRead(t *testing.T) {
 	// A scan must not vanish. The refresh succeeds either way, so silence here
 	// means somebody puts a PDF in docs/, sees no error, and never learns that
 	// nothing was indexed.
-	b := &pdfBuilder{}
-	b.add("<< /Type /Catalog /Pages 2 0 R >>")
-	b.add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-	b.add("<< /Type /Page /Parent 2 0 R /Resources << >> /Contents 4 0 R >>")
-	b.addStream(t, "", "q 600 0 0 800 0 0 cm /Im0 Do Q")
+	b := &clitest.PDFBuilder{}
+	b.Add("<< /Type /Catalog /Pages 2 0 R >>")
+	b.Add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Add("<< /Type /Page /Parent 2 0 R /Resources << >> /Contents 4 0 R >>")
+	b.AddStream(t, "", "q 600 0 0 800 0 0 cm /Im0 Do Q")
 
-	scan, outputDir := seedWithDocument(t, "scan.pdf", b.build())
+	scan, outputDir := seedWithDocument(t, "scan.pdf", b.Build())
 
 	if len(scan.Warnings) == 0 {
 		t.Fatal("an unreadable document produced no warning")
@@ -297,12 +300,12 @@ func TestSeedArtifactsCarryBackWhatExtractionDiscovered(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A PDF with no text layer: parses, contains nothing.
-	b := &pdfBuilder{}
-	b.add("<< /Type /Catalog /Pages 2 0 R >>")
-	b.add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-	b.add("<< /Type /Page /Parent 2 0 R /Resources << >> /Contents 4 0 R >>")
-	b.addStream(t, "", "q 600 0 0 800 0 0 cm /Im0 Do Q")
-	if err := os.WriteFile(filepath.Join(repoDir, "docs", "scan.pdf"), b.build(), 0o644); err != nil {
+	b := &clitest.PDFBuilder{}
+	b.Add("<< /Type /Catalog /Pages 2 0 R >>")
+	b.Add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Add("<< /Type /Page /Parent 2 0 R /Resources << >> /Contents 4 0 R >>")
+	b.AddStream(t, "", "q 600 0 0 800 0 0 cm /Im0 Do Q")
+	if err := os.WriteFile(filepath.Join(repoDir, "docs", "scan.pdf"), b.Build(), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -347,12 +350,12 @@ func TestFileIndexReportsADocumentThatCouldNotBeRead(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(repoDir, "docs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	b := &pdfBuilder{}
-	b.add("<< /Type /Catalog /Pages 2 0 R >>")
-	b.add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-	b.add("<< /Type /Page /Parent 2 0 R /Resources << >> /Contents 4 0 R >>")
-	b.addStream(t, "", "q 600 0 0 800 0 0 cm /Im0 Do Q")
-	if err := os.WriteFile(filepath.Join(repoDir, "docs", "scan.pdf"), b.build(), 0o644); err != nil {
+	b := &clitest.PDFBuilder{}
+	b.Add("<< /Type /Catalog /Pages 2 0 R >>")
+	b.Add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Add("<< /Type /Page /Parent 2 0 R /Resources << >> /Contents 4 0 R >>")
+	b.AddStream(t, "", "q 600 0 0 800 0 0 cm /Im0 Do Q")
+	if err := os.WriteFile(filepath.Join(repoDir, "docs", "scan.pdf"), b.Build(), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	entry := inspectSeedFile(repoDir, "docs/scan.pdf", seedCommandOptions{maxFileBytes: 1 << 20})
@@ -392,157 +395,6 @@ func TestFileIndexReportsADocumentThatCouldNotBeRead(t *testing.T) {
 	}
 }
 
-// A per-stream cap is not a bound on a document. Thousands of pages, each
-// inflating to the per-stream cap and producing almost no text, advance nothing
-// that ends the loop — so a small file can ask for an unbounded amount of
-// decompression work.
-func TestPDFDecompressionIsBoundedAcrossTheWholeDocument(t *testing.T) {
-	t.Parallel()
-	budget := newPDFDecodeBudget()
-	if !budget.spend(maxPDFTotalDecodedBytes / 2) {
-		t.Fatal("half the budget was refused")
-	}
-	if budget.exhausted() {
-		t.Fatal("the budget reported exhaustion with half of it left")
-	}
-	if budget.spend(maxPDFTotalDecodedBytes) {
-		t.Fatal("a spend past the document budget was allowed")
-	}
-	if !budget.exhausted() {
-		t.Fatal("the budget did not record exhaustion")
-	}
-	// A nil budget is unlimited, so callers with no document context are
-	// unaffected rather than silently capped at zero.
-	var none *pdfDecodeBudget
-	if !none.spend(1 << 30) {
-		t.Fatal("a nil budget refused a spend")
-	}
-	if none.exhausted() {
-		t.Fatal("a nil budget reported exhaustion")
-	}
-}
-
-func TestPDFStopsReadingPagesOnceTheBudgetIsGone(t *testing.T) {
-	t.Parallel()
-	// A per-stream cap is not a bound on a document: thousands of pages, each
-	// inflating to that cap and producing almost no text, advance nothing that
-	// ends the loop. The budget is what ends it, and this proves the loop
-	// actually consults it by giving it one too small to finish the document.
-	const pages = 20
-	// Each page carries a distinct sentence and a lot of drawing operators, so
-	// pages that were read are identifiable and decoded bytes far exceed text.
-	filler := strings.Repeat("1 0 0 1 0 0 cm ", 4000)
-	b := &pdfBuilder{}
-	b.add("<< /Type /Catalog /Pages 2 0 R >>")
-	kids := make([]string, 0, pages)
-	for i := 0; i < pages; i++ {
-		kids = append(kids, fmt.Sprintf("%d 0 R", 3+i*2))
-	}
-	b.add(fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", strings.Join(kids, " "), pages))
-	for i := 0; i < pages; i++ {
-		b.add(fmt.Sprintf("<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 %d 0 R >> >> /Contents %d 0 R >>",
-			3+pages*2, 4+i*2))
-		b.addStream(t, "", fmt.Sprintf("q %s Q BT /F1 12 Tf (Sentence number %d appears here.) Tj ET", filler, i))
-	}
-	b.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
-	data := b.build()
-
-	full, err := extractPDFTextWithin(data, newPDFDecodeBudget())
-	if err != nil {
-		t.Fatalf("unbounded extraction: %v", err)
-	}
-	fullPages := strings.Count(full, "appears here.")
-	if fullPages != pages {
-		t.Fatalf("the fixture is wrong: %d of %d pages read with a full budget", fullPages, pages)
-	}
-
-	// A budget that runs out partway through the document.
-	small := &pdfDecodeBudget{remaining: int64(len(filler))}
-	limited, err := extractPDFTextWithin(data, small)
-	if err != nil {
-		t.Fatalf("bounded extraction: %v", err)
-	}
-	limitedPages := strings.Count(limited, "appears here.")
-	if limitedPages >= fullPages {
-		t.Fatalf("the budget did not stop the page loop: %d of %d pages still read", limitedPages, fullPages)
-	}
-	if !small.exhausted() {
-		t.Fatal("the budget was never spent; decompression is not being accounted for")
-	}
-}
-
-// A font is resolved once per page, so a /ToUnicode stream that is a
-// decompression bomb would be inflated once per page — thousands of times
-// inside a document whose content streams are properly bounded. Font streams
-// have to spend from the same allowance.
-func TestFontStreamsSpendFromTheDocumentBudget(t *testing.T) {
-	t.Parallel()
-	b := &pdfBuilder{}
-	b.add("<< /Type /Catalog /Pages 2 0 R >>")
-	b.add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-	b.add("<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>")
-	b.addStream(t, "", "BT /F1 12 Tf (x) Tj ET")
-	b.add("<< /Type /Font /Subtype /Type0 /BaseFont /AAAAAA+Test /Encoding /Identity-H /ToUnicode 6 0 R >>")
-	// A large, highly compressible ToUnicode stream.
-	b.addStream(t, "", "begincmap\n"+strings.Repeat("% filler filler filler filler\n", 20000)+"endcmap\n")
-	data := b.build()
-
-	objects := scanPDFObjects(data, nil)
-	pages := pdfPages(objects)
-	if len(pages) != 1 {
-		t.Fatalf("fixture has %d pages", len(pages))
-	}
-
-	budget := newPDFDecodeBudget()
-	before := budget.remaining
-	pdfPageFonts(objects, pages[0], budget)
-	if budget.remaining == before {
-		t.Fatal("resolving a font's ToUnicode stream spent nothing from the document budget")
-	}
-
-	// And an exhausted budget must stop font resolution decoding at all.
-	spent := &pdfDecodeBudget{remaining: 0}
-	spent.spend(1) // drive it negative
-	fonts := pdfPageFonts(objects, pages[0], spent)
-	for name, font := range fonts {
-		if len(font.toUnicode) > 0 {
-			t.Fatalf("font %s decoded its ToUnicode stream with the budget exhausted", name)
-		}
-	}
-}
-
-// A fixed budget per archive part is not a bound on the archive: it may hold
-// maxExtractZipEntries parts, each able to expand to the full cap before the
-// aggregate output check ever runs.
-func TestOfficePartsDrawDownOneAllowance(t *testing.T) {
-	t.Parallel()
-	// Slides whose XML is large and yields little text, so the output check
-	// does not end the loop — the shape that defeats a per-part budget.
-	filler := strings.Repeat("<a:p><a:r><a:t> </a:t></a:r></a:p>", 30000)
-	parts := map[string]string{}
-	for i := 1; i <= 40; i++ {
-		parts[fmt.Sprintf("ppt/slides/slide%d.xml", i)] =
-			`<?xml version="1.0"?><p:sld xmlns:a="a" xmlns:p="p"><p:cSld><p:spTree><p:sp><p:txBody>` +
-				filler + `<a:p><a:r><a:t>Slide ` + fmt.Sprint(i) + ` text.</a:t></a:r></a:p>` +
-				`</p:txBody></p:sp></p:spTree></p:cSld></p:sld>`
-	}
-	data := zipFile(t, parts)
-
-	text, err := extractOfficeText(data, pptxTextParts)
-	if err != nil {
-		t.Fatalf("extract: %v", err)
-	}
-	// The allowance runs out partway, so later slides are not read. If every
-	// part got a fresh budget, all forty would be.
-	read := strings.Count(text, " text.")
-	if read == 40 {
-		t.Fatal("every part was read; the allowance is not shared across parts")
-	}
-	if read == 0 {
-		t.Fatal("no part was read; the allowance is too small to make progress")
-	}
-}
-
 // A document whose bytes cannot be read is as absent as one whose extraction
 // fails, and must reach the file index and the warnings the same way.
 func TestUnreadableDocumentBytesAreReportedLikeAFailedExtraction(t *testing.T) {
@@ -553,7 +405,7 @@ func TestUnreadableDocumentBytesAreReportedLikeAFailedExtraction(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(repoDir, "docs", "spec.pdf")
-	if err := os.WriteFile(path, simplePDF(t, "BT /F1 12 Tf (x) Tj ET"), 0o644); err != nil {
+	if err := os.WriteFile(path, clitest.SimplePDF(t, "BT /F1 12 Tf (x) Tj ET"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	entry := inspectSeedFile(repoDir, "docs/spec.pdf", seedCommandOptions{maxFileBytes: 1 << 20})
@@ -616,7 +468,7 @@ func TestEditingAnExtractableDocumentChangesItsHash(t *testing.T) {
 	path := filepath.Join(repoDir, "docs", "spec.pdf")
 
 	write := func(text string) seedFileIndexEntry {
-		if err := os.WriteFile(path, simplePDF(t, "BT /F1 12 Tf ("+text+") Tj ET"), 0o644); err != nil {
+		if err := os.WriteFile(path, clitest.SimplePDF(t, "BT /F1 12 Tf ("+text+") Tj ET"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		return inspectSeedFile(repoDir, "docs/spec.pdf", seedCommandOptions{maxFileBytes: 1 << 20})
@@ -643,108 +495,42 @@ func TestEditingAnExtractableDocumentChangesItsHash(t *testing.T) {
 	}
 }
 
-// The fallback scan and the ToUnicode merge both walk every stream. The merge
-// runs first and decodes the CMap streams; the scan must not decode them again,
-// because the decode budget is document-wide and this is the path taken by the
-// degraded files where it is most likely to bind.
-//
-// The document below has no page tree, so the page path yields nothing and the
-// fallback runs — with a CMap stream present for it to re-decode.
-func TestPDFFallbackDoesNotDecodeCMapStreamsTwice(t *testing.T) {
-	t.Parallel()
-	b := &pdfBuilder{}
-	b.add("<< /Type /Catalog >>") // no /Pages: forces the fallback
-	b.addStream(t, "/Type /CMap", strings.Repeat("begincmap endcmap\n", 400))
-	b.addStream(t, "", "BT /F1 12 Tf (The retry budget is thirty seconds.) Tj ET")
-	pdf := b.build()
-
-	full := &pdfDecodeBudget{remaining: 1 << 20}
-	text, err := extractPDFTextWithin(pdf, full)
-	if err != nil || !strings.Contains(text, "retry budget") {
-		t.Skipf("this document does not reach the fallback: %q %v", text, err)
+func TestExtractedSeedPathsDoNotOverwriteMarkdown(t *testing.T) {
+	repo, out := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "docs"), 0755); err != nil {
+		t.Fatal(err)
 	}
-	spent := (1 << 20) - full.remaining
-	t.Logf("budget spent: %d bytes", spent)
-
-	// The bound is absolute, derived from the fixture rather than from the
-	// measurement: a budget computed off the observed spend scales with the
-	// bug and can never fail. The CMap body is the dominant stream, so one
-	// honest pass costs a little over its size and a second decode costs about
-	// that again. Measured: 7,256 bytes with the skip, 14,456 without.
-	cmapBytes := int64(400 * len("begincmap endcmap\n"))
-	if ceiling := cmapBytes + cmapBytes/2; spent > ceiling {
-		t.Fatalf("decoding spent %d bytes against a ceiling of %d; the CMap stream is being decoded twice", spent, ceiling)
+	files := map[string][]byte{
+		"spec.pdf":       clitest.SimplePDF(t, "BT /F1 12 Tf (PDF project knowledge.) Tj ET"),
+		"spec.pdf.md":    []byte("Markdown project knowledge."),
+		"spec.pdf.md.md": []byte("More markdown knowledge."),
 	}
-}
-
-// Object streams decompress during the initial object scan, before any page is
-// walked. Passing a nil budget there made that expansion unlimited -- each
-// stream capped only per-stream, up to maxPDFObjects of them -- which is the
-// decompression bomb the document-wide budget exists to stop, reachable before
-// the first page is read.
-func TestObjectStreamExpansionSpendsTheDocumentBudget(t *testing.T) {
-	t.Parallel()
-	b := &pdfBuilder{}
-	b.add("<< /Type /Catalog >>")
-	// A highly compressible object stream: small on disk, large decompressed.
-	payload := strings.Repeat("0 0 ", 2000)
-	b.addStream(t, "/Type /ObjStm /N 1 /First 4", payload)
-	pdf := b.build()
-
-	// A budget far below the decompressed size must stop the expansion rather
-	// than let it run to completion.
-	tiny := &pdfDecodeBudget{remaining: 64}
-	objects := scanPDFObjects(pdf, tiny)
-	if len(objects) == 0 {
-		t.Fatal("the fixture produced no objects at all")
+	for name, data := range files {
+		if err := os.WriteFile(filepath.Join(repo, "docs", name), data, 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if !tiny.exhausted() {
-		t.Fatalf("a %d-byte object stream expanded under a 64-byte budget without exhausting it (remaining %d)",
-			len(payload), tiny.remaining)
+	scan, err := scanSeedRepository(context.Background(), &fakeCommandRunner{}, repo, "test", seedCommandOptions{maxFiles: 100, maxFileBytes: 1 << 20})
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-// Colors, BitsPerComponent and Columns come out of the document and their
-// product decides make([]byte, rowLen). A file could ask for an allocation far
-// larger than anything it actually contained.
-func TestPredictorRefusesParametersThatWouldOverAllocate(t *testing.T) {
-	t.Parallel()
-	data := []byte("short stream")
-	for _, tc := range []struct {
-		name  string
-		parms map[string]pdfValue
-	}{
-		{"absurd column count", map[string]pdfValue{
-			"Predictor": float64(12), "Columns": float64(1 << 40),
-		}},
-		{"more colour components than CMYK", map[string]pdfValue{
-			"Predictor": float64(12), "Colors": float64(1 << 20), "Columns": float64(8),
-		}},
-		{"impossible sample size", map[string]pdfValue{
-			"Predictor": float64(12), "BitsPerComponent": float64(1 << 20), "Columns": float64(8),
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got := pdfApplyPredictor(data, tc.parms)
-			// Refused means handed back untouched, never a giant buffer.
-			if len(got) > len(data) {
-				t.Fatalf("predictor produced %d bytes from %d: the parameters were trusted",
-					len(got), len(data))
-			}
-		})
+	if len(scan.Docs) != 3 {
+		t.Fatalf("got %d documents", len(scan.Docs))
 	}
-}
-
-// A legal predictor must still work, or the bounds above would have closed the
-// feature rather than the hole.
-func TestPredictorStillAppliesForLegalParameters(t *testing.T) {
-	t.Parallel()
-	// Two PNG-Up rows (tag 2), one byte wide: 1, then +2 => 3.
-	raw := []byte{2, 1, 2, 2}
-	got := pdfApplyPredictor(raw, map[string]pdfValue{
-		"Predictor": float64(12), "Colors": float64(1), "BitsPerComponent": float64(8), "Columns": float64(1),
-	})
-	if len(got) != 2 || got[0] != 1 || got[1] != 3 {
-		t.Fatalf("a legal PNG-Up predictor was not applied: %v", got)
+	if err := writeSeedArtifacts(out, &scan); err != nil {
+		t.Fatal(err)
+	}
+	for _, doc := range scan.Docs {
+		got, err := os.ReadFile(filepath.Join(out, filepath.FromSlash(doc.SeedPath)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := string(files[filepath.Base(doc.Path)])
+		if doc.Extracted {
+			want = "PDF project knowledge."
+		}
+		if !strings.Contains(string(got), want) {
+			t.Fatalf("%s was overwritten: %q", doc.Path, got)
+		}
 	}
 }

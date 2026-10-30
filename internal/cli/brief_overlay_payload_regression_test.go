@@ -5,11 +5,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestBriefOverlayPreservesPayloadWithCorruptJSONIndex(t *testing.T) {
 	fixture := newBrainBriefProfileFixture(t)
-	manifest, err := loadBrainManifest(fixture.brainDir)
+	manifest, err := bmanifest.Load(fixture.brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -20,12 +23,12 @@ func TestBriefOverlayPreservesPayloadWithCorruptJSONIndex(t *testing.T) {
 	}}
 	source := *manifest.Sources.History
 	source.Records = len(index.Records)
-	source.IndexPath = historyIndexPath
+	source.IndexPath = historystore.IndexPath
 	source.IndexDigest = ""
 	if err := publishHistoryComparisonIndex(fixture.brainDir, index, &source); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err = loadBrainManifest(fixture.brainDir)
+	manifest, err = bmanifest.Load(fixture.brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

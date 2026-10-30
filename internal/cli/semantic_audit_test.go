@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
@@ -85,7 +88,7 @@ func TestStatusReportsSemanticCountsFreshnessAndBlindSpots(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		Sources: &brainSources{Semantic: &semanticSourceManifest{
 			Provider:         "entire-graph",
 			ProviderVersion:  "0.1.0",
@@ -243,7 +246,7 @@ func statusGateFixtureOptions(t *testing.T, repoDir string, partialFailures []se
 		t.Fatalf("storage: %v", err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		Sources: &brainSources{Semantic: &semanticSourceManifest{
 			StoreOwner:       "graph",
 			Provider:         "entire-graph",
@@ -304,14 +307,14 @@ func TestBuildBrainRetrievalStatus(t *testing.T) {
 	manifest := func(commit, mode, hash string, seedAt, docsAt time.Time) *exportManifest {
 		return &exportManifest{Sources: &brainSources{
 			Seed: &seedSourceManifest{GeneratedAt: seedAt, Commit: commit, WorktreeMode: mode, WorktreeHash: hash},
-			Docs: &docSourceManifest{GeneratedAt: docsAt, IndexPath: docIndexPath, Records: 7, Files: 3},
+			Docs: &docSourceManifest{GeneratedAt: docsAt, IndexPath: docstore.IndexPath, Records: 7, Files: 3},
 		}}
 	}
 	// The docs axis now reports the index retrieval will actually open, so the
 	// declared index has to exist for these cases to describe freshness rather
 	// than availability.
 	brainDir := t.TempDir()
-	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, docIndexPath, []byte(`{"generated_at":"2026-07-21T12:00:00Z","records":[]}`), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, docstore.IndexPath, []byte(`{"generated_at":"2026-07-21T12:00:00Z","records":[]}`), 0o600); err != nil {
 		t.Fatalf("write doc index: %v", err)
 	}
 	tests := []struct {
@@ -410,7 +413,7 @@ func TestStatusFailOnUnsafeAndReleaseEmitJSONBeforeError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := loadBrainManifest(storage.BrainDir)
+	m, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,15 +519,15 @@ func TestStatusSkipsUnsafeStoreCoverage(t *testing.T) {
 		t.Fatalf("storage: %v", err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		Sources: &brainSources{Semantic: &semanticSourceManifest{
 			Provider:         "entire-graph",
 			ProviderVersion:  "0.1.0",
 			SchemaVersion:    "1.0",
 			Commit:           "headsha",
 			Branch:           "main",
-			GenerationPath:   filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir, "safe")),
-			StorePath:        filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir, "other", semanticSQLiteName)),
+			GenerationPath:   filepath.ToSlash(filepath.Join(semstore.DirName, semanticGenerationsDir, "safe")),
+			StorePath:        filepath.ToSlash(filepath.Join(semstore.DirName, semanticGenerationsDir, "other", semstore.SQLiteName)),
 			Files:            2,
 			Symbols:          3,
 			Relations:        4,

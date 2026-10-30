@@ -12,6 +12,7 @@ import (
 	"time"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/setupui"
 	"github.com/entireio/entire-brain/internal/tui"
 )
@@ -199,7 +200,7 @@ func TestSetupBuildPhaseGivesNoSubStepItsOwnLine(t *testing.T) {
 // and `setup && query` proceeded on it.
 func TestSetupExitsNonZeroWhenTheBrainCannotAnswer(t *testing.T) {
 	f := newSetupTestFixture(t)
-	dirty := errors.New(dirtyWorktreeErrorCode + ": refusing to index uncommitted content")
+	dirty := errors.New(brainstore.DirtyWorktreeCode + ": refusing to index uncommitted content")
 	rec := &recordedSetup{instantComponents: []setupComponent{
 		newSetupComponent(brainComponentDocs, nil, clibase.SetupBrainBinaryName),
 		newSetupComponent(brainComponentEntities, nil, clibase.SetupBrainBinaryName),
@@ -217,7 +218,7 @@ func TestSetupExitsNonZeroWhenTheBrainCannotAnswer(t *testing.T) {
 	if err == nil {
 		t.Fatalf("a brain that cannot answer must not report success:\n%s", out)
 	}
-	if !strings.Contains(err.Error(), "not queryable") || !strings.Contains(err.Error(), "seed baseline") {
+	if !strings.Contains(err.Error(), "not queryable") || !strings.Contains(err.Error(), "repository context") {
 		t.Fatalf("the exit must name what could not be built: %v", err)
 	}
 	if !strings.Contains(out.String(), "the brain cannot answer yet") {

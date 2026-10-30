@@ -5,12 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"math"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -33,8 +31,6 @@ import (
 // support), reinforcement quality (success lifts, corrected sinks), and author/
 // branch diversity. Cutoffs map the blend to high/medium/low.
 
-const patternsProceduresPath = "patterns/procedures.ndjson"
-
 const (
 	procedureMinSupport     = 3    // distinct episodes a shape needs to be a procedure
 	procedureSupportSaturat = 10   // episode count at which the recurrence term saturates
@@ -51,24 +47,7 @@ const (
 	wDiversity     = 0.10
 )
 
-type procedureRecord struct {
-	ID            string              `json:"id"`
-	Type          string              `json:"type"`  // always "procedure"
-	Scope         string              `json:"scope"` // "repo" | "workspace"
-	RepoKey       string              `json:"repo_key,omitempty"`
-	Workspace     string              `json:"workspace,omitempty"`
-	Commands      []string            `json:"commands"`
-	Support       int                 `json:"support"` // distinct episodes
-	Authors       int                 `json:"authors"`
-	Branches      int                 `json:"branches"`
-	Repos         int                 `json:"repos,omitempty"`          // workspace scope: repos sharing this shape
-	RepoBreakdown []patternRepoStat   `json:"repo_breakdown,omitempty"` // workspace scope
-	Reinforcement reinforcementCounts `json:"reinforcement"`
-	Strength      float64             `json:"strength"`
-	StrengthLabel string              `json:"strength_label"` // high|medium|low
-	Examples      []episodeAnchor     `json:"examples,omitempty"`
-	LastSeen      *time.Time          `json:"last_seen,omitempty"`
-}
+type procedureRecord = patterncore.ProcedureRecord
 
 type patternRepoStat = patterncore.PatternRepoStat
 
@@ -289,31 +268,8 @@ func writeBrainProceduresFile(outputDir string, procedures []procedureRecord) er
 			return fmt.Errorf("encode procedure: %w", err)
 		}
 	}
-	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, patternsProceduresPath, buf.Bytes(), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, patterncore.ProceduresPath, buf.Bytes(), 0o600); err != nil {
 		return fmt.Errorf("write procedures: %w", err)
 	}
 	return nil
-}
-
-func loadBrainProcedures(brainDir string) ([]procedureRecord, error) {
-	content, err := readBrainRelativeStateFile(brainDir, patternsProceduresPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var procedures []procedureRecord
-	for _, line := range strings.Split(content, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		var p procedureRecord
-		if err := json.Unmarshal([]byte(line), &p); err != nil {
-			return nil, fmt.Errorf("parse procedure line: %w", err)
-		}
-		procedures = append(procedures, p)
-	}
-	return procedures, nil
 }

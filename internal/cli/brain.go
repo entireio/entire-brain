@@ -11,124 +11,13 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
-
-const brainManifestSchemaVersion = 4
-
-// brainManifestMinSchemaVersion is the oldest manifest this build reads.
-//
-// It is 1 rather than 0 because 0 is not a version anything ever wrote: the
-// commit that introduced manifest.json already set schema_version 1, and the
-// field carries no `omitempty`, so no build of this tool can emit a manifest
-// without one. A manifest reporting 0 is therefore an ABSENT field -- `{}`, a
-// hand-edited file, a truncated write -- and not a pre-versioning document to
-// adapt. Reading it as "current" was how an empty object passed for a healthy
-// brain.
-const brainManifestMinSchemaVersion = 1
-
-type brainSources struct {
-	Seed     *seedSourceManifest     `json:"seed,omitempty"`
-	Sessions *sessionSourceManifest  `json:"sessions,omitempty"`
-	Semantic *semanticSourceManifest `json:"semantic,omitempty"`
-	History  *historySourceManifest  `json:"history,omitempty"`
-	Facts    *factSourceManifest     `json:"facts,omitempty"`
-	Docs     *docSourceManifest      `json:"docs,omitempty"`
-	Patterns *patternSourceManifest  `json:"patterns,omitempty"`
-}
 
 const transcriptStorageCheckpoint = "checkpoint"
 
 func checkpointBackedSessions(manifest *exportManifest) bool {
 	return manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil && manifest.Sources.Sessions.TranscriptStorage == transcriptStorageCheckpoint
-}
-
-type sessionSourceManifest struct {
-	TranscriptStorage  string          `json:"transcript_storage,omitempty"`
-	GeneratedAt        time.Time       `json:"generated_at"`
-	EntireCLIVersion   string          `json:"entire_cli_version,omitempty"`
-	DefaultBranch      string          `json:"default_branch,omitempty"`
-	TranscriptMode     string          `json:"transcript_mode"`
-	Scope              string          `json:"scope"`
-	CheckpointLimit    int             `json:"checkpoint_limit"`
-	CheckpointsScanned int             `json:"checkpoints_scanned"`
-	OldestSessionAt    *time.Time      `json:"oldest_session_at,omitempty"`
-	LatestCheckpointID string          `json:"latest_checkpoint_id,omitempty"`
-	Branches           []exportBranch  `json:"branches,omitempty"`
-	Sessions           []exportSession `json:"sessions"`
-	Warnings           []string        `json:"warnings,omitempty"`
-}
-
-// loadBrainManifest reads the manifest for the callers that only consume it —
-// status, doctor, the memory worker, distillation, search.
-//
-// It tolerates fields it does not declare. Manifest fields are added and retired
-// without a schema bump (history_coverage.checkpointed_unexported_commits was
-// retired at version 3), so every manifest written before such a change carries
-// a field a later build has never heard of. Rejecting those bytes reported the
-// whole brain as memory_state_corrupt: all sources off, no facts, and the memory
-// worker failing on its retry loop indefinitely, for state that was merely
-// written by a different build and is entirely readable.
-//
-// Writers must not be this forgiving — see loadBrainManifestForReplace.
-func loadBrainManifest(outputDir string) (*exportManifest, error) {
-	manifest, _, err := readBrainManifest(outputDir, true)
-	return manifest, err
-}
-
-// loadBrainManifestForReplace reads the manifest on behalf of a writer about to
-// overwrite it, and refuses fields it cannot round-trip: re-encoding from a
-// struct that never saw them erases what another build recorded. Availability is
-// the reader's concern; not destroying state is this one's.
-func loadBrainManifestForReplace(outputDir string) (*exportManifest, error) {
-	manifest, _, err := readBrainManifest(outputDir, false)
-	// NOT isUnknownFieldError: that matches on a PREFIX, and by the time the
-	// error reaches here it has been wrapped ("parse brain manifest: ..."), so
-	// the prefix never matches and the remedy was silently never attached.
-	if errRetiredManifestField(err) {
-		// Durable, and the bare decoder error says none of this. A field that
-		// was RETIRED without a schema bump leaves every manifest written by
-		// the older build unwritable by this one -- for ever, because nothing
-		// in the normal path rewrites it. On this machine that silently drove
-		// a two-hour relaunch chain per repository, with a live sleeping
-		// process per retry, and the worker log recorded only "prepass_failed".
-		return manifest, errors.New(retiredManifestFieldMessage(err))
-	}
-	return manifest, err
-}
-
-// errRetiredManifestField reports a manifest a writer cannot round-trip because
-// it carries a field this build no longer declares.
-//
-// It is a DURABLE condition: no amount of retrying changes the bytes on disk,
-// so a relaunch chain spends two hours and ends exactly where it started.
-// retiredManifestRemedy is the one wording, so the "already said it" check
-// below cannot drift from the thing it is checking for.
-// A func, not a const: the spelling depends on how the reader reached this
-// binary, which is only knowable at call time.
-func retiredManifestRemedy() string {
-	return "; this manifest carries a field this build retired, so it cannot be rewritten without erasing what another build recorded -- rebuild it with `" + base.BrainInvocation(os.LookupEnv, "refresh") + " --force`"
-}
-
-// retiredManifestFieldMessage states the failure AND what to do about it.
-//
-// The remedy has to be attached here rather than at the read, because the
-// manifest is read through several paths and only some of them wrap the error.
-// Measured: the delta-export path reported the bare decoder error, so the one
-// line a reader actually saw named a JSON field and no action at all.
-func retiredManifestFieldMessage(err error) string {
-	if err == nil {
-		return ""
-	}
-	msg := err.Error()
-	// Idempotent. loadBrainManifestForReplace already attaches this remedy, and
-	// the worker then asks for the message again -- appending unconditionally
-	// printed the whole explanation TWICE. Caught by weakening: deleting this
-	// function's retired-field branch made the output better, which is only
-	// possible if the branch was doing harm.
-	if strings.Contains(msg, retiredManifestRemedy()) {
-		return msg
-	}
-	return msg + retiredManifestRemedy()
 }
 
 // errRepositoryGone reports a prepass that failed because the repository this
@@ -178,7 +67,7 @@ func errRepositoryGone(err error) bool {
 // each pending retry is a live sleeping process, not a timer. Spending that on
 // a condition fixed only by a human is the defect this classifies away.
 func errDurablePrepassFailure(err error) bool {
-	return errRetiredManifestField(err) || errRepositoryGone(err)
+	return bmanifest.IsRetiredFieldError(err) || errRepositoryGone(err)
 }
 
 // durablePrepassMessage states the failure and what to do about it.
@@ -195,26 +84,13 @@ func durablePrepassText(err error) string {
 	if err == nil {
 		return ""
 	}
-	if errRetiredManifestField(err) {
-		return retiredManifestFieldMessage(err)
+	if bmanifest.IsRetiredFieldError(err) {
+		return bmanifest.RetiredFieldMessage(err)
 	}
 	if errRepositoryGone(err) {
 		return err.Error() + "; the repository this brain belongs to is gone, so nothing here can be refreshed -- remove the brain with `" + base.BrainInvocation(os.LookupEnv, "reset") + "` if the repository is not coming back"
 	}
 	return err.Error()
-}
-
-func errRetiredManifestField(err error) bool {
-	return brainstore.IsUnknownFieldError(err) || (err != nil &&
-		strings.Contains(err.Error(), brainstore.StateCorruptCode) &&
-		strings.Contains(err.Error(), "unknown field"))
-}
-
-// readBrainManifest also reports whether it dropped fields written by another
-// build, so status and doctor can recommend a refresh instead of staying silent.
-func readBrainManifest(outputDir string, tolerateUnknownFields bool) (*exportManifest, bool, error) {
-	manifest, _, dropped, _, err := readBrainManifestFile(outputDir, tolerateUnknownFields)
-	return manifest, dropped, err
 }
 
 // errManifestRoundTrips reports a manifest this build can already rewrite, so
@@ -241,13 +117,13 @@ var errManifestRoundTrips = errors.New("manifest round-trips")
 func discardManifestThisBuildCannotRewrite(brainDir string) (bool, error) {
 	unrewritable := false
 	err := brainstore.WithBrainManifestWriteLock(brainDir, func() error {
-		return removeCheckedMemoryStateFileValidated(brainDir, exportManifestFileName, "brain manifest", func(before os.FileInfo) (bool, error) {
-			f, present, err := brainstore.OpenMemoryStateFileExpected(brainDir, exportManifestFileName, "brain manifest", before)
+		return removeCheckedMemoryStateFileValidated(brainDir, bmanifest.FileName, "brain manifest", func(before os.FileInfo) (bool, error) {
+			f, present, err := brainstore.OpenMemoryStateFileExpected(brainDir, bmanifest.FileName, "brain manifest", before)
 			if err != nil || !present {
 				return present, err
 			}
 			defer f.Close()
-			_, _, droppedUnknownFields, err := decodeBrainManifestFile(f, true)
+			_, _, droppedUnknownFields, err := bmanifest.DecodeFile(f, true)
 			if err != nil {
 				return true, err
 			}
@@ -267,72 +143,6 @@ func discardManifestThisBuildCannotRewrite(brainDir string) (bool, error) {
 	return unrewritable, nil
 }
 
-func normalizeBrainManifest(manifest *exportManifest) {
-	if manifest.SchemaVersion == 0 {
-		manifest.SchemaVersion = 1
-	}
-	if manifest.Sources == nil {
-		manifest.Sources = &brainSources{}
-	}
-	if manifest.Sources.Sessions == nil && (len(manifest.Sessions) > 0 || manifest.TranscriptMode != "" || manifest.CheckpointsScanned > 0) {
-		manifest.Sources.Sessions = sessionSourceFromExport(*manifest)
-	}
-}
-
-func sessionSourceFromExport(manifest exportManifest) *sessionSourceManifest {
-	return &sessionSourceManifest{
-		GeneratedAt:        manifest.GeneratedAt,
-		EntireCLIVersion:   manifest.EntireCLIVersion,
-		DefaultBranch:      manifest.DefaultBranch,
-		TranscriptMode:     manifest.TranscriptMode,
-		TranscriptStorage:  manifest.TranscriptStorage,
-		Scope:              manifest.Scope,
-		CheckpointLimit:    manifest.CheckpointLimit,
-		CheckpointsScanned: manifest.CheckpointsScanned,
-		OldestSessionAt:    oldestSessionAt(manifest.Sessions),
-		LatestCheckpointID: latestCheckpointID(manifest.Sessions),
-		Branches:           append([]exportBranch(nil), manifest.Branches...),
-		Sessions:           append([]exportSession(nil), manifest.Sessions...),
-		Warnings:           append([]string(nil), manifest.Warnings...),
-	}
-}
-
-func oldestSessionAt(sessions []exportSession) *time.Time {
-	var oldest time.Time
-	for _, session := range sessions {
-		if session.CreatedAt.IsZero() {
-			continue
-		}
-		if oldest.IsZero() || session.CreatedAt.Before(oldest) {
-			oldest = session.CreatedAt.UTC()
-		}
-	}
-	if oldest.IsZero() {
-		return nil
-	}
-	return &oldest
-}
-
-func latestCheckpointID(sessions []exportSession) string {
-	var latest exportSession
-	for _, session := range sessions {
-		if latest.SessionID == "" || shouldReplaceExportSession(latest, session) {
-			latest = session
-		}
-	}
-	return latest.LatestCheckpoint
-}
-
-func shouldReplaceExportSession(current, candidate exportSession) bool {
-	if candidate.CreatedAt.After(current.CreatedAt) {
-		return true
-	}
-	if current.CreatedAt.Equal(candidate.CreatedAt) {
-		return candidate.LatestCheckpoint > current.LatestCheckpoint
-	}
-	return false
-}
-
 func writeBrainSessionSource(outputDir, repoKey string, sessionManifest exportManifest) error {
 	return brainstore.WithBrainWriteLock(outputDir, func() error {
 		return writeBrainSessionSourceLocked(outputDir, repoKey, sessionManifest)
@@ -340,17 +150,17 @@ func writeBrainSessionSource(outputDir, repoKey string, sessionManifest exportMa
 }
 
 func writeBrainSessionSourceLocked(outputDir, repoKey string, sessionManifest exportManifest) error {
-	existing, err := loadBrainManifest(outputDir)
+	existing, err := bmanifest.Load(outputDir)
 	if err != nil {
 		return err
 	}
 	if existing.Sources == nil {
 		existing.Sources = &brainSources{}
 	}
-	sessionManifest.SchemaVersion = brainManifestSchemaVersion
+	sessionManifest.SchemaVersion = bmanifest.SchemaVersion
 	sessionManifest.RepoKey = repoKey
 	sessionManifest.Sources = existing.Sources
-	sessionManifest.Sources.Sessions = sessionSourceFromExport(sessionManifest)
+	sessionManifest.Sources.Sessions = bmanifest.SessionSourceFromExport(sessionManifest)
 	if existing.Sources.Seed != nil {
 		sessionManifest.Sources.Seed = existing.Sources.Seed
 	}
@@ -367,14 +177,14 @@ func writeBrainSeedSource(outputDir, repoKey string, seed *seedSourceManifest) e
 }
 
 func writeBrainSeedSourceLocked(outputDir, repoKey string, seed *seedSourceManifest) error {
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		return err
 	}
 	if manifest.Sources == nil {
 		manifest.Sources = &brainSources{}
 	}
-	manifest.SchemaVersion = brainManifestSchemaVersion
+	manifest.SchemaVersion = bmanifest.SchemaVersion
 	manifest.RepoKey = repoKey
 	manifest.GeneratedAt = seed.GeneratedAt
 	if manifest.GeneratedAt.IsZero() {
@@ -409,20 +219,20 @@ func writeBrainManifestAndReadme(outputDir string, manifest exportManifest) erro
 		// to exclude hostile non-cooperating filesystem mutation, but no current
 		// writer can down-convert a vNext or erase unrecognized current bytes it
 		// observed.
-		if _, err := loadBrainManifestForReplace(outputDir); err != nil {
+		if _, err := bmanifest.LoadForReplace(outputDir); err != nil {
 			return err
 		}
-		normalizeBrainManifest(&manifest)
-		manifest.SchemaVersion = brainManifestSchemaVersion
+		bmanifest.Normalize(&manifest)
+		manifest.SchemaVersion = bmanifest.SchemaVersion
 		data, err := json.MarshalIndent(manifest, "", "  ")
 		if err != nil {
-			return fmt.Errorf("encode %s: %w", exportManifestFileName, err)
+			return fmt.Errorf("encode %s: %w", bmanifest.FileName, err)
 		}
 		data = append(data, '\n')
 		// Canonical manifest readers have no byte ceiling; retain every record
 		// and publish the complete document atomically.
-		if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, exportManifestFileName, data, 0o600); err != nil {
-			return fmt.Errorf("write %s: %w", exportManifestFileName, err)
+		if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, bmanifest.FileName, data, 0o600); err != nil {
+			return fmt.Errorf("write %s: %w", bmanifest.FileName, err)
 		}
 		if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, exportReadmeFileName, []byte(renderBrainReadme(manifest)), 0o600); err != nil {
 			return fmt.Errorf("write brain readme: %w", err)

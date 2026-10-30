@@ -3,6 +3,8 @@ package cli
 import (
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func TestApplyProposalMerge(t *testing.T) {
@@ -185,7 +187,7 @@ func TestRetractFact(t *testing.T) {
 	if got := rankFacts(facts, "", 10, false); len(got) != 0 {
 		t.Fatalf("retracted fact should not surface in active recall")
 	}
-	res := gcFacts(facts, defaultFactTaxonomy(now), now, defaultFactRetention)
+	res := gcFacts(facts, factstore.DefaultTaxonomy(now), now, defaultFactRetention)
 	if len(res.Pruned) != 1 || len(res.Kept) != 0 {
 		t.Fatalf("gc should prune the retracted fact: %+v", res)
 	}
@@ -203,7 +205,7 @@ func TestGCFacts(t *testing.T) {
 	orphan := factFor(t, "orphan", []string{"project.tooling.stack"}, now)
 	orphan.Paths = []string{"gone.sub.type"} // top-level not in taxonomy
 
-	tax := defaultFactTaxonomy(now)
+	tax := factstore.DefaultTaxonomy(now)
 	result := gcFacts([]factRecord{active, retracted, oldSuperseded, recentSuperseded, orphan}, tax, now, defaultFactRetention)
 
 	if len(result.Pruned) != 2 {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 var errMemoryReceiptOutput = errors.New("memory receipt output failed")
@@ -57,7 +58,7 @@ func TestMemoryReconcileCommandReceiptDryRunIdempotenceAndOutputFailure(t *testi
 	opts, brainDir := memoryAdminCommandFixture(t)
 	addSession := func(sessionID string) {
 		t.Helper()
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -263,7 +264,7 @@ func TestMemoryWorkerPrepassFailurePreservesProgressAndSchedulesRetry(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, RepoKey: storage.Key}); err != nil {
+	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, RepoKey: storage.Key}); err != nil {
 		t.Fatal(err)
 	}
 	pending := memoryJob{Kind: memoryJobKindProjection, RepoKey: storage.Key, SessionID: "already-exported", SessionRef: "conversation-session:already-exported", InputDigest: "sha256:already-exported", Trigger: "startup", State: memoryJobStatePending, CreatedAt: now, AvailableAt: now}
@@ -310,7 +311,7 @@ func TestDelayedMemoryWorkerClaimsSchedulerBeforeSleeping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, RepoKey: storage.Key}); err != nil {
+	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, RepoKey: storage.Key}); err != nil {
 		t.Fatal(err)
 	}
 	coordinator, err := acquireMemoryCoordinator(storage.BrainDir, now, "test")
@@ -342,7 +343,7 @@ func TestReconcileMemoryAndLaunchPreservesDurableWorkOnLaunchFailure(t *testing.
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		RepoKey:       storage.Key,
 		Sources: &brainSources{Sessions: &sessionSourceManifest{
 			DefaultBranch: "main",
@@ -629,7 +630,7 @@ func TestMemoryJobIssuesAreIsolatedAndNeverOverwritten(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir, _, _ := shortTermFixture(t)
 			now := time.Date(2026, 8, 9, 14, 0, 0, 0, time.UTC)
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1066,7 +1067,7 @@ func TestMemoryMissingProjectionReceiptReactivatesCompletedJob(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	now := time.Date(2026, 8, 9, 17, 0, 0, 0, time.UTC)
 	_ = runMemoryProjectionLaneTest(t, brainDir, now)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1094,7 +1095,7 @@ func TestMemoryMissingProjectionReceiptReactivatesCompletedJob(t *testing.T) {
 func TestMemoryUnreadableSessionIsInvalidWithoutBlockingPeers(t *testing.T) {
 	brainDir, _ := writeSessionNavigationFixture(t)
 	now := time.Date(2026, 8, 9, 17, 30, 0, 0, time.UTC)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1646,7 +1647,7 @@ func TestMemoryReconcileWorkerAndReceipts(t *testing.T) {
 			t.Fatalf("job not complete: %+v", job)
 		}
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

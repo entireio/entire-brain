@@ -8,6 +8,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/apiurl"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/repoid"
 	"github.com/entireio/entire-brain/internal/tui"
 )
@@ -17,8 +18,27 @@ import (
 // setups should use `entire brain connect` or explicit target flags.
 const envBrainAllowHosted = "ENTIRE_BRAIN_ALLOW_HOSTED"
 
+const (
+	// The hosted target is resolved from these env vars (each overridable by a
+	// flag). There is no pre-existing entire-api client in this plugin, so these
+	// follow the plugin's ENTIRE_* environment convention. Auth is a bearer token,
+	// matching brainstore's per-fact endpoints.
+	envAPIBaseURL = "ENTIRE_API_URL"
+	envAPIToken   = "ENTIRE_API_TOKEN"
+	envRepoID     = "ENTIRE_REPO_ID"
+)
+
+// flagOrEnv returns the trimmed flag value when set, else the trimmed
+// environment value.
+func flagOrEnv(flagVal, envName string) string {
+	if v := strings.TrimSpace(flagVal); v != "" {
+		return v
+	}
+	return strings.TrimSpace(os.Getenv(envName))
+}
+
 // manualHostedTarget is the resolved destination for a manual hosted command
-// (publish, memories sync on the hosted backend).
+// (memories sync on the hosted backend).
 type manualHostedTarget struct {
 	repoID  string
 	baseURL string
@@ -38,10 +58,10 @@ type manualHostedTarget struct {
 // host the user pointed at explicitly, only to the one they connected to.
 func resolveManualHostedTarget(ctx context.Context, opts Options, brainDir, repoDir, command string, flagRepoID, flagAPIURL, flagToken string) (manualHostedTarget, error) {
 	var t manualHostedTarget
-	var binding hostedRepoBinding
+	var binding brainstore.HostedRepoBinding
 	connected := false
 	if brainDir != "" {
-		b, present, err := readHostedRepoBinding(brainDir)
+		b, present, err := brainstore.ReadHostedRepoBinding(brainDir)
 		if err == nil && present && !b.OptedOut {
 			binding, connected = b, true
 		}
@@ -64,7 +84,7 @@ func resolveManualHostedTarget(ctx context.Context, opts Options, brainDir, repo
 		}
 	}
 
-	t.repoID = publishFlagOrEnv(flagRepoID, envRepoID)
+	t.repoID = flagOrEnv(flagRepoID, envRepoID)
 	if t.repoID == "" && connected {
 		t.repoID = binding.RepoID
 	}
@@ -75,7 +95,7 @@ func resolveManualHostedTarget(ctx context.Context, opts Options, brainDir, repo
 		return t, fmt.Errorf("%s: %w", command, err)
 	}
 
-	t.baseURL = publishFlagOrEnv(flagAPIURL, envAPIBaseURL)
+	t.baseURL = flagOrEnv(flagAPIURL, envAPIBaseURL)
 	if t.baseURL == "" && connected {
 		t.baseURL = binding.BaseURL
 	}
@@ -88,7 +108,7 @@ func resolveManualHostedTarget(ctx context.Context, opts Options, brainDir, repo
 	}
 	t.baseURL = baseURL
 
-	t.token = publishFlagOrEnv(flagToken, envAPIToken)
+	t.token = flagOrEnv(flagToken, envAPIToken)
 	if t.token == "" {
 		if !connected || strings.TrimRight(t.baseURL, "/") != binding.BaseURL {
 			return t, fmt.Errorf("%s: API token is required; set --token or %s (minted automatically when the target is the connected binding)", command, envAPIToken)
@@ -96,7 +116,7 @@ func resolveManualHostedTarget(ctx context.Context, opts Options, brainDir, repo
 		if repoDir == "" {
 			repoDir = "."
 		}
-		t.token, err = mintHostedToken(ctx, opts.Runner, repoDir, hostEntireBinary)
+		t.token, err = mintHostedToken(ctx, opts.Runner, repoDir, base.HostEntireBinary)
 		if err != nil {
 			return t, fmt.Errorf("%s: %w", command, err)
 		}

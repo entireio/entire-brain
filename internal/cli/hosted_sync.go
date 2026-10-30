@@ -6,19 +6,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/apiurl"
+	"github.com/entireio/entire-brain/internal/cli/command/connect"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/factsync"
 )
-
-// hostEntireBinary is the host CLI the plugin shells out to; PATH comes from
-// the caller's environment (the daemon plist bakes PATH at install time).
-const hostEntireBinary = "entire"
 
 const (
 	// hostedUpsertChunk stays well under brainstore's 5000-record batch cap
@@ -30,6 +30,12 @@ const (
 	// on a pathological feed. ponytail: a delta larger than 20k records
 	// finishes on the next trigger — the cursor persists either way.
 	maxHostedFeedPages = 200
+	// hostedNoAccessBackoff is how long every background trigger skips a repo
+	// after the server denied access to the binding (COR-2279). Long enough to
+	// stop a stuck client from tripping the server's auth-failure monitor,
+	// short enough that a restored grant resumes on its own; `entire brain
+	// connect` resumes immediately.
+	hostedNoAccessBackoff = 24 * time.Hour
 )
 
 // hostedSyncOutcome reports what one hostedFactsSyncAndPull run did.
@@ -56,9 +62,10 @@ type hostedSyncOutcome struct {
 // clears it; (3) the repo binding is the consent AND the connection state —
 // only `entire brain connect` (or the future onboarding flow) writes it, so an
 // absent binding means local-only, silently, every run. Background triggers
-// never connect a repo. (4) apiurl.Validate before any client exists. A fresh
-// token is minted per call via the host CLI's own login and held only in
-// memory.
+// never connect a repo. (4) a recorded no-access pause (COR-2279) skips the
+// repo until it expires or connect clears it. (5) apiurl.Validate before any
+// client exists. A fresh token is minted per call via the host CLI's own login
+// and held only in memory.
 //
 // The outcome reports what actually happened: Attempted is whether the gates
 // passed and the server was contacted (callers that log success must not
@@ -70,7 +77,7 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 	if base.BrainNoEgressMode() {
 		return hostedSyncOutcome{}, nil
 	}
-	binding, present, err := readHostedRepoBinding(storage.BrainDir)
+	binding, present, err := brainstore.ReadHostedRepoBinding(storage.BrainDir)
 	if err != nil {
 		// NO unreadable binding may fall through to auto-connect: the file may
 		// hide a recorded opt-out (privacy) or a custom target, and neither
@@ -82,47 +89,153 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 	if !present || binding.OptedOut {
 		return hostedSyncOutcome{}, nil
 	}
+	// A recorded access denial pauses the repo (COR-2279): retrying the same
+	// 403 every trigger only feeds the server's auth-failure monitor. Silent
+	// like the opt-out gate; `entire brain status` reports the pause, and the
+	// line printed when it was recorded named the remedy.
+	if binding.NoAccessUntil.After(opts.Now().UTC()) {
+		return hostedSyncOutcome{}, nil
+	}
 	baseURL, err := apiurl.Validate(binding.BaseURL)
 	if err != nil {
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
 		return hostedSyncOutcome{}, nil
 	}
-	token, err := mintHostedToken(ctx, opts.Runner, repoDir, hostEntireBinary)
+	token, err := mintHostedToken(ctx, opts.Runner, repoDir, base.HostEntireBinary)
 	if err != nil {
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
 		return hostedSyncOutcome{}, nil
 	}
-	srv := &factsync.HTTPServer{BaseURL: baseURL, Token: token}
+	srv := &factsync.HTTPServer{BaseURL: baseURL, Token: token, Version: opts.Version}
 
-	counts, skipped, pushErr := pushHostedFacts(ctx, storage, srv, binding.RepoID, branch)
-	if skipped > 0 {
-		fmt.Fprintf(errW, "hosted sync: branch %s: skipped %d unpublishable record(s) whose content id does not re-derive (kept locally, not uploaded)\n", branch, skipped)
-	}
-	pushed := pushErr == nil
-	if pushErr != nil {
-		fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): %v; pull-only\n", branch, pushErr)
-	}
-	kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, binding.RepoID, baseURL, token, branch)
-	if pullErr != nil {
-		fmt.Fprintf(errW, "hosted sync: branch %s pull failed (local brain unaffected): %v\n", branch, pullErr)
-		return hostedSyncOutcome{Attempted: true}, nil
-	}
-	if pushed {
-		// The per-branch marker records that this branch completed a sync
-		// against this target; the blind-spot note keys off its absence. It
-		// needs BOTH halves: a pull-only run leaves it unwritten, and so does
-		// a failed pull — the empty-store push "succeeds" without contacting
-		// the server, so the pull is what proves the exchange happened.
-		if err := writeHostedFactsBinding(storage.BrainDir, branch, binding.RepoID, baseURL); err != nil {
-			fmt.Fprintf(errW, "hosted sync: record hosted target: %v\n", err)
+	rebound := false
+	for {
+		counts, skipped, pushErr := pushHostedFacts(ctx, storage, srv, binding.RepoID, branch)
+		if skipped > 0 {
+			fmt.Fprintf(errW, "hosted sync: branch %s: skipped %d unpublishable record(s) whose content id does not re-derive (kept locally, not uploaded)\n", branch, skipped)
 		}
+		pushed := pushErr == nil
+		if pushErr != nil {
+			// A push denial alone still degrades to pull-only: a read-only
+			// grant is a real state (push 403, pull 200 — the COR-2030 staging
+			// smoke hit exactly this) and the team's memories must keep
+			// landing through it.
+			fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): %v; pull-only\n", branch, pushErr)
+		}
+		kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, binding.RepoID, baseURL, token, branch)
+		if errors.Is(pullErr, factsync.ErrNoAccess) {
+			// The pull is the half every caller is granted on a healthy
+			// binding, so its denial means the binding itself is stale: the
+			// repo was deleted or this caller lost access (brainstore
+			// deliberately serves both as 403). Retrying cannot help —
+			// re-resolve placement once, and pause the repo when that does
+			// not produce a different repo to talk to.
+			if !rebound {
+				if fresh, ok := rebindStaleHostedRepo(ctx, errW, opts, repoDir, storage.BrainDir, binding); ok {
+					binding = fresh
+					rebound = true
+					continue
+				}
+			}
+			pauseHostedSyncNoAccess(errW, opts, storage.BrainDir, binding)
+			return hostedSyncOutcome{Attempted: true}, nil
+		}
+		if pullErr != nil {
+			fmt.Fprintf(errW, "hosted sync: branch %s pull failed (local brain unaffected): %v\n", branch, pullErr)
+			return hostedSyncOutcome{Attempted: true}, nil
+		}
+		if pushed {
+			// The per-branch marker records that this branch completed a sync
+			// against this target; the blind-spot note keys off its absence. It
+			// needs BOTH halves: a pull-only run leaves it unwritten, and so does
+			// a failed pull — the empty-store push "succeeds" without contacting
+			// the server, so the pull is what proves the exchange happened.
+			if err := writeHostedFactsBinding(storage.BrainDir, branch, binding.RepoID, baseURL); err != nil {
+				fmt.Fprintf(errW, "hosted sync: record hosted target: %v\n", err)
+			}
+		}
+		if manifestErr != nil {
+			fmt.Fprintf(errW, "hosted sync: facts updated, but the source manifest could not be refreshed: %v\n", manifestErr)
+		}
+		if !binding.NoAccessUntil.IsZero() {
+			// This run started past an expired pause and the pull succeeded:
+			// access is back, so retire the pause instead of leaving status
+			// reporting it forever. Guarded like the pause write — a binding
+			// another writer replaced meanwhile is not touched.
+			if err := clearHostedSyncNoAccess(storage.BrainDir, binding); err != nil {
+				fmt.Fprintf(errW, "hosted sync: clear expired no-access pause: %v\n", err)
+			}
+		}
+		fmt.Fprintf(errW, "hosted sync: branch %s pushed added=%d changed=%d unchanged=%d; feed facts=%d kept=%d\n",
+			branch, counts.Added, counts.Changed, counts.Unchanged, total, kept)
+		return hostedSyncOutcome{Attempted: true, PullSucceeded: true}, nil
 	}
-	if manifestErr != nil {
-		fmt.Fprintf(errW, "hosted sync: facts updated, but the source manifest could not be refreshed: %v\n", manifestErr)
+}
+
+// rebindStaleHostedRepo handles the deleted-and-reonboarded case behind a
+// pull denial: if the origin now resolves to a DIFFERENT repo id in the SAME
+// cell, the old binding points at a dead repo and the consent it records
+// carries over to its replacement. The cell must match so an explicit
+// non-default binding (--repo-id/--api-url to another cell or staging) is
+// never silently retargeted to the resolved placement. The write re-checks
+// the binding under the lock: a concurrent disconnect or connect wins.
+func rebindStaleHostedRepo(ctx context.Context, errW io.Writer, opts Options, repoDir, brainDir string, stale brainstore.HostedRepoBinding) (brainstore.HostedRepoBinding, bool) {
+	fresh, err := connect.ResolveBinding(ctx, opts.Runner, repoDir)
+	if err != nil || fresh.RepoID == "" || fresh.RepoID == stale.RepoID || fresh.BaseURL != stale.BaseURL {
+		return brainstore.HostedRepoBinding{}, false
 	}
-	fmt.Fprintf(errW, "hosted sync: branch %s pushed added=%d changed=%d unchanged=%d; feed facts=%d kept=%d\n",
-		branch, counts.Added, counts.Changed, counts.Unchanged, total, kept)
-	return hostedSyncOutcome{Attempted: true, PullSucceeded: true}, nil
+	written := false
+	err = brainstore.MutateHostedRepoBinding(brainDir, func(current brainstore.HostedRepoBinding) (brainstore.HostedRepoBinding, bool) {
+		if current.OptedOut || current.RepoID != stale.RepoID || current.BaseURL != stale.BaseURL {
+			return current, false
+		}
+		written = true
+		return fresh, true
+	})
+	if err != nil || !written {
+		return brainstore.HostedRepoBinding{}, false
+	}
+	fmt.Fprintf(errW, "hosted sync: repo was re-onboarded on Entire; rebound %s -> %s\n", stale.RepoID, fresh.RepoID)
+	return fresh, true
+}
+
+// clearHostedSyncNoAccess retires a pause whose repo answered a pull again.
+func clearHostedSyncNoAccess(brainDir string, stale brainstore.HostedRepoBinding) error {
+	return brainstore.MutateHostedRepoBinding(brainDir, func(current brainstore.HostedRepoBinding) (brainstore.HostedRepoBinding, bool) {
+		if current.OptedOut || current.RepoID != stale.RepoID || current.BaseURL != stale.BaseURL || current.NoAccessUntil.IsZero() {
+			return current, false
+		}
+		current.NoAccessUntil = time.Time{}
+		return current, true
+	})
+}
+
+// pauseHostedSyncNoAccess records the no-access pause next to the binding and
+// says so once. The write re-checks the binding under the lock so a
+// concurrent connect or disconnect is never stamped with a stale denial. The
+// "paused" line prints only when the pause was actually recorded: a declined
+// write means another writer owns the binding now (its state speaks for
+// itself), and a failed write means the next trigger will try again.
+func pauseHostedSyncNoAccess(errW io.Writer, opts Options, brainDir string, stale brainstore.HostedRepoBinding) {
+	until := opts.Now().UTC().Add(hostedNoAccessBackoff)
+	written := false
+	err := brainstore.MutateHostedRepoBinding(brainDir, func(current brainstore.HostedRepoBinding) (brainstore.HostedRepoBinding, bool) {
+		if current.OptedOut || current.RepoID != stale.RepoID || current.BaseURL != stale.BaseURL {
+			return current, false
+		}
+		current.NoAccessUntil = until
+		written = true
+		return current, true
+	})
+	if err != nil {
+		fmt.Fprintf(errW, "hosted sync: no access to repo %s on Entire, but recording the pause failed: %v\n", stale.RepoID, err)
+		return
+	}
+	if !written {
+		return
+	}
+	fmt.Fprintf(errW, "hosted sync: no access to repo %s on Entire (deleted, or this account lost access); sync paused until %s — run '%s' once access is granted\n",
+		stale.RepoID, until.Format(time.RFC3339), base.BrainInvocation(os.LookupEnv, "connect"))
 }
 
 // pushHostedFacts batch-upserts the branch store. Idempotent server-side, so
@@ -132,7 +245,7 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 // caller owns presentation: background sync degrades to pull-only with one
 // stderr line, manual sync fails the command (COR-2202 honesty).
 func pushHostedFacts(ctx context.Context, storage repoStorage, srv *factsync.HTTPServer, repoID, branch string) (factsync.UpsertCounts, int, error) {
-	facts, err := loadFacts(storage.BrainDir, branch)
+	facts, err := factstore.Load(storage.BrainDir, branch)
 	if err != nil {
 		return factsync.UpsertCounts{}, 0, err
 	}
@@ -263,7 +376,7 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 			return err
 		}
 
-		existing, err := loadFacts(storage.BrainDir, branch)
+		existing, err := factstore.Load(storage.BrainDir, branch)
 		if err != nil {
 			return err
 		}
@@ -306,7 +419,7 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 			}
 			rebuilt = append(rebuilt, rec)
 		}
-		if err := writeFacts(storage.BrainDir, branch, rebuilt); err != nil {
+		if err := factstore.Write(storage.BrainDir, branch, rebuilt); err != nil {
 			return err
 		}
 		// A manifest failure reports alongside the successful pull instead of

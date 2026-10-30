@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +23,7 @@ import (
 // rebuilt its derived projections" when nothing had been derived.
 func TestExcludeDoesNotClaimCleanupItNeverDid(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +52,7 @@ func TestExcludeDoesNotClaimCleanupItNeverDid(t *testing.T) {
 func privacyCommandFixture(t *testing.T) (Options, string) {
 	t.Helper()
 	opts, _, brainDir := factsAvailabilityFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +296,7 @@ func TestDoctorKeepsNeverBuiltSemanticIndexAtWarn(t *testing.T) {
 func TestRefreshIndexIsIdempotent(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot(semanticSchemaVersion))
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot(semstore.SchemaVersion))
 	opts := Options{Env: env, Runner: runner, Now: time.Now}
 	for attempt := 1; attempt <= 3; attempt++ {
 		cmd := &cobra.Command{Use: "index"}
@@ -316,7 +318,7 @@ func TestRefreshIndexIsIdempotent(t *testing.T) {
 func TestRefreshIndexRebuildsUnreadableStore(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot(semanticSchemaVersion))
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot(semstore.SchemaVersion))
 	opts := Options{Env: env, Runner: runner, Now: time.Now}
 	cmd := &cobra.Command{Use: "index"}
 	cmd.SetOut(&bytes.Buffer{})
@@ -327,7 +329,7 @@ func TestRefreshIndexRebuildsUnreadableStore(t *testing.T) {
 	if err := os.WriteFile(d.Path, []byte("this is not a database"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if db, err := openSemanticReadDB(graphStoreSource(d, "").StorePath); err == nil {
+	if db, err := semstore.OpenReadDB(semstore.GraphStoreSource(d, "").StorePath); err == nil {
 		db.Close()
 		t.Fatal("corrupt Graph store was readable")
 	}
@@ -338,7 +340,7 @@ func TestRefreshIndexRebuildsUnreadableStore(t *testing.T) {
 		t.Fatalf("refresh index over an unreadable store must rebuild: %v", err)
 	}
 	d = runner.graphStoreFixtures[repoDir+"\x00full"]
-	db, err := openSemanticReadDB(graphStoreSource(d, "").StorePath)
+	db, err := semstore.OpenReadDB(semstore.GraphStoreSource(d, "").StorePath)
 	if err != nil {
 		t.Fatalf("Graph store was not rebuilt: %v", err)
 	}

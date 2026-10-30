@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -161,7 +163,7 @@ func semanticStorePath(env semanticEnv) (string, error) {
 	if env.Source.StorePath == "" {
 		return "", errors.New("code graph command requires the Graph-owned SQLite store; run `" + base.BrainInvocation(os.LookupEnv, "repair") + "`")
 	}
-	return validateSemanticDeclaredStore(env.BrainDir, env.Source)
+	return semstore.ValidateDeclaredStore(env.BrainDir, env.Source)
 }
 
 func runSemanticGraphSchema(cmd *cobra.Command, opts Options, graphOpts semanticGraphSchemaOptions) error {
@@ -173,7 +175,7 @@ func runSemanticGraphSchema(cmd *cobra.Command, opts Options, graphOpts semantic
 	if err != nil {
 		return err
 	}
-	db, err := openSemanticReadDB(storePath)
+	db, err := semstore.OpenReadDB(storePath)
 	if err != nil {
 		return err
 	}
@@ -206,7 +208,7 @@ func runSemanticGraphSchema(cmd *cobra.Command, opts Options, graphOpts semantic
 		return err
 	}
 	if graphOpts.json {
-		return writeJSON(cmd, report)
+		return cmdutil.WriteJSON(cmd, report)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "provider: %s schema %s profile %s\n", report.Provider, report.SchemaVersion, report.Profile)
 	fmt.Fprintf(cmd.OutOrStdout(), "files: %d\nsymbols: %d\nrelations: %d\n", report.Counts["files"], report.Counts["symbols"], report.Counts["relations"])
@@ -423,7 +425,7 @@ func runSemanticQueryGraph(cmd *cobra.Command, opts Options, graphOpts semanticG
 	if err != nil {
 		return err
 	}
-	db, err := openSemanticReadDB(storePath)
+	db, err := semstore.OpenReadDB(storePath)
 	if err != nil {
 		return err
 	}
@@ -436,7 +438,7 @@ func runSemanticQueryGraph(cmd *cobra.Command, opts Options, graphOpts semanticG
 		}
 		result := semanticGraphQueryResult{Symbols: []semanticRecord{}, Relations: []semanticRecord{}, Count: &count}
 		if graphOpts.json {
-			return writeJSON(cmd, result)
+			return cmdutil.WriteJSON(cmd, result)
 		}
 		fmt.Fprintln(cmd.OutOrStdout(), count)
 		return nil
@@ -456,7 +458,7 @@ func runSemanticQueryGraph(cmd *cobra.Command, opts Options, graphOpts semanticG
 	}
 	result := semanticGraphQueryResult{Symbols: nonNil(symbols), Relations: nonNil(relations)}
 	if graphOpts.json {
-		return writeJSON(cmd, result)
+		return cmdutil.WriteJSON(cmd, result)
 	}
 	if len(result.Relations) == 0 {
 		printSemanticNoMatch(cmd, "relations", query)
@@ -753,7 +755,7 @@ func runSemanticTracePath(cmd *cobra.Command, opts Options, traceOpts semanticTr
 	if err != nil {
 		return err
 	}
-	db, err := openSemanticReadDB(storePath)
+	db, err := semstore.OpenReadDB(storePath)
 	if err != nil {
 		return err
 	}
@@ -763,7 +765,7 @@ func runSemanticTracePath(cmd *cobra.Command, opts Options, traceOpts semanticTr
 		return err
 	}
 	if traceOpts.json {
-		return writeJSON(cmd, result)
+		return cmdutil.WriteJSON(cmd, result)
 	}
 	if !result.Found {
 		fmt.Fprintln(cmd.OutOrStdout(), "no path found")
@@ -907,7 +909,7 @@ func runSemanticSnippet(cmd *cobra.Command, opts Options, snippetOpts semanticSn
 	}
 	result := semanticSnippetResult{Symbol: record, Content: content[0]}
 	if snippetOpts.json {
-		return writeJSON(cmd, result)
+		return cmdutil.WriteJSON(cmd, result)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "%s:%d-%d\n%s\n", result.Content.Path, result.Content.StartLine, result.Content.EndLine, result.Content.Text)
 	return nil
@@ -925,7 +927,7 @@ func runSemanticDeadCode(cmd *cobra.Command, opts Options, deadOpts semanticDead
 	if err != nil {
 		return err
 	}
-	db, err := openSemanticReadDB(storePath)
+	db, err := semstore.OpenReadDB(storePath)
 	if err != nil {
 		return err
 	}
@@ -936,7 +938,7 @@ func runSemanticDeadCode(cmd *cobra.Command, opts Options, deadOpts semanticDead
 	}
 	result := semanticDeadCodeResult{Symbols: nonNil(symbols)}
 	if deadOpts.json {
-		return writeJSON(cmd, result)
+		return cmdutil.WriteJSON(cmd, result)
 	}
 	for _, symbol := range result.Symbols {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s %s:%d-%d\n", displaySymbolName(symbol), symbol.FilePath, symbol.StartLine, symbol.EndLine)
@@ -984,7 +986,7 @@ func runSemanticGraphUI(cmd *cobra.Command, opts Options, uiOpts semanticGraphUI
 	if err != nil {
 		return err
 	}
-	db, err := openSemanticReadDB(storePath)
+	db, err := semstore.OpenReadDB(storePath)
 	if err != nil {
 		return err
 	}
@@ -1026,7 +1028,7 @@ func runSemanticGraphUI(cmd *cobra.Command, opts Options, uiOpts semanticGraphUI
 	}
 	report := semanticGraphUIReport{Path: abs, Provider: env.Source.Provider, Profile: env.Source.Profile, Relations: len(relations)}
 	if uiOpts.json {
-		return writeJSON(cmd, report)
+		return cmdutil.WriteJSON(cmd, report)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "wrote graph UI: %s\n", abs)
 	return nil
@@ -1107,7 +1109,7 @@ func readRuntimeTraces(path string) ([]semanticRuntimeTrace, error) {
 	// The trace path is caller-supplied (including via the ingest-traces
 	// tool), so bound the whole-file read before decoding: a giant array would
 	// otherwise drive json.Decode to allocate an unbounded slice.
-	data, err := base.SafeReadFile(path, graphTraceMaxBytes)
+	data, err := base.SafeReadFile(path, semstore.TraceMaxBytes)
 	if err != nil {
 		return nil, err
 	}

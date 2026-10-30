@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // The branch note must win over the coverage notes when BOTH are true.
@@ -26,7 +29,7 @@ func TestBranchNoteWinsOverTheUndigestedCoverageNote(t *testing.T) {
 	now := time.Now().UTC()
 
 	// Facts on main, queried from a feature branch.
-	if err := writeFacts(brainDir, "main", []factRecord{
+	if err := factstore.Write(brainDir, "main", []factRecord{
 		vitalityTestFact("retries are capped at three", "main", now),
 	}); err != nil {
 		t.Fatalf("write facts: %v", err)
@@ -59,7 +62,7 @@ func TestBranchNoteFiresOnABrainThatWasNeverDistilled(t *testing.T) {
 
 	brainDir := t.TempDir()
 	now := time.Now().UTC()
-	if err := writeFacts(brainDir, "main", []factRecord{
+	if err := factstore.Write(brainDir, "main", []factRecord{
 		vitalityTestFact("retries are capped at three", "main", now),
 	}); err != nil {
 		t.Fatal(err)
@@ -81,7 +84,7 @@ func TestBranchNoteFiresOnABrainThatWasNeverDistilled(t *testing.T) {
 // the undigested>0 path untestable.
 func declareFactsAt(t *testing.T, brainDir string, lastDistilled, generated time.Time, total int, branches ...string) {
 	t.Helper()
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

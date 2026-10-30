@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func TestSessionTombstoneLoaderRejectsFIFOBeforeOpen(t *testing.T) {
@@ -113,7 +114,7 @@ func TestPrivacyCheckedOpenRejectsLeafSwapToFIFOWithoutBlocking(t *testing.T) {
 
 func TestPrivacyCheckedDirectoryOpenRejectsSwapToSymlink(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
-	target := filepath.Join(brainDir, factsDirName)
+	target := filepath.Join(brainDir, factstore.DirName)
 	if err := os.MkdirAll(target, 0o700); err != nil {
 		t.Fatal(err)
 	}

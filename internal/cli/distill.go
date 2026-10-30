@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -10,6 +9,7 @@ import (
 
 	entirebrain "github.com/entireio/entire-brain"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 const (
@@ -75,7 +75,7 @@ func stripTemplateFrontmatter(content string) string {
 // renderDistillPrompt substitutes the active taxonomy into the template's
 // ${TAXONOMY_BLOCK} marker. The rendered prompt is what gets passed to the seed
 // agent as its system prompt; the line-numbered transcript chunk is the input.
-func renderDistillPrompt(taxonomy factTaxonomy) (string, error) {
+func renderDistillPrompt(taxonomy factstore.Taxonomy) (string, error) {
 	template, err := distillTemplate()
 	if err != nil {
 		return "", err
@@ -83,40 +83,7 @@ func renderDistillPrompt(taxonomy factTaxonomy) (string, error) {
 	if !strings.Contains(template, distillTaxonomyMarker) {
 		return "", fmt.Errorf("distill template missing %s marker", distillTaxonomyMarker)
 	}
-	return strings.ReplaceAll(template, distillTaxonomyMarker, factTaxonomyBlock(taxonomy)), nil
-}
-
-// factTaxonomyBlock renders the taxonomy as the prompt section the agent uses to
-// classify facts: the fixed top-level categories and the known three-level
-// paths with descriptions. Output is deterministic (sorted) so the rendered
-// prompt is stable across runs.
-func factTaxonomyBlock(taxonomy factTaxonomy) string {
-	var b strings.Builder
-	b.WriteString("## Taxonomy\n\n")
-	b.WriteString("Top-level categories are fixed. You may invent a new three-level path only under one of these categories:\n\n")
-
-	categories := make([]string, 0, len(taxonomy.Categories))
-	for category := range taxonomy.Categories {
-		categories = append(categories, category)
-	}
-	sort.Strings(categories)
-	for _, category := range categories {
-		fmt.Fprintf(&b, "- `%s` — %s\n", category, taxonomy.Categories[category])
-	}
-
-	if len(taxonomy.Paths) > 0 {
-		b.WriteString("\nKnown paths (prefer these):\n\n")
-		paths := append([]factPathDef(nil), taxonomy.Paths...)
-		sort.Slice(paths, func(i, j int) bool { return paths[i].Path < paths[j].Path })
-		for _, def := range paths {
-			if def.Description != "" {
-				fmt.Fprintf(&b, "- `%s` — %s\n", def.Path, def.Description)
-			} else {
-				fmt.Fprintf(&b, "- `%s`\n", def.Path)
-			}
-		}
-	}
-	return b.String()
+	return strings.ReplaceAll(template, distillTaxonomyMarker, factstore.TaxonomyBlock(taxonomy)), nil
 }
 
 // distilledFactsFromOutput parses the agent's line-based output for one
@@ -126,14 +93,14 @@ func factTaxonomyBlock(taxonomy factTaxonomy) string {
 // dropped (with a warning) when they have no
 // tab, no syntactically valid path, or no path whose top-level category exists
 // in the active taxonomy — the taxonomy's top levels are fixed, so a path under
-// an unknown category cannot be trusted. Output is capped at factsMaxPerChunk;
+// an unknown category cannot be trusted. Output is capped at factstore.MaxPerChunk;
 // extra lines are dropped with a warning so a runaway agent cannot flood the
 // store.
 //
 // Every produced record cites the supplied anchor as its provenance and is
 // stamped origin=distilled, status=active. Ids are content-derived, so the same
 // statement from the same chunk is idempotent across reruns.
-func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factAnchor, branch string, now time.Time) ([]factRecord, []string) {
+func distilledFactsFromOutput(output string, taxonomy factstore.Taxonomy, anchor factAnchor, branch string, now time.Time) ([]factRecord, []string) {
 	var records []factRecord
 	var warnings []string
 	capped := false
@@ -170,12 +137,12 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 			continue
 		}
 		paths := normalizeFactPaths(rawPaths)
-		paths = filterFactPathsByTaxonomy(paths, taxonomy, &warnings)
+		paths = factstore.FilterPathsByTaxonomy(paths, taxonomy, &warnings)
 		if len(paths) == 0 {
 			warnings = append(warnings, "dropped fact with no valid taxonomy path: "+distillUntrustedExcerpt(text))
 			continue
 		}
-		if len(records) >= factsMaxPerChunk {
+		if len(records) >= factstore.MaxPerChunk {
 			capped = true
 			continue
 		}
@@ -194,7 +161,7 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 			text = sanitized
 		}
 		if kind == "" {
-			kind = inferFactKind(paths, text) // agent omitted/violated kind → deterministic fallback
+			kind = factstore.InferKind(paths, text) // agent omitted/violated kind → deterministic fallback
 		}
 		records = append(records, factRecord{
 			ID:         factRecordID(text, paths),
@@ -203,7 +170,7 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 			Locus:      base.FactLocus(text),
 			Text:       text,
 			Branch:     branch,
-			Origin:     factOriginDistilled,
+			Origin:     factstore.OriginDistilled,
 			Status:     factStatusActive,
 			Provenance: []factAnchor{anchor},
 			CreatedAt:  now,
@@ -211,7 +178,7 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 		})
 	}
 	if capped {
-		warnings = append(warnings, fmt.Sprintf("chunk produced more than %d facts; extra lines dropped", factsMaxPerChunk))
+		warnings = append(warnings, fmt.Sprintf("chunk produced more than %d facts; extra lines dropped", factstore.MaxPerChunk))
 	}
 	// The agent said SOMETHING and none of it became a fact, yet nothing above
 	// found it worth explaining — the per-line drops are deliberately quiet
@@ -323,22 +290,6 @@ func fieldLooksLikePaths(field string) bool {
 		}
 	}
 	return true
-}
-
-// filterFactPathsByTaxonomy keeps only paths whose top-level category exists in
-// the taxonomy, recording a warning for each dropped path. Paths are already
-// syntactically valid (normalizeFactPaths ran first).
-func filterFactPathsByTaxonomy(paths []string, taxonomy factTaxonomy, warnings *[]string) []string {
-	tops := factTaxonomyTopLevels(taxonomy)
-	kept := paths[:0:0]
-	for _, path := range paths {
-		if _, ok := tops[factTopLevel(path)]; ok {
-			kept = append(kept, path)
-			continue
-		}
-		*warnings = append(*warnings, fmt.Sprintf("dropped path under unknown category: %s", path))
-	}
-	return kept
 }
 
 // isDisplayControlRune reports whether a rune steers how following text is

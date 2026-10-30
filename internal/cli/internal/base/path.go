@@ -80,3 +80,32 @@ func MatchingLexicalAncestor(path, target string) (string, bool) {
 		}
 	}
 }
+
+func SafePathComponent(value, fallback string, max int) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-'
+		if ok {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	out := strings.Trim(b.String(), "-._")
+	if out == "" {
+		out = fallback
+	}
+	if max > 0 && len(out) > max {
+		out = strings.Trim(out[:max], "-._")
+		if out == "" {
+			out = fallback
+		}
+	}
+	return out
+}

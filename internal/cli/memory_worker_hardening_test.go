@@ -14,13 +14,14 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestMemoryProjectionClaimCapStillSettlesAllReceiptBackedJobs(t *testing.T) {
 	brainDir := t.TempDir()
 	now := time.Date(2026, 8, 9, 0, 30, 0, 0, time.UTC)
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		RepoKey:       "test/capped-projection",
 		DefaultBranch: "main",
@@ -107,7 +108,7 @@ func TestMemoryJobsPageReadsThroughNonMatchesWithoutLoadingAllLeaves(t *testing.
 
 func TestMemoryHintIdentityIsBoundToRepoAndCanonicalBasename(t *testing.T) {
 	brainDir := t.TempDir()
-	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, RepoKey: "repo/current"}); err != nil {
+	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, RepoKey: "repo/current"}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 8, 9, 2, 0, 0, 0, time.UTC)
@@ -238,7 +239,7 @@ func TestProductionReconcileHashesOutsideBrainWriteLockAndRevalidates(t *testing
 		digest, digestErr := originalDigest(dir, rel)
 		if !changed {
 			changed = true
-			manifest, manifestErr := loadBrainManifest(brainDir)
+			manifest, manifestErr := bmanifest.Load(brainDir)
 			if manifestErr == nil {
 				manifest.GeneratedAt = manifest.GeneratedAt.Add(time.Nanosecond)
 				_ = writeBrainManifestAndReadme(brainDir, *manifest)
@@ -297,7 +298,7 @@ func TestProjectionCancellationRestoresUnrelatedClaimWithoutPenalty(t *testing.T
 	if cancelled.State != memoryJobStateCancelled || pending.State != memoryJobStatePending || pending.Attempt != 0 || pending.StartedAt != nil || pending.FinishedAt != nil {
 		t.Fatalf("cancelled=%+v unrelated=%+v", cancelled, pending)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -445,7 +446,7 @@ func TestDeterministicFailureCancelsDrainsAndSettlesAbstractProvider(t *testing.
 	t.Cleanup(func() { memoryAbstractorFactory = originalFactory })
 	go func() {
 		<-provider.started
-		_ = os.WriteFile(filepath.Join(brainDir, exportManifestFileName), []byte("{"), 0o600)
+		_ = os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), []byte("{"), 0o600)
 	}()
 	coordinator, err := acquireMemoryCoordinator(brainDir, now, "test")
 	if err != nil {

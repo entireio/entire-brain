@@ -111,6 +111,24 @@ def validate_atomic_profile(path: Path) -> None:
             raise ValueError(f"line {line_number} has a negative coverage count")
 
 
+def plan_selection(plan: dict[str, Any]) -> tuple[set[str] | None, str | None]:
+    """Return the plan's selected package set (None for a full plan) and any defect."""
+    selection = plan.get("selection")
+    if selection is None:
+        return None, None
+    packages = selection.get("packages") if isinstance(selection, dict) else None
+    if (
+        not isinstance(selection, dict)
+        or selection.get("mode") != "selected"
+        or not isinstance(packages, list)
+        or not packages
+        or any(not isinstance(item, str) or not item for item in packages)
+        or packages != sorted(set(packages))
+    ):
+        return None, "plan selection block is malformed"
+    return set(packages), None
+
+
 def verify_coverage_profile(
     result_root: Path,
     relative_path: Any,
@@ -230,6 +248,7 @@ def merge_coverage_profiles(
     plan: dict[str, Any],
     heavy_process_count: int,
     failures: list[str],
+    nonheavy_profile_count: int = 1,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, tuple[int, bool]]] | None:
     resolved = [path for _, path in profiles]
     duplicates = [
@@ -237,7 +256,7 @@ def merge_coverage_profiles(
         for path, count in collections.Counter(resolved).items()
         if count != 1
     ]
-    expected_count = heavy_process_count + 2
+    expected_count = heavy_process_count + nonheavy_profile_count + 1
     if len(profiles) != expected_count:
         failures.append(
             f"found {len(profiles)} authenticated coverage profiles, want {expected_count}"
@@ -261,7 +280,7 @@ def merge_coverage_profiles(
         "tests_exit_code": 0,
         "profile_count": len(profiles),
         "heavy_process_profile_count": heavy_process_count,
-        "nonheavy_profile_count": 1,
+        "nonheavy_profile_count": nonheavy_profile_count,
         "binary_profile_count": 1,
     }
     summary = coverage_report.summarize(blocks)
@@ -369,6 +388,7 @@ def validate_plan(
     plan: dict[str, Any],
     inventories: list[dict[str, Any]],
     failures: list[str],
+    selected_packages: set[str] | None = None,
 ) -> tuple[
     dict[tuple[str, str], int],
     dict[tuple[int, str], dict[str, Any]],
@@ -441,7 +461,7 @@ def validate_plan(
             failures.append(f"plan shard at position {position} has a mismatched index")
             continue
         assignments = shard.get("assignments")
-        if not isinstance(assignments, list) or not assignments:
+        if not isinstance(assignments, list) or (not assignments and selected_packages is None):
             failures.append(f"plan shard {position} has no assignments")
             continue
         seen_packages: set[str] = set()
@@ -497,7 +517,10 @@ def validate_plan(
         if shard.get("rootCount") != counted_roots:
             failures.append(f"plan shard {position} rootCount differs from assignments")
     expected_roots = {
-        (package, name) for package, names in root_details.items() for name in names
+        (package, name)
+        for package, names in root_details.items()
+        if selected_packages is None or package in selected_packages
+        for name in names
     }
     missing_roots = expected_roots - set(assignment_for_root)
     unexpected_roots = set(assignment_for_root) - expected_roots
@@ -669,7 +692,16 @@ def verify_shards(
             failures.append(f"shard {index} invocation package set differs from plan")
 
         events_path = metadata_path.with_name("shard-events.jsonl")
-        events = read_jsonl(events_path)
+        if (
+            not expected_assignments
+            and events_path.is_file()
+            and not events_path.read_bytes().strip()
+        ):
+            # A selected plan may assign a shard zero roots; its stream is
+            # legitimately empty. Any content still parses fail-closed below.
+            events = []
+        else:
+            events = read_jsonl(events_path)
         event_count += len(events)
         expected_packages = set(expected_assignments)
         for event in events:
@@ -769,6 +801,7 @@ def verify_other(
     failures: list[str],
     exit_report: list[dict[str, Any]],
     coverage_profiles: list[tuple[str, Path]],
+    selected: set[str] | None = None,
 ) -> dict[str, Any]:
     metadata_paths = sorted(root.rglob("other-metadata.json"))
     event_paths = sorted(root.rglob("other-events.jsonl"))
@@ -790,17 +823,25 @@ def verify_other(
         )
     if metadata.get("errors") != []:
         failures.append("non-heavy metadata contains errors")
-    profile = verify_coverage_profile(
-        metadata_paths[0].parent,
-        metadata.get("coverageProfile"),
-        metadata.get("coverageSha256"),
-        "non-heavy run",
-        failures,
+    expected_packages = sorted(
+        row["importPath"]
+        for row in package_inventory["packages"]
+        if not row["heavy"] and (selected is None or row["importPath"] in selected)
     )
-    if profile is not None:
-        coverage_profiles.append(("non-heavy run", profile))
-    if metadata.get("coverageProfile") != "coverage/other.out":
-        failures.append("non-heavy coverage profile path differs from coverage/other.out")
+    if expected_packages:
+        profile = verify_coverage_profile(
+            metadata_paths[0].parent,
+            metadata.get("coverageProfile"),
+            metadata.get("coverageSha256"),
+            "non-heavy run",
+            failures,
+        )
+        if profile is not None:
+            coverage_profiles.append(("non-heavy run", profile))
+        if metadata.get("coverageProfile") != "coverage/other.out":
+            failures.append("non-heavy coverage profile path differs from coverage/other.out")
+    elif metadata.get("coverageProfile") is not None or metadata.get("coverageSha256") is not None:
+        failures.append("non-heavy run declared coverage despite an empty package selection")
     if metadata.get("repositorySha") != plan.get("repositorySha"):
         failures.append("non-heavy repository SHA differs from plan")
     if metadata.get("repositoryShaAfter") != plan.get("repositorySha"):
@@ -825,54 +866,60 @@ def verify_other(
     for key in ("coverageMode", "coveragePackages"):
         if metadata.get(key) != plan.get("settings", {}).get(key):
             failures.append(f"non-heavy metadata setting {key} differs from plan")
-    command_units = metadata.get("commandLineUtf16Units")
-    if (
-        not isinstance(command_units, int)
-        or isinstance(command_units, bool)
-        or not 1 <= command_units <= plan["settings"]["commandLineLimit"]
-    ):
-        failures.append("non-heavy command line exceeded or omitted its budget")
-
-    expected_packages = sorted(
-        row["importPath"] for row in package_inventory["packages"] if not row["heavy"]
-    )
     if metadata.get("expectedPackages") != expected_packages:
         failures.append("non-heavy metadata package list differs from target-Windows inventory")
-    test_arguments = metadata.get("testArguments")
-    coverage_argument = (
-        test_arguments[6]
-        if isinstance(test_arguments, list) and len(test_arguments) > 6
-        else None
-    )
-    coverage_argument_valid = False
-    if isinstance(coverage_argument, str) and coverage_argument.startswith("-coverprofile="):
-        command_profile = PureWindowsPath(coverage_argument.removeprefix("-coverprofile="))
-        coverage_argument_valid = (
-            command_profile.is_absolute()
-            and re.fullmatch(r"[A-Za-z]:", command_profile.drive) is not None
-            and ".." not in command_profile.parts
-            and tuple(part.casefold() for part in command_profile.parts[-2:])
-            == ("coverage", "other.out")
+    if expected_packages:
+        command_units = metadata.get("commandLineUtf16Units")
+        if (
+            not isinstance(command_units, int)
+            or isinstance(command_units, bool)
+            or not 1 <= command_units <= plan["settings"]["commandLineLimit"]
+        ):
+            failures.append("non-heavy command line exceeded or omitted its budget")
+        test_arguments = metadata.get("testArguments")
+        coverage_argument = (
+            test_arguments[6]
+            if isinstance(test_arguments, list) and len(test_arguments) > 6
+            else None
         )
-    if not coverage_argument_valid:
-        failures.append("non-heavy coverage argument is not an absolute Windows coverage/other.out path")
-    expected_arguments = [
-        "test",
-        "-race",
-        "-json",
-        "-vet=off",
-        "-covermode=atomic",
-        "-coverpkg=./...",
-        coverage_argument,
-        f"-timeout={plan['settings']['timeout']}",
-        "-shuffle=off",
-    ]
-    if plan["settings"].get("testParallel") is not None:
-        expected_arguments.append(f"-parallel={plan['settings']['testParallel']}")
-    expected_arguments.extend(expected_packages)
-    if test_arguments != expected_arguments:
-        failures.append("non-heavy test arguments do not preserve race coverage and planned packages")
-    events = read_jsonl(event_paths[0])
+        coverage_argument_valid = False
+        if isinstance(coverage_argument, str) and coverage_argument.startswith("-coverprofile="):
+            command_profile = PureWindowsPath(coverage_argument.removeprefix("-coverprofile="))
+            coverage_argument_valid = (
+                command_profile.is_absolute()
+                and re.fullmatch(r"[A-Za-z]:", command_profile.drive) is not None
+                and ".." not in command_profile.parts
+                and tuple(part.casefold() for part in command_profile.parts[-2:])
+                == ("coverage", "other.out")
+            )
+        if not coverage_argument_valid:
+            failures.append("non-heavy coverage argument is not an absolute Windows coverage/other.out path")
+        expected_arguments = [
+            "test",
+            "-race",
+            "-json",
+            "-vet=off",
+            "-covermode=atomic",
+            "-coverpkg=./...",
+            coverage_argument,
+            f"-timeout={plan['settings']['timeout']}",
+            "-shuffle=off",
+        ]
+        if plan["settings"].get("testParallel") is not None:
+            expected_arguments.append(f"-parallel={plan['settings']['testParallel']}")
+        expected_arguments.extend(expected_packages)
+        if test_arguments != expected_arguments:
+            failures.append("non-heavy test arguments do not preserve race coverage and planned packages")
+    if (
+        not expected_packages
+        and event_paths[0].is_file()
+        and not event_paths[0].read_bytes().strip()
+    ):
+        # An empty selection legitimately runs nothing; any stream content
+        # still parses fail-closed below.
+        events = []
+    else:
+        events = read_jsonl(event_paths[0])
     starts: collections.Counter[str] = collections.Counter()
     terminals: collections.Counter[tuple[str, str]] = collections.Counter()
     unexpected_packages: set[str] = set()
@@ -964,7 +1011,39 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
     if not isinstance(plan, dict):
         raise ValueError("plan is not an object")
     settings = plan_shards.load_settings(settings_path)
-    if plan.get("shardCount") != settings.get("shardCount"):
+    selected, selection_defect = plan_selection(plan)
+    if selection_defect is not None:
+        failures.append(selection_defect)
+    expected_shard_count = settings.get("shardCount")
+    if selected is not None:
+        # A selected plan narrows its shard count to the selected roots and
+        # must trace to the bundled affected.py decision it was built from.
+        selected_root_count = sum(
+            len(inventory["roots"])
+            for inventory in inventories
+            if inventory["importPath"] in selected
+        )
+        expected_shard_count = plan_shards.effective_shard_count(
+            settings["shardCount"], selected_root_count
+        )
+        try:
+            decision = read_json(bundle / "affected.json")
+        except ValueError as error:
+            failures.append(f"selected plan lacks a readable affected decision: {error}")
+            decision = None
+        if decision is not None:
+            decision_packages = (
+                decision.get("packages") if isinstance(decision, dict) else None
+            )
+            if (
+                not isinstance(decision, dict)
+                or decision.get("mode") != "selected"
+                or not isinstance(decision_packages, list)
+                or any(not isinstance(item, str) for item in decision_packages)
+                or sorted(set(decision_packages)) != sorted(selected)
+            ):
+                failures.append("plan selection differs from the bundled affected decision")
+    if plan.get("shardCount") != expected_shard_count:
         failures.append("bundled settings shard count differs from plan")
     for key in (
         "timeout",
@@ -1018,7 +1097,7 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
             failures.append(f"compiled binary hash differs from inventory: {inventory['binaryName']}")
 
     assignment_for_root, process_assignments, root_details = validate_plan(
-        plan, inventories, failures
+        plan, inventories, failures, selected
     )
     package_inventory = read_json(package_path)
     if not isinstance(package_inventory, dict) or package_inventory.get("schema") != PACKAGE_SCHEMA:
@@ -1083,6 +1162,7 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
         failures,
         exit_report,
         coverage_profiles,
+        selected,
     )
     binary_profile = verify_binary_coverage(
         args.other_results.resolve(strict=True), plan, failures
@@ -1094,6 +1174,7 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
         plan,
         len(process_assignments),
         failures,
+        nonheavy_profile_count=1 if report["otherPackages"]["expectedPackageCount"] else 0,
     )
     report["inventory"] = {
         "repositorySha": plan.get("repositorySha"),
@@ -1106,6 +1187,8 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
         "historicallyWeightedCount": plan.get("historicalWeights", {}).get("usedCount"),
         "defaultWeightedCount": plan.get("historicalWeights", {}).get("defaultedCount"),
     }
+    if selected is not None:
+        report["selection"] = {"mode": "selected", "packages": sorted(selected)}
     report["exitCodes"] = exit_report
     report["passed"] = not failures
     if coverage is not None:

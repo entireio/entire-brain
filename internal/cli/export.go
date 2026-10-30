@@ -23,6 +23,7 @@ import (
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -39,7 +40,6 @@ const (
 	// int32's maximum is the smaller of the two that still sits far beyond any
 	// real catalog, so it does not depend on the host's int being 64-bit.
 	routedCheckpointListUnlimited = math.MaxInt32
-	exportManifestFileName        = "manifest.json"
 	exportReadmeFileName          = "README.md"
 	exportBranchesDirectory       = "branches"
 	exportUnknownDirectory        = "unknown"
@@ -331,7 +331,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		// a silently emptied brain is not. A repository with no exported
 		// sessions yet has nothing to lose and still proceeds.
 		if len(sessions) == 0 {
-			if existing, err := loadBrainManifest(outputDir); err == nil && existing != nil && len(existing.Sessions) > 0 {
+			if existing, err := bmanifest.Load(outputDir); err == nil && existing != nil && len(existing.Sessions) > 0 {
 				return errors.New(emptyExportRefusalMessage(len(existing.Sessions)))
 			}
 		}
@@ -692,23 +692,23 @@ func removeForcedOutputDir(path, repoDir string) error {
 			return err
 		}
 	}
-	manifestPath := filepath.Join(abs, exportManifestFileName)
+	manifestPath := filepath.Join(abs, bmanifest.FileName)
 	manifestInfo, err := os.Lstat(manifestPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("--force refuses to remove %s: missing %s", abs, exportManifestFileName)
+			return fmt.Errorf("--force refuses to remove %s: missing %s", abs, bmanifest.FileName)
 		}
 		return fmt.Errorf("stat forced output manifest: %w", err)
 	}
 	if manifestInfo.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("--force refuses to remove %s: %s must not be a symlink", abs, exportManifestFileName)
+		return fmt.Errorf("--force refuses to remove %s: %s must not be a symlink", abs, bmanifest.FileName)
 	}
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return fmt.Errorf("read forced output manifest: %w", err)
 	}
 	if err := validateForcedOutputManifest(data); err != nil {
-		return fmt.Errorf("--force refuses to remove %s: invalid %s: %w", abs, exportManifestFileName, err)
+		return fmt.Errorf("--force refuses to remove %s: invalid %s: %w", abs, bmanifest.FileName, err)
 	}
 	if err := removeAllWithRetry(abs); err != nil {
 		return fmt.Errorf("remove forced output directory: %w", err)
@@ -721,7 +721,7 @@ func validateForcedOutputManifest(data []byte) error {
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return err
 	}
-	normalizeBrainManifest(&manifest)
+	bmanifest.Normalize(&manifest)
 	// A floor, not a range. This explicit-output --force path exists only to
 	// confirm the target directory holds a genuine prior brain/export before
 	// wiping it, not to gate on whether THIS build can read everything the
@@ -732,8 +732,8 @@ func validateForcedOutputManifest(data []byte) error {
 	// equality once did, would make --force refuse the one case it exists for.
 	// Only a version below the oldest this build ever reads fails the "is this
 	// a brain store" check.
-	if manifest.SchemaVersion < brainManifestMinSchemaVersion {
-		return fmt.Errorf("schema_version %d is older than the first supported version %d", manifest.SchemaVersion, brainManifestMinSchemaVersion)
+	if manifest.SchemaVersion < bmanifest.MinSchemaVersion {
+		return fmt.Errorf("schema_version %d is older than the first supported version %d", manifest.SchemaVersion, bmanifest.MinSchemaVersion)
 	}
 	if manifest.Sources == nil {
 		return errors.New("missing sources")
@@ -820,7 +820,7 @@ func sameCleanPath(a, b string) bool {
 }
 
 func detectDefaultBranch(ctx context.Context, runner CommandRunner, repoDir string) (string, []string) {
-	if branch, ok := parseOriginHeadBranch(runGitOutput(ctx, runner, repoDir, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")); ok {
+	if branch, ok := parseOriginHeadBranch(clibase.GitOutput(ctx, runner, repoDir, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")); ok {
 		return branch, nil
 	}
 
@@ -830,20 +830,12 @@ func detectDefaultBranch(ctx context.Context, runner CommandRunner, repoDir stri
 		}
 	}
 
-	current := strings.TrimSpace(string(runGitOutput(ctx, runner, repoDir, "branch", "--show-current")))
+	current := strings.TrimSpace(string(clibase.GitOutput(ctx, runner, repoDir, "branch", "--show-current")))
 	if current != "" {
 		return current, []string{"default branch not found; using current branch " + current}
 	}
 
 	return "main", []string{"default branch not found; using main"}
-}
-
-func runGitOutput(ctx context.Context, runner CommandRunner, repoDir string, args ...string) []byte {
-	stdout, _, err := runner.Run(ctx, repoDir, "git", args...)
-	if err != nil {
-		return nil
-	}
-	return stdout
 }
 
 // runCheckpointGitLocal reads local Git state with lazy promisor-object fetches
@@ -1127,12 +1119,6 @@ func listAllRoutedCheckpoints(ctx context.Context, runner CommandRunner, repoDir
 const (
 	checkpointScopeIncompleteCode = "checkpoint_scope_incomplete"
 	entireCheckpointScopePrefix   = "ENTIRE_CHECKPOINT_SCOPE_V1 "
-
-	// dirtyWorktreeErrorCode prefixes the seed and semantic refusals to index
-	// uncommitted content. It is shared so the reporter that attaches the
-	// remedy (newSetupComponent) matches a code rather than either message's
-	// prose, which would let a reword drop the hint silently.
-	dirtyWorktreeErrorCode = "dirty_worktree"
 )
 
 type routedCheckpointScopeStatus struct {
@@ -1171,7 +1157,7 @@ func listRoutedCheckpoints(ctx context.Context, runner CommandRunner, repoDir, e
 	}
 
 	var checkpoints []checkpointListEntry
-	if err := decodeHostCLIJSON(stdout, &checkpoints); err != nil {
+	if err := clibase.DecodeHostCLIJSON(stdout, &checkpoints); err != nil {
 		return nil, nil, fmt.Errorf("parse checkpoint list json: %w", err)
 	}
 	// Marked at the source, not at the merge: branch scope returns this list
@@ -1182,36 +1168,6 @@ func listRoutedCheckpoints(ctx context.Context, runner CommandRunner, repoDir, e
 		checkpoints[i].RoutedOrigin = true
 	}
 	return checkpoints, warnings, nil
-}
-
-// decodeHostCLIJSON decodes the FIRST JSON value on the host CLI's stdout and
-// ignores whatever follows it.
-//
-// The host `entire` CLI appends human notices to the SAME stream its --json
-// output goes to. Released versions before the update notice moved to stderr
-// print "\nUpdate available! x -> y\nRelease notes: ..." from a post-run hook,
-// so `entire checkpoint explain --json` emits a complete JSON value and THEN a
-// banner. A strict json.Unmarshal over the whole buffer fails that with
-// "invalid character 'U' after top-level value" -- and only on a first-ever
-// run, because the 24h version-check cache suppresses the banner on the next
-// one. That made a deterministic first-run failure look like flakiness: setup
-// reported "session export failed" once and then silently healed.
-//
-// Tolerating trailing bytes is the durable fix: the JSON value is the contract,
-// anything after it is chatter this process does not own. Leading garbage stays
-// an error, because that would mean the value is not first and no prefix of the
-// stream can be trusted.
-func decodeHostCLIJSON(data []byte, target any) error {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	if err := decoder.Decode(target); err != nil {
-		if errors.Is(err, io.EOF) {
-			// json.Unmarshal's wording for an empty buffer, preserved so callers
-			// and their tests keep reading one message for one condition.
-			return errors.New("unexpected end of JSON input")
-		}
-		return err
-	}
-	return nil
 }
 
 // routedCheckpointWarnings preserves ordinary stderr diagnostics while
@@ -3094,7 +3050,7 @@ func checkpointDetail(ctx context.Context, runner CommandRunner, repoDir, entire
 	}
 
 	var detail checkpointExportEnvelope
-	if err := decodeHostCLIJSON(stdout, &detail); err != nil {
+	if err := clibase.DecodeHostCLIJSON(stdout, &detail); err != nil {
 		return checkpointExportEnvelope{}, fmt.Errorf("parse checkpoint json: %w", err)
 	}
 	if detail.CheckpointID == "" {
@@ -3693,9 +3649,9 @@ func isTranscriptFile(path string) bool {
 
 func sessionFileName(createdAt time.Time, agent, sessionID, checkpointID, extension string) string {
 	timestamp := createdAt.UTC().Format("20060102T150405Z")
-	agentPart := safePathComponent(agent, "agent", 32)
-	sessionPart := safePathComponent(sessionID, "session", 80)
-	checkpointPart := safePathComponent(checkpointID, "checkpoint", 32)
+	agentPart := clibase.SafePathComponent(agent, "agent", 32)
+	sessionPart := clibase.SafePathComponent(sessionID, "session", 80)
+	checkpointPart := clibase.SafePathComponent(checkpointID, "checkpoint", 32)
 	return strings.Join([]string{timestamp, agentPart, sessionPart, checkpointPart}, "_") + extension
 }
 
@@ -3717,7 +3673,7 @@ func buildBranchDirectories(sessions []exportSession, defaultBranch string) map[
 		sort.Strings(branches)
 		branches = compactSortedStrings(branches)
 	}
-	defaultDir := filepath.Join(brainstore.SessionsDirName, safePathComponent(defaultBranch, "main", 80))
+	defaultDir := filepath.Join(brainstore.SessionsDirName, clibase.SafePathComponent(defaultBranch, "main", 80))
 
 	dirs := make(map[string]string, len(branches))
 	for _, branch := range branches {
@@ -3734,7 +3690,7 @@ func buildBranchDirectories(sessions []exportSession, defaultBranch string) map[
 }
 
 func stableBranchDirComponent(branch string) string {
-	slug := safePathComponent(branch, "branch", 80)
+	slug := clibase.SafePathComponent(branch, "branch", 80)
 	sum := sha256.Sum256([]byte(branch))
 	return slug + "-" + hex.EncodeToString(sum[:])[:8]
 }
@@ -3796,35 +3752,6 @@ func sortedBranches[T any](values map[string]T) []string {
 		return branches[i] < branches[j]
 	})
 	return branches
-}
-
-func safePathComponent(value, fallback string, max int) string {
-	value = strings.TrimSpace(strings.ToLower(value))
-	var b strings.Builder
-	lastDash := false
-	for _, r := range value {
-		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-'
-		if ok {
-			b.WriteRune(r)
-			lastDash = false
-			continue
-		}
-		if !lastDash {
-			b.WriteByte('-')
-			lastDash = true
-		}
-	}
-	out := strings.Trim(b.String(), "-._")
-	if out == "" {
-		out = fallback
-	}
-	if max > 0 && len(out) > max {
-		out = strings.Trim(out[:max], "-._")
-		if out == "" {
-			out = fallback
-		}
-	}
-	return out
 }
 
 func transcriptMode(raw bool) string {
@@ -4153,18 +4080,6 @@ type checkpointExportSession struct {
 	Error            string                `json:"error,omitempty"`
 }
 
-type checkpointTokenUsage struct {
-	InputTokens         int `json:"input_tokens"`
-	OutputTokens        int `json:"output_tokens"`
-	CacheReadTokens     int `json:"cache_read_tokens,omitempty"`
-	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"`
-}
-
-type checkpointSummary struct {
-	Intent  string `json:"intent,omitempty"`
-	Outcome string `json:"outcome,omitempty"`
-}
-
 type checkpointSummaryPaths struct {
 	Branch   string                   `json:"branch,omitempty"`
 	Sessions []checkpointSessionPaths `json:"sessions,omitempty"`
@@ -4291,86 +4206,6 @@ type selectedSession struct {
 	// export reads it; until then SourceTranscriptPath stays on the raw log.
 	CompactTranscriptPath string
 	SourceKey             string
-}
-
-type exportManifest struct {
-	TranscriptStorage string    `json:"transcript_storage,omitempty"`
-	SchemaVersion     int       `json:"schema_version"`
-	GeneratedAt       time.Time `json:"generated_at"`
-	// BrainVersion is the entire-brain build that PRODUCED the document. It is
-	// set only on exported bundles -- artifacts that leave this machine and so
-	// have to be attributable to a release.
-	//
-	// It is not a duplicate of sources.semantic.provider_version, which is the
-	// semantic PROVIDER's version (entire-graph's), copied verbatim out of the
-	// snapshot header the provider wrote. That field reading "dev" on a machine
-	// whose installed Entire CLI is itself a dev build is CORRECT, and
-	// overwriting it with this binary's version would both lie and break
-	// validateSemanticSourceMatchesSnapshot, which fails an import when the
-	// manifest and the snapshot header disagree. The producing build's own
-	// version was simply never recorded anywhere; this is that field.
-	//
-	// omitempty, and never set on the on-disk brain manifest, so no stored
-	// manifest gains a field an older build would then refuse to rewrite.
-	BrainVersion string `json:"brain_version,omitempty"`
-	RepoRoot     string `json:"repo_root,omitempty"`
-	// Stable local checkpoint location, independent of the exporting worktree.
-	CheckpointGitDir   string          `json:"checkpoint_git_dir,omitempty"`
-	CheckpointPrimary  string          `json:"checkpoint_primary,omitempty"`
-	RepoKey            string          `json:"repo_key,omitempty"`
-	EntireCLIVersion   string          `json:"entire_cli_version,omitempty"`
-	DefaultBranch      string          `json:"default_branch,omitempty"`
-	TranscriptMode     string          `json:"transcript_mode"`
-	Scope              string          `json:"scope"`
-	CheckpointLimit    int             `json:"checkpoint_limit"`
-	CheckpointsScanned int             `json:"checkpoints_scanned"`
-	Branches           []exportBranch  `json:"branches,omitempty"`
-	Sessions           []exportSession `json:"sessions"`
-	Warnings           []string        `json:"warnings,omitempty"`
-	// SuppressedWarnings holds the RAW text of every warning usefulExportWarnings kept out of
-	// Warnings. It exists so a diagnostic warning -- "checkpoint snapshot unavailable:" above all,
-	// which means a transcript was not readable and the export is therefore incomplete -- is
-	// recoverable from the manifest alone, without re-running the export under --debug.
-	SuppressedWarnings []string      `json:"suppressed_warnings,omitempty"`
-	Sources            *brainSources `json:"sources,omitempty"`
-}
-
-type exportBranch struct {
-	Branch       string `json:"branch"`
-	Directory    string `json:"directory"`
-	SessionCount int    `json:"session_count"`
-	Default      bool   `json:"default,omitempty"`
-}
-
-type exportSession struct {
-	SessionID            string                `json:"session_id"`
-	Branch               string                `json:"branch,omitempty"`
-	SourceBranch         string                `json:"source_branch,omitempty"`
-	Authors              []exportAuthor        `json:"authors,omitempty"`
-	Agent                string                `json:"agent,omitempty"`
-	Model                string                `json:"model,omitempty"`
-	Kind                 string                `json:"kind,omitempty"`
-	ReviewSkills         []string              `json:"review_skills,omitempty"`
-	LatestCheckpoint     string                `json:"latest_checkpoint_id"`
-	SessionIndex         int                   `json:"session_index"`
-	CreatedAt            time.Time             `json:"created_at"`
-	TurnID               string                `json:"turn_id,omitempty"`
-	IsTask               bool                  `json:"is_task,omitempty"`
-	ToolUseID            string                `json:"tool_use_id,omitempty"`
-	FilesTouched         []string              `json:"files_touched,omitempty"`
-	TokenUsage           *checkpointTokenUsage `json:"token_usage,omitempty"`
-	Summary              *checkpointSummary    `json:"summary,omitempty"`
-	CheckpointsCount     int                   `json:"checkpoints_count,omitempty"`
-	TranscriptPath       string                `json:"transcript_path"`
-	SourceTranscriptPath string                `json:"-"`
-	SourceKey            string                `json:"-"`
-}
-
-type exportAuthor struct {
-	Name         string     `json:"name,omitempty"`
-	Email        string     `json:"email,omitempty"`
-	Commits      int        `json:"commits,omitempty"`
-	LastCommitAt *time.Time `json:"last_commit_at,omitempty"`
 }
 
 type exportCursor struct {

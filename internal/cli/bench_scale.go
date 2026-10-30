@@ -13,7 +13,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/bench"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/spf13/cobra"
 )
 
@@ -240,7 +245,7 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 		}, repoDir); err != nil {
 			return err
 		}
-		report.IndexWallMS = roundMillis(time.Since(start))
+		report.IndexWallMS = bench.RoundMillis(time.Since(start))
 		report.MaxRSSBytes = processMaxRSSBytes()
 		if report.IndexWallMS > 0 {
 			report.LinesPerSec = float64(report.SourceLines) / (report.IndexWallMS / 1000)
@@ -253,7 +258,7 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 	}
 	brainDir := storage.BrainDir
 	indexed := false
-	if manifest, merr := loadBrainManifest(brainDir); merr == nil && manifest != nil && manifest.Sources != nil && manifest.Sources.Semantic != nil {
+	if manifest, merr := bmanifest.Load(brainDir); merr == nil && manifest != nil && manifest.Sources != nil && manifest.Sources.Semantic != nil {
 		indexed = true
 		report.IndexedFiles = manifest.Sources.Semantic.Files
 		report.Symbols = manifest.Sources.Semantic.Symbols
@@ -562,11 +567,11 @@ func measureCodeSearchLatency(ctx context.Context, opts Options, queries []strin
 // authoritative.
 func retrievalModeName(mode retrievalMode) string {
 	switch mode {
-	case modeLexical:
+	case retrieval.ModeLexical:
 		return "knowledge_lexical"
-	case modeVector:
+	case retrieval.ModeVector:
 		return "knowledge_vector"
-	case modeHybrid:
+	case retrieval.ModeHybrid:
 		return "knowledge_hybrid"
 	default:
 		return fmt.Sprintf("knowledge_mode_%d", int(mode))
@@ -586,7 +591,7 @@ func measureKnowledgeLatency(repoDir, brainDir, branch string, queries []string,
 		warnings = append(warnings, "knowledge corpus size unavailable: "+countErr.Error())
 	}
 
-	for _, mode := range []retrievalMode{modeLexical, modeHybrid} {
+	for _, mode := range []retrievalMode{retrieval.ModeLexical, retrieval.ModeHybrid} {
 		var samples []float64
 		failures := 0
 		for _, query := range queries {
@@ -619,18 +624,18 @@ func measureKnowledgeLatency(repoDir, brainDir, branch string, queries []string,
 // Count stored records before query-specific ranking and filtering. History
 // includes the reconciled short-term overlay, just as retrieval does.
 func countScaleKnowledgeRecords(brainDir, branch string) (int, error) {
-	facts, err := loadFacts(brainDir, branch)
+	facts, err := factstore.Load(brainDir, branch)
 	if err != nil {
 		return 0, err
 	}
 	records := len(facts)
-	index, err := loadDocIndex(brainDir)
+	index, err := docstore.Load(brainDir)
 	if err == nil {
 		records += len(index.Records)
 	} else if !os.IsNotExist(err) {
 		return 0, err
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return 0, err
 	}

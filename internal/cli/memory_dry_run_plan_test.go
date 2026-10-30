@@ -3,6 +3,8 @@ package cli
 import (
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,7 +40,7 @@ func TestMemoryMaintenanceDryRunsReportProspectiveArtifactTransitions(t *testing
 			t.Fatalf("clean dry-run payload=%+v err=%v\n%s", clean, err, cleanOut)
 		}
 
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil || manifest.Sources == nil || manifest.Sources.History == nil {
 			t.Fatalf("load repair fixture: manifest=%+v err=%v", manifest, err)
 		}
@@ -67,11 +69,11 @@ func TestMemoryMaintenanceDryRunsReportProspectiveArtifactTransitions(t *testing
 	t.Run("rebuild plans replacement without staging", func(t *testing.T) {
 		opts, brainDir := memoryAdminCommandFixture(t)
 		addMemoryAdminConversationFixture(t, brainDir, time.Date(2026, 8, 10, 10, 1, 0, 0, time.UTC))
-		manifestBefore, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+		manifestBefore, err := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName))
 		if err != nil {
 			t.Fatal(err)
 		}
-		stagingPath := filepath.Join(brainDir, filepath.FromSlash(historyStagingDir))
+		stagingPath := filepath.Join(brainDir, filepath.FromSlash(historystore.StagingDir))
 		stagingBefore, err := os.ReadDir(stagingPath)
 		if err != nil && !os.IsNotExist(err) {
 			t.Fatal(err)
@@ -84,7 +86,7 @@ func TestMemoryMaintenanceDryRunsReportProspectiveArtifactTransitions(t *testing
 		if err := json.Unmarshal([]byte(out), &receipt); err != nil || !receipt.DryRun || !receiptHasProspectiveTransition(receipt) {
 			t.Fatalf("rebuild dry-run receipt=%+v err=%v\n%s", receipt, err, out)
 		}
-		manifestAfter, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+		manifestAfter, err := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName))
 		if err != nil || string(manifestAfter) != string(manifestBefore) {
 			t.Fatalf("rebuild dry-run changed manifest: err=%v", err)
 		}

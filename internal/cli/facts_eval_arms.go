@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // facts_eval_arms.go provides the three retrieval structures the Appendix-D A/B
@@ -44,7 +46,7 @@ func flatArm(facts []factRecord, query string, k int) []factRecord {
 // When the query has no code locus, or nothing matches, it falls back to flat so
 // a conceptual query is never starved to zero.
 func scopedArm(facts []factRecord, query string, k int) []factRecord {
-	scoped := filterFactsByLocus(facts, query)
+	scoped := factstore.FilterByLocus(facts, query)
 	if len(scoped) > 0 && len(scoped) < len(facts) {
 		return rankFacts(scoped, query, k, false)
 	}
@@ -57,7 +59,7 @@ func scopedArm(facts []factRecord, query string, k int) []factRecord {
 // while keeping the high-precision locus matches at the top. When the query has
 // no code locus (or every fact matches) it is exactly flat.
 func scopedFloorArm(facts []factRecord, query string, k int) []factRecord {
-	scoped := filterFactsByLocus(facts, query)
+	scoped := factstore.FilterByLocus(facts, query)
 	if len(scoped) == 0 || len(scoped) == len(facts) {
 		return rankFacts(facts, query, k, false)
 	}

@@ -4,12 +4,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func writeSessionCorpusManifest(t *testing.T, outputDir string, sessions int) {
 	t.Helper()
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   time.Now().UTC(),
 	}
 	for i := 0; i < sessions; i++ {
@@ -24,7 +26,7 @@ func TestPopulatedBrainIsDetectedBeforeAnEmptyExportOverwritesIt(t *testing.T) {
 	outputDir := t.TempDir()
 	writeSessionCorpusManifest(t, outputDir, 3)
 
-	existing, err := loadBrainManifest(outputDir)
+	existing, err := bmanifest.Load(outputDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -36,7 +38,7 @@ func TestPopulatedBrainIsDetectedBeforeAnEmptyExportOverwritesIt(t *testing.T) {
 func TestFreshBrainWithNoCorpusIsNotBlocked(t *testing.T) {
 	outputDir := t.TempDir()
 
-	existing, err := loadBrainManifest(outputDir)
+	existing, err := bmanifest.Load(outputDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -49,7 +51,7 @@ func TestEmptyExportGuardMessageNamesTheRefAndCount(t *testing.T) {
 	outputDir := t.TempDir()
 	writeSessionCorpusManifest(t, outputDir, 11418)
 
-	existing, err := loadBrainManifest(outputDir)
+	existing, err := bmanifest.Load(outputDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}

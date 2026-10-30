@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // vanishedFixture builds a snapshot that can serve one session's transcript
@@ -644,7 +646,7 @@ func TestVanishedSessionKeepsItsLastCachedTranscript(t *testing.T) {
 	// A legacy disk-mode export: both cached transcripts are materialized and
 	// both sessions are recorded.
 	runFilelessExport(t, opts, brain, false)
-	first, err := loadBrainManifest(brain)
+	first, err := bmanifest.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -670,7 +672,7 @@ func TestVanishedSessionKeepsItsLastCachedTranscript(t *testing.T) {
 		t.Fatal(err)
 	}
 	runFilelessExport(t, opts, "", false)
-	migrated, err := loadBrainManifest(brain)
+	migrated, err := bmanifest.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -700,7 +702,7 @@ func TestVanishedSessionKeepsItsLastCachedTranscript(t *testing.T) {
 
 	for round := 1; round <= 2; round++ {
 		runFilelessExport(t, opts, "", false)
-		manifest, err := loadBrainManifest(brain)
+		manifest, err := bmanifest.Load(brain)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -2,41 +2,18 @@ package cli
 
 import (
 	"context"
-	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
-	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
-
-// This descriptor is resolved for each operation, never persisted. Graph owns
-// the filename, schema, cache identity and lifecycle. Brain opens only its
-// versioned views, read-only; no graph rows are copied into Brain storage.
-type graphStoreDescriptor struct {
-	BrainDir         string         `json:"brain_dir,omitempty"`
-	ContractVersion  int            `json:"contract_version"`
-	Path             string         `json:"path"`
-	EntryDigest      string         `json:"entry_digest"`
-	Commit           string         `json:"commit"`
-	Tree             string         `json:"tree"`
-	Header           semanticHeader `json:"header"`
-	Files            int            `json:"files"`
-	Symbols          int            `json:"symbols"`
-	Relations        int            `json:"relations"`
-	Externals        int            `json:"externals"`
-	StoreUnavailable bool           `json:"store_unavailable"`
-	Detail           string         `json:"detail"`
-}
-
-const graphStoreHandlePrefix = "graph-store-v1:"
 
 func fetchGraphStore(ctx context.Context, opts Options, repoDir, binary, profile string) (graphStoreDescriptor, error) {
 	if ctx == nil {
@@ -86,8 +63,8 @@ func fetchGraphStore(ctx context.Context, opts Options, repoDir, binary, profile
 	if d.ContractVersion != graphStoreSupportedContract {
 		return d, fmt.Errorf("%w (Graph reports store contract %d, this build requires %d)", errGraphStoreContractOlder, d.ContractVersion, graphStoreSupportedContract)
 	}
-	if err := validateSemanticSchema(d.Header.SchemaVersion); err != nil {
-		// validateSemanticSchema's own text names what this build reads but not
+	if err := semstore.ValidateSchema(d.Header.SchemaVersion); err != nil {
+		// semstore.ValidateSchema's own text names what this build reads but not
 		// who's asking; naming both Graph (the header's source) and entire-brain
 		// (what rejected it) here matches the other version-mismatch messages in
 		// this file.
@@ -100,7 +77,7 @@ func fetchGraphStore(ctx context.Context, opts Options, repoDir, binary, profile
 }
 
 // graphStoreSupportedContract is the one read-only store contract this build
-// speaks. It is independent of semanticSchemaVersion: the contract is the
+// speaks. It is independent of semstore.SchemaVersion: the contract is the
 // shape of graphStoreDescriptor and its SQLite views, while the schema is the
 // data model inside them (ADR 0001).
 const graphStoreSupportedContract = 1
@@ -123,35 +100,8 @@ var errGraphStoreContractOlder = errors.New("Graph's read-only store contract is
 
 var errGraphStoreUnavailable = errors.New("Graph store unavailable")
 
-func graphStoreSource(d graphStoreDescriptor, brainDir string) *semanticSourceManifest {
-	d.BrainDir = brainDir
-	encoded, _ := json.Marshal(struct {
-		Path        string `json:"path"`
-		EntryDigest string `json:"entry_digest"`
-		BrainDir    string `json:"brain_dir"`
-	}{d.Path, d.EntryDigest, brainDir})
-	h := d.Header
-	// fetchGraphStore already refused a schema this build cannot read at all
-	// (ADR 0001's major boundary); a newer supported-major minor still reaches
-	// here and must be recorded as a warning before SchemaVersion is copied, so
-	// the persisted source does not silently claim full ingestion.
-	warnings := append(append([]semanticWarning(nil), h.Warnings...), semanticSchemaWarnings(h.SchemaVersion)...)
-	return &semanticSourceManifest{Provider: "entire-graph", ProviderVersion: h.ProviderVersion, IdentityRevision: h.IdentityRevision, SchemaVersion: h.SchemaVersion, Commit: d.Commit, Tree: d.Tree, Profile: h.Profile, Symbols: d.Symbols, Relations: d.Relations, Externals: d.Externals, Files: d.Files, NoEgressVerified: true, StoreOwner: "graph", StorePath: graphStoreHandlePrefix + base64.RawURLEncoding.EncodeToString(encoded), graphStore: &d, Languages: h.Languages, LanguageTiers: h.LanguageTiers, Capabilities: h.Capabilities, Warnings: warnings, PartialFailures: h.PartialFailures, Completeness: h.Completeness, Stats: h.Stats, ProfileLimits: h.ProfileLimits, RelationSet: h.RelationSet, CompletenessLevel: completenessLevelFromStats(h.Stats), Trust: trustForCompleteness(completenessLevelFromStats(h.Stats))}
-}
-
-// semanticSchemaWarnings returns the minor-skew warning for a live Graph store
-// header, or nil. validateSemanticSchema's hard major refusal already ran in
-// fetchGraphStore before any caller reaches this point, so only the
-// non-fatal, supported-major case remains to check here.
-func semanticSchemaWarnings(schemaVersion string) []semanticWarning {
-	if skew := semanticSchemaMinorSkewWarning(schemaVersion); skew != nil {
-		return []semanticWarning{*skew}
-	}
-	return nil
-}
-
 func loadGraphManifest(ctx context.Context, opts Options, repoDir, brainDir string) (*exportManifest, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +116,7 @@ func loadGraphManifest(ctx context.Context, opts Options, repoDir, brainDir stri
 	if err != nil {
 		return nil, err
 	}
-	manifest.Sources.Semantic = graphStoreSource(d, brainDir)
+	manifest.Sources.Semantic = semstore.GraphStoreSource(d, brainDir)
 	return manifest, nil
 }
 
@@ -175,67 +125,6 @@ func graphStoreProfile(manifest *exportManifest) string {
 		return manifest.Sources.Semantic.Profile
 	}
 	return "full"
-}
-
-// openSemanticReadDB opens the provider's versioned projection. TEMP VIEWs
-// are connection-local aliases, not a second store. A single connection keeps
-// those aliases visible throughout the operation. mode=ro protects Graph even
-// if a future caller accidentally attempts a write.
-func openSemanticReadDB(handle string) (*sql.DB, error) {
-	if !strings.HasPrefix(handle, graphStoreHandlePrefix) {
-		return sql.Open(sqlitedriver.Name, brainstore.SQLiteReadOnlyDSN(handle))
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(handle, graphStoreHandlePrefix))
-	if err != nil {
-		return nil, err
-	}
-	var d graphStoreDescriptor
-	if err = json.Unmarshal(raw, &d); err != nil {
-		return nil, err
-	}
-	db, err := sql.Open(sqlitedriver.Name, brainstore.SQLiteReadOnlyDSN(d.Path))
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	fail := func(err error) (*sql.DB, error) { db.Close(); return nil, err }
-	var digest string
-	if err = db.QueryRow("SELECT value FROM meta WHERE key='entry_digest'").Scan(&digest); err != nil {
-		return fail(err)
-	}
-	var actual string
-	if err = json.Unmarshal([]byte(digest), &actual); err != nil || actual != d.EntryDigest {
-		return fail(errors.New("Graph store changed after resolution; retry the operation"))
-	}
-	for _, table := range []string{"symbols", "relations", "files", "reverse_relations", "symbol_fts"} {
-		brainView := "brain_" + table + "_v1"
-		if _, err = db.Exec("CREATE TEMP VIEW " + table + " AS SELECT * FROM main." + brainView); err != nil {
-			return fail(graphStoreViewMismatchError(brainView, err))
-		}
-		// SQLite does not resolve a view's SELECT until it is actually used, so
-		// CREATE TEMP VIEW above succeeds even when brainView no longer exists.
-		// table_info forces that resolution now, zero rows, so a provider that
-		// renamed or dropped a view fails right here with a named error instead
-		// of a raw "no such table" from whatever caller happens to query it
-		// first.
-		if _, err = db.Exec("PRAGMA table_info(" + table + ")"); err != nil {
-			return fail(graphStoreViewMismatchError(brainView, err))
-		}
-	}
-	if err = loadGraphTraceTable(db, d.BrainDir); err != nil {
-		return fail(err)
-	}
-	return db, nil
-}
-
-// graphStoreViewMismatchError names both binaries: either direction can rename
-// or drop a brain_*_v1 view, so a raw sqlite "no such table" does not say
-// which one is wrong. The cause is only wrapped, not inspected -- a schema
-// mismatch is the likely reason but not the only one a view can fail to
-// resolve (a corrupted or concurrently-locked store can too), so the message
-// hedges between both remedies instead of asserting a diagnosis it can't verify.
-func graphStoreViewMismatchError(brainView string, cause error) error {
-	return fmt.Errorf("Graph store view %s could not be resolved: %w (upgrade entire-brain or Graph to matching versions if this is a schema mismatch, or refresh the index if the store is corrupted)", brainView, cause)
 }
 
 func runGraphOwnedIndex(ctx context.Context, cmd *cobra.Command, opts Options, indexOpts semanticIndexOptions, target string) error {
@@ -338,7 +227,7 @@ func runGraphOwnedIndex(ctx context.Context, cmd *cobra.Command, opts Options, i
 	if err = requireCurrentBrainLayout(storage.BrainDir); err != nil {
 		return err
 	}
-	source := graphStoreSource(d, storage.BrainDir)
+	source := semstore.GraphStoreSource(d, storage.BrainDir)
 	source.StorePath = ""
 	source.GeneratedAt = opts.Now().UTC()
 	source.Profile = profile

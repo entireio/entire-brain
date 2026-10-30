@@ -5,11 +5,13 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func TestRenderDistillPromptSubstitutesTaxonomy(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	prompt, err := renderDistillPrompt(defaultFactTaxonomy(now))
+	prompt, err := renderDistillPrompt(factstore.DefaultTaxonomy(now))
 	if err != nil {
 		t.Fatalf("renderDistillPrompt: %v", err)
 	}
@@ -30,7 +32,7 @@ func TestRenderDistillPromptSubstitutesTaxonomy(t *testing.T) {
 
 func TestRenderDistillPromptStripsFrontmatter(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	prompt, err := renderDistillPrompt(defaultFactTaxonomy(now))
+	prompt, err := renderDistillPrompt(factstore.DefaultTaxonomy(now))
 	if err != nil {
 		t.Fatalf("renderDistillPrompt: %v", err)
 	}
@@ -92,8 +94,8 @@ func TestCapWarnings(t *testing.T) {
 
 func TestFactTaxonomyBlockDeterministic(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	a := factTaxonomyBlock(defaultFactTaxonomy(now))
-	b := factTaxonomyBlock(defaultFactTaxonomy(now))
+	a := factstore.TaxonomyBlock(factstore.DefaultTaxonomy(now))
+	b := factstore.TaxonomyBlock(factstore.DefaultTaxonomy(now))
 	if a != b {
 		t.Fatalf("taxonomy block not deterministic")
 	}
@@ -101,7 +103,7 @@ func TestFactTaxonomyBlockDeterministic(t *testing.T) {
 
 func TestDistilledFactsFromOutput(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	taxonomy := defaultFactTaxonomy(now)
+	taxonomy := factstore.DefaultTaxonomy(now)
 	anchor := factAnchor{SessionID: "s1", Commit: "abc123", Transcript: "sessions/main/x.jsonl", Line: 12}
 
 	output := strings.Join([]string{
@@ -118,7 +120,7 @@ func TestDistilledFactsFromOutput(t *testing.T) {
 	}
 
 	first := records[0]
-	if first.Origin != factOriginDistilled || first.Status != factStatusActive {
+	if first.Origin != factstore.OriginDistilled || first.Status != factStatusActive {
 		t.Errorf("wrong origin/status: %+v", first)
 	}
 	if first.Branch != "main" {
@@ -153,7 +155,7 @@ func TestDistilledFactsFromOutput(t *testing.T) {
 
 func TestDistilledFactsFromOutputKindColumn(t *testing.T) {
 	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
-	taxonomy := defaultFactTaxonomy(now)
+	taxonomy := factstore.DefaultTaxonomy(now)
 	anchor := factAnchor{SessionID: "s1"}
 
 	output := strings.Join([]string{
@@ -190,7 +192,7 @@ func TestDistilledFactsFromOutputKindColumn(t *testing.T) {
 
 func TestDistilledFactsFromOutputUnrecognizedKindRecovered(t *testing.T) {
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
-	taxonomy := defaultFactTaxonomy(now)
+	taxonomy := factstore.DefaultTaxonomy(now)
 	anchor := factAnchor{SessionID: "s1"}
 
 	// The agent prepends a leading word that is NOT in the closed kind set (a
@@ -214,7 +216,7 @@ func TestDistilledFactsFromOutputUnrecognizedKindRecovered(t *testing.T) {
 
 func TestDistilledFactsFromOutputTabSeparatedPaths(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
-	taxonomy := defaultFactTaxonomy(now)
+	taxonomy := factstore.DefaultTaxonomy(now)
 	anchor := factAnchor{SessionID: "s1"}
 
 	// The agent separated two paths with a TAB instead of a comma. The second
@@ -235,7 +237,7 @@ func TestDistilledFactsFromOutputTabSeparatedPaths(t *testing.T) {
 
 func TestDistilledFactsFromOutputLiteralTabEscape(t *testing.T) {
 	now := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
-	taxonomy := defaultFactTaxonomy(now)
+	taxonomy := factstore.DefaultTaxonomy(now)
 	anchor := factAnchor{SessionID: "s1"}
 
 	// gpt-5.3-codex-spark sometimes writes the separator as a literal backslash-t
@@ -259,7 +261,7 @@ func TestDistilledFactsFromOutputLiteralTabEscape(t *testing.T) {
 // would split the text into a spurious extra field).
 func TestDistilledFactsFromOutputLiteralTabEscapeFirstOnly(t *testing.T) {
 	now := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
-	taxonomy := defaultFactTaxonomy(now)
+	taxonomy := factstore.DefaultTaxonomy(now)
 	anchor := factAnchor{SessionID: "s1"}
 
 	output := `constraints.invariants.general\tColumns are separated by\ta tab character.`
@@ -307,14 +309,14 @@ func TestSplitFactLine(t *testing.T) {
 
 func TestDistilledFactsFromOutputCapsPerChunk(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	taxonomy := defaultFactTaxonomy(now)
+	taxonomy := factstore.DefaultTaxonomy(now)
 	var lines []string
-	for i := 0; i < factsMaxPerChunk+4; i++ {
+	for i := 0; i < factstore.MaxPerChunk+4; i++ {
 		lines = append(lines, "project.tooling.stack\tFact number "+string(rune('a'+i)))
 	}
 	records, warnings := distilledFactsFromOutput(strings.Join(lines, "\n"), taxonomy, factAnchor{SessionID: "s1"}, "main", now)
-	if len(records) != factsMaxPerChunk {
-		t.Fatalf("expected cap at %d, got %d", factsMaxPerChunk, len(records))
+	if len(records) != factstore.MaxPerChunk {
+		t.Fatalf("expected cap at %d, got %d", factstore.MaxPerChunk, len(records))
 	}
 	if !containsWarning(warnings, "extra lines dropped") {
 		t.Errorf("expected cap warning, got %v", warnings)
@@ -335,7 +337,7 @@ func containsWarning(warnings []string, substr string) bool {
 // (list entry + the always-capture trigger for questions settled negatively).
 func TestDistilledFactsFromOutputClosedNegativeKind(t *testing.T) {
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
-	taxonomy := defaultFactTaxonomy(now)
+	taxonomy := factstore.DefaultTaxonomy(now)
 	anchor := factAnchor{SessionID: "s1"}
 
 	output := "closed-negative\tarchitecture.data.flow\tQuery expansion was tried for fact recall and rejected: the lift collapsed at larger n; revisit only with a new expansion model."
@@ -368,7 +370,7 @@ func TestDistilledFactsFromOutputClosedNegativeKind(t *testing.T) {
 // facts.ndjson and back out through `recall`, `facts tree` and `get`.
 func TestDistilledFactsFromOutputStripsTerminalControls(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	taxonomy := defaultFactTaxonomy(now)
+	taxonomy := factstore.DefaultTaxonomy(now)
 	anchor := factAnchor{SessionID: "s1", CheckpointID: "cp1", Transcript: "sessions/main/s1.jsonl", Line: 1}
 
 	output := "preferences.coding.style\tFact with \x00nul and \x1b[31mansi\x1b[0m and \u202ebidi\u202c and \u200bzero width.\n"
@@ -414,7 +416,7 @@ func TestDistilledFactsFromOutputStripsTerminalControls(t *testing.T) {
 // every call.
 func TestDistilledFactsFromOutputAlwaysExplainsAnEmptyChunk(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	taxonomy := defaultFactTaxonomy(now)
+	taxonomy := factstore.DefaultTaxonomy(now)
 	anchor := factAnchor{SessionID: "s1", CheckpointID: "cp1", Transcript: "sessions/main/s1.jsonl", Line: 1}
 
 	for _, tc := range []struct {
@@ -495,7 +497,7 @@ func TestSanitizeDistilledFactTextLeavesCleanTextAlone(t *testing.T) {
 // injection path.
 func TestDistilledFactsFromOutputWarningsCarryNoControlBytes(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	taxonomy := defaultFactTaxonomy(now)
+	taxonomy := factstore.DefaultTaxonomy(now)
 	anchor := factAnchor{SessionID: "s1", CheckpointID: "cp1", Transcript: "sessions/main/s1.jsonl", Line: 1}
 
 	for _, tc := range []struct {

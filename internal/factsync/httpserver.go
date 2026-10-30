@@ -22,8 +22,15 @@ import (
 type HTTPServer struct {
 	BaseURL string       // entire-api origin, e.g. https://api.entire.io (no trailing slash needed); must clear apiurl.Validate — https, or http only to loopback
 	Token   string       // bearer token; sent as Authorization: Bearer <token> when non-empty
+	Version string       // this build's version; sent as the User-Agent when non-empty
 	Client  *http.Client // defaults to the bounded shared upload client when nil
 }
+
+// userAgentPrefix names the product in the User-Agent this client sends. The
+// server logs the header, which is the only way to tell whether a fleet has
+// picked up a client-side fix: a stuck client is fixed by its own upgrade, and
+// nothing the server deploys can hurry that along or observe it.
+const userAgentPrefix = "entire-brain/"
 
 // syncRequestTimeout bounds one HTTP exchange, including a full fact-set upload.
 // Tests may shorten it; the default matches the hosted publish upload budget.
@@ -176,6 +183,9 @@ func (h *HTTPServer) newRequest(ctx context.Context, method, path string, body i
 	}
 	if h.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+h.Token)
+	}
+	if h.Version != "" {
+		req.Header.Set("User-Agent", userAgentPrefix+h.Version)
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")

@@ -13,8 +13,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/spf13/cobra"
 )
 
@@ -84,9 +88,9 @@ func mustReadFile(t *testing.T, path string) []byte {
 	return data
 }
 
-func buildShortTermResult(t *testing.T, brainDir string) (shortTermStats, error) {
+func buildShortTermResult(t *testing.T, brainDir string) (historystore.ShortTermStats, error) {
 	t.Helper()
-	var stats shortTermStats
+	var stats historystore.ShortTermStats
 	err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var buildErr error
 		stats, buildErr = buildHistoryShortTermLocked(brainDir, time.Now().UTC())
@@ -114,7 +118,7 @@ func shortTermFixture(t *testing.T) (brainDir string, changedRel, newRel string)
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: "test/stm", DefaultBranch: "main",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now, RepoKey: "test/stm", DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
 			{SessionID: "sess-live", Branch: "main", Agent: "claude", LatestCheckpoint: "cp1", TranscriptPath: changedRel, CreatedAt: now.Add(-time.Hour)},
 		}}},
@@ -146,7 +150,7 @@ func shortTermFixture(t *testing.T) (brainDir string, changedRel, newRel string)
 	if err := os.WriteFile(newFull, []byte(second), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	onDisk, err := loadBrainManifest(brainDir)
+	onDisk, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,9 +164,9 @@ func shortTermFixture(t *testing.T) (brainDir string, changedRel, newRel string)
 	return brainDir, changedRel, newRel
 }
 
-func buildShortTerm(t *testing.T, brainDir string) shortTermStats {
+func buildShortTerm(t *testing.T, brainDir string) historystore.ShortTermStats {
 	t.Helper()
-	var stats shortTermStats
+	var stats historystore.ShortTermStats
 	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var err error
 		stats, err = buildHistoryShortTermLocked(brainDir, time.Date(2026, 8, 7, 13, 0, 0, 0, time.UTC))
@@ -185,7 +189,7 @@ func TestShortTermDeltaRejectsLongTermCacheOnSameMetadataReplacement(t *testing.
 	if stats.Scanned != 1 || stats.Reused != 0 {
 		t.Fatalf("same-metadata long-term replacement stats = %+v, want one scan", stats)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +215,7 @@ func TestShortTermDeltaRejectsPriorOverlayOnSameMetadataReplacement(t *testing.T
 	if err != nil || firstStats.Scanned != 1 {
 		t.Fatalf("first delta stats=%+v err=%v", firstStats, err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +283,7 @@ func TestShortTermDeltaOversizeTranscriptIsRecordedNotRefused(t *testing.T) {
 	if bytes.Equal(after, before) {
 		t.Fatal("the overlay was not republished, so the delta still refused over the bound")
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +308,7 @@ func TestShortTermDeltaIndexesOnlyChangedTranscripts(t *testing.T) {
 	if stats.Exchanges < 3 {
 		t.Fatalf("exchanges = %d, want >= 3 (two from the changed session, one from the new)", stats.Exchanges)
 	}
-	manifest, _ := loadBrainManifest(brainDir)
+	manifest, _ := bmanifest.Load(brainDir)
 	overlay := loadHistoryShortTerm(brainDir, manifest.Sources.History)
 	if len(overlay.Files) != 2 {
 		t.Fatalf("overlay files = %v", len(overlay.Files))
@@ -328,7 +332,7 @@ func TestShortTermRecordsAreRetrievableAndGettable(t *testing.T) {
 	brainDir, changedRel, _ := shortTermFixture(t)
 
 	// Before the delta: the in-flight turn is invisible.
-	before, err := retrieveConversation(brainDir, "corrupted vector store checksum", 10, modeLexical, retrievalOptions{})
+	before, err := retrieveConversation(brainDir, "corrupted vector store checksum", 10, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +346,7 @@ func TestShortTermRecordsAreRetrievableAndGettable(t *testing.T) {
 
 	// Conversation source: the fresh exchange from the changed session and the
 	// parallel session's exchange are both recallable.
-	after, err := retrieveConversation(brainDir, "corrupted vector store checksum", 10, modeLexical, retrievalOptions{})
+	after, err := retrieveConversation(brainDir, "corrupted vector store checksum", 10, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +359,7 @@ func TestShortTermRecordsAreRetrievableAndGettable(t *testing.T) {
 	if freshID == "" {
 		t.Fatalf("fresh exchange not retrievable after delta: %+v", after)
 	}
-	parallel, err := retrieveConversation(brainDir, "profile the exporter hot loop", 10, modeLexical, retrievalOptions{})
+	parallel, err := retrieveConversation(brainDir, "profile the exporter hot loop", 10, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil || len(parallel) == 0 {
 		t.Fatalf("parallel session not retrievable: %v (%d results)", err, len(parallel))
 	}
@@ -364,7 +368,7 @@ func TestShortTermRecordsAreRetrievableAndGettable(t *testing.T) {
 	}
 
 	// General history arm sees the fresh decision too.
-	unified, err := retrieveUnifiedWithOptions("", brainDir, "main", "exporter hot loop gzip", 10, modeLexical, retrievalOptions{})
+	unified, err := retrieveUnifiedWithOptions("", brainDir, "main", "exporter hot loop gzip", 10, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +377,7 @@ func TestShortTermRecordsAreRetrievableAndGettable(t *testing.T) {
 		if result.Source == "history" && strings.Contains(result.Text, "gzip") {
 			foundDecision = true
 		}
-		if result.Source == retrievalSourceConversation {
+		if result.Source == brainstore.RetrievalSourceConversation {
 			t.Fatalf("exchange leaked into default retrieval via the overlay: %+v", result)
 		}
 	}
@@ -398,7 +402,7 @@ func TestShortTermRecordsAreRetrievableAndGettable(t *testing.T) {
 func TestShortTermSupersedesLongTermRecordsOfChangedFiles(t *testing.T) {
 	brainDir, changedRel, _ := shortTermFixture(t)
 	buildShortTerm(t, brainDir)
-	manifest, _ := loadBrainManifest(brainDir)
+	manifest, _ := bmanifest.Load(brainDir)
 	fresh, err := loadFreshHistory(brainDir, manifest.Sources.History)
 	if err != nil {
 		t.Fatal(err)
@@ -432,7 +436,7 @@ func TestShortTermSupersedesLongTermRecordsOfChangedFiles(t *testing.T) {
 func TestShortTermLexicalOverlayPreservesDirectFTSPayloadPath(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	buildShortTerm(t, brainDir)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,7 +501,7 @@ func TestShortTermConsolidationClearsOverlayAndPreservesRecall(t *testing.T) {
 		t.Fatalf("overlay must be cleared by consolidation: %v", err)
 	}
 	// Everything the overlay held is now long-term recallable.
-	results, err := retrieveConversation(brainDir, "corrupted vector store checksum", 10, modeLexical, retrievalOptions{})
+	results, err := retrieveConversation(brainDir, "corrupted vector store checksum", 10, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil || len(results) == 0 {
 		t.Fatalf("post-consolidation recall failed: %v (%d)", err, len(results))
 	}
@@ -507,7 +511,7 @@ func TestShortTermEmptyOverlayPreservesRankingExactly(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	// NO delta ran: rankFreshHistory must return the long-term ranking
 	// bit-for-bit (scores included).
-	manifest, _ := loadBrainManifest(brainDir)
+	manifest, _ := bmanifest.Load(brainDir)
 	fresh, err := loadFreshHistory(brainDir, manifest.Sources.History)
 	if err != nil {
 		t.Fatal(err)
@@ -535,7 +539,7 @@ func TestShortTermEmptyOverlayPreservesRankingExactly(t *testing.T) {
 func TestShortTermStaleBasePinIsIgnored(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	buildShortTerm(t, brainDir)
-	manifest, _ := loadBrainManifest(brainDir)
+	manifest, _ := bmanifest.Load(brainDir)
 	if got := loadHistoryShortTerm(brainDir, manifest.Sources.History); len(got.Files) == 0 {
 		t.Fatal("precondition: overlay valid")
 	}
@@ -561,7 +565,7 @@ func TestShortTermHonorsTombstonesAndBuffersBound(t *testing.T) {
 	if stats.Files != 1 {
 		t.Fatalf("tombstoned session entered short-term memory: %+v", stats)
 	}
-	manifest, _ := loadBrainManifest(brainDir)
+	manifest, _ := bmanifest.Load(brainDir)
 	overlay := loadHistoryShortTerm(brainDir, manifest.Sources.History)
 	if _, ok := overlay.Files[newRel]; ok {
 		t.Fatal("excluded transcript in overlay")
@@ -592,25 +596,25 @@ func TestShortTermHonorsTombstonesAndBuffersBound(t *testing.T) {
 func TestWatchTickRunsShortTermDeltaEveryTick(t *testing.T) {
 	var out strings.Builder
 	deltas := 0
-	steps := watchSteps{
-		now:         func() time.Time { return time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC) },
-		fingerprint: func(ctxArg context.Context) string { return "same" },
-		delta: func(ctxArg context.Context) (shortTermStats, error) {
+	steps := watch.Steps{
+		Now:         func() time.Time { return time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC) },
+		Fingerprint: func(ctxArg context.Context) string { return "same" },
+		Delta: func(ctxArg context.Context) (historystore.ShortTermStats, error) {
 			deltas++
-			return shortTermStats{Records: 1, Files: 1}, nil
+			return historystore.ShortTermStats{Records: 1, Files: 1}, nil
 		},
-		refresh: func(ctxArg context.Context) error { t.Fatal("refresh must not run without change"); return nil },
-		seed:    func(ctxArg context.Context) error { return nil },
-		distill: func(ctxArg context.Context) error { return nil },
+		Refresh: func(ctxArg context.Context) error { t.Fatal("refresh must not run without change"); return nil },
+		Seed:    func(ctxArg context.Context) error { return nil },
+		Distill: func(ctxArg context.Context) error { return nil },
 	}
 	cursorPath := filepath.Join(t.TempDir(), "cursor.json")
 	// Seed the cursor so "no change" is reachable (a zero cursor forces refresh).
-	if err := saveWatchCursor(cursorPath, watchCursor{LastFingerprint: "same", LastRefreshAt: time.Date(2026, 8, 7, 11, 0, 0, 0, time.UTC)}); err != nil {
+	if err := watch.SaveCursor(cursorPath, watch.Cursor{LastFingerprint: "same", LastRefreshAt: time.Date(2026, 8, 7, 11, 0, 0, 0, time.UTC)}); err != nil {
 		t.Fatal(err)
 	}
 	calls := 0
-	watchTick(nil, &out, defaultWatchOptions(), cursorPath, steps, &calls)
-	watchTick(nil, &out, defaultWatchOptions(), cursorPath, steps, &calls)
+	watch.Tick(nil, &out, watch.DefaultFlags(), cursorPath, steps, &calls)
+	watch.Tick(nil, &out, watch.DefaultFlags(), cursorPath, steps, &calls)
 	if deltas != 2 {
 		t.Fatalf("delta ran %d times over 2 ticks, want every tick", deltas)
 	}
@@ -628,26 +632,26 @@ func TestWatchTickRunsShortTermDeltaEveryTick(t *testing.T) {
 // backoff.
 func TestWatchTickFailedDeltaRepairIsBounded(t *testing.T) {
 	start := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	options := defaultWatchOptions() // interval 5m, consolidateEvery 30m
+	options := watch.DefaultFlags() // interval 5m, consolidateEvery 30m
 	clock := start
 	refreshes := 0
 	tick := 0
 	deltaFails := true
-	steps := watchSteps{
-		now:         func() time.Time { return clock },
-		fingerprint: func(ctxArg context.Context) string { return fmt.Sprintf("fp-%d", tick) },
-		delta: func(ctxArg context.Context) (shortTermStats, error) {
+	steps := watch.Steps{
+		Now:         func() time.Time { return clock },
+		Fingerprint: func(ctxArg context.Context) string { return fmt.Sprintf("fp-%d", tick) },
+		Delta: func(ctxArg context.Context) (historystore.ShortTermStats, error) {
 			if deltaFails {
-				return shortTermStats{}, errors.New("brain write lock busy")
+				return historystore.ShortTermStats{}, errors.New("brain write lock busy")
 			}
-			return shortTermStats{Records: 1, Files: 1}, nil
+			return historystore.ShortTermStats{Records: 1, Files: 1}, nil
 		},
-		refresh: func(ctxArg context.Context) error { refreshes++; return nil },
-		seed:    func(ctxArg context.Context) error { return nil },
-		distill: func(ctxArg context.Context) error { return nil },
+		Refresh: func(ctxArg context.Context) error { refreshes++; return nil },
+		Seed:    func(ctxArg context.Context) error { return nil },
+		Distill: func(ctxArg context.Context) error { return nil },
 	}
 	cursorPath := filepath.Join(t.TempDir(), "cursor.json")
-	if err := saveWatchCursor(cursorPath, watchCursor{LastFingerprint: "seed", LastRefreshAt: start.Add(-6 * time.Minute)}); err != nil {
+	if err := watch.SaveCursor(cursorPath, watch.Cursor{LastFingerprint: "seed", LastRefreshAt: start.Add(-6 * time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -657,8 +661,8 @@ func TestWatchTickFailedDeltaRepairIsBounded(t *testing.T) {
 	calls := 0
 	const ticks = 20
 	for ; tick < ticks; tick++ {
-		watchTick(nil, &out, options, cursorPath, steps, &calls)
-		clock = clock.Add(options.interval)
+		watch.Tick(nil, &out, options, cursorPath, steps, &calls)
+		clock = clock.Add(options.Interval)
 	}
 	// Pre-fix this was one full refresh per tick. The backoff must cut it to a
 	// small fraction; the exact schedule is 5m/10m/20m/30m/30m over 100 minutes.
@@ -675,7 +679,7 @@ func TestWatchTickFailedDeltaRepairIsBounded(t *testing.T) {
 	if !strings.Contains(out.String(), "repair refresh backing off") {
 		t.Fatalf("deferral must name the repair backoff: %q", out.String())
 	}
-	cursor := loadWatchCursor(cursorPath)
+	cursor := watch.LoadCursor(cursorPath)
 	if cursor.ConsolidationRepairs == 0 {
 		t.Fatalf("consecutive repairs must be recorded: %+v", cursor)
 	}
@@ -683,33 +687,33 @@ func TestWatchTickFailedDeltaRepairIsBounded(t *testing.T) {
 	// A healthy delta clears the backoff so the next failure repairs promptly again.
 	deltaFails = false
 	out.Reset()
-	clock = clock.Add(options.consolidateEvery)
-	watchTick(nil, &out, options, cursorPath, steps, &calls)
-	if cursor := loadWatchCursor(cursorPath); cursor.ConsolidationRepairs != 0 {
+	clock = clock.Add(options.ConsolidateEvery)
+	watch.Tick(nil, &out, options, cursorPath, steps, &calls)
+	if cursor := watch.LoadCursor(cursorPath); cursor.ConsolidationRepairs != 0 {
 		t.Fatalf("healthy delta must reset the repair backoff: %+v", cursor)
 	}
 }
 
-// TestWatchTickNilDeltaKeepsNormalCadence locks that a watchSteps without a
+// TestWatchTickNilDeltaKeepsNormalCadence locks that a watch.Steps without a
 // delta step is not treated as a permanently failing delta: with no short-term
 // path there is nothing to repair, so --consolidate-every applies as usual.
 func TestWatchTickNilDeltaKeepsNormalCadence(t *testing.T) {
 	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	refreshes := 0
-	steps := watchSteps{
-		now:         func() time.Time { return now },
-		fingerprint: func(ctxArg context.Context) string { return "changed-fp" },
-		refresh:     func(ctxArg context.Context) error { refreshes++; return nil },
-		seed:        func(ctxArg context.Context) error { return nil },
-		distill:     func(ctxArg context.Context) error { return nil },
+	steps := watch.Steps{
+		Now:         func() time.Time { return now },
+		Fingerprint: func(ctxArg context.Context) string { return "changed-fp" },
+		Refresh:     func(ctxArg context.Context) error { refreshes++; return nil },
+		Seed:        func(ctxArg context.Context) error { return nil },
+		Distill:     func(ctxArg context.Context) error { return nil },
 	}
 	cursorPath := filepath.Join(t.TempDir(), "cursor.json")
-	if err := saveWatchCursor(cursorPath, watchCursor{LastFingerprint: "old-fp", LastRefreshAt: now.Add(-10 * time.Minute)}); err != nil {
+	if err := watch.SaveCursor(cursorPath, watch.Cursor{LastFingerprint: "old-fp", LastRefreshAt: now.Add(-10 * time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
 	var out strings.Builder
 	calls := 0
-	watchTick(nil, &out, defaultWatchOptions(), cursorPath, steps, &calls)
+	watch.Tick(nil, &out, watch.DefaultFlags(), cursorPath, steps, &calls)
 	if refreshes != 0 || !strings.Contains(out.String(), "short-term memory is current") {
 		t.Fatalf("nil delta must defer on the normal cadence: refreshes=%d out=%q", refreshes, out.String())
 	}
@@ -721,40 +725,40 @@ func TestWatchTickNilDeltaKeepsNormalCadence(t *testing.T) {
 // elapsed interval forces consolidation; 0 restores consolidate-on-every-change.
 func TestWatchTickConsolidationCadence(t *testing.T) {
 	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	newSteps := func(refreshes *int, full bool) watchSteps {
-		return watchSteps{
-			now:         func() time.Time { return now },
-			fingerprint: func(ctxArg context.Context) string { return "changed-fp" },
-			delta: func(ctxArg context.Context) (shortTermStats, error) {
-				return shortTermStats{Records: 2, Files: 1, Truncated: full}, nil
+	newSteps := func(refreshes *int, full bool) watch.Steps {
+		return watch.Steps{
+			Now:         func() time.Time { return now },
+			Fingerprint: func(ctxArg context.Context) string { return "changed-fp" },
+			Delta: func(ctxArg context.Context) (historystore.ShortTermStats, error) {
+				return historystore.ShortTermStats{Records: 2, Files: 1, Truncated: full}, nil
 			},
-			refresh: func(ctxArg context.Context) error { *refreshes++; return nil },
-			seed:    func(ctxArg context.Context) error { return nil },
-			distill: func(ctxArg context.Context) error { return nil },
+			Refresh: func(ctxArg context.Context) error { *refreshes++; return nil },
+			Seed:    func(ctxArg context.Context) error { return nil },
+			Distill: func(ctxArg context.Context) error { return nil },
 		}
 	}
-	cursor := watchCursor{LastFingerprint: "old-fp", LastRefreshAt: now.Add(-10 * time.Minute)}
-	options := defaultWatchOptions() // consolidateEvery 30m
+	cursor := watch.Cursor{LastFingerprint: "old-fp", LastRefreshAt: now.Add(-10 * time.Minute)}
+	options := watch.DefaultFlags() // consolidateEvery 30m
 
 	// Changed fingerprint, 10m since last full refresh: deferred.
 	var out strings.Builder
 	refreshes := 0
 	cursorPath := filepath.Join(t.TempDir(), "cursor.json")
-	if err := saveWatchCursor(cursorPath, cursor); err != nil {
+	if err := watch.SaveCursor(cursorPath, cursor); err != nil {
 		t.Fatal(err)
 	}
 	calls := 0
-	watchTick(nil, &out, options, cursorPath, newSteps(&refreshes, false), &calls)
+	watch.Tick(nil, &out, options, cursorPath, newSteps(&refreshes, false), &calls)
 	if refreshes != 0 || !strings.Contains(out.String(), "consolidation deferred") {
 		t.Fatalf("expected deferral: refreshes=%d out=%q", refreshes, out.String())
 	}
 
 	// Same state but the short-term buffer overflowed: consolidate now.
 	out.Reset()
-	if err := saveWatchCursor(cursorPath, cursor); err != nil {
+	if err := watch.SaveCursor(cursorPath, cursor); err != nil {
 		t.Fatal(err)
 	}
-	watchTick(nil, &out, options, cursorPath, newSteps(&refreshes, true), &calls)
+	watch.Tick(nil, &out, options, cursorPath, newSteps(&refreshes, true), &calls)
 	if refreshes != 1 {
 		t.Fatalf("full buffer must force consolidation: refreshes=%d out=%q", refreshes, out.String())
 	}
@@ -762,10 +766,10 @@ func TestWatchTickConsolidationCadence(t *testing.T) {
 	// Interval elapsed: consolidate.
 	out.Reset()
 	refreshes = 0
-	if err := saveWatchCursor(cursorPath, watchCursor{LastFingerprint: "old-fp", LastRefreshAt: now.Add(-45 * time.Minute)}); err != nil {
+	if err := watch.SaveCursor(cursorPath, watch.Cursor{LastFingerprint: "old-fp", LastRefreshAt: now.Add(-45 * time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
-	watchTick(nil, &out, options, cursorPath, newSteps(&refreshes, false), &calls)
+	watch.Tick(nil, &out, options, cursorPath, newSteps(&refreshes, false), &calls)
 	if refreshes != 1 {
 		t.Fatalf("elapsed interval must consolidate: refreshes=%d out=%q", refreshes, out.String())
 	}
@@ -773,11 +777,11 @@ func TestWatchTickConsolidationCadence(t *testing.T) {
 	// consolidate-every 0: pre-short-term behavior (refresh on every change).
 	out.Reset()
 	refreshes = 0
-	options.consolidateEvery = 0
-	if err := saveWatchCursor(cursorPath, cursor); err != nil {
+	options.ConsolidateEvery = 0
+	if err := watch.SaveCursor(cursorPath, cursor); err != nil {
 		t.Fatal(err)
 	}
-	watchTick(nil, &out, options, cursorPath, newSteps(&refreshes, false), &calls)
+	watch.Tick(nil, &out, options, cursorPath, newSteps(&refreshes, false), &calls)
 	if refreshes != 1 {
 		t.Fatalf("consolidate-every=0 must refresh on change: refreshes=%d out=%q", refreshes, out.String())
 	}
@@ -816,14 +820,14 @@ func TestTwoTierStableIDReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath)), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   generated,
 		Sources: &brainSources{History: &historySourceManifest{
-			GeneratedAt: generated, IndexPath: historyIndexPath, Records: len(index.Records),
+			GeneratedAt: generated, IndexPath: historystore.IndexPath, Records: len(index.Records),
 		}},
 	}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
@@ -926,7 +930,7 @@ func TestShortTermOverlayStatesNeverClaimCoverage(t *testing.T) {
 	baseRel := "sessions/main/20260808T100000Z_base.jsonl"
 	writeTranscript(baseRel, "fix the exporter", "Decision: pinned the exporter version.")
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: storage.Key, DefaultBranch: "main",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now, RepoKey: storage.Key, DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
 			{SessionID: "base-sess", Branch: "main", Agent: "claude", LatestCheckpoint: "cp", TranscriptPath: baseRel, CreatedAt: now.Add(-time.Hour)},
 		}}},
@@ -939,7 +943,7 @@ func TestShortTermOverlayStatesNeverClaimCoverage(t *testing.T) {
 	}
 	addSession := func(id, rel string) {
 		t.Helper()
-		onDisk, err := loadBrainManifest(brainDir)
+		onDisk, err := bmanifest.Load(brainDir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -970,7 +974,7 @@ func TestShortTermOverlayStatesNeverClaimCoverage(t *testing.T) {
 		t.Fatalf("complete overlay must cover the gap: %s %q", state, detail)
 	}
 
-	onDiskManifest, err := loadBrainManifest(brainDir)
+	onDiskManifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1046,7 +1050,7 @@ func TestShortTermOverlayStatesNeverClaimCoverage(t *testing.T) {
 func TestShortTermReconcilerVersionGate(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	buildShortTerm(t, brainDir)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

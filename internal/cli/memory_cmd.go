@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
 	"os/exec"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -253,7 +255,7 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if memoryWorkerOrigin() {
 				if jsonOut {
-					return writeJSON(cmd, map[string]any{"ignored": true, "reason": "worker_origin"})
+					return cmdutil.WriteJSON(cmd, map[string]any{"ignored": true, "reason": "worker_origin"})
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), "ignored memory notification from worker origin")
 				return nil
@@ -286,7 +288,7 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "push work launch failed (daemon tick will reconcile): %v\n", err)
 				}
 				if jsonOut {
-					return writeJSON(cmd, map[string]any{"dispatched": "push"})
+					return cmdutil.WriteJSON(cmd, map[string]any{"dispatched": "push"})
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), "dispatched push upload")
 				return nil
@@ -300,7 +302,7 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 				if warning != "" {
 					payload["warning"] = warning
 				}
-				return writeJSON(cmd, payload)
+				return cmdutil.WriteJSON(cmd, payload)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "recorded %s hint for session %s (generation %d)\n", hint.LastEvent, hint.SessionID, hint.Generation)
 			if warning != "" {
@@ -345,7 +347,7 @@ func memoryManifestIdentity(manifest *exportManifest) (string, error) {
 }
 
 func prepareMemoryReconcileSnapshot(ctx context.Context, brainDir string) (*memoryReconcileSnapshot, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -411,7 +413,7 @@ func reconcileMemoryJobsLocked(brainDir, trigger string, now time.Time, snapshot
 }
 
 func reconcileMemoryJobsLockedDetailed(brainDir, trigger string, now time.Time, snapshot *memoryReconcileSnapshot, dryRun bool, receipt *memoryOperationReceipt) (created int, err error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return 0, err
 	}
@@ -666,7 +668,7 @@ func reconcileAbstractJobsLocked(brainDir, trigger string, now time.Time) (creat
 	if err := rejectAutomaticAbstractReconciliationForGlobalNoEgress(brainDir); err != nil {
 		return 0, err
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return 0, err
 	}
@@ -677,7 +679,7 @@ func reconcileAbstractJobsLocked(brainDir, trigger string, now time.Time) (creat
 	if err != nil {
 		return 0, nil // deterministic projection is not current yet
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return 0, err
 	}
@@ -792,7 +794,7 @@ func memoryHintConsumable(hint memoryLifecycleHint, scopes int, satisfied bool) 
 
 func maintainMemoryWorkerStateLocked(brainDir string, now time.Time, snapshot *memoryReconcileSnapshot) (memoryWorkerStats, error) {
 	var stats memoryWorkerStats
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return stats, err
 	}
@@ -1063,7 +1065,7 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 			published = publishErr == nil
 		}
 		settledAt := memoryClockNow(clock)
-		manifest, manifestErr := loadBrainManifest(brainDir)
+		manifest, manifestErr := bmanifest.Load(brainDir)
 		var receipts projectionState
 		if published && manifestErr == nil && manifest.Sources != nil {
 			receipts, _ = loadProjectionState(brainDir, manifest.Sources.History)
@@ -1456,13 +1458,13 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			// coordinator state. No relaunch is scheduled: the durable hints
 			// remain for the next launch after `start` (a hook or watch
 			// pass) to drain.
-			if backgroundPaused(opts.Env) {
-				return writeJSON(cmd, memoryWorkerStats{Paused: true})
+			if base.BackgroundPaused(opts.Env) {
+				return cmdutil.WriteJSON(cmd, memoryWorkerStats{Paused: true})
 			}
 			coordinator, err := acquireMemoryCoordinator(storage.BrainDir, opts.Now().UTC(), opts.Version)
 			if err != nil {
 				if strings.Contains(err.Error(), "memory_worker_active") {
-					return writeJSON(cmd, memoryWorkerStats{AlreadyActive: true})
+					return cmdutil.WriteJSON(cmd, memoryWorkerStats{AlreadyActive: true})
 				}
 				return err
 			}
@@ -1504,9 +1506,9 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 				}
 			}
 			// Again after the leased tail: a `stop` during it must still win.
-			if backgroundPaused(opts.Env) {
+			if base.BackgroundPaused(opts.Env) {
 				outcome = "cancelled"
-				return writeJSON(cmd, memoryWorkerStats{Paused: true})
+				return cmdutil.WriteJSON(cmd, memoryWorkerStats{Paused: true})
 			}
 			var stats memoryWorkerStats
 			var prepassRetry *time.Duration
@@ -1585,7 +1587,7 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			for _, issue := range coordinator.healthIssuesSnapshot() {
 				stats.addHealthIssue(issue)
 			}
-			return writeJSON(cmd, stats)
+			return cmdutil.WriteJSON(cmd, stats)
 		},
 	}
 	cmd.Flags().BoolVar(&once, "once", false, "Run one pass and exit")
@@ -1690,7 +1692,7 @@ func newMemoryStatusCommand(opts Options) *cobra.Command {
 				}
 			}
 			if jsonOut {
-				return writeJSON(cmd, payload)
+				return cmdutil.WriteJSON(cmd, payload)
 			}
 			return writeMemoryStatusText(cmd, payload)
 		},
@@ -1714,7 +1716,7 @@ func writeMemoryStatusText(cmd *cobra.Command, payload map[string]any) error {
 	if err := decoder.Decode(&normalized); err != nil {
 		return fmt.Errorf("normalize memory status for text rendering: %w", err)
 	}
-	return writeText(cmd, func(out io.Writer) {
+	return cmdutil.WriteText(cmd, func(out io.Writer) {
 		renderMemoryStatusMap(out, normalized, 0)
 	})
 }
@@ -1829,9 +1831,9 @@ func newMemoryJobsCommand(opts Options) *cobra.Command {
 				jobs = []memoryJob{}
 			}
 			if jsonOut {
-				return writeJSON(cmd, map[string]any{"jobs": jobs, "state_issues": inventory.Issues, "inventory_entries_observed": inventory.EntriesObserved, "inventory_entries_scanned": inventory.EntriesScanned, "inventory_truncated": inventory.Truncated, "inventory_scan_complete": inventory.ScanComplete, "inventory_degraded": inventory.Degraded})
+				return cmdutil.WriteJSON(cmd, map[string]any{"jobs": jobs, "state_issues": inventory.Issues, "inventory_entries_observed": inventory.EntriesObserved, "inventory_entries_scanned": inventory.EntriesScanned, "inventory_truncated": inventory.Truncated, "inventory_scan_complete": inventory.ScanComplete, "inventory_degraded": inventory.Degraded})
 			}
-			return writeText(cmd, func(out io.Writer) {
+			return cmdutil.WriteText(cmd, func(out io.Writer) {
 				for _, job := range jobs {
 					errorCode := ""
 					if job.Error != nil {

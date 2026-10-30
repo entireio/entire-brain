@@ -17,7 +17,10 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/factsync"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
 )
 
 // hostedFake is an in-memory brainstore speaking the per-fact wire:
@@ -32,9 +35,10 @@ type hostedFake struct {
 	requests     int
 	upsertCalls  int
 	feedTokens   []string
-	denyPush     bool // upsert → 403, the push-grant-denied shape
-	denyFeed     bool // feed GET → 500, the pull-outage shape
-	rejectTokens int  // while >0, any request with a pageToken → 400 once each
+	denyPush     bool   // upsert → 403, the push-grant-denied shape
+	denyFeed     bool   // feed GET → 500, the pull-outage shape
+	noAccessRepo string // any request for this repo id → 403, the stale-binding shape
+	rejectTokens int    // while >0, any request with a pageToken → 400 once each
 	callerBy     string
 	callerHandle string
 }
@@ -108,6 +112,10 @@ func newHostedFakeServer(t *testing.T, fake *hostedFake) *httptest.Server {
 		defer fake.mu.Unlock()
 		fake.requests++
 		w.Header().Set("Content-Type", "application/json")
+		if fake.noAccessRepo != "" && strings.Contains(r.URL.Path, "/repos/"+fake.noAccessRepo+"/") {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
 		switch {
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/brain/facts"):
 			fake.upsertCalls++
@@ -188,7 +196,7 @@ func hostedSyncAnchoredFact(text string, now time.Time, anchors ...factmerge.Anc
 		Paths:      paths,
 		Text:       text,
 		Branch:     "main",
-		Origin:     factOriginAuthored,
+		Origin:     factstore.OriginAuthored,
 		Status:     factStatusActive,
 		Provenance: anchors,
 		CreatedAt:  now,
@@ -212,11 +220,11 @@ func hostedSyncHarness(t *testing.T, fake *hostedFake, bind bool) (Options, repo
 	}
 	srv := newHostedFakeServer(t, fake)
 	if bind {
-		if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL}); err != nil {
+		if err := brainstore.WriteHostedRepoBinding(brainDir, brainstore.HostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
 			return []byte(fakeJWT + "\n"), nil, nil
 		}
@@ -259,7 +267,7 @@ func TestHostedSyncGates(t *testing.T) {
 func TestHostedSyncTokenMintFailureIsNonFatal(t *testing.T) {
 	fake := &hostedFake{}
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	opts.Runner = clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		return nil, nil, errors.New("not logged in")
 	})
 	var errOut bytes.Buffer
@@ -281,7 +289,7 @@ func TestHostedSyncPublishesAndPulls(t *testing.T) {
 	fake := &hostedFake{}
 	fake.seed(remoteFact, "trail-1", "acct-teammate", "teammate")
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -293,7 +301,7 @@ func TestHostedSyncPublishesAndPulls(t *testing.T) {
 	if !fake.has(localFact.ID) {
 		t.Fatal("the local fact must be upserted to the hosted store")
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +339,7 @@ func TestHostedSyncEmptyStoreSkipsPush(t *testing.T) {
 	if fake.upsertCount() != 0 {
 		t.Fatalf("an empty store must not post an upsert, got %d calls", fake.upsertCount())
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +361,7 @@ func TestHostedSyncFilterDropsUnreachable(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +390,7 @@ func TestHostedSyncMemberFactsFollowTheAccount(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -414,7 +422,7 @@ func TestHostedSyncCursorResumes(t *testing.T) {
 			t.Fatal("the second sync must resume from the stored cursor, not replay from the start")
 		}
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +455,7 @@ func TestHostedSyncCursorResetOnRejectedToken(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,11 +475,11 @@ func TestHostedSyncRemovesFilterRejectedCachedFacts(t *testing.T) {
 	fake := &hostedFake{denyPush: true} // keep localFact out of the hosted feed
 	fake.seed(teammate, "", "acct-teammate", "teammate")
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
 		t.Fatal(err)
 	}
 	reachable := true
-	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	opts.Runner = clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
 			return []byte(fakeJWT + "\n"), nil, nil
 		}
@@ -485,7 +493,7 @@ func TestHostedSyncRemovesFilterRejectedCachedFacts(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -502,7 +510,7 @@ func TestHostedSyncRemovesFilterRejectedCachedFacts(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err = loadFacts(storage.BrainDir, "main")
+	local, err = factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -527,7 +535,7 @@ func TestPullPreservesLocalStatus(t *testing.T) {
 	fake := &hostedFake{}
 	fake.seed(remoteActive, "trail-1", "acct-teammate", "teammate")
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{retracted}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{retracted}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -535,7 +543,7 @@ func TestPullPreservesLocalStatus(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,10 +565,10 @@ func TestPullRefusesForgedFeedWithoutWrite(t *testing.T) {
 	fake.put(factsync.FeedItem{Record: forged, TrailID: "trail-1", CreatedBy: "acct-teammate", CreatedByHandle: "teammate"})
 	fake.mu.Unlock()
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
 		t.Fatal(err)
 	}
-	before, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factsFileRelPath("main"))))
+	before, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factstore.FileRelPath("main"))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -569,7 +577,7 @@ func TestPullRefusesForgedFeedWithoutWrite(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatalf("sync failure must be non-fatal, got %v", err)
 	}
-	after, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factsFileRelPath("main"))))
+	after, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factstore.FileRelPath("main"))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -593,7 +601,7 @@ func TestPullServerAttributionBeatsBlobAuthor(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -612,7 +620,7 @@ func TestPullServerAttributionBeatsBlobAuthor(t *testing.T) {
 func TestHostedSyncNeverConnectsWithoutBinding(t *testing.T) {
 	fake := &hostedFake{}
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
-	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	opts.Runner = clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
 			return []byte(`{"repoId":"repo1","apiUrl":"` + baseURL + `"}` + "\n"), nil, nil
 		}
@@ -629,7 +637,7 @@ func TestHostedSyncNeverConnectsWithoutBinding(t *testing.T) {
 	if fake.requestCount() != 0 {
 		t.Fatalf("an unbound repo must make zero hosted requests, got %d", fake.requestCount())
 	}
-	if _, present, _ := readHostedRepoBinding(storage.BrainDir); present {
+	if _, present, _ := brainstore.ReadHostedRepoBinding(storage.BrainDir); present {
 		t.Fatal("a background trigger must never write the binding")
 	}
 	if errOut.Len() != 0 {
@@ -645,7 +653,7 @@ func TestHostedSyncNeverConnectsWithoutBinding(t *testing.T) {
 func TestHostedSyncSkipsCorruptBindingWithoutReconnect(t *testing.T) {
 	fake := &hostedFake{}
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
-	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	opts.Runner = clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
 			return []byte(`{"repoId":"repo1","apiUrl":"` + baseURL + `"}` + "\n"), nil, nil
 		}
@@ -654,7 +662,7 @@ func TestHostedSyncSkipsCorruptBindingWithoutReconnect(t *testing.T) {
 		}
 		return nil, nil, errors.New("not available")
 	})
-	bindingPath := filepath.Join(storage.BrainDir, hostedRepoBindingFile)
+	bindingPath := filepath.Join(storage.BrainDir, brainstore.HostedRepoBindingFile)
 	if err := os.WriteFile(bindingPath, []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -683,7 +691,7 @@ func TestHostedSyncSkipsCorruptBindingWithoutReconnect(t *testing.T) {
 func TestHostedSyncSkipsUnreadableBindingWithoutRewrite(t *testing.T) {
 	fake := &hostedFake{}
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
-	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	opts.Runner = clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
 			return []byte(`{"repoId":"repo1","apiUrl":"` + baseURL + `"}` + "\n"), nil, nil
 		}
@@ -694,7 +702,7 @@ func TestHostedSyncSkipsUnreadableBindingWithoutRewrite(t *testing.T) {
 	})
 	// A directory at the binding path fails the read with a non-parse error on
 	// every platform; chmod 0o000 is a read no-op on Windows.
-	bindingPath := filepath.Join(storage.BrainDir, hostedRepoBindingFile)
+	bindingPath := filepath.Join(storage.BrainDir, brainstore.HostedRepoBindingFile)
 	if err := os.Mkdir(bindingPath, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -718,11 +726,11 @@ func TestHostedSyncSkipsUnreadableBindingWithoutRewrite(t *testing.T) {
 func TestHostedSyncOptedOutSkipsSyncAndAutoConnect(t *testing.T) {
 	fake := &hostedFake{}
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
-	if err := writeHostedRepoBinding(storage.BrainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: baseURL, OptedOut: true}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(storage.BrainDir, brainstore.HostedRepoBinding{RepoID: "repo1", BaseURL: baseURL, OptedOut: true}); err != nil {
 		t.Fatal(err)
 	}
 	shellOuts := 0
-	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	opts.Runner = clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		shellOuts++
 		return nil, nil, errors.New("not available")
 	})
@@ -741,24 +749,24 @@ func TestHostedSyncOptedOutSkipsSyncAndAutoConnect(t *testing.T) {
 
 func TestSetHostedOptOutKeepsCoordinatesAndHealsCorruption(t *testing.T) {
 	brainDir := t.TempDir()
-	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: "https://cell.api.example.com"}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(brainDir, brainstore.HostedRepoBinding{RepoID: "repo1", BaseURL: "https://cell.api.example.com"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := setHostedOptOut(brainDir); err != nil {
+	if _, err := brainstore.SetHostedOptOut(brainDir); err != nil {
 		t.Fatal(err)
 	}
-	binding, present, err := readHostedRepoBinding(brainDir)
+	binding, present, err := brainstore.ReadHostedRepoBinding(brainDir)
 	if err != nil || !present || !binding.OptedOut || binding.RepoID != "repo1" {
 		t.Fatalf("opt-out must keep the coordinates: present=%v err=%v binding=%+v", present, err, binding)
 	}
 
-	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, hostedRepoBindingFile, []byte("{not json"), 0600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, brainstore.HostedRepoBindingFile, []byte("{not json"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := setHostedOptOut(brainDir); err != nil {
+	if _, err := brainstore.SetHostedOptOut(brainDir); err != nil {
 		t.Fatalf("a corrupt state file must not block the opt-out, got %v", err)
 	}
-	binding, present, err = readHostedRepoBinding(brainDir)
+	binding, present, err = brainstore.ReadHostedRepoBinding(brainDir)
 	if err != nil || !present || !binding.OptedOut {
 		t.Fatalf("corrupt file must be replaced by a bare opt-out: present=%v err=%v binding=%+v", present, err, binding)
 	}
@@ -768,7 +776,7 @@ func TestHostedSyncNoEgressBlocksAutoConnect(t *testing.T) {
 	fake := &hostedFake{}
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, false)
 	placementCalls := 0
-	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	opts.Runner = clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		placementCalls++
 		return nil, nil, errors.New("not available")
 	})
@@ -792,7 +800,7 @@ func TestPullAppliesRemoteRetirement(t *testing.T) {
 	fake := &hostedFake{}
 	fake.seed(remoteRetired, "trail-1", "acct-teammate", "teammate")
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{localActive}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{localActive}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -800,7 +808,7 @@ func TestPullAppliesRemoteRetirement(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -822,7 +830,7 @@ func TestPullNeverRevivesFromAnActiveFeed(t *testing.T) {
 	fake := &hostedFake{}
 	fake.seed(remoteActive, "trail-1", "acct-teammate", "teammate")
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{localRetired}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{localRetired}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -830,7 +838,7 @@ func TestPullNeverRevivesFromAnActiveFeed(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -848,7 +856,7 @@ func TestHostedSyncFallsBackToPullOnlyWhenPublishDenied(t *testing.T) {
 	fake := &hostedFake{denyPush: true}
 	fake.seed(remoteFact, "trail-1", "acct-teammate", "teammate")
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -856,7 +864,7 @@ func TestHostedSyncFallsBackToPullOnlyWhenPublishDenied(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatalf("publish denial must be non-fatal, got %v", err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -877,6 +885,11 @@ func TestHostedSyncFallsBackToPullOnlyWhenPublishDenied(t *testing.T) {
 	if !strings.Contains(errOut.String(), "pull-only") {
 		t.Fatalf("expected a pull-only note on stderr, got %q", errOut.String())
 	}
+	// A read-only grant (push 403, pull 200) is a working degraded state, not
+	// a stale binding: it must never trip the no-access pause (COR-2279).
+	if binding := readBindingOrFatal(t, storage.BrainDir); !binding.NoAccessUntil.IsZero() {
+		t.Fatalf("a push-only denial must not pause the repo, got %v", binding.NoAccessUntil)
+	}
 }
 
 func TestPullOnlyRejectsAForgedFeed(t *testing.T) {
@@ -889,10 +902,10 @@ func TestPullOnlyRejectsAForgedFeed(t *testing.T) {
 	fake.put(factsync.FeedItem{Record: forged, TrailID: "trail-1", CreatedBy: "acct-teammate", CreatedByHandle: "teammate"})
 	fake.mu.Unlock()
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
 		t.Fatal(err)
 	}
-	before, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factsFileRelPath("main"))))
+	before, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factstore.FileRelPath("main"))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -901,7 +914,7 @@ func TestPullOnlyRejectsAForgedFeed(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatalf("must be non-fatal, got %v", err)
 	}
-	after, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factsFileRelPath("main"))))
+	after, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factstore.FileRelPath("main"))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -924,7 +937,7 @@ func TestPullRemovalSparesLocallyDistilledFacts(t *testing.T) {
 	fake := &hostedFake{denyPush: true}
 	fake.seed(theirs, "", "acct-teammate", "teammate")
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{mine}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{mine}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -932,7 +945,7 @@ func TestPullRemovalSparesLocallyDistilledFacts(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -956,10 +969,10 @@ func TestPullRemovalDisabledWithoutMemberIdentity(t *testing.T) {
 	fake := &hostedFake{}
 	fake.seed(cached, "", "ulrich", "ulrich")
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{cached}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{cached}); err != nil {
 		t.Fatal(err)
 	}
-	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	opts.Runner = clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
 			return []byte("aa.bb.cc\n"), nil, nil // passes looksLikeJWT, sub unreadable
 		}
@@ -970,7 +983,7 @@ func TestPullRemovalDisabledWithoutMemberIdentity(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -999,10 +1012,10 @@ func TestPullRemovalSparesLocallyAnchoredAuthoredFacts(t *testing.T) {
 	fake := &hostedFake{denyPush: true} // keep the local copy's anchors out of the feed
 	fake.seed(theirs, "", "acct-teammate", "teammate")
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{mine}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{mine}); err != nil {
 		t.Fatal(err)
 	}
-	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	opts.Runner = clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
 			return []byte(fakeJWT + "\n"), nil, nil
 		}
@@ -1016,7 +1029,7 @@ func TestPullRemovalSparesLocallyAnchoredAuthoredFacts(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1061,7 +1074,7 @@ func TestPushSkipsUnverifiableRecordsAndUploadsTheRest(t *testing.T) {
 	corrupt.ID = "fact:id-that-does-not-match-content"
 	fake := &hostedFake{}
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{good, corrupt}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{good, corrupt}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1091,7 +1104,7 @@ func TestPushWithNothingPublishableIsPullOnly(t *testing.T) {
 	corrupt.ID = "fact:id-that-does-not-match-content"
 	fake := &hostedFake{}
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{corrupt}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{corrupt}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1104,5 +1117,219 @@ func TestPushWithNothingPublishableIsPullOnly(t *testing.T) {
 	}
 	if err := checkHostedFactsBinding(storage.BrainDir, "main", "repo1", baseURL); err == nil {
 		t.Fatal("a store that shared nothing must not be marked synced")
+	}
+}
+
+// repoViewRunner mints tokens like the harness runner and serves `entire repo
+// view --json` with the given placement; everything else (git, version) fails,
+// which passes the host-CLI version gate.
+func repoViewRunner(repoID, apiURL string) clitest.CommandRunnerFunc {
+	return clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
+			return []byte(`{"repoId":"` + repoID + `","apiUrl":"` + apiURL + `"}`), nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+}
+
+func readBindingOrFatal(t *testing.T, brainDir string) brainstore.HostedRepoBinding {
+	t.Helper()
+	binding, present, err := brainstore.ReadHostedRepoBinding(brainDir)
+	if err != nil || !present {
+		t.Fatalf("binding must stay readable: present=%v err=%v", present, err)
+	}
+	return binding
+}
+
+// A denied pull means the binding itself is stale (deleted repo or lost
+// grant). When placement does not resolve to a replacement repo, the sync
+// records a pause so background triggers stop feeding the server 403s, says
+// so once, and stays silent until the pause passes (COR-2279).
+func TestHostedSyncPullNoAccessPausesRepo(t *testing.T) {
+	fake := &hostedFake{noAccessRepo: "repo1"}
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatalf("a denied pull must be non-fatal, got %v", err)
+	}
+	if !strings.Contains(errOut.String(), "no access") || !strings.Contains(errOut.String(), "connect") {
+		t.Fatalf("want one actionable no-access line naming connect, got %q", errOut.String())
+	}
+	binding := readBindingOrFatal(t, storage.BrainDir)
+	wantUntil := opts.Now().UTC().Add(hostedNoAccessBackoff)
+	if !binding.NoAccessUntil.Equal(wantUntil) {
+		t.Fatalf("NoAccessUntil = %v, want %v", binding.NoAccessUntil, wantUntil)
+	}
+	if binding.RepoID != "repo1" {
+		t.Fatalf("a pause must not change the bound repo, got %q", binding.RepoID)
+	}
+
+	// While paused: zero requests, zero noise — same silence as the opt-out
+	// gate. Status carries the explanation instead.
+	before := fake.requestCount()
+	var quiet bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &quiet, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if fake.requestCount() != before {
+		t.Fatalf("a paused repo must make zero requests, got %d more", fake.requestCount()-before)
+	}
+	if quiet.Len() != 0 {
+		t.Fatalf("a paused repo must be silent, got %q", quiet.String())
+	}
+	hosted, _ := buildHostedStatus(storage.BrainDir, nil, opts.Now().UTC())
+	if hosted.NoAccessUntil.IsZero() || !strings.Contains(hostedStatusLine(hosted), "paused") {
+		t.Fatalf("status must surface the pause, got %+v / %q", hosted, hostedStatusLine(hosted))
+	}
+
+	// After the pause: the gate reopens on its own.
+	opts.Now = func() time.Time { return wantUntil.Add(time.Minute) }
+	if _, err := hostedFactsSyncAndPull(context.Background(), &quiet, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if fake.requestCount() == before {
+		t.Fatal("an expired pause must let the sync try again")
+	}
+}
+
+// Deleted-and-reonboarded: placement resolves the same origin to a DIFFERENT
+// repo id in the SAME cell. The sync rebinds and finishes against the new
+// repo instead of pausing — the recorded consent carries over.
+func TestHostedSyncNoAccessRebindsReonboardedRepo(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	remoteFact := hostedSyncTestFact("remote fact B", now)
+	fake := &hostedFake{noAccessRepo: "repo1"}
+	fake.seed(remoteFact, "trail-1", "acct-teammate", "teammate")
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
+	opts.Runner = repoViewRunner("repo2", baseURL)
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	binding := readBindingOrFatal(t, storage.BrainDir)
+	if binding.RepoID != "repo2" || binding.BaseURL != baseURL {
+		t.Fatalf("binding = %+v, want repo2 at the same cell", binding)
+	}
+	if !binding.NoAccessUntil.IsZero() {
+		t.Fatalf("a successful rebind must not pause, got %v", binding.NoAccessUntil)
+	}
+	if !strings.Contains(errOut.String(), "rebound") {
+		t.Fatalf("want a rebind note, got %q", errOut.String())
+	}
+	local, err := factstore.Load(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, rec := range local {
+		found = found || rec.ID == remoteFact.ID
+	}
+	if !found {
+		t.Fatal("the retried pull against the new repo must land")
+	}
+	if err := checkHostedFactsBinding(storage.BrainDir, "main", "repo2", baseURL); err != nil {
+		t.Fatalf("the per-branch marker must record the NEW repo: %v", err)
+	}
+}
+
+// Placement that resolves to a different CELL never retargets the binding: an
+// explicit --repo-id/--api-url binding (staging, non-default cell) must not
+// be silently moved to the resolved placement. It pauses instead.
+func TestHostedSyncRebindRefusesDifferentCell(t *testing.T) {
+	fake := &hostedFake{noAccessRepo: "repo1"}
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+	opts.Runner = repoViewRunner("repo2", "https://other-cell.example")
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	binding := readBindingOrFatal(t, storage.BrainDir)
+	if binding.RepoID != "repo1" {
+		t.Fatalf("a cross-cell resolution must not rebind, got %q", binding.RepoID)
+	}
+	if binding.NoAccessUntil.IsZero() {
+		t.Fatal("a refused rebind must still pause the repo")
+	}
+}
+
+// A rebind that lands on a repo that ALSO denies access pauses instead of
+// resolving placement again — one re-resolution per run.
+func TestHostedSyncReboundRepoStillDeniedPauses(t *testing.T) {
+	// This server denies every repo id, so repo1 (bound) and repo2 (rebound)
+	// both 403.
+	deny := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(deny.Close)
+	opts, storage, repoDir, _ := hostedSyncHarness(t, &hostedFake{}, false)
+	if err := brainstore.WriteHostedRepoBinding(storage.BrainDir, brainstore.HostedRepoBinding{RepoID: "repo1", BaseURL: deny.URL}); err != nil {
+		t.Fatal(err)
+	}
+	opts.Runner = repoViewRunner("repo2", deny.URL)
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	binding := readBindingOrFatal(t, storage.BrainDir)
+	if binding.RepoID != "repo2" {
+		t.Fatalf("the rebind itself should have landed, got %q", binding.RepoID)
+	}
+	if binding.NoAccessUntil.IsZero() {
+		t.Fatal("a denied rebound repo must pause rather than resolve placement again")
+	}
+}
+
+// A pause whose guarded write declines — the binding changed hands between
+// the denial and the write (concurrent connect/disconnect) — must not claim
+// "sync paused": no pause was recorded and the new binding owns the state.
+func TestPauseNoAccessSilentWhenBindingChanged(t *testing.T) {
+	opts, storage, _, baseURL := hostedSyncHarness(t, &hostedFake{}, true)
+
+	var errOut bytes.Buffer
+	pauseHostedSyncNoAccess(&errOut, opts, storage.BrainDir, brainstore.HostedRepoBinding{RepoID: "stale-repo", BaseURL: baseURL})
+	if errOut.Len() != 0 {
+		t.Fatalf("a declined pause write must print nothing, got %q", errOut.String())
+	}
+	binding := readBindingOrFatal(t, storage.BrainDir)
+	if !binding.NoAccessUntil.IsZero() {
+		t.Fatalf("the current binding must not be paused, got %v", binding.NoAccessUntil)
+	}
+}
+
+// Once the pause expires and the grant is back, the next successful pull must
+// retire the recorded pause — and status must never report an expired pause
+// as active in the meantime (PR #535 review finding).
+func TestHostedSyncSuccessClearsExpiredNoAccessPause(t *testing.T) {
+	fake := &hostedFake{}
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
+	expired := opts.Now().UTC().Add(-time.Minute)
+	if err := brainstore.WriteHostedRepoBinding(storage.BrainDir, brainstore.HostedRepoBinding{
+		RepoID: "repo1", BaseURL: baseURL, NoAccessUntil: expired,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	hosted, _ := buildHostedStatus(storage.BrainDir, nil, opts.Now().UTC())
+	if !hosted.NoAccessUntil.IsZero() {
+		t.Fatalf("status must not report an expired pause as active, got %v", hosted.NoAccessUntil)
+	}
+
+	var errOut bytes.Buffer
+	outcome, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !outcome.PullSucceeded {
+		t.Fatalf("an expired pause must not block the sync: %q", errOut.String())
+	}
+	if binding := readBindingOrFatal(t, storage.BrainDir); !binding.NoAccessUntil.IsZero() {
+		t.Fatalf("a successful pull must retire the pause, got %v", binding.NoAccessUntil)
 	}
 }

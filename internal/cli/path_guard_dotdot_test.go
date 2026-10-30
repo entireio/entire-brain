@@ -30,7 +30,7 @@ func TestRejectSymlinkPathComponentsRejectsBareDotDot(t *testing.T) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := rejectSymlinkPathComponents(root, ".."); err == nil {
+	if err := base.RejectSymlinkPathComponents(root, ".."); err == nil {
 		t.Fatalf("read guard accepted %q, which resolves to the parent of root", "..")
 	}
 }

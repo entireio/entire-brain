@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func excludeSessionForIncludeAtomicityTest(t *testing.T, brainDir, sessionID string, now time.Time) {
@@ -37,11 +39,11 @@ func runIncludeSessionForAtomicityTest(brainDir, sessionID string, now time.Time
 
 func historyIndexContainsForIncludeTest(t *testing.T, brainDir, text string) bool {
 	t.Helper()
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+	index, err := historystore.LoadIndex(brainDir, manifest.Sources.History)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +74,7 @@ func TestIncludeSessionPublicationFailureRestoresPrivacyStateAndRetries(t *testi
 	if err != nil {
 		t.Fatalf("completed exclusion transaction must exist before include: %v", err)
 	}
-	manifestBefore, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	manifestBefore, err := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +101,7 @@ func TestIncludeSessionPublicationFailureRestoresPrivacyStateAndRetries(t *testi
 	if !bytes.Equal(transactionAfterFailure, transactionBefore) {
 		t.Fatalf("failed include did not restore exact transaction bytes\n before: %q\n  after: %q", transactionBefore, transactionAfterFailure)
 	}
-	manifestAfterFailure, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	manifestAfterFailure, err := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatal(err)
 	}

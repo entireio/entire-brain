@@ -19,6 +19,12 @@ const (
 // newer than this build supports; the bytes are read-only, not corrupt.
 const UnsupportedVersionCode = "memory_unsupported_version"
 
+// DirtyWorktreeCode prefixes the seed and semantic refusals to index
+// uncommitted content. It is shared so the reporter that attaches the
+// remedy (newSetupComponent) matches a code rather than either message's
+// prose, which would let a reword drop the hint silently.
+const DirtyWorktreeCode = "dirty_worktree"
+
 // Stable memory-maintenance error codes. An empty result never stands in for
 // any of these states.
 const (

@@ -3,6 +3,8 @@ package cli
 import (
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // Two branches rewrote this refusal independently, each fixing a different half,
@@ -22,9 +24,9 @@ func TestTheRefusalKeepsBothBranchesContributions(t *testing.T) {
 		".brainignore",         // UX-05: the undocumented escape hatch
 		"2 uncommitted paths",  // UX-08: the scale
 		"src/a.go", "src/b.go", // UX-08: which files
-		"--worktree",           // both: the flag
-		"commit or stash",      // both: the other way out
-		dirtyWorktreeErrorCode, // the machine-readable prefix callers match on
+		"--worktree",                 // both: the flag
+		"commit or stash",            // both: the other way out
+		brainstore.DirtyWorktreeCode, // the machine-readable prefix callers match on
 	} {
 		if !strings.Contains(message, want) {
 			t.Errorf("the reconciled refusal lost %q: %s", want, message)

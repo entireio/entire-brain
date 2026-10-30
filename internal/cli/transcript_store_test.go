@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,7 +27,7 @@ func transcriptStoreFixture(t *testing.T, withManifest bool) (string, string) {
 	if withManifest {
 		now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 		manifest := exportManifest{
-			SchemaVersion: brainManifestSchemaVersion,
+			SchemaVersion: bmanifest.SchemaVersion,
 			GeneratedAt:   now,
 			DefaultBranch: "main",
 			RepoRoot:      t.TempDir(),
@@ -196,7 +197,7 @@ func TestTranscriptStoreResolveMemoization(t *testing.T) {
 
 func touchTranscriptManifest(t *testing.T, brainDir string, offset time.Duration) {
 	t.Helper()
-	manifestPath := filepath.Join(brainDir, exportManifestFileName)
+	manifestPath := filepath.Join(brainDir, bmanifest.FileName)
 	future := time.Now().Add(offset)
 	if err := os.Chtimes(manifestPath, future, future); err != nil {
 		t.Fatal(err)

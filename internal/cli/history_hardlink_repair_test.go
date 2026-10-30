@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // An external tool that hardlink-copies the brain's history tree (a backup, or
@@ -37,7 +40,7 @@ func TestMemoryRepairRecoversHardlinkedHistoryProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now.Add(-time.Hour), RepoKey: storage.Key, DefaultBranch: "main",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now.Add(-time.Hour), RepoKey: storage.Key, DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now.Add(-time.Hour), DefaultBranch: "main", Sessions: []exportSession{
 			{SessionID: "hardlink-session", Branch: "main", LatestCheckpoint: "cp", TranscriptPath: rel, CreatedAt: now.Add(-2 * time.Hour)},
 		}}},
@@ -63,7 +66,7 @@ func TestMemoryRepairRecoversHardlinkedHistoryProjection(t *testing.T) {
 		}
 	}
 
-	_, readErr := loadBrainHistoryIndex(storage.BrainDir, before)
+	_, readErr := historystore.LoadIndex(storage.BrainDir, before)
 	if readErr == nil {
 		t.Fatal("hardlinked history index was readable")
 	}
@@ -91,7 +94,7 @@ func TestMemoryRepairRecoversHardlinkedHistoryProjection(t *testing.T) {
 	if after.IndexPath == before.IndexPath {
 		t.Fatalf("repair kept the hardlinked generation: %+v", after)
 	}
-	if _, err := loadBrainHistoryIndex(storage.BrainDir, after); err != nil {
+	if _, err := historystore.LoadIndex(storage.BrainDir, after); err != nil {
 		t.Fatalf("rebuilt history index unreadable: %v", err)
 	}
 	oldGeneration := filepath.Dir(filepath.Join(storage.BrainDir, filepath.FromSlash(before.IndexPath)))

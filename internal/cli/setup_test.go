@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"io"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
@@ -106,7 +108,7 @@ func (f *setupTestFixture) writeSessions(t *testing.T, ids ...string) {
 		})
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   setupTestNow,
 		DefaultBranch: "main",
 		Sources: &brainSources{
@@ -431,7 +433,7 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 	if len(failed) != 1 || failed[0].Name != brainComponentSemantic {
 		t.Fatalf("the failed component must be recorded for doctor: %+v", failed)
 	}
-	brainManifest, _ := loadBrainManifest(f.storage.BrainDir)
+	brainManifest, _ := bmanifest.Load(f.storage.BrainDir)
 	components := instantPhaseComponents(brainManifest, readSetupInstantRecord(stateDir), nil)
 	if state := statusComponentState(components, brainComponentSemantic); state != "failed" {
 		t.Fatalf("status must show semantic=failed, got %q: %+v", state, components)
@@ -959,17 +961,17 @@ func TestBrainWatchDaemonArgsStayTokenFrugal(t *testing.T) {
 	}
 	// The cost contract itself is unchanged; it is now carried by the plan.
 	w := daemonWatchOptions(t, opts)
-	if !w.distill {
+	if !w.Distill {
 		t.Fatal("the deterministic refresh is free, but the daemon must still be allowed to distill")
 	}
-	if w.distillEvery != 24*time.Hour {
-		t.Fatalf("the gated step must stay interval-gated, got --distill-every %s", w.distillEvery)
+	if w.DistillEvery != 24*time.Hour {
+		t.Fatalf("the gated step must stay interval-gated, got --distill-every %s", w.DistillEvery)
 	}
-	if w.effort != "low" {
-		t.Fatalf("the daemon must spend on the cheap effort setup chose, got %q", w.effort)
+	if w.Effort != "low" {
+		t.Fatalf("the daemon must spend on the cheap effort setup chose, got %q", w.Effort)
 	}
-	if strings.Contains(args, "--seed-agent") || w.seedAgent != "none" {
-		t.Fatalf("the daemon must never enable agent seed synthesis: argv %q, seedAgent %q", args, w.seedAgent)
+	if strings.Contains(args, "--seed-agent") || w.SeedAgent != "none" {
+		t.Fatalf("the daemon must never enable agent seed synthesis: argv %q, seedAgent %q", args, w.SeedAgent)
 	}
 }
 
@@ -982,11 +984,11 @@ func TestBrainWatchDaemonArgsStayTokenFrugal(t *testing.T) {
 // the first repo's unit), and everything per-workspace comes from the machine
 // watch plan the running daemon re-reads. A test that read only one half would
 // pass while the other silently lost the user's cap, agent or model.
-func daemonWatchOptions(t *testing.T, setupOpts setupCommandOptions) watchCommandOptions {
+func daemonWatchOptions(t *testing.T, setupOpts setupCommandOptions) watch.Flags {
 	t.Helper()
-	w := defaultWatchOptions()
+	w := watch.DefaultFlags()
 	cmd := &cobra.Command{Use: "watch", RunE: func(*cobra.Command, []string) error { return nil }}
-	bindWatchFlags(cmd, &w)
+	watch.BindFlags(cmd, &w)
 	args := brainWatchDaemonArgs(setupOpts)
 	// Drop the "workspace watch" verb prefix; the daemon passes no positional
 	// workspace, because it watches every workspace in the plan.
@@ -1010,7 +1012,7 @@ func daemonWatchOptions(t *testing.T, setupOpts setupCommandOptions) watchComman
 func TestDaemonBudgetSemanticsAllowOneRunPerWindow(t *testing.T) {
 	t.Parallel()
 	w := daemonWatchOptions(t, defaultSetupOptions())
-	if !w.distill {
+	if !w.Distill {
 		t.Fatal("the installed daemon must enable distill")
 	}
 
@@ -1031,16 +1033,16 @@ func TestDaemonBudgetSemanticsAllowOneRunPerWindow(t *testing.T) {
 		for i, r := range repos {
 			// New work landed in each repo since the last window.
 			r.fingerprint = fmt.Sprintf("repo%d-window%d", i, window)
-			steps := watchSteps{
-				now:         func() time.Time { return now },
-				fingerprint: func(context.Context) string { return r.fingerprint },
-				refresh:     func(context.Context) error { return nil },
-				seed:        func(context.Context) error { return nil },
-				distill:     func(context.Context) error { distilled++; return nil },
+			steps := watch.Steps{
+				Now:         func() time.Time { return now },
+				Fingerprint: func(context.Context) string { return r.fingerprint },
+				Refresh:     func(context.Context) error { return nil },
+				Seed:        func(context.Context) error { return nil },
+				Distill:     func(context.Context) error { distilled++; return nil },
 			}
-			watchTick(context.Background(), io.Discard, w, r.cursorPath, steps, &agentCalls)
+			watch.Tick(context.Background(), io.Discard, w, r.cursorPath, steps, &agentCalls)
 		}
-		now = now.Add(w.distillEvery)
+		now = now.Add(w.DistillEvery)
 	}
 
 	if want := windows * len(repos); distilled != want {
@@ -1060,15 +1062,15 @@ func TestDaemonBudgetGateStillHoldsInsideAWindow(t *testing.T) {
 	now := setupTestNow
 	for tick := 0; tick < 5; tick++ {
 		fingerprint := fmt.Sprintf("changed-every-tick-%d", tick)
-		steps := watchSteps{
-			now:         func() time.Time { return now },
-			fingerprint: func(context.Context) string { return fingerprint },
-			refresh:     func(context.Context) error { return nil },
-			seed:        func(context.Context) error { return nil },
-			distill:     func(context.Context) error { distilled++; return nil },
+		steps := watch.Steps{
+			Now:         func() time.Time { return now },
+			Fingerprint: func(context.Context) string { return fingerprint },
+			Refresh:     func(context.Context) error { return nil },
+			Seed:        func(context.Context) error { return nil },
+			Distill:     func(context.Context) error { distilled++; return nil },
 		}
-		watchTick(context.Background(), io.Discard, w, cursorPath, steps, &agentCalls)
-		now = now.Add(w.interval)
+		watch.Tick(context.Background(), io.Discard, w, cursorPath, steps, &agentCalls)
+		now = now.Add(w.Interval)
 	}
 	if distilled != 1 {
 		t.Fatalf("inside one --distill-every window the cursor must allow exactly one spend, got %d", distilled)

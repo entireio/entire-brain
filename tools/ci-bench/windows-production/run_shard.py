@@ -207,6 +207,17 @@ def shard_command_arguments(
     return arguments
 
 
+def validated_assignments(plan: dict[str, Any], shard: dict[str, Any], shard_index: int) -> list[dict[str, Any]]:
+    assignments = shard.get("assignments")
+    if not isinstance(assignments, list):
+        raise ValueError(f"shard {shard_index} has malformed assignments")
+    # Only a package-selected plan may legitimately plan an empty shard;
+    # for a full plan an empty shard is a planner bug and must fail closed.
+    if not assignments and not isinstance(plan.get("selection"), dict):
+        raise ValueError(f"shard {shard_index} has no assignments")
+    return assignments
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", type=Path, required=True)
@@ -237,9 +248,7 @@ def run(args: argparse.Namespace, metadata: dict[str, Any]) -> int:
     if len(shards) != 1:
         raise ValueError(f"plan does not contain exactly one shard {args.shard_index}")
     shard = shards[0]
-    assignments = shard.get("assignments")
-    if not isinstance(assignments, list) or not assignments:
-        raise ValueError(f"shard {args.shard_index} has no assignments")
+    assignments = validated_assignments(plan, shard, args.shard_index)
     settings = plan.get("settings")
     if not isinstance(settings, dict) or settings.get("shuffle") != "off":
         raise ValueError("plan does not preserve shuffle=off semantics")

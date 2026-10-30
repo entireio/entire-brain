@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
@@ -249,28 +250,28 @@ func setupWatchPlanEntryFor(setupOpts setupCommandOptions, now time.Time) setupW
 // applyWatchPlanEntry overlays one workspace's recorded tuning onto the base
 // watch options the unit supplies. A field the plan does not carry keeps the
 // daemon's own default, so an older plan written by an older `setup` still runs.
-func applyWatchPlanEntry(base watchCommandOptions, entry setupWatchPlanEntry) watchCommandOptions {
+func applyWatchPlanEntry(base watch.Flags, entry setupWatchPlanEntry) watch.Flags {
 	w := base
 	if d, err := time.ParseDuration(strings.TrimSpace(entry.Interval)); err == nil && d > 0 {
-		w.interval = d
+		w.Interval = d
 	}
 	if d, err := time.ParseDuration(strings.TrimSpace(entry.DistillEvery)); err == nil && d > 0 {
-		w.distillEvery = d
+		w.DistillEvery = d
 	}
 	if agent := strings.TrimSpace(entry.Agent); agent != "" {
-		w.distillAgent = agent
+		w.DistillAgent = agent
 		if agent == "none" {
-			w.distill = false
+			w.Distill = false
 		}
 	}
 	if model := strings.TrimSpace(entry.Model); model != "" {
-		w.model = model
+		w.Model = model
 	}
 	if effort := strings.TrimSpace(entry.Effort); effort != "" {
-		w.effort = effort
+		w.Effort = effort
 	}
 	if entry.MaxSessions > 0 {
-		w.distillMaxSessions = entry.MaxSessions
+		w.DistillMaxSessions = entry.MaxSessions
 	}
 	return w
 }

@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +20,7 @@ func newFactsStorageCommand(opts Options) *cobra.Command {
 				var dir string
 				var err error
 				if global {
-					dir, _, err = resolveGlobalFactsTarget(opts.Env)
+					dir, _, err = factstore.ResolveGlobalTarget(opts.Env)
 				} else {
 					_, dir, _, err = resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), "")
 				}
@@ -28,42 +30,22 @@ func newFactsStorageCommand(opts Options) *cobra.Command {
 				if action != "status" {
 					err = brainstore.WithBrainWriteLock(dir, func() error {
 						if action == "rollback" {
-							return exportLegacyRepoFacts(dir)
+							return factstore.RollbackRepository(dir)
 						}
-						return migrateRepoFacts(dir)
+						return factstore.MigrateRepository(dir)
 					})
 					if err != nil {
 						return err
 					}
 				}
-				s, native, err := readRepoFactStore(dir)
+				report, err := factstore.RepositoryStatus(dir)
 				if err != nil {
 					return err
 				}
-				// Include changes made by an older binary since the last native
-				// commit. Status is still read-only.
-				s, err = reconcileRepoFactStore(dir)
-				if err != nil {
-					return err
-				}
-				if err := s.compact(); err != nil {
-					return err
-				}
-				format := "legacy"
-				if native {
-					format = "repository"
-				}
-				report := struct {
-					SchemaVersion int    `json:"schema_version"`
-					Format        string `json:"format"`
-					Compatibility bool   `json:"legacy_compatibility"`
-					Records       int    `json:"records"`
-					Views         int    `json:"views"`
-				}{1, format, true, len(s.Records), len(s.Views)}
 				if jsonOut {
-					return writeJSON(cmd, report)
+					return cmdutil.WriteJSON(cmd, report)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "memory storage: %s (legacy compatibility enabled)\n", format)
+				fmt.Fprintf(cmd.OutOrStdout(), "memory storage: %s (legacy compatibility enabled)\n", report.Format)
 				return nil
 			},
 		}

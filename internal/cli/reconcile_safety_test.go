@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func TestStagedReconcilePreservesDistinctClaims(t *testing.T) {
@@ -67,7 +69,7 @@ func TestStagedReviewResolution(t *testing.T) {
 				candidate := stagedTestFact("All writes use atomic rename and retry failures.", target.Paths, factStatusCandidate, now)
 				candidate.Provenance = []factAnchor{{SessionID: "candidate"}}
 				p := factProposal{Action: kind, CandidateID: candidate.ID, TargetID: target.ID, Branch: "main", Confidence: 1}
-				if err := writeFacts(dir, "main", []factRecord{target, candidate}); err != nil {
+				if err := factstore.Write(dir, "main", []factRecord{target, candidate}); err != nil {
 					t.Fatal(err)
 				}
 				if err := writeFactProposals(dir, "main", []factProposal{p}); err != nil {
@@ -91,7 +93,7 @@ func TestStagedReviewResolution(t *testing.T) {
 				if err := runFactsReview(cmd, opts, dir, "main", act); err != nil {
 					t.Fatal(err)
 				}
-				got, err := loadFacts(dir, "main")
+				got, err := factstore.Load(dir, "main")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -130,7 +132,7 @@ func TestStagedReviewCannotPublishBeforeTargetResolved(t *testing.T) {
 	}
 	dir := writeSingleSessionFixture(t, now, "some transcript\n")
 	p := factProposal{Action: factActionMerge, CandidateID: candidate.ID, TargetID: target.ID, Branch: "main"}
-	if err := writeFacts(dir, "main", []factRecord{target, candidate}); err != nil {
+	if err := factstore.Write(dir, "main", []factRecord{target, candidate}); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeFactProposals(dir, "main", []factProposal{p}); err != nil {
@@ -155,7 +157,7 @@ func TestStagedReconcileForcePreservesPendingReview(t *testing.T) {
 	target := stagedTestFact("All writes use atomic rename.", []string{"workflow.testing.rules"}, factStatusActive, now)
 	candidate := stagedTestFact("All writes use atomic rename and retry failures.", target.Paths, factStatusCandidate, now)
 	p := factProposal{Action: factActionMerge, CandidateID: candidate.ID, TargetID: target.ID, Branch: "main"}
-	if err := writeFacts(dir, "main", []factRecord{target, candidate}); err != nil {
+	if err := factstore.Write(dir, "main", []factRecord{target, candidate}); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeFactProposals(dir, "main", []factProposal{p}); err != nil {
@@ -171,7 +173,7 @@ func TestStagedReconcileForcePreservesPendingReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := loadFacts(dir, "main")
+	got, err := factstore.Load(dir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +190,7 @@ func TestStagedForceResumeKeepsCacheBeforeExtraction(t *testing.T) {
 	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
 	dir := writeSingleSessionFixture(t, now, "some transcript\n")
 	leftover := stagedTestFact("leftover standalone fact", []string{"workflow.testing.rules"}, factStatusCandidate, now)
-	if err := writeFacts(dir, "main", []factRecord{leftover}); err != nil {
+	if err := factstore.Write(dir, "main", []factRecord{leftover}); err != nil {
 		t.Fatal(err)
 	}
 	if err := saveDistillCache(dir, distillCache{Version: distillCacheVersion, Sessions: map[string]string{"unchanged-session": "fingerprint"}}); err != nil {

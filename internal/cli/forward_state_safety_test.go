@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func writeForwardStateFixture(t *testing.T, brainDir, rel string, data []byte) string {
@@ -226,13 +227,13 @@ func TestBrainManifestPreservesUnknownNewerCorruptAndUnsafeLeaves(t *testing.T) 
 		code string
 	}{
 		// Derived, not a literal: see TestManifestNewerRefusedWithRemedy.
-		{name: "unknown-newer", data: []byte(fmt.Sprintf(`{"schema_version":%d,"future":true}`, brainManifestSchemaVersion+1) + "\n"), code: brainstore.UnsupportedVersionCode},
+		{name: "unknown-newer", data: []byte(fmt.Sprintf(`{"schema_version":%d,"future":true}`, bmanifest.SchemaVersion+1) + "\n"), code: brainstore.UnsupportedVersionCode},
 		{name: "additive-current", data: []byte(`{"schema_version":3,"future":true}` + "\n"), code: brainstore.StateCorruptCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir := t.TempDir()
-			path := writeForwardStateFixture(t, brainDir, exportManifestFileName, tc.data)
-			if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion}); err == nil || !strings.Contains(err.Error(), tc.code) {
+			path := writeForwardStateFixture(t, brainDir, bmanifest.FileName, tc.data)
+			if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion}); err == nil || !strings.Contains(err.Error(), tc.code) {
 				t.Fatalf("write error = %v, want %s", err, tc.code)
 			}
 			requireForwardStateBytes(t, path, tc.data)
@@ -245,10 +246,10 @@ func TestBrainManifestPreservesUnknownNewerCorruptAndUnsafeLeaves(t *testing.T) 
 	if err := os.WriteFile(outside, canary, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(outside, filepath.Join(brainDir, exportManifestFileName)); err != nil {
+	if err := os.Symlink(outside, filepath.Join(brainDir, bmanifest.FileName)); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion}); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion}); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("unsafe write error = %v", err)
 	}
 	requireForwardStateBytes(t, outside, canary)
@@ -259,16 +260,16 @@ func TestBrainManifestSupportedVersionsRemainAdaptable(t *testing.T) {
 		t.Run(strconv.Itoa(version), func(t *testing.T) {
 			brainDir := t.TempDir()
 			data := []byte(`{"schema_version":` + strconv.Itoa(version) + `}` + "\n")
-			writeForwardStateFixture(t, brainDir, exportManifestFileName, data)
-			manifest, err := loadBrainManifest(brainDir)
+			writeForwardStateFixture(t, brainDir, bmanifest.FileName, data)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil || manifest.SchemaVersion != version {
 				t.Fatalf("manifest=%+v err=%v", manifest, err)
 			}
 			if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 				t.Fatal(err)
 			}
-			updated, err := loadBrainManifest(brainDir)
-			if err != nil || updated.SchemaVersion != brainManifestSchemaVersion {
+			updated, err := bmanifest.Load(brainDir)
+			if err != nil || updated.SchemaVersion != bmanifest.SchemaVersion {
 				t.Fatalf("updated=%+v err=%v", updated, err)
 			}
 		})

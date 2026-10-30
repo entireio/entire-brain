@@ -13,6 +13,8 @@ import (
 
 	"github.com/entireio/entire-brain/internal/setupui"
 	"github.com/entireio/entire-brain/internal/tui"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func TestSetupShortOutputArrivesAsEachPhaseCompletes(t *testing.T) {
@@ -110,7 +112,7 @@ func TestSetupShortBuildStepLabels(t *testing.T) {
 	t.Parallel()
 	for input, want := range map[string]string{
 		"export sessions":                     "reading past AI sessions",
-		"seed baseline: inventory":            "scanning repository files",
+		"repository context: inventory":       "scanning repository files",
 		"history index: 2/3 sessions scanned": "indexing session history",
 		"doc index":                           "indexing documentation",
 		"code index: parsing sources":         "indexing code",
@@ -475,14 +477,14 @@ func TestConnectOfferSurvivesTheShortForm(t *testing.T) {
 		t.Fatal("terseReportFor must carry the offer, not just be able to compute it")
 	}
 
-	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: "https://cell.api.example.com"}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(brainDir, brainstore.HostedRepoBinding{RepoID: "repo1", BaseURL: "https://cell.api.example.com"}); err != nil {
 		t.Fatal(err)
 	}
 	if setupOffersConnect(brainDir) {
 		t.Fatal("a repo that is already connected must not be told to connect")
 	}
 
-	if _, err := setHostedOptOut(brainDir); err != nil {
+	if _, err := brainstore.SetHostedOptOut(brainDir); err != nil {
 		t.Fatal(err)
 	}
 	if setupOffersConnect(brainDir) {

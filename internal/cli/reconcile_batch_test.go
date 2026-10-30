@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func stagedTestFact(text string, paths []string, status string, at time.Time) factRecord {
@@ -17,7 +19,7 @@ func stagedTestFact(text string, paths []string, status string, at time.Time) fa
 		Paths:     paths,
 		Status:    status,
 		Branch:    "main",
-		Origin:    factOriginDistilled,
+		Origin:    factstore.OriginDistilled,
 		CreatedAt: at,
 		UpdatedAt: at,
 	}
@@ -286,7 +288,7 @@ func TestRebaseDropsConsumedCandidatesOnly(t *testing.T) {
 	consumed := stagedTestFact("use tabs to indent source files", []string{"preferences.coding.style"}, factStatusCandidate, now)
 	foreign := stagedTestFact("another run staged this statement", []string{"architecture.data.flow"}, factStatusCandidate, now)
 	target := stagedTestFact("indent all source files with tabs", []string{"preferences.coding.style"}, factStatusActive, now.Add(-time.Hour))
-	if err := writeFacts(brainDir, "main", []factRecord{target, consumed, foreign}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{target, consumed, foreign}); err != nil {
 		t.Fatal(err)
 	}
 	// Baseline knew target+consumed (this run staged and flushed them); memory
@@ -317,7 +319,7 @@ func TestStagedReconcilePersistsResumeBeforeExtraction(t *testing.T) {
 	brainDir := writeSingleSessionFixture(t, now, "new transcript content\n")
 	target := stagedTestFact("indent all source files with tabs", []string{"preferences.coding.style"}, factStatusActive, now.Add(-time.Hour))
 	leftover := stagedTestFact("use tabs to indent source files", target.Paths, factStatusCandidate, now.Add(-time.Minute))
-	if err := writeFacts(brainDir, "main", []factRecord{target, leftover}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{target, leftover}); err != nil {
 		t.Fatal(err)
 	}
 	reconciled := false
@@ -329,7 +331,7 @@ func TestStagedReconcilePersistsResumeBeforeExtraction(t *testing.T) {
 		if !reconciled {
 			t.Error("extraction began before leftover reconciliation")
 		}
-		stored, err := loadFacts(brainDir, "main")
+		stored, err := factstore.Load(brainDir, "main")
 		if err != nil || len(stored) != 2 || stored[indexOfFact(stored, leftover.ID)].Status != factStatusCandidate {
 			t.Errorf("resumed candidate must remain staged durably before extraction: %+v, %v", stored, err)
 		}
@@ -344,7 +346,7 @@ func TestStagedReconcilePersistsResumeBeforeExtraction(t *testing.T) {
 	if source.PendingReconcile != 1 || source.CandidatesReconciled != 2 || source.ReconcileCalls != 1 {
 		t.Fatalf("resume and new work must both be counted: %+v", source)
 	}
-	stored, err := loadFacts(brainDir, "main")
+	stored, err := factstore.Load(brainDir, "main")
 	if err != nil || len(stored) != 3 {
 		t.Fatalf("pending candidate was lost after final flush: %+v, %v", stored, err)
 	}
@@ -356,7 +358,7 @@ func TestStagedReconcileForceResumePreservesDeferredBranch(t *testing.T) {
 	stored := stagedTestFact("keep this existing memory", []string{"preferences.coding.style"}, factStatusActive, now.Add(-time.Hour))
 	leftover := stagedTestFact("exports use batch checkpoint reads", []string{"architecture.data.flow"}, factStatusCandidate, now.Add(-time.Minute))
 	stored.Branch, leftover.Branch = "feature", "feature"
-	if err := writeFacts(brainDir, "feature", []factRecord{stored, leftover}); err != nil {
+	if err := factstore.Write(brainDir, "feature", []factRecord{stored, leftover}); err != nil {
 		t.Fatal(err)
 	}
 	run := func(context.Context, string, []string, []byte, time.Duration) (string, error) {
@@ -368,7 +370,7 @@ func TestStagedReconcileForceResumePreservesDeferredBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	facts, err := loadFacts(brainDir, "feature")
+	facts, err := factstore.Load(brainDir, "feature")
 	if err != nil || len(facts) != 2 {
 		t.Fatalf("resuming a deferred branch must not force-rebuild it: %+v, %v", facts, err)
 	}

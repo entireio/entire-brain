@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"os"
 	"sort"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -59,14 +62,14 @@ Emits a tasks.json consumable by 'history-eval --tasks'.`,
 			if err != nil {
 				return err
 			}
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				return err
 			}
 			if manifest.Sources == nil || manifest.Sources.Sessions == nil {
 				return errors.New("no exported sessions; run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` first")
 			}
-			index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+			index, err := historystore.LoadIndex(brainDir, manifest.Sources.History)
 			if err != nil {
 				return err
 			}
@@ -290,14 +293,14 @@ Arms:
 			if err != nil {
 				return err
 			}
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				return err
 			}
 			if manifest.Sources == nil {
 				return errors.New("brain has no sources; run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` first")
 			}
-			index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+			index, err := historystore.LoadIndex(brainDir, manifest.Sources.History)
 			if err != nil {
 				return err
 			}
@@ -312,7 +315,7 @@ Arms:
 			summary := summarizeEval(results)
 			summary.Arm = arm
 			if jsonOut {
-				return writeJSON(cmd, summary)
+				return cmdutil.WriteJSON(cmd, summary)
 			}
 			printEvalSummary(cmd, summary)
 			return nil

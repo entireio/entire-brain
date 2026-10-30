@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,13 +38,13 @@ func declaredIndexBrain(t *testing.T) (string, *exportManifest) {
 	t.Helper()
 	brainDir := t.TempDir()
 	generation := strings.Repeat("a", 40)
-	historyRel := brainstore.HistoryDirName + "/generations/" + generation + "/" + historyIndexFileName
+	historyRel := brainstore.HistoryDirName + "/generations/" + generation + "/" + historystore.IndexFileName
 	seedRel := seedDirName + "/repo-overview.md"
 	historyBody := mustJSON(t, historyIndex{})
 	for rel, body := range map[string]string{
-		docIndexPath: mustJSON(t, docIndex{Records: []docRecord{{ID: "d1", Text: "Greet formats a greeting"}}}),
-		historyRel:   historyBody,
-		seedRel:      "# Seeded Repository Overview\n",
+		docstore.IndexPath: mustJSON(t, docIndex{Records: []docRecord{{ID: "d1", Text: "Greet formats a greeting"}}}),
+		historyRel:         historyBody,
+		seedRel:            "# Seeded Repository Overview\n",
 	} {
 		path := filepath.Join(brainDir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -64,7 +67,7 @@ func declaredIndexBrain(t *testing.T) (string, *exportManifest) {
 			IndexPath:   historyRel,
 			IndexDigest: "sha256:" + hex.EncodeToString(sum[:]),
 		},
-		Docs: &docSourceManifest{GeneratedAt: now, IndexPath: docIndexPath, Records: 1, Files: 1},
+		Docs: &docSourceManifest{GeneratedAt: now, IndexPath: docstore.IndexPath, Records: 1, Files: 1},
 	}}
 	return brainDir, manifest
 }
@@ -87,7 +90,7 @@ func TestDeclaredIndexesAreCheckedAgainstDisk(t *testing.T) {
 		t.Fatalf("a brain holding everything it declares reported defects: %+v", defects)
 	}
 	// The reproduction's own gesture: remove whole directories, not files.
-	for _, dir := range []string{docDirName, brainstore.HistoryDirName, seedDirName} {
+	for _, dir := range []string{docstore.DirName, brainstore.HistoryDirName, seedDirName} {
 		if err := os.RemoveAll(filepath.Join(brainDir, dir)); err != nil {
 			t.Fatal(err)
 		}
@@ -104,7 +107,7 @@ func TestDeclaredIndexesAreCheckedAgainstDisk(t *testing.T) {
 		if !strings.Contains(warning, defect.Path) {
 			t.Errorf("%s: the warning does not name the artifact: %s", defect.Source, warning)
 		}
-		if !strings.Contains(warning, declaredIndexRepairHint()) {
+		if !strings.Contains(warning, brainstore.DeclaredIndexRepairHint()) {
 			t.Errorf("%s: the warning does not name the repair: %s", defect.Source, warning)
 		}
 	}
@@ -157,7 +160,7 @@ func TestStatusInstantLineReportsDeletedIndexes(t *testing.T) {
 			t.Fatalf("%s: a whole brain must read as built, got %q", name, got)
 		}
 	}
-	if err := os.RemoveAll(filepath.Join(brainDir, docDirName)); err != nil {
+	if err := os.RemoveAll(filepath.Join(brainDir, docstore.DirName)); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.RemoveAll(filepath.Join(brainDir, brainstore.HistoryDirName)); err != nil {
@@ -199,18 +202,18 @@ func TestRetrievalFailsOnADeclaredDocIndexThatIsGone(t *testing.T) {
 	// thing that fails. This is the vector path, which does not consult history
 	// at all without a fusion-eligible embedder — which is exactly why it used
 	// to come back empty and cheerful.
-	if err := os.RemoveAll(filepath.Join(brainDir, docDirName)); err != nil {
+	if err := os.RemoveAll(filepath.Join(brainDir, docstore.DirName)); err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []retrievalMode{modeVector, modeLexical, modeHybrid} {
+	for _, mode := range []retrievalMode{retrieval.ModeVector, retrieval.ModeLexical, retrieval.ModeHybrid} {
 		results, err := retrieveUnified("", brainDir, "main", "Greet", 10, mode)
 		if err == nil {
 			t.Fatalf("mode %v: a declared doc index that is gone returned %d results and no error", mode, len(results))
 		}
-		if !strings.Contains(err.Error(), docIndexPath) {
+		if !strings.Contains(err.Error(), docstore.IndexPath) {
 			t.Fatalf("mode %v: the error does not name the missing artifact: %v", mode, err)
 		}
-		if !strings.Contains(err.Error(), declaredIndexRepairHint()) {
+		if !strings.Contains(err.Error(), brainstore.DeclaredIndexRepairHint()) {
 			t.Fatalf("mode %v: the error does not name the repair: %v", mode, err)
 		}
 	}
@@ -225,7 +228,7 @@ func TestRetrievalStaysSilentWhenNoDocIndexWasEverDeclared(t *testing.T) {
 	if err := writeBrainManifestAndReadme(brainDir, exportManifest{Sources: &brainSources{}}); err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []retrievalMode{modeVector, modeLexical, modeHybrid} {
+	for _, mode := range []retrievalMode{retrieval.ModeVector, retrieval.ModeLexical, retrieval.ModeHybrid} {
 		results, err := retrieveUnified("", brainDir, "main", "Greet", 10, mode)
 		if err != nil {
 			t.Fatalf("mode %v: a brain that declares no doc index must not be an error: %v", mode, err)
@@ -243,20 +246,20 @@ func TestHistoryIndexReadNamesADeletedGeneration(t *testing.T) {
 	t.Parallel()
 	brainDir, manifest := declaredIndexBrain(t)
 	source := manifest.Sources.History
-	if _, err := loadBrainHistoryIndex(brainDir, source); err != nil {
+	if _, err := historystore.LoadIndex(brainDir, source); err != nil {
 		t.Fatalf("fixture history index is not readable: %v", err)
 	}
 	if err := os.RemoveAll(filepath.Join(brainDir, brainstore.HistoryDirName)); err != nil {
 		t.Fatal(err)
 	}
-	_, err := loadBrainHistoryIndex(brainDir, source)
+	_, err := historystore.LoadIndex(brainDir, source)
 	if err == nil {
 		t.Fatal("a deleted history index must still be an error")
 	}
 	if strings.Contains(err.Error(), "lstat ") {
 		t.Fatalf("the reader still answers with a raw filesystem call: %v", err)
 	}
-	for _, want := range []string{source.IndexPath, "not on disk", declaredIndexRepairHint()} {
+	for _, want := range []string{source.IndexPath, "not on disk", brainstore.DeclaredIndexRepairHint()} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("the error is missing %q: %v", want, err)
 		}
@@ -277,14 +280,14 @@ func TestHistoryIndexReadNamesADeletedGeneration(t *testing.T) {
 func TestDeclaredIndexDefectSeparatesAbsentFromUnreadable(t *testing.T) {
 	t.Parallel()
 	brainDir, manifest := declaredIndexBrain(t)
-	path := filepath.Join(brainDir, filepath.FromSlash(docIndexPath))
+	path := filepath.Join(brainDir, filepath.FromSlash(docstore.IndexPath))
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	defect := inspectDeclaredIndex(brainDir, manifest, declaredIndexDocs)
+	defect := inspectDeclaredIndex(brainDir, manifest, brainstore.DeclaredIndexDocs)
 	if defect.OK() {
 		t.Fatal("a directory where the doc index belongs is not a readable index")
 	}

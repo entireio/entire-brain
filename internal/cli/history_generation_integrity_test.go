@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func assertHistoryManifestUnchanged(t *testing.T, brainDir string, before *historySourceManifest) {
@@ -25,9 +27,9 @@ func writeExternalProjectionCanaries(t *testing.T) (string, map[string][]byte) {
 	t.Helper()
 	dir := t.TempDir()
 	files := map[string][]byte{
-		"canary.txt":            []byte("external canary\n"),
-		historyIndexFileName:    []byte("external index\n"),
-		projectionStateFileName: []byte("external receipts\n"),
+		"canary.txt":               []byte("external canary\n"),
+		historystore.IndexFileName: []byte("external index\n"),
+		projectionStateFileName:    []byte("external receipts\n"),
 	}
 	for name, data := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
@@ -55,7 +57,7 @@ func TestHistoryProjectionPromotionRejectsFinalGenerationSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 	external, canaries := writeExternalProjectionCanaries(t)
-	final := filepath.Join(brainDir, filepath.FromSlash(historyGenerationsDir), prepared.generation)
+	final := filepath.Join(brainDir, filepath.FromSlash(historystore.GenerationsDir), prepared.generation)
 	if err := os.Symlink(external, final); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
@@ -108,7 +110,7 @@ func TestHistoryProjectionPromotionPreservesUnknownOrphanContents(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	final := filepath.Join(brainDir, filepath.FromSlash(historyGenerationsDir), prepared.generation)
+	final := filepath.Join(brainDir, filepath.FromSlash(historystore.GenerationsDir), prepared.generation)
 	if err := os.MkdirAll(final, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +148,7 @@ func TestHistoryProjectionCleanupQuarantineRecovery(t *testing.T) {
 		if _, err := os.Lstat(quarantine); !os.IsNotExist(err) {
 			t.Fatalf("active quarantine survived recovery: %v", err)
 		}
-		if _, err := loadBrainHistoryIndex(brainDir, source); err != nil {
+		if _, err := historystore.LoadIndex(brainDir, source); err != nil {
 			t.Fatalf("restored active generation is unreadable: %v", err)
 		}
 	})
@@ -252,12 +254,12 @@ func TestHistoryIndexReaderRetriesManifestAfterPrunedGeneration(t *testing.T) {
 		t.Fatalf("old generation was not pruned: %v", err)
 	}
 
-	index, err := loadBrainHistoryIndex(brainDir, &staleSource)
+	index, err := historystore.LoadIndex(brainDir, &staleSource)
 	if err != nil {
 		t.Fatalf("stale-manifest reader did not retry current generation: %v", err)
 	}
-	if index.storageIdentity != current.IndexPath {
-		t.Fatalf("reader storage identity = %q, want current %q", index.storageIdentity, current.IndexPath)
+	if index.StorageIdentity != current.IndexPath {
+		t.Fatalf("reader storage identity = %q, want current %q", index.StorageIdentity, current.IndexPath)
 	}
 	receipts, receiptState, err := loadProjectionStateChecked(brainDir, &staleSource)
 	if err != nil || receiptState != projectionStateCurrent {
@@ -272,8 +274,8 @@ func TestHistoryIndexDigestValidationAndLegacyClassification(t *testing.T) {
 	t.Run("new manifest validates", func(t *testing.T) {
 		brainDir, _, _ := historyProjectionFixture(t)
 		source, index := activeHistoryProjection(t, brainDir)
-		if !validSHA256Identity(source.IndexDigest) || source.IndexDigest != index.contentIdentity {
-			t.Fatalf("digest=%q content identity=%q", source.IndexDigest, index.contentIdentity)
+		if !brainstore.ValidSHA256Identity(source.IndexDigest) || source.IndexDigest != index.ContentIdentity {
+			t.Fatalf("digest=%q content identity=%q", source.IndexDigest, index.ContentIdentity)
 		}
 	})
 
@@ -284,13 +286,13 @@ func TestHistoryIndexDigestValidationAndLegacyClassification(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historystore.IndexPath, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
 		legacy := *source
-		legacy.IndexPath = historyIndexPath
+		legacy.IndexPath = historystore.IndexPath
 		legacy.IndexDigest = ""
-		if _, err := loadBrainHistoryIndex(brainDir, &legacy); err != nil {
+		if _, err := historystore.LoadIndex(brainDir, &legacy); err != nil {
 			t.Fatalf("legacy manifest must remain readable: %v", err)
 		}
 		found := false
@@ -307,7 +309,7 @@ func TestHistoryIndexDigestValidationAndLegacyClassification(t *testing.T) {
 		source, _ := activeHistoryProjection(t, brainDir)
 		legacyGeneration := *source
 		legacyGeneration.IndexDigest = ""
-		if _, err := loadBrainHistoryIndex(brainDir, &legacyGeneration); err == nil || !strings.Contains(err.Error(), brainstore.MigrationRequiredCode) {
+		if _, err := historystore.LoadIndex(brainDir, &legacyGeneration); err == nil || !strings.Contains(err.Error(), brainstore.MigrationRequiredCode) {
 			t.Fatalf("digestless generation error = %v", err)
 		}
 		found := false
@@ -330,7 +332,7 @@ func TestHistoryIndexDigestValidationAndLegacyClassification(t *testing.T) {
 		if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := loadBrainHistoryIndex(brainDir, source); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) || !strings.Contains(err.Error(), "digest") {
+		if _, err := historystore.LoadIndex(brainDir, source); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) || !strings.Contains(err.Error(), "digest") {
 			t.Fatalf("tampered index error = %v", err)
 		}
 		found := false
@@ -347,7 +349,7 @@ func TestHistoryIndexDigestValidationAndLegacyClassification(t *testing.T) {
 		source, _ := activeHistoryProjection(t, brainDir)
 		malformed := *source
 		malformed.IndexDigest = "sha256:not-a-digest"
-		if _, err := loadBrainHistoryIndex(brainDir, &malformed); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
+		if _, err := historystore.LoadIndex(brainDir, &malformed); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 			t.Fatalf("malformed digest error = %v", err)
 		}
 	})
@@ -362,7 +364,7 @@ func TestHistoryIndexReadIsBoundedRegularAndNoFollow(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Setenv("ENTIRE_BRAIN_MAX_SNAPSHOT_BYTES", strconv.Itoa(len(data)-1))
-		if _, err := loadBrainHistoryIndex(brainDir, source); err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {
+		if _, err := historystore.LoadIndex(brainDir, source); err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {
 			t.Fatalf("oversized index error = %v", err)
 		}
 	})
@@ -375,7 +377,7 @@ func TestHistoryIndexReadIsBoundedRegularAndNoFollow(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		external := filepath.Join(t.TempDir(), historyIndexFileName)
+		external := filepath.Join(t.TempDir(), historystore.IndexFileName)
 		if err := os.WriteFile(external, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -385,7 +387,7 @@ func TestHistoryIndexReadIsBoundedRegularAndNoFollow(t *testing.T) {
 		if err := os.Symlink(external, path); err != nil {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
-		if _, err := loadBrainHistoryIndex(brainDir, source); err == nil || !strings.Contains(strings.ToLower(err.Error()), "symlink") {
+		if _, err := historystore.LoadIndex(brainDir, source); err == nil || !strings.Contains(strings.ToLower(err.Error()), "symlink") {
 			t.Fatalf("symlinked index error = %v", err)
 		}
 		got, err := os.ReadFile(external)
@@ -424,7 +426,7 @@ func TestHistoryIndexReadIsBoundedRegularAndNoFollow(t *testing.T) {
 
 func TestProjectionMutationsRefuseUnsupportedActiveReceipts(t *testing.T) {
 	brainDir, _, now := historyProjectionFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,7 +473,7 @@ func TestProjectionMutationsRefuseUnsupportedActiveReceipts(t *testing.T) {
 		return publishErr
 	})
 	assertUnsupported("publish", err)
-	after, err := loadBrainManifest(brainDir)
+	after, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,7 +485,7 @@ func TestProjectionMutationsRefuseUnsupportedActiveReceipts(t *testing.T) {
 
 func TestSessionTranscriptDigestIsContainedRegularAndNoFollow(t *testing.T) {
 	brainDir, rel, _ := historyProjectionFixture(t)
-	if digest, err := sessionTranscriptDigest(brainDir, rel); err != nil || !validSHA256Identity(digest) {
+	if digest, err := sessionTranscriptDigest(brainDir, rel); err != nil || !brainstore.ValidSHA256Identity(digest) {
 		t.Fatalf("valid transcript digest=%q err=%v", digest, err)
 	}
 	external := filepath.Join(t.TempDir(), "external.jsonl")
@@ -534,7 +536,7 @@ func TestMemoryRepairRecoversCorruptHistoryIndexDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now.Add(-time.Hour), RepoKey: storage.Key, DefaultBranch: "main",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now.Add(-time.Hour), RepoKey: storage.Key, DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now.Add(-time.Hour), DefaultBranch: "main", Sessions: []exportSession{
 			{SessionID: "repair-session", Branch: "main", LatestCheckpoint: "cp", TranscriptPath: rel, CreatedAt: now.Add(-2 * time.Hour)},
 		}}},
@@ -570,7 +572,7 @@ func TestMemoryRepairRecoversCorruptHistoryIndexDigest(t *testing.T) {
 		t.Fatalf("repair payload = %+v\n%s", payload, out)
 	}
 	after, _ := activeHistoryProjection(t, storage.BrainDir)
-	if after.IndexPath == before.IndexPath || !validSHA256Identity(after.IndexDigest) {
+	if after.IndexPath == before.IndexPath || !brainstore.ValidSHA256Identity(after.IndexDigest) {
 		t.Fatalf("repair did not publish a new integrity-protected generation: before=%+v after=%+v", before, after)
 	}
 }

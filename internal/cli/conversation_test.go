@@ -3,6 +3,9 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -12,6 +15,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // Fixture transcripts for each supported dialect. Line numbers in assertions
@@ -342,7 +347,7 @@ func buildConversationBrainFixture(t *testing.T, sessionID string) (string, *his
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		RepoKey:       "test/repo",
 		DefaultBranch: "main",
@@ -362,7 +367,7 @@ func buildConversationBrainFixture(t *testing.T, sessionID string) (string, *his
 
 func conversationRecordsFromIndex(t *testing.T, brainDir string, source *historySourceManifest) []historyRecord {
 	t.Helper()
-	index, err := loadBrainHistoryIndex(brainDir, source)
+	index, err := historystore.LoadIndex(brainDir, source)
 	if err != nil {
 		t.Fatalf("load index: %v", err)
 	}
@@ -464,7 +469,7 @@ func TestHistoryIndexExchangeIDStableAcrossRebuildAppendAndRelocation(t *testing
 	if err := os.Rename(full, newFull); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -511,7 +516,7 @@ func TestConversationRetrievalIsolationAndCaveats(t *testing.T) {
 
 	// Conversation source returns only exchanges, each under the
 	// historical-evidence contract.
-	results, err := retrieveConversation(brainDir, "flaky lock test windows", 10, modeLexical, retrievalOptions{})
+	results, err := retrieveConversation(brainDir, "flaky lock test windows", 10, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatalf("retrieveConversation: %v", err)
 	}
@@ -519,7 +524,7 @@ func TestConversationRetrievalIsolationAndCaveats(t *testing.T) {
 		t.Fatal("expected conversation results")
 	}
 	for _, result := range results {
-		if result.Source != retrievalSourceConversation || result.Heading != conversationKind {
+		if result.Source != brainstore.RetrievalSourceConversation || result.Heading != conversationKind {
 			t.Fatalf("non-conversation record leaked: %+v", result)
 		}
 		if !result.VerificationRequired {
@@ -527,7 +532,7 @@ func TestConversationRetrievalIsolationAndCaveats(t *testing.T) {
 		}
 		caveatOK := false
 		for _, caveat := range result.Caveats {
-			if caveat.Kind == retrievalCaveatHistoricalConversation {
+			if caveat.Kind == retrieval.CaveatHistoricalConversation {
 				caveatOK = true
 			}
 		}
@@ -537,7 +542,7 @@ func TestConversationRetrievalIsolationAndCaveats(t *testing.T) {
 	}
 
 	// Default retrieval (source omitted / all) must not surface exchanges.
-	index, err := loadBrainHistoryIndex(brainDir, source)
+	index, err := historystore.LoadIndex(brainDir, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -559,18 +564,18 @@ func TestConversationRetrievalIsolationAndCaveats(t *testing.T) {
 	}
 
 	// Default unified retrieval on this brain returns no conversation records.
-	unified, err := retrieveUnifiedWithOptions("", brainDir, "main", "flaky lock test windows", 10, modeLexical, retrievalOptions{})
+	unified, err := retrieveUnifiedWithOptions("", brainDir, "main", "flaky lock test windows", 10, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatalf("default retrieval: %v", err)
 	}
 	for _, result := range unified {
-		if result.Source == retrievalSourceConversation || strings.HasPrefix(result.ID, conversationIDPrefix) {
+		if result.Source == brainstore.RetrievalSourceConversation || strings.HasPrefix(result.ID, conversationIDPrefix) {
 			t.Fatalf("conversation result leaked into default retrieval: %+v", result)
 		}
 	}
 
 	// vsearch over conversation is a structured unsupported error in Phase 1.
-	if _, err := retrieveUnifiedWithOptions("", brainDir, "main", "q", 10, modeVector, retrievalOptions{Source: retrievalSourceConversation}); err == nil {
+	if _, err := retrieveUnifiedWithOptions("", brainDir, "main", "q", 10, retrieval.ModeVector, retrievalOptions{Source: brainstore.RetrievalSourceConversation}); err == nil {
 		t.Fatal("vsearch over conversation must be a structured unsupported error")
 	}
 }
@@ -603,7 +608,7 @@ func TestConversationGetExpandsAndDegradesToProjection(t *testing.T) {
 	}
 	var hasHistorical bool
 	for _, caveat := range got.Caveats {
-		if caveat.Kind == retrievalCaveatHistoricalConversation {
+		if caveat.Kind == retrieval.CaveatHistoricalConversation {
 			hasHistorical = true
 		}
 	}
@@ -628,7 +633,7 @@ func TestConversationGetExpandsAndDegradesToProjection(t *testing.T) {
 	}
 	var hasStale bool
 	for _, caveat := range stale.Caveats {
-		if caveat.Kind == retrievalCaveatConversationSourceStale {
+		if caveat.Kind == retrieval.CaveatConversationSourceStale {
 			hasStale = true
 		}
 	}
@@ -665,7 +670,7 @@ func TestConversationCanaryStaysInsideHistoricalEvidenceWrapper(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: "test/repo", DefaultBranch: "main",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now, RepoKey: "test/repo", DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
 			{SessionID: "sc", Branch: "main", LatestCheckpoint: "cp", TranscriptPath: rel, CreatedAt: now},
 		}}},
@@ -676,7 +681,7 @@ func TestConversationCanaryStaysInsideHistoricalEvidenceWrapper(t *testing.T) {
 	if _, err := writeBrainHistoryIndexAndSource(brainDir, now, nil); err != nil {
 		t.Fatal(err)
 	}
-	results, err := retrieveConversation(brainDir, "vendor doc cleanup", 5, modeLexical, retrievalOptions{})
+	results, err := retrieveConversation(brainDir, "vendor doc cleanup", 5, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil || len(results) == 0 {
 		t.Fatalf("retrieve: %v (%d results)", err, len(results))
 	}
@@ -690,7 +695,7 @@ func TestConversationCanaryStaysInsideHistoricalEvidenceWrapper(t *testing.T) {
 			}
 			found := false
 			for _, caveat := range result.Caveats {
-				if caveat.Kind == retrievalCaveatHistoricalConversation {
+				if caveat.Kind == retrieval.CaveatHistoricalConversation {
 					found = true
 				}
 			}
@@ -741,7 +746,7 @@ func TestConversationScanCachePreservesExchangesAndIncompleteCounts(t *testing.T
 	if source2.Exchanges != source.Exchanges || source2.IncompleteExchanges != source.IncompleteExchanges {
 		t.Fatalf("cache-reuse counts drifted: %+v vs %+v", source2, source)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -766,21 +771,21 @@ func TestConversationScanCachePreservesExchangesAndIncompleteCounts(t *testing.T
 
 func TestParseRetrievalSource(t *testing.T) {
 	for input, want := range map[string]string{
-		"":             retrievalSourceAll,
-		"all":          retrievalSourceAll,
-		"  Fact ":      retrievalSourceFact,
-		"conversation": retrievalSourceConversation,
-		"history":      retrievalSourceHistory,
-		"doc":          retrievalSourceDoc,
+		"":             brainstore.RetrievalSourceAll,
+		"all":          brainstore.RetrievalSourceAll,
+		"  Fact ":      brainstore.RetrievalSourceFact,
+		"conversation": brainstore.RetrievalSourceConversation,
+		"history":      brainstore.RetrievalSourceHistory,
+		"doc":          brainstore.RetrievalSourceDoc,
 	} {
-		got, err := parseRetrievalSource(input)
+		got, err := retrieval.ParseSource(input)
 		if err != nil || got != want {
-			t.Fatalf("parseRetrievalSource(%q) = %q, %v", input, got, err)
+			t.Fatalf("retrieval.ParseSource(%q) = %q, %v", input, got, err)
 		}
 	}
 	for _, bad := range []string{"docs", "facts", "everything", "conversations"} {
-		if _, err := parseRetrievalSource(bad); err == nil {
-			t.Fatalf("parseRetrievalSource(%q) must fail", bad)
+		if _, err := retrieval.ParseSource(bad); err == nil {
+			t.Fatalf("retrieval.ParseSource(%q) must fail", bad)
 		}
 	}
 }
@@ -792,21 +797,21 @@ func TestConversationSourceScopedRetrievalDoesNotReturnOtherLayers(t *testing.T)
 	brainDir := t.TempDir()
 	now := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	facts := []factRecord{{ID: factRecordID("alpha contract", nil), Text: "alpha contract", Branch: "main", Status: factStatusActive, UpdatedAt: now}}
-	if err := writeFacts(brainDir, "main", facts); err != nil {
+	if err := factstore.Write(brainDir, "main", facts); err != nil {
 		t.Fatal(err)
 	}
-	results, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha contract", 10, modeLexical, retrievalOptions{Source: retrievalSourceConversation})
+	results, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha contract", 10, retrieval.ModeLexical, retrievalOptions{Source: brainstore.RetrievalSourceConversation})
 	if err != nil {
 		t.Fatalf("conversation source over factless brain: %v", err)
 	}
 	if len(results) != 0 {
 		t.Fatalf("conversation source must not return facts: %+v", results)
 	}
-	factScoped, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha contract", 10, modeLexical, retrievalOptions{Source: retrievalSourceFact})
+	factScoped, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha contract", 10, retrieval.ModeLexical, retrievalOptions{Source: brainstore.RetrievalSourceFact})
 	if err != nil || len(factScoped) != 1 || factScoped[0].Source != "fact" {
 		t.Fatalf("fact-scoped retrieval = %+v (%v)", factScoped, err)
 	}
-	docScoped, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha contract", 10, modeLexical, retrievalOptions{Source: retrievalSourceDoc})
+	docScoped, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha contract", 10, retrieval.ModeLexical, retrievalOptions{Source: brainstore.RetrievalSourceDoc})
 	if err != nil || len(docScoped) != 0 {
 		t.Fatalf("doc-scoped retrieval leaked: %+v (%v)", docScoped, err)
 	}
@@ -912,7 +917,7 @@ func TestConversationExpansionDistinguishesFailureStates(t *testing.T) {
 	base.MaxDocumentTranscriptBytes = 16
 	result := conversationGetResult(brainDir, docRecord)
 	base.MaxDocumentTranscriptBytes = oldMax
-	if !hasCaveatKind(result, retrievalCaveatConversationSourceTooLarge) {
+	if !hasCaveatKind(result, retrieval.CaveatConversationSourceTooLarge) {
 		t.Fatalf("expected too-large caveat: %+v", result.Caveats)
 	}
 
@@ -920,7 +925,7 @@ func TestConversationExpansionDistinguishesFailureStates(t *testing.T) {
 	staleRecord := docRecord
 	staleRecord.SourceDigest = "sha256:different"
 	result = conversationGetResult(brainDir, staleRecord)
-	if !hasCaveatKind(result, retrievalCaveatConversationSourceStale) || hasCaveatKind(result, retrievalCaveatConversationSourceUnreadable) {
+	if !hasCaveatKind(result, retrieval.CaveatConversationSourceStale) || hasCaveatKind(result, retrieval.CaveatConversationSourceUnreadable) {
 		t.Fatalf("expected stale caveat: %+v", result.Caveats)
 	}
 
@@ -929,7 +934,7 @@ func TestConversationExpansionDistinguishesFailureStates(t *testing.T) {
 	huge := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"` + strings.Repeat("a", historyMaxLineBytes+1024) + `"}]}}` + "\n"
 	lineRecord := write("sessions/main/20260808T000000Z_line.jsonl", huge)
 	result = conversationGetResult(brainDir, lineRecord)
-	if !hasCaveatKind(result, retrievalCaveatConversationSourceUnreadable) {
+	if !hasCaveatKind(result, retrieval.CaveatConversationSourceUnreadable) {
 		t.Fatalf("expected unreadable caveat: %+v", result.Caveats)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/setupui"
 	"github.com/entireio/entire-brain/internal/tui"
 	"github.com/mattn/go-isatty"
@@ -191,7 +192,7 @@ func setupShortBuildLabel(label string) string {
 	}
 	for _, step := range []struct{ prefix, label string }{
 		{"export sessions", "reading past AI sessions"},
-		{"seed baseline", "scanning repository files"},
+		{setupComponentLabel(brainComponentSeed), "scanning repository files"},
 		{"history index", "indexing session history"},
 		{"doc index", "indexing documentation"},
 		{"code index", "indexing code"},
@@ -533,7 +534,7 @@ func entityRevisionDetail(revision string) string {
 // this command could not read is the one answer that could cost someone data.
 func setupHostedFacts(brainDir, brainCmd string) setupui.HostedFacts {
 	facts := setupui.HostedFacts{Remedy: clibase.SetupBrainCommand(brainCmd) + " connect"}
-	binding, present, err := readHostedRepoBinding(brainDir)
+	binding, present, err := brainstore.ReadHostedRepoBinding(brainDir)
 	switch {
 	case err != nil:
 		facts.Note = "binding unreadable: " + setupui.FlattenError(err)
@@ -653,7 +654,7 @@ func setupWarningRows(warnings []string) []setupui.Line {
 // reach it. An unreadable binding offers the step: being told about a command
 // that turns out to be unnecessary is the cheaper of the two mistakes.
 func setupOffersConnect(brainPath string) bool {
-	_, present, err := readHostedRepoBinding(brainPath)
+	_, present, err := brainstore.ReadHostedRepoBinding(brainPath)
 	return err != nil || !present
 }
 

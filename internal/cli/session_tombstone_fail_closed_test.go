@@ -5,12 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/command/dash"
+	"github.com/entireio/entire-brain/internal/cli/command/viz"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/spf13/cobra"
 )
 
@@ -31,7 +36,7 @@ func requireSessionTombstoneError(t *testing.T, err error, code string, state se
 	if !errors.As(err, &loadErr) {
 		t.Fatalf("error = %v, want *sessionTombstoneLoadError", err)
 	}
-	if loadErr.Code != code || loadErr.State != state || commandErrorCode(err) != code {
+	if loadErr.Code != code || loadErr.State != state || cmdutil.CommandErrorCode(err) != code {
 		t.Fatalf("tombstone error = %+v (%v), want code=%s state=%s", loadErr, err, code, state)
 	}
 }
@@ -73,7 +78,7 @@ func TestCorruptSessionTombstonesFailClosedAcrossFreshRetrievalLoads(t *testing.
 	// retained, so each request independently reloads the durable policy.
 	writeSessionTombstoneBytes(t, brainDir, []byte("{broken"))
 	for request := 1; request <= 2; request++ {
-		results, err := retrieveConversation(brainDir, "projection publication", 5, modeLexical, retrievalOptions{})
+		results, err := retrieveConversation(brainDir, "projection publication", 5, retrieval.ModeLexical, retrievalOptions{})
 		if len(results) != 0 {
 			t.Fatalf("request %d served excluded results: %+v", request, results)
 		}
@@ -172,7 +177,7 @@ func TestCorruptTombstonesRefuseHandoffDashAndVizStartup(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: storage.Key,
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now, RepoKey: storage.Key,
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, Sessions: []exportSession{{
 			SessionID: "private", Branch: "feature", Summary: &checkpointSummary{Intent: "PRIVATE-STARTUP-CANARY"},
 		}}}},
@@ -186,11 +191,11 @@ func TestCorruptTombstonesRefuseHandoffDashAndVizStartup(t *testing.T) {
 	for name, run := range map[string]func() error{
 		"handoff": func() error { return runBrainHandoff(context.Background(), cmd, opts, 5, true) },
 		"dash": func() error {
-			_, err := assembleBrainSnapshot(context.Background(), opts, repoDir, repoDir, storage.BrainDir, "feature", 10)
+			_, err := dash.AssembleBrainSnapshot(context.Background(), dashConfig(opts), repoDir, repoDir, storage.BrainDir, "feature", 10)
 			return err
 		},
 		"viz": func() error {
-			return runViz(context.Background(), cmd, opts, vizFlags{noOpen: true}, repoDir)
+			return viz.Run(context.Background(), cmd, vizConfig(opts), viz.Flags{NoOpen: true}, repoDir)
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

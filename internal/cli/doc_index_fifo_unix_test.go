@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,7 +14,7 @@ import (
 
 func TestDeclaredDocIndexRejectsFIFOWithoutWriter(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, filepath.FromSlash(docIndexPath))
+	path := filepath.Join(dir, filepath.FromSlash(docstore.IndexPath))
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +22,7 @@ func TestDeclaredDocIndexRejectsFIFOWithoutWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
-	go func() { done <- verifyDeclaredDocIndex(dir) }()
+	go func() { done <- docstore.VerifyDeclaredIndex(dir) }()
 	select {
 	case err := <-done:
 		if err == nil {
@@ -39,7 +40,7 @@ func TestDeclaredDocIndexRejectsFIFOWithoutWriter(t *testing.T) {
 
 func TestDeclaredDocIndexReadRejectsFIFOWithoutWriter(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, filepath.FromSlash(docIndexPath))
+	path := filepath.Join(dir, filepath.FromSlash(docstore.IndexPath))
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +48,7 @@ func TestDeclaredDocIndexReadRejectsFIFOWithoutWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
-	go func() { _, err := loadDocIndex(dir); done <- err }()
+	go func() { _, err := docstore.Load(dir); done <- err }()
 	select {
 	case err := <-done:
 		if err == nil {
@@ -76,17 +77,17 @@ func TestDeclaredDocIndexRejectsAliases(t *testing.T) {
 			if err := os.WriteFile(target, []byte("{}"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			path := filepath.Join(dir, filepath.FromSlash(docIndexPath))
+			path := filepath.Join(dir, filepath.FromSlash(docstore.IndexPath))
 			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 				t.Fatal(err)
 			}
 			if err := link.create(target, path); err != nil {
 				t.Fatal(err)
 			}
-			if err := verifyDeclaredDocIndex(dir); err == nil {
+			if err := docstore.VerifyDeclaredIndex(dir); err == nil {
 				t.Fatal("aliased index accepted")
 			}
-			if _, err := loadDocIndex(dir); err == nil {
+			if _, err := docstore.Load(dir); err == nil {
 				t.Fatal("aliased index read accepted")
 			}
 		})

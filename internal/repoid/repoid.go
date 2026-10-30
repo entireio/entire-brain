@@ -9,7 +9,7 @@
 //
 //	internal/factsync     the per-fact sync transport
 //	                      /brain/facts (upsert + feed)
-//	internal/cli          brain publish               /brain/artifacts
+//	internal/cli          manual hosted-target resolution (memories sync)
 //
 // They cannot share the rule through each other: internal/cli sits above the
 // transport, so putting it there is upside down.

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
@@ -70,7 +71,7 @@ func testCappedHistoryReviewSurfaces(t *testing.T, regressed bool) {
 	var out bytes.Buffer
 	cmd := &cobra.Command{}
 	cmd.SetOut(&out)
-	if err := runBrainReview(context.Background(), cmd, opts, regressionDetectorOptions{limit: 20, json: true}, "fix scopeBaseRef"); err != nil {
+	if err := brainreview.RunBrainReview(context.Background(), cmd, brainReviewConfig(opts), regressionDetectorOptions{Limit: 20, JSON: true}, "fix scopeBaseRef"); err != nil {
 		t.Fatal(err)
 	}
 	var report reviewReport
@@ -87,7 +88,7 @@ func testCappedHistoryReviewSurfaces(t *testing.T, regressed bool) {
 			continue
 		}
 		out.Reset()
-		ro := regressionDetectorOptions{limit: 20, json: regressed}
+		ro := regressionDetectorOptions{Limit: 20, JSON: regressed}
 		var err error
 		if review {
 			err = runWorkspaceReviewManifest(cmd, opts, ro, manifest, "fix scopeBaseRef", nil)

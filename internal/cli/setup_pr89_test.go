@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -33,9 +35,9 @@ func TestDaemonDistillCarriesTheSameCapSetupReported(t *testing.T) {
 	setupOpts := defaultSetupOptions()
 
 	w := daemonWatchOptions(t, setupOpts)
-	if w.distillMaxSessions != setupDefaultBackfillBudget {
+	if w.DistillMaxSessions != setupDefaultBackfillBudget {
 		t.Fatalf("the installed daemon distills an UNCAPPED corpus every window: --max-sessions parsed as %d, want %d (argv %v)",
-			w.distillMaxSessions, setupDefaultBackfillBudget, brainWatchDaemonArgs(setupOpts))
+			w.DistillMaxSessions, setupDefaultBackfillBudget, brainWatchDaemonArgs(setupOpts))
 	}
 	distillOpts := watchDistillOptions(w)
 	if distillOpts.maxSessions != setupDefaultBackfillBudget {
@@ -56,8 +58,8 @@ func TestDaemonDistillHonorsAnExplicitlyUnlimitedBudget(t *testing.T) {
 	if args := strings.Join(brainWatchDaemonArgs(setupOpts), " "); strings.Contains(args, "--max-sessions") {
 		t.Fatalf("--backfill-budget 0 must not cap the daemon either: %s", args)
 	}
-	if w := daemonWatchOptions(t, setupOpts); w.distillMaxSessions != 0 {
-		t.Fatalf("explicit 0 must stay 0, got %d", w.distillMaxSessions)
+	if w := daemonWatchOptions(t, setupOpts); w.DistillMaxSessions != 0 {
+		t.Fatalf("explicit 0 must stay 0, got %d", w.DistillMaxSessions)
 	}
 }
 
@@ -73,12 +75,12 @@ func TestNegativeBackfillBudgetIsNotUnlimited(t *testing.T) {
 	if !strings.Contains(strings.Join(plan.Args, " "), "--max-sessions") {
 		t.Fatalf("--backfill-budget -1 produced an UNCAPPED distill argv: %v", plan.Args)
 	}
-	if w := daemonWatchOptions(t, setupOpts); w.distillMaxSessions != setupDefaultBackfillBudget {
-		t.Fatalf("a negative budget must fall back to the default cap, got %d", w.distillMaxSessions)
+	if w := daemonWatchOptions(t, setupOpts); w.DistillMaxSessions != setupDefaultBackfillBudget {
+		t.Fatalf("a negative budget must fall back to the default cap, got %d", w.DistillMaxSessions)
 	}
 	// A negative value that reaches watch directly must not mean unlimited either.
-	w := defaultWatchOptions()
-	w.distillMaxSessions = -1
+	w := watch.DefaultFlags()
+	w.DistillMaxSessions = -1
 	if got := watchDistillOptions(w).maxSessions; got != 0 {
 		t.Fatalf("a negative --max-sessions must not be passed through, got %d", got)
 	}
@@ -97,9 +99,9 @@ func TestDaemonDistillUsesTheAgentSetupResolved(t *testing.T) {
 	setupOpts.agent = "claude-code"
 
 	w := daemonWatchOptions(t, setupOpts)
-	if w.distillAgent != "claude-code" {
+	if w.DistillAgent != "claude-code" {
 		t.Fatalf("the daemon ignores setup's resolved agent and falls back to %q: %v",
-			defaultWatchOptions().distillAgent, brainWatchDaemonArgs(setupOpts))
+			watch.DefaultFlags().DistillAgent, brainWatchDaemonArgs(setupOpts))
 	}
 	if got := watchDistillOptions(w).agent; got != "claude-code" {
 		t.Fatalf("the agent never reaches the distill pass, got %q", got)
@@ -210,7 +212,7 @@ func TestBestEffortRefreshReportsTheSeedProbeFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   setupTestNow,
 		DefaultBranch: "main",
 		Sources: &brainSources{
@@ -336,37 +338,37 @@ func TestWatchDoesNotSpendTheWindowOnAContendedDistill(t *testing.T) {
 	attempts := 0
 	now := setupTestNow
 	fingerprint := "fp-0"
-	steps := func(distillErr error) watchSteps {
-		return watchSteps{
-			now:         func() time.Time { return now },
-			fingerprint: func(context.Context) string { return fingerprint },
-			refresh:     func(context.Context) error { return nil },
-			seed:        func(context.Context) error { return nil },
-			distill:     func(context.Context) error { attempts++; return distillErr },
+	steps := func(distillErr error) watch.Steps {
+		return watch.Steps{
+			Now:         func() time.Time { return now },
+			Fingerprint: func(context.Context) string { return fingerprint },
+			Refresh:     func(context.Context) error { return nil },
+			Seed:        func(context.Context) error { return nil },
+			Distill:     func(context.Context) error { attempts++; return distillErr },
 		}
 	}
 
 	// Tick 1: the detached backfill holds the brain.
-	watchTick(context.Background(), io.Discard, w, cursorPath, steps(errDistillPassBusy), &agentCalls)
+	watch.Tick(context.Background(), io.Discard, w, cursorPath, steps(watch.ErrDistillPassBusy), &agentCalls)
 	if attempts != 1 {
 		t.Fatalf("the gated distill must have been attempted once, got %d", attempts)
 	}
 	if agentCalls != 0 {
 		t.Fatalf("a pass that did nothing must not count against --budget, got %d", agentCalls)
 	}
-	if cursor := loadWatchCursor(cursorPath); !cursor.LastAgentSpendAt.IsZero() {
-		t.Fatalf("a %s spend window was burned on a distill that never ran (cursor %s)", w.distillEvery, cursor.LastAgentSpendAt)
+	if cursor := watch.LoadCursor(cursorPath); !cursor.LastAgentSpendAt.IsZero() {
+		t.Fatalf("a %s spend window was burned on a distill that never ran (cursor %s)", w.DistillEvery, cursor.LastAgentSpendAt)
 	}
 
 	// Tick 2, well inside the same --distill-every window: the watcher must be
 	// free to try again, because it never actually spent.
-	now = now.Add(w.consolidateEvery + time.Minute)
+	now = now.Add(w.ConsolidateEvery + time.Minute)
 	fingerprint = "fp-1"
-	watchTick(context.Background(), io.Discard, w, cursorPath, steps(nil), &agentCalls)
+	watch.Tick(context.Background(), io.Discard, w, cursorPath, steps(nil), &agentCalls)
 	if attempts != 2 {
 		t.Fatalf("the next tick must retry a distill that never ran, attempts=%d", attempts)
 	}
-	if cursor := loadWatchCursor(cursorPath); cursor.LastAgentSpendAt.IsZero() {
+	if cursor := watch.LoadCursor(cursorPath); cursor.LastAgentSpendAt.IsZero() {
 		t.Fatal("a distill that DID run must charge the window")
 	}
 	if agentCalls != 1 {
@@ -377,21 +379,21 @@ func TestWatchDoesNotSpendTheWindowOnAContendedDistill(t *testing.T) {
 func TestWatchKeepsSeedSpendWhenDistillIsContended(t *testing.T) {
 	t.Parallel()
 	w := daemonWatchOptions(t, defaultSetupOptions())
-	w.seedAgent = "codex"
+	w.SeedAgent = "codex"
 	cursorPath := filepath.Join(t.TempDir(), "watch.json")
 	agentCalls := 0
 	seedCalls := 0
-	watchTick(context.Background(), io.Discard, w, cursorPath, watchSteps{
-		now:         func() time.Time { return setupTestNow },
-		fingerprint: func(context.Context) string { return "fp" },
-		refresh:     func(context.Context) error { return nil },
-		seed:        func(context.Context) error { seedCalls++; return nil },
-		distill:     func(context.Context) error { return errDistillPassBusy },
+	watch.Tick(context.Background(), io.Discard, w, cursorPath, watch.Steps{
+		Now:         func() time.Time { return setupTestNow },
+		Fingerprint: func(context.Context) string { return "fp" },
+		Refresh:     func(context.Context) error { return nil },
+		Seed:        func(context.Context) error { seedCalls++; return nil },
+		Distill:     func(context.Context) error { return watch.ErrDistillPassBusy },
 	}, &agentCalls)
 	if seedCalls != 1 || agentCalls != 1 {
 		t.Fatalf("seed spend was incorrectly refunded: seed=%d budget=%d", seedCalls, agentCalls)
 	}
-	if cursor := loadWatchCursor(cursorPath); cursor.LastAgentSpendAt.IsZero() {
+	if cursor := watch.LoadCursor(cursorPath); cursor.LastAgentSpendAt.IsZero() {
 		t.Fatal("seed synthesis spent tokens, so the spend window must remain reserved")
 	}
 }
@@ -406,7 +408,7 @@ func TestWatchDistillReportsContentionToItsCaller(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := writeBrainManifestAndReadme(f.storage.BrainDir, exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   setupTestNow,
 		DefaultBranch: "main",
 		Sources: &brainSources{
@@ -416,14 +418,14 @@ func TestWatchDistillReportsContentionToItsCaller(t *testing.T) {
 		t.Fatalf("write manifest: %v", err)
 	}
 
-	w := defaultWatchOptions()
+	w := watch.DefaultFlags()
 	// Pin the agent. The watch default is "auto" (it used to hardcode "codex",
 	// which bypassed agent resolution entirely), and auto resolves to "none" on
 	// a fixture runner that answers no `--version` probe — at which point
 	// runDistill returns "distillation requires an agent" before it ever reaches
 	// the pass lock, and this test would be asserting about a pass that never
 	// contended for anything. The subject here is contention, not selection.
-	w.distillAgent = "codex"
+	w.DistillAgent = "codex"
 	held := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
@@ -443,7 +445,7 @@ func TestWatchDistillReportsContentionToItsCaller(t *testing.T) {
 	done <- nil
 	<-done
 
-	if !errors.Is(err, errDistillPassBusy) {
+	if !errors.Is(err, watch.ErrDistillPassBusy) {
 		t.Fatalf("a distill that skipped on contention must say so to its caller, got %v", err)
 	}
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,8 +65,8 @@ func TestRankDocsLexicalPrefersCurrentOverHistorical(t *testing.T) {
 	if len(out) != 2 || out[0].Record.ID != "current" || out[1].Record.ID != "old" {
 		t.Fatalf("current docs should rank before historical docs: %+v", out)
 	}
-	old := docToUnified(out[1].Record)
-	if !old.VerificationRequired || !hasRetrievalCaveat(old, retrievalCaveatHistoricalDocument) {
+	old := retrieval.DocToUnified(out[1].Record)
+	if !old.VerificationRequired || !hasRetrievalCaveat(old, retrieval.CaveatHistoricalDocument) {
 		t.Fatalf("historical doc missing trust caveat: %+v", old)
 	}
 }
@@ -79,7 +80,7 @@ func TestRankDocsLexicalAllowsMuchStrongerHistoricalMatch(t *testing.T) {
 	if len(out) != 2 || out[0].Record.ID != "old" {
 		t.Fatalf("trust discount became an absolute historical ban: %+v", out)
 	}
-	if result := docToUnified(out[0].Record); !result.VerificationRequired {
+	if result := retrieval.DocToUnified(out[0].Record); !result.VerificationRequired {
 		t.Fatalf("historical winner lost verification caveat: %+v", result)
 	}
 }

@@ -15,6 +15,8 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -70,7 +72,7 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 			if err != nil {
 				return err
 			}
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				return err
 			}
@@ -142,7 +144,7 @@ func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir s
 		return nil, fmt.Errorf("refine agent: %w", err)
 	}
 	judgeArgs = base.InjectAgentModel(judgeArgs, resolved, model)
-	byBranch, err := loadAllFactBranches(brainDir)
+	byBranch, err := factstore.LoadAllBranches(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +205,7 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 }
 
 func generateEvalTasksContext(ctx context.Context, brainDir string, manifest *exportManifest, branch string, minFacts, maxFacts, limit int) ([]evalTask, error) {
-	byBranch, err := loadAllFactBranches(brainDir)
+	byBranch, err := factstore.LoadAllBranches(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -503,7 +505,7 @@ func classifyQueryType(task string, relevant []factRecord) string {
 	}
 	cross := 0
 	for _, f := range relevant {
-		if factScope(f.Paths) == factScopeCrossCutting {
+		if factstore.ScopeOf(f.Paths) == factstore.ScopeCrossCutting {
 			cross++
 		}
 	}
@@ -603,9 +605,13 @@ func transcriptUserText(obj map[string]any) string {
 			return jsonString(payload["message"])
 		}
 	case "user":
-		if msg := jsonMap(obj["message"]); msg != nil {
-			return transcriptContentText(msg["content"])
+		if msg, ok := obj["message"]; ok {
+			return transcriptContentText(jsonMap(msg)["content"])
 		}
+		// The compact dialect the CLI writes (Entire Transcript Format) puts
+		// the content blocks at the record's top level with no "message"
+		// wrapper; distillConversationText documents the same split.
+		return transcriptContentText(obj["content"])
 	case "message":
 		// pi wraps every turn as {"type":"message","message":{role,content}};
 		// keep user turns (same blind spot distillConversationText covers).

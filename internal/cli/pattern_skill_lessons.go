@@ -157,7 +157,7 @@ func lessonRecord(pl proposedLesson, members []string, repoKey string) deepDossi
 		PatternID:        id,
 		Archetype:        "procedure",
 		Fingerprint:      "sha256:" + base.HexSHA("lesson\x00"+strings.Join(sortedCopy(members), "|")),
-		Title:            base.TruncateString(strings.TrimSpace(firstNonEmpty(pl.Title, "lesson")), 120),
+		Title:            base.TruncateString(strings.TrimSpace(base.FirstNonEmpty(pl.Title, "lesson")), 120),
 		Trigger:          base.TruncateString(strings.TrimSpace(pl.Trigger), 280),
 		NotWhen:          base.TruncateString(strings.TrimSpace(pl.NotWhen), 280),
 		Knowledge:        knowledge,

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -55,7 +56,7 @@ func checkJSONContract(t *testing.T, name string, value any) {
 	buf := &bytes.Buffer{}
 	cmd := &cobra.Command{}
 	cmd.SetOut(buf)
-	if err := writeJSON(cmd, value); err != nil {
+	if err := cmdutil.WriteJSON(cmd, value); err != nil {
 		t.Fatalf("writeJSON %s: %v", path, err)
 	}
 	got := buf.Bytes()

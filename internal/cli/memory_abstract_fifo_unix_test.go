@@ -12,12 +12,13 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestAbstractPrivacyCleanupRejectsRegularToFIFOSwapWithoutBlocking(t *testing.T) {
 	brainDir, _ := writeSessionNavigationFixture(t)
 	view := sessionViewForTest(t, brainDir)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

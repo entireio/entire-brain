@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestAbstractEgressInventoryMixedCorruptionPreservesCommittedReceipt(t *testing.T) {
@@ -267,7 +268,7 @@ func TestManualAbstractEnqueueFailsClosedOnPrivateAndCorruptState(t *testing.T) 
 	t.Run("corrupt manifest", func(t *testing.T) {
 		brainDir, _ := writeSessionNavigationFixture(t)
 		view := sessionViewForTest(t, brainDir)
-		if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), []byte("{broken"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), []byte("{broken"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		if _, created, err := enqueueManualAbstractJobWithReceipt(brainDir, view.Ref, override, now, nil, false); err == nil || created || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
@@ -278,7 +279,7 @@ func TestManualAbstractEnqueueFailsClosedOnPrivateAndCorruptState(t *testing.T) 
 	t.Run("corrupt job inventory", func(t *testing.T) {
 		brainDir, _ := writeSessionNavigationFixture(t)
 		view := sessionViewForTest(t, brainDir)
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			t.Fatal(err)
 		}

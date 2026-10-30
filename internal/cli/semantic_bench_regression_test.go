@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/bench"
 	clitest "github.com/entireio/entire-brain/internal/cli/internal/clitest"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -60,7 +62,7 @@ func TestSemanticBenchRootRoutesJSONTextProgressAndCleanup(t *testing.T) {
 			t.Fatalf("progress omitted %q:\n%s", phase, progress)
 		}
 	}
-	var report semanticBenchReport
+	var report bench.IndexBenchReport
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("decode bench report: %v\n%s", err, out)
 	}
@@ -89,11 +91,11 @@ func TestSemanticBenchKeepAndFailureCleanupContracts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("kept bench: %v\n%s", err, out)
 	}
-	var kept semanticBenchReport
+	var kept bench.IndexBenchReport
 	if err := json.Unmarshal([]byte(out), &kept); err != nil || !kept.Kept {
 		t.Fatalf("kept report: %+v err=%v", kept, err)
 	}
-	manifest, err := loadBrainManifest(kept.BrainDir)
+	manifest, err := bmanifest.Load(kept.BrainDir)
 	if err != nil || manifest.Sources == nil || manifest.Sources.Semantic == nil || manifest.Sources.Semantic.Symbols != 1 {
 		t.Fatalf("kept brain lost indexed evidence: %+v %v", manifest, err)
 	}
@@ -113,7 +115,7 @@ func TestSemanticBenchKeepAndFailureCleanupContracts(t *testing.T) {
 	}
 	cmd := &cobra.Command{}
 	cmd.SetOut(io.Discard)
-	if err := runSemanticBench(context.Background(), cmd, opts, semanticBenchOptions{graphBinary: "entire"}, repoDir); err == nil || !strings.Contains(err.Error(), "fixture provider failed") {
+	if err := bench.RunIndexBench(context.Background(), cmd, benchConfig(opts), bench.IndexBenchOptions{GraphBinary: "entire"}, repoDir); err == nil || !strings.Contains(err.Error(), "fixture provider failed") {
 		t.Fatalf("default failure error = %v", err)
 	}
 	after, globErr := filepath.Glob(filepath.Join(os.TempDir(), "entire-brain-graph-bench-*"))
@@ -135,7 +137,7 @@ func TestSemanticBenchJSONWriterFailureKeepsRequestedStore(t *testing.T) {
 	opts, repoDir, _ := semanticBenchFixture(t)
 	cmd := &cobra.Command{}
 	cmd.SetOut(semanticBenchFailWriter{})
-	err := runSemanticBench(context.Background(), cmd, opts, semanticBenchOptions{json: true, keep: true, graphBinary: "entire", profile: "syntax-only"}, repoDir)
+	err := bench.RunIndexBench(context.Background(), cmd, benchConfig(opts), bench.IndexBenchOptions{JSON: true, Keep: true, GraphBinary: "entire", Profile: "syntax-only"}, repoDir)
 	if err == nil || !strings.Contains(err.Error(), "report writer failed") {
 		t.Fatalf("json writer error = %v", err)
 	}

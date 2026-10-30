@@ -3,7 +3,11 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,13 +47,13 @@ func writeMultiConceptFixture(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath)), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: index.GeneratedAt, RepoKey: "test/mc",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: index.GeneratedAt, RepoKey: "test/mc",
 		Sources: &brainSources{History: &historySourceManifest{
-			GeneratedAt: index.GeneratedAt, IndexPath: historyIndexPath, Records: len(index.Records),
+			GeneratedAt: index.GeneratedAt, IndexPath: historystore.IndexPath, Records: len(index.Records),
 		}},
 	}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
@@ -60,8 +64,8 @@ func writeMultiConceptFixture(t *testing.T) string {
 
 func TestMultiConceptSessionCoverage(t *testing.T) {
 	brainDir := writeMultiConceptFixture(t)
-	opts := retrievalOptions{Source: retrievalSourceConversation, Concepts: []string{"beta cache eviction", "gamma flag"}}
-	results, err := retrieveConversationMultiConcept(brainDir, "alpha rollout", 10, modeLexical, opts)
+	opts := retrievalOptions{Source: brainstore.RetrievalSourceConversation, Concepts: []string{"beta cache eviction", "gamma flag"}}
+	results, err := retrieveConversationMultiConcept(brainDir, "alpha rollout", 10, retrieval.ModeLexical, opts)
 	if err != nil {
 		t.Fatalf("multi-concept: %v", err)
 	}
@@ -103,7 +107,7 @@ func TestMultiConceptSessionCoverage(t *testing.T) {
 	}
 
 	// Determinism: the same query yields the same order.
-	again, err := retrieveConversationMultiConcept(brainDir, "alpha rollout", 10, modeLexical, opts)
+	again, err := retrieveConversationMultiConcept(brainDir, "alpha rollout", 10, retrieval.ModeLexical, opts)
 	if err != nil || len(again) != len(results) {
 		t.Fatalf("re-run: %v", err)
 	}
@@ -117,7 +121,7 @@ func TestMultiConceptSessionCoverage(t *testing.T) {
 	// nobody used matches nothing.
 	filtered := opts
 	filtered.Agent = "Codex"
-	none, err := retrieveConversationMultiConcept(brainDir, "alpha rollout", 10, modeLexical, filtered)
+	none, err := retrieveConversationMultiConcept(brainDir, "alpha rollout", 10, retrieval.ModeLexical, filtered)
 	if err != nil || len(none) != 0 {
 		t.Fatalf("agent-filtered coverage: %v (%d)", err, len(none))
 	}
@@ -136,10 +140,10 @@ func TestMultiConceptInputValidation(t *testing.T) {
 	if _, err := normalizeConversationConcepts("alpha", []string{strings.Repeat("x", conversationConceptMaxBytes+1)}); err == nil {
 		t.Fatal("over-cap concept must error")
 	}
-	if _, err := buildRetrievalOptions("history", "", "", "", "", "", []string{"beta"}); err == nil {
+	if _, err := retrieve.BuildRetrievalOptions("history", "", "", "", "", "", []string{"beta"}); err == nil {
 		t.Fatal("concepts with a non-conversation source must error")
 	}
-	if _, err := buildRetrievalOptions("conversation", "", "", "", "", "", []string{"a", "b", "c", "d", "e"}); err == nil {
+	if _, err := retrieve.BuildRetrievalOptions("conversation", "", "", "", "", "", []string{"a", "b", "c", "d", "e"}); err == nil {
 		t.Fatal("more than four extra concepts must error")
 	}
 }
@@ -149,8 +153,8 @@ func TestMultiConceptTooBroadIsStructured(t *testing.T) {
 	old := conversationConceptScanCeiling
 	conversationConceptScanCeiling = 2
 	defer func() { conversationConceptScanCeiling = old }()
-	opts := retrievalOptions{Source: retrievalSourceConversation, Concepts: []string{"ingest"}}
-	_, err := retrieveConversationMultiConcept(brainDir, "rollout", 10, modeLexical, opts)
+	opts := retrievalOptions{Source: brainstore.RetrievalSourceConversation, Concepts: []string{"ingest"}}
+	_, err := retrieveConversationMultiConcept(brainDir, "rollout", 10, retrieval.ModeLexical, opts)
 	if err == nil || !strings.Contains(err.Error(), "memory_query_too_broad") {
 		t.Fatalf("ceiling overflow must be memory_query_too_broad: %v", err)
 	}
@@ -158,15 +162,15 @@ func TestMultiConceptTooBroadIsStructured(t *testing.T) {
 
 func TestMultiConceptVectorModeUnavailableIsStructured(t *testing.T) {
 	brainDir := writeMultiConceptFixture(t)
-	opts := retrievalOptions{Source: retrievalSourceConversation, Concepts: []string{"gamma flag"}}
-	if _, err := retrieveConversationMultiConcept(brainDir, "alpha rollout", 10, modeVector, opts); err == nil {
+	opts := retrievalOptions{Source: brainstore.RetrievalSourceConversation, Concepts: []string{"gamma flag"}}
+	if _, err := retrieveConversationMultiConcept(brainDir, "alpha rollout", 10, retrieval.ModeVector, opts); err == nil {
 		t.Fatal("closed vector arm must return the structured vector-state error")
 	}
 }
 
 func TestMultiConceptUsesShortTermEvidence(t *testing.T) {
 	brainDir := writeMultiConceptFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,8 +199,8 @@ func TestMultiConceptUsesShortTermEvidence(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	opts := retrievalOptions{Source: retrievalSourceConversation, Concepts: []string{"beta cache eviction", "gamma flag"}}
-	results, err := retrieveConversationMultiConcept(brainDir, "alpha rollout", 10, modeLexical, opts)
+	opts := retrievalOptions{Source: brainstore.RetrievalSourceConversation, Concepts: []string{"beta cache eviction", "gamma flag"}}
+	results, err := retrieveConversationMultiConcept(brainDir, "alpha rollout", 10, retrieval.ModeLexical, opts)
 	if err != nil {
 		t.Fatalf("multi-concept with overlay: %v", err)
 	}
@@ -215,7 +219,7 @@ func TestMultiConceptUsesShortTermEvidence(t *testing.T) {
 
 func replaceMultiConceptLongTermRecords(t *testing.T, brainDir string, records []historyRecord) {
 	t.Helper()
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +228,7 @@ func replaceMultiConceptLongTermRecords(t *testing.T, brainDir string, records [
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath)), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest.Sources.History.Records = len(records)
@@ -259,8 +263,8 @@ func TestMultiConceptTooBroadForAllInScopeLongTermMatches(t *testing.T) {
 	}
 	replaceMultiConceptLongTermRecords(t, brainDir, records)
 
-	_, err := retrieveConversationMultiConcept(brainDir, "alpha", 10, modeLexical, retrievalOptions{
-		Source: retrievalSourceConversation, Agent: "Claude Code", Concepts: []string{"beta"},
+	_, err := retrieveConversationMultiConcept(brainDir, "alpha", 10, retrieval.ModeLexical, retrievalOptions{
+		Source: brainstore.RetrievalSourceConversation, Agent: "Claude Code", Concepts: []string{"beta"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "memory_query_too_broad") {
 		t.Fatalf("all in-scope long-term overflow must reject, got %v", err)
@@ -285,8 +289,8 @@ func TestMultiConceptCeilingCountsOnlyInScopeLongTermMatches(t *testing.T) {
 	inside := multiConceptOverflowRecord("inside", 3)
 	replaceMultiConceptLongTermRecords(t, brainDir, []historyRecord{outsideOne, outsideTwo, inside})
 
-	results, err := retrieveConversationMultiConcept(brainDir, "alpha", 10, modeLexical, retrievalOptions{
-		Source: retrievalSourceConversation, Agent: "Claude Code", Concepts: []string{"beta"},
+	results, err := retrieveConversationMultiConcept(brainDir, "alpha", 10, retrieval.ModeLexical, retrievalOptions{
+		Source: brainstore.RetrievalSourceConversation, Agent: "Claude Code", Concepts: []string{"beta"},
 	})
 	if err != nil {
 		t.Fatalf("out-of-scope candidates must not cause an overflow: %v", err)
@@ -313,8 +317,8 @@ func TestMultiConceptRawFTSScanCeilingIsStructured(t *testing.T) {
 	}
 	replaceMultiConceptLongTermRecords(t, brainDir, records)
 
-	_, err := retrieveConversationMultiConcept(brainDir, "alpha", 10, modeLexical, retrievalOptions{
-		Source: retrievalSourceConversation, Agent: "Claude Code", Concepts: []string{"beta"},
+	_, err := retrieveConversationMultiConcept(brainDir, "alpha", 10, retrieval.ModeLexical, retrievalOptions{
+		Source: brainstore.RetrievalSourceConversation, Agent: "Claude Code", Concepts: []string{"beta"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "memory_query_too_broad") || !strings.Contains(err.Error(), "scanning more than 2") {
 		t.Fatalf("raw scan guard must return a typed refusal, got %v", err)
@@ -419,7 +423,7 @@ func TestMultiConceptTooBroadForOverlayMatches(t *testing.T) {
 	conversationConceptScanCeiling = 3
 	defer func() { conversationConceptScanCeiling = oldCeiling }()
 	replaceMultiConceptLongTermRecords(t, brainDir, nil)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,8 +443,8 @@ func TestMultiConceptTooBroadForOverlayMatches(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = retrieveConversationMultiConcept(brainDir, "alpha", 10, modeLexical, retrievalOptions{
-		Source: retrievalSourceConversation, Agent: "Claude Code", Concepts: []string{"beta"},
+	_, err = retrieveConversationMultiConcept(brainDir, "alpha", 10, retrieval.ModeLexical, retrievalOptions{
+		Source: brainstore.RetrievalSourceConversation, Agent: "Claude Code", Concepts: []string{"beta"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "memory_query_too_broad") {
 		t.Fatalf("overlay overflow must reject, got %v", err)
@@ -461,8 +465,8 @@ func TestMultiConceptPreservesIdenticalSummariesAcrossSessions(t *testing.T) {
 	}
 	assertBoth := func(t *testing.T, brainDir string) {
 		t.Helper()
-		results, err := retrieveConversationMultiConcept(brainDir, "alpha", 10, modeLexical, retrievalOptions{
-			Source: retrievalSourceConversation, Concepts: []string{"beta"},
+		results, err := retrieveConversationMultiConcept(brainDir, "alpha", 10, retrieval.ModeLexical, retrievalOptions{
+			Source: brainstore.RetrievalSourceConversation, Concepts: []string{"beta"},
 		})
 		if err != nil {
 			t.Fatalf("identical-summary coverage: %v", err)
@@ -500,7 +504,7 @@ func TestMultiConceptPreservesIdenticalSummariesAcrossSessions(t *testing.T) {
 	t.Run("short-term in-memory", func(t *testing.T) {
 		brainDir := writeMultiConceptFixture(t)
 		replaceMultiConceptLongTermRecords(t, brainDir, nil)
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			t.Fatal(err)
 		}

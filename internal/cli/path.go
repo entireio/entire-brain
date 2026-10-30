@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -108,7 +109,7 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 		if err := checkPathTargetIsAddressable(ctx, opts, storage, repoDir); err != nil {
 			return err
 		}
-		if pathOpts.ensure && !brainExportExists(storage.BrainDir) {
+		if pathOpts.ensure && !bmanifest.Exists(storage.BrainDir) {
 			if err := pathOpts.validateForEnsure(); err != nil {
 				return err
 			}
@@ -196,7 +197,7 @@ func looksLikeWindowsDriveTargetPath(target string) bool {
 	if !looksLikeWindowsDrivePath(target) {
 		return false
 	}
-	if match := repoRemoteSCPRegex.FindStringSubmatch(target); len(match) == 3 && !looksLikeWindowsDriveRemotePath(target, match[2]) {
+	if match := base.RemoteSCPRegex.FindStringSubmatch(target); len(match) == 3 && !looksLikeWindowsDriveRemotePath(target, match[2]) {
 		return false
 	}
 	return true
@@ -302,11 +303,11 @@ func nameDegenerateRepoFailure(ctx context.Context, runner CommandRunner, repoDi
 	if _, ok := gitWorkTreeRoot(ctx, runner, repoDir); !ok {
 		if bare, bareErr := base.GitScalar(ctx, runner, repoDir, "rev-parse", "--is-bare-repository"); bareErr == nil && strings.TrimSpace(bare) == "true" {
 			return fmt.Errorf("bare repository has no working tree: %s\n"+
-				"%[2]s reads seed, docs and the code index out of a working tree, and a bare repository has none.\n"+
+				"%[2]s reads repository context, docs and the code index out of a working tree, and a bare repository has none.\n"+
 				"point it at a clone with a checkout: %[2]s refresh <path>", repoDir, brainCmd)
 		}
 		return notARepositoryError(ctx, runner, repoDir,
-			brainCmd+" builds every source it has -- sessions, seed, docs, code index -- from git history, so it needs git and a repository.",
+			brainCmd+" builds every source it has -- sessions, repository context, docs, code index -- from git history, so it needs git and a repository.",
 			brainCmd+" refresh",
 			brainCmd+" refresh <path>")
 	}
@@ -330,11 +331,6 @@ func nameDegenerateRepoFailure(ctx context.Context, runner CommandRunner, repoDi
 	return fmt.Errorf("this repository has no commits yet: %s\n"+
 		"%[2]s pins every source it builds to a commit, and an unborn branch has none.\n"+
 		"make at least one commit, then run `%[2]s refresh` again", repoDir, brainCmd)
-}
-
-func brainExportExists(brainDir string) bool {
-	info, err := os.Stat(filepath.Join(brainDir, exportManifestFileName))
-	return err == nil && !info.IsDir()
 }
 
 func runPathRefresh(ctx context.Context, opts Options, pathOpts pathCommandOptions, repoDir string) error {

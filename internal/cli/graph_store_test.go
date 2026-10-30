@@ -6,12 +6,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
@@ -75,7 +77,7 @@ func TestGraphOwnedIndexHasNoBrainGraphArtifacts(t *testing.T) {
 	if err := runSemanticIndex(context.Background(), cmd, opts, semanticIndexOptions{}, repo); err != nil {
 		t.Fatal(err)
 	}
-	m, err := loadBrainManifest(brain)
+	m, err := bmanifest.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +110,7 @@ func TestGraphOwnedIndexHasNoBrainGraphArtifacts(t *testing.T) {
 			t.Fatalf("missing symbol: %s", out.String())
 		}
 	}
-	syms, err := loadSemanticSymbols(brain, graphStoreSource(d, brain), 10)
+	syms, err := semstore.LoadSymbols(brain, semstore.GraphStoreSource(d, brain), 10)
 	if err != nil || len(syms) != 2 {
 		t.Fatalf("dashboard Graph symbols: %v, %v", syms, err)
 	}
@@ -116,7 +118,7 @@ func TestGraphOwnedIndexHasNoBrainGraphArtifacts(t *testing.T) {
 	if !bytes.Equal(before, after) {
 		t.Fatal("Brain changed Graph's store")
 	}
-	db, err := openSemanticReadDB(graphStoreSource(d, brain).StorePath)
+	db, err := semstore.OpenReadDB(semstore.GraphStoreSource(d, brain).StorePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +131,7 @@ func TestGraphOwnedIndexHasNoBrainGraphArtifacts(t *testing.T) {
 func TestGraphStoreDescriptorRaceRefusesReplacement(t *testing.T) {
 	_, _, brain, d := newGraphStoreFixture(t)
 	d.EntryDigest = "stale"
-	if db, err := openSemanticReadDB(graphStoreSource(d, brain).StorePath); err == nil {
+	if db, err := semstore.OpenReadDB(semstore.GraphStoreSource(d, brain).StorePath); err == nil {
 		db.Close()
 		t.Fatal("served replacement store")
 	}
@@ -166,7 +168,7 @@ func TestGraphTraceBundleRoundTripContainsNoCodeStore(t *testing.T) {
 	if err := runSemanticIndex(context.Background(), cmd, opts, semanticIndexOptions{}, repo); err != nil {
 		t.Fatal(err)
 	}
-	observations := []graphTraceObservation{{ImportedAt: "2026-10-22T00:00:00Z", SourcePath: graphTraceFile, FromID: "render", ToID: "normalize", ObservedType: "CALLS", Matched: 1}}
+	observations := []semstore.TraceObservation{{ImportedAt: "2026-10-22T00:00:00Z", SourcePath: semstore.TraceFile, FromID: "render", ToID: "normalize", ObservedType: "CALLS", Matched: 1}}
 	if err := writeGraphTraces(brain, observations); err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +179,7 @@ func TestGraphTraceBundleRoundTripContainsNoCodeStore(t *testing.T) {
 	entries := readTestBundleEntries(t, archive)
 	found := false
 	for _, name := range entries {
-		if name == graphTraceFile {
+		if name == semstore.TraceFile {
 			found = true
 		}
 		if strings.HasSuffix(name, ".sqlite") || strings.Contains(name, "semantic/snapshots") {
@@ -196,7 +198,7 @@ func TestGraphTraceBundleRoundTripContainsNoCodeStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows, err := readGraphTraces(dest.BrainDir)
+	rows, err := semstore.ReadTraces(dest.BrainDir)
 	if err != nil || len(rows) != 1 || rows[0] != observations[0] {
 		t.Fatalf("observations changed: %+v (%v)", rows, err)
 	}
@@ -207,7 +209,7 @@ func TestGraphMissingStoreDoesNotCreateAFile(t *testing.T) {
 	if err := os.Remove(d.Path); err != nil {
 		t.Fatal(err)
 	}
-	if db, err := openSemanticReadDB(graphStoreSource(d, brain).StorePath); err == nil {
+	if db, err := semstore.OpenReadDB(semstore.GraphStoreSource(d, brain).StorePath); err == nil {
 		db.Close()
 		t.Fatal("opened absent provider database")
 	}
@@ -299,7 +301,7 @@ func TestGraphIndexFailsFastOnOlderContract(t *testing.T) {
 
 // TestGraphStoreSchemaMajorRefused pins defect (b)'s hard-error half: a store
 // whose semantic schema major is newer than ADR 0001's supported range must be
-// refused with validateSemanticSchema's own wording, not silently copied in.
+// refused with semstore.ValidateSchema's own wording, not silently copied in.
 func TestGraphStoreSchemaMajorRefused(t *testing.T) {
 	opts, repo, _, d := newGraphStoreFixture(t)
 	d.Header.SchemaVersion = "2.0"
@@ -308,7 +310,7 @@ func TestGraphStoreSchemaMajorRefused(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a schema-major error")
 	}
-	if !strings.Contains(err.Error(), semanticSupportedSchemaRange) {
+	if !strings.Contains(err.Error(), semstore.SupportedSchemaRange) {
 		t.Fatalf("error does not name the supported schema range: %v", err)
 	}
 	if !strings.Contains(err.Error(), "Graph") || !strings.Contains(err.Error(), "entire-brain") {
@@ -318,7 +320,7 @@ func TestGraphStoreSchemaMajorRefused(t *testing.T) {
 
 // TestGraphStoreSchemaMinorSkewWarns pins defect (b)'s warn half: a header one
 // supported-major minor ahead of this build must reach BOTH live consumers of
-// the descriptor that previously never called semanticSchemaMinorSkewWarning
+// the descriptor that previously never called semstore.SchemaMinorSkewWarning
 // at all -- `refresh`'s identity warning and the stale-report ("status")
 // freshness axis -- instead of being silently dropped.
 func TestGraphStoreSchemaMinorSkewWarns(t *testing.T) {
@@ -342,7 +344,7 @@ func TestGraphStoreSchemaMinorSkewWarns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh needed: %v", err)
 	}
-	if !strings.Contains(identityWarning, newerMinor) || !strings.Contains(identityWarning, semanticSchemaVersion) {
+	if !strings.Contains(identityWarning, newerMinor) || !strings.Contains(identityWarning, semstore.SchemaVersion) {
 		t.Fatalf("refresh did not surface the skew warning: %q", identityWarning)
 	}
 }
@@ -364,7 +366,7 @@ func TestGraphStoreViewMismatchNamesBothBinaries(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	_, err = openSemanticReadDB(graphStoreSource(d, brain).StorePath)
+	_, err = semstore.OpenReadDB(semstore.GraphStoreSource(d, brain).StorePath)
 	if err == nil {
 		t.Fatal("expected a view-mismatch error")
 	}

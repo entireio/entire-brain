@@ -11,57 +11,10 @@ import (
 	"testing"
 	"time"
 
+	factscmd "github.com/entireio/entire-brain/internal/cli/command/facts"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
-
-func TestFilterFactsByTemporalEligibilityFailsClosedAndCountsReasons(t *testing.T) {
-	anchor := func(ids ...string) []factAnchor {
-		out := make([]factAnchor, 0, len(ids))
-		for _, id := range ids {
-			out = append(out, factAnchor{SessionID: id})
-		}
-		return out
-	}
-	facts := []factRecord{
-		{ID: "eligible-active", Status: factStatusActive, Provenance: anchor("early", "offset-early")},
-		{ID: "eligible-superseded", Status: factStatusSuperseded, Provenance: anchor("early")},
-		{ID: "empty"},
-		{ID: "missing-anchor-id", Provenance: anchor("")},
-		// Exclusion reason precedence is stable even when an unknown anchor appears first.
-		{ID: "excluded", Provenance: anchor("not-in-map", "own-fix")},
-		{ID: "unknown", Provenance: anchor("not-in-map")},
-		{ID: "boundary", Provenance: anchor("at-cutoff")},
-		{ID: "future", Provenance: anchor("late")},
-	}
-	dates := map[string]string{
-		"early":        "2026-07-14T23:00:00Z",
-		"offset-early": "2026-07-15T00:30:00+02:00",
-		"own-fix":      "2026-07-14T20:00:00Z",
-		"at-cutoff":    "2026-07-15T00:00:00Z",
-		"late":         "2026-07-15T00:00:01Z",
-	}
-	got, audit, err := filterFactsByTemporalEligibility(facts, dates, "2026-07-15T00:00:00Z", []string{"own-fix"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 2 || got[0].ID != "eligible-active" || got[1].ID != "eligible-superseded" {
-		t.Fatalf("eligible facts = %+v", got)
-	}
-	if audit.PrefilterCorpusCount != 8 || audit.EligibleCount != 2 {
-		t.Fatalf("audit counts = %+v", audit)
-	}
-	wantReasons := map[string]int{
-		eligibilityEmptyProvenance: 2,
-		eligibilityExcludedSession: 1,
-		eligibilityUnknownSession:  1,
-		eligibilityAtOrAfterCutoff: 2,
-	}
-	for reason, want := range wantReasons {
-		if audit.ExcludedCounts[reason] != want {
-			t.Errorf("excluded %s = %d, want %d", reason, audit.ExcludedCounts[reason], want)
-		}
-	}
-}
 
 func TestRecallTemporalEligibilityPrecedesTopKForLexicalAndSemantic(t *testing.T) {
 	repoDir := t.TempDir()
@@ -99,7 +52,7 @@ func TestRecallTemporalEligibilityPrecedesTopKForLexicalAndSemantic(t *testing.T
 		Status: factStatusActive, UpdatedAt: now.Add(-time.Hour),
 		Provenance: []factAnchor{{SessionID: "eligible"}},
 	})
-	if err := writeFacts(storage.BrainDir, "main", facts); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", facts); err != nil {
 		t.Fatal(err)
 	}
 	datesPath := filepath.Join(t.TempDir(), "session-dates.json")
@@ -129,8 +82,8 @@ func TestRecallTemporalEligibilityPrecedesTopKForLexicalAndSemantic(t *testing.T
 				t.Fatalf("recall: %v\n%s", execErr, out)
 			}
 			var payload struct {
-				Facts       []factRecord         `json:"facts"`
-				Eligibility factEligibilityAudit `json:"eligibility"`
+				Facts       []factRecord                  `json:"facts"`
+				Eligibility factscmd.FactEligibilityAudit `json:"eligibility"`
 			}
 			if err := json.Unmarshal([]byte(out), &payload); err != nil {
 				t.Fatalf("parse output: %v\n%s", err, out)
@@ -141,7 +94,7 @@ func TestRecallTemporalEligibilityPrecedesTopKForLexicalAndSemantic(t *testing.T
 			if payload.Eligibility.PrefilterCorpusCount != 6 || payload.Eligibility.EligibleCount != 1 || payload.Eligibility.DeliveredCount != 1 {
 				t.Fatalf("eligibility = %+v", payload.Eligibility)
 			}
-			if payload.Eligibility.ExcludedCounts[eligibilityAtOrAfterCutoff] != 5 {
+			if payload.Eligibility.ExcludedCounts[factscmd.EligibilityAtOrAfterCutoff] != 5 {
 				t.Fatalf("future exclusions = %+v", payload.Eligibility.ExcludedCounts)
 			}
 			if after := treeContentHash(t, storage.BrainDir); after != before {
@@ -156,8 +109,8 @@ func TestRecallTemporalEligibilityPrecedesTopKForLexicalAndSemantic(t *testing.T
 		t.Fatalf("no-match recall: %v\n%s", err, out)
 	}
 	var noMatch struct {
-		Facts       []factRecord         `json:"facts"`
-		Eligibility factEligibilityAudit `json:"eligibility"`
+		Facts       []factRecord                  `json:"facts"`
+		Eligibility factscmd.FactEligibilityAudit `json:"eligibility"`
 	}
 	if err := json.Unmarshal([]byte(out), &noMatch); err != nil {
 		t.Fatal(err)

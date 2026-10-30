@@ -3,6 +3,8 @@ package cli
 import (
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func findPractice(ps []practiceRecord, statementPrefix string) *practiceRecord {
@@ -47,7 +49,7 @@ func TestBuildBrainPractices(t *testing.T) {
 			UpdatedAt:  now,
 		},
 	}
-	if err := writeFacts(brainDir, "main", facts); err != nil {
+	if err := factstore.Write(brainDir, "main", facts); err != nil {
 		t.Fatal(err)
 	}
 

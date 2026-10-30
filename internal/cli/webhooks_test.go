@@ -3,321 +3,18 @@ package cli
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/facts"
+	"github.com/entireio/entire-brain/internal/cli/command/webhook"
+	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
-
-// Webhooks are the only outbound network traffic this binary makes, so most of
-// what follows tests the conditions under which it must make NONE. Each of
-// these asserts a promise in SECURITY.md or the command's own help; a test that
-// cannot fail when the corresponding guard is deleted is not testing anything,
-// so each one was checked against a weakened build.
-
-// recorder is a fake endpoint that remembers what it was sent.
-type recorder struct {
-	mu       sync.Mutex
-	requests []recordedRequest
-	status   int
-	redirect string
-}
-
-type recordedRequest struct {
-	body    []byte
-	headers http.Header
-}
-
-func (r *recorder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	body := &bytes.Buffer{}
-	_, _ = body.ReadFrom(req.Body)
-	r.mu.Lock()
-	r.requests = append(r.requests, recordedRequest{body: body.Bytes(), headers: req.Header.Clone()})
-	redirect, status := r.redirect, r.status
-	r.mu.Unlock()
-	if redirect != "" {
-		// 307 is the interesting case: unlike 302 it preserves the method and
-		// body, so a client that follows it re-delivers the payload.
-		http.Redirect(w, req, redirect, http.StatusTemporaryRedirect)
-		return
-	}
-	if status == 0 {
-		status = http.StatusOK
-	}
-	w.WriteHeader(status)
-}
-
-func (r *recorder) count() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return len(r.requests)
-}
-
-func (r *recorder) last(t *testing.T) recordedRequest {
-	t.Helper()
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if len(r.requests) == 0 {
-		t.Fatal("the endpoint was never called")
-	}
-	return r.requests[len(r.requests)-1]
-}
-
-// webhookEndpointServer starts a fake endpoint and points the brain at it.
-func webhookEndpointServer(t *testing.T) *recorder {
-	t.Helper()
-	rec := &recorder{}
-	server := httptest.NewServer(rec)
-	t.Cleanup(server.Close)
-	t.Setenv(webhookURLEnv, server.URL)
-	return rec
-}
-
-func sampleFact() factRecord {
-	return factRecord{
-		ID:    "fact-1",
-		Kind:  "invariant",
-		Paths: []string{"architecture.storage.invariant"},
-		Text:  "Refs are written through a Postgres compare-and-swap.",
-	}
-}
-
-func testNow() time.Time { return time.Date(2026, 9, 21, 10, 0, 0, 0, time.UTC) }
-
-// --- the guards -------------------------------------------------------------
-
-// The default build makes no network calls. With no URL configured there must
-// be no request, and emit must not report that as an error either: "webhooks
-// are not set up" is the normal state, not a failure.
-func TestWebhookSendsNothingWhenNoURLIsConfigured(t *testing.T) {
-	rec := &recorder{}
-	server := httptest.NewServer(rec)
-	t.Cleanup(server.Close)
-	t.Setenv(webhookURLEnv, "") // explicitly unset, not merely absent
-
-	if err := emitWebhook(context.Background(), webhookEvent{Event: WebhookTest}); err != nil {
-		t.Fatalf("an unconfigured webhook reported an error: %v", err)
-	}
-	if rec.count() != 0 {
-		t.Fatalf("a request was made with no %s set", webhookURLEnv)
-	}
-}
-
-// The egress kill switch outranks the webhook configuration. If a configured
-// URL could win, a local-only declaration would mean nothing.
-func TestEgressToggleSilencesAConfiguredWebhook(t *testing.T) {
-	for _, toggle := range []string{"ENTIRE_BRAIN_NO_EGRESS", "ENTIRE_BRAIN_LOCAL_ONLY"} {
-		t.Run(toggle, func(t *testing.T) {
-			rec := webhookEndpointServer(t)
-			t.Setenv(toggle, "1")
-
-			if err := emitWebhook(context.Background(), webhookEvent{Event: WebhookTest}); err != nil {
-				t.Fatalf("emit: %v", err)
-			}
-			if rec.count() != 0 {
-				t.Fatalf("%s did not stop the webhook: %d request(s) delivered", toggle, rec.count())
-			}
-			if _, ok, reason := webhookEndpoint(); ok || !strings.Contains(reason, toggle) {
-				t.Fatalf("webhookEndpoint should name %s as the reason, got ok=%v reason=%q", toggle, ok, reason)
-			}
-		})
-	}
-}
-
-// The toggles are fail-closed: a value nobody recognises must disable egress,
-// not enable it. A typo'd "ture" that silently left webhooks firing is exactly
-// the failure securityToggleEnabled exists to prevent, and webhooks inherit it
-// only because they route through brainNoEgressMode rather than reading the
-// variable themselves.
-func TestUnrecognizedEgressToggleValueStillSilencesWebhooks(t *testing.T) {
-	rec := webhookEndpointServer(t)
-	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "ture")
-
-	if err := emitWebhook(context.Background(), webhookEvent{Event: WebhookTest}); err != nil {
-		t.Fatalf("emit: %v", err)
-	}
-	if rec.count() != 0 {
-		t.Fatalf("a misspelled toggle value left webhooks enabled: %d request(s)", rec.count())
-	}
-}
-
-// A file:// "webhook" is not a webhook. Admitting non-HTTP schemes would turn
-// one environment variable into a write primitive.
-func TestWebhookRefusesNonHTTPSchemes(t *testing.T) {
-	// The message matters as much as the refusal. file:///etc/passwd parses
-	// with an empty host, so a host check that runs first reports "not a valid
-	// URL" — which sends somebody off to fix a URL that is perfectly valid and
-	// simply not allowed. Each case pins the objection the user should read.
-	for raw, wantInReason := range map[string]string{
-		"file:///etc/passwd":          "must be http or https, not file",
-		"unix:///var/run/docker.sock": "must be http or https, not unix",
-		"ftp://example.com/hook":      "must be http or https, not ftp",
-		"not-a-url":                   "must be http or https, not no scheme",
-		"/just/a/path":                "must be http or https, not no scheme",
-		"https://":                    "no host",
-	} {
-		t.Setenv(webhookURLEnv, raw)
-		endpoint, ok, reason := webhookEndpoint()
-		if ok {
-			t.Fatalf("%s was accepted as a webhook endpoint (%q)", raw, endpoint)
-		}
-		if !strings.Contains(reason, wantInReason) {
-			t.Fatalf("%s was rejected with %q, which does not say %q", raw, reason, wantInReason)
-		}
-	}
-}
-
-// Fact text stays on the machine by default. This is the difference between a
-// notification and a feed of everything the brain knows.
-func TestFactWebhookWithholdsTextByDefault(t *testing.T) {
-	t.Setenv(webhookIncludeTextEnv, "")
-	fact := sampleFact()
-	event := newFactWebhookEvent(WebhookFactRecorded, webhookRepoName("/home/someone/work/myrepo"), "main", fact, testNow())
-
-	encoded, err := json.Marshal(event)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	if strings.Contains(string(encoded), fact.Text) {
-		t.Fatalf("the fact text was in the payload: %s", encoded)
-	}
-	if event.Fact.Text != "" {
-		t.Fatalf("Text should be empty, got %q", event.Fact.Text)
-	}
-	// Redaction must not cost the subscriber the ability to act: the id, kind
-	// and paths are what make the event useful, and they must survive.
-	if event.Fact.ID != fact.ID || event.Fact.Kind != fact.Kind || len(event.Fact.Paths) != 1 {
-		t.Fatalf("redaction removed more than the text: %+v", event.Fact)
-	}
-	// The repository is identified by name, not by a path that discloses the
-	// layout of somebody's home directory.
-	if event.Repo != "myrepo" {
-		t.Fatalf("Repo = %q, want the directory name", event.Repo)
-	}
-	if strings.Contains(string(encoded), "/home/someone") {
-		t.Fatalf("the payload leaked a filesystem path: %s", encoded)
-	}
-}
-
-// Opting in is the whole point of the default being safe: a user who wants the
-// text in their channel can have it.
-func TestFactWebhookIncludesTextWhenOptedIn(t *testing.T) {
-	t.Setenv(webhookIncludeTextEnv, "1")
-	fact := sampleFact()
-	event := newFactWebhookEvent(WebhookFactRecorded, webhookRepoName("/repo"), "main", fact, testNow())
-	if event.Fact.Text != fact.Text {
-		t.Fatalf("opt-in did not include the text: %q", event.Fact.Text)
-	}
-}
-
-// A redirect is refused, not followed. The payload and its signature must not
-// reach a host the user never configured — including a downgrade to plaintext
-// http, which is how a redirect-following client leaks credentials.
-func TestWebhookRefusesToFollowRedirects(t *testing.T) {
-	final := &recorder{}
-	finalServer := httptest.NewServer(final)
-	t.Cleanup(finalServer.Close)
-
-	rec := webhookEndpointServer(t)
-	rec.mu.Lock()
-	rec.redirect = finalServer.URL
-	rec.mu.Unlock()
-	t.Setenv(webhookSecretEnv, "topsecret")
-
-	err := emitWebhook(context.Background(), webhookEvent{Event: WebhookTest})
-	if err == nil {
-		t.Fatal("a redirecting endpoint was reported as a successful delivery")
-	}
-	if final.count() != 0 {
-		t.Fatalf("the payload was delivered to the redirect target (%d request(s))", final.count())
-	}
-	// The error has to say what to do about it, or the user is left with a
-	// delivery that fails for no visible reason.
-	if !strings.Contains(err.Error(), webhookURLEnv) {
-		t.Fatalf("the redirect error should name %s: %v", webhookURLEnv, err)
-	}
-}
-
-// A receiver can only trust an event it can attribute. The signature has to be
-// over the exact bytes sent, or verification fails for everyone who implements
-// it correctly.
-func TestWebhookSignsThePayloadItActuallySends(t *testing.T) {
-	rec := webhookEndpointServer(t)
-	const secret = "shared-secret"
-	t.Setenv(webhookSecretEnv, secret)
-
-	if err := emitWebhook(context.Background(), newFactWebhookEvent(
-		WebhookFactRecorded, webhookRepoName("/repo"), "main", sampleFact(), testNow())); err != nil {
-		t.Fatalf("emit: %v", err)
-	}
-	got := rec.last(t)
-	header := got.headers.Get("X-Entire-Signature-256")
-	if header == "" {
-		t.Fatal("no signature header was sent")
-	}
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(got.body)
-	want := "sha256=" + hex.EncodeToString(mac.Sum(nil))
-	if !hmac.Equal([]byte(header), []byte(want)) {
-		t.Fatalf("signature %s does not verify over the delivered body (want %s)", header, want)
-	}
-	if event := got.headers.Get("X-Entire-Event"); event != WebhookFactRecorded {
-		t.Fatalf("X-Entire-Event = %q, want %q", event, WebhookFactRecorded)
-	}
-}
-
-// Without a secret there is no signature header at all, rather than one
-// computed over an empty key — which would verify for anybody who guessed that
-// the key was empty and give a false sense of authentication.
-func TestWebhookIsUnsignedWithoutASecret(t *testing.T) {
-	rec := webhookEndpointServer(t)
-	t.Setenv(webhookSecretEnv, "")
-
-	if err := emitWebhook(context.Background(), webhookEvent{Event: WebhookTest}); err != nil {
-		t.Fatalf("emit: %v", err)
-	}
-	if header := rec.last(t).headers.Get("X-Entire-Signature-256"); header != "" {
-		t.Fatalf("a signature was sent with no secret configured: %q", header)
-	}
-}
-
-// An endpoint that rejects the POST is a delivery failure, not a success. A
-// webhook that silently swallows a 500 is indistinguishable from one that works.
-func TestWebhookTreatsAnErrorStatusAsAFailure(t *testing.T) {
-	rec := webhookEndpointServer(t)
-	rec.mu.Lock()
-	rec.status = http.StatusInternalServerError
-	rec.mu.Unlock()
-
-	err := emitWebhook(context.Background(), webhookEvent{Event: WebhookTest})
-	if err == nil {
-		t.Fatal("a 500 from the endpoint was reported as a successful delivery")
-	}
-	if !strings.Contains(err.Error(), "500") {
-		t.Fatalf("the error should carry the status: %v", err)
-	}
-}
-
-// notifyWebhook is the write paths' entry point and must never propagate a
-// failure, only report it.
-func TestNotifyWebhookWarnsAndDoesNotPropagate(t *testing.T) {
-	t.Setenv(webhookURLEnv, "http://127.0.0.1:1/definitely-not-listening")
-	errOut := &bytes.Buffer{}
-	notifyWebhook(context.Background(), errOut, webhookEvent{Event: WebhookTest})
-	if !strings.Contains(errOut.String(), "not delivered") {
-		t.Fatalf("a failed delivery produced no warning: %q", errOut.String())
-	}
-}
 
 // --- the events -------------------------------------------------------------
 
@@ -326,32 +23,37 @@ func TestNotifyWebhookWarnsAndDoesNotPropagate(t *testing.T) {
 // receive anything from is worse than a shorter list.
 func TestEveryAdvertisedEventIsActuallyEmitted(t *testing.T) {
 	constantFor := map[string]string{
-		WebhookFactRecorded:   "WebhookFactRecorded",
-		WebhookFactRetracted:  "WebhookFactRetracted",
-		WebhookBrainRefreshed: "WebhookBrainRefreshed",
-		WebhookTest:           "WebhookTest",
-	}
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatalf("read package dir: %v", err)
+		webhook.WebhookFactRecorded:   "webhook.WebhookFactRecorded",
+		webhook.WebhookFactRetracted:  "webhook.WebhookFactRetracted",
+		webhook.WebhookBrainRefreshed: "webhook.WebhookBrainRefreshed",
+		webhook.WebhookTest:           "WebhookTest",
 	}
 	var sources []string
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		// webhooks.go declares the constants; a reference there proves nothing.
-		if name == "webhooks.go" {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Clean(name))
+	// The emitters live in this package, in command/webhook (where the
+	// `webhook test` command moved), and in command/facts (where `remember`
+	// moved, COR-2268), so all three directories are scanned.
+	for _, dir := range []string{".", filepath.Join("command", "webhook"), filepath.Join("command", "facts")} {
+		entries, err := os.ReadDir(dir)
 		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
+			t.Fatalf("read package dir: %v", err)
 		}
-		sources = append(sources, string(data))
+		for _, entry := range entries {
+			name := entry.Name()
+			if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+				continue
+			}
+			// webhooks.go declares the constants; a reference there proves nothing.
+			if name == "webhooks.go" {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Clean(filepath.Join(dir, name)))
+			if err != nil {
+				t.Fatalf("read %s: %v", name, err)
+			}
+			sources = append(sources, string(data))
+		}
 	}
-	for _, event := range webhookEventNames() {
+	for _, event := range webhook.WebhookEventNames() {
 		identifier, known := constantFor[event]
 		if !known {
 			t.Fatalf("event %q has no constant in this test; add it and the code that emits it", event)
@@ -369,29 +71,6 @@ func TestEveryAdvertisedEventIsActuallyEmitted(t *testing.T) {
 	}
 }
 
-// `webhook events` is the documentation people will actually read. A new event
-// with no description ships a blank line next to its name.
-func TestWebhookEventsCommandDescribesEveryEvent(t *testing.T) {
-	cmd := newWebhookEventsCommand()
-	out := &bytes.Buffer{}
-	cmd.SetOut(out)
-	cmd.SetErr(&bytes.Buffer{})
-	if err := cmd.RunE(cmd, nil); err != nil {
-		t.Fatalf("events: %v", err)
-	}
-	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
-		name, description, ok := strings.Cut(strings.TrimSpace(line), " ")
-		if !ok || strings.TrimSpace(description) == "" {
-			t.Fatalf("event %q was listed with no description", name)
-		}
-	}
-	for _, event := range webhookEventNames() {
-		if !strings.Contains(out.String(), event) {
-			t.Fatalf("%s is emitted but `webhook events` does not list it", event)
-		}
-	}
-}
-
 // --- the commands -----------------------------------------------------------
 
 func webhookCommandOptions(t *testing.T) Options {
@@ -401,7 +80,7 @@ func webhookCommandOptions(t *testing.T) Options {
 		Version: "test",
 		Env:     semanticTestEnv(t, repoDir),
 		Runner:  semanticFixtureRunner(repoDir, ""),
-		Now:     testNow,
+		Now:     clitest.WebhookTestNow,
 	}
 }
 
@@ -418,33 +97,33 @@ func runWebhookSubcommand(t *testing.T, cmd *cobra.Command) (string, error) {
 // `webhook test` exists to answer "is this thing on". Reporting success for a
 // send that never happened would be the one answer worse than no command.
 func TestWebhookTestRefusesWhenWebhooksAreOff(t *testing.T) {
-	t.Setenv(webhookURLEnv, "")
-	_, err := runWebhookSubcommand(t, newWebhookTestCommand(webhookCommandOptions(t)))
+	t.Setenv(webhook.WebhookURLEnv, "")
+	_, err := runWebhookSubcommand(t, webhook.NewTestCommand(webhookCommandOptions(t)))
 	if err == nil {
 		t.Fatal("`webhook test` reported success with no endpoint configured")
 	}
-	if !strings.Contains(err.Error(), webhookURLEnv) {
+	if !strings.Contains(err.Error(), webhook.WebhookURLEnv) {
 		t.Fatalf("the error should say what to set: %v", err)
 	}
 }
 
 func TestWebhookTestDeliversToTheConfiguredEndpoint(t *testing.T) {
-	rec := webhookEndpointServer(t)
-	out, err := runWebhookSubcommand(t, newWebhookTestCommand(webhookCommandOptions(t)))
+	rec := clitest.WebhookEndpointServer(t, webhook.WebhookURLEnv)
+	out, err := runWebhookSubcommand(t, webhook.NewTestCommand(webhookCommandOptions(t)))
 	if err != nil {
 		t.Fatalf("`webhook test`: %v", err)
 	}
-	if rec.count() != 1 {
-		t.Fatalf("expected exactly one delivery, got %d", rec.count())
+	if rec.Count() != 1 {
+		t.Fatalf("expected exactly one delivery, got %d", rec.Count())
 	}
-	var payload webhookEvent
-	if err := json.Unmarshal(rec.last(t).body, &payload); err != nil {
+	var payload webhook.WebhookEvent
+	if err := json.Unmarshal(rec.Last(t).Body, &payload); err != nil {
 		t.Fatalf("the endpoint received something that is not an event: %v", err)
 	}
-	if payload.Event != WebhookTest {
-		t.Fatalf("event = %q, want %q", payload.Event, WebhookTest)
+	if payload.Event != webhook.WebhookTest {
+		t.Fatalf("event = %q, want %q", payload.Event, webhook.WebhookTest)
 	}
-	if !strings.Contains(out, WebhookTest) {
+	if !strings.Contains(out, webhook.WebhookTest) {
 		t.Fatalf("the command did not report what it sent: %q", out)
 	}
 }
@@ -453,18 +132,18 @@ func TestWebhookTestDeliversToTheConfiguredEndpoint(t *testing.T) {
 // "never configured" from "configured but disabled" — and say so, rather than
 // printing the same "off" for both.
 func TestWebhookStatusExplainsWhyItIsOff(t *testing.T) {
-	t.Setenv(webhookURLEnv, "")
-	unset, err := runWebhookSubcommand(t, newWebhookStatusCommand(webhookCommandOptions(t)))
+	t.Setenv(webhook.WebhookURLEnv, "")
+	unset, err := runWebhookSubcommand(t, webhook.NewStatusCommand(webhookCommandOptions(t)))
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	if !strings.Contains(unset, webhookURLEnv) {
+	if !strings.Contains(unset, webhook.WebhookURLEnv) {
 		t.Fatalf("status should name the variable to set: %q", unset)
 	}
 
-	webhookEndpointServer(t)
+	clitest.WebhookEndpointServer(t, webhook.WebhookURLEnv)
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
-	gated, err := runWebhookSubcommand(t, newWebhookStatusCommand(webhookCommandOptions(t)))
+	gated, err := runWebhookSubcommand(t, webhook.NewStatusCommand(webhookCommandOptions(t)))
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
@@ -477,7 +156,7 @@ func TestWebhookStatusExplainsWhyItIsOff(t *testing.T) {
 	// The hint has to point at the thing that is actually wrong. Telling
 	// somebody to set a variable they already set sends them to fix the wrong
 	// knob, and they will conclude the feature is broken.
-	if strings.Contains(gated, "set "+webhookURLEnv+"=https://") {
+	if strings.Contains(gated, "set "+webhook.WebhookURLEnv+"=https://") {
 		t.Fatalf("status told the user to set a URL that is already set: %q", gated)
 	}
 	if !strings.Contains(gated, "unset") {
@@ -487,23 +166,23 @@ func TestWebhookStatusExplainsWhyItIsOff(t *testing.T) {
 	// A URL that is set but unusable is a third state, and must not be reported
 	// as "you have not configured one".
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
-	t.Setenv(webhookURLEnv, "ftp://example.com/hook")
-	bad, err := runWebhookSubcommand(t, newWebhookStatusCommand(webhookCommandOptions(t)))
+	t.Setenv(webhook.WebhookURLEnv, "ftp://example.com/hook")
+	bad, err := runWebhookSubcommand(t, webhook.NewStatusCommand(webhookCommandOptions(t)))
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
 	if !strings.Contains(bad, "ftp") {
 		t.Fatalf("status should show the value it rejected: %q", bad)
 	}
-	if strings.Contains(bad, "set "+webhookURLEnv+"=https://") {
+	if strings.Contains(bad, "set "+webhook.WebhookURLEnv+"=https://") {
 		t.Fatalf("a bad URL was reported as an unset one: %q", bad)
 	}
 }
 
 func TestWebhookStatusReportsTheRedactionDefault(t *testing.T) {
-	webhookEndpointServer(t)
-	t.Setenv(webhookIncludeTextEnv, "")
-	out, err := runWebhookSubcommand(t, newWebhookStatusCommand(webhookCommandOptions(t)))
+	clitest.WebhookEndpointServer(t, webhook.WebhookURLEnv)
+	t.Setenv(webhook.WebhookIncludeTextEnv, "")
+	out, err := runWebhookSubcommand(t, webhook.NewStatusCommand(webhookCommandOptions(t)))
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
@@ -520,22 +199,22 @@ func TestWebhookStatusReportsTheRedactionDefault(t *testing.T) {
 // cannot undo the write. A brain that refuses to record because a chat webhook
 // is down would be worse than one with no webhooks at all.
 func TestRememberStillRecordsWhenTheWebhookEndpointIsDown(t *testing.T) {
-	now := testNow()
+	now := clitest.WebhookTestNow()
 	opts, brainDir, branch := rememberReviveEnv(t, now)
-	t.Setenv(webhookURLEnv, "http://127.0.0.1:1/definitely-not-listening")
+	t.Setenv(webhook.WebhookURLEnv, "http://127.0.0.1:1/definitely-not-listening")
 
 	text := "Refs are written through a Postgres compare-and-swap."
 	cmd := &cobra.Command{}
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	if err := runRemember(context.Background(), cmd, opts,
-		rememberCommandOptions{path: "preferences.coding.style", agent: "none"}, text); err != nil {
+	if err := facts.RunRemember(context.Background(), cmd, factsCommandConfig(opts),
+		facts.RememberCommandOptions{Path: "preferences.coding.style", Agent: "none"}, text); err != nil {
 		t.Fatalf("remember failed because a webhook could not be delivered: %v", err)
 	}
-	facts, err := loadFacts(brainDir, branch)
+	facts, err := factstore.Load(brainDir, branch)
 	if err != nil {
-		t.Fatalf("loadFacts: %v", err)
+		t.Fatalf("factstore.Load: %v", err)
 	}
 	found := false
 	for _, fact := range facts {
@@ -555,27 +234,27 @@ func TestRememberStillRecordsWhenTheWebhookEndpointIsDown(t *testing.T) {
 // The happy path: recording a fact notifies the endpoint, with the fact's
 // identity and without its text.
 func TestRememberNotifiesTheEndpoint(t *testing.T) {
-	now := testNow()
+	now := clitest.WebhookTestNow()
 	opts, _, branch := rememberReviveEnv(t, now)
-	rec := webhookEndpointServer(t)
-	t.Setenv(webhookIncludeTextEnv, "")
+	rec := clitest.WebhookEndpointServer(t, webhook.WebhookURLEnv)
+	t.Setenv(webhook.WebhookIncludeTextEnv, "")
 
 	text := "Refs are written through a Postgres compare-and-swap."
 	cmd := &cobra.Command{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	if err := runRemember(context.Background(), cmd, opts,
-		rememberCommandOptions{path: "preferences.coding.style", agent: "none"}, text); err != nil {
+	if err := facts.RunRemember(context.Background(), cmd, factsCommandConfig(opts),
+		facts.RememberCommandOptions{Path: "preferences.coding.style", Agent: "none"}, text); err != nil {
 		t.Fatalf("remember: %v", err)
 	}
-	if rec.count() != 1 {
-		t.Fatalf("expected one notification, got %d", rec.count())
+	if rec.Count() != 1 {
+		t.Fatalf("expected one notification, got %d", rec.Count())
 	}
-	var payload webhookEvent
-	if err := json.Unmarshal(rec.last(t).body, &payload); err != nil {
+	var payload webhook.WebhookEvent
+	if err := json.Unmarshal(rec.Last(t).Body, &payload); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if payload.Event != WebhookFactRecorded {
+	if payload.Event != webhook.WebhookFactRecorded {
 		t.Fatalf("event = %q", payload.Event)
 	}
 	if payload.Branch != branch {
@@ -584,25 +263,25 @@ func TestRememberNotifiesTheEndpoint(t *testing.T) {
 	if payload.Fact == nil || payload.Fact.ID == "" {
 		t.Fatalf("the event carried no fact identity: %+v", payload.Fact)
 	}
-	if strings.Contains(string(rec.last(t).body), text) {
-		t.Fatalf("the fact text was delivered by default: %s", rec.last(t).body)
+	if strings.Contains(string(rec.Last(t).Body), text) {
+		t.Fatalf("the fact text was delivered by default: %s", rec.Last(t).Body)
 	}
 }
 
 func TestGlobalFactWebhooksDoNotClaimRepositoryOwnership(t *testing.T) {
 	opts, _ := globalTestOptions(t)
-	rec := webhookEndpointServer(t)
-	t.Setenv(webhookIncludeTextEnv, "")
+	rec := clitest.WebhookEndpointServer(t, webhook.WebhookURLEnv)
+	t.Setenv(webhook.WebhookIncludeTextEnv, "")
 	text := "I prefer table-driven tests."
 	rememberGlobal(t, opts, text)
-	globals, err := loadGlobalFacts(opts.Env)
+	globals, err := factstore.LoadGlobal(opts.Env)
 	if err != nil || len(globals) != 1 {
 		t.Fatalf("global fixture: %v, %v", globals, err)
 	}
 	check := func(event string) {
 		t.Helper()
-		var payload webhookEvent
-		if err := json.Unmarshal(rec.last(t).body, &payload); err != nil {
+		var payload webhook.WebhookEvent
+		if err := json.Unmarshal(rec.Last(t).Body, &payload); err != nil {
 			t.Fatal(err)
 		}
 		if payload.Event != event || !payload.Global || payload.Repo != "" || payload.Branch != "" {
@@ -612,7 +291,7 @@ func TestGlobalFactWebhooksDoNotClaimRepositoryOwnership(t *testing.T) {
 			t.Fatalf("wrong fact or leaked text: %+v", payload.Fact)
 		}
 	}
-	check(WebhookFactRecorded)
+	check(webhook.WebhookFactRecorded)
 	cmd := newFactsRetractCommand(opts)
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
@@ -620,13 +299,13 @@ func TestGlobalFactWebhooksDoNotClaimRepositoryOwnership(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	check(WebhookFactRetracted)
-	if rec.count() != 2 {
-		t.Fatalf("expected recorded and retracted events, got %d", rec.count())
+	check(webhook.WebhookFactRetracted)
+	if rec.Count() != 2 {
+		t.Fatalf("expected recorded and retracted events, got %d", rec.Count())
 	}
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
 	rememberGlobal(t, opts, "We deploy on Thursdays.")
-	if rec.count() != 2 {
+	if rec.Count() != 2 {
 		t.Fatal("global write sent a webhook while egress was disabled")
 	}
 }
@@ -635,142 +314,25 @@ func TestGlobalFactWebhooksDoNotClaimRepositoryOwnership(t *testing.T) {
 // nothing. This is the combination that matters in practice — a locked-down
 // machine where somebody has also configured a webhook.
 func TestRememberSendsNothingUnderNoEgress(t *testing.T) {
-	now := testNow()
+	now := clitest.WebhookTestNow()
 	opts, brainDir, branch := rememberReviveEnv(t, now)
-	rec := webhookEndpointServer(t)
+	rec := clitest.WebhookEndpointServer(t, webhook.WebhookURLEnv)
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
 
 	text := "Refs are written through a Postgres compare-and-swap."
 	cmd := &cobra.Command{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	if err := runRemember(context.Background(), cmd, opts,
-		rememberCommandOptions{path: "preferences.coding.style", agent: "none"}, text); err != nil {
+	if err := facts.RunRemember(context.Background(), cmd, factsCommandConfig(opts),
+		facts.RememberCommandOptions{Path: "preferences.coding.style", Agent: "none"}, text); err != nil {
 		t.Fatalf("remember: %v", err)
 	}
-	if rec.count() != 0 {
-		t.Fatalf("no-egress mode still sent %d webhook(s)", rec.count())
+	if rec.Count() != 0 {
+		t.Fatalf("no-egress mode still sent %d webhook(s)", rec.Count())
 	}
-	facts, err := loadFacts(brainDir, branch)
+	facts, err := factstore.Load(brainDir, branch)
 	if err != nil || len(facts) == 0 {
 		t.Fatalf("the fact was not recorded under no-egress: %v", err)
-	}
-}
-
-// The endpoint has exactly one source: an environment variable. This is the
-// property the decision not to filter private addresses rests on, so it is
-// worth holding — if a config file or any second-party input ever reaches this,
-// the address filtering belongs back on the list.
-func TestWebhookEndpointComesOnlyFromTheEnvironment(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(".", "webhooks.go"))
-	if err != nil {
-		t.Fatalf("read webhooks.go: %v", err)
-	}
-	source := string(data)
-	for _, forbidden := range []string{"os.ReadFile", "os.Open", "loadBrainManifest", "settings"} {
-		if strings.Contains(source, forbidden) {
-			t.Fatalf("webhooks.go references %q; the endpoint may no longer be operator-only input, "+
-				"which is what the absence of private-address filtering depends on", forbidden)
-		}
-	}
-	if strings.Count(source, "os.Getenv(webhookURLEnv)") != 1 {
-		t.Fatal("the endpoint is read from somewhere other than the one environment variable")
-	}
-}
-
-// Delivery is on the critical path of every command that triggers it, and
-// `remember` is called by agents often. The timeout is therefore a latency
-// budget, and a slow endpoint must cost about that and not more.
-func TestASlowEndpointCostsAtMostTheTimeout(t *testing.T) {
-	stall := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		<-stall // accept the connection, then never respond
-	}))
-	// Cleanups run last-registered-first, so the stall must be released AFTER
-	// this is registered: Close waits for outstanding handlers, and releasing
-	// second would deadlock the test rather than the product.
-	t.Cleanup(server.Close)
-	t.Cleanup(func() { close(stall) })
-	t.Setenv(webhookURLEnv, server.URL)
-	t.Setenv(webhookTimeoutEnv, "300ms")
-
-	start := time.Now()
-	err := emitWebhook(context.Background(), webhookEvent{Event: WebhookTest})
-	elapsed := time.Since(start)
-
-	if err == nil {
-		t.Fatal("a stalled endpoint was reported as a successful delivery")
-	}
-	if elapsed > 3*time.Second {
-		t.Fatalf("a stalled endpoint blocked for %s; the timeout is not bounding it", elapsed)
-	}
-	if elapsed < 250*time.Millisecond {
-		t.Fatalf("delivery gave up after %s, well before the configured timeout", elapsed)
-	}
-}
-
-func TestWebhookTimeoutIsConfigurableAndFailsSafe(t *testing.T) {
-	t.Setenv(webhookTimeoutEnv, "")
-	if got := webhookTimeout(); got != defaultWebhookTimeout {
-		t.Fatalf("default = %s, want %s", got, defaultWebhookTimeout)
-	}
-	t.Setenv(webhookTimeoutEnv, "7s")
-	if got := webhookTimeout(); got != 7*time.Second {
-		t.Fatalf("configured = %s, want 7s", got)
-	}
-	// Nonsense and non-positive values fall back rather than disabling the
-	// bound — a zero or negative deadline would make every delivery fail
-	// instantly, which looks exactly like an unreachable endpoint.
-	for _, bad := range []string{"soon", "0", "-5s", "5"} {
-		t.Setenv(webhookTimeoutEnv, bad)
-		if got := webhookTimeout(); got != defaultWebhookTimeout {
-			t.Fatalf("%q gave %s, want the default", bad, got)
-		}
-	}
-}
-
-// The default has to stay a budget. Raising it silently would put seconds back
-// onto every `remember` that has a webhook configured.
-func TestDefaultWebhookTimeoutStaysABudget(t *testing.T) {
-	if defaultWebhookTimeout > 2*time.Second {
-		t.Fatalf("the default timeout is %s; delivery is synchronous, so this is charged to every triggering command",
-			defaultWebhookTimeout)
-	}
-}
-
-// For many receivers the URL is the credential — a Slack or Discord incoming
-// webhook is a secret path. The transport error embeds the whole URL and is
-// printed to stderr on every transient failure, into CI logs, agent transcripts
-// and error monitoring. The host is enough to diagnose; the rest is a secret.
-func TestDeliveryFailureDoesNotLeakTheEndpoint(t *testing.T) {
-	const secretPath = "/services/T00000000/B00000000/XXXXXXXXXXXXsecrettoken"
-	// A port nothing is listening on, so the POST fails at the transport.
-	t.Setenv(webhookURLEnv, "http://127.0.0.1:1"+secretPath+"?token=alsosecret")
-
-	err := emitWebhook(context.Background(), webhookEvent{Event: WebhookTest})
-	if err == nil {
-		t.Fatal("delivery to a dead port reported success")
-	}
-	message := err.Error()
-	for _, secret := range []string{secretPath, "secrettoken", "alsosecret"} {
-		if strings.Contains(message, secret) {
-			t.Fatalf("the delivery error leaks the endpoint: %q", message)
-		}
-	}
-	// And the same through the path the write commands actually use.
-	errOut := &bytes.Buffer{}
-	notifyWebhook(context.Background(), errOut, webhookEvent{Event: WebhookTest})
-	for _, secret := range []string{secretPath, "secrettoken", "alsosecret"} {
-		if strings.Contains(errOut.String(), secret) {
-			t.Fatalf("the stderr warning leaks the endpoint: %q", errOut.String())
-		}
-	}
-	// It still has to be diagnosable: the host and the reason must survive.
-	if !strings.Contains(message, "127.0.0.1") {
-		t.Fatalf("redaction removed the host, leaving nothing to diagnose: %q", message)
-	}
-	if !strings.Contains(strings.ToLower(message), "refused") && !strings.Contains(strings.ToLower(message), "connect") {
-		t.Fatalf("redaction removed the reason: %q", message)
 	}
 }
 
@@ -779,25 +341,29 @@ func TestDeliveryFailureDoesNotLeakTheEndpoint(t *testing.T) {
 // had drifted between the git toplevel and the configured root, which differ
 // whenever a repository is reached through a symlink or from a subdirectory.
 func TestEveryWebhookCallSiteUsesOneRepoIdentity(t *testing.T) {
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || name == "webhooks.go" {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Clean(name))
+	// Call sites live in this package and in command/webhook, so both
+	// directories are scanned; webhooks.go defines the helper itself.
+	for _, dir := range []string{".", filepath.Join("command", "webhook")} {
+		entries, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, line := range strings.Split(string(data), "\n") {
-			if !strings.Contains(line, "webhookRepoName(") {
+		for _, entry := range entries {
+			name := entry.Name()
+			if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || name == "webhooks.go" {
 				continue
 			}
-			t.Fatalf("%s builds a webhook repo name directly:\n  %s\nuse webhookRepoIdentity so every event names the repository the same way",
-				name, strings.TrimSpace(line))
+			data, err := os.ReadFile(filepath.Clean(filepath.Join(dir, name)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, line := range strings.Split(string(data), "\n") {
+				if !strings.Contains(line, "webhookRepoName(") {
+					continue
+				}
+				t.Fatalf("%s builds a webhook repo name directly:\n  %s\nuse webhook.WebhookRepoIdentity so every event names the repository the same way",
+					name, strings.TrimSpace(line))
+			}
 		}
 	}
 }
@@ -806,12 +372,12 @@ func TestEveryWebhookCallSiteUsesOneRepoIdentity(t *testing.T) {
 // the configured root and the resolved git toplevel.
 func TestWebhookRepoIdentityIsStableAcrossPathSpellings(t *testing.T) {
 	repoDir := t.TempDir()
-	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: semanticFixtureRunner(repoDir, ""), Now: testNow}
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: semanticFixtureRunner(repoDir, ""), Now: clitest.WebhookTestNow}
 
 	// The fixture answers rev-parse --show-toplevel with the repo directory,
 	// so both sources agree here; what is pinned is that the resolved value is
 	// used and is a bare name rather than a path.
-	got := webhookRepoIdentity(context.Background(), opts)
+	got := webhook.WebhookRepoIdentity(context.Background(), opts)
 	if got == "" {
 		t.Fatal("no repo identity was produced")
 	}
@@ -829,14 +395,14 @@ func TestWebhookRepoIdentityIsStableAcrossPathSpellings(t *testing.T) {
 // configured one — on the path this file itself notes is called by agents,
 // often.
 func TestUnconfiguredWebhookSpawnsNoSubprocess(t *testing.T) {
-	t.Setenv(webhookURLEnv, "")
+	t.Setenv(webhook.WebhookURLEnv, "")
 	repoDir := t.TempDir()
 	runner := semanticFixtureRunner(repoDir, "")
-	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: runner, Now: testNow}
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: runner, Now: clitest.WebhookTestNow}
 
 	before := len(runner.calls)
-	notifyFactWebhook(context.Background(), &bytes.Buffer{}, opts, WebhookFactRecorded, "main", sampleFact(), testNow())
-	notifyBrainWebhook(context.Background(), &bytes.Buffer{}, opts, WebhookBrainRefreshed, testNow())
+	webhook.NotifyFactWebhook(context.Background(), &bytes.Buffer{}, opts, webhook.WebhookFactRecorded, "main", clitest.SampleWebhookFact(), clitest.WebhookTestNow())
+	webhook.NotifyBrainWebhook(context.Background(), &bytes.Buffer{}, opts, webhook.WebhookBrainRefreshed, clitest.WebhookTestNow())
 
 	if after := len(runner.calls); after != before {
 		var names []string
@@ -850,16 +416,16 @@ func TestUnconfiguredWebhookSpawnsNoSubprocess(t *testing.T) {
 // And a configured one must still resolve the identity, or the short-circuit
 // has disabled the feature rather than skipping its cost.
 func TestConfiguredWebhookStillResolvesTheRepository(t *testing.T) {
-	rec := webhookEndpointServer(t)
+	rec := clitest.WebhookEndpointServer(t, webhook.WebhookURLEnv)
 	repoDir := t.TempDir()
-	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: semanticFixtureRunner(repoDir, ""), Now: testNow}
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: semanticFixtureRunner(repoDir, ""), Now: clitest.WebhookTestNow}
 
-	notifyFactWebhook(context.Background(), &bytes.Buffer{}, opts, WebhookFactRecorded, "main", sampleFact(), testNow())
-	if rec.count() != 1 {
-		t.Fatalf("a configured webhook delivered %d event(s)", rec.count())
+	webhook.NotifyFactWebhook(context.Background(), &bytes.Buffer{}, opts, webhook.WebhookFactRecorded, "main", clitest.SampleWebhookFact(), clitest.WebhookTestNow())
+	if rec.Count() != 1 {
+		t.Fatalf("a configured webhook delivered %d event(s)", rec.Count())
 	}
-	var payload webhookEvent
-	if err := json.Unmarshal(rec.last(t).body, &payload); err != nil {
+	var payload webhook.WebhookEvent
+	if err := json.Unmarshal(rec.Last(t).Body, &payload); err != nil {
 		t.Fatal(err)
 	}
 	if payload.Repo == "" {

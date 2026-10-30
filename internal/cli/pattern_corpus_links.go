@@ -2,6 +2,7 @@ package cli
 
 import (
 	"database/sql"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
@@ -53,7 +54,7 @@ func linkEpisodeSymbols(db *sql.DB, brainDir string, sem *semanticSourceManifest
 			end = len(files)
 		}
 		batch := files[start:end]
-		syms, err := semanticSymbolsForFiles(brainDir, sem, batch, len(batch)*200+200)
+		syms, err := semstore.SymbolsForFiles(brainDir, sem, batch, len(batch)*200+200)
 		if err != nil {
 			return nil // semantic unreadable: degrade to no symbol links
 		}

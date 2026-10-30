@@ -4,44 +4,9 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
-
-// loadFactStoreFiles scans the facts directory and returns every stored fact
-// grouped by store directory — one entry per facts.ndjson file, keyed by the
-// on-disk directory name. A FILE is the unit recall reads and writers replace,
-// which is not the same thing as the branch recorded on each record: the
-// hosted pull mirrors the repo feed into the current branch's store without
-// restamping, so one record legitimately appears in many files. Operations
-// that rewrite stores must therefore iterate files, never record-branch
-// buckets — writing a cross-file bucket into one file is how a store ends up
-// holding the same record many times over (COR-2220).
-func loadFactStoreFiles(brainDir string) (map[string][]factRecord, error) {
-	return loadRepoFactViews(brainDir)
-}
-
-func writeFactStoreFile(brainDir, dirName string, records []factRecord) error {
-	return writeRepoFactView(brainDir, dirName, records)
-}
-
-// loadAllFactBranches returns every stored fact grouped by the branch recorded
-// on each record (not the on-disk slug, which is lossy). It is the read-side
-// view for the manifest and whole-store reports. Because the hosted pull
-// mirrors feed records into other branches' files, a bucket here can span
-// files and repeat ids across them — safe to COUNT and read, but never write a
-// bucket back into a single file (see loadFactStoreFiles).
-func loadAllFactBranches(brainDir string) (map[string][]factRecord, error) {
-	byFile, err := loadFactStoreFiles(brainDir)
-	if err != nil {
-		return nil, err
-	}
-	byBranch := map[string][]factRecord{}
-	for _, records := range byFile {
-		for _, record := range records {
-			byBranch[record.Branch] = append(byBranch[record.Branch], record)
-		}
-	}
-	return byBranch, nil
-}
 
 // countFactProposals totals the pending proposals across the given branches.
 func countFactProposals(brainDir string, branches []string) int {
@@ -78,7 +43,7 @@ func updateFactSourceManifest(brainDir string, now time.Time) error {
 // refresh rather than needing a manual `facts reclassify`.
 //
 // The pass iterates store FILES, never record-branch buckets. An earlier
-// version wrote loadAllFactBranches buckets back through writeFacts, and a
+// version wrote factstore.LoadAllBranches buckets back through factstore.Write, and a
 // bucket spans files: every main-stamped record the hosted pull had mirrored
 // into a feature branch's store was concatenated into main's file, roughly
 // doubling it on each refresh (COR-2220). The per-file dedup below is also the
@@ -87,7 +52,7 @@ func updateFactSourceManifest(brainDir string, now time.Time) error {
 func reclassifyAllFactBranches(brainDir string, now time.Time) (int, error) {
 	changed := 0
 	err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		byFile, err := loadFactStoreFiles(brainDir)
+		byFile, err := factstore.LoadStoreFiles(brainDir)
 		if err != nil {
 			return err
 		}
@@ -96,18 +61,18 @@ func reclassifyAllFactBranches(brainDir string, now time.Time) (int, error) {
 		}
 		for dirName, facts := range byFile {
 			deduped, folded := dedupFactRecords(facts)
-			c := reclassifyFacts(deduped, false)
+			c := factstore.Reclassify(deduped, false)
 			if c == 0 && folded == 0 {
 				continue
 			}
-			if err := writeFactStoreFile(brainDir, dirName, deduped); err != nil {
+			if err := factstore.WriteStoreFile(brainDir, dirName, deduped); err != nil {
 				return err
 			}
 			changed += c + folded
 		}
 		// Refresh upgrades even an unchanged legacy store. Ordinary read
 		// commands remain read-only, including on read-only installations.
-		if err := migrateRepoFacts(brainDir); err != nil {
+		if err := factstore.MigrateRepository(brainDir); err != nil {
 			return err
 		}
 		return updateFactSourceManifestLocked(brainDir, now)
@@ -116,7 +81,7 @@ func reclassifyAllFactBranches(brainDir string, now time.Time) (int, error) {
 }
 
 func updateFactSourceManifestLocked(brainDir string, now time.Time) error {
-	byBranch, err := loadAllFactBranches(brainDir)
+	byBranch, err := factstore.LoadAllBranches(brainDir)
 	if err != nil {
 		return err
 	}
@@ -126,7 +91,7 @@ func updateFactSourceManifestLocked(brainDir string, now time.Time) error {
 	}
 	proposals := countFactProposals(brainDir, branches)
 
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return err
 	}
@@ -134,7 +99,7 @@ func updateFactSourceManifestLocked(brainDir string, now time.Time) error {
 	if manifest.Sources != nil && manifest.Sources.Facts != nil {
 		previous = manifest.Sources.Facts
 	}
-	source := summarizeFactSource(now, byBranch, 0, 0, proposals, nil)
+	source := factstore.SummarizeSource(now, byBranch, 0, 0, proposals, nil)
 	preserveFactDistillEvidence(source, previous)
 	if manifest.Sources == nil {
 		manifest.Sources = &brainSources{}

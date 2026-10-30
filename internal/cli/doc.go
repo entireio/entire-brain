@@ -13,6 +13,8 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // doc.go is the `doc` source: it indexes the brain's own markdown — the
@@ -20,40 +22,10 @@ import (
 // into retrievable chunks. Facts/history cover session-derived work; docs cover
 // the written/designed knowledge sessions don't, and give the brain a way to
 // retrieve its own documentation (qmd's core use case). The index is a derived,
-// rebuildable artifact, like the history index.
+// rebuildable artifact, like the history index. The read layer (index schema,
+// validated open, load) lives in docstore; this file is the build/write side.
 
-const (
-	docDirName       = "docs"
-	docIndexFileName = "index.json"
-	docIndexPath     = docDirName + "/" + docIndexFileName
-	maxDocChunkBytes = 3000 // ~750 tokens, qmd-scale chunks
-)
-
-// A doc index aggregates multiple seed documents, so use the general 64 MiB
-// ceiling rather than the smaller manifest limit. Variable for boundary tests.
-var maxDocIndexBytes int64 = base.DefaultMaxReadBytes
-
-type docSourceManifest struct {
-	GeneratedAt time.Time `json:"generated_at"`
-	IndexPath   string    `json:"index_path"`
-	Records     int       `json:"records"`
-	Files       int       `json:"files"`
-	Warnings    []string  `json:"warnings,omitempty"`
-}
-
-type docIndex struct {
-	GeneratedAt time.Time   `json:"generated_at"`
-	Records     []docRecord `json:"records"`
-}
-
-type docRecord struct {
-	ID         string `json:"id"`
-	Path       string `json:"path"`    // brain-relative markdown path
-	Heading    string `json:"heading"` // first markdown heading within the chunk, if any (empty when the chunk starts mid-section)
-	Line       int    `json:"line"`    // 1-based start line in the file
-	Text       string `json:"text"`
-	Historical bool   `json:"historical,omitempty"` // explicitly superseded reference material; current docs rank first
-}
+const maxDocChunkBytes = 3000 // ~750 tokens, qmd-scale chunks
 
 // Historical documents are untrusted context, not forbidden context. Apply a
 // bounded relevance discount so equally relevant current material wins while a
@@ -118,7 +90,7 @@ func loadDocRecordsFromSeed(brainDir string) (records []docRecord, files int, wa
 		}
 		rel := relTo(path)
 		clean := filepath.Clean(filepath.FromSlash(rel))
-		if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
+		if err := base.RejectSymlinkPathComponents(brainDir, clean); err != nil {
 			warnings = append(warnings, fmt.Sprintf("skip %s: %v", rel, err))
 			return nil
 		}
@@ -189,18 +161,18 @@ func writeDocIndexAndSourceLocked(brainDir string, now time.Time) (*docSourceMan
 		return nil, err
 	}
 	data = append(data, '\n')
-	if int64(len(data)) > maxDocIndexBytes {
-		return nil, &readBoundExceededError{Source: docIndexPath, Max: maxDocIndexBytes}
+	if int64(len(data)) > docstore.MaxIndexBytes {
+		return nil, &readBoundExceededError{Source: docstore.IndexPath, Max: docstore.MaxIndexBytes}
 	}
-	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, docIndexPath, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, docstore.IndexPath, data, 0o600); err != nil {
 		return nil, fmt.Errorf("write doc index: %w", err)
 	}
-	source := &docSourceManifest{GeneratedAt: now, IndexPath: docIndexPath, Records: len(records), Files: files, Warnings: warnings}
+	source := &docSourceManifest{GeneratedAt: now, IndexPath: docstore.IndexPath, Records: len(records), Files: files, Warnings: warnings}
 	// Build the derived BM25 index alongside its truth (best-effort).
 	if db, ftsErr := openDocFTSLocked(brainDir, index); ftsErr == nil {
 		_ = db.Close()
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -215,70 +187,4 @@ func writeDocIndexAndSourceLocked(brainDir string, now time.Time) (*docSourceMan
 		return nil, err
 	}
 	return source, nil
-}
-
-// verifyDeclaredDocIndex reports why the docs index a manifest declares cannot
-// be read. It probes exactly the file loadDocIndex opens, so a "docs: ok"
-// status is a statement about the bytes retrieval will actually rank, not about
-// a manifest field. Retrieval treats a missing index as an empty docs layer
-// (os.IsNotExist is skipped, not raised), so without this check a deleted or
-// unreadable index is indistinguishable from "nothing matched".
-func verifyDeclaredDocIndex(brainDir string) error {
-	f, err := openDeclaredDocIndex(brainDir)
-	if err != nil {
-		return err
-	}
-	return f.Close()
-}
-
-// Both diagnostics and queries must validate the descriptor they actually use.
-func openDeclaredDocIndex(brainDir string) (*os.File, error) {
-	path := filepath.Join(brainDir, filepath.FromSlash(docIndexPath))
-	if err := base.RejectExistingSymlinkPathComponents(brainDir, docIndexPath); err != nil {
-		return nil, err
-	}
-	before, err := os.Lstat(path)
-	if err != nil {
-		return nil, err
-	}
-	if !before.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s is not a regular file", docIndexPath)
-	}
-	// Nonblocking/no-follow open also covers a swap after the path checks.
-	f, err := os.OpenFile(path, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
-	if err != nil {
-		return nil, err
-	}
-	opened, err := f.Stat()
-	if err != nil {
-		f.Close()
-		return nil, err
-	}
-	if !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
-		f.Close()
-		return nil, fmt.Errorf("%s changed while opening", docIndexPath)
-	}
-	if opened.Size() > maxDocIndexBytes {
-		f.Close()
-		return nil, &readBoundExceededError{Source: docIndexPath, Max: maxDocIndexBytes}
-	}
-	if err := base.RejectOpenFileAlias(path, f, docIndexPath); err != nil {
-		f.Close()
-		return nil, err
-	}
-	return f, nil
-}
-
-func loadDocIndex(brainDir string) (docIndex, error) {
-	var index docIndex
-	f, err := openDeclaredDocIndex(brainDir)
-	if err != nil {
-		return index, err
-	}
-	defer f.Close()
-	data, err := base.SafeReadAll(f, maxDocIndexBytes, docIndexPath)
-	if err != nil {
-		return index, err
-	}
-	return index, json.Unmarshal(data, &index)
 }

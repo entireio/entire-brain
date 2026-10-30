@@ -11,6 +11,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -26,17 +27,12 @@ const (
 	docFTSRelevanceCutoff = 0.30
 )
 
-type scoredDocRecord struct {
-	Record docRecord
-	Score  int
-}
-
 func docFTSDBPath(brainDir string) string {
-	return filepath.Join(brainDir, docDirName, docFTSFileName)
+	return filepath.Join(brainDir, docstore.DirName, docFTSFileName)
 }
 
 func docFTSDBRelPath() string {
-	return filepath.ToSlash(filepath.Join(docDirName, docFTSFileName))
+	return filepath.ToSlash(filepath.Join(docstore.DirName, docFTSFileName))
 }
 
 func docFTSContent(r docRecord) string {

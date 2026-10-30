@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -513,8 +514,8 @@ func TestRepoStoragePathsCanonicalIdentityUpgradeCompatibility(t *testing.T) {
 				if !errors.As(err, &conflict) {
 					t.Fatalf("error = %v, want typed identity conflict", err)
 				}
-				if commandErrorCode(err) != localRepoIdentityConflictCode {
-					t.Fatalf("error code = %q, want %q", commandErrorCode(err), localRepoIdentityConflictCode)
+				if cmdutil.CommandErrorCode(err) != clibase.RepoIdentityConflictCode {
+					t.Fatalf("error code = %q, want %q", cmdutil.CommandErrorCode(err), clibase.RepoIdentityConflictCode)
 				}
 				if conflict.Canonical.Key != canonicalKey || conflict.Legacy.Key != legacyKey {
 					t.Fatalf("conflict = %+v, want canonical %q legacy %q", conflict, canonicalKey, legacyKey)

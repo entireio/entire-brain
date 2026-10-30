@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
@@ -32,7 +33,7 @@ func TestQualityCorpusDeletablePreservesDecisions(t *testing.T) {
 		PatternID: "pattern:abc", Status: "declined", SkillName: "release-check",
 		Note: "not worth a skill", CreatedAt: now, UpdatedAt: now,
 	}
-	if err := writeBrainSkillMemory(brainDir, []skillMemoryRecord{decision}); err != nil {
+	if err := patterncore.WriteBrainSkillMemory(brainDir, []skillMemoryRecord{decision}); err != nil {
 		t.Fatal(err)
 	}
 	// Delete the rebuildable corpus entirely (and its WAL/SHM siblings).
@@ -44,7 +45,7 @@ func TestQualityCorpusDeletablePreservesDecisions(t *testing.T) {
 	if err := buildPatternCorpus(brainDir, now); err != nil {
 		t.Fatalf("corpus must regenerate after deletion: %v", err)
 	}
-	got, err := loadBrainSkillMemory(brainDir)
+	got, err := patterncore.LoadBrainSkillMemory(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +67,7 @@ func TestQualityBranchScopedFactLinks(t *testing.T) {
 		{id: "s-feat", branch: "feature", agent: "Codex", checkpoint: "cp2", relPath: "sessions/feature/s2.jsonl", author: "Ada", transcript: transcript},
 	})
 	// The corroborating fact exists ONLY on main.
-	if err := writeFacts(brainDir, "main", []factRecord{
+	if err := factstore.Write(brainDir, "main", []factRecord{
 		{ID: "fact:wt", Paths: []string{"architecture.x.y"}, Text: "The worktree fingerprint hashes git status and the binary diff.", Locus: []string{"worktreefingerprint"}, Branch: "main", Origin: "distilled", Status: "active", UpdatedAt: now},
 	}); err != nil {
 		t.Fatal(err)

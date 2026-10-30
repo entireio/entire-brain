@@ -11,6 +11,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestFirstUserRequestCodex(t *testing.T) {
@@ -85,7 +88,7 @@ func TestGenerateEvalTasksFromProvenance(t *testing.T) {
 		mk("The mirror is best-effort", "constraints.invariants.general", "s1", 7),
 		mk("Tests run with go test", "workflow.testing.rules", "s2", 5),
 	}
-	if err := writeFacts(brainDir, "main", facts); err != nil {
+	if err := factstore.Write(brainDir, "main", facts); err != nil {
 		t.Fatal(err)
 	}
 	// Transcripts with recoverable opening requests.
@@ -103,7 +106,7 @@ func TestGenerateEvalTasksFromProvenance(t *testing.T) {
 	writeTranscript("sessions/main/s2.jsonl", "what is the testing workflow")
 
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
 			{SessionID: "s1", Branch: "main", TranscriptPath: "sessions/main/s1.jsonl", CreatedAt: now},
@@ -152,10 +155,10 @@ func TestGenerateEvalTasksScopesSessionFactsByResolvedBranch(t *testing.T) {
 	featurePath := normalizeFactPaths([]string{"workflow.testing.rules"})
 	mainFact := factRecord{ID: factRecordID("main branch keeps checkpoint metadata", mainPath), Paths: mainPath, Text: "main branch keeps checkpoint metadata", Branch: "main", Status: factStatusActive, Provenance: []factAnchor{{SessionID: "same-session"}}, UpdatedAt: now}
 	featureFact := factRecord{ID: factRecordID("feature branch updates testing workflow", featurePath), Paths: featurePath, Text: "feature branch updates testing workflow", Branch: "feature", Status: factStatusActive, Provenance: []factAnchor{{SessionID: "same-session"}}, UpdatedAt: now}
-	if err := writeFacts(brainDir, "main", []factRecord{mainFact}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{mainFact}); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFacts(brainDir, "feature", []factRecord{featureFact}); err != nil {
+	if err := factstore.Write(brainDir, "feature", []factRecord{featureFact}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -173,7 +176,7 @@ func TestGenerateEvalTasksScopesSessionFactsByResolvedBranch(t *testing.T) {
 	writeTranscript("sessions/feature/same.jsonl", "what is the feature testing workflow")
 
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
 			{SessionID: "same-session", TranscriptPath: "sessions/main/same.jsonl", CreatedAt: now},
@@ -252,12 +255,12 @@ func TestGenerateEvalTasksScopesDuplicateSessionIDByTranscript(t *testing.T) {
 		Provenance: []factAnchor{{SessionID: sessionID, Transcript: secondTranscript, Line: 5}},
 		UpdatedAt:  now,
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{firstFact, secondFact}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{firstFact, secondFact}); err != nil {
 		t.Fatal(err)
 	}
 
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
 			{SessionID: sessionID, Branch: "main", TranscriptPath: firstTranscript, CreatedAt: now},
@@ -305,7 +308,7 @@ func TestGenerateSessionEvalTasksDisambiguatesSameBranchShortIDCollisions(t *tes
 	writeTranscript("sessions/main/one.jsonl", "inspect alpha collision")
 	writeTranscript("sessions/main/two.jsonl", "inspect beta collision")
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
 			{SessionID: "abcdefghijkl-session-one", Branch: "main", TranscriptPath: "sessions/main/one.jsonl", CreatedAt: now},
@@ -350,7 +353,7 @@ func TestGenerateSessionEvalTasksIncludesZeroFactSessions(t *testing.T) {
 	writeTranscript("sessions/main/s2.jsonl", "how does recall rank durable facts")
 
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
 			{SessionID: "s1", Branch: "main", TranscriptPath: "sessions/main/s1.jsonl", CreatedAt: now},
@@ -401,7 +404,7 @@ func TestGenerateSessionEvalTasksKeepsDuplicateRequests(t *testing.T) {
 	writeTranscript("sessions/main/s2.jsonl")
 
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
 			{SessionID: "s1", Branch: "main", TranscriptPath: "sessions/main/s1.jsonl", CreatedAt: now},
@@ -500,7 +503,7 @@ func TestFactsEvalGenRefineOllamaNoEgressSendsModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		RepoRoot:      repoDir,
 		RepoKey:       storage.Key,
@@ -522,7 +525,7 @@ func TestFactsEvalGenRefineOllamaNoEgressSendsModel(t *testing.T) {
 		Provenance: []factAnchor{{SessionID: "s1"}},
 		UpdatedAt:  now,
 	}
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 

@@ -11,8 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -72,10 +74,10 @@ func TestBuildBrainOnboardingStatusReportsBackfillAndDaemon(t *testing.T) {
 		t.Fatalf("take the distill pass lock: %v", err)
 	}
 	defer func() { _ = passLock.Close() }()
-	if err := saveWatchCursor(filepath.Join(stateDir, "watch.json"), watchCursor{LastRefreshAt: setupTestNow.Add(-5 * time.Minute)}); err != nil {
+	if err := watch.SaveCursor(filepath.Join(stateDir, "watch.json"), watch.Cursor{LastRefreshAt: setupTestNow.Add(-5 * time.Minute)}); err != nil {
 		t.Fatalf("save watch cursor: %v", err)
 	}
-	manifest, err := loadBrainManifest(f.storage.BrainDir)
+	manifest, err := bmanifest.Load(f.storage.BrainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -361,7 +363,7 @@ func TestStatusDoesNotReportAReusedPidAsARunningBackfill(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("write backfill state: %v", err)
 	}
-	manifest, err := loadBrainManifest(f.storage.BrainDir)
+	manifest, err := bmanifest.Load(f.storage.BrainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}

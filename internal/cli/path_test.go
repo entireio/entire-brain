@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestPathPrintsBrainDirForRepoURL(t *testing.T) {
@@ -76,7 +77,7 @@ func TestPathPrefersExistingLocalPathThatLooksLikeRepoRemote(t *testing.T) {
 	if err := os.MkdirAll(brainDir, 0o700); err != nil {
 		t.Fatalf("mkdir brain: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), []byte("{}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), []byte("{}\n"), 0o600); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
 	cmd := NewRootCommand(Options{
@@ -179,7 +180,7 @@ func TestPathExplicitAliasRecoversLegacyLocalBrain(t *testing.T) {
 	if err := os.MkdirAll(legacy.BrainDir, 0o700); err != nil {
 		t.Fatalf("create legacy brain: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(legacy.BrainDir, exportManifestFileName), []byte("{}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(legacy.BrainDir, bmanifest.FileName), []byte("{}\n"), 0o600); err != nil {
 		t.Fatalf("write legacy manifest: %v", err)
 	}
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
@@ -248,7 +249,7 @@ func TestPathUsesExistingLocalBrainWithoutExport(t *testing.T) {
 	if err := os.MkdirAll(brainDir, 0o700); err != nil {
 		t.Fatalf("create brain dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), []byte("{}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), []byte("{}\n"), 0o600); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
 
@@ -397,7 +398,7 @@ func TestPathPrintsStoredBrainWhenWorktreeLostItsGitDir(t *testing.T) {
 	if err := os.MkdirAll(storage.BrainDir, 0o700); err != nil {
 		t.Fatalf("create stored brain: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(storage.BrainDir, exportManifestFileName), []byte("{}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(storage.BrainDir, bmanifest.FileName), []byte("{}\n"), 0o600); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
 
@@ -432,7 +433,7 @@ func TestPathEnsureBuildsMissingBrain(t *testing.T) {
 	if _, err := os.Stat(storage.HeadPath); err != nil {
 		t.Fatalf("missing cursor: %v", err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil || !checkpointBackedSessions(manifest) {
 		t.Fatalf("manifest: %+v %v", manifest, err)
 	}

@@ -157,84 +157,6 @@ func dominantShape(shapes map[string]int) string {
 	return best
 }
 
-// --- theme views (surfaces) ---
-
-type themeView struct {
-	ID          string  `json:"id"`
-	Title       string  `json:"title"`
-	Description string  `json:"description"`
-	Shape       string  `json:"shape"`
-	Support     int     `json:"support"`
-	Strength    float64 `json:"strength"`
-	Status      string  `json:"status"`
-	Verdict     string  `json:"verdict,omitempty"`
-}
-
-// loadThemeViews returns theme rows. When verifiedOnly, only accepted themes are
-// returned (for authoritative surfaces like brief/overview); rejected themes are
-// always suppressed. Graceful: nil when no corpus.
-func loadThemeViews(brainDir string, verifiedOnly bool) []themeView {
-	themes, _ := loadThemeViewsChecked(brainDir, verifiedOnly)
-	return themes
-}
-
-func loadThemeViewsChecked(brainDir string, verifiedOnly bool) ([]themeView, error) {
-	db, present, err := patterncore.OpenCorpusReadDBIfPresent(brainDir)
-	if err != nil {
-		return nil, err
-	}
-	if !present {
-		return nil, nil
-	}
-	defer db.Close()
-	return queryThemeViewsChecked(db.DB, verifiedOnly)
-}
-
-func queryThemeViews(db *sql.DB, verifiedOnly bool) []themeView {
-	themes, _ := queryThemeViewsChecked(db, verifiedOnly)
-	return themes
-}
-
-func queryThemeViewsChecked(db *sql.DB, verifiedOnly bool) ([]themeView, error) {
-	// A corpus that predates the additive themes table has no themes, not a
-	// broken read.
-	if ok, err := patterncore.CorpusHasTable(db, "themes"); err != nil || !ok {
-		return nil, err
-	}
-	q := `SELECT id, title, description, shape, support, strength, status, COALESCE(verdict,'') FROM themes WHERE COALESCE(verdict,'') != 'rejected'`
-	if verifiedOnly {
-		q += ` AND verdict='accepted'`
-	}
-	q += ` ORDER BY strength DESC`
-	rows, err := db.Query(q)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []themeView
-	for rows.Next() {
-		var v themeView
-		if err := rows.Scan(&v.ID, &v.Title, &v.Description, &v.Shape, &v.Support, &v.Strength, &v.Status, &v.Verdict); err != nil {
-			return out, err
-		}
-		out = append(out, v)
-	}
-	return out, rows.Err()
-}
-
-// themePatternView projects a theme into the unified patternView listing.
-func themePatternView(th themeView) patternView {
-	state := th.Status
-	if th.Verdict != "" {
-		state = strings.TrimLeft(state+"/"+th.Verdict, "/")
-	}
-	return patternView{
-		ID: th.ID, Type: "theme", Scope: "repo", Kind: th.Shape,
-		Title: th.Title, Strength: th.Strength, StrengthLabel: patterncore.StrengthLabelV2(th.Strength),
-		Support: th.Support, DossierStatus: state,
-	}
-}
-
 // strongestThemes returns the top verified themes by strength, capped — for the
 // overview. Empty when no corpus.
 func strongestThemes(brainDir string, limit int) []themeView {
@@ -246,7 +168,7 @@ func strongestThemesChecked(brainDir string, limit int) ([]themeView, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
-	themes, err := loadThemeViewsChecked(brainDir, true)
+	themes, err := patterncore.LoadThemeViewsChecked(brainDir, true)
 	if err != nil {
 		return nil, err
 	}
@@ -485,8 +407,8 @@ func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, mod
 		id := "theme:" + base.HexSHA("theme\x00"+repoKey+"\x00"+strings.Join(sortedCopy(members), "|"))
 		prepared = append(prepared, theme{
 			id: id, repoKey: repoKey, scope: "repo",
-			title:       base.RedactText(base.TruncateString(strings.TrimSpace(firstNonEmpty(pt.Title, "theme")), 120)),
-			description: base.RedactText(base.TruncateString(strings.TrimSpace(firstNonEmpty(pt.Desc, pt.Rationale)), 280)),
+			title:       base.RedactText(base.TruncateString(strings.TrimSpace(base.FirstNonEmpty(pt.Title, "theme")), 120)),
+			description: base.RedactText(base.TruncateString(strings.TrimSpace(base.FirstNonEmpty(pt.Desc, pt.Rationale)), 280)),
 			shape:       shape, memberKeys: string(memberJSON), support: len(members),
 			fingerprint: themeFingerprint(members), strength: strength, verdict: verdict,
 		})

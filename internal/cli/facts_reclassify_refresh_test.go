@@ -3,6 +3,9 @@ package cli
 import (
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestReclassifyAllFactBranches(t *testing.T) {
@@ -23,14 +26,14 @@ func TestReclassifyAllFactBranches(t *testing.T) {
 			Branch: "feature", Origin: "distilled", Status: "active",
 			Provenance: []factAnchor{{SessionID: "s2"}}, UpdatedAt: now},
 	}
-	if err := writeFacts(brainDir, "main", main); err != nil {
+	if err := factstore.Write(brainDir, "main", main); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFacts(brainDir, "feature", feature); err != nil {
+	if err := factstore.Write(brainDir, "feature", feature); err != nil {
 		t.Fatal(err)
 	}
 	// A manifest must exist for updateFactSourceManifestLocked to write into.
-	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now}); err != nil {
+	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -43,7 +46,7 @@ func TestReclassifyAllFactBranches(t *testing.T) {
 	}
 
 	// Kinds are now persisted on disk.
-	gotMain, err := loadFacts(brainDir, "main")
+	gotMain, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +58,7 @@ func TestReclassifyAllFactBranches(t *testing.T) {
 	}
 
 	// The manifest by_kind histogram is rebuilt.
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,28 +101,28 @@ func TestReclassifyDoesNotFoldMirrorsIntoMainAndHealsDuplicates(t *testing.T) {
 	// carries an anchor the first lacks, so the fold must union, not discard.
 	second := fact
 	second.Provenance = []factAnchor{{SessionID: "s2"}}
-	if err := writeFacts(brainDir, "main", []factRecord{fact, second}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{fact, second}); err != nil {
 		t.Fatal(err)
 	}
 	// The feature store mirrors the same main-stamped record (hosted pull shape).
-	if err := writeFacts(brainDir, "feature", []factRecord{fact}); err != nil {
+	if err := factstore.Write(brainDir, "feature", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now}); err != nil {
+	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 
 	if _, err := reclassifyAllFactBranches(brainDir, now); err != nil {
 		t.Fatal(err)
 	}
-	gotMain, err := loadFacts(brainDir, "main")
+	gotMain, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(gotMain) != 1 || len(gotMain[0].Provenance) != 2 {
 		t.Fatalf("main store after heal = %+v, want one record with both anchors", gotMain)
 	}
-	gotFeature, err := loadFacts(brainDir, "feature")
+	gotFeature, err := factstore.Load(brainDir, "feature")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,16 +135,16 @@ func TestReclassifyDoesNotFoldMirrorsIntoMainAndHealsDuplicates(t *testing.T) {
 	if again, err := reclassifyAllFactBranches(brainDir, now); err != nil || again != 0 {
 		t.Fatalf("second pass changed=%d err=%v, want 0/nil", again, err)
 	}
-	if gotMain, _ = loadFacts(brainDir, "main"); len(gotMain) != 1 {
+	if gotMain, _ = factstore.Load(brainDir, "main"); len(gotMain) != 1 {
 		t.Fatalf("main store grew on second pass: %d records", len(gotMain))
 	}
 
 	// Integrity: the cross-file mirror is ordinary, not corruption.
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report := inspectFactStore(brainDir, manifest.Sources.Facts); report.Warning() != "" {
+	if report := factstore.Inspect(brainDir, manifest.Sources.Facts); report.Warning() != "" {
 		t.Fatalf("mirror reported as corruption: %s", report.Warning())
 	}
 }

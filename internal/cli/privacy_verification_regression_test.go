@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -246,7 +247,7 @@ func privacyTreeDigest(t *testing.T, root string) [32]byte {
 func TestPrivacyRetentionRootDryRunBoundariesAndBytePreservation(t *testing.T) {
 	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	opts, brainDir := privacyRegressionCommandFixture(t, now)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,7 +337,7 @@ func TestPrivacyRetentionRootAppliesPurgeAndPreservesUnselectedSession(t *testin
 func TestPrivacyRetentionRootFailsClosedOnMalformedState(t *testing.T) {
 	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
 	opts, brainDir := privacyRegressionCommandFixture(t, now)
-	if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), []byte(`{"schema_version":`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), []byte(`{"schema_version":`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	out, err := execute(t, NewRootCommand(opts), "privacy", "retention", "--max-age", "24h", "--dry-run")

@@ -5,11 +5,11 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
 )
 
 // seedLargeDocBytes is comfortably larger than any legitimate seed input and far
@@ -45,17 +45,6 @@ func writeLargeDoc(t *testing.T, path string, n int) string {
 	return "sha256:" + hex.EncodeToString(hasher.Sum(nil))
 }
 
-// allocatedBy measures cumulative bytes allocated during fn, not peak live memory.
-func allocatedBy(t *testing.T, fn func()) uint64 {
-	t.Helper()
-	var before, after runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&before)
-	fn()
-	runtime.ReadMemStats(&after)
-	return after.TotalAlloc - before.TotalAlloc
-}
-
 // TestInspectSeedFileReadIsBounded pins the memory cost of scanning one seed file.
 //
 // A high-signal doc larger than --max-file-bytes is deliberately kept (marked
@@ -69,7 +58,7 @@ func TestInspectSeedFileReadIsBounded(t *testing.T) {
 	opts := seedCommandOptions{maxFileBytes: defaultSeedMaxFileBytes, includeTests: true}
 
 	var entry seedFileIndexEntry
-	used := allocatedBy(t, func() { entry = inspectSeedFile(repoDir, "README.md", opts) })
+	used := clitest.AllocatedBy(t, func() { entry = inspectSeedFile(repoDir, "README.md", opts) })
 
 	if !entry.Included {
 		t.Fatalf("large high-signal doc was dropped: reason=%q", entry.Reason)
@@ -104,7 +93,7 @@ func TestWriteSeedDocsReadIsBounded(t *testing.T) {
 	}
 
 	var err error
-	used := allocatedBy(t, func() { err = writeSeedDocs(outputDir, &scan) })
+	used := clitest.AllocatedBy(t, func() { err = writeSeedDocs(outputDir, &scan) })
 	if err != nil {
 		t.Fatalf("writeSeedDocs: %v", err)
 	}
@@ -140,7 +129,7 @@ func TestSeedManifestReadsAreBounded(t *testing.T) {
 	bound := uint64(base.MaxManifestBytes) * 5 / 2
 
 	var pkgErr error
-	usedPkg := allocatedBy(t, func() { _, pkgErr = packageJSONCommands(pkg, "package.json") })
+	usedPkg := clitest.AllocatedBy(t, func() { _, pkgErr = packageJSONCommands(pkg, "package.json") })
 	if pkgErr == nil {
 		t.Error("packageJSONCommands accepted a 64 MiB manifest")
 	}
@@ -149,7 +138,7 @@ func TestSeedManifestReadsAreBounded(t *testing.T) {
 	}
 
 	var miseErr error
-	usedMise := allocatedBy(t, func() { _, miseErr = miseCommands(mise, "mise.toml") })
+	usedMise := clitest.AllocatedBy(t, func() { _, miseErr = miseCommands(mise, "mise.toml") })
 	if miseErr == nil {
 		t.Error("miseCommands accepted a 64 MiB manifest")
 	}

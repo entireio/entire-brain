@@ -5,13 +5,15 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func TestFactsReviewRootCommandListsAndSettlesExactProposal(t *testing.T) {
 	f := newVerifyFixture(t)
 	paths := normalizeFactPaths([]string{"ops.deploy.strategy"})
-	target := factRecord{ID: factRecordID("deploy uses canary rollout", paths), Paths: paths, Text: "deploy uses canary rollout", Branch: "main", Origin: factOriginDistilled, Status: factStatusActive, CreatedAt: f.now, UpdatedAt: f.now}
-	candidate := factRecord{ID: factRecordID("deploy uses blue green rollout", paths), Paths: paths, Text: "deploy uses blue green rollout", Branch: "main", Origin: factOriginDistilled, Status: factStatusActive, CreatedAt: f.now, UpdatedAt: f.now}
+	target := factRecord{ID: factRecordID("deploy uses canary rollout", paths), Paths: paths, Text: "deploy uses canary rollout", Branch: "main", Origin: factstore.OriginDistilled, Status: factStatusActive, CreatedAt: f.now, UpdatedAt: f.now}
+	candidate := factRecord{ID: factRecordID("deploy uses blue green rollout", paths), Paths: paths, Text: "deploy uses blue green rollout", Branch: "main", Origin: factstore.OriginDistilled, Status: factStatusActive, CreatedAt: f.now, UpdatedAt: f.now}
 	f.writeFacts(t, "main", []factRecord{target, candidate})
 	proposal := factProposal{Action: factActionSupersede, CandidateID: candidate.ID, TargetID: target.ID, Confidence: 0.63, Branch: "main"}
 	unrelated := factProposal{Action: factActionMerge, CandidateID: "fact:unrelated", TargetID: target.ID, Confidence: 0.52, Branch: "main"}
@@ -51,7 +53,7 @@ func TestFactsReviewRootCommandListsAndSettlesExactProposal(t *testing.T) {
 	if err != nil || len(remaining) != 1 || remaining[0].CandidateID != unrelated.CandidateID {
 		t.Fatalf("proposal queue after apply: %+v err=%v", remaining, err)
 	}
-	facts, err := loadFacts(f.brainDir, "main")
+	facts, err := factstore.Load(f.brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,14 +69,14 @@ func TestFactsReviewRootCommandListsAndSettlesExactProposal(t *testing.T) {
 	if gotCandidate == nil || gotCandidate.Status != factStatusActive || gotTarget == nil || gotTarget.Status != factStatusSuperseded {
 		t.Fatalf("apply changed wrong facts: candidate=%+v target=%+v all=%+v", gotCandidate, gotTarget, facts)
 	}
-	beforeUnknown, err := loadFacts(f.brainDir, "main")
+	beforeUnknown, err := factstore.Load(f.brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := execute(t, NewRootCommand(f.opts), "facts", "review", "--apply", "missing-candidate"); err == nil {
 		t.Fatal("review accepted an unknown proposal")
 	}
-	if after, err := loadFacts(f.brainDir, "main"); err != nil || !reflect.DeepEqual(after, beforeUnknown) {
+	if after, err := factstore.Load(f.brainDir, "main"); err != nil || !reflect.DeepEqual(after, beforeUnknown) {
 		t.Fatalf("unknown review mutated facts: %v before=%+v after=%+v", err, beforeUnknown, after)
 	}
 }
@@ -82,7 +84,7 @@ func TestFactsReviewRootCommandListsAndSettlesExactProposal(t *testing.T) {
 func TestFactsReviewRootCommandRejectsExactProposalWithoutFactMutation(t *testing.T) {
 	f := newVerifyFixture(t)
 	paths := normalizeFactPaths([]string{"ops.deploy.strategy"})
-	fact := factRecord{ID: factRecordID("deploy uses rolling restart", paths), Paths: paths, Text: "deploy uses rolling restart", Branch: "main", Origin: factOriginDistilled, Status: factStatusActive, CreatedAt: f.now, UpdatedAt: f.now}
+	fact := factRecord{ID: factRecordID("deploy uses rolling restart", paths), Paths: paths, Text: "deploy uses rolling restart", Branch: "main", Origin: factstore.OriginDistilled, Status: factStatusActive, CreatedAt: f.now, UpdatedAt: f.now}
 	f.writeFacts(t, "main", []factRecord{fact})
 	proposal := factProposal{Action: factActionMerge, CandidateID: fact.ID, TargetID: "fact:absent", Confidence: 0.51, Branch: "main"}
 	unrelated := factProposal{Action: factActionSupersede, CandidateID: "fact:unrelated", TargetID: fact.ID, Confidence: 0.55, Branch: "main"}
@@ -96,7 +98,7 @@ func TestFactsReviewRootCommandRejectsExactProposalWithoutFactMutation(t *testin
 	if queued, err := loadFactProposals(f.brainDir, "main"); err != nil || len(queued) != 1 || queued[0].CandidateID != unrelated.CandidateID {
 		t.Fatalf("rejected proposal remained: %+v err=%v", queued, err)
 	}
-	got, err := loadFacts(f.brainDir, "main")
+	got, err := factstore.Load(f.brainDir, "main")
 	if err != nil || len(got) != 1 || got[0].ID != fact.ID || got[0].Status != factStatusActive {
 		t.Fatalf("reject mutated fact store: %+v err=%v", got, err)
 	}

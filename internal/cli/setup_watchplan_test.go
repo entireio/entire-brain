@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
@@ -286,13 +287,13 @@ func TestWatchPlanEntryCarriesTheBudgetSetupReported(t *testing.T) {
 }
 
 func TestApplyWatchPlanEntryOverlaysOnlyWhatThePlanCarries(t *testing.T) {
-	base := defaultWatchOptions()
-	base.distillAgent = "codex"
+	base := watch.DefaultFlags()
+	base.DistillAgent = "codex"
 	got := applyWatchPlanEntry(base, setupWatchPlanEntry{Workspace: "ws", Interval: "7m", MaxSessions: 4})
-	if got.interval != 7*time.Minute || got.distillMaxSessions != 4 {
+	if got.Interval != 7*time.Minute || got.DistillMaxSessions != 4 {
 		t.Fatalf("the plan's own values must bind: %+v", got)
 	}
-	if got.distillAgent != "codex" || got.distillEvery != base.distillEvery {
+	if got.DistillAgent != "codex" || got.DistillEvery != base.DistillEvery {
 		t.Fatalf("a field the plan does not carry must keep the daemon default, so an older plan still runs: %+v", got)
 	}
 }
@@ -442,11 +443,11 @@ func TestSupervisedWatchVisitsEveryWorkspaceWithItsOwnTuning(t *testing.T) {
 		once        bool
 	}
 	var visits []visit
-	base := defaultWatchOptions()
-	base.once = true // one outer pass, then return
+	base := watch.DefaultFlags()
+	base.Once = true // one outer pass, then return
 	err := supervisedWatchLoop(context.Background(), &bytes.Buffer{}, f.env, base,
-		func(workspace string, pass watchCommandOptions, _ *int) error {
-			visits = append(visits, visit{workspace, pass.interval, pass.model, pass.distillMaxSessions, pass.once})
+		func(workspace string, pass watch.Flags, _ *int) error {
+			visits = append(visits, visit{workspace, pass.Interval, pass.Model, pass.DistillMaxSessions, pass.Once})
 			return nil
 		}, nil, nil)
 	if err != nil {
@@ -472,11 +473,11 @@ func TestSupervisedWatchVisitsEveryWorkspaceWithItsOwnTuning(t *testing.T) {
 func TestSupervisedWatchSurvivesAnEmptyPlan(t *testing.T) {
 	f := newSetupTestFixture(t)
 	out := &bytes.Buffer{}
-	base := defaultWatchOptions()
-	base.once = true
+	base := watch.DefaultFlags()
+	base.Once = true
 	called := 0
 	if err := supervisedWatchLoop(context.Background(), out, f.env, base,
-		func(string, watchCommandOptions, *int) error { called++; return nil }, nil, nil); err != nil {
+		func(string, watch.Flags, *int) error { called++; return nil }, nil, nil); err != nil {
 		t.Fatalf("an empty plan must not take the service down: %v", err)
 	}
 	if called != 0 {
@@ -497,11 +498,11 @@ func TestSupervisedWatchKeepsGoingAfterOneWorkspaceFails(t *testing.T) {
 		}
 	}
 	var seen []string
-	base := defaultWatchOptions()
-	base.once = true
+	base := watch.DefaultFlags()
+	base.Once = true
 	out := &bytes.Buffer{}
 	if err := supervisedWatchLoop(context.Background(), out, f.env, base,
-		func(workspace string, _ watchCommandOptions, _ *int) error {
+		func(workspace string, _ watch.Flags, _ *int) error {
 			seen = append(seen, workspace)
 			if workspace == "broken" {
 				return errors.New("manifest gone")
@@ -526,8 +527,8 @@ func TestSupervisedWatchBudgetSurvivesOuterPasses(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var seen []int
-	err := supervisedWatchLoop(ctx, &bytes.Buffer{}, f.env, defaultWatchOptions(),
-		func(_ string, _ watchCommandOptions, agentCalls *int) error {
+	err := supervisedWatchLoop(ctx, &bytes.Buffer{}, f.env, watch.DefaultFlags(),
+		func(_ string, _ watch.Flags, agentCalls *int) error {
 			seen = append(seen, *agentCalls)
 			*agentCalls++
 			if len(seen) == 2 {

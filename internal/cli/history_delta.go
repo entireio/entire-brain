@@ -14,6 +14,9 @@ import (
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/spf13/cobra"
 )
 
@@ -216,19 +219,6 @@ func clearHistoryShortTerm(brainDir string) {
 	_ = os.Remove(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)))
 }
 
-type shortTermStats struct {
-	Files               int  `json:"files"`
-	Records             int  `json:"records"`
-	Exchanges           int  `json:"exchanges"`
-	IncompleteExchanges int  `json:"incomplete_exchanges"`
-	Reused              int  `json:"reused_files"`
-	Scanned             int  `json:"scanned_files"`
-	Truncated           bool `json:"truncated,omitempty"`
-	// Failed counts transcripts this delta could not scan; the overlay
-	// records their identities durably.
-	Failed int `json:"failed_files,omitempty"`
-}
-
 // shortTermCanonicalInputRefusal separates ordinary availability failures,
 // which remain durably visible as an incomplete overlay, from failures that
 // make the canonical input unsafe or unbounded. Permission-denied and a single
@@ -272,13 +262,13 @@ func shortTermCanonicalInputRefusal(err error) bool {
 // whose content digest differs from the long-term scan cache is short-term
 // material; files unchanged since the previous delta are carried over without
 // re-parsing. Caller holds the brain write lock.
-func buildHistoryShortTermLocked(outputDir string, now time.Time) (shortTermStats, error) {
+func buildHistoryShortTermLocked(outputDir string, now time.Time) (historystore.ShortTermStats, error) {
 	return buildHistoryShortTermLockedContext(context.Background(), outputDir, now)
 }
 
-func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, now time.Time) (shortTermStats, error) {
-	var stats shortTermStats
-	manifest, err := loadBrainManifest(outputDir)
+func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, now time.Time) (historystore.ShortTermStats, error) {
+	var stats historystore.ShortTermStats
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		return stats, err
 	}
@@ -457,7 +447,7 @@ type freshHistory struct {
 }
 
 func loadFreshHistory(brainDir string, source *historySourceManifest) (freshHistory, error) {
-	index, err := loadBrainHistoryIndex(brainDir, source)
+	index, err := historystore.LoadIndex(brainDir, source)
 	if err != nil {
 		return freshHistory{}, err
 	}
@@ -529,7 +519,7 @@ func rankFreshHistoryLexicalFromSource(brainDir string, source *historySourceMan
 		ranked := rankFreshHistory(fresh, kind, query, limit, pred, func(historyIndex, func(historyRecord) bool) ([]scoredHistoryRecord, bool) { return lex, true })
 		return ranked, historyIndexAccessFTSPayload, source.Records + len(fresh.overlay), nil
 	}
-	index, err := loadBrainHistoryIndex(brainDir, source)
+	index, err := historystore.LoadIndex(brainDir, source)
 	if err != nil {
 		return nil, "", 0, err
 	}
@@ -765,7 +755,7 @@ func rankFreshHistory(
 	if !ok {
 		fallback := fresh.index
 		if eligible != nil {
-			fallback = historyIndex{GeneratedAt: fresh.index.GeneratedAt, Records: filterHistoryRecords(fresh.index.Records, eligible)}
+			fallback = historyIndex{GeneratedAt: fresh.index.GeneratedAt, Records: historystore.FilterRecords(fresh.index.Records, eligible)}
 		}
 		lex = rankHistoryRecordsScored(fallback, kind, query, limit, 0)
 	}
@@ -841,7 +831,7 @@ func rankFreshHistoryExhaustive(
 			return nil, historyExhaustiveRankRawScanOverflow
 		}
 		rawScanned += fallbackScanned
-		fallback := historyIndex{GeneratedAt: fresh.index.GeneratedAt, Records: filterHistoryRecords(fresh.index.Records, eligibleLongTerm)}
+		fallback := historyIndex{GeneratedAt: fresh.index.GeneratedAt, Records: historystore.FilterRecords(fresh.index.Records, eligibleLongTerm)}
 		lex = rankHistoryRecordsScoredExhaustive(fallback, kind, query, ceiling+1)
 		if len(lex) > ceiling {
 			return nil, historyExhaustiveRankCandidateOverflow
@@ -951,19 +941,6 @@ func rankHistoryRecordsScoredExhaustive(index historyIndex, kind, query string, 
 	return scored
 }
 
-// filterHistoryRecords returns the records passing pred, for the in-memory
-// ranking arms. Never feed a filtered slice to the FTS ranker: the shared
-// store's freshness identity must only ever see the on-disk index.
-func filterHistoryRecords(records []historyRecord, pred func(historyRecord) bool) []historyRecord {
-	kept := make([]historyRecord, 0, len(records))
-	for _, r := range records {
-		if pred(r) {
-			kept = append(kept, r)
-		}
-	}
-	return kept
-}
-
 // --- refresh delta verb ---
 
 func newDeltaCommand(opts Options) *cobra.Command {
@@ -1012,7 +989,7 @@ func runRefreshDelta(cmd *cobra.Command, opts Options, export bool) error {
 // background memory worker (memoryWorkerPrepass) never runs the destructive
 // transcript cache sweep: nobody is watching that process's stderr to learn
 // that files were deleted. User-invoked delta/refresh passes false.
-func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool, skipTranscriptSweep bool) (shortTermStats, error) {
+func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool, skipTranscriptSweep bool) (historystore.ShortTermStats, error) {
 	ctx := cmd.Context()
 	if export {
 		exportOpts := exportCommandOptions{
@@ -1023,22 +1000,22 @@ func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool, skipTra
 			skipTranscriptSweep: skipTranscriptSweep,
 		}
 		if err := runExport(ctx, cmd, opts, exportOpts); err != nil {
-			return shortTermStats{}, fmt.Errorf("delta session export: %w", err)
+			return historystore.ShortTermStats{}, fmt.Errorf("delta session export: %w", err)
 		}
 	}
 	target := agentSurfaceTarget(opts, nil)
 	repoDir, local, err := clibase.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
-		return shortTermStats{}, err
+		return historystore.ShortTermStats{}, err
 	}
 	if !local {
-		return shortTermStats{}, fmt.Errorf("refresh delta requires a local repository path: %s", target)
+		return historystore.ShortTermStats{}, fmt.Errorf("refresh delta requires a local repository path: %s", target)
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
-		return shortTermStats{}, err
+		return historystore.ShortTermStats{}, err
 	}
-	var stats shortTermStats
+	var stats historystore.ShortTermStats
 	err = brainstore.WithBrainWriteLock(storage.BrainDir, func() error {
 		var buildErr error
 		stats, buildErr = buildHistoryShortTermLockedContext(ctx, storage.BrainDir, opts.Now().UTC())
@@ -1050,10 +1027,6 @@ func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool, skipTra
 // fuseScoredRankLists is the shared RRF merge over already-ranked record lists
 // (k=60, equal weight). Conversation records fuse by replacement-scoped
 // identity, not globally by a potentially legacy/colliding ID.
-// rrfK is the Reciprocal Rank Fusion constant (canonical 60): survives the
-// semantic removal because lexical two-tier history merging still rank-fuses.
-const rrfK = 60.0
-
 func fuseScoredRankLists(lists [][]scoredHistoryRecord, limit int) []scoredHistoryRecord {
 	type fusedRec struct {
 		s     scoredHistoryRecord
@@ -1068,7 +1041,7 @@ func fuseScoredRankLists(lists [][]scoredHistoryRecord, limit int) []scoredHisto
 				f = &fusedRec{s: s}
 				fused[key] = f
 			}
-			f.score += 1.0 / (rrfK + float64(rank+1))
+			f.score += 1.0 / (retrieval.RRFK + float64(rank+1))
 		}
 	}
 	out := make([]*fusedRec, 0, len(fused))

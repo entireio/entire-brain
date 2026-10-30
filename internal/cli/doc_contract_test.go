@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,9 +88,9 @@ func TestDocContractCapabilityMatrix(t *testing.T) {
 
 	// CLI verbs: --source is registered on search, query, and vsearch.
 	for name, cmd := range map[string]*cobra.Command{
-		"search":  newSearchCommand(opts),
-		"query":   newQueryCommand(opts),
-		"vsearch": newVsearchCommand(opts),
+		"search":  retrieve.NewSearch(retrieveCommandConfig(opts)),
+		"query":   retrieve.NewQuery(retrieveCommandConfig(opts)),
+		"vsearch": retrieve.NewVsearch(retrieveCommandConfig(opts)),
 	} {
 		if cmd.Flags().Lookup("source") == nil {
 			t.Fatalf("%s must take --source", name)

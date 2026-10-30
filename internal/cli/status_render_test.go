@@ -97,7 +97,7 @@ func TestShortStatusGolden(t *testing.T) {
 		"\n" +
 		"  Memories   | 375 (20/185 distilled, backfill running, pid 4242)\n" +
 		"  Daemon     | installed but not running (last watcher tick 17m0s ago)\n" +
-		"  Sources    | sessions, seed, docs, semantic | missing: history\n" +
+		"  Sources    | sessions, repository context, docs, semantic | missing: history\n" +
 		"  Code index | 1,179 files, 40,781 symbols\n" +
 		"  Manifest   | current\n" +
 		"\n" +

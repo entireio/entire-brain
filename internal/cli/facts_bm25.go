@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"math"
 	"strings"
 	"time"
 	"unicode"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // BM25 replaces the flat term-overlap text score on the facts path. The flat
@@ -113,7 +115,7 @@ func factQueryTerms(query string) []string {
 	seen := map[string]struct{}{}
 	var terms []string
 	add := func(t string) {
-		if len(t) < 2 || historyQueryStopword(t) {
+		if len(t) < 2 || brainstore.QueryStopword(t) {
 			return
 		}
 		if _, ok := seen[t]; ok {
@@ -202,10 +204,10 @@ func factBM25Score(f factRecord, c bm25Corpus, i int, terms []string, queryLocus
 	if score <= 0 {
 		return 0
 	}
-	if overlap := locusOverlapTokens(queryLocus, base.FactLocusOf(f)); overlap > 0 {
+	if overlap := factstore.LocusOverlapTokens(queryLocus, base.FactLocusOf(f)); overlap > 0 {
 		score += float64(overlap) * bm25LocusBoost
 	}
-	if factKindOrInferred(f) == factKindClosedNegative {
+	if factstore.KindOrInferred(f) == factKindClosedNegative {
 		score += bm25ClosedNegativeBoost
 	}
 	return score

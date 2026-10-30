@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"sort"
 	"strings"
 )
@@ -67,7 +69,7 @@ func semanticAuditFailureForReport(severity string, blindSpots int, failOn strin
 	case semanticAuditFailOnRelease:
 		var failures []string
 		if severity != "ok" {
-			failures = append(failures, "freshness is "+valueOrUnset(severity))
+			failures = append(failures, "freshness is "+cmdutil.ValueOrUnset(severity))
 		}
 		if blindSpots > 0 {
 			failures = append(failures, fmt.Sprintf("%d blind spot(s)", blindSpots))
@@ -105,13 +107,13 @@ func semanticAuditStoreCoverage(brainDir string, source *semanticSourceManifest,
 	if axis, ok := freshness.Axes["store"]; ok && axis.State != "ok" {
 		return semanticAuditCoverage{}, nil
 	}
-	storePath, err := validateSemanticDeclaredStore(brainDir, source)
+	storePath, err := semstore.ValidateDeclaredStore(brainDir, source)
 	if err != nil {
 		// The store axis was already confirmed "ok" above, so a validation
 		// error here is a real inconsistency, not expected staleness.
 		return semanticAuditCoverage{}, fmt.Errorf("validate semantic store for audit: %w", err)
 	}
-	db, err := openSemanticReadDB(storePath)
+	db, err := semstore.OpenReadDB(storePath)
 	if err != nil {
 		return semanticAuditCoverage{}, fmt.Errorf("open semantic store: %w", err)
 	}
@@ -224,7 +226,7 @@ func semanticAuditCountSummary(items []semanticAuditCount) string {
 }
 
 func semanticAuditWarningSummary(warning semanticWarning) string {
-	parts := []string{valueOrUnset(warning.Code)}
+	parts := []string{cmdutil.ValueOrUnset(warning.Code)}
 	if warning.Severity != "" {
 		parts = append(parts, warning.Severity)
 	}

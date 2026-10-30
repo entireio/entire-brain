@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +16,7 @@ func TestMemoryAdminCommandsRejectMalformedManifestWithoutWriting(t *testing.T) 
 		t.Run(name, func(t *testing.T) {
 			opts, brainDir := memoryAdminCommandFixture(t)
 			addMemoryAdminConversationFixture(t, brainDir, time.Date(2026, 8, 10, 14, 0, 0, 0, time.UTC))
-			manifestPath := filepath.Join(brainDir, exportManifestFileName)
+			manifestPath := filepath.Join(brainDir, bmanifest.FileName)
 			if err := os.WriteFile(manifestPath, []byte("{malformed manifest"), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -41,7 +42,7 @@ func TestMemoryAdminCommandsRejectMalformedManifestWithoutWriting(t *testing.T) 
 func TestMemoryRepairScopedMissingSessionPreservesManifest(t *testing.T) {
 	opts, brainDir := memoryAdminCommandFixture(t)
 	addMemoryAdminConversationFixture(t, brainDir, time.Date(2026, 8, 10, 15, 0, 0, 0, time.UTC))
-	manifestPath := filepath.Join(brainDir, exportManifestFileName)
+	manifestPath := filepath.Join(brainDir, bmanifest.FileName)
 	before, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +74,7 @@ func TestMemoryMigrateRejectsUnsupportedSchemaWithoutWriting(t *testing.T) {
 		return []memoryMigrationFinding{{Path: historyShortTermPath, State: brainstore.UnsupportedVersionCode, Action: "read-only"}}
 	}
 	t.Cleanup(func() { detectMemoryMigrationsForAdmin = oldDetect })
-	manifestPath := filepath.Join(brainDir, exportManifestFileName)
+	manifestPath := filepath.Join(brainDir, bmanifest.FileName)
 	before, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatal(err)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,7 +65,7 @@ func semanticStorageKeyForTest(t *testing.T, runner CommandRunner, env EntireEnv
 func persistedSnapshotRepoKey(t *testing.T, env EntireEnv, repoKey string) string {
 	t.Helper()
 	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, filepath.FromSlash(repoKey))
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}

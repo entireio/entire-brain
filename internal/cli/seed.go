@@ -19,6 +19,8 @@ import (
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docextract"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -69,101 +71,6 @@ func (o seedCommandOptions) reportProgress(phase string) {
 	if o.progress != nil {
 		o.progress(phase)
 	}
-}
-
-type seedSourceManifest struct {
-	GeneratedAt       time.Time            `json:"generated_at"`
-	Commit            string               `json:"commit,omitempty"`
-	WorktreeMode      string               `json:"worktree_mode"`
-	WorktreeHash      string               `json:"worktree_hash,omitempty"`
-	FileFingerprint   string               `json:"file_fingerprint"`
-	SummaryPath       string               `json:"summary_path"`
-	Documents         []seedDocument       `json:"documents,omitempty"`
-	Entrypoints       []string             `json:"entrypoints,omitempty"`
-	Commands          []seedCommand        `json:"commands,omitempty"`
-	HistoryBaseline   *seedHistoryBaseline `json:"history_baseline,omitempty"`
-	HistoryCoverage   *seedHistoryCoverage `json:"history_coverage,omitempty"`
-	Agent             *seedAgentManifest   `json:"agent,omitempty"`
-	Warnings          []string             `json:"warnings,omitempty"`
-	DeterministicPath []string             `json:"deterministic_paths,omitempty"`
-}
-
-type seedDocument struct {
-	Path      string `json:"path"`
-	SeedPath  string `json:"seed_path,omitempty"`
-	Bytes     int64  `json:"bytes,omitempty"`
-	Truncated bool   `json:"truncated,omitempty"`
-	Reason    string `json:"reason,omitempty"`
-	// Extracted marks a document whose text was read out of a binary container
-	// (PDF, Office) rather than copied. The seed file is then derived, not a
-	// copy, which matters to anyone reading the brain directory.
-	Extracted bool `json:"extracted,omitempty"`
-}
-
-type seedCommand struct {
-	Name    string `json:"name"`
-	Command string `json:"command"`
-	Source  string `json:"source"`
-}
-
-type seedHistoryBaseline struct {
-	OldestCommitAt  *time.Time `json:"oldest_commit_at,omitempty"`
-	OldestSessionAt *time.Time `json:"oldest_session_at,omitempty"`
-	SeedRequired    bool       `json:"seed_required"`
-	Reason          string     `json:"reason"`
-	Confidence      string     `json:"confidence"`
-}
-
-type seedHistoryCoverage struct {
-	Path                    string              `json:"path"`
-	TotalCommits            int                 `json:"total_commits"`
-	PreSessionCommits       int                 `json:"pre_session_commits"`
-	CoveredCommits          int                 `json:"covered_commits"`
-	MissingSessionCommits   int                 `json:"missing_session_commits"`
-	NoSessionHistoryCommits int                 `json:"no_session_history_commits"`
-	MergeCommits            int                 `json:"merge_commits"`
-	OldestSessionAt         *time.Time          `json:"oldest_session_at,omitempty"`
-	ExportedCheckpoints     int                 `json:"exported_checkpoints"`
-	UncoveredCommits        []seedCoveredCommit `json:"uncovered_commits,omitempty"`
-	// UncoveredCommitsTotal / UncoveredCommitsTruncated are how the manifest
-	// copy of this record admits it is a sample. They are omitempty, so a
-	// coverage record that carries every uncovered commit is byte-identical to
-	// what previous builds wrote; they appear only when rows were dropped, and
-	// then they say how many there were. See manifestSeedHistoryCoverage.
-	UncoveredCommitsTotal     int    `json:"uncovered_commits_total,omitempty"`
-	UncoveredCommitsTruncated bool   `json:"uncovered_commits_truncated,omitempty"`
-	GeneratedFrom             string `json:"generated_from"`
-}
-
-type seedCoveredCommit struct {
-	Hash        string    `json:"hash"`
-	CommittedAt time.Time `json:"committed_at"`
-	AuthorName  string    `json:"author_name,omitempty"`
-	AuthorEmail string    `json:"author_email,omitempty"`
-	Subject     string    `json:"subject,omitempty"`
-	Coverage    string    `json:"coverage"`
-	Checkpoints []string  `json:"checkpoints,omitempty"`
-	Merge       bool      `json:"merge,omitempty"`
-	Parents     []string  `json:"parents,omitempty"`
-	BodyExcerpt string    `json:"body_excerpt,omitempty"`
-}
-
-type seedAgentManifest struct {
-	Mode  string         `json:"mode"`
-	Quick seedAgentPhase `json:"quick"`
-	Deep  seedAgentPhase `json:"deep"`
-}
-
-type seedAgentPhase struct {
-	Status           string    `json:"status"`
-	Timeout          string    `json:"timeout"`
-	TimeoutAction    string    `json:"timeout_action,omitempty"`
-	InputFingerprint string    `json:"input_fingerprint,omitempty"`
-	OutputPaths      []string  `json:"output_paths,omitempty"`
-	Model            string    `json:"model,omitempty"`
-	Warnings         []string  `json:"warnings,omitempty"`
-	StartedAt        time.Time `json:"started_at,omitempty"`
-	CompletedAt      time.Time `json:"completed_at,omitempty"`
 }
 
 type seedCursor struct {
@@ -217,9 +124,10 @@ func newSeedCommand(opts Options) *cobra.Command {
 		agentMaxInputBytes: defaultAgentMaxInput,
 	}
 	cmd := &cobra.Command{
-		Use:   "seed [path]",
-		Short: "Seed a brain from repository docs and code structure",
-		Args:  cobra.MaximumNArgs(1),
+		Use:    "seed [path]",
+		Short:  "Rebuild repository context from docs and code structure",
+		Hidden: true,
+		Args:   cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := "."
 			if opts.Env.RepoRoot != "" {
@@ -280,10 +188,10 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		}
 		dirty, dirtyPaths, err := worktreeDirtyDetail(ctx, opts.Runner, repoDir, gateIgnore)
 		if err != nil {
-			return nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("check worktree before seed refresh: %w", err))
+			return nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("check worktree before repository context refresh: %w", err))
 		}
 		if dirty {
-			return dirtyWorktreeRefusal("seed", dirtyPaths)
+			return dirtyWorktreeRefusal("build repository context from", dirtyPaths)
 		}
 	}
 
@@ -453,7 +361,7 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 		warnings = append(warnings, fmt.Sprintf("file scan capped at %d of %d files; %d files were not read (raise with --max-files)", opts.maxFiles, len(paths), len(paths)-opts.maxFiles))
 		paths = paths[:opts.maxFiles]
 	}
-	commit := strings.TrimSpace(string(runGitOutput(ctx, runner, repoDir, "rev-parse", "HEAD")))
+	commit := strings.TrimSpace(string(clibase.GitOutput(ctx, runner, repoDir, "rev-parse", "HEAD")))
 	result := seedScanResult{MaxFileBytes: opts.maxFileBytes, RepoDir: repoDir, RepoKey: repoKey, Commit: commit, Warnings: warnings}
 	// Reserve source paths and their directories before allocating derived
 	// names: spec.pdf.md may itself be an authored document (or a directory).
@@ -591,7 +499,7 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 		entry.Reason = "tests excluded"
 		return entry
 	}
-	if err := rejectSymlinkPathComponents(repoDir, clean); err != nil {
+	if err := clibase.RejectSymlinkPathComponents(repoDir, clean); err != nil {
 		entry.Included = false
 		entry.Reason = "symlink path"
 		return entry
@@ -736,7 +644,7 @@ func isExtractableSeedDocument(path string) bool {
 	if !strings.HasPrefix(path, "docs/") {
 		return false
 	}
-	return documentFormatFor(path) != formatUnknown
+	return docextract.DocumentFormatFor(path) != docextract.FormatUnknown
 }
 
 // extractedSeedDocPath is where an extracted document lands in the brain.
@@ -966,7 +874,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 			dropSeedDocument(scan, doc, "unsafe source path")
 			continue
 		}
-		if err := rejectSymlinkPathComponents(scan.RepoDir, cleanSrc); err != nil {
+		if err := clibase.RejectSymlinkPathComponents(scan.RepoDir, cleanSrc); err != nil {
 			dropSeedDocument(scan, doc, fmt.Sprintf("not read: %v", err))
 			continue
 		}
@@ -988,13 +896,13 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 			// A container has to be read whole — a PDF's cross-references and a
 			// zip's central directory both live at the end, so the prefix read
 			// below would hand the extractor a file it cannot parse. The output
-			// is bounded instead, by extractDocumentText.
-			data, err := clibase.SafeReadFile(src, maxExtractDocumentBytes)
+			// is bounded instead, by docextract.ExtractDocumentText.
+			data, err := clibase.SafeReadFile(src, docextract.MaxExtractDocumentBytes)
 			if err != nil {
 				dropSeedDocument(scan, doc, fmt.Sprintf("not read: %v", err))
 				continue
 			}
-			text, err := extractDocumentText(doc.Path, data)
+			text, err := docextract.ExtractDocumentText(doc.Path, data)
 			if err != nil {
 				// Record why and move on. A document nobody can read must not
 				// fail the refresh, and it must not be silently absent either:
@@ -1046,7 +954,7 @@ func renderExtractedDocument(sourcePath, text string) string {
 // documentExtractionReason is the short form for the seed file index, where a
 // full error would crowd out every other entry.
 func documentExtractionReason(err error) string {
-	var extractErr *documentExtractionError
+	var extractErr *docextract.DocumentExtractionError
 	if errors.As(err, &extractErr) {
 		return "not indexed: " + extractErr.Reason
 	}
@@ -1204,8 +1112,8 @@ func sortedMapKeys[T any](m map[string]T) []string {
 func buildSeedHistoryBaseline(ctx context.Context, runner CommandRunner, repoDir, outputDir string) *seedHistoryBaseline {
 	var baseline seedHistoryBaseline
 	baseline.Confidence = "heuristic"
-	for _, root := range splitNonEmptyLines(runGitOutput(ctx, runner, repoDir, "rev-list", "--max-parents=0", "HEAD")) {
-		stdout := runGitOutput(ctx, runner, repoDir, "show", "-s", "--format=%aI", root)
+	for _, root := range splitNonEmptyLines(clibase.GitOutput(ctx, runner, repoDir, "rev-list", "--max-parents=0", "HEAD")) {
+		stdout := clibase.GitOutput(ctx, runner, repoDir, "show", "-s", "--format=%aI", root)
 		if text := strings.TrimSpace(string(stdout)); text != "" {
 			if parsed, err := time.Parse(time.RFC3339, text); err == nil {
 				parsed = parsed.UTC()
@@ -1215,7 +1123,7 @@ func buildSeedHistoryBaseline(ctx context.Context, runner CommandRunner, repoDir
 			}
 		}
 	}
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err == nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		baseline.OldestSessionAt = manifest.Sources.Sessions.OldestSessionAt
 	}
@@ -1233,7 +1141,7 @@ func buildSeedHistoryBaseline(ctx context.Context, runner CommandRunner, repoDir
 }
 
 func buildSeedHistoryCoverage(ctx context.Context, runner CommandRunner, repoDir, outputDir string) *seedHistoryCoverage {
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		return &seedHistoryCoverage{
 			Path:          filepath.ToSlash(filepath.Join(seedDirName, "history-gaps.md")),
@@ -1261,7 +1169,7 @@ func buildSeedHistoryCoverage(ctx context.Context, runner CommandRunner, repoDir
 		ExportedCheckpoints: len(exportedCheckpoints),
 		GeneratedFrom:       "git log",
 	}
-	commits := parseSeedGitLog(runGitOutput(ctx, runner, repoDir, "log", "--reverse", "--format=%H%x00%P%x00%aI%x00%an%x00%ae%x00%B%x1e"))
+	commits := parseSeedGitLog(clibase.GitOutput(ctx, runner, repoDir, "log", "--reverse", "--format=%H%x00%P%x00%aI%x00%an%x00%ae%x00%B%x1e"))
 	for _, commit := range commits {
 		classifySeedCommitCoverage(&commit, oldestSession)
 		coverage.TotalCommits++
@@ -1799,7 +1707,7 @@ func truncateAgentWarning(warning string) string {
 }
 
 func promptSeedTimeoutAction(opts seedCommandOptions, timeout time.Duration, fallback string) string {
-	if opts.noInteractive || !stdinIsTerminal() {
+	if opts.noInteractive || !clibase.StdinIsTerminal() {
 		return fallback
 	}
 	fmt.Fprintf(os.Stderr, "Deep synthesis has been running for %s. Keep quick result, continue, or fail?\n[k]eep quick / [c]ontinue / [f]ail: ", timeout)
@@ -1815,11 +1723,6 @@ func promptSeedTimeoutAction(opts seedCommandOptions, timeout time.Duration, fal
 	default:
 		return "keep-quick"
 	}
-}
-
-func stdinIsTerminal() bool {
-	info, err := os.Stdin.Stat()
-	return err == nil && (info.Mode()&os.ModeCharDevice) != 0
 }
 
 func seedAgentCommandArgs(repoDir, phase string, opts seedCommandOptions) ([]string, error) {

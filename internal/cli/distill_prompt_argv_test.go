@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // windowsCommandLineLen approximates the character count cmd.exe measures
@@ -39,7 +40,7 @@ const windowsCmdLineLimit = 8191
 // cmd.exe, which cannot be done from macOS or Linux.
 func TestDistillAgentCommandArgsKeepsPromptOffArgv(t *testing.T) {
 	t.Parallel()
-	prompt, err := renderDistillPrompt(defaultFactTaxonomy(time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)))
+	prompt, err := renderDistillPrompt(factstore.DefaultTaxonomy(time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)))
 	if err != nil {
 		t.Fatalf("renderDistillPrompt: %v", err)
 	}

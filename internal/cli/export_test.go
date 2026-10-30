@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 type fakeCommandRunner struct {
@@ -584,7 +585,7 @@ func TestValidateExportDirAvailableRejectsSymlinkOutput(t *testing.T) {
 
 func TestRemoveForcedOutputDirRejectsArbitraryJSONManifest(t *testing.T) {
 	outputDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(outputDir, exportManifestFileName), []byte(`{"name":"web-app"}`+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(outputDir, bmanifest.FileName), []byte(`{"name":"web-app"}`+"\n"), 0o600); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
 	oldPath := filepath.Join(outputDir, "old.txt")
@@ -612,7 +613,7 @@ func TestRemoveForcedOutputDirRejectsArbitraryJSONManifest(t *testing.T) {
 func TestRemoveForcedOutputDirAcceptsOlderSupportedSchemaVersion(t *testing.T) {
 	outputDir := t.TempDir()
 	v3Manifest := []byte(`{"schema_version":3,"sources":{"sessions":{"generated_at":"2026-01-01T00:00:00Z"}}}` + "\n")
-	if err := os.WriteFile(filepath.Join(outputDir, exportManifestFileName), v3Manifest, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(outputDir, bmanifest.FileName), v3Manifest, 0o600); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
 	marker := filepath.Join(outputDir, "stale.txt")
@@ -635,8 +636,8 @@ func TestRemoveForcedOutputDirAcceptsOlderSupportedSchemaVersion(t *testing.T) {
 // schema_version still satisfies that, so --force must not refuse it.
 func TestRemoveForcedOutputDirAcceptsNewerSchemaVersion(t *testing.T) {
 	outputDir := t.TempDir()
-	newer := []byte(fmt.Sprintf(`{"schema_version":%d,"sources":{"sessions":{"generated_at":"2026-01-01T00:00:00Z"}}}`, brainManifestSchemaVersion+1) + "\n")
-	if err := os.WriteFile(filepath.Join(outputDir, exportManifestFileName), newer, 0o600); err != nil {
+	newer := []byte(fmt.Sprintf(`{"schema_version":%d,"sources":{"sessions":{"generated_at":"2026-01-01T00:00:00Z"}}}`, bmanifest.SchemaVersion+1) + "\n")
+	if err := os.WriteFile(filepath.Join(outputDir, bmanifest.FileName), newer, 0o600); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
 	marker := filepath.Join(outputDir, "marker.txt")
@@ -658,7 +659,7 @@ func TestRemoveForcedOutputDirAcceptsNewerSchemaVersion(t *testing.T) {
 func TestRemoveForcedOutputDirRejectsBelowMinimumSchemaVersion(t *testing.T) {
 	outputDir := t.TempDir()
 	tooOld := []byte(`{"schema_version":-1,"sources":{"sessions":{"generated_at":"2026-01-01T00:00:00Z"}}}` + "\n")
-	if err := os.WriteFile(filepath.Join(outputDir, exportManifestFileName), tooOld, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(outputDir, bmanifest.FileName), tooOld, 0o600); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
 	marker := filepath.Join(outputDir, "marker.txt")
@@ -682,7 +683,7 @@ func TestRemoveForcedOutputDirChecksResolvedSymlinkParent(t *testing.T) {
 		t.Fatalf("create repo: %v", err)
 	}
 	if err := writeBrainManifestAndReadme(repoDir, exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   time.Now().UTC(),
 		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: time.Now().UTC()}},
 	}); err != nil {
@@ -698,7 +699,7 @@ func TestRemoveForcedOutputDirChecksResolvedSymlinkParent(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "containing the repository") {
 		t.Fatalf("expected resolved repo deletion rejection, got %v", err)
 	}
-	if _, statErr := os.Stat(filepath.Join(repoDir, exportManifestFileName)); statErr != nil {
+	if _, statErr := os.Stat(filepath.Join(repoDir, bmanifest.FileName)); statErr != nil {
 		t.Fatalf("repo manifest was removed through symlink parent: %v", statErr)
 	}
 }
@@ -1230,7 +1231,7 @@ func TestExportNoEgressMissingPromisorTranscriptPublishesNothing(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "missing promisor object") {
 		t.Fatalf("missing-promisor export = err:%v\n%s", err, out)
 	}
-	if _, statErr := os.Stat(filepath.Join(outputDir, exportManifestFileName)); !errors.Is(statErr, os.ErrNotExist) {
+	if _, statErr := os.Stat(filepath.Join(outputDir, bmanifest.FileName)); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("failed export published a manifest: %v", statErr)
 	}
 	var files []string
@@ -1448,7 +1449,7 @@ func TestExportUsesCompleteRoutedDiscoveryForConfiguredCheckpointRemote(t *testi
 	}
 
 	var manifest exportManifest
-	data, err := os.ReadFile(filepath.Join(outputDir, exportManifestFileName))
+	data, err := os.ReadFile(filepath.Join(outputDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
@@ -1621,7 +1622,7 @@ func TestExportUsesLocalV1WithoutSettings(t *testing.T) {
 	}
 
 	var manifest exportManifest
-	data, err := os.ReadFile(filepath.Join(outputDir, exportManifestFileName))
+	data, err := os.ReadFile(filepath.Join(outputDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
@@ -1693,7 +1694,7 @@ func TestExportUsesOriginTrackingV1RefWithoutSettings(t *testing.T) {
 	}
 
 	var manifest exportManifest
-	data, err := os.ReadFile(filepath.Join(outputDir, exportManifestFileName))
+	data, err := os.ReadFile(filepath.Join(outputDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
@@ -2065,7 +2066,7 @@ func TestExportSelectsLatestCheckpointPerSession(t *testing.T) {
 	}
 
 	var manifest exportManifest
-	data, err := os.ReadFile(filepath.Join(outputDir, exportManifestFileName))
+	data, err := os.ReadFile(filepath.Join(outputDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
@@ -2156,7 +2157,7 @@ func TestReadBrainRelativeFileRejectsSymlinkComponents(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	content, err := readBrainRelativeStateFile(brainDir, "sessions/secret.jsonl")
+	content, err := brainstore.ReadBrainRelativeStateFile(brainDir, "sessions/secret.jsonl")
 	if err == nil {
 		t.Fatalf("expected symlink rejection, read %q", content)
 	}
@@ -2222,7 +2223,7 @@ func TestExportDefaultUsesBrainAndCursor(t *testing.T) {
 		if !strings.Contains(out, "output: "+storage.BrainDir) {
 			t.Fatal(out)
 		}
-		manifest, err := loadBrainManifest(storage.BrainDir)
+		manifest, err := bmanifest.Load(storage.BrainDir)
 		if err != nil || !checkpointBackedSessions(manifest) {
 			t.Fatalf("manifest: %+v %v", manifest, err)
 		}

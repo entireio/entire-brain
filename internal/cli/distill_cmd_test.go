@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // writeDistillFixture lays down a brain dir with a session manifest and two
@@ -42,7 +44,7 @@ func writeDistillFixture(t *testing.T, now time.Time) string {
 		}
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources: &brainSources{
@@ -70,7 +72,7 @@ func writeSingleSessionFixture(t *testing.T, now time.Time, transcript string) s
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
@@ -116,12 +118,12 @@ func TestRunDistillForBrainWritesFactsAndManifest(t *testing.T) {
 		t.Fatalf("expected facts on 2 branches, got %v", source.Branches)
 	}
 
-	mainFacts, err := loadFacts(brainDir, "main")
+	mainFacts, err := factstore.Load(brainDir, "main")
 	if err != nil || len(mainFacts) != 1 {
 		t.Fatalf("expected 1 fact on main, got %d (%v)", len(mainFacts), err)
 	}
 	fact := mainFacts[0]
-	if fact.Origin != factOriginDistilled || fact.Status != factStatusActive {
+	if fact.Origin != factstore.OriginDistilled || fact.Status != factStatusActive {
 		t.Errorf("wrong origin/status: %+v", fact)
 	}
 	if len(fact.Provenance) != 1 || fact.Provenance[0].SessionID != "s1" || fact.Provenance[0].CheckpointID != "cp1" {
@@ -132,14 +134,14 @@ func TestRunDistillForBrainWritesFactsAndManifest(t *testing.T) {
 	}
 
 	// Manifest source and taxonomy snapshot must be written.
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil || manifest.Sources == nil || manifest.Sources.Facts == nil {
 		t.Fatalf("manifest facts source not written: %v", err)
 	}
 	if manifest.Sources.Facts.Facts != 2 {
 		t.Errorf("manifest facts count = %d, want 2", manifest.Sources.Facts.Facts)
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(factsTaxonomyPath))); err != nil {
+	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(factstore.TaxonomyPath))); err != nil {
 		t.Errorf("taxonomy snapshot not written: %v", err)
 	}
 }
@@ -304,12 +306,12 @@ func TestRunDistillForBrainPreservesAuthoredOnForce(t *testing.T) {
 		Paths:     paths,
 		Text:      "Always run go test before pushing.",
 		Branch:    "main",
-		Origin:    factOriginAuthored,
+		Origin:    factstore.OriginAuthored,
 		Status:    factStatusActive,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{authored}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{authored}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -321,16 +323,16 @@ func TestRunDistillForBrainPreservesAuthoredOnForce(t *testing.T) {
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
 		t.Fatalf("force run: %v", err)
 	}
-	facts, err := loadFacts(brainDir, "main")
+	facts, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var sawAuthored, sawDistilled bool
 	for _, f := range facts {
 		switch f.Origin {
-		case factOriginAuthored:
+		case factstore.OriginAuthored:
 			sawAuthored = true
-		case factOriginDistilled:
+		case factstore.OriginDistilled:
 			sawDistilled = true
 		}
 	}
@@ -403,7 +405,7 @@ func TestRunDistillForBrainBranchFilterResolvesDefault(t *testing.T) {
 		}
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions}},
@@ -427,7 +429,7 @@ func TestRunDistillForBrainBranchFilterResolvesDefault(t *testing.T) {
 	if len(inputs) != 1 {
 		t.Fatalf("expected only the default-branch session distilled, got %d agent calls", len(inputs))
 	}
-	mainFacts, err := loadFacts(brainDir, "main")
+	mainFacts, err := factstore.Load(brainDir, "main")
 	if err != nil || len(mainFacts) != 1 {
 		t.Fatalf("empty-branch session not distilled under default branch: %d facts (%v)", len(mainFacts), err)
 	}
@@ -445,12 +447,12 @@ func TestRunDistillForBrainBranchLimitedPreservesManifest(t *testing.T) {
 		Paths:     paths,
 		Text:      "Feature work needs integration tests.",
 		Branch:    "feature",
-		Origin:    factOriginAuthored,
+		Origin:    factstore.OriginAuthored,
 		Status:    factStatusActive,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	if err := writeFacts(brainDir, "feature", []factRecord{authored}); err != nil {
+	if err := factstore.Write(brainDir, "feature", []factRecord{authored}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -485,7 +487,7 @@ func TestRunDistillForBrainBranchLimitedPreservesManifest(t *testing.T) {
 		t.Fatalf("summary lost whole-store counts: %+v", source)
 	}
 
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil || manifest.Sources == nil || manifest.Sources.Facts == nil {
 		t.Fatalf("manifest facts source not written: %v", err)
 	}
@@ -493,7 +495,7 @@ func TestRunDistillForBrainBranchLimitedPreservesManifest(t *testing.T) {
 		t.Errorf("manifest dropped facts from untouched branch: %+v", manifest.Sources.Facts)
 	}
 	// The feature branch's authored fact must remain on disk untouched.
-	featureFacts, err := loadFacts(brainDir, "feature")
+	featureFacts, err := factstore.Load(brainDir, "feature")
 	if err != nil || len(featureFacts) != 1 {
 		t.Fatalf("feature facts disturbed by main-only distill: %d (%v)", len(featureFacts), err)
 	}
@@ -559,7 +561,7 @@ func TestRunDistillForBrainCacheIgnoresStrippedToolChurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{session}}},
@@ -615,7 +617,7 @@ func TestRunDistillForBrainCacheIgnoresStrippedToolChurn(t *testing.T) {
 func TestRunDistillForBrainNoSessions(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	brainDir := t.TempDir()
-	manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, Sources: &brainSources{}}
+	manifest := exportManifest{SchemaVersion: bmanifest.SchemaVersion, Sources: &brainSources{}}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
 		t.Fatal(err)
 	}
@@ -684,7 +686,7 @@ func TestRunDistillForBrainAbortsOnSystematicAgentFailure(t *testing.T) {
 		sessions = append(sessions, exportSession{SessionID: id, Branch: "main", LatestCheckpoint: "cp" + id, TranscriptPath: tp, CreatedAt: now.Add(-time.Duration(i) * time.Hour)})
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions}},
@@ -727,7 +729,7 @@ func TestRunDistillForBrainRejectsSmallAllFailureCorpus(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{
@@ -1020,7 +1022,7 @@ func TestRunDistillForBrainFlushesIncrementally(t *testing.T) {
 	fakeRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
 		calls++
 		if calls == 2 {
-			if facts, err := loadFacts(brainDir, "main"); err == nil && len(facts) == 1 {
+			if facts, err := factstore.Load(brainDir, "main"); err == nil && len(facts) == 1 {
 				sawFlushedFact = true
 			}
 		}
@@ -1040,7 +1042,7 @@ func TestRunDistillForBrainFlushesIncrementally(t *testing.T) {
 		t.Fatalf("expected 2 distilled facts after flushing run, got %+v", source)
 	}
 	for _, branch := range []string{"main", "feature"} {
-		facts, err := loadFacts(brainDir, branch)
+		facts, err := factstore.Load(brainDir, branch)
 		if err != nil || len(facts) != 1 {
 			t.Fatalf("expected 1 fact on %s, got %d (%v)", branch, len(facts), err)
 		}
@@ -1071,7 +1073,7 @@ func TestRunDistillForBrainFlushesDuringFailureStreak(t *testing.T) {
 			return "preferences.coding.style\tThe user prefers concise commits.\n", nil
 		}
 		if calls == 3 {
-			if facts, err := loadFacts(brainDir, "main"); err == nil && len(facts) == 1 {
+			if facts, err := factstore.Load(brainDir, "main"); err == nil && len(facts) == 1 {
 				sawFlushedFact = true
 			}
 		}
@@ -1153,7 +1155,7 @@ func TestRunDistillForBrainFlushSkipsCleanBranches(t *testing.T) {
 	if err := os.WriteFile(s2, []byte("turn one\nturn two\na new turn\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	mainFacts := filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath("main")))
+	mainFacts := filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath("main")))
 	backdated := now.Add(-24 * time.Hour)
 	if err := os.Chtimes(mainFacts, backdated, backdated); err != nil {
 		t.Fatal(err)
@@ -1176,7 +1178,7 @@ func TestRunDistillForBrainFlushSkipsCleanBranches(t *testing.T) {
 	if !info.ModTime().Equal(backdated) {
 		t.Error("clean branch main was rewritten by a flush; flushes must only write dirty branches")
 	}
-	if facts, err := loadFacts(brainDir, "feature"); err != nil || len(facts) != 2 {
+	if facts, err := factstore.Load(brainDir, "feature"); err != nil || len(facts) != 2 {
 		t.Errorf("feature should hold its seeded and new fact, got %d (%v)", len(facts), err)
 	}
 }
@@ -1192,7 +1194,7 @@ func TestRunDistillForBrainSurvivesMidRunFlushFailure(t *testing.T) {
 	// fails, the second gives the retry a chance after the disk "recovers".
 	brainDir := writeSingleSessionFixture(t, now, "turn one\nturn two\n")
 
-	factsDir := filepath.Join(brainDir, factsDirName)
+	factsDir := filepath.Join(brainDir, factstore.DirName)
 	if err := os.MkdirAll(factsDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -1228,7 +1230,7 @@ func TestRunDistillForBrainSurvivesMidRunFlushFailure(t *testing.T) {
 		t.Errorf("expected a mid-run flush warning, got %v", source.Warnings)
 	}
 	// The branch stayed dirty through the failure, so the retry persisted it.
-	if facts, err := loadFacts(brainDir, "main"); err != nil || len(facts) != 1 {
+	if facts, err := factstore.Load(brainDir, "main"); err != nil || len(facts) != 1 {
 		t.Errorf("fact lost across the flush failure: got %d (%v)", len(facts), err)
 	}
 }
@@ -1396,7 +1398,7 @@ func TestDistillCacheGrandfathersLegacyEntries(t *testing.T) {
 		}
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions}},
@@ -1788,7 +1790,7 @@ func writeDistillFixtureAt(t *testing.T, brainDir string, now time.Time) {
 		}
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources: &brainSources{
@@ -1922,7 +1924,7 @@ func TestRunDistillForBrainCachesDuplicateSessionIDs(t *testing.T) {
 		}
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions}},
@@ -2211,7 +2213,7 @@ func TestRunDistillForBrainNeverTripsFactStoreIntegrity(t *testing.T) {
 				if source.Facts == 0 {
 					t.Fatalf("pass %d distilled nothing; the check would pass vacuously", pass+1)
 				}
-				integrity := inspectBrainFactStore(brainDir)
+				integrity := factstore.InspectBrain(brainDir)
 				if !integrity.OK() {
 					t.Fatalf("pass %d: a legitimate distill tripped the fact-store integrity check: mode=%q declared=%d readable=%d distinct=%d unusable=%d duplicate_ids=%v",
 						pass+1, integrity.Mode, integrity.Declared, integrity.Readable, integrity.Distinct, integrity.Unusable, integrity.DuplicateIDs)
@@ -2384,7 +2386,7 @@ func TestRunDistillForBrainAbortsWhenEveryAgentCallTimesOut(t *testing.T) {
 		t.Errorf("the abort does not name the timeout as the cause: %v", err)
 	}
 	for _, branch := range []string{"main", "feature"} {
-		if facts, loadErr := loadFacts(brainDir, branch); loadErr == nil && len(facts) != 0 {
+		if facts, loadErr := factstore.Load(brainDir, branch); loadErr == nil && len(facts) != 0 {
 			t.Errorf("branch %s kept %d facts from a fully timed-out run", branch, len(facts))
 		}
 	}

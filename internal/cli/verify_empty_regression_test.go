@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func TestVerifyEmptyTranscriptCannotResolveLine(t *testing.T) {
@@ -32,7 +34,7 @@ func TestVerifyEmptyTranscriptStillComparedToCheckpoint(t *testing.T) {
 	f.writeBrainFile(t, rel, "")
 	f.writeSessions(t, []exportSession{{SessionID: "sess1", Branch: "main", LatestCheckpoint: cp, TranscriptPath: rel}})
 	f.addLocalCheckpoint(t, cp, "sess1", "", "retained transcript\n")
-	fact := verifyFactFixture("fact:empty", "Empty export differs from its retained checkpoint.", "main", factOriginDistilled, factStatusActive, f.now, []factAnchor{{SessionID: "sess1", CheckpointID: cp, Transcript: rel}})
+	fact := verifyFactFixture("fact:empty", "Empty export differs from its retained checkpoint.", "main", factstore.OriginDistilled, factStatusActive, f.now, []factAnchor{{SessionID: "sess1", CheckpointID: cp, Transcript: rel}})
 	f.writeFacts(t, "main", []factRecord{fact})
 	out, err := execute(t, NewRootCommand(f.opts), "verify", "fact:empty", "--json")
 	if err == nil {

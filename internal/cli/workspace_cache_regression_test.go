@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
@@ -83,7 +84,7 @@ func TestWorkspaceGraphRejectsChangedMemberGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainManifestAndReadme(dir, exportManifest{SchemaVersion: brainManifestSchemaVersion, GeneratedAt: time.Now()}); err != nil {
+	if err := writeBrainManifestAndReadme(dir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	// A concurrent builder can publish its old snapshot after the source changes.

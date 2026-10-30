@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,8 +23,8 @@ func TestMemoryStatusPlainRendererHasDeterministicJSONSectionParity(t *testing.T
 	// Use a forward-version manifest so parity also covers partial status and
 	// its typed issue without allowing the renderer to rewrite newer state.
 	// Derived, not a literal: see TestManifestNewerRefusedWithRemedy.
-	future := []byte(fmt.Sprintf(`{"schema_version":%d,"future":{"preserve":true}}`, brainManifestSchemaVersion+1) + "\n")
-	manifestPath := filepath.Join(brainDir, exportManifestFileName)
+	future := []byte(fmt.Sprintf(`{"schema_version":%d,"future":{"preserve":true}}`, bmanifest.SchemaVersion+1) + "\n")
+	manifestPath := filepath.Join(brainDir, bmanifest.FileName)
 	if err := os.WriteFile(manifestPath, future, 0o600); err != nil {
 		t.Fatal(err)
 	}

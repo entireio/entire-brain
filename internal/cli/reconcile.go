@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 const factsProposalsFileName = "proposals.ndjson"
@@ -21,7 +22,7 @@ const factsProposalsFileName = "proposals.ndjson"
 const factActionDefer = "defer"
 
 func factsProposalsRelPath(branch string) string {
-	return filepath.ToSlash(filepath.Join(factsBranchRelDir(branch), factsProposalsFileName))
+	return filepath.ToSlash(filepath.Join(factstore.BranchRelDir(branch), factsProposalsFileName))
 }
 
 // loadFactProposals reads a branch's pending proposals; a missing file yields

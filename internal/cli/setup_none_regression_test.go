@@ -6,7 +6,7 @@ func TestSetupDisabledAgentRemainsDisabledInDaemon(t *testing.T) {
 	opts := defaultSetupOptions()
 	opts.agent = "none"
 	w := daemonWatchOptions(t, opts)
-	if w.distillAgent != "none" || w.distill {
-		t.Fatalf("setup disabled agent became daemon distill=%v agent=%q", w.distill, w.distillAgent)
+	if w.DistillAgent != "none" || w.Distill {
+		t.Fatalf("setup disabled agent became daemon distill=%v agent=%q", w.Distill, w.DistillAgent)
 	}
 }

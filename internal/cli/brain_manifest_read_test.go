@@ -15,6 +15,7 @@ import (
 	"github.com/entireio/entire-brain/internal/agentsetup"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // Only aggregate shape information comes from the cohort. Every value below is
@@ -67,7 +68,7 @@ func TestBrainManifestObservedShapesRoundTrip(t *testing.T) {
 			for i := 0; i < tc.warnings; i++ {
 				source.Warnings = append(source.Warnings, fmt.Sprintf("synthetic checkpoint coverage warning %d", i))
 			}
-			manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, RepoKey: key, Sources: &brainSources{Sessions: source, Seed: &seedSourceManifest{}, Semantic: &semanticSourceManifest{}, History: &historySourceManifest{}, Docs: &docSourceManifest{}}}
+			manifest := exportManifest{SchemaVersion: bmanifest.SchemaVersion, RepoKey: key, Sources: &brainSources{Sessions: source, Seed: &seedSourceManifest{}, Semantic: &semanticSourceManifest{}, History: &historySourceManifest{}, Docs: &docSourceManifest{}}}
 			if tc.name != "warning-heavy" {
 				manifest.Sources.Patterns = &patternSourceManifest{}
 			}
@@ -75,7 +76,7 @@ func TestBrainManifestObservedShapesRoundTrip(t *testing.T) {
 			// Distribute synthetic metadata across session summaries; only a small
 			// remainder goes in a known scalar to match exact observed byte sizes.
 			manifest.BrainVersion = "x"
-			normalizeBrainManifest(&manifest)
+			bmanifest.Normalize(&manifest)
 			data, err := json.MarshalIndent(manifest, "", "  ")
 			if err != nil {
 				t.Fatal(err)
@@ -92,11 +93,11 @@ func TestBrainManifestObservedShapesRoundTrip(t *testing.T) {
 			if err := writeBrainManifestAndReadme(dir, manifest); err != nil {
 				t.Fatal(err)
 			}
-			info, err := os.Stat(filepath.Join(dir, exportManifestFileName))
+			info, err := os.Stat(filepath.Join(dir, bmanifest.FileName))
 			if err != nil || info.Size() != int64(tc.bytes) {
 				t.Fatalf("size: %v, %v", info, err)
 			}
-			for _, reader := range []func(string) (*exportManifest, error){loadBrainManifest, loadBrainManifestForReplace} {
+			for _, reader := range []func(string) (*exportManifest, error){bmanifest.Load, bmanifest.LoadForReplace} {
 				got, err := reader(dir)
 				if err != nil {
 					t.Fatal(err)
@@ -125,7 +126,7 @@ func TestBrainManifestObservedShapesRoundTrip(t *testing.T) {
 			if err := writeBrainManifestAndReadme(dir, *got); err != nil {
 				t.Fatal(err)
 			}
-			before, err := os.ReadFile(filepath.Join(dir, exportManifestFileName))
+			before, err := os.ReadFile(filepath.Join(dir, bmanifest.FileName))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -133,14 +134,14 @@ func TestBrainManifestObservedShapesRoundTrip(t *testing.T) {
 			if err := writeBrainManifestAndReadme(dir, *got); err == nil {
 				t.Fatal("invalid time must fail encoding")
 			}
-			after, err := os.ReadFile(filepath.Join(dir, exportManifestFileName))
+			after, err := os.ReadFile(filepath.Join(dir, bmanifest.FileName))
 			if err != nil {
 				t.Fatal(err)
 			}
 			if !bytes.Equal(before, after) {
 				t.Fatal("failed operation changed previous manifest")
 			}
-			if _, err := loadBrainManifest(dir); err != nil {
+			if _, err := bmanifest.Load(dir); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -161,15 +162,15 @@ func TestBrainManifestDecoderCompatibility(t *testing.T) {
 		{"missing-version", `{}`, brainstore.UnsupportedVersionCode},
 		{"v4", `{"schema_version":4}`, ""},
 		// Derived, not a literal: a hardcoded "newer" value stops meaning
-		// "newer than supported" the moment brainManifestSchemaVersion catches
+		// "newer than supported" the moment bmanifest.SchemaVersion catches
 		// up to it, and silently starts testing the wrong thing instead of
 		// failing.
-		{"newer", fmt.Sprintf(`{"schema_version":%d,"future":true}`, brainManifestSchemaVersion+1), brainstore.UnsupportedVersionCode},
+		{"newer", fmt.Sprintf(`{"schema_version":%d,"future":true}`, bmanifest.SchemaVersion+1), brainstore.UnsupportedVersionCode},
 		{"older", `{"schema_version":-1}`, brainstore.UnsupportedVersionCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := writeTestManifest(t, tc.body)
-			_, err := loadBrainManifest(dir)
+			_, err := bmanifest.Load(dir)
 			_, health, issue := inspectBrainManifestHealth(dir)
 			if tc.code == "" {
 				if err != nil || issue != nil || health.State != "current" {
@@ -182,7 +183,7 @@ func TestBrainManifestDecoderCompatibility(t *testing.T) {
 				if err := writeBrainManifestAndReadme(dir, exportManifest{}); err == nil {
 					t.Fatal("writer must refuse invalid existing state")
 				}
-				after, _ := os.ReadFile(filepath.Join(dir, exportManifestFileName))
+				after, _ := os.ReadFile(filepath.Join(dir, bmanifest.FileName))
 				if string(after) != tc.body {
 					t.Fatal("failed rewrite changed original")
 				}
@@ -195,7 +196,7 @@ func TestBrainManifestReaderKeepsFileProtections(t *testing.T) {
 	for _, kind := range []string{"directory", "symlink", "hardlink"} {
 		t.Run(kind, func(t *testing.T) {
 			dir := t.TempDir()
-			path := filepath.Join(dir, exportManifestFileName)
+			path := filepath.Join(dir, bmanifest.FileName)
 			target := filepath.Join(t.TempDir(), "target.json")
 			if err := os.WriteFile(target, []byte(`{"schema_version":3}`), 0600); err != nil {
 				t.Fatal(err)
@@ -212,7 +213,7 @@ func TestBrainManifestReaderKeepsFileProtections(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := loadBrainManifest(dir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+			if _, err := bmanifest.Load(dir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 				t.Fatalf("unsafe read: %v", err)
 			}
 			_, health, _ := inspectBrainManifestHealth(dir)
@@ -231,11 +232,11 @@ func TestBrainManifestLargeUnknownFieldsRemainReadOnly(t *testing.T) {
 	base.MaxManifestBytes = 64 << 10
 	t.Cleanup(func() { base.MaxManifestBytes = prev })
 	dir := writeTestManifest(t, `{"schema_version":3,"sessions":[],"future":"`+strings.Repeat("x", 128<<10)+`"}`)
-	_, dropped, err := readBrainManifest(dir, true)
+	_, dropped, err := bmanifest.Read(dir, true)
 	if err != nil || !dropped {
 		t.Fatalf("tolerant read: dropped=%v err=%v", dropped, err)
 	}
-	path := filepath.Join(dir, exportManifestFileName)
+	path := filepath.Join(dir, bmanifest.FileName)
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -258,65 +259,5 @@ func TestBrainManifestLargeUnknownFieldsRemainReadOnly(t *testing.T) {
 	removed, err := discardManifestThisBuildCannotRewrite(dir)
 	if err != nil || !removed {
 		t.Fatalf("checked cleanup: removed=%v err=%v", removed, err)
-	}
-}
-
-// TestWriterRefusalExplainsItselfInsteadOfSayingCorrupt pins COR-2162.
-//
-// A writer refusing an unknown field is correct: re-encoding from a struct
-// that never saw the field would erase what another build recorded. What was
-// wrong is how it read. "brain manifest cannot be parsed: memory_state_corrupt"
-// describes damage, and the manifest is undamaged and fully readable — a
-// reader on the same bytes succeeds. On a real machine that wording left a
-// component failed for four days while nothing was broken.
-func TestWriterRefusalExplainsItselfInsteadOfSayingCorrupt(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "manifest.json")
-	// schema_version must be in range, or the version guards answer first and
-	// this test would pass without ever reaching the unknown-field path.
-	// The probe field must be one no release will ever claim. "suppressed_warnings"
-	// was a real candidate for the manifest and has since become a real field,
-	// which turned this guard red on the branch that added it -- the test was
-	// asserting "unknown" about a name the product was still free to take.
-	body := fmt.Sprintf(`{"schema_version":%d,"zz_field_no_release_will_define":["x"]}`, brainManifestSchemaVersion)
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	open := func() *os.File {
-		f, err := os.Open(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = f.Close() })
-		return f
-	}
-
-	// A reader is unaffected: the bytes are readable, which is the whole point.
-	if _, _, dropped, err := decodeBrainManifestFile(open(), true); err != nil {
-		t.Fatalf("a reader must still read this manifest, got: %v", err)
-	} else if !dropped {
-		t.Fatal("the reader should report that it dropped an unknown field")
-	}
-
-	_, _, _, err := decodeBrainManifestFile(open(), false)
-	if err == nil {
-		t.Fatal("a writer must refuse rather than silently erase the unknown field")
-	}
-	msg := err.Error()
-	if !strings.Contains(msg, "zz_field_no_release_will_define") {
-		t.Errorf("refusal must name the field the reader has to act on: %v", err)
-	}
-	if !strings.Contains(msg, "NOT damaged") {
-		t.Errorf("refusal must say the manifest is not damaged: %v", err)
-	}
-	if strings.Contains(msg, "cannot be parsed") {
-		t.Errorf("refusal still claims the manifest cannot be parsed, but a reader just parsed it: %v", err)
-	}
-	// The code is part of the maintenance taxonomy and many consumers match on
-	// it, so improving the sentence must not retype the error.
-	if !strings.Contains(msg, brainstore.StateCorruptCode) {
-		t.Errorf("error code changed; that is a contract change, not a wording fix: %v", err)
 	}
 }

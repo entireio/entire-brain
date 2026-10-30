@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// `recall --evidence` returns at facts_read_cmd.go:259, BEFORE the blind-spot
-// checks the other recall paths run at :412 and :430. So the surface said
+// `recall --evidence` returns in command/facts/facts_read_cmd.go BEFORE the
+// blind-spot checks the other recall paths run. So the surface said
 // nothing at all when a scan found no sessions on the queried branch -- the
 // wrong-branch trap presented as a genuine miss.
 //

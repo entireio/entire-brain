@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestRoutedExportPartialMetadataPreservesPublishedBrain(t *testing.T) {
@@ -48,7 +50,7 @@ func TestRoutedExportPartialMetadataPreservesPublishedBrain(t *testing.T) {
 			if out, err := run("--output", storage.BrainDir); err != nil {
 				t.Fatalf("initial bundle: %v %s", err, out)
 			}
-			manifest, err := loadBrainManifest(storage.BrainDir)
+			manifest, err := bmanifest.Load(storage.BrainDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -104,7 +106,7 @@ func TestRoutedExportPartialMetadataPreservesPublishedBrain(t *testing.T) {
 			if out, err := run("--output", output); err != nil {
 				t.Fatalf("explicit partial export: %v %s", err, out)
 			}
-			partial, err := loadBrainManifest(output)
+			partial, err := bmanifest.Load(output)
 			if err != nil {
 				t.Fatal(err)
 			}

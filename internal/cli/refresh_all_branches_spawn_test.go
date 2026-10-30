@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -99,7 +100,7 @@ func TestSemanticRefreshAllBranchesSpawnsConstantGitProcesses(t *testing.T) {
 			len(runner.runs), sameHeadBranches+2, strings.Join(runner.runs, "\n"))
 	}
 
-	data, err := os.ReadFile(filepath.Join(storage.BrainDir, semanticDirName, "overlays", "all-branches.json"))
+	data, err := os.ReadFile(filepath.Join(storage.BrainDir, semstore.DirName, "overlays", "all-branches.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

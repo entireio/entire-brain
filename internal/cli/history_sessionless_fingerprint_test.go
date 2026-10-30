@@ -2,6 +2,7 @@ package cli
 
 import (
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +21,7 @@ func TestSessionlessBrainReadsBackItsOwnProjectionReceipt(t *testing.T) {
 	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 	brainDir := t.TempDir()
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now,
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now,
 		RepoKey: "test/sessionless", DefaultBranch: "main",
 		// No Sessions source at all: the export failed or never ran.
 		Sources: &brainSources{},
@@ -44,7 +45,7 @@ func TestSessionlessBrainReadsBackItsOwnProjectionReceipt(t *testing.T) {
 		t.Fatalf("current fingerprint = %q, want %q", got, sessionSourceFingerprintAbsent)
 	}
 
-	published, err := loadBrainManifest(brainDir)
+	published, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +97,7 @@ func TestOversizedTranscriptLineWarningNamesTheTranscript(t *testing.T) {
 	writeBundleTestFile(t, filepath.Join(brainDir, filepath.FromSlash(rel)), huge+"\n")
 
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now,
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now,
 		RepoKey: "test/huge", DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{
 			GeneratedAt: now, DefaultBranch: "main",

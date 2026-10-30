@@ -3,17 +3,17 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"math"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // Practice detection (Pattern Consolidation, Phase 3).
@@ -25,7 +25,7 @@ import (
 //
 // Two data realities this code handles (verified against the live brain):
 //   - facts distilled before kind-storage have an empty Kind, so the kind is
-//     taken via factKindOrInferred (deterministic paths+text inference), never
+//     taken via factstore.KindOrInferred (deterministic paths+text inference), never
 //     raw f.Kind.
 //   - a fact's UpdatedAt is its distill time (uniform across a run), so recency
 //     is derived from the newest session timestamp among the fact's provenance,
@@ -34,8 +34,6 @@ import (
 // SCOPE: facts are the Phase 3 source. History-record/validation and
 // read-only-episode augmentation (the plan's secondary practice sources) are
 // deferred; so is cross-linking episode reinforcement onto practices.
-
-const patternsPracticesPath = "patterns/practices.ndjson"
 
 const practiceSupportSaturat = 3 // provenance-session count at which recurrence saturates
 
@@ -50,26 +48,7 @@ const (
 	wPracticeConf    = 0.10
 )
 
-type practiceRecord struct {
-	ID            string            `json:"id"`
-	Type          string            `json:"type"`  // always "practice"
-	Scope         string            `json:"scope"` // "repo" (workspace is Phase 6)
-	RepoKey       string            `json:"repo_key,omitempty"`
-	Kind          string            `json:"kind"`
-	Statement     string            `json:"statement"`
-	Paths         []string          `json:"paths,omitempty"`
-	Locus         []string          `json:"locus,omitempty"`
-	Support       int               `json:"support"` // distinct provenance sessions
-	Branches      int               `json:"branches"`
-	Repos         int               `json:"repos,omitempty"`          // workspace scope
-	RepoBreakdown []patternRepoStat `json:"repo_breakdown,omitempty"` // workspace scope
-	Workspace     string            `json:"workspace,omitempty"`
-	Confidence    float64           `json:"confidence,omitempty"`
-	Strength      float64           `json:"strength"`
-	StrengthLabel string            `json:"strength_label"`
-	Examples      []episodeAnchor   `json:"examples,omitempty"`
-	LastSeen      *time.Time        `json:"last_seen,omitempty"`
-}
+type practiceRecord = patterncore.PracticeRecord
 
 type practiceAgg struct {
 	fact     factRecord
@@ -91,7 +70,7 @@ func buildBrainPractices(brainDir string, manifest *exportManifest, now time.Tim
 	aggs := map[string]*practiceAgg{}
 	order := []string{}
 	for _, branch := range branches {
-		facts, err := loadFacts(brainDir, branch)
+		facts, err := factstore.Load(brainDir, branch)
 		if err != nil {
 			return nil, err
 		}
@@ -117,7 +96,7 @@ func buildBrainPractices(brainDir string, manifest *exportManifest, now time.Tim
 	for _, id := range order {
 		a := aggs[id]
 		f := a.fact
-		kind := factKindOrInferred(f)
+		kind := factstore.KindOrInferred(f)
 
 		sessions := map[string]bool{}
 		var anchors []episodeAnchor
@@ -176,7 +155,7 @@ func buildBrainPractices(brainDir string, manifest *exportManifest, now time.Tim
 }
 
 func practiceStrength(kind string, support int, lastSeen, now time.Time, confidence float64) float64 {
-	kindScore := base.Clamp01(float64(factKindPriority[kind]) / 6.0)
+	kindScore := base.Clamp01(float64(factstore.KindPriority[kind]) / 6.0)
 	supportScore := base.Clamp01(math.Log2(1+float64(support)) / math.Log2(1+float64(practiceSupportSaturat)))
 	recencyScore := recencyScore(lastSeen, now)
 	confScore := base.Clamp01(confidence)
@@ -252,31 +231,8 @@ func writeBrainPracticesFile(outputDir string, practices []practiceRecord) error
 			return fmt.Errorf("encode practice: %w", err)
 		}
 	}
-	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, patternsPracticesPath, buf.Bytes(), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, patterncore.PracticesPath, buf.Bytes(), 0o600); err != nil {
 		return fmt.Errorf("write practices: %w", err)
 	}
 	return nil
-}
-
-func loadBrainPractices(brainDir string) ([]practiceRecord, error) {
-	content, err := readBrainRelativeStateFile(brainDir, patternsPracticesPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var practices []practiceRecord
-	for _, line := range strings.Split(content, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		var p practiceRecord
-		if err := json.Unmarshal([]byte(line), &p); err != nil {
-			return nil, fmt.Errorf("parse practice line: %w", err)
-		}
-		practices = append(practices, p)
-	}
-	return practices, nil
 }

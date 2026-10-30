@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -42,7 +43,7 @@ func TestPatternSymbolLinksRebuildCapsAndDropsStaleSemanticEvidence(t *testing.T
 		t.Fatal(err)
 	}
 	descriptor := runner.graphStoreFixtures[repo+"\x00full"]
-	source := graphStoreSource(descriptor, dir)
+	source := semstore.GraphStoreSource(descriptor, dir)
 	db, err := sql.Open(sqlitedriver.Name, filepath.Join(t.TempDir(), "corpus.sqlite"))
 	if err != nil {
 		t.Fatal(err)

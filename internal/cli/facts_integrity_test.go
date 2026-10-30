@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // facts_integrity_test.go pins the cross-check that was missing: the manifest
@@ -51,27 +53,27 @@ func factLossFixture(t *testing.T) (Options, string, string, string) {
 			Paths:      []string{"project.tooling.stack"},
 			Text:       text,
 			Branch:     "feature",
-			Origin:     factOriginAuthored,
+			Origin:     factstore.OriginAuthored,
 			Status:     factStatusActive,
 			Provenance: []factAnchor{{SessionID: "session-1"}},
 			CreatedAt:  now.Add(time.Duration(i) * time.Minute),
 			UpdatedAt:  now.Add(time.Duration(i) * time.Minute),
 		})
 	}
-	if err := writeFacts(storage.BrainDir, "feature", facts); err != nil {
+	if err := factstore.Write(storage.BrainDir, "feature", facts); err != nil {
 		t.Fatal(err)
 	}
 	if err := updateFactSourceManifest(storage.BrainDir, now); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(storage.BrainDir, filepath.FromSlash(factsFileRelPath("feature")))
+	path := filepath.Join(storage.BrainDir, filepath.FromSlash(factstore.FileRelPath("feature")))
 	return opts, repoDir, storage.BrainDir, path
 }
 
 // replaceFactLines overwrites the given 0-based line numbers of a facts.ndjson
 // with the replacement text, leaving every other line untouched. The store
 // stays readable; only its content stops being facts. It returns the ids the
-// replacement destroyed, because writeFacts sorts the store and a caller
+// replacement destroyed, because factstore.Write sorts the store and a caller
 // cannot know from the line number alone which fact it just lost.
 func replaceFactLines(t *testing.T, path, replacement string, lines ...int) []string {
 	t.Helper()
@@ -108,12 +110,12 @@ func TestFactStoreIntegrityDetectsOneLostFactAmongFive(t *testing.T) {
 
 	// One subtest per surface, so a regression names the surface it broke.
 	t.Run("cross-check", func(t *testing.T) {
-		integrity := inspectBrainFactStore(brainDir)
+		integrity := factstore.InspectBrain(brainDir)
 		if integrity.OK() {
 			t.Fatalf("integrity reports a healthy store after a fact was overwritten: %+v", integrity)
 		}
-		if integrity.Mode != factStoreDefectLossy {
-			t.Fatalf("mode = %q, want %q", integrity.Mode, factStoreDefectLossy)
+		if integrity.Mode != factstore.DefectLossy {
+			t.Fatalf("mode = %q, want %q", integrity.Mode, factstore.DefectLossy)
 		}
 		if integrity.Declared != 5 || integrity.Readable != 4 || integrity.Lost() != 1 {
 			t.Fatalf("declared/readable/lost = %d/%d/%d, want 5/4/1", integrity.Declared, integrity.Readable, integrity.Lost())
@@ -221,9 +223,9 @@ func TestFactStoreIntegrityDetectsTotalFactLoss(t *testing.T) {
 
 	replaceFactLines(t, path, `{"hello":"world"}`, 0, 1, 2, 3, 4)
 
-	integrity := inspectBrainFactStore(brainDir)
-	if integrity.Mode != factStoreDefectLossy {
-		t.Fatalf("mode = %q, want %q", integrity.Mode, factStoreDefectLossy)
+	integrity := factstore.InspectBrain(brainDir)
+	if integrity.Mode != factstore.DefectLossy {
+		t.Fatalf("mode = %q, want %q", integrity.Mode, factstore.DefectLossy)
 	}
 	if integrity.Declared != 5 || integrity.Readable != 0 || integrity.Lost() != 5 {
 		t.Fatalf("declared/readable/lost = %d/%d/%d, want 5/0/5", integrity.Declared, integrity.Readable, integrity.Lost())
@@ -274,7 +276,7 @@ func TestFactStoreIntegrityDetectsFactLineWithoutID(t *testing.T) {
 		`{"id":"","paths":["project.tooling.stack"],"text":"an unaddressable fact","branch":"feature","origin":"authored","status":"active","provenance":[{"session_id":"session-1"}]}`,
 		2)
 
-	integrity := inspectBrainFactStore(brainDir)
+	integrity := factstore.InspectBrain(brainDir)
 	if integrity.OK() {
 		t.Fatalf("a fact line with no id passed the integrity check: %+v", integrity)
 	}
@@ -287,12 +289,12 @@ func TestFactStoreIntegrityDetectsFactLineWithoutID(t *testing.T) {
 
 	// And the manifest producer must agree, so a later `remember` or `refresh`
 	// cannot re-declare the damaged store as whole.
-	byBranch, err := loadAllFactBranches(brainDir)
+	byBranch, err := factstore.LoadAllBranches(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := summarizeFactSource(time.Now().UTC(), byBranch, 0, 0, 0, nil).Facts; got != 4 {
-		t.Fatalf("summarizeFactSource counted %d facts, want 4: an id-less line must never be declared as a fact", got)
+	if got := factstore.SummarizeSource(time.Now().UTC(), byBranch, 0, 0, 0, nil).Facts; got != 4 {
+		t.Fatalf("factstore.SummarizeSource counted %d facts, want 4: an id-less line must never be declared as a fact", got)
 	}
 }
 
@@ -303,8 +305,8 @@ func TestFactStoreIntegrityKeepsFailureModesDistinct(t *testing.T) {
 	t.Run("lossy", func(t *testing.T) {
 		_, _, brainDir, path := factLossFixture(t)
 		replaceFactLines(t, path, `{"hello":"world"}`, 0)
-		got := inspectBrainFactStore(brainDir)
-		if got.Mode != factStoreDefectLossy {
+		got := factstore.InspectBrain(brainDir)
+		if got.Mode != factstore.DefectLossy {
 			t.Fatalf("mode = %q, want lossy", got.Mode)
 		}
 		if !strings.Contains(got.Warning(), "does not match the manifest") {
@@ -315,8 +317,8 @@ func TestFactStoreIntegrityKeepsFailureModesDistinct(t *testing.T) {
 	t.Run("corrupt", func(t *testing.T) {
 		_, _, brainDir, path := factLossFixture(t)
 		replaceFactLines(t, path, `{not json at all`, 2)
-		got := inspectBrainFactStore(brainDir)
-		if got.Mode != factStoreDefectUnreadable {
+		got := factstore.InspectBrain(brainDir)
+		if got.Mode != factstore.DefectUnreadable {
 			t.Fatalf("mode = %q, want unreadable", got.Mode)
 		}
 		if !strings.Contains(got.Warning(), "corrupt") || !strings.Contains(got.Warning(), "line 3") {
@@ -331,24 +333,24 @@ func TestFactStoreIntegrityKeepsFailureModesDistinct(t *testing.T) {
 		_, _, brainDir, path := factLossFixture(t)
 		// Total store loss requires losing the native copy too. A missing
 		// compatibility projection alone is recoverable.
-		if err := os.Remove(filepath.Join(brainDir, repoFactsPath)); err != nil {
+		if err := os.Remove(filepath.Join(brainDir, factstore.RepositoryPath)); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.Remove(path); err != nil {
 			t.Fatal(err)
 		}
-		got := inspectBrainFactStore(brainDir)
-		if got.Mode != factStoreDefectMissing {
+		got := factstore.InspectBrain(brainDir)
+		if got.Mode != factstore.DefectMissing {
 			t.Fatalf("mode = %q, want missing", got.Mode)
 		}
-		if !strings.Contains(got.Warning(), factsFileName) {
+		if !strings.Contains(got.Warning(), factstore.FileName) {
 			t.Fatalf("missing warning does not name the file: %q", got.Warning())
 		}
 	})
 
 	// Every mode names a repair.
-	for _, mode := range []factStoreDefectMode{factStoreDefectLossy, factStoreDefectUnreadable, factStoreDefectMissing, factStoreDefectStale, factStoreDefectDuplicated} {
-		got := factStoreIntegrity{Mode: mode, Declared: 5, Readable: 4, Distinct: 3, Missing: []string{"feature"}, DuplicateIDs: []string{"fact:aaaa"}}
+	for _, mode := range []factstore.DefectMode{factstore.DefectLossy, factstore.DefectUnreadable, factstore.DefectMissing, factstore.DefectStale, factstore.DefectDuplicated} {
+		got := factstore.Integrity{Mode: mode, Declared: 5, Readable: 4, Distinct: 3, Missing: []string{"feature"}, DuplicateIDs: []string{"fact:aaaa"}}
 		if !strings.Contains(got.Warning(), base.BrainInvocation(os.LookupEnv, "refresh")) {
 			t.Fatalf("mode %q does not name the repair command: %q", mode, got.Warning())
 		}
@@ -364,7 +366,7 @@ func TestFactStoreIntegrityKeepsFailureModesDistinct(t *testing.T) {
 func TestFactStoreIntegrityHealthyBrainDoesNotRegress(t *testing.T) {
 	opts, repoDir, brainDir, _ := factLossFixture(t)
 
-	integrity := inspectBrainFactStore(brainDir)
+	integrity := factstore.InspectBrain(brainDir)
 	if !integrity.OK() {
 		t.Fatalf("an intact five-fact store failed the check: %+v", integrity)
 	}
@@ -425,13 +427,13 @@ func TestFactStoreIntegrityEmptyBrainReportsNoLoss(t *testing.T) {
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 	brainDir := writeDistillFixture(t, now)
 
-	if got := inspectBrainFactStore(brainDir); !got.OK() {
+	if got := factstore.InspectBrain(brainDir); !got.OK() {
 		t.Fatalf("a brain with no fact source reported loss: %+v", got)
 	}
 
 	// A declared-but-genuinely-empty fact source is the sharper case: zero
 	// declared and zero readable agree, and nothing is wrong.
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,7 +441,7 @@ func TestFactStoreIntegrityEmptyBrainReportsNoLoss(t *testing.T) {
 	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 		t.Fatal(err)
 	}
-	got := inspectBrainFactStore(brainDir)
+	got := factstore.InspectBrain(brainDir)
 	if !got.OK() {
 		t.Fatalf("an empty-but-declared fact source reported loss: %+v", got)
 	}
@@ -499,12 +501,12 @@ func TestFactStoreIntegrityDetectsCountPreservingOverwrite(t *testing.T) {
 	destroyed, standin := overwriteFactLineWithLine(t, path, 0, 1)
 
 	t.Run("cross-check", func(t *testing.T) {
-		integrity := inspectBrainFactStore(brainDir)
+		integrity := factstore.InspectBrain(brainDir)
 		if integrity.OK() {
 			t.Fatalf("integrity reports a healthy store after a fact was overwritten by its neighbour: %+v", integrity)
 		}
-		if integrity.Mode != factStoreDefectDuplicated {
-			t.Fatalf("mode = %q, want %q", integrity.Mode, factStoreDefectDuplicated)
+		if integrity.Mode != factstore.DefectDuplicated {
+			t.Fatalf("mode = %q, want %q", integrity.Mode, factstore.DefectDuplicated)
 		}
 		// The counts AGREE. That is the whole point: this defect is invisible
 		// to them, and the check must not depend on them disagreeing.
@@ -675,9 +677,9 @@ func TestFactStoreIntegrityAppendedDuplicateIsNotAStaleManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := inspectBrainFactStore(brainDir)
-	if got.Mode != factStoreDefectDuplicated {
-		t.Fatalf("mode = %q, want %q: a repeated id is a collision, not a manifest that fell behind", got.Mode, factStoreDefectDuplicated)
+	got := factstore.InspectBrain(brainDir)
+	if got.Mode != factstore.DefectDuplicated {
+		t.Fatalf("mode = %q, want %q: a repeated id is a collision, not a manifest that fell behind", got.Mode, factstore.DefectDuplicated)
 	}
 	if got.Readable != 6 || got.Distinct != 5 || got.Overwritten() != 1 {
 		t.Fatalf("readable/distinct/overwritten = %d/%d/%d, want 6/5/1", got.Readable, got.Distinct, got.Overwritten())
@@ -685,7 +687,7 @@ func TestFactStoreIntegrityAppendedDuplicateIsNotAStaleManifest(t *testing.T) {
 	if strings.Contains(got.Warning(), "the manifest is behind the store") {
 		t.Fatalf("a colliding store was still told to just refresh: %q", got.Warning())
 	}
-	if !strings.Contains(got.Warning(), factsRepairHint()) {
+	if !strings.Contains(got.Warning(), factstore.RepairHint()) {
 		t.Fatalf("warning does not name the repair: %q", got.Warning())
 	}
 }
@@ -702,7 +704,7 @@ func TestFactStoreIntegrityStaleStaysStale(t *testing.T) {
 		Paths:      []string{"project.tooling.stack"},
 		Text:       "a sixth fact nobody told the manifest about",
 		Branch:     "feature",
-		Origin:     factOriginAuthored,
+		Origin:     factstore.OriginAuthored,
 		Status:     factStatusActive,
 		Provenance: []factAnchor{{SessionID: "session-1"}},
 	}
@@ -721,8 +723,8 @@ func TestFactStoreIntegrityStaleStaysStale(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := inspectBrainFactStore(brainDir)
-	if got.Mode != factStoreDefectStale {
+	got := factstore.InspectBrain(brainDir)
+	if got.Mode != factstore.DefectStale {
 		t.Fatalf("mode = %q, want stale", got.Mode)
 	}
 	if got.Distinct != 6 || got.Overwritten() != 0 {
@@ -744,8 +746,8 @@ func TestFactStoreIntegrityShortAndCollidedReportsBoth(t *testing.T) {
 	overwriteFactLineWithLine(t, path, 0, 1)
 	replaceFactLines(t, path, `{"hello":"world"}`, 4)
 
-	got := inspectBrainFactStore(brainDir)
-	if got.Mode != factStoreDefectLossy {
+	got := factstore.InspectBrain(brainDir)
+	if got.Mode != factstore.DefectLossy {
 		t.Fatalf("mode = %q, want lossy: a short store is still short", got.Mode)
 	}
 	if !strings.Contains(got.Warning(), "5 declared, 4 readable") {
@@ -767,7 +769,7 @@ func TestFactStoreIntegrityAllowsOneIDOnTwoBranches(t *testing.T) {
 	_, _, brainDir, _ := factLossFixture(t)
 	now := time.Date(2026, 8, 10, 3, 0, 0, 0, time.UTC)
 
-	feature, err := loadFacts(brainDir, "feature")
+	feature, err := factstore.Load(brainDir, "feature")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -776,14 +778,14 @@ func TestFactStoreIntegrityAllowsOneIDOnTwoBranches(t *testing.T) {
 		fact.Branch = "main"
 		carried = append(carried, fact)
 	}
-	if err := writeFacts(brainDir, "main", carried); err != nil {
+	if err := factstore.Write(brainDir, "main", carried); err != nil {
 		t.Fatal(err)
 	}
 	if err := updateFactSourceManifest(brainDir, now); err != nil {
 		t.Fatal(err)
 	}
 
-	got := inspectBrainFactStore(brainDir)
+	got := factstore.InspectBrain(brainDir)
 	if !got.OK() {
 		t.Fatalf("carrying a branch's facts into another branch was reported as corruption: %+v\n%s", got, got.Warning())
 	}
@@ -798,7 +800,7 @@ func TestFactStoreIntegrityAllowsOneIDOnTwoBranches(t *testing.T) {
 func TestFactStoreIntegrityHealthyStoreHasNoCollisions(t *testing.T) {
 	_, _, brainDir, _ := factLossFixture(t)
 
-	got := inspectBrainFactStore(brainDir)
+	got := factstore.InspectBrain(brainDir)
 	if !got.OK() {
 		t.Fatalf("an intact five-fact store failed the identity check: %+v", got)
 	}
@@ -808,7 +810,7 @@ func TestFactStoreIntegrityHealthyStoreHasNoCollisions(t *testing.T) {
 }
 
 // TestFactStoreIntegrityStagedCandidateIsNotAStaleManifest pins the pending
-// arm of the cross-check. summarizeFactSource deliberately declares a
+// arm of the cross-check. factstore.SummarizeSource deliberately declares a
 // factStatusCandidate under pending_reconcile instead of Facts, so a store
 // holding one is NOT ahead of its manifest. Before this, the check compared
 // Readable against Facts alone and a single staged candidate reported "the
@@ -822,7 +824,7 @@ func TestFactStoreIntegrityStagedCandidateIsNotAStaleManifest(t *testing.T) {
 		Paths:      []string{"project.tooling.stack"},
 		Text:       "a staged candidate awaiting reconciliation",
 		Branch:     "feature",
-		Origin:     factOriginDistilled,
+		Origin:     factstore.OriginDistilled,
 		Status:     factStatusCandidate,
 		Provenance: []factAnchor{{SessionID: "session-1"}},
 	}
@@ -843,8 +845,8 @@ func TestFactStoreIntegrityStagedCandidateIsNotAStaleManifest(t *testing.T) {
 
 	// The candidate landed after the manifest: that really is a manifest
 	// behind the store, and must still say so.
-	before := inspectBrainFactStore(brainDir)
-	if before.Mode != factStoreDefectStale {
+	before := factstore.InspectBrain(brainDir)
+	if before.Mode != factstore.DefectStale {
 		t.Fatalf("un-summarized candidate mode = %q, want stale", before.Mode)
 	}
 
@@ -854,7 +856,7 @@ func TestFactStoreIntegrityStagedCandidateIsNotAStaleManifest(t *testing.T) {
 	if err := updateFactSourceManifest(brainDir, time.Date(2026, 8, 10, 3, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
-	got := inspectBrainFactStore(brainDir)
+	got := factstore.InspectBrain(brainDir)
 	if !got.OK() {
 		t.Fatalf("a declared staged candidate reads as damage: mode=%q warning=%q", got.Mode, got.Warning())
 	}
@@ -882,8 +884,8 @@ func TestFactStoreIntegrityStagedCandidateIsNotAStaleManifest(t *testing.T) {
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
-	stale := inspectBrainFactStore(brainDir)
-	if stale.Mode != factStoreDefectStale {
+	stale := factstore.InspectBrain(brainDir)
+	if stale.Mode != factstore.DefectStale {
 		t.Fatalf("extra active record mode = %q, want stale", stale.Mode)
 	}
 	if !strings.Contains(stale.Warning(), "5 declared (+1 staged candidate(s)), 7 readable") {

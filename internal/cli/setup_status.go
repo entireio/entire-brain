@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"io"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
@@ -109,7 +111,7 @@ type brainStatusOnboarding struct {
 // re-run from re-spending on it.
 func factsBackfillStatusForBrain(brainDir string) factsBackfillStatus {
 	status := factsBackfillStatus{}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil || manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
 		return status
 	}
@@ -165,7 +167,7 @@ func buildBrainOnboardingStatus(ctx context.Context, opts Options, storage repoS
 		onboarding.Facts.LogPath = state.LogPath
 		onboarding.Facts.Running = onboarding.Facts.Pending() > 0 && backfillRunning(storage.BrainDir, state.PID)
 	}
-	if cursor := loadWatchCursor(filepath.Join(stateDir, "watch.json")); !cursor.LastRefreshAt.IsZero() {
+	if cursor := watch.LoadCursor(filepath.Join(stateDir, "watch.json")); !cursor.LastRefreshAt.IsZero() {
 		onboarding.LastTickAt = cursor.LastRefreshAt
 	}
 	var watchPlanErr error
@@ -179,7 +181,7 @@ func buildBrainOnboardingStatus(ctx context.Context, opts Options, storage repoS
 		onboarding.Daemon.Detail = strings.TrimSpace(onboarding.Daemon.Detail + "; watch plan unavailable: " + watchPlanErr.Error())
 	}
 	onboarding.Components = instantPhaseComponents(manifest, readSetupInstantRecord(stateDir), componentRunTimes(storage.BrainDir))
-	onboarding.Paused = backgroundPaused(opts.Env)
+	onboarding.Paused = clibase.BackgroundPaused(opts.Env)
 	return onboarding
 }
 
@@ -430,7 +432,7 @@ func renderBrainOnboardingStatus(out io.Writer, onboarding *brainStatusOnboardin
 		parts := make([]string, 0, len(onboarding.Components))
 		failed := false
 		for _, component := range onboarding.Components {
-			parts = append(parts, component.Name+"="+component.State)
+			parts = append(parts, brainSourceDisplayName(component.Name)+"="+component.State)
 			failed = failed || component.State == "failed"
 		}
 		fmt.Fprintf(out, "  instant: %s\n", strings.Join(parts, " "))

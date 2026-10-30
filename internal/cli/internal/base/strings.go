@@ -1,6 +1,7 @@
 package base
 
 import (
+	"strings"
 	"unicode/utf8"
 )
 
@@ -24,6 +25,15 @@ func TruncateString(value string, max int) string {
 		cut--
 	}
 	return value[:cut] + suffix
+}
+
+func FirstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // NonEmptyOr returns s, or fallback when s is empty.

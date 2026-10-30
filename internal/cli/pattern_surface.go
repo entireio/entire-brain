@@ -22,118 +22,6 @@ import (
 // the agent verifier is the authority that can remove, the deterministic gate the
 // authority that promotes.
 
-// loadCorpusPatternViews lists the V2 corpus `patterns` rows as unified
-// patternViews — the primary analytical source for the public `patterns`
-// surface (replacing the legacy procedure/practice JSON views). Each view
-// carries its dossier state (current/stale + verifier verdict) and top anchor.
-// Rejected dossiers are suppressed. Graceful: nil when no corpus exists.
-func loadCorpusPatternViewsChecked(brainDir string) ([]patternView, map[string]patternView, bool, error) {
-	db, present, err := patterncore.OpenCorpusReadDBIfPresent(brainDir)
-	if err != nil {
-		return nil, nil, false, err
-	}
-	if !present {
-		return nil, nil, false, nil
-	}
-	defer db.Close()
-
-	anchors, err := topAnchorByPatternChecked(db.DB)
-	if err != nil {
-		return nil, nil, true, err
-	}
-	rows, err := db.Query(`
-		SELECT p.id, p.type, p.scope, COALESCE(p.repo_key,''), COALESCE(p.workspace,''),
-		       COALESCE(p.intent_sig,''), COALESCE(p.gram,''), COALESCE(p.meta_id,''),
-		       p.title, p.strength, p.strength_label, p.support, p.n_repos,
-		       p.outcome_success, p.outcome_corrected, p.outcome_neutral,
-		       COALESCE(d.status,''), COALESCE(d.verdict,'')
-		FROM patterns p
-		LEFT JOIN dossiers d ON d.pattern_id = p.id
-		ORDER BY p.strength DESC`)
-	if err != nil {
-		return nil, nil, true, err
-	}
-	defer rows.Close()
-	var views []patternView
-	for rows.Next() {
-		var (
-			v                          patternView
-			repoKey, workspace, metaID string
-			succ, corr, neutral        int
-			dossierStatus, verdict     string
-		)
-		if err := rows.Scan(&v.ID, &v.Type, &v.Scope, &repoKey, &workspace,
-			&v.IntentSig, &v.Gram, &metaID, &v.Title, &v.Strength, &v.StrengthLabel, &v.Support, &v.Repos,
-			&succ, &corr, &neutral, &dossierStatus, &verdict); err != nil {
-			return nil, nil, true, err
-		}
-		if verdict == "rejected" { // the agent verifier is the authority that removes
-			continue
-		}
-		v.Kind = metaID
-		v.Workspace = workspace
-		v.Title = base.RedactText(v.Title)
-		v.DossierStatus = dossierStatus
-		v.Verdict = verdict
-		rc := reinforcementCounts{Success: succ, Corrected: corr, Neutral: neutral}
-		v.Reinforcement = &rc
-		if a, ok := anchors[v.ID]; ok {
-			ca := a
-			v.Example = &ca
-		}
-		views = append(views, v)
-	}
-	if rows.Err() != nil {
-		return nil, nil, true, rows.Err()
-	}
-	// Attach the per-repo breakdown to workspace-scope patterns.
-	breakdown, err := patterncore.LoadWorkspaceRepoBreakdownChecked(db.DB)
-	if err != nil {
-		return nil, nil, true, err
-	}
-	for i := range views {
-		if views[i].Scope == "workspace" {
-			views[i].RepoBreakdown = breakdown[views[i].ID]
-		}
-	}
-	idx := make(map[string]patternView, len(views))
-	for _, v := range views {
-		idx[v.ID] = v
-	}
-	return views, idx, true, nil
-}
-
-// loadCorpusPatternViews retains the historical best-effort helper for
-// internal scoring/tests. Production response surfaces use the checked form.
-func loadCorpusPatternViews(brainDir string) ([]patternView, map[string]patternView, bool) {
-	views, index, present, _ := loadCorpusPatternViewsChecked(brainDir)
-	return views, index, present
-}
-
-// topAnchorByPattern returns each pattern's rank-0 evidence anchor (redacted).
-func topAnchorByPattern(db *sql.DB) map[string]episodeAnchor {
-	anchors, _ := topAnchorByPatternChecked(db)
-	return anchors
-}
-
-func topAnchorByPatternChecked(db *sql.DB) (map[string]episodeAnchor, error) {
-	out := map[string]episodeAnchor{}
-	rows, err := db.Query(`SELECT pattern_id, source_path, start_line FROM pattern_evidence WHERE rank=0`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id, path string
-		var line int
-		if err := rows.Scan(&id, &path, &line); err != nil {
-			return nil, err
-		}
-		out[id] = episodeAnchor{Path: base.RedactText(path), Line: line}
-	}
-	return out, rows.Err()
-}
-
 // briefConsolidation is the compact, task-relevant projection of a dossier the
 // brief carries: enough to act (trigger, workflow, verification, failure modes)
 // plus one anchor and the trust signals (confidence, verdict, staleness).
@@ -314,12 +202,6 @@ func strongestConsolidationsChecked(brainDir string, limit int) ([]briefConsolid
 
 const patternPointerCap = 5
 
-type relatedPatternRef struct {
-	Type  string `json:"type"`
-	ID    string `json:"id"`
-	Title string `json:"title"`
-}
-
 // relatedPatternPointers returns capped pattern:/theme: pointers relevant to a
 // query by term overlap — discoverability only, never part of facts/history/docs
 // ranking. Rejected dossiers/themes are excluded; graceful (nil) when no corpus.
@@ -333,19 +215,19 @@ func relatedPatternPointersChecked(brainDir, query string, limit int) ([]related
 	if len(terms) == 0 || limit <= 0 {
 		return nil, nil
 	}
-	views, _, ok, err := loadCorpusPatternViewsChecked(brainDir)
+	views, _, ok, err := patterncore.LoadCorpusPatternViewsChecked(brainDir)
 	if err != nil {
 		return nil, err
 	}
 	if !ok {
 		return nil, nil
 	}
-	themes, err := loadThemeViewsChecked(brainDir, true)
+	themes, err := patterncore.LoadThemeViewsChecked(brainDir, true)
 	if err != nil {
 		return nil, err
 	}
 	for _, th := range themes { // verified themes only
-		views = append(views, themePatternView(th))
+		views = append(views, patterncore.ThemePatternView(th))
 	}
 	termSet := map[string]bool{}
 	for _, t := range terms {

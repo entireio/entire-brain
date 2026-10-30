@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,7 +47,7 @@ func (r *fakeCommandRunner) fakeGraphStoreCommand(dir, name string, args []strin
 		}
 	}
 	if d, ok := r.graphStoreFixtures[key]; ok && !force {
-		if db, err := openSemanticReadDB(graphStoreSource(d, "").StorePath); err == nil {
+		if db, err := semstore.OpenReadDB(semstore.GraphStoreSource(d, "").StorePath); err == nil {
 			db.Close()
 			return fakeCommandResponse{stdout: `{"index_cache_hit":true}`}, true
 		}
@@ -70,7 +71,7 @@ func (r *fakeCommandRunner) fakeGraphStoreCommand(dir, name string, args []strin
 	if err != nil {
 		return fakeCommandResponse{err: err}, true
 	}
-	path := filepath.Join(providerDir, generation, semanticSQLiteName)
+	path := filepath.Join(providerDir, generation, semstore.SQLiteName)
 	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		return fakeCommandResponse{err: err}, true

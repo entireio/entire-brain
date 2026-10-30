@@ -4,7 +4,12 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -39,23 +44,8 @@ const (
 	regressionMaxAnomalies = 50
 )
 
-type regressionAnomaly struct {
-	File             string   `json:"file"`
-	Line             int      `json:"line,omitempty"`
-	Kind             string   `json:"kind"` // "changed" | "deleted"
-	Current          string   `json:"current"`
-	Expected         string   `json:"expected"`
-	Identifier       string   `json:"identifier"`
-	Symbol           string   `json:"symbol,omitempty"`
-	RelatedLocations []string `json:"related_locations,omitempty"`
-	Confidence       float64  `json:"confidence"`
-	Reason           string   `json:"reason"`
-	Evidence         string   `json:"evidence"`
-	rankBoost        int
-}
-
 type regressionReport struct {
-	SchemaVersion int                 `json:"schema_version"` // shares reviewReportSchemaVersion; see docs/diffless_review_seam.md
+	SchemaVersion int                 `json:"schema_version"` // shares brainreview.ReportSchemaVersion; see docs/diffless_review_seam.md
 	GeneratedAt   time.Time           `json:"generated_at"`
 	Query         string              `json:"query"`
 	RepoPath      string              `json:"repo_path"`
@@ -67,14 +57,6 @@ type regressionReport struct {
 	// was read", never "nothing exists".
 	HistoryTruncated bool     `json:"history_truncated,omitempty"`
 	Warnings         []string `json:"warnings,omitempty"`
-}
-
-type regressionDetectorOptions struct {
-	limit            int
-	json             bool
-	includeDeletions bool // deletions are higher-recall but noisier (no recency data); opt-in
-	locationOnly     bool // emit file:line only, NOT expected/current — so a fair A/B can't paste the answer
-	patterns         bool // opt-in: attach V2 risk/practice/task corpus context for the finding files
 }
 
 type changeSignal struct {
@@ -279,39 +261,6 @@ func regressionSignalHead(raw string) string {
 	return strings.ToLower(token)
 }
 
-// regressionScanCaps records whether a hard limit stopped the raw-history walk before it reached
-// the end of the brain. A fired cap makes the scan PARTIAL: from that point on, the absence of a
-// signal is no longer evidence that no such signal exists, so every caller must say so rather than
-// print a clean bill of health.
-type regressionScanCaps struct {
-	// FileCap is true when the walk hit maxFiles opened history files.
-	FileCap bool
-	// SignalCap is true when both the distinct-change and distinct-delete signal caps filled.
-	SignalCap bool
-	// Scanned is the number of history files actually opened before the walk ended.
-	Scanned int
-	// MaxFiles / MaxSignals are the limits in force, reported so the warning is self-explaining.
-	MaxFiles   int
-	MaxSignals int
-}
-
-// Truncated reports whether the walk ended early, i.e. whether the scan is partial.
-func (c regressionScanCaps) Truncated() bool { return c.FileCap || c.SignalCap }
-
-// Warning renders the one line a reader needs to know the scan was partial. Empty when it was not.
-func (c regressionScanCaps) Warning() string {
-	switch {
-	case c.FileCap && c.SignalCap:
-		return fmt.Sprintf("history scan stopped early: hit both the %d-file cap and the %d-distinct-signal cap; results are partial and absence of a finding is not evidence of absence", c.MaxFiles, c.MaxSignals)
-	case c.FileCap:
-		return fmt.Sprintf("history scan stopped early: hit the %d-file cap after %d files; results are partial and absence of a finding is not evidence of absence", c.MaxFiles, c.Scanned)
-	case c.SignalCap:
-		return fmt.Sprintf("history scan stopped early: hit the %d-distinct-signal cap after %d files; results are partial and absence of a finding is not evidence of absence", c.MaxSignals, c.Scanned)
-	default:
-		return ""
-	}
-}
-
 // regressionScanHistory is the capped walk without the truncation report, kept for callers that
 // only need the signals. Prefer regressionScanHistoryCapped: a dropped cap report is exactly the
 // silent failure this file's warnings exist to prevent.
@@ -338,11 +287,11 @@ func regressionScanHistoryCapped(brainDir string, ids []string) ([]changeSignal,
 	caps := regressionScanCaps{MaxFiles: maxFiles, MaxSignals: maxSignalsEach}
 	// Resolve excluded transcript paths before reading any history. A broken
 	// manifest or privacy policy must fail closed, not disable exclusion.
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, nil, nil, caps, err
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return nil, nil, nil, caps, err
 	}
@@ -361,7 +310,7 @@ func regressionScanHistoryCapped(brainDir string, ids []string) ([]changeSignal,
 			return nil
 		}
 		if d.IsDir() {
-			if n := d.Name(); n == semanticDirName || n == ".git" {
+			if n := d.Name(); n == semstore.DirName || n == ".git" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -483,7 +432,7 @@ func detectRegressionAnomaliesCapped(brainDir, repoRoot string, semSource *seman
 	for _, rawID := range ids {
 		id := strings.ToLower(rawID)
 		if semSource != nil {
-			if syms, _, _, err := semanticContextFacts(brainDir, semSource, id, 8, 0); err == nil {
+			if syms, _, _, err := semstore.ContextFacts(brainDir, semSource, id, 8, 0); err == nil {
 				for rank, s := range syms {
 					if s.FilePath == "" {
 						continue
@@ -526,7 +475,7 @@ func detectRegressionAnomaliesCapped(brainDir, repoRoot string, semSource *seman
 		}
 		nativeClean := filepath.FromSlash(clean)
 		full := filepath.Join(repoRoot, nativeClean)
-		if err := rejectSymlinkPathComponents(repoRoot, nativeClean); err != nil {
+		if err := base.RejectSymlinkPathComponents(repoRoot, nativeClean); err != nil {
 			continue // per-component symlink guard, matching the brain's other repo reads
 		}
 		info, err := os.Stat(full)
@@ -665,7 +614,7 @@ func detectRegressionAnomaliesCapped(brainDir, repoRoot string, semSource *seman
 						Current: strings.TrimSpace(f.lines[i]), Expected: c.raw,
 						Identifier: c.id, Confidence: 0.8, Evidence: c.ev,
 						Reason:    fmt.Sprintf("suspected regression: history asserts %q; this line keeps %q but dropped %q (could also be a rename — verify)", c.raw, c.operand, c.id),
-						rankBoost: regressionCandidateRankBoost(f),
+						RankBoost: regressionCandidateRankBoost(f),
 					})
 					found = true
 					break
@@ -693,7 +642,7 @@ func detectRegressionAnomaliesCapped(brainDir, repoRoot string, semSource *seman
 						Current: h.current, Expected: d.raw,
 						Identifier: d.id, Confidence: 0.65, Evidence: d.ev,
 						Reason:    fmt.Sprintf("history asserts `%s` near a peer state update, but that call is absent at this current locus", d.raw),
-						rankBoost: 3,
+						RankBoost: 3,
 					})
 				}
 				continue
@@ -708,7 +657,7 @@ func detectRegressionAnomaliesCapped(brainDir, repoRoot string, semSource *seman
 						Current: h.current, Expected: d.raw,
 						Identifier: d.id, Confidence: 0.65, Evidence: d.ev,
 						Reason:    fmt.Sprintf("history asserts `%s` in this hinted file, but that assignment is absent at this current locus", d.raw),
-						rankBoost: 1,
+						RankBoost: 1,
 					})
 				}
 				continue
@@ -742,7 +691,7 @@ func detectRegressionAnomaliesCapped(brainDir, repoRoot string, semSource *seman
 			Current: cur, Expected: d.raw,
 			Identifier: d.id, Confidence: 0.65, Evidence: d.ev,
 			Reason:    fmt.Sprintf("history asserts `%s` but that %s is absent everywhere in the current tree", d.raw, invariantKind),
-			rankBoost: rankBoost,
+			RankBoost: rankBoost,
 		})
 	}
 
@@ -1132,8 +1081,8 @@ func regressionDedupeRank(in []regressionAnomaly) []regressionAnomaly {
 		out = append(out, a)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].rankBoost != out[j].rankBoost {
-			return out[i].rankBoost > out[j].rankBoost
+		if out[i].RankBoost != out[j].RankBoost {
+			return out[i].RankBoost > out[j].RankBoost
 		}
 		if out[i].Confidence != out[j].Confidence {
 			return out[i].Confidence > out[j].Confidence
@@ -1243,8 +1192,8 @@ func regressionRelatedLocationMatch(a, b regressionAnomaly) bool {
 }
 
 func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, ro regressionDetectorOptions, query string) error {
-	if ro.limit <= 0 {
-		ro.limit = 20
+	if ro.Limit <= 0 {
+		ro.Limit = 20
 	}
 	target := agentSurfaceTarget(opts, nil)
 	status, err := buildBrainStatusReport(ctx, opts, target)
@@ -1259,8 +1208,8 @@ func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, 
 	if status.Manifest != nil && status.Manifest.Sources != nil {
 		semSource = status.Manifest.Sources.Semantic
 	}
-	anomalies, scanned, warnings, caps := detectRegressionAnomaliesCapped(status.Brain.Path, status.Repo.Root, semSource, query, ro.limit, ro.includeDeletions)
-	if ro.locationOnly {
+	anomalies, scanned, warnings, caps := detectRegressionAnomaliesCapped(status.Brain.Path, status.Repo.Root, semSource, query, ro.Limit, ro.IncludeDeletions)
+	if ro.LocationOnly {
 		// Hand only the suspected location, not the fix — so a fair A/B measures detection, not
 		// the agent pasting a harness-computed `expected`.
 		for i := range anomalies {
@@ -1273,7 +1222,7 @@ func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, 
 		}
 	}
 	report := regressionReport{
-		SchemaVersion:    reviewReportSchemaVersion,
+		SchemaVersion:    brainreview.ReportSchemaVersion,
 		GeneratedAt:      opts.Now().UTC(),
 		Query:            query,
 		RepoPath:         status.Repo.Root,
@@ -1284,8 +1233,8 @@ func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, 
 		Warnings:         warnings,
 	}
 	render := func() error {
-		if ro.json {
-			return writeJSON(cmd, report)
+		if ro.JSON {
+			return cmdutil.WriteJSON(cmd, report)
 		}
 		out := cmd.OutOrStdout()
 		if len(anomalies) == 0 {
@@ -1306,7 +1255,7 @@ func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, 
 }
 
 func newInspectRegressionsCommand(opts Options) *cobra.Command {
-	ro := regressionDetectorOptions{limit: 20}
+	ro := regressionDetectorOptions{Limit: 20}
 	cmd := &cobra.Command{
 		Use:   "regressions <query>",
 		Short: "Flag suspected regressions by comparing current code to session history",
@@ -1315,103 +1264,15 @@ func newInspectRegressionsCommand(opts Options) *cobra.Command {
 			return runRegressionDetect(cmd.Context(), cmd, opts, ro, args[0])
 		},
 	}
-	cmd.Flags().IntVar(&ro.limit, "limit", 20, "Maximum suspected regressions to return")
-	cmd.Flags().BoolVar(&ro.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&ro.includeDeletions, "include-deletions", false, "Also flag deleted assignments (higher recall, noisier)")
-	cmd.Flags().BoolVar(&ro.locationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
+	cmd.Flags().IntVar(&ro.Limit, "limit", 20, "Maximum suspected regressions to return")
+	cmd.Flags().BoolVar(&ro.JSON, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&ro.IncludeDeletions, "include-deletions", false, "Also flag deleted assignments (higher recall, noisier)")
+	cmd.Flags().BoolVar(&ro.LocationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
 	return cmd
 }
 
-// ---- Diff-less review: the versioned contract `entire review` / `labs investigate` are INTENDED to
-//      consume (cross-repo, NOT yet wired) ----
-//
-// This is the machine contract, not a human verb (the human review surface is `entire review` in the
-// cli; this command is hidden — see root.go). When wired, the cli's `entire review` WOULD gain a
-// diff-less mode that shells `entire-brain review <query> --json`, checks reviewReport.schema_version,
-// and folds these findings into the review prompt — reviewing the working tree against the brain's
-// memory instead of a branch-vs-base diff (the graceful upgrade entire-brain gets from entire-graph).
-// That CLI consumer is not landed. Full contract + consumer design:
-// docs/diffless_review_seam.md.
-//
-// Consumer status (cross-repo, in entireio/cli — NOT in this repo, do not claim either is shipped):
-//   - `entire review`            : consumer integration is NOT landed.
-//   - `entire labs investigate`  : DESIGNED, NOT WIRED.
-//
-// TODO(diffless-seam): wire `entire labs investigate` to consume this contract — fold the suspected
-// regressions for the investigation topic into the per-turn shared context so every brainstorming
-// agent sees them. No diff concept there, so it fires whenever the brain is installed. Design lives in
-// docs/diffless_review_seam.md; the CLI-side hook is not landed here.
-
-// reviewReportSchemaVersion is the contract version `entire review` is intended to bind to (the
-// consumer is not yet landed; see above). Bump on any breaking change to reviewReport / reviewFinding
-// (field rename/removal/semantics).
-const reviewReportSchemaVersion = 1
-
-type reviewFinding struct {
-	Severity   string  `json:"severity"` // high (reserved) | medium (changed) | low (deleted)
-	File       string  `json:"file"`
-	Line       int     `json:"line,omitempty"`
-	Title      string  `json:"title"`
-	Detail     string  `json:"detail"`
-	Evidence   string  `json:"evidence"`
-	Confidence float64 `json:"confidence"`
-}
-
-type reviewReport struct {
-	SchemaVersion int       `json:"schema_version"`
-	GeneratedAt   time.Time `json:"generated_at"`
-	Mode          string    `json:"mode"`
-	Query         string    `json:"query"`
-	RepoPath      string    `json:"repo_path"`
-	BrainPath     string    `json:"brain_path"`
-	Summary       string    `json:"summary"`
-	// Checked reports whether the review actually compared anything. False means
-	// the brain held nothing to check this tree against — history carried no
-	// precise code assertions for these identifiers, or there were no current
-	// files to read — so an empty Findings list means UNKNOWN, not clean. A
-	// consumer that reads len(findings) == 0 as a pass must read this first;
-	// FilesScanned is the evidence behind it.
-	//
-	// Additive: nothing was renamed or removed and the contract has no landed
-	// consumer (see reviewReportSchemaVersion), so the schema version is
-	// unchanged.
-	Checked       bool             `json:"checked"`
-	FilesScanned  int              `json:"files_scanned"`
-	Findings      []reviewFinding  `json:"findings"`
-	Warnings      []string         `json:"warnings,omitempty"`
-	RuntimeTraces []semanticRecord `json:"runtime_traces,omitempty"`
-	// PatternContext is OPT-IN (only with --patterns): V2 corpus risk/practice/
-	// task patterns whose recorded evidence touched the finding files — diff-less
-	// regression context. omitempty keeps the default review output byte-identical
-	// for the versioned schema's existing consumers.
-	PatternContext []reviewPatternRef `json:"pattern_context,omitempty"`
-}
-
-type reviewPatternRef struct {
-	File  string `json:"file"`
-	Type  string `json:"type"`
-	Title string `json:"title"`
-	ID    string `json:"id"`
-}
-
-// regressionSeverity maps detector confidence to a review severity. Every finding the current
-// heuristic detector emits is *suspected* — `changed` (0.8) is precise but rename-ambiguous and
-// `deleted` (0.65) is noisier/opt-in — so none warrant "high". That tier is reserved for a future
-// high-confidence signal (a durable fact bound to a locus with recency), so the machine severity
-// never contradicts the "could be a rename — verify" hedge: changed -> medium, deleted -> low.
-func regressionSeverity(conf float64) string {
-	switch {
-	case conf >= 0.9:
-		return "high" // reserved: no heuristic finding reaches this today
-	case conf >= 0.7:
-		return "medium"
-	default:
-		return "low"
-	}
-}
-
 // regressionNoAnomaliesLine is the headline `inspect regressions` prints when nothing was
-// flagged. Like reviewSummary, it may never claim more than the run established.
+// flagged. Like brainreview.ReviewSummary, it may never claim more than the run established.
 //
 // There are three distinct causes of zero findings and they used to share two sentences:
 //   - scanned == 0: nothing was compared at all.
@@ -1428,164 +1289,4 @@ func regressionNoAnomaliesLine(query string, scanned int, historyTruncated bool)
 	default:
 		return fmt.Sprintf("No suspected regressions for %q (scanned %d files).", query, scanned)
 	}
-}
-
-// reviewSummary is the one line a reader takes away, and it may never say more
-// than the run actually established.
-//
-// Zero findings has two completely different causes and they were reported with
-// the same sentence: "no suspected regressions (current tree matches the brain's
-// memory)". On a brain that was never built, or whose history holds no precise
-// code assertions for the query, detectRegressionAnomalies returns before it
-// opens a single file — scanned == 0 — and that sentence became a clean bill of
-// health for a comparison that never happened. The contradiction was printed
-// directly underneath it, as "note: history holds no precise code assertions for
-// these identifiers", but the summary is the line people quote.
-//
-// scanned is the number of current files actually read and compared, so
-// scanned == 0 is the precise, non-string-matched test for "nothing was
-// checked".
-func reviewSummary(findings, scanned int, historyTruncated bool) string {
-	switch {
-	case historyTruncated && scanned > 0:
-		return fmt.Sprintf("Diff-less review: PARTIAL — %d suspected regression(s) in %d file(s) compared; the history scan stopped at a cap, so this is not a clean result and additional regressions may exist. See the notes below.", findings, scanned)
-	case findings > 0:
-		return fmt.Sprintf("Diff-less review: %d suspected regression(s) — verify each before acting.", findings)
-	case scanned == 0:
-		return "Diff-less review: INCONCLUSIVE — nothing was compared (the brain holds no code assertions to check this tree against). This is not a clean result; see the notes below."
-	default:
-		return fmt.Sprintf("Diff-less review: no suspected regressions (%d file(s) compared against the brain's memory).", scanned)
-	}
-}
-
-func anomalyToReviewFinding(a regressionAnomaly) reviewFinding {
-	detail := "suspected regression at this location — verify against the brain's history."
-	if a.Expected != "" {
-		detail = fmt.Sprintf("history shows `%s`; current is `%s` — verify this change is intentional (could also be a rename).", a.Expected, a.Current)
-	}
-	return reviewFinding{
-		Severity:   regressionSeverity(a.Confidence),
-		File:       a.File,
-		Line:       a.Line,
-		Title:      fmt.Sprintf("Suspected regression: `%s` %s", a.Identifier, a.Kind),
-		Detail:     detail,
-		Evidence:   a.Evidence,
-		Confidence: a.Confidence,
-	}
-}
-
-func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro regressionDetectorOptions, query string) error {
-	if ro.limit <= 0 {
-		ro.limit = 20
-	}
-	target := agentSurfaceTarget(opts, nil)
-	status, err := buildBrainStatusReport(ctx, opts, target)
-	if err != nil {
-		return err
-	}
-	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(status.Brain.Path)
-	if err != nil {
-		return err
-	}
-	if ro.patterns {
-		privacyPolicy.RequireDerivedClean = true
-		if err := requirePrivacyDerivedRead(status.Brain.Path); err != nil {
-			return err
-		}
-		if err := requirePatternCorpusAvailable(status.Brain.Path); err != nil {
-			return err
-		}
-	}
-	var semSource *semanticSourceManifest
-	if status.Manifest != nil && status.Manifest.Sources != nil {
-		semSource = status.Manifest.Sources.Semantic
-	}
-	anomalies, scanned, warnings, caps := detectRegressionAnomaliesCapped(status.Brain.Path, status.Repo.Root, semSource, query, ro.limit, ro.includeDeletions)
-	var runtimeTraces []semanticRecord
-	if semSource != nil {
-		traces, err := semanticRuntimeTraceFacts(status.Brain.Path, semSource, query, ro.limit)
-		if err != nil {
-			warnings = append(warnings, "runtime trace facts unavailable for review context")
-		} else {
-			for _, trace := range traces {
-				if trace.Score > 1 {
-					runtimeTraces = append(runtimeTraces, trace)
-				}
-			}
-		}
-	}
-	if ro.locationOnly {
-		// Parity with `inspect regressions --location-only`: hand the suspected site, not the fix,
-		// so a fair consumer/A-B measures detection rather than pasting a harness-computed value.
-		for i := range anomalies {
-			anomalies[i].Expected = ""
-			anomalies[i].Current = ""
-			anomalies[i].Reason = "suspected regression site (location only)"
-		}
-	}
-	findings := make([]reviewFinding, 0, len(anomalies))
-	for _, a := range anomalies {
-		findings = append(findings, anomalyToReviewFinding(a))
-	}
-	report := reviewReport{
-		SchemaVersion: reviewReportSchemaVersion,
-		GeneratedAt:   opts.Now().UTC(),
-		Mode:          "diff-less (brain memory vs current tree)",
-		Query:         query,
-		RepoPath:      status.Repo.Root,
-		BrainPath:     status.Brain.Path,
-		Summary:       reviewSummary(len(findings), scanned, caps.Truncated()),
-		Checked:       scanned > 0,
-		FilesScanned:  scanned,
-		Findings:      findings,
-		Warnings:      warnings,
-		RuntimeTraces: runtimeTraces,
-	}
-	if ro.patterns {
-		files := make([]string, 0, len(findings))
-		for _, f := range findings {
-			files = append(files, f.File)
-		}
-		report.PatternContext, err = loadReviewPatternContextChecked(status.Brain.Path, files, ro.limit)
-		if err != nil {
-			return err
-		}
-	}
-	render := func() error {
-		if ro.json {
-			return writeJSON(cmd, report)
-		}
-		out := cmd.OutOrStdout()
-		fmt.Fprintln(out, report.Summary)
-		for _, f := range findings {
-			fmt.Fprintf(out, "\n  [%s] %s\n    %s:%d\n    %s\n    evidence: %s\n",
-				strings.ToUpper(f.Severity), f.Title, f.File, f.Line, f.Detail, f.Evidence)
-		}
-		for _, pc := range report.PatternContext {
-			fmt.Fprintf(out, "  pattern context [%s] %s — %s   id %s\n", pc.Type, pc.File, pc.Title, pc.ID)
-		}
-		for _, w := range warnings {
-			fmt.Fprintf(out, "  note: %s\n", w)
-		}
-		return nil
-	}
-	return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, render)
-}
-
-func newBrainReviewCommand(opts Options) *cobra.Command {
-	ro := regressionDetectorOptions{limit: 20}
-	cmd := &cobra.Command{
-		Use:   "review <query>",
-		Short: "Diff-less review: flag suspected regressions in the current tree vs the brain's memory",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBrainReview(cmd.Context(), cmd, opts, ro, args[0])
-		},
-	}
-	cmd.Flags().IntVar(&ro.limit, "limit", 20, "Maximum findings")
-	cmd.Flags().BoolVar(&ro.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&ro.patterns, "patterns", false, "Attach V2 corpus risk/practice/task context for the finding files (additive)")
-	cmd.Flags().BoolVar(&ro.includeDeletions, "include-deletions", false, "Also flag deleted assignments (lower confidence, noisier)")
-	cmd.Flags().BoolVar(&ro.locationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
-	return cmd
 }

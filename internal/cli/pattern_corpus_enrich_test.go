@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 )
 
@@ -97,7 +98,7 @@ func TestCorpusEnrichmentIntegration(t *testing.T) {
 	brainDir := writeEpisodeFixture(t, now, "gh/acme/cli", []sessionFixture{
 		{id: "s1", branch: "main", agent: "Codex", checkpoint: "cp1", relPath: "sessions/main/s1.jsonl", author: "Ada", transcript: transcript},
 	})
-	if err := writeFacts(brainDir, "main", []factRecord{
+	if err := factstore.Write(brainDir, "main", []factRecord{
 		{ID: "fact:wt", Paths: []string{"architecture.x.y"}, Text: "The worktree fingerprint hashes git status and the binary diff.", Locus: []string{"worktreefingerprint"}, Branch: "main", Origin: "distilled", Status: "active", Provenance: []factAnchor{{SessionID: "s1"}}, UpdatedAt: now},
 	}); err != nil {
 		t.Fatal(err)

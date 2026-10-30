@@ -6,6 +6,11 @@ import (
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"os"
 	"path/filepath"
@@ -37,11 +42,11 @@ func seedBundleTestLayers(t *testing.T, brainDir string) {
 	t.Helper()
 	now := time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC)
 	writeBundleTestFile(t, filepath.Join(brainDir, seedDirName, "repo-overview.md"), "# overview\n")
-	writeBundleTestFile(t, filepath.Join(brainDir, docDirName, docIndexFileName), `{"generated_at":"2026-02-03T04:05:06Z","records":[]}`)
-	writeBundleTestFile(t, filepath.Join(brainDir, factsDirName, "taxonomy.json"), `{"version":1}`)
-	writeBundleTestFile(t, filepath.Join(brainDir, factsDirName, "main-0000", factsFileName), `{"id":"fact:abc","kind":"decision","statement":"authored fact that must survive a round trip"}`+"\n")
+	writeBundleTestFile(t, filepath.Join(brainDir, docstore.DirName, docstore.IndexFileName), `{"generated_at":"2026-02-03T04:05:06Z","records":[]}`)
+	writeBundleTestFile(t, filepath.Join(brainDir, factstore.DirName, "taxonomy.json"), `{"version":1}`)
+	writeBundleTestFile(t, filepath.Join(brainDir, factstore.DirName, "main-0000", factstore.FileName), `{"id":"fact:abc","kind":"decision","statement":"authored fact that must survive a round trip"}`+"\n")
 	writeBundleTestFile(t, filepath.Join(brainDir, brainstore.SessionsDirName, "main", "session.jsonl"), `{"role":"user","text":"verbatim conversation content"}`+"\n")
-	writeBundleTestFile(t, filepath.Join(brainDir, brainstore.HistoryDirName, "generations", "gen1", historyIndexFileName), `{"records":[]}`)
+	writeBundleTestFile(t, filepath.Join(brainDir, brainstore.HistoryDirName, "generations", "gen1", historystore.IndexFileName), `{"records":[]}`)
 	writeBundleTestFile(t, filepath.Join(brainDir, brainPatternsDirName, "episodes.ndjson"), `{"id":"episode:1"}`+"\n")
 
 	// Privacy policy and operational state: present in the brain, and never in
@@ -50,7 +55,7 @@ func seedBundleTestLayers(t *testing.T, brainDir string) {
 	writeBundleTestFile(t, filepath.Join(brainDir, brainstore.HistoryDirName, "privacy", "session%3Asecret.json"), `{"schema_version":1,"session_id":"session:secret"}`)
 	writeBundleTestFile(t, filepath.Join(brainDir, brainstore.HistoryDirName, "work", "v1", "worker.log"), "local worker log\n")
 
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -58,9 +63,9 @@ func seedBundleTestLayers(t *testing.T, brainDir string) {
 		manifest.Sources = &brainSources{}
 	}
 	manifest.Sources.Seed = &seedSourceManifest{GeneratedAt: now, SummaryPath: seedDirName + "/repo-overview.md", WorktreeMode: "head"}
-	manifest.Sources.Docs = &docSourceManifest{GeneratedAt: now, IndexPath: docDirName + "/" + docIndexFileName, Records: 0, Files: 1}
-	manifest.Sources.Facts = &factSourceManifest{GeneratedAt: now, TaxonomyPath: factsDirName + "/taxonomy.json", Branches: []string{"main"}, Facts: 1, Authored: 1}
-	manifest.Sources.History = &historySourceManifest{GeneratedAt: now, IndexPath: brainstore.HistoryDirName + "/generations/gen1/" + historyIndexFileName}
+	manifest.Sources.Docs = &docSourceManifest{GeneratedAt: now, IndexPath: docstore.DirName + "/" + docstore.IndexFileName, Records: 0, Files: 1}
+	manifest.Sources.Facts = &factSourceManifest{GeneratedAt: now, TaxonomyPath: factstore.DirName + "/taxonomy.json", Branches: []string{"main"}, Facts: 1, Authored: 1}
+	manifest.Sources.History = &historySourceManifest{GeneratedAt: now, IndexPath: brainstore.HistoryDirName + "/generations/gen1/" + historystore.IndexFileName}
 	manifest.Sources.Patterns = &patternSourceManifest{GeneratedAt: now, EpisodesPath: brainPatternsDirName + "/episodes.ndjson", Episodes: 1}
 	manifest.Sources.Sessions = &sessionSourceManifest{GeneratedAt: now, TranscriptMode: "full", Scope: "repo"}
 	manifest.Branches = []exportBranch{{Branch: "main", Directory: brainstore.SessionsDirName + "/main", SessionCount: 1, Default: true}}
@@ -107,7 +112,7 @@ func bundleTestManifest(t *testing.T, path string) exportManifest {
 		if err != nil {
 			t.Fatalf("read bundle: %v", err)
 		}
-		if header.Name != exportManifestFileName {
+		if header.Name != bmanifest.FileName {
 			continue
 		}
 		data, err := io.ReadAll(tr)
@@ -120,7 +125,7 @@ func bundleTestManifest(t *testing.T, path string) exportManifest {
 		}
 		return manifest
 	}
-	t.Fatalf("bundle has no %s", exportManifestFileName)
+	t.Fatalf("bundle has no %s", bmanifest.FileName)
 	return exportManifest{}
 }
 
@@ -128,7 +133,7 @@ func bundleTestIndexedBrain(t *testing.T) (EntireEnv, Options, *cobra.Command, s
 	t.Helper()
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot(semanticSchemaVersion))
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot(semstore.SchemaVersion))
 	opts := Options{Version: "9.9.9", Env: env, Runner: runner, Now: func() time.Time {
 		return time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
 	}}
@@ -157,9 +162,9 @@ func TestBundleExportCarriesEveryDefaultLayer(t *testing.T) {
 	joined := strings.Join(entries, "\n")
 	for _, want := range []string{
 		"seed/repo-overview.md",
-		"docs/" + docIndexFileName,
+		"docs/" + docstore.IndexFileName,
 		"facts/taxonomy.json",
-		"facts/main-0000/" + factsFileName,
+		"facts/main-0000/" + factstore.FileName,
 	} {
 		if !slicesContainsString(entries, want) {
 			t.Fatalf("default bundle is missing %s; entries:\n%s", want, joined)
@@ -216,7 +221,7 @@ func TestBundleExportExcludesSessionFamilyAndPrivacyState(t *testing.T) {
 	entries := bundleTestEntries(t, output)
 	for _, forbidden := range []string{
 		brainstore.SessionsDirName + "/main/session.jsonl",
-		brainstore.HistoryDirName + "/generations/gen1/" + historyIndexFileName,
+		brainstore.HistoryDirName + "/generations/gen1/" + historystore.IndexFileName,
 		brainPatternsDirName + "/episodes.ndjson",
 	} {
 		if slicesContainsString(entries, forbidden) {
@@ -230,7 +235,7 @@ func TestBundleExportExcludesSessionFamilyAndPrivacyState(t *testing.T) {
 	sessionEntries := bundleTestEntries(t, withSessions)
 	for _, want := range []string{
 		brainstore.SessionsDirName + "/main/session.jsonl",
-		brainstore.HistoryDirName + "/generations/gen1/" + historyIndexFileName,
+		brainstore.HistoryDirName + "/generations/gen1/" + historystore.IndexFileName,
 		brainPatternsDirName + "/episodes.ndjson",
 	} {
 		if !slicesContainsString(sessionEntries, want) {
@@ -243,7 +248,7 @@ func TestBundleExportExcludesSessionFamilyAndPrivacyState(t *testing.T) {
 			brainstore.SessionTombstonesPath,
 			brainstore.HistoryDirName + "/privacy/session%3Asecret.json",
 			brainstore.HistoryDirName + "/work/v1/worker.log",
-			semanticDirName + "/" + semanticAuditLogName,
+			semstore.DirName + "/" + semanticAuditLogName,
 		} {
 			if slicesContainsString(entries, forbidden) {
 				t.Fatalf("bundle carried never-bundled entry %s", forbidden)
@@ -268,14 +273,14 @@ func TestBundleRoundTripPreservesAuthoredFacts(t *testing.T) {
 		t.Fatalf("import: %v", err)
 	}
 	importedBrain := bundleTestBrainDir(importEnv)
-	data, err := os.ReadFile(filepath.Join(importedBrain, factsDirName, "main-0000", factsFileName))
+	data, err := os.ReadFile(filepath.Join(importedBrain, factstore.DirName, "main-0000", factstore.FileName))
 	if err != nil {
 		t.Fatalf("imported brain lost the fact store: %v", err)
 	}
 	if !strings.Contains(string(data), "authored fact that must survive a round trip") {
 		t.Fatalf("imported fact store does not contain the authored fact: %s", data)
 	}
-	manifest, err := loadBrainManifest(importedBrain)
+	manifest, err := bmanifest.Load(importedBrain)
 	if err != nil {
 		t.Fatalf("load imported manifest: %v", err)
 	}
@@ -322,16 +327,16 @@ func TestBundleImportRejectsPrivacyPolicyEntries(t *testing.T) {
 		brainstore.SessionTombstonesPath,
 		brainstore.HistoryDirName + "/privacy/session%3Asecret.json",
 		brainstore.HistoryDirName + "/work/v1/worker.log",
-		semanticDirName + "/" + semanticAuditLogName,
+		semstore.DirName + "/" + semanticAuditLogName,
 	} {
 		if err := validateBundleEntry(&tar.Header{Name: name, Typeflag: tar.TypeReg}); err == nil {
 			t.Fatalf("bundle entry %q must be refused", name)
 		}
 	}
 	for _, name := range []string{
-		exportManifestFileName,
+		bmanifest.FileName,
 		seedDirName + "/repo-overview.md",
-		factsDirName + "/main-0000/" + factsFileName,
+		factstore.DirName + "/main-0000/" + factstore.FileName,
 		brainstore.HistoryDirName + "/generations/gen1/index.json",
 	} {
 		if err := validateBundleEntry(&tar.Header{Name: name, Typeflag: tar.TypeReg}); err != nil {
@@ -351,7 +356,7 @@ func slicesContainsString(haystack []string, needle string) bool {
 
 func TestBundleImportProtectsCheckpointBackedSessionCatalog(t *testing.T) {
 	_, opts, cmd, _, brain := bundleTestIndexedBrain(t)
-	manifest, err := loadBrainManifest(brain)
+	manifest, err := bmanifest.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +384,7 @@ func TestBundleImportProtectsCheckpointBackedSessionCatalog(t *testing.T) {
 	if err := writeBrainManifestAndReadme(brain, *manifest); err != nil {
 		t.Fatal(err)
 	}
-	before, err := os.ReadFile(filepath.Join(brain, exportManifestFileName))
+	before, err := os.ReadFile(filepath.Join(brain, bmanifest.FileName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,14 +392,14 @@ func TestBundleImportProtectsCheckpointBackedSessionCatalog(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "sessions") {
 		t.Fatalf("fileless catalog not protected: %v", err)
 	}
-	after, readErr := os.ReadFile(filepath.Join(brain, exportManifestFileName))
+	after, readErr := os.ReadFile(filepath.Join(brain, bmanifest.FileName))
 	if readErr != nil || string(after) != string(before) {
 		t.Fatal("refused import replaced manifest")
 	}
 	if err := runSemanticBundleImport(cmd.Context(), cmd, opts, output, bundleSHA256(t, output), true); err != nil {
 		t.Fatal(err)
 	}
-	restored, err := loadBrainManifest(brain)
+	restored, err := bmanifest.Load(brain)
 	if err != nil || len(restored.Sessions) != 1 || restored.Sessions[0].SessionID != "incoming" || checkpointBackedSessions(restored) {
 		t.Fatalf("overwrite failed to restore bundle source: %+v %v", restored, err)
 	}

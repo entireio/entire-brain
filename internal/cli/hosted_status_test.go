@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // hostedStatusFixture builds the smallest brain whose status report can carry
@@ -29,7 +32,7 @@ func hostedStatusFixture(t *testing.T) (Options, string, string) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		RepoKey:       storage.Key,
 		GeneratedAt:   now,
 		Sources: &brainSources{
@@ -71,7 +74,7 @@ func TestStatusHostedConnectedListsSyncedBranches(t *testing.T) {
 	opts, repoDir, brainDir := hostedStatusFixture(t)
 	const repoID = "01M2Q9WATHXVM46CD8Y4D3AX8W"
 	const baseURL = "https://cell.api.example.com"
-	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: repoID, BaseURL: baseURL}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(brainDir, brainstore.HostedRepoBinding{RepoID: repoID, BaseURL: baseURL}); err != nil {
 		t.Fatal(err)
 	}
 	// main synced against this target; feature never synced; a stale marker
@@ -121,7 +124,7 @@ func TestStatusHostedConnectedListsSyncedBranches(t *testing.T) {
 
 func TestStatusHostedLocalOnlyByKillSwitch(t *testing.T) {
 	opts, repoDir, brainDir := hostedStatusFixture(t)
-	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "01M2Q9WATHXVM46CD8Y4D3AX8W", BaseURL: "https://cell.api.example.com"}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(brainDir, brainstore.HostedRepoBinding{RepoID: "01M2Q9WATHXVM46CD8Y4D3AX8W", BaseURL: "https://cell.api.example.com"}); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
@@ -160,7 +163,7 @@ func TestStatusHostedCorruptBranchMarkerWarnsInsteadOfNeverSynced(t *testing.T) 
 	opts, repoDir, brainDir := hostedStatusFixture(t)
 	const repoID = "01M2Q9WATHXVM46CD8Y4D3AX8W"
 	const baseURL = "https://cell.api.example.com"
-	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: repoID, BaseURL: baseURL}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(brainDir, brainstore.HostedRepoBinding{RepoID: repoID, BaseURL: baseURL}); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeHostedFactsBinding(brainDir, "feature", repoID, baseURL); err != nil {
@@ -199,7 +202,7 @@ func TestStatusHostedCorruptBranchMarkerWarnsInsteadOfNeverSynced(t *testing.T) 
 func TestStatusHostedDisconnectedByOptOut(t *testing.T) {
 	opts, repoDir, brainDir := hostedStatusFixture(t)
 	const repoID = "01M2Q9WATHXVM46CD8Y4D3AX8W"
-	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: repoID, BaseURL: "https://cell.api.example.com", OptedOut: true}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(brainDir, brainstore.HostedRepoBinding{RepoID: repoID, BaseURL: "https://cell.api.example.com", OptedOut: true}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -238,7 +241,7 @@ func TestStatusHostedDisconnectedByOptOut(t *testing.T) {
 
 func TestStatusHostedCorruptBindingFallsBackWithWarning(t *testing.T) {
 	opts, repoDir, brainDir := hostedStatusFixture(t)
-	if err := os.WriteFile(filepath.Join(brainDir, hostedRepoBindingFile), []byte("{not json"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, brainstore.HostedRepoBindingFile), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	report, err := buildAvailableBrainStatusReport(context.Background(), opts, repoDir)

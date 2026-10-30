@@ -14,6 +14,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 const historySessionInventoryErrorCode = brainstore.SessionInventoryCode
@@ -152,7 +153,7 @@ func collectHistorySessionInventoryMode(ctx context.Context, brainDir string, ph
 	if err := inventory.validateBrainRoot(before); err != nil {
 		return nil, err
 	}
-	manifest, manifestErr := loadBrainManifest(brainDir)
+	manifest, manifestErr := bmanifest.Load(brainDir)
 	if manifestErr != nil && !errors.Is(manifestErr, fs.ErrNotExist) {
 		return nil, manifestErr
 	}
@@ -422,7 +423,7 @@ func (i *historySessionInventory) validateFileMembership(ctx context.Context, fi
 		if i.store.currentManifestStamp() == i.manifestStamp {
 			return nil
 		}
-		manifest, err := loadBrainManifest(i.brainDir)
+		manifest, err := bmanifest.Load(i.brainDir)
 		if err != nil {
 			return err
 		}

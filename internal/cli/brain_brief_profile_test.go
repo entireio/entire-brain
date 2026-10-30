@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -52,12 +53,12 @@ func newBrainBriefProfileFixture(t *testing.T) brainBriefProfileFixture {
 		Paths:     paths,
 		Text:      "PRIVATE_FACT_PAYLOAD",
 		Branch:    "feature",
-		Origin:    factOriginDistilled,
+		Origin:    factstore.OriginDistilled,
 		Status:    factStatusActive,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	if err := writeFacts(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 	if err := updateFactSourceManifest(storage.BrainDir, now); err != nil {

@@ -229,10 +229,10 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 			if err := validateSemanticRecordPath(&record); err != nil {
 				return res, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
 			}
-			if record.ID != "" && record.semanticPath() != "" {
-				ignoredIDs[record.ID] = ignoredIDs[record.ID] || cfg.ignore.Ignored(record.semanticPath())
+			if record.ID != "" && record.SemanticPath() != "" {
+				ignoredIDs[record.ID] = ignoredIDs[record.ID] || cfg.ignore.Ignored(record.SemanticPath())
 			}
-			if cfg.ignore.Ignored(record.semanticPath()) {
+			if cfg.ignore.Ignored(record.SemanticPath()) {
 				if record.ID != "" {
 					ignoredIDs[record.ID] = true
 				}
@@ -243,12 +243,12 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 			}
 			switch record.RecordType {
 			case "file":
-				if p := record.semanticPath(); p != "" {
+				if p := record.SemanticPath(); p != "" {
 					files[p] = struct{}{}
 				}
 				res.stream.Files++
 			case "symbol":
-				if p := record.semanticPath(); p != "" {
+				if p := record.SemanticPath(); p != "" {
 					files[p] = struct{}{}
 				}
 				res.counts.Symbols++

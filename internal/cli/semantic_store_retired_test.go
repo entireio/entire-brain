@@ -2,9 +2,12 @@ package cli
 
 import (
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"testing"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // A persisted source without the live graph handle is the pre-0.2.0 layout;
@@ -15,9 +18,9 @@ func TestDeclaredStoreWithoutGraphHandleIsRetired(t *testing.T) {
 		GenerationPath: "semantic/generations/x",
 		StorePath:      "semantic/generations/x/semantic.sqlite",
 	}
-	_, err := validateSemanticDeclaredStore(t.TempDir(), src)
-	if err == nil || !errors.Is(err, errSemanticStoreRetired) {
-		t.Fatalf("want errSemanticStoreRetired, got %v", err)
+	_, err := semstore.ValidateDeclaredStore(t.TempDir(), src)
+	if err == nil || !errors.Is(err, semstore.ErrStoreRetired) {
+		t.Fatalf("want semstore.ErrStoreRetired, got %v", err)
 	}
 }
 
@@ -25,11 +28,11 @@ func TestDeclaredStoreWithoutGraphHandleIsRetired(t *testing.T) {
 // one: a non-nil source without the live graph handle is unreadable, and the
 // error is what flips the Sources row to "unreadable".
 func TestDashSymbolsTreatRetiredSourceAsUnreadable(t *testing.T) {
-	syms, err := loadSemanticSymbols(t.TempDir(), &semanticSourceManifest{SnapshotPath: "semantic/snapshots/x/snapshot.ndjson"}, 0)
-	if !errors.Is(err, errSemanticStoreRetired) {
-		t.Fatalf("want errSemanticStoreRetired, got syms=%v err=%v", syms, err)
+	syms, err := semstore.LoadSymbols(t.TempDir(), &semanticSourceManifest{SnapshotPath: "semantic/snapshots/x/snapshot.ndjson"}, 0)
+	if !errors.Is(err, semstore.ErrStoreRetired) {
+		t.Fatalf("want semstore.ErrStoreRetired, got syms=%v err=%v", syms, err)
 	}
-	if syms, err := loadSemanticSymbols(t.TempDir(), nil, 0); err != nil || syms != nil {
+	if syms, err := semstore.LoadSymbols(t.TempDir(), nil, 0); err != nil || syms != nil {
 		t.Fatalf("a brain with no source stays silently empty, got syms=%v err=%v", syms, err)
 	}
 }
@@ -39,7 +42,7 @@ func TestDashSymbolsTreatRetiredSourceAsUnreadable(t *testing.T) {
 func TestBundleImportIgnoresUnsupportedSemanticSchema(t *testing.T) {
 	root := t.TempDir()
 	manifest := `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"99.0","snapshot_path":"semantic/snapshots/aaa/snapshot.ndjson"}}}`
-	if err := os.WriteFile(filepath.Join(root, exportManifestFileName), []byte(manifest), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, bmanifest.FileName), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	imported, err := validateImportedBundle(root, "gh/example/repo")

@@ -10,6 +10,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/tui"
 )
 
@@ -450,7 +452,11 @@ func (h statusHealth) Line(render *tui.Renderer, brainCmd string) string {
 		parts = append(parts, "no code index")
 	}
 	if len(h.Failed) > 0 {
-		parts = append(parts, fmt.Sprintf("%s failed", strings.Join(h.Failed, ", ")))
+		labels := make([]string, 0, len(h.Failed))
+		for _, name := range h.Failed {
+			labels = append(labels, brainSourceDisplayName(name))
+		}
+		parts = append(parts, fmt.Sprintf("%s failed", strings.Join(labels, ", ")))
 	}
 	if h.Issues > 0 {
 		parts = append(parts, fmt.Sprintf("%d %s", h.Issues, plural(h.Issues, "issue")))
@@ -535,7 +541,7 @@ func statusMemoriesValue(render *tui.Renderer, report brainStatusReport) string 
 			parts = append(parts, groupDigits(f.Facts)+" declared")
 		case f.Integrity == nil || f.Integrity.OK():
 			parts = append(parts, groupDigits(f.Facts))
-		case f.Integrity.Mode == factStoreDefectUnreadable:
+		case f.Integrity.Mode == factstore.DefectUnreadable:
 			// A store that would not parse yielded no count at all, so "0
 			// readable" would be a measurement nobody took. Say what is true:
 			// it could not be read.
@@ -603,13 +609,13 @@ func statusSourcesValue(render *tui.Renderer, components []brainStatusComponent)
 	for _, component := range components {
 		switch component.State {
 		case "failed":
-			failed = append(failed, component.Name)
+			failed = append(failed, brainSourceDisplayName(component.Name))
 		case "missing":
-			missing = append(missing, component.Name)
+			missing = append(missing, brainSourceDisplayName(component.Name))
 		case "skipped":
-			skipped = append(skipped, component.Name)
+			skipped = append(skipped, brainSourceDisplayName(component.Name))
 		default:
-			built = append(built, component.Name)
+			built = append(built, brainSourceDisplayName(component.Name))
 		}
 	}
 	parts := make([]string, 0, 4)
@@ -648,7 +654,7 @@ func statusWarningLines(render *tui.Renderer, report brainStatusReport, brainCmd
 		if f.Integrity != nil {
 			warning = f.Integrity.Warning()
 		} else if len(f.MissingBranches) > 0 {
-			warning = missingFactStoreWarning(f.MissingBranches)
+			warning = factstore.MissingStoreWarning(f.MissingBranches)
 		}
 		if warning != "" {
 			lines = append(lines, "  "+render.Paint(theme.Bad, "! "+warning))
@@ -681,9 +687,9 @@ func statusWarningLines(render *tui.Renderer, report brainStatusReport, brainCmd
 			detail = "no reason recorded"
 		}
 		if skippedWithReason {
-			lines = append(lines, "  "+render.Dim(render.Dash()+" "+component.Name+": "+detail))
+			lines = append(lines, "  "+render.Dim(render.Dash()+" "+brainSourceDisplayName(component.Name)+": "+detail))
 		} else {
-			lines = append(lines, "  "+render.Paint(theme.Bad, "! "+component.Name+": "+detail))
+			lines = append(lines, "  "+render.Paint(theme.Bad, "! "+brainSourceDisplayName(component.Name)+": "+detail))
 		}
 		if hint := strings.TrimSpace(component.Hint); hint != "" && !said[hint] {
 			said[hint] = true
@@ -710,7 +716,7 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 	fmt.Fprintf(out, "%s %s%s%s\n", statusDot(render, health),
 		render.Bold(render.Paint(render.Theme().Accent, "Brain")),
 		statusSep(render),
-		render.Bold(valueOrUnset(report.Repo.Key)))
+		render.Bold(cmdutil.ValueOrUnset(report.Repo.Key)))
 	fmt.Fprintln(out)
 
 	if value := statusMemoriesValue(render, report); value != "" {

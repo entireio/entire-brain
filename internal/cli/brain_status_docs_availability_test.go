@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,16 +38,16 @@ func docsAvailabilityFixture(t *testing.T) (Options, string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := brainstore.WriteBrainRelativeFileAtomic(storage.BrainDir, docIndexPath, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(storage.BrainDir, docstore.IndexPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		RepoKey:       storage.Key,
 		GeneratedAt:   now,
 		Sources: &brainSources{
 			Seed: &seedSourceManifest{GeneratedAt: now, Commit: "aaa111", WorktreeMode: "head", SummaryPath: "seed/summary.md"},
-			Docs: &docSourceManifest{GeneratedAt: now, IndexPath: docIndexPath, Records: 1, Files: 1},
+			Docs: &docSourceManifest{GeneratedAt: now, IndexPath: docstore.IndexPath, Records: 1, Files: 1},
 		},
 	}
 	if err := writeBrainManifestAndReadme(storage.BrainDir, manifest); err != nil {
@@ -56,7 +58,7 @@ func docsAvailabilityFixture(t *testing.T) (Options, string, string) {
 
 // TestStatusReportsDeclaredDocsIndexMissing is the honesty contract: when the
 // manifest declares a docs index that is no longer on disk, retrieval silently
-// drops the entire docs layer (loadDocIndex's os.IsNotExist is skipped, not
+// drops the entire docs layer (docstore.Load's os.IsNotExist is skipped, not
 // raised), so status/brain_status must not keep reporting "docs: ok" and a
 // freshness severity of "ok". A caller cannot otherwise tell a dead docs layer
 // apart from "nothing matched".
@@ -77,7 +79,7 @@ func TestStatusReportsDeclaredDocsIndexMissing(t *testing.T) {
 		t.Fatalf("healthy retrieval severity = %q, want ok", got)
 	}
 
-	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(docIndexPath))); err != nil {
+	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(docstore.IndexPath))); err != nil {
 		t.Fatal(err)
 	}
 
@@ -85,7 +87,7 @@ func TestStatusReportsDeclaredDocsIndexMissing(t *testing.T) {
 	// before asserting what status must say about it.
 	//
 	// This step used to assert that `search` SUCCEEDED and returned nothing,
-	// which is what the docs arm did at the time: loadDocIndex's os.IsNotExist
+	// which is what the docs arm did at the time: docstore.Load's os.IsNotExist
 	// was skipped rather than raised. That silent skip is the defect this test's
 	// own comment describes, and it is now fixed — a doc index the manifest
 	// DECLARES and the store does not hold is refused by name. The assertion
@@ -98,7 +100,7 @@ func TestStatusReportsDeclaredDocsIndexMissing(t *testing.T) {
 	if strings.Contains(out, "doc:doc-1") {
 		t.Fatalf("search still returned the doc record after the index was removed:\n%s", out)
 	}
-	if !strings.Contains(err.Error(), docIndexPath) {
+	if !strings.Contains(err.Error(), docstore.IndexPath) {
 		t.Fatalf("search does not name the absent index: %v", err)
 	}
 
@@ -111,12 +113,12 @@ func TestStatusReportsDeclaredDocsIndexMissing(t *testing.T) {
 	}
 	axis := degraded.Retrieval.Freshness.Axes["docs"]
 	if axis.State == "ok" {
-		t.Fatalf("docs axis still reports ok while %s is absent: %+v", docIndexPath, axis)
+		t.Fatalf("docs axis still reports ok while %s is absent: %+v", docstore.IndexPath, axis)
 	}
 	if axis.State != "missing" {
 		t.Fatalf("docs axis state = %q, want missing: %+v", axis.State, axis)
 	}
-	if !strings.Contains(axis.Detail, docIndexPath) {
+	if !strings.Contains(axis.Detail, docstore.IndexPath) {
 		t.Fatalf("docs axis detail does not name the absent index: %q", axis.Detail)
 	}
 	if got := degraded.Retrieval.Freshness.Severity; got == "ok" {
@@ -143,7 +145,7 @@ func TestDoctorReportsDeclaredDocsIndexMissing(t *testing.T) {
 		t.Fatalf("healthy doctor docs_index = %q present=%v, want ok", state, ok)
 	}
 
-	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(docIndexPath))); err != nil {
+	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(docstore.IndexPath))); err != nil {
 		t.Fatal(err)
 	}
 	checks, _ = brainDoctorReadOnlyReport(context.Background(), opts, repoDir)
@@ -152,7 +154,7 @@ func TestDoctorReportsDeclaredDocsIndexMissing(t *testing.T) {
 		t.Fatalf("doctor has no docs_index check with the index absent: %+v", checks)
 	}
 	if state == "ok" {
-		t.Fatalf("doctor docs_index still ok with %s absent", docIndexPath)
+		t.Fatalf("doctor docs_index still ok with %s absent", docstore.IndexPath)
 	}
 }
 

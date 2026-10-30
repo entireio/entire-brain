@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func TestUnsyncedHostedFactsBlindSpot(t *testing.T) {
@@ -11,7 +14,7 @@ func TestUnsyncedHostedFactsBlindSpot(t *testing.T) {
 	if note := unsyncedHostedFactsBlindSpot(brainDir, "main"); note != "" {
 		t.Fatalf("no binding must mean no note, got %q", note)
 	}
-	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: "https://api.example.com/api/v1"}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(brainDir, brainstore.HostedRepoBinding{RepoID: "repo1", BaseURL: "https://api.example.com/api/v1"}); err != nil {
 		t.Fatal(err)
 	}
 	note := unsyncedHostedFactsBlindSpot(brainDir, "feature/x")
@@ -29,14 +32,14 @@ func TestUnsyncedHostedFactsBlindSpot(t *testing.T) {
 func TestHostedNoteWinsOverTheOtherBranchNote(t *testing.T) {
 	brainDir := t.TempDir()
 	now := time.Now().UTC()
-	if err := writeFacts(brainDir, "main", []factRecord{
+	if err := factstore.Write(brainDir, "main", []factRecord{
 		vitalityTestFact("retries are capped at three", "main", now),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	writeDistillFixtureAt(t, brainDir, now)
 	declareFactsAt(t, brainDir, now, now, 1, "main")
-	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: "https://api.example.com/api/v1"}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(brainDir, brainstore.HostedRepoBinding{RepoID: "repo1", BaseURL: "https://api.example.com/api/v1"}); err != nil {
 		t.Fatal(err)
 	}
 	note := emptyResultBlindSpotOnBranch(brainDir, "feature/x")
@@ -47,7 +50,7 @@ func TestHostedNoteWinsOverTheOtherBranchNote(t *testing.T) {
 
 func TestUnsyncedNoteReturnsAfterReconnectingToADifferentTarget(t *testing.T) {
 	brainDir := t.TempDir()
-	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo-old", BaseURL: "https://old.api.example.com"}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(brainDir, brainstore.HostedRepoBinding{RepoID: "repo-old", BaseURL: "https://old.api.example.com"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeHostedFactsBinding(brainDir, "main", "repo-old", "https://old.api.example.com"); err != nil {
@@ -58,7 +61,7 @@ func TestUnsyncedNoteReturnsAfterReconnectingToADifferentTarget(t *testing.T) {
 	}
 	// Reconnect to a different hosted target: the stale per-branch marker must
 	// not suppress the note — this branch has never synced against it.
-	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo-new", BaseURL: "https://new.api.example.com"}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(brainDir, brainstore.HostedRepoBinding{RepoID: "repo-new", BaseURL: "https://new.api.example.com"}); err != nil {
 		t.Fatal(err)
 	}
 	if note := unsyncedHostedFactsBlindSpot(brainDir, "main"); note == "" {
@@ -68,7 +71,7 @@ func TestUnsyncedNoteReturnsAfterReconnectingToADifferentTarget(t *testing.T) {
 
 func TestUnsyncedNoteSilentAfterDisconnect(t *testing.T) {
 	brainDir := t.TempDir()
-	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: "https://api.example.com", OptedOut: true}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(brainDir, brainstore.HostedRepoBinding{RepoID: "repo1", BaseURL: "https://api.example.com", OptedOut: true}); err != nil {
 		t.Fatal(err)
 	}
 	if note := unsyncedHostedFactsBlindSpot(brainDir, "main"); note != "" {
@@ -78,7 +81,7 @@ func TestUnsyncedNoteSilentAfterDisconnect(t *testing.T) {
 
 func TestUnsyncedNoteIgnoresAnEmptyBranch(t *testing.T) {
 	brainDir := t.TempDir()
-	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: "https://api.example.com"}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(brainDir, brainstore.HostedRepoBinding{RepoID: "repo1", BaseURL: "https://api.example.com"}); err != nil {
 		t.Fatal(err)
 	}
 	// emptyResultBlindSpot (the branchless surface) always passes branch "";

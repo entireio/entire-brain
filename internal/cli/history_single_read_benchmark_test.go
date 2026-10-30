@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,7 +36,7 @@ func BenchmarkHistoryTranscriptRefresh(b *testing.B) {
 			if _, err := writeBrainHistoryIndexAndSource(brainDir, now, nil); err != nil {
 				b.Fatal(err)
 			}
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -128,7 +129,7 @@ func historyRefreshBenchmarkFixture(tb testing.TB, fileCount int) (string, int64
 	}
 	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{

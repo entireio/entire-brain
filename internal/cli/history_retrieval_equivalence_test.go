@@ -11,6 +11,10 @@ import (
 	"sort"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 )
 
 // TestIncrementalHistoryMatchesFullRebuild protects the optimization boundary
@@ -23,7 +27,7 @@ func TestIncrementalHistoryMatchesFullRebuild(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	buildShortTerm(t, brainDir)
 
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,11 +48,11 @@ func TestIncrementalHistoryMatchesFullRebuild(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err = loadBrainManifest(brainDir)
+	manifest, err = bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	consolidated, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+	consolidated, err := historystore.LoadIndex(brainDir, manifest.Sources.History)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +90,7 @@ func conversationRetrievalContract(t testing.TB, brainDir string) []conversation
 	}
 	var observed []conversationRetrievalObservation
 	for _, query := range queries {
-		results, err := retrieveConversation(brainDir, query, 10, modeLexical, retrievalOptions{})
+		results, err := retrieveConversation(brainDir, query, 10, retrieval.ModeLexical, retrievalOptions{})
 		if err != nil {
 			t.Fatalf("retrieve %q: %v", query, err)
 		}
@@ -150,7 +154,7 @@ func TestRawHistoryFallbackRetainsFallbackOnlyMatch(t *testing.T) {
 	}
 	source := &historySourceManifest{
 		GeneratedAt: generatedAt,
-		IndexPath:   historyIndexPath,
+		IndexPath:   historystore.IndexPath,
 		Records:     len(index.Records),
 	}
 	if err := publishHistoryComparisonIndex(brainDir, index, source); err != nil {
@@ -197,7 +201,7 @@ func TestHistoryRetrievalEquivalentPaths(t *testing.T) {
 func assertHistoryRetrievalEquivalentPaths(tb testing.TB, size int) (string, *historySourceManifest) {
 	tb.Helper()
 	brainDir, source := writeDirectHistoryFTSFixture(tb, historyRetrievalEquivalenceIndex(size))
-	loaded, err := loadBrainHistoryIndex(brainDir, source)
+	loaded, err := historystore.LoadIndex(brainDir, source)
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -263,7 +267,7 @@ func BenchmarkHistoryRetrievalEquivalentPaths(b *testing.B) {
 	b.Run("json_load_then_rank", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			loaded, loadErr := loadBrainHistoryIndex(brainDir, source)
+			loaded, loadErr := historystore.LoadIndex(brainDir, source)
 			if loadErr != nil {
 				b.Fatal(loadErr)
 			}

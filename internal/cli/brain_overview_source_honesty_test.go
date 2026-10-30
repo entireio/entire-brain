@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,15 +41,15 @@ func overviewHistoryFixture(t *testing.T) (Options, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := brainstore.WriteBrainRelativeFileAtomic(storage.BrainDir, historyIndexPath, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(storage.BrainDir, historystore.IndexPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		RepoKey:       storage.Key,
 		GeneratedAt:   now,
 		Sources: &brainSources{History: &historySourceManifest{
-			GeneratedAt: now, IndexPath: historyIndexPath, Records: 1, Decisions: 1,
+			GeneratedAt: now, IndexPath: historystore.IndexPath, Records: 1, Decisions: 1,
 		}},
 	}
 	if err := writeBrainManifestAndReadme(storage.BrainDir, manifest); err != nil {
@@ -57,7 +59,7 @@ func overviewHistoryFixture(t *testing.T) (Options, string) {
 }
 
 // TestOverviewReportsUnreadableHistoryIndex is the honesty contract for
-// `overview`. recentDecisionMatches discarded loadBrainHistoryIndex's error and
+// `overview`. recentDecisionMatches discarded historystore.LoadIndex's error and
 // returned nil, so a corrupt history index removed the whole "recent decisions"
 // section from a summary that still exited 0, still reported history as a live
 // source, and said nothing about the failure.
@@ -72,7 +74,7 @@ func TestOverviewReportsUnreadableHistoryIndex(t *testing.T) {
 		t.Fatalf("healthy overview lost the decision:\n%s", healthy)
 	}
 
-	indexPath := filepath.Join(brainDir, filepath.FromSlash(historyIndexPath))
+	indexPath := filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath))
 	if err := os.WriteFile(indexPath, []byte("{ not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +119,7 @@ func TestOverviewReportsUnreadableHistoryIndex(t *testing.T) {
 // helper must distinguish "no decisions" from "the index could not be read".
 func TestRecentDecisionMatchesReportsUnreadableIndex(t *testing.T) {
 	_, brainDir := overviewHistoryFixture(t)
-	source := &historySourceManifest{IndexPath: historyIndexPath, Records: 1, Decisions: 1}
+	source := &historySourceManifest{IndexPath: historystore.IndexPath, Records: 1, Decisions: 1}
 
 	matches, err := recentDecisionMatches(brainDir, source, 5, sessionReadGuard{})
 	if err != nil {
@@ -127,7 +129,7 @@ func TestRecentDecisionMatchesReportsUnreadableIndex(t *testing.T) {
 		t.Fatalf("healthy recentDecisionMatches = %d matches, want 1", len(matches))
 	}
 
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), []byte("{ not json"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath)), []byte("{ not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	matches, err = recentDecisionMatches(brainDir, source, 5, sessionReadGuard{})

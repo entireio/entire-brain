@@ -16,29 +16,6 @@ const (
 	distillUsageSourceOllama = "ollama_generate_json"
 )
 
-// distillTokenUsageSummary is persisted with the fact-source manifest. Calls
-// includes successful and failed provider attempts, matching TotalAgentCalls.
-// Input and output totals are provider-reported; cached/reasoning fields remain
-// separate because providers disagree on whether they are subsets.
-type distillTokenUsageSummary struct {
-	Source                   string `json:"source,omitempty"`
-	Calls                    int    `json:"calls"`
-	CallsReported            int    `json:"calls_reported"` // both input and output present
-	CallsPartial             int    `json:"calls_partial"`  // at least one, but not both
-	CallsMissing             int    `json:"calls_missing"`  // no provider token fields
-	Complete                 bool   `json:"complete"`
-	InputTokens              int64  `json:"input_tokens"`
-	OutputTokens             int64  `json:"output_tokens"`
-	CacheCreationInputTokens int64  `json:"cache_creation_input_tokens,omitempty"`
-	CacheReadInputTokens     int64  `json:"cache_read_input_tokens,omitempty"`
-	CachedInputTokens        int64  `json:"cached_input_tokens,omitempty"`
-	ReasoningOutputTokens    int64  `json:"reasoning_output_tokens,omitempty"`
-	// Total excludes CachedInputTokens and ReasoningOutputTokens because they
-	// are subsets of input/output. Claude's separately billed cache creation/read
-	// categories are included alongside uncached input and output.
-	TotalTokens int64 `json:"total_tokens"`
-}
-
 type distillProviderUsage struct {
 	Source                   string
 	Reported                 bool

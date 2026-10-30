@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"io/fs"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
@@ -84,10 +86,10 @@ const (
 // failed by setup is the component the reader then finds as failed there.
 const (
 	brainComponentSessions       = "sessions"
-	brainComponentSeed           = "seed"
-	brainComponentDocs           = "docs"
+	brainComponentSeed           = string(brainstore.DeclaredIndexSeed)
+	brainComponentDocs           = string(brainstore.DeclaredIndexDocs)
 	brainComponentSemantic       = "semantic"
-	brainComponentHistory        = "history"
+	brainComponentHistory        = string(brainstore.DeclaredIndexHistory)
 	brainComponentHistoryVectors = "history-vectors"
 	brainComponentBranches       = "branches"
 	brainComponentFacts          = "facts"
@@ -99,10 +101,10 @@ const (
 // setupComponentLabels name each component the way the setup lines say it.
 var setupComponentLabels = map[string]string{
 	brainComponentSessions:       "session export",
-	brainComponentSeed:           "seed baseline",
-	brainComponentDocs:           "doc index",
+	brainComponentSeed:           brainstore.DeclaredIndexSeed.Label(),
+	brainComponentDocs:           brainstore.DeclaredIndexDocs.Label(),
 	brainComponentSemantic:       "code index",
-	brainComponentHistory:        "history index",
+	brainComponentHistory:        brainstore.DeclaredIndexHistory.Label(),
 	brainComponentHistoryVectors: "history vectors",
 	brainComponentBranches:       "branch overlays",
 	brainComponentFacts:          "fact reclassification",
@@ -200,7 +202,7 @@ func setupRepoKeyMismatchHint(brainCmd string) string {
 // states the cause only (see buildBrainRetrievalStatus) and the remedy comes
 // from here.
 func setupDirtyWorktreeHint(brainCmd string) string {
-	return "commit or stash the working tree -- or list the paths in .brainignore, which the seed and index gates both honour -- then re-run `" + base.SetupBrainCommand(brainCmd) +
+	return "commit or stash the working tree -- or list the paths in .brainignore, which the repository context and code index checks both honour -- then re-run `" + base.SetupBrainCommand(brainCmd) +
 		" setup`, or `" + base.SetupBrainCommand(brainCmd) +
 		" refresh --worktree` to index the uncommitted changes as they are; `entire enable` writes .entire/ and .claude/ without committing them, which is what a first run usually trips over"
 }
@@ -273,6 +275,15 @@ func setupComponentLabel(name string) string {
 	return name
 }
 
+// brainSourceDisplayName translates the internal seed id only at display sites.
+// JSON keys, component names, and freshness axis ids retain their stored names.
+func brainSourceDisplayName(name string) string {
+	if name == brainComponentSeed {
+		return setupComponentLabel(name)
+	}
+	return name
+}
+
 // newSetupComponent turns one stage outcome into a reportable component,
 // attaching the hint for the failure modes whose error text is not actionable
 // on its own.
@@ -316,7 +327,7 @@ func setupIsRepoKeyMismatch(detail string) bool {
 // (seed.go and semantic.go), not their prose, so rewording either message
 // cannot silently drop the hint.
 func setupIsDirtyWorktree(detail string) bool {
-	return strings.Contains(detail, dirtyWorktreeErrorCode+":")
+	return strings.Contains(detail, brainstore.DirtyWorktreeCode+":")
 }
 
 // setupIsNoReadableSessions matches the export failure raised when nothing is
@@ -530,15 +541,15 @@ type setupCommandOptions struct {
 }
 
 func defaultSetupOptions() setupCommandOptions {
-	watch := defaultWatchOptions()
+	watchDefaults := watch.DefaultFlags()
 	return setupCommandOptions{
 		workspace:      setupDefaultWorkspace,
 		daemonName:     daemonDefaultName,
 		agent:          "auto",
 		effort:         setupBackfillDefaultEffort,
 		backfillBudget: setupDefaultBackfillBudget,
-		interval:       watch.interval,
-		distillEvery:   watch.distillEvery,
+		interval:       watchDefaults.Interval,
+		distillEvery:   watchDefaults.DistillEvery,
 	}
 }
 
@@ -646,9 +657,9 @@ func newSetupCommand(opts Options) *cobra.Command {
 		Long: fmt.Sprintf(`setup is the one command that makes a repository's brain useful and keeps it
 that way. It runs three phases:
 
-  1. instant   build the deterministic core (code index, sessions, seed,
-               docs, history). Blocking, seconds, spends NO agent tokens. The
-               brain is queryable the moment this returns.
+  1. instant   build the deterministic core (code index, sessions,
+               repository context, docs, history). Blocking, seconds, spends NO
+               agent tokens. The brain is queryable the moment this returns.
   2. backfill  distill past sessions into durable facts, NEWEST FIRST, detached
                in the background on a cheap model. Spends tokens; bounded by
                --backfill-budget and the persisted distill cache, and skipped
@@ -675,11 +686,11 @@ and "%[1]s status" reports what the backfill has done so far and whether the
 watcher is alive.
 
 EXIT CODE: setup exits 0 whenever the brain is QUERYABLE, and queryable means
-it can answer: at least one of the code index, the seed baseline or the
+it can answer: at least one of the code index, the repository context or the
 history index built. Those are the sources "%[1]s query", "%[1]s brief" and
 "%[1]s overview" read, so "%[1]s setup && %[1]s query ..." cannot proceed on a
 brain that has nothing to answer from. A component that fails without costing
-that (a doc index, an entity index, a stale code index beside a seed
+that (a doc index, an entity index, a stale code index beside repository context
 that built) is reported as one line, skipped, and the remaining components, the
 backfill, the workspace registration and the daemon install all still run;
 "%[1]s status" then shows that component as failed and "%[1]s doctor" prints
@@ -762,7 +773,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	if !setupOpts.uninstallDaemon {
 		if _, ok := gitWorkTreeRoot(ctx, opts.Runner, repoDir); !ok {
 			return notARepositoryError(ctx, opts.Runner, repoDir,
-				base.SetupBrainCommand(brainCmd)+" setup builds every source it has -- sessions, seed, docs, code index, entities -- from git history, so it needs git and a repository.",
+				base.SetupBrainCommand(brainCmd)+" setup builds every source it has -- sessions, repository context, docs, code index, entities -- from git history, so it needs git and a repository.",
 				base.SetupBrainCommand(brainCmd)+" setup",
 				base.SetupBrainCommand(brainCmd)+" setup <path>")
 		}
@@ -1026,7 +1037,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 			setupui.RenderTerse(cmd.OutOrStdout(), rend, terse)
 		}
 		if setupOpts.json {
-			if err := writeJSON(cmd, report); err != nil {
+			if err := cmdutil.WriteJSON(cmd, report); err != nil {
 				return err
 			}
 		}
@@ -1232,7 +1243,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	}
 
 	if setupOpts.json {
-		if err := writeJSON(cmd, report); err != nil {
+		if err := cmdutil.WriteJSON(cmd, report); err != nil {
 			return err
 		}
 	}
@@ -1313,7 +1324,7 @@ func runSetupUninstall(ctx context.Context, cmd *cobra.Command, opts Options, se
 	}
 	report.Daemon = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Detail: "uninstalled"}
 	if setupOpts.json {
-		return writeJSON(cmd, report)
+		return cmdutil.WriteJSON(cmd, report)
 	}
 	if !before.Installed {
 		fmt.Fprintf(out, "setup: no watcher was installed (%s)\n", plan.Label)
@@ -1470,7 +1481,7 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 
 	// The conditions that make a spend IMPOSSIBLE come before the gate, so a
 	// --yes in a paused brain reports the truth instead of claiming it spent.
-	if backgroundPaused(opts.Env) {
+	if base.BackgroundPaused(opts.Env) {
 		return setupBackfillSkippedBecause(phase, "background work paused",
 			"not distilled: background work is paused "+dash+" run `"+base.SetupBrainCommand(brainCmd)+" start`, then re-run setup"+counter,
 			setupui.ConsentReasonPaused)

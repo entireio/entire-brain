@@ -4,7 +4,15 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
+	"github.com/entireio/entire-brain/internal/cli/command/dash"
+	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
+	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
+	"github.com/entireio/entire-brain/internal/cli/command/viz"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +23,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -23,9 +32,9 @@ func largeCoverageResults(count int) []unifiedResult {
 	results := make([]unifiedResult, count)
 	for i := range results {
 		sessionRef := brainstore.ConversationSessionIDPrefix + strings.Repeat("s", 64) + string(rune('a'+i%20))
-		concepts := make([]string, conversationConceptsMaxTotal)
-		matches := make([]conceptMatch, conversationConceptsMaxTotal)
-		evidenceIDs := make([]string, conversationConceptsMaxTotal)
+		concepts := make([]string, retrieval.ConversationConceptsMaxTotal)
+		matches := make([]conceptMatch, retrieval.ConversationConceptsMaxTotal)
+		evidenceIDs := make([]string, retrieval.ConversationConceptsMaxTotal)
 		for concept := range concepts {
 			concepts[concept] = strings.Repeat(string(rune('a'+concept)), 500)
 			evidenceIDs[concept] = conversationIDPrefix + strings.Repeat(string(rune('e'+concept)), 64) + string(rune('a'+i%20))
@@ -35,10 +44,10 @@ func largeCoverageResults(count int) []unifiedResult {
 			}
 		}
 		results[i] = unifiedResult{
-			Source: retrievalSourceConversation, ID: sessionRef, Heading: "session_coverage", SessionRef: sessionRef,
+			Source: brainstore.RetrievalSourceConversation, ID: sessionRef, Heading: "session_coverage", SessionRef: sessionRef,
 			Text: strings.Repeat(`quoted "proof" \\ newline\n`, 500), VerificationRequired: true,
 			Concepts: concepts, ConceptMatches: matches, EvidenceIDs: evidenceIDs,
-			WorstRank: i + conversationConceptsMaxTotal, RankSum: 5*i + 15, Approximate: i%2 == 0,
+			WorstRank: i + retrieval.ConversationConceptsMaxTotal, RankSum: 5*i + 15, Approximate: i%2 == 0,
 		}
 	}
 	return results
@@ -60,7 +69,7 @@ func largeRetrievalExtras(results []unifiedResult) retrievalTransportExtras {
 }
 
 func TestMultiConceptExactTransportBudgets(t *testing.T) {
-	results := largeCoverageResults(conversationConceptResultMax)
+	results := largeCoverageResults(retrieval.ConversationConceptResultMax)
 	extras := largeRetrievalExtras(results)
 
 	t.Run("cli json", func(t *testing.T) {
@@ -68,7 +77,7 @@ func TestMultiConceptExactTransportBudgets(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		actual, err := jsonOutputBytes(payload)
+		actual, err := cmdutil.JSONOutputBytes(payload)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -96,7 +105,7 @@ func TestMultiConceptExactTransportBudgets(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		actual, err := jsonOutputBytes(payload)
+		actual, err := cmdutil.JSONOutputBytes(payload)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -114,21 +123,21 @@ func TestMultiConceptExactTransportBudgets(t *testing.T) {
 }
 
 func TestMultiConceptLimitContractAcrossSurfaces(t *testing.T) {
-	ropts := retrievalOptions{Source: retrievalSourceConversation, Concepts: []string{"second"}}
-	for _, limit := range []int{0, conversationConceptResultMax + 1} {
-		if _, err := retrieveConversationMultiConcept(t.TempDir(), "first", limit, modeLexical, ropts); err == nil || !strings.Contains(err.Error(), "between 1 and 50") {
+	ropts := retrievalOptions{Source: brainstore.RetrievalSourceConversation, Concepts: []string{"second"}}
+	for _, limit := range []int{0, retrieval.ConversationConceptResultMax + 1} {
+		if _, err := retrieveConversationMultiConcept(t.TempDir(), "first", limit, retrieval.ModeLexical, ropts); err == nil || !strings.Contains(err.Error(), "between 1 and 50") {
 			t.Fatalf("core limit %d: %v", limit, err)
 		}
 	}
 	cmd := &cobra.Command{}
-	if err := runRetrieve(context.Background(), cmd, Options{}, "first", modeLexical, 51, "", ropts, true, false, "query"); err == nil || !strings.Contains(err.Error(), "between 1 and 50") {
+	if err := retrieve.Run(context.Background(), cmd, retrieveCommandConfig(Options{}), "first", retrieval.ModeLexical, 51, "", ropts, true, false, "query"); err == nil || !strings.Contains(err.Error(), "between 1 and 50") {
 		t.Fatalf("CLI limit: %v", err)
 	}
-	if err := runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 51, source: retrievalSourceConversation, concepts: []string{"second"}}, modeLexical, "missing", "first"); err == nil || !strings.Contains(err.Error(), "between 1 and 50") {
+	if err := runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 51, source: brainstore.RetrievalSourceConversation, concepts: []string{"second"}}, retrieval.ModeLexical, "missing", "first"); err == nil || !strings.Contains(err.Error(), "between 1 and 50") {
 		t.Fatalf("workspace limit: %v", err)
 	}
 	huge := make([]string, 1<<16)
-	if _, err := buildRetrievalOptions(retrievalSourceConversation, "", "", "", "", "", huge); err == nil || !strings.Contains(err.Error(), "at most 4") {
+	if _, err := retrieve.BuildRetrievalOptions(brainstore.RetrievalSourceConversation, "", "", "", "", "", huge); err == nil || !strings.Contains(err.Error(), "at most 4") {
 		t.Fatalf("oversized concept list: %v", err)
 	}
 }
@@ -193,8 +202,8 @@ func TestMultiConceptTextProofParity(t *testing.T) {
 
 func TestMultiConceptPreEmissionPrivacyRaceFailsClosed(t *testing.T) {
 	brainDir := writeMultiConceptFixture(t)
-	results, err := retrieveConversationMultiConcept(brainDir, "alpha rollout", 10, modeLexical, retrievalOptions{
-		Source: retrievalSourceConversation, Concepts: []string{"beta cache eviction"},
+	results, err := retrieveConversationMultiConcept(brainDir, "alpha rollout", 10, retrieval.ModeLexical, retrievalOptions{
+		Source: brainstore.RetrievalSourceConversation, Concepts: []string{"beta cache eviction"},
 	})
 	if err != nil || len(results) == 0 {
 		t.Fatalf("rank fixture: %v %+v", err, results)
@@ -248,7 +257,7 @@ func writeRetrievalEmissionPrivacyFixture(t *testing.T) retrievalEmissionPrivacy
 	}
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: "gh/example/repo", DefaultBranch: "feature",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now, RepoKey: "gh/example/repo", DefaultBranch: "feature",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "feature", Sessions: []exportSession{{
 			SessionID: "privacy-race-session", Branch: "feature", Agent: "claude", LatestCheckpoint: "cp", TranscriptPath: rel, CreatedAt: now,
 		}}}},
@@ -259,11 +268,11 @@ func writeRetrievalEmissionPrivacyFixture(t *testing.T) retrievalEmissionPrivacy
 	if _, err := writeBrainHistoryIndexAndSource(brainDir, now, nil); err != nil {
 		t.Fatal(err)
 	}
-	manifestOnDisk, err := loadBrainManifest(brainDir)
+	manifestOnDisk, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	index, err := loadBrainHistoryIndex(brainDir, manifestOnDisk.Sources.History)
+	index, err := historystore.LoadIndex(brainDir, manifestOnDisk.Sources.History)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +332,7 @@ func TestAllRetrievalEmissionPathsRejectLateTombstone(t *testing.T) {
 		cmd := &cobra.Command{}
 		cmd.SetOut(&out)
 		cmd.SetErr(&bytes.Buffer{})
-		err := runRetrieve(context.Background(), cmd, fixture.Options, "final privacy gate", modeLexical, 10, "", retrievalOptions{Source: retrievalSourceConversation}, true, false, "query")
+		err := retrieve.Run(context.Background(), cmd, retrieveCommandConfig(fixture.Options), "final privacy gate", retrieval.ModeLexical, 10, "", retrievalOptions{Source: brainstore.RetrievalSourceConversation}, true, false, "query")
 		requireLatePrivacyEmissionFailure(t, err, &out, called)
 	})
 
@@ -343,7 +352,7 @@ func TestAllRetrievalEmissionPathsRejectLateTombstone(t *testing.T) {
 			if jsonOut {
 				ids = append(ids, "history:missing")
 			}
-			_, err := runGet(context.Background(), cmd, fixture.Options, ids, "", jsonOut, getOptions{}, "get")
+			_, err := retrieve.RunGet(context.Background(), cmd, retrieveCommandConfig(fixture.Options), ids, "", jsonOut, getOptions{}, "get")
 			requireLatePrivacyEmissionFailure(t, err, &out, called)
 		})
 	}
@@ -379,7 +388,7 @@ func TestAllRetrievalEmissionPathsRejectLateTombstone(t *testing.T) {
 			if get {
 				err = runWorkspaceGet(cmd, fixture.Options, workspaceName, []string{fmt.Sprintf("%s/%s", fixture.RepoKey, fixture.RecordID)}, "", true, getOptions{})
 			} else {
-				err = runWorkspaceRetrieve(cmd, fixture.Options, workspaceRetrieveOptions{limit: 10, source: retrievalSourceConversation, json: true}, modeLexical, workspaceName, "final privacy gate")
+				err = runWorkspaceRetrieve(cmd, fixture.Options, workspaceRetrieveOptions{limit: 10, source: brainstore.RetrievalSourceConversation, json: true}, retrieval.ModeLexical, workspaceName, "final privacy gate")
 			}
 			requireLatePrivacyEmissionFailure(t, err, &out, called)
 		})
@@ -498,7 +507,7 @@ func TestRetrievalWriteLinearizesBeforeConcurrentTombstone(t *testing.T) {
 	if got := out.String(); got != "private response\n" {
 		t.Fatalf("response=%q", got)
 	}
-	guard, err := loadSessionReadGuard(fixture.BrainDir, nil)
+	guard, err := bmanifest.LoadSessionReadGuard(fixture.BrainDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -550,7 +559,7 @@ func TestTranscriptDerivedCLIResponsesLinearizeBeforeConcurrentTombstone(t *test
 	t.Run("dash json", func(t *testing.T) {
 		fixture := writeRetrievalEmissionPrivacyFixture(t)
 		requireCommandWriteLinearizesBeforeTombstone(t, fixture, func(cmd *cobra.Command) error {
-			return runDash(context.Background(), cmd, fixture.Options, dashFlags{json: true, limit: 10}, fixture.Options.Env.RepoRoot)
+			return dash.Run(context.Background(), cmd, dashConfig(fixture.Options), dash.Flags{JSON: true, Limit: 10}, fixture.Options.Env.RepoRoot)
 		})
 	})
 
@@ -563,7 +572,7 @@ func TestTranscriptDerivedCLIResponsesLinearizeBeforeConcurrentTombstone(t *test
 			t.Fatal(err)
 		}
 		requireCommandWriteLinearizesBeforeTombstone(t, fixture, func(cmd *cobra.Command) error {
-			return runWorkspacePatternsList(context.Background(), cmd, fixture.Options, workspaceName, patternsListOptions{asJSON: true})
+			return runWorkspacePatternsList(context.Background(), cmd, fixture.Options, workspaceName, patternscmd.ListOptions{AsJSON: true})
 		})
 	})
 }
@@ -587,7 +596,7 @@ func TestTranscriptDerivedCLIResponsesRejectLateTombstone(t *testing.T) {
 		cmd := &cobra.Command{}
 		cmd.SetOut(&out)
 		cmd.SetErr(&bytes.Buffer{})
-		err := runDash(context.Background(), cmd, fixture.Options, dashFlags{json: true, limit: 10}, fixture.Options.Env.RepoRoot)
+		err := dash.Run(context.Background(), cmd, dashConfig(fixture.Options), dash.Flags{JSON: true, Limit: 10}, fixture.Options.Env.RepoRoot)
 		requireLatePrivacyEmissionFailure(t, err, &out, called)
 	})
 
@@ -604,7 +613,7 @@ func TestTranscriptDerivedCLIResponsesRejectLateTombstone(t *testing.T) {
 		cmd := &cobra.Command{}
 		cmd.SetOut(&out)
 		cmd.SetErr(&bytes.Buffer{})
-		err := runWorkspacePatternsList(context.Background(), cmd, fixture.Options, workspaceName, patternsListOptions{asJSON: true})
+		err := runWorkspacePatternsList(context.Background(), cmd, fixture.Options, workspaceName, patternscmd.ListOptions{AsJSON: true})
 		requireLatePrivacyEmissionFailure(t, err, &out, called)
 	})
 }
@@ -631,7 +640,7 @@ func TestWorkspaceAggregateRejectsAlreadyDirtyMember(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	err := runWorkspacePatternsList(context.Background(), cmd, fixture.Options, workspaceName, patternsListOptions{asJSON: true})
+	err := runWorkspacePatternsList(context.Background(), cmd, fixture.Options, workspaceName, patternscmd.ListOptions{AsJSON: true})
 	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) {
 		t.Fatalf("workspace dirty-member error=%v, want %s", err, brainstore.PrivacyDirtyCode)
 	}
@@ -666,7 +675,7 @@ func TestPatternBearingSurfacesRejectAlreadyDirtyDerivedStateWithoutOutput(t *te
 			return runBrainHandoff(context.Background(), cmd, fixture.Options, 1, true)
 		}},
 		{name: "review patterns", run: func(cmd *cobra.Command) error {
-			return runBrainReview(context.Background(), cmd, fixture.Options, regressionDetectorOptions{limit: 3, json: true, patterns: true}, "privacy state")
+			return brainreview.RunBrainReview(context.Background(), cmd, brainReviewConfig(fixture.Options), regressionDetectorOptions{Limit: 3, JSON: true, Patterns: true}, "privacy state")
 		}},
 	}
 	for _, tc := range tests {
@@ -693,14 +702,14 @@ func TestExplicitPatternRequestsReportUnavailableCorpusWithoutOutput(t *testing.
 		run  func(*cobra.Command) error
 	}{
 		{name: "retrieve patterns", run: func(cmd *cobra.Command) error {
-			return runRetrieve(context.Background(), cmd, fixture.Options, "privacy state", modeLexical, 5, "", retrievalOptions{Source: retrievalSourceConversation}, true, true, "query")
+			return retrieve.Run(context.Background(), cmd, retrieveCommandConfig(fixture.Options), "privacy state", retrieval.ModeLexical, 5, "", retrievalOptions{Source: brainstore.RetrievalSourceConversation}, true, true, "query")
 		}},
 		{name: "get pattern", run: func(cmd *cobra.Command) error {
-			_, err := runGet(context.Background(), cmd, fixture.Options, []string{"pattern:missing"}, "", true, getOptions{}, "get")
+			_, err := retrieve.RunGet(context.Background(), cmd, retrieveCommandConfig(fixture.Options), []string{"pattern:missing"}, "", true, getOptions{}, "get")
 			return err
 		}},
 		{name: "review patterns", run: func(cmd *cobra.Command) error {
-			return runBrainReview(context.Background(), cmd, fixture.Options, regressionDetectorOptions{limit: 3, json: true, patterns: true}, "privacy state")
+			return brainreview.RunBrainReview(context.Background(), cmd, brainReviewConfig(fixture.Options), regressionDetectorOptions{Limit: 3, JSON: true, Patterns: true}, "privacy state")
 		}},
 	}
 	for _, tc := range tests {
@@ -744,19 +753,19 @@ func (w *blockingHTTPResponseWriter) Write(p []byte) (int, error) {
 
 func TestVizAPIResponseLinearizesBeforeConcurrentTombstone(t *testing.T) {
 	fixture := writeRetrievalEmissionPrivacyFixture(t)
-	manifest, err := loadBrainManifest(fixture.BrainDir)
+	manifest, err := bmanifest.Load(fixture.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	guard, err := loadSessionReadGuard(fixture.BrainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(fixture.BrainDir, manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &vizServer{
-		repoDir: fixture.Options.Env.RepoRoot, brainDir: fixture.BrainDir, branch: "feature", manifest: manifest,
-		guard: guard, guardObserved: !guard.Empty(),
+	srv := &viz.Server{
+		RepoDir: fixture.Options.Env.RepoRoot, BrainDir: fixture.BrainDir, Branch: "feature", Manifest: manifest,
+		Guard: guard, GuardObserved: !guard.Empty(), Deps: vizDeps(),
 	}
-	handler, err := srv.mux()
+	handler, err := srv.Mux()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -788,19 +797,19 @@ func TestVizAPIResponseLinearizesBeforeConcurrentTombstone(t *testing.T) {
 
 func TestVizAPIResponseRejectsLateTombstone(t *testing.T) {
 	fixture := writeRetrievalEmissionPrivacyFixture(t)
-	manifest, err := loadBrainManifest(fixture.BrainDir)
+	manifest, err := bmanifest.Load(fixture.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	guard, err := loadSessionReadGuard(fixture.BrainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(fixture.BrainDir, manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &vizServer{
-		repoDir: fixture.Options.Env.RepoRoot, brainDir: fixture.BrainDir, branch: "feature", manifest: manifest,
-		guard: guard, guardObserved: !guard.Empty(),
+	srv := &viz.Server{
+		RepoDir: fixture.Options.Env.RepoRoot, BrainDir: fixture.BrainDir, Branch: "feature", Manifest: manifest,
+		Guard: guard, GuardObserved: !guard.Empty(), Deps: vizDeps(),
 	}
-	handler, err := srv.mux()
+	handler, err := srv.Mux()
 	if err != nil {
 		t.Fatal(err)
 	}

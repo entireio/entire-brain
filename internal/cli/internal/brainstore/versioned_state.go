@@ -61,7 +61,7 @@ func CheckedVersionedJSONHeader(data []byte, current int, label string) (int, er
 //     schema bump, so an unknown field there is routine skew between builds, not
 //     corruption; every field this build does know is still good. Classifying it
 //     corrupt disabled every brain source and left the memory worker failing on
-//     its retry loop indefinitely. Package brainwire already requires this of
+//     its retry loop indefinitely. The wire contracts require the same of
 //     readers ("Readers MUST be tolerant").
 //
 // Neither mode accepts a newer *schema*; the caller's version check rejects that

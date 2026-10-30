@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // Sharing a brain with a teammate is the one path that works today, and it is
@@ -18,7 +22,7 @@ import (
 
 func writeAuditLine(t *testing.T, brainDir, line string) {
 	t.Helper()
-	dir := filepath.Join(brainDir, semanticDirName)
+	dir := filepath.Join(brainDir, semstore.DirName)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -87,7 +91,7 @@ func TestEmptyRecallNamesTheImportThatReplacedTheFacts(t *testing.T) {
 	// Facts really present on the branch queried: the integrity branch must
 	// pass (a store that LOST facts is a more precise answer and rightly wins),
 	// and the other-branch branch must not fire either.
-	if err := writeFacts(brainDir, "main", []factRecord{
+	if err := factstore.Write(brainDir, "main", []factRecord{
 		vitalityTestFact("retries are capped at three", "main", now),
 	}); err != nil {
 		t.Fatalf("write facts: %v", err)
@@ -123,7 +127,7 @@ func TestABrainThatNeverImportedKeepsItsUsualNote(t *testing.T) {
 	// Facts really present on the branch queried: the integrity branch must
 	// pass (a store that LOST facts is a more precise answer and rightly wins),
 	// and the other-branch branch must not fire either.
-	if err := writeFacts(brainDir, "main", []factRecord{
+	if err := factstore.Write(brainDir, "main", []factRecord{
 		vitalityTestFact("retries are capped at three", "main", now),
 	}); err != nil {
 		t.Fatalf("write facts: %v", err)
@@ -307,7 +311,7 @@ func TestTheImportNoteStopsLeadingOnceWorkWasDistilledSince(t *testing.T) {
 	withDistillation := func(t *testing.T) string {
 		t.Helper()
 		dir := writeDistillFixture(t, distilled)
-		m, err := loadBrainManifest(dir)
+		m, err := bmanifest.Load(dir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -386,14 +390,14 @@ func TestARealImportRecordsOnlyTheLayersItReplaced(t *testing.T) {
 
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot(semanticSchemaVersion))
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot(semstore.SchemaVersion))
 
 	// A bundle that CARRIES facts, into a brain that has none.
 	archive := filepath.Join(t.TempDir(), "with-facts.tar")
 	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName:             `{"schema_version":4,"repo_key":"gh/example/repo","sources":{}}`,
-		"facts/taxonomy.json":              `{"version":1}`,
-		"facts/main-0000/" + factsFileName: "{}\n",
+		bmanifest.FileName:                      `{"schema_version":4,"repo_key":"gh/example/repo","sources":{}}`,
+		"facts/taxonomy.json":                   `{"version":1}`,
+		"facts/main-0000/" + factstore.FileName: "{}\n",
 	})
 	if err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"},
 		Options{Version: "test", Env: env, Runner: runner, Now: time.Now},
@@ -402,7 +406,7 @@ func TestARealImportRecordsOnlyTheLayersItReplaced(t *testing.T) {
 	}
 
 	brainDir := bundleTestBrainDir(env)
-	raw, err := os.ReadFile(filepath.Join(brainDir, semanticDirName, semanticAuditLogName))
+	raw, err := os.ReadFile(filepath.Join(brainDir, semstore.DirName, semanticAuditLogName))
 	if err != nil {
 		t.Fatalf("no audit was written at all, so this guard proves nothing: %v", err)
 	}

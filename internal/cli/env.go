@@ -20,17 +20,6 @@ import (
 )
 
 var repoKeyUnsafeChars = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
-var repoRemoteSCPRegex = regexp.MustCompile(`^(?:[^@]+@)?([^:/]+):(.+)$`)
-var knownRepoDomainSlugs = map[string]string{
-	"github.com":    "gh",
-	"gitlab.com":    "gl",
-	"bitbucket.org": "bb",
-	"entire.io":     "et",
-	"tangled.org":   "tg",
-	"code.storage":  "cs",
-}
-
-const localRepoIdentityConflictCode = "repo_identity_conflict"
 
 // localRepoIdentityConflictError refuses to guess when an upgrade finds state
 // under both the canonical root identity and the exact pre-upgrade lexical
@@ -53,7 +42,7 @@ func (e *localRepoIdentityConflictError) Error() string {
 		"%s: state exists for canonical local repo key %q and pre-upgrade alias key %q; "+
 			"run `%s repo-identity` to see both stores, then `%s repo-identity --keep <repo-key>` "+
 			"to keep one and move the other aside (canonical brain: %s; legacy brain: %s)",
-		localRepoIdentityConflictCode,
+		clibase.RepoIdentityConflictCode,
 		e.Canonical.Key,
 		e.Legacy.Key,
 		clibase.SetupCommandPrefix(os.LookupEnv),
@@ -417,7 +406,7 @@ func parseRepoRemote(remote string) (string, []string, bool) {
 	if parsed, ok := parseURLRemote(remote); ok {
 		host = parsed.host
 		path = parsed.path
-	} else if match := repoRemoteSCPRegex.FindStringSubmatch(remote); len(match) == 3 {
+	} else if match := clibase.RemoteSCPRegex.FindStringSubmatch(remote); len(match) == 3 {
 		if looksLikeWindowsDriveRemotePath(remote, match[2]) {
 			return "", nil, false
 		}
@@ -482,7 +471,7 @@ func normalizeRepoPath(path string) []string {
 }
 
 func repoDomainSlug(configDir, host string) (string, error) {
-	if slug, ok := knownRepoDomainSlugs[host]; ok {
+	if slug, ok := clibase.KnownRepoDomainSlugs[host]; ok {
 		return slug, nil
 	}
 
@@ -549,17 +538,10 @@ func localRepoKey(repoDir string) string {
 	return base + "-" + hex.EncodeToString(sum[:])[:12]
 }
 
-func valueOrUnset(value string) string {
-	if value == "" {
-		return "<unset>"
-	}
-	return value
-}
-
 // lookupRepoDomainSlug reads an established binding without allocating one or
 // quarantining malformed configuration. A getter must not redefine identity.
 func lookupRepoDomainSlug(configDir, host string) (string, error) {
-	if slug, ok := knownRepoDomainSlugs[host]; ok {
+	if slug, ok := clibase.KnownRepoDomainSlugs[host]; ok {
 		return slug, nil
 	}
 	path, err := config.Path(configDir)

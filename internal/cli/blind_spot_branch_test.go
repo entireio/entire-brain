@@ -6,12 +6,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // seedFactBranch writes one active fact onto a branch's store.
 func seedFactBranch(t *testing.T, brainDir, branch string, ids ...string) {
 	t.Helper()
-	dir := filepath.Join(brainDir, factsBranchRelDir(branch))
+	dir := filepath.Join(brainDir, factstore.BranchRelDir(branch))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -20,7 +23,7 @@ func seedFactBranch(t *testing.T, brainDir, branch string, ids ...string) {
 		b.WriteString(`{"id":"fact:` + id + `","kind":"decision","branch":"` + branch +
 			`","status":"active","text":"a distilled decision"}` + "\n")
 	}
-	if err := os.WriteFile(filepath.Join(dir, factsFileName), []byte(b.String()), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, factstore.FileName), []byte(b.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -30,7 +33,7 @@ func seedFactBranch(t *testing.T, brainDir, branch string, ids ...string) {
 // what these tests are about.
 func declareFacts(t *testing.T, brainDir string, now time.Time, total int, branches ...string) {
 	t.Helper()
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,11 +110,11 @@ func TestBlindSpotFallsThroughWhenNoOtherBranchHasFacts(t *testing.T) {
 func TestBlindSpotIgnoresInactiveFactsOnOtherBranches(t *testing.T) {
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 	brainDir := writeDistillFixture(t, now)
-	dir := filepath.Join(brainDir, factsBranchRelDir("feat/old"))
+	dir := filepath.Join(brainDir, factstore.BranchRelDir("feat/old"))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, factsFileName),
+	if err := os.WriteFile(filepath.Join(dir, factstore.FileName),
 		[]byte(`{"id":"fact:dead","kind":"decision","branch":"feat/old","status":"retired","text":"superseded"}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

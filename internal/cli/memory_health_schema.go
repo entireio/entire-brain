@@ -14,6 +14,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -267,7 +268,7 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 		health["action"] = "publish a current canonical history source, then rebuild FTS"
 		return health
 	}
-	index, err := loadBrainHistoryIndex(brainDir, source)
+	index, err := historystore.LoadIndex(brainDir, source)
 	if err != nil {
 		health["state"] = "stale"
 		health["error_code"] = brainstore.SourceStaleCode

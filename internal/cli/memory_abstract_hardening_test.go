@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestLongAbstractRejectsMaliciousSynthesisCitations(t *testing.T) {
@@ -151,7 +152,7 @@ func TestAbstractResolverCarriesAffectedJobIssue(t *testing.T) {
 	if err := saveMemoryConfig(brainDir, memoryConfig{SchemaVersion: memoryConfigSchemaVersion, Abstracts: memoryAbstractsConfig{Enabled: true, Provider: "fake"}}); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +192,7 @@ func TestAbstractResolverPreservesCorruptAndUnsupportedJobCodes(t *testing.T) {
 			if err := saveMemoryConfig(brainDir, memoryConfig{SchemaVersion: memoryConfigSchemaVersion, Abstracts: memoryAbstractsConfig{Enabled: true, Provider: "fake"}}); err != nil {
 				t.Fatal(err)
 			}
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -349,7 +350,7 @@ func TestManualGenerationIsNotStrandedBehindAutomaticDrainShare(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +379,7 @@ func TestManualGenerationIsNotStrandedBehindAutomaticDrainShare(t *testing.T) {
 
 func TestDisablingAbstractsCancelsOnlyAutomaticWork(t *testing.T) {
 	brainDir, _ := writeSessionNavigationFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,7 +492,7 @@ func TestConfigureAbstractsReturnsValidatedMutationReceipt(t *testing.T) {
 	if repeated, repeatedState, repeatedErr := loadMemoryConfigChecked(storage.BrainDir); repeatedErr != nil || repeatedState != memoryConfigCurrent || repeated != stored {
 		t.Fatalf("idempotent configure changed selection=%+v state=%s err=%v", repeated, repeatedState, repeatedErr)
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -618,7 +619,7 @@ func TestAbstractEgressReceiptAtomicallyReplacesPerSession(t *testing.T) {
 
 func TestStaleAbstractEgressReconciliationUsesDurableJobTruth(t *testing.T) {
 	brainDir, _ := writeSessionNavigationFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -939,7 +940,7 @@ func TestAbstractPrivacyCleanupNeverFollowsExternalSymlinks(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir, _ := writeSessionNavigationFixture(t)
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -963,7 +964,7 @@ func TestAbstractPrivacyCleanupNeverFollowsExternalSymlinks(t *testing.T) {
 
 func TestAbstractPrivacyCleanupRefusesRacedReplacementAtUnlink(t *testing.T) {
 	brainDir, _ := writeSessionNavigationFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

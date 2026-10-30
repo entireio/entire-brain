@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,6 +15,8 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -66,7 +69,7 @@ type verifyReport struct {
 	// store that had lost a fact — it verified the facts it could still read
 	// and never asked whether that was all of them. Present only when the
 	// cross-check fails.
-	StoreIntegrity *factStoreIntegrity `json:"store_integrity,omitempty"`
+	StoreIntegrity *factstore.Integrity `json:"store_integrity,omitempty"`
 }
 
 type verifySummary struct {
@@ -169,14 +172,14 @@ func runVerify(ctx context.Context, cmd *cobra.Command, opts Options, verifyOpts
 		return err
 	}
 	if verifyOpts.json {
-		if err := writeJSON(cmd, report); err != nil {
+		if err := cmdutil.WriteJSON(cmd, report); err != nil {
 			return err
 		}
 	} else {
 		renderVerifyReportText(cmd, report)
 	}
 	if err := verifyFailureForReport(report, verifyOpts); err != nil {
-		return renderedCommandError{err: err}
+		return renderedCommandError{Err: err}
 	}
 	return nil
 }
@@ -201,11 +204,11 @@ func verifyFailureForReport(report verifyReport, verifyOpts verifyCommandOptions
 }
 
 func buildVerifyReport(ctx context.Context, opts Options, repoDir, brainDir, repoKey, branch string, verifyOpts verifyCommandOptions, target string) (verifyReport, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return verifyReport{}, err
 	}
-	allFacts, err := loadFacts(brainDir, branch)
+	allFacts, err := factstore.Load(brainDir, branch)
 	if err != nil {
 		return verifyReport{}, err
 	}
@@ -214,9 +217,9 @@ func buildVerifyReport(ctx context.Context, opts Options, repoDir, brainDir, rep
 	// manifest's claim against the store before verifying what survived, so
 	// the verdict below can never be read as a clean bill of health for a
 	// corpus that is short.
-	var storeIntegrity *factStoreIntegrity
+	var storeIntegrity *factstore.Integrity
 	if manifest != nil && manifest.Sources != nil {
-		if integrity := inspectFactStore(brainDir, manifest.Sources.Facts); !integrity.OK() {
+		if integrity := factstore.Inspect(brainDir, manifest.Sources.Facts); !integrity.OK() {
 			storeIntegrity = &integrity
 		}
 	}
@@ -467,7 +470,16 @@ func (v *verifyContext) verifyAnchor(anchor factAnchor, factBranch string) verif
 			result.addCheck(verifyCheck{Name: "line", Verdict: verifyVerdictVerified, Reason: fmt.Sprintf("line %d resolved", anchor.Line)})
 		}
 	}
-	if strings.TrimSpace(anchor.CheckpointID) != "" && transcriptRead {
+	// The byte comparison exists to catch a MATERIALIZED transcript file (a
+	// pre-COR-2128 brain or a standalone bundle) drifting from the checkpoint
+	// store. A checkpoint-backed brain has no such file: transcriptContent
+	// above was itself read out of the checkpoint store, pinned per member to
+	// the manifest's flavor (memberTranscriptLocation), while this comparison
+	// re-resolves flavor through useCompactTranscripts' all-or-nothing switch.
+	// Comparing the store to itself proves nothing and misfires whenever the
+	// two resolutions disagree — one pointer-less session anywhere in the
+	// store re-reported every compact-anchored fact stale (COR-2289's shape).
+	if strings.TrimSpace(anchor.CheckpointID) != "" && transcriptRead && !checkpointBackedSessions(v.manifest) {
 		result.addCheck(v.verifyCheckpointTranscript(anchor, session, transcriptContent))
 	}
 	result.Reason = reasonForAnchorVerdict(result.Verdict)
@@ -679,6 +691,17 @@ func (v *verifyContext) verifyCheckpointTranscript(anchor factAnchor, session ex
 	if checkpointUnreadableInSnapshot(snapshot, anchor.CheckpointID) {
 		return verifyCheck{Name: "checkpoint_transcript", Verdict: verifyVerdictUnverifiableHere, Reason: "checkpoint was listed locally but its retained transcript source is unreadable"}
 	}
+	// useCompactTranscripts is all-or-nothing over the CURRENT store, so a
+	// store that gained one pointer-less session since the export resolves raw
+	// even though the export's files are compact. Unlike flavors never match
+	// bytes; that is a resolution limit here, not evidence the fact went stale.
+	exportMode := "raw"
+	if v.manifest != nil && v.manifest.TranscriptMode == "compact" {
+		exportMode = "compact"
+	}
+	if snapshot.TranscriptMode != exportMode {
+		return verifyCheck{Name: "checkpoint_transcript", Verdict: verifyVerdictUnverifiableHere, Reason: fmt.Sprintf("export transcripts are %s but the local checkpoint store resolves %s; bytes are not comparable", exportMode, snapshot.TranscriptMode)}
+	}
 	sourcePath, sourceKey := v.snapshotSourceTranscriptPath(snapshot, anchor, session)
 	if sourcePath == "" {
 		return verifyCheck{Name: "checkpoint_transcript", Verdict: verifyVerdictOrphaned, Reason: "checkpoint transcript path is missing"}
@@ -713,7 +736,11 @@ func (v *verifyContext) localCheckpointSnapshot() (*checkpointSnapshot, error) {
 		return v.snapshot, v.snapshotErr
 	}
 	v.snapshotLoaded = true
-	snapshot, warnings, err := loadLocalCheckpointSnapshotLocalOnly(v.ctx, v.opts.Runner, v.repoDir, true, checkpointBranchDestinations{}, nil)
+	// Compare like with like: a compact-mode export carries the checkpoint's
+	// compact transcript, so the snapshot must resolve the compact flavor too.
+	// An absent or pre-transcript_mode manifest means raw, the historical mode.
+	raw := v.manifest == nil || v.manifest.TranscriptMode != "compact"
+	snapshot, warnings, err := loadLocalCheckpointSnapshotLocalOnly(v.ctx, v.opts.Runner, v.repoDir, raw, checkpointBranchDestinations{}, nil)
 	v.snapshot = snapshot
 	v.snapshotErr = err
 	v.snapshotWarnings = append(v.snapshotWarnings, warnings...)
@@ -939,10 +966,10 @@ func renderVerifyReportText(cmd *cobra.Command, report verifyReport) {
 		for _, anchor := range result.Anchors {
 			fmt.Fprintf(out, "  - %s session=%s checkpoint=%s commit=%s %s:%d\n",
 				anchor.Verdict,
-				valueOrUnset(anchor.Anchor.SessionID),
-				valueOrUnset(anchor.Anchor.CheckpointID),
-				valueOrUnset(anchor.Anchor.Commit),
-				valueOrUnset(anchor.Anchor.Transcript),
+				cmdutil.ValueOrUnset(anchor.Anchor.SessionID),
+				cmdutil.ValueOrUnset(anchor.Anchor.CheckpointID),
+				cmdutil.ValueOrUnset(anchor.Anchor.Commit),
+				cmdutil.ValueOrUnset(anchor.Anchor.Transcript),
 				anchor.Anchor.Line)
 			if anchor.Reason != "" {
 				fmt.Fprintf(out, "    reason: %s\n", anchor.Reason)

@@ -91,11 +91,13 @@ type memoryNotifySyncMarker struct {
 // errW and swallowed. The return value says whether the work ran, for tests
 // and for the caller's log line only.
 func hostedSyncOnPushHint(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) bool {
-	// An explicit disconnect must cost nothing per push: bail before claiming
-	// the throttle or spawning sync work. An UNBOUND repo proceeds — the
+	// An explicit disconnect — or a recorded no-access pause (COR-2279) —
+	// must cost nothing per push: bail before claiming the throttle or
+	// spawning sync work. An UNBOUND repo proceeds — the
 	// sync's auto-connect is the designed first-contact path, with its own
 	// gates.
-	if binding, present, err := readHostedRepoBinding(storage.BrainDir); err == nil && present && binding.OptedOut {
+	if binding, present, err := brainstore.ReadHostedRepoBinding(storage.BrainDir); err == nil && present &&
+		(binding.OptedOut || binding.NoAccessUntil.After(opts.Now().UTC())) {
 		return false
 	}
 	claimed := false

@@ -54,7 +54,7 @@ class VerifyResultsTests(unittest.TestCase):
         with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
             return verify_results.main(arguments)
 
-    def make_fixture(self, root):
+    def make_fixture(self, root, selected_packages=None):
         bundle = root / "bundle"
         shards_root = root / "shards"
         other_root = root / "other"
@@ -131,8 +131,19 @@ class VerifyResultsTests(unittest.TestCase):
         inventories = plan_shards.load_inventories([inventory_path])
         loaded_settings = plan_shards.load_settings(bundle / "settings.json")
         weights, weight_metadata = plan_shards.load_weights(bundle / "historical-weights.json")
-        plan = plan_shards.create_plan(inventories, loaded_settings, weights, weight_metadata)
+        plan = plan_shards.create_plan(
+            inventories,
+            loaded_settings,
+            weights,
+            weight_metadata,
+            selected_packages=selected_packages,
+        )
         write_json(bundle / "plan.json", plan)
+        if selected_packages is not None:
+            write_json(
+                bundle / "affected.json",
+                {"mode": "selected", "packages": sorted(selected_packages)},
+            )
         package_inventory = {
             "schema": verify_results.PACKAGE_SCHEMA,
             "repositorySha": repository_sha,
@@ -231,7 +242,7 @@ class VerifyResultsTests(unittest.TestCase):
                     "cleanTestCacheExitCode": 0,
                     "planSha256": plan_hash,
                     "shardIndex": index,
-                    "shardCount": 2,
+                    "shardCount": plan["shardCount"],
                     "commandLineLimit": 30000,
                     "timeout": "30m",
                     "shuffle": "off",
@@ -243,57 +254,85 @@ class VerifyResultsTests(unittest.TestCase):
                 },
             )
         package_hash = plan_shards.sha256_file(bundle / "package-inventory.json")
-        write_jsonl(
-            other_root / "other-events.jsonl",
-            [
-                {"Action": "start", "Package": "example/other"},
-                {"Action": "run", "Package": "example/other", "Test": "TestOther"},
-                {"Action": "pass", "Package": "example/other", "Test": "TestOther"},
-                {"Action": "pass", "Package": "example/other"},
-                {"Action": "start", "Package": "example/no-tests"},
-                {"Action": "skip", "Package": "example/no-tests"},
-            ],
-        )
-        other_coverage_relative = "coverage/other.out"
-        other_coverage_sha256 = write_profile(
-            other_root / other_coverage_relative,
-            [
-                "example/shared.go:1.1,2.1 2 0",
-                "example/other.go:5.1,6.1 3 1",
-                "example/generated.go:9.4,9.4 0 0",
-            ],
-        )
-        write_json(
-            other_root / "other-metadata.json",
-            {
-                "schema": verify_results.OTHER_RUN_SCHEMA,
-                "exitCode": 0,
-                "errors": [],
-                "repositorySha": repository_sha,
-                "repositoryShaAfter": repository_sha,
-                "goVersion": go_version,
-                "targetEnvironment": dict(plan_shards.TARGET_ENVIRONMENT),
-                "trackedWorktreeCleanBefore": True,
-                "trackedWorktreeCleanAfter": True,
-                "planSha256": plan_hash,
-                "packageInventorySha256": package_hash,
-                "expectedPackages": ["example/no-tests", "example/other"],
-                "packageCount": 2,
-                "timeout": "30m",
-                "shuffle": "off",
-                "testParallel": None,
-                "goMaxProcs": None,
-                "coverageMode": "atomic",
-                "coveragePackages": "./...",
-                "commandLineLimit": 30000,
-                "commandLineUtf16Units": 500,
-                "testArguments": ["test", "-race", "-json", "-vet=off", "-covermode=atomic", "-coverpkg=./...", "-coverprofile=C:\\runner\\coverage\\other.out", "-timeout=30m", "-shuffle=off", "example/no-tests", "example/other"],
-                "cleanTestCacheExitCode": 0,
-                "testExitCode": 0,
-                "coverageProfile": other_coverage_relative,
-                "coverageSha256": other_coverage_sha256,
-            },
-        )
+        other_packages = ["example/no-tests", "example/other"]
+        if selected_packages is not None:
+            other_packages = [
+                package for package in other_packages if package in selected_packages
+            ]
+        other_events = []
+        if "example/other" in other_packages:
+            other_events.extend(
+                [
+                    {"Action": "start", "Package": "example/other"},
+                    {"Action": "run", "Package": "example/other", "Test": "TestOther"},
+                    {"Action": "pass", "Package": "example/other", "Test": "TestOther"},
+                    {"Action": "pass", "Package": "example/other"},
+                ]
+            )
+        if "example/no-tests" in other_packages:
+            other_events.extend(
+                [
+                    {"Action": "start", "Package": "example/no-tests"},
+                    {"Action": "skip", "Package": "example/no-tests"},
+                ]
+            )
+        write_jsonl(other_root / "other-events.jsonl", other_events)
+        other_metadata = {
+            "schema": verify_results.OTHER_RUN_SCHEMA,
+            "exitCode": 0,
+            "errors": [],
+            "repositorySha": repository_sha,
+            "repositoryShaAfter": repository_sha,
+            "goVersion": go_version,
+            "targetEnvironment": dict(plan_shards.TARGET_ENVIRONMENT),
+            "trackedWorktreeCleanBefore": True,
+            "trackedWorktreeCleanAfter": True,
+            "planSha256": plan_hash,
+            "packageInventorySha256": package_hash,
+            "expectedPackages": other_packages,
+            "packageCount": len(other_packages),
+            "timeout": "30m",
+            "shuffle": "off",
+            "testParallel": None,
+            "goMaxProcs": None,
+            "coverageMode": "atomic",
+            "coveragePackages": "./...",
+            "commandLineLimit": 30000,
+            "cleanTestCacheExitCode": 0,
+            "testExitCode": 0,
+            "coverageProfile": None,
+            "coverageSha256": None,
+        }
+        if other_packages:
+            other_coverage_relative = "coverage/other.out"
+            other_coverage_sha256 = write_profile(
+                other_root / other_coverage_relative,
+                [
+                    "example/shared.go:1.1,2.1 2 0",
+                    "example/other.go:5.1,6.1 3 1",
+                    "example/generated.go:9.4,9.4 0 0",
+                ],
+            )
+            other_metadata.update(
+                {
+                    "commandLineUtf16Units": 500,
+                    "testArguments": [
+                        "test",
+                        "-race",
+                        "-json",
+                        "-vet=off",
+                        "-covermode=atomic",
+                        "-coverpkg=./...",
+                        "-coverprofile=C:\\runner\\coverage\\other.out",
+                        "-timeout=30m",
+                        "-shuffle=off",
+                        *other_packages,
+                    ],
+                    "coverageProfile": other_coverage_relative,
+                    "coverageSha256": other_coverage_sha256,
+                }
+            )
+        write_json(other_root / "other-metadata.json", other_metadata)
         binary_root = other_root / "binary-coverage"
         binary_profile = binary_root / "binary.out"
         binary_profile_sha256 = write_profile(
@@ -633,6 +672,57 @@ class VerifyResultsTests(unittest.TestCase):
             self.assertIn("paniconexit0", failures)
             self.assertIn("PWD", failures)
             self.assertIn("PATH", failures)
+
+    def test_selected_plan_with_empty_shard_and_filtered_other_verifies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            arguments, output, _, _, _ = self.make_fixture(
+                Path(directory), selected_packages={"example/other"}
+            )
+            self.assertEqual(self.run_verifier(arguments), 0)
+            report = json.loads(output.read_text(encoding="utf-8"))
+            self.assertIs(report["passed"], True)
+            self.assertEqual(
+                report["selection"], {"mode": "selected", "packages": ["example/other"]}
+            )
+            self.assertEqual(report["inventory"]["runnableRootCount"], 0)
+            self.assertEqual(report["otherPackages"]["expectedPackageCount"], 1)
+            # One empty shard, zero heavy profiles: other.out plus binary.out.
+            self.assertEqual(report["shards"]["metadataCount"], 1)
+            self.assertEqual(report["coverage"]["profileCount"], 2)
+            self.assertEqual(report["coverage"]["heavyProcessProfileCount"], 0)
+
+    def test_selected_plan_with_empty_non_heavy_run_verifies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            arguments, output, _, _, _ = self.make_fixture(
+                Path(directory), selected_packages={"example/heavy"}
+            )
+            self.assertEqual(self.run_verifier(arguments), 0)
+            report = json.loads(output.read_text(encoding="utf-8"))
+            self.assertIs(report["passed"], True)
+            self.assertEqual(report["inventory"]["runnableRootCount"], 3)
+            self.assertEqual(report["otherPackages"]["expectedPackageCount"], 0)
+            self.assertEqual(report["otherPackages"]["eventCount"], 0)
+            # Two heavy shard profiles plus binary.out; no non-heavy profile.
+            self.assertEqual(report["coverage"]["profileCount"], 3)
+            self.assertEqual(report["coverage"]["nonHeavyProfileCount"], 0)
+
+    def test_selected_plan_must_match_the_bundled_affected_decision(self):
+        for mutation in ("tampered", "missing"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
+                arguments, output, bundle, _, _ = self.make_fixture(
+                    Path(directory), selected_packages={"example/other"}
+                )
+                affected_path = bundle / "affected.json"
+                if mutation == "tampered":
+                    write_json(
+                        affected_path,
+                        {"mode": "selected", "packages": ["example/other", "example/extra"]},
+                    )
+                else:
+                    affected_path.unlink()
+                self.assertEqual(self.run_verifier(arguments), 1)
+                failures = "\n".join(json.loads(output.read_text())["failures"])
+                self.assertIn("affected decision", failures)
 
     def test_testmain_declaration_drift_fails_closed(self):
         with tempfile.TemporaryDirectory() as directory:
