@@ -291,6 +291,9 @@ func TestRepoFactStoreReleasedHostedSync(t *testing.T) {
 			t.Fatal("pull failure was hidden")
 		}
 		f.requireVisible(binary, "main", []factRecord{remote}, []factRecord{a, b})
+		// Acknowledged versions need no POST. Create a pending version so
+		// both clients must exercise the denied-upload and retry paths.
+		pending := f.remember(binary, "pending upload from "+filepath.Base(binary), "main")
 		fake.mu.Lock()
 		fake.denyFeed = false
 		fake.denyPush = true
@@ -298,10 +301,17 @@ func TestRepoFactStoreReleasedHostedSync(t *testing.T) {
 		if _, err := f.call(binary, syncArgs...); err == nil {
 			t.Fatal("push failure was hidden")
 		}
+		if fake.has(pending.ID) {
+			t.Fatal("denied upload reached the server")
+		}
+		f.requireVisible(binary, "main", []factRecord{pending}, nil)
 		fake.mu.Lock()
 		fake.denyPush = false
 		fake.mu.Unlock()
 		f.run(binary, syncArgs...)
+		if !fake.has(pending.ID) {
+			t.Fatal("retry did not upload pending memory")
+		}
 	}
 	f.run(f.current, "memories", "storage", "rollback", "--json")
 	f.run(f.old, syncArgs...)
