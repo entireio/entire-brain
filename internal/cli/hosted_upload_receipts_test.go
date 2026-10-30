@@ -4,15 +4,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/factsync"
 )
@@ -271,5 +276,74 @@ func TestHostedUploadAmbiguousAcknowledgementCanRetry(t *testing.T) {
 	}
 	if len(stored) != 1 || requests != 2 {
 		t.Fatalf("stored=%d requests=%d", len(stored), requests)
+	}
+}
+
+func TestHostedUploadLockTimeoutPreservesPendingRecords(t *testing.T) {
+	original := hostedUploadLockTimeout
+	hostedUploadLockTimeout = 30 * time.Millisecond
+	t.Cleanup(func() { hostedUploadLockTimeout = original })
+	fake := &hostedFake{}
+	opts, storage, _, url := hostedSyncHarness(t, fake, true)
+	rec := hostedSyncTestFact("pending after lock timeout", opts.Now())
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{rec}); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := acquireHostedUploadLock(context.Background(), storage.BrainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	// The outer deadline prevents a regression from hanging the test. It must
+	// not be the deadline that ends acquisition.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	client := &factsync.HTTPServer{BaseURL: url, Token: fakeJWT}
+	_, _, err = pushHostedFacts(ctx, storage, client, "repo1", "main")
+	if !errors.Is(err, brainstore.ErrFileLockTimeout) {
+		t.Fatalf("wanted bounded lock timeout, got %v", err)
+	}
+	if ctx.Err() != nil {
+		t.Fatal("wait ended only at the caller deadline")
+	}
+	if !strings.Contains(err.Error(), "hosted_upload_locked") || !strings.Contains(err.Error(), fmt.Sprintf("pid %d", os.Getpid())) {
+		t.Fatalf("missing holder diagnostic: %v", err)
+	}
+	if fake.requestCount() != 0 {
+		t.Fatal("timed-out upload contacted the server")
+	}
+	receipt := filepath.Join(storage.BrainDir, hostedUploadReceiptPath(url, "repo1"))
+	if _, err := os.Stat(receipt); !os.IsNotExist(err) {
+		t.Fatalf("timeout created an acknowledgement: %v", err)
+	}
+	facts, err := factstore.Load(storage.BrainDir, "main")
+	if err != nil || len(facts) != 1 || facts[0].ID != rec.ID {
+		t.Fatalf("pending memory changed: %+v %v", facts, err)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := pushHostedFacts(context.Background(), storage, client, "repo1", "main"); err != nil {
+		t.Fatal(err)
+	}
+	if !fake.has(rec.ID) {
+		t.Fatal("next sync did not upload the pending memory")
+	}
+}
+
+func TestHostedUploadLockCancellationWhileWaiting(t *testing.T) {
+	storage := repoStorage{BrainDir: t.TempDir()}
+	lock, err := acquireHostedUploadLock(context.Background(), storage.BrainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	timer := time.AfterFunc(20*time.Millisecond, cancel)
+	defer timer.Stop()
+	_, err = acquireHostedUploadLock(ctx, storage.BrainDir)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation was replaced by lock timeout: %v", err)
 	}
 }

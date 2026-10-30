@@ -54,9 +54,13 @@ func saveHostedUploadReceipts(brainDir, rel string, r hostedUploadReceipts) erro
 	return brainstore.WriteBrainRelativeFileAtomic(brainDir, rel, append(data, '\n'), 0o600)
 }
 
+// Match the bounded wait used by other brain locks. Tests may shorten it.
+var hostedUploadLockTimeout = brainstore.BrainWriteLockTimeout
+
 // Serialize uploads across processes, including manual sync. Unlike the old
 // time throttle, a waiting completion event reads the store AFTER its predecessor
 // finishes. The lock does not block memory writers and is released on process exit.
+// A bounded wait leaves pending versions for the next event if a holder stalls.
 func acquireHostedUploadLock(ctx context.Context, brainDir string) (*brainstore.FileLock, error) {
 	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return nil, err
@@ -64,15 +68,23 @@ func acquireHostedUploadLock(ctx context.Context, brainDir string) (*brainstore.
 	if err := base.RejectExistingSymlinkPathComponents(brainDir, brainstore.BrainLockDirName); err != nil {
 		return nil, err
 	}
+	deadline := time.Now().Add(hostedUploadLockTimeout)
+	var lastTimeout error
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err
+		}
+		if lastTimeout != nil && !time.Now().Before(deadline) {
+			// Preserve the lock path and live-holder diagnostic from the last
+			// attempt, rather than replacing it with a generic context error.
+			return nil, lastTimeout
 		}
 		lock, err := brainstore.AcquireFileLock(filepath.Join(brainDir, brainstore.BrainLockDirName, "hosted-upload.lock"), "hosted_upload_locked", 0)
 		if !errors.Is(err, brainstore.ErrFileLockTimeout) {
 			return lock, err
 		}
-		timer := time.NewTimer(25 * time.Millisecond)
+		lastTimeout = err
+		timer := time.NewTimer(min(25*time.Millisecond, max(0, time.Until(deadline))))
 		select {
 		case <-ctx.Done():
 			timer.Stop()
