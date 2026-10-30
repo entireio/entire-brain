@@ -633,3 +633,94 @@ func TestRepoFactStoreStatusReconcilesWithoutWriting(t *testing.T) {
 		t.Fatalf("status migrated the store: %v", err)
 	}
 }
+
+func TestRepoFactStoreWriteIsolatesLegacyProjectionDamage(t *testing.T) {
+	for _, migrated := range []bool{false, true} {
+		for _, damagedBranch := range []string{"main", "other"} {
+			for _, kind := range []string{"corrupt", "symlink"} {
+				t.Run(fmt.Sprintf("migrated=%t/%s/%s", migrated, damagedBranch, kind), func(t *testing.T) {
+					root := t.TempDir()
+					a, b := repoStoreFact("target", "main"), repoStoreFact("unrelated", "other")
+					writeLegacyView(t, root, "main", []factmerge.Record{a})
+					writeLegacyView(t, root, "other", []factmerge.Record{b})
+					if migrated {
+						if err := MigrateRepository(root); err != nil {
+							t.Fatal(err)
+						}
+					}
+					before, _ := os.ReadFile(filepath.Join(root, RepositoryPath))
+					path := filepath.Join(root, FileRelPath(damagedBranch))
+					if err := os.Remove(path); err != nil {
+						t.Fatal(err)
+					}
+					if kind == "corrupt" {
+						if err := os.WriteFile(path, []byte("{broken"), 0o600); err != nil {
+							t.Fatal(err)
+						}
+					} else if err := os.Symlink(filepath.Join(t.TempDir(), "outside"), path); err != nil {
+						t.Skipf("symlinks unavailable: %v", err)
+					}
+					want := []factmerge.Record{a, repoStoreFact("new target memory", "main")}
+					err := Write(root, "main", want)
+					if damagedBranch == "main" {
+						if err == nil {
+							t.Fatal("write ignored target projection damage")
+						}
+						after, readErr := os.ReadFile(filepath.Join(root, RepositoryPath))
+						if !bytes.Equal(before, after) || (!migrated && !os.IsNotExist(readErr)) {
+							t.Fatal("refused write changed the snapshot")
+						}
+					} else {
+						if err != nil {
+							t.Fatalf("unrelated projection blocked write: %v", err)
+						}
+						requireRepoView(t, root, "main", want)
+						for name, check := range map[string]func() error{
+							"listing":   func() error { _, err := LoadStoreFiles(root); return err },
+							"migration": func() error { return MigrateRepository(root) },
+							"rollback":  func() error { return RollbackRepository(root) },
+						} {
+							if err := check(); err == nil {
+								t.Fatalf("%s ignored unrelated projection damage", name)
+							}
+						}
+						// Existing native state for other views must remain intact.
+						if migrated {
+							s, _, err := readRepoFactStore(root)
+							if err != nil {
+								t.Fatal(err)
+							}
+							got, err := s.view(repoFactViewDir("other"))
+							if err != nil || !reflect.DeepEqual(got, []factmerge.Record{b}) {
+								t.Fatalf("write changed unrelated native view: %+v, %v", got, err)
+							}
+						}
+					}
+					if kind == "symlink" {
+						if _, err := os.Readlink(path); err != nil {
+							t.Fatal("write replaced the symlink")
+						}
+					} else if data, err := os.ReadFile(path); err != nil || string(data) != "{broken" {
+						t.Fatal("write replaced the damaged projection")
+					}
+					if err := os.Remove(path); err != nil {
+						t.Fatal(err)
+					}
+					if damagedBranch == "main" {
+						writeLegacyView(t, root, "main", []factmerge.Record{a})
+					} else {
+						writeLegacyView(t, root, "other", []factmerge.Record{b})
+					}
+					requireRepoView(t, root, "other", []factmerge.Record{b})
+					if err := MigrateRepository(root); err != nil {
+						t.Fatal(err)
+					}
+					report, err := RepositoryStatus(root)
+					if err != nil || report.Views != 2 {
+						t.Fatalf("repaired view failed to migrate: %+v, %v", report, err)
+					}
+				})
+			}
+		}
+	}
+}

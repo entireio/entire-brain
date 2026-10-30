@@ -195,8 +195,14 @@ func commitRepoFactView(brainDir, dir string, records []factmerge.Record, persis
 		return err
 	}
 	return withRepoFactStoreLock(brainDir, func() error {
-		s, err := reconcileRepoFactStore(brainDir)
+		s, _, err := readRepoFactStore(brainDir)
 		if err != nil {
+			return err
+		}
+		// A branch write must not depend on unrelated legacy projections
+		// being readable. Full reconciliation belongs to inventory and
+		// migration; retain other native views exactly as stored here.
+		if err := s.reconcileView(brainDir, dir); err != nil {
 			return err
 		}
 		sum := sha256.Sum256(buf.Bytes())

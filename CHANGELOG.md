@@ -8,8 +8,8 @@ All notable changes to `entire-brain` are recorded here. The format follows
 ### Changed
 
 - Memory bodies now share one repository-level store. Existing branch visibility,
-  lifecycle state, and Brainstore sync records are preserved. Writes and refresh
-  migrate existing stores automatically; legacy NDJSON projections remain readable
+  lifecycle state, and Brainstore sync records are preserved. Writes migrate their
+  target view and refresh migrates all views; legacy NDJSON projections remain readable
   and writable by older clients during the compatibility window.
 
 ### Added

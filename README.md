@@ -207,8 +207,8 @@ existing memory IDs and record fields. Views retain the current branch visibilit
 and any differing provenance or lifecycle state. Brainstore's per-record API and
 wire format are unchanged.
 
-Existing installations migrate on their next memory write or refresh. Reads also
-understand the legacy layout and do not modify disk. During the compatibility
+Each legacy view migrates on its next memory write; refresh migrates all views.
+Reads also understand the legacy layout and do not modify disk. During the compatibility
 window, the adapter maintains the old `facts/<branch>/facts.ndjson` projections
 and incorporates writes from older clients. Outlines, review proposals, usage
 receipts, and other existing view metadata retain their compatible layouts.
