@@ -15,7 +15,7 @@ func newFactsStorageCommand(opts Options) *cobra.Command {
 		var global, jsonOut bool
 		sub := &cobra.Command{
 			Use: action, Args: cobra.NoArgs,
-			Short: map[string]string{"status": "Show memory storage format", "migrate": "Consolidate legacy memories, retaining compatibility", "rollback": "Export current memories for older releases"}[action],
+			Short: map[string]string{"status": "Show memory storage format", "migrate": "Convert memory storage for supported older releases", "rollback": "Export current memories for older releases"}[action],
 			RunE: func(cmd *cobra.Command, _ []string) error {
 				var dir string
 				var err error

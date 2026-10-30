@@ -1,9 +1,8 @@
 package factstore
 
-// The repository store owns memory bodies once. Views are selections plus
-// field overrides, not independent collections. Overrides preserve legacy
-// lifecycle/provenance differences without promoting a branch's assertions to
-// every other branch. The compatibility adapter lives in repo_fact_compat.go.
+// The repository API assembles views in memory. During support for v0.2-v0.4,
+// payloads live only in files those clients can purge. Schema 1 snapshots are
+// still readable and are converted on mutation; schema 2 is a bodyless marker.
 
 import (
 	"bytes"
@@ -20,7 +19,12 @@ import (
 )
 
 const RepositoryPath = "facts/store.json"
-const repoFactsVersion = 1
+const repoFactsVersion = 2
+
+type repoFactMarker struct {
+	SchemaVersion int    `json:"schema_version"`
+	Storage       string `json:"storage"`
+}
 
 type repoFactStore struct {
 	SchemaVersion int                        `json:"schema_version"`
@@ -62,13 +66,29 @@ func readRepoFactStore(brainDir string) (repoFactStore, bool, error) {
 	if err != nil {
 		return s, false, err
 	}
+	var header struct {
+		SchemaVersion int `json:"schema_version"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
+		return s, true, err
+	}
+	if header.SchemaVersion == repoFactsVersion {
+		var marker repoFactMarker
+		if _, err := brainstore.DecodeStrictVersionedJSON(data, &marker, repoFactsVersion, "repository memory store"); err != nil {
+			return s, true, err
+		}
+		if marker.Storage != "legacy_views" {
+			return s, true, fmt.Errorf("invalid repository memory storage mode")
+		}
+		return s, true, nil
+	}
 	// Decode into zero state: omitted fields must not inherit the defaults
 	// used for a genuinely absent store.
 	s = repoFactStore{}
-	if _, err := brainstore.DecodeStrictVersionedJSON(data, &s, repoFactsVersion, "repository memory store"); err != nil {
+	if _, err := brainstore.DecodeStrictVersionedJSON(data, &s, 1, "repository memory store"); err != nil {
 		return s, true, err
 	}
-	if s.SchemaVersion != repoFactsVersion || s.Records == nil || s.Views == nil {
+	if s.SchemaVersion != 1 || s.Records == nil || s.Views == nil {
 		return s, true, fmt.Errorf("invalid repository memory store header")
 	}
 	// Validate each body once, even when hundreds of views reference it.
@@ -220,10 +240,18 @@ func (s *repoFactStore) compact() error {
 }
 
 func writeRepoFactStore(brainDir string, s *repoFactStore) error {
+	if err := s.excludePurgedSnapshotAnchors(brainDir); err != nil {
+		return err
+	}
 	if err := s.compact(); err != nil {
 		return err
 	}
-	data, err := json.Marshal(s)
+	// Publish all imported views before replacing a schema 1 snapshot. A
+	// failure leaves the snapshot intact and the conversion can be retried.
+	if err := publishRepoFactViews(brainDir, s); err != nil {
+		return err
+	}
+	data, err := json.Marshal(repoFactMarker{repoFactsVersion, "legacy_views"})
 	if err != nil {
 		return err
 	}

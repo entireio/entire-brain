@@ -805,22 +805,36 @@ func loadAllFactBranchesForPrivacy(brainDir string) (map[string][]factRecord, er
 			}
 		}
 	}
-	// The native store can retain a view after a compatibility projection was
-	// removed. Include those records in both privacy planning and verification.
-	if _, present, err := factstore.RepositoryViewDirs(brainDir); err != nil {
+	// Inspect physical snapshot bodies, not the reconciled view. Old clients
+	// can delete a legacy record while leaving its snapshot body behind.
+	stored, err := factstore.StoredRepositoryRecords(brainDir)
+	if err != nil {
 		return nil, err
-	} else if present {
-		views, err := factstore.LoadStoreFiles(brainDir)
-		if err != nil {
-			return nil, err
-		}
-		byBranch = map[string][]factRecord{}
-		for _, records := range views {
+	}
+
+	if len(stored) != 0 {
+		seen := map[string]bool{}
+		for _, records := range byBranch {
 			for _, rec := range records {
+				data, err := json.Marshal(rec)
+				if err != nil {
+					return nil, err
+				}
+				seen[string(data)] = true
+			}
+		}
+		for _, rec := range stored {
+			data, err := json.Marshal(rec)
+			if err != nil {
+				return nil, err
+			}
+			if !seen[string(data)] {
 				byBranch[rec.Branch] = append(byBranch[rec.Branch], rec)
+				seen[string(data)] = true
 			}
 		}
 	}
+
 	return byBranch, nil
 }
 
@@ -1419,7 +1433,9 @@ func purgeSessionFacts(brainDir, sessionID string, transcriptRels map[string]boo
 			}
 		}
 	}
-	if err := factstore.CleanupRepositoryTemps(brainDir); err != nil {
+	// Persist reconciliation even when the old client already removed every
+	// visible record. This removes hidden schema 1 bodies and abandoned temps.
+	if err := factstore.MigrateRepository(brainDir); err != nil {
 		return deletedTotal, strippedTotal, err
 	}
 	return deletedTotal, strippedTotal, nil

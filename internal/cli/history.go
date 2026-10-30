@@ -74,6 +74,10 @@ const (
 	// results forever, so an upgraded brain would never recover its history
 	// without a manual rebuild (COR-2289).
 	historyScanCacheVersion = 11
+	// Extraction revision 11 changes parser behavior, not the record schema.
+	// Keep the wire version readable by supported stable clients. Old clients
+	// drop extractor_version when rewriting, forcing the new parser to rescan.
+	historyScanCacheWireVersion = 10
 )
 
 type historyFragment struct {
@@ -148,9 +152,10 @@ var beforeHistoryProjectionContentDigest = func(string) {}
 // searchable records. Unchanged files still skip parsing, which is the costly
 // part of refresh even though the bytes are streamed once for identity.
 type historyScanCache struct {
-	Version         int                              `json:"version"`
-	Files           map[string]historyScanCacheEntry `json:"files"`
-	contentIdentity string
+	ExtractorVersion int                              `json:"extractor_version,omitempty"`
+	Version          int                              `json:"version"`
+	Files            map[string]historyScanCacheEntry `json:"files"`
+	contentIdentity  string
 }
 
 type historyScanCacheEntry struct {
@@ -1688,6 +1693,9 @@ func loadHistoryScanCache(outputDir string) historyScanCache {
 	if err := json.NewDecoder(limited).Decode(&cache); err != nil {
 		return empty
 	}
+	if cache.Version == historyScanCacheWireVersion && cache.ExtractorVersion == historyScanCacheVersion {
+		cache.Version = historyScanCacheVersion
+	}
 	if cache.Version != historyScanCacheVersion || cache.Files == nil {
 		return empty
 	}
@@ -1705,6 +1713,10 @@ func saveHistoryScanCache(outputDir string, cache historyScanCache) {
 }
 
 func encodeHistoryScanCache(cache historyScanCache) ([]byte, error) {
+	if cache.Version == historyScanCacheVersion {
+		cache.Version = historyScanCacheWireVersion
+		cache.ExtractorVersion = historyScanCacheVersion
+	}
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	if err := json.NewEncoder(gz).Encode(cache); err != nil {

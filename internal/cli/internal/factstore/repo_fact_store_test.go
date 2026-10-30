@@ -76,8 +76,8 @@ func TestRepoFactStoreMigrationPreservesViewsAndIsIdempotent(t *testing.T) {
 	factmerge.Sort(want)
 	requireRepoView(t, root, "feature", want)
 	requireRepoView(t, root, "empty", nil)
-	s, present, err := readRepoFactStore(root)
-	if err != nil || !present || len(s.Records) != 2 || len(s.Views) != 3 {
+	s, err := reconcileRepoFactStore(root)
+	if err != nil || len(s.Records) != 2 || len(s.Views) != 3 {
 		t.Fatalf("migration did not consolidate identities: %+v, %v", s, err)
 	}
 	before, _ := os.ReadFile(filepath.Join(root, RepositoryPath))
@@ -94,7 +94,7 @@ func TestRepoFactStoreMigrationPreservesViewsAndIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestRepoFactStoreCoreWithoutCompatibility(t *testing.T) {
+func TestRepoFactStoreSchema1CoreWithoutCompatibility(t *testing.T) {
 	root := t.TempDir()
 	s := emptyRepoFactStore()
 	a := repoStoreFact("one", "main")
@@ -107,9 +107,7 @@ func TestRepoFactStoreCoreWithoutCompatibility(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := writeRepoFactStore(root, &s); err != nil {
-		t.Fatal(err)
-	}
+	writeSchema1Snapshot(t, root, s)
 	roundTrip, _, err := readRepoFactStore(root)
 	if err != nil {
 		t.Fatal(err)
@@ -153,18 +151,16 @@ func TestRepoFactStoreInterruptedCommitRecoversFromLegacyRedo(t *testing.T) {
 	if err := MigrateRepository(root); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(filepath.Join(root, FileRelPath("main"))); err != nil {
-		t.Fatal(err)
-	}
 	requireRepoView(t, root, "main", want)
 }
 
-func TestRepoFactStoreProjectionDeletionAndExplicitDeletion(t *testing.T) {
+func TestRepoFactStoreSchema1ProjectionDeletionAndExplicitDeletion(t *testing.T) {
 	root := t.TempDir()
 	a := repoStoreFact("retained body", "main")
 	if err := Write(root, "main", []factmerge.Record{a}); err != nil {
 		t.Fatal(err)
 	}
+	writeSchema1FromLegacy(t, root)
 	if err := os.Remove(filepath.Join(root, FileRelPath("main"))); err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +176,7 @@ func TestRepoFactStoreProjectionDeletionAndExplicitDeletion(t *testing.T) {
 	}
 }
 
-func TestRepoFactStoreLegacyRetirementReplayAndReauthor(t *testing.T) {
+func TestRepoFactStoreSchema1RetirementReplayAndReauthor(t *testing.T) {
 	root := t.TempDir()
 	a := repoStoreFact("lifecycle", "main")
 	retired := a
@@ -189,6 +185,7 @@ func TestRepoFactStoreLegacyRetirementReplayAndReauthor(t *testing.T) {
 	if err := Write(root, "main", []factmerge.Record{retired}); err != nil {
 		t.Fatal(err)
 	}
+	writeSchema1FromLegacy(t, root)
 	writeLegacyView(t, root, "main", []factmerge.Record{a})
 	requireRepoView(t, root, "main", []factmerge.Record{retired})
 	a.UpdatedAt = retired.UpdatedAt.Add(time.Hour)
@@ -282,7 +279,7 @@ func TestRepoFactStoreConcurrentViewsDoNotLoseUpdates(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	s, _, err := readRepoFactStore(root)
+	s, err := reconcileRepoFactStore(root)
 	if err != nil || len(s.Records) != workers || len(s.Views) != workers {
 		t.Fatalf("lost concurrent writes: %d records, %v", len(s.Records), err)
 	}
@@ -388,7 +385,7 @@ func TestRepoFactStoreRandomizedLegacyAndNativeMutations(t *testing.T) {
 	if err := MigrateRepository(root); err != nil {
 		t.Fatal(err)
 	}
-	s, _, err := readRepoFactStore(root)
+	s, err := reconcileRepoFactStore(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -634,7 +631,7 @@ func TestRepoFactStoreStatusReconcilesWithoutWriting(t *testing.T) {
 	b := repoStoreFact("legacy writer memory", "feature")
 	writeLegacyView(t, root, "feature", []factmerge.Record{b})
 	report, err := RepositoryStatus(root)
-	if err != nil || report.Format != "repository" || report.Records != 2 || report.Views != 2 || !report.Compatibility {
+	if err != nil || report.Format != "compatibility" || report.Records != 2 || report.Views != 2 || !report.Compatibility {
 		t.Fatalf("status missed legacy changes: %+v, %v", report, err)
 	}
 	after, err := os.ReadFile(filepath.Join(root, RepositoryPath))
@@ -703,17 +700,6 @@ func TestRepoFactStoreWriteIsolatesLegacyProjectionDamage(t *testing.T) {
 								t.Fatalf("%s ignored unrelated projection damage", name)
 							}
 						}
-						// Existing native state for other views must remain intact.
-						if migrated {
-							s, _, err := readRepoFactStore(root)
-							if err != nil {
-								t.Fatal(err)
-							}
-							got, err := s.view(repoFactViewDir("other"))
-							if err != nil || !reflect.DeepEqual(got, []factmerge.Record{b}) {
-								t.Fatalf("write changed unrelated native view: %+v, %v", got, err)
-							}
-						}
 					}
 					if kind == "symlink" {
 						if _, err := os.Readlink(path); err != nil {
@@ -742,4 +728,27 @@ func TestRepoFactStoreWriteIsolatesLegacyProjectionDamage(t *testing.T) {
 			}
 		}
 	}
+}
+
+// Explicit schema 1 fixture: production writes must never recreate this
+// duplicate payload format. Keep its import behavior under regression tests.
+func writeSchema1Snapshot(t *testing.T, root string, s repoFactStore) {
+	t.Helper()
+	s.SchemaVersion = 1
+	data, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := brainstore.WriteBrainRelativeFileAtomic(root, RepositoryPath, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeSchema1FromLegacy(t *testing.T, root string) {
+	t.Helper()
+	s, err := reconcileRepoFactStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSchema1Snapshot(t, root, s)
 }

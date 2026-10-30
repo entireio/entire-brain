@@ -1,6 +1,10 @@
 package factstore
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/entireio/entire-brain/factmerge"
+)
 
 // StorageStatus describes the current store after reconciling legacy changes
 // in memory. Reading status never migrates or writes the store.
@@ -13,7 +17,7 @@ type StorageStatus struct {
 }
 
 func RepositoryStatus(brainDir string) (StorageStatus, error) {
-	_, native, err := readRepoFactStore(brainDir)
+	stored, native, err := readRepoFactStore(brainDir)
 	if err != nil {
 		return StorageStatus{}, err
 	}
@@ -27,6 +31,9 @@ func RepositoryStatus(brainDir string) (StorageStatus, error) {
 	format := "legacy"
 	if native {
 		format = "repository"
+		if stored.SchemaVersion == repoFactsVersion {
+			format = "compatibility"
+		}
 	}
 	return StorageStatus{1, format, true, len(s.Records), len(s.Views)}, nil
 }
@@ -50,4 +57,30 @@ func RepositoryViewDirs(brainDir string) ([]string, bool, error) {
 // Privacy callers retain the outer brain write lock over the whole purge.
 func CleanupRepositoryTemps(brainDir string) error {
 	return withRepoFactStoreLock(brainDir, func() error { return cleanupRepoFactTemps(brainDir) })
+}
+
+// StoredRepositoryRecords returns physical schema 1 bodies and overrides,
+// including unreferenced or superseded representatives. Privacy verification
+// must inspect these bytes even when legacy reconciliation hides them.
+func StoredRepositoryRecords(brainDir string) ([]factmerge.Record, error) {
+	s, _, err := readRepoFactStore(brainDir)
+	if err != nil {
+		return nil, err
+	}
+	var records []factmerge.Record
+	for id := range s.Records {
+		rec, err := s.decodeEntry(repoFactEntry{ID: id})
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, rec)
+	}
+	for dir := range s.Views {
+		view, err := s.view(dir)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, view...)
+	}
+	return records, nil
 }
