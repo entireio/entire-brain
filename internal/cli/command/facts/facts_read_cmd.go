@@ -275,7 +275,7 @@ func NewRecall(cfg Config) *cobra.Command {
 	cmd.Flags().IntVar(&limit, "k", 10, fmt.Sprintf("Maximum memories to return, or candidate sessions with --evidence (1-%d)", recallMaxK))
 	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted memories")
 	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) memories")
-	cmd.Flags().StringVar(&kind, "kind", "", "Restrict to one kind: decision|invariant|gotcha|preference|convention")
+	cmd.Flags().StringVar(&kind, "kind", "", "Restrict to one kind: decision|invariant|gotcha|preference|convention|closed-negative")
 	cmd.Flags().StringVar(&locus, "locus", "", "Restrict to memories about a code locus (a path or symbol, e.g. internal/cli/facts.go or factRecord)")
 	cmd.Flags().BoolVar(&noSemantic, "no-semantic", false, "Accepted for compatibility: semantic retrieval was removed, ranking is always BM25 lexical")
 	cmd.Flags().BoolVar(&expand, "expand", false, "Expand the query with agent-generated retrieval terms before ranking")
