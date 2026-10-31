@@ -381,6 +381,10 @@ type DocSource struct {
 type PatternSource struct {
 	GeneratedAt  time.Time `json:"generated_at"`
 	EpisodesPath string    `json:"episodes_path"`
+	// ExtractionVersion is the pattern indexer version whose transcript readers
+	// built episodes.ndjson. A changed reader must rebuild the episode layer
+	// even when the sessions and privacy identity are unchanged.
+	ExtractionVersion int `json:"extraction_version,omitempty"`
 	// PrivacyIdentity binds this corpus to the exact tombstone bytes the build
 	// filtered against, exactly as HistorySource does. The sessions
 	// fingerprint alone cannot see a privacy change: exclude/include leave the

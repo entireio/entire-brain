@@ -205,8 +205,9 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 	})
 
 	source := &patternSourceManifest{
-		GeneratedAt:  now,
-		EpisodesPath: patternsEpisodesPath,
+		GeneratedAt:       now,
+		EpisodesPath:      patternsEpisodesPath,
+		ExtractionVersion: patterncore.IndexerVersion,
 		// The guard's identity is the exact tombstone bytes this build
 		// filtered against, so the recorded epoch cannot drift from the
 		// corpus it describes.
@@ -299,8 +300,11 @@ func writeBrainEpisodesAndSourceLocked(outputDir string, now time.Time) (*patter
 // the vector epoch check already makes. Once a tombstone exists, a corpus that
 // cannot name the epoch it filtered against is exactly the silently-rewritten
 // one this predicate has to catch.
+//
+// A third input is the reader itself: the episodes are only as current as the
+// patterns.IndexerVersion that extracted them.
 func patternSourceCurrent(source *patternSourceManifest, brainDir string) bool {
-	if source == nil {
+	if source == nil || source.ExtractionVersion != patterncore.IndexerVersion {
 		return false
 	}
 	if !sessionSourceFingerprintCurrent(source.SessionsFingerprint, brainSessionsFingerprint(brainDir)) {

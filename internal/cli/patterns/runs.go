@@ -21,7 +21,7 @@ import (
 // IndexerVersion identifies the corpus indexer that produced a build; bump it
 // when extraction/classification output changes so consumers can detect stale
 // corpora.
-const IndexerVersion = 9
+const IndexerVersion = 10
 
 const RunsRelPath = "patterns/runs.ndjson"
 const patternRunsKeep = 50
