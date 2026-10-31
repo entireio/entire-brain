@@ -62,6 +62,7 @@ func New(cfg Config) *cobra.Command {
 	}
 	cmd.AddCommand(newPreEditCommand(cfg))
 	cmd.AddCommand(NewPostFailure(cfg))
+	cmd.AddCommand(NewPrompt(cfg))
 	cmd.AddCommand(NewSessionEnd(cfg))
 	return cmd
 }
@@ -255,6 +256,7 @@ func StdinIsPipe(r io.Reader) bool {
 const (
 	hookPreEditEnvelopeHeader = "Memories this project recorded about this file:"
 	hookFailureEnvelopeHeader = "Memories this project recorded about this kind of failure:"
+	hookPromptEnvelopeHeader  = "Memories this project recorded about this task:"
 )
 
 // The host event each wired verb answers. Both accept additionalContext, and
@@ -263,6 +265,7 @@ const (
 const (
 	hookPreEditEvent = "PreToolUse"
 	hookFailureEvent = "PostToolUseFailure"
+	hookPromptEvent  = "UserPromptSubmit"
 )
 
 // hookEmitClaudeEnvelope writes the ONE stdout shape Claude Code feeds back into
@@ -401,6 +404,81 @@ host parses. ` + base.SetupBrainBinaryName + ` setup wires it.`,
 	cmd.Flags().IntVar(&budget, "budget", hookDefaultBudgetTokens, "Token budget for the emission")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit JSON instead of text lines")
 	cmd.Flags().BoolVar(&claudeHook, "claude-hook", false, "Read a Claude Code PostToolUseFailure event on stdin and reply with its hook envelope")
+	return cmd
+}
+
+// NewPrompt answers the host's UserPromptSubmit event: the memories this
+// project recorded about the task the user just asked for, delivered before the
+// agent starts rather than when it thinks to ask.
+//
+// This is the delivery half of the adoption gap. Measured on main 2026-10-31,
+// 525 of 539 serve events were `recall` — an agent explicitly querying — so
+// memories were reaching agents only when an agent already suspected they
+// existed. `brief` solves that but has to be invoked; this is the same packet
+// arriving unprompted.
+func NewPrompt(cfg Config) *cobra.Command {
+	var (
+		task       string
+		branch     string
+		budget     int
+		jsonOut    bool
+		claudeHook bool
+	)
+	cmd := &cobra.Command{
+		Use:   "prompt [--task <text> | --claude-hook]",
+		Short: "Memories relevant to a submitted prompt (silent when none clears the bar)",
+		Long: `prompt matches the task a user just submitted against this branch's memories,
+so recorded decisions, invariants and dead ends arrive before the work starts
+instead of after an agent re-derives them.
+
+--task names the text directly, for hand-testing. --claude-hook is the wired
+spelling: Claude Code delivers a UserPromptSubmit event as JSON on stdin and
+reads a JSON envelope back. ` + base.SetupBrainBinaryName + ` setup wires it.
+
+This verb fires on every turn, so its relevance bar is the highest of any hook
+and is set from the measured score distribution rather than by feel: a merely
+topical memory here teaches agents to ignore the channel.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if claudeHook && hookStdinWouldBlock(cmd.InOrStdin()) {
+				return fmt.Errorf("--claude-hook reads the host's UserPromptSubmit event from stdin, and stdin is a terminal here; pipe an event in, or pass --task <text> to check one by hand")
+			}
+			if claudeHook && strings.TrimSpace(task) == "" {
+				if prompt, ok := DecodeClaudePromptEvent(cmd.InOrStdin()); ok {
+					task = prompt
+				}
+			}
+			if strings.TrimSpace(task) == "" {
+				// An event carrying no prompt is the silent-honest-empty case,
+				// not misuse. Misuse is still an error so hand-testing works.
+				if claudeHook {
+					return nil
+				}
+				return fmt.Errorf("--task is required")
+			}
+			facts, target, ok := hookLoadFacts(cmd, cfg, branch)
+			if !ok {
+				return nil
+			}
+			hits := MatchPrompt(facts, task, cfg.Deps.FactLexicalScore)
+			var kept []factmerge.Record
+			var err error
+			if claudeHook {
+				kept, err = hookEmitClaudeEnvelope(cmd, hits, budget, hookPromptEvent, hookPromptEnvelopeHeader)
+			} else {
+				kept, err = Emit(cmd, hits, budget, jsonOut)
+			}
+			if err == nil {
+				hookRecordServed(cmd, cfg, target, "hook-prompt", task, kept)
+			}
+			return err
+		},
+	}
+	cmd.Flags().StringVar(&task, "task", "", "The submitted prompt to match against")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch whose memories to consult (default: current)")
+	cmd.Flags().IntVar(&budget, "budget", hookDefaultBudgetTokens, "Token budget for the emission")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit JSON instead of text lines")
+	cmd.Flags().BoolVar(&claudeHook, "claude-hook", false, "Read a Claude Code UserPromptSubmit event on stdin and reply with its hook envelope")
 	return cmd
 }
 
