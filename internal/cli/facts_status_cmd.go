@@ -51,6 +51,17 @@ type factsVitalitySummary struct {
 	LastServedAt   *time.Time `json:"last_served_at,omitempty"`
 	LastServedFact string     `json:"last_served_fact,omitempty"`
 	LastSurface    string     `json:"last_surface,omitempty"`
+	// Surfaces is the serve count per delivery surface, and it is the number
+	// that says whether this store is being READ or merely asked. `recall` is
+	// an agent explicitly querying; `hook-pre-edit` and `hook-post-failure`
+	// are memories arriving unprompted at the moment of action.
+	//
+	// It is reported because the distinction was invisible: measured on this
+	// repo's main branch on 2026-10-31, 525 of 539 serve events were `recall`
+	// and exactly ONE was `hook-pre-edit`. A single ServedTotal cannot show
+	// that, and the per-memory breakdown only showed it to someone willing to
+	// aggregate `memories vitality --json` by hand.
+	Surfaces map[string]int `json:"surfaces,omitempty"`
 }
 
 // factsVitalitySummaryForBranch folds the branch's vitality view into the
@@ -69,6 +80,12 @@ func factsVitalitySummaryForBranch(brainDir, branch string) (*factsVitalitySumma
 	for id, entry := range rollup.Facts {
 		summary.ServedFacts++
 		summary.ServedTotal += entry.Served
+		for surface, count := range entry.Surfaces {
+			if summary.Surfaces == nil {
+				summary.Surfaces = map[string]int{}
+			}
+			summary.Surfaces[surface] += count
+		}
 		last := entry.LastServed
 		better := summary.LastServedAt == nil || last.After(*summary.LastServedAt) ||
 			(last.Equal(*summary.LastServedAt) && id < summary.LastServedFact)
@@ -299,10 +316,40 @@ func printFactsStatus(cmd *cobra.Command, report factsStatusReport) {
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "vitality: served_memories=%d served_total=%d pending_events=%d%s\n",
 			v.ServedFacts, v.ServedTotal, v.PendingEvents, last)
+		if line := formatVitalitySurfaces(v.Surfaces); line != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "surfaces: %s\n", line)
+		}
 	}
 	for _, warning := range report.Warnings {
 		fmt.Fprintf(cmd.OutOrStdout(), "warning: %s\n", warning)
 	}
+}
+
+// formatVitalitySurfaces renders the per-surface serve counts, busiest first.
+//
+// Ordered by count and then by name, never by map iteration: the point of the
+// line is that a reader can compare two runs, and Go randomizes map order, so
+// an unsorted line would reshuffle on every invocation and make the comparison
+// impossible.
+func formatVitalitySurfaces(surfaces map[string]int) string {
+	if len(surfaces) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(surfaces))
+	for name := range surfaces {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		if surfaces[names[i]] != surfaces[names[j]] {
+			return surfaces[names[i]] > surfaces[names[j]]
+		}
+		return names[i] < names[j]
+	})
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, fmt.Sprintf("%s=%d", name, surfaces[name]))
+	}
+	return strings.Join(parts, " ")
 }
 
 func printFactsStatusCounts(cmd *cobra.Command, counts factsStatusCounts) {
