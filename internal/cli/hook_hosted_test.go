@@ -4,14 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/command/hook"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
-	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func runSessionEndHook(t *testing.T, opts Options) (string, string) {
@@ -58,56 +56,14 @@ func sessionEndHarness(t *testing.T, fake *hostedFake, bind bool) (Options, repo
 	return opts, storage
 }
 
-func TestSessionEndHookSyncsAndPullsWithCleanStdout(t *testing.T) {
-	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
-	remoteFact := hostedSyncTestFact("team fact via hook", now)
+func TestSessionEndHookDoesNotSync(t *testing.T) {
 	fake := &hostedFake{}
-	fake.seed(remoteFact, "trail-1", "acct-teammate", "teammate")
-	opts, storage := sessionEndHarness(t, fake, true)
-
-	stdout, _ := runSessionEndHook(t, opts)
-	if stdout != "" {
-		t.Fatalf("session-end stdout must stay empty (machine-read contract), got %q", stdout)
-	}
-	local, err := factstore.Load(storage.BrainDir, distillDefaultBranch)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, rec := range local {
-		if rec.ID == remoteFact.ID {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("session-end must pull teammates' facts, got %d local records", len(local))
-	}
-}
-
-func TestSessionEndHookHostedFailureIsSilentSuccess(t *testing.T) {
-	fake := &hostedFake{}
-	opts, storage := sessionEndHarness(t, fake, true)
-	// Corrupt the binding's URL so the sync step fails its gate.
-	if err := brainstore.WriteHostedRepoBinding(storage.BrainDir, brainstore.HostedRepoBinding{RepoID: "repo1", BaseURL: "ftp://nope"}); err != nil {
-		t.Fatal(err)
-	}
-	stdout, errOut := runSessionEndHook(t, opts)
-	if stdout != "" {
-		t.Fatalf("stdout must stay empty on hosted failure, got %q", stdout)
-	}
-	if !strings.Contains(errOut, "hosted sync") {
-		t.Fatalf("hosted failure must leave a stderr note, got %q", errOut)
-	}
-}
-
-func TestSessionEndHookWithoutBindingMakesNoRequests(t *testing.T) {
-	fake := &hostedFake{}
-	opts, _ := sessionEndHarness(t, fake, false)
-	stdout, _ := runSessionEndHook(t, opts)
-	if stdout != "" {
-		t.Fatalf("stdout must stay empty, got %q", stdout)
+	opts, _ := sessionEndHarness(t, fake, true)
+	stdout, stderr := runSessionEndHook(t, opts)
+	if stdout != "" || stderr != "" {
+		t.Fatalf("legacy hook output: %q %q", stdout, stderr)
 	}
 	if fake.requestCount() != 0 {
-		t.Fatalf("unconnected repo must make zero requests, got %d", fake.requestCount())
+		t.Fatal("session-end contacted hosted service")
 	}
 }

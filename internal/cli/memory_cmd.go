@@ -250,7 +250,7 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 	var jsonOut bool
 	cmd := &cobra.Command{
 		Use:   "notify",
-		Short: "Record a content-free host lifecycle hint (session_start | checkpoint | session_end | push) and nudge the worker",
+		Short: "Record a host event (session_start | checkpoint | push) and start background work",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if memoryWorkerOrigin() {
@@ -258,6 +258,13 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 					return cmdutil.WriteJSON(cmd, map[string]any{"ignored": true, "reason": "worker_origin"})
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), "ignored memory notification from worker origin")
+				return nil
+			}
+			// Keep the legacy event accepted, but do not enqueue or run work.
+			if event == "session_end" {
+				if jsonOut {
+					return cmdutil.WriteJSON(cmd, map[string]any{"ignored": true, "reason": "session_end_removed"})
+				}
 				return nil
 			}
 			storage, err := resolveSessionsBrain(cmd.Context(), opts)
@@ -282,10 +289,10 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 			// commits: dispatch the fact-store upload in a detached child and
 			// return. A push carries no single session, so there is no
 			// per-session lifecycle record to write and no worker to nudge.
-			// Best-effort; the daemon tick reconciles a failed spawn.
+			// Best-effort; a later sync event retries pending records.
 			if event == "push" {
 				if err := memoryPushWorkLaunch(repoDir, strings.TrimSpace(branch)); err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "push work launch failed (daemon tick will reconcile): %v\n", err)
+					fmt.Fprintf(cmd.ErrOrStderr(), "push work launch failed (pending until the next sync): %v\n", err)
 				}
 				if jsonOut {
 					return cmdutil.WriteJSON(cmd, map[string]any{"dispatched": "push"})
@@ -293,10 +300,16 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 				fmt.Fprintln(cmd.OutOrStdout(), "dispatched push upload")
 				return nil
 			}
+			if event == "checkpoint" {
+				if err := memoryPushWorkLaunch(repoDir, strings.TrimSpace(branch)); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint upload launch failed (pending until the next sync): %v\n", err)
+				}
+			}
 			hint, warning, err := recordMemoryLifecycleAndLaunch(storage.BrainDir, repoDir, storage.Key, session, branch, event, opts.Now().UTC())
 			if err != nil {
 				return err
 			}
+
 			if jsonOut {
 				payload := map[string]any{"recorded": hint.LastEvent, "session_id": hint.SessionID, "generation": hint.Generation}
 				if warning != "" {
@@ -311,7 +324,7 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&event, "event", "", "Lifecycle event: session_start | checkpoint | session_end | push")
+	cmd.Flags().StringVar(&event, "event", "", "Lifecycle event: session_start | checkpoint | push")
 	cmd.Flags().StringVar(&session, "session", "", "Canonical session id (required for session/checkpoint events)")
 	cmd.Flags().StringVar(&branch, "branch", "", "Captured branch when the host knows it")
 	cmd.Flags().StringVar(&repoKey, "repo-key", "", "Optional canonical repository key; when supplied, must match the resolved repository")

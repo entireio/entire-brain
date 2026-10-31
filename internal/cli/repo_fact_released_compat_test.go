@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,6 +62,7 @@ func (f *releasedMemoryFixture) call(binary string, args ...string) ([]byte, err
 	out, err := cmd.Output()
 	if err != nil {
 		f.t.Logf("%s %v: %v\n%s\n%s", filepath.Base(binary), args, err, out, stderr.String())
+		err = fmt.Errorf("%w: %s", err, stderr.String())
 	}
 	return out, err
 }
@@ -111,6 +113,28 @@ func (f *releasedMemoryFixture) requireVisible(binary, branch string, present, a
 
 }
 
+// Stable releases compare filesystem mtimes when verifying a regenerated scan
+// cache. On coarse filesystem clocks, a clean rebuild can share the tombstone's
+// timestamp. Retry the documented idempotent purge only for that exact collision;
+// older caches, other privacy findings, and repeated failures remain fatal.
+func (f *releasedMemoryFixture) purge(binary, brainDir, session string) {
+	f.t.Helper()
+	for attempt := 0; attempt < 5; attempt++ {
+		_, err := f.call(binary, "privacy", "purge", session, "--json")
+		if err == nil {
+			return
+		}
+		cache, cacheErr := os.Stat(filepath.Join(brainDir, "history", "scan-cache.json.gz"))
+		stone, stoneErr := os.Stat(filepath.Join(brainDir, "history", "tombstones.json"))
+		collision := cacheErr == nil && stoneErr == nil && cache.ModTime().Equal(stone.ModTime())
+		if !strings.Contains(err.Error(), "verification found 1 violations (first: derived_store history/scan-cache.json.gz does not postdate the newest tombstone;") || !collision || attempt == 4 {
+			f.t.Fatalf("privacy purge failed (equal filesystem timestamps=%v): %v", collision, err)
+		}
+		f.t.Logf("retrying purge after equal cache/tombstone timestamps: %s", cache.ModTime())
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func TestRepoFactStoreReleasedPrivacyDeletion(t *testing.T) {
 	for _, mode := range []string{"legacy", "converted-old-purge", "converted-new-purge", "schema1-old-purge-new-repair"} {
 		t.Run(mode, func(t *testing.T) {
@@ -159,12 +183,12 @@ func TestRepoFactStoreReleasedPrivacyDeletion(t *testing.T) {
 			if mode == "converted-new-purge" {
 				purger = f.current
 			}
-			f.run(purger, "privacy", "purge", "private-session", "--json")
+			f.purge(purger, root, "private-session")
 			if mode == "schema1-old-purge-new-repair" {
 				if out, err := f.call(f.current, "privacy", "verify", "--json"); err == nil || !bytes.Contains(out, []byte(`"clean": false`)) {
 					t.Fatalf("hidden snapshot was not detected: %s, %v", out, err)
 				}
-				f.run(f.current, "privacy", "purge", "private-session", "--json")
+				f.purge(f.current, root, "private-session")
 			}
 			if err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 				if err != nil {
@@ -291,6 +315,9 @@ func TestRepoFactStoreReleasedHostedSync(t *testing.T) {
 			t.Fatal("pull failure was hidden")
 		}
 		f.requireVisible(binary, "main", []factRecord{remote}, []factRecord{a, b})
+		// Acknowledged versions need no POST. Create a pending version so
+		// both clients must exercise the denied-upload and retry paths.
+		pending := f.remember(binary, "pending upload from "+filepath.Base(binary), "main")
 		fake.mu.Lock()
 		fake.denyFeed = false
 		fake.denyPush = true
@@ -298,10 +325,17 @@ func TestRepoFactStoreReleasedHostedSync(t *testing.T) {
 		if _, err := f.call(binary, syncArgs...); err == nil {
 			t.Fatal("push failure was hidden")
 		}
+		if fake.has(pending.ID) {
+			t.Fatal("denied upload reached the server")
+		}
+		f.requireVisible(binary, "main", []factRecord{pending}, nil)
 		fake.mu.Lock()
 		fake.denyPush = false
 		fake.mu.Unlock()
 		f.run(binary, syncArgs...)
+		if !fake.has(pending.ID) {
+			t.Fatal("retry did not upload pending memory")
+		}
 	}
 	f.run(f.current, "memories", "storage", "rollback", "--json")
 	f.run(f.old, syncArgs...)

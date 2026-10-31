@@ -582,23 +582,10 @@ func detectSetupFacts(ctx context.Context, opts Options, setupOpts setupCommandO
 	return detected, commitsKnown
 }
 
-// setupHookSummary is the Agents phase's one line: what the session-end hook
-// is, and when it is not what it should be, the one thing to do about it. The
-// four cases and their wording are unchanged; only their destination is.
-func setupHookSummary(hook setupHookState, dash string) (string, bool) {
-	switch {
-	case hook.Installed && !hook.EntireCLI:
-		return "session-end hook wired (" + hook.Source + ") but `" + entireBinaryName +
-			"` is not on PATH " + dash + " sessions will NOT distill until the Entire CLI is installed", false
-	case hook.Installed:
-		return "session-end hook already wired (" + hook.Source + ")", true
-	case !hook.EntireCLI:
-		return "session-end hook not wired and `" + entireBinaryName + "` is not on PATH " + dash +
-			" install the Entire CLI, then run `entire enable` in this repo", false
-	default:
-		return "session-end hook not wired " + dash +
-			" run `entire enable` in this repo so each session distills as it ends (SPENDS TOKENS per session)", false
-	}
+// setupHookSummary retains the legacy reporting seam without treating a host
+// session-end hook as evidence that Brain maintenance is configured.
+func setupHookSummary(_ setupHookState, _ string) (string, bool) {
+	return "Memory sync runs after commits and distillation", false
 }
 
 // setupPreflightRows wraps the daemon pre-flight warning to the terminal.
