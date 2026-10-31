@@ -218,20 +218,28 @@ func TestPostFailureClaudeHookAnswersWithThePostToolUseFailureEnvelope(t *testin
 	}
 }
 
-// A terminal stdin must never be read. hookReadFailureTail loops on Read until
-// EOF, so reading one hangs the shell for ever -- the same defect pre-edit
-// shipped and fixed on a hand-run of its own documented testing command.
+// What the --claude-hook guard actually refuses, and what it does not.
 //
-// A real TTY is not available under `go test`, and the package already says so
-// rather than dressing up a weaker check. /dev/null is the honest substitute:
-// it is a CHARACTER DEVICE, so StdinIsPipe answers false for it exactly as it
-// does for a terminal, which is the branch under test. It EOFs immediately, so
-// the test cannot hang either way -- what it proves is that the call site
-// consults the predicate instead of reading.
-func TestPostFailureDoesNotReadATerminalStdin(t *testing.T) {
-	notAPipe := func(t *testing.T) *os.File {
+// hookStdinWouldBlock is `in == os.Stdin && base.StdinIsTerminal()`, so it
+// refuses ONLY the process's own stdin when that is a character device. A
+// reader handed in by a caller -- a test's, or a harness's pipe -- is always
+// read. That is why the subtests below all see silence rather than a refusal:
+// SetIn supplies a file that is not os.Stdin.
+//
+// THE REAL HANG IS NOT REPRODUCIBLE IN-PROCESS: it needs the process's own
+// stdin to be a terminal, and `go test` does not provide one. Saying so rather
+// than dressing up a weaker check as a behavioural test -- the position this
+// package already takes for pre-edit.
+//
+// And the predicate is imprecise in the direction that matters: measured here,
+// os.Stdin under `go test` is /dev/null with mode Dcrw-rw-rw-, and
+// base.StdinIsTerminal() answers TRUE for it, because it tests the
+// character-device bit rather than calling isatty. That is why the piped path
+// carries no guard at all: one built on this predicate refuses ordinary empty
+// input, which is this verb's documented silent case.
+func TestPostFailureReadsAStdinThatWouldNotBlock(t *testing.T) {
+	devNull := func(t *testing.T) *os.File {
 		t.Helper()
-		// Opened per subtest: a command closing it would break the others.
 		file, err := os.Open(os.DevNull)
 		if err != nil {
 			t.Skipf("no %s on this host: %v", os.DevNull, err)
@@ -240,39 +248,64 @@ func TestPostFailureDoesNotReadATerminalStdin(t *testing.T) {
 		return file
 	}
 
-	t.Run("no command and nothing piped is misuse, and says so", func(t *testing.T) {
-		cmd := NewPostFailure(Config{})
-		cmd.SetOut(io.Discard)
+	// THE CONTRACT: an empty emission is SILENT, never an error. A character
+	// device that is not a terminal is ordinary empty input.
+	t.Run("empty stdin is silent, not misuse", func(t *testing.T) {
+		resolved := false
+		cfg := Config{Deps: Deps{
+			ResolveTarget: func(context.Context, base.Options, string) (string, string, string, error) {
+				resolved = true
+				return t.TempDir(), t.TempDir(), "main", nil
+			},
+			FactLexicalScore: func(factmerge.Record, string, []string) int { return 0 },
+			RecordServed: func(io.Writer, context.Context, base.Options, string, string, string, string, string, []factmerge.Record) {
+			},
+		}}
+		var out bytes.Buffer
+		cmd := NewPostFailure(cfg)
+		cmd.SetOut(&out)
 		cmd.SetErr(io.Discard)
-		cmd.SetIn(notAPipe(t))
+		cmd.SetIn(devNull(t))
 		cmd.SetArgs(nil)
-		err := cmd.ExecuteContext(context.Background())
-		if err == nil {
-			t.Fatal("a hand-run with no failure and no --command must report misuse, not read a terminal")
+		if err := cmd.ExecuteContext(context.Background()); err != nil {
+			t.Fatalf("empty stdin must be silent, got %v", err)
 		}
-		if !strings.Contains(err.Error(), "--command") {
-			t.Errorf("the error does not name the way out: %v", err)
+		if out.Len() != 0 {
+			t.Errorf("empty stdin must emit nothing, got %q", out.String())
+		}
+		if resolved {
+			t.Error("an empty query must not even open the brain")
 		}
 	})
 
-	t.Run("--claude-hook on a terminal is misuse, and says so", func(t *testing.T) {
+	// --claude-hook is the one place a refusal is right, and it diverges from
+	// the piped path on purpose. The flag's entire contract is "a host event
+	// arrives on stdin", so a reader that cannot carry one is misuse, and
+	// saying so beats a hand-run that blocks. pre-edit --claude-hook refuses
+	// the same case on the same (imprecise) predicate; matching it keeps the
+	// two spellings of one flag behaving alike.
+	//
+	// The cost is honest: because the predicate cannot tell /dev/null from a
+	// terminal, a harness that pipes /dev/null to --claude-hook is refused
+	// too. That is acceptable only because a harness wiring this flag always
+	// sends an event -- that is what the flag is for.
+	t.Run("--claude-hook with a readable but empty stdin is silent", func(t *testing.T) {
+		var out bytes.Buffer
 		cmd := NewPostFailure(Config{})
-		cmd.SetOut(io.Discard)
+		cmd.SetOut(&out)
 		cmd.SetErr(io.Discard)
-		cmd.SetIn(notAPipe(t))
+		cmd.SetIn(devNull(t))
 		cmd.SetArgs([]string{"--claude-hook"})
-		err := cmd.ExecuteContext(context.Background())
-		if err == nil {
-			t.Fatal("--claude-hook with no event on stdin must report misuse, not block on a read")
+		if err := cmd.ExecuteContext(context.Background()); err != nil {
+			t.Fatalf("an empty event must be silent, got %v", err)
 		}
-		if !strings.Contains(err.Error(), "PostToolUseFailure") {
-			t.Errorf("the error does not say what it wanted: %v", err)
+		if out.Len() != 0 {
+			t.Errorf("an empty event must emit nothing, got %q", out.String())
 		}
 	})
 
 	// --command alone is a legitimate, if weak, query: the verb matches on the
-	// command text. It must NOT be turned into an error by the guard above, and
-	// it must not read the terminal either.
+	// command text, and it must reach the brain.
 	t.Run("--command alone is accepted", func(t *testing.T) {
 		resolved := false
 		cfg := Config{Deps: Deps{
@@ -287,13 +320,37 @@ func TestPostFailureDoesNotReadATerminalStdin(t *testing.T) {
 		cmd := NewPostFailure(cfg)
 		cmd.SetOut(io.Discard)
 		cmd.SetErr(io.Discard)
-		cmd.SetIn(notAPipe(t))
+		cmd.SetIn(devNull(t))
 		cmd.SetArgs([]string{"--command", "go test ./..."})
 		if err := cmd.ExecuteContext(context.Background()); err != nil {
 			t.Fatalf("--command alone must be accepted, got %v", err)
 		}
 		if !resolved {
 			t.Error("--command alone never reached the brain, so the query was dropped")
+		}
+	})
+
+	// The predicate itself, measured rather than assumed. base.StdinIsTerminal
+	// tests the CHARACTER-DEVICE bit, so it answers true for /dev/null -- which
+	// is why no guard on the piped path can use it without refusing ordinary
+	// empty input. Pinned here so a future reader does not "fix" that path with
+	// this predicate again.
+	t.Run("the predicate cannot tell /dev/null from a terminal", func(t *testing.T) {
+		if !StdinIsPipe(strings.NewReader("")) {
+			t.Error("a supplied reader must always be readable")
+		}
+		if hookStdinWouldBlock(strings.NewReader("")) {
+			t.Error("a supplied reader must never be treated as blocking")
+		}
+		// Both predicates key on the char-device bit, so both call /dev/null a
+		// terminal. If this ever starts failing, a real isatty landed and the
+		// piped-path guard becomes safe to add.
+		file := devNull(t)
+		if info, err := file.Stat(); err != nil || info.Mode()&os.ModeCharDevice == 0 {
+			t.Skipf("%s is not a character device here (err %v)", os.DevNull, err)
+		}
+		if StdinIsPipe(file) {
+			t.Error("StdinIsPipe is documented as char-device-based; /dev/null must read as not-a-pipe")
 		}
 	})
 }

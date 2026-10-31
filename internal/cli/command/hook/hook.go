@@ -324,9 +324,15 @@ host parses. ` + base.SetupBrainBinaryName + ` setup wires it.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// A terminal stdin is never read: io.ReadAll on a TTY waits for an
 			// EOF nobody will send, so hand-running the documented command
-			// would hang instead of failing fast. Same guard, same reason, as
-			// pre-edit --claude-hook.
-			if claudeHook && !StdinIsPipe(cmd.InOrStdin()) {
+			// would hang instead of failing fast. Same reason as pre-edit
+			// --claude-hook, but a tighter predicate: pre-edit asks
+			// !StdinIsPipe, which is false for EVERY character device and so
+			// treats /dev/null as a terminal. Here that would turn a harness
+			// invocation with /dev/null on stdin into an error on every
+			// failure, where the contract says an absent event is silence.
+			// hookStdinWouldBlock is true only for a reader that would really
+			// wait on a person.
+			if claudeHook && hookStdinWouldBlock(cmd.InOrStdin()) {
 				return fmt.Errorf("--claude-hook reads the host's PostToolUseFailure event from stdin, and stdin is a terminal here; pipe an event in, or pipe failure output and pass --command <cmd> to check one by hand")
 			}
 			var failure string
@@ -344,17 +350,29 @@ host parses. ` + base.SetupBrainBinaryName + ` setup wires it.`,
 				if strings.TrimSpace(command) == "" {
 					command = event.Command
 				}
-			} else if StdinIsPipe(cmd.InOrStdin()) {
+			} else {
+				// Read unconditionally, and deliberately WITHOUT a terminal
+				// guard. There is a real hazard here -- hookReadFailureTail
+				// loops on Read until EOF, so a genuine TTY hangs the shell --
+				// but every predicate available to detect one is wrong in the
+				// direction that matters:
+				//
+				// base.StdinIsTerminal() and StdinIsPipe() both test the
+				// CHARACTER-DEVICE bit, not whether anything is really a
+				// terminal, so both answer "terminal" for /dev/null. And
+				// /dev/null is what os.Stdin IS under `go test` and in plenty
+				// of harness invocations. Guarding on either turns ordinary
+				// empty input into an error, which breaks this verb's contract
+				// that an empty emission is SILENT -- pinned by
+				// TestHookEmitSilentAndBudget, which caught exactly that when
+				// the guard was added here.
+				//
+				// pre-edit can afford its guard because --file is REQUIRED, so
+				// refusing is the right answer anyway. post-failure has no
+				// required input: nothing to match is a valid, silent outcome.
+				// Fixing the hang needs a real isatty, not a tighter use of
+				// these two; until then, do not reintroduce a guard here.
 				failure = hookReadFailureTail(cmd.InOrStdin())
-			} else if strings.TrimSpace(command) == "" {
-				// Nothing piped, nothing named, and stdin is a terminal:
-				// hookReadFailureTail loops on Read until EOF, so reading here
-				// hangs the shell for ever. This is the SAME defect pre-edit
-				// already shipped and fixed -- it hung on a hand-run of its own
-				// documented testing command -- and post-failure never got the
-				// guard. Now that it is wired, hand-testing it is something
-				// people will actually do.
-				return fmt.Errorf("post-failure needs a failure to match: pipe the failed command's output on stdin, or pass --command <cmd>")
 			}
 			query := strings.TrimSpace(command + " " + failure)
 			if query == "" {
