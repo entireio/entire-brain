@@ -1,0 +1,282 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/delhi directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+Conductor shows the PR for whichever branch is checked out. After you open a PR from a different branch, or a PR stack, check out that PR's branch (for a stack, the top-most branch) so Conductor shows it.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/delhi/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+a customer is running into an issue with brain, here is the ticket:
+
+Hi Thomas,
+
+Thanks for the welcome email. I’m trying Entire on a small project, particularly to evaluate Continuous Memory as a replacement for my existing project wiki workflow.
+
+During setup, we encountered two issues:
+
+Environment: Ubuntu 24.04, Entire CLI 0.12.2, Brain 0.4.0, Graph 0.6.0. The repository is hosted natively on Entire.
+
+1. Successful memory sync, but an empty Memories page
+
+Brain extracted six memories, and both connect and memories sync --json confirmed that all six reached the hosted memory set. However, the web interface still showed “No memories yet,” including after a reload.
+
+Trying entire brain publish returned:
+
+hosted publish currently supports github.com-hosted repos only
+
+The Memories onboarding page suggests installing Brain, running setup, and connecting the repository, so it wasn’t clear what additional step an Entire-native repository requires.
+
+2. Default transcript export causes verification warnings
+
+After setup, entire brain verify --json marked all six memories stale, reporting that the exported transcript differed from the local checkpoint transcript.
+
+Running:
+
+entire brain refresh sessions --raw --history-index
+
+made all six verify successfully. But a subsequent:
+
+entire brain refresh delta
+
+restored compact mode and reproduced the six stale warnings.
+
+Local retrieval works and correctly recalls our project decisions. I’d appreciate knowing whether these are known issues or whether we missed a supported configuration step.
+
+Happy to provide a minimal reproduction and sanitized diagnostics if helpful.
+
+Best,
+
+-----
+and then the follow up
+
+-----
+
+
+A quick follow-up: we narrowed down the session-processing problem locally with Entire CLI 0.12.2 and Brain 0.4.0.
+
+- Both exported sessions retain their text, but the default compact format produces no searchable conversation exchanges.
+- Exporting the same sessions with --raw and rebuilding the index makes conversation search and evidence retrieval work.
+- We reduced this to two synthetic messages: compact format produces zero search results; native Codex format produces one exchange.
+
+Source inspection suggests the conversation parser does not handle the normalized compact record shape produced by the default export.
+
+The manual raw-export workaround does not persist: the normal watcher/delta refresh restores compact mode.
+
+Attached are the synthetic fixtures and a diagnostic summary, without our actual conversation history.
+
+Is there a supported configuration for this version combination, or does compact-format support require a fix?
+
+
+
+-----
+
+Can we take al ook at what's happening here
+
+---
+
+okay so one at a time.
+
+for 1. it sounds like we shoudl update publish in case a user wants to manually push memories. we should suport that. then for the web page, what is teh right fix here? 
+
+for 2. we shoudl support the compact since that is the default?
+
+file tickets for these and let's start working on them
+
+---
+
+yes open trails for this work and give me a 1-2 sentence simple lanauge on the error and how the work cfixes it
+
+---
+
+yes go ahead on those other tickets
+
+---
+
+give me the 1-2 senetence summary on this?
+
+https://entire.com/gh/entirehq/-/trails/22893/changes/entire.io/4740
+
+---
+
+so nwo we show memories that are tied to a commit, memories that are not tied to a commit. we only do not show memories that are on unmerged work aka tied to a trail that isn't merged?
+
+---
+
+okay so:
+- show memories on default branch tied to a commit and show memories that are not tied to any commit.
+- do not show memories which are on commits that are not merged in yet
+
+? is that right?
+
+---
+
+i think we should just remove the pending merge page state. that's confusing. it shoudl just be siomple. 
+
+show memories that are:
+- on default branch (tied to a commit)
+- show memories that are nto tied to a commit (published manually for ex.)
+
+do not show:
+- memories that are tied to a commit that isn't on a default branch
+
+---
+
+publish was just the manual way of pushing memories right?, we still need that approach but it doesn't have to be publish
+
+---
+
+so we've made some changes, explain to me where we are and what the fix is now.
+
+also this has findinfs that need to b resolved; https://entire.com/gh/entirehq/-/trails/22893/changes/entire.io/4740
+
+---
+
+okay got it. let's put together a talbe of these trials and we'll cross them off as we work thruogh them
+
+---
+
+this failed a test: https://github.com/entireio/entire-brain/pull/559
+
+---
+
+for 557 -> how does this handle the customer issue given taht they're already on the 0.4.0? sure they can upgrade to a new release. but how are we ensuring backwards compatbility to make sure that this doesn't break their instance
+
+---
+
+for 557 -> how does this handle the customer issue given taht they're already on the 0.4.0? sure they can upgrade to a new release. but how are we ensuring backwards compatbility to make sure that this doesn't break their instance
+
+---
+
+yeah but that didn't include the backwards compat issue fix?
+
+---
+
+okay so what is the order to merge these trails in?
+
+---
+
+this failed the frontend checksL: https://entire.com/gh/entirehq/-/trails/22893/changes/entire.io/4740
+
+---
+
+okay this si merged now: https://entire.com/gh/entireio/-/trails/2679/changes/entire-brain/465
+
+and this: https://entire.com/gh/entirehq/-/trails/22893/changes/entire.io/4740
+
+but this: https://github.com/entireio/entire-brain/pull/557
+
+has a changelog merge conflict
+
+---
+
+push
+
+---
+
+lots of failures here now: https://entire.com/gh/entireio/-/trails/2677/changes/entire-brain/463
+
+---
+
+so is failed correct here in the UI? should i tell the team to update it?
+
+---
+
+why si this taking so long?
+
+https://entire.com/gh/entireio/-/trails/2677/changes/entire-brain/463
+
+---
+
+yeah admin merge it
+
+---
+
+okay now go back and reproduce this on the existing released version and then ensure that upgrading ot the new version fixes this issue with backwards compat
+
+---
+
+okay so what are the intructions to the customer then? 
+
+we still need to push a new release but once we do that? also we made the front end change as well, so thins should show up>?
+
+---
+
+can you check his data in prod? 
+
+his github username is : RelywOo
+
+---
+
+he's in the EU, this si the repo ID: 01M60XYDZPR93VE9GDNNH18ZAX
+
+---
+
+you shoudl be able to look at the eu data i jsut re-authed with aws. try it again oen more time
+
+---
+
+which EU cell is it in?
+
+---
+
+im in cloudshell, what should i look up
+
+---
+
+it's in eu-central-1. im in a psql in the db. just tell me what to query
+
+---
+
+okay i can't check. just give me a small message to tell teh customer. essentially that if their memories are correct then they will be there otherwise just wait for the relase
+
+---
+
+how is this:
+
+Hey Roman,
+
+Thanks for your patience. Two updates on my end:
+
+1. I made some updates to our filtering logic for the Memories page which should show your already uploaded memories. If you're still not seeing them after a hard reload, please let me know. We show memories if they are on the default branch and and/or if they are committed outside of a specific commit. We don't show them if they are tied to a trail but the trail is still not merged in yet. 
+
+2. On the compact transcripts part, I pushed a fix for that as well and will come in the next release of brain. I'll cut a release likely tomorrow for that. I'll email you once I do so you can retry. 
+
+Thanks for the bug reports and hoping this gets resolved for you quickly.
+
+Evis
+
+---
+
+okay so that's done. anything else here for this one? besides cutting the release?
+
+---
+
+yes we need to update the docs. can you open up a ticket for that
+
+---
+
+can you put up a docs PR for this to update our docs
+
+---
+
+well we also removed entire brain publish in favor of sync. so we need to update that too.
+
+---
+
+this is failing checks: https://entire.com/gh/entireio/-/trails/2683/changes/entire-brain/466
+
+---
+
+okay i will publish the docs once i cut the release. anything tlese in this workspace or can i bring it down?
