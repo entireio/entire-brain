@@ -37,14 +37,14 @@ This is the authoritative list of the environment variables that govern where
 brain data may go, in precedence order:
 
 1. **`ENTIRE_BRAIN_NO_EGRESS`** — the master kill switch. When set, nothing
-   leaves the machine: hosted sync, publish, webhooks, non-local
+   leaves the machine: hosted sync, webhooks, non-local
    model agents, and `add` cloning all refuse. It beats every other setting,
    including a recorded connection. The toggle fails closed: an unrecognised
    value counts as set. Intended for CI and machine-wide policy; per-repo
    intent belongs in `entire brain disconnect`. `ENTIRE_BRAIN_LOCAL_ONLY` is a
    deprecated alias — still honored, but it warns and should be migrated.
 2. **Explicit flags** (`--repo-id`, `--api-url`, `--token`) on the manual
-   hosted commands: `publish` and `memories sync`.
+   hosted command `memories sync`.
 3. **Environment overrides** for those same flags: `ENTIRE_REPO_ID`,
    `ENTIRE_API_URL`, `ENTIRE_API_TOKEN`. These fill fields but never authorize
    egress by themselves: a manual command refuses an env-only target unless the
