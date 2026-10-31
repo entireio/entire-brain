@@ -96,11 +96,11 @@ func wireAgentInstructions(repoDir string, wireHook bool, mode agentsetup.Mode) 
 	if !wireHook {
 		return state
 	}
-	path, hookChanged, hookErr := installPreEditHook(repoDir)
+	path, hookChanged, hookErr := installBrainHooks(repoDir)
 	if hookErr != nil {
 		// The guide landed; only the hook did not. Say which, rather than
 		// reporting the whole step as failed.
-		state.Detail = "pre-edit hook not wired: " + hookErr.Error()
+		state.Detail = "agent hooks not wired: " + hookErr.Error()
 		return state
 	}
 	state.Hook = path
@@ -123,6 +123,23 @@ const (
 // themselves and nothing else.
 const preEditHookMatcher = "Edit|Write|MultiEdit|NotebookEdit"
 
+// postFailureHookMatcher names the tools whose FAILURE is worth matching
+// against the brain's gotchas and closed negatives. The host documents this
+// event's matcher as a tool name, same grammar as above.
+//
+// Bash first, because it is the case the verb exists for: a failed build or
+// test run is where "this was tried and failed" pays. The edit tools are in
+// because a refused edit is often a recorded invariant. Read, Grep, Glob and
+// the web tools are deliberately OUT -- their failures are "not found", which
+// carries no project knowledge, and every tool added here is another process
+// spawned at a moment the agent is already recovering.
+//
+// Bash also keeps the hook alive where it would otherwise be dropped: the host
+// does not forward after-edit events to remote workers for file-writing tools
+// (the device's copy is stale or absent), so a matcher naming ONLY those tools
+// is a hook that can never fire there.
+const postFailureHookMatcher = "Bash|Edit|Write|MultiEdit|NotebookEdit"
+
 // maxClaudeSettingsBytes bounds the one repository-authored JSON file this
 // command reads. Its path is fixed but its SIZE is chosen by the repository,
 // and `setup` runs against clones the operator has not read — the same reason
@@ -144,7 +161,18 @@ func preEditHookCommand() string { return preEditHookCommandFor(runtime.GOOS) }
 // preEditHookCommandFor takes the platform as an argument so BOTH branches are
 // reachable from a test on any host. The windows branch shipped wrong because
 // nothing here could execute it: the only guard that ran was the POSIX one.
-func preEditHookCommandFor(goos string) string {
+func preEditHookCommandFor(goos string) string { return hookCommandFor(goos, "pre-edit") }
+
+// postFailureHookCommand is the same fall-through around post-failure, which
+// answers the host's PostToolUseFailure event.
+func postFailureHookCommand() string { return postFailureHookCommandFor(runtime.GOOS) }
+
+func postFailureHookCommandFor(goos string) string { return hookCommandFor(goos, "post-failure") }
+
+// hookCommandFor builds the command line for one wired hook verb. Both verbs
+// need an identical binary fall-through, so they share one builder rather than
+// keeping two copies of a chain whose every clause was paid for by a bug.
+func hookCommandFor(goos, verb string) string {
 	if goos == "windows" {
 		// cmd.exe has no `command -v`, so the POSIX pipeline cannot run here --
 		// but the fallback is still needed. This used to wire the bare spelling
@@ -163,8 +191,8 @@ func preEditHookCommandFor(goos string) string {
 		// `exit /b 0` is the counterpart of the POSIX `exit 0`: a reader with
 		// neither binary gets a hook that does nothing, not one that errors on
 		// every edit.
-		return `cmd /c "` + base.SetupBrainBinaryName + " hook pre-edit --claude-hook || " +
-			base.SetupEntireBinaryName + " " + base.SetupBrainPluginVerb + ` hook pre-edit --claude-hook || exit /b 0"`
+		return `cmd /c "` + base.SetupBrainBinaryName + " hook " + verb + " --claude-hook || " +
+			base.SetupEntireBinaryName + " " + base.SetupBrainPluginVerb + " hook " + verb + ` --claude-hook || exit /b 0"`
 	}
 	// `command -v` establishes only that SOMETHING by that name is on PATH --
 	// never that it is a build which understands this hook. The first spelling
@@ -183,13 +211,13 @@ func preEditHookCommandFor(goos string) string {
 	// stderr, so a genuine fault stays diagnosable under `claude --debug`.
 	//
 	// The trailing `exit 0` is now unconditional, and that is the second half
-	// of the fix. A PreToolUse hook that exits non-zero reports a problem to
-	// the agent on every edit; memory delivery failing is never a reason to
-	// interrupt the edit it was trying to inform.
+	// of the fix. A hook that exits non-zero reports a problem to the agent on
+	// every invocation; memory delivery failing is never a reason to interrupt
+	// the edit — or to add noise to the failure — it was trying to inform.
 	plugin := base.SetupEntireBinaryName + " " + base.SetupBrainPluginVerb
 	return "sh -c 'if command -v " + base.SetupBrainBinaryName + " >/dev/null 2>&1 && " + base.SetupBrainBinaryName +
-		" hook pre-edit --claude-hook 2>/dev/null; then exit 0; fi; if command -v " + base.SetupEntireBinaryName +
-		" >/dev/null 2>&1; then " + plugin + " hook pre-edit --claude-hook; fi; exit 0'"
+		" hook " + verb + " --claude-hook 2>/dev/null; then exit 0; fi; if command -v " + base.SetupEntireBinaryName +
+		" >/dev/null 2>&1; then " + plugin + " hook " + verb + " --claude-hook; fi; exit 0'"
 }
 
 // errSettingsShape reports a settings file whose `hooks` tree is not the shape
@@ -197,8 +225,9 @@ func preEditHookCommandFor(goos string) string {
 // structure we did not understand.
 var errSettingsShape = errors.New("unexpected shape")
 
-// installPreEditHook merges one PreToolUse entry into the repository's
-// .claude/settings.json, preserving every other key byte-for-value.
+// installBrainHooks merges the brain's hook entries — one per event in
+// brainWiredHooks — into the repository's .claude/settings.json, preserving
+// every other key byte-for-value.
 //
 // The merge is a map round-trip, NOT an unmarshal into a typed struct: the
 // settings file is the reader's, it carries keys this binary has never heard
@@ -209,10 +238,52 @@ var errSettingsShape = errors.New("unexpected shape")
 // Returns the settings path, whether this call changed it, and an error only
 // when the file exists and cannot be understood — never when it is simply
 // absent.
-// installPreEditHookRaceHook is nil outside tests.
-var installPreEditHookRaceHook func()
+// wiredHook is one host event this command merges an entry for.
+type wiredHook struct {
+	// event is the host's own event key, and it has to be exactly right: the
+	// reply envelope is keyed by event name and a host silently drops one
+	// whose key does not match the event it fired.
+	event string
+	// verb is the brain subcommand, used both to build the command and to
+	// recognise an entry that already invokes it.
+	verb    string
+	matcher string
+	command string
+}
 
-func installPreEditHook(repoDir string) (string, bool, error) {
+// brainWiredHooks are the hooks `setup` merges, as one list so the whole merge
+// is a single read-modify-write over the reader's settings file. Two separate
+// passes would each take their own optimistic race check against a file the
+// other had just rewritten, and would hand the reader two renames for what is
+// one change.
+func brainWiredHooks() []wiredHook {
+	return []wiredHook{
+		{
+			event:   "PreToolUse",
+			verb:    "pre-edit",
+			matcher: preEditHookMatcher,
+			command: preEditHookCommand(),
+		},
+		{
+			// NOT PostToolUse. That fires after every tool call, so the brain
+			// would run on every read and grep only to find nothing failed,
+			// and it reports the outcome in tool_response, whose shape is
+			// per-tool. PostToolUseFailure fires only on a failure and hands
+			// the failure text over in one declared string. The host's own
+			// hook table documents it as "Run after tool fails", matched by
+			// tool name.
+			event:   "PostToolUseFailure",
+			verb:    "post-failure",
+			matcher: postFailureHookMatcher,
+			command: postFailureHookCommand(),
+		},
+	}
+}
+
+// installBrainHooksRaceHook is nil outside tests.
+var installBrainHooksRaceHook func()
+
+func installBrainHooks(repoDir string) (string, bool, error) {
 	path := filepath.Join(repoDir, claudeSettingsDir, claudeSettingsFile)
 	// Everything below goes through an os.Root: `.claude/settings.json` is a
 	// repository-committed path like AGENTS.md, and a symlink there must not be
@@ -243,21 +314,32 @@ func installPreEditHook(repoDir string) (string, bool, error) {
 	if err != nil {
 		return path, false, fmt.Errorf("%s: hooks: %w", path, err)
 	}
-	entries, err := settingsArray(hooks, "PreToolUse")
-	if err != nil {
-		return path, false, fmt.Errorf("%s: hooks.PreToolUse: %w", path, err)
+	changedAny := false
+	for _, wired := range brainWiredHooks() {
+		entries, err := settingsArray(hooks, wired.event)
+		if err != nil {
+			return path, false, fmt.Errorf("%s: hooks.%s: %w", path, wired.event, err)
+		}
+		// Each verb is checked for independently. Keying the whole merge on
+		// one of them would mean a repository that already has pre-edit wired
+		// -- every repository set up before post-failure existed -- never
+		// gets the second hook, and `setup` would report success.
+		if entriesInvokeHookVerb(entries, wired.verb) {
+			continue
+		}
+		entries = append(entries, map[string]any{
+			"matcher": wired.matcher,
+			"hooks": []any{map[string]any{
+				"type":    "command",
+				"command": wired.command,
+			}},
+		})
+		hooks[wired.event] = entries
+		changedAny = true
 	}
-	if preToolUseInvokesPreEdit(entries) {
+	if !changedAny {
 		return path, false, nil
 	}
-	entries = append(entries, map[string]any{
-		"matcher": preEditHookMatcher,
-		"hooks": []any{map[string]any{
-			"type":    "command",
-			"command": preEditHookCommand(),
-		}},
-	})
-	hooks["PreToolUse"] = entries
 	settings["hooks"] = hooks
 
 	// An encoder with HTML escaping OFF, not json.MarshalIndent.
@@ -309,8 +391,8 @@ func installPreEditHook(repoDir string) (string, bool, error) {
 	// actually opened, and refuses rather than overwriting when it has moved.
 	// Test seam: lets a guard land a concurrent write in exactly the window
 	// between the read above and the rename below.
-	if installPreEditHookRaceHook != nil {
-		installPreEditHookRaceHook()
+	if installBrainHooksRaceHook != nil {
+		installBrainHooksRaceHook()
 	}
 	switch current, rerr := readBoundedRootFile(root, name, maxClaudeSettingsBytes); {
 	case rerr == nil && !bytes.Equal(current, existing):
@@ -399,7 +481,7 @@ func settingsArray(object map[string]any, key string) ([]any, error) {
 // adapted the command (a different matcher, an absolute path, their own
 // wrapper) still has the hook wired, and re-adding ours beside theirs would run
 // it twice.
-func preToolUseInvokesPreEdit(entries []any) bool {
+func entriesInvokeHookVerb(entries []any, verb string) bool {
 	for _, entry := range entries {
 		matcher, ok := entry.(map[string]any)
 		if !ok {
@@ -415,7 +497,7 @@ func preToolUseInvokesPreEdit(entries []any) bool {
 				continue
 			}
 			command, _ := hook["command"].(string)
-			if commandInvokesPreEditHook(command) {
+			if commandInvokesHookVerb(command, verb) {
 				return true
 			}
 		}
@@ -423,14 +505,45 @@ func preToolUseInvokesPreEdit(entries []any) bool {
 	return false
 }
 
-// commandInvokesPreEditHook recognises OUR pre-edit hook and rejects another
+// commandInvokesHookVerb recognises OUR hook for one verb and rejects another
 // tool's. commandInvokesEntireHook alone is not enough: it accepts any Entire
 // hook verb, so a repository with only the session-end hook wired would be
 // reported as having the pre-edit hook too, and `setup` would claim a delivery
 // path that nothing would ever call.
-func commandInvokesPreEditHook(command string) bool {
-	if !strings.Contains(strings.ToLower(command), "pre-edit") {
+//
+// The verb is matched as a whole word bounded by the characters a shell line
+// puts around it, because "pre-edit" is not a substring of "post-failure" but
+// a future verb pair may well be: a `post-failure-summary` would otherwise
+// read as `post-failure` already wired.
+func commandInvokesHookVerb(command, verb string) bool {
+	lowered := strings.ToLower(command)
+	for index := 0; ; {
+		at := strings.Index(lowered[index:], verb)
+		if at < 0 {
+			return false
+		}
+		at += index
+		index = at + len(verb)
+		if index < len(lowered) && !isHookVerbBoundary(lowered[index]) {
+			continue
+		}
+		if at > 0 && !isHookVerbBoundary(lowered[at-1]) {
+			continue
+		}
+		if commandInvokesEntireHook(command) {
+			return true
+		}
 		return false
 	}
-	return commandInvokesEntireHook(command)
+}
+
+// isHookVerbBoundary reports whether a byte can sit beside a verb in a shell
+// line without being part of it. A hyphen is NOT a boundary, which is the
+// whole point: it is what joins `post-failure` to a longer verb.
+func isHookVerbBoundary(b byte) bool {
+	switch b {
+	case ' ', '\t', '\'', '"', ';', '|', '&', '(', ')', '\n', '\r':
+		return true
+	}
+	return false
 }

@@ -104,7 +104,7 @@ func TestSetupAgentWiringIsIdempotent(t *testing.T) {
 	preEdits := 0
 	for _, matcher := range settings.Hooks["PreToolUse"] {
 		for _, hook := range matcher.Hooks {
-			if commandInvokesPreEditHook(hook.Command) {
+			if commandInvokesHookVerb(hook.Command, "pre-edit") {
 				preEdits++
 			}
 		}
@@ -262,9 +262,9 @@ func TestInitAgentsMergesPreToolUseHookPreservingOtherSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	path, changed, err := installPreEditHook(repo)
+	path, changed, err := installBrainHooks(repo)
 	if err != nil {
-		t.Fatalf("installPreEditHook: %v", err)
+		t.Fatalf("installBrainHooks: %v", err)
 	}
 	if !changed || path != settingsPath {
 		t.Fatalf("expected a change at %s, got changed=%v path=%s", settingsPath, changed, path)
@@ -280,7 +280,7 @@ func TestInitAgentsMergesPreToolUseHookPreservingOtherSettings(t *testing.T) {
 	}
 
 	// Second call is a no-op: an entry already invokes the hook.
-	if _, changed, err := installPreEditHook(repo); err != nil || changed {
+	if _, changed, err := installBrainHooks(repo); err != nil || changed {
 		t.Fatalf("second merge must be a no-op, got changed=%v err=%v", changed, err)
 	}
 	if again := readFileString(t, settingsPath); again != merged {
@@ -305,7 +305,7 @@ func TestInstallPreEditHookRefusesSettingsItCannotUnderstand(t *testing.T) {
 		if err := os.WriteFile(settingsPath, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := installPreEditHook(repo); err == nil {
+		if _, _, err := installBrainHooks(repo); err == nil {
 			t.Fatalf("%s: expected a refusal", name)
 		}
 		if got := readFileString(t, settingsPath); got != body {
@@ -350,7 +350,7 @@ func TestPreEditHookCommandSurvivesAManagedPluginInstall(t *testing.T) {
 	} else if !strings.Contains(command, "exit 0") {
 		t.Fatalf("a missing binary fails the hook instead of exiting clean: %s", command)
 	}
-	if !commandInvokesPreEditHook(command) {
+	if !commandInvokesHookVerb(command, "pre-edit") {
 		t.Fatalf("the command we write is not recognised by our own idempotence check: %s", command)
 	}
 }
@@ -359,13 +359,13 @@ func TestPreEditHookCommandSurvivesAManagedPluginInstall(t *testing.T) {
 // the session-end hook wired must not be read as having the pre-edit hook, or
 // setup would claim a delivery path nothing calls.
 func TestCommandInvokesPreEditHookRejectsOtherEntireHooks(t *testing.T) {
-	if commandInvokesPreEditHook("entire hooks claude-code session-end") {
+	if commandInvokesHookVerb("entire hooks claude-code session-end", "pre-edit") {
 		t.Fatal("the session-end hook was accepted as the pre-edit hook")
 	}
-	if commandInvokesPreEditHook("some-other-tool hook pre-edit") {
+	if commandInvokesHookVerb("some-other-tool hook pre-edit", "pre-edit") {
 		t.Fatal("another tool's pre-edit hook was accepted as ours")
 	}
-	if !commandInvokesPreEditHook("/opt/bin/entire-brain hook pre-edit --claude-hook") {
+	if !commandInvokesHookVerb("/opt/bin/entire-brain hook pre-edit --claude-hook", "pre-edit") {
 		t.Fatal("our own hook spelled absolutely was rejected")
 	}
 }
@@ -590,12 +590,12 @@ func TestAConcurrentSettingsEditIsNotOverwritten(t *testing.T) {
 
 	// Another writer lands between our read and our rename.
 	original := []byte(`{"model":"opus","permissions":{"allow":["Bash(ls:*)"]}}`)
-	installPreEditHookRaceHook = func() {
+	installBrainHooksRaceHook = func() {
 		_ = os.WriteFile(settings, original, 0o644)
 	}
-	defer func() { installPreEditHookRaceHook = nil }()
+	defer func() { installBrainHooksRaceHook = nil }()
 
-	_, changed, err := installPreEditHook(repo)
+	_, changed, err := installBrainHooks(repo)
 	if err == nil {
 		t.Fatal("a settings file that moved under us must be refused, not overwritten")
 	}
@@ -662,7 +662,7 @@ func assertPreEditHookCommand(t *testing.T, goos, command string) {
 	if !strings.Contains(command, base.SetupBrainBinaryName+" hook pre-edit") {
 		t.Errorf("%s: never tries the brain binary directly: %s", goos, command)
 	}
-	if !commandInvokesPreEditHook(command) {
+	if !commandInvokesHookVerb(command, "pre-edit") {
 		t.Errorf("%s: our own idempotence check does not recognise it, so setup would rewire it every run: %s", goos, command)
 	}
 	if goos == "windows" {
@@ -864,7 +864,7 @@ func TestInstallingTheHookDoesNotRewriteOtherCommands(t *testing.T) {
 	if err := os.WriteFile(settingsPath, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, changed, err := installPreEditHook(repo); err != nil || !changed {
+	if _, changed, err := installBrainHooks(repo); err != nil || !changed {
 		t.Fatalf("install: changed=%v err=%v", changed, err)
 	}
 
