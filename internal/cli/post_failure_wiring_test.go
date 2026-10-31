@@ -209,3 +209,84 @@ func TestHookVerbRecognitionDoesNotConfuseTheTwoVerbs(t *testing.T) {
 		t.Error("our own hook spelled absolutely was rejected")
 	}
 }
+
+// UserPromptSubmit is NOT matched by tool name: the host's own hook table
+// lists "-" in the matcher column for it, where PreToolUse and
+// PostToolUseFailure list "Tool name". An entry carrying a matcher key for it
+// would be stating a constraint the host does not apply, so the key is omitted
+// entirely rather than written empty.
+func TestSetupWiresThePromptHookWithNoMatcher(t *testing.T) {
+	repo := t.TempDir()
+	if _, changed, err := installBrainHooks(repo); err != nil || !changed {
+		t.Fatalf("install: changed=%v err=%v", changed, err)
+	}
+	settings := readWiredSettings(t, repo)
+
+	if got := countVerbEntries(settings, "UserPromptSubmit", "prompt"); got != 1 {
+		t.Fatalf("UserPromptSubmit carries %d prompt entries, want exactly 1", got)
+	}
+	// Read the raw JSON: the typed struct cannot tell an absent matcher from
+	// an empty one, and that distinction is the point.
+	raw, err := os.ReadFile(filepath.Join(repo, claudeSettingsDir, claudeSettingsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var loose struct {
+		Hooks map[string][]map[string]any `json:"hooks"`
+	}
+	if err := json.Unmarshal(raw, &loose); err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range loose.Hooks["UserPromptSubmit"] {
+		if _, present := entry["matcher"]; present {
+			t.Errorf("the UserPromptSubmit entry carries a matcher key; the host matches this event by nothing:\n%s", raw)
+		}
+	}
+	// And the tool events still carry theirs, so omission is targeted rather
+	// than a blanket change.
+	for _, ev := range []string{"PreToolUse", "PostToolUseFailure"} {
+		for _, entry := range loose.Hooks[ev] {
+			if _, present := entry["matcher"]; !present {
+				t.Errorf("%s lost its matcher, which the host DOES apply:\n%s", ev, raw)
+			}
+		}
+	}
+}
+
+// All three verbs must be independently detected, or a repository set up at any
+// earlier point never receives the ones added later.
+func TestSetupBackfillsEveryVerbIntoAnOlderSettingsFile(t *testing.T) {
+	for _, already := range []string{"pre-edit", "post-failure"} {
+		t.Run("already has "+already, func(t *testing.T) {
+			repo := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(repo, claudeSettingsDir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			var event, command string
+			for _, w := range brainWiredHooks() {
+				if w.verb == already {
+					event, command = w.event, w.command
+				}
+			}
+			legacy := map[string]any{"hooks": map[string]any{
+				event: []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": command}}}},
+			}}
+			raw, err := json.MarshalIndent(legacy, "", "  ")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(repo, claudeSettingsDir, claudeSettingsFile), raw, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, changed, err := installBrainHooks(repo); err != nil || !changed {
+				t.Fatalf("a file with only %s must still gain the others: changed=%v err=%v", already, changed, err)
+			}
+			settings := readWiredSettings(t, repo)
+			for _, w := range brainWiredHooks() {
+				if got := countVerbEntries(settings, w.event, w.verb); got != 1 {
+					t.Errorf("%s/%s entries = %d, want 1", w.event, w.verb, got)
+				}
+			}
+		})
+	}
+}

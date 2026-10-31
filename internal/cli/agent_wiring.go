@@ -169,6 +169,12 @@ func postFailureHookCommand() string { return postFailureHookCommandFor(runtime.
 
 func postFailureHookCommandFor(goos string) string { return hookCommandFor(goos, "post-failure") }
 
+// promptHookCommand answers UserPromptSubmit with the memories relevant to the
+// task the user just submitted.
+func promptHookCommand() string { return promptHookCommandFor(runtime.GOOS) }
+
+func promptHookCommandFor(goos string) string { return hookCommandFor(goos, "prompt") }
+
 // hookCommandFor builds the command line for one wired hook verb. Both verbs
 // need an identical binary fall-through, so they share one builder rather than
 // keeping two copies of a chain whose every clause was paid for by a bug.
@@ -246,7 +252,13 @@ type wiredHook struct {
 	event string
 	// verb is the brain subcommand, used both to build the command and to
 	// recognise an entry that already invokes it.
-	verb    string
+	verb string
+	// matcher is empty for an event the host does not match by tool name. The
+	// host's own hook table spells that out: PreToolUse and PostToolUseFailure
+	// list "Tool name", while UserPromptSubmit and SessionStart list "-". An
+	// empty matcher is OMITTED from the entry rather than written as "", so
+	// the file says what the host means instead of carrying a key that matches
+	// nothing.
 	matcher string
 	command string
 }
@@ -276,6 +288,15 @@ func brainWiredHooks() []wiredHook {
 			verb:    "post-failure",
 			matcher: postFailureHookMatcher,
 			command: postFailureHookCommand(),
+		},
+		{
+			// The delivery half of the adoption gap, and the only event that
+			// carries a TASK at all: SessionStart has no task yet, and
+			// SubagentStart carries `subagent_type`, not the work to be done.
+			// No matcher -- the host's table lists "-" for this event.
+			event:   "UserPromptSubmit",
+			verb:    "prompt",
+			command: promptHookCommand(),
 		},
 	}
 }
@@ -327,13 +348,16 @@ func installBrainHooks(repoDir string) (string, bool, error) {
 		if entriesInvokeHookVerb(entries, wired.verb) {
 			continue
 		}
-		entries = append(entries, map[string]any{
-			"matcher": wired.matcher,
+		entry := map[string]any{
 			"hooks": []any{map[string]any{
 				"type":    "command",
 				"command": wired.command,
 			}},
-		})
+		}
+		if wired.matcher != "" {
+			entry["matcher"] = wired.matcher
+		}
+		entries = append(entries, entry)
 		hooks[wired.event] = entries
 		changedAny = true
 	}
