@@ -68,6 +68,13 @@ type IndexCache struct {
 	// this as nil/empty, which only degrades that one cycle tie-break, not
 	// ordinary lookups.
 	LastTouch map[string]int64 `json:"last_touch,omitempty"`
+	// CappedCommits are the indexed commits whose stored delta was capped, so
+	// Entries below is missing entities those commits changed. Without it
+	// `history` answers "no indexed entity matches X" for an entity the cap
+	// cut, which is indistinguishable from a true negative — see
+	// entityindex.Snapshot.CappedCommits. Additive: an older cache file
+	// decodes this as nil, which loses the warning, never a lookup.
+	CappedCommits []string `json:"capped_commits,omitempty"`
 }
 
 // IndexOccurrence is one commit that changed an entity, joined to the
@@ -242,13 +249,17 @@ func runEntitiesBackfill(ctx context.Context, cmd *cobra.Command, opts Config, b
 
 // HistoryResult is the JSON contract of `entities history`.
 type HistoryResult struct {
-	Query     string                `json:"query"`
-	Branch    string                `json:"branch,omitempty"`
-	Matches   []entityHistoryMatch  `json:"matches"`
-	Truncated bool                  `json:"truncated,omitempty"`
-	Note      string                `json:"note,omitempty"`
-	Warnings  []string              `json:"warnings,omitempty"`
-	Index     entityHistoryIndexRef `json:"index"`
+	Query     string               `json:"query"`
+	Branch    string               `json:"branch,omitempty"`
+	Matches   []entityHistoryMatch `json:"matches"`
+	Truncated bool                 `json:"truncated,omitempty"`
+	// CappedCommits counts indexed commits whose stored delta was capped, so
+	// an entity absent from Matches may simply have been cut from a commit's
+	// document rather than never changed.
+	CappedCommits int                   `json:"capped_commits,omitempty"`
+	Note          string                `json:"note,omitempty"`
+	Warnings      []string              `json:"warnings,omitempty"`
+	Index         entityHistoryIndexRef `json:"index"`
 }
 
 type entityHistoryIndexRef struct {
@@ -347,6 +358,16 @@ func History(ctx context.Context, opts Config, repoDir, query, branch string, li
 			"the entity index cache is truncated at %d keys (entityIndexCacheMaxKeys); results may omit entities outside that cap",
 			entityIndexCacheMaxKeys))
 	}
+	// A capped commit is a SECOND, independent way this answer can be short,
+	// and the more dangerous one: the cache cap above drops whole keys, while a
+	// capped delta drops entities from the very commit that changed them. Say
+	// so alongside the matches so "no match" is never read as "did not change".
+	if capped := len(view.cache.CappedCommits); capped > 0 {
+		result.CappedCommits = capped
+		result.Warnings = append(result.Warnings, fmt.Sprintf(
+			"%d indexed commit(s) stored a capped delta, so an entity missing from this answer is NOT proof it did not change; `"+opts.Deps.BrainInvocation("entities show <commit>")+"` lists what one of them did record",
+			capped))
+	}
 	if len(view.cache.Entries) == 0 {
 		result.Note = "the entity index is empty; run `" + opts.Deps.BrainInvocation("entities backfill") + "`"
 		return result, nil
@@ -354,6 +375,18 @@ func History(ctx context.Context, opts Config, repoDir, query, branch string, li
 	reachable, err := checkedBranchReachableCommits(ctx, opts.Runner, repoDir, result.Branch)
 	if err != nil {
 		return result, err
+	}
+	// Reuse the walk already in hand rather than asking git again. A resolve
+	// failure here is not worth failing the query over: the answer is still
+	// correct for the branch, so drop the warning and carry on.
+	if reachable != nil {
+		if head, headErr := base.GitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD"); headErr == nil && head != "" {
+			if _, onBranch := reachable[head]; !onBranch {
+				if warning := branchExcludesHeadWarning(result.Branch, base.ShortSHA(head), len(reachable) >= BranchRevWalkMax, opts); warning != "" {
+					result.Warnings = append(result.Warnings, warning)
+				}
+			}
+		}
 	}
 	keys := make([]string, 0, len(view.cache.Entries))
 	for key := range view.cache.Entries {
@@ -496,8 +529,16 @@ func runEntitiesShow(ctx context.Context, cmd *cobra.Command, opts Config, ref s
 		return fmt.Errorf("commit %s is not indexed; run `"+opts.Deps.BrainInvocation("entities backfill")+"`", base.ShortSHA(commit))
 	}
 	out := cmd.OutOrStdout()
+	// Decode once and warn BEFORE the document, on stderr, so a human sees the
+	// cap whichever path they took while stdout stays byte-identical for the
+	// verbatim-document path below.
+	delta, decoded := snapshot.Delta(commit)
+	if decoded {
+		if warning := storedDeltaTruncationWarning(delta, opts); warning != "" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
+		}
+	}
 	if summary {
-		delta, decoded := snapshot.Delta(commit)
 		if !decoded {
 			fmt.Fprintln(out, raw)
 			return nil
@@ -512,6 +553,82 @@ func runEntitiesShow(ctx context.Context, cmd *cobra.Command, opts Config, ref s
 	// is actually in git, not a re-serialization of it.
 	fmt.Fprintln(out, raw)
 	return nil
+}
+
+// branchExcludesHeadWarning reports that the branch this answer was filtered
+// to does not contain HEAD, or "" when it does or when we cannot tell.
+//
+// This is the trap that cost the most time on this repository. `--branch main`
+// filters to the LOCAL main ref, and a local branch can trail its remote while
+// the checkout sits ahead of it — here local main was 241 first-parent commits
+// behind origin/main with a detached HEAD above it. Every answer was then
+// correct about that branch and silently blind to the commits an agent was
+// actually working on, which for a pre-merge overlap check is precisely a false
+// "nothing else touched this".
+//
+// truncated means we cannot tell, so say nothing: the reachability walk is
+// capped at BranchRevWalkMax, and HEAD missing from a capped walk is as likely
+// to be beyond the cap as genuinely off-branch. Same discipline as
+// storedDeltaTruncationWarning — an incomplete input yields silence, never a
+// confident negative.
+func branchExcludesHeadWarning(branch, head string, truncated bool, opts Config) string {
+	if truncated || strings.TrimSpace(branch) == "" || strings.TrimSpace(head) == "" {
+		return ""
+	}
+	return fmt.Sprintf(
+		"HEAD (%s) is not reachable from branch %q, so this answer covers that branch and NOT your checked-out commits; re-index with `"+opts.Deps.BrainInvocation("entities backfill")+"` (no --branch) to cover HEAD",
+		head, branch)
+}
+
+// otherParserRevisionWarning is what `entities history` says when the store
+// holds records filed under a different Graph parser revision.
+//
+// It names BOTH remedies on purpose. It used to name only `entities migrate`,
+// and that cost a real session: migrate refuses on any `graph diff` warning,
+// so on a repository carrying one large unparseable file it cannot run at all
+// — the advice pointed at the one route that was closed. Re-indexing the
+// affected commits under the current revision is the other route, it needs no
+// old records, and it is often the whole fix. A remedy a diagnostic names must
+// be one that works in the state that produced the diagnostic.
+//
+// Worth knowing when this fires without an upgrade having happened: the
+// records may simply sit above the tip of the branch being walked.
+// `backfill --branch <name>` reads the LOCAL ref and converges backwards from
+// it, so commits newer than a stale local branch are unreachable at any
+// --limit. Omitting --branch walks the checked-out HEAD instead.
+func otherParserRevisionWarning(opts Config) string {
+	return "history from another parser revision is available; run `" +
+		opts.Deps.BrainInvocation("entities migrate") + "` to carry it forward, or `" +
+		opts.Deps.BrainInvocation("entities backfill") + "` to re-index those commits under the current revision"
+}
+
+// storedDeltaTruncationWarning reports what a capped delta document needs said
+// about it, or "" when the document carries every change.
+//
+// A capped delta lists only the first maxDeltaEntities changes, and the list
+// that results is shaped EXACTLY like a complete one. That is the same silent
+// partial answer `history` already refuses to give for its own cache cap, and
+// it is the more dangerous of the two: an entity missing because the cap cut it
+// reads as an entity that did not change. Measured on this repository, one
+// commit stored 2,000 of 14,839 changed entities.
+//
+// EntityCount carries the true total, but only for documents written since it
+// was added. A truncated document without one is a legacy write whose real
+// total was never recorded, so say that rather than imply a number: comparing
+// against len(Entities) is what separates the two cases.
+func storedDeltaTruncationWarning(delta entityindex.Delta, opts Config) string {
+	if !delta.Truncated {
+		return ""
+	}
+	stored := len(delta.Entities)
+	if delta.EntityCount > stored {
+		return fmt.Sprintf(
+			"this commit's stored delta is capped: it lists %d of %d changed entities, so an entity absent from this document is NOT evidence it did not change",
+			stored, delta.EntityCount)
+	}
+	return fmt.Sprintf(
+		"this commit's stored delta is capped at %d changed entities and the true total was not recorded, so an entity absent from this document is NOT evidence it did not change; `"+opts.Deps.BrainInvocation("entities backfill --full")+"` rewrites it",
+		stored)
 }
 
 // commitForCheckpoint finds the newest indexed commit carrying a checkpoint id.
@@ -610,7 +727,7 @@ func loadEntityIndexView(ctx context.Context, opts Config, repoDir string) (*ent
 	if hasPrevious && previous.MetaTip == tip && tip != "" {
 		view.cache = previous
 		if previous.NeedsMigration && view.warning == "" {
-			view.warning = "history from another parser revision is available; run `" + opts.Deps.BrainInvocation("entities migrate") + "` to carry it forward"
+			view.warning = otherParserRevisionWarning(opts)
 		}
 		return finish()
 	}
@@ -630,7 +747,7 @@ func loadEntityIndexView(ctx context.Context, opts Config, repoDir string) (*ent
 	}
 	view.cache = cache
 	if cache.NeedsMigration && view.warning == "" {
-		view.warning = "history from another parser revision is available; run `" + opts.Deps.BrainInvocation("entities migrate") + "` to carry it forward"
+		view.warning = otherParserRevisionWarning(opts)
 	}
 	view.rebuilt = true
 	// Persisting is an optimization, never a correctness requirement: a
@@ -669,6 +786,7 @@ func rebuildEntityIndexCache(ctx context.Context, opts Config, repoDir, brainDir
 	}
 	cache.Aliases = snapshot.Aliases()
 	cache.LastTouch = snapshot.LastTouch()
+	cache.CappedCommits = snapshot.CappedCommits()
 
 	commitMeta, err := entityCommitMetadata(ctx, opts.Runner, repoDir, snapshot.IndexedCommits())
 	if err != nil {
