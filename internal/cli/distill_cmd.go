@@ -299,7 +299,7 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 			}
 			go func(ps preparedSession) {
 				releaseWork := func() { <-workSem }
-				data, readErr := readCanonicalHistoryTranscript(ctx, brainDir, ps.session.TranscriptPath)
+				data, readErr := distillReadCanonicalTranscript(ctx, brainDir, ps.session.TranscriptPath)
 				if readErr != nil {
 					releaseWork()
 					ps.readErr = readErr
@@ -466,14 +466,73 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 	return prepared
 }
 
-// validateDistillCanonicalInputs establishes complete-or-refused input safety
-// before any provider work can be dispatched or any incremental fact/cache
-// state can be flushed. The pipeline re-reads selected transcripts for bounded
-// work scheduling; this preflight deliberately favors the egress/publication
-// boundary over avoiding one extra descriptor-rooted read.
+// distillOversizeTranscript reports a transcript the store refuses to read
+// because it exceeds the read cap, as opposed to any other input failure.
+//
+// It exists so distill reaches the SAME conclusion the history readers already
+// reached for this identical sentinel: one transcript too large to read is a
+// statement about that file, not about the corpus, so it must cost its own
+// session and nothing else. Before this, one 256MiB transcript refused the
+// whole pass — `distill --dry-run --branch main` failed instantly and the
+// workspace watch daemon burned CPU for days with the distilled count frozen,
+// because every run died on the same file.
+//
+// Every OTHER input failure still refuses everything. Containment breaches,
+// source races and cancellation are statements about the corpus or about our
+// ability to read it safely, and publishing a partial pass on one of those
+// would be claiming coverage we do not have.
+// distillReadCanonicalTranscript is the read every distill path performs.
+//
+// It is a package-level var for ONE reason: the oversize-tolerance decision
+// lives at the three call sites, and a pure-function test of
+// distillOversizeTranscript cannot reach them. Staging a real over-cap
+// transcript means writing 256MiB in a unit test. Precedent for the seam is
+// installBrainHooksRaceHook. Production never reassigns it.
+var distillReadCanonicalTranscript = readCanonicalHistoryTranscript
+
+func distillOversizeTranscript(err error) bool {
+	if err == nil {
+		return false
+	}
+	// EVERY OTHER REFUSAL REASON IS TESTED FIRST, because one error value can
+	// carry several: readers return errors.Join(readErr, finishErr, closeErr),
+	// so a cancelled context or a stale source can arrive joined with an
+	// oversize transcript. Asking about the oversize sentinel first answers
+	// "skip" for the whole join and publishes a partial pass on a refusal.
+	// The sentinel excuses only itself.
+	//
+	// This is the identical ordering, for the identical reason, as
+	// shortTermCanonicalInputRefusal -- which learned it the same way.
+	if errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, errHistorySessionInventoryDegraded) ||
+		strings.Contains(err.Error(), brainstore.SourceStaleCode) {
+		return false
+	}
+	if errors.Is(err, errHistoryTranscriptTooLarge) {
+		return true
+	}
+	// A store read surfaces the condition as a coded message rather than the
+	// sentinel, so the code is checked too -- the same belt-and-braces pair
+	// shortTermCanonicalInputRefusal uses. Deliberately NOT a bare substring
+	// match on anything else: only this one code is excusable.
+	return strings.Contains(err.Error(), brainstore.InputTooLargeCode)
+}
+
+// validateDistillCanonicalInputs establishes input safety before any provider
+// work can be dispatched or any incremental fact/cache state can be flushed.
+// The pipeline re-reads selected transcripts for bounded work scheduling; this
+// preflight deliberately favors the egress/publication boundary over avoiding
+// one extra descriptor-rooted read.
+//
+// "Complete-or-refused" holds for every input failure EXCEPT a single
+// over-cap transcript, which is skipped and disclosed: see
+// distillOversizeTranscript for why that one is a statement about its own file.
 func validateDistillCanonicalInputs(ctx context.Context, brainDir string, sessions []exportSession, distillOpts distillCommandOptions, resolveBranch func(exportSession) string) error {
 	cache := loadDistillCache(brainDir)
 	duplicates := distillDuplicateSessionKeys(sessions, resolveBranch)
+	candidates, unreadable := 0, 0
+	var firstUnreadable error
 	for _, session := range sessions {
 		if distillOpts.branch != "" && resolveBranch(session) != distillOpts.branch {
 			continue
@@ -484,14 +543,74 @@ func validateDistillCanonicalInputs(ctx context.Context, brainDir string, sessio
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		candidates++
 		if _, hit := cachedCheckpointDistill(cache, session, resolveBranch(session), duplicates, distillOpts); hit {
 			continue
 		}
-		if _, err := readCanonicalHistoryTranscript(ctx, brainDir, session.TranscriptPath); err != nil {
+		if _, err := distillReadCanonicalTranscript(ctx, brainDir, session.TranscriptPath); err != nil {
+			if distillOversizeTranscript(err) {
+				distillNotice(distillOpts, fmt.Sprintf("skipping session %s: its transcript exceeds the read cap, so it cannot be distilled until it is split or trimmed (%s)", session.SessionID, filepath.ToSlash(session.TranscriptPath)))
+				unreadable++
+				if firstUnreadable == nil {
+					firstUnreadable = fmt.Errorf("read canonical transcript %s: %w", filepath.ToSlash(session.TranscriptPath), err)
+				}
+				continue
+			}
 			return fmt.Errorf("read canonical transcript %s: %w", filepath.ToSlash(session.TranscriptPath), err)
 		}
 	}
+	// PARTIAL progress is the fix; TOTAL failure must still refuse.
+	//
+	// Skipping an unreadable session lets the other 206 be distilled, which is
+	// the whole point. But when EVERY candidate was unreadable, nothing was
+	// distilled and the reason was unreadable input — and letting that pass
+	// "succeed" would publish a facts manifest and write a distill cache for a
+	// corpus that produced nothing, i.e. claim coverage that does not exist.
+	// `assertNoDistillDerivedState` pins exactly that, and it caught this:
+	// tolerating the skip unconditionally turned "refuse and leave no derived
+	// state" into "succeed having done nothing".
+	//
+	// Cached candidates count as usable, so a pass with nothing left to do is
+	// unaffected: this fires only when unreadable input accounts for every
+	// candidate.
+	if unreadable > 0 && unreadable == candidates {
+		return fmt.Errorf("every session selected for distillation has an unreadable transcript, so nothing could be distilled: %w", firstUnreadable)
+	}
 	return nil
+}
+
+// distillNotice reports something a caller must know about but which does not
+// fail the run — currently a skipped session. Silence is not an option here:
+// skipping a session without saying so answers "distilled" for a corpus that
+// has a hole in it, which is the failure the entity-delta disclosure work
+// closed on the other side of this binary.
+func distillNotice(distillOpts distillCommandOptions, message string) {
+	if distillOpts.notice != nil {
+		distillOpts.notice(message)
+	}
+}
+
+// carryPreviousSessionCache copies a session's existing cache entry into the
+// cache being built, for a session this pass did not distill.
+//
+// The final flush persists the NEW cache only, so a session left out of it is
+// re-distilled from scratch on the next run. That is why a filtered, deferred
+// or skipped session still carries its entry forward: dropping it costs every
+// other branch a full re-distill. Extracted so the skip paths cannot drift
+// apart — they must carry identically or one of them silently discards work.
+func carryPreviousSessionCache(newCache *distillCache, prevCache distillCache, branch string, session exportSession, duplicateKeys map[string]bool) {
+	key := distillSessionCacheKeyFor(branch, session, duplicateKeys)
+	if prev, ok := prevCache.Sessions[key]; ok {
+		newCache.Sessions[key] = prev
+		carryDistillChunks(newCache, prevCache, key, key)
+		return
+	}
+	if prev, ok := prevCache.Sessions[session.SessionID]; ok {
+		// A legacy entry stays under its legacy key (and formula) until its
+		// session is actually visited and grandfathered — copying it under the
+		// new key would make it permanently unmatchable.
+		newCache.Sessions[session.SessionID] = prev
+	}
 }
 
 type distillCommandOptions struct {
@@ -553,6 +672,13 @@ type distillCommandOptions struct {
 	// can render a spinner/progress line. It is nil in tests and for callers
 	// that do not want progress output.
 	progress func(distillProgress)
+	// notice, when set, reports a session the pass SKIPPED rather than
+	// distilled — today only a transcript over the store's read cap. It is a
+	// separate channel from progress because it must reach the operator even
+	// when progress rendering is off: a skipped session is a hole in the
+	// corpus, and a run that does not mention it reports success for work it
+	// did not do.
+	notice func(string)
 	// entityProvenance, when set, sharpens each new fact's anchor from the
 	// entity -> checkpoint index: the checkpoint that actually changed the
 	// entity the fact's locus names, instead of the session's LAST checkpoint.
@@ -643,12 +769,17 @@ type distillPlan struct {
 	CachedSessions     int
 	SessionsToDistill  int
 	MissingTranscripts int
-	RawBytes           int64
-	PreprocessedBytes  int64
-	Chunks             int
-	ChunksIfUncached   int
-	Warnings           []string
-	CacheSalt          string
+	// OversizeTranscripts counts sessions skipped because their transcript
+	// exceeds the store's read cap. They are NOT cached, so a later run picks
+	// them up once the transcript is readable; until then each is named in
+	// Warnings so the plan never reports coverage it does not have.
+	OversizeTranscripts int
+	RawBytes            int64
+	PreprocessedBytes   int64
+	Chunks              int
+	ChunksIfUncached    int
+	Warnings            []string
+	CacheSalt           string
 	// BudgetDeferredSessions counts sessions that still need distilling but
 	// were held back by --max-sessions. They remain uncached, so a later run
 	// picks them up.
@@ -874,6 +1005,18 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 		// exists. Update coalesces labels that differ only in counters — right
 		// for a repaint, fatal for a completion event.
 		task.Event(distillProgressLabel(p))
+	}
+	// Skips go to stderr for the same reason progress does: they must never
+	// corrupt the --json summary on stdout. Wired here rather than at each
+	// construction site because every in-process caller funnels through
+	// runDistill -- a human running `distill`, the detached setup backfill,
+	// and the watcher's gated step, whose sub-command inherits this stderr.
+	// That last one is the case that matters: the daemon burned CPU for days
+	// on a pass that died on the same transcript every run, and said nothing.
+	if distillOpts.notice == nil {
+		distillOpts.notice = func(message string) {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", message)
+		}
 	}
 	// One pass at a time per brain. Every in-process caller funnels through here
 	// — the detached `setup` backfill child, the watcher's gated distill step,
@@ -1343,16 +1486,26 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			if distillOpts.force && ps.deferred {
 				continue
 			}
-			key := distillSessionCacheKeyFor(branch, session, duplicateKeys)
-			if prev, ok := prevCache.Sessions[key]; ok {
-				newCache.Sessions[key] = prev
-				carryDistillChunks(&newCache, prevCache, key, key)
-			} else if prev, ok := prevCache.Sessions[session.SessionID]; ok {
-				// A legacy entry stays under its legacy key (and formula) until
-				// its session is actually visited and grandfathered — copying it
-				// under the new key would make it permanently unmatchable.
-				newCache.Sessions[session.SessionID] = prev
+			carryPreviousSessionCache(&newCache, prevCache, branch, session, duplicateKeys)
+			continue
+		}
+		// An over-cap transcript costs its own session and nothing else. The
+		// abort below is right for every other read failure; for this one it
+		// meant a single 256MiB file refused the entire pass on every run, so
+		// the daemon never made progress on any other session.
+		//
+		// The cache entry is carried exactly as a filtered session's is: the
+		// final flush persists newCache only, so dropping it here would make
+		// the next run re-distill every other session from scratch. A session
+		// with no previous entry carries nothing and stays uncached, which is
+		// correct — it is retried when the transcript is small enough to read.
+		if distillOversizeTranscript(ps.readErr) {
+			distillNotice(distillOpts, fmt.Sprintf("skipping session %s: its transcript exceeds the read cap, so it cannot be distilled until it is split or trimmed (%s)", session.SessionID, filepath.ToSlash(session.TranscriptPath)))
+			sessionsDone++
+			if distillOpts.progress != nil {
+				distillOpts.progress(distillProgress{SessionsDone: sessionsDone, SessionsTotal: totalSessions, Branch: branch, Facts: factsFound})
 			}
+			carryPreviousSessionCache(&newCache, prevCache, branch, session, duplicateKeys)
 			continue
 		}
 		if ps.readErr != nil {
@@ -1779,7 +1932,18 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 			continue
 		}
 
-		data, readErr := readCanonicalHistoryTranscript(ctx, brainDir, session.TranscriptPath)
+		data, readErr := distillReadCanonicalTranscript(ctx, brainDir, session.TranscriptPath)
+		if distillOversizeTranscript(readErr) {
+			// ReadFailed already existed on distillSessionPlan and the dry-run
+			// renderer already consults it; nothing ever set it, so the plan
+			// could only ever abort. Setting it completes the path that was
+			// designed for exactly this.
+			sessionPlan.ReadFailed = true
+			plan.OversizeTranscripts++
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("session %s skipped: transcript exceeds the read cap (%s)", session.SessionID, filepath.ToSlash(session.TranscriptPath)))
+			plan.Sessions = append(plan.Sessions, sessionPlan)
+			continue
+		}
 		if readErr != nil {
 			return distillPlan{}, fmt.Errorf("read canonical transcript %s: %w", filepath.ToSlash(session.TranscriptPath), readErr)
 		}
