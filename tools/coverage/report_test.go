@@ -66,11 +66,15 @@ func TestReportsRetainRegressionEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
-		name, profile string
-		fail          bool
+		name, profile, baselineMode string
+		fail                        bool
 	}{
-		{"same", "mode: set\np/a.go:1.1,2.2 1 1\np/b.go:1.1,2.2 1 0\n", false},
-		{"decrease", "mode: set\np/a.go:1.1,2.2 1 0\np/b.go:1.1,2.2 1 0\n", true},
+		{"same", "mode: set\np/a.go:1.1,2.2 1 1\np/b.go:1.1,2.2 1 0\n", "", false},
+		{"decrease", "mode: set\np/a.go:1.1,2.2 1 0\np/b.go:1.1,2.2 1 0\n", "", true},
+		{"missing baseline", "mode: set\np/a.go:1.1,2.2 1 1\n", "missing", true},
+		{"malformed baseline", "mode: set\np/a.go:1.1,2.2 1 1\n", "malformed", true},
+		{"incompatible baseline", "mode: set\np/a.go:1.1,2.2 1 1\n", "incompatible", true},
+		{"malformed profile", "invalid profile", "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			out := t.TempDir()
@@ -83,14 +87,65 @@ func TestReportsRetainRegressionEvidence(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(out, "tests.jsonl"), []byte("{\"Action\":\"pass\",\"Package\":\"p\"}\n"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			err := finishReports(out, baselinePath, nil)
+			comparisonPath := baselinePath
+			if tc.baselineMode != "" {
+				comparisonPath = filepath.Join(t.TempDir(), "baseline.json")
+				switch tc.baselineMode {
+				case "malformed":
+					if err := os.WriteFile(comparisonPath, []byte("invalid JSON"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				case "incompatible":
+					previous := baseline
+					previous.Environment.GoVersion = "different toolchain"
+					if err := writeJSON(comparisonPath, previous); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			err := finishReports(out, comparisonPath, nil)
 			if (err != nil) != tc.fail {
 				t.Fatalf("error=%v", err)
 			}
-			data, err := os.ReadFile(filepath.Join(out, "summary.json"))
+			var env environment
+			data, readErr := os.ReadFile(filepath.Join(out, "environment.json"))
+			if readErr != nil || json.Unmarshal(data, &env) != nil {
+				t.Fatalf("missing environment: %s %v", data, readErr)
+			}
+			wantExit := 0
+			if tc.fail {
+				wantExit = 1
+			}
+			if env.TestsPassed == tc.fail || env.RunExitCode != wantExit {
+				t.Fatalf("incorrect final environment: %+v", env)
+			}
+			var results testSummary
+			data, readErr = os.ReadFile(filepath.Join(out, "test-results.json"))
+			if readErr != nil || json.Unmarshal(data, &results) != nil {
+				t.Fatalf("missing test results: %s %v", data, readErr)
+			}
+			if results.RunPassed == tc.fail || results.Packages.Passed != 1 || (results.Error != "") != tc.fail {
+				t.Fatalf("incorrect final test results: %+v", results)
+			}
+			if err != nil && !strings.Contains(results.Error, err.Error()) {
+				t.Fatalf("missing failure diagnostic %q: %s", err, results.Error)
+			}
+			if tc.name == "malformed profile" {
+				if _, err := os.Stat(filepath.Join(out, "summary.json")); !os.IsNotExist(err) {
+					t.Fatalf("invalid profile produced a summary: %v", err)
+				}
+				return
+			}
+			data, err = os.ReadFile(filepath.Join(out, "summary.json"))
 			var report coverageReport
-			if err != nil || json.Unmarshal(data, &report) != nil || report.Delta == nil {
+			if err != nil || json.Unmarshal(data, &report) != nil || (report.Delta != nil) != (tc.baselineMode == "") {
 				t.Fatalf("missing comparison evidence: %s %v", data, err)
+			}
+			if report.Environment.TestsPassed != env.TestsPassed || report.Environment.RunExitCode != env.RunExitCode {
+				t.Fatalf("summary status differs from final environment: %+v", report.Environment)
+			}
+			if _, err := compareReports(baseline, report); (err != nil) != tc.fail {
+				t.Fatalf("failed report must not be reusable as a baseline: %v", err)
 			}
 		})
 	}

@@ -270,25 +270,16 @@ func finishReports(out, baseline string, runErr error) error {
 		summaryErr = errors.Join(summaryErr, errors.New("test results contain failed or incomplete outcomes"))
 	}
 	runErr = errors.Join(runErr, summaryErr)
+	// Compare against the test-run status first. Final report status must also
+	// include profile and baseline errors, which are only known below.
 	env.TestsPassed = runErr == nil
 	env.RunExitCode = 0
 	if runErr != nil {
 		env.RunExitCode = 1
-		results.Error = runErr.Error()
 	}
-	results.RunPassed = env.TestsPassed
-	if err := writeJSON(filepath.Join(out, "test-results.json"), results); err != nil {
-		return errors.Join(summaryErr, err)
-	}
-	if err := writeJSON(filepath.Join(out, "environment.json"), env); err != nil {
-		return errors.Join(summaryErr, err)
-	}
-	r, err := summarizeProfile(filepath.Join(out, "combined.out"), env)
-	if err != nil {
-		return errors.Join(summaryErr, err)
-	}
+	r, profileErr := summarizeProfile(filepath.Join(out, "combined.out"), env)
 	var comparisonErr error
-	if baseline != "" {
+	if profileErr == nil && baseline != "" {
 		data, err := os.ReadFile(baseline)
 		var previous coverageReport
 		if err == nil {
@@ -306,6 +297,21 @@ func finishReports(out, baseline string, runErr error) error {
 		}
 		comparisonErr = err
 	}
-	err = writeJSON(filepath.Join(out, "summary.json"), r)
-	return errors.Join(summaryErr, comparisonErr, err)
+	runErr = errors.Join(runErr, profileErr, comparisonErr)
+	env.TestsPassed = runErr == nil
+	env.RunExitCode = 0
+	if runErr != nil {
+		env.RunExitCode = 1
+		results.Error = runErr.Error()
+	}
+	results.RunPassed = env.TestsPassed
+	r.Environment = env
+	writeErr := errors.Join(
+		writeJSON(filepath.Join(out, "test-results.json"), results),
+		writeJSON(filepath.Join(out, "environment.json"), env),
+	)
+	if profileErr == nil {
+		writeErr = errors.Join(writeErr, writeJSON(filepath.Join(out, "summary.json"), r))
+	}
+	return errors.Join(summaryErr, profileErr, comparisonErr, writeErr)
 }
