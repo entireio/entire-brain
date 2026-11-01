@@ -170,8 +170,8 @@ binary for your platform, verifies it against the release `checksums.txt`, and
 registers it -- no clone, no Go toolchain, no C compiler, because Brain's
 default build is pure Go. It fails closed rather than installing something it
 could not verify. `entire plugin install brain` does the same through the plugin
-index. Build from source when you intend to change Brain, or when you want the
-`brain_cgo` build; otherwise install a release. `scripts/bootstrap.sh` is the equivalent for a
+index. Build from source when you intend to change Brain; otherwise install a
+release. `scripts/bootstrap.sh` is the equivalent for a
 machine with nothing at all — it clones `entire-brain` when it is not already
 there (falling back to `gh` for the private-repo credentials) and then runs
 `install.sh`.

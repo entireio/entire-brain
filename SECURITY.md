@@ -97,8 +97,6 @@ Out of scope:
   history it is given
 - Findings that require an attacker who already has local code execution as the
   same user
-- The `brain_cgo` build's third-party native dependencies, which should be
-  reported upstream
 
 ## Supported versions
 

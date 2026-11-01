@@ -24,11 +24,9 @@ re-cut a release whose upload failed.
 
 ### Why one runner builds everything
 
-Brain's default build is pure Go — both the SQLite driver and the vector path
-have cgo-free implementations (`internal/cli/sqlite_driver_purego.go`,
-`internal/cli/embed_vec_purego.go`), and SQLite itself comes from
-`modernc.org/sqlite` rather than a C binding — so `CGO_ENABLED=0`
-cross-compiles every target from one Linux runner.
+Brain's default build is pure Go: SQLite comes from `modernc.org/sqlite`
+(`internal/cli/internal/sqlitedriver/driver.go`) rather than a C binding, so
+`CGO_ENABLED=0` cross-compiles every target from one Linux runner.
 Graph needs a runner per OS because its tree-sitter bindings need cgo. The
 release workflow asserts this rather than assuming it:
 
@@ -40,9 +38,6 @@ release workflow asserts this rather than assuming it:
 If someone adds a cgo dependency to the default build, that step fails and the
 release stops, instead of silently producing binaries that only run on the
 build host.
-
-The `brain_cgo` build tag still exists for the native embedder. It is not part
-of a release build.
 
 ### Windows verification
 

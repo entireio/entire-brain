@@ -1,8 +1,7 @@
 Retrieval (query takes --json/--format json|cli/--limit/-n/--branch,
 get/multi-get take --json/--format json|cli/--branch):
-  entire brain query "<query>" --json       # hybrid (lexical+vector, RRF) — the default
-  entire brain query --keyword "<query>" --json      # lexical keyword over memories + history + docs (BM25 for history/docs)
-  entire brain query --semantic "<query>" --json     # vector/semantic over memories + docs (+ history/conversation with a Gemma-class embedder)
+  entire brain query "<query>" --json       # BM25 lexical over memories + history + docs (the default)
+  entire brain query --keyword "<query>" --json      # lexical keyword over memories + history + docs (BM25)
   entire brain get <id> --json              # fetch one item by id (fact:… | history:… | doc:…)
   entire brain multi-get <id>... --json     # fetch several by id
 

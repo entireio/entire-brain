@@ -57,8 +57,7 @@ Be explicit about what you did *not* verify. A pull request that names its gaps 
 | Language | **Go 1.27** |
 | CLI framework | `spf13/cobra` |
 | Git access | `go-git/go-git/v6` (plus hardened `git` subprocess calls) |
-| Storage | SQLite — `modernc.org/sqlite` (pure Go, default) or `mattn/go-sqlite3` (cgo) |
-| Vector search | `asg017/sqlite-vec-go-bindings` |
+| Storage | SQLite — `modernc.org/sqlite` (pure Go) |
 | TUI | `charmbracelet/bubbletea`, `bubbles`, `lipgloss` |
 | Agent interface | Model Context Protocol over stdio (JSON-RPC 2.0, `Content-Length` framing) |
 
@@ -70,16 +69,7 @@ is separate from the normal lint/test loop.
 
 ### Build tags
 
-The default build is pure Go. Optional build tags enable additional indexing and embedding capabilities.
-
-| Build | Command | What it adds |
-|---|---|---|
-| Default | `go build ./cmd/entire-brain` | Everything except the items below |
-| `brain_cgo` | `go build -tags brain_cgo ./cmd/entire-brain` | Gemma-class embedder; conversation and history join vector search |
-| `sqlite_fts5` | `go build -tags "brain_cgo sqlite_fts5" ./cmd/entire-brain` | SQLite FTS5 full-text index |
-
-> Building without these tags degrades *explicitly* — affected commands say what is unavailable and why. They never silently return empty results.
-
+There are none. Brain builds as pure Go (`go build ./cmd/entire-brain`) with `modernc.org/sqlite`, which ships FTS5, and retrieval is BM25 lexical only. The `brain_cgo` and `sqlite_fts5` tags and the embedder they enabled were retired in #416.
 
 See the [development reference](docs/reference.md#development) for mise tasks
 and [installation options](docs/operations.md#local-install-brain-only) for local builds.
