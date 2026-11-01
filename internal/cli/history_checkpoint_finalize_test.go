@@ -239,6 +239,55 @@ func TestPinnedStoreReadsMetadataAndTranscriptFromOneListing(t *testing.T) {
 	}
 }
 
+// countingListings counts tree listings by shape.
+type countingListings struct {
+	ExecRunner
+	nameOnly, withIDs int
+}
+
+func (r *countingListings) RunWithEnv(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error) {
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "ls-tree -r --name-only") {
+		r.nameOnly++
+	} else if strings.Contains(joined, "ls-tree -r") {
+		r.withIDs++
+	}
+	return r.ExecRunner.RunWithEnv(ctx, dir, env, name, args...)
+}
+
+// Names and object ids must come from one listing. Two listings could straddle a
+// ref move, and a path present in only one of them has no consistent answer.
+func TestCheckpointSnapshotListsEachRefOnce(t *testing.T) {
+	opts, brain, _ := filelessCheckpointFixture(t)
+	runFilelessExport(t, opts, "", true)
+	manifest, err := bmanifest.Load(brain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &countingListings{}
+	store := newPinnedTranscriptStore(runner, brain)
+	if _, err := store.Read(context.Background(), manifest.Sources.Sessions.Sessions[0].TranscriptPath); err != nil {
+		t.Fatal(err)
+	}
+	if runner.nameOnly != 0 || runner.withIDs == 0 {
+		t.Fatalf("listings: %d name-only, %d with ids; want one kind, with ids", runner.nameOnly, runner.withIDs)
+	}
+}
+
+func TestPinnedReadStaysInsideTheListing(t *testing.T) {
+	source := checkpointSnapshotSource{GitDir: "/repo", Ref: v1MainRef, OIDs: map[string]string{"aa/bb/other.jsonl": "oid-1"}}
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "cat-file", "-p", v1MainRef+":aa/bb/full.jsonl"): {stdout: "from a later tree"},
+	}}
+	if data, ok, err := readPinnedCheckpointSourceTranscript(context.Background(), runner, source, "aa/bb/full.jsonl"); !ok || err == nil {
+		t.Fatalf("transcript outside the listing: data=%q ok=%v err=%v; want a refusal", data, ok, err)
+	}
+	source.OIDs = nil
+	if _, ok, _ := readPinnedCheckpointSourceTranscript(context.Background(), runner, source, "aa/bb/full.jsonl"); ok {
+		t.Fatal("with no listing there is nothing to pin to, so the caller must read through the ref")
+	}
+}
+
 func TestTreePathOIDsKeepsExactFileNames(t *testing.T) {
 	listing := "100644 blob aaa\t0/full.jsonl\n100644 blob bbb\t0/full.jsonl \n"
 	oids := treePathOIDs([]byte(listing))
