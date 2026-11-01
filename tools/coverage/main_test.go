@@ -77,10 +77,6 @@ func TestCoveragePreservesTestFailuresAndSupportsBinaryOnly(t *testing.T) {
 	t.Setenv("GOWORK", "off")
 	t.Setenv("GOTOOLCHAIN", "local")
 	root := t.TempDir()
-	dir := filepath.Join(root, "cmd", "entire-brain")
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
 	files := map[string]string{
 		"go.mod": "module example.com/coveragefixture\n\ngo 1.27\n",
 		"cmd/entire-brain/main.go": `package main
@@ -95,40 +91,62 @@ func main() {
 }
 `,
 		"cmd/entire-brain/main_test.go": "package main\nimport \"testing\"\nfunc TestFailure(t *testing.T) { t.Fatal(\"intentional suite failure\") }\n",
+		"internal/cli/cli.go":           "package cli\nfunc Value() int { return 1 }\n",
+		"internal/cli/cli_test.go": `package cli
+import "testing"
+func TestAlpha(t *testing.T) { if Value() != 1 { t.Fatal("value") } }
+func TestZulu(t *testing.T) { if Value() != 1 { t.Fatal("value") } }
+`,
 	}
 	for path, data := range files {
-		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(path)), []byte(data), 0600); err != nil {
+		path = filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, binaryOnly := range []bool{true, false} {
-		output := filepath.Join(t.TempDir(), "coverage")
-		err := runCoverage(root, options{output: output, binaryOnly: binaryOnly, timeout: "30s"})
-		if (err == nil) != binaryOnly {
-			t.Fatalf("binaryOnly=%v: %v", binaryOnly, err)
-		}
-		if _, err := os.Stat(filepath.Join(output, "binary.out")); err != nil {
-			t.Fatal(err)
-		}
-		data, err := os.ReadFile(filepath.Join(output, "summary.json"))
-		var report coverageReport
-		if err != nil || json.Unmarshal(data, &report) != nil || report.Environment.TestsPassed != binaryOnly || report.ProfileSHA256 == "" {
-			t.Fatalf("invalid coverage report: %s: %v", data, err)
-		}
-		data, err = os.ReadFile(filepath.Join(output, "test-results.json"))
-		var results testSummary
-		if err != nil || json.Unmarshal(data, &results) != nil || results.RunPassed != binaryOnly || (!binaryOnly && results.Tests.Failed != 1) {
-			t.Fatalf("invalid test summary: %s: %v", data, err)
-		}
-		if !binaryOnly {
-			log, err := os.ReadFile(filepath.Join(output, "tests.jsonl"))
-			if err != nil {
+	for _, tc := range []struct {
+		name       string
+		binaryOnly bool
+		shards     int
+	}{
+		{"binary-only", true, 1},
+		{"full-suite", false, 1},
+		// Exercise the Windows split runner on every host, including macOS and Linux.
+		{"split-suite", false, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			binaryOnly := tc.binaryOnly
+			output := filepath.Join(t.TempDir(), "coverage")
+			runErr := runCoverage(root, options{output: output, binaryOnly: binaryOnly, cliShards: tc.shards, timeout: "30s"})
+			if (runErr == nil) != binaryOnly {
+				t.Fatalf("binaryOnly=%v: %v", binaryOnly, runErr)
+			}
+			if _, err := os.Stat(filepath.Join(output, "binary.out")); err != nil {
 				t.Fatal(err)
 			}
-			if !bytes.Contains(log, []byte("intentional suite failure")) {
-				t.Fatal("failure diagnostics were lost")
+			data, err := os.ReadFile(filepath.Join(output, "summary.json"))
+			var report coverageReport
+			if err != nil || json.Unmarshal(data, &report) != nil || report.Environment.TestsPassed != binaryOnly || report.ProfileSHA256 == "" {
+				t.Fatalf("invalid coverage report: %s: %v (runner error: %v)", data, err, runErr)
 			}
-		}
+			data, err = os.ReadFile(filepath.Join(output, "test-results.json"))
+			var results testSummary
+			if err != nil || json.Unmarshal(data, &results) != nil || results.RunPassed != binaryOnly || (!binaryOnly && results.Tests.Failed != 1) {
+				t.Fatalf("invalid test summary: %s: %v", data, err)
+			}
+			if !binaryOnly {
+				log, err := os.ReadFile(filepath.Join(output, "tests.jsonl"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !bytes.Contains(log, []byte("intentional suite failure")) {
+					t.Fatal("failure diagnostics were lost")
+				}
+			}
+		})
 	}
 }
 
