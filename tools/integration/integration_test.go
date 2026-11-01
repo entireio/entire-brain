@@ -106,6 +106,10 @@ func newProductFixture(t *testing.T) productFixture {
 	}
 	f.run(t, "git", "add", ".")
 	f.run(t, "git", "commit", "-qm", "add widget")
+	// These tests exercise foreground indexing and guide installation. Setup's
+	// memory workers must not outlive the fixture and race TempDir cleanup.
+	// --no-daemon only disables the watcher service, not those workers.
+	f.run(t, f.brain, "stop")
 	return f
 }
 

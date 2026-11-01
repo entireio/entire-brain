@@ -239,6 +239,11 @@ func reconcileMemoryAndLaunch(ctx context.Context, opts Options, repoDir, trigge
 	if err != nil {
 		return created, "", err
 	}
+	// Setup also reaches this path while background work is paused. Retain
+	// the durable queue, but do not spawn a worker that can outlive setup.
+	if base.BackgroundPaused(perRepo.Env) {
+		return created, "", nil
+	}
 	if err := memoryWorkerLaunch(repoDir); err != nil {
 		return created, "worker launch failed (reconciliation will repair): " + err.Error(), nil
 	}
