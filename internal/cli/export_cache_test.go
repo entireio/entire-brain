@@ -60,7 +60,7 @@ func TestCheckpointBlobReaderUsesCache(t *testing.T) {
 
 func TestCheckpointBlobReaderMissFetchesAndRecords(t *testing.T) {
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("git", "cat-file", "-p", v1MainRef+":aa/bb/metadata.json"): {stdout: `{"session_id":"fresh"}`},
+		fakeCommandKey("git", "cat-file", "-p", "oid-9"): {stdout: `{"session_id":"fresh"}`},
 	}}
 	cache := newCheckpointMetadataCache(nil)
 	reader := &checkpointBlobReader{

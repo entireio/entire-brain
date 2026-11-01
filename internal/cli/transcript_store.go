@@ -207,7 +207,12 @@ func (s *transcriptStore) lookupLocation(ctx context.Context, rel string) (trans
 				needResolve = true
 			}
 		} else if s.currentManifestStamp() != s.stamp {
-			needResolve = true
+			// A pinned store keeps its blobs across unrelated manifest writes;
+			// re-resolving would follow the moved ref and break the pin. A path
+			// it has never seen means the session set really changed, which the
+			// rebuild's identity check rejects either way.
+			_, known := s.byRel[rel]
+			needResolve = !s.pinned || !known
 		}
 	}
 	if needResolve {

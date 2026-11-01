@@ -2865,7 +2865,9 @@ func treePathOIDs(data []byte) map[string]string {
 		if len(fields) < 3 {
 			continue
 		}
-		path := strings.TrimSpace(filepath.ToSlash(line[tab+1:]))
+		// Exact names: pinned reads choose blobs from this map, so a file named
+		// with a trailing space must not replace the one it resembles.
+		path := filepath.ToSlash(line[tab+1:])
 		if path != "" {
 			oids[path] = fields[2]
 		}
@@ -2981,7 +2983,13 @@ func (r *checkpointBlobReader) read(ctx context.Context, virtualPath string) ([]
 			return data, nil
 		}
 	}
-	data, err := catFileWithPolicy(ctx, r.runner, r.gitDir, r.ref, actualPath, r.localOnly)
+	// Read the blob the listing named, not whatever the ref holds now: metadata
+	// and the transcripts it points at must describe the same tree.
+	spec := r.ref + ":" + actualPath
+	if oid != "" {
+		spec = oid
+	}
+	data, err := catFileSpecWithPolicy(ctx, r.runner, r.gitDir, spec, r.localOnly)
 	if err != nil {
 		return nil, err
 	}

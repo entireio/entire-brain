@@ -18,10 +18,9 @@ import (
 
 const finalizedMarker = "finalizedmarkerword"
 
-// finalizeCheckpointTranscript does what a "Finalize transcript" commit does:
-// it rewrites an existing checkpoint's transcript on the checkpoint ref, under
-// the same checkpoint id, with nothing in the Brain changing.
-func finalizeCheckpointTranscript(t *testing.T, repo string) string {
+// commitCheckpointFiles writes files into the fixture's checkpoint and moves the
+// checkpoint ref to the result, with nothing in the Brain changing.
+func commitCheckpointFiles(t *testing.T, repo, message string, files map[string]string) {
 	t.Helper()
 	git := func(args ...string) {
 		t.Helper()
@@ -32,15 +31,24 @@ func finalizeCheckpointTranscript(t *testing.T, repo string) string {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	finalized := conversationClaudeFixture + `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"` + finalizedMarker + `"}]}}` + "\n" +
-		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Decision: keep ` + finalizedMarker + `"}]}}` + "\n"
-	path := filepath.Join(repo, filepath.FromSlash(checkpointPath("aaa111aaa111")), "0", "full.jsonl")
-	if err := os.WriteFile(path, []byte(finalized), 0o600); err != nil {
-		t.Fatal(err)
+	root := filepath.Join(repo, filepath.FromSlash(checkpointPath("aaa111aaa111")))
+	for rel, data := range files {
+		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(rel)), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	git("add", ".")
-	git("-c", "commit.gpgsign=false", "commit", "-qm", "Finalize transcript for Checkpoint: aaa111aaa111")
+	git("-c", "commit.gpgsign=false", "commit", "-qm", message)
 	git("update-ref", v1MainRef, "HEAD")
+}
+
+// finalizeCheckpointTranscript does what a "Finalize transcript" commit does:
+// it rewrites an existing checkpoint's transcript under the same checkpoint id.
+func finalizeCheckpointTranscript(t *testing.T, repo string) string {
+	t.Helper()
+	finalized := conversationClaudeFixture + `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"` + finalizedMarker + `"}]}}` + "\n" +
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Decision: keep ` + finalizedMarker + `"}]}}` + "\n"
+	commitCheckpointFiles(t, repo, "Finalize transcript for Checkpoint: aaa111aaa111", map[string]string{"0/full.jsonl": finalized})
 	return finalized
 }
 
@@ -53,14 +61,17 @@ func transcriptTestDigest(data string) string {
 // published must describe one version of the transcript: the index and the
 // receipts attesting to it cannot disagree about which bytes were processed.
 func TestHistoryRebuildSurvivesCheckpointFinalize(t *testing.T) {
+	const withManifestUpdate = "alongside an unrelated manifest update"
+	afterBuild := func(fire func()) (historyIndexProgress, func()) {
+		return func(done, total int) {
+			if total > 0 && done == total {
+				fire()
+			}
+		}, func() {}
+	}
 	windows := map[string]func(fire func()) (historyIndexProgress, func()){
-		"after the build read the transcript, before receipts": func(fire func()) (historyIndexProgress, func()) {
-			return func(done, total int) {
-				if total > 0 && done == total {
-					fire()
-				}
-			}, func() {}
-		},
+		"after the build read the transcript, before receipts": afterBuild,
+		withManifestUpdate: afterBuild,
 		"before the post-scan identity check": func(fire func()) (historyIndexProgress, func()) {
 			original := beforeHistoryProjectionContentDigest
 			beforeHistoryProjectionContentDigest = func(string) { fire() }
@@ -75,6 +86,16 @@ func TestHistoryRebuildSurvivesCheckpointFinalize(t *testing.T) {
 			progress, restore := window(func() {
 				if finalized == "" {
 					finalized = finalizeCheckpointTranscript(t, repo)
+					if name == withManifestUpdate {
+						// Touches the manifest without changing any session.
+						manifest, err := bmanifest.Load(brain)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if err := writeBrainManifestAndReadme(brain, *manifest); err != nil {
+							t.Fatal(err)
+						}
+					}
 				}
 			})
 			defer restore()
@@ -160,6 +181,69 @@ func TestTranscriptStorePinningIsOptIn(t *testing.T) {
 	}
 	if data, err := following.Read(ctx, rel); err != nil || string(data) != finalized {
 		t.Fatalf("unpinned store stopped following the ref: %v %q", err, data)
+	}
+}
+
+// moveRefAfterListing moves the checkpoint ref once, straight after a store lists
+// the tree's object ids and before it reads anything through them.
+type moveRefAfterListing struct {
+	ExecRunner
+	move  func()
+	moved bool
+}
+
+func (r *moveRefAfterListing) RunWithEnv(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error) {
+	stdout, stderr, err := r.ExecRunner.RunWithEnv(ctx, dir, env, name, args...)
+	joined := strings.Join(args, " ")
+	if !r.moved && strings.Contains(joined, "ls-tree -r") && !strings.Contains(joined, "--name-only") {
+		r.moved = true
+		r.move()
+	}
+	return stdout, stderr, err
+}
+
+// A snapshot's metadata and transcripts must come from the same listing. If the
+// metadata followed the moved ref, the store could file one session's pinned
+// bytes under whichever session the ref now names at that location, and the
+// tombstone gate would judge them by the wrong session.
+func TestPinnedStoreReadsMetadataAndTranscriptFromOneListing(t *testing.T) {
+	opts, brain, repo := filelessCheckpointFixture(t)
+	runFilelessExport(t, opts, "", true)
+	manifest, err := bmanifest.Load(brain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel := manifest.Sources.Sessions.Sessions[0].TranscriptPath
+	// A cached metadata blob would hide the read this test is about.
+	if err := os.Remove(filepath.Join(brain, filepath.FromSlash(checkpointMetadataCachePath))); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	metadataPath := filepath.Join(repo, filepath.FromSlash(checkpointPath("aaa111aaa111")), "0", "metadata.json")
+	metadata, err := os.ReadFile(metadataPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &moveRefAfterListing{move: func() {
+		commitCheckpointFiles(t, repo, "reassign location", map[string]string{
+			"0/metadata.json": strings.ReplaceAll(string(metadata), "session-one", "session-two"),
+			"0/full.jsonl":    "other session's bytes\n",
+		})
+	}}
+	store := newPinnedTranscriptStore(runner, brain)
+	data, err := store.Read(context.Background(), rel)
+	if err != nil || string(data) != conversationClaudeFixture {
+		t.Fatalf("read = %q, %v; want the listed session's own bytes", data, err)
+	}
+	if !runner.moved {
+		t.Fatal("the ref never moved, so this proves nothing")
+	}
+}
+
+func TestTreePathOIDsKeepsExactFileNames(t *testing.T) {
+	listing := "100644 blob aaa\t0/full.jsonl\n100644 blob bbb\t0/full.jsonl \n"
+	oids := treePathOIDs([]byte(listing))
+	if oids["0/full.jsonl"] != "aaa" || oids["0/full.jsonl "] != "bbb" {
+		t.Fatalf("oids = %q: a differently named file must not replace the transcript", oids)
 	}
 }
 
