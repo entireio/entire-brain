@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "decision": "no_go",
+  "updated_at": "2026-07-15T12:11:08+02:00",
+  "checks": [
+    {"id": "ws2_treatment_contract_integrated", "status": "pass", "evidence": "integration-verification.json"},
+    {"id": "fresh_task_validity_review", "status": "pending", "evidence": null},
+    {"id": "ws3_temporal_preranking_contract", "status": "pass", "evidence": "integration-verification.json"},
+    {"id": "ws4_schedule_cache_controls", "status": "pass", "evidence": "integration-verification.json"},
+    {"id": "ws5_evidence_verification", "status": "pass", "evidence": "integration-verification.json"},
+    {"id": "unique_inventory_reconciled", "status": "pass", "evidence": "task-inventory.json"},
+    {"id": "fresh_holdout_hash_frozen", "status": "pending", "evidence": null},
+    {"id": "holdout_unopened", "status": "pass", "evidence": "preregistration.json#fresh_holdout"},
+    {"id": "analyzer_hash_frozen", "status": "pass", "evidence": "analyzer-lock.json"},
+    {"id": "all_engines_machine_verified", "status": "pending", "evidence": "ENGINE-PROBE-READINESS-2026-07-15.md"},
+    {"id": "offline_development_threshold", "status": "pending", "evidence": "OFFLINE-RELEVANCE-DEVELOPMENT-2026-07-15.md"},
+    {"id": "power_target_met", "status": "fail", "evidence": "power-analysis.json"},
+    {"id": "model_runner_price_pinned", "status": "pending", "evidence": null},
+    {"id": "paid_budget_cap_approved", "status": "pending", "evidence": null},
+    {"id": "protocol_content_hash_frozen", "status": "pending", "evidence": null}
+  ],
+  "rule": "go iff every check is pass; pending or fail is no_go"
+}

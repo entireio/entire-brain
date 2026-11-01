@@ -1,0 +1,43 @@
+{
+  "id": "entireio-cli-transcript-reresolve",
+  "repo": "entire-cli",
+  "repo_path": "cli-bench",
+  "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+  "conditions": [
+    "no_brain",
+    "semantic_history_cli_compact",
+    "mcp_history",
+    "mcp_workspace_radar"
+  ],
+  "prompt": "Fix the transcript re-resolution regression. When an agent relocates a transcript and the resolver finds the new path, session state must be updated so subsequent reads use the resolved path without repeating discovery.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "radar_include_deletions": true,
+  "workspace_name": "release-radar",
+  "setup_replacements": [
+    {
+      "path": "cmd/entire/cli/strategy/resolve_transcript.go",
+      "old": "\t// Update state so subsequent reads use the correct path.\n\tstate.TranscriptPath = resolved\n\treturn resolved, nil",
+      "new": "\t// Update state so subsequent reads use the correct path.\n\treturn resolved, nil"
+    }
+  ],
+  "validation": [
+    "test $(rg -n 'state\\.TranscriptPath = resolved' cmd/entire/cli/strategy/resolve_transcript.go | wc -l | tr -d ' ') -eq 1",
+    "go test ./cmd/entire/cli/strategy -run 'TestResolveTranscriptPath_FileExists|TestResolveTranscriptPath_ReResolvesToNestedLayout|TestResolveTranscriptPath_FileNotFoundAndCannotResolve'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/strategy/resolve_transcript.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "agent_hidden_paths": [
+    "benchmarks/agent-brain"
+  ],
+  "leak_markers": [
+    "release-radar-transcript-reresolve-canary-20260610T0530Z"
+  ],
+  "brain_queries": ["transcript relocated mid-session", "session state not updated after re-resolution", "resolver repeats discovery on every read", "persist resolved transcript location"],
+  "copy_checkpoint_ref_from_source": true
+}

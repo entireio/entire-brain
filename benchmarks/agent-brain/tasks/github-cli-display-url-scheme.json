@@ -1,0 +1,27 @@
+{
+  "id": "github-cli-display-url-scheme",
+  "repo": "github-cli",
+  "repo_path": "github-cli",
+  "base_commit": "da68cb8f6f597cfc3838cf40f89ecc01f4e53233",
+  "archetype": "architecture-localization",
+  "conditions": ["no_brain", "semantic_brain"],
+  "prompt": "Several gh commands print a trimmed-down link to the issue, PR, or release they acted on. Since a recent change, when the resource lives on a host that is served over plain http, the printed link shows https:// instead of keeping the original http:// scheme, so copy-pasting it leads to a dead address. It used to deliberately preserve the insecure scheme as given. Restore that behavior.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_replacements": [
+    {
+      "path": "internal/text/text.go",
+      "old": "\tscheme := u.Scheme\n\tif scheme == \"\" {\n\t\tscheme = \"https\"\n\t}\n",
+      "new": "\tscheme := \"https\"\n"
+    }
+  ],
+  "validation": [
+    "go test ./internal/text -run '^TestDisplayURL$'"
+  ],
+  "leak_markers": [
+    "go test ./internal/text -run '^TestDisplayURL$'"
+  ],
+  "expected_files": ["internal/text/text.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "brain_queries": ["trimmed link output formatting", "preserve insecure scheme display", "printed issue link address"]
+}

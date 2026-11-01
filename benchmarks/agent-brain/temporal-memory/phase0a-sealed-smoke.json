@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "status": "frozen_before_agent_runs",
+  "frozen_at": "2026-07-11T10:24:24Z",
+  "source_artifact": {
+    "cache_key": "1dd2312593bd40ce7e66f748",
+    "transcript_sha256": "55b9a4a04a2cfa2402898b132f43bd215f5c948fb56367aa0ad25b4d80470192",
+    "history_sha256": "06f3ac5c0520e396dccac3761a559be157b0120abc657b264837f107d37bcd35",
+    "facts_sha256": "20bf8d495f6d6d656ad2ee9391667081d3170afeffacedbb75bf346910bd3dd8"
+  },
+  "conditions": [
+    "no_brain",
+    "raw_history",
+    "facts_only",
+    "history_facts"
+  ],
+  "runners": [
+    "codex:gpt-5.3-codex-spark:low",
+    "claude:sonnet:high"
+  ],
+  "repetitions": 1,
+  "tasks": [
+    {
+      "path": "../tasks/temporal-memory-sealed-expand-opt-in.json",
+      "sha256": "bd015f129c8e50218e23e64d49018e5ee6811bf88d5b5b0823b0e99a15647811",
+      "stratum": "fact_positive",
+      "expected_memory_behavior": "The durable-fact channel contains the explicit opt-in decision; successful agents must still verify the current flag wiring."
+    },
+    {
+      "path": "../tasks/temporal-memory-sealed-semantic-default-stale-history.json",
+      "sha256": "c4345e754d4bfb08ecf8531f45e20b7957805b68df7a6b76ce0d9c321239d932",
+      "stratum": "stale_conflict",
+      "expected_memory_behavior": "Indexed history contains a pre-shipment statement that semantic reranking is still future work; successful agents must reject it in favor of the target snapshot's shipped contract."
+    },
+    {
+      "path": "../tasks/temporal-memory-sealed-windows-drive-neutral.json",
+      "sha256": "432001180629c18c8f0a0fdd4e54fa8cea9de918d4007fd41661c30590598a3c",
+      "stratum": "neutral",
+      "expected_memory_behavior": "The frozen session contains no task-specific Windows path decision; memory must not induce an unrelated edit or correctness loss."
+    }
+  ],
+  "preflight": {
+    "command": "python3 benchmarks/agent-brain/run.py check --tasks temporal-memory-sealed-expand-opt-in.json temporal-memory-sealed-semantic-default-stale-history.json temporal-memory-sealed-windows-drive-neutral.json",
+    "result": "all three injected regressions fail as expected"
+  },
+  "success_criteria": [
+    "every memory row passes the first-single-search and source-isolation audits",
+    "facts_only succeeds on the fact-positive task",
+    "history-bearing agents do not preserve the stale semantic condition",
+    "the neutral task shows no memory-attributable correctness regression",
+    "all rows retain non-zero backend-reported token usage",
+    "all outcomes, including failures and protocol deviations, remain in the report"
+  ],
+  "claim_policy": "feasibility_only; one repetition and three tasks cannot support a population-level memory-effect claim"
+}

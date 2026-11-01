@@ -1,0 +1,27 @@
+{
+  "id": "github-cli-search-quote-multiword",
+  "repo": "github-cli",
+  "repo_path": "github-cli",
+  "base_commit": "da68cb8f6f597cfc3838cf40f89ecc01f4e53233",
+  "archetype": "architecture-localization",
+  "conditions": ["no_brain", "semantic_brain"],
+  "prompt": "Multi-word search values are no longer quoted in the queries gh sends to GitHub. For example, `gh search issues --label \"help wanted\"` now produces `label:help wanted`, so \"wanted\" is treated as a stray keyword and results are wrong; multi-word phrase keywords like `gh search repos \"hello world\"` are broken the same way across all the search commands. Values containing spaces used to be wrapped in double quotes automatically. Restore that.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_replacements": [
+    {
+      "path": "pkg/search/query.go",
+      "old": "\tif strings.ContainsAny(s, \" \\\"\\t\\r\\n\") {",
+      "new": "\tif strings.ContainsAny(s, \"\\\"\\t\\r\\n\") {"
+    }
+  ],
+  "validation": [
+    "go test ./pkg/search -run '^TestStandardSearchString$'"
+  ],
+  "leak_markers": [
+    "go test ./pkg/search -run '^TestStandardSearchString$'"
+  ],
+  "expected_files": ["pkg/search/query.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "brain_queries": ["multi word qualifier quoting", "search query serialization spaces", "quoted phrase qualifier values"]
+}
