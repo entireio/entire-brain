@@ -30,5 +30,8 @@ func brainReviewConfig(opts Options) brainreview.Config {
 		RequirePatternCorpusAvailable:   requirePatternCorpusAvailable,
 		LoadReviewPatternContextChecked: loadReviewPatternContextChecked,
 		BufferRetrievalOutput:           bufferRetrievalCommandOutput,
+		RememberFindings: func(ctx context.Context, brainDir, repoRoot string, anomalies []brainreview.Anomaly) (brainreview.RememberOutcome, error) {
+			return rememberReviewFindings(ctx, opts, brainDir, repoRoot, anomalies)
+		},
 	}}
 }
