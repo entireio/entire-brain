@@ -3,7 +3,7 @@
   "checkpoint_id": "01M6BPWDGB51AA7DSJ50NPS0SV",
   "session_id": "93ae8948-c612-4072-8e70-2750e80df9ce",
   "strategy": "manual-commit",
-  "created_at": "2026-11-01T14:05:58.120309Z",
+  "created_at": "2026-11-01T14:07:57.60936Z",
   "branch": "rc/m1-record-schema",
   "checkpoints_count": 11,
   "save_step_count": 1,
@@ -11,15 +11,15 @@
   "agent": "Claude Code",
   "model": "claude-opus-5[1m]",
   "turn_id": "8725ba654ed0",
-  "checkpoint_transcript_start": 85354,
-  "transcript_lines_at_start": 85354,
-  "compact_transcript_start": 8063,
+  "checkpoint_transcript_start": 86023,
+  "transcript_lines_at_start": 86023,
+  "compact_transcript_start": 8115,
   "token_usage": {
-    "input_tokens": 104,
-    "cache_creation_tokens": 77785,
-    "cache_read_tokens": 13284841,
-    "output_tokens": 48876,
-    "api_call_count": 52
+    "input_tokens": 14,
+    "cache_creation_tokens": 9593,
+    "cache_read_tokens": 2073721,
+    "output_tokens": 7587,
+    "api_call_count": 7
   },
   "redaction": {
     "replacements": 254,
