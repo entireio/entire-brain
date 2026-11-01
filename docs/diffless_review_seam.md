@@ -179,3 +179,52 @@ the TODO in `internal/cli/regression.go`.
 
 Everything is local: the detector reads on-disk sessions and the optional local semantic index; the cli
 consumer shells the local `entire-brain` binary. No network calls on any path.
+
+## Write-back: `--remember` (RC.M2, 2026-11-01)
+
+`entire brain review <query> --remember` writes every finding back as a durable memory, so a
+review's reasoning survives the run instead of scrolling away. Opt-in; the default output is
+unchanged.
+
+Contract additions, both **additive** (`schema_version` stays 1, and a consumer that does not
+know the field ignores it):
+
+```json
+{
+  "remembered": { "branch": "main", "recorded": 3, "already_present": 1 }
+}
+```
+
+`recorded` and `already_present` are separate because a re-review of an unchanged tree must
+report zero new memories rather than claiming it wrote the same findings again.
+
+What a remembered finding looks like, and why:
+
+| field | value | reason |
+|---|---|---|
+| `origin` | `review` | a detector-derived record must be distinguishable from one a person typed; this origin is new in RC.M1 |
+| `kind` | `gotcha` | one of the two kinds the post-failure hook selects, so the memory reaches a failing agent |
+| `paths` | `project.review.regression` | keeps review suspicions out of `architecture.*`/`constraints.*`, where they would be returned by every engineering query |
+| `locus` | the finding's file, then symbol and identifier | the pre-edit hook selects by file, so this is what makes the memory deliverable |
+| `provenance` | one anchor: the commit reviewed + the session | a citation `verify` can re-check; the commit is deliberately NOT in the text |
+| `status` | `active` | a candidate with no proposal is reachable and promotable by nothing |
+
+**The record text is a pure function of the finding** — no timestamp, no commit, no run id —
+because the id is `sha256(normalized text + paths)`. A clock in the text would mint a new
+record on every review of an unchanged tree. With the text fixed, a re-review produces the
+same id and `Upsert` unions the anchors.
+
+Two refusals: `--remember` with `--location-only` errors (location-only blanks exactly the
+values that are the content of a remembered finding), and a review that found nothing writes
+nothing (an empty findings list means UNKNOWN, not clean, so a "found nothing" memory would
+assert the clean bill of health this surface otherwise refuses to give).
+
+`--remember` answers to the same derived-read privacy gate as `--patterns`: persisting quoted
+source into records that later reach other surfaces is a stronger act than rendering them once.
+
+**Known limit on a compacted store.** The detector walks raw session files under
+`sessions/`. On a store whose transcripts have been compacted into `history/generations` plus
+the FTS index, that directory is empty, `files_scanned` is 0 and every review is honestly
+INCONCLUSIVE — so there is nothing to remember. Measured on this machine's store 2026-11-01
+with both v0.4.0 and the write-back branch. Making write-back pay off there is a change to the
+detector's input, not to write-back.
