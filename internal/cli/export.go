@@ -3018,6 +3018,11 @@ func catFile(ctx context.Context, runner CommandRunner, gitDir, ref, path string
 }
 
 func catFileWithPolicy(ctx context.Context, runner CommandRunner, gitDir, ref, filePath string, localOnly bool) ([]byte, error) {
+	return catFileSpecWithPolicy(ctx, runner, gitDir, ref+":"+filePath, localOnly)
+}
+
+// catFileSpecWithPolicy reads one object named by any git object spec.
+func catFileSpecWithPolicy(ctx context.Context, runner CommandRunner, gitDir, spec string, localOnly bool) ([]byte, error) {
 	// Batch-capable runners read through one shared `cat-file --batch` child
 	// per (gitDir, policy) instead of one exec per blob (COR-2182). "missing"
 	// is git's definitive answer and must not be retried per-exec; any other
@@ -3025,7 +3030,7 @@ func catFileWithPolicy(ctx context.Context, runner CommandRunner, gitDir, ref, f
 	// without the capability keep the per-exec path: the batch child would
 	// bypass their per-call seam.
 	if runnerAllowsCatFileBatch(runner) {
-		data, err := catFileBatchRead(ctx, gitDir, ref+":"+filePath, localOnly)
+		data, err := catFileBatchRead(ctx, gitDir, spec, localOnly)
 		if err == nil || errors.Is(err, errGitObjectMissing) {
 			return data, err
 		}
@@ -3033,9 +3038,9 @@ func catFileWithPolicy(ctx context.Context, runner CommandRunner, gitDir, ref, f
 	var stdout []byte
 	var err error
 	if localOnly {
-		stdout, _, err = runCheckpointGitLocal(ctx, runner, gitDir, "cat-file", "-p", ref+":"+filePath)
+		stdout, _, err = runCheckpointGitLocal(ctx, runner, gitDir, "cat-file", "-p", spec)
 	} else {
-		stdout, _, err = runner.Run(ctx, gitDir, "git", "cat-file", "-p", ref+":"+filePath)
+		stdout, _, err = runner.Run(ctx, gitDir, "git", "cat-file", "-p", spec)
 	}
 	if err != nil {
 		return nil, err
@@ -3403,6 +3408,11 @@ func readSnapshotTranscriptFromSource(ctx context.Context, runner CommandRunner,
 		if !ok {
 			return nil, fmt.Errorf("checkpoint snapshot source %q not found", sourceKey)
 		}
+		if snapshot.ReadPinned {
+			if data, ok, err := readPinnedCheckpointSourceTranscript(ctx, runner, source, sourcePath); ok {
+				return data, err
+			}
+		}
 		return readCheckpointSourceTranscript(ctx, runner, source, sourcePath)
 	}
 	chunks := snapshotTranscriptChunks(sourcePath, snapshot.TreePaths)
@@ -3412,6 +3422,26 @@ func readSnapshotTranscriptFromSource(ctx context.Context, runner CommandRunner,
 	return readTranscriptChunks(chunks, func(chunk string) ([]byte, error) {
 		return catFileWithPolicy(ctx, runner, snapshot.GitDir, snapshot.Ref, chunk, clibase.BrainNoEgressMode())
 	})
+}
+
+// readPinnedCheckpointSourceTranscript reads the blobs this source's tree listed
+// when the snapshot resolved. ok=false means the listing does not name this
+// transcript (object ids unavailable, or metadata newer than the listing), and
+// the caller reads through the ref instead: a moved ref is then caught by the
+// rebuild's identity check, the same as before pinning.
+func readPinnedCheckpointSourceTranscript(ctx context.Context, runner CommandRunner, source checkpointSnapshotSource, virtualPath string) (data []byte, ok bool, err error) {
+	paths := make(map[string]struct{}, len(source.OIDs))
+	for path := range source.OIDs {
+		paths[path] = struct{}{}
+	}
+	chunks := snapshotTranscriptChunks(virtualPath, paths)
+	if len(chunks) == 0 {
+		return nil, false, nil
+	}
+	data, err = readTranscriptChunks(chunks, func(chunk string) ([]byte, error) {
+		return catFileSpecWithPolicy(ctx, runner, source.GitDir, source.OIDs[chunk], source.LocalOnly)
+	})
+	return data, true, err
 }
 
 func readCheckpointSourceTranscript(ctx context.Context, runner CommandRunner, source checkpointSnapshotSource, virtualPath string) ([]byte, error) {
@@ -4113,6 +4143,9 @@ type checkpointSnapshot struct {
 	TreePaths             map[string]struct{}
 	Sources               map[string]checkpointSnapshotSource
 	UnreadableCheckpoints map[string]struct{}
+	// ReadPinned makes transcript reads return the blobs listed when this
+	// snapshot resolved instead of whatever the ref holds at read time.
+	ReadPinned bool
 }
 
 // sessionCheckpoint is one (session, checkpoint) membership record with the

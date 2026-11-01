@@ -132,7 +132,11 @@ func newProjectionStateLoadError(state projectionStateReadState, path, detail st
 
 // sessionTranscriptDigest hashes the exported transcript file (streamed).
 func sessionTranscriptDigest(brainDir, rel string) (string, error) {
-	data, err := readCanonicalHistoryTranscript(context.Background(), brainDir, rel)
+	return sessionTranscriptDigestFromStore(transcriptStoreFor(brainDir), rel)
+}
+
+func sessionTranscriptDigestFromStore(store *transcriptStore, rel string) (string, error) {
+	data, err := store.Read(context.Background(), rel)
 	if err != nil {
 		return "", err
 	}
@@ -150,10 +154,10 @@ func buildProjectionReceipts(brainDir string, manifest *exportManifest, index hi
 	if err != nil {
 		return projectionState{}, err
 	}
-	return buildProjectionReceiptsFromSnapshot(brainDir, manifest, stones, index, now), nil
+	return buildProjectionReceiptsFromSnapshot(transcriptStoreFor(brainDir), manifest, stones, index, now), nil
 }
 
-func buildProjectionReceiptsFromSnapshot(brainDir string, manifest *exportManifest, stones sessionTombstones, index historyIndex, now time.Time) projectionState {
+func buildProjectionReceiptsFromSnapshot(store *transcriptStore, manifest *exportManifest, stones sessionTombstones, index historyIndex, now time.Time) projectionState {
 	state := projectionState{SchemaVersion: projectionSchemaVersion, ReconcilerVersion: projectionReconcilerVersion, GeneratedAt: now}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
 		return state
@@ -177,7 +181,7 @@ func buildProjectionReceiptsFromSnapshot(brainDir string, manifest *exportManife
 		if rel == "" {
 			continue
 		}
-		digest, err := sessionTranscriptDigest(brainDir, rel)
+		digest, err := sessionTranscriptDigestFromStore(store, rel)
 		if err != nil {
 			continue // no receipt: the job for this session stays open
 		}

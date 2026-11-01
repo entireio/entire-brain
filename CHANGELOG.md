@@ -35,6 +35,12 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Fixed
 
+- A commit in another session no longer fails a history rebuild, including the
+  one inside `privacy exclude` and `privacy purge`, with `memory_source_stale`.
+  Finalizing a checkpoint rewrites its transcript on the checkpoint ref, and a
+  rebuild read that transcript several times through the moving ref. A rebuild
+  now reads one fixed set of blobs, so a finalize that lands mid-rebuild belongs
+  to the next one.
 - The conversation and history parsers now read the compact transcript
   dialect the Entire CLI stores per checkpoint (Entire Transcript Format:
   content blocks at the record's top level, no `message` wrapper). A default

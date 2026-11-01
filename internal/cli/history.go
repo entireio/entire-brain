@@ -262,19 +262,22 @@ func prepareBrainHistoryProjectionContext(ctx context.Context, outputDir string,
 	// The build itself reads and hashes every non-excluded transcript. The
 	// opening capture therefore needs only the exact metadata membership; the
 	// strong post-capture below binds the build digest without a redundant full
-	// corpus read.
-	identity, manifest, stones, err := captureHistoryProjectionIdentityMode(ctx, outputDir, false)
+	// corpus read. All three reads below share one pinned store: the index, the
+	// receipts attesting to it and the identity check must describe the same
+	// bytes, even if a checkpoint is finalized while this runs.
+	store := newPinnedTranscriptStore(ExecRunner{}, outputDir)
+	identity, manifest, stones, err := captureHistoryProjectionIdentityFromStore(ctx, outputDir, false, store)
 	if err != nil {
 		return nil, err
 	}
-	index, source, cache, err := buildBrainHistoryIndexSnapshotContext(ctx, outputDir, now, progress, manifest, stones)
+	index, source, cache, err := buildBrainHistoryIndexSnapshotFromStore(ctx, outputDir, now, progress, manifest, stones, store)
 	if err != nil {
 		return nil, err
 	}
 	identity.SessionContents = cache.contentIdentity
 	source.PrivacyIdentity = identity.Tombstones
-	receipts := buildProjectionReceiptsFromSnapshot(outputDir, manifest, stones, index, now)
-	after, _, _, err := captureHistoryProjectionIdentityContext(ctx, outputDir)
+	receipts := buildProjectionReceiptsFromSnapshot(store, manifest, stones, index, now)
+	after, _, _, err := captureHistoryProjectionIdentityFromStore(ctx, outputDir, true, store)
 	if err != nil {
 		return nil, err
 	}
@@ -944,6 +947,10 @@ func captureHistoryProjectionMetadataIdentity(outputDir string) (historyProjecti
 // and timestamps is local store compromise, outside the cooperative-store
 // guarantee; canonical input is not a cross-process filesystem transaction.
 func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string, includeContents bool) (historyProjectionIdentity, *exportManifest, sessionTombstones, error) {
+	return captureHistoryProjectionIdentityFromStore(ctx, outputDir, includeContents, nil)
+}
+
+func captureHistoryProjectionIdentityFromStore(ctx context.Context, outputDir string, includeContents bool, store *transcriptStore) (historyProjectionIdentity, *exportManifest, sessionTombstones, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -951,7 +958,7 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 	if err != nil {
 		return historyProjectionIdentity{}, nil, sessionTombstones{}, err
 	}
-	inventory, err := collectHistorySessionInventory(ctx, outputDir)
+	inventory, err := collectHistorySessionInventoryFromStore(ctx, outputDir, false, store)
 	if err != nil {
 		if errors.Is(err, errHistorySessionsRootMissing) {
 			// This runs ahead of buildBrainHistoryIndexSnapshotContext in the
@@ -1070,11 +1077,15 @@ func buildBrainHistoryIndexSnapshot(outputDir string, now time.Time, progress hi
 }
 
 func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string, now time.Time, progress historyIndexProgress, manifest *exportManifest, stones sessionTombstones) (historyIndex, *historySourceManifest, historyScanCache, error) {
+	return buildBrainHistoryIndexSnapshotFromStore(ctx, outputDir, now, progress, manifest, stones, nil)
+}
+
+func buildBrainHistoryIndexSnapshotFromStore(ctx context.Context, outputDir string, now time.Time, progress historyIndexProgress, manifest *exportManifest, stones sessionTombstones, store *transcriptStore) (historyIndex, *historySourceManifest, historyScanCache, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	index := historyIndex{GeneratedAt: now}
-	inventory, err := collectHistorySessionInventory(ctx, outputDir)
+	inventory, err := collectHistorySessionInventoryFromStore(ctx, outputDir, false, store)
 	if err != nil {
 		if errors.Is(err, errHistorySessionsRootMissing) {
 			return index, nil, historyScanCache{}, errors.New("session history missing; run `" + clibase.BrainInvocation(os.LookupEnv, "refresh sessions") + "` first")
