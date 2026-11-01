@@ -69,16 +69,11 @@ Language/relation inventories come from `entire graph capabilities --json`.
 Entire Brain releases are tagged (the public line starts at `0.1.0`), but development
 still starts from the locally fetched current mainline — a tag is a marker on
 main, not a branch to work from. Do not resume an old WIP/integration checkout
-or use an older Brain binary as a benchmark control. The Agent Brain harness
-builds from the active checkout and refuses to run unless `HEAD` contains local
-`origin/main`. All causal arms use that same binary and vary only memory
-delivery.
+or use historical benchmark results as measurements of the current checkout.
 
-GraphMark owns cross-product benchmark evidence and split integrity. See
-[`benchmarks/agent-brain/CONDITIONS.md`](../benchmarks/agent-brain/CONDITIONS.md)
-for the normative condition and comparison contract, and
-[`benchmarks/agent-brain/README.md`](../benchmarks/agent-brain/README.md) for
-harness operation and the retired-corpus notice.
+The experiment tooling has been retired. Historical results remain in
+[`benchmarks/agent-brain/README.md`](../benchmarks/agent-brain/README.md).
+Current development checks use Go through `mise run check`.
 
 ## Install
 
@@ -1455,11 +1450,16 @@ With `ENTIRE_BRAIN_WEBHOOK_SECRET` set, each POST carries
 `X-Entire-Signature-256: sha256=<hex>`, the HMAC-SHA256 of the exact request
 body. Compute the same over the raw body and compare in constant time:
 
-```python
-import hashlib, hmac
-expected = "sha256=" + hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
-if not hmac.compare_digest(expected, request.headers["X-Entire-Signature-256"]):
-    abort(401)
+```go
+// Imports: crypto/hmac, crypto/sha256, encoding/hex, net/http, strings.
+mac := hmac.New(sha256.New, []byte(secret))
+mac.Write(rawBody)
+header := request.Header.Get("X-Entire-Signature-256")
+provided, err := hex.DecodeString(strings.TrimPrefix(header, "sha256="))
+if !strings.HasPrefix(header, "sha256=") || err != nil || !hmac.Equal(mac.Sum(nil), provided) {
+    http.Error(w, "invalid signature", http.StatusUnauthorized)
+    return
+}
 ```
 
 Without a secret no signature header is sent at all, rather than one computed
