@@ -2271,6 +2271,9 @@ func probeLocalPerCheckpointRefs(ctx context.Context, runner CommandRunner, repo
 func listCheckpointTree(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, ref string, wantOIDs bool) (names []byte, oids map[string]string, stderr []byte, err error) {
 	if wantOIDs {
 		out, outStderr, oidErr := runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, "ls-tree", "-r", ref)
+		if oidErr == nil && len(bytes.TrimSpace(out)) == 0 {
+			return nil, nil, outStderr, nil // an empty tree, which is an answer
+		}
 		if oidErr == nil {
 			if oids = treePathOIDs(out); len(oids) > 0 {
 				paths := make([]string, 0, len(oids))

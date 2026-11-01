@@ -161,3 +161,16 @@ func TestCheckpointBlobReaderRefusesPathOutsideListing(t *testing.T) {
 		t.Fatalf("read a path outside the listing through the ref: %q", got)
 	}
 }
+
+// A successful empty listing is an answer. Asking again could see a different
+// tree, or fail on a ref deleted in between, and report a healthy repository as
+// unreadable.
+func TestListCheckpointTreeTrustsASuccessfulEmptyListing(t *testing.T) {
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "ls-tree", "-r", v1MainRef): {stdout: ""},
+	}}
+	names, oids, _, err := listCheckpointTree(context.Background(), runner, "/repo", false, v1MainRef, true)
+	if err != nil || len(names) != 0 || len(oids) != 0 {
+		t.Fatalf("empty listing: names=%q oids=%v err=%v", names, oids, err)
+	}
+}
