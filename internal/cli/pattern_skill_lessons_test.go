@@ -61,7 +61,7 @@ const lessonProposalJSON = `{"lessons":[{
   "trigger":"editing a hash-pinned radar-tool source file (mcp.go, retrieve.go, workspace.go)",
   "not_when":"editing unrelated files that are not hash-pinned",
   "failure":"CI release-evidence check fails because the committed manifest/reports drifted",
-  "recovery":"re-run record_radar_tool_evidence.py and commit the regenerated manifest AND audit reports",
+  "recovery":"re-run the Go regression checks and commit the test results",
   "knowledge":["radar-tool source files are hash-pinned","the audit also diffs the committed report files, so both must be regenerated"],
   "member_keys":["episode:radar:evidence0","episode:radar:evidence1"],
   "verdict":"accepted"

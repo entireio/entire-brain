@@ -60,12 +60,12 @@ func TestCompactBriefPreservesPendingFactReview(t *testing.T) {
 }
 
 func TestBriefRecognizesTestPathSegments(t *testing.T) {
-	for _, path := range []string{"tests/test_query.py", "test/test_query.py", "src/__tests__/query.ts", "test_query.py", `src\tests\query.py`, "widget_test.go", "query.spec.ts", "query.test.js"} {
+	for _, path := range []string{"tests/query_test.go", "test/query_test.go", "src/__tests__/query.ts", "query_test.go", `src\tests\query.go`, "widget_test.go", "query.spec.ts", "query.test.js"} {
 		if !brainBriefLikelyTestFile(path) {
 			t.Errorf("test classified as implementation: %s", path)
 		}
 	}
-	for _, path := range []string{"src/contest/query.py", "testimonials/query.ts", "src/query.py"} {
+	for _, path := range []string{"src/contest/query.go", "testimonials/query.ts", "src/query.go"} {
 		if brainBriefLikelyTestFile(path) {
 			t.Errorf("implementation classified as test: %s", path)
 		}
