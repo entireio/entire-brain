@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/parentwatch"
 	"golang.org/x/sys/unix"
 )
 
@@ -133,5 +135,42 @@ func TestBackfillRunningRejectsADeadPid(t *testing.T) {
 func TestBackfillRunningFallsBackToThePidWithoutABrain(t *testing.T) {
 	if !backfillRunning("", os.Getpid()) {
 		t.Fatal("with no brain to check, a live pid must not be reported as a dead backfill")
+	}
+}
+
+// Every spawnDetached child must carry the parentwatch exemption, whoever the
+// caller is: the daemon-reregister child's parent is killed by bootout BY
+// DESIGN, and an armed watchdog there would abort the re-registration at the
+// exact moment it must survive. Setting the marker centrally also covers a
+// caller that passes no Env (relaunchInstalledDaemon does).
+func TestSpawnDetachedMarksTheChildDetached(t *testing.T) {
+	for _, env := range map[string][]string{"explicit env": os.Environ(), "nil env": nil} {
+		dir := t.TempDir()
+		out := filepath.Join(dir, "env.out")
+		script := `printf '%s' "$` + parentwatch.DetachedEnv + `" > env.out`
+		pid, err := spawnDetached(setupBackfillPlan{
+			Binary: "/bin/sh",
+			Args:   []string{"-c", script},
+			Dir:    dir,
+			Env:    env,
+		})
+		if err != nil {
+			t.Fatalf("spawnDetached: %v", err)
+		}
+		t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			data, err := os.ReadFile(out)
+			if err == nil {
+				if string(data) != "1" {
+					t.Fatalf("detached child sees %s=%q, want %q", parentwatch.DetachedEnv, string(data), "1")
+				}
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("detached child never wrote %s", out)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 }
