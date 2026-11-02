@@ -47,6 +47,15 @@ func reconcileStagedCandidates(ctx context.Context, run base.DistillAgentRunner,
 	var candidates []factRecord
 	for _, f := range facts {
 		if f.Status == factStatusCandidate {
+			// EVERY staged candidate is adjudicated — including, once, legacy
+			// candidates a queued proposal used to hold back. The review queue
+			// is retired, and the alternatives are both worse: skipping them
+			// strands facts that only `memories review` could ever publish, and
+			// replaying the stale queue applies old adjudications against a
+			// store that has moved on. On the first distill after upgrading
+			// they re-enter adjudication and publish under keep-both; a
+			// leftover proposals.ndjson is inert (privacy cleanup deletes it,
+			// the store migration drops it).
 			f.Status = factStatusActive
 			candidates = append(candidates, f)
 			continue
