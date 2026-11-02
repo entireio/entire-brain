@@ -1,0 +1,121 @@
+<task-notification>
+<task-id>bdcvgpin6</task-id>
+<tool-use-id>toolu_01HPu3PJeSaAgHPv5ZGKgfY1</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hanoi/10e0205f-3a87-4970-88e4-f5eae646a711/tasks/bdcvgpin6.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full internal/cli test suite" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+/review-pr
+
+---
+
+<task-notification>
+<task-id>a0813561edce2ffb8</task-id>
+<tool-use-id>toolu_01PhEKQz74xAUxNa88V77pyo</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hanoi/10e0205f-3a87-4970-88e4-f5eae646a711/tasks/a0813561edce2ffb8.output</output-file>
+<status>completed</status>
+<summary>Agent "Reuse review of diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I found one small reuse issue. Everything else in the diff is clean on reuse.
+
+**1. `/Users/evisdrenova/conductor/workspaces/entire-brain/hanoi/internal/cli/facts_promote_noop_test.go:23`**: `brainFileMtimes` checks for the lock directory with the hard-coded string `d.Name() == "locks"`.
+- **Use instead:** `brainstore.BrainLockDirName`, defined in `/Users/evisdrenova/conductor/workspaces/entire-brain/hanoi/internal/cli/internal/brainstore/brain_locks.go:12`. The nearby `treeContentHash` helper in `internal/cli/facts_eligibility_test.go:123` already uses this constant to skip the same directory.
+- **Cost:** if the lock directory is ever renamed, this test stops skipping it. The no-op test would then fail on lock files the promote is allowed to touch, and the cause wouldn't be obvious.
+
+The other things you asked about are not duplicates:
+- **Anchor equality:** factmerge has no helper that checks whether two anchor lists are equal or one contains the other. `UnionAnchors` (`factmerge/dedup.go:98`) keeps the existing provenance first and in order, so `slices.Equal(merged, old)` correctly tells you whether anything new was added.
+- **mtime snapshot / brain-file walk:** the existing tree helpers (`treeContentHash`, `healthFixtureTree` in `memory_health_schema_test.go:251`, `privacyTreeDigest` in `privacy_verification_regression_test.go:217`) all compare file contents. This test has to catch rewrites that leave the content the same, which a content comparison can't see, so the new mtime-based helpers are justified. No other test has an mtime-snapshot helper.
+- **Test fixtures:** the new tests already reuse `promoteFixtureWithSourceFacts`, `writeFacts`, `execute`, `indexOfFact` and `factstore.Load`.</result>
+<usage><subagent_tokens>54006</subagent_tokens><tool_uses>7</tool_uses><duration_ms>27668</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ae50d7cdd311c85f8</task-id>
+<tool-use-id>toolu_01NjmanfVCeUbPxZm7N9YGeE</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hanoi/10e0205f-3a87-4970-88e4-f5eae646a711/tasks/ae50d7cdd311c85f8.output</output-file>
+<status>completed</status>
+<summary>Agent "Efficiency review of diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Clean. The diff adds no wasted work that is worth fixing, and its net effect on efficiency is positive.
+
+1. **factmerge/admin.go:117-121: `slices.Equal` after every `UnionAnchors` call.** This is not a real cost. `UnionAnchors` already ran on every identical-id fact before this diff. The new check is one linear comparison over a few anchors. `UnionAnchors` is far more expensive: for each anchor it builds a map entry and a joined key string, and it formats the line number with `fmt.Sprint`. The one cheaper alternative would be `len(merged) != len(result[i].Provenance)`, since `UnionAnchors` keeps `a`'s order and only appends. But that check misses the case where `a` had duplicates removed and `b` added the same number of new anchors. The saving is a few nanoseconds per fact, so not worth the correctness risk.
+
+2. **factmerge/admin.go:117: `UnionAnchors` allocates even when nothing is added.** This existed before the diff, but the diff makes it more noticeable: with the new early exit, a run that changes nothing skips the write, so this becomes most of the CPU left in Promote. The cheaper alternative is to check first whether every anchor in `sf.Provenance` is already in `result[i].Provenance` (a simple `slices.Contains` scan, no map or strings). Only call `UnionAnchors` if one is missing. At thousands of facts per branch store, each with a handful of anchors, this saves roughly a few thousand small allocations, about 1 ms or less per run. Loading and JSON-decoding both stores costs much more than that. Optional, low priority.
+
+3. **internal/cli/facts_admin_cmd.go:441: placement of the early exit.** It is in the right place. Both stores have to be loaded before anyone can know nothing changed, so it can't go earlier. It skips the store write, the proposals work and the manifest rebuild across all branches and proposals, which is the expensive part at 343k facts. One more thing, also from before this diff: `IndexOf` scans the whole list for every source fact, so each Promote call does source size times target size comparisons. A single-branch run with thousands of facts reaches the millions. That still costs only a few milliseconds per run. If you want to remove it, build an ID-to-position map once from `result` and update it on each append, but that is outside this diff.</result>
+<usage><subagent_tokens>40647</subagent_tokens><tool_uses>2</tool_uses><duration_ms>22211</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a1279afa84e6aed20</task-id>
+<tool-use-id>toolu_019euv9c3FQLTLzeFtgHodPD</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hanoi/10e0205f-3a87-4970-88e4-f5eae646a711/tasks/a1279afa84e6aed20.output</output-file>
+<status>completed</status>
+<summary>Agent "Simplification review of diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I found four simplifications. The other spots you asked about are fine as written.
+
+**1. `internal/cli/facts_admin_cmd.go:441`: `len(proposals) == 0` can never change the outcome**
+- Every proposal is added in the keep-both branch, and that branch always ends with `promoted++` (`factmerge/admin.go:156` and `:165`). So any proposal means `promoted &gt; 0`, which means `changed` is already true.
+- Simpler form: `if !changed { return nil }`.
+- Cost: a reader has to work out whether proposals can exist while `changed` is false. They can't.
+- Is the defensive form justified? Only partly. `changed` is documented as "the merged set differs", and proposals are a separate output written to a separate file, so there is some reason to keep the check. If you keep it, add a short comment saying it's belt-and-braces (it never fires today) so nobody goes looking for a case where it does.
+
+**2. `factmerge/admin.go:168`: `changed || promoted &gt; 0` is fine, but the local variable name is misleading**
+- Every path that does `promoted++` also appends to `result`, so `promoted &gt; 0` already means the result changed. Folding it into one expression at the return is simpler than setting `changed = true` at three append sites.
+- Keep the expression. Rename the local `changed` to `provenanceChanged`, because that is the only thing it tracks. As written, it looks like it covers all changes until you reach the return.
+
+**3. `internal/cli/facts_promote_noop_test.go:43-54, 68-90`: `ageBrainFiles` returns a map it doesn't need to build**
+- It ignores the times in its input map. The map it returns sends every path to the same constant `past`.
+- Simpler form: make `past` a package-level constant and have `ageBrainFiles` return nothing. Use the snapshot's keys as the "existed before" set, and check `mtime.Equal(past)` for each file afterwards.
+- Cost: one extra map and an extra variable (`agedAt`) that is always the same value.
+
+**4. `internal/cli/facts_promote_noop_test.go:109`: the aging step in `TestFactsPromoteProvenanceUnionStillWrites` does nothing**
+- The test calls `ageBrainFiles(t, brainFileMtimes(...))`, throws away the result, and never checks an mtime. It checks persistence by reloading the store with `factstore.Load`.
+- Simpler form: delete the line.
+- Cost: a full directory walk plus `Chtimes` on every brain file. It also suggests the test checks that a write happened, which it doesn't.
+
+**5. `factmerge/factmerge_test.go:488-548`: five near-identical subtests copied with small changes**
+- Each subtest builds `src`/`tgt`, sets the branches, calls `Promote`, and fails on the same `promoted=%d changed=%v` check.
+- Simpler form: a table with fields `{name, src, tgt, strategy, wantPromoted, wantChanged}` and one loop body. The "provenance union" case would keep its extra `len(merged[0].Provenance) == 2` check as a single conditional.
+- Cost: about 60 lines that would shrink to about 35. Each new case is currently another copy that can drift, like the slightly different `Fatalf` wording in the "provenance union" case.</result>
+<usage><subagent_tokens>49141</subagent_tokens><tool_uses>3</tool_uses><duration_ms>33275</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a315e1111585c14a2</task-id>
+<tool-use-id>toolu_016Xr9L2zoi1CgtAhqYhovoj</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hanoi/10e0205f-3a87-4970-88e4-f5eae646a711/tasks/a315e1111585c14a2.output</output-file>
+<status>completed</status>
+<summary>Agent "Altitude review of diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>The fix is at the right depth. I found nothing that needs to change before merge. There are two optional low-priority notes at the end.
+
+**(a) Where `changed` comes from: correct.** `factmerge/admin.go:105-168` works it out inside `Promote`, the only place that knows whether merging a fact with an existing id actually added provenance. The comparison `slices.Equal(merged, result[i].Provenance)` holds up because `UnionAnchors` (`factmerge/dedup.go:98`) keeps order. A second identical promote therefore reports no change. Legacy provenance with duplicate anchors is reported changed once, then settles. `promoteFacts` (`internal/cli/facts_aliases.go:86`) just passes the value through, and `runFactsPromote` is the only caller. In `internal/cli/facts_admin_cmd.go:441`, `len(proposals) == 0` can never be the deciding check, since a queued proposal implies `promoted &gt; 0`. It is a harmless safety check.
+
+**(b) Promote-only scope: right, and not a one-off.** Two siblings already skip writes when nothing changed:
+- `retract` returns before writing when `!changed` (`internal/cli/facts_admin_cmd.go:91-93`).
+- `review` returns when `resolved == 0` (`internal/cli/facts_admin_cmd.go:279-285`).
+
+This diff applies the same pattern to promote, so moving the check into a shared helper isn't needed. `reclassify` (line 556-561) always rebuilds the manifest, and a comment there says that is deliberate because it repairs an old `by_kind` gap. Neither `reclassify` nor `gc` runs from the prompt hook.
+
+**(c) Lost repair side effect: none that matters.** Before this change, a promote run on every prompt would also quietly fix a stale manifest, for example after a crash between `factstore.Write` and the manifest update. Two other paths still rebuild the manifest every time they run:
+- `refresh` → `reclassifyAllFactBranches` (`internal/cli/refresh.go:495`, `internal/cli/facts_manifest.go:79`)
+- `reclassify`
+
+The integrity checker (`internal/cli/internal/factstore/integrity.go`) only detects and reports problems. Nothing depends on promote doing the repair.
+
+Optional notes:
+1. **`internal/cli/facts_admin_cmd.go:735-739`**: `gc --force` always writes the store and rebuilds the manifest under the lock, even when it prunes nothing. The same "skip when nothing changed" check would fix it. The cost is the same wasted lock-hold time this diff removes for promote, but it only matters if a customer ever runs `gc --force` from a hook. It is not on today's hook path, so I wouldn't put it in this PR.
+2. **`internal/cli/internal/factstore/integrity.go:70`** and **`internal/cli/facts_manifest.go:22-25`**: these comments say the manifest is rebuilt on every promote and retract. That is now only true when one of them changes something. Retract already made that claim inaccurate. Changing the wording to "every mutating …" would stop a future reader from expecting promote to repair the manifest.</result>
+<usage><subagent_tokens>61698</subagent_tokens><tool_uses>8</tool_uses><duration_ms>44935</duration_ms></usage>
+</task-notification>
