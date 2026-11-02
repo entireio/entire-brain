@@ -1,0 +1,11 @@
+fix the bugbot issues
+
+---
+
+<task-notification>
+<task-id>bonpoysgb</task-id>
+<tool-use-id>toolu_01SVsKbAyVXZv9uhvhYqebBf</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/bonpoysgb.output</output-file>
+<status>completed</status>
+<summary>Background command "Fix wave-2 assertion, rerun reconcile tests" completed (exit code 0)</summary>
+</task-notification>
