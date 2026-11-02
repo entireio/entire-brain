@@ -2,6 +2,7 @@ package factmerge
 
 import (
 	"errors"
+	"slices"
 	"time"
 )
 
@@ -82,7 +83,11 @@ func removeString(values []string, target string) []string {
 
 // Promote carries a source branch's active facts into a target set under
 // the given strategy, returning the merged set, any conflict proposals queued
-// (keep-both), and the number of facts promoted.
+// (keep-both), the number of facts promoted, and whether the merged set
+// differs from target at all. The last return is the no-op signal callers
+// need before skipping a persist: promoted can be 0 while the target still
+// changed, because an identical-id fact unions its provenance in without
+// counting as promoted.
 //
 //   - keep-both: copy source facts in; a same-path conflict with an existing
 //     active target fact keeps both, cross-links them, and queues a proposal.
@@ -97,18 +102,23 @@ func removeString(values []string, target string) []string {
 // see conflictComponents. Each proposal carries a computed ConflictConfidence
 // rather than a placeholder, so nothing reaches a human review queue claiming a
 // confidence this package never derived.
-func Promote(source, target []Record, strategy, intoBranch string, now time.Time) ([]Record, []Proposal, int) {
+func Promote(source, target []Record, strategy, intoBranch string, now time.Time) ([]Record, []Proposal, int, bool) {
 	result := append([]Record(nil), target...)
 	var proposals []Proposal
 	components := newConflictComponents()
 	promoted := 0
+	changed := false
 	for _, sf := range source {
 		if sf.Status != StatusActive {
 			continue
 		}
 		sf.Branch = intoBranch
 		if i := IndexOf(result, sf.ID); i >= 0 {
-			result[i].Provenance = UnionAnchors(result[i].Provenance, sf.Provenance)
+			merged := UnionAnchors(result[i].Provenance, sf.Provenance)
+			if !slices.Equal(merged, result[i].Provenance) {
+				result[i].Provenance = merged
+				changed = true
+			}
 			continue
 		}
 		conflicts := activeConflictIndexes(result, sf)
@@ -155,7 +165,7 @@ func Promote(source, target []Record, strategy, intoBranch string, now time.Time
 			promoted++
 		}
 	}
-	return result, proposals, promoted
+	return result, proposals, promoted, changed || promoted > 0
 }
 
 // Retract marks a fact retracted (no longer true) without deleting it, so
