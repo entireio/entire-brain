@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01WLn7qoKMntQQMxRpn5wkdL",
+  "agent_id": "a47f633e43b6ce121",
+  "subagent_type": "Explore",
+  "task_description": "Explore v1 merge/resurrection paths",
+  "token_usage": {
+    "input_tokens": 50,
+    "cache_creation_tokens": 126618,
+    "cache_read_tokens": 2092571,
+    "output_tokens": 13486,
+    "api_call_count": 25
+  },
+  "started_at": "2026-11-02T09:42:48.94009-08:00",
+  "completed_at": "2026-11-02T09:45:10.982887-08:00"
+}

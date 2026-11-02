@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01Qqe9Lvftw45CW1KbE8nb7s",
+  "agent_id": "a641e81557435cc3d",
+  "subagent_type": "Explore",
+  "task_description": "Explore session-delete groundwork",
+  "token_usage": {
+    "input_tokens": 24,
+    "cache_creation_tokens": 132022,
+    "cache_read_tokens": 631956,
+    "output_tokens": 6518,
+    "api_call_count": 12
+  },
+  "started_at": "2026-11-02T09:30:42.957014-08:00",
+  "completed_at": "2026-11-02T09:43:30.634738-08:00"
+}

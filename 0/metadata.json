@@ -1,0 +1,79 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M6EQX3R10NQE58NTYQ6WEFGZ",
+  "session_id": "e7e29a32-fb4f-44e0-b674-4c4abe8bb6d8",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-02T18:21:20.313155Z",
+  "branch": "evisdren/ent-3758-deletion-follow-ups",
+  "checkpoints_count": 2,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "6627b9a96ce2",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 64,
+    "cache_creation_tokens": 117137,
+    "cache_read_tokens": 2860555,
+    "output_tokens": 22815,
+    "api_call_count": 33,
+    "subagent_tokens": {
+      "input_tokens": 92,
+      "cache_creation_tokens": 331827,
+      "cache_read_tokens": 3213541,
+      "output_tokens": 33940,
+      "api_call_count": 46
+    }
+  },
+  "redaction": {
+    "replacements": 3,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 3,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_013j9bJJQ1qhuPgHeS89HTsS",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:brainstorming"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "6627b9a96ce2",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 87,
+        "end": 88,
+        "entry_ids": [
+          "9d746452-0a34-4866-a823-14a8579aae44"
+        ],
+        "tool_use_id": "toolu_013j9bJJQ1qhuPgHeS89HTsS"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_013j9bJJQ1qhuPgHeS89HTsS"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:brainstorming",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 2
+  }
+}
