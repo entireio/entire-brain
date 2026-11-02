@@ -38,18 +38,14 @@ For ordinary schema 2 writes, an unrelated damaged view does not block the targe
 write. Converting a schema 1 snapshot requires every retained view to be readable.
 Corrupt state causes an error; conversion does not silently discard that state.
 
-## Privacy repair
+## Snapshot repair
 
 An older client cannot remove an existing schema 1 snapshot. Run
-`memories storage migrate` before using an older client for privacy cleanup on
-such a store. No new client can change this behavior inside an already released
-binary.
-
-Current `privacy verify` checks physical schema 1 representatives and overrides,
-including unreferenced bodies. It also reports abandoned snapshot temporary
-files. Current purge persists reconciliation even when an older purge already
-removed all visible records. This removes hidden snapshot residue and temporary
-files without requiring another visible memory change.
+`memories storage migrate` before using an older client to clean up such a
+store. No new client can change this behavior inside an already released
+binary. Current clients persist reconciliation on migration, which removes
+hidden snapshot residue and abandoned temporary files without requiring
+another visible memory change.
 
 ## Scan-cache compatibility
 

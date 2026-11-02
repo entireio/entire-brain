@@ -22,6 +22,18 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Removed
 
+- The brain-local privacy layer: the `privacy` command family
+  (`list|exclude|include|purge|verify|retention`), session tombstones, read
+  gates, and the per-response privacy policy machinery. The brain is a
+  derived index that mirrors the repository's checkpoint refs, so deletion
+  happens at the capture layer: `entire checkpoint delete` removes a
+  checkpoint, and the next `entire brain refresh` drops everything derived
+  from it — including the deleted session's fact provenance (a distilled
+  fact with no provenance left is deleted; authored memories and pulled
+  teammate copies are never touched). Caches of vanished sessions are swept
+  instead of retained. "Stop serving now" is
+  `entire checkpoint delete <checkpoint> && entire brain refresh`.
+
 - `entire brain publish` and the brain-bundle wire package (`internal/brainwire`).
   The `/brain/artifacts` endpoint publish posted to was never deployed — the
   server exists only in unmerged entire-api PRs — so the command failed for

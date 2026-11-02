@@ -114,8 +114,6 @@ entire brain bundle export --include-sessions --output ./brain-backup.tar
 ```
 
 Bundle export requires a semantic index, built with `entire brain refresh index`.
-Excluded sessions are omitted, and local privacy policy is not included; review
-the destination's privacy settings before refreshing sessions there.
 
 ### How Brain compares
 
@@ -243,10 +241,9 @@ it does not restore an outdated backup. Use memory commands for deletion.
 Deleting a legacy file after conversion removes the only stored copy of that view.
 
 If a pre-fix schema 1 snapshot exists, run `memories storage migrate` before
-using an older client for privacy cleanup. An older client cannot remove that
-snapshot. New-client privacy verification inspects physical snapshot bodies,
-overrides, and abandoned temporary snapshots. New-client purge repairs these
-artifacts even when an older client already removed the visible records.
+using an older client to clean up that store. An older client cannot remove
+that snapshot; a new-client migration repairs hidden snapshot residue and
+abandoned temporary files.
 
 Run `bash scripts/test-memory-storage-compat.sh` for released-binary checks.
 The script builds pinned stable releases v0.2.0, v0.3.0, and v0.4.0.

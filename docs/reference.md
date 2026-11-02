@@ -1515,31 +1515,20 @@ custom `--agent command` runner is a trusted local command and is not enforceabl
 loopback-only; no-egress mode cannot stop that runner from making its own network
 calls.
 
-To keep specific sessions out of the brain's projections, use
-`entire brain privacy list|exclude|include|purge`. `exclude` tombstones a
-session so every derived layer (history records, conversation exchanges,
-pattern episodes and corpus, FTS, vector stores, caches) skips it on rebuild
-and the transcript read path refuses it. Legacy brains and bundles may retain
-a materialized transcript after exclusion; `purge` additionally deletes that
-copy and the derived stores, removes durable facts whose
-only provenance is the purged session (facts corroborated by other sessions
-keep their remaining anchors), filters its pattern episodes, and clears its
-distill-cache entries (`--dry-run` reports exactly what would be removed
-first). Skill-memory (your accept/decline curation) is never touched.
-`privacy verify` proves excluded/purged sessions are absent from every
-inspectable projection and from their lifecycle jobs, cancellation markers,
-optional abstracts, and metadata-only egress receipts. In a checkpoint-backed
-brain it also checks the transcript read gate and reports stray materialized
-transcript files (exit non-zero with named
-violations otherwise; a re-purge repairs them), and `privacy retention
---max-age <dur> [--branch b]
-[--purge] [--dry-run]` applies an age-based policy in one command. The full
-prompt-injection and secret-retention threat model lives in
+The brain is a derived index that mirrors the repository's checkpoint refs.
+Deletion therefore happens at the capture layer: `entire checkpoint delete`
+removes a checkpoint from the `entire/checkpoints/v1` tip (locally and on
+checkpoint remotes), and the next `entire brain refresh` drops everything the
+brain derived from it — the session's transcript, its history records and
+conversation exchanges, pattern episodes, FTS and cache entries, and the
+provenance anchors of its distilled facts (a distilled fact loses the deleted
+session's anchors and is removed once no provenance remains; authored
+memories from `remember` are never touched). To stop serving a session now,
+run `entire checkpoint delete <checkpoint> && entire brain refresh`; the
+watch daemon also converges on its next tick. Skill-memory (your
+accept/decline curation) is never touched. The full prompt-injection and
+secret-retention threat model lives in
 [docs/recall_threat_model.md](recall_threat_model.md).
-Tombstones are brain-local and survive re-export: a purged session that the
-capture layer re-exports stays un-indexed until an explicit `include`. Note the
-canonical capture in Entire's configured checkpoint backend is the capture
-layer's data; purging the brain does not rewrite checkpoint history.
 
 Remember that base Entire session capture stores transcripts and metadata on the
 repository's Entire-managed per-checkpoint refs (or the legacy
