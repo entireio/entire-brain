@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_0179G31XC78rqDMPvo6Fw3dm",
+  "agent_id": "a56d7e98b15b373fa",
+  "subagent_type": "Explore",
+  "task_description": "Reuse review of PR diff",
+  "token_usage": {
+    "input_tokens": 12,
+    "cache_creation_tokens": 54775,
+    "cache_read_tokens": 230133,
+    "output_tokens": 3021,
+    "api_call_count": 6
+  },
+  "started_at": "2026-11-01T17:47:15.789934-08:00",
+  "completed_at": "2026-11-01T17:47:45.250479-08:00"
+}

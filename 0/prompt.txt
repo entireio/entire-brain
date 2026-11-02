@@ -1,0 +1,145 @@
+/review-pr
+
+---
+
+<task-notification>
+<task-id>a56d7e98b15b373fa</task-id>
+<tool-use-id>toolu_0179G31XC78rqDMPvo6Fw3dm</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/a56d7e98b15b373fa.output</output-file>
+<status>completed</status>
+<summary>Agent "Reuse review of PR diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I found one real reuse issue and one optional one. Nothing else in `brainstore` or `internal/cli` does the same job as the new code without a lock.
+
+**1. The new validation loop is a copy of the one in `AcquireRetrievalPrivacyPolicies`, and they should share code.**
+- New: `ValidateRetrievalPrivacyPolicies`, `/Users/evisdrenova/conductor/workspaces/entire-brain/tegucigalpa/internal/cli/internal/brainstore/retrieval_policy.go:72-84`
+- Existing: the check loop in `AcquireRetrievalPrivacyPolicies` at the same file, lines 131-142
+
+Both loop over `brainDirs`, call `RequireRetrievalPrivacyPolicyIdentity(brainDir, byBrain[brainDir])`, then call `requireDerivedClean(brainDir)` when `derivedClean[brainDir]` is set. The only difference is that the locked version calls `release()` before returning an error. There are two fixes:
+- After taking the locks, `AcquireRetrievalPrivacyPolicies` calls `ValidateRetrievalPrivacyPolicies(policies, requireDerivedClean)` and calls `release()` if it fails. This re-normalizes the policies, which is cheap and gives the same result.
+- Or move the loop into a private `validateNormalizedRetrievalPolicies(byBrain, derivedClean, brainDirs, requireDerivedClean)` and have both functions call it.
+
+Without this, the locked and unlocked checks can drift apart.
+
+**2. Optional, low priority: the short-write check repeats `writeAllCommandBytes`.**
+- In the diff: `writeRetrievalResponseBytes`, `/Users/evisdrenova/conductor/workspaces/entire-brain/tegucigalpa/internal/cli/retrieval_transport.go:~88-92` (`n, err := out.Write(data); if err == nil &amp;&amp; n != len(data) { return io.ErrShortWrite }`)
+- Existing helper: `writeAllCommandBytes`, `/Users/evisdrenova/conductor/workspaces/entire-brain/tegucigalpa/internal/cli/pattern_privacy.go:59`
+
+This logic isn't new. The diff only moved it out of the old closure. Also, the helper doesn't behave quite the same: it skips the write when `data` is empty and wraps errors as `"write command output: %w"`. Only switch if those differences are acceptable on the retrieval path.
+
+The `normalizeRetrievalPrivacyPolicies` change is fine as written. It pulls existing logic out of `AcquireRetrievalPrivacyPolicies` rather than duplicating anything, and I found no other policy-normalization helper.</result>
+<usage><subagent_tokens>55968</subagent_tokens><tool_uses>6</tool_uses><duration_ms>29551</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a9aba4c97daeeef55</task-id>
+<tool-use-id>toolu_01EuXsQABA5DCjHd1VAwC4wm</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/a9aba4c97daeeef55.output</output-file>
+<status>completed</status>
+<summary>Agent "Efficiency review of PR diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>The diff adds no wasted work compared with the old code. On every path it does strictly less I/O.
+
+**(1) New validation vs. the old locked path.** `ValidateRetrievalPrivacyPolicies` (`internal/cli/internal/brainstore/retrieval_policy.go:70-86`) does exactly the same checks the old code ran after taking the locks (`AcquireRetrievalPrivacyPolicies`, `:131-142`):
+- It uses the same shared `normalizeRetrievalPrivacyPolicies`, so each brain is checked once.
+- Per brain, it makes one `RequireRetrievalPrivacyPolicyIdentity` call, which runs one `LoadSessionReadGuard`.
+- It runs the `requireDerivedClean` check only when the policy asks for it.
+
+The only difference is that it no longer acquires the lock. Per brain, that saves two symlink checks, opening and locking `locks/write.lock`, and closing it again (`brain_locks.go:28-40`). It also no longer waits up to 10s for a busy lock. So it does less I/O than before, not more.
+
+**(2) `privacyLinearizedWriter` per terminal draw** (`internal/cli/retrieval_transport.go:63-69`, used by the dashboard via `dash_config.go:75`). Each draw now does one `LoadSessionReadGuard`. The dashboard policy doesn't ask for the derived-clean check, so that verifier never runs here. Before the diff, each draw did the same guard load plus the lock work above. The cost per draw went down. Reloading the guard on every draw is an existing cost, not one this diff added.
+
+**(3) Back-to-back validation.** `revalidateRetrievalResponsePrivacy` (`retrieval_transport.go:120-190`) is unchanged. Wherever it is followed by `writeRetrievalResponseBytes`, that second step used to lock and then validate; now it only validates. The guard load and derived-clean check were already repeated before the diff, so the diff doesn't make that worse. The same holds for `commitVizRetrievalResponse` (`:107-114`).
+
+Other notes:
+- Removing `acquireRetrievalPrivacyPolicies` (it had no non-test callers) and splitting out `normalizeRetrievalPrivacyPolicies` add no extra calls or memory allocations.
+- No new closures are kept in long-lived objects. `privacyLinearizedWriter` still holds only the output writer and the policy list.
+
+Not in scope for this diff, but if you want a cheaper per-draw check later: cache the guard's policy identity by the tombstone file's modification time (or a stat check) inside `privacyLinearizedWriter`. That would skip the full `LoadSessionReadGuard` on every dashboard redraw.</result>
+<usage><subagent_tokens>57040</subagent_tokens><tool_uses>7</tool_uses><duration_ms>26002</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a215ae4aac3ba79da</task-id>
+<tool-use-id>toolu_018QxuLGNXSoFhuwutdoFazE</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/a215ae4aac3ba79da.output</output-file>
+<status>completed</status>
+<summary>Agent "Simplification review of PR diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I found five issues. The seam you asked about, `beforeRetrievalResponseWrite`, is dead: no test uses it after this diff.
+
+**1. Unused test seam: `beforeRetrievalResponseWrite`**
+- Where: `/Users/evisdrenova/conductor/workspaces/entire-brain/tegucigalpa/internal/cli/retrieval_transport.go:28-34`, called at `:87` and `:112`
+- Problem: Searching every `.go` file finds no test that assigns it. The tests that used it were deleted with `installConcurrentLockedTombstone`. The only seam tests still override is `beforeRetrievalResponsePrivacyEmissionCheck` (in `retrieval_transport_test.go`, `pattern_corpus_read_safety_test.go` and `memory_abstract_privacy_linearization_test.go`). Its 6-line comment now just describes a guarantee the diff retired.
+- Simpler form: delete the variable, its comment and both calls.
+
+**2. The same validate-then-write steps appear twice**
+- Where: `retrieval_transport.go:78-92` and `:107-113`
+- Problem: Both functions run the emission check, then `brainstore.ValidateRetrievalPrivacyPolicies(policies, requirePrivacyDerivedRead)`, then the write. Once #1 is removed, `commitVizRetrievalResponse` is just those steps with a `write` callback.
+- Simpler form: rename `commitVizRetrievalResponse` to something like `commitRetrievalResponse` and have `writeRetrievalResponseBytes` call it with its own write-and-short-write check. That reuses a function that already exists, so it doesn't add a layer.
+- Caveat: the `transactional` branch at `:79-83` sits between the emission check and the validation, which blocks a clean merge. Nothing in the repo implements `writeRetrievalResponse(...)`, and it was already unimplemented on origin/main, so that dead branch predates this diff. Removing it would make the merge trivial.
+
+**3. Copied validation loop in the brainstore policy code**
+- Where: `/Users/evisdrenova/conductor/workspaces/entire-brain/tegucigalpa/internal/cli/internal/brainstore/retrieval_policy.go:131-142` copies `:75-84`
+- Problem: The identity check plus `requireDerivedClean` loop in `AcquireRetrievalPrivacyPolicies` is the same code as the new `ValidateRetrievalPrivacyPolicies`. Also, the diff deleted the CLI wrapper `acquireRetrievalPrivacyPolicies`, so the exported `AcquireRetrievalPrivacyPolicies` now has one caller, `WithLockedRetrievalPrivacyPolicies` at `:54`.
+- Simpler form: move the loop into a private helper that takes the normalized maps (`byBrain`, `derivedClean`, `brainDirs`), and have both paths call it. Then either make Acquire private or fold it into `WithLocked...`, using `defer` for the unlocks. That also removes the `release()` repeated on each error path.
+
+**4. Comment and type name no longer match what the code does**
+- Where: `retrieval_transport.go:55-58` (`privacyLinearizedWriter`: "Each terminal write is linearized under the captured policy"), plus `/Users/evisdrenova/conductor/workspaces/entire-brain/tegucigalpa/internal/cli/dash_config.go:66,75,88`
+- Problem: Writes are no longer linearized. They are validated without the lock. The diff updated every other comment that said "linearization" but left this one.
+- Simpler form: rename the type to something like `privacyCheckedWriter` and say "revalidated before each write".
+
+**5. Test helper with a single caller: `awaitRetrievalResult`**
+- Where: `/Users/evisdrenova/conductor/workspaces/entire-brain/tegucigalpa/internal/cli/retrieval_transport_test.go:397`, used only at `:426` by `TestRetrievalWriteSucceedsWhileBrainWriteLockHeld`
+- Problem: Nothing else uses it now. If emission tried to take the lock again, `AcquireBrainWriteLock` would give up after `BrainWriteLockTimeout` (10s) with an error.
+- Simpler form: call `writeRetrievalResponseBytes` directly and check the error. That drops the goroutine, the channel and the helper. The trade-off is that a regression would fail after 10s instead of 5s.
+
+The deleted helpers (`blockingRetrievalWriter`, `blockingHTTPResponseWriter`, `retrievalWriterCleanup`, `awaitRetrievalSignal`) have no remaining references, so nothing else was left behind there.</result>
+<usage><subagent_tokens>59255</subagent_tokens><tool_uses>8</tool_uses><duration_ms>53471</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ae6be5da591b2d757</task-id>
+<tool-use-id>toolu_01MuGYTzLMcujoVD48ipwGBF</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/ae6be5da591b2d757.output</output-file>
+<status>completed</status>
+<summary>Agent "Altitude review of PR diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>The read/mutate split is mostly at the right depth for a layer that's going away: one lock-free validate in brainstore, the locked variant kept for real mutations, and no new special cases on shared code. The diff leaves dead scaffolding, comments that still promise the retired guarantee, and one pure-read path that still takes the lock.
+
+1. **`internal/cli/recall_evidence.go:59`: `recall --evidence` still takes the brain write lock and will still fail with brain_locked.** It runs through `runPrivacyLinearizedPatternMutation` (`pattern_privacy.go:22`), which keeps every brain write lock held, but the code's own comment at line 58 says the path "never invokes a provider or writes derived facts". The diff picked which paths stay locked by function rather than by whether they mutate, so this reader still has the bug. Fix: set `RequireDerivedClean = true` on the policy and use `bufferRetrievalCommandOutput(cmd, policies, render)`. A related case is `workspace patterns list` (`workspace_patterns.go:424`), which rebuilds the corpus under every member brain's lock. It is a real write hidden inside a list command, so it should either be accepted explicitly or the rebuild moved out of the listing.
+
+2. **`internal/cli/retrieval_transport.go:78-83`: the `transactional` branch is dead and skips validation.** Nothing in the repo implements `writeRetrievalResponse([]byte, []retrievalPrivacyPolicy) error`, in tests or production. Any writer that did implement it would skip `ValidateRetrievalPrivacyPolicies` entirely. Delete the branch.
+
+3. **`internal/cli/retrieval_transport.go:84-91` and `:108-113`: the emission check-then-write sequence is written out twice.** Both sites run "emission seam, `ValidateRetrievalPrivacyPolicies`, `beforeRetrievalResponseWrite`, write". Keep one `commitRetrievalResponse(policies, write func() error)`. `writeRetrievalResponseBytes` would call it with `func() error { return writeAll(out, data) }`, and viz would use it directly. The short-write check could then reuse `writeAllCommandBytes` (`pattern_privacy.go:60`) instead of a third copy. Also, `beforeRetrievalResponseWrite` (line 34) no longer has any test users because the diff deleted the only ones, and with no lock held it marks nothing. Remove it rather than rewrite its comment.
+
+4. **Comments elsewhere still say emission holds the write lock:**
+   - `internal/cli/pattern_corpus.go:198-202` says the rebuild runs inside "the same lock a retrieval holds to emit its response", which is what made `brief` fail.
+   - `internal/cli/command/viz/viz.go:249-251` says "A tombstone cannot linearize between the last policy check and the first response byte because both use the same per-Brain write lock."
+   - `internal/cli/command/viz/deps.go:32-34` says it "runs write under the Brain write lock".
+   - `internal/cli/command/retrieve/deps.go:55-57` says it "writes under the Brain write lock".
+   - `internal/cli/retrieval_transport.go:55-58` and `internal/cli/dash_config.go:66`: the type name `privacyLinearizedWriter` and the "linearized" wording are now wrong, since nothing is linearized. Rename it to something like `privacyCheckedWriter`.
+   
+   Each should say "revalidates the policy (no lock)", or just be deleted.
+
+5. **The retirement story is repeated in three comments.** It appears at `brainstore/retrieval_policy.go:62-69` and at `retrieval_transport.go:28-33` and `:71-76`. With the privacy layer scheduled for removal, keep it once, on `ValidateRetrievalPrivacyPolicies`, and have the others point there. That gives the follow-up one place to delete.
+
+Findings 2 to 5 are cleanup within the right design. Finding 1 is the only place where the same root cause is still live.</result>
+<usage><subagent_tokens>68077</subagent_tokens><tool_uses>10</tool_uses><duration_ms>53969</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bvk062l3a</task-id>
+<tool-use-id>toolu_01Rzj6RrrJwbZNwRRBBHGvYA</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/bvk062l3a.output</output-file>
+<status>completed</status>
+<summary>Background command "Full internal/cli suite after review fixes" completed (exit code 0)</summary>
+</task-notification>

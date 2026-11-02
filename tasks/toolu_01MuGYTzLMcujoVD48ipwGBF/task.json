@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01MuGYTzLMcujoVD48ipwGBF",
+  "agent_id": "ae6be5da591b2d757",
+  "subagent_type": "Explore",
+  "task_description": "Altitude review of PR diff",
+  "token_usage": {
+    "input_tokens": 20,
+    "cache_creation_tokens": 61484,
+    "cache_read_tokens": 480899,
+    "output_tokens": 5485,
+    "api_call_count": 10
+  },
+  "started_at": "2026-11-01T17:47:36.544411-08:00",
+  "completed_at": "2026-11-01T17:48:30.442417-08:00"
+}

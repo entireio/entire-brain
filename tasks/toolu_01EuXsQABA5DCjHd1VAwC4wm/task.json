@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01EuXsQABA5DCjHd1VAwC4wm",
+  "agent_id": "a9aba4c97daeeef55",
+  "subagent_type": "Explore",
+  "task_description": "Efficiency review of PR diff",
+  "token_usage": {
+    "input_tokens": 14,
+    "cache_creation_tokens": 50898,
+    "cache_read_tokens": 291011,
+    "output_tokens": 2657,
+    "api_call_count": 7
+  },
+  "started_at": "2026-11-01T17:47:29.623466-08:00",
+  "completed_at": "2026-11-01T17:47:55.548106-08:00"
+}
