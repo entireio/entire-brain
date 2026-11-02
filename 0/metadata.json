@@ -1,0 +1,81 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M6CSRWB42458R6VQTEP26E3H",
+  "session_id": "10e0205f-3a87-4970-88e4-f5eae646a711",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-02T00:15:30.284583Z",
+  "branch": "evisdren/no-op-promote-solution",
+  "checkpoints_count": 3,
+  "save_step_count": 1,
+  "files_touched": [
+    "factmerge/admin.go",
+    "factmerge/factmerge_test.go",
+    "factmerge/promote_conflict_test.go",
+    "internal/cli/facts_admin_cmd.go",
+    "internal/cli/facts_admin_test.go",
+    "internal/cli/facts_aliases.go",
+    "internal/cli/facts_promote_noop_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "7c6219a7262b",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 90,
+    "cache_creation_tokens": 141223,
+    "cache_read_tokens": 5491025,
+    "output_tokens": 32722,
+    "api_call_count": 45
+  },
+  "redaction": {
+    "replacements": 0,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 0,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01Md31uoYBJcqbxuBEU2sL4z",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:test-driven-development"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "7c6219a7262b",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 116,
+        "end": 117,
+        "entry_ids": [
+          "4bda47f9-dbb5-4470-9725-9e3326602998"
+        ],
+        "tool_use_id": "toolu_01Md31uoYBJcqbxuBEU2sL4z"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01Md31uoYBJcqbxuBEU2sL4z"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:test-driven-development",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 3
+  }
+}
