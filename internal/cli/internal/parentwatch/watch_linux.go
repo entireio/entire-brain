@@ -2,6 +2,7 @@ package parentwatch
 
 import (
 	"os"
+	"os/signal"
 	"runtime"
 
 	"golang.org/x/sys/unix"
@@ -23,28 +24,38 @@ func watchParent(ppid int) (func() bool, error) {
 	}, nil
 }
 
-// pdeathsigWait arms PR_SET_PDEATHSIG and keeps the thread that armed it
-// alive. The parent-death signal is a per-thread attribute: if the Go runtime
-// later destroyed the thread that called prctl, the fallback would silently
-// disarm, so the thread is locked and parked in pause(2) for the process
-// lifetime — in a syscall, not Go-blocked, so it cannot trip the runtime's
-// deadlock detector. On parent death the kernel delivers SIGTERM process-wide
-// and the normal signal path exits; this wait returns true only when the
-// parent was already gone at arming time, closing the race that Arm's own
-// ppid re-check cannot see from outside. Caveat: PDEATHSIG tracks the parent
-// thread that spawned us, not strictly the process.
+// pdeathsigWait arms PR_SET_PDEATHSIG and blocks until the signal proves the
+// parent PROCESS is gone. Two PDEATHSIG sharp edges are handled here:
+//
+//   - The condition is per parent THREAD: the kernel fires when the thread
+//     that forked us exits, and a Go dispatcher can retire that thread while
+//     the process lives. So the signal is SIGUSR1, caught, and each delivery
+//     only triggers a getppid check: a dead parent process shows a new ppid
+//     (reparented to pid 1 or a subreaper), while a dead parent thread leaves
+//     it unchanged — the child reparents inside the thread group and the
+//     still-armed PDEATHSIG fires again on the next death. A false fire can
+//     therefore never kill a healthy plugin.
+//   - The armed setting is also per OUR thread: if the runtime destroyed the
+//     thread that called prctl, the fallback would silently disarm, so that
+//     thread is locked and never released. Parking on the channel keeps this
+//     goroutine alive for the process lifetime.
+//
+// Notify runs before prctl so the fire can never hit SIGUSR1's default
+// terminating disposition.
 func pdeathsigWait(ppid int) bool {
-	// Never unlocked: the armed setting must die only with the process.
 	runtime.LockOSThread()
-	if unix.Prctl(unix.PR_SET_PDEATHSIG, uintptr(unix.SIGTERM), 0, 0, 0) != nil {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, unix.SIGUSR1)
+	if unix.Prctl(unix.PR_SET_PDEATHSIG, uintptr(unix.SIGUSR1), 0, 0, 0) != nil {
 		return false
 	}
 	if os.Getppid() != ppid {
 		return true
 	}
-	for {
-		// Pause returns whenever the runtime's own signals (e.g. SIGURG
-		// preemption) interrupt it; re-enter to keep the thread parked.
-		_ = unix.Pause()
+	for range sigs {
+		if os.Getppid() != ppid {
+			return true
+		}
 	}
+	return false
 }
