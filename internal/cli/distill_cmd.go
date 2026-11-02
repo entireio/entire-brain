@@ -1058,6 +1058,11 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	}
 	rebuiltSessionCount := map[string]int{}
 	regeneratedFactIDs := map[string]bool{}
+	// externallyWrittenFactIDs are ids rebase adopted or updated from disk —
+	// another writer (a sync settlement, a concurrent process) committed them
+	// during this run. The force sweep may only delete records from this run's
+	// own original baseline, never another writer's work.
+	externallyWrittenFactIDs := map[string]bool{}
 	sessionFullyRebuilt := func(id string) bool {
 		return sessionExportCount[id] > 0 && rebuiltSessionCount[id] >= sessionExportCount[id]
 	}
@@ -1172,13 +1177,19 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			// `facts sync` mirrored back. Those writers hold the same brain
 			// write lock this flush does, so the lock alone cannot see them:
 			// the run's read-modify-write spans the whole run.
-			rebased, rebaseErr := rebaseFactsOntoDisk(brainDir, storeFacts, storeBaseline)
+			rebased, adopted, rebaseErr := rebaseFactsOntoDisk(brainDir, storeFacts, storeBaseline)
 			if rebaseErr != nil {
 				return rebaseErr
 			}
 			storeFacts = rebased
+			// Accumulate across flushes: a mid-run flush folds adopted records
+			// into the next baseline, so only this running set still knows they
+			// were another writer's.
+			for id := range adopted {
+				externallyWrittenFactIDs[id] = true
+			}
 			if final && distillOpts.force {
-				storeFacts = sweepStaleForceFacts(storeFacts, sessionFullyRebuilt, regeneratedFactIDs)
+				storeFacts = sweepStaleForceFacts(storeFacts, sessionFullyRebuilt, regeneratedFactIDs, externallyWrittenFactIDs)
 			}
 			if err := factstore.Write(brainDir, storeFacts); err != nil {
 				return err
@@ -1244,10 +1255,19 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		}
 		// A record reconcile created or changed (a promotion, a merge target
 		// absorbing this run's candidate) is this run's output; the force sweep
-		// must not drop it as stale.
-		for _, f := range updated {
-			if old, ok := before[f.ID]; !ok || !reflect.DeepEqual(old, f) {
-				regeneratedFactIDs[f.ID] = true
+		// must not drop it as stale. EXCEPT the resume phase under --force:
+		// those publications are an INTERRUPTED run's leftovers, and this run
+		// is about to re-derive their sessions — protecting them would let a
+		// leftover outlive the completed rebuild that did not re-produce it.
+		// The sweep's provenance rule alone governs them: a leftover (or a
+		// merge target that absorbed one) citing any session outside this
+		// run's rebuilt set survives through that citation; one citing only
+		// rebuilt sessions is stale unless extraction re-produces it.
+		if !(distillOpts.force && resumeOnly) {
+			for _, f := range updated {
+				if old, ok := before[f.ID]; !ok || !reflect.DeepEqual(old, f) {
+					regeneratedFactIDs[f.ID] = true
+				}
 			}
 		}
 		storeFacts = updated
@@ -2882,20 +2902,26 @@ func cloneDistillFacts(records []factRecord) []factRecord {
 // rebaseFactsOntoDisk performs a three-way merge under the writer lock. Fields
 // changed on disk since the previous read/flush win conflicts; unchanged fields
 // retain this run's reconciliation. Provenance is additive on both sides.
-func rebaseFactsOntoDisk(brainDir string, inMemory, baseline []factRecord) ([]factRecord, error) {
+func rebaseFactsOntoDisk(brainDir string, inMemory, baseline []factRecord) ([]factRecord, map[string]bool, error) {
 	onDisk, err := factstore.Load(brainDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	before := make(map[string]factRecord, len(baseline))
 	for _, record := range baseline {
 		before[record.ID] = record
 	}
 	diskIDs := make(map[string]bool, len(onDisk))
+	// adopted reports the disk-side novelty: ids another writer created or
+	// changed since the baseline. The force sweep exempts them.
+	adopted := map[string]bool{}
 	out := cloneDistillFacts(inMemory)
 	for _, record := range onDisk {
 		diskIDs[record.ID] = true
 		old, existed := before[record.ID]
+		if !existed || !reflect.DeepEqual(old, record) {
+			adopted[record.ID] = true
+		}
 		i := indexOfFact(out, record.ID)
 		if i < 0 {
 			// A staged candidate this run flushed and then CONSUMED — merged
@@ -2936,7 +2962,7 @@ func rebaseFactsOntoDisk(brainDir string, inMemory, baseline []factRecord) ([]fa
 		_, existed := before[record.ID]
 		return existed && !diskIDs[record.ID]
 	})
-	return out, nil
+	return out, adopted, nil
 }
 
 // sweepStaleForceFacts implements --force's deletion side: drop an active
@@ -2947,11 +2973,12 @@ func rebaseFactsOntoDisk(brainDir string, inMemory, baseline []factRecord) ([]fa
 // failed, or gone from the session catalog — vanished sessions are the mirror
 // sweep's job now) are all kept. Runs on the FINAL flush only, so an
 // interrupted force run deletes nothing.
-func sweepStaleForceFacts(records []factRecord, sessionFullyRebuilt func(string) bool, regenerated map[string]bool) []factRecord {
+func sweepStaleForceFacts(records []factRecord, sessionFullyRebuilt func(string) bool, regenerated, externallyWritten map[string]bool) []factRecord {
 	kept := records[:0]
 	for _, record := range records {
 		if record.Origin == factstore.OriginDistilled && record.Status == factStatusActive &&
-			!regenerated[record.ID] && allCitedSessionsRebuilt(record.Provenance, sessionFullyRebuilt) {
+			!regenerated[record.ID] && !externallyWritten[record.ID] &&
+			allCitedSessionsRebuilt(record.Provenance, sessionFullyRebuilt) {
 			continue
 		}
 		kept = append(kept, record)

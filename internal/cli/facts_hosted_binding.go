@@ -38,22 +38,45 @@ func writeHostedFactsBinding(brainDir, repoID, baseURL string) error {
 }
 
 // readHostedFactsBinding reads the fact-sync marker. The error return is
-// reserved for a marker that EXISTS but cannot be trusted (unreadable or
-// corrupt); an absent marker is (zero, false, nil). When the flat marker is
-// absent, legacy per-branch markers (live or parked by the store migration)
-// are consulted read-only so the binding survives the flat-store upgrade.
+// reserved for a marker that EXISTS but cannot be trusted (unreadable,
+// corrupt, or ambiguous); an absent marker is (zero, false, nil). When the
+// flat marker is absent, EVERY legacy per-branch marker (live or parked by
+// the store migration) is consulted: a unanimous target is adopted (and
+// promoted to the flat marker, best-effort), but markers naming different
+// targets are an ambiguity the flat store must not resolve silently — the
+// repo-wide sync would ship every branch's memories to whichever marker
+// happened to sort first.
 func readHostedFactsBinding(brainDir string) (hostedFactsBinding, bool, error) {
 	binding, present, err := readHostedFactsBindingAt(brainDir, hostedFactsBindingPath())
 	if err != nil || present {
 		return binding, present, err
 	}
+	var adopted *hostedFactsBinding
 	for _, rel := range legacyHostedFactsBindingPaths(brainDir) {
-		binding, present, err = readHostedFactsBindingAt(brainDir, rel)
-		if err != nil || present {
-			return binding, present, err
+		legacy, present, err := readHostedFactsBindingAt(brainDir, rel)
+		if err != nil {
+			return hostedFactsBinding{}, false, err
+		}
+		if !present {
+			continue
+		}
+		if adopted == nil {
+			copied := legacy
+			adopted = &copied
+			continue
+		}
+		if *adopted != legacy {
+			return hostedFactsBinding{}, false, fmt.Errorf(
+				"legacy hosted fact bindings disagree (%s at %s vs %s at %s); run 'memories sync' with the intended target to bind this repository",
+				adopted.RepoID, adopted.BaseURL, legacy.RepoID, legacy.BaseURL)
 		}
 	}
-	return hostedFactsBinding{}, false, nil
+	if adopted == nil {
+		return hostedFactsBinding{}, false, nil
+	}
+	// Best-effort promotion: the next read finds the flat marker directly.
+	_ = writeHostedFactsBinding(brainDir, adopted.RepoID, adopted.BaseURL)
+	return *adopted, true, nil
 }
 
 func readHostedFactsBindingAt(brainDir, rel string) (hostedFactsBinding, bool, error) {

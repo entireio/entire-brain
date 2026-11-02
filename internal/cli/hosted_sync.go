@@ -389,9 +389,8 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 
 		member := jwtSubClaim(token)
 		reachable := newCommitReachability(ctx, opts.Runner, repoDir)
-		keptIDs := make(map[string]bool)
 		var keptRecords []factRecord
-		for id, item := range items {
+		for _, item := range items {
 			if !keepHostedFact(item, member, reachable) {
 				continue
 			}
@@ -401,7 +400,6 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 			// must not survive).
 			rec.Author = item.CreatedByHandle
 			keptRecords = append(keptRecords, rec)
-			keptIDs[id] = true
 		}
 		// Same fail-closed rule as the old head pull: a record whose content id
 		// does not re-derive is a forgery, and nothing from this feed — cache
@@ -434,31 +432,14 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 				existing[i].UpdatedAt = opts.Now().UTC()
 			}
 		}
-		// The branch store is the filter output plus this machine's own facts
-		// the feed has not seen (unsynced or push-denied). A record the feed
-		// knows but the filter rejected is another branch's — or a recycled
-		// name's — fact: drop it. This is what replaces rename/recycle
-		// detection (lineage.json is cancelled). Three stand-downs guard
-		// against evicting this machine's own knowledge when the feed's copy
-		// fails the filter (first-writer attribution can belong to a teammate
-		// who pushed the same statement first, carrying only THEIR anchors):
-		// a transcript anchor is proof the fact was distilled here
-		// (SanitizeForEgress strips it on push, so a pulled copy never
-		// carries one); the local copy's OWN anchors get the same keep filter
-		// (judged memberless — being in this store is not proof of
-		// authorship), so a locally reachable commit or an anchor-less pool
-		// fact survives; and with no member identity the filter cannot
-		// recognize this member's facts at all, so removal is disabled
-		// rather than evicting them wholesale.
-		rebuilt := existing[:0]
-		for _, rec := range existing {
-			if _, inFeed := items[rec.ID]; member != "" && inFeed && !keptIDs[rec.ID] &&
-				!hasLocalProvenance(rec) && !keepHostedFact(factsync.FeedItem{Record: rec}, "", reachable) {
-				continue
-			}
-			rebuilt = append(rebuilt, rec)
-		}
-		if err := factstore.Write(storage.BrainDir, rebuilt); err != nil {
+		// Pull never evicts a stored record. The keep filter judges
+		// reachability from the CURRENT branch head, and the flat store holds
+		// every branch's pulls — a teammate fact pulled on another branch must
+		// stay recallable when syncing here. A stored fact leaves the store
+		// when the feed retires it (the lifecycle upsert above) or when the
+		// checkpoint mirror sweep drops provenance the whole repository no
+		// longer has; the keep filter guards INCOMING records only.
+		if err := factstore.Write(storage.BrainDir, existing); err != nil {
 			return err
 		}
 		// A manifest failure reports alongside the successful pull instead of

@@ -468,7 +468,11 @@ func TestHostedSyncCursorResetOnRejectedToken(t *testing.T) {
 	}
 }
 
-func TestHostedSyncRemovesFilterRejectedCachedFacts(t *testing.T) {
+// The flat store holds every branch's pulls, so a stored teammate fact must
+// stay recallable when the CURRENT branch's head cannot reach its anchors —
+// pull judges reachability for incoming records only. A stored fact retires
+// via the feed's lifecycle (or the mirror sweep), never via branch ancestry.
+func TestHostedSyncPullNeverEvictsStoredFacts(t *testing.T) {
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	localFact := hostedSyncTestFact("this machine's unsynced fact", now)
 	teammate := hostedSyncAnchoredFact("teammate fact on a recycled branch", now, factmerge.Anchor{SessionID: "s1", Commit: "c1"})
@@ -505,7 +509,9 @@ func TestHostedSyncRemovesFilterRejectedCachedFacts(t *testing.T) {
 		t.Fatalf("first sync must hold both facts, got %v", ids)
 	}
 
-	// HEAD moved (recycle/rename): the anchor commit is no longer an ancestor.
+	// HEAD moved (another branch checked out): the anchor commit is no longer
+	// an ancestor, and the feed's copy now fails the keep filter. The stored
+	// record must survive anyway.
 	reachable = false
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage); err != nil {
 		t.Fatal(err)
@@ -518,11 +524,36 @@ func TestHostedSyncRemovesFilterRejectedCachedFacts(t *testing.T) {
 	for _, rec := range local {
 		ids[rec.ID] = true
 	}
-	if ids[teammate.ID] {
-		t.Fatal("a cached fact that no longer passes the filter must leave the branch store")
+	if !ids[teammate.ID] {
+		t.Fatal("a stored teammate fact must survive a sync on a branch that cannot reach its anchors")
 	}
 	if !ids[localFact.ID] {
-		t.Fatal("this machine's own unsynced fact must survive the rebuild")
+		t.Fatal("this machine's own unsynced fact must survive the pull")
+	}
+
+	// What DOES retire it: the feed's lifecycle. The retired copy carries the
+	// merge trail stamp, so the filter keeps it and the upsert applies the
+	// one-way status move.
+	retired := teammate
+	retired.Status = factStatusRetracted
+	fake.setTrail(teammate.ID, "trail-9")
+	fake.seed(retired, "trail-9", "acct-teammate", "teammate")
+	// The fake feed is positional; reject the cursor once so the client
+	// refetches from the start and sees the updated (retired) item.
+	fake.mu.Lock()
+	fake.rejectTokens = 1
+	fake.mu.Unlock()
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage); err != nil {
+		t.Fatal(err)
+	}
+	local, err = factstore.Load(storage.BrainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rec := range local {
+		if rec.ID == teammate.ID && rec.Status != factStatusRetracted {
+			t.Fatalf("the hosted retraction must retire the stored fact, got %+v", rec)
+		}
 	}
 }
 

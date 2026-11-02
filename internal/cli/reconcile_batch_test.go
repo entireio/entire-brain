@@ -272,7 +272,7 @@ func TestRebaseDropsConsumedCandidatesOnly(t *testing.T) {
 	// holds only target: the pass merged the candidate away.
 	baseline := []factRecord{target, consumed}
 	inMemory := []factRecord{target}
-	rebased, err := rebaseFactsOntoDisk(brainDir, inMemory, baseline)
+	rebased, _, err := rebaseFactsOntoDisk(brainDir, inMemory, baseline)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -465,6 +465,82 @@ func TestForceWithBranchFilterSweepsOnlyThatBranchsSessions(t *testing.T) {
 	rebuilt := factRecordID("Run tests before committing.", normalizeFactPaths([]string{"workflow.testing.rules"}))
 	if got, ok := byID[rebuilt]; !ok || got.Branch != "feature" {
 		t.Fatalf("the scoped session's fact must be re-derived on its branch: %+v", byID)
+	}
+}
+
+// rebase must report the disk-side novelty — ids another writer created or
+// changed during the run — so the force sweep can exempt them.
+func TestRebaseReportsAdoptedDiskRecords(t *testing.T) {
+	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	brainDir := t.TempDir()
+	unchanged := forceSweepFact("unchanged baseline fact", "main", "s1", now.Add(-time.Hour))
+	changed := forceSweepFact("changed by another writer", "main", "s1", now.Add(-time.Hour))
+	baseline := []factRecord{unchanged, changed}
+	external := forceSweepFact("committed by another writer mid-run", "main", "s1", now)
+	changedOnDisk := changed
+	changedOnDisk.Provenance = append([]factAnchor{{SessionID: "s9"}}, changed.Provenance...)
+	if err := factstore.Write(brainDir, []factRecord{unchanged, changedOnDisk, external}); err != nil {
+		t.Fatal(err)
+	}
+	out, adopted, err := rebaseFactsOntoDisk(brainDir, cloneDistillFacts(baseline), baseline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !adopted[external.ID] || !adopted[changed.ID] || adopted[unchanged.ID] {
+		t.Fatalf("adopted = %v, want the new and the changed disk records only", adopted)
+	}
+	if i := indexOfFact(out, external.ID); i < 0 {
+		t.Fatalf("the concurrent record must be adopted into the result: %+v", out)
+	}
+}
+
+// The sweep may only delete records from this run's own baseline: anything
+// another writer landed during the run is exempt, like regenerated ids. A
+// record citing ANY unrebuilt session (e.g. absorbed from an out-of-scope
+// leftover by a resume merge) is kept by the provenance rule.
+func TestForceSweepExemptsExternalAndPartiallyCitedRecords(t *testing.T) {
+	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	stale := forceSweepFact("stale derivation", "main", "s1", now)
+	external := forceSweepFact("committed by another writer mid-run", "main", "s1", now)
+	mixed := forceSweepFact("absorbed an out-of-scope citation", "main", "s1", now)
+	mixed.Provenance = append(mixed.Provenance, factAnchor{SessionID: "s2"})
+	rebuilt := func(id string) bool { return id == "s1" }
+	kept := sweepStaleForceFacts(
+		cloneDistillFacts([]factRecord{stale, external, mixed}),
+		rebuilt, map[string]bool{}, map[string]bool{external.ID: true})
+	ids := map[string]bool{}
+	for _, f := range kept {
+		ids[f.ID] = true
+	}
+	if ids[stale.ID] || !ids[external.ID] || !ids[mixed.ID] {
+		t.Fatalf("kept = %v, want external and mixed-citation records only", ids)
+	}
+}
+
+// An interrupted force pass's leftovers must not outlive a completed force
+// pass that fully rebuilt their sessions — resume publications are governed by
+// the provenance rule, not regenerated-protection — while a leftover citing a
+// deferred (out-of-scope) session survives.
+func TestForceSweepDropsStaleResumeLeftovers(t *testing.T) {
+	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+	leftoverS1 := forceSweepFact("exports use batch checkpoint reads", "main", "s1", now.Add(-time.Minute))
+	leftoverS1.Status = factStatusCandidate
+	leftoverS2 := forceSweepFact("feature leftover from the interrupted run", "feature", "s2", now.Add(-time.Minute))
+	leftoverS2.Status = factStatusCandidate
+	if err := factstore.Write(brainDir, []factRecord{leftoverS1, leftoverS2}); err != nil {
+		t.Fatal(err)
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: forceSweepRun, timeout: time.Minute, force: true, maxSessions: 1}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatal(err)
+	}
+	byID := forceSweepIDs(t, brainDir)
+	if _, ok := byID[leftoverS1.ID]; ok {
+		t.Fatalf("a resumed leftover from a rebuilt session must not outlive the rebuild: %+v", byID)
+	}
+	if got, ok := byID[leftoverS2.ID]; !ok || got.Status != factStatusActive {
+		t.Fatalf("a resumed leftover from a deferred session must survive as published: %+v", byID)
 	}
 }
 
