@@ -107,7 +107,7 @@ func Promote(source, target []Record, strategy, intoBranch string, now time.Time
 	var proposals []Proposal
 	components := newConflictComponents()
 	promoted := 0
-	changed := false
+	provenanceChanged := false
 	for _, sf := range source {
 		if sf.Status != StatusActive {
 			continue
@@ -117,7 +117,7 @@ func Promote(source, target []Record, strategy, intoBranch string, now time.Time
 			merged := UnionAnchors(result[i].Provenance, sf.Provenance)
 			if !slices.Equal(merged, result[i].Provenance) {
 				result[i].Provenance = merged
-				changed = true
+				provenanceChanged = true
 			}
 			continue
 		}
@@ -165,7 +165,7 @@ func Promote(source, target []Record, strategy, intoBranch string, now time.Time
 			promoted++
 		}
 	}
-	return result, proposals, promoted, changed || promoted > 0
+	return result, proposals, promoted, provenanceChanged || promoted > 0
 }
 
 // Retract marks a fact retracted (no longer true) without deleting it, so

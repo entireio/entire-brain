@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
@@ -20,7 +21,7 @@ func brainFileMtimes(t *testing.T, brainDir string) map[string]time.Time {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == "locks" {
+			if d.Name() == brainstore.BrainLockDirName {
 				return filepath.SkipDir
 			}
 			return nil
@@ -39,18 +40,17 @@ func brainFileMtimes(t *testing.T, brainDir string) map[string]time.Time {
 }
 
 // ageBrainFiles pushes every snapshotted mtime into the past so any rewrite —
-// even one with identical content — is visible as a newer mtime.
-func ageBrainFiles(t *testing.T, mtimes map[string]time.Time) map[string]time.Time {
+// even one with identical content — is visible as a newer mtime. Returns the
+// mtime every file was set to.
+func ageBrainFiles(t *testing.T, mtimes map[string]time.Time) time.Time {
 	t.Helper()
 	past := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	aged := make(map[string]time.Time, len(mtimes))
 	for path := range mtimes {
 		if err := os.Chtimes(path, past, past); err != nil {
 			t.Fatal(err)
 		}
-		aged[path] = past
 	}
-	return aged
+	return past
 }
 
 // TestFactsPromoteNoOpSkipsAllWrites is the regression for the customer whose
@@ -66,7 +66,8 @@ func TestFactsPromoteNoOpSkipsAllWrites(t *testing.T) {
 		t.Fatalf("first promote failed: %v\n%s", err, out)
 	}
 
-	aged := ageBrainFiles(t, brainFileMtimes(t, f.storage.BrainDir))
+	before := brainFileMtimes(t, f.storage.BrainDir)
+	past := ageBrainFiles(t, before)
 
 	out, err = execute(t, NewRootCommand(f.opts), "facts", "promote", "--from", "feature", "--strategy", "keep-both")
 	if err != nil {
@@ -79,13 +80,17 @@ func TestFactsPromoteNoOpSkipsAllWrites(t *testing.T) {
 
 	after := brainFileMtimes(t, f.storage.BrainDir)
 	for path, mtime := range after {
-		agedAt, existed := aged[path]
-		if !existed {
+		if _, existed := before[path]; !existed {
 			t.Errorf("no-op promote created %s", path)
 			continue
 		}
-		if !mtime.Equal(agedAt) {
+		if !mtime.Equal(past) {
 			t.Errorf("no-op promote rewrote %s", path)
+		}
+	}
+	for path := range before {
+		if _, kept := after[path]; !kept {
+			t.Errorf("no-op promote deleted %s", path)
 		}
 	}
 }
@@ -106,7 +111,6 @@ func TestFactsPromoteProvenanceUnionStillWrites(t *testing.T) {
 
 	fact.Provenance = []factAnchor{{SessionID: "s1"}, {SessionID: "s2"}}
 	f.writeFacts(t, "feature", []factRecord{fact})
-	ageBrainFiles(t, brainFileMtimes(t, f.storage.BrainDir))
 
 	out, err = execute(t, NewRootCommand(f.opts), "facts", "promote", "--from", "feature", "--strategy", "keep-both")
 	if err != nil {
