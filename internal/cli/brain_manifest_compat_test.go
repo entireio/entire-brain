@@ -78,7 +78,7 @@ func TestManifestNewerRefusedWithRemedy(t *testing.T) {
 // Every manifest this build writes must declare the current schema version,
 // so a downgraded 0.1.0 binary can detect the skew instead of misreading
 // fields it was never built to understand.
-func TestManifestWrittenAtV4(t *testing.T) {
+func TestManifestWrittenAtCurrentSchema(t *testing.T) {
 	dir := t.TempDir()
 	if err := writeBrainManifestAndReadme(dir, exportManifest{}); err != nil {
 		t.Fatal(err)
@@ -87,11 +87,13 @@ func TestManifestWrittenAtV4(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"schema_version": 4`) {
-		t.Fatalf("manifest was not written at schema version 4: %s", data)
+	// v5 is the flat-store one-way door: released binaries (schema <= 4)
+	// refuse to operate on it rather than half-reading.
+	if !strings.Contains(string(data), `"schema_version": 5`) {
+		t.Fatalf("manifest was not written at schema version 5: %s", data)
 	}
 	manifest, err := bmanifest.Load(dir)
-	if err != nil || manifest.SchemaVersion != 4 {
+	if err != nil || manifest.SchemaVersion != bmanifest.SchemaVersion {
 		t.Fatalf("round trip: manifest=%+v err=%v", manifest, err)
 	}
 }

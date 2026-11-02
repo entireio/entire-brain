@@ -1,288 +1,395 @@
 package factstore
 
-// This adapter is the only place the repository store knows about legacy
-// branch files. Keep it until pre-store binaries are no longer supported.
+// Legacy-layout folding. This file knows every pre-flat layout so the rest of
+// the package doesn't:
 //
-// Memory payloads remain in the old files so released clients can physically
-// delete them. The marker contains no private content. During conversion from
-// schema 1, publish every view before replacing the old snapshot.
-// Legacy writers already use the brain write lock; callers retain that lock
-// around read/modify/write. The store lock additionally serializes snapshot
-// commits (including direct internal writers), never the other way around.
+//   - schema-1 store.json: records plus per-branch views whose entries may
+//     override individual record fields;
+//   - legacy branch NDJSON files (facts/<branch-slug>/facts.ndjson): the
+//     schema-2 world, every released client (v0.2–v0.4), and the stragglers
+//     those clients keep writing after the manifest bump, because their write
+//     path appends to the branch file before their manifest check fails.
+//
+// Keep it until released clients that write branch files are no longer
+// supported; then delete the file wholesale.
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"strings"
 
 	"github.com/entireio/entire-brain/factmerge"
-	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
-func repoFactViewDir(branch string) string { return filepath.Base(BranchRelDir(branch)) }
+// --- in-memory fold ---------------------------------------------------------
 
-func legacyFactViewRel(dir string) string {
-	return filepath.ToSlash(filepath.Join(DirName, dir, FileName))
+type combinedRecords struct {
+	byID map[string]factmerge.Record
+	// unusable counts stored lines that parse but carry no fact id. They are
+	// unaddressable and never folded; the parked originals retain the bytes.
+	unusable int
+	// storeVersion is the on-disk store.json schema (0 when absent).
+	storeVersion int
+	storePresent bool
+	// legacyFiles counts the facts.ndjson files folded from legacy branch dirs.
+	legacyFiles int
+	// collidedIDs are fact ids one legacy FILE stored more than once. A repeat
+	// across files is the ordinary hosted-pull mirror; a repeat within one file
+	// means a record stands where another used to be (COR-2220's damage shape)
+	// and integrity must name it.
+	collidedIDs map[string]struct{}
+	// legacyDirs are the facts/ subdirectories migration must park.
+	legacyDirs []string
+	// legacyIDs are the fact ids legacy sources (schema-1 views, branch files)
+	// contributed — the migration summary's fold count.
+	legacyIDs map[string]struct{}
+	// crossRepeats counts legacy-source records whose id another source already
+	// yielded (a promote or hosted mirror stored one fact in two branch files).
+	// Pre-migration manifests counted those per file, so the integrity check
+	// adds them back to Readable or every legacy brain reads as lossy.
+	crossRepeats int
 }
 
-// NativeProjection renders an old-format export from current native state.
-// Exporters must not rely on a projection still existing on disk.
-func NativeProjection(brainDir, dir string) ([]byte, bool, error) {
-	s, native, err := readRepoFactStore(brainDir)
-	if err != nil || !native {
-		return nil, false, err
+func (c combinedRecords) sorted() []factmerge.Record {
+	out := make([]factmerge.Record, 0, len(c.byID))
+	for _, rec := range c.byID {
+		out = append(out, rec)
 	}
-	if err := s.reconcileView(brainDir, dir); err != nil {
-		return nil, false, err
-	}
-	if _, exists := s.Views[dir]; !exists {
-		return nil, false, nil
-	}
-	records, err := s.view(dir)
-	if err != nil {
-		return nil, false, err
-	}
-	var buf bytes.Buffer
-	if err := factmerge.WriteNDJSON(&buf, records); err != nil {
-		return nil, false, err
-	}
-	return buf.Bytes(), true, nil
+	factmerge.Sort(out)
+	return out
 }
 
-func readLegacyFactView(brainDir, dir string) ([]byte, bool, error) {
-	if err := validRepoFactView(dir); err != nil {
-		return nil, false, err
+func (c combinedRecords) ids() map[string]struct{} {
+	out := make(map[string]struct{}, len(c.byID))
+	for id := range c.byID {
+		out[id] = struct{}{}
 	}
-	rel := legacyFactViewRel(dir)
-	if err := base.RejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
-		return nil, false, err
-	}
-	path := filepath.Join(brainDir, filepath.FromSlash(rel))
-	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
-		return nil, false, fmt.Errorf("fact store is not a regular file: %s", rel)
-	}
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil, false, nil
-	}
-	return data, err == nil, err
+	return out
 }
 
-func (s *repoFactStore) reconcileView(brainDir, dir string) error {
-	data, present, err := readLegacyFactView(brainDir, dir)
-	if err != nil || !present {
-		// Removing a projection is not a canonical deletion. An explicit
-		// empty view (GC/purge) is a mutation and DOES reconcile below.
-		return err
-	}
-	sum := sha256.Sum256(data)
-	digest := hex.EncodeToString(sum[:])
-	if v, ok := s.Views[dir]; ok && v.LegacyDigest == digest {
-		return nil
-	}
-	records, err := factmerge.ParseNDJSON(bytes.NewReader(data))
+// loadCombined reads the flat store and folds every legacy source in memory.
+// Read-only: it never writes, parks, or migrates.
+func loadCombined(brainDir string) (combinedRecords, error) {
+	combined := combinedRecords{byID: map[string]factmerge.Record{}}
+	version, data, present, err := readStoreFile(brainDir)
 	if err != nil {
-		return fmt.Errorf("parse %s: %w; %s", legacyFactViewRel(dir), err, RepairHint())
+		return combined, err
 	}
-	previous, err := s.view(dir)
-	if err != nil {
-		return err
-	}
-	byID := make(map[string]factmerge.Record, len(previous))
-	for _, rec := range previous {
-		byID[rec.ID] = rec
-	}
-	for i, rec := range records {
-		old, ok := byID[rec.ID]
-		if ok && (old.Status == factmerge.StatusRetracted || old.Status == factmerge.StatusSuperseded) &&
-			rec.Status == factmerge.StatusActive && !rec.UpdatedAt.After(old.UpdatedAt) {
-			// A replay of a stale projection cannot revive a retirement. A
-			// later explicit remember remains supported by both CLI versions.
-			records[i].Status = old.Status
-			records[i].SupersededBy = old.SupersededBy
-			records[i].UpdatedAt = old.UpdatedAt
-		}
-	}
-	return s.replaceView(dir, records, digest)
-}
-
-func reconcileRepoFactStore(brainDir string) (repoFactStore, error) {
-	s, _, err := readRepoFactStore(brainDir)
-	if err != nil {
-		return s, err
-	}
-	if err := base.RejectExistingSymlinkPathComponents(brainDir, DirName); err != nil {
-		return s, err
-	}
-	entries, err := os.ReadDir(filepath.Join(brainDir, DirName))
-	if os.IsNotExist(err) {
-		return s, nil
-	}
-	if err != nil {
-		return s, err
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		if err := s.reconcileView(brainDir, entry.Name()); err != nil {
-			return s, err
-		}
-	}
-	return s, nil
-}
-
-func loadRepoFactView(brainDir, branch string) ([]factmerge.Record, error) {
-	s, _, err := readRepoFactStore(brainDir)
-	if err != nil {
-		return nil, err
-	}
-	dir := repoFactViewDir(branch)
-	if err := s.reconcileView(brainDir, dir); err != nil {
-		return nil, err
-	}
-	return s.view(dir)
-}
-
-func loadRepoFactViews(brainDir string) (map[string][]factmerge.Record, error) {
-	s, err := reconcileRepoFactStore(brainDir)
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[string][]factmerge.Record, len(s.Views))
-	for dir := range s.Views {
-		out[dir], err = s.view(dir)
+	combined.storeVersion = version
+	combined.storePresent = present
+	var v1ByDir map[string][]factmerge.Record
+	switch {
+	case !present:
+	case version == repoFactsVersion:
+		records, err := decodeV3(data)
 		if err != nil {
-			return nil, err
+			return combined, err
+		}
+		for _, rec := range records {
+			combined.fold(rec)
+		}
+	case version == 2:
+		// Bodyless marker; payloads live in the legacy branch files below.
+		if err := checkLegacyMarker(data); err != nil {
+			return combined, err
+		}
+	case version == 1:
+		// Folded AFTER the branch files below: a view is a snapshot of its
+		// dir's file, so the live file decides which of its entries survive.
+		v1ByDir, err = decodeV1(data)
+		if err != nil {
+			return combined, err
+		}
+	default:
+		return combined, fmt.Errorf("invalid repository memory store header")
+	}
+
+	combined.legacyDirs, err = legacyBranchDirs(brainDir)
+	if err != nil {
+		return combined, err
+	}
+	// fileIDs records, per dir with a live facts.ndjson, the ids that file
+	// holds — including a present-but-empty file, which is an explicit purge.
+	fileIDs := map[string]map[string]struct{}{}
+	for _, dir := range combined.legacyDirs {
+		rel := filepath.Join(DirName, dir, FileName)
+		path := filepath.Join(brainDir, filepath.FromSlash(rel))
+		info, statErr := os.Lstat(path)
+		if statErr != nil {
+			continue // a dir without a facts.ndjson holds nothing to fold
+		}
+		// A facts.ndjson that EXISTS but is a symlink or otherwise non-regular
+		// is tampering or damage, never an empty store: refuse rather than
+		// silently omit its records (the pre-flat loader's contract) — and
+		// never read through a link that may point outside the brain.
+		if !info.Mode().IsRegular() {
+			return combined, fmt.Errorf("legacy fact store is not a regular file: %s", filepath.ToSlash(rel))
+		}
+		records, err := parseFactsFile(path)
+		if err != nil {
+			return combined, err
+		}
+		combined.legacyFiles++
+		seenInFile := make(map[string]struct{}, len(records))
+		for _, rec := range records {
+			if id := strings.TrimSpace(rec.ID); id != "" {
+				if _, repeated := seenInFile[id]; repeated {
+					if combined.collidedIDs == nil {
+						combined.collidedIDs = map[string]struct{}{}
+					}
+					combined.collidedIDs[id] = struct{}{}
+				} else if _, known := combined.byID[id]; known {
+					combined.crossRepeats++
+				}
+				seenInFile[id] = struct{}{}
+			}
+			combined.foldLegacy(rec)
+		}
+		fileIDs[dir] = seenInFile
+	}
+	// Schema-1 views. A view whose dir has a live branch file is the file's
+	// stale snapshot: entries the file no longer carries were deleted there
+	// (an old `privacy purge` edits only the file) and must not resurrect.
+	// A view with no live file is the only copy and folds whole.
+	for dir, records := range v1ByDir {
+		live, hasFile := fileIDs[dir]
+		for _, rec := range records {
+			if hasFile {
+				if _, ok := live[rec.ID]; !ok {
+					continue
+				}
+			}
+			if _, known := combined.byID[strings.TrimSpace(rec.ID)]; known {
+				combined.crossRepeats++
+			}
+			combined.foldLegacy(rec)
+		}
+	}
+	return combined, nil
+}
+
+// fold merges one record into the set by content id: the lifecycle winner is
+// resolved first (see incomingLifecycleWins), then factmerge.Upsert unions
+// provenance and metadata onto the winner. Order-independent: folding A then B
+// lands on the same record as B then A.
+func (c *combinedRecords) fold(incoming factmerge.Record) {
+	if strings.TrimSpace(incoming.ID) == "" {
+		c.unusable++
+		return
+	}
+	existing, ok := c.byID[incoming.ID]
+	if !ok {
+		c.byID[incoming.ID] = incoming
+		return
+	}
+	winner, loser := existing, incoming
+	if incomingLifecycleWins(existing, incoming) {
+		winner, loser = incoming, existing
+	}
+	c.byID[incoming.ID] = factmerge.Upsert([]factmerge.Record{winner}, loser)[0]
+}
+
+// foldLegacy is fold for records read out of legacy sources, tracked so the
+// migration summary can say how many records those sources contributed.
+func (c *combinedRecords) foldLegacy(incoming factmerge.Record) {
+	if strings.TrimSpace(incoming.ID) != "" {
+		if c.legacyIDs == nil {
+			c.legacyIDs = map[string]struct{}{}
+		}
+		c.legacyIDs[incoming.ID] = struct{}{}
+	}
+	c.fold(incoming)
+}
+
+// incomingLifecycleWins decides which copy's lifecycle survives a same-id
+// merge. Ranks: retirement (retracted/superseded) > active > candidate —
+// except that a strictly NEWER active copy revives a retirement (a later
+// explicit remember is a real decision; an active replay of a stale
+// projection is not). Rank ties go to the newer UpdatedAt; full ties keep the
+// already-stored side.
+func incomingLifecycleWins(existing, incoming factmerge.Record) bool {
+	re, ri := lifecycleRank(existing), lifecycleRank(incoming)
+	if re == 2 && ri == 1 {
+		return incoming.UpdatedAt.After(existing.UpdatedAt)
+	}
+	if ri == 2 && re == 1 {
+		return !existing.UpdatedAt.After(incoming.UpdatedAt)
+	}
+	if ri != re {
+		return ri > re
+	}
+	return incoming.UpdatedAt.After(existing.UpdatedAt)
+}
+
+func lifecycleRank(r factmerge.Record) int {
+	switch r.Status {
+	case factmerge.StatusCandidate:
+		return 0
+	case factmerge.StatusActive:
+		return 1
+	default: // retracted, superseded
+		return 2
+	}
+}
+
+// --- legacy store.json decoding ----------------------------------------------
+
+type legacyV1Store struct {
+	SchemaVersion int                        `json:"schema_version"`
+	Records       map[string]json.RawMessage `json:"records"`
+	Views         map[string]legacyV1View    `json:"views"`
+}
+
+type legacyV1View struct {
+	LegacyDigest string          `json:"legacy_digest,omitempty"`
+	Entries      []legacyV1Entry `json:"entries"`
+}
+
+type legacyV1Entry struct {
+	ID       string                     `json:"id"`
+	Override map[string]json.RawMessage `json:"override,omitempty"`
+}
+
+type legacyV2Marker struct {
+	SchemaVersion int    `json:"schema_version"`
+	Storage       string `json:"storage"`
+}
+
+func checkLegacyMarker(data []byte) error {
+	var marker legacyV2Marker
+	if _, err := brainstore.DecodeStrictVersionedJSON(data, &marker, 2, "repository memory store"); err != nil {
+		return err
+	}
+	if marker.Storage != "legacy_views" {
+		return fmt.Errorf("invalid repository memory storage mode")
+	}
+	return nil
+}
+
+// decodeV1 flattens a schema-1 store: every view entry, overrides applied,
+// becomes a plain record, grouped by the view's dir so the caller can weigh
+// each view against its dir's live branch file.
+func decodeV1(data []byte) (map[string][]factmerge.Record, error) {
+	s := legacyV1Store{}
+	if _, err := brainstore.DecodeStrictVersionedJSON(data, &s, 1, "repository memory store"); err != nil {
+		return nil, err
+	}
+	if s.SchemaVersion != 1 || s.Records == nil || s.Views == nil {
+		return nil, fmt.Errorf("invalid repository memory store header")
+	}
+	out := map[string][]factmerge.Record{}
+	for dir, view := range s.Views {
+		for _, entry := range view.Entries {
+			rec, err := decodeLegacyV1Entry(s, entry)
+			if err != nil {
+				return nil, fmt.Errorf("memory view %s: %w", dir, err)
+			}
+			out[dir] = append(out[dir], rec)
 		}
 	}
 	return out, nil
 }
 
-func withRepoFactStoreLock(brainDir string, fn func() error) error {
-	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
-		return err
+func decodeLegacyV1Entry(s legacyV1Store, entry legacyV1Entry) (factmerge.Record, error) {
+	var rec factmerge.Record
+	raw, ok := s.Records[entry.ID]
+	if !ok || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return rec, fmt.Errorf("missing or invalid repository memory record %s", entry.ID)
 	}
-	rel := filepath.Join(brainstore.BrainLockDirName, "memory-store.lock")
-	if err := base.RejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
-		return err
-	}
-	lock, err := brainstore.AcquireFileLock(filepath.Join(brainDir, rel), "memory_store_locked", brainstore.BrainWriteLockTimeout)
-	if err != nil {
-		return err
-	}
-	defer lock.Close()
-	return fn()
-}
-
-func writeRepoFactView(brainDir, dir string, records []factmerge.Record) error {
-	return commitRepoFactView(brainDir, dir, records, writeRepoFactStore)
-}
-
-// persist is an operation-local fault-injection seam; tests do not replace
-// process globals while concurrent writers are running.
-func commitRepoFactView(brainDir, dir string, records []factmerge.Record, persist func(string, *repoFactStore) error) error {
-	if err := validRepoFactView(dir); err != nil {
-		return err
-	}
-	var buf bytes.Buffer
-	if err := factmerge.WriteNDJSON(&buf, records); err != nil {
-		return err
-	}
-	return withRepoFactStoreLock(brainDir, func() error {
-		s, _, err := readRepoFactStore(brainDir)
-		if err != nil {
-			return err
+	if len(entry.Override) != 0 {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
+			return rec, fmt.Errorf("invalid repository memory record %s", entry.ID)
 		}
-		// Converting schema 1 must preserve old-client changes in every view.
-		// Once converted, ordinary writes depend only on their target view.
-		if s.SchemaVersion == 1 {
-			s, err = reconcileRepoFactStore(brainDir)
-			if err != nil {
-				return err
+		for key, value := range entry.Override {
+			if value == nil { // absent field, distinct from a JSON null
+				delete(fields, key)
+			} else {
+				fields[key] = value
 			}
 		}
-		if err := s.reconcileView(brainDir, dir); err != nil {
-			return err
+		var err error
+		raw, err = json.Marshal(fields)
+		if err != nil {
+			return rec, err
 		}
-		sum := sha256.Sum256(buf.Bytes())
-		if err := s.replaceView(dir, records, hex.EncodeToString(sum[:])); err != nil {
-			return err
-		}
-
-		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, legacyFactViewRel(dir), buf.Bytes(), 0o600); err != nil {
-			return err
-		}
-		return persist(brainDir, &s)
-	})
+	}
+	if err := json.Unmarshal(raw, &rec); err != nil {
+		return rec, err
+	}
+	if rec.ID != entry.ID {
+		return rec, fmt.Errorf("memory view changes record identity %s", entry.ID)
+	}
+	return rec, nil
 }
 
-// MigrateRepository is idempotent, including after a failed snapshot write.
-// Original branch files remain readable by old releases and form the rollback
-// representation; there is no backup containing stale private memories.
-func MigrateRepository(brainDir string) error {
-	return withRepoFactStoreLock(brainDir, func() error {
-		s, err := reconcileRepoFactStore(brainDir)
+// --- migration ---------------------------------------------------------------
+
+// MigrationSummary reports what a MigrateRepository pass changed. The zero
+// value is a no-op pass.
+type MigrationSummary struct {
+	// Folded is how many records legacy sources contributed to the fold.
+	Folded int
+	// StragglerFiles counts legacy facts.ndjson files found while the store was
+	// already flat: a released (pre-flat) entire-brain wrote memories after
+	// migration. The caller should tell the user to update that machine.
+	StragglerFiles int
+	// MovedDirs are the brain-relative legacy dirs parked under
+	// facts/.legacy-<ts>/ after the fold was verified.
+	MovedDirs []string
+}
+
+// Changed reports whether the pass wrote anything.
+func (s MigrationSummary) Changed() bool {
+	return s.Folded > 0 || s.StragglerFiles > 0 || len(s.MovedDirs) > 0
+}
+
+// MigrateRepository is the standing, idempotent reconcile of legacy layouts
+// into the flat store: build (fold every source in memory), verify (re-read
+// the written store and require every folded id), then move the legacy dirs
+// aside. A brain with a flat store and no legacy sources is a no-op — no
+// write. Callers hold the brain write lock; refresh calls this on every run,
+// which is what folds the files released clients keep writing.
+func MigrateRepository(brainDir string) (MigrationSummary, error) {
+	var summary MigrationSummary
+	err := withRepoFactStoreLock(brainDir, func() error {
+		combined, err := loadCombined(brainDir)
 		if err != nil {
 			return err
 		}
-		return writeRepoFactStore(brainDir, &s)
-	})
-}
-
-// RollbackRepository materializes CURRENT views, including post-upgrade
-// writes. Keep the snapshot until every projection has been published. The
-// operation is rerunnable after any failure; callers hold the brain write lock.
-func RollbackRepository(brainDir string) error {
-	return withRepoFactStoreLock(brainDir, func() error {
-		s, err := reconcileRepoFactStore(brainDir)
+		flatAlready := combined.storeVersion == repoFactsVersion || !combined.storePresent
+		if flatAlready && len(combined.legacyDirs) == 0 {
+			return nil // nothing legacy anywhere: no write
+		}
+		if combined.storeVersion == repoFactsVersion {
+			summary.StragglerFiles = combined.legacyFiles
+		}
+		summary.Folded = len(combined.legacyIDs)
+		if err := writeFlatStore(brainDir, combined.sorted()); err != nil {
+			return err
+		}
+		// Verify before destroying anything: the store on disk must produce
+		// every folded id. Failure leaves the legacy dirs in place.
+		_, data, _, err := readStoreFile(brainDir)
 		if err != nil {
 			return err
 		}
-		if err := publishRepoFactViews(brainDir, &s); err != nil {
+		written, err := decodeV3(data)
+		if err != nil {
 			return err
 		}
-		if err := cleanupRepoFactTemps(brainDir); err != nil {
-			return err
+		for id := range combined.ids() {
+			if _, ok := written[id]; !ok {
+				return fmt.Errorf("migration verify failed: written store is missing %s; legacy files left in place", id)
+			}
 		}
-		err = os.Remove(filepath.Join(brainDir, filepath.FromSlash(RepositoryPath)))
-		if os.IsNotExist(err) {
-			return nil
-		}
+		moved, err := parkLegacyDirs(brainDir)
+		summary.MovedDirs = moved
 		return err
 	})
-}
-
-func publishRepoFactViews(brainDir string, s *repoFactStore) error {
-	dirs := make([]string, 0, len(s.Views))
-	for dir := range s.Views {
-		dirs = append(dirs, dir)
-	}
-	sort.Strings(dirs)
-	for _, dir := range dirs {
-		records, err := s.view(dir)
-		if err != nil {
-			return err
-		}
-		var buf bytes.Buffer
-		if err := factmerge.WriteNDJSON(&buf, records); err != nil {
-			return err
-		}
-		current, present, err := readLegacyFactView(brainDir, dir)
-		if err != nil {
-			return err
-		}
-		if present && bytes.Equal(current, buf.Bytes()) {
-			continue
-		}
-		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, legacyFactViewRel(dir), buf.Bytes(), 0o600); err != nil {
-			return err
-		}
-	}
-	return nil
+	return summary, err
 }

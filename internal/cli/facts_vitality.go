@@ -117,12 +117,16 @@ func newVitalityRollup() vitalityRollup {
 	return vitalityRollup{SchemaVersion: factsVitalitySchemaVersion, Facts: map[string]*vitalityFactRollup{}}
 }
 
-func factsVitalityLogRelPath(branch string) string {
-	return filepath.ToSlash(filepath.Join(factstore.BranchRelDir(branch), factsVitalityLogFileName))
+// One repo-wide receipt log since the store went flat. Old per-branch logs
+// are receipts — droppable telemetry — so they are simply no longer read.
+// The branch parameter survives on the append/read plumbing because events
+// still carry the serving branch as metadata.
+func factsVitalityLogRelPath(string) string {
+	return filepath.ToSlash(filepath.Join(factstore.DirName, factsVitalityLogFileName))
 }
 
-func factsVitalityRollupRelPath(branch string) string {
-	return filepath.ToSlash(filepath.Join(factstore.BranchRelDir(branch), factsVitalityRollupFileName))
+func factsVitalityRollupRelPath(string) string {
+	return filepath.ToSlash(filepath.Join(factstore.DirName, factsVitalityRollupFileName))
 }
 
 // vitalityTaskHash hashes the task/query text that drove a serve. Only this

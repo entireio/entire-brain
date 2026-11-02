@@ -1,11 +1,9 @@
 package factstore
 
-import (
-	"sort"
-)
-
-// StorageStatus describes the current store after reconciling legacy changes
-// in memory. Reading status never migrates or writes the store.
+// StorageStatus describes the current store after folding legacy sources in
+// memory. Reading status never migrates or writes the store. Views counts the
+// legacy branch dirs still awaiting migration (the JSON key predates the flat
+// store and is kept for its readers).
 type StorageStatus struct {
 	SchemaVersion int    `json:"schema_version"`
 	Format        string `json:"format"`
@@ -15,40 +13,21 @@ type StorageStatus struct {
 }
 
 func RepositoryStatus(brainDir string) (StorageStatus, error) {
-	stored, native, err := readRepoFactStore(brainDir)
+	combined, err := loadCombined(brainDir)
 	if err != nil {
 		return StorageStatus{}, err
 	}
-	s, err := reconcileRepoFactStore(brainDir)
-	if err != nil {
-		return StorageStatus{}, err
+	format := "repository"
+	if combined.storeVersion != repoFactsVersion && (combined.storePresent || len(combined.legacyDirs) > 0) {
+		format = "legacy"
+	} else if len(combined.legacyDirs) > 0 {
+		format = "compatibility"
 	}
-	if err := s.compact(); err != nil {
-		return StorageStatus{}, err
+	version := combined.storeVersion
+	if !combined.storePresent {
+		version = repoFactsVersion
 	}
-	format := "legacy"
-	if native {
-		format = "repository"
-		if stored.SchemaVersion == repoFactsVersion {
-			format = "compatibility"
-		}
-	}
-	return StorageStatus{1, format, true, len(s.Records), len(s.Views)}, nil
-}
-
-// RepositoryViewDirs lists native view directories even when their legacy
-// projections are missing. The boolean indicates whether a snapshot exists.
-func RepositoryViewDirs(brainDir string) ([]string, bool, error) {
-	s, native, err := readRepoFactStore(brainDir)
-	if err != nil {
-		return nil, native, err
-	}
-	dirs := make([]string, 0, len(s.Views))
-	for dir := range s.Views {
-		dirs = append(dirs, dir)
-	}
-	sort.Strings(dirs)
-	return dirs, native, nil
+	return StorageStatus{version, format, len(combined.legacyDirs) > 0, len(combined.byID), len(combined.legacyDirs)}, nil
 }
 
 // CleanupRepositoryTemps removes abandoned snapshots under the store lock.

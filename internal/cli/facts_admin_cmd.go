@@ -43,7 +43,6 @@ func newFactsCommand(opts Options) *cobra.Command {
 
 func newFactsRetractCommand(opts Options) *cobra.Command {
 	var (
-		branch  string
 		jsonOut bool
 		global  bool
 	)
@@ -54,20 +53,16 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			factID := args[0]
 			var (
-				brainDir       string
-				resolvedBranch string
-				err            error
+				brainDir string
+				err      error
 			)
 			// A fact that can be written and not retracted is a fact you are
 			// stuck with. Global facts surface in every repository, so being
 			// stuck with a wrong one is worse, not better.
 			if global {
-				if strings.TrimSpace(branch) != "" {
-					return fmt.Errorf("--global and --branch cannot be combined: a global memory is not on a branch")
-				}
-				brainDir, resolvedBranch, err = factstore.ResolveGlobalTarget(opts.Env)
+				brainDir, err = factstore.ResolveGlobalTarget(opts.Env)
 			} else {
-				_, brainDir, resolvedBranch, err = resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+				_, brainDir, _, err = resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), "")
 			}
 			if err != nil {
 				return err
@@ -78,7 +73,10 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 			// record cannot be re-read after the mutation.
 			retracted := factRecord{ID: factID}
 			if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-				facts, err := factstore.Load(brainDir, resolvedBranch)
+				if _, err := migrateFactStoreLocked(brainDir); err != nil {
+					return err
+				}
+				facts, err := factstore.Load(brainDir)
 				if err != nil {
 					return err
 				}
@@ -87,7 +85,7 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 					if global {
 						return fmt.Errorf("no global memory %s", factID)
 					}
-					return fmt.Errorf("no memory %s on %s", factID, resolvedBranch)
+					return fmt.Errorf("no memory %s", factID)
 				}
 				changed = didChange
 				if !changed {
@@ -100,7 +98,7 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 				if i := indexOfFact(facts, factID); i >= 0 {
 					retracted = facts[i]
 				}
-				if err := factstore.Write(brainDir, resolvedBranch, facts); err != nil {
+				if err := factstore.Write(brainDir, facts); err != nil {
 					return err
 				}
 				return updateFactSourceManifestLocked(brainDir, now)
@@ -114,13 +112,13 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 				if global {
 					webhook.NotifyGlobalFactWebhook(cmd.Context(), cmd.ErrOrStderr(), webhook.WebhookFactRetracted, retracted, now)
 				} else {
-					webhook.NotifyFactWebhook(cmd.Context(), cmd.ErrOrStderr(), opts, webhook.WebhookFactRetracted, resolvedBranch, retracted, now)
+					webhook.NotifyFactWebhook(cmd.Context(), cmd.ErrOrStderr(), opts, webhook.WebhookFactRetracted, retracted.Branch, retracted, now)
 				}
 			}
 			if jsonOut {
-				return cmdutil.WriteJSON(cmd, map[string]any{"id": factID, "branch": resolvedBranch, "status": factStatusRetracted, "changed": changed})
+				return cmdutil.WriteJSON(cmd, map[string]any{"id": factID, "status": factStatusRetracted, "changed": changed})
 			}
-			where := "on " + resolvedBranch
+			where := "in this repository"
 			if global {
 				where = "globally"
 			}
@@ -132,7 +130,6 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch the memory belongs to (default: current branch)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the result as JSON")
 	cmd.Flags().BoolVar(&global, "global", false, "Retract a global memory rather than one of this repository's")
 	return cmd
@@ -166,18 +163,19 @@ func newFactsGCCommand(opts Options) *cobra.Command {
 				if strings.TrimSpace(branch) != "" {
 					return fmt.Errorf("--global and --branch cannot be combined: a global memory is not on a branch")
 				}
-				brainDir, resolvedBranch, err = factstore.ResolveGlobalTarget(opts.Env)
+				brainDir, err = factstore.ResolveGlobalTarget(opts.Env)
 			} else {
-				_, brainDir, resolvedBranch, err = resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+				_, brainDir, _, err = resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), "")
 			}
 			if err != nil {
 				return err
 			}
+			resolvedBranch = strings.TrimSpace(branch)
 			return runFactsGC(cmd, opts, brainDir, resolvedBranch, force, retain, jsonOut)
 		},
 	}
 	cmd.Flags().BoolVar(&global, "global", false, "Prune the global memory store rather than this repository's")
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch to gc (default: current branch)")
+	cmd.Flags().StringVar(&branch, "branch", "", "Only gc memories stamped with this branch (default: all)")
 	cmd.Flags().BoolVar(&force, "force", false, "Actually prune (default: dry-run reporting what would be pruned)")
 	cmd.Flags().DurationVar(&retain, "retain", defaultFactRetention, "Retain superseded memories updated within this window")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the gc summary as JSON")
@@ -186,7 +184,6 @@ func newFactsGCCommand(opts Options) *cobra.Command {
 
 func newFactsReclassifyCommand(opts Options) *cobra.Command {
 	var (
-		branch  string
 		force   bool
 		jsonOut bool
 	)
@@ -196,38 +193,40 @@ func newFactsReclassifyCommand(opts Options) *cobra.Command {
 		Short:  "Backfill the deterministic KIND onto memories missing one (no agent)",
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			_, brainDir, _, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), "")
 			if err != nil {
 				return err
 			}
-			return runFactsReclassify(cmd, opts, brainDir, resolvedBranch, force, jsonOut)
+			return runFactsReclassify(cmd, opts, brainDir, force, jsonOut)
 		},
 	}
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch to reclassify (default: current branch)")
 	cmd.Flags().BoolVar(&force, "force", false, "Recompute every memory's kind (default: only fill memories missing a valid kind)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the reclassify summary as JSON")
 	return cmd
 }
 
-func runFactsReclassify(cmd *cobra.Command, opts Options, brainDir, branch string, force, jsonOut bool) error {
+func runFactsReclassify(cmd *cobra.Command, opts Options, brainDir string, force, jsonOut bool) error {
 	now := opts.Now().UTC()
 	var facts []factRecord
 	changed := 0
 	// The whole load-mutate-write runs under the brain write lock, like every
-	// other fact mutator (remember, retract, review, promote, gc, distill's
-	// flush) and like the refresh-time reclassifyAllFactBranches. Reading the
-	// store outside it and writing the mutated copy back is a lost update: a
-	// concurrent writer that commits between this read and this write is
-	// silently overwritten, and its facts disappear.
+	// other fact mutator (remember, retract, gc, distill's flush) and like the
+	// refresh-time reclassifyAllFacts. Reading the store outside it and
+	// writing the mutated copy back is a lost update: a concurrent writer that
+	// commits between this read and this write is silently overwritten, and
+	// its facts disappear.
 	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		loaded, err := factstore.Load(brainDir, branch)
+		if _, err := migrateFactStoreLocked(brainDir); err != nil {
+			return err
+		}
+		loaded, err := factstore.Load(brainDir)
 		if err != nil {
 			return err
 		}
 		facts = loaded
 		changed = factstore.Reclassify(facts, force)
 		if changed > 0 {
-			if err := factstore.Write(brainDir, branch, facts); err != nil {
+			if err := factstore.Write(brainDir, facts); err != nil {
 				return err
 			}
 		}
@@ -245,9 +244,9 @@ func runFactsReclassify(cmd *cobra.Command, opts Options, brainDir, branch strin
 		}
 	}
 	if jsonOut {
-		return cmdutil.WriteJSON(cmd, map[string]any{"branch": branch, "changed": changed, "facts": len(facts), "by_kind": byKind})
+		return cmdutil.WriteJSON(cmd, map[string]any{"changed": changed, "facts": len(facts), "by_kind": byKind})
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "reclassified %d of %d memory(ies) on %s\n", changed, len(facts), branch)
+	fmt.Fprintf(cmd.OutOrStdout(), "reclassified %d of %d memory(ies)\n", changed, len(facts))
 	for _, kind := range []string{factKindDecision, factKindInvariant, factKindGotcha, factKindPreference, factKindConvention} {
 		if byKind[kind] > 0 {
 			fmt.Fprintf(cmd.OutOrStdout(), "  %-11s %d\n", kind, byKind[kind])
@@ -259,7 +258,6 @@ func runFactsReclassify(cmd *cobra.Command, opts Options, brainDir, branch strin
 func newFactsOutlineCommand(opts Options) *cobra.Command {
 	var (
 		gen     outlineGenOptions
-		branch  string
 		jsonOut bool
 	)
 	gen.agent = "auto"
@@ -269,11 +267,11 @@ func newFactsOutlineCommand(opts Options) *cobra.Command {
 		Short: "Generate the synthesized hierarchical memory outline (agent rollup summaries)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			repoDir, brainDir, _, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), "")
 			if err != nil {
 				return err
 			}
-			facts, err := factstore.Load(brainDir, resolvedBranch)
+			facts, err := factstore.Load(brainDir)
 			if err != nil {
 				return err
 			}
@@ -282,21 +280,20 @@ func newFactsOutlineCommand(opts Options) *cobra.Command {
 				resolved.agent = defaultRefreshAgent(cmd.Context(), opts.Runner, repoDir)
 			}
 			now := opts.Now().UTC()
-			outline, regenerated, err := generateFactOutline(cmd.Context(), repoDir, brainDir, resolvedBranch, facts, resolved, now)
+			outline, regenerated, err := generateFactOutline(cmd.Context(), repoDir, brainDir, facts, resolved, now)
 			if err != nil {
 				return err
 			}
-			if err := writeFactOutline(brainDir, resolvedBranch, outline); err != nil {
+			if err := writeFactOutline(brainDir, outline); err != nil {
 				return err
 			}
 			if jsonOut {
-				return cmdutil.WriteJSON(cmd, map[string]any{"branch": resolvedBranch, "nodes": len(outline.Nodes), "regenerated": regenerated})
+				return cmdutil.WriteJSON(cmd, map[string]any{"nodes": len(outline.Nodes), "regenerated": regenerated})
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "outline for %s: %d node(s), %d summary(ies) regenerated\n", resolvedBranch, len(outline.Nodes), regenerated)
+			fmt.Fprintf(cmd.OutOrStdout(), "outline: %d node(s), %d summary(ies) regenerated\n", len(outline.Nodes), regenerated)
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch to outline (default: current branch)")
 	cmd.Flags().StringVar(&gen.agent, "agent", "auto", "Agent for summaries: auto, codex, claude-code, command, or none")
 	cmd.Flags().StringArrayVar(&gen.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&gen.model, "model", "", "Override the agent model (pairs with --effort for a cheap run)")
@@ -312,7 +309,6 @@ func newFactsOutlineCommand(opts Options) *cobra.Command {
 
 func newFactsMapCommand(opts Options) *cobra.Command {
 	var (
-		branch  string
 		path    string
 		depth   int
 		jsonOut bool
@@ -322,7 +318,7 @@ func newFactsMapCommand(opts Options) *cobra.Command {
 		Short: "Render the synthesized memory outline (summaries + structure) with progressive disclosure",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			_, brainDir, _, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), "")
 			if err != nil {
 				return err
 			}
@@ -331,12 +327,12 @@ func newFactsMapCommand(opts Options) *cobra.Command {
 			// fingerprint still matches — so a summary for a changed subtree is
 			// hidden rather than shown stale, and no `facts outline` run is required
 			// to see the map.
-			facts, err := factstore.Load(brainDir, resolvedBranch)
+			facts, err := factstore.Load(brainDir)
 			if err != nil {
 				return err
 			}
-			outline := buildFactOutlineTree(resolvedBranch, facts, opts.Now().UTC())
-			if stored, storedErr := loadFactOutline(brainDir, resolvedBranch); storedErr == nil {
+			outline := buildFactOutlineTree(facts, opts.Now().UTC())
+			if stored, storedErr := loadFactOutline(brainDir); storedErr == nil {
 				for key, n := range outline.Nodes {
 					if s, ok := stored.Nodes[key]; ok && s.Fingerprint == n.Fingerprint && s.Summary != "" {
 						n.Summary = s.Summary
@@ -346,7 +342,7 @@ func newFactsMapCommand(opts Options) *cobra.Command {
 			}
 			node := path
 			if _, ok := outline.Nodes[node]; !ok {
-				return fmt.Errorf("no outline node %q on %s", path, resolvedBranch)
+				return fmt.Errorf("no outline node %q", path)
 			}
 			// The outline counts what factstore.Load produced. When the manifest
 			// declares more than that, "root (4 facts)" is a count of survivors
@@ -362,32 +358,52 @@ func newFactsMapCommand(opts Options) *cobra.Command {
 			var b strings.Builder
 			renderFactOutline(&b, outline, node, depth)
 			if b.Len() == 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "no memories on %s\n", resolvedBranch)
+				fmt.Fprintln(cmd.OutOrStdout(), "no memories")
 				return integrityErr
 			}
 			fmt.Fprint(cmd.OutOrStdout(), b.String())
 			return integrityErr
 		},
 	}
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch to map (default: current branch)")
 	cmd.Flags().StringVar(&path, "path", "", "Drill into a node key (a directory tier, e.g. internal/cli)")
 	cmd.Flags().IntVar(&depth, "depth", 0, "Levels to render below the node (0 = all)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the outline as JSON")
 	return cmd
 }
 
+// runFactsGC prunes over the flat store. branch is an explicit metadata
+// filter: when set, only records stamped with that branch are gc candidates
+// and everything else passes through untouched; empty means the whole store.
 func runFactsGC(cmd *cobra.Command, opts Options, brainDir, branch string, force bool, retain time.Duration, jsonOut bool) error {
-	facts, err := factstore.Load(brainDir, branch)
-	if err != nil {
-		return err
-	}
 	now := opts.Now().UTC()
-	taxonomy, err := factstore.LoadTaxonomy(brainDir, now)
+	gcPass := func(facts []factRecord) ([]factRecord, gcResult, error) {
+		taxonomy, err := factstore.LoadTaxonomy(brainDir, now)
+		if err != nil {
+			return nil, gcResult{}, err
+		}
+		scoped := facts
+		var passthrough []factRecord
+		if branch != "" {
+			scoped = scoped[:0:0]
+			for _, f := range facts {
+				if f.Branch == branch {
+					scoped = append(scoped, f)
+				} else {
+					passthrough = append(passthrough, f)
+				}
+			}
+		}
+		result := gcFacts(scoped, taxonomy, now, retain)
+		return append(passthrough, result.Kept...), result, nil
+	}
+	facts, err := factstore.Load(brainDir)
 	if err != nil {
 		return err
 	}
-	result := gcFacts(facts, taxonomy, now, retain)
-
+	_, result, err := gcPass(facts)
+	if err != nil {
+		return err
+	}
 	summary := map[string]any{
 		"branch":    branch,
 		"pruned":    len(result.Pruned),
@@ -397,19 +413,22 @@ func runFactsGC(cmd *cobra.Command, opts Options, brainDir, branch string, force
 	}
 	if force {
 		if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-			facts, err := factstore.Load(brainDir, branch)
+			if _, err := migrateFactStoreLocked(brainDir); err != nil {
+				return err
+			}
+			facts, err := factstore.Load(brainDir)
 			if err != nil {
 				return err
 			}
-			taxonomy, err := factstore.LoadTaxonomy(brainDir, now)
+			kept, res, err := gcPass(facts)
 			if err != nil {
 				return err
 			}
-			result = gcFacts(facts, taxonomy, now, retain)
+			result = res
 			summary["pruned"] = len(result.Pruned)
 			summary["orphans"] = len(result.Orphans)
 			summary["remaining"] = len(result.Kept)
-			if err := factstore.Write(brainDir, branch, result.Kept); err != nil {
+			if err := factstore.Write(brainDir, kept); err != nil {
 				return err
 			}
 			return updateFactSourceManifestLocked(brainDir, now)
@@ -424,8 +443,12 @@ func runFactsGC(cmd *cobra.Command, opts Options, brainDir, branch string, force
 	if force {
 		verb = "pruned"
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "%s %d memory(ies) on %s (%d retracted/old-superseded); %d taxonomy-orphaned memory(ies) reported (kept); %d remaining\n",
-		verb, len(result.Pruned), branch, len(result.Pruned), len(result.Orphans), len(result.Kept))
+	scope := "in this repository"
+	if branch != "" {
+		scope = "stamped " + branch
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "%s %d memory(ies) %s (%d retracted/old-superseded); %d taxonomy-orphaned memory(ies) reported (kept); %d remaining\n",
+		verb, len(result.Pruned), scope, len(result.Pruned), len(result.Orphans), len(result.Kept))
 	if !force && len(result.Pruned) > 0 {
 		fmt.Fprintln(cmd.OutOrStdout(), "re-run with --force to apply")
 	}

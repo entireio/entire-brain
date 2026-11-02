@@ -73,7 +73,7 @@ func (f verifyFixture) writeSessions(t *testing.T, sessions []exportSession) {
 
 func (f verifyFixture) writeFacts(t *testing.T, branch string, facts []factRecord) {
 	t.Helper()
-	if err := factstore.Write(f.brainDir, branch, facts); err != nil {
+	if err := factstore.Write(f.brainDir, facts); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 	if err := updateFactSourceManifest(f.brainDir, f.now); err != nil {
@@ -569,7 +569,7 @@ func TestVerifyDoesNotMutateStoredAnchorMetadata(t *testing.T) {
 	if report.Results[0].Verdict != verifyVerdictVerified {
 		t.Fatalf("expected verified report, got %+v", report.Results[0])
 	}
-	stored, err := factstore.Load(f.brainDir, "main")
+	stored, err := factstore.Load(f.brainDir)
 	if err != nil {
 		t.Fatalf("reload facts: %v", err)
 	}
@@ -840,10 +840,9 @@ func TestFactVerificationBelongsToDoctorNotStatus(t *testing.T) {
 		}}),
 		verifyFactFixture("fact:retracted", "Retracted fact has a missing session.", "main", factstore.OriginDistilled, factStatusRetracted, f.now, []factAnchor{{SessionID: "missing"}}),
 	)
+	facts = append(facts,
+		verifyFactFixture("fact:other", "Other branch.", "other", factstore.OriginAuthored, factStatusActive, f.now, nil))
 	f.writeFacts(t, "main", facts)
-	f.writeFacts(t, "other", []factRecord{
-		verifyFactFixture("fact:other", "Other branch.", "other", factstore.OriginAuthored, factStatusActive, f.now, nil),
-	})
 
 	cmd := NewRootCommand(f.opts)
 	out, err := execute(t, cmd, "status", "--json", "--details")
@@ -862,7 +861,7 @@ func TestFactVerificationBelongsToDoctorNotStatus(t *testing.T) {
 	for _, check := range checks {
 		if check.Name == "facts_verification" {
 			found = true
-			if check.State != "ok" || !strings.Contains(check.Detail, "branch main: 12 facts") || !strings.Contains(check.Detail, "0 stale, 0 orphaned, 12 unverifiable-here") {
+			if check.State != "ok" || !strings.Contains(check.Detail, "13 facts") || !strings.Contains(check.Detail, "0 stale, 0 orphaned, 13 unverifiable-here") {
 				t.Errorf("doctor must verify all active facts and exclude retired anchors: %+v", check)
 			}
 		}
@@ -876,7 +875,7 @@ func TestFactVerificationBelongsToDoctorNotStatus(t *testing.T) {
 		t.Fatalf("explicit verify --all must still report retired anchor issues: %v\n%s", err, out)
 	}
 	all := parseVerifyReport(t, out)
-	if all.Summary != (verifySummary{Facts: 14, Stale: 1, Orphaned: 1, UnverifiableHere: 12}) {
+	if all.Summary != (verifySummary{Facts: 15, Stale: 1, Orphaned: 1, UnverifiableHere: 13}) {
 		t.Fatalf("explicit verify --all must include both retired facts without sampling: %+v", all.Summary)
 	}
 	for _, result := range all.Results {

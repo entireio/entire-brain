@@ -1058,7 +1058,7 @@ func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDi
 			var ok bool
 			facts, ok = factsByBranch[branch]
 			if !ok {
-				loaded, err := factstore.Load(brainDir, branch)
+				loaded, err := factstore.Load(brainDir)
 				if err != nil {
 					return nil, err
 				}

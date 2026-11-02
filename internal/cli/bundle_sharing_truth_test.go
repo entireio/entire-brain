@@ -91,7 +91,7 @@ func TestEmptyRecallNamesTheImportThatReplacedTheFacts(t *testing.T) {
 	// Facts really present on the branch queried: the integrity branch must
 	// pass (a store that LOST facts is a more precise answer and rightly wins),
 	// and the other-branch branch must not fire either.
-	if err := factstore.Write(brainDir, "main", []factRecord{
+	if err := factstore.Write(brainDir, []factRecord{
 		vitalityTestFact("retries are capped at three", "main", now),
 	}); err != nil {
 		t.Fatalf("write facts: %v", err)
@@ -127,7 +127,7 @@ func TestABrainThatNeverImportedKeepsItsUsualNote(t *testing.T) {
 	// Facts really present on the branch queried: the integrity branch must
 	// pass (a store that LOST facts is a more precise answer and rightly wins),
 	// and the other-branch branch must not fire either.
-	if err := factstore.Write(brainDir, "main", []factRecord{
+	if err := factstore.Write(brainDir, []factRecord{
 		vitalityTestFact("retries are capped at three", "main", now),
 	}); err != nil {
 		t.Fatalf("write facts: %v", err)

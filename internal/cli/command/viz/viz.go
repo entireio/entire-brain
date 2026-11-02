@@ -5,11 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
-	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
-	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
-	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
-	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io/fs"
 	"net"
 	"net/http"
@@ -23,6 +18,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 
 	entirebrain "github.com/entireio/entire-brain"
 	"github.com/entireio/entire-brain/factmerge"
@@ -570,52 +571,24 @@ func linkBySharedKey(keyToIDs map[string][]string, typ string, capPerKey int) []
 	return edges
 }
 
-// factBranches lists the branches whose facts to show — the current branch first,
-// then every branch the manifest records. Facts are branch-scoped on disk, but
-// the Facts view is a whole-brain view, so it aggregates across branches.
-func (s *Server) factBranches() []string {
-	out := []string{}
-	seen := map[string]bool{}
-	add := func(b string) {
-		b = strings.TrimSpace(b)
-		if b != "" && !seen[b] {
-			seen[b] = true
-			out = append(out, b)
-		}
-	}
-	add(s.Branch)
-	if s.Manifest != nil && s.Manifest.Sources != nil && s.Manifest.Sources.Facts != nil {
-		for _, b := range s.Manifest.Sources.Facts.Branches {
-			add(b)
-		}
-	}
-	if len(out) == 0 {
-		out = append(out, s.Branch)
-	}
-	return out
-}
-
 func (s *Server) HandleFacts(w http.ResponseWriter, r *http.Request) {
 	limit := vizQueryLimit(r, 3000)
 	seen := map[string]bool{}
 	all := []factmerge.Record{}
 	var warnings []string
-	for _, br := range s.factBranches() {
-		fs, err := factstore.Load(s.BrainDir, br)
-		if err != nil {
-			warnings = append(warnings, "facts["+br+"]: "+err.Error())
+	fs, err := factstore.Load(s.BrainDir)
+	if err != nil {
+		warnings = append(warnings, "facts: "+err.Error())
+	}
+	for _, f := range fs {
+		// Graph node IDs must be unique and non-empty; a record without one
+		// (corrupt or hand-edited store) would collide with its siblings in
+		// the frontend's byId map. factstore.Load doesn't validate IDs — skip here.
+		if f.ID == "" || seen[f.ID] {
 			continue
 		}
-		for _, f := range fs {
-			// Graph node IDs must be unique and non-empty; a record without one
-			// (corrupt or hand-edited store) would collide with its siblings in
-			// the frontend's byId map. factstore.Load doesn't validate IDs — skip here.
-			if f.ID == "" || seen[f.ID] {
-				continue
-			}
-			seen[f.ID] = true
-			all = append(all, f)
-		}
+		seen[f.ID] = true
+		all = append(all, f)
 	}
 	total := len(all)
 	trunc := limit > 0 && total > limit

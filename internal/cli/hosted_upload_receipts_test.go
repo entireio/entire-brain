@@ -28,23 +28,23 @@ func TestHostedUploadAcknowledgesVersionsAndTargets(t *testing.T) {
 	rec := hostedSyncTestFact("receipt test", opts.Now())
 	write := func() {
 		t.Helper()
-		if err := factstore.Write(storage.BrainDir, "main", []factRecord{rec}); err != nil {
+		if err := factstore.Write(storage.BrainDir, []factRecord{rec}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	write()
 	push := func(target string) {
 		t.Helper()
-		if _, _, err := pushHostedFacts(context.Background(), storage, &factsync.HTTPServer{BaseURL: url, Token: fakeJWT}, target, "main"); err != nil {
+		if _, _, err := pushHostedFacts(context.Background(), storage, &factsync.HTTPServer{BaseURL: url, Token: fakeJWT}, target); err != nil {
 			t.Fatal(err)
 		}
 	}
 	push("repo1")
 	push("repo1")
-	if err := factstore.Write(storage.BrainDir, "feature", []factRecord{rec}); err != nil {
+	if err := factstore.Write(storage.BrainDir, []factRecord{rec}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := pushHostedFacts(context.Background(), storage, &factsync.HTTPServer{BaseURL: url, Token: fakeJWT}, "repo1", "feature"); err != nil {
+	if _, _, err := pushHostedFacts(context.Background(), storage, &factsync.HTTPServer{BaseURL: url, Token: fakeJWT}, "repo1"); err != nil {
 		t.Fatal(err)
 	}
 	if fake.upsertCount() != 1 {
@@ -59,7 +59,7 @@ func TestHostedUploadAcknowledgesVersionsAndTargets(t *testing.T) {
 	}
 	// Another view can retain an older acknowledged version. Do not alternate
 	// uploads of old and new versions each time those views are scanned.
-	if _, _, err := pushHostedFacts(context.Background(), storage, &factsync.HTTPServer{BaseURL: url, Token: fakeJWT}, "repo1", "feature"); err != nil {
+	if _, _, err := pushHostedFacts(context.Background(), storage, &factsync.HTTPServer{BaseURL: url, Token: fakeJWT}, "repo1"); err != nil {
 		t.Fatal(err)
 	}
 	push("repo1")
@@ -71,7 +71,7 @@ func TestHostedUploadAcknowledgesVersionsAndTargets(t *testing.T) {
 		t.Fatal("receipt leaked across target repositories")
 	}
 	other := newHostedFakeServer(t, &hostedFake{})
-	counts, _, err := pushHostedFacts(context.Background(), storage, &factsync.HTTPServer{BaseURL: other.URL, Token: fakeJWT}, "repo2", "main")
+	counts, _, err := pushHostedFacts(context.Background(), storage, &factsync.HTTPServer{BaseURL: other.URL, Token: fakeJWT}, "repo2")
 	if err != nil || counts.Added != 1 {
 		t.Fatalf("receipt leaked across servers: %+v %v", counts, err)
 	}
@@ -81,7 +81,7 @@ func TestHostedUploadConcurrentCompletionIncludesNewRecords(t *testing.T) {
 	storage := repoStorage{BrainDir: t.TempDir()}
 	first := hostedSyncTestFact("first", time.Now().UTC())
 	second := hostedSyncTestFact("second", first.CreatedAt)
-	if err := factstore.Write(storage.BrainDir, "main", []factRecord{first}); err != nil {
+	if err := factstore.Write(storage.BrainDir, []factRecord{first}); err != nil {
 		t.Fatal(err)
 	}
 	entered, release := make(chan struct{}), make(chan struct{})
@@ -108,14 +108,14 @@ func TestHostedUploadConcurrentCompletionIncludesNewRecords(t *testing.T) {
 	client := &factsync.HTTPServer{BaseURL: srv.URL, Token: fakeJWT}
 	results := make(chan error, 2)
 	push := func() {
-		_, _, err := pushHostedFacts(context.Background(), storage, client, "repo1", "main")
+		_, _, err := pushHostedFacts(context.Background(), storage, client, "repo1")
 		results <- err
 	}
 	go push()
 	<-entered
 	// A memory writer must not wait for the network upload lock.
 	first.Provenance = append(first.Provenance, factmerge.Anchor{SessionID: "later", CheckpointID: "later-cp"})
-	if err := factstore.Write(storage.BrainDir, "main", []factRecord{first, second}); err != nil {
+	if err := factstore.Write(storage.BrainDir, []factRecord{first, second}); err != nil {
 		close(release)
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestHostedUploadPartialFailureRetriesOnlyUnacknowledgedChunk(t *testing.T) 
 	for i := range records {
 		records[i] = hostedSyncTestFact(fmt.Sprintf("fact %d", i), now)
 	}
-	if err := factstore.Write(storage.BrainDir, "main", records); err != nil {
+	if err := factstore.Write(storage.BrainDir, records); err != nil {
 		t.Fatal(err)
 	}
 	calls := 0
@@ -180,10 +180,10 @@ func TestHostedUploadPartialFailureRetriesOnlyUnacknowledgedChunk(t *testing.T) 
 	}))
 	defer srv.Close()
 	client := &factsync.HTTPServer{BaseURL: srv.URL, Token: fakeJWT}
-	if _, _, err := pushHostedFacts(context.Background(), storage, client, "repo1", "main"); err == nil {
+	if _, _, err := pushHostedFacts(context.Background(), storage, client, "repo1"); err == nil {
 		t.Fatal("expected failed second chunk")
 	}
-	if _, _, err := pushHostedFacts(context.Background(), storage, client, "repo1", "main"); err != nil {
+	if _, _, err := pushHostedFacts(context.Background(), storage, client, "repo1"); err != nil {
 		t.Fatal(err)
 	}
 	if len(sizes) != 3 || sizes[0] != hostedUpsertChunk || sizes[1] != 1 || sizes[2] != 1 {
@@ -198,9 +198,9 @@ func TestDistillationCompletionSyncsAfterPersistence(t *testing.T) {
 	old := notifyHostedFactsSync
 	t.Cleanup(func() { notifyHostedFactsSync = old })
 	calls := 0
-	notifyHostedFactsSync = func(_ context.Context, _ io.Writer, _ Options, _ string, storage repoStorage, branch string) (hostedSyncOutcome, error) {
+	notifyHostedFactsSync = func(_ context.Context, _ io.Writer, _ Options, _ string, storage repoStorage) (hostedSyncOutcome, error) {
 		calls++
-		facts, err := factstore.Load(storage.BrainDir, branch)
+		facts, err := factstore.Load(storage.BrainDir)
 		if err != nil || len(facts) == 0 {
 			t.Errorf("sync preceded persistence: %d %v", len(facts), err)
 		}
@@ -235,7 +235,7 @@ func TestHostedUploadWaitRespectsCancellation(t *testing.T) {
 	defer lock.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, _, err := pushHostedFacts(ctx, storage, &factsync.HTTPServer{BaseURL: "https://unused.example"}, "repo1", "main"); err != context.Canceled {
+	if _, _, err := pushHostedFacts(ctx, storage, &factsync.HTTPServer{BaseURL: "https://unused.example"}, "repo1"); err != context.Canceled {
 		t.Fatalf("err=%v", err)
 	}
 }
@@ -243,7 +243,7 @@ func TestHostedUploadWaitRespectsCancellation(t *testing.T) {
 func TestHostedUploadAmbiguousAcknowledgementCanRetry(t *testing.T) {
 	storage := repoStorage{BrainDir: t.TempDir()}
 	rec := hostedSyncTestFact("ambiguous response", time.Now().UTC())
-	if err := factstore.Write(storage.BrainDir, "main", []factRecord{rec}); err != nil {
+	if err := factstore.Write(storage.BrainDir, []factRecord{rec}); err != nil {
 		t.Fatal(err)
 	}
 	stored := map[string]factmerge.Record{}
@@ -268,10 +268,10 @@ func TestHostedUploadAmbiguousAcknowledgementCanRetry(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := &factsync.HTTPServer{BaseURL: srv.URL, Token: fakeJWT}
-	if _, _, err := pushHostedFacts(context.Background(), storage, client, "repo1", "main"); err == nil {
+	if _, _, err := pushHostedFacts(context.Background(), storage, client, "repo1"); err == nil {
 		t.Fatal("expected interrupted acknowledgement")
 	}
-	if _, _, err := pushHostedFacts(context.Background(), storage, client, "repo1", "main"); err != nil {
+	if _, _, err := pushHostedFacts(context.Background(), storage, client, "repo1"); err != nil {
 		t.Fatal(err)
 	}
 	if len(stored) != 1 || requests != 2 {
@@ -286,7 +286,7 @@ func TestHostedUploadLockTimeoutPreservesPendingRecords(t *testing.T) {
 	fake := &hostedFake{}
 	opts, storage, _, url := hostedSyncHarness(t, fake, true)
 	rec := hostedSyncTestFact("pending after lock timeout", opts.Now())
-	if err := factstore.Write(storage.BrainDir, "main", []factRecord{rec}); err != nil {
+	if err := factstore.Write(storage.BrainDir, []factRecord{rec}); err != nil {
 		t.Fatal(err)
 	}
 	lock, err := acquireHostedUploadLock(context.Background(), storage.BrainDir)
@@ -299,7 +299,7 @@ func TestHostedUploadLockTimeoutPreservesPendingRecords(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	client := &factsync.HTTPServer{BaseURL: url, Token: fakeJWT}
-	_, _, err = pushHostedFacts(ctx, storage, client, "repo1", "main")
+	_, _, err = pushHostedFacts(ctx, storage, client, "repo1")
 	if !errors.Is(err, brainstore.ErrFileLockTimeout) {
 		t.Fatalf("wanted bounded lock timeout, got %v", err)
 	}
@@ -316,14 +316,14 @@ func TestHostedUploadLockTimeoutPreservesPendingRecords(t *testing.T) {
 	if _, err := os.Stat(receipt); !os.IsNotExist(err) {
 		t.Fatalf("timeout created an acknowledgement: %v", err)
 	}
-	facts, err := factstore.Load(storage.BrainDir, "main")
+	facts, err := factstore.Load(storage.BrainDir)
 	if err != nil || len(facts) != 1 || facts[0].ID != rec.ID {
 		t.Fatalf("pending memory changed: %+v %v", facts, err)
 	}
 	if err := lock.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := pushHostedFacts(context.Background(), storage, client, "repo1", "main"); err != nil {
+	if _, _, err := pushHostedFacts(context.Background(), storage, client, "repo1"); err != nil {
 		t.Fatal(err)
 	}
 	if !fake.has(rec.ID) {

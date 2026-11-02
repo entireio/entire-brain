@@ -21,7 +21,7 @@ func forceDistillFixture(t *testing.T, now time.Time, status, supersededBy strin
 		Origin: factstore.OriginDistilled, Status: status, SupersededBy: supersededBy,
 		Provenance: []factAnchor{{SessionID: "s1"}}, CreatedAt: now, UpdatedAt: now,
 	}
-	if err := factstore.Write(brainDir, "main", []factRecord{retired}); err != nil {
+	if err := factstore.Write(brainDir, []factRecord{retired}); err != nil {
 		t.Fatal(err)
 	}
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
@@ -42,7 +42,7 @@ func TestForceDistillDoesNotResurrectRetractedFact(t *testing.T) {
 		t.Fatalf("force run: %v", err)
 	}
 
-	facts, err := factstore.Load(brainDir, "main")
+	facts, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestForceDistillDoesNotResurrectSupersededFact(t *testing.T) {
 		t.Fatalf("force run: %v", err)
 	}
 
-	facts, err := factstore.Load(brainDir, "main")
+	facts, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestForceDistillStillRebuildsActiveDistilledFacts(t *testing.T) {
 		Origin: factstore.OriginDistilled, Status: factStatusActive,
 		Provenance: []factAnchor{{SessionID: "s1"}}, CreatedAt: now, UpdatedAt: now,
 	}
-	if err := factstore.Write(brainDir, "main", []factRecord{stale}); err != nil {
+	if err := factstore.Write(brainDir, []factRecord{stale}); err != nil {
 		t.Fatal(err)
 	}
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
@@ -101,7 +101,7 @@ func TestForceDistillStillRebuildsActiveDistilledFacts(t *testing.T) {
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
 		t.Fatalf("force run: %v", err)
 	}
-	facts, err := factstore.Load(brainDir, "main")
+	facts, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -21,7 +21,7 @@ func distillConcurrentWriterFixture(t *testing.T, now time.Time) (string, factRe
 		Origin: factstore.OriginAuthored, Status: factStatusActive,
 		Provenance: []factAnchor{{SessionID: "seed"}}, CreatedAt: now, UpdatedAt: now,
 	}
-	if err := factstore.Write(brainDir, "main", []factRecord{seeded}); err != nil {
+	if err := factstore.Write(brainDir, []factRecord{seeded}); err != nil {
 		t.Fatal(err)
 	}
 	newPaths := normalizeFactPaths([]string{"preferences.coding.style"})
@@ -55,13 +55,13 @@ func TestDistillFlushKeepsConcurrentWrites(t *testing.T) {
 					// Exactly what `facts retract` and `remember` do: a whole
 					// transaction under the brain write lock, mid-run.
 					if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-						facts, err := factstore.Load(brainDir, "main")
+						facts, err := factstore.Load(brainDir)
 						if err != nil {
 							return err
 						}
 						retractFact(facts, seeded.ID, now.Add(time.Minute))
 						facts = upsertFact(facts, authored)
-						return factstore.Write(brainDir, "main", facts)
+						return factstore.Write(brainDir, facts)
 					}); err != nil {
 						t.Errorf("concurrent write: %v", err)
 					}
@@ -74,7 +74,7 @@ func TestDistillFlushKeepsConcurrentWrites(t *testing.T) {
 				t.Fatalf("distill: %v", err)
 			}
 
-			facts, err := factstore.Load(brainDir, "main")
+			facts, err := factstore.Load(brainDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -114,7 +114,7 @@ func TestDistillForceStillDropsStaleDistilledFacts(t *testing.T) {
 		Origin: factstore.OriginDistilled, Status: factStatusActive,
 		Provenance: []factAnchor{{SessionID: "s1"}}, CreatedAt: now, UpdatedAt: now,
 	}
-	if err := factstore.Write(brainDir, "main", []factRecord{stale}); err != nil {
+	if err := factstore.Write(brainDir, []factRecord{stale}); err != nil {
 		t.Fatal(err)
 	}
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
@@ -125,7 +125,7 @@ func TestDistillForceStillDropsStaleDistilledFacts(t *testing.T) {
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
 		t.Fatalf("distill: %v", err)
 	}
-	facts, err := factstore.Load(brainDir, "main")
+	facts, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

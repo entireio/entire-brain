@@ -227,7 +227,7 @@ func TestRunDistillForBrainKeepsBothOnConfidentMerge(t *testing.T) {
 	// Both statements and their provenance remain durable: the merge decision
 	// publishes the candidate, cross-links the pair, and rewrites nothing. The
 	// compaction loop settles the pair later (COR-2273).
-	facts, err := factstore.Load(brainDir, "main")
+	facts, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestRunDistillForBrainReconcileKeepsBothOnSupersede(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runDistillForBrain: %v", err)
 	}
-	facts, err := factstore.Load(brainDir, "main")
+	facts, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

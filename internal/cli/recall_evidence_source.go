@@ -223,7 +223,7 @@ func collectEvidence(ctx context.Context, brainDir, branch, query string, limit,
 	}
 	// Facts are retrieval handles only. Never substitute distilled claims for bytes.
 	anchored := map[string]bool{}
-	facts, err := factstore.Load(brainDir, branch)
+	facts, err := factstore.Load(brainDir)
 	if err != nil {
 		c.Warnings = append(c.Warnings, "fact store unavailable; searching canonical sessions only")
 	} else {
@@ -231,11 +231,6 @@ func collectEvidence(ctx context.Context, brainDir, branch, query string, limit,
 			for _, a := range f.Provenance {
 				anchored[a.SessionID] = true
 			}
-		}
-	}
-	if manifest.Sources.Facts != nil {
-		if warning := factstore.MissingStoreWarningForBranch(brainDir, manifest.Sources.Facts, branch); warning != "" {
-			c.Warnings = append(c.Warnings, warning)
 		}
 	}
 	type doc struct {

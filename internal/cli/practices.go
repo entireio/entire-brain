@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"math"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
@@ -58,19 +59,18 @@ type practiceAgg struct {
 // buildBrainPractices derives scored repo-local practices from the durable facts.
 // Deterministic and token-free; reads the fact store, not a model.
 func buildBrainPractices(brainDir string, manifest *exportManifest, now time.Time) ([]practiceRecord, error) {
-	branches := factBranchList(manifest)
 	sessionTime := sessionCreatedAtByID(manifest)
 	repoKey := ""
 	if manifest != nil {
 		repoKey = manifest.RepoKey
 	}
 
-	// Dedupe facts by content id across branches: a fact present on several
-	// branches is one practice; union its provenance and branch set.
+	// Dedupe facts by content id: historical per-branch copies of a fact are
+	// one practice; union their provenance and branch set.
 	aggs := map[string]*practiceAgg{}
 	order := []string{}
-	for _, branch := range branches {
-		facts, err := factstore.Load(brainDir, branch)
+	{
+		facts, err := factstore.Load(brainDir)
 		if err != nil {
 			return nil, err
 		}

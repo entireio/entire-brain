@@ -112,7 +112,13 @@ type Author struct {
 	LastCommitAt *time.Time `json:"last_commit_at,omitempty"`
 }
 
-const SchemaVersion = 4
+// SchemaVersion 5 marks the flat per-repo memory store: facts/store.json
+// schema 3 with payloads inline, no per-branch files. The bump is the one-way
+// door for released clients (v0.2–v0.4): their memory commands refuse a newer
+// manifest with memory_unsupported_version. Their write path appends to a
+// legacy branch file BEFORE that check fires, which is why migration is a
+// standing reconcile (factstore.MigrateRepository) rather than a one-shot.
+const SchemaVersion = 5
 
 // MinSchemaVersion is the oldest manifest this build reads.
 //

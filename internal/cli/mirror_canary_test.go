@@ -122,7 +122,7 @@ func TestRefreshMirrorsCheckpointDeletion(t *testing.T) {
 			},
 		},
 	}
-	if err := factstore.Write(brain, "main", facts); err != nil {
+	if err := factstore.Write(brain, facts); err != nil {
 		t.Fatal(err)
 	}
 	if err := updateFactSourceManifest(brain, now); err != nil {
@@ -163,7 +163,7 @@ func TestRefreshMirrorsCheckpointDeletion(t *testing.T) {
 	if len(after.Sources.Sessions.Sessions) != 1 || after.Sources.Sessions.Sessions[0].SessionID != "session-clean" {
 		t.Fatalf("manifest sessions after deletion = %+v", after.Sources.Sessions.Sessions)
 	}
-	remaining, err := factstore.Load(brain, "main")
+	remaining, err := factstore.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestMirrorKeepsFactsForUnavailableCatalogSessions(t *testing.T) {
 		Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
 		Provenance: []factAnchor{{SessionID: "session-gone", Transcript: rels["session-gone"]}},
 	}}
-	if err := factstore.Write(brain, "main", facts); err != nil {
+	if err := factstore.Write(brain, facts); err != nil {
 		t.Fatal(err)
 	}
 
@@ -273,7 +273,7 @@ func TestMirrorKeepsFactsForUnavailableCatalogSessions(t *testing.T) {
 	if _, err := mirrorBrainToCheckpointCatalog(brain, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	remaining, err := factstore.Load(brain, "main")
+	remaining, err := factstore.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +309,7 @@ func TestMirrorSkipsPartialCatalogs(t *testing.T) {
 				Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
 				Provenance: []factAnchor{{SessionID: "session-not-in-this-window", Transcript: "sessions/other/older.jsonl"}},
 			}}
-			if err := factstore.Write(brainDir, "main", facts); err != nil {
+			if err := factstore.Write(brainDir, facts); err != nil {
 				t.Fatal(err)
 			}
 			counts, err := mirrorBrainToCheckpointCatalog(brainDir, now)
@@ -319,7 +319,7 @@ func TestMirrorSkipsPartialCatalogs(t *testing.T) {
 			if !counts.empty() {
 				t.Fatalf("mirror acted on a partial catalog: %+v", counts)
 			}
-			remaining, err := factstore.Load(brainDir, "main")
+			remaining, err := factstore.Load(brainDir)
 			if err != nil || len(remaining) != 1 {
 				t.Fatalf("partial catalog changed the fact store: %+v %v", remaining, err)
 			}

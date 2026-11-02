@@ -172,7 +172,7 @@ func AssembleBrainSnapshot(ctx context.Context, cfg Config, target, repoDir, bra
 	snap.Home = status.Home
 
 	// Facts (per branch).
-	if facts, err := factstore.Load(brainDir, branch); err != nil {
+	if facts, err := factstore.Load(brainDir); err != nil {
 		markSourceUnreadable(&snap.Home, "Facts", "facts unavailable: "+err.Error())
 	} else {
 		snap.Facts = FactViews(facts, brainDir, limit)

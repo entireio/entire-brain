@@ -64,7 +64,7 @@ func statusVerificationFixture(t *testing.T) (Options, string, *fakeCommandRunne
 			UpdatedAt: now.Add(time.Duration(i) * time.Minute),
 		})
 	}
-	if err := factstore.Write(storage.BrainDir, "feature", facts); err != nil {
+	if err := factstore.Write(storage.BrainDir, facts); err != nil {
 		t.Fatal(err)
 	}
 	if err := updateFactSourceManifest(storage.BrainDir, now); err != nil {

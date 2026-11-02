@@ -24,7 +24,7 @@ func newInspectBlameCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			facts, err := factstore.Load(brainDir, resolvedBranch)
+			facts, err := factstore.Load(brainDir)
 			if err != nil {
 				return err
 			}

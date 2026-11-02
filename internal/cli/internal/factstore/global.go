@@ -62,7 +62,7 @@ func LoadGlobal(env base.EntireEnv) ([]factmerge.Record, error) {
 		}
 		return nil, statErr
 	}
-	return Load(brainDir, GlobalBranch)
+	return Load(brainDir)
 }
 
 // GlobalFactsForRead loads the global store for a read surface, honouring the
@@ -78,13 +78,13 @@ func GlobalFactsForRead(env base.EntireEnv, noGlobal bool) ([]factmerge.Record, 
 
 // ResolveGlobalTarget is the global counterpart of the per-repo facts-target
 // resolution, for commands operating on the global store directly.
-func ResolveGlobalTarget(env base.EntireEnv) (brainDir, branch string, err error) {
-	brainDir, err = GlobalBrainDir(env)
+func ResolveGlobalTarget(env base.EntireEnv) (string, error) {
+	brainDir, err := GlobalBrainDir(env)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	if err := os.MkdirAll(brainDir, 0o700); err != nil {
-		return "", "", fmt.Errorf("create global brain: %w", err)
+		return "", fmt.Errorf("create global brain: %w", err)
 	}
-	return brainDir, GlobalBranch, nil
+	return brainDir, nil
 }

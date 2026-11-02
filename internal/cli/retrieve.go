@@ -368,7 +368,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 	var globalGetIDs map[string]bool
 	if wantFact || wantReview {
 		// Surface a corrupt facts store as an error, not a misleading "not found".
-		facts, ferr := factstore.Load(brainDir, branch)
+		facts, ferr := factstore.Load(brainDir)
 		if ferr != nil {
 			return nil, nil, ferr
 		}
@@ -377,7 +377,12 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			// resolve here too. The repository's copy still wins on a collision.
 			facts, globalGetIDs = retrieval.MergeGlobalFacts(facts, gopts.GlobalFacts)
 		}
+		branchFilter := strings.TrimSpace(gopts.Branch)
 		for _, f := range facts {
+			// Global facts apply everywhere; an explicit --branch never hides them.
+			if branchFilter != "" && f.Branch != branchFilter && !globalGetIDs[f.ID] {
+				continue
+			}
 			factByID[f.ID] = f
 		}
 	}

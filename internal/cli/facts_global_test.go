@@ -670,7 +670,7 @@ func retrievalSurfaceFixture(t *testing.T) (Options, string) {
 		ID: factRecordID("orion local retrieval fact", paths), Text: "orion local retrieval fact",
 		Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: opts.Now(),
 	}
-	if err := factstore.Write(storage.BrainDir, "feature", []factRecord{local}); err != nil {
+	if err := factstore.Write(storage.BrainDir, []factRecord{local}); err != nil {
 		t.Fatal(err)
 	}
 	rememberGlobal(t, opts, "orion global convention applies everywhere")
@@ -745,12 +745,12 @@ func TestBriefLabelsGlobalFactsAndChecksOnlyLocalLoci(t *testing.T) {
 	opts, brainDir := retrievalSurfaceFixture(t)
 	rememberGlobal(t, opts, "orion convention uses db/migrations/global.sql")
 	globalID := factRecordID("orion convention uses db/migrations/global.sql", normalizeFactPaths([]string{"preferences.coding.style"}))
-	local, err := factstore.Load(brainDir, "feature")
+	local, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	local[0].Text = "orion local fact uses db/migrations/local.sql"
-	if err := factstore.Write(brainDir, "feature", local); err != nil {
+	if err := factstore.Write(brainDir, local); err != nil {
 		t.Fatal(err)
 	}
 	for _, jsonOutput := range []bool{true, false} {
@@ -811,12 +811,12 @@ func TestUnifiedRetrievalChecksOnlyLocalLoci(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	local, err := factstore.Load(brainDir, "feature")
+	local, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	local[0].Text = "orion local fact uses db/migrations/local.sql"
-	if err := factstore.Write(brainDir, "feature", local); err != nil {
+	if err := factstore.Write(brainDir, local); err != nil {
 		t.Fatal(err)
 	}
 	for _, mode := range []retrievalMode{retrieval.ModeLexical, retrieval.ModeHybrid, retrieval.ModeVector} {
@@ -931,7 +931,7 @@ func TestGetPreservesScopeOfDuplicateGlobalFacts(t *testing.T) {
 				t.Fatal("missing fixture fact")
 			}
 			local.Branch, local.Status = "feature", status
-			if err := factstore.Write(brainDir, "feature", []factRecord{local}); err != nil {
+			if err := factstore.Write(brainDir, []factRecord{local}); err != nil {
 				t.Fatal(err)
 			}
 			found, missing, err := getUnifiedBatchOptions(opts.Env.RepoRoot, brainDir, "feature", []string{local.ID}, getOptions{GlobalFacts: globals})

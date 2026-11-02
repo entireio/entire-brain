@@ -100,9 +100,21 @@ func NewRecall(cfg Config) *cobra.Command {
 			if evidence {
 				return cfg.Deps.RunRecallEvidence(cmd, brainDir, resolvedBranch, query, limit, evidenceBytes, jsonOut)
 			}
-			allFacts, err := factstore.Load(brainDir, resolvedBranch)
+			allFacts, err := factstore.Load(brainDir)
 			if err != nil {
 				return err
+			}
+			// The store is flat; an explicit --branch narrows to records
+			// stamped with that branch, and nothing is implied from the
+			// checked-out branch.
+			if branch != "" {
+				filtered := allFacts[:0:0]
+				for _, rec := range allFacts {
+					if rec.Branch == branch {
+						filtered = append(filtered, rec)
+					}
+				}
+				allFacts = filtered
 			}
 			// Facts that are not about this repository — preferences, team
 			// conventions, environment details — merge in here, so something
@@ -122,11 +134,12 @@ func NewRecall(cfg Config) *cobra.Command {
 				}
 			}
 			var storeWarning string
-			manifest, manifestErr := bmanifest.Load(brainDir)
-			if manifestErr != nil {
+			if _, manifestErr := bmanifest.Load(brainDir); manifestErr != nil {
 				storeWarning = "memory source manifest unavailable: " + manifestErr.Error()
-			} else if manifest != nil && manifest.Sources != nil {
-				storeWarning = factstore.MissingStoreWarningForBranch(brainDir, manifest.Sources.Facts, resolvedBranch)
+			} else if integrity := factstore.InspectBrain(brainDir); !integrity.OK() {
+				// A short or collided store must never read as a smaller but
+				// healthy corpus.
+				storeWarning = integrity.Warning()
 			}
 			candidateFacts := allFacts
 			var eligibility *FactEligibilityAudit
@@ -177,7 +190,10 @@ func NewRecall(cfg Config) *cobra.Command {
 				// prefixes the same concepts as `facts_pending_review` /
 				// `facts_locus_drift` to disambiguate. This per-surface split is
 				// intentional and kept as-is; we do not unify the keys.
-				out := map[string]any{"branch": resolvedBranch, "query": query, "facts": matches}
+				out := map[string]any{"query": query, "facts": matches}
+				if branch != "" {
+					out["branch"] = branch
+				}
 				// A consumer that renders these has to be able to tell which
 				// facts came from outside this repository; the ids are the
 				// smallest way to say so without changing the fact shape that
@@ -216,7 +232,11 @@ func NewRecall(cfg Config) *cobra.Command {
 			}
 			if len(matches) == 0 {
 				return cmdutil.WriteText(cmd, func(out io.Writer) {
-					fmt.Fprintf(out, "no memories for %q on %s\n", query, resolvedBranch)
+					if branch != "" {
+						fmt.Fprintf(out, "no memories for %q stamped %s\n", query, branch)
+					} else {
+						fmt.Fprintf(out, "no memories for %q\n", query)
+					}
 					if storeWarning != "" {
 						fmt.Fprintln(out, "warning: "+storeWarning)
 					}
@@ -251,7 +271,7 @@ func NewRecall(cfg Config) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&evidence, "evidence", false, "Experimental: return original source spans using deterministic retrieval; no model call")
 	cmd.Flags().IntVar(&evidenceBytes, "evidence-bytes", 8192, "Maximum compact JSON bytes in the evidence array, including citations; enclosing metadata is separate")
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch to recall from (default: current branch)")
+	cmd.Flags().StringVar(&branch, "branch", "", "Only recall memories stamped with this branch (default: all)")
 	cmd.Flags().IntVar(&limit, "k", 10, fmt.Sprintf("Maximum memories to return, or candidate sessions with --evidence (1-%d)", recallMaxK))
 	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted memories")
 	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) memories")

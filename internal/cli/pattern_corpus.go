@@ -164,11 +164,16 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	if manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		sessions = manifest.Sources.Sessions.Sessions
 	}
-	// Optional enrichment source: durable facts, branch-scoped. Missing is
-	// empty, but corrupt/unsafe state fails closed.
-	factsByBranch, err := factstore.LoadAllBranches(brainDir)
+	// Optional enrichment source: durable facts, grouped by their branch
+	// metadata (episodes link to facts recorded for their session's branch).
+	// Missing is empty, but corrupt/unsafe state fails closed.
+	stored, err := factstore.Load(brainDir)
 	if err != nil {
 		return err
+	}
+	factsByBranch := map[string][]factRecord{}
+	for _, rec := range stored {
+		factsByBranch[rec.Branch] = append(factsByBranch[rec.Branch], rec)
 	}
 
 	// Fact enrichment is an input independent of transcript identity. A changed

@@ -4,11 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/tui"
 )
 
@@ -131,7 +129,7 @@ func TestOverviewSaysWhenTheBrainWasNeverBuilt(t *testing.T) {
 // reader scans.
 func TestDashReportsAnUnreadableSourceAsUnreadable(t *testing.T) {
 	opts, repoDir, brainDir := factsAvailabilityFixture(t)
-	factsPath := filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath("feature")))
+	factsPath := testFlatStorePath(brainDir)
 	if err := os.WriteFile(factsPath, []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +194,7 @@ func TestDashPlainAndJSONAgree(t *testing.T) {
 	opts, _, brainDir := factsAvailabilityFixture(t)
 	// Break one source so the comparison covers a degraded state, not just a
 	// happy path where everything is trivially equal.
-	factsPath := filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath("feature")))
+	factsPath := testFlatStorePath(brainDir)
 	if err := os.WriteFile(factsPath, []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}

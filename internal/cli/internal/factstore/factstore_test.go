@@ -26,10 +26,10 @@ func TestFactsRoundTrip(t *testing.T) {
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
-	if err := factstore.Write(brainDir, "main", []factmerge.Record{record}); err != nil {
+	if err := factstore.Write(brainDir, []factmerge.Record{record}); err != nil {
 		t.Fatalf("factstore.Write: %v", err)
 	}
-	got, err := factstore.Load(brainDir, "main")
+	got, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatalf("factstore.Load: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestFactTaxonomyRejectsSymlinkedFactsRoot(t *testing.T) {
 }
 
 func TestLoadFactsMissingFileIsEmpty(t *testing.T) {
-	records, err := factstore.Load(t.TempDir(), "main")
+	records, err := factstore.Load(t.TempDir())
 	if err != nil {
 		t.Fatalf("expected nil error for missing file, got %v", err)
 	}
@@ -113,16 +113,12 @@ func TestSummarizeFactSource(t *testing.T) {
 	// factstore.SummarizeSource counts only records that have one (see factstore.IsFactRecord),
 	// so the fixture has to be a store of real facts rather than a bag of
 	// half-populated structs.
-	byBranch := map[string][]factmerge.Record{
-		"main": {
-			{ID: "fact:main-1", Origin: factstore.OriginDistilled, Status: factmerge.StatusActive, Provenance: []factmerge.Anchor{{SessionID: "s1", Verified: true}}},
-			{ID: "fact:main-2", Origin: factstore.OriginAuthored, Status: factmerge.StatusActive, Provenance: []factmerge.Anchor{{SessionID: "s2"}}},
-		},
-		"feature": {
-			{ID: "fact:feature-1", Origin: factstore.OriginDistilled, Status: factmerge.StatusSuperseded, Provenance: []factmerge.Anchor{{SessionID: "s3"}}},
-		},
+	records := []factmerge.Record{
+		{ID: "fact:main-1", Branch: "main", Origin: factstore.OriginDistilled, Status: factmerge.StatusActive, Provenance: []factmerge.Anchor{{SessionID: "s1", Verified: true}}},
+		{ID: "fact:main-2", Branch: "main", Origin: factstore.OriginAuthored, Status: factmerge.StatusActive, Provenance: []factmerge.Anchor{{SessionID: "s2"}}},
+		{ID: "fact:feature-1", Branch: "feature", Origin: factstore.OriginDistilled, Status: factmerge.StatusSuperseded, Provenance: []factmerge.Anchor{{SessionID: "s3"}}},
 	}
-	source := factstore.SummarizeSource(now, byBranch, 100, 7, 4, []string{"w"})
+	source := factstore.SummarizeSource(now, records, 100, 7, 4, []string{"w"})
 	if source.Facts != 3 {
 		t.Errorf("Facts = %d, want 3", source.Facts)
 	}
@@ -141,8 +137,8 @@ func TestSummarizeFactSource(t *testing.T) {
 	if source.ChunksScanned != 100 || source.ChunksDistilled != 7 {
 		t.Errorf("chunk counts wrong: scanned=%d distilled=%d", source.ChunksScanned, source.ChunksDistilled)
 	}
-	if len(source.Branches) != 2 || source.Branches[0] != "feature" || source.Branches[1] != "main" {
-		t.Errorf("branches not sorted: %v", source.Branches)
+	if len(source.Branches) != 0 {
+		t.Errorf("memories are repo-wide; Branches must stay empty: %v", source.Branches)
 	}
 	if source.TaxonomyPath != factstore.TaxonomyPath {
 		t.Errorf("TaxonomyPath = %q, want %q", source.TaxonomyPath, factstore.TaxonomyPath)
@@ -152,8 +148,8 @@ func TestSummarizeFactSource(t *testing.T) {
 	// be declared as one: counting it here is how a damaged store re-declared
 	// its own damage as whole on the next `remember` or `refresh`, hiding the
 	// loss from the integrity cross-check that reads this number back.
-	byBranch["main"] = append(byBranch["main"], factmerge.Record{Status: factmerge.StatusActive, Origin: factstore.OriginAuthored})
-	if got := factstore.SummarizeSource(now, byBranch, 100, 7, 4, nil).Facts; got != 3 {
+	records = append(records, factmerge.Record{Status: factmerge.StatusActive, Origin: factstore.OriginAuthored})
+	if got := factstore.SummarizeSource(now, records, 100, 7, 4, nil).Facts; got != 3 {
 		t.Errorf("Facts = %d after adding an id-less line, want 3", got)
 	}
 }

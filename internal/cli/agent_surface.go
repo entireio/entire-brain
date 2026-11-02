@@ -6,11 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
-	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
-	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
-	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
-	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"io/fs"
 	"os"
@@ -22,6 +17,12 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
 	factscmd "github.com/entireio/entire-brain/internal/cli/command/facts"
@@ -1729,19 +1730,8 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		if branch == "" {
 			branch = distillDefaultBranch
 		}
-		// factstore.Load cannot tell "this branch has no facts" from "this branch's
-		// store is gone", and it cannot tell a complete store from one that
-		// yields fewer facts than the manifest declares. The manifest can:
-		// warn before the packet reports a healthy facts source that
-		// contributed less than it claims.
-		if status.Sources.Facts && status.Manifest != nil && status.Manifest.Sources != nil {
-			if warning := factstore.MissingStoreWarningForBranch(status.Brain.Path, status.Manifest.Sources.Facts, branch); warning != "" {
-				report.Warnings = append(report.Warnings, warning)
-
-			}
-		}
 		factsLoadStarted := profile.start()
-		facts, factsErr := factstore.Load(status.Brain.Path, branch)
+		facts, factsErr := factstore.Load(status.Brain.Path)
 		if profile != nil {
 			factsLoadErrors := 0
 			if factsErr != nil {
@@ -1756,18 +1746,6 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			// is the single most misleading thing the brief can report: it is
 			// step 1 of the shipped guide, so it is the first thing an agent
 			// sees, and silence reads as "this brain knows nothing".
-			hasActiveFacts := false
-			for _, fact := range facts {
-				if fact.Status == factStatusActive {
-					hasActiveFacts = true
-					break
-				}
-			}
-			if !hasActiveFacts {
-				if note := briefBranchBlindSpot(status.Brain.Path, branch); note != "" {
-					report.Warnings = append(report.Warnings, note)
-				}
-			}
 			if len(briefGlobalFacts) > 0 {
 				facts, briefGlobalIDs = retrieval.MergeGlobalFacts(facts, briefGlobalFacts)
 			}
@@ -4640,26 +4618,15 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 				Branches:   len(f.Branches),
 				Proposals:  f.Proposals,
 			}
-			if lightweight {
-				report.Facts.MissingBranches = factstore.MissingBranchStores(storage.BrainDir, f)
-				if len(report.Facts.MissingBranches) > 0 {
-					report.Warnings = append(report.Warnings, factstore.MissingStoreWarning(report.Facts.MissingBranches))
-				}
-				for _, branch := range f.Branches {
-					if branch == "" {
-						continue
-					}
-					if err := verifyDeclaredBrainFile(storage.BrainDir, factstore.FileRelPath(branch)); err != nil && !os.IsNotExist(err) {
-						report.Warnings = append(report.Warnings, fmt.Sprintf("memory store for %s unavailable: %v; its memories cannot be recalled — run `%s` and re-distill", branch, err, clibase.BrainInvocation(os.LookupEnv, "refresh")))
-					}
-				}
-			} else {
-				integrity := factstore.Inspect(storage.BrainDir, f)
-				report.Facts.MissingBranches = integrity.Missing
-				if !integrity.OK() {
+			// One flat store: both paths cross-check declared vs readable (the
+			// fold is one store read; the old lightweight shortcut existed to
+			// avoid walking hundreds of branch files).
+			integrity := factstore.Inspect(storage.BrainDir, f)
+			if !integrity.OK() {
+				if !lightweight {
 					report.Facts.Integrity = &integrity
-					report.Warnings = append(report.Warnings, integrity.Warning())
 				}
+				report.Warnings = append(report.Warnings, integrity.Warning())
 			}
 		}
 		if sem := manifest.Sources.Semantic; sem != nil {
@@ -4676,11 +4643,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		}
 		report.Sources.Docs = manifest.Sources.Docs != nil
 	}
-	var factBranches []string
-	if manifest != nil && manifest.Sources != nil && manifest.Sources.Facts != nil {
-		factBranches = manifest.Sources.Facts.Branches
-	}
-	hosted, hostedWarning := buildHostedStatus(storage.BrainDir, factBranches, opts.Now().UTC())
+	hosted, hostedWarning := buildHostedStatus(storage.BrainDir, opts.Now().UTC())
 	report.Hosted = hosted
 	if hostedWarning != "" {
 		report.Warnings = append(report.Warnings, hostedWarning)

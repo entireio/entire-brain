@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
@@ -24,10 +23,10 @@ type brainStatusHosted struct {
 	NoEgress  bool   `json:"no_egress"`
 	RepoID    string `json:"repo_id,omitempty"`
 	BaseURL   string `json:"base_url,omitempty"`
-	// SyncedBranches are the declared fact branches whose per-branch marker
-	// matches the current binding; a marker left by an older target does not
-	// count.
-	SyncedBranches []string `json:"synced_branches,omitempty"`
+	// Synced reports whether the repo's fact-sync marker matches the current
+	// binding; a marker left by an older target does not count. (It replaced
+	// the per-branch synced_branches list when the store went flat.)
+	Synced bool `json:"synced,omitempty"`
 	// NoAccessUntil is the ACTIVE no-access pause (COR-2279): background sync
 	// skips the repo until then because the server denied access. An expired
 	// pause is dead state (the next successful sync retires it) and is not
@@ -46,7 +45,7 @@ const (
 // decides. The binding stays visible under the kill switch so the reader sees
 // what it suppresses. A corrupt binding degrades to disconnected with a warning
 // rather than failing status over a sync-state file.
-func buildHostedStatus(brainDir string, factBranches []string, now time.Time) (*brainStatusHosted, string) {
+func buildHostedStatus(brainDir string, now time.Time) (*brainStatusHosted, string) {
 	var warning string
 	hosted := &brainStatusHosted{RepoState: hostedStateDisconnected}
 	binding, present, err := brainstore.ReadHostedRepoBinding(brainDir)
@@ -67,24 +66,14 @@ func buildHostedStatus(brainDir string, factBranches []string, now time.Time) (*
 		}
 		// A broken marker is corruption, not "never synced" — report it like
 		// the unreadable top-level binding above instead of posing as a
-		// healthy unsynced branch. The two warnings cannot co-occur: markers
-		// are only inspected when the binding itself was readable.
-		var broken []string
-		var brokenErr error
-		for _, branch := range factBranches {
-			marker, markerPresent, markerErr := readHostedFactsBinding(brainDir, branch)
-			switch {
-			case markerErr != nil:
-				broken = append(broken, branch)
-				if brokenErr == nil {
-					brokenErr = markerErr
-				}
-			case markerPresent && marker.RepoID == binding.RepoID && marker.BaseURL == binding.BaseURL:
-				hosted.SyncedBranches = append(hosted.SyncedBranches, branch)
-			}
-		}
-		if len(broken) > 0 {
-			warning = fmt.Sprintf("hosted sync marker unreadable for branch(es) %s: %v", strings.Join(broken, ", "), brokenErr)
+		// healthy unsynced repo. The two warnings cannot co-occur: the marker
+		// is only inspected when the binding itself was readable.
+		marker, markerPresent, markerErr := readHostedFactsBinding(brainDir)
+		switch {
+		case markerErr != nil:
+			warning = fmt.Sprintf("hosted sync marker unreadable: %v", markerErr)
+		case markerPresent && marker.RepoID == binding.RepoID && marker.BaseURL == binding.BaseURL:
+			hosted.Synced = true
 		}
 	}
 	hosted.NoEgress = base.BrainNoEgressMode()
@@ -117,14 +106,10 @@ func hostedStatusLine(h *brainStatusHosted) string {
 			return fmt.Sprintf("Connected to Brainstore, but sync is paused until %s — the server denied access to this repo; run '%s' once access is granted",
 				h.NoAccessUntil.UTC().Format(time.RFC3339), base.BrainInvocation(os.LookupEnv, "connect"))
 		}
-		if n := len(h.SyncedBranches); n > 0 {
-			word := "branches"
-			if n == 1 {
-				word = "branch"
-			}
-			return fmt.Sprintf("Connected to Brainstore (%d %s synced)", n, word)
+		if h.Synced {
+			return "Connected to Brainstore (synced)"
 		}
-		return "Connected to Brainstore (no branches synced yet)"
+		return "Connected to Brainstore (not synced yet)"
 	case hostedStateDisconnected:
 		return "Disconnected from Brainstore (run '" + base.BrainInvocation(os.LookupEnv, "connect") + "' to join)"
 	default:

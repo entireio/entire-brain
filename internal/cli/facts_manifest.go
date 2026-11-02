@@ -21,58 +21,66 @@ func updateFactSourceManifest(brainDir string, now time.Time) error {
 	})
 }
 
-// reclassifyAllFactBranches backfills the deterministic KIND/LOCUS onto every
-// fact store (non-destructive: only fills facts missing a valid kind, while
-// locus is always reconciled), collapses records that repeat an id within one
-// file, and rebuilds the fact source manifest so by_kind stays accurate. No
-// agent, no tokens. A no-op when no facts exist. Returns the number of facts
-// changed (reclassified plus duplicates folded). Holds the brain write lock
-// for the whole pass.
+// reclassifyAllFacts backfills the deterministic KIND/LOCUS onto the fact
+// store (non-destructive: only fills facts missing a valid kind, while locus
+// is always reconciled), collapses records that repeat an id, and rebuilds the
+// fact source manifest so by_kind stays accurate. No agent, no tokens. A no-op
+// when no facts exist. Returns the number of facts changed (reclassified plus
+// duplicates folded). Holds the brain write lock for the whole pass.
 //
 // This runs from `refresh` so a kind never goes stale: facts distilled before
 // kind-storage, or any fact left without a valid kind, are repaired on the next
 // refresh rather than needing a manual `facts reclassify`.
 //
-// The pass iterates store FILES, never record-branch buckets. An earlier
-// version wrote factstore.LoadAllBranches buckets back through factstore.Write, and a
-// bucket spans files: every main-stamped record the hosted pull had mirrored
-// into a feature branch's store was concatenated into main's file, roughly
-// doubling it on each refresh (COR-2220). The per-file dedup below is also the
-// repair for stores that doubling already damaged — the copies carry the same
-// id, so folding them through Upsert's merge rules loses nothing.
-func reclassifyAllFactBranches(brainDir string, now time.Time) (int, error) {
+// Migration runs FIRST: refresh is a write entry point, so it upgrades legacy
+// branch stores into the flat store (and folds post-migration stragglers an
+// older binary wrote) before the reclassify reads it. Ordinary read commands
+// remain read-only, including on read-only installations.
+func reclassifyAllFacts(brainDir string, now time.Time) (int, error) {
 	changed := 0
 	err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		byFile, err := factstore.LoadStoreFiles(brainDir)
+		if _, err := migrateFactStoreLocked(brainDir); err != nil {
+			return err
+		}
+		facts, err := factstore.Load(brainDir)
 		if err != nil {
 			return err
 		}
-		if len(byFile) == 0 {
-			return nil
+		if len(facts) == 0 {
+			return updateFactSourceManifestLocked(brainDir, now)
 		}
-		for dirName, facts := range byFile {
-			deduped, folded := dedupFactRecords(facts)
-			c := factstore.Reclassify(deduped, false)
-			if c == 0 && folded == 0 {
-				continue
-			}
-			if err := factstore.WriteStoreFile(brainDir, dirName, deduped); err != nil {
+		deduped, folded := dedupFactRecords(facts)
+		c := factstore.Reclassify(deduped, false)
+		changed = c + folded
+		if changed > 0 {
+			if err := factstore.Write(brainDir, deduped); err != nil {
 				return err
 			}
-			changed += c + folded
-		}
-		// Refresh upgrades even an unchanged legacy store. Ordinary read
-		// commands remain read-only, including on read-only installations.
-		if err := factstore.MigrateRepository(brainDir); err != nil {
-			return err
 		}
 		return updateFactSourceManifestLocked(brainDir, now)
 	})
 	return changed, err
 }
 
+// migrateFactStoreLocked is the shared write-entry migration step: every
+// command that is about to mutate the fact store runs it first (under the
+// brain write lock) so a brain upgrades on first write, and legacy branch
+// files a released binary wrote after migration are folded back in rather
+// than ignored. Read surfaces never call it; Load's read-only fold serves
+// them. The straggler warning is returned for the caller to surface.
+func migrateFactStoreLocked(brainDir string) (string, error) {
+	summary, err := factstore.MigrateRepository(brainDir)
+	if err != nil {
+		return "", err
+	}
+	if summary.StragglerFiles > 0 {
+		return "an older entire-brain wrote memories after migration; they were upgraded — update that machine", nil
+	}
+	return "", nil
+}
+
 func updateFactSourceManifestLocked(brainDir string, now time.Time) error {
-	byBranch, err := factstore.LoadAllBranches(brainDir)
+	records, err := factstore.Load(brainDir)
 	if err != nil {
 		return err
 	}
@@ -85,7 +93,7 @@ func updateFactSourceManifestLocked(brainDir string, now time.Time) error {
 	if manifest.Sources != nil && manifest.Sources.Facts != nil {
 		previous = manifest.Sources.Facts
 	}
-	source := factstore.SummarizeSource(now, byBranch, 0, 0, 0, nil)
+	source := factstore.SummarizeSource(now, records, 0, 0, 0, nil)
 	preserveFactDistillEvidence(source, previous)
 	if manifest.Sources == nil {
 		manifest.Sources = &brainSources{}
