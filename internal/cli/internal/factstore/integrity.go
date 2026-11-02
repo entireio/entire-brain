@@ -67,7 +67,7 @@ import (
 // is not available: sources.facts records counts (facts/distilled/authored/
 // superseded/by_kind), never ids, and putting ids there would not help. That
 // manifest is re-derived from the store itself by SummarizeSource on every
-// remember, refresh, gc, promote and retract, so a declared id set would
+// mutating remember, refresh, gc, promote and retract, so a declared id set would
 // re-baseline onto the damage at the next write exactly as the count does, and
 // would cry loss on every legitimate id-changing operation in between.
 //
