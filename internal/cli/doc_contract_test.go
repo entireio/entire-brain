@@ -49,21 +49,20 @@ func TestDocContractCapabilityMatrix(t *testing.T) {
 		t.Fatal(`docs/reference.md missing "ENTIRE_BRAIN_BRIEF_CONVERSATION"`)
 	}
 
-	// Privacy/retention claims: retention exists; the threat model must not
-	// describe it as unimplemented, and the guide must list every privacy
-	// subcommand the CLI registers.
+	// Deletion claims: the brain mirrors the checkpoint refs, so the threat
+	// model must describe capture-layer deletion and its residuals, and must
+	// not resurrect the removed brain-local privacy commands.
 	if strings.Contains(threat, "not yet implemented") {
 		t.Fatal("threat model still describes shipped capability as unimplemented")
 	}
-	if !strings.Contains(threat, "retention") {
-		t.Fatal("threat model must describe the retention policy surface")
-	}
-	if strings.Contains(strings.ToLower(threat), "fail-open") || strings.Contains(strings.ToLower(threat), "fail open") {
-		t.Fatal("threat model must not describe tombstone corruption as fail-open")
-	}
-	for _, want := range []string{"fails closed", "unknown-newer", "lifecycle jobs", "egress"} {
+	for _, want := range []string{"entire checkpoint delete", "refresh", "Convergence window", "egress"} {
 		if !strings.Contains(threat, want) {
-			t.Fatalf("threat model missing hardened privacy contract %q", want)
+			t.Fatalf("threat model missing mirror deletion contract %q", want)
+		}
+	}
+	for _, gone := range []string{"privacy exclude", "privacy purge", "privacy verify", "privacy retention"} {
+		if strings.Contains(threat, gone) || strings.Contains(guide, gone) {
+			t.Fatalf("docs still describe the removed %q command", gone)
 		}
 	}
 	if strings.Contains(guide, "(`history/projection-state-v1.json`, published through the manifest commit)") {
