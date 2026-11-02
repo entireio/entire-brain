@@ -357,3 +357,91 @@ func TestStagedReconcileForceResumePreservesDeferredBranch(t *testing.T) {
 		}
 	}
 }
+
+// A ruling may target a cluster member that publishes in a LATER wave: that
+// member sat in the agent's EXISTING list as comparison context, so the ruling
+// is legitimate, but at apply time the target is not yet in the result set.
+// The cross-link must land regardless of apply order (Bugbot on #587: staged
+// merge targets lost their cross-links, hiding the pair from the compaction
+// loop).
+func TestStagedReconcileCrossWaveRulingStillCrossLinks(t *testing.T) {
+	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	paths := []string{"preferences.coding.style"}
+	stored := stagedTestFact("indent all source files with tabs", paths, factStatusActive, now.Add(-time.Hour))
+	candidates := make([]factRecord, 0, maxReconcileExisting+1)
+	for i := 0; i <= maxReconcileExisting; i++ {
+		candidates = append(candidates, stagedTestFact(
+			fmt.Sprintf("indent all source files with tabs variant %02d", i),
+			paths, factStatusCandidate, now.Add(time.Duration(i)*time.Second)))
+	}
+	sectionLines := func(input, header string) []string {
+		_, section, _ := strings.Cut(input, header+"\n")
+		if i := strings.Index(section, "\n\n"); i >= 0 {
+			section = section[:i]
+		}
+		var lines []string
+		for _, line := range strings.Split(section, "\n") {
+			if line != "" {
+				lines = append(lines, line)
+			}
+		}
+		return lines
+	}
+	lineText := func(line string) string {
+		_, text, _ := strings.Cut(line, "] ")
+		return text
+	}
+	// The cluster's member order is not chronological, so learn from the
+	// agent's own input which candidate is ruled and which cluster member sits
+	// outside the wave (EXISTING #2, published by a later wave).
+	var ruledText, crossWaveTargetText string
+	var wave2RuledText, wave2TargetText string
+	run := func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
+		cands := sectionLines(string(input), "CANDIDATES")
+		existing := sectionLines(string(input), "EXISTING")
+		if len(cands) == maxReconcileExisting {
+			// Wave 1. EXISTING is [1: stored, 2: the wave-2 member]; rule the
+			// wave's first candidate against the member wave 2 publishes later.
+			ruledText = lineText(cands[0])
+			crossWaveTargetText = lineText(existing[1])
+			var b strings.Builder
+			b.WriteString("1 merge 2 0.95\n")
+			for i := 2; i <= maxReconcileExisting; i++ {
+				fmt.Fprintf(&b, "%d new - 1.0\n", i)
+			}
+			return b.String(), nil
+		}
+		// Wave 2: rule the lone remaining member against EXISTING #1 (the
+		// prompt caps EXISTING at the 50 most recently updated, so which fact
+		// that is is the prompt's choice, not this test's).
+		wave2RuledText = lineText(cands[0])
+		wave2TargetText = lineText(existing[0])
+		return "1 merge 1 0.95", nil
+	}
+
+	updated, stats, _ := reconcileStagedCandidates(context.Background(),
+		run, nil, append([]factRecord{stored}, candidates...), ".", time.Minute, 2, now)
+	if stats.Candidates != maxReconcileExisting+1 {
+		t.Fatalf("expected one cluster over every candidate, stats: %+v", stats)
+	}
+	if ruledText == "" || crossWaveTargetText == "" {
+		t.Fatal("wave 1 never observed; the cluster did not split into two waves")
+	}
+	byText := map[string]factRecord{}
+	for _, f := range updated {
+		byText[f.Text] = f
+	}
+	ruled, target := byText[ruledText], byText[crossWaveTargetText]
+	if ruled.Status != factStatusActive || target.Status != factStatusActive {
+		t.Fatalf("both sides of the ruling must publish: ruled=%q target=%q", ruled.Status, target.Status)
+	}
+	if !contains(ruled.RelatedIDs, target.ID) || !contains(target.RelatedIDs, ruled.ID) {
+		t.Fatalf("cross-wave ruling must cross-link once both sides land:\nruled=%+v\ntarget=%+v",
+			ruled.RelatedIDs, target.RelatedIDs)
+	}
+	w2Ruled, w2Target := byText[wave2RuledText], byText[wave2TargetText]
+	if !contains(w2Ruled.RelatedIDs, w2Target.ID) || !contains(w2Target.RelatedIDs, w2Ruled.ID) {
+		t.Fatalf("wave-2 ruling must cross-link too:\nruled=%+v\ntarget=%+v",
+			w2Ruled.RelatedIDs, w2Target.RelatedIDs)
+	}
+}

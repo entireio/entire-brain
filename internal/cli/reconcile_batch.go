@@ -69,6 +69,12 @@ func reconcileStagedCandidates(ctx context.Context, run base.DistillAgentRunner,
 	flagged, clusters, anchored := clusterFlaggedCandidates(candidates, rest)
 
 	var warnings []string
+	// Conflict pairs are cross-linked AFTER every ruling has been applied (see
+	// the loop before the return): a ruling's target can be a cluster member a
+	// later action publishes — it was comparison context in the agent's
+	// EXISTING list — so linking at apply time would silently skip the pair
+	// and hide it from the compaction loop.
+	var conflictPairs [][2]string
 	applyOne := func(records []factRecord, action factAction) []factRecord {
 		c := action.Candidate
 		if action.Kind == factActionNew {
@@ -81,15 +87,12 @@ func reconcileStagedCandidates(ctx context.Context, run base.DistillAgentRunner,
 			return upsertFact(records, c)
 		}
 		// merge/supersede: publish the candidate and keep both facts active,
-		// cross-linked, without rewriting either side. The review queue that
-		// used to adjudicate these left with the per-branch stores; the
-		// nightly compaction loop settles coexisting conflicts (COR-2273).
+		// without rewriting either side. The review queue that used to
+		// adjudicate these left with the per-branch stores; the nightly
+		// compaction loop settles coexisting conflicts (COR-2273).
 		c.Status = factStatusActive
 		if action.TargetID != c.ID {
-			if ti := indexOfFact(records, action.TargetID); ti >= 0 {
-				records[ti].RelatedIDs = appendUniqueFactID(records[ti].RelatedIDs, c.ID)
-				c.RelatedIDs = appendUniqueFactID(c.RelatedIDs, action.TargetID)
-			}
+			conflictPairs = append(conflictPairs, [2]string{c.ID, action.TargetID})
 		}
 		return upsertFact(records, c)
 	}
@@ -201,6 +204,18 @@ func reconcileStagedCandidates(ctx context.Context, run base.DistillAgentRunner,
 				rest = applyOne(rest, action)
 			}
 		}
+	}
+	// Cross-link each adjudicated conflict pair once both sides have landed,
+	// independent of the order the rulings published them. A pair whose target
+	// never landed (a hallucinated id) stays unlinked: the ruling is advisory
+	// and the candidate is already published.
+	for _, pair := range conflictPairs {
+		ci, ti := indexOfFact(rest, pair[0]), indexOfFact(rest, pair[1])
+		if ci < 0 || ti < 0 {
+			continue
+		}
+		rest[ci].RelatedIDs = appendUniqueFactID(rest[ci].RelatedIDs, rest[ti].ID)
+		rest[ti].RelatedIDs = appendUniqueFactID(rest[ti].RelatedIDs, rest[ci].ID)
 	}
 	return rest, stats, warnings
 }
