@@ -1,0 +1,68 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M6D5QEYQ9JKA2G2G71EK97CD",
+  "strategy": "manual-commit",
+  "branch": "evisdren/privacy-removal-handoff-workspace",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "CHANGELOG.md",
+    "docs/recall_threat_model.md",
+    "docs/reference.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/entities_storage.go",
+    "internal/cli/export.go",
+    "internal/cli/facts_mirror.go",
+    "internal/cli/history_fts.go",
+    "internal/cli/history_input.go",
+    "internal/cli/internal/factstore/repo_fact_admin.go",
+    "internal/cli/internal/manifest/manifest.go",
+    "internal/cli/internal/manifest/read.go",
+    "internal/cli/memory_abstract_cancellation_test.go",
+    "internal/cli/memory_coordinator.go",
+    "internal/cli/memory_state_fifo_unix_test.go",
+    "internal/cli/mirror_canary_test.go",
+    "internal/cli/pattern_corpus_publish_test.go",
+    "internal/cli/patterns/publication_state.go",
+    "internal/cli/patterns/workspace_corpus.go",
+    "internal/cli/refresh.go",
+    "internal/cli/retrieval_review_caveats_test.go",
+    "internal/cli/transcript_store.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 138,
+    "cache_creation_tokens": 83105,
+    "cache_read_tokens": 49245182,
+    "output_tokens": 48627,
+    "api_call_count": 69,
+    "subagent_tokens": {
+      "input_tokens": 184,
+      "cache_creation_tokens": 191602,
+      "cache_read_tokens": 15055502,
+      "output_tokens": 47003,
+      "api_call_count": 92
+    }
+  },
+  "redaction": {
+    "replacements": 4,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 4,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}

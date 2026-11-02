@@ -1,0 +1,95 @@
+<task-notification>
+<task-id>a3aef941c0cc5816e</task-id>
+<tool-use-id>toolu_012TtMwu8zgWgu5VrMuc5Qcz</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-nicosia/30c4afe0-395e-47cb-9283-6480b28aac77/tasks/a3aef941c0cc5816e.output</output-file>
+<status>completed</status>
+<summary>Agent "Review privacy-removal branch" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>### Strengths
+
+- The deletion is thorough. Tombstones, read gates, policy capture and validation, race seams, the viz middleware, the `privacy` commands, and `partitionTombstonedSessions` are all gone. `go build`, `go vet ./internal/cli/...`, and `gofmt -l -s` are clean.
+- The lock replacements are correct. The old `runPrivacyLinearizedPatternMutation` and `CaptureWorkspaceDerivedReadPolicies` already held the repo or workspace brain write lock, so the new `WithBrainWriteLock` calls keep the same exclusion.
+  - I traced `ProposeFamilies`, `synthesizeAndForm`/`recordSkillDecision`, `BuildWorkspaceCorpusLocked` and `VerifyDossiers`. None of them takes the same lock again, so there is no deadlock.
+  - `RecoverWorkspaceCorpusPublication` and `BuildWorkspaceCorpus` lock for themselves, and every caller calls them outside a held lock.
+- The `export.go` rewrite is equivalent to the old code when no session is exempt. `partitionLocalTranscriptSessions` keeps input order, so `sessions = usable` and the rebuilt `branchDirs` match the old surviving-session bookkeeping.
+- The `history.go` identity rework is sound. With no tombstones, dropping the `Tombstones` component cannot weaken the prepare/commit staleness check.
+- `facts_mirror.go` uses the same lock → write → `MigrateRepository` → `updateFactSourceManifestLocked` sequence as `reclassifyAllFactBranches`.
+- The retrieval-filter removals (`retrieve.go`, `internal/retrieval/retrieve.go`, viz handlers, dash `SessionViews`) keep the duplicate-winner filtering, structured filters, limits and self-echo filtering.
+- Tests: the canary, `TestVanishedSessionCacheIsSwept`, and the patterns, internal and command subpackage suites pass.
+
+### Issues
+
+#### Critical (Must Fix)
+
+1. **The fact mirror deletes facts for sessions that are still in the checkpoint catalog.** The spec says "sessions present = sessions in the current checkpoint catalog". `dropFactsForMissingSessions` (`internal/cli/facts_mirror.go`) reads `manifest.Sources.Sessions` instead. That list has already lost every session whose transcript bytes are unavailable locally (`export.go`, `sessions = usable`).
+   - **Main trigger:** squash-merged manual-commit checkpoints. The old export comment counted 0 of 39 such IDs still resolving on a real repo.
+   - **Proof:** I ran a probe in a temp copy using `vanishedCacheFixture`. I removed one transcript object and left the catalog entry, then ran an export and `dropFactsForMissingSessions`. Result: `deleted=1`, `facts left=0`.
+   - **Where it runs:** on every refresh, including the unattended watch-daemon tick, and silently. On the first refresh after upgrade, a repo with many such sessions loses all facts distilled from them. Those facts cost tokens and cannot be rebuilt.
+   - **Second trigger:** the hidden `refresh --checkpoint-limit N` and `--scope branch` flags write a partial manifest, so facts outside that window are deleted too.
+   - **Fix:** take membership from the catalog (`selected`, before the availability partition). One way is to persist the catalog session IDs, or the IDs that were skipped as unavailable. Also skip the drop when the export was limited or branch-scoped.
+
+#### Important (Should Fix)
+
+1. **Mixed-provenance facts lose foreign anchors on every refresh.** `hasLocalProvenance` gates the whole fact, but `anchorPresent` then judges every anchor. A pulled-teammate anchor or a `mem0:` import anchor (session ID only, no transcript) is "missing" from the catalog by design, so it is removed even when nothing was deleted.
+   - Probe: anchors `[local present, mem0:abc, teammate-session]` → `stripped=2`.
+   - `UnionAnchors` in dedup and merge creates such facts. The `keepHostedFact` comment documents the case.
+   - Effect: the fact is later deleted when its local session goes, even though a teammate or import source still supports it.
+   - Fix: treat anchors that have no `Transcript` as unattributable and keep them, the same way the fact-level rule does.
+2. **Session abstracts of a deleted session are never removed.** `history/abstracts/v1/*.json` holds LLM summaries of the transcript (overview, decisions). Abstract egress receipts are also kept.
+   - The old purge removed them. Now `purgeSessionAbstractsForRefs`, `sessionRefsForSessionID` and `purgeAbstractEgressReceiptsForSessionRefs` are unreachable.
+   - The abstracts stay on disk and are included in `bundle export --include-sessions` (the history layer skips only `tombstones.json`, `privacy` and `work`).
+   - The docs say refresh "drops everything derived from it". The canary does not check abstracts.
+3. **About 20 tests of guarantees unrelated to privacy were deleted with the privacy-named files.** In a temp copy I restored them unchanged (only a duplicate helper and one unused import removed), and all 17 I ran pass against HEAD.
+   - The 17 I ran:
+     - all 9 tests in `retrieval_guard_test.go`: fact-review IDs and aliases, pending-review annotations, malformed proposal-queue caveats, `CurrentCodeUnavailable` caveats.
+     - 8 pattern-corpus publication tests from `pattern_privacy_publish_test.go`: crash boundaries, failed staging keeps the live corpus, directory-swap symlink safety, bounded and symlink-rejecting transcript reads, partial-publication refusal, newer-manifest refusal.
+   - Also deleted and not privacy-specific (I read these but did not run them): `TestGetBatchCapsRequestSize`, `TestMemoryMigrationProgressRejectsFIFOBeforeOpen`, `TestAbstractLaneCancellationPollCancelsProviderAndSettlesJob`.
+   - Fix: restore them in non-privacy files.
+4. **Upgrade re-surfaces sessions that users excluded or purged.** A leftover `history/tombstones.json` is now ignored. Any excluded or purged session whose checkpoint still exists comes back into history, FTS, conversation, patterns and the sessions view at the next refresh.
+   - Nothing warns the user, and the CHANGELOG does not tell users to run `entire checkpoint delete` for those sessions first.
+   - A user who excluded a session that holds a secret would not expect this. At minimum, make refresh warn when the old tombstone file lists exclusions, and document the step.
+
+#### Minor (Nice to Have)
+
+- **Dead code:** comparing `deadcode` output for base and HEAD shows 21 newly unreachable production functions. Examples: the abstract purge family, `CorpusPrivacyArtifactRels`, `IsCorpusPrivacyArtifactRel`, `LoadCorpusPublicationForPrivacy`, `RemoveCorpusPublicationForPrivacy`, `freshHistory.longTermReconciled`, `historyFTSContainsPathPhraseAt`, `StoredRepositoryRecords`, `ReadPrivacyArtifact`, `ReadPrivacyDirectory`, `RemoveBrainRelativeFileExpected`, `loadMemoryJobsChecked`.
+- **Stale comments that describe removed invariants:**
+  - `transcript_store.go`: the file header ("A purged session stays purged…") and the `transcriptLocation`/`transcriptStore` docs.
+  - `entities_storage.go`: the `sessionIDsByCheckpoint` doc.
+  - `patterns/workspace_corpus.go`: the `RecoverWorkspaceCorpusPublication` doc, which still cites `CaptureWorkspaceDerivedReadPolicies`.
+  - `memory_abstract.go`: the `runSessionAbstractJob` doc, which mentions the side-effect lock.
+  - `agent_surface.go:5050` and `history_input.go:597`.
+- **Legacy jobs never pruned:** old `memoryJobStateExcluded` jobs now never get a truth proof in `pruneMemoryJobsLocked`, so they stay forever.
+- **Counts not reported:** refresh discards the counts from `dropFactsForMissingSessions`, so no output says how many facts were deleted.
+- **Canary gaps:** the canary calls `dropFactsForMissingSessions` directly, so the refresh wiring (and its gate on `Sources.Facts`) is untested. It also does not check pattern episodes, which the docs say are dropped.
+- **Docs overclaim daemon convergence:** the docs say "the watch daemon converges on its next tick". The daemon runs with `skipTranscriptSweep`, so legacy cached transcript files of deleted sessions stay until a refresh the user runs.
+- **Undocumented JSON change:** `memory repair --json` no longer has the `verify_clean` and `verify_available` fields, and the CHANGELOG does not say so.
+
+### Declined to judge
+
+- Corroborated facts keep text that the deleted session contributed. The spec rule keeps a fact while any provenance remains.
+- Matching is per session, not per checkpoint, so a sibling checkpoint keeps the session alive. The spec puts session-level delete in the entire CLI.
+- A user's own synced fact can come back on the next hosted pull after the mirror deletes it locally. Hosted retraction is out of scope, and the ledger ruling accepts the cost. The docs could say this.
+- Viz pins the manifest at startup, so a deleted session's metadata shows until restart. Instant suppression was retired on purpose.
+- Patterns verify, skills form and workspace verify hold the brain write lock across provider calls. The old policy lock did the same, so this is not a regression.
+- The entity index keeps session-ID links (identifiers, not content) until the next backfill.
+- Output buffering was removed from pattern mutations, and the viz middleware was removed (ledger rulings).
+- The manifest keeps the `privacy_identity` and `excluded_sessions` fields (ledger ruling).
+- `privacy retention` was deleted (ledger ruling).
+
+### Verdict
+
+Not ready to merge. Fix Critical 1 (catalog-based membership, and no drop for limited or branch-scoped exports) and Important 1–4 first. The lock work, the export rewrite and the history identity changes are sound.
+
+I reviewed in three passes: production diff, new tests, then the test deletions. All probes ran in temp copies under `/tmp/review-mirror` and `/tmp/review-base`. The worktree was not changed.</result>
+<usage><subagent_tokens>253747</subagent_tokens><tool_uses>95</tool_uses><duration_ms>582171</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b7stivbgb</task-id>
+<tool-use-id>toolu_01RE7CQM79F1CiGaHVdYWrEz</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-nicosia/30c4afe0-395e-47cb-9283-6480b28aac77/tasks/b7stivbgb.output</output-file>
+<status>completed</status>
+<summary>Background command "Format; run full cli suite with fixes" completed (exit code 0)</summary>
+</task-notification>
