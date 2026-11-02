@@ -26,15 +26,6 @@ func TestCurrentCodeUnavailableCaveatsOnlyMemoryFacts(t *testing.T) {
 	}
 }
 
-func hasRetrievalCaveat(result unifiedResult, kind string) bool {
-	for _, caveat := range result.Caveats {
-		if caveat.Kind == kind {
-			return true
-		}
-	}
-	return false
-}
-
 func TestGetBatchCapsRequestSize(t *testing.T) {
 	ids := make([]string, maxGetBatchIDs+1)
 	for i := range ids {

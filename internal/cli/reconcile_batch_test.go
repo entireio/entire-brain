@@ -391,21 +391,38 @@ func TestStagedReconcileCrossWaveRulingStillCrossLinks(t *testing.T) {
 		_, text, _ := strings.Cut(line, "] ")
 		return text
 	}
-	// The cluster's member order is not chronological, so learn from the
-	// agent's own input which candidate is ruled and which cluster member sits
-	// outside the wave (EXISTING #2, published by a later wave).
+	// The cluster's member order is not chronological and EXISTING is ranked
+	// newest-first (activeFactsAtPaths), so neither the ruled candidate nor the
+	// cross-wave target can be assumed by position. Locate the wave-2 member in
+	// wave 1's EXISTING list explicitly: it is the one cluster member absent
+	// from wave 1's CANDIDATES, present as comparison context.
 	var ruledText, crossWaveTargetText string
 	var wave2RuledText, wave2TargetText string
 	run := func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
 		cands := sectionLines(string(input), "CANDIDATES")
 		existing := sectionLines(string(input), "EXISTING")
 		if len(cands) == maxReconcileExisting {
-			// Wave 1. EXISTING is [1: stored, 2: the wave-2 member]; rule the
-			// wave's first candidate against the member wave 2 publishes later.
+			// Wave 1: rule the wave's first candidate against the member a
+			// later wave publishes.
+			inWave := map[string]bool{}
+			for _, line := range cands {
+				inWave[lineText(line)] = true
+			}
+			targetNumber := 0
+			for i, line := range existing {
+				text := lineText(line)
+				if text != stored.Text && strings.HasPrefix(text, "indent all source files with tabs variant") && !inWave[text] {
+					targetNumber = i + 1
+					crossWaveTargetText = text
+					break
+				}
+			}
+			if targetNumber == 0 {
+				return "", fmt.Errorf("wave-2 member not found in wave 1's EXISTING list:\n%s", input)
+			}
 			ruledText = lineText(cands[0])
-			crossWaveTargetText = lineText(existing[1])
 			var b strings.Builder
-			b.WriteString("1 merge 2 0.95\n")
+			fmt.Fprintf(&b, "1 merge %d 0.95\n", targetNumber)
 			for i := 2; i <= maxReconcileExisting; i++ {
 				fmt.Fprintf(&b, "%d new - 1.0\n", i)
 			}
