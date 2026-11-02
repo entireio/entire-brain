@@ -1,0 +1,438 @@
+fix the bugbot issues
+
+---
+
+<task-notification>
+<task-id>bonpoysgb</task-id>
+<tool-use-id>toolu_01SVsKbAyVXZv9uhvhYqebBf</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/bonpoysgb.output</output-file>
+<status>completed</status>
+<summary>Background command "Fix wave-2 assertion, rerun reconcile tests" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>brjgi54h9</task-id>
+<tool-use-id>toolu_018QTUngDLGqVP1FzQLrfoSP</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/brjgi54h9.output</output-file>
+<status>completed</status>
+<summary>Background command "Reply to the bugbot thread" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+where is this trail and work now?
+
+---
+
+okay got it. fix the finding in this trail: https://entire.com/gh/entireio/-/trails/2718/changes/entire-brain/479
+
+---
+
+okay now update me on the step by step process. be very concise.
+
+---
+
+this has a finding on a bugbot issue: https://github.com/entireio/entire-brain/pull/587
+
+---
+
+rebase on main and fix the merge conflcits: https://github.com/entireio/entire-brain/pull/587
+
+---
+
+push to the trail when ready
+
+---
+
+<task-notification>
+<task-id>bsf1ov3zk</task-id>
+<tool-use-id>toolu_01H4FKeVPokNfPdWWDXsBkrF</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/bsf1ov3zk.output</output-file>
+<status>completed</status>
+<summary>Background command "Full internal/cli suite on rebased tree" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+okay this is now merged. 
+
+https://github.com/entireio/entire-brain/pull/587
+
+run the full version matrxi and backwards compat testing
+
+---
+
+<task-notification>
+<task-id>b5pb4n6c9</task-id>
+<tool-use-id>toolu_01QykXdLz5cjVvi25nvbrpJ2</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/b5pb4n6c9.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full version matrix compat suite" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+okay let' move onto PR2
+
+---
+
+<task-notification>
+<task-id>ae0ce08bb0efc0c9b</task-id>
+<tool-use-id>toolu_016VwhqFYnTzrai1YnCJinsc</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/ae0ce08bb0efc0c9b.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement flat factstore v3 core" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Factstore core of PR 2 implemented on `evisdren/flat-repo-fact-store`; package-scoped, not committed, all gates green.
+
+**Final API surface**
+- `Load(brainDir string) ([]factmerge.Record, error)` — flat store **plus** an in-memory, read-only fold of every legacy source (v1 store views with overrides; legacy branch NDJSON files, including post-migration stragglers). `factmerge.Sort` order; corrupt and forward-version stores fail closed.
+- `Write(brainDir string, records []factmerge.Record) error` — refuses records without an id; refuses to replace a forward-version store; atomic replace of `facts/store.json` (schema 3, `{"schema_version":3,"records":{id: record}}`); then parks remaining legacy dirs (safe by the load-mutate-write-under-brain-lock contract; an id the caller removed on purpose must not resurrect from an unmaintained file).
+- `MigrateRepository(brainDir string) (MigrationSummary, error)` — standing idempotent reconcile: fold → write → **verify** (re-read, every folded id present; failure leaves legacy dirs untouched) → park dirs to `facts/.legacy-&lt;unixts&gt;/&lt;dir&gt;/` (rename, never delete; damaged/unfoldable lines survive there). No-op (no write) when flat and clean.
+- `MigrationSummary{Folded int, StragglerFiles int, MovedDirs []string}` + `Changed() bool`. `StragglerFiles &gt; 0` = a released binary wrote after migration — callers should tell the user to update that machine.
+- `SummarizeSource(now, records []factmerge.Record, chunksScanned, chunksDistilled, proposals int, warnings)` — flat; `Branches` stays empty (field kept for old manifests).
+- Fold semantics: by content id, provenance union via `Upsert`; explicit lifecycle resolution (`Upsert` alone keeps the stored side's status, which is order-dependent): retirement &gt; active &gt; candidate, except a **strictly newer** active copy revives a retirement; order-independent, tested both fold orders.
+- `Inspect` adapted to the flat view (missing/unreadable/lossy/stale); the old duplicate-id substitution corruption is now caught structurally — a map key over a different record's body fails `decodeV3` closed.
+
+**Deleted**: views machinery (`replaceView`/`compact`/`view`/projection publishing), `NativeProjection`, `RollbackRepository`, `RepositoryViewDirs`, `BranchStoreExists`, `MissingBranchStores`, `UnreadableBranchStores(+type)`, `MissingStoreWarning(ForBranch)`, `LoadAllBranches`, `LoadStoreFiles`, `WriteStoreFile`, `OtherBranchBlindSpot`, `BranchRelDir`, `FileRelPath`, all of `files.go`. **Kept**: taxonomy, locus, global store (flipped to flat `Load`; same layout, same migration), `CleanupRepositoryTemps`, `RepositoryStatus` (Views now counts unmigrated legacy dirs; JSON keys unchanged), v1 decode helpers as unexported migration-only code in `repo_fact_compat.go` with a delete-when-releases-die header.
+
+**Manifest**: `SchemaVersion` 4 → 5 with a comment recording the one-way-door rationale and the verified released-binary half-write behavior. `MinSchemaVersion` untouched; manifest package tests pass.
+
+**Tests**: migration matrix (a)–(f) all implemented — schema-1 with view overrides, marker+legacy files (parks only after verify, originals survive under the park, second pass no-op), flat+straggler (summary observable), mixed, retirement-wins (3 timestamp cases × both fold orders) plus active-beats-candidate, and fail-closed on read-only FS and on corrupt legacy files with sources untouched. Flat round-trip, forward-version, substitution-corruption, no-id refusal, park-on-write, read-only-fold, randomized no-loss walk, fuzz round-trip. The three `TestRepoFactStoreReleased*` tests (what `scripts/test-memory-storage-compat.sh` runs) are rewritten to the flat contract at package level — released binary writes/retractions fold, migration parks, stragglers fold with `StragglerFiles` reported. `go test -race` green (2.8 s), `go vet` and `gofmt -l -s` clean.
+
+**Decisions the spec didn't settle (flagged for you)**
+1. `Write` refuses to overwrite a forward-version store — your spec gated only reads; without this, a newer build's store could be destroyed by an older flat-aware build.
+2. The released-binary tests previously asserted CLI-level branch visibility and `memories storage migrate/rollback` round-trips via the CURRENT binary; that contract is gone and the current binary doesn't build until you flip callers. I rewrote them package-level (released binary for writes, package API for assertions) — **cli-level released-compat coverage must be re-established in `internal/cli`'s compat suite when you flip the callers**, including the "current binary's remember bumps the manifest and the old binary warns" behavior.
+3. `RepositoryStatus.Views` now reports pending legacy dirs under the old JSON key; `StorageStatus` shape unchanged for its readers.
+4. `ResolveGlobalTarget` still returns `(brainDir, "global", err)` — the branch return is vestigial; left for you to drop when flipping callers.
+5. The straggler fold in the released test tolerates the released client's `remember` failing *or* succeeding (it half-writes either way); if a release is ever cut that stops writing before the manifest check, the test skips rather than fails.
+
+Out-of-scope note: `internal/cli` callers now won't compile (expected per directive) — `Load/Write/MigrateRepository/SummarizeSource` signatures, plus every deleted symbol (`LoadAllBranches`, `OtherBranchBlindSpot` in blind_spot.go, `FileRelPath` in agent_surface.go/facts_mirror.go, `BranchStoreExists` in facts commands, storage cmd's rollback).</result>
+<usage><subagent_tokens>735534</subagent_tokens><tool_uses>39</tool_uses><duration_ms>837198</duration_ms></usage>
+</task-notification>
+
+---
+
+status?
+
+---
+
+<task-notification>
+<task-id>ab23fd687b4623935</task-id>
+<tool-use-id>toolu_013DhXi2mUAL7G3NBdhGKzjS</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/ab23fd687b4623935.output</output-file>
+<status>completed</status>
+<summary>Agent "Flip cli callers to flat store" stopped at its 200-turn limit (partial result; SendMessage to task-id to continue)</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>NOTE: this agent stopped at its 200-turn limit before finishing. The text below is PARTIAL output; treat it as incomplete. Send the agent a message (SendMessage) to let it continue from where it stopped.
+
+All gates up to the big one are clean. Running the full `internal/cli` suite.</result>
+<usage><subagent_tokens>952690</subagent_tokens><tool_uses>200</tool_uses><duration_ms>3442886</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ab23fd687b4623935</task-id>
+<tool-use-id>toolu_014VxdSMxpFPgV256xbULxkv</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/ab23fd687b4623935.output</output-file>
+<status>completed</status>
+<summary>Agent "Flip cli callers to flat store" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>The full `internal/cli` suite is running in the background. Status so far this stretch:
+
+- Fixed the last known failures: outline/retract/status JSON branch expectations, the all-branches and eval-gen double-Write fixtures, the symlinked-legacy-dir write test (flat Write ignores it), the hosted sync/status output lines, and the workspace corrupt-store assertion.
+- Rewrote the dead "deferred branch" force test as `TestForceRebuildDropsDistilledFactsRepoWideButKeepsAuthored` — the flat contract.
+- Production change (rule 1/10): explicit `--branch` on `search`/`query`/`vsearch`/`get`/`multi-get` now filters fact records by metadata (`retrieval.Options.Branch` in the facts arm, new `GetOptions.Branch` set from the raw flag). Unset means the whole store — never the current git branch.
+- `gofmt -l -s .` and `go vet ./...` are clean.
+
+Next: triage the full-suite result, then run `scripts/test-memory-storage-compat.sh`.</result>
+<usage><subagent_tokens>144184</subagent_tokens><tool_uses>268</tool_uses><duration_ms>4289806</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ab23fd687b4623935</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/ab23fd687b4623935.output</output-file>
+<status>completed</status>
+<summary>Agent "Flip cli callers to flat store" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Full suite re-running with failures captured to `/tmp/cli_suite.log`; I'll triage as soon as it completes.</result>
+<usage><subagent_tokens>144585</subagent_tokens><tool_uses>270</tool_uses><duration_ms>4519939</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ab23fd687b4623935</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/ab23fd687b4623935.output</output-file>
+<status>completed</status>
+<summary>Agent "Flip cli callers to flat store" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Full suite re-running after the two fixes. Will triage on completion, then start the released-compat harness.</result>
+<usage><subagent_tokens>151699</subagent_tokens><tool_uses>276</tool_uses><duration_ms>4845415</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ab23fd687b4623935</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/ab23fd687b4623935.output</output-file>
+<status>completed</status>
+<summary>Agent "Flip cli callers to flat store" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Report data collected: 138 changed paths (131 modified, 4 deleted, 3 new test files; net −1,007 lines). Waiting on the compat harness.</result>
+<usage><subagent_tokens>153686</subagent_tokens><tool_uses>280</tool_uses><duration_ms>5071071</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ab23fd687b4623935</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/ab23fd687b4623935.output</output-file>
+<status>completed</status>
+<summary>Agent "Flip cli callers to flat store" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Both final gates are running in parallel: the full compat harness (three released versions) and the full `internal/cli` suite. I'll assemble the final report once both come back.</result>
+<usage><subagent_tokens>258462</subagent_tokens><tool_uses>349</tool_uses><duration_ms>6085303</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ab23fd687b4623935</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/ab23fd687b4623935.output</output-file>
+<status>completed</status>
+<summary>Agent "Flip cli callers to flat store" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>The compat harness passes for all three released versions (v0.2.0, v0.3.0, v0.4.0). Waiting on the full `internal/cli` suite to confirm the production changes didn't regress anything.</result>
+<usage><subagent_tokens>258472</subagent_tokens><tool_uses>350</tool_uses><duration_ms>6151024</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ab23fd687b4623935</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/ab23fd687b4623935.output</output-file>
+<status>completed</status>
+<summary>Agent "Flip cli callers to flat store" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Report numbers are final: 138 changed paths. Awaiting the suite result to deliver the full report.</result>
+<usage><subagent_tokens>263671</subagent_tokens><tool_uses>356</tool_uses><duration_ms>6344423</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ab23fd687b4623935</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/ab23fd687b4623935.output</output-file>
+<status>completed</status>
+<summary>Agent "Flip cli callers to flat store" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All gates are green. Final report:
+
+## PR 2 caller flip — complete, not committed
+
+**Files changed: 138** (131 modified, 4 deleted, 3 new test files; 2,781 insertions, 3,671 deletions).
+
+### Gate results
+- `gofmt -l -s .` — clean.
+- `go vet ./...` — clean.
+- Fast packages (`factmerge`, `factstore`, `retrieval`, `command/...`, `patterns`, `factsync`) — all `ok`.
+- Full `go test -count=1 ./internal/cli/` — `ok` (243s).
+- `bash scripts/test-memory-storage-compat.sh` — **passes for v0.2.0, v0.3.0, and v0.4.0** (factstore package and cli released tests, with `-race`).
+
+### Production fixes beyond the 15 rules (each found by a test)
+1. **`parkLegacyDirs` rename collision** (`repo_fact_store.go`): the park dir was keyed on `time.Now().Unix()`, so two parks in one second failed on rename. Now `os.MkdirTemp` gives each park a unique dir.
+2. **Schema-1 resurrect after purge** (`repo_fact_compat.go`): the fold unioned schema-1 view entries with the live branch files, resurrecting records an old `privacy purge` had removed. The fold now treats a view as a stale snapshot of its dir's live file: entries the file no longer carries are dropped; a view with no live file still folds whole.
+3. **Legacy brains read as lossy** (`integrity.go` + fold): pre-migration manifests counted one promoted/mirrored fact once per branch file; the flat fold dedupes, so every such brain warned "N lost" and read commands exited 1. `Readable` now adds cross-source repeats back.
+4. **`memories storage migrate` left the manifest stale**: it now rebuilds the fact source manifest after a changed migration (repo brains only), which also deterministically closes the one-way door.
+5. **Legacy outline invisible** (`facts_outline.go`): the outline moved to `facts/outline.json`, but released clients write `facts/&lt;branch&gt;/outline.json`. Reads now fall back to the newest legacy outline until migration parks it; writes stay flat.
+6. Earlier in the flip (already reported mid-task): legacy fold refuses symlinked/non-regular `facts.ndjson`; within-file duplicate-id collision detection restored; zero-byte `store.json` treated as absent; recall surfaces the integrity warning.
+
+### Semantic judgment calls beyond the rules
+- **Explicit `--branch` on retrieval verbs** (`search`/`query`/`vsearch`/`get`/`multi-get`) filters fact records by metadata (rule 1/10); unset means the whole store, never the current git branch. Global facts are exempt — `--no-global` stays their only off switch.
+- Hosted status `Synced` bool replaces `synced_branches`; one repo-wide sync per event.
+- `facts outline/map/retract` lost their `--branch` flags; retract/outline JSON no longer carries `branch`.
+- The "force preserves deferred branches" distill behavior is gone: a force rebuild drops distilled facts repo-wide, keeps authored and retired records, and drops deferred sessions' cache entries so they re-derive later.
+- Rule 13 nuance verified against the real binaries: a released client's recall on a migrated brain warns and returns empty — but after its own post-migration half-write, its recall does read that straggler file back until the next fold parks it. The test asserts the rule before the straggler write.
+
+### Re-established cli compat coverage (`repo_fact_released_compat_test.go`)
+Five tests run real pinned v0.2–v0.4 binaries against the current build: legacy writes fold on the first current mutation; privacy purges survive migration (including schema-1 residue removal); the straggler half-write warns `memory_unsupported_version`, folds, and reports `StragglerFiles`; hosted sync works across the upgrade boundary in three phases with failure/retry on both sides; distill/outline/review artifacts are shared both directions pre-migration and one-way after.
+
+### Deferred
+Nothing. All known failures were fixed; no rule proved wrong against reality (rule 13 needed only the ordering nuance above). Per instructions, nothing was committed.</result>
+<usage><subagent_tokens>265746</subagent_tokens><tool_uses>357</tool_uses><duration_ms>6588444</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bzbhkj0yu</task-id>
+<tool-use-id>toolu_01TK46yBza6goNWUmPe4dzpW</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/bzbhkj0yu.output</output-file>
+<status>completed</status>
+<summary>Background command "Full suite, independent run" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+fix the bugbot issues: https://github.com/entireio/entire-brain/pull/590
+
+---
+
+<task-notification>
+<task-id>ab23fd687b4623935</task-id>
+<tool-use-id>toolu_01KFd4isZZR4gNm61D4vEN3K</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/ab23fd687b4623935.output</output-file>
+<status>completed</status>
+<summary>Agent "Flip cli callers to flat store" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Both final gates are running. I'll report the sweep change results when they complete.</result>
+<usage><subagent_tokens>301505</subagent_tokens><tool_uses>10</tool_uses><duration_ms>373881</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ab23fd687b4623935</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/ab23fd687b4623935.output</output-file>
+<status>completed</status>
+<summary>Agent "Flip cli callers to flat store" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Compat harness still green across all three released versions after the sweep change. Waiting on the full `internal/cli` suite.</result>
+<usage><subagent_tokens>302313</subagent_tokens><tool_uses>11</tool_uses><duration_ms>446050</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ab23fd687b4623935</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/ab23fd687b4623935.output</output-file>
+<status>completed</status>
+<summary>Agent "Flip cli callers to flat store" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Force-sweep regression fixed (Bugbot, PR #590) — all gates green, not committed
+
+### What changed (`internal/cli/distill_cmd.go`)
+- **Pre-drop removed.** `ensureStore` no longer deletes distilled active facts up front; a force run holds the full corpus in memory for its whole duration, so a scoped or interrupted run can no longer lose anything it did not re-derive.
+- **Final-flush scoped sweep replaces it.** New `sweepStaleForceFacts` runs only on the final flush, after `rebaseFactsOntoDisk`, only under `--force`. It drops a record iff it is distilled, active, not in `regeneratedFactIDs`, cites at least one provenance session id, and every cited id was fully rebuilt this run. Authored, retired, zero-session-provenance, and any fact citing an unrebuilt session survive.
+- **Tracking.** `rebuiltSessionCount`/`sessionExportCount` count per session id across duplicate exports — a session counts as rebuilt only when every export of that id was fully distilled (no failed chunks). `regeneratedFactIDs` collects extraction upserts plus every record `reconcileStagedCandidates` created or changed (so a merge target absorbing this run's candidate is protected).
+- **Consequence encoded:** a full `--force` no longer drops facts whose sessions left the catalog — that is the mirror sweep's job. Comments say so.
+- **Cache semantics re-reasoned, behavior kept.** Force still writes `newCache` only, but for the real reason now: facts are no longer at risk; carrying an unreached session's old fingerprint would mark it distilled and the rebuild would silently never finish. The line-1324 deferred-cache-drop stays, with its comment rewritten (the sibling-deletion rationale was pre-drop-specific).
+- **`rebaseFactsOntoDisk` lost its `force` parameter** and the force no-op-discard clause — both existed only to mirror the pre-drop. Resume no longer defers `storeLoaded` under force. A rebuilt session that yields nothing now marks the store dirty so the final flush (and sweep) always runs.
+- **Kept:** the `--session`+`--force` refusal (message reworded — the old "drops every distilled fact on the branch" rationale is no longer true; no test pinned the text) and the deferred-cache-drop backfill flow.
+
+### Tests
+Replaced `TestForceRebuildDropsDistilledFactsRepoWideButKeepsAuthored` (its premise — repo-wide drop — is the bug) with three regression tests, all passing:
+- `TestForceWithSessionCapKeepsDeferredSessionsFacts` — capped force sweeps only the visited session's stale fact; the deferred session's fact survives and re-derives on the next plain run (verified: agent called again, `Distilled == 2`).
+- `TestForceSweepDropsOnlyProvenStaleFacts` — full force drops the proven-stale fact; authored, retired, and catalog-orphan facts survive.
+- `TestForceWithBranchFilterSweepsOnlyThatBranchsSessions` — `--branch feature` + `--force` sweeps only the feature session's stale fact; main's fact survives.
+
+### Gates
+- `gofmt -l -s .` — clean. `go vet ./internal/cli/` (and `./...` earlier) — clean.
+- `go test -count=1 ./internal/cli/ -run 'Distill|Force|Reconcile'` — `ok`.
+- Full `go test -count=1 ./internal/cli/` — `ok` (194s).
+- `bash scripts/test-memory-storage-compat.sh` — re-run since distill production code changed: **passes for v0.2.0, v0.3.0, v0.4.0**.
+
+Nothing committed. The earlier flip report stands; this adds the sweep rework on top.</result>
+<usage><subagent_tokens>304244</subagent_tokens><tool_uses>12</tool_uses><duration_ms>585971</duration_ms></usage>
+</task-notification>
+
+---
+
+more bugbot issues: https://github.com/entireio/entire-brain/pull/590
+
+also fix the findings
+
+---
+
+<task-notification>
+<task-id>ab23fd687b4623935</task-id>
+<tool-use-id>toolu_01EfLZGmTm69ed8i3vbuxYRk</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/ab23fd687b4623935.output</output-file>
+<status>completed</status>
+<summary>Agent "Flip cli callers to flat store" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Both long gates are running in the background. I'll deliver the per-finding report when they complete.</result>
+<usage><subagent_tokens>340490</subagent_tokens><tool_uses>17</tool_uses><duration_ms>407704</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ab23fd687b4623935</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/ab23fd687b4623935.output</output-file>
+<status>completed</status>
+<summary>Agent "Flip cli callers to flat store" is waiting on its own background work</summary>
+<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>
+<result>Compat harness green across all three released versions. Waiting on the full suite.</result>
+<usage><subagent_tokens>340975</subagent_tokens><tool_uses>18</tool_uses><duration_ms>473058</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ab23fd687b4623935</task-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/ab23fd687b4623935.output</output-file>
+<status>completed</status>
+<summary>Agent "Flip cli callers to flat store" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## All four findings fixed — all gates green, not committed
+
+### 1. Force sweep drops concurrent writers' facts (bugbot, `distill_cmd.go`)
+`rebaseFactsOntoDisk` now also returns the ids it adopted or updated from disk (present-on-disk-but-not-in-baseline, or changed-on-disk). The flush accumulates them across mid-run flushes into `externallyWrittenFactIDs` — mid-run flushes fold adopted records into the next baseline, so only this running set still knows they were another writer's — and the final sweep exempts them exactly like `regeneratedFactIDs`. Invariant encoded: the sweep may only delete records from this run's own original baseline.
+Tests: `TestRebaseReportsAdoptedDiskRecords` (adopted = new + changed disk records, never unchanged baseline ones), `TestForceSweepExemptsExternalAndPartiallyCitedRecords`.
+
+### 2. Resume leftovers survive a force rebuild (bugbot, `distill_cmd.go`)
+Under `--force`, the resume-phase reconcile no longer records its publications in `regeneratedFactIDs` — the sweep's provenance rule alone governs them. Merge-target decision (in the comment): a target a resume merge mutates gets no special protection either; it survives through the out-of-scope citations it absorbed from the leftover, and is otherwise stale if its sessions were fully rebuilt and extraction did not re-produce it.
+Tests: `TestForceSweepDropsStaleResumeLeftovers` (leftover from the rebuilt session dies; leftover from the deferred session survives as published) plus the mixed-citation case in the sweep unit test above.
+
+### 3. Pull evicts teammate facts across branches (trail, `hosted_sync.go`)
+The store-rebuild eviction loop is gone: pull never removes a stored record. The `keepHostedFact` reachability filter now guards incoming feed records only. What retires a stored teammate fact (documented in the code): the feed's lifecycle (retraction/settlement via the existing one-way status upsert) or the checkpoint mirror sweep for provenance the whole repository lost — never current-branch ancestry.
+Test: `TestHostedSyncPullNeverEvictsStoredFacts` (replaces the test that pinned the old per-branch eviction): the stored fact survives a sync on a branch that cannot reach its anchors, and a hosted retraction then retires it.
+
+### 4. First-sorted legacy binding wins silently (trail, `facts_hosted_binding.go`)
+`readHostedFactsBinding` now reads every legacy per-branch marker (live and parked). Unanimous target → adopted and promoted to the flat marker (best-effort write). Disagreeing targets → error: "legacy hosted fact bindings disagree (… vs …); run 'memories sync' with the intended target to bind this repository" — never a silent pick, and no flat marker is written on disagreement.
+Tests: `TestHostedBindingAdoptsAgreeingLegacyMarkers`, `TestHostedBindingRefusesDisagreeingLegacyMarkers`.
+
+### Gates
+- `gofmt -l -s .` — clean. `go vet ./internal/cli/` — clean.
+- Scoped `go test -count=1 -run 'Distill|Force|Hosted|Sync|Binding' ./internal/cli/` — `ok`.
+- Full `go test -count=1 ./internal/cli/` — `ok` (202s).
+- `scripts/test-memory-storage-compat.sh` — passes for v0.2.0, v0.3.0, v0.4.0 (the released hosted-sync scenarios exercise the changed pull path).
+
+Nothing committed.</result>
+<usage><subagent_tokens>342835</subagent_tokens><tool_uses>19</tool_uses><duration_ms>626052</duration_ms></usage>
+</task-notification>
+
+---
+
+a high finding from cursor:
+
+https://github.com/entireio/entire-brain/pull/590
+
+resolve and fix it
+
+---
+
+<task-notification>
+<task-id>btgp6nb8i</task-id>
+<tool-use-id>toolu_01TtWvdSNh2KZosNrXnXFZjw</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/btgp6nb8i.output</output-file>
+<status>completed</status>
+<summary>Background command "Compat matrix (sync path changed)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b3ew9qb8b</task-id>
+<tool-use-id>toolu_01HtsVXrsraknS9yMXMChXHw</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/b3ew9qb8b.output</output-file>
+<status>completed</status>
+<summary>Background command "Full suite before pushing" completed (exit code 0)</summary>
+</task-notification>

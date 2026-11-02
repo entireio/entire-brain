@@ -1,0 +1,48 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M6F4HQQG21E113AFVQ5K6Z53",
+  "strategy": "manual-commit",
+  "branch": "evisdren/flat-repo-fact-store",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "internal/cli/hosted_sync.go",
+    "internal/cli/hosted_sync_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 38,
+    "cache_creation_tokens": 19069,
+    "cache_read_tokens": 13375043,
+    "output_tokens": 10240,
+    "api_call_count": 19,
+    "subagent_tokens": {
+      "input_tokens": 4,
+      "cache_creation_tokens": 648,
+      "cache_read_tokens": 682230,
+      "output_tokens": 1440,
+      "api_call_count": 2
+    }
+  },
+  "redaction": {
+    "replacements": 32,
+    "layers": {
+      "betterleaks": 26,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 12,
+      "credentialed_uri": 0,
+      "entropy": 18,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
