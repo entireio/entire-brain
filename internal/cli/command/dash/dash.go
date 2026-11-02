@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/factmerge"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
@@ -87,11 +86,6 @@ func Run(ctx context.Context, cmd *cobra.Command, cfg Config, flags Flags, targe
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
-	if err != nil {
-		return err
-	}
-
 	snap, err := AssembleBrainSnapshot(ctx, cfg, target, repoDir, brainDir, branch, flags.Limit)
 	if err != nil {
 		return err
@@ -107,7 +101,7 @@ func Run(ctx context.Context, cmd *cobra.Command, cfg Config, flags Flags, targe
 		if dumbTerminal && !flags.JSON && !flags.Plain {
 			fmt.Fprintln(cmd.ErrOrStderr(), "note: TERM is unset or dumb — printing the plain summary; the dashboard needs a terminal that renders escape sequences")
 		}
-		return cfg.Deps.BufferRetrievalOutput(cmd, []brainstore.RetrievalPrivacyPolicy{privacyPolicy}, func() error {
+		return cfg.Deps.BufferRetrievalOutput(cmd, func() error {
 			if flags.JSON {
 				return cmdutil.WriteJSON(cmd, snap)
 			}
@@ -116,7 +110,7 @@ func Run(ctx context.Context, cmd *cobra.Command, cfg Config, flags Flags, targe
 		})
 	}
 	return tui.Run(snap, theme, brainSearchFunc(cfg.Deps, repoDir, brainDir, branch), startTab,
-		cfg.Deps.TerminalWriter(cmd.OutOrStdout(), privacyPolicy), cfg.Deps.BrainSourceReader(ctx, cfg.Options.Runner, brainDir))
+		cmd.OutOrStdout(), cfg.Deps.BrainSourceReader(ctx, cfg.Options.Runner, brainDir))
 }
 
 // brainSearchFunc adapts the lexical retrieval (`entire brain search`) into the
@@ -175,14 +169,12 @@ func AssembleBrainSnapshot(ctx context.Context, cfg Config, target, repoDir, bra
 	}
 	snap.GeneratedAt = status.GeneratedAt
 	manifest := status.Manifest
-	guard := status.Guard
 	snap.Home = status.Home
 
 	// Facts (per branch).
 	if facts, err := factstore.Load(brainDir, branch); err != nil {
 		markSourceUnreadable(&snap.Home, "Facts", "facts unavailable: "+err.Error())
 	} else {
-		facts = factstore.GuardRecords(guard, facts)
 		snap.Facts = FactViews(facts, brainDir, limit)
 		snap.Notes = appendCapNote(snap.Notes, "facts", len(facts), len(snap.Facts))
 	}
@@ -190,16 +182,15 @@ func AssembleBrainSnapshot(ctx context.Context, cfg Config, target, repoDir, bra
 	if manifest != nil && manifest.Sources != nil {
 		// Sessions (from the manifest).
 		if s := manifest.Sources.Sessions; s != nil {
-			visibleSessions := bmanifest.GuardSessions(guard, s.Sessions)
-			snap.Sessions = SessionViews(visibleSessions, brainDir, limit, guard)
-			snap.Notes = appendCapNote(snap.Notes, "sessions", len(visibleSessions), len(snap.Sessions))
+			snap.Sessions = SessionViews(s.Sessions, brainDir, limit)
+			snap.Notes = appendCapNote(snap.Notes, "sessions", len(s.Sessions), len(snap.Sessions))
 		}
 		// History (index.json).
 		if h := manifest.Sources.History; h != nil {
 			if idx, err := historystore.LoadIndex(brainDir, h); err != nil {
 				markSourceUnreadable(&snap.Home, "History", "history unavailable: "+err.Error())
 			} else {
-				records := historystore.FilterRecords(idx.Records, func(record historystore.Record) bool { return !historystore.GuardBlocksRecord(guard, record) })
+				records := idx.Records
 				snap.History = HistoryViews(records, brainDir, limit)
 				snap.Notes = appendCapNote(snap.Notes, "history", len(records), len(snap.History))
 			}
@@ -280,8 +271,7 @@ func FactViews(facts []factmerge.Record, brainDir string, limit int) []tui.FactV
 	return out
 }
 
-func SessionViews(sessions []bmanifest.Session, brainDir string, limit int, guard brainstore.SessionReadGuard) []tui.SessionView {
-	sessions = bmanifest.GuardSessions(guard, sessions)
+func SessionViews(sessions []bmanifest.Session, brainDir string, limit int) []tui.SessionView {
 	if limit > 0 && len(sessions) > limit {
 		sessions = sessions[:limit]
 	}

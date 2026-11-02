@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
-	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io/fs"
 	"os"
@@ -285,16 +283,6 @@ func regressionScanHistoryCapped(brainDir string, ids []string) ([]changeSignal,
 		maxSignalsEach = 400
 	)
 	caps := regressionScanCaps{MaxFiles: maxFiles, MaxSignals: maxSignalsEach}
-	// Resolve excluded transcript paths before reading any history. A broken
-	// manifest or privacy policy must fail closed, not disable exclusion.
-	manifest, err := bmanifest.Load(brainDir)
-	if err != nil {
-		return nil, nil, nil, caps, err
-	}
-	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
-	if err != nil {
-		return nil, nil, nil, caps, err
-	}
 	lowIDs := make([]string, 0, len(ids))
 	for _, id := range ids {
 		lowIDs = append(lowIDs, strings.ToLower(id))
@@ -334,9 +322,6 @@ func regressionScanHistoryCapped(brainDir string, ids []string) ([]changeSignal,
 		rel, _ := filepath.Rel(brainDir, path)
 		relSlash := filepath.ToSlash(rel)
 		if brainRawScanSkipsDerived(relSlash) {
-			return nil
-		}
-		if _, excluded := guard.Paths[relSlash]; excluded {
 			return nil
 		}
 		f, openErr := os.Open(path)
@@ -1200,10 +1185,6 @@ func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, 
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(status.Brain.Path)
-	if err != nil {
-		return err
-	}
 	var semSource *semanticSourceManifest
 	if status.Manifest != nil && status.Manifest.Sources != nil {
 		semSource = status.Manifest.Sources.Semantic
@@ -1251,7 +1232,7 @@ func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, 
 		}
 		return nil
 	}
-	return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, render)
+	return bufferRetrievalCommandOutput(cmd, render)
 }
 
 func newInspectRegressionsCommand(opts Options) *cobra.Command {

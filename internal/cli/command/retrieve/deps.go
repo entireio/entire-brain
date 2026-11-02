@@ -12,7 +12,6 @@ import (
 	"io"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 )
 
@@ -33,9 +32,8 @@ type Deps struct {
 	// AbstractPreviews builds the bounded evidence-linked session previews for
 	// --include-abstract (conversation arm; read-only).
 	AbstractPreviews func(brainDir string, results []retrieval.Result) ([]retrieval.SessionAbstractPreview, bool, error)
-	// RequirePatternsReadable gates pattern:/theme: reads: the privacy
-	// derived-read check (bound to cli's verifyDerivedClean) followed by the
-	// pattern-corpus availability check.
+	// RequirePatternsReadable gates pattern:/theme: reads: corpus read-safety
+	// followed by the pattern-corpus availability check.
 	RequirePatternsReadable func(brainDir string) error
 	// RelatedPatternPointers returns the capped pattern:/theme: pointers for
 	// --patterns, with the cli-side pointer cap bound in.
@@ -49,13 +47,9 @@ type Deps struct {
 	// TaskHints derives likely edit/test files from indexed result paths; it
 	// stays in cli with the brain-brief path classifiers it binds.
 	TaskHints func(repoRoot string, results []retrieval.Result, query string) retrieval.TaskHints
-	// RevalidateResponsePrivacy closes the ranking-to-write window for the
-	// multi-concept arm (binds the cli race seam and the session-view rebuild).
-	RevalidateResponsePrivacy func(brainDir string, results []retrieval.Result) ([]retrieval.Result, string, error)
-	// WriteRetrievalResponse is the final transport write boundary: it
-	// revalidates the captured privacy policies (without taking any Brain
-	// lock) and then writes, binding the cli transport race seams.
-	WriteRetrievalResponse func(out io.Writer, data []byte, policies ...brainstore.RetrievalPrivacyPolicy) error
+	// WriteRetrievalResponse is the final transport write boundary: it writes
+	// the complete buffered response, failing on a short write.
+	WriteRetrievalResponse func(out io.Writer, data []byte) error
 	// BoundedResponseBytes renders the budget-bounded multi-concept response
 	// (JSON or text), binding the cli transport trim/assembly machinery.
 	BoundedResponseBytes func(query, branch string, results []retrieval.Result, extras retrieval.TransportExtras, jsonOut bool) ([]byte, error)

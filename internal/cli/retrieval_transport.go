@@ -4,35 +4,18 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
-	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"io"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
-	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
-// beforeRetrievalResponsePrivacyRecheck is a deterministic race seam for
-// tests. Production leaves it as a no-op. It runs after ranking and immediately
-// before the authoritative pre-emission privacy check.
-var beforeRetrievalResponsePrivacyRecheck = func() {}
-
-// beforeRetrievalResponsePrivacyEmissionCheck is the final transport-boundary
-// race seam. Production leaves it as a no-op; tests use it to land a tombstone
-// after the complete response has been buffered but before any byte is written.
-var beforeRetrievalResponsePrivacyEmissionCheck = func() {}
-
-// The retrieval privacy policy lives in brainstore; the alias keeps the
-// package-local name for the many existing readers and tests.
-type retrievalPrivacyPolicy = brainstore.RetrievalPrivacyPolicy
-
-// bufferRetrievalCommandOutput preserves each command's exact legacy bytes
-// while moving the authoritative privacy check to one shared final boundary.
-// Rendering failures discard the private buffer and emit nothing.
-func bufferRetrievalCommandOutput(cmd *cobra.Command, policies []retrievalPrivacyPolicy, render func() error) error {
+// bufferRetrievalCommandOutput preserves each command's exact bytes behind one
+// shared final boundary: rendering failures discard the buffer and emit
+// nothing, so a render error never leaves partial output behind.
+func bufferRetrievalCommandOutput(cmd *cobra.Command, render func() error) error {
 	original := cmd.OutOrStdout()
 	var buffered bytes.Buffer
 	cmd.SetOut(&buffered)
@@ -41,134 +24,18 @@ func bufferRetrievalCommandOutput(cmd *cobra.Command, policies []retrievalPrivac
 		return err
 	}
 	cmd.SetOut(original)
-	return writeRetrievalResponseBytes(original, buffered.Bytes(), policies...)
+	return writeRetrievalResponseBytes(original, buffered.Bytes())
 }
 
-// privacyCheckedWriter is for an interactive surface that cannot buffer its
-// entire lifetime (the dashboard TUI). Each terminal write revalidates the
-// captured policy; once policy changes, the next draw fails closed.
-type privacyCheckedWriter struct {
-	out      io.Writer
-	policies []retrievalPrivacyPolicy
-}
-
-func (w privacyCheckedWriter) Write(p []byte) (int, error) {
-	err := writeRetrievalResponseBytes(w.out, p, w.policies...)
-	if err != nil {
-		return 0, err
+// writeRetrievalResponseBytes is the final write boundary for retrieval, get,
+// brief, and workspace payloads: it writes the complete buffered response,
+// failing on a short write.
+func writeRetrievalResponseBytes(out io.Writer, data []byte) error {
+	n, err := out.Write(data)
+	if err == nil && n != len(data) {
+		return io.ErrShortWrite
 	}
-	return len(p), nil
-}
-
-// writeRetrievalResponseBytes is the only final write boundary for retrieval,
-// get, brief, and workspace payloads. Callers must buffer the exact response
-// first. A policy change never produces a partial stale response: every checked
-// brain is revalidated before the first byte is handed to the consumer.
-func writeRetrievalResponseBytes(out io.Writer, data []byte, policies ...retrievalPrivacyPolicy) error {
-	return commitRetrievalResponse(policies, func() error {
-		n, err := out.Write(data)
-		if err == nil && n != len(data) {
-			return io.ErrShortWrite
-		}
-		return err
-	})
-}
-
-// withLockedRetrievalPrivacyPolicies is the mutation-side policy boundary
-// (brainstore owns the lock ordering and identity revalidation); the CLI
-// adapters bind the derived-read gate. Read-response emission validates
-// without locks via commitRetrievalResponse instead.
-func withLockedRetrievalPrivacyPolicies(policies []retrievalPrivacyPolicy, fn func() error) error {
-	return brainstore.WithLockedRetrievalPrivacyPolicies(policies, requirePrivacyDerivedRead, fn)
-}
-
-// commitRetrievalResponse revalidates the captured policies (no lock — see
-// ValidateRetrievalPrivacyPolicies for the retired linearization story) and
-// then commits the buffered response. The CLI surfaces reach it through
-// writeRetrievalResponseBytes; the viz HTTP transport uses it directly
-// (injected as viz.Deps.CommitRetrievalResponse).
-func commitRetrievalResponse(policies []retrievalPrivacyPolicy, write func() error) error {
-	beforeRetrievalResponsePrivacyEmissionCheck()
-	if err := brainstore.ValidateRetrievalPrivacyPolicies(policies, requirePrivacyDerivedRead); err != nil {
-		return err
-	}
-	return write()
-}
-
-// revalidateRetrievalResponsePrivacy closes the ranking-to-write window. A
-// tombstone that appears after ranking either makes the authoritative derived
-// state dirty (and fails the response closed) or is fully cleaned and reaches
-// the freshly loaded session guard below.
-func revalidateRetrievalResponsePrivacy(brainDir string, results []unifiedResult) ([]unifiedResult, string, error) {
-	beforeRetrievalResponsePrivacyRecheck()
-	allowed, err := privacyDerivedReadGate(brainDir)
-	if err != nil {
-		return nil, "", err
-	}
-	if !allowed {
-		return nil, "", fmt.Errorf("%s: retrieval state changed after ranking; retry after excluded-session cleanup verifies clean", brainstore.PrivacyDirtyCode)
-	}
-	manifest, err := bmanifest.Load(brainDir)
-	if err != nil {
-		return nil, "", err
-	}
-	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
-	if err != nil {
-		return nil, "", err
-	}
-	if len(results) == 0 {
-		return results, guard.PolicyIdentity, nil
-	}
-	if guard.Empty() {
-		return results, guard.PolicyIdentity, nil
-	}
-
-	// A completed exclusion deliberately retains canonical transcripts, so a
-	// clean derived-state verification alone is insufficient. Rebuild the
-	// allowed virtual-session set through the fresh guard and drop any response
-	// row whose direct or nested conversation proof is no longer readable.
-	allowedRefs := map[string]bool{}
-	allowedEvidence := map[string]bool{}
-	if manifest.Sources != nil && manifest.Sources.History != nil {
-		fresh, loadErr := loadFreshHistory(brainDir, manifest.Sources.History)
-		if loadErr != nil {
-			return nil, "", fmt.Errorf("load history for privacy recheck: %w", loadErr)
-		}
-		for ref, view := range buildConversationSessionViews(fresh, manifest.RepoKey, manifest, guard) {
-			allowedRefs[ref] = true
-			for _, record := range view.Records {
-				allowedEvidence[record.ID] = true
-			}
-		}
-	}
-	kept := make([]unifiedResult, 0, len(results))
-	for _, result := range results {
-		if guard.BlocksSession(result.SessionID) || historystore.GuardBlocksRecord(guard, historyRecord{Path: result.Path}) {
-			continue
-		}
-		if result.SessionRef != "" && !allowedRefs[result.SessionRef] {
-			continue
-		}
-		blockedProof := false
-		for _, id := range result.EvidenceIDs {
-			if strings.HasPrefix(id, conversationIDPrefix) && !allowedEvidence[id] {
-				blockedProof = true
-				break
-			}
-		}
-		if !blockedProof {
-			for _, match := range result.ConceptMatches {
-				if strings.HasPrefix(match.ConversationID, conversationIDPrefix) && !allowedEvidence[match.ConversationID] {
-					blockedProof = true
-					break
-				}
-			}
-		}
-		if !blockedProof {
-			kept = append(kept, result)
-		}
-	}
-	return kept, guard.PolicyIdentity, nil
+	return err
 }
 
 func filterAbstractPreviewsForRows(previews []sessionAbstractPreview, rows []compactUnifiedResult) ([]sessionAbstractPreview, bool) {

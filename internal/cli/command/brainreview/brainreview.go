@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
@@ -41,18 +40,15 @@ type Deps struct {
 	// RuntimeTraceFacts returns query-matching runtime trace records for
 	// review context.
 	RuntimeTraceFacts func(brainDir string, semSource *bmanifest.SemanticSource, query string, limit int) ([]semstore.Record, error)
-	// RequirePrivacyDerivedRead fails closed when derived reads are not
-	// verified clean.
-	RequirePrivacyDerivedRead func(brainDir string) error
 	// RequirePatternCorpusAvailable fails when the V2 pattern corpus is
 	// absent.
 	RequirePatternCorpusAvailable func(brainDir string) error
 	// LoadReviewPatternContextChecked loads V2 corpus risk/practice/task
 	// context for the finding files.
 	LoadReviewPatternContextChecked func(brainDir string, files []string, limit int) ([]PatternRef, error)
-	// BufferRetrievalOutput buffers rendered output behind the retrieval
-	// privacy gate.
-	BufferRetrievalOutput func(cmd *cobra.Command, policies []brainstore.RetrievalPrivacyPolicy, render func() error) error
+	// BufferRetrievalOutput buffers rendered output and emits it only when
+	// rendering succeeded.
+	BufferRetrievalOutput func(cmd *cobra.Command, render func() error) error
 }
 
 type Anomaly struct {
@@ -255,15 +251,7 @@ func RunBrainReview(ctx context.Context, cmd *cobra.Command, cfg Config, ro Dete
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainPath)
-	if err != nil {
-		return err
-	}
 	if ro.Patterns {
-		privacyPolicy.RequireDerivedClean = true
-		if err := cfg.Deps.RequirePrivacyDerivedRead(brainPath); err != nil {
-			return err
-		}
 		if err := cfg.Deps.RequirePatternCorpusAvailable(brainPath); err != nil {
 			return err
 		}
@@ -337,7 +325,7 @@ func RunBrainReview(ctx context.Context, cmd *cobra.Command, cfg Config, ro Dete
 		}
 		return nil
 	}
-	return cfg.Deps.BufferRetrievalOutput(cmd, []brainstore.RetrievalPrivacyPolicy{privacyPolicy}, render)
+	return cfg.Deps.BufferRetrievalOutput(cmd, render)
 }
 
 func New(cfg Config) *cobra.Command {

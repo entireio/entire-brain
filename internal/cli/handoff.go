@@ -63,7 +63,7 @@ type handoffPacket struct {
 // embedder, warm path only. Sessions are attributed their history records via
 // TranscriptPath == record.Path (the same provenance link history-eval-gen
 // labels through).
-func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []factRecord, branch string, sessionCount int, now time.Time, guard sessionReadGuard) handoffPacket {
+func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []factRecord, branch string, sessionCount int, now time.Time) handoffPacket {
 	if sessionCount <= 0 {
 		sessionCount = handoffDefaultSessions
 	}
@@ -85,9 +85,6 @@ func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []fa
 		return sr
 	}
 	for _, r := range index.Records {
-		if historystore.GuardBlocksRecord(guard, r) {
-			continue
-		}
 		switch r.Kind {
 		case "request":
 			// The session's opening request is the lowest-line request record
@@ -108,7 +105,7 @@ func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []fa
 		}
 	}
 
-	sessions := bmanifest.GuardSessions(guard, append([]exportSession(nil), manifest.Sources.Sessions.Sessions...))
+	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
 	sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].CreatedAt.After(sessions[j].CreatedAt) })
 	branches := map[string]bool{}
 	// A session continued across branches is exported once per branch with the
@@ -142,7 +139,6 @@ func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []fa
 	}
 	sort.Strings(p.Branches)
 
-	facts = factstore.GuardRecords(guard, facts)
 	active := make([]factRecord, 0, len(facts))
 	for _, f := range facts {
 		if f.Status == factStatusActive {
@@ -204,15 +200,6 @@ func runBrainHandoff(ctx context.Context, cmd *cobra.Command, opts Options, sess
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
 		return errors.New("no exported sessions; run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` first")
 	}
-	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
-	if err != nil {
-		return err
-	}
-	privacyPolicy := retrievalPrivacyPolicy{BrainDir: brainDir, Identity: guard.PolicyIdentity}
-	privacyPolicy.RequireDerivedClean = true
-	if err := requirePrivacyDerivedRead(brainDir); err != nil {
-		return err
-	}
 	index, err := historystore.LoadIndex(brainDir, manifest.Sources.History)
 	if err != nil {
 		index = historyIndex{} // a handoff without history detail beats no handoff
@@ -221,12 +208,12 @@ func runBrainHandoff(ctx context.Context, cmd *cobra.Command, opts Options, sess
 	if err != nil {
 		facts = nil
 	}
-	packet := buildHandoffPacket(manifest, index, facts, branch, sessionCount, opts.Now().UTC(), guard)
+	packet := buildHandoffPacket(manifest, index, facts, branch, sessionCount, opts.Now().UTC())
 	packet.Consolidations, err = handoffConsolidationsChecked(brainDir, 5)
 	if err != nil {
 		return err
 	}
-	return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
+	return bufferRetrievalCommandOutput(cmd, func() error {
 		if jsonOut {
 			return cmdutil.WriteJSON(cmd, packet)
 		}

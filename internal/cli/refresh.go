@@ -578,17 +578,8 @@ func historyIndexCurrent(brainDir string, manifest *exportManifest) bool {
 		return false
 	}
 	// Unsafe/unreadable entries are deliberately excluded by the same collector
-	// used to build the index. Comparing the safe included set keeps those
-	// exclusions fail-closed without forcing an endless rebuild.
-	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
-	if err != nil {
-		return false
-	}
-	excludedByPath, err := excludedTranscriptPathsChecked(brainDir, manifest, stones)
-	if err != nil {
-		return false
-	}
-	files, err := collectHistorySessionDigests(context.Background(), brainDir, excludedByPath)
+	// used to build the index.
+	files, err := collectHistorySessionDigests(context.Background(), brainDir)
 	if err != nil {
 		return false
 	}

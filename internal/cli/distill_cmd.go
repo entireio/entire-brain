@@ -1032,10 +1032,6 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 
 	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
 	// Excluded sessions must never produce new derived facts.
-	sessions, err = filterTombstonedSessions(brainDir, sessions)
-	if err != nil {
-		return nil, err
-	}
 	// Chronological order so any future supersession chain reconstructs
 	// deterministically regardless of incremental vs --force. --newest-first
 	// reverses it for the backfill pass (see sortDistillSessions).
@@ -1786,11 +1782,6 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 		distillOpts.maxChunkBytes = defaultDistillChunkSize
 	}
 	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
-	// Excluded sessions must never produce new derived facts.
-	sessions, err := filterTombstonedSessions(brainDir, sessions)
-	if err != nil {
-		return distillPlan{}, err
-	}
 	sortDistillSessions(sessions, distillOpts.newestFirst)
 	prevCache := loadDistillCache(brainDir)
 	// Same disambiguation the run uses, so the plan a --dry-run prints is the

@@ -79,18 +79,19 @@ func RecoverWorkspaceCorpusPublication(env base.EntireEnv, manifest workspace.Ma
 }
 
 // BuildWorkspaceCorpus rebuilds the workspace corpus from member corpora.
-func BuildWorkspaceCorpus(env base.EntireEnv, manifest workspace.Manifest, verify VerifyDerivedClean, now time.Time) (WorkspaceCorpusCounts, error) {
+// The workspace brain write lock serializes the build against workspace
+// verify and skill synthesis; member corpora are read through the pinned
+// snapshot opener and need no member locks.
+func BuildWorkspaceCorpus(env base.EntireEnv, manifest workspace.Manifest, now time.Time) (WorkspaceCorpusCounts, error) {
 	if err := RecoverWorkspaceCorpusPublication(env, manifest); err != nil {
 		return WorkspaceCorpusCounts{}, err
 	}
-	policies, err := CaptureWorkspaceDerivedReadPolicies(env, manifest, verify)
+	wsBrainDir, err := workspace.DefaultStore(env).Dir(manifest.Name)
 	if err != nil {
 		return WorkspaceCorpusCounts{}, err
 	}
 	var counts WorkspaceCorpusCounts
-	err = brainstore.WithLockedRetrievalPrivacyPolicies(policies, func(brainDir string) error {
-		return RequireDerivedRead(brainDir, verify)
-	}, func() error {
+	err = brainstore.WithBrainWriteLock(wsBrainDir, func() error {
 		var buildErr error
 		counts, buildErr = BuildWorkspaceCorpusLocked(env, manifest, now)
 		return buildErr

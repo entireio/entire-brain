@@ -3603,7 +3603,7 @@ var brainBundleLayers = []brainBundleLayer{
 	// Old-format bundles carry NDJSON projections, not local view metadata.
 	{name: bundleLayerFacts, dir: factstore.DirName, skip: []string{"store.json"}},
 	{name: bundleLayerSessions, dir: brainstore.SessionsDirName, withSessions: true},
-	{name: bundleLayerHistory, dir: brainstore.HistoryDirName, skip: []string{brainstore.SessionTombstonesFileName, "privacy", "work"}, withSessions: true},
+	{name: bundleLayerHistory, dir: brainstore.HistoryDirName, skip: []string{"tombstones.json", "privacy", "work"}, withSessions: true},
 	{name: bundleLayerPatterns, dir: brainPatternsDirName, withSessions: true},
 }
 
@@ -3761,16 +3761,8 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 				sessionFamily = append(sessionFamily, layer.name)
 				continue
 			}
-			guard, err := bmanifest.LoadSessionReadGuard(storage.BrainDir, manifest)
-			if err != nil {
-				return err
-			}
 			source := *manifest.Sources.Sessions
 			source.TranscriptStorage = ""
-			// Excluded sessions remain in the local catalog for later inclusion,
-			// but neither their catalog entries nor their bytes belong in a bundle.
-			// The transcript store rechecks privacy when reading each kept entry.
-			source.Sessions = bmanifest.GuardSessions(guard, source.Sessions)
 			source.OldestSessionAt = bmanifest.OldestSessionAt(source.Sessions)
 			source.LatestCheckpointID = bmanifest.LatestCheckpointID(source.Sessions)
 			branchDirs := make(map[string]string)

@@ -22,7 +22,6 @@ import (
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
-	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func repoFactViewDir(branch string) string { return filepath.Base(BranchRelDir(branch)) }
@@ -216,20 +215,6 @@ func commitRepoFactView(brainDir, dir string, records []factmerge.Record, persis
 			return err
 		}
 
-		if s.SchemaVersion == 1 {
-			// Validate privacy state before changing any legacy bytes.
-			if err := s.excludePurgedSnapshotAnchors(brainDir); err != nil {
-				return err
-			}
-			filtered, err := s.view(dir)
-			if err != nil {
-				return err
-			}
-			buf.Reset()
-			if err := factmerge.WriteNDJSON(&buf, filtered); err != nil {
-				return err
-			}
-		}
 		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, legacyFactViewRel(dir), buf.Bytes(), 0o600); err != nil {
 			return err
 		}
@@ -257,9 +242,6 @@ func RollbackRepository(brainDir string) error {
 	return withRepoFactStoreLock(brainDir, func() error {
 		s, err := reconcileRepoFactStore(brainDir)
 		if err != nil {
-			return err
-		}
-		if err := s.excludePurgedSnapshotAnchors(brainDir); err != nil {
 			return err
 		}
 		if err := publishRepoFactViews(brainDir, &s); err != nil {
@@ -299,56 +281,6 @@ func publishRepoFactViews(brainDir string, s *repoFactStore) error {
 			continue
 		}
 		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, legacyFactViewRel(dir), buf.Bytes(), 0o600); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// A schema 1 view can outlive the file an old purge knew about. Do not
-// materialize it after exclusion, even when the legacy projection is missing.
-// Keep multi-source memories after stripping only the excluded provenance.
-func (s *repoFactStore) excludePurgedSnapshotAnchors(brainDir string) error {
-	if s.SchemaVersion != 1 {
-		return nil
-	}
-	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
-	if err != nil {
-		return err
-	}
-	if len(stones.Excluded) == 0 {
-		return nil
-	}
-	manifest, err := bmanifest.Load(brainDir)
-	if err != nil {
-		return err
-	}
-	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
-	if err != nil {
-		return err
-	}
-	for dir, view := range s.Views {
-		records, err := s.view(dir)
-		if err != nil {
-			return err
-		}
-		kept := make([]factmerge.Record, 0, len(records))
-		for _, rec := range records {
-			anchors := make([]factmerge.Anchor, 0, len(rec.Provenance))
-			for _, anchor := range rec.Provenance {
-				if !guard.BlocksSession(anchor.SessionID) && !guard.BlocksPath(anchor.Transcript) {
-					anchors = append(anchors, anchor)
-				}
-			}
-			if len(anchors) != len(rec.Provenance) {
-				if len(anchors) == 0 {
-					continue
-				}
-				rec.Provenance = anchors
-			}
-			kept = append(kept, rec)
-		}
-		if err := s.replaceView(dir, kept, view.LegacyDigest); err != nil {
 			return err
 		}
 	}

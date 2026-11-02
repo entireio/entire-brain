@@ -915,9 +915,6 @@ func memoryOperationalError(err error) string {
 	for _, code := range []string{
 		"memory_provider_unavailable",
 		"memory_source_stale",
-		"memory_privacy_blocked",
-		"memory_privacy_excluded",
-		brainstore.PrivacyBusyCode,
 		"memory_cancelled",
 		"memory_state_corrupt",
 		"memory_state_unsafe",

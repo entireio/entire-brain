@@ -240,9 +240,6 @@ func (s *repoFactStore) compact() error {
 }
 
 func writeRepoFactStore(brainDir string, s *repoFactStore) error {
-	if err := s.excludePurgedSnapshotAnchors(brainDir); err != nil {
-		return err
-	}
 	if err := s.compact(); err != nil {
 		return err
 	}

@@ -1042,10 +1042,6 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	if err != nil {
 		return err
 	}
-	privacyPolicies, policyByRepo, err := patterncore.CaptureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
-	if err != nil {
-		return err
-	}
 	dirs, dirsErr := base.ResolvePluginDirs(opts.Env)
 	var results []workspaceRetrieveResult
 	for _, repo := range manifest.Repos {
@@ -1109,29 +1105,6 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 			})
 		}
 	}
-	if len(ropts.Concepts) > 0 {
-		// Recheck every member after the complete fan-out, immediately before
-		// assembling the workspace response. No member's bytes are emitted until
-		// all guards succeed.
-		for i := range results {
-			if results[i].RepoKey == manifest.Name {
-				continue
-			}
-			brainDir, brainErr := base.BrainDirForKey(opts.Env, results[i].RepoKey)
-			if brainErr != nil {
-				return brainErr
-			}
-			filtered, policyAfter, privacyErr := revalidateRetrievalResponsePrivacy(brainDir, results[i].Results)
-			if privacyErr != nil {
-				return privacyErr
-			}
-			results[i].Results = filtered
-			if policyAfter != policyByRepo[results[i].RepoKey] {
-				results[i].AbstractPreviews = nil
-				results[i].AbstractPreviewsTruncated = true
-			}
-		}
-	}
 	if retrieveOpts.json {
 		if len(ropts.Concepts) > 0 {
 			payload, budgetErr := boundedWorkspaceRetrievalJSONPayload(manifest.Name, query, results)
@@ -1142,7 +1115,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 			if marshalErr != nil {
 				return marshalErr
 			}
-			return writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized, privacyPolicies...)
+			return writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized)
 		}
 		qualified := qualifyWorkspaceRetrieveGroups(manifest.Name, results)
 		serialized, marshalErr := cmdutil.JSONOutputBytes(struct {
@@ -1153,14 +1126,14 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 		if marshalErr != nil {
 			return marshalErr
 		}
-		return writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized, privacyPolicies...)
+		return writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized)
 	}
 	if len(ropts.Concepts) > 0 {
 		text, budgetErr := boundedWorkspaceRetrievalText(manifest.Name, results)
 		if budgetErr != nil {
 			return budgetErr
 		}
-		return writeRetrievalResponseBytes(cmd.OutOrStdout(), text, privacyPolicies...)
+		return writeRetrievalResponseBytes(cmd.OutOrStdout(), text)
 	}
 	var rendered bytes.Buffer
 	out := io.Writer(&rendered)
@@ -1187,23 +1160,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 			fmt.Fprintf(out, "%s error %s\n", result.RepoKey, result.Error)
 		}
 	}
-	return writeRetrievalResponseBytes(cmd.OutOrStdout(), rendered.Bytes(), privacyPolicies...)
-}
-
-// verifyDerivedClean binds the CLI's full derived-projection verifier for the
-// patterns-side privacy gates.
-func verifyDerivedClean(brainDir string) (bool, error) {
-	report, err := verifySessionPrivacy(brainDir)
-	if err != nil {
-		return false, err
-	}
-	return report.Clean, nil
-}
-
-// captureWorkspaceDerivedReadPolicies binds the CLI verifier to the shared
-// workspace derived-read capture.
-func captureWorkspaceDerivedReadPolicies(env EntireEnv, manifest workspace.Manifest) ([]retrievalPrivacyPolicy, error) {
-	return patterncore.CaptureWorkspaceDerivedReadPolicies(env, manifest, verifyDerivedClean)
+	return writeRetrievalResponseBytes(cmd.OutOrStdout(), rendered.Bytes())
 }
 
 func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qualifiedIDs []string, branchOverride string, jsonOut bool, gopts getOptions) error {
@@ -1218,15 +1175,6 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 			derivedAggregate = true
 			break
 		}
-	}
-	var privacyPolicies []retrievalPrivacyPolicy
-	if derivedAggregate {
-		privacyPolicies, err = captureWorkspaceDerivedReadPolicies(opts.Env, manifest)
-	} else {
-		privacyPolicies, _, err = patterncore.CaptureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
-	}
-	if err != nil {
-		return err
 	}
 	if derivedAggregate {
 		wsDir, dirErr := workspace.DefaultStore(opts.Env).Dir(workspaceName)
@@ -1335,7 +1283,7 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 		if marshalErr != nil {
 			return marshalErr
 		}
-		return writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized, privacyPolicies...)
+		return writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized)
 	}
 	var rendered bytes.Buffer
 	out := io.Writer(&rendered)
@@ -1360,7 +1308,7 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 			fmt.Fprintf(out, "%s error %s\n", result.RepoKey, result.Error)
 		}
 	}
-	return writeRetrievalResponseBytes(cmd.OutOrStdout(), rendered.Bytes(), privacyPolicies...)
+	return writeRetrievalResponseBytes(cmd.OutOrStdout(), rendered.Bytes())
 }
 
 func retrieveWorkspaceGraphCrossEdges(env EntireEnv, workspaceName, query string, limit int) ([]unifiedResult, error) {
@@ -1961,10 +1909,6 @@ func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regres
 	if ro.Limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
-	privacyPolicies, _, err := patterncore.CaptureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
-	if err != nil {
-		return err
-	}
 	var results []workspaceRegressionResult
 	for _, f := range skipped {
 		results = append(results, workspaceRegressionResult{
@@ -2061,7 +2005,7 @@ func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regres
 		}
 		return nil
 	}
-	return bufferRetrievalCommandOutput(cmd, privacyPolicies, render)
+	return bufferRetrievalCommandOutput(cmd, render)
 }
 
 // workspaceReviewSummary is the per-repo verdict for a repo that produced no
@@ -2108,10 +2052,6 @@ func runWorkspaceReview(cmd *cobra.Command, opts Options, ro regressionDetectorO
 func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, manifest workspace.Manifest, query string, skipped []workspace.RepoFreshness) error {
 	if ro.Limit <= 0 {
 		return errors.New("--limit must be greater than zero")
-	}
-	privacyPolicies, _, err := patterncore.CaptureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
-	if err != nil {
-		return err
 	}
 	var results []workspaceReviewResult
 	reposWithFindings := 0
@@ -2235,7 +2175,7 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 		}
 		return nil
 	}
-	return bufferRetrievalCommandOutput(cmd, privacyPolicies, render)
+	return bufferRetrievalCommandOutput(cmd, render)
 }
 
 // workspaceGraphGeneration binds cached edges to membership and member source
