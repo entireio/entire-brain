@@ -28,7 +28,7 @@ func TestPromoteKeepBothNeverQueuesAnUncomputedConfidence(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	source := sameFactPathSet(t, 4, now)
 
-	_, proposals, _ := Promote(source, nil, "keep-both", "main", now)
+	_, proposals, _, _ := Promote(source, nil, "keep-both", "main", now)
 	if len(proposals) == 0 {
 		t.Fatal("conflicting same-path facts queued no proposal at all; the conflict must still reach review")
 	}
@@ -55,7 +55,7 @@ func TestPromoteKeepBothProposalsDoNotGrowQuadratically(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("%d-same-path-facts", tc.facts), func(t *testing.T) {
 			source := sameFactPathSet(t, tc.facts, now)
-			merged, proposals, promoted := Promote(source, nil, "keep-both", "main", now)
+			merged, proposals, promoted, _ := Promote(source, nil, "keep-both", "main", now)
 			if promoted != tc.facts {
 				t.Fatalf("promoted %d facts, want %d (keep-both drops nothing)", promoted, tc.facts)
 			}
@@ -90,7 +90,7 @@ func TestPromoteKeepBothKeepsAPreExistingTargetCliqueReviewable(t *testing.T) {
 	all := sameFactPathSet(t, 4, now)
 	target, source := all[:3], all[3:]
 
-	merged, proposals, _ := Promote(source, target, "keep-both", "main", now)
+	merged, proposals, _, _ := Promote(source, target, "keep-both", "main", now)
 	if len(proposals) != 3 {
 		t.Fatalf("one candidate against a 3-fact target clique queued %d proposals, want 3 (the edges that join the components)", len(proposals))
 	}

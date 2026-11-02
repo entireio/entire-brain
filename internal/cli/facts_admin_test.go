@@ -100,7 +100,7 @@ func TestPromoteFactsStrategies(t *testing.T) {
 	target := []factRecord{tgtConflict}
 
 	t.Run("keep-both", func(t *testing.T) {
-		merged, proposals, promoted := promoteFacts(source, target, "keep-both", "main", now)
+		merged, proposals, promoted, _ := promoteFacts(source, target, "keep-both", "main", now)
 		if promoted != 2 {
 			t.Fatalf("expected 2 promoted, got %d", promoted)
 		}
@@ -121,7 +121,7 @@ func TestPromoteFactsStrategies(t *testing.T) {
 	})
 
 	t.Run("prefer-source", func(t *testing.T) {
-		merged, proposals, _ := promoteFacts(source, target, "prefer-source", "main", now)
+		merged, proposals, _, _ := promoteFacts(source, target, "prefer-source", "main", now)
 		if len(proposals) != 0 {
 			t.Fatalf("prefer-source should not queue proposals")
 		}
@@ -132,7 +132,7 @@ func TestPromoteFactsStrategies(t *testing.T) {
 	})
 
 	t.Run("prefer-target", func(t *testing.T) {
-		merged, _, promoted := promoteFacts(source, target, "prefer-target", "main", now)
+		merged, _, promoted, _ := promoteFacts(source, target, "prefer-target", "main", now)
 		// The conflicting source fact is dropped; only the unique one promotes.
 		if promoted != 1 {
 			t.Fatalf("prefer-target should promote only the non-conflicting fact, got %d", promoted)
@@ -153,7 +153,7 @@ func TestPromoteFactsIdenticalUnionsProvenance(t *testing.T) {
 	tgt.Branch = "main"
 	tgt.Provenance = []factAnchor{{SessionID: "s1"}}
 
-	merged, proposals, promoted := promoteFacts([]factRecord{src}, []factRecord{tgt}, "keep-both", "main", now)
+	merged, proposals, promoted, _ := promoteFacts([]factRecord{src}, []factRecord{tgt}, "keep-both", "main", now)
 	if promoted != 0 || len(proposals) != 0 {
 		t.Fatalf("identical fact should not be promoted as new or conflict")
 	}

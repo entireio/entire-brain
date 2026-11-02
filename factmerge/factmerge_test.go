@@ -421,7 +421,7 @@ func TestPromoteStrategies(t *testing.T) {
 	target := []Record{tgtConflict}
 
 	t.Run("keep-both", func(t *testing.T) {
-		merged, proposals, promoted := Promote(source, target, "keep-both", "main", now)
+		merged, proposals, promoted, _ := Promote(source, target, "keep-both", "main", now)
 		if promoted != 2 {
 			t.Fatalf("expected 2 promoted, got %d", promoted)
 		}
@@ -441,7 +441,7 @@ func TestPromoteStrategies(t *testing.T) {
 	})
 
 	t.Run("prefer-source", func(t *testing.T) {
-		merged, proposals, _ := Promote(source, target, "prefer-source", "main", now)
+		merged, proposals, _, _ := Promote(source, target, "prefer-source", "main", now)
 		if len(proposals) != 0 {
 			t.Fatalf("prefer-source should not queue proposals")
 		}
@@ -452,7 +452,7 @@ func TestPromoteStrategies(t *testing.T) {
 	})
 
 	t.Run("prefer-target", func(t *testing.T) {
-		merged, _, promoted := Promote(source, target, "prefer-target", "main", now)
+		merged, _, promoted, _ := Promote(source, target, "prefer-target", "main", now)
 		if promoted != 1 {
 			t.Fatalf("prefer-target should promote only the non-conflicting fact, got %d", promoted)
 		}
@@ -472,13 +472,79 @@ func TestPromoteIdenticalUnionsProvenance(t *testing.T) {
 	tgt.Branch = "main"
 	tgt.Provenance = []Anchor{{SessionID: "s1"}}
 
-	merged, proposals, promoted := Promote([]Record{src}, []Record{tgt}, "keep-both", "main", now)
+	merged, proposals, promoted, _ := Promote([]Record{src}, []Record{tgt}, "keep-both", "main", now)
 	if promoted != 0 || len(proposals) != 0 {
 		t.Fatalf("identical fact should not be promoted as new or conflict")
 	}
 	if len(merged) != 1 || len(merged[0].Provenance) != 2 {
 		t.Fatalf("identical fact should union provenance, got %+v", merged)
 	}
+}
+
+// TestPromoteReportsWhetherTargetChanged pins the signal runFactsPromote's
+// no-op fast exit relies on: promoted==0 is NOT "nothing changed", because an
+// identical-id fact can still union new provenance onto the target. Only
+// Promote itself can tell, so it must say so.
+func TestPromoteReportsWhetherTargetChanged(t *testing.T) {
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	f := factFor(t, "shared fact", []string{"project.tooling.stack"}, now)
+	f.Provenance = []Anchor{{SessionID: "s1"}}
+
+	t.Run("identical fact with identical provenance is a no-op", func(t *testing.T) {
+		src, tgt := f, f
+		src.Branch = "feature"
+		tgt.Branch = "main"
+		_, _, promoted, changed := Promote([]Record{src}, []Record{tgt}, "keep-both", "main", now)
+		if promoted != 0 || changed {
+			t.Fatalf("re-promoting an identical fact should report no change, got promoted=%d changed=%v", promoted, changed)
+		}
+	})
+
+	t.Run("provenance union alone is a change", func(t *testing.T) {
+		src, tgt := f, f
+		src.Branch = "feature"
+		src.Provenance = []Anchor{{SessionID: "s1"}, {SessionID: "s2"}}
+		tgt.Branch = "main"
+		merged, _, promoted, changed := Promote([]Record{src}, []Record{tgt}, "keep-both", "main", now)
+		if promoted != 0 {
+			t.Fatalf("identical fact must not count as promoted, got %d", promoted)
+		}
+		if !changed {
+			t.Fatalf("a provenance union mutates the target and must report changed")
+		}
+		if len(merged[0].Provenance) != 2 {
+			t.Fatalf("union should have added the new anchor, got %+v", merged[0].Provenance)
+		}
+	})
+
+	t.Run("a newly promoted fact is a change", func(t *testing.T) {
+		src := f
+		src.Branch = "feature"
+		_, _, promoted, changed := Promote([]Record{src}, nil, "keep-both", "main", now)
+		if promoted != 1 || !changed {
+			t.Fatalf("promoting into an empty target must report changed, got promoted=%d changed=%v", promoted, changed)
+		}
+	})
+
+	t.Run("prefer-target dropping every conflicting fact is a no-op", func(t *testing.T) {
+		src := factFor(t, "source: use MySQL", []string{"project.tooling.stack"}, now)
+		tgt := factFor(t, "target: use Postgres", []string{"project.tooling.stack"}, now)
+		tgt.Branch = "main"
+		_, _, promoted, changed := Promote([]Record{src}, []Record{tgt}, "prefer-target", "main", now)
+		if promoted != 0 || changed {
+			t.Fatalf("prefer-target dropping the only source fact should report no change, got promoted=%d changed=%v", promoted, changed)
+		}
+	})
+
+	t.Run("inactive source facts are a no-op", func(t *testing.T) {
+		src := f
+		src.Branch = "feature"
+		src.Status = StatusSuperseded
+		_, _, promoted, changed := Promote([]Record{src}, nil, "keep-both", "main", now)
+		if promoted != 0 || changed {
+			t.Fatalf("inactive source facts should report no change, got promoted=%d changed=%v", promoted, changed)
+		}
+	})
 }
 
 func TestRetract(t *testing.T) {
