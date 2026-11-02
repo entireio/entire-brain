@@ -1525,7 +1525,8 @@ provenance anchors of its distilled facts (a distilled fact loses the deleted
 session's anchors and is removed once no provenance remains; authored
 memories from `remember` are never touched). To stop serving a session now,
 run `entire checkpoint delete <checkpoint> && entire brain refresh`; the
-watch daemon also converges on its next tick. Skill-memory (your
+watch daemon also converges projections on its next tick (legacy cached
+transcript files are swept by a full refresh, which the daemon's tick skips). Skill-memory (your
 accept/decline curation) is never touched. The full prompt-injection and
 secret-retention threat model lives in
 [docs/recall_threat_model.md](recall_threat_model.md).

@@ -33,6 +33,11 @@ All notable changes to `entire-brain` are recorded here. The format follows
   teammate copies are never touched). Caches of vanished sessions are swept
   instead of retained. "Stop serving now" is
   `entire checkpoint delete <checkpoint> && entire brain refresh`.
+  Upgrade note: a leftover `history/tombstones.json` is no longer honored —
+  sessions it excluded re-enter projections while their checkpoints exist.
+  Refresh warns when one is found; delete those checkpoints to keep the
+  sessions out, then remove the file. `memory repair --json` no longer
+  reports the `verify_clean`/`verify_available` fields.
 
 - `entire brain publish` and the brain-bundle wire package (`internal/brainwire`).
   The `/brain/artifacts` endpoint publish posted to was never deployed — the

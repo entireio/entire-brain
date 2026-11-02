@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -104,6 +105,22 @@ func TestRefreshMirrorsCheckpointDeletion(t *testing.T) {
 			Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
 			Provenance: []factAnchor{{SessionID: "teammate-session-not-in-catalog"}},
 		},
+		{
+			ID: "fact:secret-compact", Kind: factKindDecision, Text: "compact anchors of the deleted session also drop " + privacyCanary,
+			Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
+			Provenance: []factAnchor{
+				{SessionID: "session-secret", Transcript: rels["session-secret"]},
+				{SessionID: "session-secret"},
+			},
+		},
+		{
+			ID: "fact:mixed-foreign", Kind: factKindConvention, Text: "a foreign anchor keeps this fact alive",
+			Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
+			Provenance: []factAnchor{
+				{SessionID: "session-secret", Transcript: rels["session-secret"]},
+				{SessionID: "teammate-session-not-in-catalog"},
+			},
+		},
 	}
 	if err := factstore.Write(brain, "main", facts); err != nil {
 		t.Fatal(err)
@@ -133,7 +150,7 @@ func TestRefreshMirrorsCheckpointDeletion(t *testing.T) {
 	git("-c", "commit.gpgsign=false", "commit", "-qm", "delete secret checkpoint")
 	git("update-ref", v1MainRef, "HEAD")
 	runFilelessExport(t, opts, "", true)
-	if _, _, err := dropFactsForMissingSessions(brain, now.Add(time.Minute)); err != nil {
+	if _, err := mirrorBrainToCheckpointCatalog(brain, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -174,6 +191,16 @@ func TestRefreshMirrorsCheckpointDeletion(t *testing.T) {
 	if len(pulled.Provenance) != 1 {
 		t.Fatalf("pulled fact anchors = %+v, want untouched", pulled.Provenance)
 	}
+	if _, ok := byID["fact:secret-compact"]; ok {
+		t.Fatal("a compact (no-transcript) anchor of the deleted session kept its fact alive")
+	}
+	mixed, ok := byID["fact:mixed-foreign"]
+	if !ok {
+		t.Fatal("a fact corroborated by a foreign anchor was deleted with the session")
+	}
+	if len(mixed.Provenance) != 1 || mixed.Provenance[0].SessionID != "teammate-session-not-in-catalog" {
+		t.Fatalf("mixed-provenance fact anchors = %+v, want only the foreign anchor", mixed.Provenance)
+	}
 
 	// ...while the surviving session still answers.
 	cleanIndex, err := historystore.LoadIndex(brain, after.Sources.History)
@@ -188,5 +215,175 @@ func TestRefreshMirrorsCheckpointDeletion(t *testing.T) {
 	}
 	if !surviving {
 		t.Fatal("the surviving session's records were dropped with the deleted one")
+	}
+}
+
+// TestMirrorKeepsFactsForUnavailableCatalogSessions pins the membership rule:
+// a session whose transcript bytes vanished locally is dropped from the
+// manifest's session list, but it is still in the checkpoint catalog, so the
+// mirror must not delete the facts distilled from it.
+func TestMirrorKeepsFactsForUnavailableCatalogSessions(t *testing.T) {
+	opts, repo, git := vanishedCacheFixture(t)
+	storage, err := repoStoragePaths(context.Background(), opts.Runner, opts.Env, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	brain := storage.BrainDir
+	runFilelessExport(t, opts, brain, false)
+	runFilelessExport(t, opts, "", false)
+	manifest, err := bmanifest.Load(brain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rels := map[string]string{}
+	for _, session := range manifest.Sources.Sessions.Sessions {
+		rels[session.SessionID] = filepath.ToSlash(session.TranscriptPath)
+	}
+	now := opts.Now()
+	facts := []factRecord{{
+		ID: "fact:from-vanishing", Kind: factKindDecision, Text: "distilled from the session whose bytes vanish",
+		Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
+		Provenance: []factAnchor{{SessionID: "session-gone", Transcript: rels["session-gone"]}},
+	}}
+	if err := factstore.Write(brain, "main", facts); err != nil {
+		t.Fatal(err)
+	}
+
+	blob := git("rev-parse", v1MainRef+":"+checkpointPath("bbb222bbb222")+"/0/full.jsonl")
+	if err := os.Remove(filepath.Join(repo, ".git", "objects", blob[:2], blob[2:])); err != nil {
+		t.Fatal("destroy transcript object:", err)
+	}
+	runFilelessExport(t, opts, "", false)
+	after, err := bmanifest.Load(brain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Sources.Sessions.Sessions) != 1 {
+		t.Fatalf("manifest sessions = %+v, want only the servable one", after.Sources.Sessions.Sessions)
+	}
+	foundUnavailable := false
+	for _, entry := range after.Sources.Sessions.UnavailableSessions {
+		if entry.SessionID == "session-gone" {
+			foundUnavailable = true
+		}
+	}
+	if !foundUnavailable {
+		t.Fatalf("manifest did not record the unavailable catalog member: %+v", after.Sources.Sessions.UnavailableSessions)
+	}
+	if _, err := mirrorBrainToCheckpointCatalog(brain, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	remaining, err := factstore.Load(brain, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) != 1 || remaining[0].ID != "fact:from-vanishing" || len(remaining[0].Provenance) != 1 {
+		t.Fatalf("mirror deleted facts of an unavailable but cataloged session: %+v", remaining)
+	}
+}
+
+// TestMirrorSkipsPartialCatalogs pins the gate: a branch-scoped or
+// checkpoint-limited export writes a partial catalog, and the mirror must not
+// judge membership against it.
+func TestMirrorSkipsPartialCatalogs(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(source *sessionSourceManifest)
+	}{
+		{name: "branch scope", mutate: func(source *sessionSourceManifest) { source.Scope = exportScopeBranch }},
+		{name: "checkpoint limit", mutate: func(source *sessionSourceManifest) { source.CheckpointLimit = 5 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			brainDir := writePrivacyFixture(t)
+			manifest, err := bmanifest.Load(brainDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc.mutate(manifest.Sources.Sessions)
+			if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
+				t.Fatal(err)
+			}
+			now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+			facts := []factRecord{{
+				ID: "fact:outside-window", Kind: factKindDecision, Text: "distilled from a session outside the partial catalog",
+				Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
+				Provenance: []factAnchor{{SessionID: "session-not-in-this-window", Transcript: "sessions/other/older.jsonl"}},
+			}}
+			if err := factstore.Write(brainDir, "main", facts); err != nil {
+				t.Fatal(err)
+			}
+			counts, err := mirrorBrainToCheckpointCatalog(brainDir, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !counts.empty() {
+				t.Fatalf("mirror acted on a partial catalog: %+v", counts)
+			}
+			remaining, err := factstore.Load(brainDir, "main")
+			if err != nil || len(remaining) != 1 {
+				t.Fatalf("partial catalog changed the fact store: %+v %v", remaining, err)
+			}
+		})
+	}
+}
+
+// TestMirrorSweepsAbstractsOfMissingSessions pins the abstract half of the
+// mirror: a session abstract is an LLM summary of transcript content, so when
+// the session leaves the checkpoint catalog, the abstract and its egress
+// receipt leave the brain at the next refresh.
+func TestMirrorSweepsAbstractsOfMissingSessions(t *testing.T) {
+	brainDir, _ := writeSessionNavigationFixture(t)
+	view := sessionViewForTest(t, brainDir)
+	digest := sessionViewDigest(view)
+	data, err := json.Marshal(validAbstractForView(view, digest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeAbstractBytesForTest(t, brainDir, digest, data)
+	receipt := abstractEgressReceipt{
+		OperationID: "aabbccddeeff00112233", SessionRef: view.Ref, SessionDigest: digest,
+		Provider: "codex", Model: "test-1", StartedAt: time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC), Status: "started",
+	}
+	if err := writeAbstractEgressReceipt(brainDir, receipt); err != nil {
+		t.Fatal(err)
+	}
+
+	// While the session is in the catalog, the mirror removes nothing.
+	counts, err := mirrorBrainToCheckpointCatalog(brainDir, time.Date(2026, 11, 1, 12, 1, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Abstracts != 0 || counts.EgressReceipts != 0 {
+		t.Fatalf("mirror removed artifacts of a live session: %+v", counts)
+	}
+	if _, ok := loadSessionAbstract(brainDir, digest); !ok {
+		t.Fatal("abstract of a live session was removed")
+	}
+
+	// Remove the session from the catalog (its checkpoint is gone) and mirror.
+	manifest, err := bmanifest.Load(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.Sources.Sessions.Sessions = nil
+	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
+		t.Fatal(err)
+	}
+	counts, err = mirrorBrainToCheckpointCatalog(brainDir, time.Date(2026, 11, 1, 12, 2, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Abstracts != 1 || counts.EgressReceipts != 1 {
+		t.Fatalf("mirror counts = %+v, want one abstract and one receipt removed", counts)
+	}
+	if _, ok := loadSessionAbstract(brainDir, digest); ok {
+		t.Fatal("abstract of the deleted session survived the mirror")
+	}
+	receipts, err := loadAbstractEgressReceiptsChecked(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(receipts) != 0 {
+		t.Fatalf("egress receipts of the deleted session survived: %+v", receipts)
 	}
 }

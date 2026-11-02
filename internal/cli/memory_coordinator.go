@@ -450,6 +450,10 @@ func pruneMemoryJobsLocked(brainDir string, jobs []memoryJob, now time.Time) (in
 			}
 			view, err := loadConversationSessionViewByRef(brainDir, job.SessionRef)
 			return err == nil && validateSessionAbstract(entry.Artifact, view) == nil
+		case job.State == memoryJobStateExcluded:
+			// Legacy terminal state written by the removed privacy layer;
+			// nothing produces it anymore, so it needs no further proof.
+			return true
 		}
 		return false
 	}

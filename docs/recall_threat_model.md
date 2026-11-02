@@ -62,7 +62,8 @@ Enforced:
   distilled facts (a distilled fact with no provenance left is deleted;
   authored memories are never touched). "Stop serving now" is
   `entire checkpoint delete <checkpoint> && entire brain refresh`; the watch
-  daemon converges on its next tick. The mirror canary test plants a secret
+  daemon converges projections on its next tick (legacy cached transcript
+  files are swept by a full refresh, which the daemon's tick skips). The mirror canary test plants a secret
   in one checkpoint session, deletes it from the tip, refreshes, and asserts
   the secret is absent from the sessions tree, history index, FTS,
   conversation retrieval, and facts while other sessions survive.

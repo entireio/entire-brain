@@ -5043,15 +5043,12 @@ func (r *brainBriefCountingReader) Read(p []byte) (int, error) {
 // brainRawScanSkipsDerived reports whether a Brain-relative path is DERIVED
 // state that a raw text walk must not read.
 //
-// The exclusion guard available to a raw walk matches transcript PATHS, because
-// a bare file carries no session identity. That is enough for sessions/, but a
-// derived store is rebuilt FROM those transcripts and holds their content under
-// its own filenames: the short-term overlay, the history index and its
-// generations, distilled facts, pattern outputs. A tombstone that has landed
-// but whose cleanup has not finished (or was interrupted) leaves exactly that
-// content on disk, so scanning derived state would surface what the guard
-// exists to hide. Both raw walkers share this rule; keeping it in one place is
-// what stops the two skip lists from drifting apart again.
+// A derived store is rebuilt FROM the session transcripts and holds their
+// content under its own filenames: the short-term overlay, the history index
+// and its generations, distilled facts, pattern outputs. Scanning derived
+// state would duplicate every hit the sessions tree already yields. Both raw
+// walkers share this rule; keeping it in one place is what stops the two skip
+// lists from drifting apart again.
 func brainRawScanSkipsDerived(relSlash string) bool {
 	if relSlash == bmanifest.FileName {
 		return true

@@ -378,6 +378,28 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			}
 			if len(unavailable) > 0 {
 				warnings = append(warnings, fmt.Sprintf("skipped %d session(s) whose transcript bytes are not available locally; the first was: %v", len(unavailable), unavailable[0]))
+				// Record the dropped identities: they are still checkpoint-
+				// catalog members, so the mirror must not treat their derived
+				// facts and abstracts as deleted.
+				type sessionKey struct {
+					id, branch, checkpoint string
+					index                  int
+				}
+				usableKeys := make(map[sessionKey]struct{}, len(usable))
+				for _, session := range usable {
+					usableKeys[sessionKey{session.SessionID, session.Branch, session.LatestCheckpoint, session.SessionIndex}] = struct{}{}
+				}
+				seenUnavailable := map[bmanifest.UnavailableSession]bool{}
+				for _, session := range sessions {
+					if _, ok := usableKeys[sessionKey{session.SessionID, session.Branch, session.LatestCheckpoint, session.SessionIndex}]; ok {
+						continue
+					}
+					entry := bmanifest.UnavailableSession{SessionID: session.SessionID, Branch: session.Branch}
+					if !seenUnavailable[entry] {
+						seenUnavailable[entry] = true
+						manifest.UnavailableSessions = append(manifest.UnavailableSessions, entry)
+					}
+				}
 				sessions = usable
 				manifest.Sessions = sessions
 				branchDirs = buildBranchDirectories(sessions, defaultBranch)

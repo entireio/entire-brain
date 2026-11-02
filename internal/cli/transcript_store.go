@@ -30,19 +30,15 @@ import (
 // are standalone artifacts that carry their transcripts as files, and brains
 // written before this change keep working until their cache is swept.
 //
-// Every direct read goes through the store, because the store is where two
-// invariants are enforced:
-//
-//   - A purged session stays purged. The tombstone gate used to be implicit —
-//     the purge deleted the cached file — and with on-demand git reads the
-//     gate must live on the read path itself.
-//   - Reads never touch the network. Resolution and blob reads run through the
-//     same no-egress policy the snapshot export uses; a promisor-absent blob
-//     is a read error the caller skips with a warning, never a fetch.
+// Every direct read goes through the store, because the store is where one
+// invariant is enforced: reads never touch the network. Resolution and blob
+// reads run through the same no-egress policy the snapshot export uses; a
+// promisor-absent blob is a read error the caller skips with a warning,
+// never a fetch.
 
 // transcriptLocation addresses one session's transcript inside the snapshot.
-// sessionID rides along so the tombstone gate can refuse by SESSION as well as
-// by path: the path-keyed gate maps the CURRENT manifest, while byRel can hold
+// sessionID rides along for diagnostics: the path-keyed map tracks the CURRENT
+// manifest, while byRel can hold
 // paths from the manifest as of snapshot resolution — a session re-keyed and
 // then purged must not slip through under its old path.
 type transcriptLocation struct {

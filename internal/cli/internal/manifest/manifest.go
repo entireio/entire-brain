@@ -60,7 +60,12 @@ type Manifest struct {
 	CheckpointsScanned int       `json:"checkpoints_scanned"`
 	Branches           []Branch  `json:"branches,omitempty"`
 	Sessions           []Session `json:"sessions"`
-	Warnings           []string  `json:"warnings,omitempty"`
+	// UnavailableSessions are checkpoint-catalog members whose transcript
+	// bytes are not available locally (destroyed manual-commit checkpoints,
+	// unfetched refs). They are dropped from Sessions but are still part of
+	// the catalog, so the mirror must not treat them as deleted.
+	UnavailableSessions []UnavailableSession `json:"unavailable_sessions,omitempty"`
+	Warnings            []string             `json:"warnings,omitempty"`
 	// SuppressedWarnings holds the RAW text of every warning usefulExportWarnings kept out of
 	// Warnings. It exists so a diagnostic warning -- "checkpoint snapshot unavailable:" above all,
 	// which means a transcript was not readable and the export is therefore incomplete -- is
@@ -143,7 +148,17 @@ type SessionSource struct {
 	LatestCheckpointID string     `json:"latest_checkpoint_id,omitempty"`
 	Branches           []Branch   `json:"branches,omitempty"`
 	Sessions           []Session  `json:"sessions"`
-	Warnings           []string   `json:"warnings,omitempty"`
+	// UnavailableSessions mirrors Manifest.UnavailableSessions: catalog
+	// members without locally servable bytes, still present in the refs.
+	UnavailableSessions []UnavailableSession `json:"unavailable_sessions,omitempty"`
+	Warnings            []string             `json:"warnings,omitempty"`
+}
+
+// UnavailableSession is the content-free identity of a checkpoint-catalog
+// session the export could not serve locally.
+type UnavailableSession struct {
+	SessionID string `json:"session_id"`
+	Branch    string `json:"branch,omitempty"`
 }
 
 // FactSource is recorded under sources.facts in the brain manifest,
