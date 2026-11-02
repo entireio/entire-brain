@@ -38,15 +38,15 @@ func TestStagedReconcilePromotesUnflaggedWithoutAgent(t *testing.T) {
 		calls++
 		return "", nil
 	}
-	updated, proposals, stats, warnings := reconcileStagedCandidates(context.Background(), run, nil, facts, nil, ".", time.Minute, 2, now)
+	updated, stats, warnings := reconcileStagedCandidates(context.Background(), run, nil, facts, ".", time.Minute, 2, now)
 	if calls != 0 {
 		t.Fatalf("an unflagged candidate must not cost an agent call, got %d", calls)
 	}
 	if stats.Candidates != 1 || stats.Promoted != 1 || stats.Clusters != 0 {
 		t.Fatalf("stats: %+v", stats)
 	}
-	if len(proposals) != 0 || len(warnings) != 0 {
-		t.Fatalf("unexpected proposals %v or warnings %v", proposals, warnings)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings %v", warnings)
 	}
 	active := 0
 	for _, f := range updated {
@@ -74,37 +74,38 @@ func TestStagedReconcileClustersSameRunNearDuplicates(t *testing.T) {
 		sawExisting = string(input)
 		return "1 merge 1 0.95", nil
 	}
-	updated, proposals, stats, _ := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{first, second}, nil, ".", time.Minute, 2, now)
+	updated, stats, _ := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{first, second}, ".", time.Minute, 2, now)
 	if stats.Clusters != 1 || stats.AgentCalls != 1 || stats.Promoted != 0 {
 		t.Fatalf("stats: %+v", stats)
 	}
 	if !strings.Contains(sawExisting, first.Text) {
 		t.Fatalf("the elected head must be in EXISTING so the agent can merge into it:\n%s", sawExisting)
 	}
-	if len(proposals) != 1 {
-		t.Fatalf("a confident merge must queue for review, got proposals %v", proposals)
-	}
-	var texts []string
+	// Keep-both: the merge ruling publishes the duplicate too, cross-linked to
+	// the elected head for the compaction loop to settle (COR-2273).
+	byID := map[string]factRecord{}
 	for _, f := range updated {
-		if f.Status == factStatusActive {
-			texts = append(texts, f.Text)
+		if f.Status != factStatusActive {
+			t.Fatalf("every adjudicated candidate must publish: %+v", f)
 		}
+		byID[f.ID] = f
 	}
-	if len(texts) != 1 || texts[0] != first.Text {
-		t.Fatalf("only the elected head may publish, got %v", texts)
+	if !contains(byID[second.ID].RelatedIDs, first.ID) || !contains(byID[first.ID].RelatedIDs, second.ID) {
+		t.Fatalf("merged pair must be cross-linked: %+v", updated)
 	}
 }
 
-// A candidate close to a stored active fact goes to the agent, and a confident
-// supersede ruling must wait for explicit review.
-func TestStagedReconcileQueuesSupersession(t *testing.T) {
+// A candidate close to a stored active fact goes to the agent; a confident
+// supersede ruling keeps both facts active and cross-links them — it never
+// retires the stored fact on its own (the compaction loop settles the pair).
+func TestStagedReconcilePublishesSupersedeAsKeepBoth(t *testing.T) {
 	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
 	stored := stagedTestFact("indent all source files with tabs", []string{"preferences.coding.style"}, factStatusActive, now.Add(-time.Hour))
 	candidate := stagedTestFact("indent all source files with spaces", []string{"preferences.coding.style"}, factStatusCandidate, now)
 	run := func(context.Context, string, []string, []byte, time.Duration) (string, error) {
 		return "1 supersede 1 0.95", nil
 	}
-	updated, _, stats, _ := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{stored, candidate}, nil, ".", time.Minute, 2, now)
+	updated, stats, _ := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{stored, candidate}, ".", time.Minute, 2, now)
 	if stats.AgentCalls != 1 {
 		t.Fatalf("stats: %+v", stats)
 	}
@@ -115,8 +116,11 @@ func TestStagedReconcileQueuesSupersession(t *testing.T) {
 	if byID[stored.ID].Status != factStatusActive {
 		t.Fatalf("stored fact must stay active, got %q", byID[stored.ID].Status)
 	}
-	if byID[candidate.ID].Status != factStatusCandidate {
-		t.Fatalf("candidate must remain unpublished, got %q", byID[candidate.ID].Status)
+	if byID[candidate.ID].Status != factStatusActive {
+		t.Fatalf("candidate must publish, got %q", byID[candidate.ID].Status)
+	}
+	if !contains(byID[candidate.ID].RelatedIDs, stored.ID) || !contains(byID[stored.ID].RelatedIDs, candidate.ID) {
+		t.Fatalf("conflicting pair must be cross-linked: %+v", updated)
 	}
 }
 
@@ -128,7 +132,7 @@ func TestStagedReconcileAgentFailureKeepsBoth(t *testing.T) {
 	run := func(context.Context, string, []string, []byte, time.Duration) (string, error) {
 		return "", errors.New("agent down")
 	}
-	updated, _, _, warnings := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{stored, candidate}, nil, ".", time.Minute, 2, now)
+	updated, _, warnings := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{stored, candidate}, ".", time.Minute, 2, now)
 	active := 0
 	for _, f := range updated {
 		if f.Status == factStatusActive {
@@ -144,35 +148,20 @@ func TestStagedReconcileAgentFailureKeepsBoth(t *testing.T) {
 }
 
 // In newest-first order, extraction order is not evidence of recency: a
-// supersede ruling queues for review instead of applying.
-func TestStagedReconcileNewestFirstSupersedeQueued(t *testing.T) {
+// supersede ruling never retires the stored fact — both stay active,
+// cross-linked for the compaction loop.
+func TestStagedReconcileNewestFirstSupersedeKeepsBoth(t *testing.T) {
 	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
 	stored := stagedTestFact("indent all source files with tabs", []string{"preferences.coding.style"}, factStatusActive, now.Add(-time.Hour))
 	candidate := stagedTestFact("indent all source files with spaces", []string{"preferences.coding.style"}, factStatusCandidate, now)
 	run := func(context.Context, string, []string, []byte, time.Duration) (string, error) {
 		return "1 supersede 1 0.95", nil
 	}
-	updated, proposals, _, warnings := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{stored, candidate}, nil, ".", time.Minute, 2, now)
-	if len(proposals) != 1 {
-		t.Fatalf("newest-first supersede must queue for review, got %v", proposals)
-	}
-	active := 0
+	updated, _, _ := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{stored, candidate}, ".", time.Minute, 2, now)
 	for _, f := range updated {
-		if f.Status == factStatusActive {
-			active++
+		if f.Status != factStatusActive {
+			t.Fatalf("supersede ruling must not retire or stage anything: %+v", f)
 		}
-	}
-	if active != 1 {
-		t.Fatalf("only the original may stay active pending review, got %d", active)
-	}
-	found := false
-	for _, w := range warnings {
-		if strings.Contains(w, "supersede requires review") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("the review queueing must be disclosed: %v", warnings)
 	}
 }
 
@@ -185,7 +174,7 @@ func TestStagedReconcileResumesLeftovers(t *testing.T) {
 		t.Fatal("nothing resembles the leftover; no agent call expected")
 		return "", nil
 	}
-	updated, _, stats, _ := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{leftover}, nil, ".", time.Minute, 2, now)
+	updated, stats, _ := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{leftover}, ".", time.Minute, 2, now)
 	if stats.Candidates != 1 || stats.Promoted != 1 {
 		t.Fatalf("stats: %+v", stats)
 	}
@@ -225,8 +214,8 @@ func TestStagedReconcileIsDeterministic(t *testing.T) {
 		}
 		return out.String(), nil
 	}
-	first, _, _, _ := reconcileStagedCandidates(context.Background(), run, nil, append([]factRecord(nil), facts...), nil, ".", time.Minute, 4, now)
-	second, _, _, _ := reconcileStagedCandidates(context.Background(), run, nil, append([]factRecord(nil), facts...), nil, ".", time.Minute, 4, now)
+	first, _, _ := reconcileStagedCandidates(context.Background(), run, nil, append([]factRecord(nil), facts...), ".", time.Minute, 4, now)
+	second, _, _ := reconcileStagedCandidates(context.Background(), run, nil, append([]factRecord(nil), facts...), ".", time.Minute, 4, now)
 	sortFactRecords(first)
 	sortFactRecords(second)
 	if !reflect.DeepEqual(first, second) {
@@ -236,8 +225,9 @@ func TestStagedReconcileIsDeterministic(t *testing.T) {
 
 // A high-confidence merge whose two texts share almost no vocabulary is a
 // hallucinated pairing (measured: every such ruling on the calibration corpus
-// was wrong). The guard queues it for review instead of destroying a fact.
-func TestStagedReconcileGuardsLexicallyUnrelatedRulings(t *testing.T) {
+// was wrong). Keep-both means even a hallucinated ruling never destroys or
+// retires a fact; the wrong cross-link is settled by compaction (COR-2273).
+func TestStagedReconcileLexicallyUnrelatedRulingsDestroyNothing(t *testing.T) {
 	for _, kind := range []string{factActionMerge, factActionSupersede} {
 		t.Run(kind, func(t *testing.T) {
 			now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
@@ -252,27 +242,14 @@ func TestStagedReconcileGuardsLexicallyUnrelatedRulings(t *testing.T) {
 				}
 				return "1 " + kind + " 1 0.95", nil
 			}
-			updated, proposals, _, warnings := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{similar, unrelated, candidate}, nil, ".", time.Minute, 2, now)
-			if len(proposals) != 1 {
-				t.Fatalf("an unrelated merge must queue for review, got proposals %v", proposals)
-			}
-			active := 0
+			updated, _, _ := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{similar, unrelated, candidate}, ".", time.Minute, 2, now)
 			for _, f := range updated {
-				if f.Status == factStatusActive {
-					active++
+				if f.Status != factStatusActive {
+					t.Fatalf("nothing may be destroyed or retired by a ruling: %+v", f)
 				}
 			}
-			if active != 2 {
-				t.Fatalf("nothing may be destroyed by a guarded ruling; want 2 originals active, got %d", active)
-			}
-			guarded := false
-			for _, w := range warnings {
-				if strings.Contains(w, "requires review") {
-					guarded = true
-				}
-			}
-			if !guarded {
-				t.Fatalf("the guard must be disclosed: %v", warnings)
+			if len(updated) != 3 {
+				t.Fatalf("every original and the candidate must survive, got %d", len(updated))
 			}
 		})
 	}
@@ -332,8 +309,8 @@ func TestStagedReconcilePersistsResumeBeforeExtraction(t *testing.T) {
 			t.Error("extraction began before leftover reconciliation")
 		}
 		stored, err := factstore.Load(brainDir, "main")
-		if err != nil || len(stored) != 2 || stored[indexOfFact(stored, leftover.ID)].Status != factStatusCandidate {
-			t.Errorf("resumed candidate must remain staged durably before extraction: %+v, %v", stored, err)
+		if err != nil || len(stored) != 2 || stored[indexOfFact(stored, leftover.ID)].Status != factStatusActive {
+			t.Errorf("resumed candidate must be published durably before extraction: %+v, %v", stored, err)
 		}
 		return "workflow.testing.rules\tRun tests before committing.\n", nil
 	}
@@ -343,12 +320,12 @@ func TestStagedReconcilePersistsResumeBeforeExtraction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if source.PendingReconcile != 1 || source.CandidatesReconciled != 2 || source.ReconcileCalls != 1 {
+	if source.PendingReconcile != 0 || source.CandidatesReconciled != 2 || source.ReconcileCalls != 1 {
 		t.Fatalf("resume and new work must both be counted: %+v", source)
 	}
 	stored, err := factstore.Load(brainDir, "main")
 	if err != nil || len(stored) != 3 {
-		t.Fatalf("pending candidate was lost after final flush: %+v, %v", stored, err)
+		t.Fatalf("a reconciled fact was lost after final flush: %+v, %v", stored, err)
 	}
 }
 

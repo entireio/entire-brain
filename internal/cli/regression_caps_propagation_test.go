@@ -3,7 +3,6 @@ package cli
 import (
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -134,61 +133,4 @@ func TestCauseTruncationReservesTheEllipsisInRunes(t *testing.T) {
 	if !strings.Contains(src, "utf8.RuneCountInString(statusCauseEllipsis)") {
 		t.Error("the ellipsis reserve is no longer counted in runes")
 	}
-}
-
-// The recursive path compression recursed once per link, so chain depth was
-// bounded only by the stack. The iterative form must produce identical roots.
-func TestIterativePathCompressionIsStillCorrect(t *testing.T) {
-	t.Parallel()
-
-	src := readGoSourceForTest(t, "internal/retrieval/guard.go")
-	if strings.Contains(src, "findRoot = func(id string) string") {
-		t.Error("findRoot is still the recursive closure, so deep chains are bounded only by the stack")
-	}
-	if !strings.Contains(src, "findRoot := func(id string) string") {
-		t.Fatal("findRoot is not defined as expected; this guard would be vacuous")
-	}
-	// Behaviour: a long chain must resolve, and resolve to the same root from
-	// every node on it. A recursive version would also pass this at small
-	// depth -- the point is that it passes at a depth that would have been a
-	// stack risk.
-	parent := map[string]string{}
-	const depth = 50000
-	for i := 0; i < depth; i++ {
-		parent[idForDepth(i)] = idForDepth(i + 1)
-	}
-	parent[idForDepth(depth)] = idForDepth(depth)
-
-	root := resolveChainForTest(parent, idForDepth(0))
-	if root != idForDepth(depth) {
-		t.Fatalf("root = %q, want %q", root, idForDepth(depth))
-	}
-	if got := resolveChainForTest(parent, idForDepth(depth/2)); got != root {
-		t.Errorf("midpoint resolved to %q, want the same root %q", got, root)
-	}
-}
-
-func idForDepth(i int) string { return "n" + strconv.Itoa(i) }
-
-// resolveChainForTest mirrors the iterative walk under test, so the depth
-// assertion above exercises the algorithm rather than the production closure's
-// surrounding setup.
-func resolveChainForTest(parent map[string]string, id string) string {
-	root := id
-	var path []string
-	for {
-		p, ok := parent[root]
-		if !ok || p == root {
-			if !ok {
-				parent[root] = root
-			}
-			break
-		}
-		path = append(path, root)
-		root = p
-	}
-	for _, node := range path {
-		parent[node] = root
-	}
-	return root
 }

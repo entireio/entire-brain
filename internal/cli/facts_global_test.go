@@ -6,17 +6,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
 	"github.com/entireio/entire-brain/internal/cli/command/facts"
 	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -943,70 +944,6 @@ func TestGetPreservesScopeOfDuplicateGlobalFacts(t *testing.T) {
 			}
 			if found[0].VerificationRequired == wantGlobal {
 				t.Fatalf("drift check did not follow the winning fact's scope: %+v", found[0])
-			}
-		})
-	}
-}
-
-func TestGlobalFactsDoNotReviveRepositoryProposals(t *testing.T) {
-	opts, brainDir := retrievalSurfaceFixture(t)
-	globals, err := factstore.LoadGlobal(opts.Env)
-	if err != nil || len(globals) != 1 {
-		t.Fatalf("global fixture: %v, %v", globals, err)
-	}
-	local, err := factstore.Load(brainDir, "feature")
-	if err != nil {
-		t.Fatal(err)
-	}
-	retired := globals[0]
-	retired.Branch, retired.Status = "feature", factStatusRetracted
-	local = append(local, retired)
-	if err := factstore.Write(brainDir, "feature", local); err != nil {
-		t.Fatal(err)
-	}
-	proposal := factProposal{Action: factActionMerge, CandidateID: local[0].ID, TargetID: retired.ID, Confidence: 0.6, Branch: "feature"}
-	if err := writeFactProposals(brainDir, "feature", []factProposal{proposal}); err != nil {
-		t.Fatal(err)
-	}
-	found, missing, err := getUnifiedBatchOptions(opts.Env.RepoRoot, brainDir, "feature", []string{retired.ID, local[0].ID}, getOptions{GlobalFacts: globals})
-	if err != nil || len(missing) != 0 || len(found) != 2 {
-		t.Fatalf("get: found=%+v missing=%v err=%v", found, missing, err)
-	}
-	for _, result := range found {
-		for _, caveat := range result.Caveats {
-			if caveat.Kind == retrieval.CaveatUnresolvedReview {
-				t.Fatalf("global fallback revived a retired repository proposal: %+v", result)
-			}
-		}
-	}
-	for _, surface := range []string{"recall", "brief"} {
-		t.Run(surface, func(t *testing.T) {
-			cmd := &cobra.Command{}
-			var out bytes.Buffer
-			if surface == "recall" {
-				cmd = facts.NewRecall(factsCommandConfig(opts))
-			}
-			cmd.SetOut(&out)
-			cmd.SetErr(&bytes.Buffer{})
-			if surface == "recall" {
-				cmd.SetArgs([]string{"orion", "--branch=feature", "--json"})
-				err = cmd.Execute()
-			} else {
-				err = runBrainBrief(context.Background(), cmd, opts, brainBriefOptions{limit: 10, json: true}, "orion")
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			var report struct {
-				Facts        []json.RawMessage           `json:"facts"`
-				Pending      map[string]factReviewNotice `json:"pending_reviews"`
-				BriefPending map[string]factReviewNotice `json:"facts_pending_review"`
-			}
-			if err := json.Unmarshal(out.Bytes(), &report); err != nil {
-				t.Fatal(err)
-			}
-			if len(report.Facts) == 0 || len(report.Pending) != 0 || len(report.BriefPending) != 0 {
-				t.Fatalf("global fallback revived a repository proposal: %s", out.String())
 			}
 		})
 	}

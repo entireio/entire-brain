@@ -97,12 +97,6 @@ func TestFactWritesRejectSymlinkedFactsBranch(t *testing.T) {
 	if err := factstore.Write(brainDir, "main", []factRecord{record}); err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("factstore.Write should reject symlinked branch dir, got %v", err)
 	}
-	if err := writeFactProposals(brainDir, "main", []factProposal{{Action: "merge", CandidateID: "fact:a", TargetID: "fact:b"}}); err == nil || !strings.Contains(err.Error(), "symlink") {
-		t.Fatalf("writeFactProposals should reject symlinked branch dir, got %v", err)
-	}
-	if err := writeFactProposals(brainDir, "main", nil); err == nil || !strings.Contains(err.Error(), "symlink") {
-		t.Fatalf("empty writeFactProposals should reject symlinked branch dir before remove, got %v", err)
-	}
 	saveDistillCache(brainDir, distillCache{Version: distillCacheVersion, Sessions: map[string]string{"main/s1": "fp"}})
 	if _, err := os.Stat(filepath.Join(outside, distillCacheFileName)); !os.IsNotExist(err) {
 		t.Fatalf("distill cache should not be written through symlink, stat err=%v", err)

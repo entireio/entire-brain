@@ -227,24 +227,12 @@ func dropFactsForMissingSessionsLocked(brainDir string, catalog checkpointCatalo
 		if err := factstore.WriteStoreFile(brainDir, dir, kept); err != nil {
 			return deletedTotal, strippedTotal, err
 		}
-		proposalRel := filepath.ToSlash(filepath.Join(factstore.DirName, dir, factsProposalsFileName))
-		proposals, err := loadFactProposalsAt(brainDir, proposalRel)
-		if err != nil {
+		// The review-queue framework is gone; a leftover proposals.ndjson is an
+		// inert legacy artifact, and this sweep's contract is that no removed
+		// fact id survives anywhere in the brain — so remove the file outright.
+		proposalRel := filepath.ToSlash(filepath.Join(factstore.DirName, dir, "proposals.ndjson"))
+		if err := brainstore.RemoveBrainRelativeFile(brainDir, proposalRel); err != nil {
 			return deletedTotal, strippedTotal, err
-		}
-		if len(proposals) > 0 {
-			keptProposals := proposals[:0:0]
-			for _, proposal := range proposals {
-				if deletedIDs[proposal.CandidateID] || deletedIDs[proposal.TargetID] {
-					continue
-				}
-				keptProposals = append(keptProposals, proposal)
-			}
-			if len(keptProposals) != len(proposals) {
-				if err := writeFactProposalsAt(brainDir, proposalRel, keptProposals); err != nil {
-					return deletedTotal, strippedTotal, err
-				}
-			}
 		}
 	}
 	if !changedAny {

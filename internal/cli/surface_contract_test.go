@@ -1,12 +1,9 @@
 package cli
 
 import (
-	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"github.com/spf13/cobra"
 )
 
 func TestMultiConceptEmptyResultsRemainJSONArray(t *testing.T) {
@@ -35,25 +32,6 @@ func TestMultiConceptEmptyResultsRemainJSONArray(t *testing.T) {
 			}
 			if trimmed && string(raw["response_truncated"]) != "true" {
 				t.Fatal("missing truncation marker")
-			}
-		})
-	}
-}
-
-func TestCompactBriefPreservesPendingFactReview(t *testing.T) {
-	report := brainBriefReport{Task: "review fact", Facts: []factRecord{{ID: "fact:a", Text: "Use old API", Status: "active"}}, FactsPendingReview: map[string]factReviewNotice{"fact:a": {ReviewID: "review:a", Action: "supersede", Message: "Check the newer API", RelatedIDs: []string{"fact:b"}, Confidence: 0.75}}}
-	for _, format := range []brainBriefPacketFormat{brainBriefPacketText, brainBriefPacketLegacyJSON, brainBriefPacketCompactV1, brainBriefPacketCompactV2, brainBriefPacketCompactV3} {
-		t.Run(string(format), func(t *testing.T) {
-			var out bytes.Buffer
-			cmd := &cobra.Command{}
-			cmd.SetOut(&out)
-			if err := emitBrainBriefPacket(cmd, report, format); err != nil {
-				t.Fatal(err)
-			}
-			for _, want := range []string{"Use old API", "review:a", "supersede", "fact:b"} {
-				if !strings.Contains(out.String(), want) {
-					t.Errorf("missing %q", want)
-				}
 			}
 		})
 	}

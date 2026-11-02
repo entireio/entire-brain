@@ -142,9 +142,6 @@ func TestMemoriesSyncNoEgressSkipsConnectedDefault(t *testing.T) {
 	if !strings.Contains(out, "ENTIRE_BRAIN_NO_EGRESS") || !strings.Contains(out, "skipped") {
 		t.Fatalf("output must say the sync was skipped and why, got %q", out)
 	}
-	if queue, qerr := loadFactProposals(f.brainDir, "main"); qerr != nil || len(queue) != 0 {
-		t.Fatalf("a suppressed sync must not touch the review queue: %d entries, %v", len(queue), qerr)
-	}
 
 	// --json still answers in JSON: a machine caller must never get prose on
 	// stdout under exit 0.

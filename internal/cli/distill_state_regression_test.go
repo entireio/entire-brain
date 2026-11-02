@@ -3,9 +3,6 @@ package cli
 import (
 	"context"
 	"math"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -68,31 +65,4 @@ func TestDistillPreservesConcurrentSessionManifest(t *testing.T) {
 		}
 	}
 	t.Fatal("distillation discarded concurrently exported session")
-}
-
-func TestDistillPreservesMalformedProposalQueue(t *testing.T) {
-	now := time.Now()
-	d := writeSameBranchFixture(t, now)
-	p := filepath.Join(d, filepath.FromSlash(factsProposalsRelPath("main")))
-	const original = "{malformed queue evidence}\n"
-	if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(p, []byte(original), 0600); err != nil {
-		t.Fatal(err)
-	}
-	run := func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
-		if strings.HasPrefix(string(input), "CANDIDATES") {
-			return "1 new - 1", nil
-		}
-		return "workflow.testing.rules\tUse alpha tests.\n", nil
-	}
-	_, err := runDistillForBrain(context.Background(), t.TempDir(), d, distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, timeout: time.Minute}, now)
-	if err == nil {
-		t.Error("distillation ignored malformed queue")
-	}
-	got, err := os.ReadFile(p)
-	if err != nil || string(got) != original {
-		t.Fatalf("proposal evidence changed: %q, %v", got, err)
-	}
 }

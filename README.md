@@ -226,8 +226,8 @@ Existing schema 1 snapshots remain readable. The next memory write or refresh
 converts them. Conversion reconciles old-client changes across all views, publishes
 missing legacy files, and replaces the snapshot last. A failed conversion can be
 retried. Corrupt or unsupported snapshots cause an error before conversion.
-Reads do not change disk. Outlines, review proposals, and usage receipts keep
-their existing layouts.
+Reads do not change disk. Outlines and usage receipts keep their existing
+layouts.
 
 ```bash
 entire brain memories storage status --json
@@ -448,7 +448,7 @@ the binary.
 | `entire brain remember` | Record a durable fact about this repository |
 | `entire brain recall` | Retrieve durable facts for the current branch |
 | `entire brain distill` | Extract durable facts from sessions (requires an agent) |
-| `entire brain facts` | Review, promote, and garbage-collect durable facts |
+| `entire brain facts` | Inspect, retract, and garbage-collect durable facts |
 | `entire brain verify` | Verify durable fact anchors against local retained sources |
 | `entire brain patterns` | Inspect and rebuild recurring patterns from sessions |
 

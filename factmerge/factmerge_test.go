@@ -185,12 +185,9 @@ func TestUpsertDedupesAndUnionsProvenance(t *testing.T) {
 func TestApplyActionsNew(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	cand := factFor(t, "The project uses Go.", []string{"project.tooling.stack"}, now)
-	out, proposals := ApplyActions(nil, []Action{{Kind: ActionNew, Candidate: cand}}, DefaultConfidenceThreshold, now)
+	out := ApplyActions(nil, []Action{{Kind: ActionNew, Candidate: cand}}, DefaultConfidenceThreshold, now)
 	if len(out) != 1 || out[0].Status != StatusActive {
 		t.Fatalf("expected one active fact, got %+v", out)
-	}
-	if len(proposals) != 0 {
-		t.Fatalf("new should not produce proposals")
 	}
 }
 
@@ -202,7 +199,7 @@ func TestApplyActionsHighConfidenceMerge(t *testing.T) {
 	cand := factFor(t, "Analysis generation belongs in the pipeline, not the queue.", []string{"architecture.boundaries.rationale"}, later)
 	cand.Provenance = []Anchor{{SessionID: "s2", Line: 9}}
 
-	out, proposals := ApplyActions([]Record{target}, []Action{
+	out := ApplyActions([]Record{target}, []Action{
 		{Kind: ActionMerge, TargetID: target.ID, Confidence: 0.9, Candidate: cand},
 	}, DefaultConfidenceThreshold, later)
 
@@ -218,9 +215,6 @@ func TestApplyActionsHighConfidenceMerge(t *testing.T) {
 	if !out[0].UpdatedAt.Equal(later) {
 		t.Fatalf("merge should bump UpdatedAt")
 	}
-	if len(proposals) != 0 {
-		t.Fatalf("high-confidence merge should not propose")
-	}
 }
 
 func TestApplyActionsHighConfidenceSupersede(t *testing.T) {
@@ -229,7 +223,7 @@ func TestApplyActionsHighConfidenceSupersede(t *testing.T) {
 	old := factFor(t, "Use Supabase for the database.", []string{"project.tooling.stack"}, now)
 	newer := factFor(t, "Use MySQL for the database, not Supabase.", []string{"project.tooling.stack"}, later)
 
-	out, proposals := ApplyActions([]Record{old}, []Action{
+	out := ApplyActions([]Record{old}, []Action{
 		{Kind: ActionSupersede, TargetID: old.ID, Confidence: 0.95, Candidate: newer},
 	}, DefaultConfidenceThreshold, later)
 
@@ -260,17 +254,14 @@ func TestApplyActionsHighConfidenceSupersede(t *testing.T) {
 	if !slices.Contains(gotNew.RelatedIDs, old.ID) {
 		t.Fatalf("replacement should relate to the superseded fact")
 	}
-	if len(proposals) != 0 {
-		t.Fatalf("high-confidence supersede should not propose")
-	}
 }
 
-func TestApplyActionsLowConfidenceQueuesProposal(t *testing.T) {
+func TestApplyActionsLowConfidenceKeepsBothCrossLinked(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	target := factFor(t, "Tests run with go test.", []string{"workflow.testing.rules"}, now)
 	cand := factFor(t, "Always run the full suite before pushing.", []string{"workflow.testing.rules"}, now)
 
-	out, proposals := ApplyActions([]Record{target}, []Action{
+	out := ApplyActions([]Record{target}, []Action{
 		{Kind: ActionSupersede, TargetID: target.ID, Confidence: 0.4, Candidate: cand},
 	}, DefaultConfidenceThreshold, now)
 
@@ -282,14 +273,7 @@ func TestApplyActionsLowConfidenceQueuesProposal(t *testing.T) {
 			t.Fatalf("nothing should be superseded below threshold: %+v", r)
 		}
 	}
-	if len(proposals) != 1 {
-		t.Fatalf("expected one queued proposal, got %d", len(proposals))
-	}
-	p := proposals[0]
-	if p.Action != ActionSupersede || p.CandidateID != cand.ID || p.TargetID != target.ID {
-		t.Fatalf("proposal fields wrong: %+v", p)
-	}
-	if !slices.Contains(out[0].RelatedIDs, out[1].ID) && !slices.Contains(out[1].RelatedIDs, out[0].ID) {
+	if !slices.Contains(out[0].RelatedIDs, out[1].ID) || !slices.Contains(out[1].RelatedIDs, out[0].ID) {
 		t.Fatalf("conflicting facts not cross-linked")
 	}
 }
@@ -297,14 +281,11 @@ func TestApplyActionsLowConfidenceQueuesProposal(t *testing.T) {
 func TestApplyActionsUnknownTargetDegradesToNew(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	cand := factFor(t, "A brand new fact.", []string{"project.tooling.stack"}, now)
-	out, proposals := ApplyActions(nil, []Action{
+	out := ApplyActions(nil, []Action{
 		{Kind: ActionMerge, TargetID: "fact:doesnotexist", Confidence: 0.99, Candidate: cand},
 	}, DefaultConfidenceThreshold, now)
 	if len(out) != 1 || out[0].ID != cand.ID {
 		t.Fatalf("unknown target should add candidate as new, got %+v", out)
-	}
-	if len(proposals) != 0 {
-		t.Fatalf("unknown target should not propose")
 	}
 }
 
@@ -314,7 +295,7 @@ func TestApplyActionsChronologicalChain(t *testing.T) {
 	b := factFor(t, "v2 decision.", []string{"architecture.data.flow"}, now.Add(time.Hour))
 	c := factFor(t, "v3 decision.", []string{"architecture.data.flow"}, now.Add(2*time.Hour))
 
-	out, _ := ApplyActions(nil, []Action{
+	out := ApplyActions(nil, []Action{
 		{Kind: ActionNew, Candidate: a},
 		{Kind: ActionSupersede, TargetID: a.ID, Confidence: 0.9, Candidate: b},
 		{Kind: ActionSupersede, TargetID: b.ID, Confidence: 0.9, Candidate: c},
@@ -337,215 +318,10 @@ func TestApplyActionsChronologicalChain(t *testing.T) {
 	}
 }
 
-func TestApplyProposalMerge(t *testing.T) {
-	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
-	target := factFor(t, "target fact", []string{"project.tooling.stack"}, now)
-	target.Provenance = []Anchor{{SessionID: "s1"}}
-	cand := factFor(t, "candidate fact", []string{"project.tooling.stack"}, now)
-	cand.Provenance = []Anchor{{SessionID: "s2"}}
-	cand.RelatedIDs = []string{target.ID}
-	target.RelatedIDs = []string{cand.ID}
-
-	facts := []Record{target, cand}
-	p := Proposal{Action: ActionMerge, CandidateID: cand.ID, TargetID: target.ID}
-	out, err := ApplyProposal(facts, p, now)
-	if err != nil {
-		t.Fatalf("ApplyProposal: %v", err)
-	}
-	if len(out) != 1 || out[0].ID != target.ID {
-		t.Fatalf("merge should leave only the target, got %+v", out)
-	}
-	if len(out[0].Provenance) != 2 {
-		t.Fatalf("merge should union provenance, got %d", len(out[0].Provenance))
-	}
-	if slices.Contains(out[0].RelatedIDs, cand.ID) {
-		t.Fatalf("conflict link should be cleared")
-	}
-}
-
-func TestApplyProposalSupersede(t *testing.T) {
-	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
-	target := factFor(t, "old", []string{"project.tooling.stack"}, now)
-	cand := factFor(t, "new", []string{"project.tooling.stack"}, now)
-	out, err := ApplyProposal([]Record{target, cand}, Proposal{Action: ActionSupersede, CandidateID: cand.ID, TargetID: target.ID}, now)
-	if err != nil {
-		t.Fatalf("ApplyProposal: %v", err)
-	}
-	if len(out) != 2 {
-		t.Fatalf("supersede retains both, got %d", len(out))
-	}
-	ti := IndexOf(out, target.ID)
-	if out[ti].Status != StatusSuperseded || out[ti].SupersededBy != cand.ID {
-		t.Fatalf("target not superseded: %+v", out[ti])
-	}
-}
-
-func TestApplyProposalStale(t *testing.T) {
-	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
-	cand := factFor(t, "c", []string{"project.tooling.stack"}, now)
-	if _, err := ApplyProposal([]Record{cand}, Proposal{Action: ActionMerge, CandidateID: cand.ID, TargetID: "fact:gone"}, now); err == nil {
-		t.Fatalf("expected stale-proposal error")
-	}
-}
-
-func TestRejectProposalKeepsBothActive(t *testing.T) {
-	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
-	a := factFor(t, "a", []string{"project.tooling.stack"}, now)
-	b := factFor(t, "b", []string{"project.tooling.stack"}, now)
-	a.RelatedIDs = []string{b.ID}
-	b.RelatedIDs = []string{a.ID}
-	out := RejectProposal([]Record{a, b}, Proposal{Action: ActionSupersede, CandidateID: b.ID, TargetID: a.ID})
-	if len(out) != 2 {
-		t.Fatalf("reject keeps both, got %d", len(out))
-	}
-	for _, f := range out {
-		if f.Status != StatusActive {
-			t.Errorf("reject should not change status: %+v", f)
-		}
-		if len(f.RelatedIDs) != 0 {
-			t.Errorf("conflict link should be cleared: %+v", f.RelatedIDs)
-		}
-	}
-}
-
-func TestPromoteStrategies(t *testing.T) {
-	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
-	srcConflict := factFor(t, "source: use MySQL", []string{"project.tooling.stack"}, now)
-	srcConflict.Branch = "feature"
-	srcUnique := factFor(t, "source: prefers tabs", []string{"preferences.coding.style"}, now)
-	srcUnique.Branch = "feature"
-	tgtConflict := factFor(t, "target: use Postgres", []string{"project.tooling.stack"}, now)
-	tgtConflict.Branch = "main"
-
-	source := []Record{srcConflict, srcUnique}
-	target := []Record{tgtConflict}
-
-	t.Run("keep-both", func(t *testing.T) {
-		merged, proposals, promoted, _ := Promote(source, target, "keep-both", "main", now)
-		if promoted != 2 {
-			t.Fatalf("expected 2 promoted, got %d", promoted)
-		}
-		if len(proposals) != 1 {
-			t.Fatalf("conflict should queue 1 proposal, got %d", len(proposals))
-		}
-		for _, f := range merged {
-			if f.ID == tgtConflict.ID && f.Status != StatusActive {
-				t.Errorf("keep-both should keep target active")
-			}
-		}
-		for _, f := range merged {
-			if f.Branch != "main" {
-				t.Errorf("promoted fact not re-stamped to main: %+v", f)
-			}
-		}
-	})
-
-	t.Run("prefer-source", func(t *testing.T) {
-		merged, proposals, _, _ := Promote(source, target, "prefer-source", "main", now)
-		if len(proposals) != 0 {
-			t.Fatalf("prefer-source should not queue proposals")
-		}
-		ti := IndexOf(merged, tgtConflict.ID)
-		if merged[ti].Status != StatusSuperseded {
-			t.Fatalf("prefer-source should supersede the conflicting target fact")
-		}
-	})
-
-	t.Run("prefer-target", func(t *testing.T) {
-		merged, _, promoted, _ := Promote(source, target, "prefer-target", "main", now)
-		if promoted != 1 {
-			t.Fatalf("prefer-target should promote only the non-conflicting fact, got %d", promoted)
-		}
-		if IndexOf(merged, srcConflict.ID) >= 0 {
-			t.Fatalf("conflicting source fact should be dropped under prefer-target")
-		}
-	})
-}
-
-func TestPromoteIdenticalUnionsProvenance(t *testing.T) {
-	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
-	f := factFor(t, "shared fact", []string{"project.tooling.stack"}, now)
-	src := f
-	src.Branch = "feature"
-	src.Provenance = []Anchor{{SessionID: "s2"}}
-	tgt := f
-	tgt.Branch = "main"
-	tgt.Provenance = []Anchor{{SessionID: "s1"}}
-
-	merged, proposals, promoted, _ := Promote([]Record{src}, []Record{tgt}, "keep-both", "main", now)
-	if promoted != 0 || len(proposals) != 0 {
-		t.Fatalf("identical fact should not be promoted as new or conflict")
-	}
-	if len(merged) != 1 || len(merged[0].Provenance) != 2 {
-		t.Fatalf("identical fact should union provenance, got %+v", merged)
-	}
-}
-
 // TestPromoteReportsWhetherTargetChanged pins the signal runFactsPromote's
 // no-op fast exit relies on: promoted==0 is NOT "nothing changed", because an
 // identical-id fact can still union new provenance onto the target. Only
 // Promote itself can tell, so it must say so.
-func TestPromoteReportsWhetherTargetChanged(t *testing.T) {
-	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
-	f := factFor(t, "shared fact", []string{"project.tooling.stack"}, now)
-	f.Provenance = []Anchor{{SessionID: "s1"}}
-
-	t.Run("identical fact with identical provenance is a no-op", func(t *testing.T) {
-		src, tgt := f, f
-		src.Branch = "feature"
-		tgt.Branch = "main"
-		_, _, promoted, changed := Promote([]Record{src}, []Record{tgt}, "keep-both", "main", now)
-		if promoted != 0 || changed {
-			t.Fatalf("re-promoting an identical fact should report no change, got promoted=%d changed=%v", promoted, changed)
-		}
-	})
-
-	t.Run("provenance union alone is a change", func(t *testing.T) {
-		src, tgt := f, f
-		src.Branch = "feature"
-		src.Provenance = []Anchor{{SessionID: "s1"}, {SessionID: "s2"}}
-		tgt.Branch = "main"
-		merged, _, promoted, changed := Promote([]Record{src}, []Record{tgt}, "keep-both", "main", now)
-		if promoted != 0 {
-			t.Fatalf("identical fact must not count as promoted, got %d", promoted)
-		}
-		if !changed {
-			t.Fatalf("a provenance union mutates the target and must report changed")
-		}
-		if len(merged[0].Provenance) != 2 {
-			t.Fatalf("union should have added the new anchor, got %+v", merged[0].Provenance)
-		}
-	})
-
-	t.Run("a newly promoted fact is a change", func(t *testing.T) {
-		src := f
-		src.Branch = "feature"
-		_, _, promoted, changed := Promote([]Record{src}, nil, "keep-both", "main", now)
-		if promoted != 1 || !changed {
-			t.Fatalf("promoting into an empty target must report changed, got promoted=%d changed=%v", promoted, changed)
-		}
-	})
-
-	t.Run("prefer-target dropping every conflicting fact is a no-op", func(t *testing.T) {
-		src := factFor(t, "source: use MySQL", []string{"project.tooling.stack"}, now)
-		tgt := factFor(t, "target: use Postgres", []string{"project.tooling.stack"}, now)
-		tgt.Branch = "main"
-		_, _, promoted, changed := Promote([]Record{src}, []Record{tgt}, "prefer-target", "main", now)
-		if promoted != 0 || changed {
-			t.Fatalf("prefer-target dropping the only source fact should report no change, got promoted=%d changed=%v", promoted, changed)
-		}
-	})
-
-	t.Run("inactive source facts are a no-op", func(t *testing.T) {
-		src := f
-		src.Branch = "feature"
-		src.Status = StatusSuperseded
-		_, _, promoted, changed := Promote([]Record{src}, nil, "keep-both", "main", now)
-		if promoted != 0 || changed {
-			t.Fatalf("inactive source facts should report no change, got promoted=%d changed=%v", promoted, changed)
-		}
-	})
-}
 
 func TestRetract(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)

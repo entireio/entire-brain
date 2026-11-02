@@ -43,8 +43,8 @@ func TestPrintRetrievalCaveatsIncludesStructuredContext(t *testing.T) {
 			Paths:   []string{"internal/old.go", "pkg/removed.go"},
 		},
 		{
-			Kind:       CaveatUnresolvedReview,
-			Message:    "A pending supersede proposal requires review.",
+			Kind:       CaveatStaleLocus,
+			Message:    "Verify the related statements before relying on either one.",
 			ReviewID:   "review:abc",
 			Action:     factmerge.ActionSupersede,
 			Confidence: 0.55,

@@ -51,10 +51,6 @@ func documentedCommands() []documentedCommand {
 		{path: []string{"inspect", "blame"}, args: []string{"fact:missing", "--json"},
 			readmeLine: 381, note: "a fact id that does not exist — the state before any distill"},
 
-		// entire brain facts promote --from <branch> --strategy keep-both
-		{path: []string{"facts", "promote"}, args: []string{"--from", "feature", "--strategy", "keep-both"},
-			readmeLine: 378, note: "promoting from a branch that has no active facts"},
-
 		// entire brain facts retract <fact-id>
 		{path: []string{"facts", "retract"}, args: []string{"fact:missing"},
 			readmeLine: 379, note: "retracting a fact that was never authored"},

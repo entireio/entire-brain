@@ -8,17 +8,6 @@ import (
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
-// countFactProposals totals the pending proposals across the given branches.
-func countFactProposals(brainDir string, branches []string) int {
-	total := 0
-	for _, branch := range branches {
-		if proposals, err := loadFactProposals(brainDir, branch); err == nil {
-			total += len(proposals)
-		}
-	}
-	return total
-}
-
 // updateFactSourceManifest recomputes sources.facts from the whole on-disk fact
 // store and writes it back. Commands that mutate facts outside the distill
 // pipeline (remember, facts review/promote/gc) call this when they changed
@@ -87,11 +76,6 @@ func updateFactSourceManifestLocked(brainDir string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	branches := make([]string, 0, len(byBranch))
-	for branch := range byBranch {
-		branches = append(branches, branch)
-	}
-	proposals := countFactProposals(brainDir, branches)
 
 	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
@@ -101,7 +85,7 @@ func updateFactSourceManifestLocked(brainDir string, now time.Time) error {
 	if manifest.Sources != nil && manifest.Sources.Facts != nil {
 		previous = manifest.Sources.Facts
 	}
-	source := factstore.SummarizeSource(now, byBranch, 0, 0, proposals, nil)
+	source := factstore.SummarizeSource(now, byBranch, 0, 0, 0, nil)
 	preserveFactDistillEvidence(source, previous)
 	if manifest.Sources == nil {
 		manifest.Sources = &brainSources{}

@@ -230,7 +230,7 @@ func TestOperatorCommandFamiliesRemainDiscoverable(t *testing.T) {
 			t.Errorf("operations group should not list %q", absent)
 		}
 	}
-	for _, path := range []string{"memory migrate", "entities migrate", "memories status", "memories tree", "memories map", "memories retract", "memories review", "memories promote", "memories import", "memories sync", "memories gc", "memories vitality", "docs extract"} {
+	for _, path := range []string{"memory migrate", "entities migrate", "memories status", "memories tree", "memories map", "memories retract", "memories import", "memories sync", "memories gc", "memories vitality", "docs extract"} {
 		root := NewRootCommand(Options{Version: "test"})
 		c, _, err := root.Find(strings.Fields(path))
 		if err != nil || c.Hidden || c.Parent().Hidden {

@@ -197,7 +197,7 @@ func writeSameBranchFixture(t *testing.T, now time.Time) string {
 	return brainDir
 }
 
-func TestRunDistillForBrainQueuesConfidentMerge(t *testing.T) {
+func TestRunDistillForBrainKeepsBothOnConfidentMerge(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	brainDir := writeSameBranchFixture(t, now)
 
@@ -224,40 +224,44 @@ func TestRunDistillForBrainQueuesConfidentMerge(t *testing.T) {
 	if reconcileCalls == 0 {
 		t.Fatalf("reconcile pass never fired despite same-path facts")
 	}
-	// Both statements and their provenance remain durable. Only the elected
-	// original publishes; the proposed merge waits for review.
+	// Both statements and their provenance remain durable: the merge decision
+	// publishes the candidate, cross-links the pair, and rewrites nothing. The
+	// compaction loop settles the pair later (COR-2273).
 	facts, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(facts) != 2 {
-		t.Fatalf("proposed merge must retain both statements, got %d", len(facts))
+		t.Fatalf("merge decision must retain both statements, got %d", len(facts))
 	}
+	crossLinked := 0
 	for _, f := range facts {
+		if f.Status != factStatusActive {
+			t.Fatalf("both statements must be published active: %+v", f)
+		}
 		if len(f.Provenance) != 1 {
-			t.Fatalf("each original must retain its provenance until review: %+v", f)
+			t.Fatalf("each original must retain its provenance: %+v", f)
+		}
+		if len(f.RelatedIDs) > 0 {
+			crossLinked++
 		}
 	}
-	if source.Facts != 1 || source.PendingReconcile != 1 || source.Proposals != 1 {
-		t.Fatalf("manifest must separate the published fact and pending candidate: %+v", source)
+	if crossLinked != 2 {
+		t.Fatalf("merged pair must be cross-linked: %+v", facts)
 	}
-	proposals, err := loadFactProposals(brainDir, "main")
-	if err != nil || len(proposals) != 1 || proposals[0].Action != factActionMerge {
-		t.Fatalf("confident merge proposal not persisted: %+v, %v", proposals, err)
-	}
-	if facts[indexOfFact(facts, proposals[0].CandidateID)].Status != factStatusCandidate || facts[indexOfFact(facts, proposals[0].TargetID)].Status != factStatusActive {
-		t.Fatalf("proposed merge published its candidate or retired its target: %+v", facts)
+	if source.Facts != 2 || source.PendingReconcile != 0 || source.Proposals != 0 {
+		t.Fatalf("manifest must count both published facts and nothing pending: %+v", source)
 	}
 }
 
-func TestRunDistillForBrainReconcileQueuesProposal(t *testing.T) {
+func TestRunDistillForBrainReconcileKeepsBothOnSupersede(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	brainDir := writeSameBranchFixture(t, now)
 
 	calls := 0
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
 		if strings.HasPrefix(string(input), "CANDIDATES") {
-			// Low-confidence supersede: must NOT auto-apply; queued instead.
+			// Low-confidence supersede: must NOT auto-apply; both facts stay.
 			return "1 supersede 1 0.3\n", nil
 		}
 		calls++
@@ -279,21 +283,19 @@ func TestRunDistillForBrainReconcileQueuesProposal(t *testing.T) {
 	if len(facts) != 2 {
 		t.Fatalf("low-confidence supersede should keep both facts, got %d", len(facts))
 	}
-	if source.Facts != 1 || source.PendingReconcile != 1 {
-		t.Fatalf("unresolved supersession must leave one published fact and one staged candidate: %+v", source)
+	crossLinked := 0
+	for _, f := range facts {
+		if f.Status != factStatusActive {
+			t.Fatalf("supersede decision must not retire or stage either side: %+v", f)
+		}
+		if len(f.RelatedIDs) > 0 {
+			crossLinked++
+		}
 	}
-	if source.Proposals != 1 {
-		t.Errorf("expected 1 queued proposal, got %d", source.Proposals)
+	if crossLinked != 2 {
+		t.Fatalf("conflicting pair must be cross-linked: %+v", facts)
 	}
-	// Proposal must be persisted for `facts review`.
-	proposals, err := loadFactProposals(brainDir, "main")
-	if err != nil || len(proposals) != 1 {
-		t.Fatalf("expected 1 persisted proposal, got %d (%v)", len(proposals), err)
-	}
-	if proposals[0].Action != factActionSupersede {
-		t.Errorf("wrong proposal action: %+v", proposals[0])
-	}
-	if facts[indexOfFact(facts, proposals[0].CandidateID)].Status != factStatusCandidate || facts[indexOfFact(facts, proposals[0].TargetID)].Status != factStatusActive {
-		t.Fatalf("unresolved supersession published its candidate or retired its target: %+v", facts)
+	if source.Facts != 2 || source.PendingReconcile != 0 || source.Proposals != 0 {
+		t.Fatalf("manifest must count both published facts and nothing pending: %+v", source)
 	}
 }
