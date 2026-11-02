@@ -1364,3 +1364,68 @@ func TestHostedSyncSuccessClearsExpiredNoAccessPause(t *testing.T) {
 		t.Fatalf("a successful pull must retire the pause, got %v", binding.NoAccessUntil)
 	}
 }
+
+// A teammate retraction whose anchors the current branch cannot reach (and
+// that carries no trail stamp) must still retire the stored copy: the keep
+// filter gates adoption, never lifecycle (Bugbot on #590, "Keep filter blocks
+// hosted retirements"). It must not, however, adopt a record the store never
+// held.
+func TestHostedRetirementAppliesWhenKeepFilterRejectsIt(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	teammate := hostedSyncAnchoredFact("teammate fact to retract", now, factmerge.Anchor{SessionID: "s1", Commit: "c1"})
+	neverStored := hostedSyncAnchoredFact("never adopted here", now, factmerge.Anchor{SessionID: "s2", Commit: "c2"})
+	fake := &hostedFake{denyPush: true}
+	fake.seed(teammate, "", "acct-teammate", "teammate")
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+	reachable := true
+	opts.Runner = clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		if name == "git" && len(args) == 4 && args[0] == "merge-base" && args[1] == "--is-ancestor" && args[2] == "c1" && reachable {
+			return nil, nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage); err != nil {
+		t.Fatal(err)
+	}
+
+	// HEAD moved: c1 is no longer an ancestor. The feed now carries the
+	// retraction (no trail stamp, another member, unreachable anchor) plus a
+	// retraction for a record this store never adopted.
+	reachable = false
+	retired := teammate
+	retired.Status = factStatusRetracted
+	fake.seed(retired, "", "acct-teammate", "teammate")
+	neverStoredRetired := neverStored
+	neverStoredRetired.Status = factStatusRetracted
+	fake.seed(neverStoredRetired, "", "acct-teammate", "teammate")
+	fake.mu.Lock()
+	fake.rejectTokens = 1
+	fake.mu.Unlock()
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage); err != nil {
+		t.Fatal(err)
+	}
+
+	local, err := factstore.Load(storage.BrainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]factRecord{}
+	for _, rec := range local {
+		byID[rec.ID] = rec
+	}
+	got, ok := byID[teammate.ID]
+	if !ok {
+		t.Fatal("the stored fact must survive the pull (retired, not evicted)")
+	}
+	if got.Status != factStatusRetracted {
+		t.Fatalf("an unreachable retirement must still retire the stored copy, got status %q", got.Status)
+	}
+	if _, adopted := byID[neverStored.ID]; adopted {
+		t.Fatal("an unreachable retirement must not adopt the record it retires")
+	}
+}

@@ -390,21 +390,34 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 		member := jwtSubClaim(token)
 		reachable := newCommitReachability(ctx, opts.Runner, repoDir)
 		var keptRecords []factRecord
+		var retirements []factRecord
 		for _, item := range items {
-			if !keepHostedFact(item, member, reachable) {
-				continue
-			}
 			rec := item.Record
 			// Server attribution is the only author source: it overwrites
 			// whatever the wire record carried (an old or hostile peer's value
 			// must not survive).
 			rec.Author = item.CreatedByHandle
-			keptRecords = append(keptRecords, rec)
+			if keepHostedFact(item, member, reachable) {
+				keptRecords = append(keptRecords, rec)
+				continue
+			}
+			// A retirement bypasses the keep filter: the filter judges
+			// reachability from the CURRENT branch head, but a lifecycle
+			// transition for a record this store already holds must apply
+			// wherever the retiring commit lives — otherwise recall keeps
+			// serving a statement the team retracted. Applied below to
+			// existing ids only; an unreachable retirement never adopts the
+			// record it retires.
+			if rec.Status != factStatusActive {
+				retirements = append(retirements, rec)
+			}
 		}
 		// Same fail-closed rule as the old head pull: a record whose content id
 		// does not re-derive is a forgery, and nothing from this feed — cache
 		// and cursor included — may land until the server stops serving it.
-		if err := factmerge.VerifyIdentities(keptRecords); err != nil {
+		// Retirements are held to the same proof: an unverifiable id must not
+		// retire anything.
+		if err := factmerge.VerifyIdentities(append(append([]factRecord{}, keptRecords...), retirements...)); err != nil {
 			return fmt.Errorf("refused untrustworthy feed: %w", err)
 		}
 		sort.Slice(keptRecords, func(i, j int) bool { return keptRecords[i].ID < keptRecords[j].ID })
@@ -432,13 +445,23 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 				existing[i].UpdatedAt = opts.Now().UTC()
 			}
 		}
+		// Retirements the keep filter rejected still apply to records already
+		// stored — same one-way move, never an adoption.
+		for _, fact := range retirements {
+			if i := indexOfFact(existing, fact.ID); i >= 0 && existing[i].Status == factStatusActive {
+				existing[i].Status = fact.Status
+				existing[i].SupersededBy = fact.SupersededBy
+				existing[i].UpdatedAt = opts.Now().UTC()
+			}
+		}
 		// Pull never evicts a stored record. The keep filter judges
 		// reachability from the CURRENT branch head, and the flat store holds
 		// every branch's pulls — a teammate fact pulled on another branch must
 		// stay recallable when syncing here. A stored fact leaves the store
-		// when the feed retires it (the lifecycle upsert above) or when the
-		// checkpoint mirror sweep drops provenance the whole repository no
-		// longer has; the keep filter guards INCOMING records only.
+		// when the feed retires it (the lifecycle moves above, which apply
+		// regardless of the keep filter) or when the checkpoint mirror sweep
+		// drops provenance the whole repository no longer has; the keep filter
+		// gates ADOPTION only.
 		if err := factstore.Write(storage.BrainDir, existing); err != nil {
 			return err
 		}
