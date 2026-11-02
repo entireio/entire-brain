@@ -1,7 +1,0 @@
-<task-notification>
-<task-id>bmw09hki6</task-id>
-<tool-use-id>toolu_01UhLTVez4zFMGbjXSWxuc3v</tool-use-id>
-<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-nicosia/30c4afe0-395e-47cb-9283-6480b28aac77/tasks/bmw09hki6.output</output-file>
-<status>completed</status>
-<summary>Background command "Run full cli test suite" completed (exit code 0)</summary>
-</task-notification>
