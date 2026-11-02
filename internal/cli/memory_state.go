@@ -928,36 +928,3 @@ func memoryOperationalError(err error) string {
 	}
 	return "memory_operation_failed"
 }
-
-// purgeMemoryWorkForSessionLocked removes all disposable operational metadata
-// for a privacy-purged raw session. The caller holds the Brain write lock and
-// invokes this in the same privacy transaction as source/derived deletion.
-func purgeMemoryWorkForSessionLocked(brainDir, sessionID string) error {
-	hints, hintIssues := loadMemoryHintsChecked(brainDir)
-	inventory := loadMemoryJobInventory(brainDir)
-	if err := memoryStateError(append(hintIssues, inventory.Issues...)); err != nil {
-		return err
-	}
-	for _, hint := range hints {
-		if hint.SessionID != sessionID {
-			continue
-		}
-		if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(memoryHintRel(hint.RepoKey, hint.SessionID, hint.Branch)))); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-	}
-	for _, job := range inventory.Jobs {
-		if job.SessionID != sessionID {
-			continue
-		}
-		if err := removeMemoryCancellationRequest(brainDir, job.JobID); err != nil {
-			return err
-		}
-		for _, rel := range memoryJobSourcePaths(job) {
-			if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(rel))); err != nil && !os.IsNotExist(err) {
-				return err
-			}
-		}
-	}
-	return nil
-}

@@ -74,14 +74,6 @@ func TestDocContractCapabilityMatrix(t *testing.T) {
 			t.Fatalf("semantic guide missing current lifecycle contract %q", want)
 		}
 	}
-	privacy := newPrivacyCommand(Options{Version: "test"})
-	for _, sub := range privacy.Commands() {
-		name := strings.Fields(sub.Use)[0]
-		if !strings.Contains(guide, name) {
-			t.Fatalf("semantic guide privacy verb list missing %q", name)
-		}
-	}
-
 	if !strings.Contains(guide, "Multi-concept session recall") {
 		t.Fatal("semantic guide must document multi-concept recall")
 	}

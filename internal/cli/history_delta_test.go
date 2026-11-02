@@ -552,42 +552,20 @@ func TestShortTermStaleBasePinIsIgnored(t *testing.T) {
 	}
 }
 
-func TestShortTermHonorsTombstonesAndBuffersBound(t *testing.T) {
-	brainDir, changedRel, newRel := shortTermFixture(t)
-	// Tombstone the parallel session before the delta: it must not enter
-	// short-term memory.
-	stones := brainstore.LoadSessionTombstones(brainDir)
-	stones.Excluded["sess-parallel"] = sessionTombstone{At: time.Date(2026, 8, 7, 12, 30, 0, 0, time.UTC)}
-	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-	stats := buildShortTerm(t, brainDir)
-	if stats.Files != 1 {
-		t.Fatalf("tombstoned session entered short-term memory: %+v", stats)
-	}
+func TestShortTermBuffersBound(t *testing.T) {
+	brainDir, changedRel, _ := shortTermFixture(t)
+	_ = changedRel
 	manifest, _ := bmanifest.Load(brainDir)
-	overlay := loadHistoryShortTerm(brainDir, manifest.Sources.History)
-	if _, ok := overlay.Files[newRel]; ok {
-		t.Fatal("excluded transcript in overlay")
-	}
-	if _, ok := overlay.Files[changedRel]; !ok {
-		t.Fatal("included transcript missing from overlay")
-	}
-
 	// Buffer bound: with a cap of 1 record, the oldest file is dropped and the
 	// overlay reports truncation.
 	old := historyShortTermMaxRecords
 	historyShortTermMaxRecords = 1
 	t.Cleanup(func() { historyShortTermMaxRecords = old })
-	delete(stones.Excluded, "sess-parallel")
-	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-	stats = buildShortTerm(t, brainDir)
+	stats := buildShortTerm(t, brainDir)
 	if !stats.Truncated {
 		t.Fatalf("over-cap overlay must report truncation: %+v", stats)
 	}
-	overlay = loadHistoryShortTerm(brainDir, manifest.Sources.History)
+	overlay := loadHistoryShortTerm(brainDir, manifest.Sources.History)
 	if len(overlay.Files) >= 2 {
 		t.Fatalf("bound not enforced: %d files", len(overlay.Files))
 	}

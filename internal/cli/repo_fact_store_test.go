@@ -37,40 +37,6 @@ func requireRepoView(t *testing.T, root, branch string, want []factRecord) {
 	}
 }
 
-func TestRepoFactStorePrivacyPurgesMirrorsAndMissingProjections(t *testing.T) {
-	root := t.TempDir()
-	a := repoStoreFact("private unique statement", "main")
-	for _, view := range []string{"main", "feature"} {
-		if err := factstore.Write(root, view, []factRecord{a}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	writeSchema1Fixture(t, root)
-	if err := os.Remove(filepath.Join(root, factstore.FileRelPath("feature"))); err != nil {
-		t.Fatal(err)
-	}
-	orphan := filepath.Join(root, factstore.DirName, ".store.json.tmp-crashed")
-	if err := os.WriteFile(orphan, []byte(a.Text), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := purgeSessionFacts(root, "session-main", nil); err != nil {
-		t.Fatal(err)
-	}
-	for _, view := range []string{"main", "feature"} {
-		requireRepoView(t, root, view, nil)
-	}
-	raw, err := os.ReadFile(filepath.Join(root, factstore.RepositoryPath))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(raw, []byte(a.Text)) || bytes.Contains(raw, []byte("session-main")) {
-		t.Fatal("privacy deletion left content in native representatives/overrides")
-	}
-	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
-		t.Fatalf("purge retained interrupted snapshot: %v", err)
-	}
-}
-
 func TestRepoFactStoreBundleKeepsLegacyContract(t *testing.T) {
 	root := t.TempDir()
 	if err := factstore.Write(root, "main", []factRecord{repoStoreFact("bundle", "main")}); err != nil {

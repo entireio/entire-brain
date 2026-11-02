@@ -97,6 +97,16 @@ func runWorkspacePatternsVerify(ctx context.Context, cmd *cobra.Command, opts Op
 	if err != nil {
 		return err
 	}
+	wsDir, err := workspace.DefaultStore(opts.Env).Dir(name)
+	if err != nil {
+		return err
+	}
+	// Unsafe or interrupted corpus publication fails closed before any agent
+	// resolution, so a broken marker is reported as such, never as a missing
+	// agent.
+	if err := patterncore.ValidateCorpusReadSafety(wsDir); err != nil {
+		return err
+	}
 	if err := clibase.RejectAgentForNoEgress(agent); err != nil {
 		return err
 	}
@@ -106,10 +116,6 @@ func runWorkspacePatternsVerify(ctx context.Context, cmd *cobra.Command, opts Op
 	}
 	if resolved == "none" {
 		return fmt.Errorf("workspace family judgment requires an agent (codex or claude-code); none found on PATH")
-	}
-	wsDir, err := workspace.DefaultStore(opts.Env).Dir(name)
-	if err != nil {
-		return err
 	}
 	// The workspace brain write lock serializes family verification against
 	// skill synthesis and the corpus rebuild (WithCorpusMutationLocked inside

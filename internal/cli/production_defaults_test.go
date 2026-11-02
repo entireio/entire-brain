@@ -22,9 +22,6 @@ func TestOverridableProductionBoundsKeepTheirDefaults(t *testing.T) {
 	if base.MaxManifestBytes != 16<<20 {
 		t.Errorf("maxManifestBytes = %d, want 16 MiB", base.MaxManifestBytes)
 	}
-	if privacyVectorVerifyMaxRows != 2_000_000 {
-		t.Errorf("privacyVectorVerifyMaxRows = %d, want 2_000_000", privacyVectorVerifyMaxRows)
-	}
 	if distillAgentWaitDelay != 5*time.Second {
 		t.Errorf("distillAgentWaitDelay = %v, want 5s", distillAgentWaitDelay)
 	}

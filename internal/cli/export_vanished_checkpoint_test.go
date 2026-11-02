@@ -625,17 +625,12 @@ func vanishedCacheFixture(t *testing.T) (Options, string, func(args ...string) s
 	return opts, repo, git
 }
 
-// A session whose transcript object is gone is skipped and dropped from the
-// manifest -- and the manifest is exactly what the transcript cache sweep
-// consults for liveness. The cached copy left behind by the legacy disk-mode
-// exports is then the ONLY surviving copy of those bytes, so dropping the
-// session must not hand its cache to the sweep.
-//
-// Liveness is read from the manifest ON DISK, so the dropped session is still
-// listed during the export that drops it and only becomes unlisted on the
-// NEXT one. That later export is where the file was deleted, which is why
-// this runs two consecutive persistent exports and checks the file after each.
-func TestVanishedSessionKeepsItsLastCachedTranscript(t *testing.T) {
+// TestVanishedSessionCacheIsSwept pins the strict mirror at the export
+// boundary: when a session's checkpoint bytes are destroyed, the export drops
+// the session from the manifest and the next export sweeps its cached
+// transcript as a stale export. The brain serves only what the checkpoint
+// refs can back; nothing is retained as "the only surviving copy".
+func TestVanishedSessionCacheIsSwept(t *testing.T) {
 	opts, repo, git := vanishedCacheFixture(t)
 	storage, err := repoStoragePaths(context.Background(), opts.Runner, opts.Env, repo)
 	if err != nil {
@@ -643,8 +638,7 @@ func TestVanishedSessionKeepsItsLastCachedTranscript(t *testing.T) {
 	}
 	brain := storage.BrainDir
 
-	// A legacy disk-mode export: both cached transcripts are materialized and
-	// both sessions are recorded.
+	// A legacy disk-mode export materializes both cached transcripts.
 	runFilelessExport(t, opts, brain, false)
 	first, err := bmanifest.Load(brain)
 	if err != nil {
@@ -654,52 +648,25 @@ func TestVanishedSessionKeepsItsLastCachedTranscript(t *testing.T) {
 	for _, session := range first.Sources.Sessions.Sessions {
 		cached[session.SessionID] = session.TranscriptPath
 	}
-	if len(cached) != 2 || cached["session-gone"] == "" || cached["session-alive"] == "" {
+	if len(cached) != 2 || cached["session-gone"] == "" {
 		t.Fatalf("fixture must export both sessions, got %v", cached)
 	}
 	gonePath := filepath.Join(brain, filepath.FromSlash(cached["session-gone"]))
-	if data, err := os.ReadFile(gonePath); err != nil || string(data) != vanishedCacheTranscript {
-		t.Fatalf("cached transcript for the soon-vanished session: %q %v", data, err)
-	}
-
-	// Let the cached copy run ahead of its checkpoint, which is what carries a
-	// legacy cached transcript through the migration to checkpoint storage.
-	// Without this the brain would not be checkpoint-backed when the object
-	// vanishes, and the first export would refuse instead of dropping the
-	// session -- a refusal, not a deletion, and not the case under test.
+	// A divergent cached copy would previously have been retained forever;
+	// strict mirror sweeps it with the session.
 	preserved := vanishedCacheTranscript + `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"tail that exists nowhere else"}]}}` + "\n"
 	if err := os.WriteFile(gonePath, []byte(preserved), 0600); err != nil {
 		t.Fatal(err)
 	}
 	runFilelessExport(t, opts, "", false)
-	migrated, err := bmanifest.Load(brain)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !checkpointBackedSessions(migrated) || len(migrated.Sources.Sessions.Sessions) != 2 {
-		t.Fatalf("migration must publish checkpoint storage for both sessions: %+v", migrated.Sources.Sessions)
-	}
-	if data, err := os.ReadFile(gonePath); err != nil || string(data) != preserved {
-		t.Fatalf("migration lost the divergent cache: %q %v", data, err)
-	}
-	// Narrow rescue, not blanket retention: the servable session's cache is
-	// recoverable from its checkpoint and is swept by that same migration.
-	if _, err := os.Stat(filepath.Join(brain, filepath.FromSlash(cached["session-alive"]))); !os.IsNotExist(err) {
-		t.Fatalf("recoverable cache was not swept: %v", err)
-	}
 
-	// The transcript BLOB leaves the object store while the catalog keeps
-	// naming it: the shape a destroyed manual-commit checkpoint has on a
-	// squash-merging repository, and the only one the partition classifies as
-	// one session's unavailability rather than a fault.
 	blob := git("rev-parse", v1MainRef+":"+checkpointPath("bbb222bbb222")+"/0/full.jsonl")
-	if len(blob) < 3 {
-		t.Fatalf("blob id = %q", blob)
-	}
 	if err := os.Remove(filepath.Join(repo, ".git", "objects", blob[:2], blob[2:])); err != nil {
 		t.Fatal("destroy transcript object:", err)
 	}
 
+	// Round 1 drops the session from the manifest; round 2 no longer lists it
+	// and sweeps the cached file as a stale export.
 	for round := 1; round <= 2; round++ {
 		runFilelessExport(t, opts, "", false)
 		manifest, err := bmanifest.Load(brain)
@@ -713,10 +680,9 @@ func TestVanishedSessionKeepsItsLastCachedTranscript(t *testing.T) {
 		if len(recorded) != 1 || recorded[0] != "session-alive" {
 			t.Fatalf("round %d recorded %v; the brain must not record a session it cannot serve", round, recorded)
 		}
-		got, err := os.ReadFile(gonePath)
-		if err != nil || string(got) != preserved {
-			t.Fatalf("round %d destroyed the only surviving copy of the skipped session's transcript: %q %v", round, got, err)
-		}
+	}
+	if _, err := os.Stat(gonePath); !os.IsNotExist(err) {
+		t.Fatalf("the vanished session's cached transcript survived the sweep: %v", err)
 	}
 }
 

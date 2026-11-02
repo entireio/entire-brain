@@ -3495,10 +3495,8 @@ fingerprint of the sessions it was built from, so a bundle carrying history
 without its sessions lands as immediately stale state the receiving brain
 discards on its next refresh. --include-sessions ships all three together.
 
-Never included: privacy policy (session tombstones and their transactions) and
-local operational state (locks, worker logs, the bundle audit log). Those are
-statements about this machine, not content of the brain, and a bundle that
-carried them would apply one machine's exclusions to another.
+Never included: local operational state (locks, worker logs, the bundle audit
+log). Those are statements about this machine, not content of the brain.
 
 Every run prints exactly which layers it wrote and which it left out.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -3520,9 +3518,7 @@ A layer the destination brain already holds is NOT overwritten unless you pass
 --overwrite: restoring a bundle over a live brain replaces its facts, docs and
 history with the producer's, and that is a decision the operator makes, not a
 side effect of an import. The refusal names every conflicting layer and happens
-before anything is written.
-
-Privacy policy in the destination brain is never touched by an import.`,
+before anything is written.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if expectedChecksum == "" {

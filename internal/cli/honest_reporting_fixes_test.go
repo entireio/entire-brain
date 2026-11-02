@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
@@ -16,35 +15,6 @@ import (
 )
 
 // --- defect 2: privacy exclude reported work it never did ------------------
-
-// TestExcludeDoesNotClaimCleanupItNeverDid pins the sentence. Excluding an id
-// no session answers to is a legitimate pre-emptive privacy operation and stays
-// permitted and zero-exit; what was wrong was reporting it as "removed or
-// rebuilt its derived projections" when nothing had been derived.
-func TestExcludeDoesNotClaimCleanupItNeverDid(t *testing.T) {
-	brainDir := writePrivacyFixture(t)
-	manifest, err := bmanifest.Load(brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	phantom := "session:totally-made-up-12345"
-	plan, err := buildSessionPurgePlan(brainDir, phantom)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sessionExclusionMatchedSomething(manifest, plan, phantom) {
-		t.Fatalf("an id no captured session answers to must not report as matched; plan=%+v", plan)
-	}
-	// A session this brain really captured is matched, so the honest report
-	// does not become a blanket "nothing happened" either.
-	realPlan, err := buildSessionPurgePlan(brainDir, "secret-sess")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !sessionExclusionMatchedSomething(manifest, realPlan, "secret-sess") {
-		t.Fatalf("a captured session must report as matched; plan=%+v", realPlan)
-	}
-}
 
 // privacyCommandFixture is factsAvailabilityFixture plus the one thing the
 // privacy commands need that it does not build: a sessions source in the
@@ -76,135 +46,6 @@ func privacyCommandFixture(t *testing.T) (Options, string) {
 		t.Fatal(err)
 	}
 	return opts, brainDir
-}
-
-// TestExcludePhantomReportsTombstoneOnly drives the command surface: the exit
-// code, the human sentence, and the machine field a caller can branch on.
-func TestExcludePhantomReportsTombstoneOnly(t *testing.T) {
-	opts, _ := privacyCommandFixture(t)
-	phantom := "session:totally-made-up-12345"
-
-	cmd := &cobra.Command{Use: "exclude"}
-	var out bytes.Buffer
-	cmd.SetOut(&out)
-	if err := runSessionsExclude(cmd.Context(), cmd, opts, phantom, "", false); err != nil {
-		t.Fatalf("pre-emptive exclusion must stay permitted: %v", err)
-	}
-	text := out.String()
-	if strings.Contains(text, "removed or rebuilt its derived projections") {
-		t.Fatalf("exclude claimed cleanup for a session that produced nothing:\n%s", text)
-	}
-	if !strings.Contains(text, "nothing to remove or rebuild") || !strings.Contains(text, "no captured session in this brain matches this id") {
-		t.Fatalf("exclude did not say the tombstone matched nothing:\n%s", text)
-	}
-
-	jsonCmd := &cobra.Command{Use: "exclude"}
-	var jsonOut bytes.Buffer
-	jsonCmd.SetOut(&jsonOut)
-	if err := runSessionsExclude(jsonCmd.Context(), jsonCmd, opts, "session:another-phantom", "", true); err != nil {
-		t.Fatalf("exclude --json: %v", err)
-	}
-	var payload struct {
-		Excluded string `json:"excluded"`
-		Matched  bool   `json:"matched"`
-	}
-	if err := json.Unmarshal(jsonOut.Bytes(), &payload); err != nil {
-		t.Fatalf("parse exclude --json: %v\n%s", err, jsonOut.String())
-	}
-	if payload.Excluded != "session:another-phantom" || payload.Matched {
-		t.Fatalf("exclude --json must report matched=false for a phantom: %+v", payload)
-	}
-}
-
-// TestPurgePhantomReportsTombstoneOnly pins purge to the same honesty contract
-// as exclude (COR-2209): purging an id no captured session answers to records
-// the tombstone, exits 0, and must not claim artifacts were purged.
-func TestPurgePhantomReportsTombstoneOnly(t *testing.T) {
-	opts, _ := privacyCommandFixture(t)
-	phantom := "session:totally-made-up-12345"
-
-	dryCmd := &cobra.Command{Use: "purge"}
-	var dryOut bytes.Buffer
-	dryCmd.SetOut(&dryOut)
-	if err := runSessionsPurge(dryCmd.Context(), dryCmd, opts, phantom, true, false); err != nil {
-		t.Fatalf("dry-run purge of a phantom: %v", err)
-	}
-	if text := dryOut.String(); strings.Contains(text, "would remove session") ||
-		!strings.Contains(text, "no captured session in this brain matches this id") {
-		t.Fatalf("dry-run purge did not say the id matched nothing:\n%s", text)
-	}
-
-	cmd := &cobra.Command{Use: "purge"}
-	var out bytes.Buffer
-	cmd.SetOut(&out)
-	if err := runSessionsPurge(cmd.Context(), cmd, opts, phantom, false, false); err != nil {
-		t.Fatalf("pre-emptive purge must stay permitted: %v", err)
-	}
-	text := out.String()
-	if strings.Contains(text, "purged session "+phantom) || strings.Contains(text, "derived index records") {
-		t.Fatalf("purge claimed cleanup for a session that produced nothing:\n%s", text)
-	}
-	if !strings.Contains(text, "tombstone recorded, nothing to remove or rebuild") ||
-		!strings.Contains(text, "no captured session in this brain matches this id") {
-		t.Fatalf("purge did not say the id matched nothing:\n%s", text)
-	}
-
-	jsonCmd := &cobra.Command{Use: "purge"}
-	var jsonBuf bytes.Buffer
-	jsonCmd.SetOut(&jsonBuf)
-	if err := runSessionsPurge(jsonCmd.Context(), jsonCmd, opts, "session:another-phantom", false, true); err != nil {
-		t.Fatalf("purge --json: %v", err)
-	}
-	var plan sessionPurgePlan
-	if err := json.Unmarshal(jsonBuf.Bytes(), &plan); err != nil {
-		t.Fatalf("parse purge --json: %v\n%s", err, jsonBuf.String())
-	}
-	if plan.SessionID != "session:another-phantom" || plan.Matched {
-		t.Fatalf("purge --json must report matched=false for a phantom: %+v", plan)
-	}
-}
-
-// TestPrivacyListMarksUnmatchedTombstones pins the other half: the list is the
-// only place a user can notice that the id they typed matched nothing, and it
-// rendered a phantom exactly like a completed exclusion, forever.
-func TestPrivacyListMarksUnmatchedTombstones(t *testing.T) {
-	opts, _ := privacyCommandFixture(t)
-	excludeCmd := &cobra.Command{Use: "exclude"}
-	excludeCmd.SetOut(&bytes.Buffer{})
-	if err := runSessionsExclude(excludeCmd.Context(), excludeCmd, opts, "session:totally-made-up-12345", "", false); err != nil {
-		t.Fatal(err)
-	}
-
-	stdout, _, err := executeSplit(t, newSessionsListCommand(opts))
-	if err != nil {
-		t.Fatalf("privacy list: %v\n%s", err, stdout)
-	}
-	if !strings.Contains(stdout, "UNMATCHED") {
-		t.Fatalf("privacy list rendered a phantom tombstone as a completed exclusion:\n%s", stdout)
-	}
-
-	jsonOut, _, err := executeSplit(t, newSessionsListCommand(opts), "--json")
-	if err != nil {
-		t.Fatalf("privacy list --json: %v\n%s", err, jsonOut)
-	}
-	var payload struct {
-		Sessions []sessionListEntry `json:"sessions"`
-	}
-	if err := json.Unmarshal([]byte(jsonOut), &payload); err != nil {
-		t.Fatalf("parse privacy list --json: %v\n%s", err, jsonOut)
-	}
-	found := false
-	for _, entry := range payload.Sessions {
-		if entry.SessionID == "session:totally-made-up-12345" {
-			found = true
-			if !entry.Unmatched {
-				t.Fatalf("privacy list --json did not mark the phantom tombstone: %+v", entry)
-			}
-		}
-	}
-	if !found {
-		t.Fatalf("privacy list --json dropped the tombstone entirely: %+v", payload.Sessions)
-	}
 }
 
 // --- defect 3: doctor called an unreadable store a warning -----------------

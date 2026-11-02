@@ -2455,10 +2455,8 @@ func distillDuplicateSessionKeys(sessions []exportSession, resolveBranch func(ex
 // sessions distillDuplicateSessionKeys flagged, which get the checkpoint id
 // interposed so the colliding entries stay distinct.
 //
-// The checkpoint goes BEFORE the session id, never after: `privacy purge`
-// (purgeDistillCacheEntries) and the post-purge leftover check
-// (verifySessionPrivacy) both evict by the "/<escaped session id>" SUFFIX, and
-// an id appended to the tail would make a purged session's entry unmatchable.
+// The checkpoint goes BEFORE the session id, never after, so the
+// "/<escaped session id>" suffix stays the stable tail of every key.
 func distillSessionCacheKeyFor(branch string, session exportSession, duplicates map[string]bool) string {
 	key := distillSessionCacheKey(branch, session.SessionID)
 	if !duplicates[key] {

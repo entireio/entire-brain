@@ -276,16 +276,9 @@ func writeBrainEpisodesAndSourceLocked(outputDir string, now time.Time) (*patter
 }
 
 // patternSourceCurrent reports whether a recorded patterns source still
-// describes the brain's inputs. Both inputs matter: the canonical session set
-// AND the tombstone policy the corpus was filtered against. `patterns status`
-// and the refresh trigger share this so they can never disagree about whether
-// a rebuild is owed.
-//
-// A source recorded before privacy_identity existed carries "", which stays
-// current only while the brain has no tombstones at all — the same allowance
-// the vector epoch check already makes. Once a tombstone exists, a corpus that
-// cannot name the epoch it filtered against is exactly the silently-rewritten
-// one this predicate has to catch.
+// describes the brain's canonical session set. `patterns status` and the
+// refresh trigger share this so they can never disagree about whether a
+// rebuild is owed.
 func patternSourceCurrent(source *patternSourceManifest, brainDir string) bool {
 	if source == nil {
 		return false

@@ -1221,10 +1221,9 @@ func runMemoryAbstractLaneWithClock(ctx context.Context, repoDir, brainDir strin
 		return stats, err
 	}
 
-	// The provider holds only the dedicated privacy-side-effect lock. Ordinary
-	// Brain-locked deterministic work and cancellation requests can therefore
-	// continue while egress is in flight; privacy mutations serialize before
-	// their Brain lock so they cannot cross the irreversible provider boundary.
+	// The provider runs without the Brain lock, so ordinary Brain-locked
+	// deterministic work and cancellation requests continue while egress is in
+	// flight.
 	providerCtx, cancelProvider := context.WithCancel(ctx)
 	defer cancelProvider()
 	runDone := make(chan error, 1)

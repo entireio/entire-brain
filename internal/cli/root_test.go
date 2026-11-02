@@ -205,7 +205,7 @@ func TestOperatorCommandFamiliesRemainDiscoverable(t *testing.T) {
 	if start < 0 || end <= start {
 		t.Fatalf("missing operations group before miscellaneous:\n%s", out)
 	}
-	for _, family := range []string{"memories import", "memories sync", "memories gc", "memories vitality", "memory", "privacy", "docs", "refresh", "watch", "entities", "repo-identity", "repair", "reset"} {
+	for _, family := range []string{"memories import", "memories sync", "memories gc", "memories vitality", "memory", "docs", "refresh", "watch", "entities", "repo-identity", "repair", "reset"} {
 		if !strings.Contains(out[start:end], "\n  "+family+" ") {
 			t.Errorf("operations group missing %q", family)
 		}

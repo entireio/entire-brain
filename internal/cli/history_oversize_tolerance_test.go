@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -132,7 +131,7 @@ func TestOversizeTranscriptIsSkippedByEveryInventoryReader(t *testing.T) {
 	t.Cleanup(func() { base.MaxDocumentTranscriptBytes = oldMax })
 
 	// Identity capture, which runs first and used to refuse here.
-	identity, manifest, _, err := captureHistoryProjectionIdentityMode(context.Background(), brainDir, true)
+	identity, manifest, err := captureHistoryProjectionIdentityMode(context.Background(), brainDir, true)
 	if err != nil {
 		t.Fatalf("identity capture refused over one oversize transcript: %v", err)
 	}
@@ -141,7 +140,7 @@ func TestOversizeTranscriptIsSkippedByEveryInventoryReader(t *testing.T) {
 	}
 
 	// The freshness check, which must agree with what the build indexed.
-	digests, err := collectHistorySessionDigests(context.Background(), brainDir, map[string]string{})
+	digests, err := collectHistorySessionDigests(context.Background(), brainDir)
 	if err != nil {
 		t.Fatalf("digest collection refused over one oversize transcript: %v", err)
 	}
@@ -253,60 +252,6 @@ func TestShortTermDeltaRefusesEveryBoundBreachExceptTheTranscriptCap(t *testing.
 	}
 	if shortTermCanonicalInputRefusal(nil) || !shortTermCanonicalInputRefusal(context.Canceled) {
 		t.Fatal("the nil and cancellation classifications changed")
-	}
-}
-
-// The BEHAVIOURAL half of that narrowing, which the classifier test above does
-// not cover: a bound breach must still decline to publish and leave the prior
-// overlay byte-identical. The transcript cap no longer refuses, so without this
-// no test asserts the refusing side of a bound at all — the other
-// overlay-preservation tests cover a degraded inventory, a membership race, a
-// symlink and a leaf swap, none of which is a ceiling.
-//
-// It is pinned at the delta's bounded tombstone read because that is the only
-// place a REAL non-transcript bound breach reaches this build. On the per-file
-// read path none is reachable: the sole producers of the memory_input_too_large
-// code are errHistoryTranscriptTooLarge (via historyTranscriptTooLargeError and
-// classifyTranscriptReadError) and memory_abstract.go's bounded-abstract input,
-// which the delta never calls, while the read's other failures carry
-// memory_source_stale, memory_state_unsafe or an inventory error, and the
-// manifest read inside validateFileMembership uses the dedicated uncapped
-// manifest reader (see base.MaxManifestBytes). The remaining code match in
-// shortTermCanonicalInputRefusal is therefore defense-in-depth for a future
-// coded bound rather than a live path, and is pinned at the classifier above.
-//
-// The ceiling is lowered rather than materialized: a 16 MiB fixture under the
-// race detector buys nothing that 64 bytes does not.
-func TestShortTermDeltaNonTranscriptBoundBreachPreservesPriorOverlay(t *testing.T) {
-	brainDir, _, _ := shortTermFixture(t)
-	buildShortTerm(t, brainDir)
-	overlayPath := filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath))
-	before, err := os.ReadFile(overlayPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// A VALID policy file that is merely larger than its ceiling, so the
-	// refusal can only come from the bound and not from parsing.
-	writeSessionTombstoneBytes(t, brainDir, []byte(`{"version":1,"excluded":{}}`+strings.Repeat(" ", 4096)))
-	oldMax := base.MaxManifestBytes
-	base.MaxManifestBytes = 64
-	t.Cleanup(func() { base.MaxManifestBytes = oldMax })
-
-	err = brainstore.WithBrainWriteLock(brainDir, func() error {
-		_, buildErr := buildHistoryShortTermLocked(brainDir, time.Now().UTC())
-		return buildErr
-	})
-	requireSessionTombstoneError(t, err, brainstore.StateCorruptCode, brainstore.SessionTombstoneCorrupt)
-	if !strings.Contains(err.Error(), "exceeds maximum size") {
-		t.Fatalf("the refusal did not come from the ceiling: %v", err)
-	}
-	after, readErr := os.ReadFile(overlayPath)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if !bytes.Equal(after, before) {
-		t.Fatal("a bound-breach refusal republished the overlay; the prior generation must stay byte-identical")
 	}
 }
 

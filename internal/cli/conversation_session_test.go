@@ -212,16 +212,6 @@ func TestConversationNavigationArgumentContract(t *testing.T) {
 		}
 	}
 
-	// A tombstoned session is unreadable through navigation immediately.
-	stones := brainstore.LoadSessionTombstones(brainDir)
-	stones.Excluded["nav-sess"] = sessionTombstone{At: time.Now().UTC()}
-	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-	_, missing, err := getUnifiedBatchOptions("", brainDir, "main", []string{sessionID}, getOptions{})
-	if err != nil || len(missing) != 1 {
-		t.Fatalf("tombstoned session outline must be not-found: err=%v missing=%v", err, missing)
-	}
 }
 
 func TestConversationLegacyIDCollisionIsAmbiguous(t *testing.T) {

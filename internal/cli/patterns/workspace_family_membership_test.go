@@ -14,7 +14,7 @@ func TestWorkspaceFamilyWithdrawnAfterMemberRemoval(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.Repos = m.Repos[:1]
-	if _, err := patterncore.BuildWorkspaceCorpus(env, m, nil, time.Now()); err != nil {
+	if _, err := patterncore.BuildWorkspaceCorpus(env, m, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	stats, err := patterncore.ProposeFamilies(context.Background(), env, m, t.TempDir(), "codex", "", "", releaseGroupingAgent(t), time.Now())

@@ -640,7 +640,6 @@ func TestBriefFocusedHistoryNeverRebuildsFTSFromMergedRecords(t *testing.T) {
 		fresh,
 		semanticRecord{Name: "gzip", QualifiedName: "gzip"},
 		5,
-		sessionReadGuard{},
 	)
 	_ = matches // ranking output is not the contract under test; the store identity is.
 

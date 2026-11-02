@@ -491,6 +491,17 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	// rather than needing a manual `facts reclassify`. No agent, no tokens.
 	manifest, _ = bmanifest.Load(brainDir)
 	if manifest != nil && manifest.Sources != nil && manifest.Sources.Facts != nil {
+		// Strict mirror: drop provenance citing sessions gone from the
+		// checkpoint catalog, and distilled facts left with no provenance.
+		finishMirror := progress.Step("mirror facts")
+		if _, _, err := dropFactsForMissingSessions(brainDir, opts.Now().UTC()); err != nil {
+			finishMirror(err)
+			if reportStageAndShouldAbort(brainComponentFacts, err) {
+				return err
+			}
+		} else {
+			finishMirror(nil)
+		}
 		finishReclass := progress.Step("reclassify facts")
 		if _, err := reclassifyAllFactBranches(brainDir, opts.Now().UTC()); err != nil {
 			finishReclass(err)
