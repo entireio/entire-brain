@@ -1,0 +1,83 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M6D4CSQ2V75RTZWX9RSXJG6Q",
+  "session_id": "30c4afe0-395e-47cb-9283-6480b28aac77",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-02T03:21:10.315967Z",
+  "branch": "evisdren/privacy-removal-handoff-workspace",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/doc_contract_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "48e8c456d2cb",
+  "checkpoint_transcript_start": 3235,
+  "transcript_lines_at_start": 3235,
+  "compact_transcript_start": 396,
+  "token_usage": {
+    "input_tokens": 30,
+    "cache_creation_tokens": 661264,
+    "cache_read_tokens": 9239316,
+    "output_tokens": 7431,
+    "api_call_count": 15,
+    "subagent_tokens": {
+      "input_tokens": 4,
+      "cache_creation_tokens": 55458,
+      "cache_read_tokens": 44873,
+      "output_tokens": 565,
+      "api_call_count": 2
+    }
+  },
+  "redaction": {
+    "replacements": 4,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 4,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_012S1FwV7LHLLECXMtSAWG2S",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:executing-plans"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b1bb6df931a4",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 60,
+        "end": 61,
+        "entry_ids": [
+          "a0d31b38-5069-4b85-8239-4ab84403d808"
+        ],
+        "tool_use_id": "toolu_012S1FwV7LHLLECXMtSAWG2S"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_012S1FwV7LHLLECXMtSAWG2S"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:executing-plans",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 2
+  }
+}
