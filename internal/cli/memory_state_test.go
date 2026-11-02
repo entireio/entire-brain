@@ -15,6 +15,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/parentwatch"
 )
 
 var errMemoryReceiptOutput = errors.New("memory receipt output failed")
@@ -227,7 +228,10 @@ func TestMemoryWorkerChildEnvironmentReplacesRepositoryRouting(t *testing.T) {
 		base.EnvRepoRoot + "=/repo/stale",
 	}
 	got := memoryWorkerChildEnvironment(environ, "/repo/b")
-	wantValues := map[string]string{base.EnvRepoRoot: "/repo/b", memoryWorkerOriginEnv: "1"}
+	// The detached marker must be present: launchDetachedSelf children (memory
+	// workers) outlive their spawner by design, and the parent-death watchdog
+	// would otherwise kill them the moment a short-lived notify exits.
+	wantValues := map[string]string{base.EnvRepoRoot: "/repo/b", memoryWorkerOriginEnv: "1", parentwatch.DetachedEnv: "1"}
 	counts := map[string]int{}
 	values := map[string]string{}
 	for _, entry := range got {
