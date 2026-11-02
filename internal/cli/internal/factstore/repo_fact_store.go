@@ -218,7 +218,7 @@ func (s *repoFactStore) replaceView(dir string, records []factmerge.Record, dige
 
 // compact rebuilds representatives from current views. This both collects
 // unreferenced bodies and removes obsolete fields/anchors from representatives
-// after privacy deletion or a lifecycle update. It is deterministic.
+// after a deletion or a lifecycle update. It is deterministic.
 func (s *repoFactStore) compact() error {
 	next := emptyRepoFactStore()
 	dirs := make([]string, 0, len(s.Views))
@@ -259,8 +259,8 @@ func writeRepoFactStore(brainDir string, s *repoFactStore) error {
 }
 
 // A process can die while the atomic writer is filling its temporary file.
-// These are never exportable data or backups, and a privacy purge must remove
-// them even when the live snapshot no longer references the purged memory.
+// These are never exportable data or backups; migration and reconciliation
+// remove them even when the live snapshot no longer references the memory.
 // Production callers hold the store lock, so no live native writer is swept.
 func cleanupRepoFactTemps(brainDir string) error {
 	if err := base.RejectExistingSymlinkPathComponents(brainDir, DirName); err != nil {

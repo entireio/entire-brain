@@ -565,3 +565,66 @@ func TestDeletedTranscriptReportsStaleNotUnreadable(t *testing.T) {
 		t.Fatalf("deleted transcript reported unreadable: %+v", result.Caveats)
 	}
 }
+
+// TestRawScansSkipLeftoverSessionFiles pins the catalog bound on every raw
+// walk: a sessions-tree file the manifest does not list (a deleted
+// checkpoint's cached transcript awaiting the sweep, which daemon ticks skip)
+// must not be served, and an unreadable manifest fails the scan instead of
+// scanning unbounded.
+func TestRawScansSkipLeftoverSessionFiles(t *testing.T) {
+	const leftoverCanary = "LEFTOVER-RAW-SCAN-CANARY"
+	brainDir := writePrivacyFixture(t)
+	leftover := filepath.Join(brainDir, "sessions", "main", "19990101T000000Z_leftover.jsonl")
+	if err := os.WriteFile(leftover, []byte(`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"`+leftoverCanary+`"}]}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scans := map[string]func() ([]brainTextMatch, error){
+		"single scan": func() ([]brainTextMatch, error) {
+			return brainBriefRawHistoryMatchesSingleScan(brainDir, leftoverCanary, nil, 50)
+		},
+		"multi scan": func() ([]brainTextMatch, error) {
+			return brainBriefRawHistoryMatchesMultiScan(brainDir, leftoverCanary, nil, 50, &brainBriefProfileRawHistory{})
+		},
+		"inspect": func() ([]brainTextMatch, error) {
+			report, err := inspectBrainRawText(brainDir, "all", leftoverCanary, 50)
+			return report.Matches, err
+		},
+	}
+	for name, scan := range scans {
+		t.Run(name, func(t *testing.T) {
+			matches, err := scan()
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			for _, match := range matches {
+				if strings.Contains(match.Excerpt, leftoverCanary) {
+					t.Fatalf("unlisted session file served by %s: %+v", name, match)
+				}
+			}
+		})
+	}
+	// A listed transcript still matches, so the skip is the catalog bound and
+	// not an empty scan.
+	report, err := inspectBrainRawText(brainDir, "all", privacyCanary, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, match := range report.Matches {
+		if strings.Contains(match.Excerpt, privacyCanary) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("listed transcript stopped matching; the catalog bound is too wide")
+	}
+	// The bound is manifest-derived, so an unreadable manifest fails the scan.
+	if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, scan := range scans {
+		if matches, err := scan(); err == nil {
+			t.Fatalf("%s scanned without a readable catalog: %d matches", name, len(matches))
+		}
+	}
+}

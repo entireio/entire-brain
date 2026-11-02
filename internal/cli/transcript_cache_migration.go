@@ -55,6 +55,11 @@ func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDi
 	}
 	for _, file := range inventory.files {
 		if _, live := sessions[file.Rel]; !live {
+			// Stale export: the manifest no longer lists this path, so the
+			// sweep removes it. Say so — for a destroyed checkpoint this can
+			// be the last copy of the bytes, and silent deletion would leave
+			// no trace of why it is gone.
+			tui.Warnf(os.Stderr, "sweeping stale cached transcript %s: no session in the current checkpoint catalog lists it", file.Rel)
 			continue
 		}
 		location, snapshot, err := store.lookupLocation(ctx, file.Rel)

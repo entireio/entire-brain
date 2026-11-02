@@ -287,6 +287,10 @@ func regressionScanHistoryCapped(brainDir string, ids []string) ([]changeSignal,
 	for _, id := range ids {
 		lowIDs = append(lowIDs, strings.ToLower(id))
 	}
+	catalog, catalogErr := catalogTranscriptRels(brainDir)
+	if catalogErr != nil {
+		return nil, nil, nil, caps, catalogErr
+	}
 	var changes []changeSignal
 	var deletes []deleteSignal
 	files := map[string]struct{}{}
@@ -321,7 +325,7 @@ func regressionScanHistoryCapped(brainDir string, ids []string) ([]changeSignal,
 		}
 		rel, _ := filepath.Rel(brainDir, path)
 		relSlash := filepath.ToSlash(rel)
-		if brainRawScanSkipsDerived(relSlash) {
+		if brainRawScanSkipsDerived(relSlash) || rawScanSkipsSessionFile(relSlash, catalog) {
 			return nil
 		}
 		f, openErr := os.Open(path)

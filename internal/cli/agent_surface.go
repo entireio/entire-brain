@@ -5040,6 +5040,37 @@ func (r *brainBriefCountingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// catalogTranscriptRels returns the manifest-listed transcript paths, or nil
+// when the brain has no sessions source to bound against (nothing exported
+// yet). Raw walkers skip sessions/ files outside this set: a deleted
+// checkpoint's cached transcript can linger until the next full export
+// sweeps it (the watch daemon's tick skips the sweep), and a raw walk must
+// not serve it. An unreadable manifest fails the scan rather than scanning
+// unbounded.
+func catalogTranscriptRels(brainDir string) (map[string]bool, error) {
+	manifest, err := bmanifest.Load(brainDir)
+	if err != nil {
+		return nil, err
+	}
+	if manifest.Sources == nil || manifest.Sources.Sessions == nil {
+		return nil, nil
+	}
+	rels := map[string]bool{}
+	for _, session := range manifest.Sources.Sessions.Sessions {
+		if rel := brainstore.NormalizeTranscriptPath(session.TranscriptPath); rel != "" {
+			rels[rel] = true
+		}
+	}
+	return rels, nil
+}
+
+// rawScanSkipsSessionFile reports whether a sessions-tree file is outside the
+// checkpoint catalog and must not be read by a raw walk. A nil catalog means
+// no sessions source exists, so there is no catalog to enforce.
+func rawScanSkipsSessionFile(relSlash string, catalog map[string]bool) bool {
+	return catalog != nil && strings.HasPrefix(relSlash, brainstore.SessionsDirName+"/") && !catalog[relSlash]
+}
+
 // brainRawScanSkipsDerived reports whether a Brain-relative path is DERIVED
 // state that a raw text walk must not read.
 //
@@ -5082,6 +5113,10 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, obse
 	if maxHits <= 0 {
 		maxHits = brainInspectHistoryMaxHits
 	}
+	catalog, catalogErr := catalogTranscriptRels(brainDir)
+	if catalogErr != nil {
+		return report, catalogErr
+	}
 	err := filepath.WalkDir(brainDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			report.ScanErrors = append(report.ScanErrors, err.Error())
@@ -5104,7 +5139,7 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, obse
 		}
 		rel, _ := filepath.Rel(brainDir, path)
 		relSlash := filepath.ToSlash(rel)
-		if brainRawScanSkipsDerived(relSlash) {
+		if brainRawScanSkipsDerived(relSlash) || rawScanSkipsSessionFile(relSlash, catalog) {
 			return nil
 		}
 		report.Scanned++
@@ -5321,6 +5356,10 @@ func brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task string, existi
 		}()
 	}
 
+	catalog, catalogErr := catalogTranscriptRels(brainDir)
+	if catalogErr != nil {
+		return nil, catalogErr
+	}
 	fullQueries := 0
 	scannedFiles := 0
 	scanBuffer := make([]byte, 64*1024)
@@ -5353,7 +5392,7 @@ func brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task string, existi
 		// Generation and staging directories hold projection copies of the same
 		// transcripts; scanning them would duplicate hits from the live
 		// projection.
-		if brainRawScanSkipsDerived(relSlash) {
+		if brainRawScanSkipsDerived(relSlash) || rawScanSkipsSessionFile(relSlash, catalog) {
 			return nil
 		}
 		scannedFiles++

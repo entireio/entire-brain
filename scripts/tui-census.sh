@@ -115,7 +115,6 @@ cmd_plan() {
     memories|"memories files"|"memories global"|"memories map"|"memories outline"|"memories status"|"memories tree"|"memories vitality"|"memories proposals list") echo "run:" ;;
     "memory status"|"memory jobs") echo "run:" ;;
     "patterns"|"patterns status"|"patterns skills") echo "run:" ;;
-    "privacy"|"privacy list"|"privacy verify") echo "run:" ;;
     "webhook status"|"webhook events") echo "run:" ;;
     "workspace list") echo "run:" ;;
     "inspect code")     echo "run:greet" ;;
@@ -144,7 +143,6 @@ cmd_plan() {
     "memories import"|"memories sync"|"memories promote"|"memories retract"|"memories review"|"memories gc") echo "skip:mutating or interactive" ;;
     "memories proposals"|"memories proposals apply"|"memories proposals reject"|"memories proposals repair"|"memories proposals show") echo "skip:mutating or needs a proposal id" ;;
     memory|"memory abstract"|"memory cancel"|"memory configure"|"memory configure abstracts"|"memory migrate"|"memory notify"|"memory rebuild"|"memory reconcile"|"memory repair"|"memory retry") echo "skip:mutating or background-job control" ;;
-    "privacy exclude"|"privacy include"|"privacy purge"|"privacy retention") echo "skip:mutates retention state" ;;
     "entities backfill"|"entities migrate") echo "skip:mutating migration" ;;
     bundle|"bundle export"|"bundle import") echo "skip:reads/writes bundle files" ;;
     webhook|"webhook test") echo "skip:sends a network request" ;;

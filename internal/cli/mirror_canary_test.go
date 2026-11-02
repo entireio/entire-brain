@@ -387,3 +387,38 @@ func TestMirrorSweepsAbstractsOfMissingSessions(t *testing.T) {
 		t.Fatalf("egress receipts of the deleted session survived: %+v", receipts)
 	}
 }
+
+// TestDistillRebaseDoesNotResurrectMirrorStrippedAnchors pins the provenance
+// three-way merge: an anchor the mirror removed from disk after distill's
+// baseline read was removed deliberately, and the flush must not union it
+// back from distill's in-memory copy. Anchors added by either side survive.
+func TestDistillRebaseDoesNotResurrectMirrorStrippedAnchors(t *testing.T) {
+	gone := factAnchor{SessionID: "session-secret", Transcript: "sessions/main/secret.jsonl"}
+	kept := factAnchor{SessionID: "session-clean", Transcript: "sessions/main/clean.jsonl"}
+	added := factAnchor{SessionID: "session-new", Transcript: "sessions/main/new.jsonl"}
+
+	baseline := []factAnchor{gone, kept}
+	disk := []factAnchor{kept}               // the mirror stripped `gone`
+	local := []factAnchor{gone, kept, added} // distill's in-memory copy plus a new anchor
+
+	merged := mergeDistillAnchors(baseline, disk, local)
+	ids := make([]string, 0, len(merged))
+	for _, anchor := range merged {
+		ids = append(ids, anchor.SessionID)
+	}
+	if len(merged) != 2 || merged[0].SessionID != "session-clean" || merged[1].SessionID != "session-new" {
+		t.Fatalf("merged anchors = %v, want [session-clean session-new]", ids)
+	}
+
+	// Symmetric: an anchor the local side dropped is not resurrected from disk.
+	merged = mergeDistillAnchors(baseline, []factAnchor{gone, kept}, []factAnchor{kept})
+	if len(merged) != 1 || merged[0].SessionID != "session-clean" {
+		t.Fatalf("local removal resurrected: %+v", merged)
+	}
+
+	// No baseline (concurrent insertion): pure union, nothing dropped.
+	merged = mergeDistillAnchors(nil, []factAnchor{kept}, []factAnchor{added})
+	if len(merged) != 2 {
+		t.Fatalf("baseline-free union = %+v", merged)
+	}
+}
