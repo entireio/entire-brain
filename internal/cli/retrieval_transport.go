@@ -26,9 +26,11 @@ var beforeRetrievalResponsePrivacyRecheck = func() {}
 var beforeRetrievalResponsePrivacyEmissionCheck = func() {}
 
 // beforeRetrievalResponseWrite is a deterministic seam after the authoritative
-// policy checks have succeeded but while every involved Brain write lock is
-// still held. Tests use it to prove a concurrent tombstone writer cannot
-// linearize between the last privacy check and the first response byte.
+// policy checks have succeeded, immediately before the first response byte.
+// No lock is held here: a tombstone landing in this window takes effect on the
+// next command instead of invalidating this response (the retired
+// instant-suppression guarantee required the global brain write lock per
+// response, which failed every reader brain_locked under a long writer).
 var beforeRetrievalResponseWrite = func() {}
 
 // The retrieval privacy policy lives in brainstore; the alias keeps the
@@ -69,7 +71,9 @@ func (w privacyLinearizedWriter) Write(p []byte) (int, error) {
 // writeRetrievalResponseBytes is the only final write boundary for retrieval,
 // get, brief, and workspace payloads. Callers must buffer the exact response
 // first. A policy change never produces a partial stale response: every checked
-// brain is revalidated before the first byte is handed to the consumer.
+// brain is revalidated before the first byte is handed to the consumer. The
+// revalidation takes no lock, so emission never contends with brain writers;
+// a tombstone that lands after it takes effect on the next command.
 func writeRetrievalResponseBytes(out io.Writer, data []byte, policies ...retrievalPrivacyPolicy) error {
 	beforeRetrievalResponsePrivacyEmissionCheck()
 	if transactional, ok := out.(interface {
@@ -77,36 +81,36 @@ func writeRetrievalResponseBytes(out io.Writer, data []byte, policies ...retriev
 	}); ok {
 		return transactional.writeRetrievalResponse(data, policies)
 	}
-	return withLockedRetrievalPrivacyPolicies(policies, func() error {
-		beforeRetrievalResponseWrite()
-		n, err := out.Write(data)
-		if err == nil && n != len(data) {
-			return io.ErrShortWrite
-		}
+	if err := brainstore.ValidateRetrievalPrivacyPolicies(policies, requirePrivacyDerivedRead); err != nil {
 		return err
-	})
+	}
+	beforeRetrievalResponseWrite()
+	n, err := out.Write(data)
+	if err == nil && n != len(data) {
+		return io.ErrShortWrite
+	}
+	return err
 }
 
-// withLockedRetrievalPrivacyPolicies is the response linearization boundary
+// withLockedRetrievalPrivacyPolicies is the mutation-side policy boundary
 // (brainstore owns the lock ordering and identity revalidation); the CLI
-// adapters bind the derived-read gate.
+// adapters bind the derived-read gate. Read-response emission validates
+// without locks via writeRetrievalResponseBytes instead.
 func withLockedRetrievalPrivacyPolicies(policies []retrievalPrivacyPolicy, fn func() error) error {
 	return brainstore.WithLockedRetrievalPrivacyPolicies(policies, requirePrivacyDerivedRead, fn)
 }
 
-func acquireRetrievalPrivacyPolicies(policies []retrievalPrivacyPolicy) (func(), error) {
-	return brainstore.AcquireRetrievalPrivacyPolicies(policies, requirePrivacyDerivedRead)
-}
-
 // commitVizRetrievalResponse is the viz HTTP transport's final privacy
-// boundary: it binds the cli race seams and the locked-policy write around the
-// buffered response commit (injected as viz.Deps.CommitRetrievalResponse).
+// boundary: it binds the cli race seams and the unlocked policy revalidation
+// around the buffered response commit (injected as
+// viz.Deps.CommitRetrievalResponse).
 func commitVizRetrievalResponse(policies []retrievalPrivacyPolicy, write func() error) error {
 	beforeRetrievalResponsePrivacyEmissionCheck()
-	return withLockedRetrievalPrivacyPolicies(policies, func() error {
-		beforeRetrievalResponseWrite()
-		return write()
-	})
+	if err := brainstore.ValidateRetrievalPrivacyPolicies(policies, requirePrivacyDerivedRead); err != nil {
+		return err
+	}
+	beforeRetrievalResponseWrite()
+	return write()
 }
 
 // revalidateRetrievalResponsePrivacy closes the ranking-to-write window. A
