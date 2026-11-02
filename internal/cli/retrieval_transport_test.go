@@ -18,7 +18,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -395,186 +394,29 @@ func TestAllRetrievalEmissionPathsRejectLateTombstone(t *testing.T) {
 	}
 }
 
-type blockingRetrievalWriter struct {
-	bytes.Buffer
-	started chan struct{}
-	release chan struct{}
-}
-
-func (w *blockingRetrievalWriter) Write(p []byte) (int, error) {
-	select {
-	case <-w.started:
-	default:
-		close(w.started)
-	}
-	<-w.release
-	return w.Buffer.Write(p)
-}
-
-func installConcurrentLockedTombstone(t *testing.T, fixture retrievalEmissionPrivacyFixture) <-chan error {
-	t.Helper()
-	original := beforeRetrievalResponseWrite
-	result := make(chan error, 1)
-	called := false
-	beforeRetrievalResponseWrite = func() {
-		if called {
-			return
-		}
-		called = true
-		go func() {
-			defer close(result)
-			result <- brainstore.WithBrainWriteLock(fixture.BrainDir, func() error {
-				stones, _, err := brainstore.LoadSessionTombstonesChecked(fixture.BrainDir)
-				if err != nil {
-					return err
-				}
-				stones.Excluded[fixture.SessionID] = sessionTombstone{At: time.Now().UTC(), Reason: "linearization race"}
-				return brainstore.SaveSessionTombstones(fixture.BrainDir, stones)
-			})
-		}()
-	}
-	t.Cleanup(func() {
-		defer func() { beforeRetrievalResponseWrite = original }()
-		if called {
-			if err := awaitRetrievalResult(t, "tombstone cleanup", result); err != nil {
-				t.Errorf("tombstone cleanup: %v", err)
-			}
-		}
-	})
-	return result
-}
-
-// Each blocked writer is released and joined even when an assertion fails.
-func retrievalWriterCleanup(t *testing.T, release, finished chan struct{}) func() {
-	t.Helper()
-	var once sync.Once
-	unblock := func() { once.Do(func() { close(release) }) }
-	t.Cleanup(func() {
-		unblock()
-		awaitRetrievalSignal(t, "writer cleanup", finished)
-	})
-	return unblock
-}
-
-func awaitRetrievalSignal(t *testing.T, name string, signal <-chan struct{}) {
-	t.Helper()
-	select {
-	case <-signal:
-	case <-time.After(5 * time.Second):
-		t.Fatalf("timed out waiting for %s", name)
-	}
-}
-
-func awaitRetrievalResult(t *testing.T, name string, result <-chan error) error {
-	t.Helper()
-	select {
-	case err := <-result:
-		return err
-	case <-time.After(5 * time.Second):
-		t.Fatalf("timed out waiting for %s", name)
-		return nil
-	}
-}
-
-func TestRetrievalWriteLinearizesBeforeConcurrentTombstone(t *testing.T) {
+// Emission must not contend with brain writers: a response whose policies
+// validated writes even while another process holds the brain write lock. The
+// retired behavior acquired that lock per response, so any long-running writer
+// (promote, distill) failed every concurrent reader with brain_locked. A
+// regression here fails after the 10s lock timeout rather than hanging.
+func TestRetrievalWriteSucceedsWhileBrainWriteLockHeld(t *testing.T) {
 	fixture := writeRetrievalEmissionPrivacyFixture(t)
 	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(fixture.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	mutation := installConcurrentLockedTombstone(t, fixture)
-	out := &blockingRetrievalWriter{started: make(chan struct{}), release: make(chan struct{})}
-	writeDone := make(chan error, 1)
-	finished := make(chan struct{})
-	unblock := retrievalWriterCleanup(t, out.release, finished)
-	go func() {
-		defer close(finished)
-		writeDone <- writeRetrievalResponseBytes(out, []byte("private response\n"), policy)
-	}()
-	awaitRetrievalSignal(t, "response write", out.started)
-	select {
-	case err := <-mutation:
-		t.Fatalf("tombstone linearized while the response write lock was held: %v", err)
-	default:
-	}
-	unblock()
-	if err := awaitRetrievalResult(t, "writeDone", writeDone); err != nil {
-		t.Fatal(err)
-	}
-	if err := awaitRetrievalResult(t, "mutation", mutation); err != nil {
-		t.Fatalf("tombstone after response: %v", err)
-	}
-	if got := out.String(); got != "private response\n" {
-		t.Fatalf("response=%q", got)
-	}
-	guard, err := bmanifest.LoadSessionReadGuard(fixture.BrainDir, nil)
+	unlock, err := brainstore.AcquireBrainWriteLock(fixture.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !guard.BlocksSession(fixture.SessionID) {
-		t.Fatal("tombstone did not commit after response linearization")
+	defer unlock()
+	var out bytes.Buffer
+	if err := writeRetrievalResponseBytes(&out, []byte("response\n"), policy); err != nil {
+		t.Fatalf("emission failed under a held brain write lock: %v", err)
 	}
-}
-
-func requireCommandWriteLinearizesBeforeTombstone(t *testing.T, fixture retrievalEmissionPrivacyFixture, run func(*cobra.Command) error) {
-	t.Helper()
-	mutation := installConcurrentLockedTombstone(t, fixture)
-	out := &blockingRetrievalWriter{started: make(chan struct{}), release: make(chan struct{})}
-	cmd := &cobra.Command{}
-	cmd.SetOut(out)
-	cmd.SetErr(&bytes.Buffer{})
-	done := make(chan error, 1)
-	finished := make(chan struct{})
-	unblock := retrievalWriterCleanup(t, out.release, finished)
-	go func() {
-		defer close(finished)
-		done <- run(cmd)
-	}()
-	awaitRetrievalSignal(t, "response write", out.started)
-	select {
-	case err := <-mutation:
-		t.Fatalf("tombstone linearized while the command response write lock was held: %v", err)
-	default:
+	if got := out.String(); got != "response\n" {
+		t.Fatalf("response=%q", got)
 	}
-	unblock()
-	if err := awaitRetrievalResult(t, "done", done); err != nil {
-		t.Fatal(err)
-	}
-	if err := awaitRetrievalResult(t, "mutation", mutation); err != nil {
-		t.Fatalf("tombstone after command response: %v", err)
-	}
-	if out.Len() == 0 {
-		t.Fatal("command emitted no response")
-	}
-}
-
-func TestTranscriptDerivedCLIResponsesLinearizeBeforeConcurrentTombstone(t *testing.T) {
-	t.Run("handoff", func(t *testing.T) {
-		fixture := writeRetrievalEmissionPrivacyFixture(t)
-		requireCommandWriteLinearizesBeforeTombstone(t, fixture, func(cmd *cobra.Command) error {
-			return runBrainHandoff(context.Background(), cmd, fixture.Options, 1, true)
-		})
-	})
-
-	t.Run("dash json", func(t *testing.T) {
-		fixture := writeRetrievalEmissionPrivacyFixture(t)
-		requireCommandWriteLinearizesBeforeTombstone(t, fixture, func(cmd *cobra.Command) error {
-			return dash.Run(context.Background(), cmd, dashConfig(fixture.Options), dash.Flags{JSON: true, Limit: 10}, fixture.Options.Env.RepoRoot)
-		})
-	})
-
-	t.Run("workspace aggregate", func(t *testing.T) {
-		fixture := writeRetrievalEmissionPrivacyFixture(t)
-		const workspaceName = "privacy-aggregate-race"
-		if err := workspace.DefaultStore(fixture.Options.Env).WriteManifest(workspace.Manifest{
-			Name: workspaceName, Repos: []workspace.Repo{{RepoKey: fixture.RepoKey}},
-		}); err != nil {
-			t.Fatal(err)
-		}
-		requireCommandWriteLinearizesBeforeTombstone(t, fixture, func(cmd *cobra.Command) error {
-			return runWorkspacePatternsList(context.Background(), cmd, fixture.Options, workspaceName, patternscmd.ListOptions{AsJSON: true})
-		})
-	})
 }
 
 func TestTranscriptDerivedCLIResponsesRejectLateTombstone(t *testing.T) {
@@ -726,72 +568,6 @@ func TestExplicitPatternRequestsReportUnavailableCorpusWithoutOutput(t *testing.
 				t.Fatalf("missing requested corpus emitted output: stdout=%q stderr=%q", stdout.String(), stderr.String())
 			}
 		})
-	}
-}
-
-type blockingHTTPResponseWriter struct {
-	header  http.Header
-	status  int
-	body    bytes.Buffer
-	started chan struct{}
-	release chan struct{}
-}
-
-func (w *blockingHTTPResponseWriter) Header() http.Header { return w.header }
-
-func (w *blockingHTTPResponseWriter) WriteHeader(status int) { w.status = status }
-
-func (w *blockingHTTPResponseWriter) Write(p []byte) (int, error) {
-	select {
-	case <-w.started:
-	default:
-		close(w.started)
-	}
-	<-w.release
-	return w.body.Write(p)
-}
-
-func TestVizAPIResponseLinearizesBeforeConcurrentTombstone(t *testing.T) {
-	fixture := writeRetrievalEmissionPrivacyFixture(t)
-	manifest, err := bmanifest.Load(fixture.BrainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	guard, err := bmanifest.LoadSessionReadGuard(fixture.BrainDir, manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := &viz.Server{
-		RepoDir: fixture.Options.Env.RepoRoot, BrainDir: fixture.BrainDir, Branch: "feature", Manifest: manifest,
-		Guard: guard, GuardObserved: !guard.Empty(), Deps: vizDeps(),
-	}
-	handler, err := srv.Mux()
-	if err != nil {
-		t.Fatal(err)
-	}
-	mutation := installConcurrentLockedTombstone(t, fixture)
-	out := &blockingHTTPResponseWriter{
-		header: make(http.Header), started: make(chan struct{}), release: make(chan struct{}),
-	}
-	done := make(chan struct{})
-	unblock := retrievalWriterCleanup(t, out.release, done)
-	go func() {
-		handler.ServeHTTP(out, httptest.NewRequest(http.MethodGet, "/api/summary", nil))
-		close(done)
-	}()
-	awaitRetrievalSignal(t, "response write", out.started)
-	select {
-	case err := <-mutation:
-		t.Fatalf("tombstone linearized while the HTTP response write lock was held: %v", err)
-	default:
-	}
-	unblock()
-	awaitRetrievalSignal(t, "HTTP response", done)
-	if err := awaitRetrievalResult(t, "mutation", mutation); err != nil {
-		t.Fatalf("tombstone after HTTP response: %v", err)
-	}
-	if out.status != http.StatusOK || out.body.Len() == 0 {
-		t.Fatalf("HTTP response status=%d body=%q", out.status, out.body.String())
 	}
 }
 
