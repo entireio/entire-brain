@@ -1,0 +1,23 @@
+{
+  "tool_use_id": "toolu_013DhXi2mUAL7G3NBdhGKzjS",
+  "agent_id": "ab23fd687b4623935",
+  "subagent_type": "fork",
+  "task_description": "Flip cli callers to flat store",
+  "files": [
+    "internal/cli/command/retrieve/retrieve.go",
+    "internal/cli/facts_flat_visibility_test.go",
+    "internal/cli/facts_status_cmd_test.go",
+    "internal/cli/facts_symlink_hardening_test.go",
+    "internal/cli/factstore_test_helpers_test.go",
+    "internal/cli/internal/factstore/repo_fact_compat.go"
+  ],
+  "token_usage": {
+    "input_tokens": 732,
+    "cache_creation_tokens": 576135,
+    "cache_read_tokens": 199138739,
+    "output_tokens": 253605,
+    "api_call_count": 366
+  },
+  "started_at": "2026-11-02T10:51:34.449342-08:00",
+  "completed_at": "2026-11-02T12:03:04.164972-08:00"
+}
