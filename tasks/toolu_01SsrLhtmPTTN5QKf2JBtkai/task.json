@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01SsrLhtmPTTN5QKf2JBtkai",
+  "agent_id": "af193adc5e48260f1",
+  "subagent_type": "Explore",
+  "task_description": "Efficiency review of diff",
+  "token_usage": {
+    "input_tokens": 6,
+    "cache_creation_tokens": 35690,
+    "cache_read_tokens": 74737,
+    "output_tokens": 2705,
+    "api_call_count": 3
+  },
+  "started_at": "2026-11-01T16:17:37.349256-08:00",
+  "completed_at": "2026-11-01T16:18:05.463275-08:00"
+}

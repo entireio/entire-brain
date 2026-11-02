@@ -1,0 +1,147 @@
+/review-pr this PR and then implement any fixes that come from it. also note that there is a finding on a trail that needs to be resolved.
+
+---
+
+<task-notification>
+<task-id>a7d3533453f29e358</task-id>
+<tool-use-id>toolu_01Qq4DUzV2f4fdVXbRqU4Dph</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-skopje/1922acc4-a5e6-4d16-9485-86e2e7d22cad/tasks/a7d3533453f29e358.output</output-file>
+<status>completed</status>
+<summary>Agent "Simplification review of diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I found three things that could be simpler. None of them change behavior, except that the third would also add `PWD` (noted there).
+
+**1. The "block forever on failure" code is repeated four times across the platform files**
+- Where: `internal/cli/internal/parentwatch/watch_darwin.go:32`, `watch_linux.go:19`, `watch_linux.go:32`, `watch_windows.go:20`
+- Summary: each platform's wait function handles "nothing to observe, or an unexpected error" with its own `select {}` so that `Arm` never exits. The Linux PDEATHSIG fallback even returns a closure that does nothing but `select {}`.
+- Simpler form: have the wait return `bool` ("the parent really exited"), and have `Arm` call `exitWithParent()` only when it is true. The PDEATHSIG fallback then returns `nil, nil`, and `Arm` skips starting the goroutine when `wait == nil`. All four `select {}` lines go away, and the "degrade, never kill" rule lives in one place (`parentwatch.go:44-47`) instead of in every platform file.
+
+**2. The darwin and linux wait loops are nearly the same code**
+- Where: `internal/cli/internal/parentwatch/watch_darwin.go:24-35` and `watch_linux.go:24-35`
+- Summary: both loops call a syscall, return on `n &gt; 0`, retry on `EINTR`, and otherwise give up. Only the syscall differs (`unix.Kevent` vs `unix.Poll`).
+- Simpler form: put one helper in a unix-only file, such as `func waitReady(call func() (int, error)) bool { for { n, err := call(); if n &gt; 0 { return true }; if err != unix.EINTR { return false } } }`. Each platform then reduces to `return func() bool { return waitReady(func() (int, error) { return unix.Kevent(kq, nil, events, nil) }) }` (or the `Poll` version). This fits well with finding 1.
+
+**3. `spawnDetached` rebuilds an environment-copy step the standard library already provides**
+- Where: `internal/cli/setup_spawn.go:37-44`
+- Summary: the code falls back to `os.Environ()` when `plan.Env` is nil, then uses the `env[:len(env):len(env)]` slice trick so `append` doesn't write into `plan.Env`'s backing array. That is exactly what `exec.Cmd.Environ()` does: it returns a fresh copy and falls back to `os.Environ()` when `Env` is nil.
+- Simpler form: `cmd.Env = plan.Env` followed by `cmd.Env = append(cmd.Environ(), parentwatch.DetachedEnv+"=1")`. That's two lines instead of six. One difference: `Environ()` also adds `PWD=&lt;Dir&gt;` because `cmd.Dir` is set, which should be harmless or helpful for a child started in that directory.
+
+(Minor, not counted above: `shouldArm(ppid int, getenv func(string) string)` at `parentwatch.go:20` takes a function only so the table test can fake it. Passing the value instead, as in `shouldArm(ppid, os.Getenv(DetachedEnv))`, would remove the closure from both the caller and the test.)</result>
+<usage><subagent_tokens>43530</subagent_tokens><tool_uses>3</tool_uses><duration_ms>28145</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>af193adc5e48260f1</task-id>
+<tool-use-id>toolu_01SsrLhtmPTTN5QKf2JBtkai</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-skopje/1922acc4-a5e6-4d16-9485-86e2e7d22cad/tasks/af193adc5e48260f1.output</output-file>
+<status>completed</status>
+<summary>Agent "Efficiency review of diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>The diff is mostly clean on efficiency. Startup cost and closure captures are fine, and I found two minor items.
+
+**What I checked and found fine:**
+- **Startup cost of `Arm()`** (`parentwatch.go:29-48`): each command adds two `getppid` calls, one `getenv`, and one registration. That registration is `kqueue` plus `kevent` on darwin, `pidfd_open` (or `prctl` as the fallback) on Linux, and `OpenProcess` on Windows. That's at most about 4 syscalls, with no I/O, polling or extra allocation.
+- **What the wait closures capture:** only a single small value (`kq int`, `fd int` or `handle windows.Handle`). The event and poll buffers are allocated once, when the wait starts, not on each loop. Nothing large is held.
+- **`setup_spawn.go:37-44`:** the env slice is copied once with the full-slice expression `env[:len(env):len(env)]`. That's one small allocation, and only when spawning a detached child.
+
+**Findings (both low impact):**
+
+1. **`internal/cli/internal/parentwatch/watch_linux.go:19`**: when `pidfd_open` isn't available, the fallback sets the kernel's parent-death signal and returns `func() { select {} }`. `Arm` (`parentwatch.go:44`) then starts a goroutine that sits idle for the whole process lifetime, holding its stack. **Cheaper:** return `(nil, nil)` from the fallback and have `Arm` skip the `go` statement when `wait == nil`.
+
+2. **`watch_darwin.go:27` and `watch_linux.go:27`**: the wait blocks forever in a raw `kevent` or `poll` syscall. That pins one OS thread for the process lifetime, and Go's runtime starts another thread to keep running the program. **Cheaper:** let Go's built-in network poller do the waiting so no thread is tied up. On Linux, open the pidfd with `PIDFD_NONBLOCK`, wrap it with `os.NewFile`, and wait through `SyscallConn().Read`. On darwin, do the same with the kqueue fd after making it non-blocking. This only matters for long-running commands; for short ones it's negligible. Windows (`watch_windows.go:16`) has no equally cheap option, so leave it.
+
+There's no redundant computation or repeated I/O in the diff.</result>
+<usage><subagent_tokens>41755</subagent_tokens><tool_uses>2</tool_uses><duration_ms>28203</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a9d985cc96a7d3dd2</task-id>
+<tool-use-id>toolu_014Utdvg9giVM77X818Gcq4V</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-skopje/1922acc4-a5e6-4d16-9485-86e2e7d22cad/tasks/a9d985cc96a7d3dd2.output</output-file>
+<status>completed</status>
+<summary>Agent "Reuse review of diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Five reuse findings. The first three are clear wins. Findings 4 and 5 are lower priority because the existing helper doesn't drop in as-is.
+
+1. **`/Users/evisdrenova/conductor/workspaces/entire-brain/skopje/internal/cli/internal/parentwatch/parentwatch_unix_test.go:23`**: the new `TestMain` calls `m.Run()` directly. Every other `internal/cli/internal/*` package that has tests uses the shared XDG pin, and parentwatch is the only one that doesn't.
+   - **Use instead:** in the default branch, call `os.Exit(clitest.PinXDGRoots(m))` from `/Users/evisdrenova/conductor/workspaces/entire-brain/skopje/internal/cli/internal/clitest/clitest.go:27`.
+   - **Related:** the existing way to run a test helper in a subprocess is in `brainstore/filelock_test.go:204-249`. It re-runs the test binary with `-test.run=TestFileLockSubprocessHelper` and an env gate, instead of taking over `TestMain`.
+
+2. **`parentwatch_unix_test.go:122`**: `syscall.Kill(childPid, 0) == syscall.ESRCH` hand-rolls a process-liveness check.
+   - **Use instead:** `!brainstore.ProcessAlive(childPid)` from `/Users/evisdrenova/conductor/workspaces/entire-brain/skopje/internal/cli/internal/brainstore/process_alive_unix.go:12`.
+
+3. **`parentwatch_unix_test.go:62` and `:129`**: the test takes and probes a lock with raw `unix.Flock` (`LOCK_EX` / `LOCK_EX|LOCK_NB`). The comments say this stands in for "the brain write lock", but the brain lock is a different implementation.
+   - **Use instead:** `brainstore.AcquireFileLock(path, code, timeout)` from `/Users/evisdrenova/conductor/workspaces/entire-brain/skopje/internal/cli/internal/brainstore/filelock.go:45`. Take it in the child; in the parent, check it with a short timeout. `TestFileLockContentionAcrossProcesses` already does exactly this holder/contention check, and this way the test covers the real lock.
+
+4. **`/Users/evisdrenova/conductor/workspaces/entire-brain/skopje/internal/cli/setup_spawn.go:37-44`**: it falls back to `os.Environ()` when Env is nil, then appends `DetachedEnv=1` without replacing any value already there. The codebase already has a helper that replaces inherited keys instead of appending duplicates, including Windows case-insensitive matching.
+   - **Use instead:** `memoryWorkerChildEnvironment` at `/Users/evisdrenova/conductor/workspaces/entire-brain/skopje/internal/cli/memory_cmd.go:164`. Its keys are hard-coded today, so it would need to be made generic first.
+   - **Also:** `setupChildEnv` at `setup.go:1719` already builds `os.Environ()` plus overrides for the setup caller.
+
+5. **`/Users/evisdrenova/conductor/workspaces/entire-brain/skopje/internal/cli/internal/parentwatch/parentwatch.go:21`**: the marker counts as set whenever it is non-empty (`getenv(DetachedEnv) == ""` means unset). Other `ENTIRE_BRAIN_*` on/off env vars use the shared parser, under which `"0"` and `"false"` mean off.
+   - **Use instead:** `base.EnvBool` from `/Users/evisdrenova/conductor/workspaces/entire-brain/skopje/internal/cli/internal/base/agent_policy.go:43`. It reads `os.Getenv` directly, so the injected `getenv` would need to be dropped or `EnvBool` changed to accept a lookup function.
+   - **Caveat:** `base` imports `tui`, so this adds a dependency to the parentwatch package.
+
+The platform files (kqueue, pidfd/`PR_SET_PDEATHSIG`, `OpenProcess`/`WaitForSingleObject`) duplicate nothing: no other syscall wrappers like these exist anywhere in the repo. The polling loop in `waitFor` and the deadline loop in `setup_spawn_unix_test.go:162` repeat each other, but there's no shared helper to call instead.</result>
+<usage><subagent_tokens>64520</subagent_tokens><tool_uses>9</tool_uses><duration_ms>70452</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a730be6e4aa9edadc</task-id>
+<tool-use-id>toolu_01YJK8sdPe2zqKkYVJ9VvSbY</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-skopje/1922acc4-a5e6-4d16-9485-86e2e7d22cad/tasks/a730be6e4aa9edadc.output</output-file>
+<status>completed</status>
+<summary>Agent "Altitude review of diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Not clean. Arming in `cli.Execute` is the right layer, but the detached exemption is too narrow: it lives in one spawn helper when it should follow what "detached" means.
+
+**1. The marker covers one detach path, but the codebase has two.** (`internal/cli/setup_spawn.go:37-44` and `internal/cli/memory_cmd.go:129`)
+- `launchDetachedSelf` is a second detach primitive. It is used by `memory notify` (`memory_cmd.go:124` and `memory_notify_sync.go:30`) to start a `memory worker --once` that is meant to outlive the short-lived notify process. Its own comment says "if this process exits first, the child is reparented and keeps running".
+- It doesn't go through `spawnDetached`, so it never gets `ENTIRE_BRAIN_DETACHED=1`. With `cli.Execute` now arming the watchdog for every process, that worker is exposed to it.
+- The marker is also an inherited environment variable. Any `entire-brain` process started from inside a detached child, such as a backfill re-exec, inherits it and skips the watchdog. That is the same orphan risk one level down.
+- In short, the exemption is tied to "called through `spawnDetached`" rather than to "this process was deliberately detached".
+
+**2. Session leadership is the deeper mechanism, and the code already relies on it.** (`internal/cli/internal/parentwatch/parentwatch.go:20` and `internal/cli/setup_spawn_unix.go:12`)
+- On Unix, `spawnDetached` already makes the child a session leader with `Setsid: true`. launchd and systemd jobs are also session leaders.
+- A check like `unix.Getsid(0) == os.Getpid()` in `shouldArm` would cover both current exemptions (initial ppid 1 and the marker) with one fact the OS reports. Unlike an environment variable, it doesn't pass down to grandchildren.
+- `launchDetachedSelf` should then use `detachedSysProcAttr()` too, so both detach paths share one definition of "detached" and both are exempt.
+- The environment marker would only be needed on Windows, where `CREATE_NEW_PROCESS_GROUP` can't be checked from inside the child.
+
+**3. Arming in `cli.Execute` and handling this at the process level are both right.** (`internal/cli/root.go:50` and `internal/cli/internal/brainstore/filelock.go:45,172`)
+- Whether `entire` dispatched this process is a property of the process, not of a command. Arming per command would repeat the call in every verb that takes the lock.
+- The lock layer has nothing that would solve this more generally. `BrainWriteLockTimeout` (10s) only limits how long other processes wait for the lock, not how long the holder keeps it. There is no lease, and the kernel already releases `flock`/`LockFileEx` when the holder dies.
+- So ending the orphaned process is the correct fix, not a duplicate of an existing mechanism.</result>
+<usage><subagent_tokens>64435</subagent_tokens><tool_uses>10</tool_uses><duration_ms>64821</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bg4xzabk1</task-id>
+<tool-use-id>toolu_01ACShaj8KXr7rPSwdPDkV8j</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-skopje/1922acc4-a5e6-4d16-9485-86e2e7d22cad/tasks/bg4xzabk1.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full suites of touched packages" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b8zdex9tb</task-id>
+<tool-use-id>toolu_01FChewuTYkf6Ei2znq8Zqaj</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-skopje/1922acc4-a5e6-4d16-9485-86e2e7d22cad/tasks/b8zdex9tb.output</output-file>
+<status>completed</status>
+<summary>Monitor "go test results for internal/cli + parentwatch after fixes" stream ended</summary>
+<event>ok  	github.com/entireio/entire-brain/internal/cli	232.100s
+ok  	github.com/entireio/entire-brain/internal/cli/internal/parentwatch	0.226s
+[exited with code 0]</event>
+</task-notification>
+
+---
+
+land the fixes and then push to a trail

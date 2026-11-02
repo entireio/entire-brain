@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_014Utdvg9giVM77X818Gcq4V",
+  "agent_id": "a9d985cc96a7d3dd2",
+  "subagent_type": "Explore",
+  "task_description": "Reuse review of diff",
+  "token_usage": {
+    "input_tokens": 20,
+    "cache_creation_tokens": 62465,
+    "cache_read_tokens": 439717,
+    "output_tokens": 7395,
+    "api_call_count": 10
+  },
+  "started_at": "2026-11-01T16:17:29.553038-08:00",
+  "completed_at": "2026-11-01T16:18:39.919427-08:00"
+}

@@ -1,0 +1,178 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M6CVZD8B8YS2AR6Y0BVJ0JYQ",
+  "session_id": "1922acc4-a5e6-4d16-9485-86e2e7d22cad",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-02T00:54:01.548107Z",
+  "branch": "evisdren/parent-death-watchdog",
+  "checkpoints_count": 4,
+  "save_step_count": 2,
+  "files_touched": [
+    "internal/cli/internal/parentwatch/parentwatch.go",
+    "internal/cli/internal/parentwatch/parentwatch_test.go",
+    "internal/cli/internal/parentwatch/parentwatch_unix_test.go",
+    "internal/cli/internal/parentwatch/watch_darwin.go",
+    "internal/cli/internal/parentwatch/watch_linux.go",
+    "internal/cli/internal/parentwatch/watch_other.go",
+    "internal/cli/internal/parentwatch/watch_unix.go",
+    "internal/cli/internal/parentwatch/watch_windows.go",
+    "internal/cli/memory_cmd.go",
+    "internal/cli/memory_state_test.go",
+    "internal/cli/setup_spawn.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "391afabb041b",
+  "checkpoint_transcript_start": 485,
+  "transcript_lines_at_start": 485,
+  "compact_transcript_start": 63,
+  "token_usage": {
+    "input_tokens": 69,
+    "cache_creation_tokens": 358086,
+    "cache_read_tokens": 5307192,
+    "output_tokens": 35393,
+    "api_call_count": 35,
+    "subagent_tokens": {
+      "input_tokens": 50,
+      "cache_creation_tokens": 192073,
+      "cache_read_tokens": 974061,
+      "output_tokens": 19378,
+      "api_call_count": 25
+    }
+  },
+  "redaction": {
+    "replacements": 2,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 2,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01Xm8ZpvzmHH3Cj3ixTLss8h",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:test-driven-development"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "a3206ea14d90",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 128,
+        "end": 129,
+        "entry_ids": [
+          "5fa526d4-b4a9-4b8c-a9c4-17c193f4bc13"
+        ],
+        "tool_use_id": "toolu_01Xm8ZpvzmHH3Cj3ixTLss8h"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01Xm8ZpvzmHH3Cj3ixTLss8h"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:test-driven-development",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "prompt-skill-claude-code-review-pr-2026-11-02T00:16:02.134517Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "review-pr"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "07ebb914c8cd",
+      "timestamp": "2026-11-02T00:16:02.134517Z",
+      "native": {
+        "command": "/review-pr"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/review-pr",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01D6Xot2oRHwUj8z7e167yQE",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "entire:address-findings"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "391afabb041b",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 498,
+        "end": 499,
+        "entry_ids": [
+          "378ab47b-2c4d-4677-9ae2-9a601542a643"
+        ],
+        "tool_use_id": "toolu_01D6Xot2oRHwUj8z7e167yQE"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01D6Xot2oRHwUj8z7e167yQE"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: entire:address-findings",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01GvfYWNohXXvFyYgdY7QLts",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "simplify"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "391afabb041b",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 522,
+        "end": 523,
+        "entry_ids": [
+          "13592a31-fb7a-4052-83f2-0ed836a381a8"
+        ],
+        "tool_use_id": "toolu_01GvfYWNohXXvFyYgdY7QLts"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01GvfYWNohXXvFyYgdY7QLts"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: simplify",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 6
+  }
+}
