@@ -272,7 +272,7 @@ func TestRebaseDropsConsumedCandidatesOnly(t *testing.T) {
 	// holds only target: the pass merged the candidate away.
 	baseline := []factRecord{target, consumed}
 	inMemory := []factRecord{target}
-	rebased, err := rebaseFactsOntoDisk(brainDir, inMemory, baseline, false)
+	rebased, err := rebaseFactsOntoDisk(brainDir, inMemory, baseline)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,28 +329,20 @@ func TestStagedReconcilePersistsResumeBeforeExtraction(t *testing.T) {
 	}
 }
 
-// The store is flat: a force rebuild drops every distilled active fact in the
-// repository, whatever branch its metadata names, and re-derives from the
-// sessions it visits. Authored facts are never distill's to drop.
-func TestForceRebuildDropsDistilledFactsRepoWideButKeepsAuthored(t *testing.T) {
-	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
-	brainDir := writeDistillFixture(t, now)
-	authored := stagedTestFact("keep this authored memory", []string{"preferences.coding.style"}, factStatusActive, now.Add(-time.Hour))
-	authored.Origin = factstore.OriginAuthored
-	leftover := stagedTestFact("exports use batch checkpoint reads", []string{"architecture.data.flow"}, factStatusCandidate, now.Add(-time.Minute))
-	authored.Branch, leftover.Branch = "feature", "feature"
-	if err := factstore.Write(brainDir, []factRecord{authored, leftover}); err != nil {
-		t.Fatal(err)
+// forceSweepFact seeds an active distilled fact anchored to one session, the
+// shape the force sweep adjudicates.
+func forceSweepFact(text, branch, sessionID string, at time.Time) factRecord {
+	paths := normalizeFactPaths([]string{"architecture.data.flow"})
+	return factRecord{
+		ID: factRecordID(text, paths), Text: text, Paths: paths, Branch: branch,
+		Origin: factstore.OriginDistilled, Status: factStatusActive,
+		Provenance: []factAnchor{{SessionID: sessionID}},
+		CreatedAt:  at, UpdatedAt: at,
 	}
-	run := func(context.Context, string, []string, []byte, time.Duration) (string, error) {
-		return "workflow.testing.rules\tRun tests before committing.\n", nil
-	}
-	_, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, distillCommandOptions{
-		agent: "command", agentCommand: []string{"fake"}, run: run, timeout: time.Minute, force: true, maxSessions: 1,
-	}, now)
-	if err != nil {
-		t.Fatal(err)
-	}
+}
+
+func forceSweepIDs(t *testing.T, brainDir string) map[string]factRecord {
+	t.Helper()
 	facts, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
@@ -359,18 +351,120 @@ func TestForceRebuildDropsDistilledFactsRepoWideButKeepsAuthored(t *testing.T) {
 	for _, f := range facts {
 		byID[f.ID] = f
 	}
-	if got, ok := byID[authored.ID]; !ok || got.Status != factStatusActive {
-		t.Fatalf("authored fact must survive a force rebuild: %+v", facts)
+	return byID
+}
+
+var forceSweepRun = func(context.Context, string, []string, []byte, time.Duration) (string, error) {
+	return "workflow.testing.rules\tRun tests before committing.\n", nil
+}
+
+// A capped force run (--max-sessions) must not touch facts from the sessions
+// it deferred; the deferred session re-derives on the next run because its
+// cache entry was dropped. (Bugbot on PR #590: the pre-drop lost everything
+// outside the cap's scope.)
+func TestForceWithSessionCapKeepsDeferredSessionsFacts(t *testing.T) {
+	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+	staleS1 := forceSweepFact("old derivation from session one", "main", "s1", now.Add(-time.Hour))
+	keepS2 := forceSweepFact("derivation from the deferred session", "feature", "s2", now.Add(-time.Hour))
+	if err := factstore.Write(brainDir, []factRecord{staleS1, keepS2}); err != nil {
+		t.Fatal(err)
 	}
-	if _, ok := byID[leftover.ID]; ok {
-		t.Fatalf("distilled leftover must be dropped by the repo-wide rebuild: %+v", facts)
+	repoDir := t.TempDir()
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: forceSweepRun, timeout: time.Minute, force: true, maxSessions: 1}
+	if _, err := runDistillForBrain(context.Background(), repoDir, brainDir, opts, now); err != nil {
+		t.Fatal(err)
 	}
 	rebuilt := factRecordID("Run tests before committing.", normalizeFactPaths([]string{"workflow.testing.rules"}))
-	if got, ok := byID[rebuilt]; !ok || got.Status != factStatusActive || got.Branch != "main" {
-		t.Fatalf("force run must re-derive the visited session's fact: %+v", facts)
+	byID := forceSweepIDs(t, brainDir)
+	if _, ok := byID[staleS1.ID]; ok {
+		t.Fatalf("the rebuilt session's stale fact must be swept: %+v", byID)
 	}
-	if len(facts) != 2 {
-		t.Fatalf("store = %+v, want authored + rebuilt only", facts)
+	if _, ok := byID[keepS2.ID]; !ok {
+		t.Fatalf("the deferred session's fact must survive the capped force run: %+v", byID)
+	}
+	if _, ok := byID[rebuilt]; !ok {
+		t.Fatalf("the visited session's fact must be re-derived: %+v", byID)
+	}
+	// The deferred session's cache entry was dropped, so a plain follow-up run
+	// re-distills it (s1 stays cached from the force run).
+	calls := 0
+	counting := func(ctx context.Context, dir string, args []string, input []byte, d time.Duration) (string, error) {
+		calls++
+		return forceSweepRun(ctx, dir, args, input, d)
+	}
+	opts2 := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: counting, timeout: time.Minute}
+	source, err := runDistillForBrain(context.Background(), repoDir, brainDir, opts2, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls == 0 || source.Distilled != 2 {
+		t.Fatalf("the deferred session must re-derive on the next run: calls=%d distilled=%d", calls, source.Distilled)
+	}
+	if byID = forceSweepIDs(t, brainDir); len(byID) != 2 {
+		t.Fatalf("store = %+v, want deferred-session fact + rebuilt fact", byID)
+	}
+}
+
+// A full-scope force run drops exactly the stale facts it proved stale:
+// distilled, active, not regenerated, and citing only rebuilt sessions.
+// Authored and retired records survive, and so does a fact citing a session
+// that left the catalog — dropping those is the mirror sweep's job now.
+func TestForceSweepDropsOnlyProvenStaleFacts(t *testing.T) {
+	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+	stale := forceSweepFact("exports use batch checkpoint reads", "main", "s1", now.Add(-time.Hour))
+	authored := forceSweepFact("keep this authored memory", "main", "s1", now.Add(-time.Hour))
+	authored.Origin = factstore.OriginAuthored
+	retired := forceSweepFact("retired statement stays a tombstone", "main", "s1", now.Add(-time.Hour))
+	retired.Status = factStatusSuperseded
+	orphan := forceSweepFact("derived from a session the catalog lost", "main", "ghost", now.Add(-time.Hour))
+	if err := factstore.Write(brainDir, []factRecord{stale, authored, retired, orphan}); err != nil {
+		t.Fatal(err)
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: forceSweepRun, timeout: time.Minute, force: true}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatal(err)
+	}
+	byID := forceSweepIDs(t, brainDir)
+	if _, ok := byID[stale.ID]; ok {
+		t.Fatalf("stale fact must be dropped: %+v", byID)
+	}
+	for _, keep := range []factRecord{authored, retired, orphan} {
+		if _, ok := byID[keep.ID]; !ok {
+			t.Fatalf("%q must survive the force sweep: %+v", keep.Text, byID)
+		}
+	}
+	rebuilt := factRecordID("Run tests before committing.", normalizeFactPaths([]string{"workflow.testing.rules"}))
+	if got, ok := byID[rebuilt]; !ok || got.Status != factStatusActive {
+		t.Fatalf("force run must re-derive the sessions' fact: %+v", byID)
+	}
+}
+
+// A branch-scoped force run sweeps stale facts only from the sessions the
+// branch filter let it rebuild.
+func TestForceWithBranchFilterSweepsOnlyThatBranchsSessions(t *testing.T) {
+	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+	keepMain := forceSweepFact("old derivation from session one", "main", "s1", now.Add(-time.Hour))
+	staleFeature := forceSweepFact("old derivation from session two", "feature", "s2", now.Add(-time.Hour))
+	if err := factstore.Write(brainDir, []factRecord{keepMain, staleFeature}); err != nil {
+		t.Fatal(err)
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: forceSweepRun, timeout: time.Minute, force: true, branch: "feature"}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatal(err)
+	}
+	byID := forceSweepIDs(t, brainDir)
+	if _, ok := byID[staleFeature.ID]; ok {
+		t.Fatalf("the filtered branch's stale fact must be swept: %+v", byID)
+	}
+	if _, ok := byID[keepMain.ID]; !ok {
+		t.Fatalf("the other branch's fact must survive a scoped force run: %+v", byID)
+	}
+	rebuilt := factRecordID("Run tests before committing.", normalizeFactPaths([]string{"workflow.testing.rules"}))
+	if got, ok := byID[rebuilt]; !ok || got.Branch != "feature" {
+		t.Fatalf("the scoped session's fact must be re-derived on its branch: %+v", byID)
 	}
 }
 

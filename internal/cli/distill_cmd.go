@@ -499,9 +499,8 @@ type distillCommandOptions struct {
 	// session restricts distillation to one session id — the fast
 	// single-session path behind `hook session-end` (Phase 2 item 5). Other
 	// sessions carry their cache entries through untouched, exactly like the
-	// branch filter. Incompatible with force: a forced rebuild drops every
-	// distilled fact on the session's branch but would re-derive only the one
-	// session's, silently losing the rest.
+	// branch filter. Incompatible with force: the single-session path skips
+	// the whole-corpus reconcile and stale-fact sweep a forced rebuild is for.
 	session             string
 	force               bool
 	json                bool
@@ -836,7 +835,7 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	if distillOpts.session != "" && distillOpts.force {
 		// Mirror runDistillForBrain's guard so a dry-run rejects the same
 		// combination the real run rejects, instead of planning it.
-		return errors.New("--session cannot be combined with --force: a forced rebuild drops every distilled fact on the session's branch but would re-derive only that session's")
+		return errors.New("--session cannot be combined with --force: the fast single-session path skips the whole-corpus reconcile and sweep a forced rebuild exists for")
 	}
 	if distillOpts.dryRun {
 		report, err := buildDistillDryRunReportContext(ctx, storage.BrainDir, distillOpts, opts.Now().UTC())
@@ -993,7 +992,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		return nil, errors.New("distill: no agent runner configured")
 	}
 	if distillOpts.session != "" && distillOpts.force {
-		return nil, errors.New("--session cannot be combined with --force: a forced rebuild drops every distilled fact on the session's branch but would re-derive only that session's")
+		return nil, errors.New("--session cannot be combined with --force: the fast single-session path skips the whole-corpus reconcile and sweep a forced rebuild exists for")
 	}
 	if distillOpts.maxChunkBytes <= 0 {
 		distillOpts.maxChunkBytes = defaultDistillChunkSize
@@ -1049,6 +1048,19 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	var storeFacts []factRecord
 	var storeBaseline []factRecord
 	storeLoaded := false
+	// Force-run bookkeeping for the final-flush sweep: a pre-existing distilled
+	// fact may be dropped only when this run re-derived everything it cites.
+	// sessionExportCount counts duplicate exports of one session id — the sweep
+	// treats a session as rebuilt only when EVERY export of that id was.
+	sessionExportCount := map[string]int{}
+	for _, s := range sessions {
+		sessionExportCount[s.SessionID]++
+	}
+	rebuiltSessionCount := map[string]int{}
+	regeneratedFactIDs := map[string]bool{}
+	sessionFullyRebuilt := func(id string) bool {
+		return sessionExportCount[id] > 0 && rebuiltSessionCount[id] >= sessionExportCount[id]
+	}
 	// storeDirty tracks whether the in-memory facts have diverged from disk
 	// since the last successful flush.
 	storeDirty := false
@@ -1108,9 +1120,10 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	// answer was "agent timed out after 10m0s".
 	var lastAgentErr error
 
-	// ensureStore lazily loads the store's existing facts. On --force the
-	// previously distilled facts are dropped so they are rebuilt from scratch;
-	// authored facts are always preserved.
+	// ensureStore lazily loads the store's existing facts. A --force run keeps
+	// them loaded too: the stale ones are removed by the FINAL-flush sweep (see
+	// sweepStaleForceFacts), never dropped up front, so a scoped or interrupted
+	// force run cannot lose facts from sessions it never re-derived.
 	ensureStore := func() {
 		if storeLoaded {
 			return
@@ -1120,28 +1133,6 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			warnings = append(warnings, fmt.Sprintf("load facts: %v", loadErr))
 		}
 		storeBaseline = cloneDistillFacts(existing)
-		if distillOpts.force {
-			kept := existing[:0]
-			for _, record := range existing {
-				// A force rebuild drops the distilled facts it is about to
-				// regenerate — but never a RETIRED one. A retracted or superseded
-				// record is a tombstone for a decision the rebuild does not replay
-				// (`facts retract`, a synced settlement); dropping it lets the
-				// very next chunk re-add the same statement as ACTIVE and
-				// silently resurrect a fact somebody declared false. Retaining it
-				// costs nothing: the regenerated candidate has the same
-				// content-derived id, so upsertFact lands on the tombstone and
-				// leaves its status alone, and a supersede the rebuild does
-				// replay re-marks it identically.
-				if record.Origin != factstore.OriginDistilled || record.Status != factStatusActive {
-					kept = append(kept, record)
-				}
-			}
-			existing = kept
-			// The in-memory store now differs from disk; the rebuild must be
-			// written out even if the run yields no new facts.
-			storeDirty = true
-		}
 		storeFacts = existing
 		storeLoaded = true
 	}
@@ -1156,12 +1147,12 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	// cache write keeps prevCache entries for sessions not yet visited — dropping
 	// manifest-removed sessions is the final write's job, and dropping unvisited
 	// entries mid-run would force a needless full re-distill of them after a
-	// restart. Under --force the opposite holds: ensureStore has already dropped
-	// the unvisited sessions' distilled facts from the in-memory set, so persisting their
-	// still-matching prevCache fingerprints alongside the truncated fact store
-	// would make a plain rerun after a kill skip those sessions forever — their
-	// facts silently lost. A force run therefore writes newCache only, and an
-	// interrupted force run re-distills the sessions it never reached.
+	// restart. Under --force the opposite holds: no facts are at risk (nothing
+	// is pre-dropped anymore), but carrying an unreached session's old
+	// fingerprint would mark it distilled and no later run would ever re-derive
+	// it — the rebuild the user asked for would silently never finish. A force
+	// run therefore writes newCache only, and a rerun re-distills the sessions
+	// an interrupted force run never reached.
 	resumeOnly := true
 	flushFactStoresLocked := func(final bool) error {
 		if storeDirty {
@@ -1181,11 +1172,14 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			// `facts sync` mirrored back. Those writers hold the same brain
 			// write lock this flush does, so the lock alone cannot see them:
 			// the run's read-modify-write spans the whole run.
-			rebased, rebaseErr := rebaseFactsOntoDisk(brainDir, storeFacts, storeBaseline, distillOpts.force)
+			rebased, rebaseErr := rebaseFactsOntoDisk(brainDir, storeFacts, storeBaseline)
 			if rebaseErr != nil {
 				return rebaseErr
 			}
 			storeFacts = rebased
+			if final && distillOpts.force {
+				storeFacts = sweepStaleForceFacts(storeFacts, sessionFullyRebuilt, regeneratedFactIDs)
+			}
 			if err := factstore.Write(brainDir, storeFacts); err != nil {
 				return err
 			}
@@ -1240,9 +1234,21 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	batchTotals := reconcileBatchStats{}
 	reconcileStore := func() {
 		reconcileStarted := time.Now()
+		before := make(map[string]factRecord, len(storeFacts))
+		for _, f := range storeFacts {
+			before[f.ID] = f
+		}
 		updated, stats, recWarnings := reconcileStagedCandidates(ctx, distillOpts.run, reconcileArgs, storeFacts, repoDir, distillOpts.timeout, distillOpts.concurrency, now)
 		if stats.Candidates == 0 {
 			return
+		}
+		// A record reconcile created or changed (a promotion, a merge target
+		// absorbing this run's candidate) is this run's output; the force sweep
+		// must not drop it as stale.
+		for _, f := range updated {
+			if old, ok := before[f.ID]; !ok || !reflect.DeepEqual(old, f) {
+				regeneratedFactIDs[f.ID] = true
+			}
 		}
 		storeFacts = updated
 		storeDirty = true
@@ -1264,12 +1270,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		}
 		for _, f := range stored {
 			if f.Status == factStatusCandidate {
-				// Resume against the intact store. Under --force, defer the
-				// destructive rebuild until extraction actually runs; the
-				// session cap may defer it entirely.
 				storeBaseline = cloneDistillFacts(stored)
 				storeFacts = stored
-				storeLoaded = !distillOpts.force
+				storeLoaded = true
 				reconcileStore()
 				break
 			}
@@ -1311,16 +1314,12 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			// was never distilled, which is exactly right: it stays uncached and
 			// the next run picks it up.
 			//
-			// EXCEPT under --force. A forced pass drops every distilled fact on
-			// each branch it visits (see ensureBranch), and a session deferred by
-			// --max-sessions `continue`s before ensureBranch — so its facts can
-			// already have been deleted by a SIBLING session on the same branch
-			// while its fingerprint says "distilled". Carrying that entry marks
-			// the session done forever: its facts are gone, no later run will
-			// re-derive them, and `status` counts it as distilled because it
-			// counts cache keys. --session + --force is rejected outright for the
-			// same reason; this pair needed the same guard. Dropping the entry
-			// costs at most one re-distill of a session whose facts survived.
+			// EXCEPT under --force. The deferred session's facts are safe (the
+			// final-flush sweep drops nothing citing an unrebuilt session), but
+			// carrying its old fingerprint would mark it distilled and no later
+			// run would re-derive it — the capped backfill would silently stop
+			// short. Dropping the entry costs at most one re-distill of a
+			// session whose facts survived.
 			if distillOpts.force && ps.deferred {
 				continue
 			}
@@ -1417,6 +1416,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			// the one-agent-call-per-chunk serialization (COR-2184).
 			for i := range records {
 				records[i].Status = factStatusCandidate
+				regeneratedFactIDs[records[i].ID] = true
 				storeFacts = upsertFact(storeFacts, records[i])
 			}
 			storeDirty = true
@@ -1435,6 +1435,12 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 				newCache.Chunks = make(map[string][]string)
 			}
 			newCache.Chunks[doneKey] = ps.chunkHashes
+			rebuiltSessionCount[session.SessionID]++
+			// Even a session that yields no facts obsoletes what it used to
+			// yield; the final flush must run so the sweep can drop those.
+			if distillOpts.force {
+				storeDirty = true
+			}
 		}
 		reportProgress()
 	}
@@ -2876,7 +2882,7 @@ func cloneDistillFacts(records []factRecord) []factRecord {
 // rebaseFactsOntoDisk performs a three-way merge under the writer lock. Fields
 // changed on disk since the previous read/flush win conflicts; unchanged fields
 // retain this run's reconciliation. Provenance is additive on both sides.
-func rebaseFactsOntoDisk(brainDir string, inMemory, baseline []factRecord, force bool) ([]factRecord, error) {
+func rebaseFactsOntoDisk(brainDir string, inMemory, baseline []factRecord) ([]factRecord, error) {
 	onDisk, err := factstore.Load(brainDir)
 	if err != nil {
 		return nil, err
@@ -2892,9 +2898,6 @@ func rebaseFactsOntoDisk(brainDir string, inMemory, baseline []factRecord, force
 		old, existed := before[record.ID]
 		i := indexOfFact(out, record.ID)
 		if i < 0 {
-			if force && record.Origin == factstore.OriginDistilled && record.Status == factStatusActive && existed && reflect.DeepEqual(old, record) {
-				continue // only discard the unchanged facts this force run owns
-			}
 			// A staged candidate this run flushed and then CONSUMED — merged
 			// into a target or promoted under its target's row — is absent from
 			// memory on purpose; re-appending it resurrects a row the reconcile
@@ -2934,6 +2937,43 @@ func rebaseFactsOntoDisk(brainDir string, inMemory, baseline []factRecord, force
 		return existed && !diskIDs[record.ID]
 	})
 	return out, nil
+}
+
+// sweepStaleForceFacts implements --force's deletion side: drop an active
+// distilled fact only when this run proved it stale — it was not regenerated
+// although every session it cites was fully re-distilled. Authored and retired
+// records, facts citing no session at all, and facts citing any session this
+// run did not rebuild (deferred by --max-sessions, filtered by --branch,
+// failed, or gone from the session catalog — vanished sessions are the mirror
+// sweep's job now) are all kept. Runs on the FINAL flush only, so an
+// interrupted force run deletes nothing.
+func sweepStaleForceFacts(records []factRecord, sessionFullyRebuilt func(string) bool, regenerated map[string]bool) []factRecord {
+	kept := records[:0]
+	for _, record := range records {
+		if record.Origin == factstore.OriginDistilled && record.Status == factStatusActive &&
+			!regenerated[record.ID] && allCitedSessionsRebuilt(record.Provenance, sessionFullyRebuilt) {
+			continue
+		}
+		kept = append(kept, record)
+	}
+	return kept
+}
+
+// allCitedSessionsRebuilt reports whether the anchors cite at least one
+// session id and every cited id was fully rebuilt.
+func allCitedSessionsRebuilt(anchors []factAnchor, sessionFullyRebuilt func(string) bool) bool {
+	cited := false
+	for _, anchor := range anchors {
+		id := strings.TrimSpace(anchor.SessionID)
+		if id == "" {
+			continue
+		}
+		cited = true
+		if !sessionFullyRebuilt(id) {
+			return false
+		}
+	}
+	return cited
 }
 
 // mergeDistillAnchors is the provenance three-way merge. Anchors can be added

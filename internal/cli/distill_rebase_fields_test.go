@@ -22,7 +22,7 @@ func TestDistillRebasePreservesConcurrentFields(t *testing.T) {
 		if err := factstore.Write(dir, []factRecord{disk}); err != nil {
 			t.Fatal(err)
 		}
-		got, err := rebaseFactsOntoDisk(dir, local, baseline, false)
+		got, err := rebaseFactsOntoDisk(dir, local, baseline)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -49,7 +49,7 @@ func TestDistillRebasePreservesReactivation(t *testing.T) {
 	if err := factstore.Write(dir, []factRecord{disk}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := rebaseFactsOntoDisk(dir, cloneDistillFacts(baseline), baseline, false)
+	got, err := rebaseFactsOntoDisk(dir, cloneDistillFacts(baseline), baseline)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestDistillRebaseMergesRelatedIDs(t *testing.T) {
 	if err := factstore.Write(dir, []factRecord{disk}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := rebaseFactsOntoDisk(dir, local, baseline, false)
+	got, err := rebaseFactsOntoDisk(dir, local, baseline)
 	if err != nil {
 		t.Fatal(err)
 	}
