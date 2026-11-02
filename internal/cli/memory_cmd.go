@@ -21,6 +21,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/parentwatch"
 	"github.com/spf13/cobra"
 )
 
@@ -165,6 +166,10 @@ func memoryWorkerChildEnvironment(environ []string, repoDir string) []string {
 	replacements := []struct{ key, value string }{
 		{key: base.EnvRepoRoot, value: repoDir},
 		{key: memoryWorkerOriginEnv, value: "1"},
+		// launchDetachedSelf children outlive their spawner by design; without
+		// this marker the parent-death watchdog kills the worker when the
+		// short-lived notify process exits.
+		{key: parentwatch.DetachedEnv, value: "1"},
 	}
 	out := make([]string, 0, len(environ)+len(replacements))
 	for _, entry := range environ {

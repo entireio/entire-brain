@@ -3,10 +3,8 @@ package parentwatch
 import "golang.org/x/sys/unix"
 
 // watchParent registers a kqueue NOTE_EXIT watch on the parent and returns a
-// blocking wait. The wait returns only when the parent has exited; on any
-// unexpected kqueue failure it blocks forever, degrading to no watchdog
-// rather than killing a process whose parent is still alive.
-func watchParent(ppid int) (func(), error) {
+// wait that blocks until the parent exits.
+func watchParent(ppid int) (func() bool, error) {
 	kq, err := unix.Kqueue()
 	if err != nil {
 		return nil, err
@@ -21,16 +19,8 @@ func watchParent(ppid int) (func(), error) {
 		_ = unix.Close(kq)
 		return nil, err
 	}
-	return func() {
+	return func() bool {
 		events := make([]unix.Kevent_t, 1)
-		for {
-			n, err := unix.Kevent(kq, nil, events, nil)
-			if n > 0 {
-				return
-			}
-			if err != nil && err != unix.EINTR {
-				select {}
-			}
-		}
+		return waitReady(func() (int, error) { return unix.Kevent(kq, nil, events, nil) })
 	}, nil
 }

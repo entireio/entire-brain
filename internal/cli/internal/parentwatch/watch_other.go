@@ -6,6 +6,6 @@ import "errors"
 
 // No parent-exit primitive is wired up for this platform; Arm degrades to no
 // watchdog, which is the pre-watchdog behavior.
-func watchParent(int) (func(), error) {
+func watchParent(int) (func() bool, error) {
 	return nil, errors.New("parentwatch: unsupported platform")
 }

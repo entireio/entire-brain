@@ -14,7 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/sys/unix"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
 )
 
 // TestMain doubles as the helper binary for the integration check: the test
@@ -27,7 +28,7 @@ func TestMain(m *testing.M) {
 	case "child":
 		runChildHelper()
 	default:
-		os.Exit(m.Run())
+		os.Exit(clitest.PinXDGRoots(m))
 	}
 }
 
@@ -55,13 +56,13 @@ func hangOnStdin() {
 
 func runChildHelper() {
 	dir := os.Getenv("PARENTWATCH_DIR")
-	lock, err := os.OpenFile(filepath.Join(dir, "lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	// Hold the real lock implementation, not a stand-in flock: the customer
+	// failure was an orphan holding brainstore's write lock to completion.
+	lock, err := brainstore.AcquireFileLock(filepath.Join(dir, "lock"), "test_locked", 0)
 	if err != nil {
 		os.Exit(2)
 	}
-	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
-		os.Exit(2)
-	}
+	defer func() { _ = lock.Close() }()
 	Arm()
 	// Arm registers the watcher synchronously, so "ready" means "armed".
 	if err := os.WriteFile(filepath.Join(dir, "ready"), []byte("1"), 0o600); err != nil {
@@ -118,17 +119,14 @@ func TestArmedChildExitsWhenParentIsKilled(t *testing.T) {
 	_, _ = parent.Process.Wait()
 
 	waitFor(t, "armed child exits after parent SIGKILL", func() bool {
-		return syscall.Kill(childPid, 0) == syscall.ESRCH
+		return !brainstore.ProcessAlive(childPid)
 	})
 
-	lock, err := os.OpenFile(filepath.Join(dir, "lock"), os.O_RDWR, 0o600)
+	lock, err := brainstore.AcquireFileLock(filepath.Join(dir, "lock"), "test_locked", 0)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("the dead child still holds its lock: %v", err)
 	}
-	defer func() { _ = lock.Close() }()
-	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		t.Fatalf("the dead child still holds its flock: %v", err)
-	}
+	_ = lock.Close()
 }
 
 // waitFor polls only inside the test harness; the watchdog under test is

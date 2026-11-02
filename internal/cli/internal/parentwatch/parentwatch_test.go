@@ -7,21 +7,20 @@ import "testing"
 // outlive its spawner. Everything else the dispatcher starts dies with it.
 func TestShouldArm(t *testing.T) {
 	cases := []struct {
-		name string
-		ppid int
-		env  map[string]string
-		want bool
+		name     string
+		ppid     int
+		detached string
+		want     bool
 	}{
 		{name: "ordinary dispatched child arms", ppid: 42, want: true},
 		{name: "daemon with ppid 1 never arms", ppid: 1, want: false},
-		{name: "detached child never arms", ppid: 42, env: map[string]string{DetachedEnv: "1"}, want: false},
-		{name: "empty detached marker still arms", ppid: 42, env: map[string]string{DetachedEnv: ""}, want: true},
+		{name: "detached child never arms", ppid: 42, detached: "1", want: false},
+		{name: "empty detached marker still arms", ppid: 42, detached: "", want: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			getenv := func(key string) string { return tc.env[key] }
-			if got := shouldArm(tc.ppid, getenv); got != tc.want {
-				t.Fatalf("shouldArm(%d, %v) = %v, want %v", tc.ppid, tc.env, got, tc.want)
+			if got := shouldArm(tc.ppid, tc.detached); got != tc.want {
+				t.Fatalf("shouldArm(%d, %q) = %v, want %v", tc.ppid, tc.detached, got, tc.want)
 			}
 		})
 	}

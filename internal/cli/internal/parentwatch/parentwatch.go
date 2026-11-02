@@ -11,24 +11,26 @@ import (
 )
 
 // DetachedEnv marks a child that was spawned to outlive its parent
-// (spawnDetached sets it). Such a child must never arm the watchdog.
+// (spawnDetached and launchDetachedSelf set it). Such a child must never arm
+// the watchdog.
 const DetachedEnv = "ENTIRE_BRAIN_DETACHED"
 
 // shouldArm decides whether this process dies with its parent. A ppid of 1
 // means launchd or systemd started us as a daemon; the detached marker means
 // our spawner deliberately handed us off to survive it.
-func shouldArm(ppid int, getenv func(string) string) bool {
-	return ppid != 1 && getenv(DetachedEnv) == ""
+func shouldArm(ppid int, detachedMarker string) bool {
+	return ppid != 1 && detachedMarker == ""
 }
 
 // Arm installs the watchdog: one goroutine blocking on the platform's
 // parent-exit event, exiting the process when it fires. Registration is
-// synchronous; only the wait runs in the goroutine. When the watcher cannot
-// be registered and the parent is still alive, Arm degrades to no watchdog —
-// never to killing a healthy process.
+// synchronous; only the wait runs in the goroutine. The wait reports true
+// only for an observed parent exit; on a registration failure, a nil wait
+// (nothing to observe), or a wait error with a live parent, Arm degrades to
+// no watchdog — never to killing a healthy process.
 func Arm() {
 	ppid := os.Getppid()
-	if !shouldArm(ppid, os.Getenv) {
+	if !shouldArm(ppid, os.Getenv(DetachedEnv)) {
 		return
 	}
 	wait, err := watchParent(ppid)
@@ -38,12 +40,13 @@ func Arm() {
 	if os.Getppid() != ppid {
 		exitWithParent()
 	}
-	if err != nil {
+	if err != nil || wait == nil {
 		return
 	}
 	go func() {
-		wait()
-		exitWithParent()
+		if wait() {
+			exitWithParent()
+		}
 	}()
 }
 
