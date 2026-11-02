@@ -1,0 +1,98 @@
+apply fixes and re-run CI
+
+---
+
+while this is running. i've seen the "promote" command mentioned a few times. what is it? where is it? why does it exist?
+
+---
+
+<task-notification>
+<task-id>bv1ybnjih</task-id>
+<tool-use-id>toolu_01VFkQW8cmnwzBWCnX4rWykp</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/bv1ybnjih.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch PR checks until completion" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+what is the trail link?
+
+---
+
+okay before i merge this: walk em through it very concisely. what is the core problem, how do we solve it and why this solve work. simple, straightforward technical language.
+
+---
+
+what did we end up deleting
+
+---
+
+did you test that the fix actually fixes the customer's problem
+
+---
+
+okay we have merged this one PR. re-validate it on main now. 
+
+then let's work on the follow ups. list them them
+
+---
+
+i want to do 1 heere adn then 2 in a new workspace. 
+
+Privacy-layer removal (Option B, step 2) — delete tombstones, the privacy command family, read/derived gates, and the remaining locked mutation wrappers; strict-mirror sweep (drop the retain-last-copy behavior in export); drop facts by the approved provenance rule; hosted retraction handled in the nightly job.
+
+can you give me the hand off for this?
+
+or if you think the branch pruning belongs in a new workspace we can do that.
+
+---
+
+let's talk through the branch pruning. last week i created a workspace with the idea of removing the per branch stores. which i think is the right appraoch. we should be consolidating into a single store. the hosted store is no longer keyed off of a branch and it doesn't make sense that the local shoudl be keyed off of branches. 
+
+i think that wil also help our branch pruning issue here. the challenge is figuring out how we do this with past versions, so we need to think through that. but the longer that we keep the branch machinary around the worse it gets
+
+---
+
+1. flat, no branches
+2. delete outright. sync is the only command that should be moving memories. we need to remove the proposal framework too
+3. we should build the store and then de-dupe and migrate the branches to the store adn then delete the branches. we need to ensure that they are saved and de-duped before deleting. 
+4. filter. 
+
+the goal is that with this new release anyone on 2.0, 3.0, 4.0 should be able to upgrade and then we shoudl move their meories over to the new per-repo store
+
+---
+
+yes keep both silently for now. and log an a ticket so that we can do it on the nightly follow up. or find the existing ticket and then add it onto that
+
+---
+
+status?
+
+---
+
+<task-notification>
+<task-id>a314c27fd43d666be</task-id>
+<tool-use-id>toolu_01P1sFRNXLugHhs1JwVErjMg</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-tegucigalpa/0d52eee2-af46-42a9-b46c-41a66cbb5a7b/tasks/a314c27fd43d666be.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix tests after proposal removal" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Done. Test suite compiles and passes after the proposal-framework removal. Not committed, per directive.
+
+**Files deleted (4):** `facts_proposal_attribution_test.go`, `facts_admin_flag_validation_test.go` (all promote/review validation), `facts_promote_noop_test.go` (tests the deleted no-op promote fix), plus the parent context had already removed `factmerge/promote_conflict_test.go` and `proposal_validation_test.go`.
+
+**Tests deleted (~20 functions) vs adapted (~25):**
+- Deleted: all promote/review command tests, proposal queue I/O tests, review-group/annotation tests (`retrieval_guard_test.go` reduced to the one surviving caveat test), brief pending-review tests, distill proposal-backlog tests, the union-find source guard (`TestIterativePathCompressionIsStillCorrect` — its subject, `findRoot` in guard.go, was deleted), `TestDistillPreservesMalformedProposalQueue`, `TestHistoryAuditNoProposalsAllocatesNoReviewGraph`.
+- Adapted/rewritten to the new semantics: `reconcile_batch_test.go` (merge/supersede rulings now assert publish + cross-link, hallucinated rulings assert non-destruction, resume asserts published-durably-before-extraction), `reconcile_safety_test.go` and `reconcile_test.go` (keep-both end-to-end), `facts_merge_test.go` and `guard_test.go` (new `AnnotateUnifiedFactResults` coverage incl. a new pass-through test), distill order/FIFO, status/sync/global/surface/root tests, and `repo_fact_released_compat_test.go` (promote/review now exercised via the released client only; the current build verifies it can read those writes — compat coverage preserved).
+
+**Production/doc fixes (reported as required):**
+1. `internal/cli/facts_admin_cmd.go:22` — the `memories` family `Short` still said "Review, promote, …" for deleted subcommands; now "Inspect, retract, and garbage-collect durable memories". Doc-rot from the removal, caught by `TestREADMEExamplesAreExecutable`/help tests.
+2. `README.md` — same stale family description, and a "review proposals" layout mention removed.
+3. `internal/cli/documented_commands_test.go` — dropped the `facts promote` entry from the documented-command fixture (test data, listed here since it mirrors README content).
+
+No genuine logic bugs from the removal surfaced — all failures were tests pinning retired behavior or stale docs.
+
+**Final results:** `gofmt -l -s .` clean; `go vet ./...` clean; `go test -count=1`: `factmerge` ok, `internal/cli/internal/retrieval` ok, `internal/cli/command/facts` ok, `internal/cli` ok (348 s, full run), plus `internal/factsync` and `internal/cli/patterns` ok.</result>
+<usage><subagent_tokens>639875</subagent_tokens><tool_uses>87</tool_uses><duration_ms>1593746</duration_ms></usage>
+</task-notification>
