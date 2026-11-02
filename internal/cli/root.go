@@ -149,7 +149,6 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	addGrouped("facts", patternscmd.New(patternsCmdConfig(opts)))
 
 	addGrouped("operations", newMemoryCommand(opts))
-	addGrouped("operations", newPrivacyCommand(opts))
 
 	addGrouped("code", newBrainInspectCommand(opts))
 	addGrouped("code", newBrainShowCommand(opts))

@@ -13,10 +13,9 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
-// buildWorkspacePatternCorpus binds the CLI's derived-projection verifier to
-// the shared workspace corpus build.
+// buildWorkspacePatternCorpus runs the shared workspace corpus build.
 func buildWorkspacePatternCorpus(env EntireEnv, manifest workspace.Manifest, now time.Time) (patterncore.WorkspaceCorpusCounts, error) {
-	return patterncore.BuildWorkspaceCorpus(env, manifest, verifyDerivedClean, now)
+	return patterncore.BuildWorkspaceCorpus(env, manifest, now)
 }
 
 // getWorkspaceCorpusRecord resolves a bare workspace-aggregate id (pattern: or

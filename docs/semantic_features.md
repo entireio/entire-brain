@@ -184,22 +184,14 @@ generates an evidence-linked, bounded artifact whose every statement cites
 exchanges of the same session (fabricated citations are discarded), session
 outlines report `abstract_status`
 (disabled|missing|current|stale|provider_unavailable) without ever making a
-generation call, a changed session digest reads stale with no text served,
-and privacy cleanup deletes the session's artifacts.
+generation call, and a changed session digest reads stale with no text served.
 
-Privacy: `entire brain privacy list|exclude|include|purge|verify|retention`
-controls which captured sessions may enter any projection.
-Tombstones are consulted both at build time AND at every retrieval boundary
-(conversation, history, facts, get, brief), so an excluded session becomes
-unreadable the moment the tombstone lands. Exclude removes or rebuilds every
-derived projection (index records, facts, episodes, pattern outputs, caches,
-FTS/vector stores) while keeping the exported transcript; purge additionally
-deletes the transcript copy. `--dry-run` predicts the exact artifacts and
-bytes first, deletion errors fail the command with the artifact named
-(idempotent re-run resumes), `privacy verify` proves absence across the text
-truths and flags derived stores that predate the newest tombstone, and
-`privacy retention --max-age <dur>` applies an age/branch policy. Tombstones
-survive re-export until an explicit include.
+Deletion: the brain mirrors the checkpoint refs. `entire checkpoint delete`
+removes a checkpoint at the capture layer, and the next
+`entire brain refresh` drops every projection derived from it (index records,
+conversation exchanges, episodes, caches, FTS, and the deleted session's fact
+provenance; distilled facts with no provenance left are deleted, authored
+memories are never touched).
 
 Workspace recall (Phase 5): `entire brain workspace search|query <ws> <q>
 --source conversation` fans the conversation source across member brains;

@@ -352,44 +352,22 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			snapshot = local
 			manifest.TranscriptMode = actualTranscriptMode(exportOpts.rawTranscript, local)
 		}
-		// Cached addresses of the sessions dropped below for want of local
-		// checkpoint bytes. The transcript cache sweep must keep them even
-		// though the manifest no longer lists them.
-		var skippedTranscriptCache map[string]bool
 		if len(sessions) > 0 {
-			// Two filters, and the order carries the meaning.
-			//
-			// FIRST, a tombstoned session is exempt from this check entirely.
-			// The guard refuses to record a session whose bytes this brain
-			// cannot serve — but an excluded session is one it has been told
-			// never to serve, so demanding its bytes refuses an export for a
-			// promise nobody is making. One mock-agent fixture (session
-			// "test", agent "Mock Lifecycle Agent") blocked all 2,561 real
-			// sessions this way, and `privacy exclude` could not get past it
-			// because this check ran regardless.
-			//
-			// THEN the remainder is partitioned rather than refused on the
-			// first miss. A manual-commit checkpoint names a commit on a
-			// feature branch, and deleting that branch destroys the commit, so
-			// on a squash-merging repository such a checkpoint names bytes
-			// that exist nowhere: 0 of 39 sampled commit-style ids still
-			// resolved on a real repository, out of 252 in its catalog. No
-			// fetch recovers them, so refusing preserved nothing and
-			// additionally discarded every available session.
+			// Sessions are partitioned rather than refused on the first miss.
+			// A manual-commit checkpoint names a commit on a feature branch,
+			// and deleting that branch destroys the commit, so on a
+			// squash-merging repository such a checkpoint names bytes that
+			// exist nowhere: no fetch recovers them, so refusing preserved
+			// nothing and additionally discarded every available session.
 			//
 			// Refusing when NOTHING is servable is kept: that is the
 			// source-went-unreadable case, where republishing would erase an
 			// indexed corpus.
-			validated, exempt, tombErr := partitionTombstonedSessions(ctx, opts, repoDir, outputExplicit, sessions)
-			if tombErr != nil {
-				warnings = append(warnings, "session tombstones unreadable, validating every session: "+tombErr.Error())
-				validated = sessions
-				exempt = 0
-			}
-			if exempt > 0 {
-				warnings = append(warnings, fmt.Sprintf("%d excluded session(s) exempt from local-transcript validation", exempt))
-			}
-			usable, unavailable, validateErr := partitionLocalTranscriptSessions(ctx, opts.Runner, snapshot, validated, manifest.TranscriptMode)
+			//
+			// Strict mirror: a dropped session's cached transcript is NOT
+			// retained; the sweep removes it as a stale export. The brain only
+			// serves what the checkpoint refs can back.
+			usable, unavailable, validateErr := partitionLocalTranscriptSessions(ctx, opts.Runner, snapshot, sessions, manifest.TranscriptMode)
 			if validateErr != nil {
 				return validateErr
 			}
@@ -400,56 +378,29 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			}
 			if len(unavailable) > 0 {
 				warnings = append(warnings, fmt.Sprintf("skipped %d session(s) whose transcript bytes are not available locally; the first was: %v", len(unavailable), unavailable[0]))
-				// An exempted session must SURVIVE: the cache sweep learns
-				// from this list which cached transcripts to retain, and that
-				// retention is what lets `privacy include` recover it. So keep
-				// anything that was never validated (exempted) as well as
-				// everything that validated cleanly, and drop only what was
-				// validated and found unavailable.
-				//
-				// A dropped session still has a cached transcript on disk from
-				// the legacy disk-mode exports, and once its checkpoint is
-				// genuinely destroyed that file is the only surviving copy of
-				// the bytes. Dropping it from the manifest alone would hand it
-				// to the sweep as a stale export, so its cached address is
-				// collected for the sweep's retain list below.
-				//
-				// Keyed on the full identity rather than the session id alone,
-				// because one session can be exported on more than one branch.
+				// Record the dropped identities: they are still checkpoint-
+				// catalog members, so the mirror must not treat their derived
+				// facts and abstracts as deleted.
 				type sessionKey struct {
 					id, branch, checkpoint string
 					index                  int
 				}
-				keyOf := func(session exportSession) sessionKey {
-					return sessionKey{session.SessionID, session.Branch, session.LatestCheckpoint, session.SessionIndex}
-				}
-				validatedKeys := make(map[sessionKey]struct{}, len(validated))
-				for _, session := range validated {
-					validatedKeys[keyOf(session)] = struct{}{}
-				}
 				usableKeys := make(map[sessionKey]struct{}, len(usable))
 				for _, session := range usable {
-					usableKeys[keyOf(session)] = struct{}{}
+					usableKeys[sessionKey{session.SessionID, session.Branch, session.LatestCheckpoint, session.SessionIndex}] = struct{}{}
 				}
-				surviving := make([]exportSession, 0, len(sessions))
-				skippedTranscriptCache = make(map[string]bool, len(unavailable))
+				seenUnavailable := map[bmanifest.UnavailableSession]bool{}
 				for _, session := range sessions {
-					key := keyOf(session)
-					if _, wasValidated := validatedKeys[key]; !wasValidated {
-						surviving = append(surviving, session)
+					if _, ok := usableKeys[sessionKey{session.SessionID, session.Branch, session.LatestCheckpoint, session.SessionIndex}]; ok {
 						continue
 					}
-					if _, ok := usableKeys[key]; ok {
-						surviving = append(surviving, session)
-						continue
+					entry := bmanifest.UnavailableSession{SessionID: session.SessionID, Branch: session.Branch}
+					if !seenUnavailable[entry] {
+						seenUnavailable[entry] = true
+						manifest.UnavailableSessions = append(manifest.UnavailableSessions, entry)
 					}
-					// Addressed exactly as the manifest and the cache
-					// inventory address it -- the same helper the surviving
-					// sessions use below -- because a near-miss key would
-					// retain nothing while looking like a fix.
-					skippedTranscriptCache[sessionTranscriptRel(session, branchDirs)] = true
 				}
-				sessions = surviving
+				sessions = usable
 				manifest.Sessions = sessions
 				branchDirs = buildBranchDirectories(sessions, defaultBranch)
 			}
@@ -472,7 +423,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		}
 		var migration *historySessionInventory
 		if !exportOpts.skipTranscriptSweep {
-			migration, err = planTranscriptCacheSweep(ctx, opts.Runner, outputDir, repoDir, skippedTranscriptCache)
+			migration, err = planTranscriptCacheSweep(ctx, opts.Runner, outputDir, repoDir)
 			if err != nil {
 				return err
 			}
@@ -4222,45 +4173,6 @@ type exportCursorSession struct {
 	TranscriptMode   string    `json:"transcript_mode"`
 	TranscriptPath   string    `json:"transcript_path"`
 	CreatedAt        time.Time `json:"created_at"`
-}
-
-// partitionTombstonedSessions returns the sessions that must still satisfy
-// local-transcript validation, plus how many were exempted as excluded.
-//
-// It deliberately does not remove anything from the export: the caller keeps
-// the full selection so the cache sweep still retains an excluded session's
-// transcript, which is what `privacy include` needs to recover it.
-func partitionTombstonedSessions(ctx context.Context, opts Options, repoDir string, outputExplicit bool, sessions []exportSession) ([]exportSession, int, error) {
-	if outputExplicit || len(sessions) == 0 {
-		return sessions, 0, nil
-	}
-	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
-	if err != nil {
-		return sessions, 0, nil
-	}
-	return partitionTombstonedSessionsAt(storage.BrainDir, sessions)
-}
-
-// partitionTombstonedSessionsAt is the brainDir-addressable half, so the
-// exemption can be tested without resolving a repository's storage.
-func partitionTombstonedSessionsAt(brainDir string, sessions []exportSession) ([]exportSession, int, error) {
-	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
-	if err != nil {
-		return sessions, 0, err
-	}
-	if len(stones.Excluded) == 0 {
-		return sessions, 0, nil
-	}
-	validated := make([]exportSession, 0, len(sessions))
-	exempt := 0
-	for _, session := range sessions {
-		if _, excluded := stones.Excluded[session.SessionID]; excluded {
-			exempt++
-			continue
-		}
-		validated = append(validated, session)
-	}
-	return validated, exempt, nil
 }
 
 // unavailableSessionsAreFatal is the threshold that decides whether missing

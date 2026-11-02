@@ -3495,10 +3495,8 @@ fingerprint of the sessions it was built from, so a bundle carrying history
 without its sessions lands as immediately stale state the receiving brain
 discards on its next refresh. --include-sessions ships all three together.
 
-Never included: privacy policy (session tombstones and their transactions) and
-local operational state (locks, worker logs, the bundle audit log). Those are
-statements about this machine, not content of the brain, and a bundle that
-carried them would apply one machine's exclusions to another.
+Never included: local operational state (locks, worker logs, the bundle audit
+log). Those are statements about this machine, not content of the brain.
 
 Every run prints exactly which layers it wrote and which it left out.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -3520,9 +3518,7 @@ A layer the destination brain already holds is NOT overwritten unless you pass
 --overwrite: restoring a bundle over a live brain replaces its facts, docs and
 history with the producer's, and that is a decision the operator makes, not a
 side effect of an import. The refusal names every conflicting layer and happens
-before anything is written.
-
-Privacy policy in the destination brain is never touched by an import.`,
+before anything is written.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if expectedChecksum == "" {
@@ -3603,7 +3599,7 @@ var brainBundleLayers = []brainBundleLayer{
 	// Old-format bundles carry NDJSON projections, not local view metadata.
 	{name: bundleLayerFacts, dir: factstore.DirName, skip: []string{"store.json"}},
 	{name: bundleLayerSessions, dir: brainstore.SessionsDirName, withSessions: true},
-	{name: bundleLayerHistory, dir: brainstore.HistoryDirName, skip: []string{brainstore.SessionTombstonesFileName, "privacy", "work"}, withSessions: true},
+	{name: bundleLayerHistory, dir: brainstore.HistoryDirName, skip: []string{"tombstones.json", "privacy", "work"}, withSessions: true},
 	{name: bundleLayerPatterns, dir: brainPatternsDirName, withSessions: true},
 }
 
@@ -3761,16 +3757,8 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 				sessionFamily = append(sessionFamily, layer.name)
 				continue
 			}
-			guard, err := bmanifest.LoadSessionReadGuard(storage.BrainDir, manifest)
-			if err != nil {
-				return err
-			}
 			source := *manifest.Sources.Sessions
 			source.TranscriptStorage = ""
-			// Excluded sessions remain in the local catalog for later inclusion,
-			// but neither their catalog entries nor their bytes belong in a bundle.
-			// The transcript store rechecks privacy when reading each kept entry.
-			source.Sessions = bmanifest.GuardSessions(guard, source.Sessions)
 			source.OldestSessionAt = bmanifest.OldestSessionAt(source.Sessions)
 			source.LatestCheckpointID = bmanifest.LatestCheckpointID(source.Sessions)
 			branchDirs := make(map[string]string)

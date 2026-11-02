@@ -249,22 +249,6 @@ func TestManualAbstractEnqueueFailsClosedOnPrivateAndCorruptState(t *testing.T) 
 	override := memoryAbstractJobOverride{Provider: "ollama", Model: "local-test"}
 	now := time.Date(2026, 9, 18, 15, 0, 0, 0, time.UTC)
 
-	t.Run("private session", func(t *testing.T) {
-		brainDir, _ := writeSessionNavigationFixture(t)
-		view := sessionViewForTest(t, brainDir)
-		stones := brainstore.LoadSessionTombstones(brainDir)
-		stones.Excluded[view.Records[0].SessionID] = sessionTombstone{At: now, Reason: "explicitly private"}
-		if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-			t.Fatal(err)
-		}
-		if _, created, err := enqueueManualAbstractJobWithReceipt(brainDir, view.Ref, override, now, nil, false); err == nil || created || !strings.Contains(err.Error(), brainstore.SourceStaleCode) {
-			t.Fatalf("private enqueue: created=%v err=%v", created, err)
-		}
-		if jobs := loadMemoryJobs(brainDir); len(jobs) != 0 {
-			t.Fatalf("private enqueue persisted jobs: %+v", jobs)
-		}
-	})
-
 	t.Run("corrupt manifest", func(t *testing.T) {
 		brainDir, _ := writeSessionNavigationFixture(t)
 		view := sessionViewForTest(t, brainDir)

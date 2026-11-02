@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"io"
 	"os"
@@ -92,7 +91,7 @@ func TestFilelessExportIndexesAndReadsWithoutSessionsTree(t *testing.T) {
 	if err != nil || string(data) != conversationClaudeFixture {
 		t.Fatalf("git read: %v %q", err, data)
 	}
-	index, _, _, err := buildBrainHistoryIndexSnapshotContext(context.Background(), brain, opts.Now(), nil, manifest, brainstore.EmptySessionTombstones())
+	index, _, _, err := buildBrainHistoryIndexSnapshotContext(context.Background(), brain, opts.Now(), nil, manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,18 +112,13 @@ func TestFilelessExportIndexesAndReadsWithoutSessionsTree(t *testing.T) {
 	if err != nil || size != int64(len(conversationClaudeFixture)) || sha == "" || len(data) == 0 {
 		t.Fatalf("pattern transcript: %d %s %v", size, sha, err)
 	}
-	// Stray files cannot override checkpoint content, but privacy verification
-	// must report them even when there are no tombstones.
+	// Stray files cannot override checkpoint content.
 	if err := writeTranscriptFile(brain, rel, []byte("stray")); err != nil {
 		t.Fatal(err)
 	}
 	data, err = readCanonicalHistoryTranscript(context.Background(), brain, rel)
 	if err != nil || string(data) != conversationClaudeFixture {
 		t.Fatalf("stray file overrode checkpoint: %q %v", data, err)
-	}
-	report, err := verifySessionPrivacy(brain)
-	if err != nil || report.Clean {
-		t.Fatalf("stray verify: %+v %v", report, err)
 	}
 }
 
@@ -265,7 +259,7 @@ func TestFilelessMigrationRetainsUnrecoverableCache(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("delete fixture ref: %v %s", err, out)
 	}
-	if inventory, err := planTranscriptCacheSweep(context.Background(), opts.Runner, brain, opts.Env.RepoRoot, nil); err == nil {
+	if inventory, err := planTranscriptCacheSweep(context.Background(), opts.Runner, brain, opts.Env.RepoRoot); err == nil {
 		if inventory != nil {
 			inventory.Close()
 		}
@@ -321,14 +315,6 @@ func TestFilelessDistillCacheSkipsReadsAndInvalidatesIdentity(t *testing.T) {
 			t.Fatalf("identity ignored %s", change)
 		}
 	}
-	stones := brainstore.EmptySessionTombstones()
-	stones.Excluded[session.SessionID] = sessionTombstone{At: opts.Now(), Reason: "purged"}
-	if err := brainstore.SaveSessionTombstones(brain, stones); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := readCanonicalHistoryTranscript(context.Background(), brain, session.TranscriptPath); err == nil || !strings.Contains(err.Error(), "tombstoned") {
-		t.Fatalf("gate: %v", err)
-	}
 }
 
 func TestFilelessLegacyDistillCacheGrandfathersOnce(t *testing.T) {
@@ -369,28 +355,5 @@ func TestFilelessSourceIdentitySurvivesBundleMaterialization(t *testing.T) {
 	source.Sessions[0].SessionIndex++
 	if sessionSourceFingerprint(source) == before {
 		t.Fatal("source identity ignored checkpoint session index")
-	}
-}
-
-func TestFilelessReadFinishRechecksTombstone(t *testing.T) {
-	opts, brain, _ := filelessCheckpointFixture(t)
-	runFilelessExport(t, opts, "", false)
-	manifest, _ := bmanifest.Load(brain)
-	session := manifest.Sources.Sessions.Sessions[0]
-	_, finish, err := newTranscriptStore(opts.Runner, brain).Open(context.Background(), session.TranscriptPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	stones := brainstore.EmptySessionTombstones()
-	stones.Excluded[session.SessionID] = sessionTombstone{At: opts.Now(), Reason: "purged"}
-	if err := brainstore.SaveSessionTombstones(brain, stones); err != nil {
-		t.Fatal(err)
-	}
-	if err := finish(); err == nil || !strings.Contains(err.Error(), "tombstoned") {
-		t.Fatalf("finish published after purge: %v", err)
-	}
-	report, err := verifySessionPrivacy(brain)
-	if err != nil || !report.Clean {
-		t.Fatalf("file-less privacy verify: %+v %v", report, err)
 	}
 }

@@ -885,61 +885,6 @@ func TestMemoryJobInventoryRejectsUnsafeAndArbitraryEntries(t *testing.T) {
 	})
 }
 
-func TestMemoryLegacyJobUsesActualPathForPrivacyCleanup(t *testing.T) {
-	// The legacy on-disk layout embeds the raw job id, which begins "job:".
-	// A colon cannot appear in a Windows filename: writing that path creates an
-	// NTFS alternate data stream instead of a listable file, so a legacy record
-	// could never have been written there by any build. memoryJobRel hashes the
-	// id for exactly this reason. The layout under test cannot exist on Windows,
-	// so there is nothing to adapt or purge.
-	if runtime.GOOS == "windows" {
-		t.Skip("legacy job layout embeds a colon and is unrepresentable on Windows")
-	}
-
-	brainDir := writePrivacyFixture(t)
-	now := time.Date(2026, 8, 9, 16, 30, 0, 0, time.UTC)
-	job := memoryJob{
-		SchemaVersion: 1, Kind: memoryJobKindProjection, RepoKey: "test/privacy", SessionID: "secret-sess",
-		SessionRef: "conversation-session:legacy", InputDigest: "sha256:legacy", Trigger: "worker",
-		State: memoryJobStatePending, CreatedAt: now, AvailableAt: now,
-	}
-	job.JobID = memoryJobID(job.RepoKey, job.SessionRef, job.InputDigest, job.Kind)
-	legacyRel := legacyMemoryJobRel(job.JobID)
-	if err := os.MkdirAll(filepath.Dir(filepath.Join(brainDir, filepath.FromSlash(legacyRel))), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := json.Marshal(job)
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(legacyRel)), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var plan sessionPurgePlan
-	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		var err error
-		plan, err = buildSessionPurgePlan(brainDir, job.SessionID)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, artifact := range plan.WorkMetadata {
-		if artifact.Path == legacyRel {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("legacy source path absent from privacy inventory: %+v", plan.WorkMetadata)
-	}
-	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		return purgeMemoryWorkForSessionLocked(brainDir, job.SessionID)
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(legacyRel))); !os.IsNotExist(err) {
-		t.Fatalf("legacy source survived privacy cleanup: %v", err)
-	}
-}
-
 func TestMemoryJobV1StringErrorAdaptsToV2(t *testing.T) {
 	// The legacy on-disk layout embeds the raw job id, which begins "job:".
 	// A colon cannot appear in a Windows filename: writing that path creates an
@@ -1476,31 +1421,6 @@ func TestMemoryCancelRaceReportsTooLateAndRemovesMarker(t *testing.T) {
 	}
 }
 
-func TestMemoryPrivacyWorkPurgeRemovesMetadata(t *testing.T) {
-	brainDir := t.TempDir()
-	now := time.Date(2026, 8, 9, 20, 0, 0, 0, time.UTC)
-	if _, err := writeMemoryHint(brainDir, "repo", "purged", "main", "session_end", now); err != nil {
-		t.Fatal(err)
-	}
-	job := memoryJob{Kind: memoryJobKindProjection, RepoKey: "repo", SessionID: "purged", SessionRef: "conversation-session:x", InputDigest: "sha256:x", State: memoryJobStateRunning, CreatedAt: now, AvailableAt: now, OwnerToken: "owner"}
-	job.JobID = memoryJobID(job.RepoKey, job.SessionRef, job.InputDigest, job.Kind)
-	if err := saveMemoryJob(brainDir, job); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := requestMemoryJobCancellation(brainDir, job, now); err != nil {
-		t.Fatal(err)
-	}
-	if err := purgeMemoryWorkForSessionLocked(brainDir, "purged"); err != nil {
-		t.Fatal(err)
-	}
-	if len(loadMemoryHints(brainDir)) != 0 || len(loadMemoryJobs(brainDir)) != 0 {
-		t.Fatal("privacy purge retained hint or job metadata")
-	}
-	if request, err := loadMemoryCancellationRequest(brainDir, job.JobID); err != nil || request != nil {
-		t.Fatalf("privacy purge retained cancellation marker: request=%+v err=%v", request, err)
-	}
-}
-
 type firstFailureAbstractor struct {
 	calls int
 }
@@ -1715,29 +1635,4 @@ func TestMemoryReconcileWorkerAndReceipts(t *testing.T) {
 		t.Fatalf("states after supersede = %+v", states)
 	}
 
-	// Tombstoning the session moves its active job to excluded and the next
-	// worker pass consumes any hint for it.
-	stones := brainstore.LoadSessionTombstones(brainDir)
-	stones.Excluded["sess-live"] = sessionTombstone{At: now}
-	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		_, err := reconcileMemoryJobsForTestLocked(brainDir, "manual", now.Add(2*time.Minute))
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	excludedSeen := false
-	for _, job := range loadMemoryJobs(brainDir) {
-		if job.SessionID == "sess-live" && job.State == memoryJobStateExcluded {
-			excludedSeen = true
-		}
-		if job.SessionID == "sess-live" && (job.State == memoryJobStatePending || job.State == memoryJobStateRunning) {
-			t.Fatalf("tombstoned session still has active work: %+v", job)
-		}
-	}
-	if !excludedSeen {
-		t.Fatal("tombstoned session's pending job must move to excluded")
-	}
 }

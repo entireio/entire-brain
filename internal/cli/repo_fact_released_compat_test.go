@@ -135,8 +135,14 @@ func (f *releasedMemoryFixture) purge(binary, brainDir, session string) {
 	}
 }
 
+// TestRepoFactStoreReleasedPrivacyDeletion pins the compatibility window for
+// stores a RELEASED binary's `privacy purge` cleaned. The current binary has
+// no privacy commands (deletion mirrors the checkpoint refs); what it must
+// still guarantee is that an old purge's result stays clean through current
+// reads and migrations, and that `memories storage migrate` removes the
+// hidden schema 1 residue an old purge leaves behind.
 func TestRepoFactStoreReleasedPrivacyDeletion(t *testing.T) {
-	for _, mode := range []string{"legacy", "converted-old-purge", "converted-new-purge", "schema1-old-purge-new-repair"} {
+	for _, mode := range []string{"legacy", "converted-old-purge", "schema1-old-purge-new-migrate"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newReleasedMemoryFixture(t)
 			rec := f.remember(f.old, "RELEASED-PRIVATE-CANARY-84719", "main")
@@ -176,19 +182,15 @@ func TestRepoFactStoreReleasedPrivacyDeletion(t *testing.T) {
 			if mode != "legacy" {
 				f.run(f.current, "memories", "storage", "migrate", "--json")
 			}
-			if mode == "schema1-old-purge-new-repair" {
+			if mode == "schema1-old-purge-new-migrate" {
 				writeSchema1Fixture(t, root)
 			}
-			purger := f.old
-			if mode == "converted-new-purge" {
-				purger = f.current
-			}
-			f.purge(purger, root, "private-session")
-			if mode == "schema1-old-purge-new-repair" {
-				if out, err := f.call(f.current, "privacy", "verify", "--json"); err == nil || !bytes.Contains(out, []byte(`"clean": false`)) {
-					t.Fatalf("hidden snapshot was not detected: %s, %v", out, err)
-				}
-				f.purge(f.current, root, "private-session")
+			f.purge(f.old, root, "private-session")
+			if mode == "schema1-old-purge-new-migrate" {
+				// The old purge cannot remove the hidden schema 1 snapshot
+				// body; the current client's migration persists reconciliation
+				// and removes the residue.
+				f.run(f.current, "memories", "storage", "migrate", "--json")
 			}
 			if err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 				if err != nil {
@@ -208,8 +210,8 @@ func TestRepoFactStoreReleasedPrivacyDeletion(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
+			f.run(f.old, "privacy", "verify", "--json")
 			for _, binary := range []string{f.old, f.current} {
-				f.run(binary, "privacy", "verify", "--json")
 				f.requireVisible(binary, "main", nil, []factRecord{rec})
 			}
 		})

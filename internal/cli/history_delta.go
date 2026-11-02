@@ -276,10 +276,6 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 	if manifest.Sources != nil {
 		source = manifest.Sources.History
 	}
-	stones, _, err := brainstore.LoadSessionTombstonesChecked(outputDir)
-	if err != nil {
-		return stats, err
-	}
 	inventory, err := collectHistorySessionInventory(ctx, outputDir)
 	if err != nil {
 		// Match the explicit sentinel, not fs.ErrNotExist: a transcript
@@ -298,10 +294,6 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 	files := inventory.files
 	cache := loadHistoryScanCache(outputDir)
 	previous := loadHistoryShortTerm(outputDir, source)
-	excludedByPath, err := excludedTranscriptPathsChecked(outputDir, manifest, stones)
-	if err != nil {
-		return stats, err
-	}
 	branchByPath := historyBranchByTranscriptPath(manifest)
 	sessionByPath := historySessionByTranscriptPath(manifest)
 	repoKey := ""
@@ -323,9 +315,6 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 			return stats, err
 		}
 		rel := file.Rel
-		if _, excluded := excludedByPath[rel]; excluded {
-			continue
-		}
 		content, contentDigest, readErr := readHistorySessionInventoryFile(ctx, inventory, file)
 		if readErr != nil {
 			if shortTermCanonicalInputRefusal(readErr) {

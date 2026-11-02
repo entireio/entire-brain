@@ -537,15 +537,6 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 	if err != nil {
 		return err
 	}
-	overviewPrivacyGuard, err := bmanifest.LoadSessionReadGuard(status.Brain.Path, status.Manifest)
-	if err != nil {
-		return err
-	}
-	privacyPolicy := retrievalPrivacyPolicy{BrainDir: status.Brain.Path, Identity: overviewPrivacyGuard.PolicyIdentity}
-	privacyPolicy.RequireDerivedClean = true
-	if err := requirePrivacyDerivedRead(status.Brain.Path); err != nil {
-		return err
-	}
 	report := brainOverviewReport{
 		GeneratedAt: opts.Now().UTC(),
 		Repo:        status.Repo,
@@ -597,7 +588,7 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 			// The history source is declared, so an unreadable index is a
 			// storage failure, not an empty decision log. Report it instead of
 			// letting the section vanish from an otherwise confident summary.
-			recent, recentErr := recentDecisionMatches(status.Brain.Path, status.Manifest.Sources.History, decisions, overviewPrivacyGuard)
+			recent, recentErr := recentDecisionMatches(status.Brain.Path, status.Manifest.Sources.History, decisions)
 			if recentErr != nil {
 				report.Warnings = append(report.Warnings, "recent decisions unavailable: the manifest declares a history index that could not be read: "+recentErr.Error())
 			} else {
@@ -617,7 +608,7 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 	if err != nil {
 		return err
 	}
-	return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
+	return bufferRetrievalCommandOutput(cmd, func() error {
 		if jsonOut {
 			return cmdutil.WriteJSON(cmd, report)
 		}
@@ -631,7 +622,7 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 // It returns an error when the declared history index cannot be loaded: an
 // unreadable index is not an empty decision log, and a caller that cannot tell
 // the two apart reads a silently truncated summary as a complete one.
-func recentDecisionMatches(brainDir string, source *historySourceManifest, limit int, guard sessionReadGuard) ([]brainTextMatch, error) {
+func recentDecisionMatches(brainDir string, source *historySourceManifest, limit int) ([]brainTextMatch, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
@@ -641,7 +632,7 @@ func recentDecisionMatches(brainDir string, source *historySourceManifest, limit
 	}
 	var decisions []historyRecord
 	for _, record := range index.Records {
-		if record.Kind == "decision" && !historystore.GuardBlocksRecord(guard, record) {
+		if record.Kind == "decision" {
 			decisions = append(decisions, record)
 		}
 	}
@@ -1490,13 +1481,6 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	if err != nil {
 		return err
 	}
-	briefPrivacyGuard, err := bmanifest.LoadSessionReadGuard(status.Brain.Path, status.Manifest)
-	if err != nil {
-		return err
-	}
-	if err := requirePrivacyDerivedRead(status.Brain.Path); err != nil {
-		return err
-	}
 	report := brainBriefReport{
 		GeneratedAt: opts.Now().UTC(),
 		Task:        task,
@@ -1698,41 +1682,22 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		if historyErr != nil {
 			report.Warnings = append(report.Warnings, "history context unavailable: "+historyErr.Error())
 		} else {
-			// Exclusion guard: the brief's history arm honors
-			// tombstones at read time like every retrieval surface. The
-			// long-term ranking above was computed before the guard existed in
-			// this scope, so the post-filter below is what protects it; the
-			// predicate handed to rankFreshHistory protects the overlay arm.
-			briefGuard := briefPrivacyGuard
-			var briefGuardPred func(historyRecord) bool
-			if !briefGuard.Empty() {
-				briefGuardPred = func(r historyRecord) bool { return !historystore.GuardBlocksRecord(briefGuard, r) }
-			}
 			if len(freshOverlay.overlay) > 0 || len(freshOverlay.replaced) > 0 {
 				if rankedHistoryIndex != nil {
 					// Reuse the truth already loaded by the legacy arm.
 					freshOverlay.index = *rankedHistoryIndex
-					scoredHistory = rankFreshHistory(freshOverlay, "history", task, briefOpts.limit, briefGuardPred, func(index historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
+					scoredHistory = rankFreshHistory(freshOverlay, "history", task, briefOpts.limit, nil, func(index historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
 						lex, complete, ok := rankHistoryViaFTSFiltered(status.Brain.Path, index, "history", task, briefOpts.limit, historyFTSRelevanceCutoff, eligible)
 						return lex, ok && complete
 					})
 				} else {
 					// A validated payload ranking does not need JSON truth. Apply
-					// replacement/privacy eligibility in that same payload path.
-					scoredHistory, _, _, historyErr = rankFreshHistoryLexicalFromSource(status.Brain.Path, source, "history", task, briefOpts.limit, briefGuardPred)
+					// replacement eligibility in that same payload path.
+					scoredHistory, _, _, historyErr = rankFreshHistoryLexicalFromSource(status.Brain.Path, source, "history", task, briefOpts.limit, nil)
 					if historyErr != nil {
 						report.Warnings = append(report.Warnings, "history context unavailable: "+historyErr.Error())
 					}
 				}
-			}
-			if briefGuardPred != nil {
-				kept := scoredHistory[:0:0]
-				for _, s := range scoredHistory {
-					if briefGuardPred(s.Record) {
-						kept = append(kept, s)
-					}
-				}
-				scoredHistory = kept
 			}
 			indexedMatches := make([]brainTextMatch, 0, len(scoredHistory))
 			for _, scored := range scoredHistory {
@@ -1812,9 +1777,6 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			if len(briefGlobalFacts) > 0 {
 				facts, briefGlobalIDs = retrieval.MergeGlobalFacts(facts, briefGlobalFacts)
 			}
-			// Exclusion guard: the brief's fact context honors
-			// tombstones at read time like every retrieval surface.
-			facts = factstore.GuardRecords(briefPrivacyGuard, facts)
 			factsRankStarted := profile.start()
 			report.Facts = rankFacts(facts, task, brainBriefFactsCount(briefOpts.limit), false)
 			report.GlobalFactIDs = factscmd.SortedGlobalFactIDs(report.Facts, briefGlobalIDs)
@@ -1928,14 +1890,9 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), status.Brain.Path, receiptBranch, receiptSurface,
 			status.Live.Head, task, receiptFactIDs)
 	}
-	// Every brief response leaves through the retrieval privacy boundary, so a
-	// tombstone landing mid-brief invalidates the response instead of letting
-	// already-rendered bytes escape. That means buffering the packet
-	// even on the non-profiling path; emitBrainBriefPacket dispatches text,
-	// legacy JSON, and the compact formats alike, so one wrapper covers all of
-	// them.
-	privacyPolicy := retrievalPrivacyPolicy{BrainDir: status.Brain.Path, Identity: briefPrivacyGuard.PolicyIdentity}
-	privacyPolicy.RequireDerivedClean = true
+	// Every brief response is buffered so a render failure emits nothing;
+	// emitBrainBriefPacket dispatches text, legacy JSON, and the compact
+	// formats alike, so one wrapper covers all of them.
 	if profile == nil {
 		var packet bytes.Buffer
 		packetCmd := &cobra.Command{}
@@ -1943,7 +1900,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		if err := emitBrainBriefPacket(packetCmd, report, packetFormat); err != nil {
 			return err
 		}
-		if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), packet.Bytes(), privacyPolicy); err != nil {
+		if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), packet.Bytes()); err != nil {
 			return err
 		}
 		if len(receiptFactIDs) > 0 {
@@ -1975,7 +1932,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	if err := writeBrainBriefProfile(briefOpts.profileJSON, *profile); err != nil {
 		return err
 	}
-	if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), packet.Bytes(), privacyPolicy); err != nil {
+	if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), packet.Bytes()); err != nil {
 		return err
 	}
 	if len(receiptFactIDs) > 0 {
@@ -5083,18 +5040,46 @@ func (r *brainBriefCountingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// catalogTranscriptRels returns the manifest-listed transcript paths, or nil
+// when the brain has no sessions source to bound against (nothing exported
+// yet). Raw walkers skip sessions/ files outside this set: a deleted
+// checkpoint's cached transcript can linger until the next full export
+// sweeps it (the watch daemon's tick skips the sweep), and a raw walk must
+// not serve it. An unreadable manifest fails the scan rather than scanning
+// unbounded.
+func catalogTranscriptRels(brainDir string) (map[string]bool, error) {
+	manifest, err := bmanifest.Load(brainDir)
+	if err != nil {
+		return nil, err
+	}
+	if manifest.Sources == nil || manifest.Sources.Sessions == nil {
+		return nil, nil
+	}
+	rels := map[string]bool{}
+	for _, session := range manifest.Sources.Sessions.Sessions {
+		if rel := brainstore.NormalizeTranscriptPath(session.TranscriptPath); rel != "" {
+			rels[rel] = true
+		}
+	}
+	return rels, nil
+}
+
+// rawScanSkipsSessionFile reports whether a sessions-tree file is outside the
+// checkpoint catalog and must not be read by a raw walk. A nil catalog means
+// no sessions source exists, so there is no catalog to enforce.
+func rawScanSkipsSessionFile(relSlash string, catalog map[string]bool) bool {
+	return catalog != nil && strings.HasPrefix(relSlash, brainstore.SessionsDirName+"/") && !catalog[relSlash]
+}
+
 // brainRawScanSkipsDerived reports whether a Brain-relative path is DERIVED
 // state that a raw text walk must not read.
 //
-// The exclusion guard available to a raw walk matches transcript PATHS, because
-// a bare file carries no session identity. That is enough for sessions/, but a
-// derived store is rebuilt FROM those transcripts and holds their content under
-// its own filenames: the short-term overlay, the history index and its
-// generations, distilled facts, pattern outputs. A tombstone that has landed
-// but whose cleanup has not finished (or was interrupted) leaves exactly that
-// content on disk, so scanning derived state would surface what the guard
-// exists to hide. Both raw walkers share this rule; keeping it in one place is
-// what stops the two skip lists from drifting apart again.
+// A derived store is rebuilt FROM the session transcripts and holds their
+// content under its own filenames: the short-term overlay, the history index
+// and its generations, distilled facts, pattern outputs. Scanning derived
+// state would duplicate every hit the sessions tree already yields. Both raw
+// walkers share this rule; keeping it in one place is what stops the two skip
+// lists from drifting apart again.
 func brainRawScanSkipsDerived(relSlash string) bool {
 	if relSlash == bmanifest.FileName {
 		return true
@@ -5128,21 +5113,9 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, obse
 	if maxHits <= 0 {
 		maxHits = brainInspectHistoryMaxHits
 	}
-	// Exclusion guard: the raw walk reads exported transcripts, so a
-	// tombstoned session's transcript (kept on exclude, deleted on purge)
-	// must be skipped here. rawGuard.Paths is the ONLY exclusion mechanism in
-	// this walk (there is no session id to match against a bare file), and it
-	// is populated only from the manifest, so a manifest that fails to load
-	// must fail the scan rather than silently scanning excluded transcripts.
-	// An absent manifest is not an error: bmanifest.Load returns an empty
-	// one, and a brain with no manifest has no exported sessions to exclude.
-	rawManifest, manifestErr := bmanifest.Load(brainDir)
-	if manifestErr != nil {
-		return report, manifestErr
-	}
-	rawGuard, guardErr := bmanifest.LoadSessionReadGuard(brainDir, rawManifest)
-	if guardErr != nil {
-		return report, guardErr
+	catalog, catalogErr := catalogTranscriptRels(brainDir)
+	if catalogErr != nil {
+		return report, catalogErr
 	}
 	err := filepath.WalkDir(brainDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -5166,10 +5139,7 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, obse
 		}
 		rel, _ := filepath.Rel(brainDir, path)
 		relSlash := filepath.ToSlash(rel)
-		if brainRawScanSkipsDerived(relSlash) {
-			return nil
-		}
-		if _, excluded := rawGuard.Paths[relSlash]; excluded {
+		if brainRawScanSkipsDerived(relSlash) || rawScanSkipsSessionFile(relSlash, catalog) {
 			return nil
 		}
 		report.Scanned++
@@ -5386,22 +5356,10 @@ func brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task string, existi
 		}()
 	}
 
-	// Exclusion guard, identical to inspectBrainRawText's. This is the
-	// shared product and profiling path, so without this a
-	// tombstoned session's transcript would be scanned here and its lines
-	// merged straight into report.History.Matches. rawGuard.Paths is the only
-	// exclusion mechanism available in a raw file walk, and it is populated
-	// only from the manifest, so an unreadable manifest must fail the scan
-	// rather than scan unguarded. An absent manifest is not an error.
-	rawManifest, manifestErr := bmanifest.Load(brainDir)
-	if manifestErr != nil {
-		return nil, manifestErr
+	catalog, catalogErr := catalogTranscriptRels(brainDir)
+	if catalogErr != nil {
+		return nil, catalogErr
 	}
-	rawGuard, guardErr := bmanifest.LoadSessionReadGuard(brainDir, rawManifest)
-	if guardErr != nil {
-		return nil, guardErr
-	}
-
 	fullQueries := 0
 	scannedFiles := 0
 	scanBuffer := make([]byte, 64*1024)
@@ -5432,12 +5390,9 @@ func brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task string, existi
 		rel, _ := filepath.Rel(brainDir, path)
 		relSlash := filepath.ToSlash(rel)
 		// Generation and staging directories hold projection copies of the same
-		// transcripts; scanning them would both duplicate hits and re-surface
-		// content the guard already excluded from the live projection.
-		if brainRawScanSkipsDerived(relSlash) {
-			return nil
-		}
-		if _, excluded := rawGuard.Paths[relSlash]; excluded {
+		// transcripts; scanning them would duplicate hits from the live
+		// projection.
+		if brainRawScanSkipsDerived(relSlash) || rawScanSkipsSessionFile(relSlash, catalog) {
 			return nil
 		}
 		scannedFiles++
@@ -5691,7 +5646,7 @@ func historyRecordTextMatch(record historyRecord) brainTextMatch {
 	return match
 }
 
-func brainBriefFocusedHistoryMatches(brainDir string, fresh freshHistory, primary semanticRecord, limit int, fGuard sessionReadGuard) []brainTextMatch {
+func brainBriefFocusedHistoryMatches(brainDir string, fresh freshHistory, primary semanticRecord, limit int) []brainTextMatch {
 	if limit <= 0 {
 		return nil
 	}
@@ -5703,25 +5658,15 @@ func brainBriefFocusedHistoryMatches(brainDir string, fresh freshHistory, primar
 		return nil
 	}
 	candidateLimit := brainBriefExpandedCandidateLimit(limit, 3)
-	// Exclusion guard: tombstoned sessions stay out of the focused
-	// history context. The serving boundary loaded it fail-closed before
-	// assembling the brief.
-	var fGuardPred func(historyRecord) bool
-	if !fGuard.Empty() {
-		fGuardPred = func(r historyRecord) bool { return !historystore.GuardBlocksRecord(fGuard, r) }
-	}
 	// rankFreshHistory keeps the FTS arm on the on-disk long-term index
 	// and fuses the short-term overlay in memory (Bugbot PR #77: passing a
 	// merged index here rebuilt or misresolved the BM25 store).
-	scored := rankFreshHistory(fresh, "history", query, candidateLimit, fGuardPred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
+	scored := rankFreshHistory(fresh, "history", query, candidateLimit, nil, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
 		lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, "history", query, candidateLimit, historyFTSRelevanceCutoff, eligible)
 		return lex, ok && complete
 	})
 	records := make([]historyRecord, 0, len(scored))
 	for _, item := range scored {
-		if fGuardPred != nil && !fGuardPred(item.Record) {
-			continue
-		}
 		records = append(records, item.Record)
 	}
 	// A command that merely searched for a symbol is weaker evidence than the

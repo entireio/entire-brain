@@ -221,21 +221,15 @@ func collectEvidence(ctx context.Context, brainDir, branch, query string, limit,
 		c.Warnings = append(c.Warnings, "no canonical sessions declared; absence of evidence is not evidence of absence")
 		return c, nil
 	}
-	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
-	if err != nil {
-		return c, err
-	}
 	// Facts are retrieval handles only. Never substitute distilled claims for bytes.
 	anchored := map[string]bool{}
 	facts, err := factstore.Load(brainDir, branch)
 	if err != nil {
 		c.Warnings = append(c.Warnings, "fact store unavailable; searching canonical sessions only")
 	} else {
-		for _, f := range rankFacts(factstore.GuardRecords(guard, facts), query, limit, false) {
+		for _, f := range rankFacts(facts, query, limit, false) {
 			for _, a := range f.Provenance {
-				if !factstore.GuardBlocksFactAnchor(guard, a) {
-					anchored[a.SessionID] = true
-				}
+				anchored[a.SessionID] = true
 			}
 		}
 	}
@@ -264,7 +258,7 @@ func collectEvidence(ctx context.Context, brainDir, branch, query string, limit,
 		if b == "" {
 			b = distillDefaultBranch
 		}
-		if b != branch || bmanifest.GuardBlocksSession(guard, s) {
+		if b != branch {
 			continue
 		}
 		if prev, ok := seen[s.SessionID]; ok {

@@ -187,54 +187,6 @@ func TestDashReportsAnUnreadableSourceAsUnreadable(t *testing.T) {
 	}
 }
 
-// TestDashTerminalWriterKeepsTheTerminalVisible is the fix for a dashboard that
-// never painted.
-//
-// bubbletea learns the window size by calling Fd() on its output, and only when
-// that output satisfies term.File (an io.ReadWriteCloser with an Fd). Handing it
-// a bare privacy wrapper — one Write method — meant "can't query window size":
-// no initial WindowSizeMsg, no SIGWINCH watcher, and a Model that stayed on its
-// pre-size placeholder forever. Driven through a pty, `dash` printed "loading…"
-// and nothing else, while still accepting keys and exiting 0 on q, which is why
-// no exit-code check ever caught it.
-func TestDashTerminalWriterKeepsTheTerminalVisible(t *testing.T) {
-	file, err := os.CreateTemp(t.TempDir(), "dash-out")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer file.Close()
-
-	writer := dashTerminalWriter(file, retrievalPrivacyPolicy{})
-	probe, ok := writer.(interface {
-		Fd() uintptr
-		Read([]byte) (int, error)
-		Close() error
-	})
-	if !ok {
-		t.Fatalf("dash hands bubbletea a %T, which cannot report a window size; the dashboard would never leave its loading state", writer)
-	}
-	if probe.Fd() != file.Fd() {
-		t.Errorf("Fd() = %d, want the terminal's %d", probe.Fd(), file.Fd())
-	}
-
-	// The privacy boundary is unchanged: writes still land on the wrapped stream.
-	if _, err := writer.Write([]byte("frame")); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	data, err := os.ReadFile(file.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "frame" {
-		t.Errorf("wrote %q to the terminal, want %q", data, "frame")
-	}
-
-	// A non-file stream (a pipe, a test buffer) keeps the plain guarded writer.
-	if _, ok := dashTerminalWriter(&strings.Builder{}, retrievalPrivacyPolicy{}).(dashTTYWriter); ok {
-		t.Error("a non-terminal stream was wrapped as a terminal")
-	}
-}
-
 // TestDashPlainAndJSONAgree: --plain, --json and the dashboard all render the
 // same tui.Snapshot, so a fact present in one must be present in all three. The
 // plain renderer is the one that can drift, because it re-derives its labels

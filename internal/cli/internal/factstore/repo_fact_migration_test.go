@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func TestRepoFactStoreRollbackPartialPublicationCanRetry(t *testing.T) {
@@ -175,35 +174,6 @@ func TestRepoFactStoreSchema2MarkerValidation(t *testing.T) {
 			raw, err := os.ReadFile(filepath.Join(root, FileRelPath("main")))
 			if err != nil || !bytes.Contains(raw, []byte(a.Text)) {
 				t.Fatalf("invalid marker changed data: %v", err)
-			}
-		})
-	}
-}
-
-func TestRepoFactStoreSchema1ConversionRejectsUntrustedPrivacyState(t *testing.T) {
-	for _, state := range []string{`{`, `{"version":999,"excluded":{}}`} {
-		t.Run(state, func(t *testing.T) {
-			root := t.TempDir()
-			a := repoStoreFact("must not change", "main")
-			writeLegacyView(t, root, "main", []factmerge.Record{a})
-			writeSchema1FromLegacy(t, root)
-			if err := brainstore.WriteBrainRelativeFileAtomic(root, brainstore.SessionTombstonesPath, []byte(state), 0600); err != nil {
-				t.Fatal(err)
-			}
-			snapshot, _ := os.ReadFile(filepath.Join(root, RepositoryPath))
-			legacy, _ := os.ReadFile(filepath.Join(root, FileRelPath("main")))
-			for _, action := range []func(string) error{MigrateRepository, RollbackRepository, func(root string) error { return Write(root, "main", nil) }} {
-				if err := action(root); err == nil {
-					t.Fatal("conversion ignored invalid privacy state")
-				}
-				after, _ := os.ReadFile(filepath.Join(root, RepositoryPath))
-				if !bytes.Equal(snapshot, after) {
-					t.Fatal("failed conversion changed snapshot")
-				}
-				after, _ = os.ReadFile(filepath.Join(root, FileRelPath("main")))
-				if !bytes.Equal(legacy, after) {
-					t.Fatal("failed conversion changed legacy payload")
-				}
 			}
 		})
 	}

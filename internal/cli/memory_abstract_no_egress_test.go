@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -186,6 +187,22 @@ func TestGlobalNoEgressRefusesHostedAbstractJobBeforeClaimWrites(t *testing.T) {
 	if factoryCalls != 0 {
 		t.Fatalf("hosted claim resolved provider %d times", factoryCalls)
 	}
+}
+
+type privacyCountingAbstractor struct {
+	calls atomic.Int32
+}
+
+func (a *privacyCountingAbstractor) Identity() (string, string, string) {
+	return "local", "ollama", "privacy-test"
+}
+
+func (a *privacyCountingAbstractor) Abstract(_ context.Context, _ string, input conversationAbstractInput) (sessionAbstract, error) {
+	a.calls.Add(1)
+	return sessionAbstract{Overview: abstractStatement{
+		Text:        "private abstract",
+		EvidenceIDs: []string{input.Windows[0][0].ConversationID},
+	}}, nil
 }
 
 func TestGlobalNoEgressAllowsExplicitLocalOllamaAbstractConfiguration(t *testing.T) {

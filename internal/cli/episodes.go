@@ -108,12 +108,6 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 		warnings []string
 		counts   reinforcementCounts
 	)
-	// Session tombstones (Phase 4): excluded sessions and any duplicate
-	// manifest aliases of their transcript contribute no episodes.
-	guard, err := bmanifest.LoadSessionReadGuard(outputDir, manifest)
-	if err != nil {
-		return nil, nil, err
-	}
 	// Episodes are a complete projection of the canonical session tree. Refuse
 	// the build before parsing if any entry is unsafe or the bounded inventory
 	// cannot be proven complete, and prove the entire membership stayed fixed
@@ -124,9 +118,6 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 	}
 	defer beforeInventory.Close()
 	for _, session := range manifest.Sources.Sessions.Sessions {
-		if bmanifest.GuardBlocksSession(guard, session) {
-			continue
-		}
 		rel := strings.TrimSpace(session.TranscriptPath)
 		if rel == "" {
 			continue
@@ -205,12 +196,8 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 	})
 
 	source := &patternSourceManifest{
-		GeneratedAt:  now,
-		EpisodesPath: patternsEpisodesPath,
-		// The guard's identity is the exact tombstone bytes this build
-		// filtered against, so the recorded epoch cannot drift from the
-		// corpus it describes.
-		PrivacyIdentity:     guard.PolicyIdentity,
+		GeneratedAt:         now,
+		EpisodesPath:        patternsEpisodesPath,
 		SessionsFingerprint: brainSessionsFingerprint(outputDir),
 		Episodes:            len(episodes),
 		Reinforcement:       counts,
@@ -289,31 +276,14 @@ func writeBrainEpisodesAndSourceLocked(outputDir string, now time.Time) (*patter
 }
 
 // patternSourceCurrent reports whether a recorded patterns source still
-// describes the brain's inputs. Both inputs matter: the canonical session set
-// AND the tombstone policy the corpus was filtered against. `patterns status`
-// and the refresh trigger share this so they can never disagree about whether
-// a rebuild is owed.
-//
-// A source recorded before privacy_identity existed carries "", which stays
-// current only while the brain has no tombstones at all — the same allowance
-// the vector epoch check already makes. Once a tombstone exists, a corpus that
-// cannot name the epoch it filtered against is exactly the silently-rewritten
-// one this predicate has to catch.
+// describes the brain's canonical session set. `patterns status` and the
+// refresh trigger share this so they can never disagree about whether a
+// rebuild is owed.
 func patternSourceCurrent(source *patternSourceManifest, brainDir string) bool {
 	if source == nil {
 		return false
 	}
-	if !sessionSourceFingerprintCurrent(source.SessionsFingerprint, brainSessionsFingerprint(brainDir)) {
-		return false
-	}
-	_, state, err := brainstore.LoadSessionTombstonesChecked(brainDir)
-	if err != nil {
-		return false
-	}
-	if source.PrivacyIdentity == state.Identity {
-		return true
-	}
-	return source.PrivacyIdentity == "" && state.State == brainstore.SessionTombstoneAbsent
+	return sessionSourceFingerprintCurrent(source.SessionsFingerprint, brainSessionsFingerprint(brainDir))
 }
 
 // refreshPatternLayer rebuilds the pattern layer (episodes -> tasks, procedures,

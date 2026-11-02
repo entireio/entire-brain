@@ -11,7 +11,6 @@ import (
 	"context"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
@@ -24,18 +23,16 @@ type Deps struct {
 	// ResolveRepoAndBrain resolves both the local repo directory (needed as
 	// the agent runner's working dir) and the brain storage dir for that repo.
 	ResolveRepoAndBrain func(ctx context.Context, opts base.Options, target string) (repoDir, brainDir string, err error)
-	// RequireDerivedCleanRead fails a derived-layer read while a privacy
-	// transaction holds the brain.
-	RequireDerivedCleanRead func(brainDir string) error
-	// BufferRetrievalCommandOutput revalidates the captured privacy policies
-	// and emits the buffered response, binding the cli transport race seams.
-	BufferRetrievalCommandOutput func(cmd *cobra.Command, policies []brainstore.RetrievalPrivacyPolicy, render func() error) error
+	// BufferRetrievalCommandOutput buffers the rendered response and emits it
+	// only when rendering succeeded, so a render error never leaves partial
+	// output behind.
+	BufferRetrievalCommandOutput func(cmd *cobra.Command, render func() error) error
 	// RefreshPatternLayer rebuilds episodes and publishes the corpus for
 	// `patterns refresh` — the stricter surface, where a corpus failure is
 	// fatal.
 	RefreshPatternLayer func(ctx context.Context, opts base.Options, repoDir, brainDir string) (*bmanifest.PatternSource, error)
 	// PatternSourceCurrent reports whether the recorded patterns source is
-	// still current for the brain's sessions and tombstone epoch.
+	// still current for the brain's sessions.
 	PatternSourceCurrent func(source *bmanifest.PatternSource, brainDir string) bool
 	// VerifyCommand builds the `patterns verify` subcommand, which stays in
 	// cli with the agent-verifier engine it binds.

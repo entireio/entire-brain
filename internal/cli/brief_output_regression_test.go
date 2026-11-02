@@ -189,38 +189,6 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 			t.Fatalf("malformed manifest emitted stdout %q (stderr=%q)", stdout, stderr)
 		}
 	})
-	t.Run("malformed tombstones fail closed before output", func(t *testing.T) {
-		fixture := newBrainBriefOutputFixture(t)
-		path := filepath.Join(fixture.brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath))
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte("{not-json"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		stdout, stderr, err := executeSplit(t, NewRootCommand(fixture.opts), "brief", "metadata", "--json")
-		if err == nil {
-			t.Fatalf("malformed tombstones unexpectedly succeeded: %s", stdout)
-		}
-		if stdout != "" {
-			t.Fatalf("malformed tombstones emitted stdout %q (stderr=%q)", stdout, stderr)
-		}
-	})
-	t.Run("dirty privacy state blocks derived output", func(t *testing.T) {
-		fixture := newBrainBriefOutputFixture(t)
-		stones := brainstore.LoadSessionTombstones(fixture.brainDir)
-		stones.Excluded["brief-evidence-1"] = sessionTombstone{At: fixture.opts.Now(), Reason: "brief regression"}
-		if err := brainstore.SaveSessionTombstones(fixture.brainDir, stones); err != nil {
-			t.Fatal(err)
-		}
-		stdout, stderr, err := executeSplit(t, NewRootCommand(fixture.opts), "brief", "ValidateToken", "--json")
-		if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) {
-			t.Fatalf("dirty privacy state was not rejected: %v stdout=%s stderr=%s", err, stdout, stderr)
-		}
-		if stdout != "" {
-			t.Fatalf("dirty privacy state emitted stdout %q", stdout)
-		}
-	})
 	t.Run("malformed semantic store degrades with public warnings", func(t *testing.T) {
 		fixture := newBrainBriefOutputFixture(t)
 		d := fixture.opts.Runner.(*fakeCommandRunner).graphStoreFixtures[fixture.repoDir+"\x00full"]

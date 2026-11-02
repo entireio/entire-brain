@@ -156,12 +156,7 @@ func Run(ctx context.Context, cmd *cobra.Command, cfg Config, query string, mode
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
-	if err != nil {
-		return err
-	}
 	if patterns {
-		privacyPolicy.RequireDerivedClean = true
 		if err := cfg.Deps.RequirePatternsReadable(brainDir); err != nil {
 			return err
 		}
@@ -180,7 +175,6 @@ func Run(ctx context.Context, cmd *cobra.Command, cfg Config, query string, mode
 		return err
 	}
 	multiConcept := len(ropts.Concepts) > 0
-	policyIdentityBeforeExtras := privacyPolicy.Identity
 	factIDs := unifiedFactIDs(results)
 	recordReceipt := func() {
 		cfg.Deps.RecordServedFacts(cmd.ErrOrStderr(), ctx, cfg.Options, brainDir, resolvedBranch, surface,
@@ -240,7 +234,7 @@ func Run(ctx context.Context, cmd *cobra.Command, cfg Config, query string, mode
 			if err != nil {
 				return err
 			}
-			if err := cfg.Deps.WriteRetrievalResponse(cmd.OutOrStdout(), serialized, privacyPolicy); err != nil {
+			if err := cfg.Deps.WriteRetrievalResponse(cmd.OutOrStdout(), serialized); err != nil {
 				return err
 			}
 			if len(factIDs) > 0 {
@@ -294,28 +288,13 @@ func Run(ctx context.Context, cmd *cobra.Command, cfg Config, query string, mode
 		}); err != nil {
 			return err
 		}
-		if err := cfg.Deps.WriteRetrievalResponse(cmd.OutOrStdout(), rendered.Bytes(), privacyPolicy); err != nil {
+		if err := cfg.Deps.WriteRetrievalResponse(cmd.OutOrStdout(), rendered.Bytes()); err != nil {
 			return err
 		}
 		if len(factIDs) > 0 {
 			recordReceipt()
 		}
 		return nil
-	}
-	// Ranking may be slow enough for a concurrent exclusion to land after its
-	// first guard snapshot. Revalidate immediately before transport assembly;
-	// no JSON or text bytes are emitted before this check succeeds.
-	results, policyAfter, err := cfg.Deps.RevalidateResponsePrivacy(brainDir, results)
-	if err != nil {
-		return err
-	}
-	if policyAfter != policyIdentityBeforeExtras {
-		// Optional derived material was read under a superseded privacy policy.
-		// Rows were freshly revalidated above; discard the stale extras instead
-		// of allowing a completed fast cleanup to make them look current.
-		related = nil
-		abstractPreviews = nil
-		abstractPreviewsTruncated = true
 	}
 	extras := retrieval.TransportExtras{
 		AbstractPreviews:          abstractPreviews,
@@ -333,7 +312,7 @@ func Run(ctx context.Context, cmd *cobra.Command, cfg Config, query string, mode
 	if err != nil {
 		return err
 	}
-	if err := cfg.Deps.WriteRetrievalResponse(cmd.OutOrStdout(), data, brainstore.RetrievalPrivacyPolicy{BrainDir: brainDir, Identity: policyAfter}); err != nil {
+	if err := cfg.Deps.WriteRetrievalResponse(cmd.OutOrStdout(), data); err != nil {
 		return err
 	}
 	if len(factIDs) > 0 {
@@ -469,14 +448,9 @@ func RunGet(ctx context.Context, cmd *cobra.Command, cfg Config, ids []string, b
 	if err != nil {
 		return nil, err
 	}
-	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
-	if err != nil {
-		return nil, err
-	}
 	requestedPattern := false
 	for _, id := range ids {
 		if strings.HasPrefix(id, "pattern:") || strings.HasPrefix(id, "theme:") {
-			privacyPolicy.RequireDerivedClean = true
 			requestedPattern = true
 			break
 		}
@@ -526,7 +500,7 @@ func RunGet(ctx context.Context, cmd *cobra.Command, cfg Config, ids []string, b
 		if err != nil {
 			return nil, err
 		}
-		if err := cfg.Deps.WriteRetrievalResponse(cmd.OutOrStdout(), serialized, privacyPolicy); err != nil {
+		if err := cfg.Deps.WriteRetrievalResponse(cmd.OutOrStdout(), serialized); err != nil {
 			return nil, err
 		}
 		if len(factIDs) > 0 {
@@ -560,7 +534,7 @@ func RunGet(ctx context.Context, cmd *cobra.Command, cfg Config, ids []string, b
 	}); err != nil {
 		return nil, err
 	}
-	if err := cfg.Deps.WriteRetrievalResponse(cmd.OutOrStdout(), rendered.Bytes(), privacyPolicy); err != nil {
+	if err := cfg.Deps.WriteRetrievalResponse(cmd.OutOrStdout(), rendered.Bytes()); err != nil {
 		return nil, err
 	}
 	if len(factIDs) > 0 {

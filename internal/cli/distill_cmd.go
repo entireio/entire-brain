@@ -27,7 +27,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
@@ -1032,10 +1031,6 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 
 	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
 	// Excluded sessions must never produce new derived facts.
-	sessions, err = filterTombstonedSessions(brainDir, sessions)
-	if err != nil {
-		return nil, err
-	}
 	// Chronological order so any future supersession chain reconstructs
 	// deterministically regardless of incremental vs --force. --newest-first
 	// reverses it for the backfill pass (see sortDistillSessions).
@@ -1786,11 +1781,6 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 		distillOpts.maxChunkBytes = defaultDistillChunkSize
 	}
 	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
-	// Excluded sessions must never produce new derived facts.
-	sessions, err := filterTombstonedSessions(brainDir, sessions)
-	if err != nil {
-		return distillPlan{}, err
-	}
 	sortDistillSessions(sessions, distillOpts.newestFirst)
 	prevCache := loadDistillCache(brainDir)
 	// Same disambiguation the run uses, so the plan a --dry-run prints is the
@@ -2464,10 +2454,8 @@ func distillDuplicateSessionKeys(sessions []exportSession, resolveBranch func(ex
 // sessions distillDuplicateSessionKeys flagged, which get the checkpoint id
 // interposed so the colliding entries stay distinct.
 //
-// The checkpoint goes BEFORE the session id, never after: `privacy purge`
-// (purgeDistillCacheEntries) and the post-purge leftover check
-// (verifySessionPrivacy) both evict by the "/<escaped session id>" SUFFIX, and
-// an id appended to the tail would make a purged session's entry unmatchable.
+// The checkpoint goes BEFORE the session id, never after, so the
+// "/<escaped session id>" suffix stays the stable tail of every key.
 func distillSessionCacheKeyFor(branch string, session exportSession, duplicates map[string]bool) string {
 	key := distillSessionCacheKey(branch, session.SessionID)
 	if !duplicates[key] {
@@ -3000,7 +2988,7 @@ func rebaseFactsOntoDisk(brainDir, branch string, inMemory, baseline []factRecor
 				}
 			}
 		}
-		out[i].Provenance = factmerge.UnionAnchors(record.Provenance, local.Provenance)
+		out[i].Provenance = mergeDistillAnchors(old.Provenance, record.Provenance, local.Provenance)
 		out[i].RelatedIDs = mergeDistillRelatedIDs(old.RelatedIDs, record.RelatedIDs, local.RelatedIDs)
 		if local.UpdatedAt.After(out[i].UpdatedAt) {
 			out[i].UpdatedAt = local.UpdatedAt
@@ -3012,6 +3000,41 @@ func rebaseFactsOntoDisk(brainDir, branch string, inMemory, baseline []factRecor
 		return existed && !diskIDs[record.ID]
 	})
 	return out, nil
+}
+
+// mergeDistillAnchors is the provenance three-way merge. Anchors can be added
+// by either writer, but the refresh mirror also REMOVES anchors whose session
+// left the checkpoint catalog. An anchor known at baseline and missing from
+// either side was removed by that side and must not be resurrected by a
+// concurrent distill flush; anchors absent from the baseline are independent
+// additions and union.
+func mergeDistillAnchors(baseline, disk, local []factAnchor) []factAnchor {
+	key := func(anchor factAnchor) string {
+		return strings.Join([]string{anchor.SessionID, anchor.Commit, anchor.CheckpointID, anchor.TurnID, anchor.Transcript, fmt.Sprint(anchor.Line)}, "\x00")
+	}
+	index := func(anchors []factAnchor) map[string]bool {
+		set := make(map[string]bool, len(anchors))
+		for _, anchor := range anchors {
+			set[key(anchor)] = true
+		}
+		return set
+	}
+	baselineSet, diskSet, localSet := index(baseline), index(disk), index(local)
+	seen := map[string]bool{}
+	out := make([]factAnchor, 0, len(disk)+len(local))
+	for _, anchors := range [][]factAnchor{disk, local} {
+		for _, anchor := range anchors {
+			k := key(anchor)
+			if baselineSet[k] && (!diskSet[k] || !localSet[k]) {
+				continue
+			}
+			if !seen[k] {
+				seen[k] = true
+				out = append(out, anchor)
+			}
+		}
+	}
+	return out
 }
 
 // Relationship links can be added by either writer, but admin resolution also

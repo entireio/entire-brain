@@ -116,9 +116,6 @@ func factsBackfillStatusForBrain(brainDir string) factsBackfillStatus {
 		return status
 	}
 	sessions := manifest.Sources.Sessions.Sessions
-	if kept, err := filterTombstonedSessions(brainDir, append([]exportSession(nil), sessions...)); err == nil {
-		sessions = kept
-	}
 	cache := loadDistillCache(brainDir)
 	for _, session := range sessions {
 		status.Sessions++

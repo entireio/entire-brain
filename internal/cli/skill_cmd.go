@@ -86,12 +86,7 @@ func runPatternsSkillsList(ctx context.Context, cmd *cobra.Command, opts Options
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
-	if err != nil {
-		return err
-	}
-	privacyPolicy.RequireDerivedClean = true
-	if err := requirePrivacyDerivedRead(brainDir); err != nil {
+	if err := patterncore.ValidateCorpusReadSafety(brainDir); err != nil {
 		return err
 	}
 	// V2 corpus is the primary source; a proposal is a promotable task backed by
@@ -114,7 +109,7 @@ func runPatternsSkillsList(ctx context.Context, cmd *cobra.Command, opts Options
 	if limit > 0 && len(tasks) > limit {
 		tasks = tasks[:limit]
 	}
-	return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
+	return bufferRetrievalCommandOutput(cmd, func() error {
 		if asJSON {
 			redacted := make([]taskCandidate, len(tasks))
 			for i, t := range tasks {
@@ -155,15 +150,10 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 		return err
 	}
 	brainDir := storage.BrainDir
-	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
-	if err != nil {
-		return err
-	}
-	privacyPolicy.RequireDerivedClean = true
-	if err := requirePrivacyDerivedRead(brainDir); err != nil {
-		return err
-	}
-	return runPrivacyLinearizedPatternMutation(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
+	// The brain write lock keeps the accepted-dossier read, provider
+	// synthesis, and the skill-memory write consistent against a concurrent
+	// verify or corpus rebuild (WithCorpusMutationLocked requires it too).
+	return brainstore.WithBrainWriteLock(brainDir, func() error {
 		var cand *taskCandidate
 		var deep *deepSkillInput
 		// A theme skill is synthesized from the verified latent practice (its agent

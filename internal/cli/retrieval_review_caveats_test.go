@@ -1,7 +1,11 @@
 package cli
 
+// Fact-review and caveat behavior for the retrieval surfaces; restored from
+// the former retrieval_guard_test.go with the privacy-layer tests removed.
+
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -351,11 +355,15 @@ func TestRecallWarnsWhenProposalQueueUnreadable(t *testing.T) {
 	}
 }
 
-func hasRetrievalCaveat(result unifiedResult, kind string) bool {
-	for _, caveat := range result.Caveats {
-		if caveat.Kind == kind {
-			return true
-		}
+func TestGetBatchCapsRequestSize(t *testing.T) {
+	ids := make([]string, maxGetBatchIDs+1)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("doc:%03d", i)
 	}
-	return false
+	if _, _, err := getUnifiedBatch("", t.TempDir(), "main", ids); err == nil {
+		t.Fatal("oversized id batch must be rejected")
+	}
+	if _, _, err := getUnifiedBatch("", t.TempDir(), "main", ids[:maxGetBatchIDs]); err != nil {
+		t.Fatalf("at-cap batch must be accepted: %v", err)
+	}
 }

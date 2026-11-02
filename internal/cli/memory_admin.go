@@ -177,6 +177,14 @@ func emitMemoryOperationSuccess(
 
 // memoryDerivedArtifactStates reports the current state of each disposable
 // derived artifact for receipts and dry-runs.
+// Portable mirrors of the cgo-only vector-store filenames so the artifact
+// inventory covers both stores on every build (the purego build has no store
+// constructors, but the files may exist from a cgo binary's refresh).
+const (
+	historyVecStoreFileNamePortable      = "vectors.sqlite"
+	conversationVecStoreFileNamePortable = "conversation-vectors.sqlite"
+)
+
 func memoryDerivedArtifactStates(brainDir string) []memoryReceiptArtifact {
 	var artifacts []memoryReceiptArtifact
 	indexRel := historystore.IndexPath
@@ -350,10 +358,6 @@ func canonicalSessionInputDigest(brainDir string, manifest *exportManifest, want
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
 		return "", fmt.Errorf("%s: canonical session source is unavailable", brainstore.SourceStaleCode)
 	}
-	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
-	if err != nil {
-		return "", err
-	}
 	found := ""
 	for _, session := range manifest.Sources.Sessions.Sessions {
 		id := strings.TrimSpace(session.SessionID)
@@ -372,9 +376,6 @@ func canonicalSessionInputDigest(brainDir string, manifest *exportManifest, want
 		ref, _ := conversationSessionRef(manifest.RepoKey, branch, id, digest)
 		if ref != wantedRef {
 			continue
-		}
-		if _, excluded := stones.Excluded[id]; excluded {
-			return "", fmt.Errorf("%s: session %s is excluded", brainstore.PrivacyExcludedCode, wantedRef)
 		}
 		if found != "" && found != digest {
 			return "", fmt.Errorf("%s: session %s resolves to conflicting source digests", brainstore.IdentityAmbiguousCode, wantedRef)
@@ -400,9 +401,6 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 				return err
 			}
 			brainDir := storage.BrainDir
-			if _, _, err := brainstore.LoadSessionTombstonesChecked(brainDir); err != nil {
-				return err
-			}
 			sessionRef = strings.TrimSpace(sessionRef)
 			now := opts.Now().UTC()
 			receipt := newMemoryOperationReceipt("repair", now)
@@ -420,21 +418,11 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 			if manifest.Sources != nil {
 				source = manifest.Sources.History
 			}
-			// Verify index integrity before privacy verification: the latter reads
-			// the index and cannot prove absence from a corrupt projection. Repair
-			// treats a missing legacy digest or any bounded-read/digest failure as
-			// a deterministic rebuild request instead of becoming unable to repair
-			// the very state it is responsible for recovering.
+			// Repair treats a missing legacy digest or any bounded-read/digest
+			// failure as a deterministic rebuild request instead of becoming
+			// unable to repair the very state it is responsible for recovering.
 			_, indexErr := historystore.LoadIndex(brainDir, source)
 			indexCurrent := indexErr == nil && source != nil && source.IndexDigest != ""
-			verifyAvailable := indexErr == nil
-			verify := privacyVerifyReport{Findings: []privacyVerifyFinding{}}
-			if verifyAvailable {
-				verify, err = verifySessionPrivacy(brainDir)
-				if err != nil {
-					return fail(err)
-				}
-			}
 			projection, receiptState, receiptErr := loadProjectionStateChecked(brainDir, source)
 			if receiptState == projectionStateUnsupported {
 				return fail(receiptErr)
@@ -447,14 +435,14 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 			// this binary cannot decode must not be rebuilt over.
 			receiptsCurrent := receiptState == projectionStateCurrent
 			fingerprintCurrent := source != nil && sessionSourceFingerprintCurrent(source.SessionsFingerprint, brainSessionsFingerprint(brainDir))
-			needsRebuild := !indexCurrent || !verifyAvailable || !verify.Clean || !receiptsCurrent || !fingerprintCurrent
+			needsRebuild := !indexCurrent || !receiptsCurrent || !fingerprintCurrent
 			if sessionRef != "" {
 				digest, scopeErr := canonicalSessionInputDigest(brainDir, manifest, sessionRef)
 				if scopeErr != nil {
 					return fail(scopeErr)
 				}
 				receipt, ok := projection.receiptFor(sessionRef)
-				needsRebuild = !indexCurrent || !verifyAvailable || !verify.Clean || !receiptsCurrent || !ok || receipt.InputDigest != digest
+				needsRebuild = !indexCurrent || !receiptsCurrent || !ok || receipt.InputDigest != digest
 			}
 			if needsRebuild && !dryRun {
 				if err := rebuildMemoryProjection(brainDir, now); err != nil {
@@ -463,14 +451,6 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 				if err := markMemoryProjectionRefreshStates(brainDir, &receipt.Artifacts); err != nil {
 					return fail(err)
 				}
-				postVerify, verifyErr := verifySessionPrivacy(brainDir)
-				if verifyErr != nil {
-					return fail(verifyErr)
-				}
-				if !postVerify.Clean {
-					return fail(fmt.Errorf("%s: repair rebuilt the active projection but %d privacy violations remain; run `"+base.BrainInvocation(os.LookupEnv, "privacy purge")+" <session-id>` and retry repair", brainstore.PrivacyDirtyCode, len(postVerify.Findings)))
-				}
-				verify = postVerify
 				postManifest, manifestErr := bmanifest.Load(brainDir)
 				if manifestErr != nil {
 					return fail(manifestErr)
@@ -486,7 +466,6 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 					return fail(fmt.Errorf("%s: repair published an unreadable history index: %w", brainstore.StateCorruptCode, postIndexErr))
 				}
 				indexCurrent = true
-				verifyAvailable = true
 				projection, receiptState, receiptErr = loadProjectionStateChecked(brainDir, postSource)
 				if receiptState != projectionStateCurrent {
 					if receiptErr != nil {
@@ -501,8 +480,7 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 			}
 			return emitMemoryOperationSuccess(cmd, &receipt, jsonOut, opts.Now().UTC(), func(receipt memoryOperationReceipt) any {
 				return map[string]any{
-					"receipt": receipt, "verify_clean": verify.Clean,
-					"verify_available": verifyAvailable, "index_current": indexCurrent,
+					"receipt": receipt, "index_current": indexCurrent,
 					"receipts_current": receiptsCurrent, "fingerprint_current": fingerprintCurrent,
 					"rebuild_required": needsRebuild, "would_rebuild": needsRebuild && dryRun,
 					"rebuilt": needsRebuild && !dryRun,
@@ -516,7 +494,7 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 				if dryRun {
 					mode = "dry-run: would rebuild"
 				}
-				fmt.Fprintf(out, "repair: %s the history projection (index_current=%v verify_clean=%v receipts_current=%v fingerprint_current=%v)\n", mode, indexCurrent, verify.Clean, receiptsCurrent, fingerprintCurrent)
+				fmt.Fprintf(out, "repair: %s the history projection (index_current=%v receipts_current=%v fingerprint_current=%v)\n", mode, indexCurrent, receiptsCurrent, fingerprintCurrent)
 			})
 		},
 	}
@@ -543,9 +521,6 @@ func newMemoryRebuildCommand(opts Options) *cobra.Command {
 				return err
 			}
 			brainDir := storage.BrainDir
-			if _, _, err := brainstore.LoadSessionTombstonesChecked(brainDir); err != nil {
-				return err
-			}
 			now := opts.Now().UTC()
 			receipt := newMemoryOperationReceipt("rebuild", now)
 			receipt.SessionRef = sessionRef
@@ -839,9 +814,6 @@ func newMemoryMigrateCommand(opts Options) *cobra.Command {
 				return err
 			}
 			brainDir := storage.BrainDir
-			if _, _, err := brainstore.LoadSessionTombstonesChecked(brainDir); err != nil {
-				return err
-			}
 			now := opts.Now().UTC()
 			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
@@ -1492,15 +1464,10 @@ func memoryAbstractHealth(brainDir string) map[string]any {
 	manifest, manifestErr := bmanifest.Load(brainDir)
 	if manifestErr == nil && manifest.Sources != nil && manifest.Sources.History != nil {
 		fresh, freshErr := loadFreshHistory(brainDir, manifest.Sources.History)
-		guard, guardErr := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 		prerequisiteIssue = memoryStateIssue{Kind: "history", File: manifest.Sources.History.IndexPath, Code: "unverifiable"}
-		var tombstoneErr *sessionTombstoneLoadError
-		if errors.As(guardErr, &tombstoneErr) {
-			prerequisiteIssue = memoryStateIssue{Kind: "tombstones", File: brainstore.SessionTombstonesPath, Code: "unverifiable"}
-		}
-		if freshErr == nil && guardErr == nil {
+		if freshErr == nil {
 			validated = true
-			views := buildConversationSessionViews(fresh, manifest.RepoKey, manifest, guard)
+			views := buildConversationSessionViews(fresh, manifest.RepoKey, manifest)
 			for digest, entry := range inventory.ByDigest {
 				if entry.State != sessionAbstractCurrent {
 					continue
@@ -1645,7 +1612,6 @@ func memoryLockHealth(brainDir string) map[string]any {
 	return map[string]any{
 		"write":       inspectMemoryLockLeaf(brainDir, filepath.ToSlash(filepath.Join(brainstore.BrainLockDirName, brainstore.BrainWriteLockName))),
 		"coordinator": inspectMemoryLockLeaf(brainDir, filepath.ToSlash(filepath.Join(brainstore.BrainLockDirName, memoryCoordinatorLockName))),
-		"privacy":     inspectMemoryLockLeaf(brainDir, filepath.ToSlash(filepath.Join(brainstore.BrainLockDirName, brainstore.BrainPrivacyLockName))),
 		"inspection":  "read_only_no_lock_probe",
 	}
 }
@@ -1722,7 +1688,6 @@ func memorySchemaHealth(manifestHealth memoryManifestHealth, payload map[string]
 		{name: "job", key: "job_inventory"},
 		{name: "source_manifest", key: "source_manifest"},
 		{name: "coordinator", key: "coordinator"},
-		{name: "tombstones", key: "tombstones"},
 		{name: "migration_progress", key: "migration_progress"},
 	} {
 		if health, ok := payload[source.key].(map[string]any); ok {
@@ -1881,19 +1846,6 @@ func memoryAggregateHealthAt(brainDir string, source *historySourceManifest, now
 	}
 	receipts, receiptHealth := projectionReceiptHealth(brainDir, source)
 	receiptsCurrent, _ := receiptHealth["current"].(bool)
-	_, tombstoneState, tombstoneErr := brainstore.LoadSessionTombstonesChecked(brainDir)
-	tombstones := map[string]any{
-		"state":          tombstoneState.State,
-		"schema_version": tombstoneState.Version,
-	}
-	if tombstoneErr != nil {
-		var loadErr *sessionTombstoneLoadError
-		if errors.As(tombstoneErr, &loadErr) {
-			tombstones["error_code"] = loadErr.Code
-		} else {
-			tombstones["error_code"] = brainstore.StateCorruptCode
-		}
-	}
 	payload := map[string]any{
 		"hints": len(hints), "jobs_by_state": byState,
 		"hint_inventory_entries_observed": hintInventory.EntriesObserved,
@@ -1911,7 +1863,6 @@ func memoryAggregateHealthAt(brainDir string, source *historySourceManifest, now
 		"fts":                 memoryHistoryFTSHealth(brainDir, source),
 		"job_inventory":       memoryJobInventoryHealth(jobInventory),
 		"install":             memoryInstallHealth(brainDir), "migrations": detectMemoryMigrations(brainDir, source),
-		"tombstones": tombstones,
 	}
 	if progress, present, progressErr := loadMemoryMigrationProgress(brainDir); progressErr != nil {
 		payload["migration_progress"] = map[string]any{
@@ -2127,9 +2078,6 @@ func memoryReadOnlyHealth(brainDir string, now time.Time) memoryReadOnlyHealthSn
 			appendMapIssue("job_inventory", memoryJobsDirRel, health)
 		}
 	}
-	if health, ok := payload["tombstones"].(map[string]any); ok {
-		appendMapIssue("tombstones", brainstore.SessionTombstonesPath, health)
-	}
 	if locks, ok := payload["locks"].(map[string]any); ok {
 		for _, lock := range []struct {
 			name string
@@ -2137,7 +2085,6 @@ func memoryReadOnlyHealth(brainDir string, now time.Time) memoryReadOnlyHealthSn
 		}{
 			{name: "write", rel: filepath.ToSlash(filepath.Join(brainstore.BrainLockDirName, brainstore.BrainWriteLockName))},
 			{name: "coordinator", rel: filepath.ToSlash(filepath.Join(brainstore.BrainLockDirName, memoryCoordinatorLockName))},
-			{name: "privacy", rel: filepath.ToSlash(filepath.Join(brainstore.BrainLockDirName, brainstore.BrainPrivacyLockName))},
 		} {
 			if health, ok := locks[lock.name].(map[string]any); ok {
 				appendMapIssue("lock", lock.rel, health)

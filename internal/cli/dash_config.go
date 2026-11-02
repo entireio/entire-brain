@@ -3,14 +3,12 @@ package cli
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/command/dash"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
-	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/tui"
 )
 
@@ -28,70 +26,29 @@ func dashDeps() dash.Deps {
 		StatusHome:            dashStatusHome,
 		RetrieveUnified:       retrieveUnified,
 		BufferRetrievalOutput: bufferRetrievalCommandOutput,
-		TerminalWriter:        dashTerminalWriter,
 		BrainSourceReader:     brainSourceReader,
 	}
 }
 
 // dashStatusHome binds the cli-private status report to the dashboard: it runs
-// the full report, loads the session read guard, and maps the report into the
-// Home tab view, handing over only importable values.
+// the full report and maps it into the Home tab view, handing over only
+// importable values.
 func dashStatusHome(ctx context.Context, opts Options, target, branch, brainDir string) (dash.StatusHome, error) {
 	status, err := buildBrainStatusReport(ctx, opts, target)
 	if err != nil {
 		return dash.StatusHome{}, err
 	}
 	manifest := status.Manifest
-	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
-	if err != nil {
-		return dash.StatusHome{}, err
-	}
 	return dash.StatusHome{
-		Home:        dashHomeView(status, manifest, branch, guard),
+		Home:        dashHomeView(status, manifest, branch),
 		Manifest:    manifest,
-		Guard:       guard,
 		RepoRoot:    status.Repo.Root,
 		GeneratedAt: status.Brain.GeneratedAt,
 	}, nil
 }
 
-// dashTerminalWriter is the stream the dashboard program renders to: every
-// write still goes through the privacy re-check, but the terminal underneath
-// stays visible to the terminal library.
-//
-// That second half is not a nicety. bubbletea learns the window size by calling
-// Fd() on its output and only if the output satisfies term.File (an
-// io.ReadWriteCloser with an Fd); anything else is "can't query window size",
-// so it never sends the initial WindowSizeMsg and never installs the SIGWINCH
-// resize watcher. A plain privacyCheckedWriter is exactly that anything
-// else — one Write method — so the dashboard sat on its pre-size placeholder
-// ("loading…") forever on a real terminal, and resizing it did nothing. It
-// still accepted keys and still quit on q, which is why exit-code checks never
-// caught it.
-//
-// Embedding the file carries Read/Close/Fd through untouched while Write stays
-// on the audited path, so the privacy boundary is unchanged.
-func dashTerminalWriter(out io.Writer, policy retrievalPrivacyPolicy) io.Writer {
-	guarded := privacyCheckedWriter{out: out, policies: []retrievalPrivacyPolicy{policy}}
-	file, ok := out.(*os.File)
-	if !ok {
-		return guarded
-	}
-	return dashTTYWriter{File: file, guarded: guarded}
-}
-
-// dashTTYWriter is a terminal that writes through the privacy guard. The
-// embedded *os.File supplies Read/Close/Fd (what bubbletea probes for a window
-// size); Write is overridden so no byte reaches the terminal unchecked.
-type dashTTYWriter struct {
-	*os.File
-	guarded privacyCheckedWriter
-}
-
-func (w dashTTYWriter) Write(p []byte) (int, error) { return w.guarded.Write(p) }
-
 // dashHomeView maps the status report into the Home tab view model.
-func dashHomeView(status brainStatusReport, manifest *exportManifest, branch string, guards ...sessionReadGuard) tui.HomeView {
+func dashHomeView(status brainStatusReport, manifest *exportManifest, branch string) tui.HomeView {
 	home := tui.HomeView{
 		Freshness:  brainStatusFreshnessSeverity(status),
 		Warnings:   append([]string(nil), status.Warnings...),
@@ -99,7 +56,7 @@ func dashHomeView(status brainStatusReport, manifest *exportManifest, branch str
 	}
 
 	present := status.Sources
-	detail := dashSourceDetails(manifest, guards...)
+	detail := dashSourceDetails(manifest)
 	home.Sources = []tui.SourceHealth{
 		{Name: "Seed", Present: present.Seed, Detail: detail["seed"]},
 		{Name: "Sessions", Present: present.Sessions, Detail: detail["sessions"]},
@@ -128,7 +85,7 @@ func dashHomeView(status brainStatusReport, manifest *exportManifest, branch str
 	return home
 }
 
-func dashSourceDetails(manifest *exportManifest, guards ...sessionReadGuard) map[string]string {
+func dashSourceDetails(manifest *exportManifest) map[string]string {
 	out := map[string]string{}
 	if manifest == nil || manifest.Sources == nil {
 		return out
@@ -136,13 +93,6 @@ func dashSourceDetails(manifest *exportManifest, guards ...sessionReadGuard) map
 	src := manifest.Sources
 	if s := src.Sessions; s != nil {
 		count, checkpoints := len(s.Sessions), s.CheckpointsScanned
-		if len(guards) > 0 && !guards[0].Empty() {
-			visible := bmanifest.GuardSessions(guards[0], s.Sessions)
-			count, checkpoints = len(visible), 0
-			for _, session := range visible {
-				checkpoints += session.CheckpointsCount
-			}
-		}
 		out["sessions"] = fmt.Sprintf("%d sessions · %d checkpoints scanned", count, checkpoints)
 	}
 	if s := src.Semantic; s != nil {

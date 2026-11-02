@@ -1,5 +1,8 @@
 package cli
 
+// Pattern-corpus publication safety; restored from the former
+// pattern_privacy_publish_test.go with the privacy-layer tests removed.
+
 import (
 	"bytes"
 	"database/sql"
@@ -17,7 +20,6 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
-	"github.com/spf13/cobra"
 )
 
 func prepareDistinctPatternCorpusPublication(t *testing.T, brainDir string) (string, func()) {
@@ -64,111 +66,6 @@ func patternCorpusPublicationTestGeneration(t *testing.T, brainDir string) strin
 		t.Fatal(err)
 	}
 	return generation
-}
-
-func TestPrivacyLinearizedPatternMutationHoldsPolicyThroughProviderAndPersistence(t *testing.T) {
-	t.Parallel()
-	brainDir := writePrivacyFixture(t)
-	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	providerStarted := make(chan struct{})
-	releaseProvider := make(chan struct{})
-	operationDone := make(chan error, 1)
-	var stdout, stderr bytes.Buffer
-	cmd := &cobra.Command{Use: "test"}
-	cmd.SetOut(&stdout)
-	cmd.SetErr(&stderr)
-	persisted := filepath.Join(brainDir, "patterns", "provider-result")
-	if err := os.MkdirAll(filepath.Dir(persisted), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	go func() {
-		operationDone <- runPrivacyLinearizedPatternMutation(cmd, []retrievalPrivacyPolicy{policy}, func() error {
-			close(providerStarted)
-			<-releaseProvider
-			if err := os.WriteFile(persisted, []byte("derived"), 0o600); err != nil {
-				return err
-			}
-			_, _ = cmd.OutOrStdout().Write([]byte("complete\n"))
-			_, _ = cmd.ErrOrStderr().Write([]byte("provider complete\n"))
-			return nil
-		})
-	}()
-	<-providerStarted
-
-	tombstoneAttempted := make(chan struct{})
-	tombstoneDone := make(chan error, 1)
-	go func() {
-		close(tombstoneAttempted)
-		tombstoneDone <- brainstore.WithBrainWriteLock(brainDir, func() error {
-			stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
-			if err != nil {
-				return err
-			}
-			stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC()}
-			return brainstore.SaveSessionTombstones(brainDir, stones)
-		})
-	}()
-	<-tombstoneAttempted
-	select {
-	case err := <-tombstoneDone:
-		t.Fatalf("tombstone linearized during provider invocation: %v", err)
-	case <-time.After(50 * time.Millisecond):
-	}
-	if stdout.Len() != 0 || stderr.Len() != 0 {
-		t.Fatalf("private output escaped before provider/persistence commit: stdout=%q stderr=%q", stdout.String(), stderr.String())
-	}
-
-	close(releaseProvider)
-	if err := <-operationDone; err != nil {
-		t.Fatal(err)
-	}
-	if err := <-tombstoneDone; err != nil {
-		t.Fatal(err)
-	}
-	if stdout.String() != "complete\n" || stderr.String() != "provider complete\n" {
-		t.Fatalf("buffered output mismatch: stdout=%q stderr=%q", stdout.String(), stderr.String())
-	}
-	if _, err := os.Stat(persisted); err != nil {
-		t.Fatalf("provider result was not persisted before the tombstone linearized: %v", err)
-	}
-}
-
-func TestPrivacyLinearizedPatternMutationRejectsChangedPolicyWithoutOutput(t *testing.T) {
-	t.Parallel()
-	brainDir := writePrivacyFixture(t)
-	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
-		if err != nil {
-			return err
-		}
-		stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC()}
-		return brainstore.SaveSessionTombstones(brainDir, stones)
-	}); err != nil {
-		t.Fatal(err)
-	}
-	var stdout, stderr bytes.Buffer
-	cmd := &cobra.Command{Use: "test"}
-	cmd.SetOut(&stdout)
-	cmd.SetErr(&stderr)
-	called := false
-	err = runPrivacyLinearizedPatternMutation(cmd, []retrievalPrivacyPolicy{policy}, func() error {
-		called = true
-		_, _ = cmd.OutOrStdout().Write([]byte("private"))
-		return nil
-	})
-	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) {
-		t.Fatalf("changed policy error = %v, want %s", err, brainstore.PrivacyDirtyCode)
-	}
-	if called || stdout.Len() != 0 || stderr.Len() != 0 {
-		t.Fatalf("rejected mutation leaked work/output: called=%v stdout=%q stderr=%q", called, stdout.String(), stderr.String())
-	}
 }
 
 func TestPatternCorpusFailedStagingPublishPreservesLiveCorpus(t *testing.T) {
@@ -588,90 +485,5 @@ func TestPatternCorpusBuildRejectsNewerManifestWithoutMutation(t *testing.T) {
 	}
 	if !bytes.Equal(afterCorpus, beforeCorpus) {
 		t.Fatal("unsupported manifest changed the published corpus")
-	}
-}
-
-func TestPatternCorpusStagingArtifactsAreInPrivacyInventory(t *testing.T) {
-	t.Parallel()
-	brainDir := writePrivacyFixture(t)
-	if err := os.MkdirAll(filepath.Join(brainDir, "patterns"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	base := patterncore.CorpusStagingPrefix + "orphan"
-	for _, suffix := range []string{"", "-wal", "-shm"} {
-		if err := os.WriteFile(filepath.Join(brainDir, "patterns", base+suffix), []byte("staged private data"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	artifacts, err := privacyDerivedStoreArtifacts(brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := map[string]bool{
-		filepath.ToSlash(filepath.Join("patterns", base)):          false,
-		filepath.ToSlash(filepath.Join("patterns", base)) + "-wal": false,
-		filepath.ToSlash(filepath.Join("patterns", base)) + "-shm": false,
-	}
-	for _, artifact := range artifacts {
-		if _, ok := want[artifact]; ok {
-			want[artifact] = true
-		}
-	}
-	for artifact, found := range want {
-		if !found {
-			t.Errorf("privacy inventory missed staging artifact %s", artifact)
-		}
-	}
-}
-
-func TestPatternCorpusBuildCannotPublishAfterTombstoneLinearizes(t *testing.T) {
-	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
-	brainDir := writeEpisodeFixture(t, now, "gh/acme/privacy", []sessionFixture{{
-		id: "s1", branch: "main", agent: "Codex", checkpoint: "c1", relPath: "sessions/main/s1.jsonl", author: "Ada", transcript: claudeReviewTranscript,
-	}})
-	if err := buildPatternCorpus(brainDir, now); err != nil {
-		t.Fatal(err)
-	}
-	reachedPublish := make(chan struct{})
-	releasePublish := make(chan struct{})
-	original := patterncore.BeforeCorpusPublish
-	patterncore.BeforeCorpusPublish = func() error {
-		close(reachedPublish)
-		<-releasePublish
-		return nil
-	}
-	t.Cleanup(func() { patterncore.BeforeCorpusPublish = original })
-	buildDone := make(chan error, 1)
-	go func() { buildDone <- buildPatternCorpus(brainDir, now.Add(time.Minute)) }()
-	<-reachedPublish
-
-	tombstoneDone := make(chan error, 1)
-	go func() {
-		tombstoneDone <- brainstore.WithBrainWriteLock(brainDir, func() error {
-			stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
-			if err != nil {
-				return err
-			}
-			stones.Excluded["s1"] = sessionTombstone{At: now.Add(2 * time.Minute)}
-			if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-				return err
-			}
-			return brainstore.RemoveBrainRelativeFile(brainDir, patterncore.CorpusPath)
-		})
-	}()
-	select {
-	case err := <-tombstoneDone:
-		t.Fatalf("tombstone linearized before staged publication completed: %v", err)
-	case <-time.After(50 * time.Millisecond):
-	}
-	close(releasePublish)
-	if err := <-buildDone; err != nil {
-		t.Fatal(err)
-	}
-	if err := <-tombstoneDone; err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))); !os.IsNotExist(err) {
-		t.Fatalf("stale corpus was published after tombstone commit: %v", err)
 	}
 }

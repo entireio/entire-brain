@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"os"
 	"strings"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // retrieve.go wires the extracted unified retrieval engine (see
@@ -22,17 +22,12 @@ import (
 // source arm and the get/multi-get batch resolver.
 
 // retrievalEngineDeps binds the engine's injected seams to their cli homes:
-// guard composition (session_privacy.go), the store rankers, declared-index
-// inspection, and the conversation arms.
+// the store rankers, declared-index inspection, and the conversation arms.
 func retrievalEngineDeps() retrieval.Deps {
 	return retrieval.Deps{
-		LoadSessionReadGuard:             bmanifest.LoadSessionReadGuard,
-		GuardFactRecords:                 factstore.GuardRecords,
-		GuardBlocksRecord:                historystore.GuardBlocksRecord,
 		LoadFactProposals:                loadFactProposals,
 		RankFacts:                        rankFacts,
 		RankHistoryLexical:               rankHistoryLexicalForRetrieval,
-		RankGuardedHistory:               rankGuardedHistoryForRetrieval,
 		RankDocs:                         rankDocsForRetrieval,
 		InspectDeclaredIndex:             inspectBrainDeclaredIndex,
 		RetrieveConversation:             retrieveConversation,
@@ -56,34 +51,6 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 func rankHistoryLexicalForRetrieval(brainDir string, source *historySourceManifest, kind, query string, limit int) ([]scoredHistoryRecord, error) {
 	scored, _, _, rankErr := rankFreshHistoryLexicalFromSource(brainDir, source, kind, query, limit)
 	return scored, rankErr
-}
-
-// rankGuardedHistoryForRetrieval is the tombstone-guarded history arm: the
-// FTS-payload fast path cannot apply an exclusion predicate during candidate
-// generation, so a brain with live tombstones ranks through the full fresh
-// view here.
-func rankGuardedHistoryForRetrieval(brainDir string, source *historySourceManifest, kind, query string, limit int, guardPred func(historyRecord) bool) ([]scoredHistoryRecord, error) {
-	fresh, loadErr := loadFreshHistory(brainDir, source)
-	if loadErr != nil {
-		return nil, loadErr
-	}
-	// Semantic arms rank the long-term records minus files the
-	// short-term overlay superseded (overlay records have no vectors
-	// until consolidation; the lexical tier carries their freshness)
-	// and minus copies a newer overlay copy supersedes. The
-	// exclusion guard filters both arms; it already carries
-	// the manifest-derived transcript paths, resolved before the
-	// facts arm ran, so records that lost their session id block by
-	// path here too.
-	index := fresh.longTermReconciled()
-	if guardPred != nil {
-		index = historyIndex{GeneratedAt: index.GeneratedAt, Records: historystore.FilterRecords(index.Records, guardPred)}
-	}
-	scored := rankFreshHistory(fresh, kind, query, limit, guardPred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
-		lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, kind, query, limit, historyFTSRelevanceCutoff, eligible)
-		return lex, ok && complete
-	})
-	return scored, nil
 }
 
 // rankDocsForRetrieval ranks doc chunks for the engine.
@@ -137,21 +104,12 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	// arm ranks only in-scope records, so a valid session/agent/time/branch
 	// match can never be displaced out of a bounded candidate window by
 	// higher-ranked out-of-scope rows. The over-fetch below is dedup/diversity
-	// headroom only. The exclusion guard joins the same predicate: a
-	// tombstoned session is unreadable here even while its derived cleanup is
-	// still running. Superseded duplicate copies join it too: a stale
+	// headroom only. Superseded duplicate copies are filtered too: a stale
 	// copy must not even consume a candidate slot.
-	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
-	if err != nil {
-		return nil, err
-	}
 	winners := fresh.duplicateRecordWinners()
 	var pred func(historyRecord) bool
-	if filtered || !guard.Empty() || len(winners) > 0 {
+	if filtered || len(winners) > 0 {
 		pred = func(r historyRecord) bool {
-			if historystore.GuardBlocksRecord(guard, r) {
-				return false
-			}
 			if w, ok := winners[recordReplacementKey(r)]; ok && !sameRecordCopy(w, r) {
 				return false
 			}
@@ -199,9 +157,6 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	// re-check keeps the contract obvious and cheap.
 	kept := make([]scoredHistoryRecord, 0, len(scored))
 	for _, s := range scored {
-		if historystore.GuardBlocksRecord(guard, s.Record) {
-			continue
-		}
 		if conversationRecordMatchesFilters(s.Record, opts) {
 			kept = append(kept, s)
 		}
@@ -390,7 +345,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		}
 	}
 	if wantPatternDerived {
-		if err := requirePrivacyDerivedRead(brainDir); err != nil {
+		if err := patterncore.ValidateCorpusReadSafety(brainDir); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -410,26 +365,6 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 	if wantSession && len(ids) != 1 {
 		return nil, nil, fmt.Errorf("a conversation-session: outline requires its own single-id request")
 	}
-	// Exclusion guard: a tombstoned session's records resolve as "not
-	// found" on every get surface immediately, even before cleanup finishes.
-	guard, err := bmanifest.LoadSessionReadGuard(brainDir, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	if !guard.Empty() {
-		// Resolve the manifest-derived transcript paths BEFORE the facts arm
-		// filters below, so a fact whose only anchor lost its session id blocks
-		// by path here too. The history arm's later re-resolution ran after
-		// factstore.GuardRecords and therefore never protected `get fact:`.
-		manifest, err := bmanifest.Load(brainDir)
-		if err != nil {
-			return nil, nil, err
-		}
-		guard, err = bmanifest.LoadSessionReadGuard(brainDir, manifest)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
 	factByID := map[string]factRecord{}
 	var globalGetIDs map[string]bool
 	var reviewByID map[string]factReviewGroup
@@ -446,7 +381,6 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			// resolve here too. The repository's copy still wins on a collision.
 			facts, globalGetIDs = retrieval.MergeGlobalFacts(facts, gopts.GlobalFacts)
 		}
-		facts = factstore.GuardRecords(guard, facts)
 		for _, f := range facts {
 			factByID[f.ID] = f
 		}
@@ -483,11 +417,8 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			if err != nil {
 				return nil, nil, fmt.Errorf("load history index: %w", err)
 			}
-			// The guard already carries the manifest-derived transcript paths
-			// (resolved above, before the facts arm), so records that lost
-			// their session id block by path on every surface here.
 			if wantConversation || wantSession {
-				sessionViews = buildConversationSessionViews(fresh, manifest.RepoKey, manifest, guard)
+				sessionViews = buildConversationSessionViews(fresh, manifest.RepoKey, manifest)
 				for ref, view := range sessionViews {
 					for _, r := range view.Records {
 						scopes := convScopes[r.ID]
@@ -507,9 +438,6 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			// newest-copy winner ranking uses, so get expands exactly the
 			// record search returned.
 			for _, r := range fresh.reconciledRecords() {
-				if historystore.GuardBlocksRecord(guard, r) {
-					continue
-				}
 				if r.Kind == conversationKind {
 					convByID[r.ID] = r
 					continue

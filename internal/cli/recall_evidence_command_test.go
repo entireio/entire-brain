@@ -139,16 +139,10 @@ func TestRecallEvidenceLeavesOrdinaryRecallAndFactsUnchanged(t *testing.T) {
 }
 
 func TestRecallEvidenceExclusionsAndUnsafePaths(t *testing.T) {
-	for _, mode := range []string{"excluded", "outside-root"} {
+	for _, mode := range []string{"outside-root"} {
 		t.Run(mode, func(t *testing.T) {
 			opts, brain := evidenceFixture(t)
-			if mode == "excluded" {
-				stones := brainstore.LoadSessionTombstones(brain)
-				stones.Excluded["evidence"] = sessionTombstone{At: opts.Now()}
-				if err := brainstore.SaveSessionTombstones(brain, stones); err != nil {
-					t.Fatal(err)
-				}
-			} else {
+			{
 				m, err := bmanifest.Load(brain)
 				if err != nil {
 					t.Fatal(err)

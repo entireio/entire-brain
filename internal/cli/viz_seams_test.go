@@ -4,57 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/command/viz"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
-
-func TestVizReloadsPrivacyStateForEveryRequest(t *testing.T) {
-	const canary = "PRIVATE-LIVE-VIZ-CANARY"
-	brainDir := t.TempDir()
-	manifest := &exportManifest{Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
-		{SessionID: "private", TranscriptPath: "sessions/private.jsonl", Summary: &checkpointSummary{Intent: canary}},
-		{SessionID: "public", TranscriptPath: "sessions/public.jsonl", Summary: &checkpointSummary{Intent: "safe"}},
-	}}}}
-	srv := &viz.Server{BrainDir: brainDir, Branch: "main", Manifest: manifest}
-	request := func() *httptest.ResponseRecorder {
-		rec := httptest.NewRecorder()
-		srv.HandleSessions(rec, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
-		return rec
-	}
-
-	before := request()
-	if before.Code != http.StatusOK || !strings.Contains(before.Body.String(), canary) {
-		t.Fatalf("pre-exclusion response = %d %s", before.Code, before.Body.String())
-	}
-	stones := brainstore.EmptySessionTombstones()
-	stones.Excluded["private"] = sessionTombstone{At: time.Now().UTC()}
-	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-	after := request()
-	if after.Code != http.StatusOK || strings.Contains(after.Body.String(), canary) || strings.Contains(after.Body.String(), "private") {
-		t.Fatalf("same server exposed a newly excluded session: %d %s", after.Code, after.Body.String())
-	}
-	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath))); err != nil {
-		t.Fatal(err)
-	}
-	disappeared := request()
-	if disappeared.Code != http.StatusOK || strings.Contains(disappeared.Body.String(), canary) || strings.Contains(disappeared.Body.String(), "private") {
-		t.Fatalf("disappeared policy resurrected an excluded session: %d %s", disappeared.Code, disappeared.Body.String())
-	}
-
-	writeSessionTombstoneBytes(t, brainDir, []byte("{broken"))
-	corrupt := request()
-	if corrupt.Code != http.StatusServiceUnavailable || strings.Contains(corrupt.Body.String(), canary) || !strings.Contains(corrupt.Body.String(), brainstore.StateCorruptCode) {
-		t.Fatalf("corrupt live policy did not fail closed: %d %s", corrupt.Code, corrupt.Body.String())
-	}
-}
 
 // The CSP/no-egress headers must be present on REAL /api responses, not just when
 // the middleware is exercised in isolation.
