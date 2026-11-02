@@ -25,7 +25,6 @@ import (
 // the store rankers, declared-index inspection, and the conversation arms.
 func retrievalEngineDeps() retrieval.Deps {
 	return retrieval.Deps{
-		LoadFactProposals:                loadFactProposals,
 		RankFacts:                        rankFacts,
 		RankHistoryLexical:               rankHistoryLexicalForRetrieval,
 		RankDocs:                         rankDocsForRetrieval,
@@ -367,9 +366,6 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 	}
 	factByID := map[string]factRecord{}
 	var globalGetIDs map[string]bool
-	var reviewByID map[string]factReviewGroup
-	var reviewByFactID map[string]factReviewGroup
-	var proposalStateUnavailable bool
 	if wantFact || wantReview {
 		// Surface a corrupt facts store as an error, not a misleading "not found".
 		facts, ferr := factstore.Load(brainDir, branch)
@@ -383,16 +379,6 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		}
 		for _, f := range facts {
 			factByID[f.ID] = f
-		}
-		proposals, perr := loadFactProposals(brainDir, branch)
-		if perr != nil && wantReview {
-			return nil, nil, perr
-		}
-		if perr == nil {
-			localFacts := retrieval.FactsEligibleForLocusDrift(facts, globalGetIDs)
-			reviewByID, reviewByFactID = retrieval.IndexFactReviewGroups(retrieval.BuildFactReviewGroups(localFacts, proposals))
-		} else {
-			proposalStateUnavailable = true
 		}
 	}
 	histByID := map[string]historyRecord{}
@@ -472,32 +458,12 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		case strings.HasPrefix(id, "fact:"):
 			if f, ok := factByID[id]; ok {
 				r := retrieval.FactsToUnified([]factRecord{f})[0]
-				if group, pending := reviewByFactID[id]; pending {
-					r = retrieval.AnnotateExplicitFactReview(r, group)
-				}
 				if globalGetIDs[f.ID] {
 					// Not scoped to this repository, so locus drift cannot
 					// answer for it; labelled the way the ranked surfaces are.
 					r.Heading += " (global)"
 				} else {
 					r = retrieval.AnnotateFactLocusTrust(repoDir, f, r)
-				}
-				if proposalStateUnavailable {
-					r = retrieval.AnnotateProposalStateUnavailable([]unifiedResult{r})[0]
-				}
-				found = append(found, r)
-				continue
-			}
-		case strings.HasPrefix(id, "review:"):
-			if group, ok := reviewByID[id]; ok {
-				r := retrieval.FactReviewToUnified(repoDir, group)
-				// Preserve an addressable proposal alias if the group grew, including
-				// the machine-readable caveat that tells clients what to review.
-				r.ID = id
-				for i := range r.Caveats {
-					if r.Caveats[i].Kind == retrieval.CaveatUnresolvedReview {
-						r.Caveats[i].ReviewID = id
-					}
 				}
 				found = append(found, r)
 				continue

@@ -240,11 +240,6 @@ func factsStatusCountsForBranch(brainDir, branch string, facts []factRecord) (fa
 			}
 		}
 	}
-	proposals, err := loadFactProposals(brainDir, branch)
-	if err != nil {
-		return counts, err
-	}
-	counts.Proposals = len(proposals)
 	return counts, nil
 }
 

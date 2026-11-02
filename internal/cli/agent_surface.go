@@ -251,16 +251,11 @@ type brainBriefReport struct {
 	// in the worktree (fact id -> departed locus tokens) — the "re-verify
 	// before trusting" signal (Phase 2 item 4).
 	FactsLocusDrift map[string][]string `json:"facts_locus_drift,omitempty"`
-	// FactsPendingReview flags surfaced facts that participate in a pending
-	// merge/supersede proposal (fact id -> review notice), mirroring the trust
-	// guard the unified query/search/get path applies. Annotation only — the
-	// facts list keeps its shape.
-	FactsPendingReview map[string]factReviewNotice `json:"facts_pending_review,omitempty"`
-	ActionChecklist    []brainBriefAction          `json:"action_checklist,omitempty"`
-	LikelyEditFiles    []string                    `json:"likely_edit_files,omitempty"`
-	LikelyTestFiles    []string                    `json:"likely_test_files,omitempty"`
-	LikelyFiles        []string                    `json:"likely_files,omitempty"`
-	Patterns           []patternView               `json:"patterns,omitempty"`
+	ActionChecklist []brainBriefAction  `json:"action_checklist,omitempty"`
+	LikelyEditFiles []string            `json:"likely_edit_files,omitempty"`
+	LikelyTestFiles []string            `json:"likely_test_files,omitempty"`
+	LikelyFiles     []string            `json:"likely_files,omitempty"`
+	Patterns        []patternView       `json:"patterns,omitempty"`
 	// Consolidations are corpus-backed dossiers (v2) relevant to the task:
 	// trigger + workflow + verification + failure modes, anchored. Task-gated
 	// and capped — an unrelated task carries none.
@@ -338,22 +333,21 @@ type semanticContextStaleness struct {
 // last. A brief that was correct but truncated before its facts section is how
 // an agent misses a decision the brain had already retrieved (issue #335).
 type brainBriefJSONReport struct {
-	GeneratedAt        time.Time                   `json:"generated_at"`
-	Task               string                      `json:"task"`
-	Facts              []brainBriefJSONFact        `json:"facts,omitempty"`
-	GlobalFactIDs      []string                    `json:"global_fact_ids,omitempty"`
-	FactsLocusDrift    map[string][]string         `json:"facts_locus_drift,omitempty"`
-	FactsPendingReview map[string]factReviewNotice `json:"facts_pending_review,omitempty"`
-	History            brainBriefHistory           `json:"history"`
-	Conversation       []brainBriefConversationHit `json:"conversation,omitempty"`
-	LikelyEditFiles    []string                    `json:"likely_edit_files,omitempty"`
-	LikelyTestFiles    []string                    `json:"likely_test_files,omitempty"`
-	LikelyFiles        []string                    `json:"likely_files,omitempty"`
-	ActionChecklist    []brainBriefAction          `json:"action_checklist,omitempty"`
-	Guidance           []string                    `json:"guidance"`
-	Warnings           []string                    `json:"warnings,omitempty"`
-	Semantic           brainBriefJSONSemantic      `json:"semantic"`
-	Status             brainStatusReport           `json:"status"`
+	GeneratedAt     time.Time                   `json:"generated_at"`
+	Task            string                      `json:"task"`
+	Facts           []brainBriefJSONFact        `json:"facts,omitempty"`
+	GlobalFactIDs   []string                    `json:"global_fact_ids,omitempty"`
+	FactsLocusDrift map[string][]string         `json:"facts_locus_drift,omitempty"`
+	History         brainBriefHistory           `json:"history"`
+	Conversation    []brainBriefConversationHit `json:"conversation,omitempty"`
+	LikelyEditFiles []string                    `json:"likely_edit_files,omitempty"`
+	LikelyTestFiles []string                    `json:"likely_test_files,omitempty"`
+	LikelyFiles     []string                    `json:"likely_files,omitempty"`
+	ActionChecklist []brainBriefAction          `json:"action_checklist,omitempty"`
+	Guidance        []string                    `json:"guidance"`
+	Warnings        []string                    `json:"warnings,omitempty"`
+	Semantic        brainBriefJSONSemantic      `json:"semantic"`
+	Status          brainStatusReport           `json:"status"`
 }
 
 type brainBriefJSONSemantic struct {
@@ -1789,19 +1783,6 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 				receiptSurface = "brief"
 			}
 			receiptFactIDs = factRecordIDs(report.Facts)
-			// Live trust state, mirroring the unified retrieval guard: flag
-			// surfaced facts with a pending merge/supersede proposal so the
-			// brief carries the same verify-before-trust signal as query/get.
-			// No surfaced facts means no annotation and no queue warning, so
-			// skip the proposal read on the empty-brief path.
-			if len(report.Facts) > 0 {
-				if proposals, proposalsErr := loadFactProposals(status.Brain.Path, branch); proposalsErr != nil {
-					report.Warnings = append(report.Warnings, retrieval.FactReviewQueueUnavailableWarning)
-				} else {
-					localFacts := retrieval.FactsEligibleForLocusDrift(facts, briefGlobalIDs)
-					report.FactsPendingReview = retrieval.FactsPendingReview(localFacts, proposals, report.Facts)
-				}
-			}
 		}
 	}
 	likelyFilesStarted := profile.start()
@@ -2005,9 +1986,6 @@ func emitBrainBriefReport(cmd *cobra.Command, report brainBriefReport, jsonOutpu
 		fmt.Fprintf(cmd.OutOrStdout(), "memory [%s]%s %s\n", strings.Join(fact.Paths, ","), marker, fact.Text)
 		if gone := report.FactsLocusDrift[fact.ID]; len(gone) > 0 {
 			fmt.Fprintf(cmd.OutOrStdout(), "  ⚠ stale locus (no longer in worktree): %s\n", strings.Join(gone, ", "))
-		}
-		if notice, ok := report.FactsPendingReview[fact.ID]; ok {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", retrieval.FactReviewNoticeLine(notice))
 		}
 	}
 	for _, item := range report.ActionChecklist {
@@ -2728,20 +2706,19 @@ func brainBriefPromoteSuggestedTestFiles(existing []string, preferred []semantic
 
 func brainBriefJSONProjection(report brainBriefReport) brainBriefJSONReport {
 	out := brainBriefJSONReport{
-		GeneratedAt:        report.GeneratedAt,
-		Task:               report.Task,
-		Status:             report.Status,
-		History:            report.History,
-		Conversation:       report.Conversation,
-		FactsLocusDrift:    report.FactsLocusDrift,
-		GlobalFactIDs:      report.GlobalFactIDs,
-		FactsPendingReview: report.FactsPendingReview,
-		ActionChecklist:    report.ActionChecklist,
-		LikelyEditFiles:    report.LikelyEditFiles,
-		LikelyTestFiles:    report.LikelyTestFiles,
-		LikelyFiles:        report.LikelyFiles,
-		Guidance:           report.Guidance,
-		Warnings:           report.Warnings,
+		GeneratedAt:     report.GeneratedAt,
+		Task:            report.Task,
+		Status:          report.Status,
+		History:         report.History,
+		Conversation:    report.Conversation,
+		FactsLocusDrift: report.FactsLocusDrift,
+		GlobalFactIDs:   report.GlobalFactIDs,
+		ActionChecklist: report.ActionChecklist,
+		LikelyEditFiles: report.LikelyEditFiles,
+		LikelyTestFiles: report.LikelyTestFiles,
+		LikelyFiles:     report.LikelyFiles,
+		Guidance:        report.Guidance,
+		Warnings:        report.Warnings,
 	}
 	out.Semantic.Source = report.Semantic.Source
 	out.Semantic.Staleness = report.Semantic.Staleness

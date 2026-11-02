@@ -31,8 +31,6 @@ import (
 // conversation arms with the session-view machinery. No cli-private type
 // crosses this boundary.
 type Deps struct {
-	// LoadFactProposals loads the pending fact-review queue.
-	LoadFactProposals func(brainDir, branch string) ([]factmerge.Proposal, error)
 	// RankFacts ranks facts against a query (BM25), highest score first.
 	RankFacts func(facts []factmerge.Record, query string, limit int, includeAll bool) []factmerge.Record
 	// RankHistoryLexical is the common BM25-only history path: it hydrates its
@@ -313,8 +311,6 @@ func UnifiedWithOptions(deps Deps, repoDir, brainDir, branch, query string, limi
 	var all []factmerge.Record
 	var globalFactIDs map[string]bool
 	var active []factmerge.Record
-	var proposals []factmerge.Proposal
-	var proposalsErr error
 	if includeFacts {
 		var err error
 		all, err = factstore.Load(brainDir, branch)
@@ -330,7 +326,6 @@ func UnifiedWithOptions(deps Deps, repoDir, brainDir, branch, query string, limi
 				active = append(active, f)
 			}
 		}
-		proposals, proposalsErr = deps.LoadFactProposals(brainDir, branch)
 	}
 
 	var lists [][]Result
@@ -338,25 +333,15 @@ func UnifiedWithOptions(deps Deps, repoDir, brainDir, branch, query string, limi
 	// Facts.
 	if includeFacts && len(active) > 0 {
 		factLimit := min(len(active), candidateLimit)
-		var reviewGroups []FactReviewGroup
-		if proposalsErr == nil {
-			reviewGroups = BuildFactReviewGroups(FactsEligibleForLocusDrift(active, globalFactIDs), proposals)
-			factLimit = guardedFactCandidateLimitForGroups(len(active), reviewGroups, candidateLimit)
-		}
 		factResults := FactsToUnified(deps.RankFacts(active, query, factLimit, false))
-		// Repository proposals and locus checks apply only to repository facts.
+		// Locus checks apply only to repository facts.
 		localFacts := FactsEligibleForLocusDrift(all, globalFactIDs)
 		for i := range factResults {
 			if globalFactIDs[factResults[i].ID] {
 				factResults[i].Heading += " (global)"
 			}
 		}
-		if proposalsErr == nil {
-			factResults = guardUnifiedFactResultsWithGroups(repoDir, localFacts, reviewGroups, factResults, candidateLimit)
-		} else {
-			factResults = guardUnifiedFactResultsWithGroups(repoDir, localFacts, nil, factResults, candidateLimit)
-			factResults = AnnotateProposalStateUnavailable(factResults)
-		}
+		factResults = AnnotateUnifiedFactResults(repoDir, localFacts, factResults, candidateLimit)
 		if len(factResults) > 0 {
 			lists = append(lists, factResults)
 		}

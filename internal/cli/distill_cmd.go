@@ -939,15 +939,15 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	for _, warning := range distillWarningsForDisplay(source.Warnings) {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "distilled %d facts (%d distilled, %d authored, %d superseded) across %d branch(es) from %d chunks; %d proposals queued for review\n",
-		source.Facts, source.Distilled, source.Authored, source.Superseded, len(source.Branches), source.ChunksScanned, source.Proposals)
+	fmt.Fprintf(cmd.OutOrStdout(), "distilled %d facts (%d distilled, %d authored, %d superseded) across %d branch(es) from %d chunks\n",
+		source.Facts, source.Distilled, source.Authored, source.Superseded, len(source.Branches), source.ChunksScanned)
 	if source.CandidatesReconciled > 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "reconciled %d candidates: %d promoted without an agent call, %d adjudicated in %d similarity cluster(s) (%d agent calls)\n",
 			source.CandidatesReconciled, source.PromotedWithoutAgent,
 			source.CandidatesReconciled-source.PromotedWithoutAgent, source.ReconcileClusters, source.ReconcileCalls)
 	}
 	if source.PendingReconcile > 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "%d candidates remain unpublished; resolve proposals with memories review or rerun distill to retry failed decisions\n", source.PendingReconcile)
+		fmt.Fprintf(cmd.OutOrStdout(), "%d candidates remain unpublished; rerun distill to retry failed decisions\n", source.PendingReconcile)
 	}
 	return nil
 }
@@ -1046,13 +1046,11 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 
 	byBranch := map[string][]factRecord{}
 	baselineByBranch := map[string][]factRecord{}
-	proposalsByBranch := map[string][]factProposal{}
-	queuedByBranch := map[string][]factProposal{}
 	loaded := map[string]bool{}
-	// dirtyBranches tracks branches whose in-memory facts/proposals have
-	// diverged from disk since the last successful flush, so a flush rewrites
-	// only what changed instead of re-marshaling every loaded branch's full
-	// store every interval.
+	// dirtyBranches tracks branches whose in-memory facts have diverged from
+	// disk since the last successful flush, so a flush rewrites only what
+	// changed instead of re-marshaling every loaded branch's full store every
+	// interval.
 	dirtyBranches := map[string]bool{}
 	var warnings []string
 	chunksScanned, chunksDistilled := 0, 0
@@ -1123,24 +1121,19 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		}
 		baselineByBranch[branch] = cloneDistillFacts(existing)
 		if distillOpts.force {
-			// Rebuilding extraction must not erase either side of a pending review.
-			reviewIDs := map[string]bool{}
-			for _, p := range append(append([]factProposal(nil), queuedByBranch[branch]...), proposalsByBranch[branch]...) {
-				reviewIDs[p.CandidateID], reviewIDs[p.TargetID] = true, true
-			}
 			kept := existing[:0]
 			for _, record := range existing {
 				// A force rebuild drops the distilled facts it is about to
 				// regenerate — but never a RETIRED one. A retracted or superseded
 				// record is a tombstone for a decision the rebuild does not replay
-				// (`facts retract`, an applied review proposal, a promote, a synced
-				// settlement); dropping it lets the very next chunk re-add the same
-				// statement as ACTIVE and silently resurrect a fact somebody
-				// declared false. Retaining it costs nothing: the regenerated
-				// candidate has the same content-derived id, so upsertFact lands on
-				// the tombstone and leaves its status alone, and a supersede the
-				// rebuild does replay re-marks it identically.
-				if record.Origin != factstore.OriginDistilled || record.Status != factStatusActive || reviewIDs[record.ID] {
+				// (`facts retract`, a synced settlement); dropping it lets the
+				// very next chunk re-add the same statement as ACTIVE and
+				// silently resurrect a fact somebody declared false. Retaining it
+				// costs nothing: the regenerated candidate has the same
+				// content-derived id, so upsertFact lands on the tombstone and
+				// leaves its status alone, and a supersede the rebuild does
+				// replay re-marks it identically.
+				if record.Origin != factstore.OriginDistilled || record.Status != factStatusActive {
 					kept = append(kept, record)
 				}
 			}
@@ -1171,14 +1164,6 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	// interrupted force run re-distills the sessions it never reached.
 	resumeOnly := true
 	flushFactStoresLocked := func(final bool) error {
-		priorByBranch := make(map[string][]factProposal, len(dirtyBranches))
-		for branch := range dirtyBranches {
-			prior, err := loadFactProposals(brainDir, branch)
-			if err != nil {
-				return fmt.Errorf("load proposals for %s: %w", branch, err)
-			}
-			priorByBranch[branch] = prior
-		}
 		for branch := range dirtyBranches {
 			// Rebase onto the current on-disk set before writing. The in-memory
 			// set was loaded when the branch was first seen, which for a run that
@@ -1197,38 +1182,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 				return err
 			}
 			baselineByBranch[branch] = cloneDistillFacts(byBranch[branch])
-			// Union this run's proposals with any already queued. Re-loading on
-			// every flush is idempotent: earlier flushes' proposals come back as
-			// priors and dedupe away. A --force rebuild starts fresh (it rebuilds
-			// the distilled facts), but drops the prior backlog only on the FINAL
-			// flush — a mid-run flush that skipped priors would wipe the review
-			// queue ~50 calls in, and a kill there would lose it before the
-			// rebuild produced its replacement.
-			//
-			// A force run may only drop the proposals it OWNS. The queue is shared:
-			// distill's single-user backlog carries no ProposedBy, while cross-member
-			// conflicts raised by `facts sync` are member-attributed — and distill
-			// never regenerates those, so dropping them silently deleted conflicts
-			// nobody had reviewed. Retain the attributed ones across a force rebuild.
-			var prior []factProposal
-			loadedProposals := priorByBranch[branch]
-			if distillOpts.force && final {
-				for _, p := range loadedProposals {
-					if ci := indexOfFact(rebased, p.CandidateID); strings.TrimSpace(p.ProposedBy) != "" || (ci >= 0 && rebased[ci].Status == factStatusCandidate) {
-						prior = append(prior, p)
-					}
-				}
-			} else {
-				prior = loadedProposals
-			}
-			merged := dedupeProposals(append(prior, proposalsByBranch[branch]...))
-			if err := writeFactProposals(brainDir, branch, merged); err != nil {
-				return err
-			}
 			// A force run keeps branches dirty between mid-run flushes so the
-			// final flush always rewrites them — that write is what drops the
-			// prior proposal backlog. Otherwise the branch is clean until new
-			// fact actions touch it.
+			// final flush always rewrites them. Otherwise the branch is clean
+			// until new fact actions touch it.
 			if final || !distillOpts.force {
 				delete(dirtyBranches, branch)
 			}
@@ -1276,13 +1232,12 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	batchTotals := reconcileBatchStats{}
 	reconcileBranch := func(b string) {
 		reconcileStarted := time.Now()
-		updated, pending, stats, recWarnings := reconcileStagedCandidates(ctx, distillOpts.run, reconcileArgs, byBranch[b], append(append([]factProposal(nil), queuedByBranch[b]...), proposalsByBranch[b]...), repoDir, distillOpts.timeout, distillOpts.concurrency, now)
+		updated, stats, recWarnings := reconcileStagedCandidates(ctx, distillOpts.run, reconcileArgs, byBranch[b], repoDir, distillOpts.timeout, distillOpts.concurrency, now)
 		if stats.Candidates == 0 {
 			return
 		}
 		byBranch[b] = updated
 		dirtyBranches[b] = true
-		proposalsByBranch[b] = append(proposalsByBranch[b], pending...)
 		warnings = append(warnings, recWarnings...)
 		batchTotals.Candidates += stats.Candidates
 		batchTotals.Promoted += stats.Promoted
@@ -1303,11 +1258,6 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			continue
 		}
 		resumeBranches[b] = true
-		queued, err := loadFactProposals(brainDir, b)
-		if err != nil {
-			return nil, fmt.Errorf("load pending review for %s: %w", b, err)
-		}
-		queuedByBranch[b] = queued
 		stored, err := factstore.Load(brainDir, b)
 		if err != nil {
 			return nil, fmt.Errorf("load staged candidates for %s: %w", b, err)
@@ -1329,8 +1279,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		if err := flushFactStores(false); err != nil {
 			return nil, fmt.Errorf("persist resumed reconciliation: %w", err)
 		}
-		// Resume is complete even under --force. Only a branch actually
-		// rebuilt below should replace its prior proposal backlog at the end.
+		// Resume is complete even under --force.
 		clear(dirtyBranches)
 	}
 
@@ -1548,13 +1497,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		if err != nil {
 			return err
 		}
-		branchNames := make([]string, 0, len(allBranches))
-		for branch := range allBranches {
-			branchNames = append(branchNames, branch)
-		}
-		totalProposals := countFactProposals(brainDir, branchNames)
-
-		source = factstore.SummarizeSource(now, allBranches, chunksScanned, chunksDistilled, totalProposals, warnings)
+		source = factstore.SummarizeSource(now, allBranches, chunksScanned, chunksDistilled, 0, warnings)
 		source.LastDistilledAt = now
 		source.CacheHits = cacheHits
 		source.FailedChunks = failedChunks

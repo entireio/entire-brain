@@ -32,39 +32,19 @@ type Action struct {
 	Candidate  Record
 }
 
-// Proposal is a low-confidence merge/supersede the engine declined to apply
-// automatically. It is queued for `facts review`; until resolved, both facts
-// stay active and are cross-linked via RelatedIDs.
-//
-// ProposedBy carries cross-member ROUTING: the id of the member whose sync raised
-// the proposal (the "candidate" side of the conflict). The merge core never sets it
-// — it is stamped by the cross-member sync layer (internal/factsync), which knows
-// who is syncing — so a proposal a team member opens is attributable and routable.
-// It is omitempty and ignored by the single-user local review flow, keeping the
-// on-disk format backward compatible.
-type Proposal struct {
-	Action      string  `json:"action"` // "merge" | "supersede"
-	CandidateID string  `json:"candidate_id"`
-	TargetID    string  `json:"target_id"`
-	Confidence  float64 `json:"confidence"`
-	Branch      string  `json:"branch,omitempty"`
-	ProposedBy  string  `json:"proposed_by,omitempty"`
-}
-
 // ApplyActions folds a chronological sequence of agent actions into an
-// active fact set, returning the updated set and any proposals that need human
-// review. Actions are applied in order so each one sees the set as it stood at
-// that point — a --force rebuild replays the same order and reconstructs the
-// identical chain.
+// active fact set. Actions are applied in order so each one sees the set as it
+// stood at that point — a --force rebuild replays the same order and
+// reconstructs the identical chain.
 //
 // High-confidence merge consolidates the candidate's provenance into the target
 // and drops the candidate. High-confidence supersede marks the target
 // superseded (never deleted) and adds the candidate as the active replacement.
-// Below threshold, both facts stay active, are cross-linked, and a proposal is
-// queued. An action whose target is unknown or is the candidate itself degrades
-// to `new`.
-func ApplyActions(active []Record, actions []Action, threshold float64, now time.Time) ([]Record, []Proposal) {
-	var proposals []Proposal
+// Below threshold, both facts stay active and are cross-linked via RelatedIDs;
+// the nightly compaction loop settles coexisting conflicts (COR-2273 — the
+// review queue this used to feed was removed with the per-branch stores). An
+// action whose target is unknown or is the candidate itself degrades to `new`.
+func ApplyActions(active []Record, actions []Action, threshold float64, now time.Time) []Record {
 	for _, action := range actions {
 		candidate := action.Candidate
 		if action.Confidence > 0 {
@@ -79,17 +59,10 @@ func ApplyActions(active []Record, actions []Action, threshold float64, now time
 			}
 			if action.Confidence < threshold {
 				// Low confidence: never silently rewrite. Keep both active,
-				// cross-link them, and queue the decision for review.
+				// cross-linked, for the compaction loop to settle.
 				candidate.RelatedIDs = appendUniqueString(candidate.RelatedIDs, active[ti].ID)
 				active[ti].RelatedIDs = appendUniqueString(active[ti].RelatedIDs, candidate.ID)
 				active = Upsert(active, candidate)
-				proposals = append(proposals, Proposal{
-					Action:      action.Kind,
-					CandidateID: candidate.ID,
-					TargetID:    action.TargetID,
-					Confidence:  action.Confidence,
-					Branch:      candidate.Branch,
-				})
 				continue
 			}
 			if action.Kind == ActionMerge {
@@ -112,7 +85,7 @@ func ApplyActions(active []Record, actions []Action, threshold float64, now time
 			active = Upsert(active, candidate)
 		}
 	}
-	return active, proposals
+	return active
 }
 
 // IndexOf returns the index of the fact with the given id, or -1.

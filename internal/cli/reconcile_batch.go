@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -30,19 +31,31 @@ type reconcileBatchStats struct {
 	AgentCalls int // actual agent round-trips (waves across all clusters)
 }
 
+func appendUniqueFactID(ids []string, id string) []string {
+	if slices.Contains(ids, id) {
+		return ids
+	}
+	return append(ids, id)
+}
+
 // reconcileStagedCandidates adjudicates the branch's candidate-status facts
-// and returns the updated fact set, queued proposals, stats, and warnings.
-// A branch with no candidates is returned unchanged at zero cost.
-func reconcileStagedCandidates(ctx context.Context, run base.DistillAgentRunner, agentArgs []string, facts []factRecord, queued []factProposal, repoDir string, timeout time.Duration, concurrency int, now time.Time) ([]factRecord, []factProposal, reconcileBatchStats, []string) {
+// and returns the updated fact set, stats, and warnings. A branch with no
+// candidates is returned unchanged at zero cost.
+func reconcileStagedCandidates(ctx context.Context, run base.DistillAgentRunner, agentArgs []string, facts []factRecord, repoDir string, timeout time.Duration, concurrency int, now time.Time) ([]factRecord, reconcileBatchStats, []string) {
 	var stats reconcileBatchStats
 	rest := make([]factRecord, 0, len(facts))
 	var candidates []factRecord
-	pending := make(map[string]bool, len(queued))
-	for _, p := range queued {
-		pending[p.CandidateID] = true
-	}
 	for _, f := range facts {
-		if f.Status == factStatusCandidate && !pending[f.ID] {
+		if f.Status == factStatusCandidate {
+			// EVERY staged candidate is adjudicated — including, once, legacy
+			// candidates a queued proposal used to hold back. The review queue
+			// is retired, and the alternatives are both worse: skipping them
+			// strands facts that only `memories review` could ever publish, and
+			// replaying the stale queue applies old adjudications against a
+			// store that has moved on. On the first distill after upgrading
+			// they re-enter adjudication and publish under keep-both; a
+			// leftover proposals.ndjson is inert (privacy cleanup deletes it,
+			// the store migration drops it).
 			f.Status = factStatusActive
 			candidates = append(candidates, f)
 			continue
@@ -51,7 +64,7 @@ func reconcileStagedCandidates(ctx context.Context, run base.DistillAgentRunner,
 	}
 	stats.Candidates = len(candidates)
 	if len(candidates) == 0 {
-		return facts, nil, stats, nil
+		return facts, stats, nil
 	}
 	// Chronological, then by id: the order the serial design adjudicated in,
 	// and what makes a --force replay deterministic.
@@ -65,28 +78,33 @@ func reconcileStagedCandidates(ctx context.Context, run base.DistillAgentRunner,
 	flagged, clusters, anchored := clusterFlaggedCandidates(candidates, rest)
 
 	var warnings []string
-	applyOne := func(records []factRecord, action factAction, proposals *[]factProposal) []factRecord {
+	// Conflict pairs are cross-linked AFTER every ruling has been applied (see
+	// the loop before the return): a ruling's target can be a cluster member a
+	// later action publishes — it was comparison context in the agent's
+	// EXISTING list — so linking at apply time would silently skip the pair
+	// and hide it from the compaction loop.
+	var conflictPairs [][2]string
+	applyOne := func(records []factRecord, action factAction) []factRecord {
 		c := action.Candidate
 		if action.Kind == factActionNew {
 			c.Status = factStatusActive
 			return upsertFact(records, c)
 		}
-		// Never use ApplyActions here: its fallback publishes candidates and
-		// its high-confidence path discards text. Keep the complete candidate
-		// unpublished, including when a target is missing or itself staged.
-		c.Status = factStatusCandidate
-		records = upsertFact(records, c)
-		if (action.Kind == factActionMerge || action.Kind == factActionSupersede) && action.TargetID != c.ID {
-			*proposals = append(*proposals, factProposal{
-				Action: action.Kind, CandidateID: c.ID, TargetID: action.TargetID,
-				Confidence: action.Confidence, Branch: c.Branch,
-			})
-			warnings = append(warnings, "reconcile: "+action.Kind+" requires review; candidate remains unpublished (run memories review)")
+		if action.Kind == factActionDefer {
+			// Keep the candidate staged so the next distill run retries it.
+			c.Status = factStatusCandidate
+			return upsertFact(records, c)
 		}
-		return records
+		// merge/supersede: publish the candidate and keep both facts active,
+		// without rewriting either side. The review queue that used to
+		// adjudicate these left with the per-branch stores; the nightly
+		// compaction loop settles coexisting conflicts (COR-2273).
+		c.Status = factStatusActive
+		if action.TargetID != c.ID {
+			conflictPairs = append(conflictPairs, [2]string{c.ID, action.TargetID})
+		}
+		return upsertFact(records, c)
 	}
-
-	var proposals []factProposal
 	// Unflagged candidates first: nothing stored or staged resembles them, so
 	// they are new by the same reasoning as the no-facts-at-paths shortcut.
 	for i, c := range candidates {
@@ -94,7 +112,7 @@ func reconcileStagedCandidates(ctx context.Context, run base.DistillAgentRunner,
 			continue
 		}
 		stats.Promoted++
-		rest = applyOne(rest, factAction{Kind: factActionNew, Confidence: 1.0, Candidate: c}, &proposals)
+		rest = applyOne(rest, factAction{Kind: factActionNew, Confidence: 1.0, Candidate: c})
 	}
 
 	// Each cluster's agent calls run concurrently (clusters are disjoint);
@@ -180,22 +198,35 @@ func reconcileStagedCandidates(ctx context.Context, run base.DistillAgentRunner,
 		stats.AgentCalls += res.calls
 		warnings = append(warnings, res.warnings...)
 		if res.elected != nil {
-			rest = applyOne(rest, factAction{Kind: factActionNew, Confidence: 1.0, Candidate: *res.elected}, &proposals)
+			rest = applyOne(rest, factAction{Kind: factActionNew, Confidence: 1.0, Candidate: *res.elected})
 		}
-		// Apply explicit new decisions first; destructive decisions only queue
-		// review and never change either side's text or retire a target.
+		// Apply explicit new decisions first; merge/supersede decisions keep
+		// both sides active and never change either side's text or retire a
+		// target.
 		for _, action := range res.actions {
 			if action.Kind == factActionNew {
-				rest = applyOne(rest, action, &proposals)
+				rest = applyOne(rest, action)
 			}
 		}
 		for _, action := range res.actions {
 			if action.Kind != factActionNew {
-				rest = applyOne(rest, action, &proposals)
+				rest = applyOne(rest, action)
 			}
 		}
 	}
-	return rest, proposals, stats, warnings
+	// Cross-link each adjudicated conflict pair once both sides have landed,
+	// independent of the order the rulings published them. A pair whose target
+	// never landed (a hallucinated id) stays unlinked: the ruling is advisory
+	// and the candidate is already published.
+	for _, pair := range conflictPairs {
+		ci, ti := indexOfFact(rest, pair[0]), indexOfFact(rest, pair[1])
+		if ci < 0 || ti < 0 {
+			continue
+		}
+		rest[ci].RelatedIDs = appendUniqueFactID(rest[ci].RelatedIDs, rest[ti].ID)
+		rest[ti].RelatedIDs = appendUniqueFactID(rest[ti].RelatedIDs, rest[ci].ID)
+	}
+	return rest, stats, warnings
 }
 
 // clusterFlaggedCandidates reports which candidates need the agent, groups

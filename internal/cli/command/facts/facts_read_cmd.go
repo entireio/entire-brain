@@ -166,23 +166,6 @@ func NewRecall(cfg Config) *cobra.Command {
 			// Locus drift (Phase 2 item 4): flag surfaced facts whose code
 			// locus left the worktree, so the agent knows which to re-verify.
 			drift := retrieval.FactsLocusDrift(repoDir, retrieval.FactsEligibleForLocusDrift(matches, globalIDs))
-			// Live trust state: a surfaced fact with a pending merge/supersede
-			// proposal is annotated (not collapsed — recall keeps its record
-			// shape), matching the guard the unified query/search/get path
-			// applies. Groups are built from the unfiltered branch set so
-			// scope/kind/locus filters cannot hide a pending relationship.
-			// Nothing surfaced means no annotation and no queue warning, so skip
-			// the proposal read entirely on the empty-recall path.
-			var proposals []factmerge.Proposal
-			var proposalsErr error
-			var pendingReviews map[string]retrieval.FactReviewNotice
-			if len(matches) > 0 {
-				proposals, proposalsErr = cfg.Deps.LoadFactProposals(brainDir, resolvedBranch)
-				if proposalsErr == nil {
-					localFacts := retrieval.FactsEligibleForLocusDrift(allFacts, globalIDs)
-					pendingReviews = retrieval.FactsPendingReview(localFacts, proposals, matches)
-				}
-			}
 			recordReceipt := func() {
 				cfg.Deps.RecordServedFacts(cmd.ErrOrStderr(), cmd.Context(), cfg.Options, brainDir, resolvedBranch, "recall",
 					repoDir, query, matches)
@@ -213,12 +196,6 @@ func NewRecall(cfg Config) *cobra.Command {
 				}
 				if len(drift) > 0 {
 					out["locus_drift"] = drift
-				}
-				if len(pendingReviews) > 0 {
-					out["pending_reviews"] = pendingReviews
-				}
-				if proposalsErr != nil && len(matches) > 0 {
-					out["warnings"] = []string{retrieval.FactReviewQueueUnavailableWarning}
 				}
 				if storeWarning != "" {
 					warnings, _ := out["warnings"].([]string)
@@ -252,9 +229,6 @@ func NewRecall(cfg Config) *cobra.Command {
 				if storeWarning != "" {
 					fmt.Fprintln(out, "warning: "+storeWarning)
 				}
-				if proposalsErr != nil {
-					fmt.Fprintf(out, "⚠ %s\n", retrieval.FactReviewQueueUnavailableWarning)
-				}
 				for _, f := range matches {
 					if globalIDs[f.ID] {
 						// Without this a global convention is indistinguishable
@@ -266,9 +240,6 @@ func NewRecall(cfg Config) *cobra.Command {
 					}
 					if gone := drift[f.ID]; len(gone) > 0 {
 						fmt.Fprintf(out, "  ⚠ stale locus (no longer in worktree): %s\n", strings.Join(gone, ", "))
-					}
-					if notice, ok := pendingReviews[f.ID]; ok {
-						fmt.Fprintf(out, "  %s\n", retrieval.FactReviewNoticeLine(notice))
 					}
 				}
 			}); err != nil {

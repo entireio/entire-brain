@@ -226,10 +226,16 @@ func TestRepoFactStoreReleasedMemoryCommands(t *testing.T) {
 	// Include a schema 1 upgrade in the command lifecycle.
 	writeSchema1Fixture(t, root)
 	f.run(f.current, "memories", "storage", "migrate", "--json")
+	// promote and review were removed from the current build; the released
+	// client still ships them, and the current build must read their writes.
+	f.run(f.old, "memories", "promote", "--from", "feature", "--into", "main", "--json")
 	for _, binary := range []string{f.old, f.current} {
-		f.run(binary, "memories", "promote", "--from", "feature", "--into", "main", "--json")
 		f.requireVisible(binary, "main", []factRecord{a, b}, nil)
-		for _, args := range [][]string{{"brief", "memory storage", "--json"}, {"memories", "status", "--json"}, {"memories", "tree", "--json"}, {"memories", "map", "--json"}, {"memories", "review", "--json"}, {"memories", "vitality", "--json"}, {"memories", "files", "--dir", filepath.Join(f.root, "export"), "--json"}, {"memories", "gc", "--json"}} {
+		commands := [][]string{{"brief", "memory storage", "--json"}, {"memories", "status", "--json"}, {"memories", "tree", "--json"}, {"memories", "map", "--json"}, {"memories", "vitality", "--json"}, {"memories", "files", "--dir", filepath.Join(f.root, "export"), "--json"}, {"memories", "gc", "--json"}}
+		if binary == f.old {
+			commands = append(commands, []string{"memories", "review", "--json"})
+		}
+		for _, args := range commands {
 			f.run(binary, args...)
 		}
 	}
@@ -413,15 +419,21 @@ func TestRepoFactStoreReleasedDistillOutlineAndReview(t *testing.T) {
 				t.Fatalf("outline not shared: %s", out)
 			}
 		}
-		// Resolve a persisted proposal with this client, then inspect using both.
-		target := f.remember(binary, "review target "+filepath.Base(binary), "main")
-		candidate := f.remember(binary, "review replacement "+filepath.Base(binary), "main")
-		if err := writeFactProposals(root, "main", []factProposal{{Action: factActionSupersede, CandidateID: candidate.ID, TargetID: target.ID, Confidence: 0.5, Branch: "main"}}); err != nil {
-			t.Fatal(err)
-		}
-		f.run(binary, "memories", "review", "--apply", candidate.ID, "--json")
-		for _, reader := range []string{f.old, f.current} {
-			f.requireVisible(reader, "main", []factRecord{candidate}, []factRecord{target})
+		// Resolve a persisted proposal with the released client (the current
+		// build removed the review queue), then inspect using both readers.
+		if binary == f.old {
+			target := f.remember(binary, "review target "+filepath.Base(binary), "main")
+			candidate := f.remember(binary, "review replacement "+filepath.Base(binary), "main")
+			queue := fmt.Sprintf(`{"action":%q,"candidate_id":%q,"target_id":%q,"confidence":0.5,"branch":"main"}`+"\n",
+				factActionSupersede, candidate.ID, target.ID)
+			queuePath := filepath.Join(root, filepath.FromSlash(factstore.BranchRelDir("main")), "proposals.ndjson")
+			if err := os.WriteFile(queuePath, []byte(queue), 0600); err != nil {
+				t.Fatal(err)
+			}
+			f.run(binary, "memories", "review", "--apply", candidate.ID, "--json")
+			for _, reader := range []string{f.old, f.current} {
+				f.requireVisible(reader, "main", []factRecord{candidate}, []factRecord{target})
+			}
 		}
 	}
 }
