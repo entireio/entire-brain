@@ -72,12 +72,12 @@ func assertNoDistillDerivedState(t *testing.T, brainDir string) {
 	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(distillCachePath))); !os.IsNotExist(err) {
 		t.Fatalf("refused distill cache stat error = %v, want not exist", err)
 	}
-	byBranch, err := factstore.LoadAllBranches(brainDir)
+	records, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatalf("load facts after refused distill: %v", err)
 	}
-	if len(byBranch) != 0 {
-		t.Fatalf("refused distill published fact branches: %+v", byBranch)
+	if len(records) != 0 {
+		t.Fatalf("refused distill published facts: %+v", records)
 	}
 }
 

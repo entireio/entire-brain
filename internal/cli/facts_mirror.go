@@ -175,13 +175,19 @@ func dropFactsForMissingSessionsLocked(brainDir string, catalog checkpointCatalo
 		}
 		return catalog.ids[id] || catalog.rels[rel]
 	}
-	byFile, err := factstore.LoadStoreFiles(brainDir)
+	// Migrate first: this is a write entry point, so legacy branch files
+	// (including stragglers an older binary wrote after migration) fold into
+	// the flat store before the sweep reads it, and the sweep's one Write
+	// covers everything.
+	if _, err := factstore.MigrateRepository(brainDir); err != nil {
+		return 0, 0, err
+	}
+	facts, err := factstore.Load(brainDir)
 	if err != nil {
 		return 0, 0, err
 	}
 	deletedTotal, strippedTotal := 0, 0
-	changedAny := false
-	for dir, facts := range byFile {
+	{
 		changed := false
 		deletedIDs := map[string]bool{}
 		kept := make([]factRecord, 0, len(facts))
@@ -221,25 +227,11 @@ func dropFactsForMissingSessionsLocked(brainDir string, catalog checkpointCatalo
 			kept = append(kept, fact)
 		}
 		if !changed {
-			continue
+			return deletedTotal, strippedTotal, nil
 		}
-		changedAny = true
-		if err := factstore.WriteStoreFile(brainDir, dir, kept); err != nil {
+		if err := factstore.Write(brainDir, kept); err != nil {
 			return deletedTotal, strippedTotal, err
 		}
-		// The review-queue framework is gone; a leftover proposals.ndjson is an
-		// inert legacy artifact, and this sweep's contract is that no removed
-		// fact id survives anywhere in the brain — so remove the file outright.
-		proposalRel := filepath.ToSlash(filepath.Join(factstore.DirName, dir, "proposals.ndjson"))
-		if err := brainstore.RemoveBrainRelativeFile(brainDir, proposalRel); err != nil {
-			return deletedTotal, strippedTotal, err
-		}
-	}
-	if !changedAny {
-		return deletedTotal, strippedTotal, nil
-	}
-	if err := factstore.MigrateRepository(brainDir); err != nil {
-		return deletedTotal, strippedTotal, err
 	}
 	return deletedTotal, strippedTotal, updateFactSourceManifestLocked(brainDir, now)
 }

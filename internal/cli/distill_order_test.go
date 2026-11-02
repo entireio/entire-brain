@@ -337,7 +337,7 @@ func TestNewestFirstDoesNotAutomaticallySupersedeNewerFacts(t *testing.T) {
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
 		t.Fatal(err)
 	}
-	facts, err := factstore.Load(brainDir, "main")
+	facts, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

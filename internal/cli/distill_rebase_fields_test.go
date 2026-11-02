@@ -19,10 +19,10 @@ func TestDistillRebasePreservesConcurrentFields(t *testing.T) {
 		disk.Kind = kind
 		disk.UpdatedAt = now.Add(time.Minute)
 		disk.Provenance = append(disk.Provenance, factAnchor{SessionID: "concurrent"})
-		if err := factstore.Write(dir, "main", []factRecord{disk}); err != nil {
+		if err := factstore.Write(dir, []factRecord{disk}); err != nil {
 			t.Fatal(err)
 		}
-		got, err := rebaseFactsOntoDisk(dir, "main", local, baseline, false)
+		got, err := rebaseFactsOntoDisk(dir, local, baseline, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -46,10 +46,10 @@ func TestDistillRebasePreservesReactivation(t *testing.T) {
 	baseline := cloneDistillFacts([]factRecord{seed})
 	disk := seed
 	disk.Status = factStatusActive
-	if err := factstore.Write(dir, "main", []factRecord{disk}); err != nil {
+	if err := factstore.Write(dir, []factRecord{disk}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := rebaseFactsOntoDisk(dir, "main", cloneDistillFacts(baseline), baseline, false)
+	got, err := rebaseFactsOntoDisk(dir, cloneDistillFacts(baseline), baseline, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,10 +67,10 @@ func TestDistillRebaseMergesRelatedIDs(t *testing.T) {
 	local[0].RelatedIDs = []string{"keep", "removed-on-disk", "distill-added"}
 	disk := seed
 	disk.RelatedIDs = []string{"keep", "removed-locally", "concurrent-added"}
-	if err := factstore.Write(dir, "main", []factRecord{disk}); err != nil {
+	if err := factstore.Write(dir, []factRecord{disk}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := rebaseFactsOntoDisk(dir, "main", local, baseline, false)
+	got, err := rebaseFactsOntoDisk(dir, local, baseline, false)
 	if err != nil {
 		t.Fatal(err)
 	}

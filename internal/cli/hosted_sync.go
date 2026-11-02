@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
@@ -45,10 +44,10 @@ type hostedSyncOutcome struct {
 	PullSucceeded bool
 }
 
-// hostedFactsSyncAndPull closes the hosted-memory loop for one branch on the
-// per-fact wire (COR-2126): batch-upsert this machine's branch store to
+// hostedFactsSyncAndPull closes the hosted-memory loop on the per-fact wire
+// (COR-2126): batch-upsert this machine's store to
 // brainstore, pull the repo-wide delta feed into the repo-level cache, and
-// rebuild the branch store as the pull filter's output plus this machine's
+// rebuild the store as the pull filter's output plus this machine's
 // own facts the feed has not seen. No CAS, no branch heads, no proposals —
 // per-fact storage keeps conflicting facts side by side and resolution stays
 // deferred to the async pipeline.
@@ -74,7 +73,7 @@ type hostedSyncOutcome struct {
 // half completed — the half that proves the exchange (the per-branch marker
 // keys off it). Callers that promise a sync to the user (connect) key their
 // report off PullSucceeded; background callers keep ignoring it.
-func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) (hostedSyncOutcome, error) {
+func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage) (hostedSyncOutcome, error) {
 	if base.BrainNoEgressMode() {
 		return hostedSyncOutcome{}, nil
 	}
@@ -111,9 +110,9 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 
 	rebound := false
 	for {
-		counts, skipped, pushErr := pushHostedFacts(ctx, storage, srv, binding.RepoID, branch)
+		counts, skipped, pushErr := pushHostedFacts(ctx, storage, srv, binding.RepoID)
 		if skipped > 0 {
-			fmt.Fprintf(errW, "hosted sync: branch %s: skipped %d unpublishable record(s) whose content id does not re-derive (kept locally, not uploaded)\n", branch, skipped)
+			fmt.Fprintf(errW, "hosted sync: skipped %d unpublishable record(s) whose content id does not re-derive (kept locally, not uploaded)\n", skipped)
 		}
 		pushed := pushErr == nil
 		if pushErr != nil {
@@ -121,9 +120,9 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 			// grant is a real state (push 403, pull 200 — the COR-2030 staging
 			// smoke hit exactly this) and the team's memories must keep
 			// landing through it.
-			fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): %v; pull-only\n", branch, pushErr)
+			fmt.Fprintf(errW, "hosted sync: publish failed (local brain unaffected): %v; pull-only\n", pushErr)
 		}
-		kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, binding.RepoID, baseURL, token, branch)
+		kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, binding.RepoID, baseURL, token)
 		if errors.Is(pullErr, factsync.ErrNoAccess) {
 			// The pull is the half every caller is granted on a healthy
 			// binding, so its denial means the binding itself is stale: the
@@ -142,16 +141,16 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 			return hostedSyncOutcome{Attempted: true}, nil
 		}
 		if pullErr != nil {
-			fmt.Fprintf(errW, "hosted sync: branch %s pull failed (local brain unaffected): %v\n", branch, pullErr)
+			fmt.Fprintf(errW, "hosted sync: pull failed (local brain unaffected): %v\n", pullErr)
 			return hostedSyncOutcome{Attempted: true}, nil
 		}
 		if pushed {
-			// The per-branch marker records that this branch completed a sync
-			// against this target; the blind-spot note keys off its absence. It
-			// needs BOTH halves: a pull-only run leaves it unwritten, and so does
-			// a failed pull — the empty-store push "succeeds" without contacting
-			// the server, so the pull is what proves the exchange happened.
-			if err := writeHostedFactsBinding(storage.BrainDir, branch, binding.RepoID, baseURL); err != nil {
+			// The marker records that this repo completed a sync against this
+			// target; the blind-spot note keys off its absence. It needs BOTH
+			// halves: a pull-only run leaves it unwritten, and so does a failed
+			// pull — the empty-store push "succeeds" without contacting the
+			// server, so the pull is what proves the exchange happened.
+			if err := writeHostedFactsBinding(storage.BrainDir, binding.RepoID, baseURL); err != nil {
 				fmt.Fprintf(errW, "hosted sync: record hosted target: %v\n", err)
 			}
 		}
@@ -167,8 +166,8 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 				fmt.Fprintf(errW, "hosted sync: clear expired no-access pause: %v\n", err)
 			}
 		}
-		fmt.Fprintf(errW, "hosted sync: branch %s pushed added=%d changed=%d unchanged=%d; feed facts=%d kept=%d\n",
-			branch, counts.Added, counts.Changed, counts.Unchanged, total, kept)
+		fmt.Fprintf(errW, "hosted sync: pushed added=%d changed=%d unchanged=%d; feed facts=%d kept=%d\n",
+			counts.Added, counts.Changed, counts.Unchanged, total, kept)
 		return hostedSyncOutcome{Attempted: true, PullSucceeded: true}, nil
 	}
 }
@@ -245,7 +244,7 @@ func pauseHostedSyncNoAccess(errW io.Writer, opts Options, brainDir string, stal
 // publish did not complete and the branch must not be marked as synced. The
 // caller owns presentation: background sync degrades to pull-only with one
 // stderr line, manual sync fails the command (COR-2202 honesty).
-func pushHostedFacts(ctx context.Context, storage repoStorage, srv *factsync.HTTPServer, repoID, branch string) (factsync.UpsertCounts, int, error) {
+func pushHostedFacts(ctx context.Context, storage repoStorage, srv *factsync.HTTPServer, repoID string) (factsync.UpsertCounts, int, error) {
 	lock, err := acquireHostedUploadLock(ctx, storage.BrainDir)
 	if err != nil {
 		return factsync.UpsertCounts{}, 0, err
@@ -257,7 +256,7 @@ func pushHostedFacts(ctx context.Context, storage repoStorage, srv *factsync.HTT
 		return factsync.UpsertCounts{}, 0, err
 	}
 
-	facts, err := factstore.Load(storage.BrainDir, branch)
+	facts, err := factstore.Load(storage.BrainDir)
 	if err != nil {
 		return factsync.UpsertCounts{}, 0, err
 	}
@@ -342,7 +341,7 @@ func pushHostedFacts(ctx context.Context, storage repoStorage, srv *factsync.HTT
 // Everything runs under the brain write lock: the cache and the branch store
 // must move together, and concurrent triggers (tick, hook, push hint) must
 // not interleave their rebuilds.
-func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage repoStorage, srv *factsync.HTTPServer, repoID, baseURL, token, branch string) (kept, total int, manifestErr, err error) {
+func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage repoStorage, srv *factsync.HTTPServer, repoID, baseURL, token string) (kept, total int, manifestErr, err error) {
 	feedDir, err := hostedFeedDirForKey(opts.Env, storage.Key)
 	if err != nil {
 		return 0, 0, nil, err
@@ -416,7 +415,7 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 			return err
 		}
 
-		existing, err := factstore.Load(storage.BrainDir, branch)
+		existing, err := factstore.Load(storage.BrainDir)
 		if err != nil {
 			return err
 		}
@@ -459,7 +458,7 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 			}
 			rebuilt = append(rebuilt, rec)
 		}
-		if err := factstore.Write(storage.BrainDir, branch, rebuilt); err != nil {
+		if err := factstore.Write(storage.BrainDir, rebuilt); err != nil {
 			return err
 		}
 		// A manifest failure reports alongside the successful pull instead of
@@ -469,15 +468,4 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 		return nil
 	})
 	return kept, total, manifestErr, err
-}
-
-// hostedSyncBranch resolves the branch a hosted sync step should cover: the
-// repo's current branch, else the default branch.
-func hostedSyncBranch(ctx context.Context, runner CommandRunner, repoDir string) string {
-	if current, err := base.GitScalar(ctx, runner, repoDir, "branch", "--show-current"); err == nil {
-		if branch := strings.TrimSpace(current); branch != "" {
-			return branch
-		}
-	}
-	return distillDefaultBranch
 }

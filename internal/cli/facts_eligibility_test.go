@@ -52,7 +52,7 @@ func TestRecallTemporalEligibilityPrecedesTopKForLexicalAndSemantic(t *testing.T
 		Status: factStatusActive, UpdatedAt: now.Add(-time.Hour),
 		Provenance: []factAnchor{{SessionID: "eligible"}},
 	})
-	if err := factstore.Write(storage.BrainDir, "main", facts); err != nil {
+	if err := factstore.Write(storage.BrainDir, facts); err != nil {
 		t.Fatal(err)
 	}
 	datesPath := filepath.Join(t.TempDir(), "session-dates.json")

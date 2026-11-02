@@ -24,7 +24,7 @@ func TestDistillRejectsNonfiniteConfidenceBeforeAgent(t *testing.T) {
 		if err == nil || calls != 0 {
 			t.Errorf("confidence %v: error=%v, agent calls=%d", confidence, err, calls)
 		}
-		facts, err := factstore.Load(d, "main")
+		facts, err := factstore.Load(d)
 		if err != nil || len(facts) != 0 {
 			t.Fatalf("invalid confidence wrote facts: %v, %v", facts, err)
 		}

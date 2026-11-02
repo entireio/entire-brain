@@ -431,23 +431,15 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 		if integrity := factstore.Inspect(brainDir, facts); !integrity.OK() {
 			add("facts", "error", integrity.Warning())
 		} else {
-			add("facts", "ok", fmt.Sprintf("%d memory(ies) across %d branch(es)", facts.Facts, len(facts.Branches)))
-			branch, branchErr := base.GitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current")
-			if branchErr != nil {
-				add("facts_verification", "warn", "branch unavailable: "+branchErr.Error())
+			add("facts", "ok", fmt.Sprintf("%d memory(ies)", facts.Facts))
+			if summary, err := verificationSummary(ctx, opts, repoDir, brainDir); err != nil {
+				add("facts_verification", "warn", err.Error())
 			} else {
-				if branch == "" {
-					branch = distillDefaultBranch
+				state := "ok"
+				if summary.Stale > 0 || summary.Orphaned > 0 {
+					state = "warn"
 				}
-				if summary, err := verificationSummaryForBranch(ctx, opts, repoDir, brainDir, branch); err != nil {
-					add("facts_verification", "warn", err.Error())
-				} else {
-					state := "ok"
-					if summary.Stale > 0 || summary.Orphaned > 0 {
-						state = "warn"
-					}
-					add("facts_verification", state, fmt.Sprintf("branch %s: %d facts, %d verified, %d stale, %d orphaned, %d unverifiable-here", branch, summary.Facts, summary.Verified, summary.Stale, summary.Orphaned, summary.UnverifiableHere))
-				}
+				add("facts_verification", state, fmt.Sprintf("%d facts, %d verified, %d stale, %d orphaned, %d unverifiable-here", summary.Facts, summary.Verified, summary.Stale, summary.Orphaned, summary.UnverifiableHere))
 			}
 		}
 	}

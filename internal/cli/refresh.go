@@ -512,7 +512,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	// rather than needing a manual `facts reclassify`. No agent, no tokens.
 	if manifest != nil && manifest.Sources != nil && manifest.Sources.Facts != nil {
 		finishReclass := progress.Step("reclassify facts")
-		if _, err := reclassifyAllFactBranches(brainDir, opts.Now().UTC()); err != nil {
+		if _, err := reclassifyAllFacts(brainDir, opts.Now().UTC()); err != nil {
 			finishReclass(err)
 			if reportStageAndShouldAbort(brainComponentFacts, err) {
 				return err

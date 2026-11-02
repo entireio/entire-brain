@@ -9,33 +9,47 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// The rollback verb left with the per-branch stores: migration is a one-way
+// door (released binaries refuse the newer schema rather than reading a
+// projection), and the parked facts/.legacy-* dirs are the recovery artifact.
 func newFactsStorageCommand(opts Options) *cobra.Command {
-	cmd := &cobra.Command{Use: "storage", Short: "Inspect, migrate, or roll back memory storage", Args: cobra.NoArgs}
-	for _, action := range []string{"status", "migrate", "rollback"} {
+	cmd := &cobra.Command{Use: "storage", Short: "Inspect or migrate memory storage", Args: cobra.NoArgs}
+	for _, action := range []string{"status", "migrate"} {
 		var global, jsonOut bool
 		sub := &cobra.Command{
 			Use: action, Args: cobra.NoArgs,
-			Short: map[string]string{"status": "Show memory storage format", "migrate": "Convert memory storage for supported older releases", "rollback": "Export current memories for older releases"}[action],
+			Short: map[string]string{"status": "Show memory storage format", "migrate": "Fold legacy branch stores into the repository store"}[action],
 			RunE: func(cmd *cobra.Command, _ []string) error {
 				var dir string
 				var err error
 				if global {
-					dir, _, err = factstore.ResolveGlobalTarget(opts.Env)
+					dir, err = factstore.ResolveGlobalTarget(opts.Env)
 				} else {
 					_, dir, _, err = resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), "")
 				}
 				if err != nil {
 					return err
 				}
-				if action != "status" {
+				var summary factstore.MigrationSummary
+				if action == "migrate" {
 					err = brainstore.WithBrainWriteLock(dir, func() error {
-						if action == "rollback" {
-							return factstore.RollbackRepository(dir)
+						var migrateErr error
+						summary, migrateErr = factstore.MigrateRepository(dir)
+						if migrateErr != nil || global || !summary.Changed() {
+							return migrateErr
 						}
-						return factstore.MigrateRepository(dir)
+						// The fold collapses duplicate ids across legacy files, so the
+						// declared count must be rebuilt or every later read warns of
+						// loss that never happened. Repo brains only: the global store
+						// has no manifest. This manifest write is also what closes the
+						// one-way door (it stamps the current schema).
+						return updateFactSourceManifestLocked(dir, opts.Now())
 					})
 					if err != nil {
 						return err
+					}
+					if summary.StragglerFiles > 0 {
+						fmt.Fprintln(cmd.ErrOrStderr(), "warning: an older entire-brain wrote memories after migration; they were upgraded — update that machine")
 					}
 				}
 				report, err := factstore.RepositoryStatus(dir)
@@ -43,9 +57,20 @@ func newFactsStorageCommand(opts Options) *cobra.Command {
 					return err
 				}
 				if jsonOut {
+					if action == "migrate" {
+						return cmdutil.WriteJSON(cmd, map[string]any{
+							"storage":         report,
+							"folded":          summary.Folded,
+							"straggler_files": summary.StragglerFiles,
+							"moved_dirs":      summary.MovedDirs,
+						})
+					}
 					return cmdutil.WriteJSON(cmd, report)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "memory storage: %s (legacy compatibility enabled)\n", report.Format)
+				if action == "migrate" && summary.Changed() {
+					fmt.Fprintf(cmd.OutOrStdout(), "migrated %d record(s) from %d legacy dir(s)\n", summary.Folded, len(summary.MovedDirs))
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "memory storage: %s\n", report.Format)
 				return nil
 			},
 		}

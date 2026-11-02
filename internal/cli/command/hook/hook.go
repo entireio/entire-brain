@@ -326,7 +326,7 @@ func hookLoadFacts(cmd *cobra.Command, cfg Config, branch string) ([]factmerge.R
 	if err != nil {
 		return nil, hookTarget{}, false
 	}
-	facts, err := factstore.Load(brainDir, resolvedBranch)
+	facts, err := factstore.Load(brainDir)
 	if err != nil || len(facts) == 0 {
 		return nil, hookTarget{}, false
 	}

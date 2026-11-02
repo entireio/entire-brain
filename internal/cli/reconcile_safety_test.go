@@ -67,7 +67,7 @@ func TestStagedForceResumeKeepsCacheBeforeExtraction(t *testing.T) {
 	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
 	dir := writeSingleSessionFixture(t, now, "some transcript\n")
 	leftover := stagedTestFact("leftover standalone fact", []string{"workflow.testing.rules"}, factStatusCandidate, now)
-	if err := factstore.Write(dir, "main", []factRecord{leftover}); err != nil {
+	if err := factstore.Write(dir, []factRecord{leftover}); err != nil {
 		t.Fatal(err)
 	}
 	if err := saveDistillCache(dir, distillCache{Version: distillCacheVersion, Sessions: map[string]string{"unchanged-session": "fingerprint"}}); err != nil {

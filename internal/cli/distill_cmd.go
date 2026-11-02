@@ -1044,14 +1044,14 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		return resolveDistillBranch(manifest, session)
 	})
 
-	byBranch := map[string][]factRecord{}
-	baselineByBranch := map[string][]factRecord{}
-	loaded := map[string]bool{}
-	// dirtyBranches tracks branches whose in-memory facts have diverged from
-	// disk since the last successful flush, so a flush rewrites only what
-	// changed instead of re-marshaling every loaded branch's full store every
-	// interval.
-	dirtyBranches := map[string]bool{}
+	// One flat store: records carry their branch as metadata (stamped at
+	// extraction), and the whole in-memory set flushes as one write.
+	var storeFacts []factRecord
+	var storeBaseline []factRecord
+	storeLoaded := false
+	// storeDirty tracks whether the in-memory facts have diverged from disk
+	// since the last successful flush.
+	storeDirty := false
 	var warnings []string
 	chunksScanned, chunksDistilled := 0, 0
 	cacheHits, failedChunks, budgetDeferred := 0, 0, 0
@@ -1108,18 +1108,18 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	// answer was "agent timed out after 10m0s".
 	var lastAgentErr error
 
-	// ensureBranch lazily loads a branch's existing facts. On --force the
+	// ensureStore lazily loads the store's existing facts. On --force the
 	// previously distilled facts are dropped so they are rebuilt from scratch;
 	// authored facts are always preserved.
-	ensureBranch := func(branch string) {
-		if loaded[branch] {
+	ensureStore := func() {
+		if storeLoaded {
 			return
 		}
-		existing, loadErr := factstore.Load(brainDir, branch)
+		existing, loadErr := factstore.Load(brainDir)
 		if loadErr != nil {
-			warnings = append(warnings, fmt.Sprintf("load facts for %s: %v", branch, loadErr))
+			warnings = append(warnings, fmt.Sprintf("load facts: %v", loadErr))
 		}
-		baselineByBranch[branch] = cloneDistillFacts(existing)
+		storeBaseline = cloneDistillFacts(existing)
 		if distillOpts.force {
 			kept := existing[:0]
 			for _, record := range existing {
@@ -1139,11 +1139,11 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			}
 			existing = kept
 			// The in-memory store now differs from disk; the rebuild must be
-			// written out even if the branch gains no new facts.
-			dirtyBranches[branch] = true
+			// written out even if the run yields no new facts.
+			storeDirty = true
 		}
-		byBranch[branch] = existing
-		loaded[branch] = true
+		storeFacts = existing
+		storeLoaded = true
 	}
 
 	// flushFactStores persists the in-memory distill state — dirty branches'
@@ -1156,37 +1156,45 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	// cache write keeps prevCache entries for sessions not yet visited — dropping
 	// manifest-removed sessions is the final write's job, and dropping unvisited
 	// entries mid-run would force a needless full re-distill of them after a
-	// restart. Under --force the opposite holds: ensureBranch has already dropped
-	// the unvisited sessions' distilled facts from byBranch, so persisting their
+	// restart. Under --force the opposite holds: ensureStore has already dropped
+	// the unvisited sessions' distilled facts from the in-memory set, so persisting their
 	// still-matching prevCache fingerprints alongside the truncated fact store
 	// would make a plain rerun after a kill skip those sessions forever — their
 	// facts silently lost. A force run therefore writes newCache only, and an
 	// interrupted force run re-distills the sessions it never reached.
 	resumeOnly := true
 	flushFactStoresLocked := func(final bool) error {
-		for branch := range dirtyBranches {
+		if storeDirty {
+			// A fact flush is a write entry point: fold legacy branch stores
+			// (including stragglers an older binary wrote after migration)
+			// before this run's read-modify-write lands.
+			if warning, err := migrateFactStoreLocked(brainDir); err != nil {
+				return err
+			} else if warning != "" {
+				warnings = append(warnings, warning)
+			}
 			// Rebase onto the current on-disk set before writing. The in-memory
-			// set was loaded when the branch was first seen, which for a run that
-			// is hours of agent calls is long before this flush; writing it back
+			// set was loaded when the run started, which for a run that is
+			// hours of agent calls is long before this flush; writing it back
 			// wholesale silently reverts everything another writer committed in
-			// the meantime — a `remember`, a `facts retract`, a review the user
-			// applied, a settlement `facts sync` mirrored back. Those writers hold
-			// the same brain write lock this flush does, so the lock alone cannot
-			// see them: the run's read-modify-write spans the whole run.
-			rebased, rebaseErr := rebaseFactsOntoDisk(brainDir, branch, byBranch[branch], baselineByBranch[branch], distillOpts.force)
+			// the meantime — a `remember`, a `facts retract`, a settlement
+			// `facts sync` mirrored back. Those writers hold the same brain
+			// write lock this flush does, so the lock alone cannot see them:
+			// the run's read-modify-write spans the whole run.
+			rebased, rebaseErr := rebaseFactsOntoDisk(brainDir, storeFacts, storeBaseline, distillOpts.force)
 			if rebaseErr != nil {
 				return rebaseErr
 			}
-			byBranch[branch] = rebased
-			if err := factstore.Write(brainDir, branch, byBranch[branch]); err != nil {
+			storeFacts = rebased
+			if err := factstore.Write(brainDir, storeFacts); err != nil {
 				return err
 			}
-			baselineByBranch[branch] = cloneDistillFacts(byBranch[branch])
-			// A force run keeps branches dirty between mid-run flushes so the
-			// final flush always rewrites them. Otherwise the branch is clean
-			// until new fact actions touch it.
+			storeBaseline = cloneDistillFacts(storeFacts)
+			// A force run stays dirty between mid-run flushes so the final
+			// flush always rewrites the store. Otherwise it is clean until new
+			// fact actions touch it.
 			if final || !distillOpts.force {
-				delete(dirtyBranches, branch)
+				storeDirty = false
 			}
 		}
 		cache := newCache
@@ -1230,14 +1238,14 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	}
 
 	batchTotals := reconcileBatchStats{}
-	reconcileBranch := func(b string) {
+	reconcileStore := func() {
 		reconcileStarted := time.Now()
-		updated, stats, recWarnings := reconcileStagedCandidates(ctx, distillOpts.run, reconcileArgs, byBranch[b], repoDir, distillOpts.timeout, distillOpts.concurrency, now)
+		updated, stats, recWarnings := reconcileStagedCandidates(ctx, distillOpts.run, reconcileArgs, storeFacts, repoDir, distillOpts.timeout, distillOpts.concurrency, now)
 		if stats.Candidates == 0 {
 			return
 		}
-		byBranch[b] = updated
-		dirtyBranches[b] = true
+		storeFacts = updated
+		storeDirty = true
 		warnings = append(warnings, recWarnings...)
 		batchTotals.Candidates += stats.Candidates
 		batchTotals.Promoted += stats.Promoted
@@ -1248,29 +1256,21 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	}
 
 	// Finish durable work from an interrupted pass before the extraction pool
-	// starts. Only load branches with candidates here: eagerly loading every
-	// branch would make --force discard facts on branches deferred by the cap.
-	resumeBranches := map[string]bool{}
-	for _, session := range sessions {
-		b := resolveBranch(session)
-		if (distillOpts.branch != "" && b != distillOpts.branch) ||
-			(distillOpts.session != "" && session.SessionID != distillOpts.session) || resumeBranches[b] {
-			continue
-		}
-		resumeBranches[b] = true
-		stored, err := factstore.Load(brainDir, b)
+	// starts.
+	{
+		stored, err := factstore.Load(brainDir)
 		if err != nil {
-			return nil, fmt.Errorf("load staged candidates for %s: %w", b, err)
+			return nil, fmt.Errorf("load staged candidates: %w", err)
 		}
 		for _, f := range stored {
 			if f.Status == factStatusCandidate {
 				// Resume against the intact store. Under --force, defer the
-				// destructive rebuild until extraction actually visits this
-				// branch; the session cap may defer it entirely.
-				baselineByBranch[b] = cloneDistillFacts(stored)
-				byBranch[b] = stored
-				loaded[b] = !distillOpts.force
-				reconcileBranch(b)
+				// destructive rebuild until extraction actually runs; the
+				// session cap may defer it entirely.
+				storeBaseline = cloneDistillFacts(stored)
+				storeFacts = stored
+				storeLoaded = !distillOpts.force
+				reconcileStore()
 				break
 			}
 		}
@@ -1280,7 +1280,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			return nil, fmt.Errorf("persist resumed reconciliation: %w", err)
 		}
 		// Resume is complete even under --force.
-		clear(dirtyBranches)
+		storeDirty = false
 	}
 
 	resumeOnly = false
@@ -1340,7 +1340,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			pipeCancel()
 			return nil, fmt.Errorf("read canonical transcript %s: %w", filepath.ToSlash(session.TranscriptPath), ps.readErr)
 		}
-		ensureBranch(branch)
+		ensureStore()
 
 		sessionsDone++
 		// Report once per session, at every exit path, so the running fact count
@@ -1417,9 +1417,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			// the one-agent-call-per-chunk serialization (COR-2184).
 			for i := range records {
 				records[i].Status = factStatusCandidate
-				byBranch[branch] = upsertFact(byBranch[branch], records[i])
+				storeFacts = upsertFact(storeFacts, records[i])
 			}
-			dirtyBranches[branch] = true
+			storeDirty = true
 			maybeFlush()
 		}
 		if ps.release != nil {
@@ -1449,14 +1449,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	}
 
 	// Reconcile this pass's new candidates before the final publication.
-	branches := make([]string, 0, len(byBranch))
-	for b := range byBranch {
-		branches = append(branches, b)
-	}
-	sort.Strings(branches)
-	for _, b := range branches {
-		reconcileBranch(b)
-	}
+	reconcileStore()
 
 	if budgetDeferred > 0 {
 		// Prepended so the budget notice survives the warning cap: it is the
@@ -1488,16 +1481,14 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			return err
 		}
 
-		// Summarize the manifest from the whole on-disk store, not just the branches
-		// touched this run. A branch-limited (`--branch`) or incremental run only
-		// loads a subset into byBranch; folding that subset into the manifest would
-		// drop counts/branches/proposals for facts that still exist on other
-		// branches. Re-reading the store after writing keeps sources.facts whole.
-		allBranches, err := factstore.LoadAllBranches(brainDir)
+		// Summarize the manifest from the whole on-disk store, not just this
+		// run's in-memory set: a --branch or --session limited run mutates a
+		// subset, and re-reading after writing keeps sources.facts whole.
+		stored, err := factstore.Load(brainDir)
 		if err != nil {
 			return err
 		}
-		source = factstore.SummarizeSource(now, allBranches, chunksScanned, chunksDistilled, 0, warnings)
+		source = factstore.SummarizeSource(now, stored, chunksScanned, chunksDistilled, 0, warnings)
 		source.LastDistilledAt = now
 		source.CacheHits = cacheHits
 		source.FailedChunks = failedChunks
@@ -2885,8 +2876,8 @@ func cloneDistillFacts(records []factRecord) []factRecord {
 // rebaseFactsOntoDisk performs a three-way merge under the writer lock. Fields
 // changed on disk since the previous read/flush win conflicts; unchanged fields
 // retain this run's reconciliation. Provenance is additive on both sides.
-func rebaseFactsOntoDisk(brainDir, branch string, inMemory, baseline []factRecord, force bool) ([]factRecord, error) {
-	onDisk, err := factstore.Load(brainDir, branch)
+func rebaseFactsOntoDisk(brainDir string, inMemory, baseline []factRecord, force bool) ([]factRecord, error) {
+	onDisk, err := factstore.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}

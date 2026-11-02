@@ -3,16 +3,16 @@ package cli
 import (
 	"archive/tar"
 	"bytes"
-	"encoding/json"
-	"github.com/entireio/entire-brain/factmerge"
-	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
-	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func repoStoreFact(text, branch string) factRecord {
@@ -23,29 +23,23 @@ func repoStoreFact(text, branch string) factRecord {
 		Provenance: []factAnchor{{SessionID: "session-" + branch, Commit: "commit-" + branch}}}
 }
 
-func requireRepoView(t *testing.T, root, branch string, want []factRecord) {
-	t.Helper()
-	got, err := factstore.Load(root, branch)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != len(want) {
-		t.Fatalf("%s: got %d records, want %d", branch, len(got), len(want))
-	}
-	if len(want) > 0 && !reflect.DeepEqual(got, want) {
-		t.Fatalf("%s: got %#v, want %#v", branch, got, want)
-	}
-}
-
-func TestRepoFactStoreBundleKeepsLegacyContract(t *testing.T) {
+// The facts bundle layer carries the flat store itself and nothing private:
+// crashed atomic-writer temporaries and parked legacy dirs stay home.
+func TestRepoFactStoreBundleCarriesTheFlatStoreOnly(t *testing.T) {
 	root := t.TempDir()
-	if err := factstore.Write(root, "main", []factRecord{repoStoreFact("bundle", "main")}); err != nil {
+	if err := factstore.Write(root, []factRecord{repoStoreFact("bundle", "main")}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, factstore.DirName, ".store.json.tmp-crashed"), []byte("private partial native snapshot"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	writeSchema1Fixture(t, root)
+	parked := filepath.Join(root, factstore.DirName, ".legacy-1700000000", "main-legacy00")
+	if err := os.MkdirAll(parked, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(parked, "facts.ndjson"), []byte(`{"id":"fact:old"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	for _, layer := range brainBundleLayers {
 		if layer.name != bundleLayerFacts {
 			continue
@@ -54,15 +48,8 @@ func TestRepoFactStoreBundleKeepsLegacyContract(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(paths) != 1 || filepath.ToSlash(paths[0]) != factstore.FileRelPath("main") {
-			t.Fatalf("bundle leaks native storage or drops old data: %v", paths)
-		}
-		if err := os.Remove(filepath.Join(root, paths[0])); err != nil {
-			t.Fatal(err)
-		}
-		paths, err = collectBrainBundleLayerPaths(root, layer)
-		if err != nil || len(paths) != 1 {
-			t.Fatalf("missing projection lost export: %v, %v", paths, err)
+		if len(paths) != 1 || filepath.ToSlash(paths[0]) != factstore.RepositoryPath {
+			t.Fatalf("bundle must carry exactly the flat store: %v", paths)
 		}
 		var buf bytes.Buffer
 		tw := tar.NewWriter(&buf)
@@ -78,19 +65,21 @@ func TestRepoFactStoreBundleKeepsLegacyContract(t *testing.T) {
 		}
 		payload, err := io.ReadAll(tr)
 		if err != nil || !bytes.Contains(payload, []byte(`"text":"bundle"`)) {
-			t.Fatalf("missing projection exported wrong bytes: %s, %v", payload, err)
+			t.Fatalf("bundle exported wrong bytes: %s, %v", payload, err)
 		}
 	}
 }
 
-func TestRepoFactStoreRefreshMigratesUnchangedLegacyViews(t *testing.T) {
+// Refresh is a write entry point: a legacy-only brain migrates into the flat
+// store on the spot — records folded by content id, branch dirs parked.
+func TestRepoFactStoreRefreshMigratesLegacyBranchFiles(t *testing.T) {
 	root := t.TempDir()
 	rec := repoStoreFact("stable observation", "main")
 	rec.Kind = factKindConvention
 	// Build a real legacy-only fixture. Using factstore.Write here would
-	// migrate it before refresh and would not test the upgrade entry point.
+	// store it flat already and would not test the upgrade entry point.
 	for _, branch := range []string{"main", "feature"} {
-		path := filepath.Join(root, factstore.FileRelPath(branch))
+		path := filepath.Join(root, filepath.FromSlash(testLegacyFactsRel(branch)))
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -105,39 +94,32 @@ func TestRepoFactStoreRefreshMigratesUnchangedLegacyViews(t *testing.T) {
 	if err := writeBrainManifestAndReadme(root, exportManifest{SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: rec.CreatedAt}); err != nil {
 		t.Fatal(err)
 	}
-	if changed, err := reclassifyAllFactBranches(root, rec.CreatedAt); err != nil || changed != 0 {
+	if changed, err := reclassifyAllFacts(root, rec.CreatedAt); err != nil || changed != 0 {
 		t.Fatalf("refresh: changed=%d, %v", changed, err)
 	}
 	report, err := factstore.RepositoryStatus(root)
-	if err != nil || report.Format != "compatibility" || report.Views != 2 || report.Records != 1 {
-		t.Fatalf("refresh did not migrate unchanged views: %+v, %v", report, err)
+	if err != nil || report.Format != "repository" || report.Views != 0 || report.Records != 1 {
+		t.Fatalf("refresh did not migrate the legacy files: %+v, %v", report, err)
 	}
-	for _, branch := range []string{"main", "feature"} {
-		requireRepoView(t, root, branch, []factRecord{rec})
+	got, err := factstore.Load(root)
+	if err != nil || len(got) != 1 || got[0].ID != rec.ID {
+		t.Fatalf("migrated store = %+v, %v", got, err)
 	}
-}
-
-func writeSchema1Fixture(t *testing.T, root string) {
-	t.Helper()
-	views, err := factstore.LoadStoreFiles(root)
+	// The branch dirs are parked, not deleted.
+	entries, err := os.ReadDir(filepath.Join(root, factstore.DirName))
 	if err != nil {
 		t.Fatal(err)
 	}
-	records := map[string]factRecord{}
-	selections := map[string]any{}
-	for dir, rows := range views {
-		entries := []map[string]string{}
-		for _, rec := range rows {
-			records[rec.ID] = rec
-			entries = append(entries, map[string]string{"id": rec.ID})
+	parked := false
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".legacy-") {
+			parked = true
 		}
-		selections[dir] = map[string]any{"entries": entries}
+		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
+			t.Fatalf("live legacy branch dir survived migration: %s", entry.Name())
+		}
 	}
-	data, err := json.Marshal(map[string]any{"schema_version": 1, "records": records, "views": selections})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, factstore.RepositoryPath), data, 0600); err != nil {
-		t.Fatal(err)
+	if !parked {
+		t.Fatal("migration must park the legacy branch dirs")
 	}
 }

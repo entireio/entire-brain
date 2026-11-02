@@ -38,8 +38,9 @@ type factOutlineNode struct {
 	Counts      map[string]int `json:"counts,omitempty"`
 }
 
-// factOutline is the persisted artifact (facts/<branch>/outline.json). Nodes are
-// keyed by their Key for O(1) incremental lookup; Root is always "".
+// factOutline is the persisted artifact (facts/outline.json — one per repo
+// since the store went flat). Nodes are keyed by their Key for O(1)
+// incremental lookup; Root is always "".
 type factOutline struct {
 	GeneratedAt time.Time                  `json:"generated_at"`
 	Branch      string                     `json:"branch"`
@@ -47,8 +48,8 @@ type factOutline struct {
 	Nodes       map[string]factOutlineNode `json:"nodes"`
 }
 
-func factsOutlineRelPath(branch string) string {
-	return filepath.ToSlash(filepath.Join(factstore.BranchRelDir(branch), factsOutlineFileName))
+func factsOutlineRelPath() string {
+	return filepath.ToSlash(filepath.Join(factstore.DirName, factsOutlineFileName))
 }
 
 // parentKey returns the parent tier of a node key ("internal/cli" -> "internal"
@@ -127,7 +128,7 @@ func looksLikeSourcePath(tok string) bool {
 // are materialized, children are wired, and per-node by-kind counts recorded.
 // Fingerprints are computed bottom-up so any leaf or structural change beneath a
 // node changes that node's fingerprint (driving incremental re-summarization).
-func buildFactOutlineTree(branch string, facts []factRecord, now time.Time) factOutline {
+func buildFactOutlineTree(facts []factRecord, now time.Time) factOutline {
 	nodes := map[string]*factOutlineNode{}
 	ensure := func(key string) *factOutlineNode {
 		if n, ok := nodes[key]; ok {
@@ -187,7 +188,7 @@ func buildFactOutlineTree(branch string, facts []factRecord, now time.Time) fact
 	}
 	fingerprint("")
 
-	out := factOutline{GeneratedAt: now, Branch: branch, Root: "", Nodes: make(map[string]factOutlineNode, len(nodes))}
+	out := factOutline{GeneratedAt: now, Root: "", Nodes: make(map[string]factOutlineNode, len(nodes))}
 	for key, n := range nodes {
 		out.Nodes[key] = *n
 	}
@@ -207,9 +208,19 @@ func subtreeFactCount(outline factOutline, key string) int {
 	return total
 }
 
-func loadFactOutline(brainDir, branch string) (factOutline, error) {
-	path := filepath.Join(brainDir, filepath.FromSlash(factsOutlineRelPath(branch)))
+func loadFactOutline(brainDir string) (factOutline, error) {
+	path := filepath.Join(brainDir, filepath.FromSlash(factsOutlineRelPath()))
 	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		// Released clients write facts/<branch>/outline.json. Until migration
+		// parks those dirs, the newest one is the outline (read-only fallback;
+		// writes always land flat).
+		path, err = newestLegacyOutlinePath(brainDir)
+		if err != nil || path == "" {
+			return factOutline{}, err
+		}
+		data, err = os.ReadFile(path)
+	}
 	if err != nil {
 		if os.IsNotExist(err) {
 			return factOutline{}, nil
@@ -226,8 +237,40 @@ func loadFactOutline(brainDir, branch string) (factOutline, error) {
 	return outline, nil
 }
 
-func writeFactOutline(brainDir, branch string, outline factOutline) error {
-	rel := factsOutlineRelPath(branch)
+// newestLegacyOutlinePath finds the most recently written per-branch
+// outline.json among the live legacy dirs ("" when none exist).
+func newestLegacyOutlinePath(brainDir string) (string, error) {
+	entries, err := os.ReadDir(filepath.Join(brainDir, factstore.DirName))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	var newest string
+	var newestMod time.Time
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		rel := filepath.Join(factstore.DirName, entry.Name(), factsOutlineFileName)
+		if err := clibase.RejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
+			return "", err
+		}
+		path := filepath.Join(brainDir, rel)
+		info, statErr := os.Stat(path)
+		if statErr != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		if newest == "" || info.ModTime().After(newestMod) {
+			newest, newestMod = path, info.ModTime()
+		}
+	}
+	return newest, nil
+}
+
+func writeFactOutline(brainDir string, outline factOutline) error {
+	rel := factsOutlineRelPath()
 	path := filepath.Join(brainDir, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
@@ -337,9 +380,9 @@ func outlineCleanSummary(out string) string {
 // best-effort: a failed agent call leaves that node's summary empty (the
 // structure still renders) and never aborts the run. Returns the outline and the
 // number of summaries (re)generated this run.
-func generateFactOutline(ctx context.Context, repoDir, brainDir, branch string, facts []factRecord, opts outlineGenOptions, now time.Time) (factOutline, int, error) {
-	prev, _ := loadFactOutline(brainDir, branch)
-	tree := buildFactOutlineTree(branch, facts, now)
+func generateFactOutline(ctx context.Context, repoDir, brainDir string, facts []factRecord, opts outlineGenOptions, now time.Time) (factOutline, int, error) {
+	prev, _ := loadFactOutline(brainDir)
+	tree := buildFactOutlineTree(facts, now)
 	byID := make(map[string]factRecord, len(facts))
 	for _, f := range facts {
 		byID[f.ID] = f

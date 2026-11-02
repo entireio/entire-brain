@@ -18,21 +18,21 @@ func TestUnsyncedHostedFactsBlindSpot(t *testing.T) {
 		t.Fatal(err)
 	}
 	note := unsyncedHostedFactsBlindSpot(brainDir, "feature/x")
-	if !strings.Contains(note, "has not synced") || !strings.Contains(note, "feature/x") {
-		t.Fatalf("connected-but-unsynced branch must get the note, got %q", note)
+	if !strings.Contains(note, "has not synced") {
+		t.Fatalf("connected-but-unsynced repo must get the note, got %q", note)
 	}
-	if err := writeHostedFactsBinding(brainDir, "feature/x", "repo1", "https://api.example.com/api/v1"); err != nil {
+	if err := writeHostedFactsBinding(brainDir, "repo1", "https://api.example.com/api/v1"); err != nil {
 		t.Fatal(err)
 	}
 	if note := unsyncedHostedFactsBlindSpot(brainDir, "feature/x"); note != "" {
-		t.Fatalf("a synced branch must get no note, got %q", note)
+		t.Fatalf("a synced repo must get no note, got %q", note)
 	}
 }
 
-func TestHostedNoteWinsOverTheOtherBranchNote(t *testing.T) {
+func TestHostedNoteSurfacesOnAnEmptyResult(t *testing.T) {
 	brainDir := t.TempDir()
 	now := time.Now().UTC()
-	if err := factstore.Write(brainDir, "main", []factRecord{
+	if err := factstore.Write(brainDir, []factRecord{
 		vitalityTestFact("retries are capped at three", "main", now),
 	}); err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ func TestHostedNoteWinsOverTheOtherBranchNote(t *testing.T) {
 	}
 	note := emptyResultBlindSpotOnBranch(brainDir, "feature/x")
 	if !strings.Contains(note, "has not synced") {
-		t.Fatalf("the hosted note is actionable and must win over the other-branch note, got %q", note)
+		t.Fatalf("the hosted note is actionable and must surface, got %q", note)
 	}
 }
 
@@ -53,14 +53,14 @@ func TestUnsyncedNoteReturnsAfterReconnectingToADifferentTarget(t *testing.T) {
 	if err := brainstore.WriteHostedRepoBinding(brainDir, brainstore.HostedRepoBinding{RepoID: "repo-old", BaseURL: "https://old.api.example.com"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeHostedFactsBinding(brainDir, "main", "repo-old", "https://old.api.example.com"); err != nil {
+	if err := writeHostedFactsBinding(brainDir, "repo-old", "https://old.api.example.com"); err != nil {
 		t.Fatal(err)
 	}
 	if note := unsyncedHostedFactsBlindSpot(brainDir, "main"); note != "" {
-		t.Fatalf("a branch synced against the connected target must get no note, got %q", note)
+		t.Fatalf("a repo synced against the connected target must get no note, got %q", note)
 	}
-	// Reconnect to a different hosted target: the stale per-branch marker must
-	// not suppress the note — this branch has never synced against it.
+	// Reconnect to a different hosted target: the stale marker must not
+	// suppress the note — this repo has never synced against it.
 	if err := brainstore.WriteHostedRepoBinding(brainDir, brainstore.HostedRepoBinding{RepoID: "repo-new", BaseURL: "https://new.api.example.com"}); err != nil {
 		t.Fatal(err)
 	}

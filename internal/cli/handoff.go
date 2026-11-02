@@ -204,7 +204,7 @@ func runBrainHandoff(ctx context.Context, cmd *cobra.Command, opts Options, sess
 	if err != nil {
 		index = historyIndex{} // a handoff without history detail beats no handoff
 	}
-	facts, err := factstore.Load(brainDir, branch)
+	facts, err := factstore.Load(brainDir)
 	if err != nil {
 		facts = nil
 	}

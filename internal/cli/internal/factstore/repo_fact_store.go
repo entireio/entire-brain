@@ -1,8 +1,20 @@
 package factstore
 
-// The repository API assembles views in memory. During support for v0.2-v0.4,
-// payloads live only in files those clients can purge. Schema 1 snapshots are
-// still readable and are converted on mutation; schema 2 is a bodyless marker.
+// The repository memory store is one flat collection: facts/store.json holds
+// every record's full payload keyed by fact id. Branch is metadata on a
+// record, never a storage key. Schema history:
+//
+//	1: records + per-branch views with field overrides (unreleased)
+//	2: bodyless marker {storage:"legacy_views"}; payloads lived in
+//	   facts/<branch-slug>/facts.ndjson (unreleased)
+//	3: this layout
+//
+// Released clients (v0.2–v0.4) predate every store schema and read/write the
+// legacy branch NDJSON files directly — including AFTER the manifest schema
+// bump, because their write path appends to the branch file before the
+// manifest check fails. Load therefore folds any legacy branch files it finds
+// (see repo_fact_compat.go), and Write parks them once their content is
+// carried by the flat store.
 
 import (
 	"bytes"
@@ -12,6 +24,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
@@ -19,236 +32,126 @@ import (
 )
 
 const RepositoryPath = "facts/store.json"
-const repoFactsVersion = 2
+const repoFactsVersion = 3
 
-type repoFactMarker struct {
-	SchemaVersion int    `json:"schema_version"`
-	Storage       string `json:"storage"`
-}
+// legacyParkPrefix names the directory migration parks folded legacy branch
+// dirs under (facts/.legacy-<unixts>/<dirname>). Parked, never deleted: the
+// original bytes — including lines too damaged to fold — survive for manual
+// recovery until a later release garbage-collects them.
+const legacyParkPrefix = ".legacy-"
 
 type repoFactStore struct {
 	SchemaVersion int                        `json:"schema_version"`
 	Records       map[string]json.RawMessage `json:"records"`
-	Views         map[string]repoFactView    `json:"views"`
 }
 
-type repoFactView struct {
-	// LegacyDigest is a reconciliation checkpoint, never a memory identity.
-	LegacyDigest string          `json:"legacy_digest,omitempty"`
-	Entries      []repoFactEntry `json:"entries"`
-}
-
-type repoFactEntry struct {
-	ID       string                     `json:"id"`
-	Override map[string]json.RawMessage `json:"override,omitempty"`
-}
-
-func emptyRepoFactStore() repoFactStore {
-	return repoFactStore{SchemaVersion: repoFactsVersion, Records: map[string]json.RawMessage{}, Views: map[string]repoFactView{}}
-}
-
-func readRepoFactStore(brainDir string) (repoFactStore, bool, error) {
-	s := emptyRepoFactStore()
+// readStoreFile reads facts/store.json raw, with the shared forward-version
+// gate: a schema newer than this build fails closed.
+func readStoreFile(brainDir string) (version int, data []byte, present bool, err error) {
 	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
-		return s, false, err
+		return 0, nil, false, err
 	}
 	if err := base.RejectExistingSymlinkPathComponents(brainDir, RepositoryPath); err != nil {
-		return s, false, err
+		return 0, nil, false, err
 	}
 	path := filepath.Join(brainDir, filepath.FromSlash(RepositoryPath))
-	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
-		return s, true, fmt.Errorf("repository memory store is not a regular file: %s", RepositoryPath)
+	if info, statErr := os.Lstat(path); statErr == nil && !info.Mode().IsRegular() {
+		return 0, nil, true, fmt.Errorf("repository memory store is not a regular file: %s", RepositoryPath)
 	}
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return s, false, nil
+	data, readErr := os.ReadFile(path)
+	if os.IsNotExist(readErr) {
+		return 0, nil, false, nil
 	}
+	if readErr != nil {
+		return 0, nil, false, readErr
+	}
+	// A zero-byte store is a crashed writer's leftover, not a corpus: treat it
+	// as absent so readers degrade to the integrity warning instead of dying.
+	if len(bytes.TrimSpace(data)) == 0 {
+		return 0, nil, false, nil
+	}
+	version, err = brainstore.CheckedVersionedJSONHeader(data, repoFactsVersion, "repository memory store")
 	if err != nil {
-		return s, false, err
+		return version, nil, true, err
 	}
-	var header struct {
-		SchemaVersion int `json:"schema_version"`
-	}
-	if err := json.Unmarshal(data, &header); err != nil {
-		return s, true, err
-	}
-	if header.SchemaVersion == repoFactsVersion {
-		var marker repoFactMarker
-		if _, err := brainstore.DecodeStrictVersionedJSON(data, &marker, repoFactsVersion, "repository memory store"); err != nil {
-			return s, true, err
-		}
-		if marker.Storage != "legacy_views" {
-			return s, true, fmt.Errorf("invalid repository memory storage mode")
-		}
-		return s, true, nil
-	}
-	// Decode into zero state: omitted fields must not inherit the defaults
-	// used for a genuinely absent store.
-	s = repoFactStore{}
-	if _, err := brainstore.DecodeStrictVersionedJSON(data, &s, 1, "repository memory store"); err != nil {
-		return s, true, err
-	}
-	if s.SchemaVersion != 1 || s.Records == nil || s.Views == nil {
-		return s, true, fmt.Errorf("invalid repository memory store header")
-	}
-	// Validate each body once, even when hundreds of views reference it.
-	for id := range s.Records {
-		if _, err := s.decodeEntry(repoFactEntry{ID: id}); err != nil {
-			return s, true, err
-		}
-	}
-	for dir, view := range s.Views {
-		if err := validRepoFactView(dir); err != nil {
-			return s, true, err
-		}
-		for _, entry := range view.Entries {
-			if _, exists := s.Records[entry.ID]; !exists {
-				return s, true, fmt.Errorf("memory view %s references missing record %s", dir, entry.ID)
-			}
-			if len(entry.Override) != 0 {
-				if _, err := s.decodeEntry(entry); err != nil {
-					return s, true, err
-				}
-			}
-		}
-	}
-	return s, true, nil
+	return version, data, true, nil
 }
 
-func validRepoFactView(dir string) error {
-	if dir == "" || dir == "." || dir == ".." || filepath.Base(dir) != dir || bytes.ContainsAny([]byte(dir), "/\\") {
-		return fmt.Errorf("invalid memory view %q", dir)
+// decodeV3 decodes a schema-3 store into records keyed by id, failing closed
+// when a body is unparseable or disagrees with its key: a key standing over a
+// different fact's body is a substitution — the fact the key names is gone.
+func decodeV3(data []byte) (map[string]factmerge.Record, error) {
+	var s repoFactStore
+	if _, err := brainstore.DecodeStrictVersionedJSON(data, &s, repoFactsVersion, "repository memory store"); err != nil {
+		return nil, err
 	}
-	return nil
-}
-
-func (s repoFactStore) view(dir string) ([]factmerge.Record, error) {
-	v, ok := s.Views[dir]
-	if !ok {
-		return nil, nil
+	if s.SchemaVersion != repoFactsVersion || s.Records == nil {
+		return nil, fmt.Errorf("invalid repository memory store header")
 	}
-	out := make([]factmerge.Record, 0, len(v.Entries))
-	for _, entry := range v.Entries {
-		rec, err := s.decodeEntry(entry)
-		if err != nil {
-			return nil, err
+	out := make(map[string]factmerge.Record, len(s.Records))
+	for id, raw := range s.Records {
+		var rec factmerge.Record
+		if err := json.Unmarshal(raw, &rec); err != nil {
+			return nil, fmt.Errorf("invalid repository memory record %s: %w", id, err)
 		}
-		out = append(out, rec)
+		if rec.ID != id {
+			return nil, fmt.Errorf("repository memory record %s carries id %q; the record the key names is gone — %s", id, rec.ID, RepairHint())
+		}
+		out[id] = rec
 	}
 	return out, nil
 }
 
-func (s repoFactStore) decodeEntry(entry repoFactEntry) (factmerge.Record, error) {
-	var rec factmerge.Record
-	raw, ok := s.Records[entry.ID]
-	if !ok || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		return rec, fmt.Errorf("missing or invalid repository memory record %s", entry.ID)
+// Load returns every stored record: the flat store plus, until migration has
+// parked them, the legacy sources folded in memory (read-only — Load never
+// writes). Records come back in factmerge.Sort order. Corrupt or
+// forward-version stores fail closed.
+func Load(brainDir string) ([]factmerge.Record, error) {
+	combined, err := loadCombined(brainDir)
+	if err != nil {
+		return nil, err
 	}
-	if len(entry.Override) != 0 {
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-			return rec, fmt.Errorf("invalid repository memory record %s", entry.ID)
-		}
-		for key, value := range entry.Override {
-			if value == nil { // absent field, distinct from a JSON null
-				delete(fields, key)
-			} else {
-				fields[key] = value
-			}
-		}
-		var err error
-		raw, err = json.Marshal(fields)
-		if err != nil {
-			return rec, err
-		}
-	}
-	if err := json.Unmarshal(raw, &rec); err != nil {
-		return rec, err
-	}
-	if rec.ID != entry.ID {
-		return rec, fmt.Errorf("memory view changes record identity %s", entry.ID)
-	}
-	return rec, nil
+	return combined.sorted(), nil
 }
 
-// replaceView changes only this selection. Other views keep their existing
-// values, including retractions and source anchors. A body's representative is
-// stable until it is no longer referenced; no timestamp arbitrates truth.
-func (s *repoFactStore) replaceView(dir string, records []factmerge.Record, digest string) error {
-	if err := validRepoFactView(dir); err != nil {
+// Write replaces the flat store with exactly these records. Callers hold the
+// brain write lock over their load-mutate-write; the store lock additionally
+// serializes snapshot commits.
+//
+// Legacy branch dirs still on disk are parked afterwards: under the brain
+// write lock the caller's Load already folded their content (legacy writers
+// take the same lock), so the written set carries everything they held — and
+// an id the caller removed on purpose (gc, the mirror sweep) must not
+// resurrect from a file nothing maintains anymore.
+func Write(brainDir string, records []factmerge.Record) error {
+	return withRepoFactStoreLock(brainDir, func() error {
+		// A store a newer build wrote must stay untouched: overwriting it
+		// would destroy state this build cannot even read. readStoreFile
+		// carries the forward-version gate.
+		if _, _, _, err := readStoreFile(brainDir); err != nil {
+			return err
+		}
+		if err := writeFlatStore(brainDir, records); err != nil {
+			return err
+		}
+		_, err := parkLegacyDirs(brainDir)
 		return err
-	}
-	v := repoFactView{LegacyDigest: digest, Entries: make([]repoFactEntry, 0, len(records))}
+	})
+}
+
+func writeFlatStore(brainDir string, records []factmerge.Record) error {
+	s := repoFactStore{SchemaVersion: repoFactsVersion, Records: make(map[string]json.RawMessage, len(records))}
 	for _, rec := range records {
+		if strings.TrimSpace(rec.ID) == "" {
+			return fmt.Errorf("refusing to store a memory without an id: %q", rec.Text)
+		}
 		raw, err := json.Marshal(rec)
 		if err != nil {
 			return err
 		}
-		canonical, ok := s.Records[rec.ID]
-		if !ok {
-			s.Records[rec.ID] = raw
-			canonical = raw
-		}
-		entry := repoFactEntry{ID: rec.ID}
-		if !bytes.Equal(raw, canonical) {
-			var a, b map[string]json.RawMessage
-			if err := json.Unmarshal(canonical, &a); err != nil {
-				return err
-			}
-			if err := json.Unmarshal(raw, &b); err != nil {
-				return err
-			}
-			entry.Override = map[string]json.RawMessage{}
-			for key, val := range b {
-				if !bytes.Equal(val, a[key]) {
-					entry.Override[key] = val
-				}
-			}
-			for key := range a {
-				if _, exists := b[key]; !exists {
-					entry.Override[key] = nil
-				}
-			}
-		}
-		v.Entries = append(v.Entries, entry)
+		s.Records[rec.ID] = raw
 	}
-	s.Views[dir] = v
-	return nil
-}
-
-// compact rebuilds representatives from current views. This both collects
-// unreferenced bodies and removes obsolete fields/anchors from representatives
-// after a deletion or a lifecycle update. It is deterministic.
-func (s *repoFactStore) compact() error {
-	next := emptyRepoFactStore()
-	dirs := make([]string, 0, len(s.Views))
-	for dir := range s.Views {
-		dirs = append(dirs, dir)
-	}
-	sort.Strings(dirs)
-	for _, dir := range dirs {
-		records, err := s.view(dir)
-		if err != nil {
-			return err
-		}
-		if err := next.replaceView(dir, records, s.Views[dir].LegacyDigest); err != nil {
-			return err
-		}
-	}
-	*s = next
-	return nil
-}
-
-func writeRepoFactStore(brainDir string, s *repoFactStore) error {
-	if err := s.compact(); err != nil {
-		return err
-	}
-	// Publish all imported views before replacing a schema 1 snapshot. A
-	// failure leaves the snapshot intact and the conversion can be retried.
-	if err := publishRepoFactViews(brainDir, s); err != nil {
-		return err
-	}
-	data, err := json.Marshal(repoFactMarker{repoFactsVersion, "legacy_views"})
+	data, err := json.Marshal(s)
 	if err != nil {
 		return err
 	}
@@ -258,10 +161,82 @@ func writeRepoFactStore(brainDir string, s *repoFactStore) error {
 	return cleanupRepoFactTemps(brainDir)
 }
 
+// legacyBranchDirs lists the facts/ subdirectories legacy layouts and released
+// clients write branch NDJSON files into. Parked dirs (.legacy-*) and any
+// other dotted name are never legacy sources.
+func legacyBranchDirs(brainDir string) ([]string, error) {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, DirName); err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(filepath.Join(brainDir, DirName))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var dirs []string
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		dirs = append(dirs, entry.Name())
+	}
+	sort.Strings(dirs)
+	return dirs, nil
+}
+
+// parkLegacyDirs moves every legacy branch dir to facts/.legacy-<unixts>/.
+// Returns the brain-relative paths it moved. Callers hold the store lock.
+func parkLegacyDirs(brainDir string) ([]string, error) {
+	dirs, err := legacyBranchDirs(brainDir)
+	if err != nil || len(dirs) == 0 {
+		return nil, err
+	}
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, DirName); err != nil {
+		return nil, err
+	}
+	// MkdirTemp keeps repeated parks distinct: a released client can re-create
+	// a legacy dir and be parked again within the same second, and renaming
+	// onto an earlier park's entry would fail.
+	parkAbs, err := os.MkdirTemp(filepath.Join(brainDir, DirName), fmt.Sprintf("%s%d-", legacyParkPrefix, time.Now().Unix()))
+	if err != nil {
+		return nil, err
+	}
+	moved := make([]string, 0, len(dirs))
+	for _, dir := range dirs {
+		rel := filepath.Join(DirName, dir)
+		if err := base.RejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
+			return moved, err
+		}
+		if err := os.Rename(filepath.Join(brainDir, rel), filepath.Join(parkAbs, dir)); err != nil {
+			return moved, err
+		}
+		moved = append(moved, filepath.ToSlash(rel))
+	}
+	return moved, nil
+}
+
+func withRepoFactStoreLock(brainDir string, fn func() error) error {
+	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
+		return err
+	}
+	rel := filepath.Join(brainstore.BrainLockDirName, "memory-store.lock")
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
+		return err
+	}
+	lock, err := brainstore.AcquireFileLock(filepath.Join(brainDir, rel), "memory_store_locked", brainstore.BrainWriteLockTimeout)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	return fn()
+}
+
 // A process can die while the atomic writer is filling its temporary file.
-// These are never exportable data or backups; migration and reconciliation
-// remove them even when the live snapshot no longer references the memory.
-// Production callers hold the store lock, so no live native writer is swept.
+// These are never exportable data or backups; writes remove them even when the
+// live snapshot no longer references the memory. Production callers hold the
+// store lock, so no live writer is swept.
 func cleanupRepoFactTemps(brainDir string) error {
 	if err := base.RejectExistingSymlinkPathComponents(brainDir, DirName); err != nil {
 		return err

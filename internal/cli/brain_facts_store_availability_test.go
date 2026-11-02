@@ -42,7 +42,7 @@ func factsAvailabilityFixture(t *testing.T) (Options, string, string) {
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}}
-	if err := factstore.Write(storage.BrainDir, "feature", facts); err != nil {
+	if err := factstore.Write(storage.BrainDir, facts); err != nil {
 		t.Fatal(err)
 	}
 	if err := updateFactSourceManifest(storage.BrainDir, now); err != nil {
@@ -53,12 +53,9 @@ func factsAvailabilityFixture(t *testing.T) (Options, string, string) {
 
 func removeFactStore(t *testing.T, brainDir, branch string) {
 	t.Helper()
-	// Remove the authoritative snapshot as well as the compatibility view.
-	// Removing only a projection no longer destroys the memory collection.
+	// The store is flat: removing store.json removes the memory collection.
+	_ = branch
 	if err := os.Remove(filepath.Join(brainDir, factstore.RepositoryPath)); err != nil && !os.IsNotExist(err) {
-		t.Fatal(err)
-	}
-	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath(branch)))); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -78,10 +75,6 @@ func TestStatusReportsDeclaredFactBranchWithMissingStore(t *testing.T) {
 	if healthy.Facts == nil || healthy.Facts.Facts != 1 {
 		t.Fatalf("healthy status facts = %+v, want 1 fact", healthy.Facts)
 	}
-	if got := statusFactsMissingBranches(t, healthy); len(got) != 0 {
-		t.Fatalf("healthy status reports missing fact branches: %v", got)
-	}
-
 	removeFactStore(t, brainDir, "feature")
 
 	// Prove the facts layer is really dead before asserting what status says.
@@ -100,18 +93,12 @@ func TestStatusReportsDeclaredFactBranchWithMissingStore(t *testing.T) {
 	if degraded.Facts == nil {
 		t.Fatalf("degraded status dropped the facts section")
 	}
-	if got := statusFactsMissingBranches(t, degraded); len(got) != 1 || got[0] != "feature" {
-		t.Fatalf("status facts.missing_branches = %v, want [feature]", got)
-	}
-	if !warningsMention(degraded.Warnings, "feature") {
-		t.Fatalf("status warnings do not name the unreadable fact branch: %v", degraded.Warnings)
-	}
 
-	statusOut, err := execute(t, NewRootCommand(opts), "status")
+	statusOut, err := execute(t, NewRootCommand(opts), "status", "--verbose")
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, statusOut)
 	}
-	if !strings.Contains(statusOut, factstore.FileName) {
+	if !strings.Contains(statusOut, factstore.RepositoryPath) {
 		t.Fatalf("status output does not report the missing fact store:\n%s", statusOut)
 	}
 }
@@ -138,7 +125,7 @@ func TestBrainBriefWarnsWhenFactStoreIsMissing(t *testing.T) {
 	if strings.Contains(degraded, "fact-1") {
 		t.Fatalf("degraded brief still carried the fact:\n%s", degraded)
 	}
-	if !strings.Contains(degraded, factstore.FileName) {
+	if !strings.Contains(degraded, factstore.RepositoryPath) {
 		t.Fatalf("brief reported a present facts source that contributed nothing, with no warning:\n%s", degraded)
 	}
 }

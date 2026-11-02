@@ -313,7 +313,7 @@ func UnifiedWithOptions(deps Deps, repoDir, brainDir, branch, query string, limi
 	var active []factmerge.Record
 	if includeFacts {
 		var err error
-		all, err = factstore.Load(brainDir, branch)
+		all, err = factstore.Load(brainDir)
 		if err != nil {
 			return nil, err
 		}
@@ -321,7 +321,14 @@ func UnifiedWithOptions(deps Deps, repoDir, brainDir, branch, query string, limi
 			all, globalFactIDs = MergeGlobalFacts(all, opts.GlobalFacts)
 		}
 		active = make([]factmerge.Record, 0, len(all))
+		// opts.Branch is the raw flag: set only when the caller asked for one
+		// branch's memories, so the default stays the whole repository store.
+		// Global facts apply everywhere; --no-global is their only off switch.
+		branchFilter := strings.TrimSpace(opts.Branch)
 		for _, f := range all {
+			if branchFilter != "" && f.Branch != branchFilter && !globalFactIDs[f.ID] {
+				continue
+			}
 			if f.Status == factmerge.StatusActive {
 				active = append(active, f)
 			}

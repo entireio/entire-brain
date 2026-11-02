@@ -265,14 +265,14 @@ func TestRebaseDropsConsumedCandidatesOnly(t *testing.T) {
 	consumed := stagedTestFact("use tabs to indent source files", []string{"preferences.coding.style"}, factStatusCandidate, now)
 	foreign := stagedTestFact("another run staged this statement", []string{"architecture.data.flow"}, factStatusCandidate, now)
 	target := stagedTestFact("indent all source files with tabs", []string{"preferences.coding.style"}, factStatusActive, now.Add(-time.Hour))
-	if err := factstore.Write(brainDir, "main", []factRecord{target, consumed, foreign}); err != nil {
+	if err := factstore.Write(brainDir, []factRecord{target, consumed, foreign}); err != nil {
 		t.Fatal(err)
 	}
 	// Baseline knew target+consumed (this run staged and flushed them); memory
 	// holds only target: the pass merged the candidate away.
 	baseline := []factRecord{target, consumed}
 	inMemory := []factRecord{target}
-	rebased, err := rebaseFactsOntoDisk(brainDir, "main", inMemory, baseline, false)
+	rebased, err := rebaseFactsOntoDisk(brainDir, inMemory, baseline, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func TestStagedReconcilePersistsResumeBeforeExtraction(t *testing.T) {
 	brainDir := writeSingleSessionFixture(t, now, "new transcript content\n")
 	target := stagedTestFact("indent all source files with tabs", []string{"preferences.coding.style"}, factStatusActive, now.Add(-time.Hour))
 	leftover := stagedTestFact("use tabs to indent source files", target.Paths, factStatusCandidate, now.Add(-time.Minute))
-	if err := factstore.Write(brainDir, "main", []factRecord{target, leftover}); err != nil {
+	if err := factstore.Write(brainDir, []factRecord{target, leftover}); err != nil {
 		t.Fatal(err)
 	}
 	reconciled := false
@@ -308,7 +308,7 @@ func TestStagedReconcilePersistsResumeBeforeExtraction(t *testing.T) {
 		if !reconciled {
 			t.Error("extraction began before leftover reconciliation")
 		}
-		stored, err := factstore.Load(brainDir, "main")
+		stored, err := factstore.Load(brainDir)
 		if err != nil || len(stored) != 2 || stored[indexOfFact(stored, leftover.ID)].Status != factStatusActive {
 			t.Errorf("resumed candidate must be published durably before extraction: %+v, %v", stored, err)
 		}
@@ -323,19 +323,23 @@ func TestStagedReconcilePersistsResumeBeforeExtraction(t *testing.T) {
 	if source.PendingReconcile != 0 || source.CandidatesReconciled != 2 || source.ReconcileCalls != 1 {
 		t.Fatalf("resume and new work must both be counted: %+v", source)
 	}
-	stored, err := factstore.Load(brainDir, "main")
+	stored, err := factstore.Load(brainDir)
 	if err != nil || len(stored) != 3 {
 		t.Fatalf("a reconciled fact was lost after final flush: %+v, %v", stored, err)
 	}
 }
 
-func TestStagedReconcileForceResumePreservesDeferredBranch(t *testing.T) {
+// The store is flat: a force rebuild drops every distilled active fact in the
+// repository, whatever branch its metadata names, and re-derives from the
+// sessions it visits. Authored facts are never distill's to drop.
+func TestForceRebuildDropsDistilledFactsRepoWideButKeepsAuthored(t *testing.T) {
 	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
 	brainDir := writeDistillFixture(t, now)
-	stored := stagedTestFact("keep this existing memory", []string{"preferences.coding.style"}, factStatusActive, now.Add(-time.Hour))
+	authored := stagedTestFact("keep this authored memory", []string{"preferences.coding.style"}, factStatusActive, now.Add(-time.Hour))
+	authored.Origin = factstore.OriginAuthored
 	leftover := stagedTestFact("exports use batch checkpoint reads", []string{"architecture.data.flow"}, factStatusCandidate, now.Add(-time.Minute))
-	stored.Branch, leftover.Branch = "feature", "feature"
-	if err := factstore.Write(brainDir, "feature", []factRecord{stored, leftover}); err != nil {
+	authored.Branch, leftover.Branch = "feature", "feature"
+	if err := factstore.Write(brainDir, []factRecord{authored, leftover}); err != nil {
 		t.Fatal(err)
 	}
 	run := func(context.Context, string, []string, []byte, time.Duration) (string, error) {
@@ -347,14 +351,26 @@ func TestStagedReconcileForceResumePreservesDeferredBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	facts, err := factstore.Load(brainDir, "feature")
-	if err != nil || len(facts) != 2 {
-		t.Fatalf("resuming a deferred branch must not force-rebuild it: %+v, %v", facts, err)
+	facts, err := factstore.Load(brainDir)
+	if err != nil {
+		t.Fatal(err)
 	}
+	byID := make(map[string]factRecord, len(facts))
 	for _, f := range facts {
-		if f.Status != factStatusActive {
-			t.Fatalf("leftover was not resumed: %+v", f)
-		}
+		byID[f.ID] = f
+	}
+	if got, ok := byID[authored.ID]; !ok || got.Status != factStatusActive {
+		t.Fatalf("authored fact must survive a force rebuild: %+v", facts)
+	}
+	if _, ok := byID[leftover.ID]; ok {
+		t.Fatalf("distilled leftover must be dropped by the repo-wide rebuild: %+v", facts)
+	}
+	rebuilt := factRecordID("Run tests before committing.", normalizeFactPaths([]string{"workflow.testing.rules"}))
+	if got, ok := byID[rebuilt]; !ok || got.Status != factStatusActive || got.Branch != "main" {
+		t.Fatalf("force run must re-derive the visited session's fact: %+v", facts)
+	}
+	if len(facts) != 2 {
+		t.Fatalf("store = %+v, want authored + rebuilt only", facts)
 	}
 }
 
