@@ -292,15 +292,16 @@ above it, which is not a failure a user can be expected to attribute. The dirty
 check now exempts the files Entire itself authored, so the sequence above works
 from a clean clone with nothing committed in between.
 
-The exemption is deliberately narrow. Uncommitted **source** still stops a seed
-or an index, because a brain attributed to a commit must not absorb work that
-commit does not contain:
+The exemption is deliberately narrow. Uncommitted **source** still stops a
+repository context or code index build, because a brain attributed to a commit
+must not absorb work that commit does not contain:
 
 ```
-  instant     + sessions  x seed  + history  + docs  x semantic  + patterns  + entities  + memory
-              x seed baseline: dirty_worktree: refusing to seed uncommitted content without
-                --worktree (2 uncommitted paths: src/app.ts, src/lib/parse.ts); pass --worktree
-                to seed the working tree as it stands, or commit or stash these changes first
+  instant     + sessions  x repository context  + history  + docs  x semantic  + patterns  + entities  + memory
+              x repository context: dirty_worktree: refusing to build repository context from
+                uncommitted content without --worktree; commit or stash them, list them in
+                .brainignore to keep them out of the brain, or pass --worktree to build
+                repository context from them as they are (2 uncommitted paths: src/app.ts, src/lib/parse.ts)
 ```
 
 The Entire-authored files are still **indexed** — `AGENTS.md` and `CLAUDE.md` are
@@ -324,7 +325,7 @@ builds:
 Brain ready in 3.6s
   repo        /path/to/your/repo  (local/your-repo-686eadf04b0f)
   brain       ~/.local/share/entire/plugins/data/brain/repos/local/your-repo-686eadf04b0f
-  instant     + session export  + seed baseline  + history index  + doc index  + semantic index  + pattern layer  + entity index  + memory coordinator  (3.6s)
+  instant     + session export  + repository context  + history index  + doc index  + semantic index  + pattern layer  + entity index  + memory coordinator  (3.6s)
   facts       .............. 0/0 sessions distilled
   backfill    - skipped (--no-backfill)  (0s)
   workspace   + default  (20ms)
@@ -345,7 +346,7 @@ before this repo's origin changed, and the hint says to rebuild it with
 ones that did not, so `Brain ready (degraded)` is information rather than
 failure when you do see it. The things that legitimately produce it:
 
-- **an uncommitted worktree** — `x seed baseline` and `x semantic index`, almost
+- **an uncommitted worktree** — `x repository context` and `x semantic index`, almost
   always the `entire enable` output above, fixed by committing it. This one
   loses both sources a query reads, so the headline is `Brain set up, but not
   queryable` rather than `(degraded)`;
@@ -362,14 +363,15 @@ no watcher. Use it when you want the brain and nothing else, or when scripting:
 ```sh
 cd /path/to/your/repo
 
-entire brain refresh --agent none
+entire brain refresh
 entire brain status
 ```
 
 `refresh` exports captured sessions, builds the local history and doc indexes,
 asks `entire graph` for a semantic snapshot, and stores the derived brain under
-Entire's plugin data directory. `--agent none` keeps this build deterministic and
-token-free, with no hosted-model calls.
+Entire's plugin data directory. Refresh is deterministic and token-free by
+default, with no hosted-model calls. Agent-generated repository summaries require
+an explicit `--agent` option.
 
 The semantic snapshot is built from committed state, so run `refresh` on a clean
 checkout. On a dirty worktree the semantic step can be skipped or refused; index
@@ -387,11 +389,11 @@ cannot be verified. To build a brain from sessions, history, docs, and facts
 without the provider, disable the semantic step:
 
 ```sh
-entire brain refresh --agent none --semantic=false
+entire brain refresh --semantic=false
 ```
 
 Install the Graph-based `entire-graph` from source (or from a matching release tag
-once available), then re-run `entire brain refresh --agent none` to add the
+once available), then re-run `entire brain refresh` to add the
 semantic code graph.
 
 ### Exploring a repository you don't have locally
@@ -620,7 +622,7 @@ Humans or automation should keep the brain fresh:
 
 ```sh
 entire brain status
-entire brain refresh --agent none
+entire brain refresh
 entire brain watch
 ```
 

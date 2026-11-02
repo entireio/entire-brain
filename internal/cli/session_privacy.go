@@ -805,6 +805,36 @@ func loadAllFactBranchesForPrivacy(brainDir string) (map[string][]factRecord, er
 			}
 		}
 	}
+	// Inspect physical snapshot bodies, not the reconciled view. Old clients
+	// can delete a legacy record while leaving its snapshot body behind.
+	stored, err := factstore.StoredRepositoryRecords(brainDir)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(stored) != 0 {
+		seen := map[string]bool{}
+		for _, records := range byBranch {
+			for _, rec := range records {
+				data, err := json.Marshal(rec)
+				if err != nil {
+					return nil, err
+				}
+				seen[string(data)] = true
+			}
+		}
+		for _, rec := range stored {
+			data, err := json.Marshal(rec)
+			if err != nil {
+				return nil, err
+			}
+			if !seen[string(data)] {
+				byBranch[rec.Branch] = append(byBranch[rec.Branch], rec)
+				seen[string(data)] = true
+			}
+		}
+	}
+
 	return byBranch, nil
 }
 
@@ -1341,12 +1371,16 @@ func filterEpisodesFile(brainDir, sessionID string, transcriptRels map[string]bo
 // physically delete facts left with no provenance, and prune proposals that
 // reference a deleted fact. Returns (deleted, strippedAnchors).
 func purgeSessionFacts(brainDir, sessionID string, transcriptRels map[string]bool) (int, int, error) {
-	byBranch, err := loadAllFactBranchesForPrivacy(brainDir)
+	_, err := loadAllFactBranchesForPrivacy(brainDir)
+	if err != nil {
+		return 0, 0, err
+	}
+	byView, err := factstore.LoadStoreFiles(brainDir)
 	if err != nil {
 		return 0, 0, err
 	}
 	deletedTotal, strippedTotal := 0, 0
-	for branch, facts := range byBranch {
+	for dir, facts := range byView {
 		changed := false
 		deletedIDs := map[string]bool{}
 		kept := make([]factRecord, 0, len(facts))
@@ -1376,10 +1410,11 @@ func purgeSessionFacts(brainDir, sessionID string, transcriptRels map[string]boo
 		if !changed {
 			continue
 		}
-		if err := factstore.Write(brainDir, branch, kept); err != nil {
+		if err := factstore.WriteStoreFile(brainDir, dir, kept); err != nil {
 			return deletedTotal, strippedTotal, err
 		}
-		proposals, perr := loadFactProposals(brainDir, branch)
+		proposalRel := filepath.ToSlash(filepath.Join(factstore.DirName, dir, factsProposalsFileName))
+		proposals, perr := loadFactProposalsAt(brainDir, proposalRel)
 		if perr != nil {
 			return deletedTotal, strippedTotal, perr
 		}
@@ -1392,11 +1427,16 @@ func purgeSessionFacts(brainDir, sessionID string, transcriptRels map[string]boo
 				keptProposals = append(keptProposals, proposal)
 			}
 			if len(keptProposals) != len(proposals) {
-				if err := writeFactProposals(brainDir, branch, keptProposals); err != nil {
+				if err := writeFactProposalsAt(brainDir, proposalRel, keptProposals); err != nil {
 					return deletedTotal, strippedTotal, err
 				}
 			}
 		}
+	}
+	// Persist reconciliation even when the old client already removed every
+	// visible record. This removes hidden schema 1 bodies and abandoned temps.
+	if err := factstore.MigrateRepository(brainDir); err != nil {
+		return deletedTotal, strippedTotal, err
 	}
 	return deletedTotal, strippedTotal, nil
 }

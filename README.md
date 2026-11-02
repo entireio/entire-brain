@@ -164,7 +164,20 @@ To build without fact extraction or a background service, use:
 entire brain setup --no-backfill --no-daemon
 ```
 
-Configured remote history sources and publishing also use the network; see [privacy and egress](docs/reference.md#privacy-and-egress) for controls.
+Configured remote history sources and hosted memories sync also use the network; see [privacy and egress](docs/reference.md#privacy-and-egress) for controls.
+
+### Background maintenance and memory sync
+
+The watcher updates local repository context and runs distillation within the configured budget.
+For connected repositories, Brain syncs after a post-commit checkpoint notification and after distillation saves its results.
+Existing push notifications and manual sync remain supported.
+The watcher does not upload or pull memories on idle ticks.
+Brain no longer processes session-end notifications.
+
+Sync sends new or changed record versions and saves server acknowledgements locally.
+Overlapping uploads use one process lock; successful batches do not need another upload.
+Failed or interrupted uploads remain eligible for the next sync event.
+Original session, checkpoint, and commit references remain unchanged.
 
 ## Usage Examples
 
@@ -201,6 +214,45 @@ one, pass it yourself: `--path constraints.retry.policy`, shaped
 
 `verify` reports hand-written facts as `unverifiable-here` — they have no source
 anchor in the repository. Expected, not a failure.
+
+Memory access uses one repository API. Branch visibility, record IDs, and provenance
+remain unchanged. Brainstore's per-record API and wire format also remain unchanged.
+
+During support for v0.2.0 through v0.4.0, memory content stays in
+`facts/<branch>/facts.ndjson`. These releases can read, change, and physically delete
+those files. `facts/store.json` contains only a schema 2 compatibility marker.
+It contains no memory content or provenance. Physical consolidation must wait
+until these older clients leave support.
+
+Existing schema 1 snapshots remain readable. The next memory write or refresh
+converts them. Conversion reconciles old-client changes across all views, publishes
+missing legacy files, and replaces the snapshot last. A failed conversion can be
+retried. Corrupt or unsupported snapshots cause an error before conversion.
+Reads do not change disk. Outlines, review proposals, and usage receipts keep
+their existing layouts.
+
+```bash
+entire brain memories storage status --json
+entire brain memories storage migrate       # convert or repair; safe to repeat
+entire brain memories storage rollback      # keep current data; remove the marker
+```
+
+Each command also accepts `--global`. Status reports `legacy`, `repository`
+(schema 1), or `compatibility` (schema 2). Rollback includes post-migration writes;
+it does not restore an outdated backup. Use memory commands for deletion.
+Deleting a legacy file after conversion removes the only stored copy of that view.
+
+If a pre-fix schema 1 snapshot exists, run `memories storage migrate` before
+using an older client for privacy cleanup. An older client cannot remove that
+snapshot. New-client privacy verification inspects physical snapshot bodies,
+overrides, and abandoned temporary snapshots. New-client purge repairs these
+artifacts even when an older client already removed the visible records.
+
+Run `bash scripts/test-memory-storage-compat.sh` for released-binary checks.
+The script builds pinned stable releases v0.2.0, v0.3.0, and v0.4.0.
+Nightly releases are excluded. Tests use temporary repositories and isolated
+data directories. They do not change your installed plugin or your memories.
+See [compatibility coverage](docs/memory-storage-compatibility.md) for test scope.
 
 ### Remember something that is not about one repository
 
@@ -430,7 +482,7 @@ the binary.
 | --- | --- |
 | `entire brain workspace` | Manage local multi-repo brain workspaces |
 | `entire brain bundle` | Import or export local brain bundles |
-| `entire brain publish` | Publish the local brain to hosted Entire (opt-in) |
+| `entire brain memories sync` | Sync this branch's memories with the hosted memory set (opt-in) |
 
 ## Limitations
 

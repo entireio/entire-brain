@@ -66,7 +66,18 @@ const (
 	// would silently keep that lineage's behavior, so both are invalidated.
 	// v10: admit all transcript JSON for authoritative extraction and include
 	// wrapper-filtered user requests from document transcripts.
-	historyScanCacheVersion = 10
+	// v11: read the compact (Entire Transcript Format) dialect, whose records
+	// carry their content blocks at the record's top level. A v10 cache was
+	// filled by a scanner that saw no requests, no assistant narrative and no
+	// exchanges in a default (compact) export, and the content digest is the
+	// sole reuse authority — unchanged transcripts would keep those empty
+	// results forever, so an upgraded brain would never recover its history
+	// without a manual rebuild (COR-2289).
+	historyScanCacheVersion = 11
+	// Extraction revision 11 changes parser behavior, not the record schema.
+	// Keep the wire version readable by supported stable clients. Old clients
+	// drop extractor_version when rewriting, forcing the new parser to rescan.
+	historyScanCacheWireVersion = 10
 )
 
 type historyFragment struct {
@@ -141,9 +152,10 @@ var beforeHistoryProjectionContentDigest = func(string) {}
 // searchable records. Unchanged files still skip parsing, which is the costly
 // part of refresh even though the bytes are streamed once for identity.
 type historyScanCache struct {
-	Version         int                              `json:"version"`
-	Files           map[string]historyScanCacheEntry `json:"files"`
-	contentIdentity string
+	ExtractorVersion int                              `json:"extractor_version,omitempty"`
+	Version          int                              `json:"version"`
+	Files            map[string]historyScanCacheEntry `json:"files"`
+	contentIdentity  string
 }
 
 type historyScanCacheEntry struct {
@@ -1681,6 +1693,9 @@ func loadHistoryScanCache(outputDir string) historyScanCache {
 	if err := json.NewDecoder(limited).Decode(&cache); err != nil {
 		return empty
 	}
+	if cache.Version == historyScanCacheWireVersion && cache.ExtractorVersion == historyScanCacheVersion {
+		cache.Version = historyScanCacheVersion
+	}
 	if cache.Version != historyScanCacheVersion || cache.Files == nil {
 		return empty
 	}
@@ -1698,6 +1713,10 @@ func saveHistoryScanCache(outputDir string, cache historyScanCache) {
 }
 
 func encodeHistoryScanCache(cache historyScanCache) ([]byte, error) {
+	if cache.Version == historyScanCacheVersion {
+		cache.Version = historyScanCacheWireVersion
+		cache.ExtractorVersion = historyScanCacheVersion
+	}
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	if err := json.NewEncoder(gz).Encode(cache); err != nil {
@@ -2162,11 +2181,12 @@ func extractClaudeToolResultFragments(obj map[string]any) []historyFragment {
 }
 
 func extractClaudeMessageFragments(obj map[string]any, role string) []historyFragment {
-	message := jsonMap(obj["message"])
-	if len(message) == 0 {
-		return nil
+	if message := jsonMap(obj["message"]); len(message) > 0 {
+		return extractContentFragments(message["content"], role+"_message")
 	}
-	return extractContentFragments(message["content"], role+"_message")
+	// ETF compact records carry the content blocks at the record's top level
+	// (see distillConversationText).
+	return extractContentFragments(obj["content"], role+"_message")
 }
 
 func extractContentFragments(content any, source string) []historyFragment {

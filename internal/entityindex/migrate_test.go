@@ -12,7 +12,7 @@ import (
 )
 
 func TestMigrateIdentityPreservesHistoryAndUnrelatedMemory(t *testing.T) {
-	for _, failure := range []string{"", "provider", "empty", "wrong-head", "revision", "missing-commit", "warnings", "missing-files", "cancelled", "concurrent-write", "publish-busy"} {
+	for _, failure := range []string{"", "metadata-warnings", "provider", "empty", "wrong-head", "revision", "missing-commit", "warnings", "mixed-warnings", "unsupported-source", "missing-files", "cancelled", "concurrent-write", "publish-busy"} {
 		t.Run(fmt.Sprint("failure=", failure), func(t *testing.T) {
 			ctx := context.Background()
 			r := newFakeRunner()
@@ -80,6 +80,21 @@ func TestMigrateIdentityPreservesHistoryAndUnrelatedMemory(t *testing.T) {
 				response.stdout = strings.Replace(response.stdout, "{", `{"warnings":[{"code":"W_PARSE_ERROR"}],`, 1)
 				r.responses[key] = response
 			}
+			if failure == "metadata-warnings" || failure == "mixed-warnings" || failure == "unsupported-source" {
+				// Put the warning on the second commit: a refusal must discard
+				// the first commit's already computed migration mutations too.
+				warnings := `{"code":"W_UNSUPPORTED_FILE","severity":"info","file_path":".brainignore"},{"code":"W_UNSUPPORTED_FILE","severity":"info","file_path":"go.mod"}`
+				if failure == "mixed-warnings" {
+					warnings += `,{"code":"W_PARSE_ERROR","severity":"warning","file_path":"a.js"}`
+				}
+				if failure == "unsupported-source" {
+					warnings += `,{"code":"W_UNSUPPORTED_FILE","severity":"info","file_path":"a.js"}`
+				}
+				key := graphDiffKey(cs[0].SHA, cs[1].SHA)
+				response := r.responses[key]
+				response.stdout = strings.Replace(response.stdout, "{", `{"warnings":[`+warnings+`],`, 1)
+				r.responses[key] = response
+			}
 			if failure == "missing-files" {
 				r.set(graphDiffKey(cs[0].SHA, cs[1].SHA), fmt.Sprintf(`{"identity_revision":"scope-1","base":%q,"head":%q}`, cs[0].SHA, cs[1].SHA))
 			}
@@ -118,7 +133,7 @@ func TestMigrateIdentityPreservesHistoryAndUnrelatedMemory(t *testing.T) {
 				}
 			}
 			result, err := Migrate(ctx, r, store, BuildOptions{RepoDir: testRepoDir, IdentityRevision: "scope-1", Now: fixedNow(), Progress: progress})
-			if failure != "" {
+			if failure != "" && failure != "metadata-warnings" {
 				if err == nil {
 					t.Fatal("accepted partial migration")
 				}

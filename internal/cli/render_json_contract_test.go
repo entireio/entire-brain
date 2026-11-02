@@ -6,6 +6,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -28,9 +29,7 @@ import (
 // The goldens are captured from a real run and then SCRUBBED: absolute paths are
 // rewritten to /home/example/... and temp directories to /tmp/example. Re-capture
 // from a live machine and you will paste your own home directory into a tracked
-// file — benchmarks/agent-brain/test_publication_safety.py fails the build for
-// exactly that, and it is the only thing standing between this directory and a
-// published contributor path.
+// file. The contract check also rejects local home and temporary paths.
 const goldenUpdateEnv = "ENTIRE_BRAIN_UPDATE_GOLDEN"
 
 func checkJSONContract(t *testing.T, name string, value any) {
@@ -45,6 +44,9 @@ func checkJSONContract(t *testing.T, name string, value any) {
 	// writeJSON's encoder (json.MarshalIndent) only ever emits LF. Without this,
 	// the contract check fails on checkout mechanics instead of on JSON content.
 	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+	if regexp.MustCompile(`(?i)/Users/|/private/var/` + `folders/|[a-z]:\\\\Users\\\\`).Match(data) {
+		t.Fatalf("golden %s contains a local machine path", path)
+	}
 	if err := json.Unmarshal(data, value); err != nil {
 		t.Fatalf("golden %s does not fit the report struct (a field was renamed or removed): %v", path, err)
 	}

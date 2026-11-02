@@ -331,6 +331,11 @@ func TestFactStoreIntegrityKeepsFailureModesDistinct(t *testing.T) {
 
 	t.Run("missing", func(t *testing.T) {
 		_, _, brainDir, path := factLossFixture(t)
+		// Total store loss requires losing the native copy too. A missing
+		// compatibility projection alone is recoverable.
+		if err := os.Remove(filepath.Join(brainDir, factstore.RepositoryPath)); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.Remove(path); err != nil {
 			t.Fatal(err)
 		}

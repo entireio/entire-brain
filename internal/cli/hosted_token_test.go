@@ -2,9 +2,12 @@ package cli
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
 )
@@ -68,6 +71,61 @@ func TestMintHostedTokenFailures(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "entire auth token") {
 			t.Fatalf("error must name the command, got: %v", err)
+		}
+	})
+}
+
+// jwtWithPayload builds an unsigned JWT-shaped token with the given payload
+// JSON, matching the base64url (unpadded) encoding real tokens use.
+func jwtWithPayload(payload string) string {
+	enc := base64.RawURLEncoding.EncodeToString
+	return enc([]byte(`{"alg":"RS256"}`)) + "." + enc([]byte(payload)) + ".c2lnbmF0dXJl"
+}
+
+func TestMintHostedTokenRejectsExpiredTokens(t *testing.T) {
+	mint := func(t *testing.T, token string) (string, error) {
+		t.Helper()
+		runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+			return []byte(token + "\n"), nil, nil
+		})
+		return mintHostedToken(context.Background(), runner, "/repo", "entire")
+	}
+
+	t.Run("expired exp errors with the re-login hint, without echoing the token", func(t *testing.T) {
+		token := jwtWithPayload(fmt.Sprintf(`{"sub":"ulrich","exp":%d}`, time.Now().Add(-time.Hour).Unix()))
+		_, err := mint(t, token)
+		if err == nil {
+			t.Fatal("an expired token must error instead of being handed to brainstore")
+		}
+		if !strings.Contains(err.Error(), "entire auth login") {
+			t.Fatalf("error must point at re-login, got: %v", err)
+		}
+		if strings.Contains(err.Error(), token[strings.Index(token, ".")+1:]) {
+			t.Fatalf("error must not echo the token: %v", err)
+		}
+	})
+	t.Run("exp just past is within clock-skew leeway", func(t *testing.T) {
+		token := jwtWithPayload(fmt.Sprintf(`{"exp":%d}`, time.Now().Add(-10*time.Second).Unix()))
+		if _, err := mint(t, token); err != nil {
+			t.Fatalf("a token within the skew leeway must pass through: %v", err)
+		}
+	})
+	t.Run("future exp passes through", func(t *testing.T) {
+		token := jwtWithPayload(fmt.Sprintf(`{"exp":%d}`, time.Now().Add(time.Hour).Unix()))
+		if got, err := mint(t, token); err != nil || got != token {
+			t.Fatalf("got %q, %v", got, err)
+		}
+	})
+	t.Run("missing exp fails open", func(t *testing.T) {
+		token := jwtWithPayload(`{"sub":"ulrich"}`)
+		if _, err := mint(t, token); err != nil {
+			t.Fatalf("a token without exp must pass through (server stays the authority): %v", err)
+		}
+	})
+	t.Run("undecodable payload fails open", func(t *testing.T) {
+		token := "eyJhbGciOiJSUzI1NiJ9.%%%notbase64%%%.c2lnbmF0dXJl"
+		if _, err := mint(t, token); err != nil {
+			t.Fatalf("an undecodable payload must pass through unjudged: %v", err)
 		}
 	})
 }

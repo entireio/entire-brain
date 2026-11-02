@@ -28,7 +28,7 @@ const (
 type factsSyncOptions struct {
 	branch  string
 	backend string
-	// explicit hosted target (mirror publish's flag/env resolution):
+	// explicit hosted target (flag wins over its ENTIRE_* env variable):
 	apiURL string
 	token  string
 	repoID string
@@ -158,7 +158,7 @@ func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOpti
 	if err != nil {
 		return err
 	}
-	srv := &factsync.HTTPServer{BaseURL: target.baseURL, Token: target.token}
+	srv := &factsync.HTTPServer{BaseURL: target.baseURL, Token: target.token, Version: opts.Version}
 	backendLabel := "hosted (" + strings.TrimRight(target.baseURL, "/") + ")"
 
 	counts, skipped, pushErr := pushHostedFacts(ctx, storage, srv, target.repoID, branch)

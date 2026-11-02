@@ -218,7 +218,7 @@ func TestSetupExitsNonZeroWhenTheBrainCannotAnswer(t *testing.T) {
 	if err == nil {
 		t.Fatalf("a brain that cannot answer must not report success:\n%s", out)
 	}
-	if !strings.Contains(err.Error(), "not queryable") || !strings.Contains(err.Error(), "seed baseline") {
+	if !strings.Contains(err.Error(), "not queryable") || !strings.Contains(err.Error(), "repository context") {
 		t.Fatalf("the exit must name what could not be built: %v", err)
 	}
 	if !strings.Contains(out.String(), "the brain cannot answer yet") {

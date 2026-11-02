@@ -769,9 +769,9 @@ func freshnessSummary(report staleReport) string {
 			continue
 		}
 		if axis.Detail != "" {
-			parts = append(parts, fmt.Sprintf("%s=%s (%s)", key, axis.State, axis.Detail))
+			parts = append(parts, fmt.Sprintf("%s=%s (%s)", brainSourceDisplayName(key), axis.State, axis.Detail))
 		} else {
-			parts = append(parts, fmt.Sprintf("%s=%s", key, axis.State))
+			parts = append(parts, fmt.Sprintf("%s=%s", brainSourceDisplayName(key), axis.State))
 		}
 	}
 	return strings.Join(parts, "; ")
@@ -1263,7 +1263,7 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	if report.Brain.GeneratedAt != "" {
 		fmt.Fprintf(out, "  generated: %s\n", report.Brain.GeneratedAt)
 	}
-	fmt.Fprintf(out, "  sources: seed=%t sessions=%t semantic=%t history=%t facts=%t docs=%t\n",
+	fmt.Fprintf(out, "  sources: repository context=%t sessions=%t semantic=%t history=%t facts=%t docs=%t\n",
 		report.Sources.Seed, report.Sources.Sessions, report.Sources.Semantic, report.Sources.History, report.Sources.Facts, report.Sources.Docs)
 	if h := report.Hosted; h != nil {
 		fmt.Fprintf(out, "\n%s\n", hostedStatusLine(h))
@@ -1376,7 +1376,7 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	if r := report.Retrieval; r != nil {
 		fmt.Fprintln(out, "\nRetrieval")
 		if r.SeedCommit != "" {
-			fmt.Fprintf(out, "  seed: %s (%s)\n", shortCommitHash(r.SeedCommit), cmdutil.ValueOrUnset(r.SeedMode))
+			fmt.Fprintf(out, "  repository context: %s (%s)\n", shortCommitHash(r.SeedCommit), cmdutil.ValueOrUnset(r.SeedMode))
 		}
 		if r.DocsGeneratedAt != "" {
 			fmt.Fprintf(out, "  docs: %d records from %d files (generated %s)\n", r.DocsRecords, r.DocsFiles, r.DocsGeneratedAt)
@@ -4804,16 +4804,16 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 	report := &brainStatusRetrieval{}
 	axes := map[string]staleAxis{}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Seed == nil {
-		axes["seed"] = staleAxis{State: "missing", Detail: "no seed source in manifest; run " + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none"}
+		axes["seed"] = staleAxis{State: "missing", Detail: "no repository context in manifest; run " + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none"}
 	} else {
 		seed := manifest.Sources.Seed
 		report.SeedCommit = seed.Commit
 		report.SeedMode = seed.WorktreeMode
 		switch {
 		case live.Head == "":
-			axes["seed"] = staleAxis{State: "unsafe", Detail: "current HEAD unavailable, so seed freshness cannot be compared", Remedy: "run `git rev-parse HEAD` here to see why HEAD is unreadable", Indexed: seed.Commit}
+			axes["seed"] = staleAxis{State: "unsafe", Detail: "current HEAD unavailable, so repository context freshness cannot be compared", Remedy: "run `git rev-parse HEAD` here to see why HEAD is unreadable", Indexed: seed.Commit}
 		case seed.Commit != live.Head:
-			axes["seed"] = staleAxis{State: "stale", Detail: "seed and docs are based on an older commit; run " + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: live.Head, Indexed: seed.Commit}
+			axes["seed"] = staleAxis{State: "stale", Detail: "repository context and docs are based on an older commit; run " + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeMode != "worktree" && live.Dirty:
 			// CAUSE only, no remedy. This axis is rendered as the `Cause`
 			// line directly under the status verdict, which prints the one
@@ -4824,17 +4824,17 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 			// content instead.
 			axes["seed"] = staleAxis{
 				State:   dirtyUnindexedAxisState,
-				Detail:  "seed and docs are based on committed HEAD and do not include the uncommitted changes in the working tree",
+				Detail:  "repository context and docs match committed HEAD; uncommitted changes are excluded",
 				Remedy:  setupDirtyWorktreeHint(clibase.SetupCommandPrefix(os.LookupEnv)),
 				Current: live.Head,
 				Indexed: seed.Commit,
 			}
 		case seed.WorktreeMode != "worktree":
-			axes["seed"] = staleAxis{State: "ok", Detail: "seed and docs match committed HEAD", Current: live.Head, Indexed: seed.Commit}
+			axes["seed"] = staleAxis{State: "ok", Detail: "repository context and docs match committed HEAD", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeHash == "":
-			axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree seed snapshot has no verifiable fingerprint", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --worktree` to rebuild it", Current: live.Head, Indexed: seed.Commit}
+			axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree repository context snapshot has no verifiable fingerprint", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --worktree` to rebuild it", Current: live.Head, Indexed: seed.Commit}
 		case !live.Dirty:
-			axes["seed"] = staleAxis{State: "worktree-overlay-stale", Detail: "seed was built from dirty content but the worktree is now clean", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild from committed HEAD", Current: live.Head, Indexed: seed.Commit}
+			axes["seed"] = staleAxis{State: "worktree-overlay-stale", Detail: "repository context was built from dirty content but the worktree is now clean", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild from committed HEAD", Current: live.Head, Indexed: seed.Commit}
 		case !audit:
 			// `status` is the lightweight surface that produces this axis, so it
 			// must not be the remedy; `overview` runs the audited comparison.
@@ -4844,9 +4844,9 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 			if err != nil {
 				axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree fingerprint unavailable: " + err.Error(), Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --worktree` to rebuild the snapshot", Current: live.Head, Indexed: seed.Commit}
 			} else if currentHash != seed.WorktreeHash {
-				axes["seed"] = staleAxis{State: "dirty-stale", Detail: "dirty worktree changed since seed and docs refresh", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --worktree` to re-index the current changes", Current: currentHash, Indexed: seed.WorktreeHash}
+				axes["seed"] = staleAxis{State: "dirty-stale", Detail: "dirty worktree changed since repository context and docs refresh", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --worktree` to re-index the current changes", Current: currentHash, Indexed: seed.WorktreeHash}
 			} else {
-				axes["seed"] = staleAxis{State: "dirty-indexed", Detail: "seed and docs include the current dirty worktree", Current: currentHash, Indexed: seed.WorktreeHash}
+				axes["seed"] = staleAxis{State: "dirty-indexed", Detail: "repository context and docs include the current dirty worktree", Current: currentHash, Indexed: seed.WorktreeHash}
 			}
 		}
 	}
@@ -4873,11 +4873,11 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 		} else if docs.GeneratedAt.IsZero() {
 			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index has no generation timestamp", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild it"}
 		} else if manifest.Sources.Seed == nil {
-			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index provenance cannot be checked without a seed source", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild both"}
+			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index provenance cannot be checked without repository context", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild both"}
 		} else if docs.GeneratedAt.Before(manifest.Sources.Seed.GeneratedAt) {
-			axes["docs"] = staleAxis{State: "stale", Detail: "docs index predates the current seed; run " + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: manifest.Sources.Seed.GeneratedAt.Format(time.RFC3339), Indexed: docs.GeneratedAt.Format(time.RFC3339)}
+			axes["docs"] = staleAxis{State: "stale", Detail: "docs index predates the current repository context; run " + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: manifest.Sources.Seed.GeneratedAt.Format(time.RFC3339), Indexed: docs.GeneratedAt.Format(time.RFC3339)}
 		} else {
-			axes["docs"] = staleAxis{State: "ok", Detail: "docs index was built from the current seed"}
+			axes["docs"] = staleAxis{State: "ok", Detail: "docs index was built from the current repository context"}
 		}
 	}
 	report.Freshness = &staleReport{Severity: aggregateStaleSeverity(axes), Axes: axes}
@@ -4916,7 +4916,7 @@ func renderFreshnessAxes(out io.Writer, axes map[string]staleAxis) {
 	sort.Strings(keys)
 	for _, key := range keys {
 		axis := axes[key]
-		line := "    " + key + ": " + axis.State
+		line := "    " + brainSourceDisplayName(key) + ": " + axis.State
 		if axis.Detail != "" {
 			line += " (" + axis.Detail + ")"
 		}

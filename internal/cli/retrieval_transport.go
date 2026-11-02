@@ -25,12 +25,6 @@ var beforeRetrievalResponsePrivacyRecheck = func() {}
 // after the complete response has been buffered but before any byte is written.
 var beforeRetrievalResponsePrivacyEmissionCheck = func() {}
 
-// beforeRetrievalResponseWrite is a deterministic seam after the authoritative
-// policy checks have succeeded but while every involved Brain write lock is
-// still held. Tests use it to prove a concurrent tombstone writer cannot
-// linearize between the last privacy check and the first response byte.
-var beforeRetrievalResponseWrite = func() {}
-
 // The retrieval privacy policy lives in brainstore; the alias keeps the
 // package-local name for the many existing readers and tests.
 type retrievalPrivacyPolicy = brainstore.RetrievalPrivacyPolicy
@@ -50,15 +44,15 @@ func bufferRetrievalCommandOutput(cmd *cobra.Command, policies []retrievalPrivac
 	return writeRetrievalResponseBytes(original, buffered.Bytes(), policies...)
 }
 
-// privacyLinearizedWriter is for an interactive surface that cannot buffer its
-// entire lifetime (the dashboard TUI). Each terminal write is linearized under
-// the captured policy; once policy changes, the next draw fails closed.
-type privacyLinearizedWriter struct {
+// privacyCheckedWriter is for an interactive surface that cannot buffer its
+// entire lifetime (the dashboard TUI). Each terminal write revalidates the
+// captured policy; once policy changes, the next draw fails closed.
+type privacyCheckedWriter struct {
 	out      io.Writer
 	policies []retrievalPrivacyPolicy
 }
 
-func (w privacyLinearizedWriter) Write(p []byte) (int, error) {
+func (w privacyCheckedWriter) Write(p []byte) (int, error) {
 	err := writeRetrievalResponseBytes(w.out, p, w.policies...)
 	if err != nil {
 		return 0, err
@@ -71,14 +65,7 @@ func (w privacyLinearizedWriter) Write(p []byte) (int, error) {
 // first. A policy change never produces a partial stale response: every checked
 // brain is revalidated before the first byte is handed to the consumer.
 func writeRetrievalResponseBytes(out io.Writer, data []byte, policies ...retrievalPrivacyPolicy) error {
-	beforeRetrievalResponsePrivacyEmissionCheck()
-	if transactional, ok := out.(interface {
-		writeRetrievalResponse([]byte, []retrievalPrivacyPolicy) error
-	}); ok {
-		return transactional.writeRetrievalResponse(data, policies)
-	}
-	return withLockedRetrievalPrivacyPolicies(policies, func() error {
-		beforeRetrievalResponseWrite()
+	return commitRetrievalResponse(policies, func() error {
 		n, err := out.Write(data)
 		if err == nil && n != len(data) {
 			return io.ErrShortWrite
@@ -87,26 +74,25 @@ func writeRetrievalResponseBytes(out io.Writer, data []byte, policies ...retriev
 	})
 }
 
-// withLockedRetrievalPrivacyPolicies is the response linearization boundary
+// withLockedRetrievalPrivacyPolicies is the mutation-side policy boundary
 // (brainstore owns the lock ordering and identity revalidation); the CLI
-// adapters bind the derived-read gate.
+// adapters bind the derived-read gate. Read-response emission validates
+// without locks via commitRetrievalResponse instead.
 func withLockedRetrievalPrivacyPolicies(policies []retrievalPrivacyPolicy, fn func() error) error {
 	return brainstore.WithLockedRetrievalPrivacyPolicies(policies, requirePrivacyDerivedRead, fn)
 }
 
-func acquireRetrievalPrivacyPolicies(policies []retrievalPrivacyPolicy) (func(), error) {
-	return brainstore.AcquireRetrievalPrivacyPolicies(policies, requirePrivacyDerivedRead)
-}
-
-// commitVizRetrievalResponse is the viz HTTP transport's final privacy
-// boundary: it binds the cli race seams and the locked-policy write around the
-// buffered response commit (injected as viz.Deps.CommitRetrievalResponse).
-func commitVizRetrievalResponse(policies []retrievalPrivacyPolicy, write func() error) error {
+// commitRetrievalResponse revalidates the captured policies (no lock — see
+// ValidateRetrievalPrivacyPolicies for the retired linearization story) and
+// then commits the buffered response. The CLI surfaces reach it through
+// writeRetrievalResponseBytes; the viz HTTP transport uses it directly
+// (injected as viz.Deps.CommitRetrievalResponse).
+func commitRetrievalResponse(policies []retrievalPrivacyPolicy, write func() error) error {
 	beforeRetrievalResponsePrivacyEmissionCheck()
-	return withLockedRetrievalPrivacyPolicies(policies, func() error {
-		beforeRetrievalResponseWrite()
-		return write()
-	})
+	if err := brainstore.ValidateRetrievalPrivacyPolicies(policies, requirePrivacyDerivedRead); err != nil {
+		return err
+	}
+	return write()
 }
 
 // revalidateRetrievalResponsePrivacy closes the ranking-to-write window. A

@@ -21,9 +21,11 @@ func countFactProposals(brainDir string, branches []string) int {
 
 // updateFactSourceManifest recomputes sources.facts from the whole on-disk fact
 // store and writes it back. Commands that mutate facts outside the distill
-// pipeline (remember, facts review/promote/gc) call this so `status` and the
-// manifest stay accurate. Chunk counts are preserved from the existing source
-// (they describe the last distill run, not these edits).
+// pipeline (remember, facts review/promote/gc) call this when they changed
+// something, so `status` and the manifest stay accurate; no-op runs skip it,
+// since this full recompute is the expensive part of holding the write lock.
+// Chunk counts are preserved from the existing source (they describe the last
+// distill run, not these edits).
 func updateFactSourceManifest(brainDir string, now time.Time) error {
 	return brainstore.WithBrainWriteLock(brainDir, func() error {
 		return updateFactSourceManifestLocked(brainDir, now)
@@ -69,6 +71,11 @@ func reclassifyAllFactBranches(brainDir string, now time.Time) (int, error) {
 				return err
 			}
 			changed += c + folded
+		}
+		// Refresh upgrades even an unchanged legacy store. Ordinary read
+		// commands remain read-only, including on read-only installations.
+		if err := factstore.MigrateRepository(brainDir); err != nil {
+			return err
 		}
 		return updateFactSourceManifestLocked(brainDir, now)
 	})

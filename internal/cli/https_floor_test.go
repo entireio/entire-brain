@@ -10,8 +10,8 @@ import (
 // The scheme floor: a hosted base URL that is not https:// (and not loopback) must
 // be refused BEFORE any disk read or network call, for every command that egresses
 // brain content. These tests are the regression fence for the plaintext-egress
-// finding: ENTIRE_API_URL=http://evil.example used to ship the whole brain bundle
-// and the bearer token in the clear to whatever that name resolved to.
+// finding: ENTIRE_API_URL=http://evil.example used to ship brain content and the
+// bearer token in the clear to whatever that name resolved to.
 
 const evilPlaintextURL = "http://evil.example"
 
@@ -30,39 +30,10 @@ func assertNoNetworkAttempt(t *testing.T, err error) {
 	}
 }
 
-// TestPublishRefusesPlaintextNonLoopbackAPIURL: publish must refuse an http:// base
-// URL pointing anywhere but loopback, before it reads the brain off disk.
-func TestPublishRefusesPlaintextNonLoopbackAPIURL(t *testing.T) {
-	repoDir := t.TempDir()
-	dataDir := t.TempDir() // deliberately NO brain on disk
-
-	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
-	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
-	t.Setenv("ENTIRE_BRAIN_ALLOW_INSECURE_API_URL", "")
-	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
-	t.Setenv("ENTIRE_API_URL", evilPlaintextURL)
-	t.Setenv("ENTIRE_API_TOKEN", testPublishToken)
-	t.Setenv("ENTIRE_REPO_ID", testPublishRepoID)
-
-	cmd := newPublishCmd(t, repoDir, dataDir, newPublishFixtureRunner())
-	out, err := execute(t, cmd, "publish")
-	if err == nil {
-		t.Fatalf("publish to %s succeeded; want refusal\n%s", evilPlaintextURL, out)
-	}
-	assertNoNetworkAttempt(t, err)
-	if !strings.Contains(err.Error(), "insecure_api_url") {
-		t.Fatalf("publish error = %v; want an insecure_api_url refusal", err)
-	}
-	// The refusal must precede the disk read: reaching "no brain found" means the
-	// command already resolved and read local state for an unsafe target.
-	if strings.Contains(err.Error(), "no brain found") {
-		t.Fatalf("URL refused only AFTER reading the brain from disk: %v", err)
-	}
-}
-
-// TestFactsSyncRefusesPlaintextNonLoopbackAPIURL: the http fact backend must refuse
-// the same URL, so the merged fact-set and the bearer token never cross plaintext.
-func TestFactsSyncRefusesPlaintextNonLoopbackAPIURL(t *testing.T) {
+// newHostedSyncFixture scripts one syncable fact so `facts sync` reaches the
+// hosted-target URL checks rather than stopping at an empty store.
+func newHostedSyncFixture(t *testing.T) verifyFixture {
+	t.Helper()
 	f := newVerifyFixture(t)
 	paths := normalizeFactPaths([]string{"ops.deploy.strategy"})
 	f.writeFacts(t, "main", []factRecord{{
@@ -71,6 +42,11 @@ func TestFactsSyncRefusesPlaintextNonLoopbackAPIURL(t *testing.T) {
 		Origin: factstore.OriginDistilled, Status: factStatusActive,
 		CreatedAt: f.now, UpdatedAt: f.now,
 	}})
+	return f
+}
+
+func TestFactsSyncRefusesPlaintextNonLoopbackAPIURL(t *testing.T) {
+	f := newHostedSyncFixture(t)
 
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
@@ -104,9 +80,7 @@ func TestHostedCommandsRejectMalformedAPIURL(t *testing.T) {
 		"not a url at all",    // garbage
 	} {
 		t.Run(raw, func(t *testing.T) {
-			repoDir := t.TempDir()
-			dataDir := t.TempDir()
-			writePublishBrainFixture(t, publishBrainDir(dataDir))
+			f := newHostedSyncFixture(t)
 
 			t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 			t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
@@ -114,27 +88,27 @@ func TestHostedCommandsRejectMalformedAPIURL(t *testing.T) {
 			t.Setenv("ENTIRE_BRAIN_ALLOW_INSECURE_API_URL", "1")
 			t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 			t.Setenv("ENTIRE_API_URL", raw)
-			t.Setenv("ENTIRE_API_TOKEN", testPublishToken)
-			t.Setenv("ENTIRE_REPO_ID", testPublishRepoID)
+			t.Setenv("ENTIRE_API_TOKEN", "tok")
+			t.Setenv("ENTIRE_REPO_ID", "repo-01HZZ")
 
-			cmd := newPublishCmd(t, repoDir, dataDir, newPublishFixtureRunner())
-			out, err := execute(t, cmd, "publish")
+			out, err := execute(t, NewRootCommand(f.opts), "facts", "sync", "--facts-backend", "http")
 			if err == nil {
-				t.Fatalf("publish with ENTIRE_API_URL=%q succeeded; want refusal\n%s", raw, out)
+				t.Fatalf("facts sync with ENTIRE_API_URL=%q succeeded; want refusal\n%s", raw, out)
 			}
 			assertNoNetworkAttempt(t, err)
 			if !strings.Contains(err.Error(), "invalid_api_url") {
-				t.Fatalf("publish error = %v; want an invalid_api_url refusal", err)
+				t.Fatalf("facts sync error = %v; want an invalid_api_url refusal", err)
 			}
 		})
 	}
 }
 
-// TestPublishAllowsPlaintextLoopbackAndOptIn is the carve-out fence: loopback http
+// TestFactsSyncAllowsPlaintextLoopbackAndOptIn is the carve-out fence: loopback http
 // stays usable for local dev (and every existing httptest-based test), and a
 // documented explicit opt-in re-enables non-loopback plaintext for the operators who
-// knowingly need it.
-func TestPublishAllowsPlaintextLoopbackAndOptIn(t *testing.T) {
+// knowingly need it. An accepted URL proceeds to the actual sync (which then fails
+// on the unreachable port), so the assertion is only on the refusal class.
+func TestFactsSyncAllowsPlaintextLoopbackAndOptIn(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		url         string
@@ -144,33 +118,30 @@ func TestPublishAllowsPlaintextLoopbackAndOptIn(t *testing.T) {
 		{name: "loopback ip", url: "http://127.0.0.1:9", optIn: ""},
 		{name: "loopback name", url: "http://localhost:9", optIn: ""},
 		{name: "loopback v6", url: "http://[::1]:9", optIn: ""},
-		{name: "opt-in", url: "http://192.0.2.10:9", optIn: "1"},
-		{name: "opt-in garbage fails closed", url: "http://192.0.2.10:9", optIn: "ture", wantRefusal: true},
-		{name: "opt-in false", url: "http://192.0.2.10:9", optIn: "0", wantRefusal: true},
+		// host.invalid: non-loopback, and DNS fails instantly instead of a
+		// 10s TEST-NET dial stall when the URL is accepted.
+		{name: "opt-in", url: "http://host.invalid:9", optIn: "1"},
+		{name: "opt-in garbage fails closed", url: "http://host.invalid:9", optIn: "ture", wantRefusal: true},
+		{name: "opt-in false", url: "http://host.invalid:9", optIn: "0", wantRefusal: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			repoDir := t.TempDir()
-			dataDir := t.TempDir() // no brain: a passing URL check stops at "no brain found"
+			f := newHostedSyncFixture(t)
 
 			t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 			t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
 			t.Setenv("ENTIRE_BRAIN_ALLOW_INSECURE_API_URL", tc.optIn)
 			t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 			t.Setenv("ENTIRE_API_URL", tc.url)
-			t.Setenv("ENTIRE_API_TOKEN", testPublishToken)
-			t.Setenv("ENTIRE_REPO_ID", testPublishRepoID)
+			t.Setenv("ENTIRE_API_TOKEN", "tok")
+			t.Setenv("ENTIRE_REPO_ID", "repo-01HZZ")
 
-			cmd := newPublishCmd(t, repoDir, dataDir, newPublishFixtureRunner())
-			_, err := execute(t, cmd, "publish")
+			_, err := execute(t, NewRootCommand(f.opts), "facts", "sync", "--facts-backend", "http")
 			if err == nil {
-				t.Fatalf("publish unexpectedly succeeded without a brain on disk")
+				t.Fatalf("facts sync unexpectedly succeeded against an unreachable port")
 			}
 			refused := strings.Contains(err.Error(), "insecure_api_url")
 			if refused != tc.wantRefusal {
 				t.Fatalf("refused = %v (%v); want refused = %v", refused, err, tc.wantRefusal)
-			}
-			if !tc.wantRefusal && !strings.Contains(err.Error(), "no brain found") {
-				t.Fatalf("error = %v; want the URL accepted and the run to reach the brain lookup", err)
 			}
 		})
 	}

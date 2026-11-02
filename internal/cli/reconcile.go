@@ -28,7 +28,11 @@ func factsProposalsRelPath(branch string) string {
 // loadFactProposals reads a branch's pending proposals; a missing file yields
 // none. A malformed line is a hard error so a corrupt queue is surfaced.
 func loadFactProposals(brainDir, branch string) ([]factProposal, error) {
-	data, present, err := brainstore.ReadMemoryStateFile(brainDir, factsProposalsRelPath(branch), "fact proposals", base.DefaultMaxReadBytes)
+	return loadFactProposalsAt(brainDir, factsProposalsRelPath(branch))
+}
+
+func loadFactProposalsAt(brainDir, rel string) ([]factProposal, error) {
+	data, present, err := brainstore.ReadMemoryStateFile(brainDir, rel, "fact proposals", base.DefaultMaxReadBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +47,7 @@ func loadFactProposals(brainDir, branch string) ([]factProposal, error) {
 		}
 		var p factProposal
 		if err := json.Unmarshal([]byte(line), &p); err != nil {
-			return nil, fmt.Errorf("parse %s line %d: %w", factsProposalsRelPath(branch), i+1, err)
+			return nil, fmt.Errorf("parse %s line %d: %w", rel, i+1, err)
 		}
 		proposals = append(proposals, p)
 	}
@@ -54,9 +58,13 @@ func loadFactProposals(brainDir, branch string) ([]factProposal, error) {
 // (action, candidate, target) and sorted for a stable file. An empty set
 // removes the file so a fully-resolved branch leaves no stale queue.
 func writeFactProposals(brainDir, branch string, proposals []factProposal) error {
+	return writeFactProposalsAt(brainDir, factsProposalsRelPath(branch), proposals)
+}
+
+func writeFactProposalsAt(brainDir, rel string, proposals []factProposal) error {
 	deduped := dedupeProposals(proposals)
 	if len(deduped) == 0 {
-		return brainstore.RemoveBrainRelativeFile(brainDir, factsProposalsRelPath(branch))
+		return brainstore.RemoveBrainRelativeFile(brainDir, rel)
 	}
 	var buf strings.Builder
 	for _, p := range deduped {
@@ -67,7 +75,7 @@ func writeFactProposals(brainDir, branch string, proposals []factProposal) error
 		buf.Write(data)
 		buf.WriteByte('\n')
 	}
-	return brainstore.WriteBrainRelativeFileAtomic(brainDir, factsProposalsRelPath(branch), []byte(buf.String()), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, rel, []byte(buf.String()), 0o600)
 }
 
 // dedupeProposals collapses identical queue entries, keyed on

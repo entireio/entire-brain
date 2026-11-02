@@ -605,9 +605,13 @@ func transcriptUserText(obj map[string]any) string {
 			return jsonString(payload["message"])
 		}
 	case "user":
-		if msg := jsonMap(obj["message"]); msg != nil {
-			return transcriptContentText(msg["content"])
+		if msg, ok := obj["message"]; ok {
+			return transcriptContentText(jsonMap(msg)["content"])
 		}
+		// The compact dialect the CLI writes (Entire Transcript Format) puts
+		// the content blocks at the record's top level with no "message"
+		// wrapper; distillConversationText documents the same split.
+		return transcriptContentText(obj["content"])
 	case "message":
 		// pi wraps every turn as {"type":"message","message":{role,content}};
 		// keep user turns (same blind spot distillConversationText covers).

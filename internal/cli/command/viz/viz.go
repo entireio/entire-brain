@@ -247,8 +247,9 @@ func copyHTTPHeaders(dst, src http.Header) {
 }
 
 // privacyResponseMiddleware is the HTTP equivalent of the CLI's buffered final
-// writer. A tombstone cannot linearize between the last policy check and the
-// first response byte because both use the same per-Brain write lock.
+// writer: the complete response is buffered, the captured policy is revalidated
+// (no lock), and only then do bytes reach the client. A tombstone landing after
+// that check takes effect on the next request.
 func (s *Server) privacyResponseMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.Path, "/api/") {

@@ -27,6 +27,7 @@ func newFactsCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newFactsFilesCommand(opts))
 	cmd.AddCommand(newFactsImportCommand(opts))
 	cmd.AddCommand(newFactsStatusCommand(opts))
+	cmd.AddCommand(newFactsStorageCommand(opts))
 	cmd.AddCommand(newFactsSyncCommand(opts))
 	cmd.AddCommand(newFactsVitalityCommand(opts))
 	cmd.AddCommand(newFactsEvalCommand(opts))
@@ -431,9 +432,15 @@ func runFactsPromote(cmd *cobra.Command, opts Options, brainDir, from, into, str
 		if err != nil {
 			return err
 		}
-		merged, proposals, promotedCount := promoteFacts(source, target, strategy, into, now)
+		merged, proposals, promotedCount, changed := promoteFacts(source, target, strategy, into, now)
 		promoted = promotedCount
 		proposalCount = len(proposals)
+		// No-op fast exit: hooks run promote on every prompt, and an unchanged
+		// target makes the store write and the O(all branches + all proposals)
+		// manifest rebuild below pure lock-hold time for other writers.
+		if !changed && len(proposals) == 0 {
+			return nil
+		}
 		if err := factstore.Write(brainDir, into, merged); err != nil {
 			return err
 		}

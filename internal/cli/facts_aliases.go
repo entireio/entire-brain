@@ -83,7 +83,7 @@ func rejectProposal(facts []factRecord, p factProposal) []factRecord {
 	return factmerge.RejectProposal(facts, p)
 }
 
-func promoteFacts(source, target []factRecord, strategy, intoBranch string, now time.Time) ([]factRecord, []factProposal, int) {
+func promoteFacts(source, target []factRecord, strategy, intoBranch string, now time.Time) ([]factRecord, []factProposal, int, bool) {
 	return factmerge.Promote(source, target, strategy, intoBranch, now)
 }
 

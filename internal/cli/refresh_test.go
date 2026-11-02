@@ -32,10 +32,14 @@ func TestDefaultRefreshAgentHonorsNoEgressMode(t *testing.T) {
 }
 
 func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
+	clearAgentHarnessEnv(t)
 	repoDir := seedFixtureRepo(t)
 	dataDir := filepath.Join(t.TempDir(), "data")
 	stateDir := filepath.Join(t.TempDir(), "state")
 	runner := seedFixtureRunner(repoDir)
+	// Installed agents must not make ordinary refresh opt into synthesis.
+	runner.responses[fakeCommandKey("codex", "--version")] = fakeCommandResponse{stdout: "codex 1.0\n"}
+	runner.responses[fakeCommandKey("claude", "--version")] = fakeCommandResponse{stdout: "claude 1.0\n"}
 	addRefreshSemanticFixture(runner, repoDir)
 	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef)] = fakeCommandResponse{err: os.ErrNotExist}
 	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1OriginRef)] = fakeCommandResponse{err: os.ErrNotExist}
@@ -59,10 +63,15 @@ func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
+	for _, call := range runner.calls {
+		if call.name == "codex" || call.name == "claude" {
+			t.Fatalf("default refresh must not probe or run agents: %+v", call)
+		}
+	}
 	for _, want := range []string{
 		"refresh: export sessions",
-		"refresh: export sessions: unavailable, using seed baseline done",
-		"refresh: seed baseline: 3 documents, 2 entrypoints, 4 commands done",
+		"refresh: export sessions: unavailable, using repository context done",
+		"refresh: repository context: 3 documents, 2 entrypoints, 4 commands done",
 		"refresh: history index: 0 records, 0 decisions, 0 tool calls done",
 		"refresh: code index: 1 symbol, 1 relation, 1 file done",
 		"refreshed brain:",
@@ -154,12 +163,12 @@ func TestRefreshHelpShowsSimplifiedFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh help: %v", err)
 	}
-	for _, want := range []string{"--agent", "--force", "--output", "--worktree"} {
+	for _, want := range []string{"--force", "--output", "--worktree"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("refresh help missing %q:\n%s", want, out)
 		}
 	}
-	for _, hidden := range []string{"--history-index", "--force-seed", "--semantic", "--graph-binary"} {
+	for _, hidden := range []string{"--agent", "seed", "--history-index", "--force-seed", "--semantic", "--graph-binary"} {
 		if strings.Contains(out, hidden) {
 			t.Fatalf("refresh help exposed hidden flag %q:\n%s", hidden, out)
 		}
@@ -631,7 +640,7 @@ func TestPathMaterializesSeedWhenExportUnavailable(t *testing.T) {
 // export runs, because the export is itself a manifest writer.
 //
 // Doing it afterwards let the export hit the guard and fail first; refresh then
-// reported "unavailable, using seed baseline", masking the real cause and
+// reported "unavailable, using repository context", masking the real cause and
 // throwing away the sessions it had just gathered. The assertion is the order of
 // the two lines in the output, which is exactly what regressed.
 func TestRefreshForceDiscardsUnrewritableManifestBeforeExport(t *testing.T) {

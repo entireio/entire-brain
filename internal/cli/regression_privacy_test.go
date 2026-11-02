@@ -116,7 +116,11 @@ func TestRegressionPrivacyLateExclusion(t *testing.T) {
 	}
 }
 
-func TestRegressionPrivacyOutputLock(t *testing.T) {
+// Emission must not hold (or need) the brain write lock: contending with
+// writers at output time is what made long-running writers fail every
+// concurrent reader with brain_locked. The late-exclusion test above still
+// proves a policy change before the write fails the response closed.
+func TestRegressionPrivacyOutputDoesNotHoldWriteLock(t *testing.T) {
 	for _, surface := range []string{"regressions", "review", "workspace regressions", "workspace review"} {
 		t.Run(surface, func(t *testing.T) {
 			f := regressionPrivacyFixture(t)
@@ -126,9 +130,10 @@ func TestRegressionPrivacyOutputLock(t *testing.T) {
 			cmd.SetOut(evidenceInspectWriter(func(b []byte) (int, error) {
 				writes++
 				unlock, err := brainstore.AcquireBrainWriteLockTimeout(f.BrainDir, 10*time.Millisecond)
-				if err == nil {
+				if err != nil {
+					t.Errorf("output emission holds the brain write lock: %v", err)
+				} else {
 					unlock()
-					t.Error("output emitted without privacy lock")
 				}
 				return 0, io.ErrClosedPipe
 			}))

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -122,8 +123,10 @@ func diffCommit(ctx context.Context, runner Runner, repoDir, graphBinary, base, 
 			if _, ok := fields["files"]; !ok {
 				return Delta{}, fmt.Errorf("migration graph diff is missing files")
 			}
-			if len(envelope.Warnings) > 0 {
-				return Delta{}, fmt.Errorf("migration graph diff has warnings; refusing potentially incomplete history: %s", envelope.Warnings[0])
+			for _, warning := range envelope.Warnings {
+				if !isUnsupportedMetadataWarning(warning) {
+					return Delta{}, fmt.Errorf("migration graph diff has warnings; refusing potentially incomplete history: %s", warning)
+				}
 			}
 			// Entity mapping has the same tolerant rules in migration and
 			// backfill. File-only/unkeyable changes are skipped by ParseDiff;
@@ -134,6 +137,33 @@ func diffCommit(ctx context.Context, runner Runner, repoDir, graphBinary, base, 
 		}
 	}
 	return ParseDiff(stdout, base, head, now)
+}
+
+// isUnsupportedMetadataWarning permits only informational notices for known
+// non-code metadata. Graph emits these for ordinary tracked files such as
+// .brainignore and go.mod. Do not accept all info/unsupported-file warnings:
+// an unsupported source language can mean missing entity history. Unknown or
+// malformed warnings must continue to abort the atomic migration.
+func isUnsupportedMetadataWarning(raw json.RawMessage) bool {
+	var warning struct {
+		Code     string `json:"code"`
+		Severity string `json:"severity"`
+		FilePath string `json:"file_path"`
+	}
+	if err := json.Unmarshal(raw, &warning); err != nil || warning.Code != "W_UNSUPPORTED_FILE" || warning.Severity != "info" {
+		return false
+	}
+	// Graph paths are repository-relative slash paths on every platform.
+	p := warning.FilePath
+	if p == "" || path.IsAbs(p) || path.Clean(p) != p || p == ".." || strings.HasPrefix(p, "../") {
+		return false
+	}
+	switch path.Base(p) {
+	case ".brainignore", ".gitignore", ".gitattributes", ".gitmodules", ".editorconfig", "go.mod", "go.sum":
+		return true
+	default:
+		return false
+	}
 }
 
 // ParseDiff maps raw `entire graph diff --json` output onto the frozen delta

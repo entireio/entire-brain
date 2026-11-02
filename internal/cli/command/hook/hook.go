@@ -66,21 +66,8 @@ func New(cfg Config) *cobra.Command {
 	return cmd
 }
 
-// NewSessionEnd is Phase 2 item 5: per-session incremental distill,
-// closing the write loop. Batch distill is expensive and run occasionally, so
-// today's insights are invisible to tomorrow's session unless someone
-// remembers to run it. Wired to a session-lifecycle hook, this distills the
-// just-ended session — incremental export/overlay first (free), then a durable
-// lifecycle hint, then distill bounded to that one session (--session).
-// Long-term projection work is owned by the memory coordinator; the hook only
-// reduces latency and correctness never depends on it firing. The incremental
-// cache makes re-firing for the same session free.
-//
-// Unlike pre-edit/post-failure this verb may legitimately take minutes and
-// spend tokens — the session is over, nobody is waiting — but it keeps the
-// rest of the hook contract: stdout stays empty (a one-line summary goes to
-// stderr), and environment problems (no repo, no brain, no agent on PATH)
-// are silence, never an error.
+// NewSessionEnd accepts old host invocations without doing any work. The
+// processing path has been removed; checkpoint and distillation events sync.
 func NewSessionEnd(cfg Config) *cobra.Command {
 	var (
 		sessionID string
@@ -90,14 +77,12 @@ func NewSessionEnd(cfg Config) *cobra.Command {
 		effort    string
 	)
 	cmd := &cobra.Command{
-		Use:   "session-end --session <id>",
-		Short: "Refresh and distill the just-ended session (spends tokens; silent on env problems)",
-		Args:  cobra.NoArgs,
+		Use:    "session-end --session <id>",
+		Short:  "Deprecated session-end hook (no operation)",
+		Hidden: true,
+		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(sessionID) == "" {
-				return fmt.Errorf("--session <id> is required")
-			}
-			return cfg.Deps.SessionEnd(cmd, cfg.Options, sessionID, branch, agent, model, effort)
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&sessionID, "session", "", "The just-ended session's id")

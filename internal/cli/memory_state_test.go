@@ -15,6 +15,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/parentwatch"
 )
 
 var errMemoryReceiptOutput = errors.New("memory receipt output failed")
@@ -227,7 +228,10 @@ func TestMemoryWorkerChildEnvironmentReplacesRepositoryRouting(t *testing.T) {
 		base.EnvRepoRoot + "=/repo/stale",
 	}
 	got := memoryWorkerChildEnvironment(environ, "/repo/b")
-	wantValues := map[string]string{base.EnvRepoRoot: "/repo/b", memoryWorkerOriginEnv: "1"}
+	// The detached marker must be present: launchDetachedSelf children (memory
+	// workers) outlive their spawner by design, and the parent-death watchdog
+	// would otherwise kill them the moment a short-lived notify exits.
+	wantValues := map[string]string{base.EnvRepoRoot: "/repo/b", memoryWorkerOriginEnv: "1", parentwatch.DetachedEnv: "1"}
 	counts := map[string]int{}
 	values := map[string]string{}
 	for _, entry := range got {
@@ -333,43 +337,57 @@ func TestDelayedMemoryWorkerClaimsSchedulerBeforeSleeping(t *testing.T) {
 }
 
 func TestReconcileMemoryAndLaunchPreservesDurableWorkOnLaunchFailure(t *testing.T) {
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	now := time.Date(2026, 8, 9, 13, 0, 0, 0, time.UTC)
-	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
-	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest := exportManifest{
-		SchemaVersion: bmanifest.SchemaVersion,
-		RepoKey:       storage.Key,
-		Sources: &brainSources{Sessions: &sessionSourceManifest{
-			DefaultBranch: "main",
-			Sessions: []exportSession{{
-				SessionID:      "missed",
-				Branch:         "main",
-				TranscriptPath: "sessions/main/missing.jsonl",
-			}},
-		}},
-	}
-	if err := writeBrainManifestAndReadme(storage.BrainDir, manifest); err != nil {
-		t.Fatal(err)
-	}
-	oldLaunch := memoryWorkerLaunch
-	defer func() { memoryWorkerLaunch = oldLaunch }()
-	memoryWorkerLaunch = func(string) error { return errors.New("launch failed") }
-	created, warning, err := reconcileMemoryAndLaunch(context.Background(), opts, repoDir, "watch")
-	if err != nil {
-		t.Fatalf("reconciliation must remain successful after launch failure: %v", err)
-	}
-	if created != 1 || !strings.Contains(warning, "launch failed") {
-		t.Fatalf("created=%d warning=%q", created, warning)
-	}
-	jobs, issues := loadMemoryJobsChecked(storage.BrainDir)
-	if len(issues) != 0 || len(jobs) != 1 || jobs[0].SessionID != "missed" || jobs[0].State != memoryJobStateInvalid {
-		t.Fatalf("durable reconciliation result missing: jobs=%+v issues=%+v", jobs, issues)
+	for _, paused := range []bool{false, true} {
+		t.Run(fmt.Sprintf("paused=%t", paused), func(t *testing.T) {
+			repoDir := t.TempDir()
+			env := semanticTestEnv(t, repoDir)
+			runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+			now := time.Date(2026, 8, 9, 13, 0, 0, 0, time.UTC)
+			opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+			storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest := exportManifest{
+				SchemaVersion: bmanifest.SchemaVersion,
+				RepoKey:       storage.Key,
+				Sources: &brainSources{Sessions: &sessionSourceManifest{
+					DefaultBranch: "main",
+					Sessions: []exportSession{{
+						SessionID:      "missed",
+						Branch:         "main",
+						TranscriptPath: "sessions/main/missing.jsonl",
+					}},
+				}},
+			}
+			if err := writeBrainManifestAndReadme(storage.BrainDir, manifest); err != nil {
+				t.Fatal(err)
+			}
+			oldLaunch := memoryWorkerLaunch
+			defer func() { memoryWorkerLaunch = oldLaunch }()
+			launches := 0
+			memoryWorkerLaunch = func(string) error {
+				launches++
+				return errors.New("launch failed")
+			}
+			if err := base.SetBackgroundPaused(env, paused); err != nil {
+				t.Fatal(err)
+			}
+			created, warning, err := reconcileMemoryAndLaunch(context.Background(), opts, repoDir, "watch")
+			if err != nil {
+				t.Fatalf("reconciliation must remain successful after launch failure: %v", err)
+			}
+			if created != 1 || (!paused && !strings.Contains(warning, "launch failed")) || (paused && warning != "") {
+				t.Fatalf("created=%d warning=%q", created, warning)
+			}
+			if (paused && launches != 0) || (!paused && launches != 1) {
+				t.Fatalf("paused=%t launches=%d", paused, launches)
+			}
+			jobs, issues := loadMemoryJobsChecked(storage.BrainDir)
+			if len(issues) != 0 || len(jobs) != 1 || jobs[0].SessionID != "missed" || jobs[0].State != memoryJobStateInvalid {
+				t.Fatalf("durable reconciliation result missing: jobs=%+v issues=%+v", jobs, issues)
+			}
+		})
 	}
 }
 

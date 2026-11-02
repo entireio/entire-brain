@@ -40,12 +40,16 @@ func RequireRetrievalPrivacyPolicyIdentity(brainDir, expected string) error {
 	return nil
 }
 
-// WithLockedRetrievalPrivacyPolicies is the response linearization boundary.
+// WithLockedRetrievalPrivacyPolicies is the mutation-side policy boundary.
 // Tombstone mutations use the same per-Brain write lock. Locks are acquired in
-// deterministic path order so a workspace response spanning several Brains
-// cannot deadlock with another workspace response containing the same members.
+// deterministic path order so a workspace operation spanning several Brains
+// cannot deadlock with another workspace operation containing the same members.
 // requireDerivedClean is the caller's derived-read gate, enforced for every
 // policy that demands it while the locks are held.
+//
+// Read-response emission does NOT use this: it validates without locks (see
+// ValidateRetrievalPrivacyPolicies). Only operations that mutate pattern/corpus
+// state under the captured policies still take the locks.
 func WithLockedRetrievalPrivacyPolicies(policies []RetrievalPrivacyPolicy, requireDerivedClean func(string) error, fn func() error) error {
 	unlock, err := AcquireRetrievalPrivacyPolicies(policies, requireDerivedClean)
 	if err != nil {
@@ -55,7 +59,37 @@ func WithLockedRetrievalPrivacyPolicies(policies []RetrievalPrivacyPolicy, requi
 	return fn()
 }
 
-func AcquireRetrievalPrivacyPolicies(policies []RetrievalPrivacyPolicy, requireDerivedClean func(string) error) (func(), error) {
+// ValidateRetrievalPrivacyPolicies re-checks each policy identity and derived
+// gate WITHOUT taking any lock. This is the read-response emission check: a
+// response assembled under a policy that has since changed fails closed, but a
+// tombstone landing after this check and before the output write is not
+// blocked — it takes effect on the next command. That instant-suppression
+// guarantee was deliberately retired: enforcing it meant acquiring the global
+// brain write lock per response, so any long-running writer (promote, distill)
+// failed every concurrent reader with brain_locked.
+func ValidateRetrievalPrivacyPolicies(policies []RetrievalPrivacyPolicy, requireDerivedClean func(string) error) error {
+	byBrain, derivedClean, brainDirs, err := normalizeRetrievalPrivacyPolicies(policies)
+	if err != nil {
+		return err
+	}
+	return validateNormalizedRetrievalPolicies(byBrain, derivedClean, brainDirs, requireDerivedClean)
+}
+
+func validateNormalizedRetrievalPolicies(byBrain map[string]string, derivedClean map[string]bool, brainDirs []string, requireDerivedClean func(string) error) error {
+	for _, brainDir := range brainDirs {
+		if err := RequireRetrievalPrivacyPolicyIdentity(brainDir, byBrain[brainDir]); err != nil {
+			return err
+		}
+		if derivedClean[brainDir] {
+			if err := requireDerivedClean(brainDir); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func normalizeRetrievalPrivacyPolicies(policies []RetrievalPrivacyPolicy) (map[string]string, map[string]bool, []string, error) {
 	byBrain := make(map[string]string, len(policies))
 	derivedClean := make(map[string]bool, len(policies))
 	for _, policy := range policies {
@@ -64,7 +98,7 @@ func AcquireRetrievalPrivacyPolicies(policies []RetrievalPrivacyPolicy, requireD
 		}
 		brainDir := filepath.Clean(policy.BrainDir)
 		if prior, exists := byBrain[brainDir]; exists && prior != policy.Identity {
-			return nil, fmt.Errorf("%s: response was assembled under conflicting privacy policies", PrivacyDirtyCode)
+			return nil, nil, nil, fmt.Errorf("%s: response was assembled under conflicting privacy policies", PrivacyDirtyCode)
 		}
 		byBrain[brainDir] = policy.Identity
 		derivedClean[brainDir] = derivedClean[brainDir] || policy.RequireDerivedClean
@@ -74,6 +108,14 @@ func AcquireRetrievalPrivacyPolicies(policies []RetrievalPrivacyPolicy, requireD
 		brainDirs = append(brainDirs, brainDir)
 	}
 	sort.Strings(brainDirs)
+	return byBrain, derivedClean, brainDirs, nil
+}
+
+func AcquireRetrievalPrivacyPolicies(policies []RetrievalPrivacyPolicy, requireDerivedClean func(string) error) (func(), error) {
+	byBrain, derivedClean, brainDirs, err := normalizeRetrievalPrivacyPolicies(policies)
+	if err != nil {
+		return nil, err
+	}
 	unlocks := make([]func(), 0, len(brainDirs))
 	for _, brainDir := range brainDirs {
 		unlock, err := AcquireBrainWriteLock(brainDir)
@@ -90,17 +132,9 @@ func AcquireRetrievalPrivacyPolicies(policies []RetrievalPrivacyPolicy, requireD
 			unlocks[i]()
 		}
 	}
-	for _, brainDir := range brainDirs {
-		if err := RequireRetrievalPrivacyPolicyIdentity(brainDir, byBrain[brainDir]); err != nil {
-			release()
-			return nil, err
-		}
-		if derivedClean[brainDir] {
-			if err := requireDerivedClean(brainDir); err != nil {
-				release()
-				return nil, err
-			}
-		}
+	if err := validateNormalizedRetrievalPolicies(byBrain, derivedClean, brainDirs, requireDerivedClean); err != nil {
+		release()
+		return nil, err
 	}
 	return release, nil
 }

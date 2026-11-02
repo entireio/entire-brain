@@ -69,16 +69,11 @@ Language/relation inventories come from `entire graph capabilities --json`.
 Entire Brain releases are tagged (the public line starts at `0.1.0`), but development
 still starts from the locally fetched current mainline — a tag is a marker on
 main, not a branch to work from. Do not resume an old WIP/integration checkout
-or use an older Brain binary as a benchmark control. The Agent Brain harness
-builds from the active checkout and refuses to run unless `HEAD` contains local
-`origin/main`. All causal arms use that same binary and vary only memory
-delivery.
+or use historical benchmark results as measurements of the current checkout.
 
-GraphMark owns cross-product benchmark evidence and split integrity. See
-[`benchmarks/agent-brain/CONDITIONS.md`](../benchmarks/agent-brain/CONDITIONS.md)
-for the normative condition and comparison contract, and
-[`benchmarks/agent-brain/README.md`](../benchmarks/agent-brain/README.md) for
-harness operation and the retired-corpus notice.
+The experiment tooling has been retired. Historical results remain in
+[`benchmarks/agent-brain/README.md`](../benchmarks/agent-brain/README.md).
+Current development checks use Go through `mise run check`.
 
 ## Install
 
@@ -397,7 +392,7 @@ which every one of the eight instant components builds:
 
 ```
 Brain ready in 3.6s
-  instant     + session export  + seed baseline  + history index  + doc index  + semantic index  + pattern layer  + entity index  + memory coordinator  (3.6s)
+  instant     + session export  + repository context  + history index  + doc index  + semantic index  + pattern layer  + entity index  + memory coordinator  (3.6s)
 ```
 
 `Brain ready (degraded)` still exists, and when you do see it, read it as
@@ -408,7 +403,7 @@ actually produces it is a machine with no `entire graph` provider
 or a checkpoint inventory Entire cannot read (`x session export`).
 
 The uncommitted worktree above is the one case that does NOT: it refuses both
-`seed baseline` and `semantic index`, which are the two sources a query reads,
+`repository context` and `semantic index`, which are the two sources a query reads,
 so the headline is `Brain set up, but not queryable` and names what is missing.
 The exit code is still 0 and everything else setup built is kept.
 
@@ -453,7 +448,7 @@ nothing else, or when you are scripting a build:
 ```sh
 cd /path/to/your/repo
 
-entire brain refresh --agent none
+entire brain refresh
 entire brain status
 ```
 
@@ -464,8 +459,9 @@ Use the advanced `refresh index --worktree` path when the semantic layer itself
 needs to reflect uncommitted state. Worktree-backed semantic indexes are
 rejected by bundle export.
 
-`--agent none` keeps the build deterministic and token-free, with no
-hosted-model calls. Refresh exports captured sessions, builds the local
+Refresh is deterministic and token-free by default, with no hosted-model calls.
+Agent-generated repository summaries require an explicit `--agent` option.
+Refresh exports captured sessions, builds the local
 history/doc indexes, asks `entire-graph` for a semantic snapshot, and stores the
 derived brain under Entire's local plugin data directory.
 
@@ -949,7 +945,7 @@ inspection.
 
 ```sh
 entire brain status
-entire brain refresh --agent none
+entire brain refresh
 entire brain watch
 ```
 
@@ -1038,7 +1034,7 @@ type-specific and error on any other id kind; `workspace get` accepts them
 for repo-qualified ids.
 
 Exchanges are extracted deterministically and locally (no model calls) and
-never enter default retrieval or published bundles. Lexical BM25 is the
+never enter default retrieval. Lexical BM25 is the
 only ranking: the conversation vector store was removed with the rest of
 semantic retrieval (trail #278), so a semantic-only request (`vsearch
 --source conversation`) returns a structured error naming the removal, and
@@ -1454,11 +1450,16 @@ With `ENTIRE_BRAIN_WEBHOOK_SECRET` set, each POST carries
 `X-Entire-Signature-256: sha256=<hex>`, the HMAC-SHA256 of the exact request
 body. Compute the same over the raw body and compare in constant time:
 
-```python
-import hashlib, hmac
-expected = "sha256=" + hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
-if not hmac.compare_digest(expected, request.headers["X-Entire-Signature-256"]):
-    abort(401)
+```go
+// Imports: crypto/hmac, crypto/sha256, encoding/hex, net/http, strings.
+mac := hmac.New(sha256.New, []byte(secret))
+mac.Write(rawBody)
+header := request.Header.Get("X-Entire-Signature-256")
+provided, err := hex.DecodeString(strings.TrimPrefix(header, "sha256="))
+if !strings.HasPrefix(header, "sha256=") || err != nil || !hmac.Equal(mac.Sum(nil), provided) {
+    http.Error(w, "invalid signature", http.StatusUnauthorized)
+    return
+}
 ```
 
 Without a secret no signature header is sent at all, rather than one computed
@@ -1494,10 +1495,10 @@ model or by fetching over the network:
 - pattern verification and skill synthesis
 - explicitly configured session-abstract generation
 - judged evaluation commands
-- `publish` uploads the serialized local brain (manifest, semantic snapshots,
-  branch overlays, durable facts) to hosted Entire; opt-in and off by default,
-  requiring the command plus a target — the connected binding by default, else
-  explicit `--repo-id`/`--api-url`/`--token`
+- `memories sync` pushes and pulls this branch's memories with the hosted
+  memory set over the per-fact wire; opt-in and off by default, requiring the
+  command plus a target — the connected binding by default, else explicit
+  `--repo-id`/`--api-url`/`--token`
 - webhooks POST a small JSON event to `ENTIRE_BRAIN_WEBHOOK_URL` when a fact is
   recorded or retracted or the brain is refreshed; off until that variable is
   set. The payload carries the fact id, kind and taxonomy paths and the
@@ -1578,7 +1579,7 @@ required for normal use.
 | `ENTIRE_BRAIN_ACTION_CHECKLIST` | disabled | Set to `1`/`true`/`yes`/`on` to render high-confidence production-symbol evidence as an inspection action. Trusted symbol and directly associated test evidence narrow the normal brief in either mode; the flag changes only the action rendering. Intended for controlled agent ablations until stable lift is demonstrated. |
 | `ENTIRE_BRAIN_BRIEF_CONVERSATION` | disabled | Development flag: include conversation hits in `brain_brief`. Off until qualified for the compact budget. |
 | `ENTIRE_BRAIN_NO_EGRESS` | (unset) | Master egress kill switch; enforces locality for no-agent, dry-run, and loopback-Ollama paths and disables every hosted surface. `ENTIRE_BRAIN_LOCAL_ONLY` is a deprecated alias (still honored, warns). See SECURITY.md "Egress controls". |
-| `ENTIRE_BRAIN_ALLOW_INSECURE_API_URL` | (unset) | Allows a plaintext `http://` `--api-url`/`ENTIRE_API_URL` pointing at a **non-loopback** host. Off by default and fail-closed (only `1`/`true`/`yes`/`on`/`enable`/`enabled` enables it): hosted publish and hosted memories sync otherwise require `https://`, since they send brain content and the API bearer token. `http://` to a loopback host (`127.0.0.0/8`, `::1`, `localhost`) never needs this. |
+| `ENTIRE_BRAIN_ALLOW_INSECURE_API_URL` | (unset) | Allows a plaintext `http://` `--api-url`/`ENTIRE_API_URL` pointing at a **non-loopback** host. Off by default and fail-closed (only `1`/`true`/`yes`/`on`/`enable`/`enabled` enables it): hosted memories sync otherwise requires `https://`, since it sends brain content and the API bearer token. `http://` to a loopback host (`127.0.0.0/8`, `::1`, `localhost`) never needs this. |
 
 ## Development
 

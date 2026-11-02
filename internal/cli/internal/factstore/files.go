@@ -1,16 +1,11 @@
 package factstore
 
 import (
-	"bytes"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/entireio/entire-brain/factmerge"
-	"github.com/entireio/entire-brain/internal/cli/internal/base"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // LoadStoreFiles scans the facts directory and returns every stored fact
@@ -23,47 +18,7 @@ import (
 // buckets — writing a cross-file bucket into one file is how a store ends up
 // holding the same record many times over (COR-2220).
 func LoadStoreFiles(brainDir string) (map[string][]factmerge.Record, error) {
-	root := filepath.Join(brainDir, DirName)
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return map[string][]factmerge.Record{}, nil
-		}
-		return nil, err
-	}
-	byFile := map[string][]factmerge.Record{}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		// Same containment guards the single-branch read applies.
-		//
-		// Load(brainDir, branch) rejects a symlinked path component and a
-		// non-regular fact file (factstore.go). This inventory walk
-		// applied neither, so a symlinked facts.ndjson inside a real branch
-		// directory was READ -- measured: Load refuses it with "path
-		// component must not be a symlink" while this function returned its
-		// content from outside the brain.
-		//
-		// A symlinked branch DIRECTORY was never the vector: os.ReadDir
-		// reports types without following links, so entry.IsDir() is false for
-		// one and the continue above already skips it. The gap was the file
-		// one level down.
-		rel := filepath.ToSlash(filepath.Join(DirName, entry.Name(), FileName))
-		if err := base.RejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
-			return nil, err
-		}
-		path := filepath.Join(brainDir, filepath.FromSlash(rel))
-		if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
-			return nil, fmt.Errorf("fact store is not a regular file: %s", rel)
-		}
-		records, err := parseFactsFile(path)
-		if err != nil {
-			return nil, err
-		}
-		byFile[entry.Name()] = records
-	}
-	return byFile, nil
+	return loadRepoFactViews(brainDir)
 }
 
 // WriteStoreFile replaces one store file in place, addressed by its
@@ -71,12 +26,7 @@ func LoadStoreFiles(brainDir string) (map[string][]factmerge.Record, error) {
 // lossy slug, so there is no way back to the branch — but a file-scoped
 // rewrite never needs one.
 func WriteStoreFile(brainDir, dirName string, records []factmerge.Record) error {
-	var buf bytes.Buffer
-	if err := factmerge.WriteNDJSON(&buf, records); err != nil {
-		return err
-	}
-	rel := filepath.ToSlash(filepath.Join(DirName, dirName, FileName))
-	return brainstore.WriteBrainRelativeFileAtomic(brainDir, rel, buf.Bytes(), 0o600)
+	return writeRepoFactView(brainDir, dirName, records)
 }
 
 // LoadAllBranches returns every stored fact grouped by the branch recorded

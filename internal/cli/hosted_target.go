@@ -22,15 +22,15 @@ const (
 	// The hosted target is resolved from these env vars (each overridable by a
 	// flag). There is no pre-existing entire-api client in this plugin, so these
 	// follow the plugin's ENTIRE_* environment convention. Auth is a bearer token,
-	// matching the entire-api brain publish endpoint's push gate.
+	// matching brainstore's per-fact endpoints.
 	envAPIBaseURL = "ENTIRE_API_URL"
 	envAPIToken   = "ENTIRE_API_TOKEN"
 	envRepoID     = "ENTIRE_REPO_ID"
 )
 
-// publishFlagOrEnv returns the trimmed flag value when set, else the trimmed
+// flagOrEnv returns the trimmed flag value when set, else the trimmed
 // environment value.
-func publishFlagOrEnv(flagVal, envName string) string {
+func flagOrEnv(flagVal, envName string) string {
 	if v := strings.TrimSpace(flagVal); v != "" {
 		return v
 	}
@@ -38,7 +38,7 @@ func publishFlagOrEnv(flagVal, envName string) string {
 }
 
 // manualHostedTarget is the resolved destination for a manual hosted command
-// (publish, memories sync on the hosted backend).
+// (memories sync on the hosted backend).
 type manualHostedTarget struct {
 	repoID  string
 	baseURL string
@@ -84,7 +84,7 @@ func resolveManualHostedTarget(ctx context.Context, opts Options, brainDir, repo
 		}
 	}
 
-	t.repoID = publishFlagOrEnv(flagRepoID, envRepoID)
+	t.repoID = flagOrEnv(flagRepoID, envRepoID)
 	if t.repoID == "" && connected {
 		t.repoID = binding.RepoID
 	}
@@ -95,7 +95,7 @@ func resolveManualHostedTarget(ctx context.Context, opts Options, brainDir, repo
 		return t, fmt.Errorf("%s: %w", command, err)
 	}
 
-	t.baseURL = publishFlagOrEnv(flagAPIURL, envAPIBaseURL)
+	t.baseURL = flagOrEnv(flagAPIURL, envAPIBaseURL)
 	if t.baseURL == "" && connected {
 		t.baseURL = binding.BaseURL
 	}
@@ -108,7 +108,7 @@ func resolveManualHostedTarget(ctx context.Context, opts Options, brainDir, repo
 	}
 	t.baseURL = baseURL
 
-	t.token = publishFlagOrEnv(flagToken, envAPIToken)
+	t.token = flagOrEnv(flagToken, envAPIToken)
 	if t.token == "" {
 		if !connected || strings.TrimRight(t.baseURL, "/") != binding.BaseURL {
 			return t, fmt.Errorf("%s: API token is required; set --token or %s (minted automatically when the target is the connected binding)", command, envAPIToken)

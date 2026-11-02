@@ -53,8 +53,8 @@ type Deps struct {
 	// multi-concept arm (binds the cli race seam and the session-view rebuild).
 	RevalidateResponsePrivacy func(brainDir string, results []retrieval.Result) ([]retrieval.Result, string, error)
 	// WriteRetrievalResponse is the final transport write boundary: it
-	// revalidates the captured privacy policies and writes under the Brain
-	// write lock, binding the cli transport race seams.
+	// revalidates the captured privacy policies (without taking any Brain
+	// lock) and then writes, binding the cli transport race seams.
 	WriteRetrievalResponse func(out io.Writer, data []byte, policies ...brainstore.RetrievalPrivacyPolicy) error
 	// BoundedResponseBytes renders the budget-bounded multi-concept response
 	// (JSON or text), binding the cli transport trim/assembly machinery.

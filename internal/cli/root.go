@@ -30,7 +30,6 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/hook"
 	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
 	"github.com/entireio/entire-brain/internal/cli/command/pause"
-	"github.com/entireio/entire-brain/internal/cli/command/publish"
 	"github.com/entireio/entire-brain/internal/cli/command/repoidentity"
 	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
 	"github.com/entireio/entire-brain/internal/cli/command/stats"
@@ -39,12 +38,16 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/entities"
+	"github.com/entireio/entire-brain/internal/cli/internal/parentwatch"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
 // Execute runs the plugin root command with the real process environment.
 func Execute(version string) error {
+	// Die with the dispatcher: a SIGKILLed `entire` cannot forward anything,
+	// and an orphaned mutation would hold the brain write lock to completion.
+	parentwatch.Arm()
 	cmd := NewRootCommand(Options{
 		Version: version,
 		Env:     base.EnvFromOS(),
@@ -81,7 +84,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 		SilenceErrors: true,
 		Long: `entire-brain is an external-command plugin for the Entire CLI.
 
-It builds a local, inspectable repository brain from retained sessions, seed
+It builds a local, inspectable repository brain from retained sessions, repository
 context, docs, history, code-index records, and durable memories, then exposes
 retrieval, verification, and evaluation surfaces for agents.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -166,7 +169,6 @@ retrieval, verification, and evaluation surfaces for agents.`,
 
 	addGrouped("share", newWorkspaceCommand(opts))
 	addGrouped("share", newSemanticBundleCommand(opts))
-	addGrouped("share", publish.New(publishConfig(opts)))
 
 	addGrouped("misc", newPathCommand(opts))
 	addGrouped("operations", repoidentity.New(repoIdentityConfig(opts)))
@@ -194,6 +196,12 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	// scripts calling the old name fail with a pointer to the replacement
 	// instead of cobra's generic "unknown command".
 	addHidden(newInitAgentsTombstoneCommand())
+
+	// Tombstone: `publish` was removed (the brain-bundle endpoint it posted
+	// to was never deployed; memories travel the per-fact wire). Hidden so
+	// old invocations fail with a pointer to `memories sync` instead of
+	// cobra's generic "unknown command".
+	addHidden(newPublishTombstoneCommand())
 
 	cmd.SetHelpCommandGroupID("misc")
 	setRootUsage(cmd, helpCommands)

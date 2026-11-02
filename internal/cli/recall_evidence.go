@@ -53,10 +53,12 @@ func runRecallEvidence(cmd *cobra.Command, brainDir, branch, query string, limit
 	if err != nil {
 		return err
 	}
-	// Reuse the existing buffered privacy boundary: exclusions and cleanup
-	// cannot commit between checking the source and emitting its bytes.
-	// This path never invokes a provider or writes derived facts.
-	return runPrivacyLinearizedPatternMutation(cmd, []retrievalPrivacyPolicy{policy}, func() error {
+	// Read-only path: buffer the response and revalidate the policy at
+	// emission, without the mutation boundary's brain write locks. Routing
+	// this through runPrivacyLinearizedPatternMutation made a pure read fail
+	// brain_locked whenever any writer held the lock.
+	policy.RequireDerivedClean = true
+	return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{policy}, func() error {
 		c, err := collectEvidence(cmd.Context(), brainDir, branch, query, limit, budget)
 		if err != nil {
 			return err

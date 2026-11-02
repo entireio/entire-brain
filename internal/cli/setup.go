@@ -202,7 +202,7 @@ func setupRepoKeyMismatchHint(brainCmd string) string {
 // states the cause only (see buildBrainRetrievalStatus) and the remedy comes
 // from here.
 func setupDirtyWorktreeHint(brainCmd string) string {
-	return "commit or stash the working tree -- or list the paths in .brainignore, which the seed and index gates both honour -- then re-run `" + base.SetupBrainCommand(brainCmd) +
+	return "commit or stash the working tree -- or list the paths in .brainignore, which the repository context and code index checks both honour -- then re-run `" + base.SetupBrainCommand(brainCmd) +
 		" setup`, or `" + base.SetupBrainCommand(brainCmd) +
 		" refresh --worktree` to index the uncommitted changes as they are; `entire enable` writes .entire/ and .claude/ without committing them, which is what a first run usually trips over"
 }
@@ -271,6 +271,15 @@ func (c setupComponent) failed() bool { return c.State == "failed" }
 func setupComponentLabel(name string) string {
 	if label, ok := setupComponentLabels[name]; ok {
 		return label
+	}
+	return name
+}
+
+// brainSourceDisplayName translates the internal seed id only at display sites.
+// JSON keys, component names, and freshness axis ids retain their stored names.
+func brainSourceDisplayName(name string) string {
+	if name == brainComponentSeed {
+		return setupComponentLabel(name)
 	}
 	return name
 }
@@ -648,9 +657,9 @@ func newSetupCommand(opts Options) *cobra.Command {
 		Long: fmt.Sprintf(`setup is the one command that makes a repository's brain useful and keeps it
 that way. It runs three phases:
 
-  1. instant   build the deterministic core (code index, sessions, seed,
-               docs, history). Blocking, seconds, spends NO agent tokens. The
-               brain is queryable the moment this returns.
+  1. instant   build the deterministic core (code index, sessions,
+               repository context, docs, history). Blocking, seconds, spends NO
+               agent tokens. The brain is queryable the moment this returns.
   2. backfill  distill past sessions into durable facts, NEWEST FIRST, detached
                in the background on a cheap model. Spends tokens; bounded by
                --backfill-budget and the persisted distill cache, and skipped
@@ -665,11 +674,9 @@ that way. It runs three phases:
                row to that plan; it does not rewrite, restart or steal the
                watcher the first repo is relying on.
 
-TOKEN SPEND: phases 2 and 3 call an agent. This is the first release in which
-the watcher's --distill step and the session-end hook's distill actually run
-(both were dead before), so setup is a real, recurring cost, bounded by five
-gates: the fact phase ASKS before it spends (default no, and a run with no
-terminal never spends unless --yes is passed), --backfill-budget sessions per
+TOKEN SPEND: phases 2 and 3 call an agent. Background distillation has a
+recurring cost, bounded by five gates: the fact phase ASKS before it spends
+(default no, and a run with no terminal never spends unless --yes is passed), --backfill-budget sessions per
 background pass, one gated agent run per --distill-every per repo, the
 persisted distill cache (a session is never distilled twice), and the cheap
 --model/--effort. Passing --no-backfill with --no-daemon spends nothing at all,
@@ -677,11 +684,11 @@ and "%[1]s status" reports what the backfill has done so far and whether the
 watcher is alive.
 
 EXIT CODE: setup exits 0 whenever the brain is QUERYABLE, and queryable means
-it can answer: at least one of the code index, the seed baseline or the
+it can answer: at least one of the code index, the repository context or the
 history index built. Those are the sources "%[1]s query", "%[1]s brief" and
 "%[1]s overview" read, so "%[1]s setup && %[1]s query ..." cannot proceed on a
 brain that has nothing to answer from. A component that fails without costing
-that (a doc index, an entity index, a stale code index beside a seed
+that (a doc index, an entity index, a stale code index beside repository context
 that built) is reported as one line, skipped, and the remaining components, the
 backfill, the workspace registration and the daemon install all still run;
 "%[1]s status" then shows that component as failed and "%[1]s doctor" prints
@@ -764,7 +771,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	if !setupOpts.uninstallDaemon {
 		if _, ok := gitWorkTreeRoot(ctx, opts.Runner, repoDir); !ok {
 			return notARepositoryError(ctx, opts.Runner, repoDir,
-				base.SetupBrainCommand(brainCmd)+" setup builds every source it has -- sessions, seed, docs, code index, entities -- from git history, so it needs git and a repository.",
+				base.SetupBrainCommand(brainCmd)+" setup builds every source it has -- sessions, repository context, docs, code index, entities -- from git history, so it needs git and a repository.",
 				base.SetupBrainCommand(brainCmd)+" setup",
 				base.SetupBrainCommand(brainCmd)+" setup <path>")
 		}
@@ -1064,7 +1071,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// without anyone remembering to run anything.
 	agentsPhase := run.Begin(setupui.PhaseAgents)
 	ui.StartTask("Configuring agent integration…")
-	agentsPhase.Step("session-end hook")
+	agentsPhase.Step("memory sync triggers")
 	report.Hook = inspectSessionEndHook(repoDir)
 	hookLine, hookWired := setupHookSummary(report.Hook, rend.Dash())
 

@@ -124,9 +124,10 @@ func newSeedCommand(opts Options) *cobra.Command {
 		agentMaxInputBytes: defaultAgentMaxInput,
 	}
 	cmd := &cobra.Command{
-		Use:   "seed [path]",
-		Short: "Seed a brain from repository docs and code structure",
-		Args:  cobra.MaximumNArgs(1),
+		Use:    "seed [path]",
+		Short:  "Rebuild repository context from docs and code structure",
+		Hidden: true,
+		Args:   cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := "."
 			if opts.Env.RepoRoot != "" {
@@ -187,10 +188,10 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		}
 		dirty, dirtyPaths, err := worktreeDirtyDetail(ctx, opts.Runner, repoDir, gateIgnore)
 		if err != nil {
-			return nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("check worktree before seed refresh: %w", err))
+			return nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("check worktree before repository context refresh: %w", err))
 		}
 		if dirty {
-			return dirtyWorktreeRefusal("seed", dirtyPaths)
+			return dirtyWorktreeRefusal("build repository context from", dirtyPaths)
 		}
 	}
 

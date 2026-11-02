@@ -155,21 +155,7 @@ cmd_plan() {
 }
 
 list_commands() {
-  python3 - "$BIN" <<'PY'
-import subprocess, sys
-bin = sys.argv[1]
-def walk(path):
-    out = subprocess.run([bin, "__complete", *path, ""], capture_output=True, text=True).stdout.splitlines()
-    for line in out:
-        if line.startswith(":"):
-            break
-        name = line.split("\t")[0]
-        if name == "help" or name.startswith("-"):
-            continue
-        print(" ".join(path + [name]))
-        walk(path + [name])
-walk([])
-PY
+  (cd "$ROOT" && go run ./tools/devcheck commands "$BIN")
 }
 
 # Capture one command under a fake TTY so color/caps paths are exercised.

@@ -452,7 +452,11 @@ func (h statusHealth) Line(render *tui.Renderer, brainCmd string) string {
 		parts = append(parts, "no code index")
 	}
 	if len(h.Failed) > 0 {
-		parts = append(parts, fmt.Sprintf("%s failed", strings.Join(h.Failed, ", ")))
+		labels := make([]string, 0, len(h.Failed))
+		for _, name := range h.Failed {
+			labels = append(labels, brainSourceDisplayName(name))
+		}
+		parts = append(parts, fmt.Sprintf("%s failed", strings.Join(labels, ", ")))
 	}
 	if h.Issues > 0 {
 		parts = append(parts, fmt.Sprintf("%d %s", h.Issues, plural(h.Issues, "issue")))
@@ -605,13 +609,13 @@ func statusSourcesValue(render *tui.Renderer, components []brainStatusComponent)
 	for _, component := range components {
 		switch component.State {
 		case "failed":
-			failed = append(failed, component.Name)
+			failed = append(failed, brainSourceDisplayName(component.Name))
 		case "missing":
-			missing = append(missing, component.Name)
+			missing = append(missing, brainSourceDisplayName(component.Name))
 		case "skipped":
-			skipped = append(skipped, component.Name)
+			skipped = append(skipped, brainSourceDisplayName(component.Name))
 		default:
-			built = append(built, component.Name)
+			built = append(built, brainSourceDisplayName(component.Name))
 		}
 	}
 	parts := make([]string, 0, 4)
@@ -683,9 +687,9 @@ func statusWarningLines(render *tui.Renderer, report brainStatusReport, brainCmd
 			detail = "no reason recorded"
 		}
 		if skippedWithReason {
-			lines = append(lines, "  "+render.Dim(render.Dash()+" "+component.Name+": "+detail))
+			lines = append(lines, "  "+render.Dim(render.Dash()+" "+brainSourceDisplayName(component.Name)+": "+detail))
 		} else {
-			lines = append(lines, "  "+render.Paint(theme.Bad, "! "+component.Name+": "+detail))
+			lines = append(lines, "  "+render.Paint(theme.Bad, "! "+brainSourceDisplayName(component.Name)+": "+detail))
 		}
 		if hint := strings.TrimSpace(component.Hint); hint != "" && !said[hint] {
 			said[hint] = true

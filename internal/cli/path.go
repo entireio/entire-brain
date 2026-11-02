@@ -303,11 +303,11 @@ func nameDegenerateRepoFailure(ctx context.Context, runner CommandRunner, repoDi
 	if _, ok := gitWorkTreeRoot(ctx, runner, repoDir); !ok {
 		if bare, bareErr := base.GitScalar(ctx, runner, repoDir, "rev-parse", "--is-bare-repository"); bareErr == nil && strings.TrimSpace(bare) == "true" {
 			return fmt.Errorf("bare repository has no working tree: %s\n"+
-				"%[2]s reads seed, docs and the code index out of a working tree, and a bare repository has none.\n"+
+				"%[2]s reads repository context, docs and the code index out of a working tree, and a bare repository has none.\n"+
 				"point it at a clone with a checkout: %[2]s refresh <path>", repoDir, brainCmd)
 		}
 		return notARepositoryError(ctx, runner, repoDir,
-			brainCmd+" builds every source it has -- sessions, seed, docs, code index -- from git history, so it needs git and a repository.",
+			brainCmd+" builds every source it has -- sessions, repository context, docs, code index -- from git history, so it needs git and a repository.",
 			brainCmd+" refresh",
 			brainCmd+" refresh <path>")
 	}

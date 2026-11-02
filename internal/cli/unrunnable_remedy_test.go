@@ -16,7 +16,7 @@ import (
 //	- freshness degraded -- run `entire-brain refresh --agent none`
 //	  worktree=dirty-unindexed (semantic index is based on committed HEAD)
 //	$ entire-brain refresh --agent none
-//	refresh: seed baseline failed
+//	refresh: repository context failed
 //	dirty_worktree: refusing to seed uncommitted content without --worktree
 //	EXIT=1
 //	$ entire-brain status
@@ -184,7 +184,7 @@ func TestRefreshWorktreeSaysWhichStageItSkipped(t *testing.T) {
 	}
 	for _, want := range []string{
 		"code index not rebuilt",
-		"--worktree refreshes seed and docs only",
+		"--worktree refreshes repository context and docs only",
 		"commit or stash the working tree",
 		"refreshed brain:",
 	} {

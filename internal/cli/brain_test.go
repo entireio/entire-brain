@@ -207,7 +207,7 @@ func TestBrainBriefDefaultsToCompactPacketAndPreservesTaskShapedQuery(t *testing
 }
 
 func TestBrainBriefSemanticContextPrefersImplementationRootsAndReranksTests(t *testing.T) {
-	noiseTest := semanticRecord{ID: "noise-test", Kind: "function", Name: "test_history_prompt", FilePath: "benchmarks/agent-brain/run_test.py"}
+	noiseTest := semanticRecord{ID: "noise-test", Kind: "function", Name: "test_history_prompt", FilePath: "benchmarks/agent-brain/run_test.go"}
 	field := semanticRecord{ID: "field", Kind: "field", Name: "details", FilePath: "internal/cli/semantic.go"}
 	section := semanticRecord{ID: "section", Kind: "section", Name: "Compact semantic output", FilePath: "docs/semantic-memory.md"}
 	noiseCommand := semanticRecord{ID: "dash", Kind: "function", Name: "runDash", FilePath: "internal/cli/dash.go"}
@@ -1119,7 +1119,7 @@ func TestBrainBriefTaskFilenameFallbackFindsComponentAndSiblingTest(t *testing.T
 		"internal/cli/regression.go",
 		"internal/factsync/httpserver.go",
 		"internal/cli/unrelated.go",
-		"benchmarks/agent-brain/mcp_probe.py",
+		"benchmarks/agent-brain/mcp_probe.go",
 	} {
 		path := filepath.Join(repoDir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -1362,7 +1362,7 @@ func TestBrainBriefTrustedTestSuggestionsPreferTaskBehaviorWithinSourcePackage(t
 	benchmarkNoise := semanticTestSuggestion{
 		Symbol: semanticRecord{
 			ID: "noise", Kind: "method", Name: "test_text_fallback_counts_current_mcp_tool_names",
-			FilePath: "benchmarks/agent-brain/run_test.py", StartLine: 1337, EndLine: 1352,
+			FilePath: "benchmarks/agent-brain/run_test.go", StartLine: 1337, EndLine: 1352,
 		},
 		Reason: "name terms",
 	}
