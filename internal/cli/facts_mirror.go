@@ -56,8 +56,14 @@ func catalogFromManifest(manifest *exportManifest) (checkpointCatalog, bool) {
 		return catalog, false
 	}
 	addRef := func(sessionID, branch string) {
+		// Same fallback chain as conversationCanonicalBranch: the computed
+		// refs must match the SessionRefs the abstract writer stored, or the
+		// sweep would treat every live session's abstract as missing.
 		if branch == "" {
 			branch = strings.TrimSpace(source.DefaultBranch)
+		}
+		if branch == "" {
+			branch = distillDefaultBranch
 		}
 		ref, _ := conversationSessionRef(manifest.RepoKey, branch, sessionID, "")
 		catalog.liveRefs[ref] = true
