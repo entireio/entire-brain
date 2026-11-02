@@ -195,10 +195,11 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	// This was one fingerprint over every branch's facts, so a fact recorded
 	// on any branch invalidated it and re-indexed every session in the corpus
 	// -- "even for byte-identical transcripts", as the comment above says.
-	// That rebuild runs inside the brain write lock, which is the same lock a
-	// retrieval holds to emit its response, so it is what made a concurrent
-	// `brief` fail brain_locked: one `remember` anywhere, and every reader
-	// waited on a full link rebuild.
+	// That rebuild runs inside the brain write lock, which retrieval emission
+	// also acquired at the time, so it is what made a concurrent `brief` fail
+	// brain_locked: one `remember` anywhere, and every reader waited on a full
+	// link rebuild. (Emission no longer takes the lock, but the rebuild cost
+	// argument stands on its own.)
 	//
 	// Per-branch is sound rather than merely cheaper, and the link builder is
 	// what proves it: episodes are linked from factsByBranch[s.Branch]

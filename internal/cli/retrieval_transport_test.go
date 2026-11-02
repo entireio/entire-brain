@@ -394,21 +394,11 @@ func TestAllRetrievalEmissionPathsRejectLateTombstone(t *testing.T) {
 	}
 }
 
-func awaitRetrievalResult(t *testing.T, name string, result <-chan error) error {
-	t.Helper()
-	select {
-	case err := <-result:
-		return err
-	case <-time.After(5 * time.Second):
-		t.Fatalf("timed out waiting for %s", name)
-		return nil
-	}
-}
-
 // Emission must not contend with brain writers: a response whose policies
 // validated writes even while another process holds the brain write lock. The
 // retired behavior acquired that lock per response, so any long-running writer
-// (promote, distill) failed every concurrent reader with brain_locked.
+// (promote, distill) failed every concurrent reader with brain_locked. A
+// regression here fails after the 10s lock timeout rather than hanging.
 func TestRetrievalWriteSucceedsWhileBrainWriteLockHeld(t *testing.T) {
 	fixture := writeRetrievalEmissionPrivacyFixture(t)
 	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(fixture.BrainDir)
@@ -421,9 +411,7 @@ func TestRetrievalWriteSucceedsWhileBrainWriteLockHeld(t *testing.T) {
 	}
 	defer unlock()
 	var out bytes.Buffer
-	done := make(chan error, 1)
-	go func() { done <- writeRetrievalResponseBytes(&out, []byte("response\n"), policy) }()
-	if err := awaitRetrievalResult(t, "write under held brain write lock", done); err != nil {
+	if err := writeRetrievalResponseBytes(&out, []byte("response\n"), policy); err != nil {
 		t.Fatalf("emission failed under a held brain write lock: %v", err)
 	}
 	if got := out.String(); got != "response\n" {

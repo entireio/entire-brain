@@ -29,9 +29,9 @@ type Deps struct {
 	// RetrieveUnified is the unified retrieval engine bound to the cli-side
 	// deps; same code path as `entire brain search`.
 	RetrieveUnified func(repoDir, brainDir, branch, query string, limit int, mode retrieval.Mode) ([]retrieval.Result, error)
-	// CommitRetrievalResponse revalidates the captured privacy policies and
-	// runs write under the Brain write lock, binding the cli transport race
-	// seams around it.
+	// CommitRetrievalResponse revalidates the captured privacy policies
+	// (without taking any Brain lock) and then runs write, binding the cli
+	// transport race seams around it.
 	CommitRetrievalResponse func(policies []brainstore.RetrievalPrivacyPolicy, write func() error) error
 }
 

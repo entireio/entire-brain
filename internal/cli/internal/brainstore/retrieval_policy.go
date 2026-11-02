@@ -72,6 +72,10 @@ func ValidateRetrievalPrivacyPolicies(policies []RetrievalPrivacyPolicy, require
 	if err != nil {
 		return err
 	}
+	return validateNormalizedRetrievalPolicies(byBrain, derivedClean, brainDirs, requireDerivedClean)
+}
+
+func validateNormalizedRetrievalPolicies(byBrain map[string]string, derivedClean map[string]bool, brainDirs []string, requireDerivedClean func(string) error) error {
 	for _, brainDir := range brainDirs {
 		if err := RequireRetrievalPrivacyPolicyIdentity(brainDir, byBrain[brainDir]); err != nil {
 			return err
@@ -128,17 +132,9 @@ func AcquireRetrievalPrivacyPolicies(policies []RetrievalPrivacyPolicy, requireD
 			unlocks[i]()
 		}
 	}
-	for _, brainDir := range brainDirs {
-		if err := RequireRetrievalPrivacyPolicyIdentity(brainDir, byBrain[brainDir]); err != nil {
-			release()
-			return nil, err
-		}
-		if derivedClean[brainDir] {
-			if err := requireDerivedClean(brainDir); err != nil {
-				release()
-				return nil, err
-			}
-		}
+	if err := validateNormalizedRetrievalPolicies(byBrain, derivedClean, brainDirs, requireDerivedClean); err != nil {
+		release()
+		return nil, err
 	}
 	return release, nil
 }

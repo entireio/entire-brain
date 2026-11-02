@@ -63,7 +63,7 @@ func dashStatusHome(ctx context.Context, opts Options, target, branch, brainDir 
 // Fd() on its output and only if the output satisfies term.File (an
 // io.ReadWriteCloser with an Fd); anything else is "can't query window size",
 // so it never sends the initial WindowSizeMsg and never installs the SIGWINCH
-// resize watcher. A plain privacyLinearizedWriter is exactly that anything
+// resize watcher. A plain privacyCheckedWriter is exactly that anything
 // else — one Write method — so the dashboard sat on its pre-size placeholder
 // ("loading…") forever on a real terminal, and resizing it did nothing. It
 // still accepted keys and still quit on q, which is why exit-code checks never
@@ -72,7 +72,7 @@ func dashStatusHome(ctx context.Context, opts Options, target, branch, brainDir 
 // Embedding the file carries Read/Close/Fd through untouched while Write stays
 // on the audited path, so the privacy boundary is unchanged.
 func dashTerminalWriter(out io.Writer, policy retrievalPrivacyPolicy) io.Writer {
-	guarded := privacyLinearizedWriter{out: out, policies: []retrievalPrivacyPolicy{policy}}
+	guarded := privacyCheckedWriter{out: out, policies: []retrievalPrivacyPolicy{policy}}
 	file, ok := out.(*os.File)
 	if !ok {
 		return guarded
@@ -85,7 +85,7 @@ func dashTerminalWriter(out io.Writer, policy retrievalPrivacyPolicy) io.Writer 
 // size); Write is overridden so no byte reaches the terminal unchecked.
 type dashTTYWriter struct {
 	*os.File
-	guarded privacyLinearizedWriter
+	guarded privacyCheckedWriter
 }
 
 func (w dashTTYWriter) Write(p []byte) (int, error) { return w.guarded.Write(p) }

@@ -179,7 +179,11 @@ type evidenceInspectWriter func([]byte) (int, error)
 
 func (f evidenceInspectWriter) Write(b []byte) (int, error) { return f(b) }
 
-func TestRecallEvidencePrivacyLockCoversOutputAndWriteErrors(t *testing.T) {
+// Evidence recall is a pure read: its output must be emitted WITHOUT holding
+// the brain write lock (holding it made this command fail brain_locked under
+// any concurrent writer), and a write error must still surface, after exactly
+// one write.
+func TestRecallEvidenceOutputDoesNotHoldWriteLockAndSurfacesWriteErrors(t *testing.T) {
 	_, brain := evidenceFixture(t)
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
@@ -188,20 +192,16 @@ func TestRecallEvidencePrivacyLockCoversOutputAndWriteErrors(t *testing.T) {
 	cmd.SetOut(evidenceInspectWriter(func(b []byte) (int, error) {
 		writes++
 		unlock, err := brainstore.AcquireBrainWriteLockTimeout(brain, 10*time.Millisecond)
-		if err == nil {
+		if err != nil {
+			t.Errorf("evidence output holds the brain write lock: %v", err)
+		} else {
 			unlock()
-			t.Fatal("source output emitted without privacy lock")
 		}
 		return 0, io.ErrClosedPipe
 	}))
 	if err := runRecallEvidence(cmd, brain, "main", "target", 10, 8192, true); !errors.Is(err, io.ErrClosedPipe) || writes != 1 {
 		t.Fatalf("lost output error: %v writes=%d", err, writes)
 	}
-	unlock, err := brainstore.AcquireBrainWriteLockTimeout(brain, 100*time.Millisecond)
-	if err != nil {
-		t.Fatalf("privacy lock leaked: %v", err)
-	}
-	unlock()
 }
 
 func TestRecallEvidenceCancellationEmitsNoOutput(t *testing.T) {
