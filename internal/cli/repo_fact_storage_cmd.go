@@ -63,6 +63,7 @@ func newFactsStorageCommand(opts Options) *cobra.Command {
 							"folded":          summary.Folded,
 							"straggler_files": summary.StragglerFiles,
 							"moved_dirs":      summary.MovedDirs,
+							"cleanup":         summary.Cleanup,
 						})
 					}
 					return cmdutil.WriteJSON(cmd, report)

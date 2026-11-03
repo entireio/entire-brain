@@ -1010,6 +1010,9 @@ func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool, skipTra
 		stats, buildErr = buildHistoryShortTermLockedContext(ctx, storage.BrainDir, opts.Now().UTC())
 		return buildErr
 	})
+	if err == nil && !skipTranscriptSweep {
+		maintainFactsStorage(ctx, cmd.ErrOrStderr(), opts, storage.BrainDir)
+	}
 	return stats, err
 }
 

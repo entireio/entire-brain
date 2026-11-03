@@ -106,10 +106,13 @@ type Steps struct {
 	// that fingerprint stays stable (for example, a late host export). Tick
 	// calls it after all foreground writers, including on early-return paths.
 	Reconcile func(context.Context) error
-	Refresh   func(context.Context) error
-	Seed      func(context.Context) error
-	Distill   func(context.Context) error
-	Paused    func() bool
+	// Maintain reclaims verified legacy data, including on unchanged ticks.
+	// It finishes before reconciliation can launch a competing worker.
+	Maintain func(context.Context) error
+	Refresh  func(context.Context) error
+	Seed     func(context.Context) error
+	Distill  func(context.Context) error
+	Paused   func() bool
 }
 
 // DefaultFlags are the shared defaults for `watch` and `workspace watch`.
@@ -306,6 +309,11 @@ func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps 
 	// of this tick's writers finish. Otherwise our own child can take the
 	// write lock before refresh, seed, or distill and make that step time out.
 	defer func() {
+		if steps.Maintain != nil && ctx.Err() == nil {
+			if err := steps.Maintain(ctx); err != nil {
+				fmt.Fprintf(out, "[watch] memory cleanup deferred: %v\n", err)
+			}
+		}
 		if !needsReconcile || steps.Reconcile == nil {
 			return
 		}
