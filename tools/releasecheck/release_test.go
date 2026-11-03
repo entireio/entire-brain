@@ -129,7 +129,8 @@ esac
 // release lookup with the given status, headers and body the way real curl
 // would: -f turns a 4xx/5xx into exit 22 with no output, -D writes the
 // headers, -o writes the body and -w prints the status code. Anything past the
-// lookup is the download, which the stub fails visibly. No network is used.
+// lookup is the download, which the stub fails visibly, and an API URL other
+// than the channel's lookup fails the same way. No network is used.
 func runInstallerLookup(t *testing.T, status int, body string, headers map[string]string, networkDown bool, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -167,7 +168,8 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 case "$url" in
-  https://api.github.com/*) : ;;
+  https://api.github.com/*)
+    [ "$url" = "$FIXTURE_API_URL" ] || { echo "unexpected API URL: $url (want $FIXTURE_API_URL)" >&2; exit 22; } ;;
   *) echo "download not stubbed: $url" >&2; exit 22 ;;
 esac
 if [ "$FIXTURE_NETWORK_DOWN" = 1 ]; then
@@ -190,12 +192,18 @@ exit 0
 	if err := os.WriteFile(filepath.Join(bin, "entire"), []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
+	apiURL := "https://api.github.com/repos/entireio/entire-brain/releases/latest"
+	for _, arg := range args {
+		if arg == "--nightly" {
+			apiURL = "https://api.github.com/repos/entireio/entire-brain/releases?per_page=20"
+		}
+	}
 	down := "0"
 	if networkDown {
 		down = "1"
 	}
 	cmd := exec.Command("bash", append([]string{filepath.Join(root, "scripts/get-brain.sh")}, args...)...)
-	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "FIXTURE_DIR="+dir, "FIXTURE_STATUS="+strconv.Itoa(status), "FIXTURE_NETWORK_DOWN="+down, "ENTIRE_BRAIN_INSTALL_DIR="+filepath.Join(dir, "install"), "NO_COLOR=1")
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "FIXTURE_DIR="+dir, "FIXTURE_STATUS="+strconv.Itoa(status), "FIXTURE_NETWORK_DOWN="+down, "FIXTURE_API_URL="+apiURL, "WANT_VERSION=", "ENTIRE_BRAIN_INSTALL_DIR="+filepath.Join(dir, "install"), "NO_COLOR=1")
 	var outBuf, errBuf strings.Builder
 	cmd.Stdout, cmd.Stderr = &outBuf, &errBuf
 	err = cmd.Run()
@@ -261,6 +269,37 @@ func TestInstallerLookupSecondaryLimitWaitsForRetryAfter(t *testing.T) {
 	requireNamesRateLimit(t, stderr, err)
 	if !strings.Contains(stderr, "resets in about 2 minute") {
 		t.Fatalf("a secondary limit should wait for retry-after: %q", stderr)
+	}
+}
+
+// A 429 is a rate limit even when the response carries no rate-limit headers
+// or wording.
+func TestInstallerLookup429WithoutDetailsNamesTheLimit(t *testing.T) {
+	_, stderr, err := runInstallerLookup(t, 429, "", nil, false)
+	requireNamesRateLimit(t, stderr, err)
+}
+
+// Older secondary-limit responses say "abuse detection mechanism" instead of
+// "rate limit" and ask for a pause in retry-after.
+func TestInstallerLookupAbuseDetectionNamesTheLimit(t *testing.T) {
+	_, stderr, err := runInstallerLookup(t, 403, `{"message":"You have triggered an abuse detection mechanism. Please wait a few minutes before you try again."}`, map[string]string{"retry-after": "60"}, false)
+	requireNamesRateLimit(t, stderr, err)
+	if !strings.Contains(stderr, "resets in about 1 minute") {
+		t.Fatalf("missing wait from retry-after: %q", stderr)
+	}
+}
+
+// When a secondary limit arrives with the primary quota also used up, the
+// user has to wait for whichever ends later.
+func TestInstallerLookupBothLimitsWaitForTheLater(t *testing.T) {
+	_, stderr, err := runInstallerLookup(t, 403, rateLimitBody, map[string]string{
+		"retry-after":           "3600",
+		"x-ratelimit-remaining": "0",
+		"x-ratelimit-reset":     strconv.FormatInt(time.Now().Add(5*time.Minute).Unix(), 10),
+	}, false)
+	requireNamesRateLimit(t, stderr, err)
+	if !strings.Contains(stderr, "resets in about 60 minute") {
+		t.Fatalf("should wait for the later retry-after, not the sooner primary reset: %q", stderr)
 	}
 }
 

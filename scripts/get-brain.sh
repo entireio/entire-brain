@@ -87,25 +87,34 @@ api_get() {
 }
 
 api_rate_limited() {
-  case "$api_status" in 403|429) : ;; *) return 1 ;; esac
-  grep -qiE '^x-ratelimit-remaining: *0[[:space:]]*$' "${tmp}/api.headers" 2>/dev/null \
-    || grep -qi 'rate limit' "${tmp}/api.json" 2>/dev/null
+  # 429 always means too many requests. A 403 is a limit when the primary
+  # quota is used up, when GitHub asks for a pause (retry-after), or when the
+  # message names a rate limit or, in older wording, abuse detection.
+  case "$api_status" in
+    429) return 0 ;;
+    403) : ;;
+    *) return 1 ;;
+  esac
+  grep -qiE '^(x-ratelimit-remaining: *0[[:space:]]*|retry-after: *[0-9]+[[:space:]]*)$' "${tmp}/api.headers" 2>/dev/null \
+    || grep -qiE 'rate limit|abuse detection' "${tmp}/api.json" 2>/dev/null
 }
 
 rate_limit_error() {
   # Two different clocks. An exhausted primary quota (remaining: 0) resets at
-  # x-ratelimit-reset, an epoch. A secondary limit can leave the primary quota
-  # untouched and asks for a pause in retry-after, in seconds; its
-  # x-ratelimit-reset belongs to the unrelated primary quota, so ignore it.
+  # x-ratelimit-reset, an epoch. A secondary limit asks for a pause in
+  # retry-after, in seconds, and can come with or without an exhausted primary
+  # quota. When the primary quota is not exhausted its x-ratelimit-reset is
+  # unrelated, so ignore it. When both apply, wait for the later one.
   local secs="" reset="" after="" wait=""
   if grep -qiE '^x-ratelimit-remaining: *0[[:space:]]*$' "${tmp}/api.headers" 2>/dev/null; then
     reset="$({ grep -iE '^x-ratelimit-reset:' "${tmp}/api.headers" || true; } \
       | tail -1 | tr -dc '0-9')"
     [ -z "$reset" ] || secs=$(( reset - $(date +%s) ))
-  else
-    after="$({ grep -iE '^retry-after:' "${tmp}/api.headers" 2>/dev/null || true; } \
-      | tail -1 | tr -dc '0-9')"
-    [ -z "$after" ] || secs="$after"
+  fi
+  after="$({ grep -iE '^retry-after:' "${tmp}/api.headers" 2>/dev/null || true; } \
+    | tail -1 | tr -dc '0-9')"
+  if [ -n "$after" ] && { [ -z "$secs" ] || [ "$after" -gt "$secs" ]; }; then
+    secs="$after"
   fi
   if [ -n "$secs" ]; then
     [ "$secs" -ge 1 ] || secs=1
