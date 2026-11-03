@@ -48,6 +48,14 @@ func watchStepsForRepo(cmd *cobra.Command, opts base.Options, w watch.Flags, rep
 			}
 			return err
 		},
+		Maintain: func(c context.Context) error {
+			storage, err := repoStoragePaths(c, opts.Runner, opts.Env, repoDir)
+			if err != nil {
+				return err
+			}
+			maintainFactsStorage(c, cmd.ErrOrStderr(), opts, storage.BrainDir)
+			return nil
+		},
 		// The daemon's own tick is unattended: nobody watches its stderr, so it
 		// must not run the destructive transcript sweep.
 		// Tick owns reconciliation after every foreground writer. Do not

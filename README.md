@@ -213,42 +213,42 @@ one, pass it yourself: `--path constraints.retry.policy`, shaped
 `verify` reports hand-written facts as `unverifiable-here` — they have no source
 anchor in the repository. Expected, not a failure.
 
-Memory access uses one repository API. Branch visibility, record IDs, and provenance
-remain unchanged. Brainstore's per-record API and wire format also remain unchanged.
+Memory access uses one repository API and one `facts/store.json` file (schema 3).
+Memories are visible across branches. Migration combines copies with the same ID
+and retains provenance and lifecycle state. Brainstore's per-record wire format
+remains unchanged.
 
-During support for v0.2.0 through v0.4.0, memory content stays in
-`facts/<branch>/facts.ndjson`. These releases can read, change, and physically delete
-those files. `facts/store.json` contains only a schema 2 compatibility marker.
-It contains no memory content or provenance. Physical consolidation must wait
-until these older clients leave support.
+Normal writes and refreshes migrate legacy stores automatically. Verified
+redundant `facts/.legacy-*` files are then removed automatically, including copies
+retained by v0.5.0. Watcher maintenance also runs when repository contents have not
+changed. No migration or cleanup command is required for normal operation.
 
-Existing schema 1 snapshots remain readable. The next memory write or refresh
-converts them. Conversion reconciles old-client changes across all views, publishes
-missing legacy files, and replaces the snapshot last. A failed conversion can be
-retried. Corrupt or unsupported snapshots cause an error before conversion.
-Reads do not change disk. Outlines and usage receipts keep their existing
-layouts.
+Cleanup preserves unknown files and records whose preservation cannot be proved.
+Large-file verification runs outside the write lock; a concurrent change defers
+removal until another pass. Interrupted cleanup resumes automatically. Background
+pause settings remain effective, and ordinary reads never migrate or clean up.
+
+Storage diagnostics are available when needed:
 
 ```bash
 entire brain memories storage status --json
-entire brain memories storage migrate       # convert or repair; safe to repeat
-entire brain memories storage rollback      # keep current data; remove the marker
+entire brain memories storage migrate       # optional diagnostic/retry operation
 ```
 
-Each command also accepts `--global`. Status reports `legacy`, `repository`
-(schema 1), or `compatibility` (schema 2). Rollback includes post-migration writes;
-it does not restore an outdated backup. Use memory commands for deletion.
-Deleting a legacy file after conversion removes the only stored copy of that view.
+Both commands accept `--global`. Status includes cleanup state, pending
+legacy directories, retained reasons, and recorded reclaimed bytes. A crash after
+removal can make the byte count an underestimate; it does not authorize deletion.
 
-If a pre-fix schema 1 snapshot exists, run `memories storage migrate` before
-using an older client to clean up that store. An older client cannot remove
-that snapshot; a new-client migration repairs hidden snapshot residue and
-abandoned temporary files.
+Local migration is one-way. Stable v0.2.0, v0.3.0, and v0.4.0 cannot read the
+migrated directory. Older and newer clients can exchange hosted memories through
+separate local stores. Returning to an older version requires a complete
+pre-migration backup in a separate environment; later writes are not in that backup.
+Do not share a migrated local directory with older clients.
 
 Run `bash scripts/test-memory-storage-compat.sh` for released-binary checks.
-The script builds pinned stable releases v0.2.0, v0.3.0, and v0.4.0.
+The script builds pinned stable releases v0.2.0, v0.3.0, v0.4.0, and v0.5.0.
 Nightly releases are excluded. Tests use temporary repositories and isolated
-data directories. They do not change your installed plugin or your memories.
+stores. They do not change your installed plugin or your memories.
 See [compatibility coverage](docs/memory-storage-compatibility.md) for test scope.
 
 ### Remember something that is not about one repository

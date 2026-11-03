@@ -29,6 +29,8 @@ import (
 
 type combinedRecords struct {
 	byID map[string]factmerge.Record
+	// cleanupEvidence binds strictly readable legacy input to this migration.
+	cleanupEvidence map[string]migrationCleanupEvidence
 	// unusable counts stored lines that parse but carry no fact id. They are
 	// unaddressable and never folded; the parked originals retain the bytes.
 	unusable int
@@ -74,6 +76,10 @@ func (c combinedRecords) ids() map[string]struct{} {
 // loadCombined reads the flat store and folds every legacy source in memory.
 // Read-only: it never writes, parks, or migrates.
 func loadCombined(brainDir string) (combinedRecords, error) {
+	return loadCombinedWithEvidence(brainDir, false)
+}
+
+func loadCombinedWithEvidence(brainDir string, collectEvidence bool) (combinedRecords, error) {
 	combined := combinedRecords{byID: map[string]factmerge.Record{}}
 	version, data, present, err := readStoreFile(brainDir)
 	if err != nil {
@@ -129,7 +135,24 @@ func loadCombined(brainDir string) (combinedRecords, error) {
 		if !info.Mode().IsRegular() {
 			return combined, fmt.Errorf("legacy fact store is not a regular file: %s", filepath.ToSlash(rel))
 		}
-		records, err := parseFactsFile(path)
+		var records []factmerge.Record
+		if collectEvidence {
+			var digest string
+			records, digest, err = readMigrationRecords(path)
+			if digest != "" {
+				if combined.cleanupEvidence == nil {
+					combined.cleanupEvidence = map[string]migrationCleanupEvidence{}
+				}
+				evidence := migrationCleanupEvidence{digest: digest}
+				for _, rec := range records {
+					rec.Provenance = nil // The fold unions anchors; retain only small payload evidence.
+					evidence.records = append(evidence.records, rec)
+				}
+				combined.cleanupEvidence[dir] = evidence
+			}
+		} else {
+			records, err = parseFactsFile(path)
+		}
 		if err != nil {
 			return combined, err
 		}
@@ -341,6 +364,8 @@ type MigrationSummary struct {
 	// MovedDirs are the brain-relative legacy dirs parked under
 	// facts/.legacy-<ts>/ after the fold was verified.
 	MovedDirs []string
+	// Cleanup reports best-effort removal separately from migration publication.
+	Cleanup CleanupStatus
 }
 
 // Changed reports whether the pass wrote anything.
@@ -350,46 +375,61 @@ func (s MigrationSummary) Changed() bool {
 
 // MigrateRepository is the standing, idempotent reconcile of legacy layouts
 // into the flat store: build (fold every source in memory), verify (re-read
-// the written store and require every folded id), then move the legacy dirs
-// aside. A brain with a flat store and no legacy sources is a no-op — no
-// write. Callers hold the brain write lock; refresh calls this on every run,
+// and compare complete records), then park legacy dirs for verified cleanup.
+// Already-flat stores also receive a bounded cleanup pass. Callers hold the brain write lock; refresh calls this on every run,
 // which is what folds the files released clients keep writing.
 func MigrateRepository(brainDir string) (MigrationSummary, error) {
 	var summary MigrationSummary
 	err := withRepoFactStoreLock(brainDir, func() error {
-		combined, err := loadCombined(brainDir)
-		if err != nil {
-			return err
+		var err error
+		summary, err = migrateRepositoryLocked(brainDir)
+		if err == nil {
+			summary.Cleanup = cleanupLegacyLocked(brainDir)
 		}
-		flatAlready := combined.storeVersion == repoFactsVersion || !combined.storePresent
-		if flatAlready && len(combined.legacyDirs) == 0 {
-			return nil // nothing legacy anywhere: no write
-		}
-		if combined.storeVersion == repoFactsVersion {
-			summary.StragglerFiles = combined.legacyFiles
-		}
-		summary.Folded = len(combined.legacyIDs)
-		if err := writeFlatStore(brainDir, combined.sorted()); err != nil {
-			return err
-		}
-		// Verify before destroying anything: the store on disk must produce
-		// every folded id. Failure leaves the legacy dirs in place.
-		_, data, _, err := readStoreFile(brainDir)
-		if err != nil {
-			return err
-		}
-		written, err := decodeV3(data)
-		if err != nil {
-			return err
-		}
-		for id := range combined.ids() {
-			if _, ok := written[id]; !ok {
-				return fmt.Errorf("migration verify failed: written store is missing %s; legacy files left in place", id)
-			}
-		}
-		moved, err := parkLegacyDirs(brainDir)
-		summary.MovedDirs = moved
 		return err
 	})
+	return summary, err
+}
+
+func migrateRepositoryLocked(brainDir string) (MigrationSummary, error) {
+	var summary MigrationSummary
+	combined, err := loadCombinedWithEvidence(brainDir, true)
+	if err != nil {
+		return summary, err
+	}
+	flatAlready := combined.storeVersion == repoFactsVersion || !combined.storePresent
+	if flatAlready && len(combined.legacyDirs) == 0 {
+		return summary, nil
+	}
+	if combined.storeVersion == repoFactsVersion {
+		summary.StragglerFiles = combined.legacyFiles
+	}
+	summary.Folded = len(combined.legacyIDs)
+	expected := combined.sorted()
+	if err := writeFlatStore(brainDir, expected); err != nil {
+		return summary, err
+	}
+	if err := verifyFlatStore(brainDir, expected); err != nil {
+		return summary, err
+	}
+	proofs := map[string]cleanupReceipt{}
+	if len(combined.cleanupEvidence) > 0 {
+		facts, openErr := os.OpenRoot(filepath.Join(brainDir, DirName))
+		if openErr != nil {
+			return summary, openErr
+		}
+		hash, _, hashErr := hashRootFile(facts, "store.json")
+		facts.Close()
+		if hashErr != nil {
+			return summary, hashErr
+		}
+		for dir, evidence := range combined.cleanupEvidence {
+			if evidence.containedBy(combined.byID) {
+				proofs[dir] = cleanupReceipt{SchemaVersion: 1, SourceSHA256: evidence.digest, StoreSHA256: hash}
+			}
+		}
+	}
+	moved, err := parkLegacyDirsVerified(brainDir, proofs)
+	summary.MovedDirs = moved
 	return summary, err
 }

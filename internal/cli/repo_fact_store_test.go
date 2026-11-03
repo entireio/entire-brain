@@ -105,7 +105,7 @@ func TestRepoFactStoreRefreshMigratesLegacyBranchFiles(t *testing.T) {
 	if err != nil || len(got) != 1 || got[0].ID != rec.ID {
 		t.Fatalf("migrated store = %+v, %v", got, err)
 	}
-	// The branch dirs are parked, not deleted.
+	// Verified redundant branch copies are removed automatically.
 	entries, err := os.ReadDir(filepath.Join(root, factstore.DirName))
 	if err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestRepoFactStoreRefreshMigratesLegacyBranchFiles(t *testing.T) {
 			t.Fatalf("live legacy branch dir survived migration: %s", entry.Name())
 		}
 	}
-	if !parked {
-		t.Fatal("migration must park the legacy branch dirs")
+	if parked {
+		t.Fatal("migration retained verified redundant branch dirs")
 	}
 }

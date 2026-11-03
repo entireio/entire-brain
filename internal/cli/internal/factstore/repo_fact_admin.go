@@ -5,11 +5,12 @@ package factstore
 // legacy branch dirs still awaiting migration (the JSON key predates the flat
 // store and is kept for its readers).
 type StorageStatus struct {
-	SchemaVersion int    `json:"schema_version"`
-	Format        string `json:"format"`
-	Compatibility bool   `json:"legacy_compatibility"`
-	Records       int    `json:"records"`
-	Views         int    `json:"views"`
+	SchemaVersion int            `json:"schema_version"`
+	Format        string         `json:"format"`
+	Compatibility bool           `json:"legacy_compatibility"`
+	Records       int            `json:"records"`
+	Views         int            `json:"views"`
+	Cleanup       *CleanupStatus `json:"cleanup,omitempty"`
 }
 
 func RepositoryStatus(brainDir string) (StorageStatus, error) {
@@ -27,7 +28,20 @@ func RepositoryStatus(brainDir string) (StorageStatus, error) {
 	if !combined.storePresent {
 		version = repoFactsVersion
 	}
-	return StorageStatus{version, format, len(combined.legacyDirs) > 0, len(combined.byID), len(combined.legacyDirs)}, nil
+	report := StorageStatus{SchemaVersion: version, Format: format, Compatibility: len(combined.legacyDirs) > 0, Records: len(combined.byID), Views: len(combined.legacyDirs)}
+	cleanup := readCleanupStatus(brainDir)
+	dirs, err := legacyCleanupDirs(brainDir)
+	if err != nil {
+		return StorageStatus{}, err
+	}
+	cleanup.PendingDirs = len(dirs)
+	if len(dirs) > 0 && (cleanup.State == "" || cleanup.State == "complete") {
+		cleanup.State = "pending"
+	}
+	if cleanup.State != "" {
+		report.Cleanup = &cleanup
+	}
+	return report, nil
 }
 
 // CleanupRepositoryTemps removes abandoned snapshots under the store lock.
