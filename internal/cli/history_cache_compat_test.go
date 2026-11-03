@@ -63,9 +63,8 @@ func TestHistoryScanCacheWireCompatibilityAndExtractionInvalidation(t *testing.T
 	}
 }
 
-// A cache written by the previous extractor (wire 10, extractor_version 11:
-// compact dialect read, but tool_use.result output not mined) must be rescanned
-// rather than reused by extractor 12.
+// A cache written by the previous extractor revision (wire 10,
+// extractor_version one lower) must be rescanned rather than reused.
 func TestHistoryScanCachePreviousExtractorRevisionRescans(t *testing.T) {
 	root := t.TempDir()
 	cache := historyScanCache{Version: historyScanCacheWireVersion, ExtractorVersion: historyScanCacheVersion - 1, Files: map[string]historyScanCacheEntry{"sessions/main/fixture.jsonl": {ContentDigest: "unchanged"}}}

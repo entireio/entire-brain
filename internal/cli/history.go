@@ -77,12 +77,15 @@ const (
 	// inlines into each tool_use block (tool_use.result.output) instead of a
 	// separate tool_result record. A v11 cache holds compact scans without
 	// those facts.
+	// v13: a record whose "message" is null or an empty object falls back to
+	// its top-level content. Pre-release revision 12 builds read nothing from
+	// such records, and their caches would otherwise stay current.
 	// The value is also persisted as the history source's ExtractionVersion
 	// so refresh rebuilds an otherwise-unchanged index built by an older
 	// extractor, and as the short-term overlay's extractor_version so a delta
 	// re-parses entries an older extractor built.
-	historyScanCacheVersion = 12
-	// Extraction revisions 11 and 12 change parser behavior, not the record
+	historyScanCacheVersion = 13
+	// Extraction revisions 11 to 13 change parser behavior, not the record
 	// schema. Keep the wire version readable by supported stable clients. Old
 	// clients drop extractor_version when rewriting, forcing the new parser to
 	// rescan.

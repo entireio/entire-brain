@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "reconciler_version": 3,
+  "generated_at": "2026-08-01T12:00:00Z",
+  "sessions": [
+    {
+      "session_ref": "conversation-session:bbc3f84db4c32c504a6d4ecb418bf8cb42659576e47d6aab478d685932da6ad7",
+      "session_id": "sess-null",
+      "branch": "main",
+      "input_digest": "sha256:05839ea758ed4d36510242d8245c38f54b69c3b42736abe98785a10ba6f291e4",
+      "exchange_count": 0,
+      "completed_at": "2026-08-01T12:00:00Z"
+    }
+  ]
+}

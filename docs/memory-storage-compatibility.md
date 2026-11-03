@@ -51,12 +51,14 @@ another visible memory change.
 
 History extraction revision 11 adds compact transcript parsing, and revision 12
 also mines the tool output that compact transcripts inline into `tool_use`
-blocks. Their cache record schema is the same as version 10, which all three
-stable releases understand. New caches therefore use wire version 10 and an
-`extractor_version: 12` field.
+blocks. Revision 13 reads a record's top-level content when its `message` is
+null or an empty object, which pre-release revision 12 builds skipped. Their
+cache record schema is the same as version 10, which all three stable
+releases understand. New caches therefore use wire version 10 and an
+`extractor_version: 13` field.
 
 Current history readers reuse a version 10 cache only when that field matches.
-Older writers omit the field, and revision 11 writers record 11, so the next
+Older writers omit the field, and revision 11 and 12 writers record their revision, so the next
 current refresh rescans the transcripts. The short-term overlay
 (`history/short-term.json`) follows the same rule: it keeps format version 3
 and records `extractor_version`, and a delta re-parses entries from an overlay
