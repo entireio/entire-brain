@@ -196,7 +196,10 @@ know the field ignores it):
 ```
 
 `recorded` and `already_present` are separate because a re-review of an unchanged tree must
-report zero new memories rather than claiming it wrote the same findings again.
+report zero new memories rather than claiming it wrote the same findings again. The check is
+repository-wide, not per branch: the store is flat per repository and a content-derived id
+never depended on a branch, so a finding first recorded on another branch counts as
+`already_present`. The record still carries its own `branch` field.
 
 What a remembered finding looks like, and why:
 
@@ -207,7 +210,7 @@ What a remembered finding looks like, and why:
 | `paths` | `project.review.regression` | keeps review suspicions out of `architecture.*`/`constraints.*`, where they would be returned by every engineering query |
 | `locus` | the finding's file, then symbol and identifier | the pre-edit hook selects by file, so this is what makes the memory deliverable |
 | `provenance` | one anchor: the commit reviewed + the session | a citation `verify` can re-check; the commit is deliberately NOT in the text |
-| `status` | `active` | a candidate with no proposal is reachable and promotable by nothing |
+| `status` | `active` | the only reachable option: main removed the fact-proposal framework along with `memories promote` and `memories review`, so a candidate has no path to becoming active at all |
 
 **The record text is a pure function of the finding** — no timestamp, no commit, no run id —
 because the id is `sha256(normalized text + paths)`. A clock in the text would mint a new
@@ -219,8 +222,11 @@ values that are the content of a remembered finding), and a review that found no
 nothing (an empty findings list means UNKNOWN, not clean, so a "found nothing" memory would
 assert the clean bill of health this surface otherwise refuses to give).
 
-`--remember` answers to the same derived-read privacy gate as `--patterns`: persisting quoted
-source into records that later reach other surfaces is a stronger act than rendering them once.
+**On privacy.** This originally answered to the same derived-read privacy gate as
+`--patterns`, because persisting quoted source into records that later reach other surfaces is
+a stronger act than rendering them once. main then removed the brain-local privacy layer
+wholesale, for every surface, so there is no gate left to call and none is claimed here. If a
+privacy layer returns, this is the surface to wire to its strictest setting first.
 
 **Known limit on a compacted store.** The detector walks raw session files under
 `sessions/`. On a store whose transcripts have been compacted into `history/generations` plus
