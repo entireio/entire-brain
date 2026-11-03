@@ -95,7 +95,8 @@ api_rate_limited() {
     403) : ;;
     *) return 1 ;;
   esac
-  grep -qiE '^(x-ratelimit-remaining: *0[[:space:]]*|retry-after: *[0-9]+[[:space:]]*)$' "${tmp}/api.headers" 2>/dev/null \
+  # HTTP allows spaces or tabs after the colon.
+  grep -qiE '^(x-ratelimit-remaining:[[:space:]]*0[[:space:]]*|retry-after:[[:space:]]*[0-9]+[[:space:]]*)$' "${tmp}/api.headers" 2>/dev/null \
     || grep -qiE 'rate limit|abuse detection' "${tmp}/api.json" 2>/dev/null
 }
 
@@ -106,13 +107,17 @@ rate_limit_error() {
   # quota. When the primary quota is not exhausted its x-ratelimit-reset is
   # unrelated, so ignore it. When both apply, wait for the later one.
   local secs="" reset="" after="" wait=""
-  if grep -qiE '^x-ratelimit-remaining: *0[[:space:]]*$' "${tmp}/api.headers" 2>/dev/null; then
+  if grep -qiE '^x-ratelimit-remaining:[[:space:]]*0[[:space:]]*$' "${tmp}/api.headers" 2>/dev/null; then
     reset="$({ grep -iE '^x-ratelimit-reset:' "${tmp}/api.headers" || true; } \
       | tail -1 | tr -dc '0-9')"
     [ -z "$reset" ] || secs=$(( reset - $(date +%s) ))
   fi
-  after="$({ grep -iE '^retry-after:' "${tmp}/api.headers" 2>/dev/null || true; } \
+  # retry-after is decimal seconds or an HTTP-date. Only the seconds form
+  # gives a wait; a date is ignored rather than read as digits. 10# keeps a
+  # leading zero (08) from being taken as octal.
+  after="$({ grep -iE '^retry-after:[[:space:]]*[0-9]+[[:space:]]*$' "${tmp}/api.headers" 2>/dev/null || true; } \
     | tail -1 | tr -dc '0-9')"
+  [ -z "$after" ] || after=$(( 10#$after ))
   if [ -n "$after" ] && { [ -z "$secs" ] || [ "$after" -gt "$secs" ]; }; then
     secs="$after"
   fi

@@ -133,6 +133,17 @@ esac
 // than the channel's lookup fails the same way. No network is used.
 func runInstallerLookup(t *testing.T, status int, body string, headers map[string]string, networkDown bool, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
+	var lines []string
+	for k, v := range headers {
+		lines = append(lines, k+": "+v)
+	}
+	return runInstallerLookupRawHeaders(t, status, body, lines, networkDown, args...)
+}
+
+// runInstallerLookupRawHeaders is runInstallerLookup with the header lines
+// written verbatim, for spellings a map cannot express (a tab after the colon).
+func runInstallerLookupRawHeaders(t *testing.T, status int, body string, rawHeaders []string, networkDown bool, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("installer is a POSIX shell script")
 	}
@@ -148,10 +159,7 @@ func runInstallerLookup(t *testing.T, status int, body string, headers map[strin
 	if err := os.WriteFile(filepath.Join(dir, "body"), []byte(body), 0600); err != nil {
 		t.Fatal(err)
 	}
-	headerLines := []string{fmt.Sprintf("HTTP/2 %d", status)}
-	for k, v := range headers {
-		headerLines = append(headerLines, k+": "+v)
-	}
+	headerLines := append([]string{fmt.Sprintf("HTTP/2 %d", status)}, rawHeaders...)
 	if err := os.WriteFile(filepath.Join(dir, "headers"), []byte(strings.Join(headerLines, "\r\n")+"\r\n\r\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -300,6 +308,49 @@ func TestInstallerLookupBothLimitsWaitForTheLater(t *testing.T) {
 	requireNamesRateLimit(t, stderr, err)
 	if !strings.Contains(stderr, "resets in about 60 minute") {
 		t.Fatalf("should wait for the later retry-after, not the sooner primary reset: %q", stderr)
+	}
+}
+
+// HTTP allows a tab as well as spaces after the header colon.
+func TestInstallerLookupRateLimitHeadersAllowTabs(t *testing.T) {
+	for name, line := range map[string]string{
+		"retry-after":           "Retry-After:\t120",
+		"x-ratelimit-remaining": "X-RateLimit-Remaining:\t0",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, stderr, err := runInstallerLookupRawHeaders(t, 403, `{"message":"Forbidden"}`, []string{line}, false)
+			requireNamesRateLimit(t, stderr, err)
+		})
+	}
+	_, stderr, err := runInstallerLookupRawHeaders(t, 403, `{"message":"Forbidden"}`, []string{"Retry-After:\t120"}, false)
+	requireNamesRateLimit(t, stderr, err)
+	if !strings.Contains(stderr, "resets in about 2 minute") {
+		t.Fatalf("missing wait from a tab-separated retry-after: %q", stderr)
+	}
+}
+
+// retry-after is decimal seconds. A leading zero must not be read as octal
+// (bash arithmetic rejects 08), and the HTTP-date form carries no seconds
+// count, so it must not turn into one by dropping the non-digits.
+func TestInstallerLookupRetryAfterParsing(t *testing.T) {
+	_, stderr, err := runInstallerLookup(t, 429, "", map[string]string{"retry-after": "08"}, false)
+	requireNamesRateLimit(t, stderr, err)
+	if !strings.Contains(stderr, "resets in about 1 minute") {
+		t.Fatalf("retry-after 08 is 8 seconds: %q", stderr)
+	}
+	_, stderr, err = runInstallerLookup(t, 429, "", map[string]string{"retry-after": "Wed, 21 Oct 2026 07:28:00 GMT"}, false)
+	requireNamesRateLimit(t, stderr, err)
+	if strings.Contains(stderr, "resets in about") {
+		t.Fatalf("an HTTP-date retry-after is not a count of seconds: %q", stderr)
+	}
+	// With an exhausted primary quota as well, the date is ignored and the
+	// primary reset still gives the wait.
+	headers := primaryRateLimitHeaders()
+	headers["retry-after"] = "Wed, 21 Oct 2026 07:28:00 GMT"
+	_, stderr, err = runInstallerLookup(t, 403, rateLimitBody, headers, false)
+	requireNamesRateLimit(t, stderr, err)
+	if !regexp.MustCompile(`resets in about (19|20) minute`).MatchString(stderr) {
+		t.Fatalf("an HTTP-date retry-after must not replace the primary reset: %q", stderr)
 	}
 }
 
