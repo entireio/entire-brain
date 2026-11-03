@@ -22,14 +22,14 @@
     "api_call_count": 24
   },
   "redaction": {
-    "replacements": 254,
+    "replacements": 267,
     "layers": {
       "betterleaks": 5,
       "connection_string": 0,
       "credential_key": 0,
       "credential_value": 10,
       "credentialed_uri": 0,
-      "entropy": 274,
+      "entropy": 287,
       "key_context": 0,
       "provider_token": 10,
       "shell_stdin": 0
@@ -140,6 +140,37 @@
       "collapse": {
         "target": "user_message",
         "label": "/goal",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01DkUd7D6nfcCEG56eccDnK2",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "response"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "9876ecadd65f",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 86994,
+        "end": 86995,
+        "entry_ids": [
+          "bc1ba8e2-7c1e-438f-9911-0a2d657861cc"
+        ],
+        "tool_use_id": "toolu_01DkUd7D6nfcCEG56eccDnK2"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01DkUd7D6nfcCEG56eccDnK2"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: response",
         "default_collapsed": true
       }
     }
