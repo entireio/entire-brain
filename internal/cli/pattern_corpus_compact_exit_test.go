@@ -8,8 +8,9 @@ import (
 )
 
 // compactCodexFailingTestTranscript is a compact v1 codex session whose one
-// turn runs a failing go test. The codex converter writes every tool result as
-// status "success", so the exit code is only in the inlined output text.
+// turn runs a failing go test, as the cli converts an older Codex rollout (its
+// response_item path): every tool result is status "success", so the exit code
+// is only in the inlined output text.
 const compactCodexFailingTestTranscript = `{"v":1,"agent":"codex","cli_version":"0.12.2","type":"user","ts":"2026-10-01T10:00:00Z","content":[{"text":"Run the tests"}]}
 {"v":1,"agent":"codex","cli_version":"0.12.2","type":"assistant","ts":"2026-10-01T10:00:05Z","content":[{"type":"tool_use","id":"call_1","name":"exec_command","input":{"cmd":"go test ./..."},"result":{"output":"Process exited with code 1\nFAIL","status":"success"}},{"type":"text","text":"The tests fail."}]}
 `
@@ -59,11 +60,16 @@ func TestCorpusEpisodeOpsCompactCodexExitCodesMatchNative(t *testing.T) {
 	}
 }
 
-// Only compact codex results are read. For claude-code and pi, whether a
-// result.status of "error" (or exit-code text) should mark a command failed is
-// an open question, so their commands keep no exit code and failed=false, as
-// they did before.
+// Only compact codex results are read, and only their output text. For
+// claude-code and pi, and for a current Codex rollout (the cli's item path,
+// tool "Bash" with the command's own output), whether a result.status of
+// "error" should mark a command failed is an open question, so those commands
+// keep no exit code and failed=false, as they did before.
 func TestCorpusEpisodeOpsCompactNonCodexResultsLeftAlone(t *testing.T) {
+	itemPath := `{"v":1,"agent":"codex","cli_version":"0.5.1","type":"assistant","ts":"t","id":"e1","content":[{"id":"e1","input":{"command":"go test ./..."},"name":"Bash","result":{"output":"--- FAIL: TestX\nFAIL\n","status":"error"},"type":"tool_use"}]}`
+	if _, commands, _ := corpusEpisodeOps(itemPath); describeCommands(commands) != `["go test exit=nil failed=false"]` {
+		t.Errorf("codex item-path commands = %s, want no exit code (status \"error\" is not read)", describeCommands(commands))
+	}
 	for _, agent := range []string{"claude-code", "pi"} {
 		t.Run(agent, func(t *testing.T) {
 			work := `{"v":1,"agent":"` + agent + `","type":"assistant","ts":"t","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"go test ./..."},"result":{"output":"Exit code 1\nFAIL","status":"error"}}]}`
