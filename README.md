@@ -101,19 +101,17 @@ removing them. If recovery cannot be proven, refresh fails and retains the cache
 | --- | --- |
 | Upgrade an existing file-based brain | Supported; migration checks recovery before deleting cached transcripts. |
 | Read a materialized bundle with an older binary | Supported when the older binary supports the bundle's schema. |
-| Run an older binary against a migrated persistent brain | Not supported. Cached search results may still work, while distillation and history rebuild fail because transcript files are absent. |
+| Run an older binary against a migrated persistent brain | Not supported. Current memory and manifest schemas require the upgraded binary. |
 
-Upgrade and restart all CLI and watcher processes that share a brain before
+Upgrade and restart all Brain CLI and watcher processes that share a brain before
 migrating it. Installing or upgrading Graph does not upgrade Brain.
 
-For rollback, use the upgraded binary to export a bundle containing transcripts,
-then import it into a separate brain store with a compatible older binary:
+The flat memory store also makes this a one-way local upgrade. A bundle exported
+after migration is not a downgrade format. To return to an older Brain release,
+restore a complete backup made before migration into a separate location.
+Changes made after that backup will not be present there.
 
-```sh
-entire brain bundle export --include-sessions --output ./brain-backup.tar
-```
-
-Bundle export requires a semantic index, built with `entire brain refresh index`.
+See [memory storage compatibility](docs/memory-storage-compatibility.md) before upgrading.
 
 ### How Brain compares
 
@@ -125,7 +123,12 @@ Every number we publish, how to reproduce it, and what we deliberately do not cl
 
 ## Activate it for your agent
 
-Brain is set up is per [repository](docs/reference.md#3a-what-setup-needs-first-and-what-it-does-not). Start in a local Git repository with at least one commit:
+For Claude capture, use Claude Code **2.1.78 or later**. Check `claude --version`
+and verify that a real Claude turn followed by a commit creates a checkpoint.
+Some CLI versions do not check this requirement.
+See [capture requirements](docs/memory-storage-compatibility.md#claude-capture-requirement).
+
+Brain is set up per [repository](docs/reference.md#3a-what-setup-needs-first-and-what-it-does-not). Start in a local Git repository with at least one commit:
 
 ```sh
 entire brain setup
@@ -213,43 +216,40 @@ one, pass it yourself: `--path constraints.retry.policy`, shaped
 `verify` reports hand-written facts as `unverifiable-here` — they have no source
 anchor in the repository. Expected, not a failure.
 
-Memory access uses one repository API. Branch visibility, record IDs, and provenance
-remain unchanged. Brainstore's per-record API and wire format also remain unchanged.
+Memory access uses one repository API and one flat store, `facts/store.json`.
+Memories are shared across branches by default. Branch names remain record
+metadata; `recall --branch` can filter by that metadata. Duplicate records with
+the same ID are merged, with provenance and lifecycle state retained.
+Brainstore's per-record API and wire format are unchanged.
 
-During support for v0.2.0 through v0.4.0, memory content stays in
-`facts/<branch>/facts.ndjson`. These releases can read, change, and physically delete
-those files. `facts/store.json` contains only a schema 2 compatibility marker.
-It contains no memory content or provenance. Physical consolidation must wait
-until these older clients leave support.
+Upgrades from stable v0.2.0, v0.3.0, and v0.4.0 are supported. **The local upgrade
+is one-way:** those releases cannot read the migrated store. Older and newer
+clients can still exchange hosted memories when they use separate local stores.
+Do not run them against the same migrated directory.
 
-Existing schema 1 snapshots remain readable. The next memory write or refresh
-converts them. Conversion reconciles old-client changes across all views, publishes
-missing legacy files, and replaces the snapshot last. A failed conversion can be
-retried. Corrupt or unsupported snapshots cause an error before conversion.
-Reads do not change disk. Outlines and usage receipts keep their existing
-layouts.
+Before migration, stop processes that share the store and make a complete backup.
+Upgrade those processes before restarting them. A memory write or refresh can
+migrate legacy data; explicit migration is also available:
 
 ```bash
 entire brain memories storage status --json
-entire brain memories storage migrate       # convert or repair; safe to repeat
-entire brain memories storage rollback      # keep current data; remove the marker
+entire brain memories storage migrate --json
 ```
 
-Each command also accepts `--global`. Status reports `legacy`, `repository`
-(schema 1), or `compatibility` (schema 2). Rollback includes post-migration writes;
-it does not restore an outdated backup. Use memory commands for deletion.
-Deleting a legacy file after conversion removes the only stored copy of that view.
+Both commands accept `--global`. Migration imports legacy branch files and
+schema 1 or schema 2 stores into schema 3. Repository manifests use schema 5.
+Migration moves the original branch directories into `facts/.legacy-*` after
+verification. Those retained directories can increase total disk usage until
+cleanup. They are recovery copies, not a supported rollback mechanism.
 
-If a pre-fix schema 1 snapshot exists, run `memories storage migrate` before
-using an older client to clean up that store. An older client cannot remove
-that snapshot; a new-client migration repairs hidden snapshot residue and
-abandoned temporary files.
+`memories storage rollback` has been removed. Do not delete `store.json` or change
+schema numbers to attempt a downgrade. Restore a pre-migration backup if you
+must use an older binary. Preserve newer data separately first.
 
-Run `bash scripts/test-memory-storage-compat.sh` for released-binary checks.
-The script builds pinned stable releases v0.2.0, v0.3.0, and v0.4.0.
-Nightly releases are excluded. Tests use temporary repositories and isolated
-data directories. They do not change your installed plugin or your memories.
-See [compatibility coverage](docs/memory-storage-compatibility.md) for test scope.
+Repeated migration is safe. If an older client writes another legacy file,
+the current client can import it and warn you to update that client.
+See [compatibility and recovery limits](docs/memory-storage-compatibility.md)
+for status fields, retry behavior, and test scope.
 
 ### Remember something that is not about one repository
 
@@ -471,7 +471,6 @@ the binary.
 | `entire brain gc` | Prune old local semantic overlays and snapshots |
 | `entire brain reset` | Remove local generated brain data |
 | `entire brain repo-identity` | Find and resolve conflicting brain stores |
-| `entire brain privacy` | Control which captured sessions the brain retains |
 
 **Workspaces and sharing**
 
@@ -479,7 +478,7 @@ the binary.
 | --- | --- |
 | `entire brain workspace` | Manage local multi-repo brain workspaces |
 | `entire brain bundle` | Import or export local brain bundles |
-| `entire brain memories sync` | Sync this branch's memories with the hosted memory set (opt-in) |
+| `entire brain memories sync` | Sync repository memories with the hosted memory set (opt-in) |
 
 ## Limitations
 

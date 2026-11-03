@@ -39,9 +39,14 @@ surfaces that agents and humans query. Everything it builds stays on your machin
 
 ## Requirements
 
+For an existing Brain, read [memory storage compatibility](memory-storage-compatibility.md)
+first. The flat-store migration is one-way; older releases cannot read the result.
+
 - The Entire CLI, available on your `PATH` as `entire`. It is the host that
   dispatches `entire brain`, and it is what captures the sessions the brain
   learns from.
+- Claude Code **2.1.78 or later**, if you use Claude capture. Check
+  `claude --version` and verify a real checkpoint after setup.
 - Git.
 - A Go toolchain (1.27 or newer), **only if you build from source**. The
   released binaries need no toolchain at all: Brain's default build is pure Go,
@@ -432,8 +437,8 @@ entire brain distill --agent codex --model gpt-5.4-mini --effort low   # extract
 entire brain facts status                                              # review readiness
 ```
 
-Distillation is incremental and cached: unchanged sessions are skipped, and
-low-confidence merges are queued for `entire brain facts review`.
+Distillation is incremental and cached: unchanged sessions are skipped.
+Extracted facts enter the repository-level store. There is no memory review queue.
 
 ### Use the brain from an agent
 
@@ -779,13 +784,10 @@ Distillation is the token-spending path. It is incremental and cached, but it
 still sends redacted transcript chunks to the selected agent unless you choose a
 local loopback agent such as Ollama or use dry-run/no-egress mode.
 
-Durable facts also have a lifecycle. Review queued merge/supersede proposals,
-promote branch facts when they should carry forward, retract facts that are no
-longer true, and garbage-collect stale retractions.
+Durable memories are shared across branches by default. Retract facts that are
+no longer true, then garbage-collect eligible retractions.
 
 ```sh
-entire brain facts review
-entire brain facts promote --from <branch> --strategy keep-both
 entire brain facts retract <fact-id>
 entire brain facts gc --force
 entire brain inspect blame <fact-id> --json

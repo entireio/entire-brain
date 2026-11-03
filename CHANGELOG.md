@@ -7,20 +7,47 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Changed
 
-- Memory bodies now share one repository-level store. Existing branch visibility,
-  lifecycle state, and Brainstore sync records are preserved. Writes migrate their
-  target view and refresh migrates all views; legacy NDJSON projections remain readable
-  and writable by older clients during the compatibility window.
+- Durable memories now use one repository-level `facts/store.json` file
+  (schema 3). Default memory visibility spans branches. Migration merges copies
+  with the same ID and retains provenance and lifecycle state.
+- Local storage migration is one-way. Repository manifests use schema 5.
+  Stable v0.2.0, v0.3.0, and v0.4.0 can upgrade, but cannot read a migrated store.
+  Stop shared writers and back up the complete store before upgrading.
+  Restore a pre-migration backup to use an older release; post-migration bundles
+  are not a downgrade format.
+- Migration retains original branch directories under `facts/.legacy-*` after
+  verification. Active data shrinks when duplicate IDs are merged, but retained
+  originals can increase total disk usage. Automatic deletion of those recovery
+  copies is deferred.
+- Hosted Brainstore sync keeps its per-fact wire format. Older and newer clients
+  can exchange memories through separate local stores. Sharing a migrated local
+  store across those versions is unsupported.
 
 ### Added
 
-- `memories storage status`, `migrate`, and `rollback` (also with `--global`).
-  Rollback exports current memories, including changes made after migration.
-- Released-client checks cover upgrades from v0.1.0 through v0.4.0, plus
-  concurrent old/new writers and downgrade cycles for v0.2.0 through v0.4.0.
-  v0.1.0 retains its existing manifest schema limit after an upgrade.
+- `memories storage status` and `memories storage migrate`, also with `--global`.
+  Migration supports legacy branch files and the unreleased schema 1 and schema 2
+  layouts. It is safe to repeat after an interruption. Later legacy writes are
+  imported with a warning to update the older client.
+- Upgrade and hosted-sync checks against stable v0.2.0, v0.3.0, and v0.4.0.
+  This compatibility matrix excludes v0.1.0 and nightly releases.
+
+### Upgrade requirements
+
+- Claude capture requires Claude Code **2.1.78 or later** for the generated
+  `StopFailure` hook. Claude 2.1.72 can silently omit project capture hooks.
+  Check `claude --version` and verify a checkpoint after a real turn and commit.
+  Capture passed with the unpatched Entire CLI and Claude 2.1.78. The separate
+  CLI version-check change is deferred and is not required for this Brain release.
+- Read [memory storage compatibility](docs/memory-storage-compatibility.md)
+  before migrating. Upgrade every Brain process that shares a local store.
 
 ### Removed
+
+- `memories storage rollback`. The flat store has no supported conversion back
+  to the released branch-file layout.
+- The memory promotion and review workflow (`facts promote` and `facts review`).
+  Memories use the repository-level store without branch promotion.
 
 - The brain-local privacy layer: the `privacy` command family
   (`list|exclude|include|purge|verify|retention`), session tombstones, read
@@ -59,9 +86,10 @@ All notable changes to `entire-brain` are recorded here. The format follows
   searchable exchanges, no user-prompt history records — until the user
   re-exported with `refresh sessions --raw` (COR-2289).
 
-  Upgrading rebuilds the history index once: the scan cache version is bumped
-  so caches filled by the pre-compact scanner — which recorded none of those
-  records — are discarded instead of reused. No re-export is needed; the next
+  The new history extraction revision invalidates cached scan results.
+  Caches filled by the pre-compact scanner — which recorded none of those
+  records — are discarded instead of reused. The cache wire version stays
+  compatible with supported stable clients. No re-export is needed; the next
   `refresh` rescans the transcripts already on disk, and stored memories,
   their anchors and their ids are unaffected.
 
