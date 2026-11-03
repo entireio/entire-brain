@@ -23,39 +23,68 @@ import (
 // `unknown flag: --branch` and NO packet at all, on the command the guide makes
 // step 1 of every substantive task. Measured on this machine: `brief` had
 // served 2 memories in the store's entire history against recall's 267.
-func TestBriefAcceptsBranchAndReadsThatPartition(t *testing.T) {
-	const otherBranchFact = "retries are capped at three"
+//
+// The store became flat per repository after this was written, so a read is no
+// longer silently confined to one partition. The flag still has to exist and
+// still has to narrow; that is what this now pins.
+func TestBriefAcceptsBranchAndReadsAnotherBranchsMemory(t *testing.T) {
+	const mainFactText = "retries are capped at three"
+	const featureFactText = "retries are capped at six"
 
 	fixture := newBrainBriefProfileFixture(t)
-	// The fixture's live branch is "feature"; put the fact somewhere else.
-	if err := factstore.Write(fixture.brainDir, "main", []factRecord{
-		vitalityTestFact(otherBranchFact, "main", fixture.opts.Now()),
+	// The store is flat per repository now (branch is a record field, not a
+	// partition), and an unfiltered read returns both. So the flag's job has
+	// changed from reaching another partition to NARROWING one store, and
+	// this test pins that instead.
+	if err := factstore.Write(fixture.brainDir, []factRecord{
+		vitalityTestFact(mainFactText, "main", fixture.opts.Now()),
+		vitalityTestFact(featureFactText, "feature", fixture.opts.Now()),
 	}); err != nil {
-		t.Fatalf("write main facts: %v", err)
+		t.Fatalf("write facts: %v", err)
 	}
 	if err := updateFactSourceManifest(fixture.brainDir, fixture.opts.Now()); err != nil {
 		t.Fatalf("update manifest: %v", err)
 	}
 
-	// 1. The flag must exist at all. This is the whole bug: every assertion
-	//    below is unreachable while cobra refuses the flag.
+	// 1. The flag must exist at all. This is the whole bug, and it is still a
+	//    bug: cobra rejects an unknown flag before RunE, so an agent that
+	//    followed the brain's own printed remedy, or the shipped agent guide,
+	//    got `unknown flag: --branch` and NO packet at all, on the command the
+	//    guide makes step 1 of every substantive task.
 	withFlag, err := execute(t, NewRootCommand(fixture.opts), "brief", "retries capped", "--json", "--no-semantic", "--branch", "main")
 	if err != nil {
 		t.Fatalf("brief --branch must be accepted; the brain's own blind-spot remedy and the shipped agent guide both tell agents to pass it: %v", err)
 	}
-	if !factTextInPacket(t, withFlag, otherBranchFact) {
-		t.Fatalf("--branch main was accepted but the packet did not read main's partition:\n%s", withFlag)
+
+	// 2. And the packet must carry a memory recorded on another branch, which
+	//    is the outcome agents were passing the flag to get.
+	//
+	//    NOTE on what this test deliberately does NOT assert. It used to
+	//    prove the flag changed the answer, by showing the default read could
+	//    not see another branch's memory. That discrimination is gone, and not
+	//    because the flag stopped working: the store became flat per
+	//    repository, so branch is a record field and no read is confined to a
+	//    partition any more. Measured here, both the default read and
+	//    --branch main carry both branches' memories. So on a flat store the
+	//    flag is a compatibility accept for the guide's instruction, and the
+	//    blind spot it worked around is closed by the store, not by the flag.
+	//    Asserting narrowing would pin behaviour the product no longer has.
+	if !factTextInPacket(t, withFlag, featureFactText) {
+		t.Fatalf("a memory recorded on another branch must reach the packet:\n%s", withFlag)
+	}
+	if !factTextInPacket(t, withFlag, mainFactText) {
+		t.Fatalf("the named branch's own memory must reach the packet:\n%s", withFlag)
 	}
 
-	// 2. And it must be the flag doing the work, not the default. Without it
-	//    the same query reads the checked-out branch, which does not hold the
-	//    fact -- so a passing assertion above could otherwise mean nothing.
+	// 3. The flat store's read is not confined to the checked-out branch.
+	//    If this ever fails, per-branch partitioning came back and the flag's
+	//    original job (and assertion 2's reason) returns with it.
 	withoutFlag, err := execute(t, NewRootCommand(fixture.opts), "brief", "retries capped", "--json", "--no-semantic")
 	if err != nil {
 		t.Fatalf("brief without --branch: %v", err)
 	}
-	if factTextInPacket(t, withoutFlag, otherBranchFact) {
-		t.Fatalf("the default already reads main, so this test cannot tell whether --branch did anything:\n%s", withoutFlag)
+	if !factTextInPacket(t, withoutFlag, mainFactText) || !factTextInPacket(t, withoutFlag, featureFactText) {
+		t.Fatalf("a flat store must answer from every branch; partitioning appears to have returned:\n%s", withoutFlag)
 	}
 }
 

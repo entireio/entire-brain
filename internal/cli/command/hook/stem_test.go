@@ -109,7 +109,7 @@ func TestPreEditDropsAnOrdinaryStemFromTheQueryItRuns(t *testing.T) {
 	for len(facts) < 200 {
 		facts = append(facts, stemFixtureFact(len(facts), "unrelated memory about release tagging"))
 	}
-	if err := factstore.Write(brainDir, "main", facts); err != nil {
+	if err := factstore.Write(brainDir, facts); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 

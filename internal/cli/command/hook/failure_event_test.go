@@ -168,7 +168,7 @@ func TestPostFailureClaudeHookAnswersWithThePostToolUseFailureEnvelope(t *testin
 		Origin: "authored",
 		Status: "active",
 	}}
-	if err := factstore.Write(brainDir, "main", facts); err != nil {
+	if err := factstore.Write(brainDir, facts); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 

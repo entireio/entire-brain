@@ -65,14 +65,20 @@ type brainBriefOptions struct {
 	noSemantic  bool
 	graphBinary string
 	profileJSON string
-	// branch overrides the fact partition the packet reads. Empty means the
-	// checked-out branch, which is the right default and the wrong one for the
-	// case that actually happens: facts are partitioned per branch and a
-	// branch's file is a fork-time copy, so a brief run from a worktree reads a
-	// partition that is usually empty. recall has taken --branch since it
-	// shipped and the agent guide tells agents to pass it to BOTH verbs; brief
-	// rejecting it meant every agent that followed the written instruction got
-	// `unknown flag: --branch` and no packet at all.
+	// branch overrides the branch the packet reads. Empty means the
+	// checked-out branch.
+	//
+	// This flag was added because facts were partitioned per branch and a
+	// branch's file was a fork-time copy, so a brief run from a worktree read
+	// a partition that was usually empty. The store is flat per repository
+	// now, so that blind spot is closed by the store rather than by this flag
+	// and the flag no longer changes which memories a brief can reach.
+	//
+	// It still has to exist. recall has taken --branch since it shipped and
+	// the agent guide tells agents to pass it to BOTH verbs; brief rejecting
+	// it meant every agent that followed the written instruction got
+	// `unknown flag: --branch` and no packet at all, because cobra refuses an
+	// unknown flag before RunE.
 	branch string
 	// packetFormat selects an experimental compact serialization; the CLI
 	// "brief" verb selects between its text and JSON renderers with json above,
