@@ -363,9 +363,14 @@ func TestLegacyCleanupRealProcessInterruption(t *testing.T) {
 
 func TestLegacyCleanupLargeFileUsesPreparedProof(t *testing.T) {
 	root := t.TempDir()
-	rec := repoStoreFact("large fact", "main")
-	rec.Text = strings.Repeat("large memory ", 100000)
+	rec := repoStoreFact(strings.Repeat("large memory ", 100000), "main")
 	writeLegacyFile(t, root, "main-large", []factmerge.Record{rec})
+	if err := writeFlatStore(root, []factmerge.Record{rec}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parkLegacyDirs(root); err != nil {
+		t.Fatal(err)
+	}
 	summary, err := MigrateRepository(root)
 	if err != nil {
 		t.Fatal(err)
@@ -384,9 +389,14 @@ func TestLegacyCleanupLargeFileUsesPreparedProof(t *testing.T) {
 
 func TestLegacyCleanupRejectsStalePreparedProof(t *testing.T) {
 	root := t.TempDir()
-	rec := repoStoreFact("large fact", "main")
-	rec.Text = strings.Repeat("large memory ", 100000)
+	rec := repoStoreFact(strings.Repeat("large memory ", 100000), "main")
 	writeLegacyFile(t, root, "main-large", []factmerge.Record{rec})
+	if err := writeFlatStore(root, []factmerge.Record{rec}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parkLegacyDirs(root); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := MigrateRepository(root); err != nil {
 		t.Fatal(err)
 	}
@@ -579,5 +589,22 @@ func TestLegacyCleanupPinnedDirectoryReplacement(t *testing.T) {
 	data, err := os.ReadFile(outside)
 	if err != nil || string(data) != "external data" {
 		t.Fatal("cleanup followed replacement path")
+	}
+}
+
+func TestLegacyCleanupRetainsMatchingInvalidIdentity(t *testing.T) {
+	root := t.TempDir()
+	rec := repoStoreFact("original content", "main")
+	rec.Text = "changed content with stale identity"
+	writeLegacyFile(t, root, "main-stale-id", []factmerge.Record{rec})
+	if _, err := MigrateRepository(root); err != nil {
+		t.Fatal(err)
+	}
+	report := runCleanup(t, root)
+	if report.State != "retained" || len(parkedDirs(t, root)) != 1 {
+		t.Fatal("matching invalid identity authorized removal")
+	}
+	if loadByID(t, root)[rec.ID].Text != rec.Text {
+		t.Fatal("cleanup changed damaged source data")
 	}
 }

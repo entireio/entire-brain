@@ -522,8 +522,8 @@ func verifyLegacyContained(raw io.Reader, current map[string]factmerge.Record) e
 		if err := strictCleanupJSON(line, &rec); err != nil {
 			return fmt.Errorf("legacy record is not safely readable: %w", err)
 		}
-		if strings.TrimSpace(rec.ID) == "" || seen[rec.ID] {
-			return fmt.Errorf("legacy record has a missing or repeated ID")
+		if strings.TrimSpace(rec.ID) == "" || seen[rec.ID] || rec.ID != factmerge.RecordID(rec.Text, rec.Paths) {
+			return fmt.Errorf("legacy record has a missing, invalid, or repeated ID")
 		}
 		seen[rec.ID] = true
 		stored, ok := current[rec.ID]
