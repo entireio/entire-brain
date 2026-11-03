@@ -115,9 +115,13 @@ type shortTermIndex struct {
 }
 
 // complete reports whether the overlay fully represents every changed
-// transcript it was asked to cover: nothing failed, nothing dropped.
+// transcript it was asked to cover: nothing failed, nothing dropped, and the
+// entries were built by the current extractor. An overlay from an older
+// extractor stays readable, but its entries can lack what this extractor
+// reads (compact transcripts before revision 12 had no code facts), so it is
+// not complete coverage until a delta re-parses them.
 func (o shortTermIndex) complete() bool {
-	return !o.Truncated && len(o.FailedFiles) == 0 && len(o.ScanWarnings) == 0
+	return !o.Truncated && len(o.FailedFiles) == 0 && len(o.ScanWarnings) == 0 && o.ExtractorVersion == historyScanCacheVersion
 }
 
 // shortTermIncompleteness names exactly why an overlay is not complete
@@ -132,6 +136,9 @@ func shortTermIncompleteness(overlay shortTermIndex) string {
 	}
 	if n := len(overlay.ScanWarnings); n > 0 {
 		parts = append(parts, fmt.Sprintf("%d collection warnings", n))
+	}
+	if overlay.ExtractorVersion != historyScanCacheVersion {
+		parts = append(parts, "built by an older extractor, re-parsed by the next `refresh delta`")
 	}
 	if len(parts) == 0 {
 		return "incomplete"
@@ -154,7 +161,7 @@ type shortTermFile struct {
 // carries records; every other state returns the empty overlay so retrieval
 // falls back to exact long-term-only behavior.
 func loadHistoryShortTermState(brainDir string, source *historySourceManifest) (shortTermIndex, string) {
-	empty := shortTermIndex{Version: historyShortTermVersion, Files: map[string]shortTermFile{}}
+	empty := shortTermIndex{Version: historyShortTermVersion, ExtractorVersion: historyScanCacheVersion, Files: map[string]shortTermFile{}}
 	data, err := clibase.SafeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), clibase.DefaultMaxReadBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -199,7 +206,7 @@ func loadHistoryShortTerm(brainDir string, source *historySourceManifest) shortT
 // already moved and only needs the covered source fingerprint. Never rank
 // from this view.
 func loadHistoryShortTermRaw(brainDir string) (shortTermIndex, string) {
-	empty := shortTermIndex{Version: historyShortTermVersion, Files: map[string]shortTermFile{}}
+	empty := shortTermIndex{Version: historyShortTermVersion, ExtractorVersion: historyScanCacheVersion, Files: map[string]shortTermFile{}}
 	data, err := clibase.SafeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), clibase.DefaultMaxReadBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -319,6 +326,7 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 		SessionsFingerprint: brainSessionsFingerprint(outputDir),
 		Files:               map[string]shortTermFile{},
 		ReconcilerVersion:   historyShortTermReconcilerVersion,
+		ExtractorVersion:    historyScanCacheVersion,
 	}
 	if source != nil {
 		overlay.BaseGeneratedAt = source.GeneratedAt
