@@ -245,28 +245,42 @@ func TestMemoriesAnchoredAtFindsEveryMemoryForASource(t *testing.T) {
 	}
 }
 
-// Facts are partitioned per branch and a branch file is a fork-time copy, so
-// the likely cause of a miss is the wrong partition. A bare "not found" sends
-// the reader hunting for a record that is simply elsewhere.
-func TestProvenanceBranchHintNamesTheBranchThatHoldsIt(t *testing.T) {
+// A memory's ancestor may have been recorded on a different branch, and it is
+// still its ancestor. The store is flat per repository now, so the walk is
+// repository-wide; this is the test that fails if a branch filter is ever
+// reintroduced into the lineage read, which would answer "nothing replaced
+// this" when something did.
+func TestProvenanceWalksAcrossBranches(t *testing.T) {
 	t.Parallel()
 
-	record := provRecord("claim a", "architecture.daemon.flow", factmerge.KindInvariant, factmerge.StatusActive)
-	byBranch := map[string][]factmerge.Record{
-		"main":           {},
-		"feature/suhaan": {record},
+	older := provRecord("the daemon polled for completion", "architecture.daemon.flow", factmerge.KindDecision, factmerge.StatusSuperseded)
+	older.Branch = "feature/suhaan"
+	newer := provRecord("the daemon waits on the child", "architecture.daemon.flow", factmerge.KindDecision, factmerge.StatusActive)
+	newer.Branch = "main"
+	older.SupersededBy = newer.ID
+
+	graph := buildProvenanceGraph([]factmerge.Record{older, newer}, "main", []string{newer.ID}, 2)
+
+	if graph.MemoryCount() != 2 {
+		t.Fatalf("the walk must reach a memory recorded on another branch: %d node(s)", graph.MemoryCount())
 	}
-	hint := provenanceBranchHint(byBranch, "main", record.ID)
-	if hint == "" {
-		t.Fatal("a record held on another branch must produce a hint")
-	}
-	for _, want := range []string{record.ID, "feature/suhaan", "--branch feature/suhaan"} {
-		if !strings.Contains(hint, want) {
-			t.Errorf("the hint must contain %q: %q", want, hint)
+	var sawSupersedes bool
+	for _, edge := range graph.Edges {
+		if edge.From == newer.ID && edge.To == older.ID && edge.Type == provEdgeSupersedes {
+			sawSupersedes = true
 		}
 	}
-	if got := provenanceBranchHint(byBranch, "main", "fact:nowhere"); got != "" {
-		t.Errorf("an id held nowhere must produce no hint, got %q", got)
+	if !sawSupersedes {
+		t.Errorf("the supersede edge must cross the branch boundary: %+v", graph.Edges)
+	}
+	// And each node still reports the branch it was recorded on, which is the
+	// only place that information lives once the store is flat.
+	branches := map[string]string{}
+	for _, node := range graph.Nodes {
+		branches[node.ID] = node.Branch
+	}
+	if branches[older.ID] != "feature/suhaan" || branches[newer.ID] != "main" {
+		t.Errorf("per-node branch provenance lost: %v", branches)
 	}
 }
 

@@ -11,7 +11,6 @@ import (
 
 func newFactsProvenanceCommand(opts Options) *cobra.Command {
 	var (
-		branch     string
 		jsonOut    bool
 		depth      int
 		session    string
@@ -32,12 +31,11 @@ func newFactsProvenanceCommand(opts Options) *cobra.Command {
 				id = strings.TrimSpace(args[0])
 			}
 			return runFactsProvenance(cmd, opts, factsProvenanceOptions{
-				branch: branch, jsonOut: jsonOut, depth: depth,
+				jsonOut: jsonOut, depth: depth,
 				id: id, session: session, commit: commit, checkpoint: checkpoint,
 			})
 		},
 	}
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch to read (default: current branch)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the graph as JSON")
 	cmd.Flags().IntVar(&depth, "depth", 2, "How many memory-to-memory hops to walk")
 	cmd.Flags().StringVar(&session, "session", "", "Start from every memory anchored in this session id")
@@ -47,7 +45,6 @@ func newFactsProvenanceCommand(opts Options) *cobra.Command {
 }
 
 type factsProvenanceOptions struct {
-	branch                      string
 	jsonOut                     bool
 	depth                       int
 	id                          string
@@ -91,12 +88,18 @@ func runFactsProvenance(cmd *cobra.Command, opts Options, provOpts factsProvenan
 		return err
 	}
 
-	_, brainDir, branch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), provOpts.branch)
+	_, brainDir, branch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), "")
 	if err != nil {
 		return err
 	}
 
-	records, err := factstore.Load(brainDir, branch)
+	// Lineage is repository-wide, deliberately. The store is flat per
+	// repository and Branch is a record field, so a memory's ancestor may have
+	// been recorded on another branch and is still its ancestor. Filtering the
+	// walk by branch would cut the chain and answer "nothing replaced this"
+	// when something did. The resolved branch is a label for where the walk
+	// ran, not a filter on it.
+	records, err := factstore.Load(brainDir)
 	if err != nil {
 		return err
 	}
@@ -104,20 +107,17 @@ func runFactsProvenance(cmd *cobra.Command, opts Options, provOpts factsProvenan
 	var roots []string
 	if provOpts.id != "" {
 		if indexOfFact(records, provOpts.id) < 0 {
-			byBranch, loadErr := factstore.LoadAllBranches(brainDir)
-			if loadErr == nil {
-				if hint := provenanceBranchHint(byBranch, branch, provOpts.id); hint != "" {
-					return fmt.Errorf("%s", hint)
-				}
-			}
-			return fmt.Errorf("no memory %s on %s", provOpts.id, branch)
+			// No per-branch hint to give any more: one flat store per
+			// repository means a missing id is missing, not hiding in
+			// another partition.
+			return fmt.Errorf("no memory %s in this repository's store", provOpts.id)
 		}
 		roots = []string{provOpts.id}
 	} else {
 		nodeType, value := provOpts.selector()
 		roots = memoriesAnchoredAt(records, nodeType, value)
 		if len(roots) == 0 {
-			return fmt.Errorf("no memory on %s is anchored at %s %s", branch, nodeType, value)
+			return fmt.Errorf("no memory in this repository's store is anchored at %s %s", nodeType, value)
 		}
 	}
 

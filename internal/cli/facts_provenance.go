@@ -64,9 +64,14 @@ type provenanceNode struct {
 	Type  string `json:"type"`
 	Depth int    `json:"depth"`
 	// Memory-only fields.
-	Kind       string   `json:"kind,omitempty"`
-	Status     string   `json:"status,omitempty"`
-	Origin     string   `json:"origin,omitempty"`
+	Kind   string `json:"kind,omitempty"`
+	Status string `json:"status,omitempty"`
+	Origin string `json:"origin,omitempty"`
+	// Branch is the branch this memory was recorded on. The walk spans
+	// branches (the store is flat per repository), so this is the only place
+	// that tells a reader where a node in the chain came from; the graph's
+	// own Branch field says only where the walk ran.
+	Branch     string   `json:"branch,omitempty"`
 	Paths      []string `json:"paths,omitempty"`
 	Locus      []string `json:"locus,omitempty"`
 	Text       string   `json:"text,omitempty"`
@@ -179,6 +184,7 @@ func buildProvenanceGraph(records []factmerge.Record, branch string, roots []str
 			Kind:   record.Kind,
 			Status: record.Status,
 			Origin: record.Origin,
+			Branch: record.Branch,
 			Paths:  record.Paths,
 			Locus:  record.Locus,
 			Text:   record.Text,
@@ -306,29 +312,6 @@ func memoriesAnchoredAt(records []factmerge.Record, nodeType, value string) []st
 	}
 	sort.Strings(ids)
 	return ids
-}
-
-// provenanceBranchHint names the branches that DO hold an id the requested
-// branch does not. Facts are partitioned per branch and a branch's file is a
-// fork-time copy, so a bare "not found" sends the reader looking for a
-// deleted record when the record is simply on another partition — the same
-// silent-wrong-answer this store has already produced for recall.
-func provenanceBranchHint(byBranch map[string][]factmerge.Record, branch, id string) string {
-	var holders []string
-	for other, records := range byBranch {
-		if other == branch {
-			continue
-		}
-		if factmerge.IndexOf(records, id) >= 0 {
-			holders = append(holders, other)
-		}
-	}
-	if len(holders) == 0 {
-		return ""
-	}
-	sort.Strings(holders)
-	return fmt.Sprintf("%s is not on %s but is recorded on %s; memories are partitioned per branch, so pass --branch %s",
-		id, branch, strings.Join(holders, ", "), holders[0])
 }
 
 // renderProvenanceGraph prints the graph depth-first from each root, so a
