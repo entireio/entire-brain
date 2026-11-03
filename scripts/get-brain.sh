@@ -84,6 +84,13 @@ api_status=""
 api_get() {
   api_status="$(curl -sSL -D "${tmp}/api.headers" -o "${tmp}/api.json" \
     -w '%{http_code}' "$1" 2>/dev/null)" || api_status="000"
+  # With -L, -D also records every redirect's headers. Keep only the final
+  # response's block, the one api_status describes.
+  if [ -f "${tmp}/api.headers" ]; then
+    awk '/^HTTP\//{block=""} {block=block $0 "\n"} END{printf "%s", block}' \
+      "${tmp}/api.headers" > "${tmp}/api.headers.final"
+    mv "${tmp}/api.headers.final" "${tmp}/api.headers"
+  fi
 }
 
 api_rate_limited() {
@@ -95,8 +102,9 @@ api_rate_limited() {
     403) : ;;
     *) return 1 ;;
   esac
-  # HTTP allows spaces or tabs after the colon.
-  grep -qiE '^(x-ratelimit-remaining:[[:space:]]*0[[:space:]]*|retry-after:[[:space:]]*[0-9]+[[:space:]]*)$' "${tmp}/api.headers" 2>/dev/null \
+  # HTTP allows spaces or tabs after the colon. retry-after counts in either
+  # form, seconds or an HTTP-date.
+  grep -qiE '^(x-ratelimit-remaining:[[:space:]]*0[[:space:]]*|retry-after:[[:space:]]*[^[:space:]].*)$' "${tmp}/api.headers" 2>/dev/null \
     || grep -qiE 'rate limit|abuse detection' "${tmp}/api.json" 2>/dev/null
 }
 
@@ -108,18 +116,23 @@ rate_limit_error() {
   # unrelated, so ignore it. When both apply, wait for the later one.
   local secs="" reset="" after="" wait=""
   if grep -qiE '^x-ratelimit-remaining:[[:space:]]*0[[:space:]]*$' "${tmp}/api.headers" 2>/dev/null; then
-    reset="$({ grep -iE '^x-ratelimit-reset:' "${tmp}/api.headers" || true; } \
+    reset="$({ grep -iE '^x-ratelimit-reset:[[:space:]]*[0-9]+[[:space:]]*$' "${tmp}/api.headers" || true; } \
       | tail -1 | tr -dc '0-9')"
-    [ -z "$reset" ] || secs=$(( reset - $(date +%s) ))
+    [ -z "$reset" ] || secs=$(( 10#$reset - $(date +%s) ))
   fi
   # retry-after is decimal seconds or an HTTP-date. Only the seconds form
-  # gives a wait; a date is ignored rather than read as digits. 10# keeps a
-  # leading zero (08) from being taken as octal.
+  # gives a wait; a date is never read as digits. 10# keeps a leading zero
+  # (08) from being taken as octal.
   after="$({ grep -iE '^retry-after:[[:space:]]*[0-9]+[[:space:]]*$' "${tmp}/api.headers" 2>/dev/null || true; } \
     | tail -1 | tr -dc '0-9')"
   [ -z "$after" ] || after=$(( 10#$after ))
   if [ -n "$after" ] && { [ -z "$secs" ] || [ "$after" -gt "$secs" ]; }; then
     secs="$after"
+  fi
+  # A retry-after that is not seconds (an HTTP-date) may end after any known
+  # reset, so give no estimate rather than a too-early one.
+  if [ -z "$after" ] && grep -qiE '^retry-after:[[:space:]]*[^[:space:]]' "${tmp}/api.headers" 2>/dev/null; then
+    secs=""
   fi
   if [ -n "$secs" ]; then
     [ "$secs" -ge 1 ] || secs=1

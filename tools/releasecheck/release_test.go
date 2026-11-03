@@ -142,6 +142,8 @@ func runInstallerLookup(t *testing.T, status int, body string, headers map[strin
 
 // runInstallerLookupRawHeaders is runInstallerLookup with the header lines
 // written verbatim, for spellings a map cannot express (a tab after the colon).
+// When the first line is a status line, the lines are the whole header dump,
+// so a test can put a redirect's header block before the final response's.
 func runInstallerLookupRawHeaders(t *testing.T, status int, body string, rawHeaders []string, networkDown bool, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -160,6 +162,9 @@ func runInstallerLookupRawHeaders(t *testing.T, status int, body string, rawHead
 		t.Fatal(err)
 	}
 	headerLines := append([]string{fmt.Sprintf("HTTP/2 %d", status)}, rawHeaders...)
+	if len(rawHeaders) > 0 && strings.HasPrefix(rawHeaders[0], "HTTP/") {
+		headerLines = rawHeaders
+	}
 	if err := os.WriteFile(filepath.Join(dir, "headers"), []byte(strings.Join(headerLines, "\r\n")+"\r\n\r\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -343,14 +348,49 @@ func TestInstallerLookupRetryAfterParsing(t *testing.T) {
 	if strings.Contains(stderr, "resets in about") {
 		t.Fatalf("an HTTP-date retry-after is not a count of seconds: %q", stderr)
 	}
-	// With an exhausted primary quota as well, the date is ignored and the
-	// primary reset still gives the wait.
-	headers := primaryRateLimitHeaders()
-	headers["retry-after"] = "Wed, 21 Oct 2026 07:28:00 GMT"
-	_, stderr, err = runInstallerLookup(t, 403, rateLimitBody, headers, false)
+}
+
+// x-ratelimit-reset is a decimal epoch too: a leading zero must not be read
+// as octal, and a malformed value must not become a wait.
+func TestInstallerLookupResetParsing(t *testing.T) {
+	reset := "0" + strconv.FormatInt(time.Now().Add(20*time.Minute).Unix(), 10)
+	_, stderr, err := runInstallerLookup(t, 403, rateLimitBody, map[string]string{"x-ratelimit-remaining": "0", "x-ratelimit-reset": reset}, false)
 	requireNamesRateLimit(t, stderr, err)
 	if !regexp.MustCompile(`resets in about (19|20) minute`).MatchString(stderr) {
-		t.Fatalf("an HTTP-date retry-after must not replace the primary reset: %q", stderr)
+		t.Fatalf("a zero-padded reset is still decimal: %q", stderr)
+	}
+	_, stderr, err = runInstallerLookup(t, 403, rateLimitBody, map[string]string{"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1780000000 or 1790000000"}, false)
+	requireNamesRateLimit(t, stderr, err)
+	if strings.Contains(stderr, "resets in about") {
+		t.Fatalf("a malformed reset is not a wait: %q", stderr)
+	}
+}
+
+// With -L, curl -D writes every response's headers, redirects included. Only
+// the final response's block describes the status the script reports.
+func TestInstallerLookupIgnoresRedirectHeaders(t *testing.T) {
+	_, stderr, err := runInstallerLookupRawHeaders(t, 403, `{"message":"Forbidden"}`, []string{
+		"HTTP/2 301", "location: https://api.github.com/repositories/1/releases/latest", "retry-after: 120", "x-ratelimit-remaining: 0", "",
+		"HTTP/2 403", "x-ratelimit-remaining: 41",
+	}, false)
+	if err == nil || !strings.Contains(stderr, "HTTP 403") || strings.Contains(stderr, "rate limit") {
+		t.Fatalf("a redirect's rate-limit headers made a plain 403 look rate-limited: %q", stderr)
+	}
+}
+
+// A Retry-After HTTP-date still marks a secondary limit. Its wait is not
+// computed, so no estimate is printed, even when a primary reset is known: the
+// secondary limit may last longer.
+func TestInstallerLookupRetryAfterDate(t *testing.T) {
+	const date = "Wed, 21 Oct 2026 07:28:00 GMT"
+	_, stderr, err := runInstallerLookup(t, 403, `{"message":"Forbidden"}`, map[string]string{"retry-after": date, "x-ratelimit-remaining": "41"}, false)
+	requireNamesRateLimit(t, stderr, err)
+	headers := primaryRateLimitHeaders()
+	headers["retry-after"] = date
+	_, stderr, err = runInstallerLookup(t, 403, rateLimitBody, headers, false)
+	requireNamesRateLimit(t, stderr, err)
+	if strings.Contains(stderr, "resets in about") {
+		t.Fatalf("the primary reset is not the wait when a secondary limit gives a date: %q", stderr)
 	}
 }
 
