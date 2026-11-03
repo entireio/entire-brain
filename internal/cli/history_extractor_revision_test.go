@@ -2,9 +2,11 @@ package cli
 
 import (
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -55,5 +57,36 @@ func TestHistoryRefreshRescansRevision12NullMessageCache(t *testing.T) {
 	}
 	if source.ExtractionVersion != historyScanCacheVersion {
 		t.Fatalf("extraction version = %d, want %d", source.ExtractionVersion, historyScanCacheVersion)
+	}
+}
+
+// doctor must not call an index from an older extractor current just because
+// the sessions are unchanged; a full refresh clears the warning.
+func TestDoctorHistoryFreshnessFlagsOlderExtractor(t *testing.T) {
+	opts, repoDir, brainDir := docsAvailabilityFixture(t)
+	if err := os.RemoveAll(brainDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.CopyFS(brainDir, os.DirFS(filepath.Join("testdata", "history_brain_rev12_null_message"))); err != nil {
+		t.Fatal(err)
+	}
+	freshness := func() (string, string) {
+		checks, _ := brainDoctorReadOnlyReport(context.Background(), opts, repoDir)
+		for _, check := range checks {
+			if check.Name == "history_freshness" {
+				return check.State, check.Detail
+			}
+		}
+		t.Fatal("doctor has no history_freshness check")
+		return "", ""
+	}
+	if state, detail := freshness(); state != "warn" || !strings.Contains(detail, "older extractor") {
+		t.Fatalf("history_freshness for a revision 12 index = %s: %s", state, detail)
+	}
+	if _, err := writeBrainHistoryIndexAndSource(brainDir, time.Date(2026, 8, 1, 13, 0, 0, 0, time.UTC), nil); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if state, detail := freshness(); state != "ok" {
+		t.Fatalf("history_freshness after refresh = %s: %s", state, detail)
 	}
 }
