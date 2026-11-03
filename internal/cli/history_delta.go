@@ -144,12 +144,25 @@ func shortTermIncompleteness(overlay shortTermIndex) string {
 		parts = append(parts, fmt.Sprintf("%d collection warnings", n))
 	}
 	if overlay.ExtractorVersion != historyScanCacheVersion {
-		parts = append(parts, "built by an older extractor, re-parsed by the next `refresh delta`")
+		parts = append(parts, "built by "+extractorRevisionLabel(overlay.ExtractorVersion)+", re-parsed by the next `refresh delta`")
 	}
 	if len(parts) == 0 {
 		return "incomplete"
 	}
 	return strings.Join(parts, "; ")
+}
+
+// extractorRevisionLabel names a non-current extraction revision for doctor
+// and stats, without calling a newer binary's output out of date. 0 is a
+// writer that recorded no revision.
+func extractorRevisionLabel(revision int) string {
+	if revision > historyScanCacheVersion {
+		return fmt.Sprintf("a newer extractor (revision %d; this binary is %d)", revision, historyScanCacheVersion)
+	}
+	if revision <= 0 {
+		return "an older extractor (no revision recorded)"
+	}
+	return fmt.Sprintf("an older extractor (revision %d)", revision)
 }
 
 type shortTermFile struct {

@@ -80,7 +80,7 @@ func TestDoctorHistoryFreshnessFlagsOlderExtractor(t *testing.T) {
 		t.Fatal("doctor has no history_freshness check")
 		return "", ""
 	}
-	if state, detail := freshness(); state != "warn" || !strings.Contains(detail, "older extractor") {
+	if state, detail := freshness(); state != "warn" || !strings.Contains(detail, "older extractor (revision 12)") {
 		t.Fatalf("history_freshness for a revision 12 index = %s: %s", state, detail)
 	}
 	if _, err := writeBrainHistoryIndexAndSource(brainDir, time.Date(2026, 8, 1, 13, 0, 0, 0, time.UTC), nil); err != nil {
@@ -88,5 +88,18 @@ func TestDoctorHistoryFreshnessFlagsOlderExtractor(t *testing.T) {
 	}
 	if state, detail := freshness(); state != "ok" {
 		t.Fatalf("history_freshness after refresh = %s: %s", state, detail)
+	}
+}
+
+// A revision from a newer binary is named as newer, not as out of date.
+func TestExtractorRevisionLabelNamesNewerRevisions(t *testing.T) {
+	if got := extractorRevisionLabel(historyScanCacheVersion + 1); !strings.Contains(got, "newer extractor") {
+		t.Fatalf("label for a newer revision = %q", got)
+	}
+	if got := shortTermIncompleteness(shortTermIndex{ExtractorVersion: historyScanCacheVersion + 1}); strings.Contains(got, "older") {
+		t.Fatalf("overlay from a newer revision described as %q", got)
+	}
+	if got := extractorRevisionLabel(0); !strings.Contains(got, "older extractor") {
+		t.Fatalf("label for an unrecorded revision = %q", got)
 	}
 }

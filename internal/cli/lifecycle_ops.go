@@ -476,7 +476,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	case history.ExtractionVersion != historyScanCacheVersion:
 		// Unchanged sessions do not make an index current when an older
 		// extractor built it; only a full refresh rebuilds it.
-		add("history_freshness", "warn", "history index was built by an older extractor; run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"` to rebuild it")
+		add("history_freshness", "warn", "history index was built by "+extractorRevisionLabel(history.ExtractionVersion)+"; run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"` to rebuild it")
 	case current == history.SessionsFingerprint:
 		add("history_freshness", "ok", "history and conversation projections were built from the current exported sessions")
 	case shortTermCovers && shortTerm.complete():
