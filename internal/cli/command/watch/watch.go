@@ -103,7 +103,8 @@ type Steps struct {
 	Delta func(context.Context) (historystore.ShortTermStats, error)
 	// Reconcile durably queues long-term conversation work independently of
 	// the git/checkpoint fingerprint. Exported transcripts can change while
-	// that fingerprint stays stable (for example, a late host export).
+	// that fingerprint stays stable (for example, a late host export). Tick
+	// calls it after all foreground writers, including on early-return paths.
 	Reconcile func(context.Context) error
 	Refresh   func(context.Context) error
 	Seed      func(context.Context) error
@@ -281,35 +282,44 @@ func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps 
 	// have failed, so the throttle applies at its normal cadence rather than
 	// treating every tick as a repair.
 	deltaHealthy := true
-	deltaNeedsReconcile := false
+	needsReconcile := false
 	if steps.Delta != nil {
 		stats, err := steps.Delta(ctx)
 		if err != nil {
 			deltaHealthy = false
-			deltaNeedsReconcile = true
+			needsReconcile = true
 			fmt.Fprintf(out, "[watch] short-term memory update failed (continuing): %v\n", err)
 		} else {
 			// A delta that failed to scan any transcript did NOT fully carry
 			// the new work, so it must not defer consolidation.
 			deltaHealthy = stats.Failed == 0
 			bufferFull = stats.Truncated
-			deltaNeedsReconcile = stats.Files > 0 || stats.Failed > 0 || stats.Truncated
+			needsReconcile = stats.Files > 0 || stats.Failed > 0 || stats.Truncated
 			fmt.Fprintf(out, "[watch] short-term memory updated (%d records from %d changed transcripts)\n", stats.Records, stats.Files)
 			if stats.Failed > 0 {
 				fmt.Fprintf(out, "[watch] short-term memory incomplete: %d transcripts failed to scan; consolidation will repair\n", stats.Failed)
 			}
 		}
 	}
-	// Delta state is itself a source-change signal. Do this before the git
-	// fingerprint gate so a changed/failed/overflowed export is never stranded
-	// in the short-term overlay waiting for an unrelated commit or restart.
-	if deltaNeedsReconcile && steps.Reconcile != nil {
-		if err := steps.Reconcile(ctx); err != nil {
+	// Reconcile every changed/failed delta even when the fingerprint or
+	// consolidation gate returns early, but launch its worker only after all
+	// of this tick's writers finish. Otherwise our own child can take the
+	// write lock before refresh, seed, or distill and make that step time out.
+	defer func() {
+		if !needsReconcile || steps.Reconcile == nil {
+			return
+		}
+		// A cancelled refresh must not strand already-published delta work.
+		// Give local queue publication a bounded shutdown grace period;
+		// normal reconciliation retains its existing time allowance.
+		reconcileCtx, cancel := watchReconcileContext(ctx, brainstore.BrainWriteLockTimeout)
+		defer cancel()
+		if err := steps.Reconcile(reconcileCtx); err != nil {
 			fmt.Fprintf(out, "[watch] memory reconciliation failed (durable overlay retained): %v\n", err)
 		} else {
 			fmt.Fprintln(out, "[watch] long-term memory reconciliation queued")
 		}
-	}
+	}()
 	cursor := LoadCursor(cursorPath)
 	fp := steps.Fingerprint(ctx)
 	changed := fp != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero() || cursor.PendingRefresh
@@ -371,6 +381,9 @@ func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps 
 	}
 	refresh := refreshUnchanged
 	if refreshDue {
+		// Refresh can publish new canonical inputs independently of delta.
+		// Its coordinator also belongs after the tick's remaining writers.
+		needsReconcile = true
 		refresh = refreshSucceeded
 		if err := steps.Refresh(ctx); err != nil {
 			// A refusal to index an uncommitted worktree is not a failure: it
@@ -463,6 +476,26 @@ func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps 
 		return SaveCursor(cursorPath, current)
 	}); err != nil {
 		fmt.Fprintf(out, "[watch] completion cursor update failed: %v\n", err)
+	}
+}
+
+// watchReconcileContext preserves request values while allowing a final local
+// reconciliation after cancellation. The grace period starts only when the
+// parent is cancelled, not when an ordinary reconciliation begins.
+func watchReconcileContext(ctx context.Context, grace time.Duration) (context.Context, context.CancelFunc) {
+	work, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	stop := context.AfterFunc(ctx, func() {
+		timer := time.NewTimer(grace)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			cancel()
+		case <-work.Done():
+		}
+	})
+	return work, func() {
+		stop()
+		cancel()
 	}
 }
 
