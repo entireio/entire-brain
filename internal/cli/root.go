@@ -38,12 +38,16 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/entities"
+	"github.com/entireio/entire-brain/internal/cli/internal/parentwatch"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
 // Execute runs the plugin root command with the real process environment.
 func Execute(version string) error {
+	// Die with the dispatcher: a SIGKILLed `entire` cannot forward anything,
+	// and an orphaned mutation would hold the brain write lock to completion.
+	parentwatch.Arm()
 	cmd := NewRootCommand(Options{
 		Version: version,
 		Env:     base.EnvFromOS(),
@@ -145,7 +149,6 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	addGrouped("facts", patternscmd.New(patternsCmdConfig(opts)))
 
 	addGrouped("operations", newMemoryCommand(opts))
-	addGrouped("operations", newPrivacyCommand(opts))
 
 	addGrouped("code", newBrainInspectCommand(opts))
 	addGrouped("code", newBrainShowCommand(opts))

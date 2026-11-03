@@ -37,9 +37,6 @@ type Deps struct {
 	DistillTimeout time.Duration
 	// RankFacts ranks a branch's facts against a query, BM25 lexical only.
 	RankFacts func(facts []factmerge.Record, query string, limit int, includeAll bool) []factmerge.Record
-	// LoadFactProposals reads a branch's pending proposals; a missing file
-	// yields none.
-	LoadFactProposals func(brainDir, branch string) ([]factmerge.Proposal, error)
 	// RecordServedFacts writes the vitality receipt for facts a read surface
 	// served, resolving the receipt clock and worktree HEAD from opts.
 	RecordServedFacts func(errW io.Writer, ctx context.Context, opts base.Options, brainDir, branch, surface, repoDir, taskText string, served []factmerge.Record)

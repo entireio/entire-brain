@@ -653,8 +653,6 @@ func statusWarningLines(render *tui.Renderer, report brainStatusReport, brainCmd
 		warning := ""
 		if f.Integrity != nil {
 			warning = f.Integrity.Warning()
-		} else if len(f.MissingBranches) > 0 {
-			warning = factstore.MissingStoreWarning(f.MissingBranches)
 		}
 		if warning != "" {
 			lines = append(lines, "  "+render.Paint(theme.Bad, "! "+warning))

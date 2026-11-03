@@ -603,7 +603,7 @@ func openCanonicalHistoryTranscript(ctx context.Context, brainDir, rel string) (
 }
 
 // readCanonicalHistoryTranscript is the complete direct-transcript read
-// contract: tombstone-gated, size-capped, cancellation-checked. It reads a
+// contract: size-capped and cancellation-checked. It reads a
 // materialized file when one exists (exported bundles; brains written before
 // COR-2128), and otherwise reads the session's checkpoint blob from git via
 // the per-brain transcript store.

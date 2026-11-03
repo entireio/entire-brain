@@ -28,7 +28,7 @@ func TestRememberAnchorsToTheBranchItFilesTheFactOn(t *testing.T) {
 
 	fixture.run(t, "remember", "--branch", "release", "--path", "architecture.data.flow", "The release branch pins the v1 payload schema.")
 
-	facts, err := factstore.Load(fixture.storage.BrainDir, "release")
+	facts, err := factstore.Load(fixture.storage.BrainDir)
 	if err != nil {
 		t.Fatalf("load facts: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestRememberKeepsHeadWhenNoBranchOverrideIsGiven(t *testing.T) {
 
 	fixture.run(t, "remember", "--path", "architecture.data.flow", "The payload schema is versioned.")
 
-	facts, err := factstore.Load(fixture.storage.BrainDir, "main")
+	facts, err := factstore.Load(fixture.storage.BrainDir)
 	if err != nil {
 		t.Fatalf("load facts: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestRememberStampsSessionID(t *testing.T) {
 	t.Setenv(facts.RememberSessionEnv, "")
 	fixture.run(t, "remember", "--path", "architecture.data.flow", "No session anywhere stays valid.")
 
-	facts, err := factstore.Load(fixture.storage.BrainDir, "main")
+	facts, err := factstore.Load(fixture.storage.BrainDir)
 	if err != nil {
 		t.Fatalf("load facts: %v", err)
 	}

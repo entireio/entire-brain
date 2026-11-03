@@ -271,20 +271,18 @@ func matchFactsToTask(facts []factRecord, label string, cmdFreq map[string]int) 
 	return out
 }
 
-// loadAllActiveFacts flattens active facts across every branch, deduped by id.
+// loadAllActiveFacts returns the store's active facts, deduped by id.
 func loadAllActiveFacts(brainDir string) []factRecord {
-	byBranch, err := factstore.LoadAllBranches(brainDir)
+	stored, err := factstore.Load(brainDir)
 	if err != nil {
 		return nil
 	}
 	seen := map[string]bool{}
 	var out []factRecord
-	for _, recs := range byBranch {
-		for _, f := range recs {
-			if f.Status == "active" && !seen[f.ID] {
-				seen[f.ID] = true
-				out = append(out, f)
-			}
+	for _, f := range stored {
+		if f.Status == "active" && !seen[f.ID] {
+			seen[f.ID] = true
+			out = append(out, f)
 		}
 	}
 	return out

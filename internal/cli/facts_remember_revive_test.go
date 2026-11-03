@@ -56,13 +56,13 @@ func TestRememberRevivesRetractedFact(t *testing.T) {
 		Provenance: []factAnchor{{SessionID: "s1"}},
 		CreatedAt:  now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour),
 	}}
-	if err := factstore.Write(brainDir, branch, seed); err != nil {
+	if err := factstore.Write(brainDir, seed); err != nil {
 		t.Fatal(err)
 	}
 
 	printed := runRememberForTest(t, opts, text)
 
-	got, err := factstore.Load(brainDir, branch)
+	got, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,13 +95,13 @@ func TestRememberRevivesSupersededFact(t *testing.T) {
 		Origin: factstore.OriginDistilled, Status: factStatusSuperseded, SupersededBy: "fact:newer",
 		Provenance: []factAnchor{{SessionID: "s1"}}, CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour),
 	}}
-	if err := factstore.Write(brainDir, branch, seed); err != nil {
+	if err := factstore.Write(brainDir, seed); err != nil {
 		t.Fatal(err)
 	}
 
 	runRememberForTest(t, opts, text)
 
-	got, err := factstore.Load(brainDir, branch)
+	got, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestRememberActiveFactIsStillIdempotent(t *testing.T) {
 	runRememberForTest(t, opts, text)
 	runRememberForTest(t, opts, text)
 
-	got, err := factstore.Load(brainDir, branch)
+	got, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestRememberJSONReportsPersistedMergedFact(t *testing.T) {
 		Provenance: []factAnchor{{SessionID: "prior-session", Commit: "prior111"}},
 		CreatedAt:  createdAt, UpdatedAt: createdAt,
 	}
-	if err := factstore.Write(brainDir, branch, []factRecord{seed}); err != nil {
+	if err := factstore.Write(brainDir, []factRecord{seed}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -161,7 +161,7 @@ func TestRememberJSONReportsPersistedMergedFact(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &reported); err != nil {
 		t.Fatalf("decode remember JSON: %v\n%s", err, out)
 	}
-	stored, err := factstore.Load(brainDir, branch)
+	stored, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

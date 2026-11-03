@@ -27,7 +27,6 @@ func brainReviewConfig(opts Options) brainreview.Config {
 		},
 		DetectAnomalies:                 detectRegressionAnomaliesCapped,
 		RuntimeTraceFacts:               semanticRuntimeTraceFacts,
-		RequirePrivacyDerivedRead:       requirePrivacyDerivedRead,
 		RequirePatternCorpusAvailable:   requirePatternCorpusAvailable,
 		LoadReviewPatternContextChecked: loadReviewPatternContextChecked,
 		BufferRetrievalOutput:           bufferRetrievalCommandOutput,

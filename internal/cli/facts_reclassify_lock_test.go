@@ -54,7 +54,7 @@ func seedReclassifyBrain(t *testing.T, now time.Time) (string, string) {
 		Origin: factstore.OriginDistilled, Status: factStatusActive,
 		Provenance: []factAnchor{{SessionID: "s1"}}, UpdatedAt: now,
 	}}
-	if err := factstore.Write(brainDir, branch, seed); err != nil {
+	if err := factstore.Write(brainDir, seed); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now}); err != nil {
@@ -78,7 +78,7 @@ func reclassifyTestCommand() (*cobra.Command, *bytes.Buffer) {
 // process is in the middle of is clobbered.
 func TestFactsReclassifyWaitsForOtherProcess(t *testing.T) {
 	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
-	brainDir, branch := seedReclassifyBrain(t, now)
+	brainDir, _ := seedReclassifyBrain(t, now)
 
 	helperCtx, cancelHelper := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelHelper()
@@ -140,10 +140,10 @@ func TestFactsReclassifyWaitsForOtherProcess(t *testing.T) {
 	cmd, _ := reclassifyTestCommand()
 	opts := Options{Version: "test", Now: func() time.Time { return now }}
 	done = make(chan error, 1)
-	go func() { done <- runFactsReclassify(cmd, opts, brainDir, branch, false, false) }()
+	go func() { done <- runFactsReclassify(cmd, opts, brainDir, false, false) }()
 
 	time.Sleep(500 * time.Millisecond)
-	midFlight, err := factstore.Load(brainDir, branch)
+	midFlight, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestFactsReclassifyWaitsForOtherProcess(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("facts reclassify did not finish after the lock was released")
 	}
-	after, err := factstore.Load(brainDir, branch)
+	after, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -259,7 +259,7 @@ func TestHistoryIndexCurrentUsesSessionFingerprint(t *testing.T) {
 	if err := os.WriteFile(sessionPath, []byte("session\n"), 0o600); err != nil {
 		t.Fatalf("write session: %v", err)
 	}
-	files, err := collectHistorySessionDigests(context.Background(), brainDir, nil)
+	files, err := collectHistorySessionDigests(context.Background(), brainDir)
 	if err != nil {
 		t.Fatalf("fingerprint sessions: err=%v", err)
 	}

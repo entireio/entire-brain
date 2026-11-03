@@ -797,7 +797,7 @@ func TestConversationSourceScopedRetrievalDoesNotReturnOtherLayers(t *testing.T)
 	brainDir := t.TempDir()
 	now := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	facts := []factRecord{{ID: factRecordID("alpha contract", nil), Text: "alpha contract", Branch: "main", Status: factStatusActive, UpdatedAt: now}}
-	if err := factstore.Write(brainDir, "main", facts); err != nil {
+	if err := factstore.Write(brainDir, facts); err != nil {
 		t.Fatal(err)
 	}
 	results, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha contract", 10, retrieval.ModeLexical, retrievalOptions{Source: brainstore.RetrievalSourceConversation})

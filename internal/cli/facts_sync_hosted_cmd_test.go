@@ -54,7 +54,7 @@ func TestMemoriesSyncConnectedDefaultsToHostedWire(t *testing.T) {
 	if !fake.has(localFact.ID) {
 		t.Fatal("plain sync on a connected repo must upsert local facts to the hosted store")
 	}
-	local, err := factstore.Load(f.brainDir, "main")
+	local, err := factstore.Load(f.brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,8 +68,8 @@ func TestMemoriesSyncConnectedDefaultsToHostedWire(t *testing.T) {
 	if !strings.Contains(out, "hosted (") {
 		t.Fatalf("output must name the hosted backend, got %q", out)
 	}
-	if err := checkHostedFactsBinding(f.brainDir, "main", "repo1", baseURL); err != nil {
-		t.Fatalf("per-branch hosted marker must be recorded: %v", err)
+	if err := checkHostedFactsBinding(f.brainDir, "repo1", baseURL); err != nil {
+		t.Fatalf("the hosted sync marker must be recorded: %v", err)
 	}
 }
 
@@ -108,7 +108,7 @@ func TestMemoriesSyncConnectedPushFailureStillPullsAndFails(t *testing.T) {
 	if !strings.Contains(err.Error(), "push failed") {
 		t.Fatalf("error must name the failed half, got %v", err)
 	}
-	local, loadErr := factstore.Load(f.brainDir, "main")
+	local, loadErr := factstore.Load(f.brainDir)
 	if loadErr != nil {
 		t.Fatal(loadErr)
 	}
@@ -141,9 +141,6 @@ func TestMemoriesSyncNoEgressSkipsConnectedDefault(t *testing.T) {
 	}
 	if !strings.Contains(out, "ENTIRE_BRAIN_NO_EGRESS") || !strings.Contains(out, "skipped") {
 		t.Fatalf("output must say the sync was skipped and why, got %q", out)
-	}
-	if queue, qerr := loadFactProposals(f.brainDir, "main"); qerr != nil || len(queue) != 0 {
-		t.Fatalf("a suppressed sync must not touch the review queue: %d entries, %v", len(queue), qerr)
 	}
 
 	// --json still answers in JSON: a machine caller must never get prose on

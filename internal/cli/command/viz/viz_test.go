@@ -11,9 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
@@ -274,36 +272,6 @@ func TestVizListenAddrLoopback(t *testing.T) {
 		if strings.HasPrefix(addr, "0.0.0.0") || strings.HasPrefix(addr, "[::") {
 			t.Fatalf("vizListenAddr(%d) = %q binds off-host", port, addr)
 		}
-	}
-}
-
-func TestVizSessionEndpointsOmitExcludedSessionCanary(t *testing.T) {
-	const canary = "PRIVATE-VIZ-CANARY"
-	manifest := &bmanifest.Manifest{Sources: &bmanifest.Sources{Sessions: &bmanifest.SessionSource{Sessions: []bmanifest.Session{
-		{SessionID: "private", Summary: &bmanifest.CheckpointSummary{Intent: canary}, FilesTouched: []string{"private.go"}},
-		{SessionID: "public", Summary: &bmanifest.CheckpointSummary{Intent: "safe"}, FilesTouched: []string{"public.go"}},
-	}}}}
-	srv := &Server{
-		BrainDir: t.TempDir(), Branch: "main", Manifest: manifest,
-		Guard: brainstore.SessionReadGuard{IDs: map[string]brainstore.SessionTombstone{"private": {At: time.Now().UTC()}}},
-	}
-	rec := httptest.NewRecorder()
-	srv.HandleSessions(rec, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
-	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), canary) || strings.Contains(rec.Body.String(), "private.go") {
-		t.Fatalf("sessions endpoint exposed excluded session: status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	var graph FeatureGraph
-	if err := json.Unmarshal(rec.Body.Bytes(), &graph); err != nil {
-		t.Fatal(err)
-	}
-	if len(graph.Nodes) != 1 || graph.Nodes[0].ID != "public" {
-		t.Fatalf("sessions endpoint nodes = %+v", graph.Nodes)
-	}
-
-	replay := httptest.NewRecorder()
-	srv.HandleSessionReplay(replay, httptest.NewRequest(http.MethodGet, "/api/session/replay?id=private", nil))
-	if replay.Code != http.StatusNotFound || strings.Contains(replay.Body.String(), canary) {
-		t.Fatalf("excluded replay status=%d body=%s", replay.Code, replay.Body.String())
 	}
 }
 

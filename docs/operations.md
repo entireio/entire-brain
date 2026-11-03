@@ -124,8 +124,8 @@ The script does not publish artifacts.
 Brain bundle import/export is the policy-controlled shared baseline path for
 this repository. A bundle carries the semantic index, seed, docs and facts by
 default; captured sessions and the history and patterns projections built from
-them travel only under `--include-sessions`; session tombstones, privacy
-transactions and local worker state are never bundled. Use:
+them travel only under `--include-sessions`; local worker state is never
+bundled. Use:
 
 ```sh
 entire brain bundle export --output /tmp/repo-brain.tar

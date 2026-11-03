@@ -2,10 +2,8 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
-	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
@@ -28,38 +26,20 @@ import (
 // only from the manifest, so swallowing the manifest load error emptied the
 // guard and scanned tombstoned transcripts. `brain brief` merges these raw
 // matches into its history matches with no further filtering.
-func TestInspectRawTextFailsClosedOnUnreadableManifest(t *testing.T) {
+func TestInspectRawTextScansSessions(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
-	now := time.Date(2026, 8, 8, 10, 0, 0, 0, time.UTC)
-	stones := brainstore.LoadSessionTombstones(brainDir)
-	stones.Excluded["secret-sess"] = sessionTombstone{At: now, Reason: "user requested"}
-	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-
-	// With a readable manifest the excluded transcript is skipped by path.
 	report, err := inspectBrainRawText(brainDir, "all", privacyCanary, 50)
 	if err != nil {
-		t.Fatalf("raw inspect with a readable manifest: %v", err)
+		t.Fatalf("raw inspect: %v", err)
 	}
+	found := false
 	for _, match := range report.Matches {
 		if strings.Contains(match.Excerpt, privacyCanary) {
-			t.Fatalf("excluded transcript leaked with a readable manifest: %+v", match)
+			found = true
 		}
 	}
-
-	// An unparseable manifest must FAIL the scan, not scan without a guard.
-	if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), []byte("{"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	report, err = inspectBrainRawText(brainDir, "all", privacyCanary, 50)
-	if err == nil {
-		t.Fatalf("unreadable manifest must fail the raw scan closed; got %d matches", len(report.Matches))
-	}
-	for _, match := range report.Matches {
-		if strings.Contains(match.Excerpt, privacyCanary) {
-			t.Fatalf("excluded transcript leaked through an unreadable manifest: %+v", match)
-		}
+	if !found {
+		t.Fatalf("raw inspect did not reach the session transcript: %+v", report.Matches)
 	}
 }
 
@@ -422,162 +402,12 @@ func TestPartialTranscriptFailureSignalsIncompleteExport(t *testing.T) {
 	}
 }
 
-// TestExcludedFactBlocksByTranscriptPathOnQueryAndGet locks path-based fact
-// exclusion on the two primary retrieval surfaces. blocksFactAnchor falls back
-// to the transcript path when a provenance anchor lost its session id, but that
-// map is populated only from the manifest, and query/get resolved the guard
-// WITHOUT one before filtering facts (the manifest-aware re-resolution happened
-// later, inside the history arm, and was never re-applied to facts). Every other
-// surface (brief, dash, handoff, viz, pattern corpus) passed the manifest.
-func TestExcludedFactBlocksByTranscriptPathOnQueryAndGet(t *testing.T) {
-	brainDir := writePrivacyFixture(t)
-	now := time.Date(2026, 8, 8, 10, 0, 0, 0, time.UTC)
-	// A fact whose only anchor names the transcript but carries NO session id.
-	orphan := factRecord{
-		ID: factRecordID("the leaked key "+privacyCanary+" was rotated", nil), Text: "the leaked key " + privacyCanary + " was rotated",
-		Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
-		Provenance: []factAnchor{{Transcript: "sessions/main/20260802T000000Z_secret.jsonl"}},
-	}
-	if err := factstore.Write(brainDir, "main", []factRecord{orphan}); err != nil {
-		t.Fatal(err)
-	}
-	pre, _, err := getUnifiedBatch("", brainDir, "main", []string{orphan.ID})
-	if err != nil || len(pre) != 1 {
-		t.Fatalf("fact must be retrievable before exclusion: err=%v found=%d", err, len(pre))
-	}
-
-	stones := brainstore.LoadSessionTombstones(brainDir)
-	stones.Excluded["secret-sess"] = sessionTombstone{At: now, Reason: "user requested"}
-	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-
-	found, _, err := getUnifiedBatch("", brainDir, "main", []string{orphan.ID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range found {
-		if r.ID == orphan.ID {
-			t.Fatalf("excluded session's fact served by get: %+v", r)
-		}
-	}
-	results, err := retrieveUnifiedWithOptions("", brainDir, "main", privacyCanary, 10, retrieval.ModeLexical, retrievalOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range results {
-		if r.ID == orphan.ID {
-			t.Fatalf("excluded session's fact served by query: %+v", r)
-		}
-	}
-}
-
-// TestDistillCachePurgeUsesTheCheckedLoader locks loader symmetry inside one
-// cleanup. The purge read the distill cache with the legacy loader, which
-// swallows every read/parse/version failure and returns an empty cache, while
-// post-cleanup verification read the SAME file with the checked loader and hard
-// errored. The purge therefore silently did nothing and the operation failed
-// moments later, after the tombstone and all deletions were committed, leaving
-// every later exclude/purge/retention on that brain failing too.
-func TestDistillCachePurgeUsesTheCheckedLoader(t *testing.T) {
-	brainDir := t.TempDir()
-	full := filepath.Join(brainDir, filepath.FromSlash(distillCachePath))
-	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	// A cache from a future schema: the legacy loader reads this as empty.
-	body, err := json.Marshal(map[string]any{"version": distillCacheVersion + 1, "sessions": map[string]string{"main/sess": "digest"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(full, body, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if legacy := loadDistillCache(brainDir); len(legacy.Sessions) != 0 {
-		t.Fatalf("fixture invalid: the legacy loader was expected to read this as empty: %+v", legacy)
-	}
-	err = purgeDistillCacheEntries(brainDir, "sess")
-	if err == nil {
-		t.Fatal("an unreadable distill cache must fail the purge, not be silently skipped")
-	}
-	if code := brainstore.MemoryErrorCode(err); code != brainstore.UnsupportedVersionCode {
-		t.Fatalf("purge error = %v (code %q), want the unsupported-version taxonomy code", err, code)
-	}
-}
-
-// TestBriefRawHistorySingleScanHonorsExclusionGuard locks the DEFAULT brief raw
-// scan against the tombstone guard.
-//
-// The fast single-scan walker (used whenever profiling is off, i.e. the product
-// path) walks the Brain directly instead of going through inspectBrainRawText,
-// so it does not inherit that function's exclusion guard. Merging main's
-// performance rewrite would otherwise have silently reopened the exclusion leak: a
-// tombstoned session's transcript scanned here is merged straight into
-// report.History.Matches. The profiling multi-scan path routes through
-// inspectBrainRawTextObserved and is guarded there; this covers the other one.
-func TestBriefRawHistorySingleScanHonorsExclusionGuard(t *testing.T) {
-	brainDir := writePrivacyFixture(t)
-	now := time.Date(2026, 8, 8, 10, 0, 0, 0, time.UTC)
-
-	// Before any tombstone the canary is reachable, so the assertion below is
-	// about exclusion rather than an empty fixture.
-	pre, err := brainBriefRawHistoryMatchesSingleScan(brainDir, privacyCanary, nil, 20)
-	if err != nil {
-		t.Fatalf("raw single scan: %v", err)
-	}
-	found := false
-	for _, match := range pre {
-		if strings.Contains(match.Excerpt, privacyCanary) {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("fixture invalid: the canary must be reachable before exclusion: %+v", pre)
-	}
-
-	stones := brainstore.LoadSessionTombstones(brainDir)
-	stones.Excluded["secret-sess"] = sessionTombstone{At: now, Reason: "user requested"}
-	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-	post, err := brainBriefRawHistoryMatchesSingleScan(brainDir, privacyCanary, nil, 20)
-	if err != nil {
-		t.Fatalf("raw single scan after exclusion: %v", err)
-	}
-	for _, match := range post {
-		if strings.Contains(match.Excerpt, privacyCanary) {
-			t.Fatalf("excluded transcript leaked through the default brief raw scan: %+v", match)
-		}
-	}
-
-	// The guard is manifest-derived, so an unreadable manifest must fail the
-	// scan rather than scan unguarded.
-	if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), []byte("{"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if matches, err := brainBriefRawHistoryMatchesSingleScan(brainDir, privacyCanary, nil, 20); err == nil {
-		t.Fatalf("unreadable manifest must fail the raw scan closed; got %d matches", len(matches))
-	}
-}
-
-// TestBriefRawScanSkipsDerivedStores locks the raw walk against DERIVED state.
-//
-// The walk's exclusion guard matches transcript paths, because a bare file
-// carries no session identity. That covers sessions/, but every derived store
-// is rebuilt from those transcripts and holds their content under its own
-// filenames. A tombstone that has landed while cleanup is unfinished or was
-// interrupted leaves that content on disk, so a walk that reads derived state
-// surfaces exactly what the guard exists to hide.
+// TestBriefRawScanSkipsDerivedStores locks the raw walk against DERIVED state:
+// generation and staging directories hold projection copies of the same
+// transcripts, so a walk that reads derived state would duplicate every hit.
 func TestBriefRawScanSkipsDerivedStores(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
-	now := time.Date(2026, 8, 8, 10, 0, 0, 0, time.UTC)
-	stones := brainstore.LoadSessionTombstones(brainDir)
-	stones.Excluded["secret-sess"] = sessionTombstone{At: now, Reason: "user requested"}
-	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-	// The mid-cleanup window: the tombstone is live, but derived stores still
-	// carry the excluded session's content under names the guard cannot match.
+	// Derived stores carry session content under their own filenames.
 	derived := map[string]string{
 		"history/short-term.json": `{"version":1,"files":{"x":{"records":[{"summary":"` + privacyCanary + `"}]}}}`,
 		"facts/main.ndjson":       `{"id":"f1","text":"` + privacyCanary + `"}`,
@@ -615,8 +445,8 @@ func TestBriefRawScanSkipsDerivedStores(t *testing.T) {
 				t.Fatalf("%s: %v", name, err)
 			}
 			for _, match := range matches {
-				if strings.Contains(match.Excerpt, privacyCanary) {
-					t.Fatalf("excluded content surfaced from derived store %s: %+v", match.Path, match)
+				if strings.Contains(match.Excerpt, privacyCanary) && !strings.HasPrefix(filepath.ToSlash(match.Path), "sessions/") {
+					t.Fatalf("content surfaced from derived store %s: %+v", match.Path, match)
 				}
 			}
 		})
@@ -733,5 +563,68 @@ func TestDeletedTranscriptReportsStaleNotUnreadable(t *testing.T) {
 	}
 	if hasCaveatKind(result, retrieval.CaveatConversationSourceUnreadable) {
 		t.Fatalf("deleted transcript reported unreadable: %+v", result.Caveats)
+	}
+}
+
+// TestRawScansSkipLeftoverSessionFiles pins the catalog bound on every raw
+// walk: a sessions-tree file the manifest does not list (a deleted
+// checkpoint's cached transcript awaiting the sweep, which daemon ticks skip)
+// must not be served, and an unreadable manifest fails the scan instead of
+// scanning unbounded.
+func TestRawScansSkipLeftoverSessionFiles(t *testing.T) {
+	const leftoverCanary = "LEFTOVER-RAW-SCAN-CANARY"
+	brainDir := writePrivacyFixture(t)
+	leftover := filepath.Join(brainDir, "sessions", "main", "19990101T000000Z_leftover.jsonl")
+	if err := os.WriteFile(leftover, []byte(`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"`+leftoverCanary+`"}]}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scans := map[string]func() ([]brainTextMatch, error){
+		"single scan": func() ([]brainTextMatch, error) {
+			return brainBriefRawHistoryMatchesSingleScan(brainDir, leftoverCanary, nil, 50)
+		},
+		"multi scan": func() ([]brainTextMatch, error) {
+			return brainBriefRawHistoryMatchesMultiScan(brainDir, leftoverCanary, nil, 50, &brainBriefProfileRawHistory{})
+		},
+		"inspect": func() ([]brainTextMatch, error) {
+			report, err := inspectBrainRawText(brainDir, "all", leftoverCanary, 50)
+			return report.Matches, err
+		},
+	}
+	for name, scan := range scans {
+		t.Run(name, func(t *testing.T) {
+			matches, err := scan()
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			for _, match := range matches {
+				if strings.Contains(match.Excerpt, leftoverCanary) {
+					t.Fatalf("unlisted session file served by %s: %+v", name, match)
+				}
+			}
+		})
+	}
+	// A listed transcript still matches, so the skip is the catalog bound and
+	// not an empty scan.
+	report, err := inspectBrainRawText(brainDir, "all", privacyCanary, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, match := range report.Matches {
+		if strings.Contains(match.Excerpt, privacyCanary) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("listed transcript stopped matching; the catalog bound is too wide")
+	}
+	// The bound is manifest-derived, so an unreadable manifest fails the scan.
+	if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, scan := range scans {
+		if matches, err := scan(); err == nil {
+			t.Fatalf("%s scanned without a readable catalog: %d matches", name, len(matches))
+		}
 	}
 }

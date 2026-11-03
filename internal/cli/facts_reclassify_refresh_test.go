@@ -1,14 +1,18 @@
 package cli
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
-func TestReclassifyAllFactBranches(t *testing.T) {
+func TestReclassifyAllFacts(t *testing.T) {
 	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
 	brainDir := t.TempDir()
 
@@ -26,10 +30,7 @@ func TestReclassifyAllFactBranches(t *testing.T) {
 			Branch: "feature", Origin: "distilled", Status: "active",
 			Provenance: []factAnchor{{SessionID: "s2"}}, UpdatedAt: now},
 	}
-	if err := factstore.Write(brainDir, "main", main); err != nil {
-		t.Fatal(err)
-	}
-	if err := factstore.Write(brainDir, "feature", feature); err != nil {
+	if err := factstore.Write(brainDir, append(main, feature...)); err != nil {
 		t.Fatal(err)
 	}
 	// A manifest must exist for updateFactSourceManifestLocked to write into.
@@ -37,7 +38,7 @@ func TestReclassifyAllFactBranches(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	changed, err := reclassifyAllFactBranches(brainDir, now)
+	changed, err := reclassifyAllFacts(brainDir, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +47,7 @@ func TestReclassifyAllFactBranches(t *testing.T) {
 	}
 
 	// Kinds are now persisted on disk.
-	gotMain, err := factstore.Load(brainDir, "main")
+	gotMain, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,72 +72,74 @@ func TestReclassifyAllFactBranches(t *testing.T) {
 	}
 
 	// Idempotent: a second pass changes nothing.
-	if again, err := reclassifyAllFactBranches(brainDir, now); err != nil || again != 0 {
+	if again, err := reclassifyAllFacts(brainDir, now); err != nil || again != 0 {
 		t.Errorf("second pass changed=%d err=%v, want 0/nil", again, err)
 	}
 }
 
-func TestReclassifyAllFactBranchesNoFacts(t *testing.T) {
+func TestReclassifyAllFactsNoFacts(t *testing.T) {
 	// No fact store: a no-op, not an error.
-	if changed, err := reclassifyAllFactBranches(t.TempDir(), time.Now().UTC()); err != nil || changed != 0 {
+	if changed, err := reclassifyAllFacts(t.TempDir(), time.Now().UTC()); err != nil || changed != 0 {
 		t.Errorf("changed=%d err=%v, want 0/nil", changed, err)
 	}
 }
 
-// TestReclassifyDoesNotFoldMirrorsIntoMainAndHealsDuplicates is the COR-2220
-// regression. Setup reproduces the damaged shape a connected repo reaches: the
-// hosted pull mirrored main's facts (branch stamp unchanged) into a feature
-// branch's store, and an earlier reclassify pass — which wrote record-branch
-// BUCKETS back into single files — had already doubled main's file. The pass
-// must (1) heal the doubled file losslessly, (2) leave the mirror file alone,
-// and (3) stay fixed-point: re-running must never grow any store again.
-func TestReclassifyDoesNotFoldMirrorsIntoMainAndHealsDuplicates(t *testing.T) {
+// TestReclassifyHealsDoubledLegacyStores is the COR-2220 regression, flat
+// edition. Setup reproduces the damaged LEGACY shape a connected repo reached:
+// the hosted pull mirrored main's record into a feature branch's file, and an
+// earlier buggy pass had doubled main's file with diverged anchors. The
+// refresh must fold everything losslessly into the flat store — one record,
+// both anchors — and stay fixed-point.
+func TestReclassifyHealsDoubledLegacyStores(t *testing.T) {
 	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
 	brainDir := t.TempDir()
 
 	fact := factRecord{ID: "fact:dup", Paths: []string{"constraints.api.shape"}, Text: "The token must never be logged.",
 		Branch: "main", Origin: "distilled", Status: "active", Kind: factKindInvariant,
 		Provenance: []factAnchor{{SessionID: "s1"}}, UpdatedAt: now}
-	// Main's file holds the record twice (the doubling damage); the second copy
-	// carries an anchor the first lacks, so the fold must union, not discard.
+	// Main's LEGACY file holds the record twice (the doubling damage); the
+	// second copy carries an anchor the first lacks, so the fold must union,
+	// not discard. The feature file mirrors the same main-stamped record.
 	second := fact
 	second.Provenance = []factAnchor{{SessionID: "s2"}}
-	if err := factstore.Write(brainDir, "main", []factRecord{fact, second}); err != nil {
-		t.Fatal(err)
+	writeLegacy := func(branch string, records []factRecord) {
+		t.Helper()
+		path := filepath.Join(brainDir, filepath.FromSlash(testLegacyFactsRel(branch)))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		var data bytes.Buffer
+		if err := factmerge.WriteNDJSON(&data, records); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data.Bytes(), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	// The feature store mirrors the same main-stamped record (hosted pull shape).
-	if err := factstore.Write(brainDir, "feature", []factRecord{fact}); err != nil {
-		t.Fatal(err)
-	}
+	writeLegacy("main", []factRecord{fact, second})
+	writeLegacy("feature", []factRecord{fact})
 	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := reclassifyAllFactBranches(brainDir, now); err != nil {
+	if _, err := reclassifyAllFacts(brainDir, now); err != nil {
 		t.Fatal(err)
 	}
-	gotMain, err := factstore.Load(brainDir, "main")
+	gotMain, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(gotMain) != 1 || len(gotMain[0].Provenance) != 2 {
-		t.Fatalf("main store after heal = %+v, want one record with both anchors", gotMain)
-	}
-	gotFeature, err := factstore.Load(brainDir, "feature")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(gotFeature) != 1 {
-		t.Fatalf("mirror store = %+v, want untouched single record", gotFeature)
+		t.Fatalf("store after heal = %+v, want one record with both anchors", gotMain)
 	}
 
-	// Fixed point: another pass must not move records between files or grow any
-	// store — the doubling bug was exactly a non-fixed-point rewrite.
-	if again, err := reclassifyAllFactBranches(brainDir, now); err != nil || again != 0 {
+	// Fixed point: another pass must not grow the store — the doubling bug
+	// was exactly a non-fixed-point rewrite.
+	if again, err := reclassifyAllFacts(brainDir, now); err != nil || again != 0 {
 		t.Fatalf("second pass changed=%d err=%v, want 0/nil", again, err)
 	}
-	if gotMain, _ = factstore.Load(brainDir, "main"); len(gotMain) != 1 {
-		t.Fatalf("main store grew on second pass: %d records", len(gotMain))
+	if gotMain, _ = factstore.Load(brainDir); len(gotMain) != 1 {
+		t.Fatalf("store grew on second pass: %d records", len(gotMain))
 	}
 
 	// Integrity: the cross-file mirror is ordinary, not corruption.

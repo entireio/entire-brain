@@ -205,7 +205,7 @@ func TestOperatorCommandFamiliesRemainDiscoverable(t *testing.T) {
 	if start < 0 || end <= start {
 		t.Fatalf("missing operations group before miscellaneous:\n%s", out)
 	}
-	for _, family := range []string{"memories import", "memories sync", "memories gc", "memories vitality", "memory", "privacy", "docs", "refresh", "watch", "entities", "repo-identity", "repair", "reset"} {
+	for _, family := range []string{"memories import", "memories sync", "memories gc", "memories vitality", "memory", "docs", "refresh", "watch", "entities", "repo-identity", "repair", "reset"} {
 		if !strings.Contains(out[start:end], "\n  "+family+" ") {
 			t.Errorf("operations group missing %q", family)
 		}
@@ -230,7 +230,7 @@ func TestOperatorCommandFamiliesRemainDiscoverable(t *testing.T) {
 			t.Errorf("operations group should not list %q", absent)
 		}
 	}
-	for _, path := range []string{"memory migrate", "entities migrate", "memories status", "memories tree", "memories map", "memories retract", "memories review", "memories promote", "memories import", "memories sync", "memories gc", "memories vitality", "docs extract"} {
+	for _, path := range []string{"memory migrate", "entities migrate", "memories status", "memories tree", "memories map", "memories retract", "memories import", "memories sync", "memories gc", "memories vitality", "docs extract"} {
 		root := NewRootCommand(Options{Version: "test"})
 		c, _, err := root.Find(strings.Fields(path))
 		if err != nil || c.Hidden || c.Parent().Hidden {

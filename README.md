@@ -114,8 +114,6 @@ entire brain bundle export --include-sessions --output ./brain-backup.tar
 ```
 
 Bundle export requires a semantic index, built with `entire brain refresh index`.
-Excluded sessions are omitted, and local privacy policy is not included; review
-the destination's privacy settings before refreshing sessions there.
 
 ### How Brain compares
 
@@ -228,8 +226,8 @@ Existing schema 1 snapshots remain readable. The next memory write or refresh
 converts them. Conversion reconciles old-client changes across all views, publishes
 missing legacy files, and replaces the snapshot last. A failed conversion can be
 retried. Corrupt or unsupported snapshots cause an error before conversion.
-Reads do not change disk. Outlines, review proposals, and usage receipts keep
-their existing layouts.
+Reads do not change disk. Outlines and usage receipts keep their existing
+layouts.
 
 ```bash
 entire brain memories storage status --json
@@ -243,10 +241,9 @@ it does not restore an outdated backup. Use memory commands for deletion.
 Deleting a legacy file after conversion removes the only stored copy of that view.
 
 If a pre-fix schema 1 snapshot exists, run `memories storage migrate` before
-using an older client for privacy cleanup. An older client cannot remove that
-snapshot. New-client privacy verification inspects physical snapshot bodies,
-overrides, and abandoned temporary snapshots. New-client purge repairs these
-artifacts even when an older client already removed the visible records.
+using an older client to clean up that store. An older client cannot remove
+that snapshot; a new-client migration repairs hidden snapshot residue and
+abandoned temporary files.
 
 Run `bash scripts/test-memory-storage-compat.sh` for released-binary checks.
 The script builds pinned stable releases v0.2.0, v0.3.0, and v0.4.0.
@@ -451,7 +448,7 @@ the binary.
 | `entire brain remember` | Record a durable fact about this repository |
 | `entire brain recall` | Retrieve durable facts for the current branch |
 | `entire brain distill` | Extract durable facts from sessions (requires an agent) |
-| `entire brain facts` | Review, promote, and garbage-collect durable facts |
+| `entire brain facts` | Inspect, retract, and garbage-collect durable facts |
 | `entire brain verify` | Verify durable fact anchors against local retained sources |
 | `entire brain patterns` | Inspect and rebuild recurring patterns from sessions |
 

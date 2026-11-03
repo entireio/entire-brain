@@ -412,20 +412,33 @@ func TestSeedRejectsDirtyWorktreeWithoutWorktreeFlag(t *testing.T) {
 }
 
 func TestSeedAgentCommandQuickAndDeep(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell fixture uses sh")
+	if os.Getenv("GO_SEED_AGENT_FIXTURE") == "1" {
+		var request struct {
+			Phase string `json:"phase"`
+		}
+		if err := json.NewDecoder(os.Stdin).Decode(&request); err != nil {
+			os.Exit(2)
+		}
+		artifacts := map[string]string{"quick-overview.md": "quick"}
+		if request.Phase == "deep" {
+			artifacts = map[string]string{
+				"overview.md": "overview", "architecture.md": "arch", "risks.md": "risks",
+				"maintenance-guide.md": "maint", "open-questions.md": "questions",
+			}
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(map[string]any{
+			"schema_version": 1, "status": "success", "model": "fake", "artifacts": artifacts,
+		}); err != nil {
+			os.Exit(2)
+		}
+		os.Exit(0)
 	}
+	t.Setenv("GO_SEED_AGENT_FIXTURE", "1")
 	repoDir := seedFixtureRepo(t)
 	outputDir := filepath.Join(t.TempDir(), "seed")
-	agent := filepath.Join(t.TempDir(), "agent.sh")
-	script := `#!/bin/sh
-python3 -c 'import json,sys; p=json.load(sys.stdin); phase=p["phase"]; arts={"quick-overview.md":"quick"} if phase=="quick" else {"overview.md":"overview","architecture.md":"arch","risks.md":"risks","maintenance-guide.md":"maint","open-questions.md":"questions"}; print(json.dumps({"schema_version":1,"status":"success","model":"fake","artifacts":arts}))'
-`
-	if err := os.WriteFile(agent, []byte(script), 0o700); err != nil {
-		t.Fatalf("write agent: %v", err)
-	}
 	cmd := NewRootCommand(Options{Version: "test-version", Runner: seedFixtureRunner(repoDir)})
-	if _, err := execute(t, cmd, "refresh", "seed", "--output", outputDir, "--agent", "command", "--agent-command", agent, repoDir); err != nil {
+	if _, err := execute(t, cmd, "refresh", "seed", "--output", outputDir, "--agent", "command",
+		"--agent-command", os.Args[0], "--agent-command=-test.run=^TestSeedAgentCommandQuickAndDeep$", repoDir); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, seedDirName, seedAgentDirName, "quick-overview.md")); err != nil {

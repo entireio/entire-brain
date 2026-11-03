@@ -10,63 +10,81 @@ import (
 	"github.com/entireio/entire-brain/factmerge"
 )
 
-func TestRepoFactStoreReadOnlyMigrationPreservesData(t *testing.T) {
+// Reads stay available on read-only data; every write path fails without
+// changing a byte.
+func TestFlatStoreReadOnlyDataPreserved(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix directory mode test; Windows does not enforce these permission bits")
 	}
 	for _, migrated := range []bool{false, true} {
 		name := "legacy"
 		if migrated {
-			name = "native"
+			name = "flat"
 		}
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
 			rec := repoStoreFact("read-only memory", "main")
-			writeLegacyView(t, root, "main", []factmerge.Record{rec})
+			writeLegacyFile(t, root, "main-abc123", []factmerge.Record{rec})
 			if migrated {
-				if err := MigrateRepository(root); err != nil {
+				if _, err := MigrateRepository(root); err != nil {
 					t.Fatal(err)
 				}
 			}
-			legacyPath := filepath.Join(root, FileRelPath("main"))
-			legacyBefore, err := os.ReadFile(legacyPath)
+			var frozen [][2]string // path, contents
+			err := filepath.Walk(filepath.Join(root, DirName), func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				if info.IsDir() {
+					if chmodErr := os.Chmod(path, 0o500); chmodErr != nil {
+						return chmodErr
+					}
+					dir := path
+					t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+					return nil
+				}
+				data, readErr := os.ReadFile(path)
+				if readErr != nil {
+					return readErr
+				}
+				frozen = append(frozen, [2]string{path, string(data)})
+				return nil
+			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			snapshotBefore, _ := os.ReadFile(filepath.Join(root, RepositoryPath))
-			for _, dir := range []string{filepath.Dir(legacyPath), filepath.Join(root, DirName)} {
-				if err := os.Chmod(dir, 0o500); err != nil {
-					t.Fatal(err)
-				}
-				t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
-			}
 			probe := filepath.Join(root, DirName, "permission-probe")
-			if err := os.WriteFile(probe, nil, 0o600); err == nil {
+			if writeErr := os.WriteFile(probe, nil, 0o600); writeErr == nil {
 				_ = os.Remove(probe)
 				t.Skip("process can bypass directory permissions")
 			}
-			requireRepoView(t, root, "main", []factmerge.Record{rec})
+
+			if got := loadByID(t, root); len(got) != 1 || got[rec.ID].Text != rec.Text {
+				t.Fatalf("read-only load lost data: %+v", got)
+			}
 			if _, err := RepositoryStatus(root); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := LoadStoreFiles(root); err != nil {
-				t.Fatal(err)
-			}
-			for action, call := range map[string]func(string) error{"migrate": MigrateRepository, "rollback": RollbackRepository} {
-				if err := call(root); err == nil && (migrated || action != "rollback") {
-					t.Fatalf("%s succeeded on read-only data", action)
-				}
-			}
-			if err := Write(root, "main", nil); err == nil {
+			if err := Write(root, []factmerge.Record{rec}); err == nil {
 				t.Fatal("write succeeded on read-only data")
 			}
-			legacyAfter, err := os.ReadFile(legacyPath)
-			if err != nil || !bytes.Equal(legacyBefore, legacyAfter) {
-				t.Fatalf("failed operation changed legacy data: %v", err)
+			if !migrated {
+				// Legacy sources present: the pass must write, so it must fail.
+				if _, err := MigrateRepository(root); err == nil {
+					t.Fatal("migration succeeded on read-only data")
+				}
+			} else {
+				// Nothing legacy left: the pass is a no-op and succeeds without
+				// touching the read-only tree.
+				if summary, err := MigrateRepository(root); err != nil || summary.Changed() {
+					t.Fatalf("no-op migration on read-only data: %+v, %v", summary, err)
+				}
 			}
-			snapshotAfter, err := os.ReadFile(filepath.Join(root, RepositoryPath))
-			if !bytes.Equal(snapshotBefore, snapshotAfter) || (!migrated && !os.IsNotExist(err)) {
-				t.Fatalf("failed operation changed snapshot: %v", err)
+			for _, entry := range frozen {
+				after, err := os.ReadFile(entry[0])
+				if err != nil || !bytes.Equal(after, []byte(entry[1])) {
+					t.Fatalf("failed operation changed %s: %v", entry[0], err)
+				}
 			}
 		})
 	}

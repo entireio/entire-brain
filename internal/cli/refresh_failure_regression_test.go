@@ -129,7 +129,7 @@ func TestRefreshBestEffortReportsFactsFailure(t *testing.T) {
 	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 		t.Fatal(err)
 	}
-	factPath := filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath("main")))
+	factPath := testFlatStorePath(brainDir)
 	if err := os.MkdirAll(filepath.Dir(factPath), 0o700); err != nil {
 		t.Fatal(err)
 	}

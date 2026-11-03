@@ -1,124 +1,78 @@
 # Regression safety before optimization
 
-This is the execution record for the test-safety plan started from
-`34fb3e04a66f020dc90619aaadd9d45cb59595ad`. Production Go behavior is unchanged.
-Coverage identifies missing execution; behavioral assertions and mutation checks
-establish what a later optimization must preserve.
+Project tests and coverage tools use Go. The former Python tooling has been removed.
 
-## Safety matrix
+## Current checks
 
-| Plan area | Implemented protection | Evidence command |
-|---|---|---|
-| Reproducible baseline | Cross-package Go statement coverage, real instrumented CLI process, build/commit identity, full test outcomes, HTML and JSON reports | `python3 -B tools/coverage/run.py --output /tmp/brain-coverage-default` |
-| Retrieval and indexing | Incremental history agrees with full rebuild; ordered conversation results preserve source identity and provenance; brief retains raw-only matches; direct FTS agrees with JSON-backed results for positive, negative, selective, limited and kind-filtered queries | `go test ./internal/cli -run 'TestIncrementalHistoryMatchesFullRebuild\|TestRawHistoryFallbackRetainsFallbackOnlyMatch\|TestHistoryRetrievalEquivalentPaths' -count=1` |
-| Persistence and privacy | Cancellation preserves committed corpus, sidecars and exact tombstones, and removes staging artifacts; stale derived data stays blocked; retries and reopened SQLite stores retain exclusions; publication and exclusion obey write-lock ordering | `go test ./internal/cli -run 'TestExcludedSessionSurvivesCancelledRefreshReopenAndRetry\|TestPatternPublicationLinearizesBeforeConcurrentExclusion' -count=1` |
-| Command integration | Root-routed patterns refresh/list/status and filters; skills preview, repository installation, duplicate refusal, forced replacement and cached/no-egress verification; deterministic loopback shutdown | `go test ./internal/cli -run '^TestRootCommand' -count=1` |
-| Visualization integration | Snapshot-backed graph/node/replay responses, stable ordering and deduplication, escaped source links, path containment, history privacy and summary redaction | `go test ./internal/cli -run '^TestViz' -count=1` |
-| Regression detection | Three deliberate production mutations must trigger the intended assertion; baseline must pass, compilation errors never count | `python3 -B tools/coverage/mutation_check.py` |
-| Optimization measurements | JSON-load and direct-payload retrieval share correctness-checked fixtures at 12 and 6,000 records; ordinary tests also enforce parity | `go test ./internal/cli -run '^$' -bench '^BenchmarkHistoryRetrievalEquivalentPaths$' -benchmem -count=5` |
-
-The tests reuse the repository's existing fixtures, real temporary SQLite/Git
-state where applicable, fixed clocks, and deterministic provider responses.
-They do not require paid models. Concurrency uses barriers and bounded waits,
-not a sleep to guess when an operation has reached a particular state.
-Global publication-hook tests deliberately remain nonparallel.
-
-## Coverage collection
-
-Use an empty output directory for every run. Reports combine coverage blocks by
-source location, so a function reached by several packages or by the binary is
-counted once. The real binary checks help, version, capabilities, and invalid
-command behavior in isolated user directories, including the absence of state
-creation by these read-only commands. This does not instrument every child
-binary built by every existing integration test.
+Run the full test suite:
 
 ```sh
-python3 -B tools/coverage/run.py --output /tmp/brain-default
-CGO_ENABLED=1 python3 -B tools/coverage/run.py \
-  --tags 'brain_cgo sqlite_fts5' --output /tmp/brain-cgo
-python3 -B tools/coverage/run.py --race --output /tmp/brain-default-race
-python3 -B tools/coverage/run.py --output /tmp/brain-next \
-  --baseline /tmp/brain-default/summary.json
+go test ./... -count=1
 ```
 
-The optional baseline comparison rejects different Go versions, platforms,
-tags, race settings or scopes, and requires both runs to have passed. It fails
-on a drop greater than 0.01 percentage points. An incompatible baseline must
-not be silently accepted as a regression comparison.
-
-CI collects artifacts in the existing Linux/macOS default and CGO race jobs.
-Windows statement coverage comes from the existing eight race-test shards and
-the non-heavy package run. The CLI test binary is compiled once with atomic
-cross-package coverage; each shard writes its own profile. Instrumented CLI
-contracts run once in the non-heavy job with `--binary-only`, without rerunning
-the suite. The original 20-minute per-process timeout and exact test-root,
-race, commit and binary-integrity checks remain in force.
-
-The verifier requires every expected profile, checks its hash and instrumentation,
-and merges covered blocks only after the existing integrity checks pass. It
-publishes `coverage-windows-sharded` with JSON, a merged Go profile and HTML.
-Missing, corrupt or mismatched evidence fails the aggregate Windows check.
-This replaces the duplicate unsharded Windows coverage job whose first run hit
-the 20-minute deadline; the interim 30-minute workaround is no longer used.
-The Windows measurement now uses race instrumentation, so the earlier non-race
-Windows report is not a compatible baseline. New reporter unit tests run in
-lint. CI currently publishes measurements; automatic percentage gating
-should use validated baselines for each platform/build, rather than reusing a
-local macOS number across every configuration.
-
-A separate Linux job runs all three mutation proofs, so stale mutation anchors
-or tests that stop detecting their intended regression cannot silently pass CI.
-
-The full-suite runner outputs `environment.json`, `tests.jsonl`, `test-results.json`,
-`summary.json`, raw profiles and `coverage.html`; Windows retains per-shard
-execution logs alongside its merged report. Failed suites still produce
-diagnostics and return a failing exit code; a coverage percentage does not
-override the test result.
-
-## Python benchmark tooling
-
-With Python 3.14 and `coverage==7.16.1` installed, run:
+Collect test coverage and check the compiled CLI:
 
 ```sh
-GOTOOLCHAIN=go1.26.4 go version
-python3 -B tools/coverage/python_run.py --output /tmp/brain-python-coverage
+go run ./tools/coverage -output /tmp/brain-coverage
+go run ./tools/coverage -race -output /tmp/brain-race-coverage
 ```
 
-This measures the existing discovery runner, including subprocesses and branch
-coverage, rather than maintaining another list of test modules. Reports exclude
-test files and vendored source. Attempted quarantined and failing modules can
-contribute coverage; `test-results.json` preserves those distinctions. This
-scope differs from the initial exploratory measurement that also included
-vendored code, scripts, and Windows CI tooling.
+Use an empty output directory for each run. The tool combines coverage by source location. It checks help, version, capabilities, and invalid commands in isolated directories.
 
-The three existing evidence-dependent quarantines and the host-pinned
-ssh-keygen check are unchanged. They are not converted to passing tests,
-silently skipped on a failing host, or fixed by rewriting protocol attestations.
-Tests for algorithmic behavior should use synthetic evidence; actual release
-attestation still requires its authentic inputs. Benchmark-tool optimization
-must validate the relevant excluded module before treating that area as safe.
+Results include `environment.json`, `test-results.json`, `summary.json`, `tests.jsonl`, Go coverage profiles, CLI results, and `coverage.html`.
+The environment records the commit, worktree status, Go version, build configuration, platform, race setting, and test scope.
+The summary records statement coverage for each file and the complete profile, plus the profile's SHA-256 digest.
+Test results count top-level tests and packages separately. Failed or incomplete runs retain diagnostic evidence and return a failing exit code.
 
-## Optimization entry criteria
+Compare a new run with a previous `summary.json`:
 
-Before changing an algorithm, identify its public behavior and run the relevant
-safety matrix rows. Check Graph impact for the actual symbols to be changed.
-Extend the fixtures for any newly affected path, run default/CGO and relevant
-platform checks, and demonstrate that the intended assertion detects a broken
-invariant. Run before/after benchmarks with the same build and workload, retain
-allocations and output equivalence, and use repeated measurements rather than
-a wall-clock threshold on a shared CI runner.
+```sh
+go run ./tools/coverage -race -baseline /tmp/brain-baseline/summary.json -output /tmp/brain-comparison
+```
 
-The initial package-local Go result was about 80.5%; the new cross-package plus
-binary metric is broader and must not be presented as a pure test-improvement
-delta. The earlier 85% overall, 80% low-covered command-file, and 90% selected
-component targets remain provisional, not claims achieved by this change.
-Neither those targets nor this matrix prove the whole repository regression-free.
-Semantic fusion, large multi-repository workloads, platform-specific runtime
-behavior and real provider journeys need their own fixtures before optimization.
-The visualization assertions protect rendered behavior; they do not assert cache
-hit rates. Performance claims require the separate measurements described above.
+Both runs must pass. Their toolchain, platform, build configuration, race setting, timeout, scope, and test group must match.
+The command fails when coverage decreases by more than 0.01 percentage points. It retains the report and percentage-point difference.
+Old Python reports need a new Go baseline because the report schema and measured source files changed.
+CI publishes the reports for each platform. Baseline comparison remains an explicit option; CI does not select a baseline automatically.
 
-## Verification record (2026-09-17)
+CI runs the complete suite with race detection on Linux, macOS, and Windows. Windows CLI tests run in six independent groups. Other packages run once. Windows also runs `go vet -race ./...`. Each group has a 20-minute test timeout and a 45-minute job timeout. Linux and macOS retain 30-minute package timeouts and 60-minute job timeouts.
+
+The Windows merger checks matching source revisions, build configurations, inventories, and exactly one result for every assigned test, example, and fuzz seed target.
+Missing profiles, missing metadata, failed runs, or incomplete groups fail the required Windows check.
+Merged reports retain the Windows execution environment, even when Linux performs the merge.
+Executables remain outside temporary cleanup directories because detached Windows workers can retain them.
+Package selection is not supported; use `go test` directly for a focused package run.
+
+Before optimization, run the affected behavior tests. Compare benchmarks with the same Go version, platform, and workload. Coverage alone does not establish correct behavior.
+
+## Mutation checks
+
+Run `mise run test:mutations` or `go run ./tools/mutationcheck`. Use `-output /tmp/brain-mutations` to select an empty results directory.
+
+The Go runner checks four deliberate defects: missing pattern publication, removed session exclusion, missing raw-history fallback, and disabled excluded-record detection.
+
+Each named test must pass before mutation. A compiler overlay then substitutes a temporary source copy. The test must fail with its expected assertion. Build errors, skipped tests, unrelated failures, and timeouts do not count.
+
+The runner leaves source files unchanged. Results include baseline logs, mutant logs, and `results.json`. CI retains these files. Required Linux and macOS checks depend on the mutation job. The local `mise run check` also includes mutation checks.
+
+## Restored integration and publication checks
+
+The required test jobs depend on real Brain–Graph integration. CI builds both binaries from fixed source revisions. Missing binaries fail that integration job.
+
+Go tests cover Graph indexing, Brain code inspection, memory retrieval, combined activation, preserved user instructions, and repeated setup.
+Guide comparisons cover normal and strict modes. The pinned Graph revision still includes obsolete MCP wording.
+Only those two exact legacy differences are accepted; any other text difference fails integration.
+Set `BRAIN_INTEGRATION_REQUIRE_GUIDE_PARITY=1` when validating a corrected Graph build to require exact equality.
+Removing this compatibility allowance requires the corresponding Graph correction and an updated CI revision pin.
+
+Repository publication checks inspect tracked files and new, nonignored files. They reject the audited private identifiers and internal endpoints. The audited identifier rules match the former check.
+
+Language layout tests use path strings in Go. They require no Python files or interpreter.
+
+## Historical verification record (2026-09-17)
+
+The following measurements describe the former tools and source revision. They are not current validation results.
+
 
 Local validation used macOS arm64 and Go 1.27.1. The final focused race suite,
 all three mutation proofs, `go vet ./...`, eight coverage-tool tests and 27
@@ -160,9 +114,8 @@ numbers establish a workload, not a new optimization or a performance guarantee;
 use repeated measurements before drawing performance conclusions.
 
 The existing [profiling guidance](brain_brief_profiling.md) records why raw-only
-matches must survive faster negative retrieval. The existing
-[benchmark runner](../benchmarks/agent-brain/ci_tests.py) is the source of truth
-for host exclusions and quarantines.
+matches must survive faster negative retrieval. The former benchmark runner has been removed. See the
+[historical results archive](../benchmarks/agent-brain/README.md).
 
 ### Follow-up: pattern and skill regression gaps
 

@@ -67,7 +67,7 @@ func TestQualityBranchScopedFactLinks(t *testing.T) {
 		{id: "s-feat", branch: "feature", agent: "Codex", checkpoint: "cp2", relPath: "sessions/feature/s2.jsonl", author: "Ada", transcript: transcript},
 	})
 	// The corroborating fact exists ONLY on main.
-	if err := factstore.Write(brainDir, "main", []factRecord{
+	if err := factstore.Write(brainDir, []factRecord{
 		{ID: "fact:wt", Paths: []string{"architecture.x.y"}, Text: "The worktree fingerprint hashes git status and the binary diff.", Locus: []string{"worktreefingerprint"}, Branch: "main", Origin: "distilled", Status: "active", UpdatedAt: now},
 	}); err != nil {
 		t.Fatal(err)

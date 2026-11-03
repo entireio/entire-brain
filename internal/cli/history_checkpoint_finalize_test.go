@@ -204,8 +204,7 @@ func (r *moveRefAfterListing) RunWithEnv(ctx context.Context, dir string, env ma
 
 // A snapshot's metadata and transcripts must come from the same listing. If the
 // metadata followed the moved ref, the store could file one session's pinned
-// bytes under whichever session the ref now names at that location, and the
-// tombstone gate would judge them by the wrong session.
+// bytes under whichever session the ref now names at that location.
 func TestPinnedStoreReadsMetadataAndTranscriptFromOneListing(t *testing.T) {
 	opts, brain, repo := filelessCheckpointFixture(t)
 	runFilelessExport(t, opts, "", true)

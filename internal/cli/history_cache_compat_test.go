@@ -47,10 +47,6 @@ func TestHistoryScanCacheWireCompatibilityAndExtractionInvalidation(t *testing.T
 			if (len(got.Files) == 1) != (version == 11) {
 				t.Fatalf("wrong parser cache reuse for %d: %+v", version, got)
 			}
-			inspected, err := loadHistoryScanCacheForPrivacy(root)
-			if err != nil || len(inspected.Files) != 1 {
-				t.Fatalf("privacy missed old records: %+v, %v", inspected, err)
-			}
 			// A released writer drops the unknown parser revision. Upgrade must rescan.
 			wire.ExtractorVersion = 0
 			data, err = encodeHistoryScanCache(wire)

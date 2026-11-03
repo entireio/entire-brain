@@ -21,6 +21,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/parentwatch"
 	"github.com/spf13/cobra"
 )
 
@@ -30,6 +31,20 @@ import (
 // reconciliation against the canonical manifest, a bounded synchronous
 // worker, and inspect/retry/cancel verbs. Reconciliation remains the
 // correctness authority: losing every hint and job file loses no memory.
+
+// resolveSessionsBrain resolves the current repository's brain storage for the
+// memory administration commands.
+func resolveSessionsBrain(ctx context.Context, opts Options) (repoStorage, error) {
+	target := agentSurfaceTarget(opts, nil)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	if err != nil {
+		return repoStorage{}, err
+	}
+	if !local {
+		return repoStorage{}, fmt.Errorf("sessions administration requires a local repository path: %s", target)
+	}
+	return repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+}
 
 func newMemoryCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
@@ -165,6 +180,10 @@ func memoryWorkerChildEnvironment(environ []string, repoDir string) []string {
 	replacements := []struct{ key, value string }{
 		{key: base.EnvRepoRoot, value: repoDir},
 		{key: memoryWorkerOriginEnv, value: "1"},
+		// launchDetachedSelf children outlive their spawner by design; without
+		// this marker the parent-death watchdog kills the worker when the
+		// short-lived notify process exits.
+		{key: parentwatch.DetachedEnv, value: "1"},
 	}
 	out := make([]string, 0, len(environ)+len(replacements))
 	for _, entry := range environ {
@@ -238,6 +257,11 @@ func reconcileMemoryAndLaunch(ctx context.Context, opts Options, repoDir, trigge
 	created, err = reconcileMemoryJobs(ctx, storage.BrainDir, trigger, now().UTC())
 	if err != nil {
 		return created, "", err
+	}
+	// Setup also reaches this path while background work is paused. Retain
+	// the durable queue, but do not spawn a worker that can outlive setup.
+	if base.BackgroundPaused(perRepo.Env) {
+		return created, "", nil
 	}
 	if err := memoryWorkerLaunch(repoDir); err != nil {
 		return created, "worker launch failed (reconciliation will repair): " + err.Error(), nil
@@ -445,10 +469,6 @@ func reconcileMemoryJobsLockedDetailed(brainDir, trigger string, now time.Time, 
 	if receiptState == projectionStateUnsupported || receiptState == projectionStateUnsafe {
 		return 0, receiptErr
 	}
-	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
-	if err != nil {
-		return 0, err
-	}
 	inventory := loadMemoryJobInventory(brainDir)
 	if err := memoryJobEnumerationError(inventory.Issues); err != nil {
 		return 0, err
@@ -548,20 +568,6 @@ func reconcileMemoryJobsLockedDetailed(brainDir, trigger string, now time.Time, 
 		}
 		return updated, completeErr
 	}
-	// Tombstoned sessions: active jobs move to excluded before anything else.
-	for _, job := range jobs {
-		if _, excluded := stones.Excluded[job.SessionID]; !excluded {
-			continue
-		}
-		switch job.State {
-		case memoryJobStatePending, memoryJobStateRunning, memoryJobStateRetryable, memoryJobStateInvalid:
-			updated, terr := recordTransition(job, memoryJobStateExcluded)
-			if terr != nil {
-				return created, terr
-			}
-			byID[updated.JobID] = updated
-		}
-	}
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil {
 		return 0, nil
 	}
@@ -574,9 +580,6 @@ func reconcileMemoryJobsLockedDetailed(brainDir, trigger string, now time.Time, 
 			// republished the whole history projection, found no receipt, and
 			// settled retryable_error, once per attempt, before parking the job
 			// permanently and leaving `memory status` degraded forever.
-			continue
-		}
-		if _, excluded := stones.Excluded[id]; excluded {
 			continue
 		}
 		rel := filepath.ToSlash(strings.TrimSpace(session.TranscriptPath))
@@ -692,11 +695,7 @@ func reconcileAbstractJobsLocked(brainDir, trigger string, now time.Time) (creat
 	if err != nil {
 		return 0, nil // deterministic projection is not current yet
 	}
-	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
-	if err != nil {
-		return 0, err
-	}
-	views := buildConversationSessionViews(fresh, manifest.RepoKey, manifest, guard)
+	views := buildConversationSessionViews(fresh, manifest.RepoKey, manifest)
 	inventory := loadMemoryJobInventory(brainDir)
 	if err := memoryJobEnumerationError(inventory.Issues); err != nil {
 		return 0, err
@@ -826,25 +825,11 @@ func maintainMemoryWorkerStateLocked(brainDir string, now time.Time, snapshot *m
 	if receiptState == projectionStateUnsupported || receiptState == projectionStateUnsafe {
 		return stats, receiptErr
 	}
-	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
-	if err != nil {
-		return stats, err
-	}
 	hints, issues := loadMemoryHintsChecked(brainDir)
 	if err := memoryStateError(issues); err != nil {
 		return stats, err
 	}
 	for _, hint := range hints {
-		if _, excluded := stones.Excluded[hint.SessionID]; excluded {
-			removed, err := removeMemoryHintIfCurrent(brainDir, hint)
-			if err != nil {
-				return stats, err
-			}
-			if removed {
-				stats.HintsConsumed++
-			}
-			continue
-		}
 		scopes, satisfied := 0, true
 		if manifest.Sources != nil && manifest.Sources.Sessions != nil {
 			for _, session := range manifest.Sources.Sessions.Sessions {
@@ -941,9 +926,6 @@ var memoryProjectionClaimsPerPass = 64
 
 func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, clock memoryClock, owner string) (memoryWorkerStats, error) {
 	var stats memoryWorkerStats
-	if _, _, err := brainstore.LoadSessionTombstonesChecked(brainDir); err != nil {
-		return stats, err
-	}
 	reconcileSnapshot, err := prepareMemoryReconcileSnapshot(ctx, brainDir)
 	if err != nil {
 		return stats, err
@@ -1083,10 +1065,6 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 		if published && manifestErr == nil && manifest.Sources != nil {
 			receipts, _ = loadProjectionState(brainDir, manifest.Sources.History)
 		}
-		stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
-		if err != nil {
-			return err
-		}
 		for _, claimedJob := range claimed {
 			current, err := memoryJobByID(brainDir, claimedJob.JobID)
 			if err != nil {
@@ -1130,10 +1108,6 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 					return err
 				}
 				stats.JobsRetried++
-			case func() bool { _, excluded := stones.Excluded[current.SessionID]; return excluded }():
-				if _, err := transitionMemoryJob(brainDir, current, memoryJobStateExcluded, settledAt, ""); err != nil {
-					return err
-				}
 			default:
 				receipt, ok := receipts.receiptFor(current.SessionRef)
 				if ok && receipt.InputDigest == current.InputDigest {
@@ -1189,9 +1163,6 @@ func runMemoryAbstractLane(ctx context.Context, repoDir, brainDir string, now ti
 
 func runMemoryAbstractLaneWithClock(ctx context.Context, repoDir, brainDir string, clock memoryClock, owner string) (memoryWorkerStats, error) {
 	var stats memoryWorkerStats
-	if _, _, err := brainstore.LoadSessionTombstonesChecked(brainDir); err != nil {
-		return stats, err
-	}
 	var claimed *memoryJob
 	claimAt := memoryClockNow(clock)
 	err := brainstore.WithBrainWriteLock(brainDir, func() error {
@@ -1250,10 +1221,9 @@ func runMemoryAbstractLaneWithClock(ctx context.Context, repoDir, brainDir strin
 		return stats, err
 	}
 
-	// The provider holds only the dedicated privacy-side-effect lock. Ordinary
-	// Brain-locked deterministic work and cancellation requests can therefore
-	// continue while egress is in flight; privacy mutations serialize before
-	// their Brain lock so they cannot cross the irreversible provider boundary.
+	// The provider runs without the Brain lock, so ordinary Brain-locked
+	// deterministic work and cancellation requests continue while egress is in
+	// flight.
 	providerCtx, cancelProvider := context.WithCancel(ctx)
 	defer cancelProvider()
 	runDone := make(chan error, 1)
@@ -1333,9 +1303,6 @@ func runMemoryAbstractLaneWithClock(ctx context.Context, repoDir, brainDir strin
 	// retryable path still fires.
 	settleErr := runErr
 	err = brainstore.WithBrainWriteLock(brainDir, func() error {
-		if _, _, err := brainstore.LoadSessionTombstonesChecked(brainDir); err != nil {
-			return err
-		}
 		settledAt := memoryClockNow(clock)
 		current, err := memoryJobByID(brainDir, claimed.JobID)
 		if err != nil {
@@ -1441,12 +1408,6 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			}
 			if !local {
 				return fmt.Errorf("memory worker requires a local repository")
-			}
-			// Privacy policy is an input to every worker lane, including the
-			// export/delta prepass. Validate it before coordinator metadata or
-			// any derived state can be written.
-			if _, _, err := brainstore.LoadSessionTombstonesChecked(storage.BrainDir); err != nil {
-				return err
 			}
 			// Wait out everything beyond the last minute BEFORE taking the
 			// scheduler lease. Holding it across the whole wait made one

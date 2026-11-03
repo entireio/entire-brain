@@ -1,5 +1,10 @@
 # Pattern Consolidation Plan
 
+> Historical record: this document describes retired tooling and earlier product versions.
+> Python scripts, experiment runners, and their mise tasks are no longer available.
+> Use [the current Go checks](testing-for-optimization.md) for validation.
+> Retained measurements do not establish current behavior.
+
 This plan adds a pattern layer to Entire Brain: the brain notices repeated repository work, summarizes it with retained evidence, and forms selected patterns into reusable agent skills.
 
 The design keeps the public surface small and task-oriented. Internal terms should support the brain metaphor without leaking implementation details into the user workflow.

@@ -286,7 +286,7 @@ func TestWorkspaceGraphMatchesAdditionalPackageImportCandidates(t *testing.T) {
 			repoKey:       "pypi/acme-client",
 			targetName:    "transport",
 			qualifiedName: "transport",
-			filePath:      "acme_client/transport.py",
+			filePath:      "acme_client/transport.go",
 		},
 		{
 			name:          "cargo hyphen underscore alias",
@@ -719,7 +719,7 @@ func TestWorkspaceGraphImportCandidatesPreferImportedSymbols(t *testing.T) {
 					Kind:          "function",
 					Name:          "run",
 					QualifiedName: "service.run",
-					FilePath:      "service.py",
+					FilePath:      "service.go",
 				},
 				Count: 1,
 			}},
@@ -733,7 +733,7 @@ func TestWorkspaceGraphImportCandidatesPreferImportedSymbols(t *testing.T) {
 					Kind:          "module",
 					Name:          "auth",
 					QualifiedName: "auth",
-					FilePath:      "requests/auth.py",
+					FilePath:      "requests/auth.go",
 				},
 				{
 					RepoKey:       "pypi/requests",
@@ -741,13 +741,13 @@ func TestWorkspaceGraphImportCandidatesPreferImportedSymbols(t *testing.T) {
 					Kind:          "class",
 					Name:          "HTTPBasicAuth",
 					QualifiedName: "auth.HTTPBasicAuth",
-					FilePath:      "requests/auth.py",
+					FilePath:      "requests/auth.go",
 				},
 			},
 		},
 	}, 10)
 	if len(edges) != 1 {
-		t.Fatalf("python import symbol edges = %#v", edges)
+		t.Fatalf("Go import symbol edges = %#v", edges)
 	}
 	edge := edges[0]
 	if edge.RelationKind != "cross_repo_import_candidate" ||
@@ -755,7 +755,7 @@ func TestWorkspaceGraphImportCandidatesPreferImportedSymbols(t *testing.T) {
 		edge.ToRepo != "pypi/requests" ||
 		edge.ToSymbol.ID != "class:sym" ||
 		edge.ToSymbol.Direction != "import_symbol_target" {
-		t.Fatalf("unexpected python import symbol edge: %#v", edge)
+		t.Fatalf("unexpected Go import symbol edge: %#v", edge)
 	}
 }
 
@@ -820,7 +820,7 @@ func TestWorkspaceImportPathMatchesSubpath(t *testing.T) {
 		{path: "src/button.ts", subpath: "button", want: true},
 		{path: "src/api/routes.ts", subpath: "api/routes", want: true},
 		{path: "src/api/routes.ts", subpath: "routes", want: true},
-		{path: "requests/auth.py", subpath: "auth", want: true},
+		{path: "requests/auth.go", subpath: "auth", want: true},
 		{path: "tokio/sync/channel.rs", subpath: "sync::channel", want: true},
 		{path: "pkg/service.go", subpath: "v2/pkg", want: true},
 		{path: "src/alpha.ts", subpath: "button", want: false},
@@ -863,7 +863,7 @@ func TestWorkspaceGraphMatchesCanonicalRouteTemplateCalls(t *testing.T) {
 			Type:     "HANDLES_ROUTE",
 			Participants: []SymbolRef{{
 				RepoKey:       "local/other",
-				ID:            "local/other:py:routes.py:function:show_project",
+				ID:            "local/other:go:routes.go:function:show_project",
 				Kind:          "function",
 				Name:          "show_project",
 				QualifiedName: "routes.show_project",
@@ -904,7 +904,7 @@ func TestWorkspaceGraphMatchesTrailingSlashRouteCalls(t *testing.T) {
 			Type:     "HANDLES_ROUTE",
 			Participants: []SymbolRef{{
 				RepoKey:       "local/service",
-				ID:            "local/service:py:routes.py:function:health",
+				ID:            "local/service:go:routes.go:function:health",
 				Kind:          "function",
 				Name:          "health",
 				QualifiedName: "routes.health",
@@ -1133,7 +1133,7 @@ func TestWorkspaceGraphMatchesAdditionalPackageExternalSymbols(t *testing.T) {
 			repoKey:       "pypi/acme-client",
 			targetName:    "Client",
 			qualifiedName: "transport.Client",
-			filePath:      "acme_client/transport.py",
+			filePath:      "acme_client/transport.go",
 		},
 		{
 			name:          "cargo hyphen underscore alias",

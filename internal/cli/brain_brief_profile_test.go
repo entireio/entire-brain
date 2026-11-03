@@ -58,7 +58,7 @@ func newBrainBriefProfileFixture(t *testing.T) brainBriefProfileFixture {
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	if err := factstore.Write(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, []factRecord{fact}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 	if err := updateFactSourceManifest(storage.BrainDir, now); err != nil {

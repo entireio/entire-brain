@@ -180,57 +180,6 @@ func TestAbstractGuardPreventsCommit(t *testing.T) {
 	}
 }
 
-func TestHostedAbstractLinearizesProviderReceiptAndArtifactBeforePrivacyCleanup(t *testing.T) {
-	brainDir, _ := writeSessionNavigationFixture(t)
-	view := sessionViewForTest(t, brainDir)
-	now := time.Now().UTC()
-	oldFactory := memoryAbstractorFactory
-	defer func() { memoryAbstractorFactory = oldFactory }()
-	cleanupAttempted := make(chan struct{})
-	cleanupDone := make(chan error, 1)
-	memoryAbstractorFactory = func(memoryAbstractsConfig) (ConversationAbstractor, error) {
-		return &fakeAbstractor{hosted: true, beforeReturn: func() {
-			go func() {
-				close(cleanupAttempted)
-				cleanupDone <- brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error {
-					return brainstore.WithBrainWriteLock(brainDir, func() error {
-						plan, err := buildSessionPurgePlan(brainDir, "nav-sess")
-						if err != nil {
-							return err
-						}
-						return executeSessionCleanup(brainDir, "nav-sess", plan, now.Add(time.Second), "concurrent test", true)
-					})
-				})
-			}()
-			<-cleanupAttempted
-			select {
-			case err := <-cleanupDone:
-				t.Fatalf("privacy cleanup linearized during hosted provider call: %v", err)
-			case <-time.After(50 * time.Millisecond):
-			}
-		}}, nil
-	}
-	config := memoryConfig{SchemaVersion: memoryConfigSchemaVersion, Abstracts: memoryAbstractsConfig{
-		Enabled: true, Provider: "fake", HostedEgressAllowed: true,
-	}}
-	if _, err := generateSessionAbstractContextGuarded(context.Background(), t.TempDir(), brainDir, view, config, now, nil); err != nil {
-		t.Fatalf("privacy-linearized generation: %v", err)
-	}
-	if err := <-cleanupDone; err != nil {
-		t.Fatalf("concurrent privacy cleanup: %v", err)
-	}
-	receipts, err := loadAbstractEgressReceiptsChecked(brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(receipts) != 0 {
-		t.Fatalf("provider completion recreated a purged egress receipt: %+v", receipts)
-	}
-	if _, ok := loadSessionAbstract(brainDir, sessionViewDigest(view)); ok {
-		t.Fatal("provider completion published an abstract after privacy cleanup")
-	}
-}
-
 type fakeAbstractor struct {
 	fabricate    bool
 	hosted       bool
@@ -261,48 +210,6 @@ func (f *fakeAbstractor) Abstract(_ context.Context, _ string, input conversatio
 	return artifact, nil
 }
 
-func TestLocalAbstractLinearizesProviderAndPublicationBeforePurge(t *testing.T) {
-	brainDir, _ := writeSessionNavigationFixture(t)
-	view := sessionViewForTest(t, brainDir)
-	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
-	oldFactory := memoryAbstractorFactory
-	defer func() { memoryAbstractorFactory = oldFactory }()
-	purgeAttempted := make(chan struct{})
-	purgeDone := make(chan error, 1)
-	memoryAbstractorFactory = func(memoryAbstractsConfig) (ConversationAbstractor, error) {
-		return &fakeAbstractor{beforeReturn: func() {
-			go func() {
-				close(purgeAttempted)
-				purgeDone <- brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error {
-					return brainstore.WithBrainWriteLock(brainDir, func() error {
-						plan, err := buildSessionPurgePlan(brainDir, "nav-sess")
-						if err != nil {
-							return err
-						}
-						return executeSessionCleanup(brainDir, "nav-sess", plan, now, "race-test", true)
-					})
-				})
-			}()
-			<-purgeAttempted
-			select {
-			case err := <-purgeDone:
-				t.Fatalf("purge linearized during local provider call: %v", err)
-			case <-time.After(50 * time.Millisecond):
-			}
-		}}, nil
-	}
-	config := memoryConfig{SchemaVersion: memoryConfigSchemaVersion, Abstracts: memoryAbstractsConfig{Enabled: true, Provider: "fake"}}
-	if _, err := generateSessionAbstractContext(context.Background(), t.TempDir(), brainDir, view, config, now); err != nil {
-		t.Fatalf("privacy-linearized generation: %v", err)
-	}
-	if err := <-purgeDone; err != nil {
-		t.Fatalf("purge after provider publication: %v", err)
-	}
-	if _, ok := loadSessionAbstract(brainDir, sessionViewDigest(view)); ok {
-		t.Fatal("purged session content was republished by an in-flight provider")
-	}
-}
-
 func sessionViewForTest(t *testing.T, brainDir string) conversationSessionView {
 	t.Helper()
 	manifest, err := bmanifest.Load(brainDir)
@@ -313,11 +220,7 @@ func sessionViewForTest(t *testing.T, brainDir string) conversationSessionView {
 	if err != nil {
 		t.Fatal(err)
 	}
-	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	views := buildConversationSessionViews(fresh, manifest.RepoKey, manifest, guard)
+	views := buildConversationSessionViews(fresh, manifest.RepoKey, manifest)
 	if len(views) != 1 {
 		t.Fatalf("views = %d, want 1", len(views))
 	}
@@ -455,21 +358,6 @@ func TestSessionAbstractLifecycle(t *testing.T) {
 		t.Fatal("stale automatic session get did not durably enqueue abstract regeneration")
 	}
 
-	// Privacy: excluding the session removes its artifacts, and verify flags
-	// a survivor.
-	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		plan, planErr := buildSessionPurgePlan(brainDir, "nav-sess")
-		if planErr != nil {
-			return planErr
-		}
-		return executeSessionCleanup(brainDir, "nav-sess", plan, now.Add(2*time.Hour), "test", true)
-	}); err != nil {
-		t.Fatal(err)
-	}
-	entries, _ := os.ReadDir(filepath.Join(brainDir, filepath.FromSlash(abstractsDirRel)))
-	if len(entries) != 0 {
-		t.Fatalf("cleanup must remove the session's abstracts: %d left", len(entries))
-	}
 }
 
 func TestMemoryMigrateDetectsAndRepairsOldOverlay(t *testing.T) {

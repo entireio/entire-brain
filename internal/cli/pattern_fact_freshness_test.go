@@ -12,7 +12,7 @@ func TestPatternFactLinksRefreshWithoutTranscriptChanges(t *testing.T) {
 	now := time.Now()
 	d := writeEpisodeFixture(t, now, "gh/acme/cli", []sessionFixture{{id: "s1", branch: "main", relPath: "sessions/main/s1.jsonl", transcript: claudeReviewTranscript}})
 	f := factRecord{ID: "fact:a", Text: "review release readiness requires staging", Paths: []string{"release.validation"}, Branch: "main", Status: "active", Origin: "distilled"}
-	if err := factstore.Write(d, "main", []factRecord{f}); err != nil {
+	if err := factstore.Write(d, []factRecord{f}); err != nil {
 		t.Fatal(err)
 	}
 	if err := buildPatternCorpus(d, now); err != nil {
@@ -25,7 +25,7 @@ func TestPatternFactLinksRefreshWithoutTranscriptChanges(t *testing.T) {
 		t.Fatal("fixture has no links")
 	}
 	f.Status = "retracted"
-	if err := factstore.Write(d, "main", []factRecord{f}); err != nil {
+	if err := factstore.Write(d, []factRecord{f}); err != nil {
 		t.Fatal(err)
 	}
 	if err := buildPatternCorpus(d, now.Add(time.Hour)); err != nil {
@@ -41,7 +41,7 @@ func TestPatternFactLinksRefreshWithoutTranscriptChanges(t *testing.T) {
 	db.Close()
 	f.ID = "fact:new"
 	f.Status = "active"
-	if err := factstore.Write(d, "main", []factRecord{f}); err != nil {
+	if err := factstore.Write(d, []factRecord{f}); err != nil {
 		t.Fatal(err)
 	}
 	if err := buildPatternCorpus(d, now.Add(2*time.Hour)); err != nil {

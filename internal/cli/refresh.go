@@ -186,6 +186,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	storageTask.Update("locate brain: " + storage.Key)
 	storageTask.Finish(nil)
 	brainDir := storage.BrainDir
+	warnLegacyTombstones(cmd.ErrOrStderr(), brainDir)
 	if outputExplicit {
 		finishOutput := progress.Step("resolve output path")
 		brainDir, err = filepath.Abs(refreshOpts.outputDir)
@@ -486,13 +487,32 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			reportStageAndShouldAbort(brainComponentBranches, nil)
 		}
 	}
+	// Strict mirror: drop fact provenance, session abstracts, and egress
+	// receipts citing sessions gone from the checkpoint catalog; distilled
+	// facts left with no provenance are deleted. A partial catalog (branch
+	// scope or a checkpoint limit) makes this a no-op.
+	manifest, _ = bmanifest.Load(brainDir)
+	if manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
+		finishMirror := progress.Step("mirror checkpoint catalog")
+		if counts, err := mirrorBrainToCheckpointCatalog(brainDir, opts.Now().UTC()); err != nil {
+			finishMirror(err)
+			if reportStageAndShouldAbort(brainComponentFacts, err) {
+				return err
+			}
+		} else {
+			finishMirror(nil)
+			if !counts.empty() {
+				fmt.Fprintf(cmd.ErrOrStderr(), "mirror: removed %d memory(ies), %d anchor(s), %d abstract(s), %d egress receipt(s) for sessions no longer in the checkpoint catalog\n",
+					counts.FactsDeleted, counts.AnchorsStripped, counts.Abstracts, counts.EgressReceipts)
+			}
+		}
+	}
 	// Backfill deterministic fact kinds/locus when a fact store exists, so a kind
 	// distilled before kind-storage (or otherwise left empty) is repaired here
 	// rather than needing a manual `facts reclassify`. No agent, no tokens.
-	manifest, _ = bmanifest.Load(brainDir)
 	if manifest != nil && manifest.Sources != nil && manifest.Sources.Facts != nil {
 		finishReclass := progress.Step("reclassify facts")
-		if _, err := reclassifyAllFactBranches(brainDir, opts.Now().UTC()); err != nil {
+		if _, err := reclassifyAllFacts(brainDir, opts.Now().UTC()); err != nil {
 			finishReclass(err)
 			if reportStageAndShouldAbort(brainComponentFacts, err) {
 				return err
@@ -578,17 +598,8 @@ func historyIndexCurrent(brainDir string, manifest *exportManifest) bool {
 		return false
 	}
 	// Unsafe/unreadable entries are deliberately excluded by the same collector
-	// used to build the index. Comparing the safe included set keeps those
-	// exclusions fail-closed without forcing an endless rebuild.
-	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
-	if err != nil {
-		return false
-	}
-	excludedByPath, err := excludedTranscriptPathsChecked(brainDir, manifest, stones)
-	if err != nil {
-		return false
-	}
-	files, err := collectHistorySessionDigests(context.Background(), brainDir, excludedByPath)
+	// used to build the index.
+	files, err := collectHistorySessionDigests(context.Background(), brainDir)
 	if err != nil {
 		return false
 	}

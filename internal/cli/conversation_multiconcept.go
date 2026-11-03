@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"sort"
 	"strings"
 
@@ -98,18 +97,11 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 	if err != nil {
 		return nil, fmt.Errorf("load history index: %w", err)
 	}
-	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
-	if err != nil {
-		return nil, err
-	}
 	winners := fresh.duplicateRecordWinners()
 	filtered := opts.HasConversationOnlyFilters() || strings.TrimSpace(opts.Branch) != ""
 	// The predicate is always non-nil here: complete enumeration rides the
 	// same exhaustive-scan machinery as filtered single-concept search.
 	pred := func(r historyRecord) bool {
-		if historystore.GuardBlocksRecord(guard, r) {
-			return false
-		}
 		if w, ok := winners[recordReplacementKey(r)]; ok && !sameRecordCopy(w, r) {
 			return false
 		}

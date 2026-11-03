@@ -52,7 +52,7 @@ func TestWorkspaceCorpusSynapsesAndRun(t *testing.T) {
 	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
 	seedMemberCorpus(t, bDir, "gh/acme/b", "deploy:release", 4, "mise build", "mise deploy")
 	manifest := workspace.Manifest{Name: "plat", Repos: []workspace.Repo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
-	if _, err := patterncore.BuildWorkspaceCorpus(env, manifest, nil, time.Now()); err != nil {
+	if _, err := patterncore.BuildWorkspaceCorpus(env, manifest, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	wsDir, _ := workspace.DefaultStore(env).Dir("plat")
@@ -80,7 +80,7 @@ func TestWorkspaceCorpusHandlesMissingMember(t *testing.T) {
 		Name:  "plat",
 		Repos: []workspace.Repo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/missing"}},
 	}
-	counts, err := patterncore.BuildWorkspaceCorpus(env, manifest, nil, time.Now())
+	counts, err := patterncore.BuildWorkspaceCorpus(env, manifest, time.Now())
 	if err != nil {
 		t.Fatalf("missing member must not fail the build: %v", err)
 	}

@@ -29,7 +29,7 @@ func TestFactsStatusEmptyStoreJSON(t *testing.T) {
 	if report.RepoHead != "abc123abc123abc123abc123abc123abc123abcd" {
 		t.Fatalf("repo_head = %q", report.RepoHead)
 	}
-	if report.Branch != "main" || report.AllBranches {
+	if report.Branch != "" || report.AllBranches {
 		t.Fatalf("unexpected target: branch=%q all=%v", report.Branch, report.AllBranches)
 	}
 	if report.FactsArmReady {
@@ -58,14 +58,8 @@ func TestFactsStatusCountsBranchJSON(t *testing.T) {
 		factsStatusTestFact("Superseded mixed anchors.", "feature", factstore.OriginDistilled, factStatusSuperseded, now, []factAnchor{{SessionID: "s3", Verified: true}, {SessionID: "s4"}}),
 		factsStatusTestFact("Retracted authored fact.", "feature", factstore.OriginAuthored, factStatusRetracted, now, nil),
 	}
-	if err := factstore.Write(f.brainDir, "feature", records); err != nil {
+	if err := factstore.Write(f.brainDir, records); err != nil {
 		t.Fatalf("write facts: %v", err)
-	}
-	if err := writeFactProposals(f.brainDir, "feature", []factProposal{
-		{Action: factActionMerge, CandidateID: records[1].ID, TargetID: records[0].ID, Confidence: 0.61, Branch: "feature"},
-		{Action: factActionSupersede, CandidateID: records[2].ID, TargetID: records[0].ID, Confidence: 0.62, Branch: "feature"},
-	}); err != nil {
-		t.Fatalf("write proposals: %v", err)
 	}
 	if err := updateFactSourceManifest(f.brainDir, now); err != nil {
 		t.Fatalf("update manifest: %v", err)
@@ -92,7 +86,6 @@ func TestFactsStatusCountsBranchJSON(t *testing.T) {
 		Retracted:         1,
 		Distilled:         2,
 		Authored:          2,
-		Proposals:         2,
 		ProvenanceAnchors: 4,
 		VerifiedAnchors:   2,
 		UnsignedAnchors:   2,
@@ -100,7 +93,7 @@ func TestFactsStatusCountsBranchJSON(t *testing.T) {
 	if report.Totals != want {
 		t.Fatalf("totals = %+v, want %+v", report.Totals, want)
 	}
-	if report.ManifestFacts == nil || report.ManifestFacts.Facts != 4 || report.ManifestFacts.Proposals != 2 {
+	if report.ManifestFacts == nil || report.ManifestFacts.Facts != 4 {
 		t.Fatalf("manifest facts source missing counts: %+v", report.ManifestFacts)
 	}
 	if len(report.Warnings) != 0 {
@@ -113,11 +106,8 @@ func TestFactsStatusAllBranchesJSON(t *testing.T) {
 	now := f.now
 	mainFact := factsStatusTestFact("Main active fact.", "main", factstore.OriginDistilled, factStatusActive, now, []factAnchor{{SessionID: "m1"}})
 	featureFact := factsStatusTestFact("Feature superseded fact.", "feature", factstore.OriginAuthored, factStatusSuperseded, now, []factAnchor{{SessionID: "f1", Verified: true}})
-	if err := factstore.Write(f.brainDir, "main", []factRecord{mainFact}); err != nil {
-		t.Fatalf("write main facts: %v", err)
-	}
-	if err := factstore.Write(f.brainDir, "feature", []factRecord{featureFact}); err != nil {
-		t.Fatalf("write feature facts: %v", err)
+	if err := factstore.Write(f.brainDir, []factRecord{mainFact, featureFact}); err != nil {
+		t.Fatalf("write facts: %v", err)
 	}
 	if err := updateFactSourceManifest(f.brainDir, now); err != nil {
 		t.Fatalf("update manifest: %v", err)

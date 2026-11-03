@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"strings"
 
@@ -49,14 +48,8 @@ func runRecallEvidence(cmd *cobra.Command, brainDir, branch, query string, limit
 	if err := cmd.Context().Err(); err != nil {
 		return err
 	}
-	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
-	if err != nil {
-		return err
-	}
-	// Reuse the existing buffered privacy boundary: exclusions and cleanup
-	// cannot commit between checking the source and emitting its bytes.
-	// This path never invokes a provider or writes derived facts.
-	return runPrivacyLinearizedPatternMutation(cmd, []retrievalPrivacyPolicy{policy}, func() error {
+	// Read-only path: buffer the response so a render failure emits nothing.
+	return bufferRetrievalCommandOutput(cmd, func() error {
 		c, err := collectEvidence(cmd.Context(), brainDir, branch, query, limit, budget)
 		if err != nil {
 			return err

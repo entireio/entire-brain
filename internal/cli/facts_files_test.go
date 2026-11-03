@@ -765,7 +765,7 @@ func TestFactsFilesCommandPrintsCrossBranchWarnings(t *testing.T) {
 		t.Fatalf("seed export: %v", err)
 	}
 	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		return factstore.Write(brainDir, branch, []factRecord{
+		return factstore.Write(brainDir, []factRecord{
 			{ID: "fact:bbbb2222", Paths: []string{"constraints.retry.policy"}, Text: "Here.", Branch: branch, Status: factStatusActive, CreatedAt: now, UpdatedAt: now},
 		})
 	}); err != nil {

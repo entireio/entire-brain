@@ -41,7 +41,7 @@ func BenchmarkBrainBriefNestedTestPostprocess(b *testing.B) {
 
 // BenchmarkBrainBriefTestGuidanceScale covers both the one-target path and a
 // saturated mixed-language edit packet. The latter reaches the six-test cap
-// after six Java/Python/TypeScript targets while retaining another six edits,
+// after six Java/Go/TypeScript targets while retaining another six edits,
 // matching the bounded packet shape used by brain brief.
 func BenchmarkBrainBriefTestGuidanceScale(b *testing.B) {
 	repoDir := b.TempDir()
@@ -62,12 +62,12 @@ func BenchmarkBrainBriefTestGuidanceScale(b *testing.B) {
 			fmt.Sprintf("modules/java/src/test/java/com/acme/service%d/%sTest.java", i, javaName),
 		)
 
-		pythonName := fmt.Sprintf("service%d", i)
-		mixed = append(mixed, fmt.Sprintf("src/python%d/%s.py", i, pythonName))
+		goName := fmt.Sprintf("service%d", i)
+		mixed = append(mixed, fmt.Sprintf("src/go%d/%s.go", i, goName))
 		writeBrainBriefGuidanceBenchmarkFile(
 			b,
 			repoDir,
-			fmt.Sprintf("tests/python%d/test_%s.py", i, pythonName),
+			fmt.Sprintf("src/go%d/%s_test.go", i, goName),
 		)
 
 		typeScriptName := fmt.Sprintf("service%d", i)

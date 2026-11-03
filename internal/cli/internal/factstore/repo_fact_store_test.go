@@ -3,15 +3,12 @@ package factstore
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -27,266 +24,323 @@ func repoStoreFact(text, branch string) factmerge.Record {
 		Provenance: []factmerge.Anchor{{SessionID: "session-" + branch, Commit: "commit-" + branch}}}
 }
 
-func writeLegacyView(t *testing.T, root, branch string, records []factmerge.Record) {
+// writeLegacyFile plants a legacy branch NDJSON file the way pre-flat layouts
+// and released clients do. The dir name is arbitrary: folding reads every
+// facts/<dir>/facts.ndjson regardless of the slug that named it.
+func writeLegacyFile(t *testing.T, root, dir string, records []factmerge.Record) {
 	t.Helper()
 	var b bytes.Buffer
 	if err := factmerge.WriteNDJSON(&b, records); err != nil {
 		t.Fatal(err)
 	}
-	if err := brainstore.WriteBrainRelativeFileAtomic(root, FileRelPath(branch), b.Bytes(), 0o600); err != nil {
+	rel := filepath.ToSlash(filepath.Join(DirName, dir, FileName))
+	if err := brainstore.WriteBrainRelativeFileAtomic(root, rel, b.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func requireRepoView(t *testing.T, root, branch string, want []factmerge.Record) {
+func loadByID(t *testing.T, root string) map[string]factmerge.Record {
 	t.Helper()
-	got, err := Load(root, branch)
+	records, err := Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != len(want) {
-		t.Fatalf("%s: got %d records, want %d", branch, len(got), len(want))
+	out := make(map[string]factmerge.Record, len(records))
+	for _, rec := range records {
+		out[rec.ID] = rec
 	}
-	if len(want) > 0 && !reflect.DeepEqual(got, want) {
-		t.Fatalf("%s: got %#v, want %#v", branch, got, want)
-	}
+	return out
 }
 
-func TestRepoFactStoreMigrationPreservesViewsAndIsIdempotent(t *testing.T) {
-	root := t.TempDir()
-	main := repoStoreFact("shared statement", "main")
-	feature := main
-	feature.Status = factmerge.StatusRetracted
-	feature.Provenance = []factmerge.Anchor{{SessionID: "experiment", CheckpointID: "checkpoint"}}
-	feature.Author = "teammate"
-	feature.SupersededBy = "replacement"
-	feature.UpdatedAt = feature.UpdatedAt.Add(time.Hour)
-	candidate := repoStoreFact("unreviewed", "deleted/branch")
-	candidate.Status = factmerge.StatusCandidate
-	writeLegacyView(t, root, "main", []factmerge.Record{main})
-	// The directory is the view; record.Branch is deliberately different.
-	writeLegacyView(t, root, "feature", []factmerge.Record{feature, candidate})
-	writeLegacyView(t, root, "empty", nil)
-	legacy, _ := os.ReadFile(filepath.Join(root, FileRelPath("feature")))
-	if err := MigrateRepository(root); err != nil {
-		t.Fatal(err)
-	}
-	requireRepoView(t, root, "main", []factmerge.Record{main})
-	want := []factmerge.Record{feature, candidate}
-	factmerge.Sort(want)
-	requireRepoView(t, root, "feature", want)
-	requireRepoView(t, root, "empty", nil)
-	s, err := reconcileRepoFactStore(root)
-	if err != nil || len(s.Records) != 2 || len(s.Views) != 3 {
-		t.Fatalf("migration did not consolidate identities: %+v, %v", s, err)
-	}
-	before, _ := os.ReadFile(filepath.Join(root, RepositoryPath))
-	if err := MigrateRepository(root); err != nil {
-		t.Fatal(err)
-	}
-	after, _ := os.ReadFile(filepath.Join(root, RepositoryPath))
-	if !bytes.Equal(before, after) {
-		t.Fatal("migration is not a fixed point")
-	}
-	stillLegacy, _ := os.ReadFile(filepath.Join(root, FileRelPath("feature")))
-	if !bytes.Equal(legacy, stillLegacy) {
-		t.Fatal("migration changed the old binary's data")
-	}
-}
-
-func TestRepoFactStoreSchema1CoreWithoutCompatibility(t *testing.T) {
-	root := t.TempDir()
-	s := emptyRepoFactStore()
-	a := repoStoreFact("one", "main")
-	b := a
-	b.Branch = "experiment"
-	b.Provenance = nil
-	b.RelatedIDs = []string{"related"}
-	for dir, records := range map[string][]factmerge.Record{"main": {a}, "experiment": {b}} {
-		if err := s.replaceView(dir, records, ""); err != nil {
-			t.Fatal(err)
-		}
-	}
-	writeSchema1Snapshot(t, root, s)
-	roundTrip, _, err := readRepoFactStore(root)
+func legacyDirsOnDisk(t *testing.T, root string) []string {
+	t.Helper()
+	dirs, err := legacyBranchDirs(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := roundTrip.view("experiment")
-	if err != nil || !reflect.DeepEqual(got, []factmerge.Record{b}) || len(roundTrip.Records) != 1 {
-		t.Fatalf("core round trip: %+v, %v", got, err)
-	}
-	if err := roundTrip.replaceView("main", nil, ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeRepoFactStore(root, &roundTrip); err != nil {
-		t.Fatal(err)
-	}
-	if len(roundTrip.Records) != 1 {
-		t.Fatal("removing one view removed another view's body")
-	}
-	if err := roundTrip.replaceView("experiment", nil, ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeRepoFactStore(root, &roundTrip); err != nil || len(roundTrip.Records) != 0 {
-		t.Fatalf("unreferenced bodies survived compaction: %v", err)
-	}
+	return dirs
 }
 
-func TestRepoFactStoreInterruptedCommitRecoversFromLegacyRedo(t *testing.T) {
-	root := t.TempDir()
-	old := repoStoreFact("before", "main")
-	if err := Write(root, "main", []factmerge.Record{old}); err != nil {
+func parkedDirs(t *testing.T, root string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(root, DirName))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
 		t.Fatal(err)
 	}
-	next := repoStoreFact("after", "main")
-	injected := errors.New("injected disk failure after projection commit")
-	err := commitRepoFactView(root, repoFactViewDir("main"), []factmerge.Record{old, next}, func(string, *repoFactStore) error { return injected })
-	if !errors.Is(err, injected) {
-		t.Fatalf("failure was hidden: %v", err)
-	}
-	want := []factmerge.Record{old, next}
-	factmerge.Sort(want)
-	requireRepoView(t, root, "main", want)
-	if err := MigrateRepository(root); err != nil {
-		t.Fatal(err)
-	}
-	requireRepoView(t, root, "main", want)
-}
-
-func TestRepoFactStoreSchema1ProjectionDeletionAndExplicitDeletion(t *testing.T) {
-	root := t.TempDir()
-	a := repoStoreFact("retained body", "main")
-	if err := Write(root, "main", []factmerge.Record{a}); err != nil {
-		t.Fatal(err)
-	}
-	writeSchema1FromLegacy(t, root)
-	if err := os.Remove(filepath.Join(root, FileRelPath("main"))); err != nil {
-		t.Fatal(err)
-	}
-	requireRepoView(t, root, "main", []factmerge.Record{a})
-	writeLegacyView(t, root, "main", nil)
-	requireRepoView(t, root, "main", nil)
-	if err := MigrateRepository(root); err != nil {
-		t.Fatal(err)
-	}
-	s, _, _ := readRepoFactStore(root)
-	if len(s.Records) != 0 {
-		t.Fatal("explicit legacy deletion retained the body")
-	}
-}
-
-func TestRepoFactStoreSchema1RetirementReplayAndReauthor(t *testing.T) {
-	root := t.TempDir()
-	a := repoStoreFact("lifecycle", "main")
-	retired := a
-	retired.Status = factmerge.StatusRetracted
-	retired.UpdatedAt = a.UpdatedAt.Add(time.Hour)
-	if err := Write(root, "main", []factmerge.Record{retired}); err != nil {
-		t.Fatal(err)
-	}
-	writeSchema1FromLegacy(t, root)
-	writeLegacyView(t, root, "main", []factmerge.Record{a})
-	requireRepoView(t, root, "main", []factmerge.Record{retired})
-	a.UpdatedAt = retired.UpdatedAt.Add(time.Hour)
-	writeLegacyView(t, root, "main", []factmerge.Record{a})
-	requireRepoView(t, root, "main", []factmerge.Record{a})
-}
-
-func TestRepoFactStoreRejectsUnsafeOrForwardStateBeforeWritingLegacy(t *testing.T) {
-	for _, kind := range []string{"future", "unknown", "corrupt", "dangling", "missing-version", "missing-records", "symlink", "directory"} {
-		t.Run(kind, func(t *testing.T) {
-			root := t.TempDir()
-			a := repoStoreFact("do not overwrite", "main")
-			writeLegacyView(t, root, "main", []factmerge.Record{a})
-			path := filepath.Join(root, RepositoryPath)
-			switch kind {
-			case "symlink":
-				if err := os.Symlink(filepath.Join(t.TempDir(), "outside"), path); err != nil {
-					t.Skipf("symlinks unavailable: %v", err)
-				}
-			case "directory":
-				if err := os.Mkdir(path, 0o700); err != nil {
-					t.Fatal(err)
-				}
-			default:
-				data := map[string]string{
-					"future":          `{"schema_version":999,"records":{},"views":{}}`,
-					"unknown":         `{"schema_version":1,"records":{},"views":{},"new_field":true}`,
-					"corrupt":         `{`,
-					"dangling":        `{"schema_version":1,"records":{},"views":{"main":{"entries":[{"id":"missing"}]}}}`,
-					"missing-version": `{"records":{},"views":{}}`,
-					"missing-records": `{"schema_version":1,"views":{}}`,
-				}[kind]
-				if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			before, _ := os.ReadFile(filepath.Join(root, FileRelPath("main")))
-			if err := Write(root, "main", nil); err == nil {
-				t.Fatal("unsafe store was overwritten")
-			}
-			after, _ := os.ReadFile(filepath.Join(root, FileRelPath("main")))
-			if !bytes.Equal(before, after) {
-				t.Fatal("refused write changed legacy data")
-			}
-		})
-	}
-}
-
-func TestRepoFactStoreRollbackPreservesNewAndOldWrites(t *testing.T) {
-	root := t.TempDir()
-	a, b := repoStoreFact("old", "main"), repoStoreFact("new", "feature")
-	writeLegacyView(t, root, "main", []factmerge.Record{a})
-	if err := Write(root, "feature", []factmerge.Record{b}); err != nil {
-		t.Fatal(err)
-	}
-	a.Status = factmerge.StatusRetracted
-	a.UpdatedAt = a.UpdatedAt.Add(time.Hour)
-	writeLegacyView(t, root, "main", []factmerge.Record{a})
-	if err := RollbackRepository(root); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(root, RepositoryPath)); !os.IsNotExist(err) {
-		t.Fatalf("snapshot survived rollback: %v", err)
-	}
-	requireRepoView(t, root, "main", []factmerge.Record{a})
-	requireRepoView(t, root, "feature", []factmerge.Record{b})
-	if err := MigrateRepository(root); err != nil {
-		t.Fatal(err)
-	}
-	requireRepoView(t, root, "main", []factmerge.Record{a})
-	requireRepoView(t, root, "feature", []factmerge.Record{b})
-}
-
-func TestRepoFactStoreConcurrentViewsDoNotLoseUpdates(t *testing.T) {
-	root := t.TempDir()
-	const workers = 12
-	errs := make(chan error, workers)
-	var wg sync.WaitGroup
-	for i := range workers {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			branch := fmt.Sprintf("worktree-%d", i)
-			errs <- Write(root, branch, []factmerge.Record{repoStoreFact(branch, branch)})
-		}(i)
-	}
-	wg.Wait()
-	close(errs)
-	for err := range errs {
-		if err != nil {
-			t.Fatal(err)
+	var parked []string
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), legacyParkPrefix) {
+			parked = append(parked, entry.Name())
 		}
 	}
-	s, err := reconcileRepoFactStore(root)
-	if err != nil || len(s.Records) != workers || len(s.Views) != workers {
-		t.Fatalf("lost concurrent writes: %d records, %v", len(s.Records), err)
+	return parked
+}
+
+func TestFlatStoreRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	a := repoStoreFact("first memory", "main")
+	b := repoStoreFact("second memory", "feature")
+	if err := Write(root, []factmerge.Record{a, b}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d records, want 2: %+v", len(got), got)
+	}
+	byID := loadByID(t, root)
+	if byID[a.ID].Text != a.Text || byID[a.ID].Branch != "main" ||
+		len(byID[a.ID].Provenance) != 1 || byID[a.ID].Provenance[0].SessionID != "session-main" {
+		t.Fatalf("payload fields lost: %+v", byID[a.ID])
+	}
+	if byID[b.ID].Branch != "feature" {
+		t.Fatalf("branch metadata lost: %+v", byID[b.ID])
 	}
 }
 
-// Run via scripts/test-memory-storage-compat.sh, which builds a pinned released
-// binary. Ordinary unit tests do not fetch/build historical dependencies.
+func TestFlatStoreLoadMissingIsEmpty(t *testing.T) {
+	records, err := Load(t.TempDir())
+	if err != nil || len(records) != 0 {
+		t.Fatalf("missing store should be empty: %v, %v", records, err)
+	}
+}
+
+func TestFlatStoreForwardVersionFailsClosed(t *testing.T) {
+	root := t.TempDir()
+	forward := []byte(`{"schema_version":99,"records":{}}` + "\n")
+	if err := brainstore.WriteBrainRelativeFileAtomic(root, RepositoryPath, forward, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(root); err == nil || !strings.Contains(err.Error(), "newer than supported") {
+		t.Fatalf("forward-version load must fail closed, got %v", err)
+	}
+	if err := Write(root, []factmerge.Record{repoStoreFact("clobber", "main")}); err == nil {
+		t.Fatal("write must refuse to replace a newer store")
+	}
+	if _, err := MigrateRepository(root); err == nil {
+		t.Fatal("migration must refuse a newer store")
+	}
+	after, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(RepositoryPath)))
+	if err != nil || !bytes.Equal(after, forward) {
+		t.Fatalf("a newer store was modified: %v", err)
+	}
+}
+
+func TestFlatStoreCorruptionFailsClosed(t *testing.T) {
+	root := t.TempDir()
+	if err := brainstore.WriteBrainRelativeFileAtomic(root, RepositoryPath, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(root); err == nil {
+		t.Fatal("corrupt store must fail closed")
+	}
+
+	// A key standing over another record's body is a substitution: the fact
+	// the key names is gone, and the store must say so rather than serve it.
+	root = t.TempDir()
+	a := repoStoreFact("kept memory", "main")
+	b := repoStoreFact("overwritten memory", "main")
+	raw, err := json.Marshal(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := fmt.Sprintf(`{"schema_version":3,"records":{%q:%s,%q:%s}}`, a.ID, raw, b.ID, raw)
+	if err := brainstore.WriteBrainRelativeFileAtomic(root, RepositoryPath, []byte(store), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(root); err == nil || !strings.Contains(err.Error(), "carries id") {
+		t.Fatalf("substituted record must fail closed, got %v", err)
+	}
+}
+
+func TestFlatStoreWriteRefusesRecordWithoutID(t *testing.T) {
+	root := t.TempDir()
+	if err := Write(root, []factmerge.Record{{Text: "no id"}}); err == nil {
+		t.Fatal("a record without an id is unaddressable and must be refused")
+	}
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(RepositoryPath))); !os.IsNotExist(err) {
+		t.Fatalf("refused write must not create a store: %v", err)
+	}
+}
+
+func TestFlatStoreWriteParksLegacyDirs(t *testing.T) {
+	root := t.TempDir()
+	legacy := repoStoreFact("legacy memory", "main")
+	writeLegacyFile(t, root, "main-abc123", []factmerge.Record{legacy})
+
+	// The caller's contract: load (which folds legacy), mutate, write.
+	records, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := repoStoreFact("fresh memory", "main")
+	if err := Write(root, append(records, fresh)); err != nil {
+		t.Fatal(err)
+	}
+	if dirs := legacyDirsOnDisk(t, root); len(dirs) != 0 {
+		t.Fatalf("legacy dirs must be parked after a write: %v", dirs)
+	}
+	if parked := parkedDirs(t, root); len(parked) != 1 {
+		t.Fatalf("legacy dir must be parked, not deleted: %v", parked)
+	}
+	byID := loadByID(t, root)
+	if _, ok := byID[legacy.ID]; !ok {
+		t.Fatalf("legacy record lost: %+v", byID)
+	}
+	if _, ok := byID[fresh.ID]; !ok {
+		t.Fatalf("fresh record lost: %+v", byID)
+	}
+}
+
+func TestFlatStoreLoadFoldsLegacyWithoutWriting(t *testing.T) {
+	root := t.TempDir()
+	marker := []byte(`{"schema_version":2,"storage":"legacy_views"}` + "\n")
+	if err := brainstore.WriteBrainRelativeFileAtomic(root, RepositoryPath, marker, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	shared := repoStoreFact("shared memory", "main")
+	mirrored := shared
+	mirrored.Branch = "feature"
+	mirrored.Provenance = []factmerge.Anchor{{SessionID: "session-feature", Commit: "commit-feature"}}
+	other := repoStoreFact("feature memory", "feature")
+	writeLegacyFile(t, root, "main-abc123", []factmerge.Record{shared})
+	writeLegacyFile(t, root, "feature-def456", []factmerge.Record{mirrored, other})
+
+	byID := loadByID(t, root)
+	if len(byID) != 2 {
+		t.Fatalf("expected the shared id to fold once: %+v", byID)
+	}
+	if got := byID[shared.ID]; len(got.Provenance) != 2 {
+		t.Fatalf("fold must union provenance across copies: %+v", got.Provenance)
+	}
+
+	// Load is read-only: the marker and the legacy files are untouched.
+	after, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(RepositoryPath)))
+	if err != nil || !bytes.Equal(after, marker) {
+		t.Fatalf("load mutated the store file: %v", err)
+	}
+	if dirs := legacyDirsOnDisk(t, root); len(dirs) != 2 {
+		t.Fatalf("load must not move legacy dirs: %v", dirs)
+	}
+}
+
+func TestFlatStoreSchema2MarkerValidation(t *testing.T) {
+	root := t.TempDir()
+	if err := brainstore.WriteBrainRelativeFileAtomic(root, RepositoryPath, []byte(`{"schema_version":2,"storage":"something_else"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(root); err == nil || !strings.Contains(err.Error(), "storage mode") {
+		t.Fatalf("invalid marker must fail closed, got %v", err)
+	}
+}
+
+func TestRepositoryStatusReportsWithoutWriting(t *testing.T) {
+	root := t.TempDir()
+	writeLegacyFile(t, root, "main-abc123", []factmerge.Record{repoStoreFact("legacy memory", "main")})
+	status, err := RepositoryStatus(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Records != 1 || status.Views != 1 || !status.Compatibility || status.Format != "legacy" {
+		t.Fatalf("legacy status wrong: %+v", status)
+	}
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(RepositoryPath))); !os.IsNotExist(err) {
+		t.Fatalf("status must not write the store: %v", err)
+	}
+	if _, err := MigrateRepository(root); err != nil {
+		t.Fatal(err)
+	}
+	status, err = RepositoryStatus(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Records != 1 || status.Views != 0 || status.Compatibility || status.Format != "repository" || status.SchemaVersion != repoFactsVersion {
+		t.Fatalf("migrated status wrong: %+v", status)
+	}
+}
+
+// Randomized no-loss walk: whatever mix of flat writes and legacy files lands
+// on disk, every id ever written stays loadable, and migration never loses one.
+func TestFlatStoreRandomizedLegacyAndFlatMutations(t *testing.T) {
+	root := t.TempDir()
+	rng := rand.New(rand.NewPCG(42, 73))
+	wanted := map[string]bool{}
+	for step := 0; step < 60; step++ {
+		text := fmt.Sprintf("memory %d", rng.IntN(20))
+		branch := fmt.Sprintf("branch-%d", rng.IntN(3))
+		rec := repoStoreFact(text, branch)
+		rec.UpdatedAt = rec.UpdatedAt.Add(time.Duration(step) * time.Minute)
+		wanted[rec.ID] = true
+		if rng.IntN(2) == 0 {
+			// One dir per write: a real legacy writer appends to its branch
+			// file, and this fixture must never overwrite earlier records.
+			writeLegacyFile(t, root, fmt.Sprintf("dir-%d", step), []factmerge.Record{rec})
+		} else {
+			records, err := Load(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := Write(root, append(records, rec)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if step%7 == 0 {
+			if _, err := MigrateRepository(root); err != nil {
+				t.Fatal(err)
+			}
+		}
+		byID := loadByID(t, root)
+		for id := range wanted {
+			if _, ok := byID[id]; !ok {
+				t.Fatalf("step %d lost %s", step, id)
+			}
+		}
+	}
+	if _, err := MigrateRepository(root); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(loadByID(t, root)); got != len(wanted) {
+		t.Fatalf("got %d records, want %d", got, len(wanted))
+	}
+}
+
+func FuzzFlatStoreRoundTrip(f *testing.F) {
+	f.Add("remember this", "main", 0)
+	f.Add("remember that", "feature/x", 2)
+	statuses := []string{factmerge.StatusActive, factmerge.StatusRetracted, factmerge.StatusCandidate, factmerge.StatusSuperseded}
+	f.Fuzz(func(t *testing.T, text, branch string, statusIdx int) {
+		if strings.TrimSpace(text) == "" {
+			t.Skip()
+		}
+		root := t.TempDir()
+		rec := repoStoreFact(text, branch)
+		rec.Status = statuses[((statusIdx%len(statuses))+len(statuses))%len(statuses)]
+		if err := Write(root, []factmerge.Record{rec}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := Load(root)
+		if err != nil || len(got) != 1 {
+			t.Fatalf("round trip: %v %v", got, err)
+		}
+		if got[0].ID != rec.ID || got[0].Text != rec.Text || got[0].Branch != rec.Branch || got[0].Status != rec.Status {
+			t.Fatalf("round trip mismatch: %+v vs %+v", got[0], rec)
+		}
+	})
+}
+
+// --- released-binary coverage (scripts/test-memory-storage-compat.sh) --------
+//
+// These exercise the one-way door against REAL released binaries: a pre-flat
+// client keeps reading and writing legacy branch files — even after migration,
+// because its write path appends before its manifest check fails — and the
+// flat store folds whatever it wrote. CLI-level behavior of the CURRENT binary
+// (recall output, command surface) is covered by the released-compat suite in
+// internal/cli, not here.
 
 func TestRepoFactStoreReleasedBinary(t *testing.T) {
 	if os.Getenv("ENTIRE_BRAIN_TEST_LEGACY_VERSION") == "v0.1.0" {
@@ -299,193 +353,117 @@ func TestRepoFactStoreReleasedBinary(t *testing.T) {
 	root := t.TempDir()
 	data := filepath.Join(root, "data")
 	env := append(os.Environ(), "ENTIRE_PLUGIN_DATA_DIR="+data, "ENTIRE_PLUGIN_CACHE_DIR="+filepath.Join(root, "cache"), "ENTIRE_PLUGIN_STATE_DIR="+filepath.Join(root, "state"), "ENTIRE_PLUGIN_CONFIG_DIR="+filepath.Join(root, "config"))
-	run := func(args ...string) []byte {
+	run := func(check func(error, []byte) bool, args ...string) []byte {
 		t.Helper()
 		cmd := exec.Command(binary, args...)
 		cmd.Dir, cmd.Env = root, env
 		out, err := cmd.CombinedOutput()
-		if err != nil {
+		if check == nil && err != nil {
 			t.Fatalf("released CLI %v: %v\n%s", args, err, out)
+		}
+		if check != nil && !check(err, out) {
+			t.Fatalf("released CLI %v unexpected result: %v\n%s", args, err, out)
 		}
 		return out
 	}
 	var old factmerge.Record
-	if err := json.Unmarshal(run("remember", "old binary memory", "--global", "--path", "project.memory.storage", "--json"), &old); err != nil {
+	if err := json.Unmarshal(run(nil, "remember", "old binary memory", "--global", "--path", "project.memory.storage", "--json"), &old); err != nil {
 		t.Fatal(err)
 	}
+	run(nil, "memories", "retract", old.ID, "--global", "--json")
 	brain := filepath.Join(data, globalStoreDirName)
-	if err := MigrateRepository(brain); err != nil {
-		t.Fatal(err)
+
+	// Pre-migration: the fold sees the released client's write AND its
+	// retraction (retirement wins over nothing here; it is simply the record).
+	byID := loadByID(t, brain)
+	if got, ok := byID[old.ID]; !ok || got.Status != factmerge.StatusRetracted {
+		t.Fatalf("released write/retraction not folded: %+v", byID)
 	}
-	fresh := repoStoreFact("new binary memory", GlobalBranch)
-	if err := Write(brain, GlobalBranch, []factmerge.Record{old, fresh}); err != nil {
-		t.Fatal(err)
-	}
-	out := run("memories", "global", "--json")
-	if !strings.Contains(string(out), fresh.ID) {
-		t.Fatalf("old reader missed new memory: %s", out)
-	}
-	run("memories", "retract", old.ID, "--global", "--json")
-	got, err := Load(brain, GlobalBranch)
+
+	summary, err := MigrateRepository(brain)
 	if err != nil {
 		t.Fatal(err)
 	}
-	idx := factmerge.IndexOf(got, old.ID)
-	if idx < 0 || got[idx].Status != factmerge.StatusRetracted {
-		t.Fatalf("old retraction lost: %+v", got)
+	if summary.Folded == 0 || len(summary.MovedDirs) == 0 {
+		t.Fatalf("migration did not fold the released client's store: %+v", summary)
 	}
-	if err := RollbackRepository(brain); err != nil {
-		t.Fatal(err)
-	}
-	run("remember", "after downgrade", "--global", "--path", "project.memory.storage", "--json")
-	if err := MigrateRepository(brain); err != nil {
-		t.Fatal(err)
-	}
-	got, err = Load(brain, GlobalBranch)
-	if err != nil || len(got) != 3 {
-		t.Fatalf("upgrade/downgrade lost records: %+v, %v", got, err)
-	}
-}
 
-func TestRepoFactStoreRandomizedLegacyAndNativeMutations(t *testing.T) {
-	root := t.TempDir()
-	rng := rand.New(rand.NewPCG(42, 73))
-	model := map[string][]factmerge.Record{}
-	for step := 0; step < 100; step++ {
-		branch := fmt.Sprintf("branch-%d", rng.IntN(4))
-		records := append([]factmerge.Record(nil), model[branch]...)
-		if len(records) > 0 && rng.IntN(4) == 0 {
-			records = records[1:]
-		} else {
-			rec := repoStoreFact(fmt.Sprintf("shared-%d", rng.IntN(8)), branch)
-			rec.UpdatedAt = rec.UpdatedAt.Add(time.Duration(step+1) * time.Hour)
-			rec.Status = []string{factmerge.StatusActive, factmerge.StatusRetracted, factmerge.StatusCandidate, factmerge.StatusSuperseded}[rng.IntN(4)]
-			if i := factmerge.IndexOf(records, rec.ID); i >= 0 {
-				records[i] = rec
-			} else {
-				records = append(records, rec)
-			}
-		}
-		factmerge.Sort(records)
-		model[branch] = records
-		if rng.IntN(2) == 0 {
-			writeLegacyView(t, root, branch, records)
-		} else if err := Write(root, branch, records); err != nil {
-			t.Fatal(err)
-		}
-		for view, want := range model {
-			requireRepoView(t, root, view, want)
-		}
-		if step%7 == 0 {
-			if err := MigrateRepository(root); err != nil {
-				t.Fatal(err)
-			}
-		}
+	// Post-migration: the released client's next write is a straggler in a
+	// fresh legacy file (its own layout), and the standing reconcile folds it.
+	// Its command may fail on the manifest step AFTER writing; both outcomes
+	// leave the record on disk (verified against v0.2.0 and v0.4.0).
+	run(func(error, []byte) bool { return true }, "remember", "straggler memory", "--global", "--path", "project.memory.storage", "--json")
+	if dirs := legacyDirsOnDisk(t, brain); len(dirs) == 0 {
+		t.Skip("this released client stopped writing legacy files post-migration; straggler path not reachable")
 	}
-	if err := MigrateRepository(root); err != nil {
-		t.Fatal(err)
-	}
-	s, err := reconcileRepoFactStore(root)
+	summary, err = MigrateRepository(brain)
 	if err != nil {
 		t.Fatal(err)
 	}
-	distinct := map[string]bool{}
-	for _, records := range model {
-		for _, rec := range records {
-			distinct[rec.ID] = true
+	if summary.StragglerFiles == 0 {
+		t.Fatalf("straggler write was not reported: %+v", summary)
+	}
+	byID = loadByID(t, brain)
+	found := false
+	for _, rec := range byID {
+		if rec.Text == "straggler memory" {
+			found = true
 		}
 	}
-	if len(s.Records) != len(distinct) {
-		t.Fatalf("duplicate/orphan bodies: got %d want %d", len(s.Records), len(distinct))
+	if !found {
+		t.Fatalf("straggler memory not folded: %+v", byID)
 	}
-}
-
-func TestRepoFactStoreCrashAfterProjection(t *testing.T) {
-	if root := os.Getenv("ENTIRE_BRAIN_TEST_CRASH_STORE"); root != "" {
-		a := repoStoreFact("survives process death", "main")
-		_ = commitRepoFactView(root, repoFactViewDir("main"), []factmerge.Record{a}, func(string, *repoFactStore) error { os.Exit(23); return nil })
-		os.Exit(24)
-	}
-	root := t.TempDir()
-	if err := Write(root, "main", nil); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestRepoFactStoreCrashAfterProjection$")
-	cmd.Env = append(os.Environ(), "ENTIRE_BRAIN_TEST_CRASH_STORE="+root)
-	err := cmd.Run()
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 23 {
-		t.Fatalf("child did not reach crash boundary: %v", err)
-	}
-	requireRepoView(t, root, "main", []factmerge.Record{repoStoreFact("survives process death", "main")})
-	if err := MigrateRepository(root); err != nil {
-		t.Fatal(err)
-	}
-	if err := RollbackRepository(root); err != nil {
-		t.Fatal(err)
-	}
-	requireRepoView(t, root, "main", []factmerge.Record{repoStoreFact("survives process death", "main")})
 }
 
 func TestRepoFactStoreReleasedMixedProcesses(t *testing.T) {
 	if os.Getenv("ENTIRE_BRAIN_TEST_LEGACY_VERSION") == "v0.1.0" {
 		t.Skip("v0.1.0 has no global memory store; repository compatibility is tested separately")
 	}
-	old, current := os.Getenv("ENTIRE_BRAIN_TEST_LEGACY_BINARY"), os.Getenv("ENTIRE_BRAIN_TEST_BINARY")
-	if old == "" || current == "" {
+	old := os.Getenv("ENTIRE_BRAIN_TEST_LEGACY_BINARY")
+	if old == "" {
 		t.Skip("run scripts/test-memory-storage-compat.sh")
 	}
 	root := t.TempDir()
 	env := append(os.Environ(), "ENTIRE_PLUGIN_DATA_DIR="+filepath.Join(root, "data"), "ENTIRE_PLUGIN_CACHE_DIR="+filepath.Join(root, "cache"), "ENTIRE_PLUGIN_STATE_DIR="+filepath.Join(root, "state"), "ENTIRE_PLUGIN_CONFIG_DIR="+filepath.Join(root, "config"))
 	const writers = 8
-	errs := make(chan error, writers)
-	var wg sync.WaitGroup
+	brain := filepath.Join(root, "data", globalStoreDirName)
 	for i := range writers {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			binary := current
-			if i%2 == 0 {
-				binary = old
-			}
-			cmd := exec.Command(binary, "remember", fmt.Sprintf("mixed writer %d", i), "--global", "--path", "project.memory.storage", "--json")
+		// Interleave released-client writes with flat-store writes the way a
+		// half-upgraded machine does. Serial on purpose: the released client
+		// serializes on the brain write lock it takes itself; the flat write
+		// here stands in for the flipped CLI, whose callers hold that lock.
+		if i%2 == 0 {
+			cmd := exec.Command(old, "remember", fmt.Sprintf("mixed writer %d", i), "--global", "--path", "project.memory.storage", "--json")
 			cmd.Dir, cmd.Env = root, env
-			out, err := cmd.CombinedOutput()
-			if err != nil {
-				errs <- fmt.Errorf("writer %d: %w: %s", i, err, out)
-			} else {
-				errs <- nil
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("writer %d: %v: %s", i, err, out)
 			}
-		}(i)
-	}
-	wg.Wait()
-	close(errs)
-	for err := range errs {
+			continue
+		}
+		records, err := Load(brain)
 		if err != nil {
 			t.Fatal(err)
 		}
-	}
-	brain := filepath.Join(root, "data", globalStoreDirName)
-	got, err := Load(brain, GlobalBranch)
-	if err != nil || len(got) != writers {
-		t.Fatalf("lost mixed-process writes: %d, %v", len(got), err)
-	}
-	for _, action := range []string{"migrate", "rollback", "rollback", "migrate"} {
-		cmd := exec.Command(current, "memories", "storage", action, "--global", "--json")
-		cmd.Dir, cmd.Env = root, env
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("%s: %v: %s", action, err, out)
+		if err := Write(brain, append(records, repoStoreFact(fmt.Sprintf("mixed writer %d", i), GlobalBranch))); err != nil {
+			t.Fatal(err)
 		}
 	}
-	got, err = Load(brain, GlobalBranch)
-	if err != nil || len(got) != writers {
-		t.Fatalf("lost rollback writes: %d, %v", len(got), err)
+	if got := len(loadByID(t, brain)); got != writers {
+		t.Fatalf("lost mixed-process writes: %d of %d", got, writers)
+	}
+	for range 2 {
+		if _, err := MigrateRepository(brain); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := len(loadByID(t, brain)); got != writers {
+		t.Fatalf("migration lost mixed-process writes: %d of %d", got, writers)
 	}
 }
 
 func TestRepoFactStoreReleasedRepositoryVisibility(t *testing.T) {
-	old, current := os.Getenv("ENTIRE_BRAIN_TEST_LEGACY_BINARY"), os.Getenv("ENTIRE_BRAIN_TEST_BINARY")
-	if old == "" || current == "" {
+	old := os.Getenv("ENTIRE_BRAIN_TEST_LEGACY_BINARY")
+	if old == "" {
 		t.Skip("run scripts/test-memory-storage-compat.sh")
 	}
 	root := t.TempDir()
@@ -512,243 +490,38 @@ func TestRepoFactStoreReleasedRepositoryVisibility(t *testing.T) {
 	if err := json.Unmarshal(run(old, "remember", "repository main assertion", "--path", "project.memory.storage", "--json"), &a); err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal(run(current, "remember", "repository feature assertion", "--branch", "feature", "--path", "project.memory.storage", "--json"), &b); err != nil {
+	if err := json.Unmarshal(run(old, "remember", "repository feature assertion", "--branch", "feature", "--path", "project.memory.storage", "--json"), &b); err != nil {
 		t.Fatal(err)
 	}
-	for _, binary := range []string{old, current} {
-		out := run(binary, "recall", "--branch", "main", "--json")
-		if !bytes.Contains(out, []byte(a.ID)) || bytes.Contains(out, []byte(b.ID)) {
-			t.Fatalf("main visibility changed: %s", out)
-		}
-		out = run(binary, "recall", "--branch", "feature", "--json")
-		if !bytes.Contains(out, []byte(b.ID)) || bytes.Contains(out, []byte(a.ID)) {
-			t.Fatalf("feature visibility changed: %s", out)
-		}
-	}
-	// v0.1.0 supports manifest schema 3. Existing releases already write
-	// schema 4, so v0.1.0 is an upgrade source and legacy reader, not a
-	// supported mixed writer or full downgrade destination.
-	retractor := old
-	if os.Getenv("ENTIRE_BRAIN_TEST_LEGACY_VERSION") == "v0.1.0" {
-		retractor = current
-		cmd := exec.Command(old, "facts", "status", "--json")
-		cmd.Dir, cmd.Env = repo, env
-		out, err := cmd.CombinedOutput()
-		if err == nil || !bytes.Contains(out, []byte("memory_unsupported_version")) {
-			t.Fatalf("v0.1.0 manifest compatibility limit changed: %v: %s", err, out)
-		}
-	}
-	run(retractor, "facts", "retract", a.ID, "--branch", "main", "--json")
-	out := run(current, "recall", "--branch", "main", "--json")
-	if bytes.Contains(out, []byte(a.ID)) {
-		t.Fatalf("old retraction leaked into new recall: %s", out)
-	}
-	run(current, "memories", "storage", "rollback", "--json")
-	out = run(old, "recall", "--branch", "feature", "--json")
-	if !bytes.Contains(out, []byte(b.ID)) {
-		t.Fatalf("downgrade lost feature memory: %s", out)
-	}
-	run(current, "memories", "storage", "migrate", "--json")
-}
+	run(old, "facts", "retract", a.ID, "--branch", "main", "--json")
 
-func FuzzRepoFactStoreRoundTrip(f *testing.F) {
-	f.Add("memory", "author", "session", true)
-	f.Add("", "", "", false)
-	f.Fuzz(func(t *testing.T, text, author, session string, retired bool) {
-		if len(text)+len(author)+len(session) > 4096 {
-			t.Skip()
-		}
-		a := repoStoreFact(text, "main")
-		b := a
-		b.Author, b.Provenance = author, []factmerge.Anchor{{SessionID: session}}
-		if retired {
-			b.Status = factmerge.StatusRetracted
-		}
-		// JSON normalizes invalid UTF-8; the public write path rejects it.
-		var buf bytes.Buffer
-		if err := factmerge.WriteNDJSON(&buf, []factmerge.Record{a, b}); err != nil {
-			return
-		}
-		s := emptyRepoFactStore()
-		if err := s.replaceView("a", []factmerge.Record{a}, ""); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.replaceView("b", []factmerge.Record{b}, ""); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.compact(); err != nil {
-			t.Fatal(err)
-		}
-		data, err := json.Marshal(s)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var decoded repoFactStore
-		if err := json.Unmarshal(data, &decoded); err != nil {
-			t.Fatal(err)
-		}
-		got, err := decoded.view("b")
-		if err != nil || !reflect.DeepEqual(got, []factmerge.Record{b}) {
-			t.Fatalf("view changed: %+v, %v", got, err)
-		}
-	})
-}
-
-func BenchmarkRepoFactStoreSharedView(b *testing.B) {
-	root := b.TempDir()
-	s := emptyRepoFactStore()
-	records := make([]factmerge.Record, 1000)
-	for i := range records {
-		records[i] = repoStoreFact(fmt.Sprintf("shared observation %d", i), "main")
+	// Memories are repo-wide in the flat store: both branches' records fold
+	// into one set, and the released client's retraction survives the fold.
+	brain := strings.TrimSpace(string(run(old, "path")))
+	dataDir := filepath.Join(root, "data")
+	rel, err := filepath.Rel(dataDir, brain)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		t.Fatalf("released client reported a brain outside the fixture data directory: %q (relative path %q, error %v)", brain, rel, err)
 	}
-	for i := range 16 {
-		if err := s.replaceView(repoFactViewDir(fmt.Sprintf("branch-%d", i)), records, ""); err != nil {
-			b.Fatal(err)
-		}
+	if info, err := os.Stat(brain); err != nil || !info.IsDir() {
+		t.Fatalf("released client reported an unreadable brain directory %q: %v", brain, err)
 	}
-	if err := writeRepoFactStore(root, &s); err != nil {
-		b.Fatal(err)
+	byID := loadByID(t, brain)
+	if got, ok := byID[a.ID]; !ok || got.Status != factmerge.StatusRetracted {
+		t.Fatalf("main-branch retraction not folded: %+v", byID)
 	}
-	b.ResetTimer()
-	for range b.N {
-		got, err := Load(root, "branch-0")
-		if err != nil || len(got) != len(records) {
-			b.Fatalf("read: %d, %v", len(got), err)
-		}
+	if got, ok := byID[b.ID]; !ok || got.Status != factmerge.StatusActive || got.Branch != "feature" {
+		t.Fatalf("feature-branch record not folded with branch metadata: %+v", byID)
 	}
-}
-
-func TestRepoFactStoreStatusReconcilesWithoutWriting(t *testing.T) {
-	root := t.TempDir()
-	a := repoStoreFact("native memory", "main")
-	if err := Write(root, "main", []factmerge.Record{a}); err != nil {
-		t.Fatal(err)
-	}
-	before, err := os.ReadFile(filepath.Join(root, RepositoryPath))
+	summary, err := MigrateRepository(brain)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b := repoStoreFact("legacy writer memory", "feature")
-	writeLegacyView(t, root, "feature", []factmerge.Record{b})
-	report, err := RepositoryStatus(root)
-	if err != nil || report.Format != "compatibility" || report.Records != 2 || report.Views != 2 || !report.Compatibility {
-		t.Fatalf("status missed legacy changes: %+v, %v", report, err)
+	if summary.Folded < 2 {
+		t.Fatalf("migration folded too little: %+v", summary)
 	}
-	after, err := os.ReadFile(filepath.Join(root, RepositoryPath))
-	if err != nil || !bytes.Equal(before, after) {
-		t.Fatalf("status changed the snapshot: %v", err)
+	after := loadByID(t, brain)
+	if len(after) != len(byID) {
+		t.Fatalf("migration changed the record set: %d vs %d", len(after), len(byID))
 	}
-	if err := RollbackRepository(root); err != nil {
-		t.Fatal(err)
-	}
-	report, err = RepositoryStatus(root)
-	if err != nil || report.Format != "legacy" || report.Records != 2 || report.Views != 2 {
-		t.Fatalf("rollback status: %+v, %v", report, err)
-	}
-	if _, err := os.Stat(filepath.Join(root, RepositoryPath)); !os.IsNotExist(err) {
-		t.Fatalf("status migrated the store: %v", err)
-	}
-}
-
-func TestRepoFactStoreWriteIsolatesLegacyProjectionDamage(t *testing.T) {
-	for _, migrated := range []bool{false, true} {
-		for _, damagedBranch := range []string{"main", "other"} {
-			for _, kind := range []string{"corrupt", "symlink"} {
-				t.Run(fmt.Sprintf("migrated=%t/%s/%s", migrated, damagedBranch, kind), func(t *testing.T) {
-					root := t.TempDir()
-					a, b := repoStoreFact("target", "main"), repoStoreFact("unrelated", "other")
-					writeLegacyView(t, root, "main", []factmerge.Record{a})
-					writeLegacyView(t, root, "other", []factmerge.Record{b})
-					if migrated {
-						if err := MigrateRepository(root); err != nil {
-							t.Fatal(err)
-						}
-					}
-					before, _ := os.ReadFile(filepath.Join(root, RepositoryPath))
-					path := filepath.Join(root, FileRelPath(damagedBranch))
-					if err := os.Remove(path); err != nil {
-						t.Fatal(err)
-					}
-					if kind == "corrupt" {
-						if err := os.WriteFile(path, []byte("{broken"), 0o600); err != nil {
-							t.Fatal(err)
-						}
-					} else if err := os.Symlink(filepath.Join(t.TempDir(), "outside"), path); err != nil {
-						t.Skipf("symlinks unavailable: %v", err)
-					}
-					want := []factmerge.Record{a, repoStoreFact("new target memory", "main")}
-					err := Write(root, "main", want)
-					if damagedBranch == "main" {
-						if err == nil {
-							t.Fatal("write ignored target projection damage")
-						}
-						after, readErr := os.ReadFile(filepath.Join(root, RepositoryPath))
-						if !bytes.Equal(before, after) || (!migrated && !os.IsNotExist(readErr)) {
-							t.Fatal("refused write changed the snapshot")
-						}
-					} else {
-						if err != nil {
-							t.Fatalf("unrelated projection blocked write: %v", err)
-						}
-						requireRepoView(t, root, "main", want)
-						for name, check := range map[string]func() error{
-							"listing":   func() error { _, err := LoadStoreFiles(root); return err },
-							"migration": func() error { return MigrateRepository(root) },
-							"rollback":  func() error { return RollbackRepository(root) },
-						} {
-							if err := check(); err == nil {
-								t.Fatalf("%s ignored unrelated projection damage", name)
-							}
-						}
-					}
-					if kind == "symlink" {
-						if _, err := os.Readlink(path); err != nil {
-							t.Fatal("write replaced the symlink")
-						}
-					} else if data, err := os.ReadFile(path); err != nil || string(data) != "{broken" {
-						t.Fatal("write replaced the damaged projection")
-					}
-					if err := os.Remove(path); err != nil {
-						t.Fatal(err)
-					}
-					if damagedBranch == "main" {
-						writeLegacyView(t, root, "main", []factmerge.Record{a})
-					} else {
-						writeLegacyView(t, root, "other", []factmerge.Record{b})
-					}
-					requireRepoView(t, root, "other", []factmerge.Record{b})
-					if err := MigrateRepository(root); err != nil {
-						t.Fatal(err)
-					}
-					report, err := RepositoryStatus(root)
-					if err != nil || report.Views != 2 {
-						t.Fatalf("repaired view failed to migrate: %+v, %v", report, err)
-					}
-				})
-			}
-		}
-	}
-}
-
-// Explicit schema 1 fixture: production writes must never recreate this
-// duplicate payload format. Keep its import behavior under regression tests.
-func writeSchema1Snapshot(t *testing.T, root string, s repoFactStore) {
-	t.Helper()
-	s.SchemaVersion = 1
-	data, err := json.Marshal(s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := brainstore.WriteBrainRelativeFileAtomic(root, RepositoryPath, data, 0600); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func writeSchema1FromLegacy(t *testing.T, root string) {
-	t.Helper()
-	s, err := reconcileRepoFactStore(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeSchema1Snapshot(t, root, s)
 }

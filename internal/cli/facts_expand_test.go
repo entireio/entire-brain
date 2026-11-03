@@ -63,7 +63,7 @@ func TestRunFactsEvalWithExpander(t *testing.T) {
 	p := normalizeFactPaths([]string{"architecture.data.flow"})
 	// Fact text shares no words with the task, but does with the expansion.
 	f := factRecord{ID: factRecordID("the mirror ref reconciliation", p), Paths: p, Text: "the mirror ref reconciliation", Branch: "main", Status: factStatusActive, UpdatedAt: now}
-	if err := factstore.Write(brainDir, "main", []factRecord{f}); err != nil {
+	if err := factstore.Write(brainDir, []factRecord{f}); err != nil {
 		t.Fatal(err)
 	}
 	tasks := []evalTask{{ID: "t1", Task: "fix the sync bug", Branch: "main", Relevant: []string{f.ID}, LabelSource: evalLabelSourceHuman}}
@@ -171,7 +171,7 @@ func TestRecallExpandOllamaUsesLoopbackRunner(t *testing.T) {
 		Status:    factStatusActive,
 		UpdatedAt: now,
 	}
-	if err := factstore.Write(storage.BrainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now}); err != nil {

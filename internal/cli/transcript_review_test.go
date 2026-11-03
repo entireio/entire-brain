@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/command/dash"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"io"
 	"os"
@@ -165,7 +164,7 @@ func TestFilelessDashboardSourcesReadOnDemand(t *testing.T) {
 	}
 	reader := brainSourceReader(context.Background(), opts.Runner, brain)
 	targets := []string{
-		dash.SessionViews(manifest.Sessions, brain, 0, sessionReadGuard{})[0].Source,
+		dash.SessionViews(manifest.Sessions, brain, 0)[0].Source,
 		dash.HistoryViews([]historyRecord{{Path: session.TranscriptPath}}, brain, 0)[0].Source,
 		dash.FactViews([]factRecord{{Provenance: []factAnchor{{Transcript: session.TranscriptPath}}}}, brain, 0)[0].Source,
 		dash.SearchResultFromUnified(unifiedResult{Source: "history", Path: session.TranscriptPath}, brain).OpenPath,
@@ -178,17 +177,6 @@ func TestFilelessDashboardSourcesReadOnDemand(t *testing.T) {
 	}
 	if _, handled, err := reader(filepath.Join(brain, "docs", "source.md")); err != nil || handled {
 		t.Fatalf("ordinary file intercepted: %v %v", handled, err)
-	}
-	stones := brainstore.EmptySessionTombstones()
-	stones.Excluded[session.SessionID] = sessionTombstone{At: opts.Now(), Reason: "purged"}
-	if err := brainstore.SaveSessionTombstones(brain, stones); err != nil {
-		t.Fatal(err)
-	}
-	for _, target := range targets {
-		data, handled, err := reader(target)
-		if err == nil || !handled || data != "" {
-			t.Fatalf("purged source opened: %v %v %q", handled, err, data)
-		}
 	}
 	if _, err := os.Stat(filepath.Join(brain, "sessions")); !os.IsNotExist(err) {
 		t.Fatalf("viewer materialized transcripts: %v", err)

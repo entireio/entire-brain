@@ -52,11 +52,9 @@ func TestMergeKeepsTargetExtractorFields(t *testing.T) {
 		Provenance: []Anchor{{SessionID: "s2"}}, CreatedAt: now, UpdatedAt: now}
 	candidate.ID = RecordID(candidate.Text, candidate.Paths)
 
-	merged, err := ApplyProposal([]Record{target, candidate},
-		Proposal{CandidateID: candidate.ID, TargetID: target.ID, Action: ActionMerge}, now)
-	if err != nil {
-		t.Fatal(err)
-	}
+	merged := ApplyActions([]Record{target},
+		[]Action{{Kind: ActionMerge, TargetID: target.ID, Confidence: 0.99, Candidate: candidate}},
+		DefaultConfidenceThreshold, now)
 	if len(merged) != 1 || merged[0].Model != "model-a" {
 		t.Fatalf("merge must keep the surviving record's extractor model: %+v", merged)
 	}

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
@@ -47,7 +46,7 @@ func TestDashSessionViewsMapsUsageAndSummary(t *testing.T) {
 		TokenUsage: &bmanifest.CheckpointTokenUsage{InputTokens: 100, OutputTokens: 40},
 		Summary:    &bmanifest.CheckpointSummary{Intent: "add dash", Outcome: "shipped"},
 	}}
-	v := SessionViews(sessions, "/brain", 0, brainstore.SessionReadGuard{})[0]
+	v := SessionViews(sessions, "/brain", 0)[0]
 	if v.Agent != "claude-code" || v.Model != "opus" || v.InputTok != 100 || v.OutputTok != 40 {
 		t.Errorf("session usage mapped wrong: %+v", v)
 	}
@@ -56,18 +55,6 @@ func TestDashSessionViewsMapsUsageAndSummary(t *testing.T) {
 	}
 	if v.Created != "2026-06-09 10:00Z" || v.Source != filepath.Join("/brain", "sessions/x.jsonl") {
 		t.Errorf("session created/source mapped wrong: %q / %q", v.Created, v.Source)
-	}
-}
-
-func TestDashSessionViewsOmitExcludedMetadata(t *testing.T) {
-	sessions := []bmanifest.Session{
-		{SessionID: "private", TranscriptPath: "sessions/private.jsonl", Summary: &bmanifest.CheckpointSummary{Intent: "PRIVATE-DASH-CANARY"}},
-		{SessionID: "public", TranscriptPath: "sessions/public.jsonl", Summary: &bmanifest.CheckpointSummary{Intent: "safe"}},
-	}
-	guard := brainstore.SessionReadGuard{IDs: map[string]brainstore.SessionTombstone{"private": {At: time.Now().UTC()}}}
-	views := SessionViews(sessions, "/brain", 0, guard)
-	if len(views) != 1 || views[0].ID != "public" || views[0].Intent != "safe" {
-		t.Fatalf("dashboard exposed excluded session metadata: %+v", views)
 	}
 }
 

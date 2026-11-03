@@ -10,8 +10,6 @@ type (
 	retrievalMode         = retrieval.Mode
 	retrievalOptions      = retrieval.Options
 	retrievalCaveat       = retrieval.Caveat
-	factReviewGroup       = retrieval.FactReviewGroup
-	factReviewNotice      = retrieval.FactReviewNotice
 	scoredHistoryRecord   = retrieval.ScoredHistoryRecord
 	conversationTurn      = retrieval.ConversationTurn
 	sessionAbstract       = retrieval.SessionAbstract

@@ -120,10 +120,6 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	if err != nil {
 		return err
 	}
-	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
-	if err != nil {
-		return err
-	}
 	path, cleanup, err := patterncore.PrepareCorpusStaging(brainDir)
 	if err != nil {
 		return err
@@ -168,19 +164,16 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	if manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		sessions = manifest.Sources.Sessions.Sessions
 	}
-	// Session tombstones (Phase 4): excluded sessions and duplicate manifest
-	// entries that alias an excluded transcript never enter the corpus; dropping
-	// them from the present set prunes previously indexed rows below.
-	sessions = bmanifest.GuardSessions(guard, sessions)
-	// Optional enrichment source: durable facts, branch-scoped. Missing is
-	// empty, but corrupt/unsafe state fails closed and tombstoned-only facts are
-	// filtered before they can be linked back into a rebuilt corpus.
-	factsByBranch, err := loadAllFactBranchesForPrivacy(brainDir)
+	// Optional enrichment source: durable facts, grouped by their branch
+	// metadata (episodes link to facts recorded for their session's branch).
+	// Missing is empty, but corrupt/unsafe state fails closed.
+	stored, err := factstore.Load(brainDir)
 	if err != nil {
 		return err
 	}
-	for branch, facts := range factsByBranch {
-		factsByBranch[branch] = factstore.GuardRecords(guard, facts)
+	factsByBranch := map[string][]factRecord{}
+	for _, rec := range stored {
+		factsByBranch[rec.Branch] = append(factsByBranch[rec.Branch], rec)
 	}
 
 	// Fact enrichment is an input independent of transcript identity. A changed
@@ -195,10 +188,11 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	// This was one fingerprint over every branch's facts, so a fact recorded
 	// on any branch invalidated it and re-indexed every session in the corpus
 	// -- "even for byte-identical transcripts", as the comment above says.
-	// That rebuild runs inside the brain write lock, which is the same lock a
-	// retrieval holds to emit its response, so it is what made a concurrent
-	// `brief` fail brain_locked: one `remember` anywhere, and every reader
-	// waited on a full link rebuild.
+	// That rebuild runs inside the brain write lock, which retrieval emission
+	// also acquired at the time, so it is what made a concurrent `brief` fail
+	// brain_locked: one `remember` anywhere, and every reader waited on a full
+	// link rebuild. (Emission no longer takes the lock, but the rebuild cost
+	// argument stands on its own.)
 	//
 	// Per-branch is sound rather than merely cheaper, and the link builder is
 	// what proves it: episodes are linked from factsByBranch[s.Branch]
@@ -295,13 +289,6 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	if err := patterncore.BuildSynapses(db, now); err != nil {
 		return err
 	}
-	_, finalPolicy, err := brainstore.LoadSessionTombstonesChecked(brainDir)
-	if err != nil {
-		return err
-	}
-	if finalPolicy.Identity != guard.PolicyIdentity {
-		return fmt.Errorf("%s: session tombstones changed while building the pattern corpus", brainstore.PrivacyDirtyCode)
-	}
 	// Record a fingerprint for every branch that HAS facts. Branches that only
 	// have sessions need no loop of their own: the freshness gate above calls
 	// branchFactFingerprint(s.Branch) for each indexed session and memoizes
@@ -327,7 +314,6 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 		"schema_version":          strconv.Itoa(patternCorpusSchemaVersion),
 		"pattern_indexer_version": strconv.Itoa(patterncore.IndexerVersion),
 		"facts_fingerprint":       factFingerprint,
-		"privacy_policy_identity": guard.PolicyIdentity,
 		"repo_key":                repoKey,
 		"generated_at":            now.UTC().Format(time.RFC3339),
 		"sessions_fingerprint": func() string {
