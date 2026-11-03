@@ -500,7 +500,7 @@ func TestLegacyMigrationLargeVerifiedCopySurvivesLaterDeletion(t *testing.T) {
 }
 
 func TestLegacyMigrationRealProcessInterruption(t *testing.T) {
-	for _, stage := range []string{"receipt-written", "verified", "removed"} {
+	for _, stage := range []string{"parked", "receipt-written", "verified", "removed"} {
 		t.Run(stage, func(t *testing.T) {
 			root := t.TempDir()
 			a := repoStoreFact("first migration source", "main")

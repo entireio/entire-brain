@@ -210,19 +210,41 @@ func parkLegacyDirsVerified(brainDir string, proofs map[string]cleanupReceipt) (
 	if err != nil {
 		return nil, err
 	}
+	factsRoot, err := os.OpenRoot(filepath.Join(brainDir, DirName))
+	if err != nil {
+		return nil, err
+	}
+	defer factsRoot.Close()
+	parkRoot, err := factsRoot.OpenRoot(filepath.Base(parkAbs))
+	if err != nil {
+		return nil, err
+	}
+	defer parkRoot.Close()
 	moved := make([]string, 0, len(dirs))
 	for _, dir := range dirs {
 		rel := filepath.Join(DirName, dir)
 		if err := base.RejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
 			return moved, err
 		}
-		if err := os.Rename(filepath.Join(brainDir, rel), filepath.Join(parkAbs, dir)); err != nil {
+		if err := factsRoot.Rename(dir, filepath.Join(filepath.Base(parkAbs), dir)); err != nil {
+			return moved, err
+		}
+		// Persist both sides of the move before a receipt or a later mutation
+		// can authorize removal. Otherwise a power loss could restore an active
+		// legacy path and revive a memory the caller deliberately deleted.
+		if err := brainstore.SyncPinnedDirectory(parkRoot); err != nil {
+			return moved, err
+		}
+		if err := brainstore.SyncPinnedDirectory(factsRoot); err != nil {
+			return moved, err
+		}
+		if err := cleanupCheckpoint("parked"); err != nil {
 			return moved, err
 		}
 		// A receipt ties the input consumed by the verified migration to its
 		// committed result. Later deliberate deletions must not strand this copy.
 		if proof, ok := proofs[dir]; ok {
-			branch, openErr := os.OpenRoot(filepath.Join(parkAbs, dir))
+			branch, openErr := parkRoot.OpenRoot(dir)
 			if openErr == nil {
 				encoded, _ := json.Marshal(proof)
 				// A failed receipt only defers cleanup; the committed migration remains
