@@ -79,8 +79,8 @@ const (
 	// those facts.
 	// The value is also persisted as the history source's ExtractionVersion
 	// so refresh rebuilds an otherwise-unchanged index built by an older
-	// extractor; the short-term overlay has its own historyShortTermVersion,
-	// which must be bumped with it.
+	// extractor, and as the short-term overlay's extractor_version so a delta
+	// re-parses entries an older extractor built.
 	historyScanCacheVersion = 12
 	// Extraction revisions 11 and 12 change parser behavior, not the record
 	// schema. Keep the wire version readable by supported stable clients. Old

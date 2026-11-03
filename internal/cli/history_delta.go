@@ -48,11 +48,14 @@ const (
 	// historyShortTermVersion 3 binds per-file reuse to the exact bounded
 	// descriptor-rooted content digest. Older size+mtime-only overlays are
 	// disposable and rebuild on the next delta.
-	// 4: compact v1 transcripts (top-level content, inline tool_use.result)
-	// are read; a v3 overlay can hold empty entries for them that the delta
-	// would otherwise carry forward by content digest without re-parsing.
-	// Bump this alongside historyScanCacheVersion whenever extraction changes.
-	historyShortTermVersion = 4
+	// It is the READABLE format only: a parser change does not bump it.
+	// Like the scan cache, the overlay records the extraction revision that
+	// built its entries separately (extractor_version), and the delta carries
+	// an entry forward only from an overlay written by the current revision.
+	// A v3 overlay from an older reader (or written by a released client,
+	// which drops the field) stays readable for retrieval, and the next delta
+	// re-parses its files.
+	historyShortTermVersion = 3
 	// historyShortTermReconcilerVersion stamps the record-reconciliation rule
 	// the overlay was built to participate in (3 = newest-valid-copy selection
 	// scoped by logical conversation session, preserving legacy ID collisions
@@ -104,6 +107,11 @@ type shortTermIndex struct {
 	// ReconcilerVersion records the cross-tier record-reconciliation rule this
 	// overlay was built for.
 	ReconcilerVersion int `json:"reconciler_version,omitempty"`
+	// ExtractorVersion is the historyScanCacheVersion whose parser built the
+	// entries. The delta reuses an unchanged file's entry only when it matches;
+	// an older or missing revision forces a re-parse without discarding the
+	// overlay's still-readable records from retrieval.
+	ExtractorVersion int `json:"extractor_version,omitempty"`
 }
 
 // complete reports whether the overlay fully represents every changed
@@ -208,6 +216,7 @@ func loadHistoryShortTermRaw(brainDir string) (shortTermIndex, string) {
 
 func saveHistoryShortTerm(brainDir string, overlay shortTermIndex) error {
 	overlay.Version = historyShortTermVersion
+	overlay.ExtractorVersion = historyScanCacheVersion
 	data, err := json.Marshal(overlay)
 	if err != nil {
 		return err
@@ -341,7 +350,7 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 			continue
 		}
 		// Unchanged since the previous delta: carry over without re-parsing.
-		if prev, ok := previous.Files[rel]; ok && prev.Size == file.Size && prev.ModUnixNano == file.ModUnixNano && prev.ContentDigest != "" && prev.ContentDigest == contentDigest {
+		if prev, ok := previous.Files[rel]; ok && previous.ExtractorVersion == historyScanCacheVersion && prev.Size == file.Size && prev.ModUnixNano == file.ModUnixNano && prev.ContentDigest != "" && prev.ContentDigest == contentDigest {
 			if err := inventory.validateFileMembership(ctx, file); err != nil {
 				return stats, err
 			}

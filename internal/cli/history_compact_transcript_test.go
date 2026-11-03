@@ -219,6 +219,11 @@ func TestHistoryDeltaRescansOverlayFromPreCompactReader(t *testing.T) {
 	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historyShortTermPath, append(data, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// The old overlay's format is still readable: until the next delta its
+	// records keep serving retrieval rather than vanishing on upgrade.
+	if _, state := loadHistoryShortTermState(brainDir, source); state != shortTermStateCurrent {
+		t.Fatalf("pre-upgrade overlay state = %s, want %s (readable)", state, shortTermStateCurrent)
+	}
 
 	stats, err := buildHistoryShortTermLocked(brainDir, source.GeneratedAt.Add(time.Hour))
 	if err != nil {
@@ -231,6 +236,18 @@ func TestHistoryDeltaRescansOverlayFromPreCompactReader(t *testing.T) {
 	if state != shortTermStateCurrent {
 		t.Fatalf("overlay state after delta = %s, want %s", state, shortTermStateCurrent)
 	}
+	if overlay.Version != preCompactOverlayVersion || overlay.ExtractorVersion != historyScanCacheVersion {
+		t.Fatalf("overlay version/extractor = %d/%d, want %d/%d", overlay.Version, overlay.ExtractorVersion, preCompactOverlayVersion, historyScanCacheVersion)
+	}
+	// An overlay written by the current extractor is reused, not re-parsed.
+	stats, err = buildHistoryShortTermLocked(brainDir, source.GeneratedAt.Add(2*time.Hour))
+	if err != nil {
+		t.Fatalf("second delta: %v", err)
+	}
+	if stats.Reused != 1 || stats.Scanned != 0 {
+		t.Fatalf("second delta stats = %d reused / %d scanned, want 1/0", stats.Reused, stats.Scanned)
+	}
+	overlay, _ = loadHistoryShortTermState(brainDir, source)
 	exchanges := 0
 	for _, record := range overlay.Files[rel].Records {
 		if record.Kind == conversationKind {

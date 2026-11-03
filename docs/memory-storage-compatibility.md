@@ -57,7 +57,10 @@ stable releases understand. New caches therefore use wire version 10 and an
 
 Current history readers reuse a version 10 cache only when that field matches.
 Older writers omit the field, and revision 11 writers record 11, so the next
-current refresh rescans the transcripts. Current privacy
+current refresh rescans the transcripts. The short-term overlay
+(`history/short-term.json`) follows the same rule: it keeps format version 3
+and records `extractor_version`, and a delta re-parses entries from an overlay
+written by another revision instead of carrying them forward. Current privacy
 inspection accepts both known formats and still rejects unsupported formats.
 The extraction invalidation check remains in place.
 
