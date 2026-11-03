@@ -60,7 +60,9 @@ Older writers omit the field, and revision 11 writers record 11, so the next
 current refresh rescans the transcripts. The short-term overlay
 (`history/short-term.json`) follows the same rule: it keeps format version 3
 and records `extractor_version`, and a delta re-parses entries from an overlay
-written by another revision instead of carrying them forward. Current privacy
+written by another revision instead of carrying them forward. An overlay
+stamped version 4 by a pre-release build of this change has the version 3
+layout and stays readable; its entries are re-parsed on the next delta. Current privacy
 inspection accepts both known formats and still rejects unsupported formats.
 The extraction invalidation check remains in place.
 

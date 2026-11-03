@@ -56,6 +56,12 @@ const (
 	// which drops the field) stays readable for retrieval, and the next delta
 	// re-parses its files.
 	historyShortTermVersion = 3
+	// historyShortTermLegacyVersion4 is what a pre-release build of the
+	// compact-transcript change stamped instead of recording
+	// extractor_version. Its layout is v3's, so it stays readable; the
+	// revision that built its entries is unknown, so the next delta re-parses
+	// them and rewrites the overlay as v3. A future format bump must skip 4.
+	historyShortTermLegacyVersion4 = 4
 	// historyShortTermReconcilerVersion stamps the record-reconciliation rule
 	// the overlay was built to participate in (3 = newest-valid-copy selection
 	// scoped by logical conversation session, preserving legacy ID collisions
@@ -173,6 +179,7 @@ func loadHistoryShortTermState(brainDir string, source *historySourceManifest) (
 	if err := json.Unmarshal(data, &overlay); err != nil || overlay.Files == nil {
 		return empty, shortTermStateCorrupt
 	}
+	overlay = normalizeLegacyShortTerm(overlay)
 	if overlay.Version != historyShortTermVersion {
 		return empty, shortTermStateUnsupported
 	}
@@ -218,7 +225,28 @@ func loadHistoryShortTermRaw(brainDir string) (shortTermIndex, string) {
 	if err := json.Unmarshal(data, &overlay); err != nil || overlay.Files == nil {
 		return empty, shortTermStateCorrupt
 	}
+	overlay = normalizeLegacyShortTerm(overlay)
 	return overlay, shortTermStateCurrent
+}
+
+// readableShortTermVersion maps the legacy v4 stamp onto the v3 format it
+// shares, for the version checks in the loaders and health surfaces.
+func readableShortTermVersion(version int) int {
+	if version == historyShortTermLegacyVersion4 {
+		return historyShortTermVersion
+	}
+	return version
+}
+
+// normalizeLegacyShortTerm reads a v4 overlay as the v3 overlay it is, with
+// no known extractor revision, so it is neither reused by the delta nor
+// counted as complete coverage.
+func normalizeLegacyShortTerm(overlay shortTermIndex) shortTermIndex {
+	if overlay.Version == historyShortTermLegacyVersion4 {
+		overlay.Version = historyShortTermVersion
+		overlay.ExtractorVersion = 0
+	}
+	return overlay
 }
 
 func saveHistoryShortTerm(brainDir string, overlay shortTermIndex) error {
