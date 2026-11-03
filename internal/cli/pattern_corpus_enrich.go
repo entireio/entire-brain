@@ -220,10 +220,13 @@ func parseExitCode(output string) (int, bool) {
 
 // compactCodexExitCodes records the exit codes a compact v1 codex record
 // carries in its tool_use blocks' inlined result.output, keyed by call id for
-// the same correlation the native function_call_output case feeds. The codex
-// converter writes every result as status "success", so the exit code is only
-// in the output text. Other agents' compact results are not read: their
-// status "error" is not the same as a non-zero exit.
+// the same correlation the native function_call_output case feeds. For a
+// rollout of an older Codex (the cli's response_item path) every result is
+// status "success" and the exit code is only in the output text. A current
+// Codex rollout (the cli's item path) carries the command's own output with no
+// exit text and marks a failure only as status "error", which, like other
+// agents' status "error", is not read here: it is not the same as a non-zero
+// exit and has no exit code.
 func compactCodexExitCodes(content any, exitByCall map[string]int) {
 	blocks, _ := content.([]any)
 	for _, b := range blocks {
