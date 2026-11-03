@@ -497,9 +497,14 @@ func TestRepoFactStoreReleasedRepositoryVisibility(t *testing.T) {
 
 	// Memories are repo-wide in the flat store: both branches' records fold
 	// into one set, and the released client's retraction survives the fold.
-	brain := filepath.Join(root, "data", "brain", "repos", "gh", "entireio", "memory-store-compat-fixture")
-	if _, err := os.Stat(brain); err != nil {
-		t.Skipf("released client stored the brain elsewhere: %v", err)
+	brain := strings.TrimSpace(string(run(old, "path")))
+	dataDir := filepath.Join(root, "data")
+	rel, err := filepath.Rel(dataDir, brain)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		t.Fatalf("released client reported a brain outside the fixture data directory: %q (relative path %q, error %v)", brain, rel, err)
+	}
+	if info, err := os.Stat(brain); err != nil || !info.IsDir() {
+		t.Fatalf("released client reported an unreadable brain directory %q: %v", brain, err)
 	}
 	byID := loadByID(t, brain)
 	if got, ok := byID[a.ID]; !ok || got.Status != factmerge.StatusRetracted {
