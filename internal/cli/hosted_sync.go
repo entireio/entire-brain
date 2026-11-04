@@ -30,6 +30,10 @@ const (
 	// on a pathological feed. ponytail: a delta larger than 20k records
 	// finishes on the next trigger — the cursor persists either way.
 	maxHostedFeedPages = 200
+	// Concurrent syncs can invalidate a prepared pull. Bound repeated network
+	// and Git work; a later trigger can resume from the latest durable cursor.
+	maxHostedFeedAttempts = 3
+	hostedFeedRetryDelay  = 100 * time.Millisecond
 	// hostedNoAccessBackoff is how long every background trigger skips a repo
 	// after the server denied access to the binding (COR-2279). Long enough to
 	// stop a stuck client from tripping the server's auth-failure monitor,
@@ -351,13 +355,23 @@ var errHostedFeedChanged = errors.New("hosted feed changed during preparation")
 // Fetch and filter without the writer lock. Revalidate the cache at commit
 // and merge into the latest local store, preserving concurrent user writes.
 func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage repoStorage, srv *factsync.HTTPServer, repoID, baseURL, token string) (kept, total int, manifestErr, err error) {
-	for {
+	for attempt := 1; ; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return 0, 0, nil, err
 		}
 		kept, total, manifestErr, err = pullHostedFactsAttempt(ctx, opts, repoDir, storage, srv, repoID, baseURL, token)
 		if !errors.Is(err, errHostedFeedChanged) {
 			return
+		}
+		if attempt >= maxHostedFeedAttempts {
+			return 0, 0, nil, fmt.Errorf("hosted feed changed during %d pull attempts; retry sync: %w", attempt, err)
+		}
+		timer := time.NewTimer(hostedFeedRetryDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return 0, 0, nil, ctx.Err()
+		case <-timer.C:
 		}
 	}
 }

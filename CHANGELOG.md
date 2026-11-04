@@ -12,6 +12,10 @@ All notable changes to `entire-brain` are recorded here. The format follows
   writer contention. Active atomic writes finish before another writer starts.
 - Fetch and filter hosted memories outside the writer lock. Recheck the feed
   cache and connection before committing, and preserve concurrent local writes.
+- Limit hosted pull retries when concurrent syncs keep changing the feed cache.
+  Wait briefly between attempts, and allow cancellation during that wait.
+- Preserve completed distillation results and cache entries when cancellation
+  interrupts a wait for the writer lock.
 - Avoid re-reading the complete memory store when updating the manifest after
   `remember` or a hosted pull. Storage and hosted wire formats remain unchanged.
 
