@@ -147,8 +147,8 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 }
 
 // runHostedFactsSync is the manual flavor of hostedFactsSyncAndPull: the same
-// per-fact exchange (batch-upsert this branch's store, pull the repo delta
-// feed, rebuild the branch store), but the user explicitly asked for this
+// per-fact exchange (batch-upsert the store, pull the repo delta feed,
+// rebuild the store), but the user explicitly asked for this
 // sync, so failures surface in the exit code and output instead of degrading
 // to a stderr note (COR-2202 precedent).
 func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions, repoDir string, storage repoStorage, branch string) error {
@@ -158,20 +158,20 @@ func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOpti
 	if err != nil {
 		return err
 	}
-	srv := &factsync.HTTPServer{BaseURL: target.baseURL, Token: target.token}
+	srv := &factsync.HTTPServer{BaseURL: target.baseURL, Token: target.token, Version: opts.Version}
 	backendLabel := "hosted (" + strings.TrimRight(target.baseURL, "/") + ")"
 
-	counts, skipped, pushErr := pushHostedFacts(ctx, storage, srv, target.repoID, branch)
+	counts, skipped, pushErr := pushHostedFacts(ctx, storage, srv, target.repoID)
 	if skipped > 0 {
 		fmt.Fprintf(errW, "warning: skipped %d unpublishable record(s) whose content id does not re-derive (kept locally, not uploaded)\n", skipped)
 	}
 	// The pull runs even after a failed push: the team's memories still land,
 	// and the error below reports exactly which half failed.
-	kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, target.repoID, target.baseURL, target.token, branch)
+	kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, target.repoID, target.baseURL, target.token)
 	if pushErr == nil && pullErr == nil {
-		// Both halves completed: record the per-branch marker, same rule as the
+		// Both halves completed: record the sync marker, same rule as the
 		// background sync (the blind-spot note keys off its absence).
-		if err := writeHostedFactsBinding(storage.BrainDir, branch, target.repoID, target.baseURL); err != nil {
+		if err := writeHostedFactsBinding(storage.BrainDir, target.repoID, target.baseURL); err != nil {
 			return fmt.Errorf("memories sync: record hosted target: %w", err)
 		}
 	}

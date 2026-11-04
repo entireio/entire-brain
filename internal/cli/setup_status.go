@@ -116,9 +116,6 @@ func factsBackfillStatusForBrain(brainDir string) factsBackfillStatus {
 		return status
 	}
 	sessions := manifest.Sources.Sessions.Sessions
-	if kept, err := filterTombstonedSessions(brainDir, append([]exportSession(nil), sessions...)); err == nil {
-		sessions = kept
-	}
 	cache := loadDistillCache(brainDir)
 	for _, session := range sessions {
 		status.Sessions++
@@ -432,7 +429,7 @@ func renderBrainOnboardingStatus(out io.Writer, onboarding *brainStatusOnboardin
 		parts := make([]string, 0, len(onboarding.Components))
 		failed := false
 		for _, component := range onboarding.Components {
-			parts = append(parts, component.Name+"="+component.State)
+			parts = append(parts, brainSourceDisplayName(component.Name)+"="+component.State)
 			failed = failed || component.State == "failed"
 		}
 		fmt.Fprintf(out, "  instant: %s\n", strings.Join(parts, " "))
@@ -503,7 +500,7 @@ func inspectSessionEndHook(repoDir string) setupHookState {
 		if command, ok := entireSessionEndHookCommand(data); ok {
 			state := setupHookState{Installed: true, Source: path, Command: command, EntireCLI: onPath}
 			if !onPath {
-				state.Detail = "hook is wired but `" + entireBinaryName + "` is not on PATH; sessions will not distill"
+				state.Detail = "hook is wired but `" + entireBinaryName + "` is not on PATH; the host command cannot run"
 			}
 			return state
 		}

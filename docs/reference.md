@@ -69,16 +69,11 @@ Language/relation inventories come from `entire graph capabilities --json`.
 Entire Brain releases are tagged (the public line starts at `0.1.0`), but development
 still starts from the locally fetched current mainline — a tag is a marker on
 main, not a branch to work from. Do not resume an old WIP/integration checkout
-or use an older Brain binary as a benchmark control. The Agent Brain harness
-builds from the active checkout and refuses to run unless `HEAD` contains local
-`origin/main`. All causal arms use that same binary and vary only memory
-delivery.
+or use historical benchmark results as measurements of the current checkout.
 
-GraphMark owns cross-product benchmark evidence and split integrity. See
-[`benchmarks/agent-brain/CONDITIONS.md`](../benchmarks/agent-brain/CONDITIONS.md)
-for the normative condition and comparison contract, and
-[`benchmarks/agent-brain/README.md`](../benchmarks/agent-brain/README.md) for
-harness operation and the retired-corpus notice.
+The experiment tooling has been retired. Historical results remain in
+[`benchmarks/agent-brain/README.md`](../benchmarks/agent-brain/README.md).
+Current development checks use Go through `mise run check`.
 
 ## Install
 
@@ -397,7 +392,7 @@ which every one of the eight instant components builds:
 
 ```
 Brain ready in 3.6s
-  instant     + session export  + seed baseline  + history index  + doc index  + semantic index  + pattern layer  + entity index  + memory coordinator  (3.6s)
+  instant     + session export  + repository context  + history index  + doc index  + semantic index  + pattern layer  + entity index  + memory coordinator  (3.6s)
 ```
 
 `Brain ready (degraded)` still exists, and when you do see it, read it as
@@ -408,7 +403,7 @@ actually produces it is a machine with no `entire graph` provider
 or a checkpoint inventory Entire cannot read (`x session export`).
 
 The uncommitted worktree above is the one case that does NOT: it refuses both
-`seed baseline` and `semantic index`, which are the two sources a query reads,
+`repository context` and `semantic index`, which are the two sources a query reads,
 so the headline is `Brain set up, but not queryable` and names what is missing.
 The exit code is still 0 and everything else setup built is kept.
 
@@ -453,7 +448,7 @@ nothing else, or when you are scripting a build:
 ```sh
 cd /path/to/your/repo
 
-entire brain refresh --agent none
+entire brain refresh
 entire brain status
 ```
 
@@ -464,8 +459,9 @@ Use the advanced `refresh index --worktree` path when the semantic layer itself
 needs to reflect uncommitted state. Worktree-backed semantic indexes are
 rejected by bundle export.
 
-`--agent none` keeps the build deterministic and token-free, with no
-hosted-model calls. Refresh exports captured sessions, builds the local
+Refresh is deterministic and token-free by default, with no hosted-model calls.
+Agent-generated repository summaries require an explicit `--agent` option.
+Refresh exports captured sessions, builds the local
 history/doc indexes, asks `entire-graph` for a semantic snapshot, and stores the
 derived brain under Entire's local plugin data directory.
 
@@ -949,7 +945,7 @@ inspection.
 
 ```sh
 entire brain status
-entire brain refresh --agent none
+entire brain refresh
 entire brain watch
 ```
 
@@ -1454,11 +1450,16 @@ With `ENTIRE_BRAIN_WEBHOOK_SECRET` set, each POST carries
 `X-Entire-Signature-256: sha256=<hex>`, the HMAC-SHA256 of the exact request
 body. Compute the same over the raw body and compare in constant time:
 
-```python
-import hashlib, hmac
-expected = "sha256=" + hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
-if not hmac.compare_digest(expected, request.headers["X-Entire-Signature-256"]):
-    abort(401)
+```go
+// Imports: crypto/hmac, crypto/sha256, encoding/hex, net/http, strings.
+mac := hmac.New(sha256.New, []byte(secret))
+mac.Write(rawBody)
+header := request.Header.Get("X-Entire-Signature-256")
+provided, err := hex.DecodeString(strings.TrimPrefix(header, "sha256="))
+if !strings.HasPrefix(header, "sha256=") || err != nil || !hmac.Equal(mac.Sum(nil), provided) {
+    http.Error(w, "invalid signature", http.StatusUnauthorized)
+    return
+}
 ```
 
 Without a secret no signature header is sent at all, rather than one computed
@@ -1514,31 +1515,21 @@ custom `--agent command` runner is a trusted local command and is not enforceabl
 loopback-only; no-egress mode cannot stop that runner from making its own network
 calls.
 
-To keep specific sessions out of the brain's projections, use
-`entire brain privacy list|exclude|include|purge`. `exclude` tombstones a
-session so every derived layer (history records, conversation exchanges,
-pattern episodes and corpus, FTS, vector stores, caches) skips it on rebuild
-and the transcript read path refuses it. Legacy brains and bundles may retain
-a materialized transcript after exclusion; `purge` additionally deletes that
-copy and the derived stores, removes durable facts whose
-only provenance is the purged session (facts corroborated by other sessions
-keep their remaining anchors), filters its pattern episodes, and clears its
-distill-cache entries (`--dry-run` reports exactly what would be removed
-first). Skill-memory (your accept/decline curation) is never touched.
-`privacy verify` proves excluded/purged sessions are absent from every
-inspectable projection and from their lifecycle jobs, cancellation markers,
-optional abstracts, and metadata-only egress receipts. In a checkpoint-backed
-brain it also checks the transcript read gate and reports stray materialized
-transcript files (exit non-zero with named
-violations otherwise; a re-purge repairs them), and `privacy retention
---max-age <dur> [--branch b]
-[--purge] [--dry-run]` applies an age-based policy in one command. The full
-prompt-injection and secret-retention threat model lives in
+The brain is a derived index that mirrors the repository's checkpoint refs.
+Deletion therefore happens at the capture layer: `entire checkpoint delete`
+removes a checkpoint from the `entire/checkpoints/v1` tip (locally and on
+checkpoint remotes), and the next `entire brain refresh` drops everything the
+brain derived from it — the session's transcript, its history records and
+conversation exchanges, pattern episodes, FTS and cache entries, and the
+provenance anchors of its distilled facts (a distilled fact loses the deleted
+session's anchors and is removed once no provenance remains; authored
+memories from `remember` are never touched). To stop serving a session now,
+run `entire checkpoint delete <checkpoint> && entire brain refresh`; the
+watch daemon also converges projections on its next tick (legacy cached
+transcript files are swept by a full refresh, which the daemon's tick skips). Skill-memory (your
+accept/decline curation) is never touched. The full prompt-injection and
+secret-retention threat model lives in
 [docs/recall_threat_model.md](recall_threat_model.md).
-Tombstones are brain-local and survive re-export: a purged session that the
-capture layer re-exports stays un-indexed until an explicit `include`. Note the
-canonical capture in Entire's configured checkpoint backend is the capture
-layer's data; purging the brain does not rewrite checkpoint history.
 
 Remember that base Entire session capture stores transcripts and metadata on the
 repository's Entire-managed per-checkpoint refs (or the legacy

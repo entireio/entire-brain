@@ -60,13 +60,26 @@ func factLossFixture(t *testing.T) (Options, string, string, string) {
 			UpdatedAt:  now.Add(time.Duration(i) * time.Minute),
 		})
 	}
-	if err := factstore.Write(storage.BrainDir, "feature", facts); err != nil {
+	// Write the facts as a LEGACY NDJSON branch store: the line-replacement
+	// corruption below targets NDJSON, and the flat store reads legacy files
+	// through the fold, so the integrity contract covers them identically.
+	path := filepath.Join(storage.BrainDir, filepath.FromSlash(testLegacyFactsRel("feature")))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var ndjson strings.Builder
+	enc := json.NewEncoder(&ndjson)
+	for _, fact := range facts {
+		if err := enc.Encode(fact); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(path, []byte(ndjson.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := updateFactSourceManifest(storage.BrainDir, now); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(storage.BrainDir, filepath.FromSlash(factstore.FileRelPath("feature")))
 	return opts, repoDir, storage.BrainDir, path
 }
 
@@ -177,7 +190,7 @@ func TestFactStoreIntegrityDetectsOneLostFactAmongFive(t *testing.T) {
 
 	// facts map: the outline's "(N facts)" is a count of survivors.
 	t.Run("facts-map", func(t *testing.T) {
-		mapOut, mapErr := execute(t, NewRootCommand(opts), "facts", "map", "--branch", "feature")
+		mapOut, mapErr := execute(t, NewRootCommand(opts), "facts", "map")
 		if mapErr == nil {
 			t.Fatalf("facts map exited clean over a lossy store:\n%s", mapOut)
 		}
@@ -289,11 +302,11 @@ func TestFactStoreIntegrityDetectsFactLineWithoutID(t *testing.T) {
 
 	// And the manifest producer must agree, so a later `remember` or `refresh`
 	// cannot re-declare the damaged store as whole.
-	byBranch, err := factstore.LoadAllBranches(brainDir)
+	records, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := factstore.SummarizeSource(time.Now().UTC(), byBranch, 0, 0, 0, nil).Facts; got != 4 {
+	if got := factstore.SummarizeSource(time.Now().UTC(), records, 0, 0, 0, nil).Facts; got != 4 {
 		t.Fatalf("factstore.SummarizeSource counted %d facts, want 4: an id-less line must never be declared as a fact", got)
 	}
 }
@@ -331,6 +344,9 @@ func TestFactStoreIntegrityKeepsFailureModesDistinct(t *testing.T) {
 
 	t.Run("missing", func(t *testing.T) {
 		_, _, brainDir, path := factLossFixture(t)
+		if err := os.Remove(filepath.Join(brainDir, factstore.RepositoryPath)); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
 		if err := os.Remove(path); err != nil {
 			t.Fatal(err)
 		}
@@ -338,8 +354,8 @@ func TestFactStoreIntegrityKeepsFailureModesDistinct(t *testing.T) {
 		if got.Mode != factstore.DefectMissing {
 			t.Fatalf("mode = %q, want missing", got.Mode)
 		}
-		if !strings.Contains(got.Warning(), factstore.FileName) {
-			t.Fatalf("missing warning does not name the file: %q", got.Warning())
+		if !strings.Contains(got.Warning(), factstore.RepositoryPath) {
+			t.Fatalf("missing warning does not name the store: %q", got.Warning())
 		}
 	})
 
@@ -399,7 +415,7 @@ func TestFactStoreIntegrityHealthyBrainDoesNotRegress(t *testing.T) {
 	if strings.Contains(verifyOut, "store integrity") {
 		t.Fatalf("verify printed a store-integrity line for an intact store:\n%s", verifyOut)
 	}
-	mapOut, err := execute(t, NewRootCommand(opts), "facts", "map", "--branch", "feature")
+	mapOut, err := execute(t, NewRootCommand(opts), "facts", "map")
 	if err != nil {
 		t.Fatalf("facts map failed on an intact store: %v\n%s", err, mapOut)
 	}
@@ -574,7 +590,7 @@ func TestFactStoreIntegrityDetectsCountPreservingOverwrite(t *testing.T) {
 	})
 
 	t.Run("facts-map", func(t *testing.T) {
-		mapOut, mapErr := execute(t, NewRootCommand(opts), "facts", "map", "--branch", "feature")
+		mapOut, mapErr := execute(t, NewRootCommand(opts), "facts", "map")
 		if mapErr == nil {
 			t.Fatalf("facts map exited clean over a collided store:\n%s", mapOut)
 		}
@@ -753,27 +769,25 @@ func TestFactStoreIntegrityShortAndCollidedReportsBoth(t *testing.T) {
 	}
 }
 
-// TestFactStoreIntegrityAllowsOneIDOnTwoBranches is the false-positive control
-// the id comparison exists under, and the reason it is scoped to a branch.
-//
-// A fact id is sha256(normalized text + sorted paths) — the branch is not in it
-// — so the same fact on two branches is the same id by design, and `facts
-// promote` produces exactly that on purpose. A brain-wide id set would call
-// every promote data loss.
-func TestFactStoreIntegrityAllowsOneIDOnTwoBranches(t *testing.T) {
-	_, _, brainDir, _ := factLossFixture(t)
+// TestFactStoreIntegrityAllowsOneIDAcrossLegacyFiles is the false-positive
+// control the id comparison exists under, and the reason it is scoped to one
+// FILE: historical promote/mirror flows duplicated the same id across branch
+// files on purpose, and the fold collapses those copies into one record. Only
+// a repeat WITHIN one file is a collision.
+func TestFactStoreIntegrityAllowsOneIDAcrossLegacyFiles(t *testing.T) {
+	_, _, brainDir, path := factLossFixture(t)
 	now := time.Date(2026, 8, 10, 3, 0, 0, 0, time.UTC)
 
-	feature, err := factstore.Load(brainDir, "feature")
+	// Mirror the same five records into a second legacy branch file.
+	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	carried := make([]factRecord, 0, len(feature))
-	for _, fact := range feature {
-		fact.Branch = "main"
-		carried = append(carried, fact)
+	mirror := filepath.Join(brainDir, filepath.FromSlash(testLegacyFactsRel("main")))
+	if err := os.MkdirAll(filepath.Dir(mirror), 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if err := factstore.Write(brainDir, "main", carried); err != nil {
+	if err := os.WriteFile(mirror, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := updateFactSourceManifest(brainDir, now); err != nil {
@@ -782,10 +796,12 @@ func TestFactStoreIntegrityAllowsOneIDOnTwoBranches(t *testing.T) {
 
 	got := factstore.InspectBrain(brainDir)
 	if !got.OK() {
-		t.Fatalf("carrying a branch's facts into another branch was reported as corruption: %+v\n%s", got, got.Warning())
+		t.Fatalf("a cross-file mirror was reported as corruption: %+v\n%s", got, got.Warning())
 	}
-	if got.Readable != 10 || got.Distinct != 10 {
-		t.Fatalf("readable/distinct = %d/%d, want 10/10: ids repeat ACROSS branches, never within one", got.Readable, got.Distinct)
+	// Readable counts every yielded copy (pre-migration manifests counted
+	// mirrors per file); Distinct is the folded corpus.
+	if got.Readable != 10 || got.Distinct != 5 {
+		t.Fatalf("readable/distinct = %d/%d, want 10/5: a cross-file mirror folds into one record per id", got.Readable, got.Distinct)
 	}
 }
 

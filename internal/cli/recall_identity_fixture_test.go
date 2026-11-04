@@ -48,7 +48,7 @@ func setupRecallIdentityTest(t *testing.T) (Options, string) {
 		Status:    factStatusActive,
 		UpdatedAt: opts.Now(),
 	}
-	if err := factstore.Write(storage.BrainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 	return opts, storage.BrainDir

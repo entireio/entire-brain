@@ -1,16 +1,20 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
+	"os/signal"
 	"reflect"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
@@ -38,17 +42,26 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/entities"
+	"github.com/entireio/entire-brain/internal/cli/internal/parentwatch"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
 // Execute runs the plugin root command with the real process environment.
 func Execute(version string) error {
+	// Die with the dispatcher: a SIGKILLed `entire` cannot forward anything,
+	// and an orphaned mutation would hold the brain write lock to completion.
+	parentwatch.Arm()
 	cmd := NewRootCommand(Options{
 		Version: version,
 		Env:     base.EnvFromOS(),
 	})
-	err := cmd.Execute()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if os.Getenv(parentwatch.DetachedEnv) != "" {
+		ctx = brainstore.BackgroundWrites(ctx)
+	}
+	err := cmd.ExecuteContext(ctx)
 	if err != nil && commandErrorWasRendered(err) {
 		return err
 	}
@@ -80,7 +93,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 		SilenceErrors: true,
 		Long: `entire-brain is an external-command plugin for the Entire CLI.
 
-It builds a local, inspectable repository brain from retained sessions, seed
+It builds a local, inspectable repository brain from retained sessions, repository
 context, docs, history, code-index records, and durable memories, then exposes
 retrieval, verification, and evaluation surfaces for agents.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -145,7 +158,6 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	addGrouped("facts", patternscmd.New(patternsCmdConfig(opts)))
 
 	addGrouped("operations", newMemoryCommand(opts))
-	addGrouped("operations", newPrivacyCommand(opts))
 
 	addGrouped("code", newBrainInspectCommand(opts))
 	addGrouped("code", newBrainShowCommand(opts))

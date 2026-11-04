@@ -29,7 +29,6 @@ func patternsCmdDeps() patternscmd.Deps {
 	return patternscmd.Deps{
 		AgentSurfaceTarget:           agentSurfaceTarget,
 		ResolveRepoAndBrain:          resolvePatternsRepoAndBrain,
-		RequireDerivedCleanRead:      requirePrivacyDerivedRead,
 		BufferRetrievalCommandOutput: bufferRetrievalCommandOutput,
 		RefreshPatternLayer:          refreshPatternLayerForCommand,
 		PatternSourceCurrent:         patternSourceCurrent,
@@ -120,18 +119,12 @@ func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, ta
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
-	if err != nil {
-		return err
-	}
-	privacyPolicy.RequireDerivedClean = true
-	if err := requirePrivacyDerivedRead(brainDir); err != nil {
-		return err
-	}
 	if err := base.RejectAgentForNoEgress(agent); err != nil {
 		return err
 	}
-	return runPrivacyLinearizedPatternMutation(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
+	// WithCorpusMutationLocked requires the caller to hold the Brain lock; it
+	// also serializes verify against skill synthesis and the corpus rebuild.
+	return brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
 		run := defaultDistillAgentRunner(agent)
 		verify := patterncore.VerifyDossiers
 		mode := "dossier"

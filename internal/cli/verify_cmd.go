@@ -208,7 +208,7 @@ func buildVerifyReport(ctx context.Context, opts Options, repoDir, brainDir, rep
 	if err != nil {
 		return verifyReport{}, err
 	}
-	allFacts, err := factstore.Load(brainDir, branch)
+	allFacts, err := factstore.Load(brainDir)
 	if err != nil {
 		return verifyReport{}, err
 	}
@@ -930,6 +930,10 @@ func reasonForAnchorVerdict(verdict string) string {
 	default:
 		return "unknown verification verdict"
 	}
+}
+
+func verificationSummary(ctx context.Context, opts Options, repoDir, brainDir string) (verifySummary, error) {
+	return verificationSummaryForBranch(ctx, opts, repoDir, brainDir, "")
 }
 
 func verificationSummaryForBranch(ctx context.Context, opts Options, repoDir, brainDir, branch string) (verifySummary, error) {

@@ -3,28 +3,20 @@ package cli
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
-	"github.com/entireio/entire-brain/internal/cli/command/dash"
-	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
 	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
-	"github.com/entireio/entire-brain/internal/cli/command/viz"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
-	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -200,34 +192,6 @@ func TestMultiConceptTextProofParity(t *testing.T) {
 	}
 }
 
-func TestMultiConceptPreEmissionPrivacyRaceFailsClosed(t *testing.T) {
-	brainDir := writeMultiConceptFixture(t)
-	results, err := retrieveConversationMultiConcept(brainDir, "alpha rollout", 10, retrieval.ModeLexical, retrievalOptions{
-		Source: brainstore.RetrievalSourceConversation, Concepts: []string{"beta cache eviction"},
-	})
-	if err != nil || len(results) == 0 {
-		t.Fatalf("rank fixture: %v %+v", err, results)
-	}
-	originalHook := beforeRetrievalResponsePrivacyRecheck
-	defer func() { beforeRetrievalResponsePrivacyRecheck = originalHook }()
-	called := false
-	beforeRetrievalResponsePrivacyRecheck = func() {
-		if called {
-			return
-		}
-		called = true
-		stones := brainstore.LoadSessionTombstones(brainDir)
-		stones.Excluded["sess-one"] = sessionTombstone{At: time.Now().UTC(), Reason: "race regression"}
-		if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-			panic(err)
-		}
-	}
-	filtered, _, err := revalidateRetrievalResponsePrivacy(brainDir, results)
-	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) || filtered != nil || !called {
-		t.Fatalf("late tombstone must fail before emission: called=%v results=%+v err=%v", called, filtered, err)
-	}
-}
-
 type retrievalEmissionPrivacyFixture struct {
 	BrainDir  string
 	RepoKey   string
@@ -289,409 +253,24 @@ func writeRetrievalEmissionPrivacyFixture(t *testing.T) retrievalEmissionPrivacy
 	return retrievalEmissionPrivacyFixture{BrainDir: brainDir, RepoKey: manifest.RepoKey, SessionID: "privacy-race-session", RecordID: recordID, Options: opts}
 }
 
-func installLateRetrievalTombstone(t *testing.T, fixture retrievalEmissionPrivacyFixture) *bool {
-	t.Helper()
-	original := beforeRetrievalResponsePrivacyEmissionCheck
-	called := false
-	beforeRetrievalResponsePrivacyEmissionCheck = func() {
-		if called {
-			return
-		}
-		called = true
-		stones := brainstore.LoadSessionTombstones(fixture.BrainDir)
-		stones.Excluded[fixture.SessionID] = sessionTombstone{At: time.Now().UTC(), Reason: "late emission race"}
-		if err := brainstore.SaveSessionTombstones(fixture.BrainDir, stones); err != nil {
-			panic(err)
-		}
-	}
-	t.Cleanup(func() { beforeRetrievalResponsePrivacyEmissionCheck = original })
-	return &called
-}
-
-func requireLatePrivacyEmissionFailure(t *testing.T, err error, out *bytes.Buffer, called *bool) {
-	t.Helper()
-	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) {
-		t.Fatalf("late tombstone error = %v, want %s", err, brainstore.PrivacyDirtyCode)
-	}
-	if !*called {
-		t.Fatal("final privacy emission seam was not reached")
-	}
-	if out.Len() != 0 {
-		t.Fatalf("stale bytes escaped before the final privacy check: %q", out.String())
-	}
-}
-
-func TestAllRetrievalEmissionPathsRejectLateTombstone(t *testing.T) {
-	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "")
-	t.Setenv("ENTIRE_BRAIN_BRIEF_CONVERSATION", "1")
-
-	t.Run("ordinary search", func(t *testing.T) {
-		fixture := writeRetrievalEmissionPrivacyFixture(t)
-		called := installLateRetrievalTombstone(t, fixture)
-		var out bytes.Buffer
-		cmd := &cobra.Command{}
-		cmd.SetOut(&out)
-		cmd.SetErr(&bytes.Buffer{})
-		err := retrieve.Run(context.Background(), cmd, retrieveCommandConfig(fixture.Options), "final privacy gate", retrieval.ModeLexical, 10, "", retrievalOptions{Source: brainstore.RetrievalSourceConversation}, true, false, "query")
-		requireLatePrivacyEmissionFailure(t, err, &out, called)
-	})
-
-	for _, jsonOut := range []bool{false, true} {
-		name := "get text"
-		if jsonOut {
-			name = "multi-get json"
-		}
-		t.Run(name, func(t *testing.T) {
-			fixture := writeRetrievalEmissionPrivacyFixture(t)
-			called := installLateRetrievalTombstone(t, fixture)
-			var out bytes.Buffer
-			cmd := &cobra.Command{}
-			cmd.SetOut(&out)
-			cmd.SetErr(&bytes.Buffer{})
-			ids := []string{fixture.RecordID}
-			if jsonOut {
-				ids = append(ids, "history:missing")
-			}
-			_, err := retrieve.RunGet(context.Background(), cmd, retrieveCommandConfig(fixture.Options), ids, "", jsonOut, getOptions{}, "get")
-			requireLatePrivacyEmissionFailure(t, err, &out, called)
-		})
-	}
-
-	t.Run("brief", func(t *testing.T) {
-		fixture := writeRetrievalEmissionPrivacyFixture(t)
-		called := installLateRetrievalTombstone(t, fixture)
-		var out bytes.Buffer
-		cmd := &cobra.Command{}
-		cmd.SetOut(&out)
-		cmd.SetErr(&bytes.Buffer{})
-		err := runBrainBrief(context.Background(), cmd, fixture.Options, brainBriefOptions{limit: 3, json: true}, "final privacy gate")
-		requireLatePrivacyEmissionFailure(t, err, &out, called)
-	})
-
-	for _, get := range []bool{false, true} {
-		name := "workspace search"
-		if get {
-			name = "workspace get"
-		}
-		t.Run(name, func(t *testing.T) {
-			fixture := writeRetrievalEmissionPrivacyFixture(t)
-			workspaceName := "privacy-race"
-			if err := workspace.DefaultStore(fixture.Options.Env).WriteManifest(workspace.Manifest{Name: workspaceName, Repos: []workspace.Repo{{RepoKey: fixture.RepoKey}}}); err != nil {
-				t.Fatal(err)
-			}
-			called := installLateRetrievalTombstone(t, fixture)
-			var out bytes.Buffer
-			cmd := &cobra.Command{}
-			cmd.SetOut(&out)
-			cmd.SetErr(&bytes.Buffer{})
-			var err error
-			if get {
-				err = runWorkspaceGet(cmd, fixture.Options, workspaceName, []string{fmt.Sprintf("%s/%s", fixture.RepoKey, fixture.RecordID)}, "", true, getOptions{})
-			} else {
-				err = runWorkspaceRetrieve(cmd, fixture.Options, workspaceRetrieveOptions{limit: 10, source: brainstore.RetrievalSourceConversation, json: true}, retrieval.ModeLexical, workspaceName, "final privacy gate")
-			}
-			requireLatePrivacyEmissionFailure(t, err, &out, called)
-		})
-	}
-}
-
-type blockingRetrievalWriter struct {
-	bytes.Buffer
-	started chan struct{}
-	release chan struct{}
-}
-
-func (w *blockingRetrievalWriter) Write(p []byte) (int, error) {
-	select {
-	case <-w.started:
-	default:
-		close(w.started)
-	}
-	<-w.release
-	return w.Buffer.Write(p)
-}
-
-func installConcurrentLockedTombstone(t *testing.T, fixture retrievalEmissionPrivacyFixture) <-chan error {
-	t.Helper()
-	original := beforeRetrievalResponseWrite
-	result := make(chan error, 1)
-	called := false
-	beforeRetrievalResponseWrite = func() {
-		if called {
-			return
-		}
-		called = true
-		go func() {
-			defer close(result)
-			result <- brainstore.WithBrainWriteLock(fixture.BrainDir, func() error {
-				stones, _, err := brainstore.LoadSessionTombstonesChecked(fixture.BrainDir)
-				if err != nil {
-					return err
-				}
-				stones.Excluded[fixture.SessionID] = sessionTombstone{At: time.Now().UTC(), Reason: "linearization race"}
-				return brainstore.SaveSessionTombstones(fixture.BrainDir, stones)
-			})
-		}()
-	}
-	t.Cleanup(func() {
-		defer func() { beforeRetrievalResponseWrite = original }()
-		if called {
-			if err := awaitRetrievalResult(t, "tombstone cleanup", result); err != nil {
-				t.Errorf("tombstone cleanup: %v", err)
-			}
-		}
-	})
-	return result
-}
-
-// Each blocked writer is released and joined even when an assertion fails.
-func retrievalWriterCleanup(t *testing.T, release, finished chan struct{}) func() {
-	t.Helper()
-	var once sync.Once
-	unblock := func() { once.Do(func() { close(release) }) }
-	t.Cleanup(func() {
-		unblock()
-		awaitRetrievalSignal(t, "writer cleanup", finished)
-	})
-	return unblock
-}
-
-func awaitRetrievalSignal(t *testing.T, name string, signal <-chan struct{}) {
-	t.Helper()
-	select {
-	case <-signal:
-	case <-time.After(5 * time.Second):
-		t.Fatalf("timed out waiting for %s", name)
-	}
-}
-
-func awaitRetrievalResult(t *testing.T, name string, result <-chan error) error {
-	t.Helper()
-	select {
-	case err := <-result:
-		return err
-	case <-time.After(5 * time.Second):
-		t.Fatalf("timed out waiting for %s", name)
-		return nil
-	}
-}
-
-func TestRetrievalWriteLinearizesBeforeConcurrentTombstone(t *testing.T) {
+// Emission must not contend with brain writers: a response whose policies
+// validated writes even while another process holds the brain write lock. The
+// retired behavior acquired that lock per response, so any long-running writer
+// (promote, distill) failed every concurrent reader with brain_locked. A
+// regression here fails after the 10s lock timeout rather than hanging.
+func TestRetrievalWriteSucceedsWhileBrainWriteLockHeld(t *testing.T) {
 	fixture := writeRetrievalEmissionPrivacyFixture(t)
-	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(fixture.BrainDir)
+	unlock, err := brainstore.AcquireBrainWriteLock(fixture.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	mutation := installConcurrentLockedTombstone(t, fixture)
-	out := &blockingRetrievalWriter{started: make(chan struct{}), release: make(chan struct{})}
-	writeDone := make(chan error, 1)
-	finished := make(chan struct{})
-	unblock := retrievalWriterCleanup(t, out.release, finished)
-	go func() {
-		defer close(finished)
-		writeDone <- writeRetrievalResponseBytes(out, []byte("private response\n"), policy)
-	}()
-	awaitRetrievalSignal(t, "response write", out.started)
-	select {
-	case err := <-mutation:
-		t.Fatalf("tombstone linearized while the response write lock was held: %v", err)
-	default:
-	}
-	unblock()
-	if err := awaitRetrievalResult(t, "writeDone", writeDone); err != nil {
-		t.Fatal(err)
-	}
-	if err := awaitRetrievalResult(t, "mutation", mutation); err != nil {
-		t.Fatalf("tombstone after response: %v", err)
-	}
-	if got := out.String(); got != "private response\n" {
-		t.Fatalf("response=%q", got)
-	}
-	guard, err := bmanifest.LoadSessionReadGuard(fixture.BrainDir, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !guard.BlocksSession(fixture.SessionID) {
-		t.Fatal("tombstone did not commit after response linearization")
-	}
-}
-
-func requireCommandWriteLinearizesBeforeTombstone(t *testing.T, fixture retrievalEmissionPrivacyFixture, run func(*cobra.Command) error) {
-	t.Helper()
-	mutation := installConcurrentLockedTombstone(t, fixture)
-	out := &blockingRetrievalWriter{started: make(chan struct{}), release: make(chan struct{})}
-	cmd := &cobra.Command{}
-	cmd.SetOut(out)
-	cmd.SetErr(&bytes.Buffer{})
-	done := make(chan error, 1)
-	finished := make(chan struct{})
-	unblock := retrievalWriterCleanup(t, out.release, finished)
-	go func() {
-		defer close(finished)
-		done <- run(cmd)
-	}()
-	awaitRetrievalSignal(t, "response write", out.started)
-	select {
-	case err := <-mutation:
-		t.Fatalf("tombstone linearized while the command response write lock was held: %v", err)
-	default:
-	}
-	unblock()
-	if err := awaitRetrievalResult(t, "done", done); err != nil {
-		t.Fatal(err)
-	}
-	if err := awaitRetrievalResult(t, "mutation", mutation); err != nil {
-		t.Fatalf("tombstone after command response: %v", err)
-	}
-	if out.Len() == 0 {
-		t.Fatal("command emitted no response")
-	}
-}
-
-func TestTranscriptDerivedCLIResponsesLinearizeBeforeConcurrentTombstone(t *testing.T) {
-	t.Run("handoff", func(t *testing.T) {
-		fixture := writeRetrievalEmissionPrivacyFixture(t)
-		requireCommandWriteLinearizesBeforeTombstone(t, fixture, func(cmd *cobra.Command) error {
-			return runBrainHandoff(context.Background(), cmd, fixture.Options, 1, true)
-		})
-	})
-
-	t.Run("dash json", func(t *testing.T) {
-		fixture := writeRetrievalEmissionPrivacyFixture(t)
-		requireCommandWriteLinearizesBeforeTombstone(t, fixture, func(cmd *cobra.Command) error {
-			return dash.Run(context.Background(), cmd, dashConfig(fixture.Options), dash.Flags{JSON: true, Limit: 10}, fixture.Options.Env.RepoRoot)
-		})
-	})
-
-	t.Run("workspace aggregate", func(t *testing.T) {
-		fixture := writeRetrievalEmissionPrivacyFixture(t)
-		const workspaceName = "privacy-aggregate-race"
-		if err := workspace.DefaultStore(fixture.Options.Env).WriteManifest(workspace.Manifest{
-			Name: workspaceName, Repos: []workspace.Repo{{RepoKey: fixture.RepoKey}},
-		}); err != nil {
-			t.Fatal(err)
-		}
-		requireCommandWriteLinearizesBeforeTombstone(t, fixture, func(cmd *cobra.Command) error {
-			return runWorkspacePatternsList(context.Background(), cmd, fixture.Options, workspaceName, patternscmd.ListOptions{AsJSON: true})
-		})
-	})
-}
-
-func TestTranscriptDerivedCLIResponsesRejectLateTombstone(t *testing.T) {
-	t.Run("handoff", func(t *testing.T) {
-		fixture := writeRetrievalEmissionPrivacyFixture(t)
-		called := installLateRetrievalTombstone(t, fixture)
-		var out bytes.Buffer
-		cmd := &cobra.Command{}
-		cmd.SetOut(&out)
-		cmd.SetErr(&bytes.Buffer{})
-		err := runBrainHandoff(context.Background(), cmd, fixture.Options, 1, true)
-		requireLatePrivacyEmissionFailure(t, err, &out, called)
-	})
-
-	t.Run("dash json", func(t *testing.T) {
-		fixture := writeRetrievalEmissionPrivacyFixture(t)
-		called := installLateRetrievalTombstone(t, fixture)
-		var out bytes.Buffer
-		cmd := &cobra.Command{}
-		cmd.SetOut(&out)
-		cmd.SetErr(&bytes.Buffer{})
-		err := dash.Run(context.Background(), cmd, dashConfig(fixture.Options), dash.Flags{JSON: true, Limit: 10}, fixture.Options.Env.RepoRoot)
-		requireLatePrivacyEmissionFailure(t, err, &out, called)
-	})
-
-	t.Run("workspace aggregate", func(t *testing.T) {
-		fixture := writeRetrievalEmissionPrivacyFixture(t)
-		const workspaceName = "privacy-aggregate-late"
-		if err := workspace.DefaultStore(fixture.Options.Env).WriteManifest(workspace.Manifest{
-			Name: workspaceName, Repos: []workspace.Repo{{RepoKey: fixture.RepoKey}},
-		}); err != nil {
-			t.Fatal(err)
-		}
-		called := installLateRetrievalTombstone(t, fixture)
-		var out bytes.Buffer
-		cmd := &cobra.Command{}
-		cmd.SetOut(&out)
-		cmd.SetErr(&bytes.Buffer{})
-		err := runWorkspacePatternsList(context.Background(), cmd, fixture.Options, workspaceName, patternscmd.ListOptions{AsJSON: true})
-		requireLatePrivacyEmissionFailure(t, err, &out, called)
-	})
-}
-
-func TestWorkspaceAggregateRejectsAlreadyDirtyMember(t *testing.T) {
-	fixture := writeRetrievalEmissionPrivacyFixture(t)
-	const workspaceName = "privacy-dirty-member"
-	if err := workspace.DefaultStore(fixture.Options.Env).WriteManifest(workspace.Manifest{
-		Name: workspaceName, Repos: []workspace.Repo{{RepoKey: fixture.RepoKey}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := brainstore.WithBrainWriteLock(fixture.BrainDir, func() error {
-		stones, _, err := brainstore.LoadSessionTombstonesChecked(fixture.BrainDir)
-		if err != nil {
-			return err
-		}
-		stones.Excluded[fixture.SessionID] = sessionTombstone{At: time.Now().UTC(), Reason: "already dirty"}
-		return brainstore.SaveSessionTombstones(fixture.BrainDir, stones)
-	}); err != nil {
-		t.Fatal(err)
-	}
+	defer unlock()
 	var out bytes.Buffer
-	cmd := &cobra.Command{}
-	cmd.SetOut(&out)
-	cmd.SetErr(&bytes.Buffer{})
-	err := runWorkspacePatternsList(context.Background(), cmd, fixture.Options, workspaceName, patternscmd.ListOptions{AsJSON: true})
-	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) {
-		t.Fatalf("workspace dirty-member error=%v, want %s", err, brainstore.PrivacyDirtyCode)
+	if err := writeRetrievalResponseBytes(&out, []byte("response\n")); err != nil {
+		t.Fatalf("emission failed under a held brain write lock: %v", err)
 	}
-	if out.Len() != 0 {
-		t.Fatalf("dirty workspace emitted stale bytes: %q", out.String())
-	}
-}
-
-func TestPatternBearingSurfacesRejectAlreadyDirtyDerivedStateWithoutOutput(t *testing.T) {
-	fixture := writeRetrievalEmissionPrivacyFixture(t)
-	if err := brainstore.WithBrainWriteLock(fixture.BrainDir, func() error {
-		stones, _, err := brainstore.LoadSessionTombstonesChecked(fixture.BrainDir)
-		if err != nil {
-			return err
-		}
-		stones.Excluded[fixture.SessionID] = sessionTombstone{At: time.Now().UTC(), Reason: "already dirty"}
-		return brainstore.SaveSessionTombstones(fixture.BrainDir, stones)
-	}); err != nil {
-		t.Fatal(err)
-	}
-	tests := []struct {
-		name string
-		run  func(*cobra.Command) error
-	}{
-		{name: "overview", run: func(cmd *cobra.Command) error {
-			return runBrainOverview(context.Background(), cmd, fixture.Options, fixture.Options.Env.RepoRoot, true, 3)
-		}},
-		{name: "brief", run: func(cmd *cobra.Command) error {
-			return runBrainBrief(context.Background(), cmd, fixture.Options, brainBriefOptions{limit: 3, json: true}, "privacy state")
-		}},
-		{name: "handoff", run: func(cmd *cobra.Command) error {
-			return runBrainHandoff(context.Background(), cmd, fixture.Options, 1, true)
-		}},
-		{name: "review patterns", run: func(cmd *cobra.Command) error {
-			return brainreview.RunBrainReview(context.Background(), cmd, brainReviewConfig(fixture.Options), regressionDetectorOptions{Limit: 3, JSON: true, Patterns: true}, "privacy state")
-		}},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			var stdout, stderr bytes.Buffer
-			cmd := &cobra.Command{Use: "test"}
-			cmd.SetOut(&stdout)
-			cmd.SetErr(&stderr)
-			err := tc.run(cmd)
-			if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) {
-				t.Fatalf("dirty pattern surface error = %v, want %s", err, brainstore.PrivacyDirtyCode)
-			}
-			if stdout.Len() != 0 || stderr.Len() != 0 {
-				t.Fatalf("dirty pattern surface emitted output: stdout=%q stderr=%q", stdout.String(), stderr.String())
-			}
-		})
+	if got := out.String(); got != "response\n" {
+		t.Fatalf("response=%q", got)
 	}
 }
 
@@ -726,103 +305,5 @@ func TestExplicitPatternRequestsReportUnavailableCorpusWithoutOutput(t *testing.
 				t.Fatalf("missing requested corpus emitted output: stdout=%q stderr=%q", stdout.String(), stderr.String())
 			}
 		})
-	}
-}
-
-type blockingHTTPResponseWriter struct {
-	header  http.Header
-	status  int
-	body    bytes.Buffer
-	started chan struct{}
-	release chan struct{}
-}
-
-func (w *blockingHTTPResponseWriter) Header() http.Header { return w.header }
-
-func (w *blockingHTTPResponseWriter) WriteHeader(status int) { w.status = status }
-
-func (w *blockingHTTPResponseWriter) Write(p []byte) (int, error) {
-	select {
-	case <-w.started:
-	default:
-		close(w.started)
-	}
-	<-w.release
-	return w.body.Write(p)
-}
-
-func TestVizAPIResponseLinearizesBeforeConcurrentTombstone(t *testing.T) {
-	fixture := writeRetrievalEmissionPrivacyFixture(t)
-	manifest, err := bmanifest.Load(fixture.BrainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	guard, err := bmanifest.LoadSessionReadGuard(fixture.BrainDir, manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := &viz.Server{
-		RepoDir: fixture.Options.Env.RepoRoot, BrainDir: fixture.BrainDir, Branch: "feature", Manifest: manifest,
-		Guard: guard, GuardObserved: !guard.Empty(), Deps: vizDeps(),
-	}
-	handler, err := srv.Mux()
-	if err != nil {
-		t.Fatal(err)
-	}
-	mutation := installConcurrentLockedTombstone(t, fixture)
-	out := &blockingHTTPResponseWriter{
-		header: make(http.Header), started: make(chan struct{}), release: make(chan struct{}),
-	}
-	done := make(chan struct{})
-	unblock := retrievalWriterCleanup(t, out.release, done)
-	go func() {
-		handler.ServeHTTP(out, httptest.NewRequest(http.MethodGet, "/api/summary", nil))
-		close(done)
-	}()
-	awaitRetrievalSignal(t, "response write", out.started)
-	select {
-	case err := <-mutation:
-		t.Fatalf("tombstone linearized while the HTTP response write lock was held: %v", err)
-	default:
-	}
-	unblock()
-	awaitRetrievalSignal(t, "HTTP response", done)
-	if err := awaitRetrievalResult(t, "mutation", mutation); err != nil {
-		t.Fatalf("tombstone after HTTP response: %v", err)
-	}
-	if out.status != http.StatusOK || out.body.Len() == 0 {
-		t.Fatalf("HTTP response status=%d body=%q", out.status, out.body.String())
-	}
-}
-
-func TestVizAPIResponseRejectsLateTombstone(t *testing.T) {
-	fixture := writeRetrievalEmissionPrivacyFixture(t)
-	manifest, err := bmanifest.Load(fixture.BrainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	guard, err := bmanifest.LoadSessionReadGuard(fixture.BrainDir, manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := &viz.Server{
-		RepoDir: fixture.Options.Env.RepoRoot, BrainDir: fixture.BrainDir, Branch: "feature", Manifest: manifest,
-		Guard: guard, GuardObserved: !guard.Empty(), Deps: vizDeps(),
-	}
-	handler, err := srv.Mux()
-	if err != nil {
-		t.Fatal(err)
-	}
-	called := installLateRetrievalTombstone(t, fixture)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
-	if !*called {
-		t.Fatal("final HTTP privacy emission seam was not reached")
-	}
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status=%d body=%q, want 503", rec.Code, rec.Body.String())
-	}
-	if strings.Contains(rec.Body.String(), fixture.SessionID) {
-		t.Fatalf("late tombstone leaked stale session response: %q", rec.Body.String())
 	}
 }

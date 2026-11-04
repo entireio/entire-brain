@@ -6,6 +6,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // retrieveCommandConfig binds the cli-private seams the extracted retrieval
@@ -17,18 +18,17 @@ func retrieveCommandConfig(opts Options) retrieve.Config {
 	return retrieve.Config{
 		Options: opts,
 		Deps: retrieve.Deps{
-			ResolveTarget:             resolveRetrieveTarget,
-			RetrieveUnified:           retrieveUnifiedWithOptions,
-			GetUnifiedBatch:           getUnifiedBatchOptions,
-			AbstractPreviews:          abstractPreviewsForResults,
-			RequirePatternsReadable:   requirePatternsReadable,
-			RelatedPatternPointers:    relatedRetrievalPatternPointers,
-			RecordServedFacts:         recordServedRetrievalFacts,
-			EmptyResultBlindSpot:      emptyResultBlindSpotOnBranch,
-			TaskHints:                 retrievalHintsForResults,
-			RevalidateResponsePrivacy: revalidateRetrievalResponsePrivacy,
-			WriteRetrievalResponse:    writeRetrievalResponseBytes,
-			BoundedResponseBytes:      boundedRetrievalResponseBytes,
+			ResolveTarget:           resolveRetrieveTarget,
+			RetrieveUnified:         retrieveUnifiedWithOptions,
+			GetUnifiedBatch:         getUnifiedBatchOptions,
+			AbstractPreviews:        abstractPreviewsForResults,
+			RequirePatternsReadable: requirePatternsReadable,
+			RelatedPatternPointers:  relatedRetrievalPatternPointers,
+			RecordServedFacts:       recordServedRetrievalFacts,
+			EmptyResultBlindSpot:    emptyResultBlindSpotOnBranch,
+			TaskHints:               retrievalHintsForResults,
+			WriteRetrievalResponse:  writeRetrievalResponseBytes,
+			BoundedResponseBytes:    boundedRetrievalResponseBytes,
 		},
 	}
 }
@@ -41,11 +41,10 @@ func resolveRetrieveTarget(ctx context.Context, opts base.Options, branchOverrid
 }
 
 // requirePatternsReadable is the pattern:/theme: read gate shared by the
-// ranked --patterns path and get/multi-get: the privacy derived-read check
-// (bound to cli's verifyDerivedClean) followed by the corpus availability
-// check, in that order.
+// ranked --patterns path and get/multi-get: corpus read-safety followed by
+// the corpus availability check, in that order.
 func requirePatternsReadable(brainDir string) error {
-	if err := requirePrivacyDerivedRead(brainDir); err != nil {
+	if err := patterncore.ValidateCorpusReadSafety(brainDir); err != nil {
 		return err
 	}
 	return requirePatternCorpusAvailable(brainDir)

@@ -16,7 +16,7 @@ func TestFactAvailabilityRejectsEmptyCorruptAndSymlinkStores(t *testing.T) {
 	for _, mode := range []string{"empty", "corrupt", "symlink", "directory"} {
 		t.Run(mode, func(t *testing.T) {
 			opts, repo, brain := factsAvailabilityFixture(t)
-			path := filepath.Join(brain, filepath.FromSlash(factstore.FileRelPath("feature")))
+			path := testFlatStorePath(brain)
 			switch mode {
 			case "empty":
 				if err := os.WriteFile(path, nil, 0600); err != nil {
@@ -73,7 +73,7 @@ func TestFactAvailabilityRejectsEmptyCorruptAndSymlinkStores(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					if (!strings.Contains(out, factstore.FileName) && !strings.Contains(out, "memory count does not match")) || strings.Contains(out, "the answer may genuinely not be") {
+					if (!strings.Contains(out, factstore.RepositoryPath) && !strings.Contains(out, "memory count does not match")) || strings.Contains(out, "the answer may genuinely not be") {
 						t.Fatalf("empty store hidden by recall: %s", out)
 					}
 				}
@@ -84,11 +84,11 @@ func TestFactAvailabilityRejectsEmptyCorruptAndSymlinkStores(t *testing.T) {
 
 func TestBriefFactWarningOnlyNamesTheBranchRead(t *testing.T) {
 	opts, _, brain := factsAvailabilityFixture(t)
-	facts, err := factstore.Load(brain, "feature")
+	facts, err := factstore.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := factstore.Write(brain, "other", facts); err != nil {
+	if err := factstore.Write(brain, facts); err != nil {
 		t.Fatal(err)
 	}
 	if err := updateFactSourceManifest(brain, opts.Now()); err != nil {

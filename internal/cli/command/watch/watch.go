@@ -63,16 +63,21 @@ type Flags struct {
 // Cursor persists across restarts so the daemon never re-refreshes unchanged state and never
 // re-runs the gated agent work within --distill-every after a restart.
 type Cursor struct {
-	PendingSeed      bool      `json:"pending_seed,omitempty"`
-	PendingDistill   bool      `json:"pending_distill,omitempty"`
-	LastFingerprint  string    `json:"last_fingerprint"`
-	LastRefreshAt    time.Time `json:"last_refresh_at,omitempty"`
-	LastAgentSpendAt time.Time `json:"last_agent_spend_at,omitempty"`
-	// ConsolidationRepairs counts CONSECUTIVE full refreshes that ran early
-	// because the short-term delta failed. It is the backoff state for
-	// watchRepairWait: a single failure repairs promptly, a persistent one
+	PendingSeed    bool `json:"pending_seed,omitempty"`
+	PendingDistill bool `json:"pending_distill,omitempty"`
+	// LastFingerprint tracks the input already queued for agent work, even
+	// when the deterministic refresh is deferred. PendingRefresh keeps that
+	// unfinished refresh eligible without requeueing completed agent steps.
+	LastFingerprint      string    `json:"last_fingerprint"`
+	LastRefreshAt        time.Time `json:"last_refresh_at,omitempty"`
+	LastAgentSpendAt     time.Time `json:"last_agent_spend_at,omitempty"`
+	PendingRefresh       bool      `json:"pending_refresh,omitempty"`
+	LastRefreshAttemptAt time.Time `json:"last_refresh_attempt_at,omitempty"`
+	// ConsolidationRepairs counts CONSECUTIVE full refresh attempts triggered
+	// by a failed short-term delta, including dirty-tree deferrals. It is the
+	// backoff state for watchRepairWait: a single failure repairs promptly, a persistent one
 	// settles back to the normal consolidation cadence instead of firing the
-	// heavy refresh every tick. Reset to 0 by the first healthy delta.
+	// heavy refresh every tick. Reset by a refresh attempt with a healthy delta.
 	ConsolidationRepairs int       `json:"consolidation_repairs,omitempty"`
 	LastFactsSyncAt      time.Time `json:"last_facts_sync_at,omitempty"`
 }
@@ -98,21 +103,17 @@ type Steps struct {
 	Delta func(context.Context) (historystore.ShortTermStats, error)
 	// Reconcile durably queues long-term conversation work independently of
 	// the git/checkpoint fingerprint. Exported transcripts can change while
-	// that fingerprint stays stable (for example, a late host export).
+	// that fingerprint stays stable (for example, a late host export). Tick
+	// calls it after all foreground writers, including on early-return paths.
 	Reconcile func(context.Context) error
-	Refresh   func(context.Context) error
-	Seed      func(context.Context) error
-	Distill   func(context.Context) error
-	// FactsSync publishes-and-pulls hosted facts (hostedFactsSyncAndPull) for
-	// the current + default branch. Nil when the surface has no hosted step;
-	// non-fatal and cursor-throttled (hostedSyncMinInterval).
-	FactsSync func(context.Context) (bool, error)
-	Paused    func() bool
+	// Maintain reclaims verified legacy data, including on unchanged ticks.
+	// It finishes before reconciliation can launch a competing worker.
+	Maintain func(context.Context) error
+	Refresh  func(context.Context) error
+	Seed     func(context.Context) error
+	Distill  func(context.Context) error
+	Paused   func() bool
 }
-
-// hostedSyncMinInterval throttles the hosted fact sync step across ticks: the
-// tick interval is minutes, a team's fact churn is hours.
-const hostedSyncMinInterval = 15 * time.Minute
 
 // DefaultFlags are the shared defaults for `watch` and `workspace watch`.
 func DefaultFlags() Flags {
@@ -139,14 +140,15 @@ func BindFlags(cmd *cobra.Command, w *Flags) {
 	cmd.Flags().DurationVar(&w.ConsolidateEvery, "consolidate-every", w.ConsolidateEvery, "Minimum interval between full consolidations (heavy refresh); the per-tick short-term delta covers freshness in between. 0 = consolidate on every change; a full short-term buffer always consolidates")
 	cmd.Flags().BoolVar(&w.Once, "once", false, "Run a single pass and exit (no daemon loop)")
 	cmd.Flags().BoolVar(&w.Distill, "distill", false, "Run distill (SPENDS TOKENS) when new sessions land — gated by --distill-every + --budget")
-	cmd.Flags().DurationVar(&w.DistillEvery, "distill-every", w.DistillEvery, "Minimum interval between gated agent runs (distill and/or seed synthesis)")
+	cmd.Flags().DurationVar(&w.DistillEvery, "distill-every", w.DistillEvery, "Minimum interval between gated agent runs")
 	cmd.Flags().StringVar(&w.DistillAgent, "agent", w.DistillAgent, "Agent for the distill step (used only with --distill)")
 	cmd.Flags().IntVar(&w.DistillJobs, "jobs", w.DistillJobs, "Parallel distill extraction jobs when --distill is enabled; reconciliation and writes remain deterministic")
 	cmd.Flags().IntVar(&w.DistillMaxSessions, "max-sessions", w.DistillMaxSessions, "Cap how many not-yet-distilled sessions ONE gated distill pass processes (0 = no cap). --distill-every bounds how often the daemon spends; this bounds how much each spend costs")
 	cmd.Flags().StringVar(&w.SeedAgent, "seed-agent", w.SeedAgent, "Agent for gated seed synthesis (SPENDS TOKENS); none = deterministic seed only. Bounded by --distill-every + --budget, NOT per-change")
-	cmd.Flags().StringVar(&w.Model, "model", "", "Fast/cheap model for the gated agent steps (distill/seed)")
+	_ = cmd.Flags().MarkHidden("seed-agent")
+	cmd.Flags().StringVar(&w.Model, "model", "", "Fast/cheap model for the gated agent steps")
 	cmd.Flags().StringVar(&w.Effort, "effort", "", "Reasoning effort for the gated agent steps (codex --config model_reasoning_effort=, claude --effort)")
-	cmd.Flags().IntVar(&w.Budget, "budget", 0, "Cap on gated agent runs for the LIFE OF THIS PROCESS (distill + seed); 0 = unlimited. It never resets, so on a long-lived daemon --budget 1 means one run EVER, not one per window — the durable per-window guard is --distill-every + the persisted cursor. Use it only for a bounded foreground run.")
+	cmd.Flags().IntVar(&w.Budget, "budget", 0, "Cap on gated agent runs for the LIFE OF THIS PROCESS; 0 = unlimited. It never resets, so on a long-lived daemon --budget 1 means one run EVER, not one per window — the durable per-window guard is --distill-every + the persisted cursor. Use it only for a bounded foreground run.")
 }
 
 // New builds the `watch` command.
@@ -271,6 +273,7 @@ func watchLoop(ctx context.Context, out io.Writer, fields LogFields, now func() 
 // then the GATED token-spending work (seed synthesis and/or distill). agentCalls is shared across
 // ticks/members so --budget caps total token spend across the whole run.
 func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps Steps, agentCalls *int) {
+	ctx = brainstore.BackgroundWrites(ctx)
 	if steps.Paused != nil && steps.Paused() {
 		fmt.Fprintln(out, "[watch] paused — `entire-brain start` resumes")
 		return
@@ -283,73 +286,52 @@ func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps 
 	// have failed, so the throttle applies at its normal cadence rather than
 	// treating every tick as a repair.
 	deltaHealthy := true
-	deltaNeedsReconcile := false
+	needsReconcile := false
 	if steps.Delta != nil {
 		stats, err := steps.Delta(ctx)
 		if err != nil {
 			deltaHealthy = false
-			deltaNeedsReconcile = true
+			needsReconcile = true
 			fmt.Fprintf(out, "[watch] short-term memory update failed (continuing): %v\n", err)
 		} else {
 			// A delta that failed to scan any transcript did NOT fully carry
 			// the new work, so it must not defer consolidation.
 			deltaHealthy = stats.Failed == 0
 			bufferFull = stats.Truncated
-			deltaNeedsReconcile = stats.Files > 0 || stats.Failed > 0 || stats.Truncated
+			needsReconcile = stats.Files > 0 || stats.Failed > 0 || stats.Truncated
 			fmt.Fprintf(out, "[watch] short-term memory updated (%d records from %d changed transcripts)\n", stats.Records, stats.Files)
 			if stats.Failed > 0 {
 				fmt.Fprintf(out, "[watch] short-term memory incomplete: %d transcripts failed to scan; consolidation will repair\n", stats.Failed)
 			}
 		}
 	}
-	// Delta state is itself a source-change signal. Do this before the git
-	// fingerprint gate so a changed/failed/overflowed export is never stranded
-	// in the short-term overlay waiting for an unrelated commit or restart.
-	if deltaNeedsReconcile && steps.Reconcile != nil {
-		if err := steps.Reconcile(ctx); err != nil {
+	// Reconcile every changed/failed delta even when the fingerprint or
+	// consolidation gate returns early, but launch its worker only after all
+	// of this tick's writers finish. Otherwise our own child can take the
+	// write lock before refresh, seed, or distill and make that step time out.
+	defer func() {
+		if steps.Maintain != nil && ctx.Err() == nil {
+			if err := steps.Maintain(ctx); err != nil {
+				fmt.Fprintf(out, "[watch] memory cleanup deferred: %v\n", err)
+			}
+		}
+		if !needsReconcile || steps.Reconcile == nil {
+			return
+		}
+		// A cancelled refresh must not strand already-published delta work.
+		// Give local queue publication a bounded shutdown grace period;
+		// normal reconciliation retains its existing time allowance.
+		reconcileCtx, cancel := watchReconcileContext(ctx, brainstore.BrainWriteLockTimeout)
+		defer cancel()
+		if err := steps.Reconcile(reconcileCtx); err != nil {
 			fmt.Fprintf(out, "[watch] memory reconciliation failed (durable overlay retained): %v\n", err)
 		} else {
 			fmt.Fprintln(out, "[watch] long-term memory reconciliation queued")
 		}
-	}
+	}()
 	cursor := LoadCursor(cursorPath)
-	// The hosted step pulls teammates' facts as much as it publishes local
-	// ones, so it must run on idle (no-change) ticks too — a machine that only
-	// receives would otherwise never sync. The defer below makes it run on
-	// every exit path from here down, including a failed refresh: a failed
-	// refresh never advances the main cursor, so a machine whose refresh
-	// always fails (e.g. the graph plugin is missing) takes that path on every
-	// tick and would otherwise be starved of the team's facts forever
-	// (COR-2114; a hand-placed call per return had already missed a path
-	// twice). It is token-free and throttled by its own cursor timestamp,
-	// advanced regardless of outcome so a failing hosted endpoint cannot turn
-	// every tick into an egress attempt. The success path still calls it
-	// explicitly BEFORE the agent steps — the `ran` guard makes the deferred
-	// call a no-op then — so the sync never inherits a context cancelled
-	// during a long agent step and burns its throttle window on an attempt
-	// that never happened.
-	factsSyncRan := false
-	runFactsSync := func() {
-		if factsSyncRan {
-			return
-		}
-		factsSyncRan = true
-		now := steps.Now().UTC()
-		if steps.FactsSync == nil || now.Sub(cursor.LastFactsSyncAt) < hostedSyncMinInterval {
-			return
-		}
-		attempted, err := steps.FactsSync(ctx)
-		switch {
-		case err != nil:
-			fmt.Fprintf(out, "[watch] hosted fact sync failed (local brain unaffected): %v\n", err)
-		case attempted:
-			fmt.Fprintln(out, "[watch] hosted fact sync ran")
-		}
-		markFactsSyncAttempt(cursorPath, now)
-	}
-	defer runFactsSync()
 	fp := steps.Fingerprint(ctx)
-	changed := fp != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero()
+	changed := fp != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero() || cursor.PendingRefresh
 	if !changed && !(cursor.PendingSeed && w.SeedAgent != "none" || cursor.PendingDistill && w.Distill) {
 		fmt.Fprintln(out, "[watch] no change; nothing to do")
 		return
@@ -368,7 +350,32 @@ func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps 
 	// completeness is at risk, and a successful consolidation clears the
 	// overlay, so it cannot repeat the way a failing delta can. The first ever
 	// refresh always runs.
-	if changed && w.ConsolidateEvery > 0 && !cursor.LastRefreshAt.IsZero() && !bufferFull {
+	refreshDue := changed
+	if cursor.PendingRefresh && !cursor.LastRefreshAttemptAt.IsZero() && !bufferFull {
+		// A dirty-tree refusal must survive a restart or a stash (neither
+		// changes the fingerprint), but must not replay the heavy refresh on
+		// every tick. Keep its attempt clock separate from last success.
+		wait := w.ConsolidateEvery
+		if wait <= 0 {
+			wait = w.Interval
+		}
+		if wait <= 0 {
+			wait = time.Minute
+		}
+		// Pending work obeys the same urgent repair policy as ordinary
+		// consolidation: a full buffer bypasses the wait, while failed deltas
+		// retry promptly and back off if refresh keeps being refused.
+		if !deltaHealthy && w.ConsolidateEvery > 0 {
+			wait = watchRepairWait(w, cursor.ConsolidationRepairs)
+		}
+		if since := steps.Now().UTC().Sub(cursor.LastRefreshAttemptAt); since < wait {
+			fmt.Fprintf(out, "[watch] refresh still pending after uncommitted worktree; retry due in %s\n", (wait - since).Round(time.Second))
+			// Only the heavy refresh is waiting. Previously queued agent work
+			// still gets its own interval/budget check below, as on the first
+			// dirty tick, without advancing the refresh attempt clock.
+			refreshDue = false
+		}
+	} else if changed && w.ConsolidateEvery > 0 && !cursor.LastRefreshAt.IsZero() && !bufferFull {
 		wait := w.ConsolidateEvery
 		state := "short-term memory is current"
 		if !deltaHealthy {
@@ -381,30 +388,36 @@ func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps 
 			return
 		}
 	}
-	if changed {
+	refresh := refreshUnchanged
+	if refreshDue {
+		// Refresh can publish new canonical inputs independently of delta.
+		// Its coordinator also belongs after the tick's remaining writers.
+		needsReconcile = true
+		refresh = refreshSucceeded
 		if err := steps.Refresh(ctx); err != nil {
 			// A refusal to index an uncommitted worktree is not a failure: it
 			// is the expected answer while someone is working, and it recurs
 			// every tick until they commit. Treating it as a failure aborted
-			// the tick and left the cursor where it was, so the watcher made no
-			// progress at all for the whole time the tree stayed dirty
-			// (issue #327). Everything else still aborts, because an
+			// the tick and prevented other background work while the tree stayed
+			// dirty (issue #327). Retain the unfinished refresh independently of
+			// agent work, and never record this refusal as a successful refresh.
+			// Everything else still aborts, because an
 			// unrefreshed brain must not have tokens spent against it.
 			if strings.Contains(err.Error(), brainstore.DirtyWorktreeCode+":") {
-				fmt.Fprintf(out, "[watch] code index skipped (uncommitted worktree); continuing\n")
+				refresh = refreshDeferred
+				fmt.Fprintln(out, "[watch] refresh deferred (uncommitted worktree); will retry; continuing with background work")
 			} else {
 				fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
 				return
 			}
 		}
 	}
-	runFactsSync()
-	reserved, reason, err := reserveWatchAgentSpend(cursorPath, fp, w, agentCalls, steps.Now().UTC(), !deltaHealthy)
+	reserved, reason, err := reserveWatchAgentSpend(cursorPath, fp, w, agentCalls, steps.Now().UTC(), !deltaHealthy, refresh)
 	if err != nil {
 		fmt.Fprintf(out, "[watch] cursor update failed (skipping agent work this tick): %v\n", err)
 		return
 	}
-	if changed {
+	if refresh == refreshSucceeded {
 		fmt.Fprintln(out, "[watch] refreshed (deterministic, no agent tokens)")
 	}
 
@@ -475,6 +488,26 @@ func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps 
 	}
 }
 
+// watchReconcileContext preserves request values while allowing a final local
+// reconciliation after cancellation. The grace period starts only when the
+// parent is cancelled, not when an ordinary reconciliation begins.
+func watchReconcileContext(ctx context.Context, grace time.Duration) (context.Context, context.CancelFunc) {
+	work, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	stop := context.AfterFunc(ctx, func() {
+		timer := time.NewTimer(grace)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			cancel()
+		case <-work.Done():
+		}
+	})
+	return work, func() {
+		stop()
+		cancel()
+	}
+}
+
 // releaseWatchAgentSpend gives back a window reserved by reserveWatchAgentSpend
 // when the gated step turned out to do nothing at all. previous is the
 // LastAgentSpendAt read at the top of this tick, so the cursor lands exactly
@@ -518,17 +551,6 @@ func StepCommand(parent *cobra.Command, sink io.Writer) *cobra.Command {
 	return sub
 }
 
-// markFactsSyncAttempt persists the hosted-sync throttle timestamp. Failures
-// are silent for the same reason as releaseWatchAgentSpend: a watcher must
-// never die on cursor bookkeeping.
-func markFactsSyncAttempt(cursorPath string, now time.Time) {
-	_ = withWatchCursorLock(cursorPath, func() error {
-		cursor := LoadCursor(cursorPath)
-		cursor.LastFactsSyncAt = now
-		return SaveCursor(cursorPath, cursor)
-	})
-}
-
 // watchShouldSpend decides whether the token-spending agent work (seed and/or distill) runs this tick:
 // only when at least one is enabled AND --distill-every has elapsed since the last agent spend
 // (cursor-tracked across restarts) AND the --budget cap is not yet reached. This is the structural
@@ -569,22 +591,35 @@ func watchRepairWait(w Flags, repairs int) time.Duration {
 	return wait
 }
 
-// reserveWatchAgentSpend advances the refresh cursor after a successful full
-// refresh and decides whether the gated token work may run. repair reports
+type refreshOutcome uint8
+
+const (
+	refreshUnchanged refreshOutcome = iota
+	refreshSucceeded
+	refreshDeferred
+)
+
+// reserveWatchAgentSpend records the refresh outcome and decides whether gated
+// token work may run. A deferred refresh advances the observed fingerprint for
+// agent work but retains PendingRefresh and the previous success time. repair reports
 // whether THIS refresh ran early because the short-term delta failed; it drives
-// the watchRepairWait backoff and is cleared by the first healthy delta.
-func reserveWatchAgentSpend(cursorPath, fingerprint string, w Flags, agentCalls *int, now time.Time, repair bool) (bool, string, error) {
+// the watchRepairWait backoff and is cleared by a refresh with a healthy delta.
+func reserveWatchAgentSpend(cursorPath, fingerprint string, w Flags, agentCalls *int, now time.Time, repair bool, refresh refreshOutcome) (bool, string, error) {
 	var cursor Cursor
 	var reserved bool
 	var reason string
 	err := withWatchCursorLock(cursorPath, func() error {
 		cursor = LoadCursor(cursorPath)
-		changed := fingerprint != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero()
-		if changed {
+		changed := fingerprint != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero() && !cursor.PendingRefresh
+		refreshAttempted := refresh != refreshUnchanged
+		if refreshAttempted && changed {
 			cursor.PendingSeed = cursor.PendingSeed || w.SeedAgent != "none"
 			cursor.PendingDistill = cursor.PendingDistill || w.Distill
 			cursor.LastFingerprint = fingerprint
-			cursor.LastRefreshAt = now
+		}
+		if refreshAttempted {
+			cursor.LastRefreshAttemptAt = now
+			cursor.PendingRefresh = refresh == refreshDeferred
 			if repair {
 				if cursor.ConsolidationRepairs < watchRepairBackoffMax {
 					cursor.ConsolidationRepairs++
@@ -593,8 +628,12 @@ func reserveWatchAgentSpend(cursorPath, fingerprint string, w Flags, agentCalls 
 				cursor.ConsolidationRepairs = 0
 			}
 		}
-		if !w.agentWorkEnabled() {
-			if changed {
+		if refresh == refreshSucceeded {
+			cursor.LastRefreshAt = now
+		}
+		if !(cursor.PendingSeed && w.SeedAgent != "none" || cursor.PendingDistill && w.Distill) {
+			reason = "no pending agent work"
+			if refreshAttempted {
 				return SaveCursor(cursorPath, cursor)
 			}
 			return nil
@@ -602,7 +641,7 @@ func reserveWatchAgentSpend(cursorPath, fingerprint string, w Flags, agentCalls 
 		ok, skipReason := watchShouldSpend(w, cursor, *agentCalls, now)
 		if !ok {
 			reason = skipReason
-			if changed {
+			if refreshAttempted {
 				return SaveCursor(cursorPath, cursor)
 			}
 			return nil

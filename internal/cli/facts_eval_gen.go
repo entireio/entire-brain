@@ -144,15 +144,13 @@ func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir s
 		return nil, fmt.Errorf("refine agent: %w", err)
 	}
 	judgeArgs = base.InjectAgentModel(judgeArgs, resolved, model)
-	byBranch, err := factstore.LoadAllBranches(brainDir)
+	stored, err := factstore.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
 	idToFact := map[string]factRecord{}
-	for _, recs := range byBranch {
-		for _, r := range recs {
-			idToFact[r.ID] = r
-		}
+	for _, r := range stored {
+		idToFact[r.ID] = r
 	}
 	cache := loadJudgeCache(cachePath)
 	if err := cache.validateLoaded(); err != nil {
@@ -205,15 +203,20 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 }
 
 func generateEvalTasksContext(ctx context.Context, brainDir string, manifest *exportManifest, branch string, minFacts, maxFacts, limit int) ([]evalTask, error) {
-	byBranch, err := factstore.LoadAllBranches(brainDir)
+	stored, err := factstore.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
 	// branch+session+transcript -> the facts that cite it (deduped per
 	// session source). Older anchors may lack a transcript; those stay in the
 	// branch+session fallback bucket and are used only when no transcript-scoped
-	// labels exist for a manifest session.
+	// labels exist for a manifest session. Branch is record metadata now; the
+	// branch argument filters records, not stores.
 	sessionFacts := map[string][]factRecord{}
+	byBranch := map[string][]factRecord{}
+	for _, r := range stored {
+		byBranch[r.Branch] = append(byBranch[r.Branch], r)
+	}
 	for b, recs := range byBranch {
 		if branch != "" && b != branch {
 			continue

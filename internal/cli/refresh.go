@@ -74,13 +74,13 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&refreshOpts.outputDir, "output", "o", defaultExportDir, "Output directory for the brain (default: persistent brain directory)")
 	cmd.Flags().BoolVar(&refreshOpts.force, "force", false, "Force a full refresh; overwrite explicit output when used with --output")
-	cmd.Flags().StringVar(&refreshOpts.seed.agent, "agent", "auto", "Agent synthesis mode for seed: auto, none, codex, claude-code, or command")
+	cmd.Flags().StringVar(&refreshOpts.seed.agent, "agent", refreshOpts.seed.agent, "Opt-in repository summaries (spends tokens): auto, none, codex, claude-code, or command")
 	cmd.Flags().IntVar(&refreshOpts.checkpointLimit, "checkpoint-limit", defaultCheckpointLimit, "Maximum checkpoints to inspect")
 	cmd.Flags().StringVar(&refreshOpts.entireBinary, "entire-binary", "entire", "Entire CLI binary to invoke")
 	cmd.Flags().BoolVar(&refreshOpts.rawTranscript, "raw", false, "Export raw agent transcripts instead of normalized compact transcripts")
 	cmd.Flags().StringVar(&refreshOpts.scope, "scope", exportScopeAll, "Checkpoint discovery scope: all or branch")
 	cmd.Flags().BoolVar(&refreshOpts.seed.force, "force-seed", false, "Force seed refresh")
-	cmd.Flags().BoolVar(&refreshOpts.seed.worktree, "worktree", false, "Refresh seed and docs from the current worktree")
+	cmd.Flags().BoolVar(&refreshOpts.seed.worktree, "worktree", false, "Refresh repository context and docs from the current worktree")
 	cmd.Flags().StringArrayVar(&refreshOpts.seed.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&refreshOpts.seed.model, "seed-model", "", "Override the agent model for seed synthesis (e.g. a fast/cheap model)")
 	cmd.Flags().StringVar(&refreshOpts.seed.effort, "seed-effort", "", "Override the reasoning effort for seed synthesis (e.g. low)")
@@ -95,7 +95,7 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&refreshOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().BoolVar(&refreshOpts.allBranches, "all-branches", false, "Refresh recent local branch overlays without fetching remotes")
 	cmd.Flags().BoolVar(&refreshOpts.forceAllBranches, "force-all-branches", false, "Allow all local branches instead of the bounded recent-branch default")
-	for _, name := range []string{"checkpoint-limit", "entire-binary", "raw", "scope", "force-seed", "agent-command", "seed-model", "seed-effort", "semantic", "semantic-worktree", "history-index", "graph-binary", "all-branches", "force-all-branches"} {
+	for _, name := range []string{"agent", "checkpoint-limit", "entire-binary", "raw", "scope", "force-seed", "agent-command", "seed-model", "seed-effort", "semantic", "semantic-worktree", "history-index", "graph-binary", "all-branches", "force-all-branches"} {
 		_ = cmd.Flags().MarkHidden(name)
 	}
 	// Individual refresh stages, runnable on their own: `refresh` does all of
@@ -123,7 +123,7 @@ func defaultRefreshCommandOptions() refreshCommandOptions {
 			maxFileBytes:       defaultSeedMaxFileBytes,
 			maxFiles:           defaultSeedMaxFiles,
 			format:             "markdown+json",
-			agent:              "auto",
+			agent:              "none",
 			agentQuickTimeout:  2 * time.Minute,
 			agentDeepTimeout:   10 * time.Minute,
 			agentTimeoutAction: "keep-quick",
@@ -186,6 +186,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	storageTask.Update("locate brain: " + storage.Key)
 	storageTask.Finish(nil)
 	brainDir := storage.BrainDir
+	warnLegacyTombstones(cmd.ErrOrStderr(), brainDir)
 	if outputExplicit {
 		finishOutput := progress.Step("resolve output path")
 		brainDir, err = filepath.Abs(refreshOpts.outputDir)
@@ -209,7 +210,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	// Before any stage writes, not after: a manifest carrying another build's
 	// fields is readable but no writer will replace it, and the session export
 	// below is a writer. Discarding it afterwards let the export fail first, and
-	// refresh then reported "unavailable, using seed baseline" -- masking the
+	// refresh then reported "unavailable, using repository context" -- masking the
 	// real cause and throwing away the sessions it had just gathered. An
 	// explicit --force is the operator asking for the rebuild, so clear the way
 	// for it here. An explicit --output has already had its directory removed.
@@ -302,14 +303,14 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		// One line: this is a parenthesised progress note, and a named repository
 		// condition carries its remedy on the lines after the first, which the
 		// terminal error still prints in full.
-		progress.Skip("seed baseline: freshness unknown (" + firstErrorLine(seedProbeErr) + ")")
+		progress.Skip(setupComponentLabel(brainComponentSeed) + ": freshness unknown (" + firstErrorLine(seedProbeErr) + ")")
 		if reportStageAndShouldAbort(brainComponentSeed, seedProbeErr) {
 			return seedProbeErr
 		}
 	case needSeed:
-		seedTask := progress.Begin("seed baseline")
+		seedTask := progress.Begin(setupComponentLabel(brainComponentSeed))
 		seedErr := runRefreshSeedPhase(ctx, opts, refreshOpts.seed, repoDir, brainDir, outputExplicit, func(phase string) {
-			seedTask.Update("seed baseline: " + phase)
+			seedTask.Update(setupComponentLabel(brainComponentSeed) + ": " + phase)
 		})
 		// Seed may have updated the manifest before a later best-effort step
 		// failed. History freshness must use the state now on disk in either
@@ -370,7 +371,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		// relying on the exit status isn't told success on an incomplete brain.
 		// (A missing seed is not an error — writeDocIndexAndSource writes an empty
 		// index in that case.)
-		docSource, derr := writeDocIndexAndSource(brainDir, opts.Now().UTC())
+		docSource, derr := writeDocIndexAndSourceContext(ctx, brainDir, opts.Now().UTC())
 		if derr != nil {
 			docTask.Finish(derr)
 			if reportStageAndShouldAbort(brainComponentDocs, derr) {
@@ -470,7 +471,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			}
 		}
 	} else if refreshOpts.semanticWorktreeSkip {
-		progress.Skip("code index: skipped, --worktree refreshes seed and docs only")
+		progress.Skip("code index: skipped, --worktree refreshes repository context and docs only")
 	} else {
 		progress.Skip("code index")
 	}
@@ -486,13 +487,32 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			reportStageAndShouldAbort(brainComponentBranches, nil)
 		}
 	}
+	// Strict mirror: drop fact provenance, session abstracts, and egress
+	// receipts citing sessions gone from the checkpoint catalog; distilled
+	// facts left with no provenance are deleted. A partial catalog (branch
+	// scope or a checkpoint limit) makes this a no-op.
+	manifest, _ = bmanifest.Load(brainDir)
+	if manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
+		finishMirror := progress.Step("mirror checkpoint catalog")
+		if counts, err := mirrorBrainToCheckpointCatalogContext(ctx, brainDir, opts.Now().UTC()); err != nil {
+			finishMirror(err)
+			if reportStageAndShouldAbort(brainComponentFacts, err) {
+				return err
+			}
+		} else {
+			finishMirror(nil)
+			if !counts.empty() {
+				fmt.Fprintf(cmd.ErrOrStderr(), "mirror: removed %d memory(ies), %d anchor(s), %d abstract(s), %d egress receipt(s) for sessions no longer in the checkpoint catalog\n",
+					counts.FactsDeleted, counts.AnchorsStripped, counts.Abstracts, counts.EgressReceipts)
+			}
+		}
+	}
 	// Backfill deterministic fact kinds/locus when a fact store exists, so a kind
 	// distilled before kind-storage (or otherwise left empty) is repaired here
 	// rather than needing a manual `facts reclassify`. No agent, no tokens.
-	manifest, _ = bmanifest.Load(brainDir)
 	if manifest != nil && manifest.Sources != nil && manifest.Sources.Facts != nil {
 		finishReclass := progress.Step("reclassify facts")
-		if _, err := reclassifyAllFactBranches(brainDir, opts.Now().UTC()); err != nil {
+		if _, err := reclassifyAllFactsContext(ctx, brainDir, opts.Now().UTC()); err != nil {
 			finishReclass(err)
 			if reportStageAndShouldAbort(brainComponentFacts, err) {
 				return err
@@ -508,7 +528,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	manifest, _ = bmanifest.Load(brainDir)
 	if !refreshOpts.skipSessions && manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		finishPatterns := progress.Step("pattern layer")
-		if _, err := refreshPatternLayer(brainDir, refreshOpts.force, opts.Now().UTC()); err != nil {
+		if _, err := refreshPatternLayerContext(ctx, brainDir, refreshOpts.force, opts.Now().UTC()); err != nil {
 			finishPatterns(err)
 			if reportStageAndShouldAbort(brainComponentPatterns, err) {
 				return err
@@ -527,6 +547,9 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	// Include the intentional semantic skip beside the success line.
 	if refreshOpts.semanticWorktreeSkip {
 		printAroundLiveLine(cmd.OutOrStdout(), "%s\n", refreshWorktreeSemanticSkipNote(base.SetupCommandPrefix(os.LookupEnv)))
+	}
+	if !refreshOpts.skipTranscriptSweep {
+		maintainFactsStorage(ctx, cmd.ErrOrStderr(), opts, brainDir)
 	}
 	// The refresh completed; anything watching this brain can now re-read it.
 	webhook.NotifyBrainWebhook(ctx, cmd.ErrOrStderr(), opts, webhook.WebhookBrainRefreshed, opts.Now())
@@ -578,17 +601,8 @@ func historyIndexCurrent(brainDir string, manifest *exportManifest) bool {
 		return false
 	}
 	// Unsafe/unreadable entries are deliberately excluded by the same collector
-	// used to build the index. Comparing the safe included set keeps those
-	// exclusions fail-closed without forcing an endless rebuild.
-	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
-	if err != nil {
-		return false
-	}
-	excludedByPath, err := excludedTranscriptPathsChecked(brainDir, manifest, stones)
-	if err != nil {
-		return false
-	}
-	files, err := collectHistorySessionDigests(context.Background(), brainDir, excludedByPath)
+	// used to build the index.
+	files, err := collectHistorySessionDigests(context.Background(), brainDir)
 	if err != nil {
 		return false
 	}
@@ -647,7 +661,7 @@ func pluralUnit(unit string, count int) string {
 // the uncommitted content instead of resolving it) does, so the remedy is git's
 // — the same two verbs setupDirtyWorktreeHint names on `status` and `setup`.
 func refreshWorktreeSemanticSkipNote(brainCmd string) string {
-	return "note: code index not rebuilt -- --worktree refreshes seed and docs only;" +
+	return "note: code index not rebuilt -- --worktree refreshes repository context and docs only;" +
 		" commit or stash the working tree, then run `" + brainCmd + " refresh` to index it"
 }
 
@@ -670,7 +684,7 @@ func noteDegradedStage(w io.Writer, component string, err error) {
 }
 
 // refreshExportDegradedLabel is the one progress line a tolerated session
-// export leaves behind. "unavailable, using seed baseline" describes what the
+// export leaves behind. "unavailable, using repository context" describes what the
 // brain fell back ON, which answers nothing when the fallback did not run —
 // and on a machine with no Entire CLI it never does after the first refresh.
 // The absent host CLI is named instead, because that is the only one of the
@@ -679,20 +693,21 @@ func noteDegradedStage(w io.Writer, component string, err error) {
 func refreshExportDegradedLabel(hostCLIAbsent, seeded bool) string {
 	switch {
 	case hostCLIAbsent && seeded:
-		return "export sessions: skipped, `" + entireBinaryName + "` is not on PATH; using seed baseline"
+		return "export sessions: skipped, `" + entireBinaryName + "` is not on PATH; using " + setupComponentLabel(brainComponentSeed)
 	case hostCLIAbsent:
 		return "export sessions: skipped, `" + entireBinaryName + "` is not on PATH"
 	default:
-		return "export sessions: unavailable, using seed baseline"
+		return "export sessions: unavailable, using " + setupComponentLabel(brainComponentSeed)
 	}
 }
 
 func refreshSeedLabel(manifest *exportManifest) string {
 	seed := existingSeedSource(manifest)
+	label := setupComponentLabel(brainComponentSeed)
 	if seed == nil {
-		return "seed baseline"
+		return label
 	}
-	return fmt.Sprintf("seed baseline: %s, %s, %s",
+	return fmt.Sprintf("%s: %s, %s, %s", label,
 		pluralCount(len(seed.Documents), "document"),
 		pluralCount(len(seed.Entrypoints), "entrypoint"),
 		pluralCount(len(seed.Commands), "command"))
@@ -1028,7 +1043,7 @@ func seedRefreshNeeded(ctx context.Context, opts Options, repoDir string, manife
 	seed := manifest.Sources.Seed
 	head, err := base.GitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD")
 	if err != nil {
-		return false, nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("resolve HEAD for seed refresh: %w", err))
+		return false, nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("resolve HEAD for repository context refresh: %w", err))
 	}
 	if seed.Commit != head {
 		return true, nil
@@ -1036,7 +1051,7 @@ func seedRefreshNeeded(ctx context.Context, opts Options, repoDir string, manife
 	if worktree {
 		hash, err := worktreeFingerprint(ctx, opts.Runner, repoDir)
 		if err != nil {
-			return false, nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("fingerprint worktree for seed refresh: %w", err))
+			return false, nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("fingerprint worktree for repository context refresh: %w", err))
 		}
 		return seed.WorktreeMode != "worktree" || seed.WorktreeHash != hash, nil
 	}

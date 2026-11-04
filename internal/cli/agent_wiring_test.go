@@ -399,7 +399,7 @@ func TestHookPreEditClaudeHookEmitsTheHostEnvelope(t *testing.T) {
 		Branch: "main", Origin: factstore.OriginAuthored, Status: factStatusActive,
 		CreatedAt: opts.Now(), UpdatedAt: opts.Now(),
 	}
-	if err := factstore.Write(brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(brainDir, []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -436,14 +436,14 @@ func TestHookPreEditClaudeHookStaysSilentWithoutAMatch(t *testing.T) {
 	// would pass however the emitter behaved.
 	text := "The export cursor is advanced only after a successful flush."
 	paths := []string{"architecture.data.flow"}
-	if err := factstore.Write(brainDir, "main", []factRecord{{
+	if err := factstore.Write(brainDir, []factRecord{{
 		ID: factRecordID(text, paths), Text: text, Paths: paths, Kind: factKindDecision,
 		Branch: "main", Origin: factstore.OriginAuthored, Status: factStatusActive,
 		CreatedAt: opts.Now(), UpdatedAt: opts.Now(),
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	if facts, err := factstore.Load(brainDir, "main"); err != nil || len(facts) == 0 {
+	if facts, err := factstore.Load(brainDir); err != nil || len(facts) == 0 {
 		t.Fatalf("fixture must hold facts for this test to mean anything: %d facts, err %v", len(facts), err)
 	}
 	cmd := hook.New(hookCommandConfig(opts))

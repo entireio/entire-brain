@@ -15,20 +15,10 @@ import (
 // planTranscriptCacheSweep proves each live cached transcript can be recovered
 // locally before the export switches storage modes. A missing/promisor-only
 // source must never turn migration into loss of the only readable copy.
-// Unlisted files are stale exports. Exclusion is reversible, so excluded
-// sessions need the same recovery proof as every other legacy cached session.
-//
-// retainSkipped names the cached addresses of the sessions THIS export is
-// dropping from the manifest because their checkpoint bytes are not available
-// locally. Liveness is read from the manifest on disk, so such a session is
-// still listed during the export that drops it and only becomes unlisted on
-// the next one -- at which point an unlisted file is swept as a stale export,
-// and for a destroyed checkpoint that cached file is the last copy of the
-// bytes. Those addresses are therefore retained without a recovery proof,
-// which the vanished source cannot supply anyway. The set is deliberately
-// narrow: a session removed by `privacy exclude` or a tombstone is NOT in it
-// and keeps being proved and swept like any other legacy cached session.
-func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDir, repoDir string, retainSkipped map[string]bool) (*historySessionInventory, error) {
+// Unlisted files are stale exports and are swept: the brain mirrors the
+// checkpoint refs, so a session dropped from the manifest loses its cached
+// copy too.
+func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDir, repoDir string) (*historySessionInventory, error) {
 	if _, err := os.Lstat(brainDir); os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -50,9 +40,6 @@ func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDi
 		return nil, err
 	}
 	sessions := historySessionByTranscriptPath(manifest)
-	if _, err := bmanifest.LoadSessionReadGuard(brainDir, manifest); err != nil {
-		return nil, err
-	}
 	store := newTranscriptStore(runner, brainDir)
 	// Persistent brains are shared by worktrees; the previous exporter's
 	// recorded worktree may have been removed since the cache was written.
@@ -67,16 +54,12 @@ func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDi
 		retained[rel] = true
 	}
 	for _, file := range inventory.files {
-		if retainSkipped[file.Rel] {
-			// The session behind this file is being dropped from the manifest
-			// for want of local checkpoint bytes, so the cached copy is the
-			// only one left and no recovery proof can succeed. Retaining it
-			// here is what keeps the next export -- which no longer finds the
-			// session listed -- from sweeping it as a stale export.
-			retain(file.Rel, "the session was skipped because its checkpoint transcript is unavailable")
-			continue
-		}
 		if _, live := sessions[file.Rel]; !live {
+			// Stale export: the manifest no longer lists this path, so the
+			// sweep removes it. Say so — for a destroyed checkpoint this can
+			// be the last copy of the bytes, and silent deletion would leave
+			// no trace of why it is gone.
+			tui.Warnf(os.Stderr, "sweeping stale cached transcript %s: no session in the current checkpoint catalog lists it", file.Rel)
 			continue
 		}
 		location, snapshot, err := store.lookupLocation(ctx, file.Rel)

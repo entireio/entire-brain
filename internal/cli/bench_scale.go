@@ -624,7 +624,7 @@ func measureKnowledgeLatency(repoDir, brainDir, branch string, queries []string,
 // Count stored records before query-specific ranking and filtering. History
 // includes the reconciled short-term overlay, just as retrieval does.
 func countScaleKnowledgeRecords(brainDir, branch string) (int, error) {
-	facts, err := factstore.Load(brainDir, branch)
+	facts, err := factstore.Load(brainDir)
 	if err != nil {
 		return 0, err
 	}

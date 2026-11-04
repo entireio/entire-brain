@@ -4,7 +4,23 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
+
+// treeFixtureWithFacts seeds a verify fixture with one fact on "feature".
+func treeFixtureWithFacts(t *testing.T) verifyFixture {
+	t.Helper()
+	f := newVerifyFixture(t)
+	paths := normalizeFactPaths([]string{"ops.deploy.strategy"})
+	fact := factRecord{
+		ID: factRecordID("deploys use blue-green cutover", paths), Paths: paths,
+		Text: "deploys use blue-green cutover", Branch: "feature", Origin: factstore.OriginDistilled,
+		Status: factStatusActive, CreatedAt: f.now, UpdatedAt: f.now,
+	}
+	f.writeFacts(t, "feature", []factRecord{fact})
+	return f
+}
 
 func TestNullExpansionCacheCanBeRebuilt(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cache.json")
@@ -27,7 +43,7 @@ func TestNullExpansionCacheCanBeRebuilt(t *testing.T) {
 }
 
 func TestFactsTreeRejectsNegativeLeaves(t *testing.T) {
-	f, _ := promoteFixtureWithSourceFacts(t)
+	f := treeFixtureWithFacts(t)
 	defer func() {
 		if p := recover(); p != nil {
 			t.Errorf("negative leaves panicked: %v", p)

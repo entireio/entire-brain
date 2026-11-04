@@ -1,476 +1,55 @@
-# Agent Brain Benchmark Harness
+# Historical benchmark archive
 
-> **Status: internal working records, not product claims.**
->
-> This directory is the harness and its retained runs, kept so results stay
-> auditable and reproducible. Much of what is retained here records what could
-> *not* be substantiated: runs marked `no_release_claim`, comparisons rejected
-> for confounds, and claims that were demoted after review.
->
-> That is deliberate. Keeping a failed or withdrawn measurement is how the next
-> person avoids repeating it. **None of it is a performance claim about Entire
-> Brain**, and the product documentation deliberately makes no benchmark claims.
-> `mise run release:matrix` prints which tracks are citable and which are not.
+This archive records what we tested, what happened, and why some results did not support a claim.
+It contains 152 retained records and 48 restored context files, totaling about 12 MB.
+Every archived file matches the pre-cleanup snapshot. Positive, negative, invalid, and inconclusive records remain together.
 
-This directory contains a repeatable harness for comparing Codex and Claude Code
-with and without Entire Brain.
+These are historical records, not current product measurements. Old commands and instructions describe the original experiments and must not be treated as current workflows.
+The archive has no Python programs, dependencies, or virtual environments. The Go integrity check reads data only.
 
-For unpaid product-path latency and packet-size profiling without an agent or
-model, use `profile_brief.py` with the 114-task checked-in development corpus.
-See `BRIEF-PROFILE-BASELINE.md`. That profile is explicitly not confirmatory and
-does not measure code quality.
+## Experiment index
 
-For an unpaid, same-query comparison of the MCP `brain_brief` `legacy_json` and
-opt-in `compact_v1` packet formats, use `packet_format_ab.py`. See
-`PACKET-FORMAT-AB.md`. It checks parseability, compact-packet integrity,
-independently projected semantic parity, exact bytes, and a frozen offline token
-proxy. Report schema 2 also retains numeric-only, exact structural byte
-attribution for future packet-format design. It does not call an agent/provider,
-measure code quality, authorize a paid trial, or change either MCP or CLI
-defaults.
+| Work | Records and conclusion | Restored context | Limits |
+|---|---|---|---|
+| Agent retrieval comparisons | [Clean comparison series](evidence/semantic-clean-proof/README.md), including earlier and negative comparisons | [Conditions](CONDITIONS.md) and the corresponding [task definitions](tasks/) | The narrow positive comparison measured a complete packet treatment. It did not isolate retrieval alone. |
+| Temporal memory and history delivery | [Development pilot and correction](temporal-memory/phase0b-powered-pilot-memo.md), [clean history comparison](evidence/replay-lab-clean/README.md), and [delivery experiments](evidence/history-delivery-fix/README.md) | [Development protocol](temporal-memory/phase0a-development.json), [sealed-smoke protocol](temporal-memory/phase0a-sealed-smoke.json), [source identity](temporal-memory/phase0a-source-artifact.json), tasks, and [comparison configuration](panels/p01-clean-proof-claude.json) | Keep invalid delivery runs, exclusions, and small-sample limitations with the corrected results. Private checkpoint content is not bundled. |
+| Distillation scheduling | [Local audit](evidence/distill-perf/distill-perf-audit-report.md) and [larger-repository audit](evidence/distill-perf-large/distill-perf-audit-report.md), with timing records and manifests | Workload and command-agent settings remain in the retained manifests and records | These measure historical local scheduling. They do not establish hosted-model latency or current performance. |
+| Packet formats and brief profiling | [Compact v3 measurements](PACKET-FORMAT-V3-LOCAL-MEASUREMENT.md) and [brief profile specification](BRIEF-PROFILE-BASELINE.md) | [Earlier A/B design](PACKET-FORMAT-AB.md), [v2 design](PACKET-FORMAT-V2-AB.md), and [profile corpus identities](brief-profile-corpus-v1.json) | Development measurements do not establish agent quality. The identity snapshot does not include the complete 114-task prompt corpus. |
+| Release controls and negative comparisons | [Release evidence](evidence/release/README.md), [facts evaluation](evidence/facts-eval/facts-eval-audit-report.md), [release matrix](evidence/release-matrix/README.md), [Radar tool checks](evidence/radar-tool/README.md), and [workspace checks](evidence/workspace-radar/README.md) | Matching tasks, [comparison configurations](panels/), and four historical Go [scoring fixtures](fixtures/validation/entireio-cli/) | Retain the original no-release-claim decisions. Tool-contract success does not prove agent performance. |
+| Confirmatory planning and blocked decisions | [No-go decision](confirmatory/go-no-go.json), [power analysis](confirmatory/power-analysis.json), and [blocked ranking decision](analysis/WORKSTREAM-7-GATE-REPORT-2026-07-15.md) | [Preregistration](confirmatory/PREREGISTRATION.md), [engine matrix](confirmatory/engine-matrix.json), [analyzer identity](confirmatory/analyzer-lock.json), and [power calibration](confirmatory/power-calibration-exploratory-v1.json) | Plans and readiness checks are not completed confirmatory experiments. Larger development corpora and private attestations remain omitted. |
+| Exploratory analysis | [Earlier-run analysis](analysis/reports/existing-winner-suites-exploratory.md) and [ranking diagnostic output](analysis/artifacts/ranking-baseline-output-v1.json) | Source identities and methodology remain in the records | Some source suites and synthetic analyzer inputs are not archived. These reports are exploratory. |
 
-For the independently parsed `compact_v2` design, use
-`packet_format_v2_ab.py`; see `PACKET-FORMAT-V2-AB.md`. It additionally checks
-the in-band `~`/`^` legend, exact keyed schemas and types, same-opcode reference
-scope, and the deterministic strictly-shorter per-family wire-form choice.
-Its fixed 114-task byte/token-proxy gates and privacy/authorization limits are
-the same as the v1 comparison. Report schema 2 also binds the exact runner,
-corpus verifier, product contract, golden, schema/allowlist, legend, and gates
-through a path-free hash-only runner identity.
+The [archive manifest](archive-manifest.json) lists every record, context file, SHA-256 digest, experiment, and selected local dependency.
+Its reference lists connect retained outcomes to task definitions, comparison configurations to tasks, and tasks to their scoring fixtures.
 
-For the smaller opt-in `compact_v3` product serializer and its scoped
-public/synthetic fixture evidence, see
-[`PACKET-FORMAT-V3-LOCAL-MEASUREMENT.md`](PACKET-FORMAT-V3-LOCAL-MEASUREMENT.md).
-That local measurement covers exact packet bytes and `o200k_base` tokens only;
-it is not a run over the private 114-task corpus and makes no quality claim.
+## Source and completeness
 
-Checked-in historical evidence is a publication-safe derivative rather than a
-byte-identical copy of private producer artifacts. See
-[`PUBLICATION-SANITIZATION.md`](PUBLICATION-SANITIZATION.md) for the exact scope,
-integrity treatment, and retained synthetic credential fixture.
+All 200 historical files come from commit `115f271363804359a195708807435bff7a7136fe`.
+This is the archive's source snapshot, not necessarily the revision used for each original run.
+Per-run provenance remains authoritative for dates, model versions, source commits, configurations, and recorded hashes.
+A restored task definition can differ from an earlier run's recorded configuration hash.
 
-## Treatment-isolated tasks
+We retain the 24 task definitions named in the recorded outcomes, six comparison configurations, four Go scoring fixtures, and 14 methodology or configuration files.
+The scoring fixtures preserve historical success criteria; the current Go tests do not execute them.
+Large candidate collections, unused task pools, duplicate snapshots, synthetic analyzer fixtures, and retired runners remain deleted.
 
-Confirmatory tasks use `user_query`, an explicit `retrieval_query_source` (`user_query` or
-`oracle_queries`), and a `treatments` object keyed by condition. Treatment arms are `no_memory`,
-`placebo_packet`, `retrieved_memory`, and the upper-bound-only `oracle_retrieval`. Comparable arms
-must use the WIP harness-owned `frozen_brief` delivery; their agent-visible instruction is identical and differs only inside the
-`<frozen-memory-packet>` payload. Oracle queries are harness-owned and never written to `prompt.txt`.
+This archive supports historical inspection. It is not a complete reproduction bundle.
+Historical documents can reference omitted files, retired commands, private data, or external tools.
+Use the source commit to inspect omitted tracked files. Git history cannot supply private inputs that were never committed.
+Do not interpret historical commands as instructions to reinstall the old tooling.
 
-Legacy `prompt` and `brain_queries` tasks remain runnable for reproducing exploratory suites, but
-legacy `frozen_brief` delivery may still consume `brain_queries` harness-side. Those queries are not
-agent-visible, and legacy tasks fail confirmatory panel preflight. A confirmatory panel must set
-`"confirmatory": true`; every included task also needs
-an `approved_symptom_only` entry in `task-review-ledger.json`. Automated task-validity lint is triage,
-not human approval. The historical 8828752a7 and 4dd458656 prompts are retained under
-`fixtures/task-validity/` and explicitly excluded as oracle-assisted.
+## Integrity checks
 
-Run deterministic triage and validate the review ledger without an agent/model call:
+Run the archive checks with Go:
 
 ```sh
-python3 run.py lint-tasks --tasks fixtures/task-validity/oracle-assisted-regressions.json
+go test ./tools/releasecheck -run 'TestHistoricalBenchmarkArchive|TestArchiveIntegrity' -count=1
 ```
 
-## Stable panel (`panel`) + the stability gate
-
-"Is benchmarking stable?" is answered with a **committed panel manifest** plus a **printed
-per-task verdict**, not ad-hoc flags:
-
-```sh
-python3 run.py panel full          # runs panels/full.json, prints a stability verdict per task/condition
-```
-
-A panel manifest (`panels/full.json`) is the run config as data: the retained task list, **pinned**
-`agent:model:effort` runners (unpinned runners are rejected in preflight — defaults drift and aren't
-visible in artifacts), the conditions, and `repetitions` (>=4). `panel` preflights the manifest, then
-expands it into the existing `run` code path — no new run mechanics.
-
-The **stability gate** (in `summarize`, so `run`/`panel`/`report` all show it) tags each
-(task, condition vs `no_brain`) comparison:
-
-- `brain_positive_stable` — a real, repetition-robust win: a token reduction significant at p<0.05
-  **and** surviving the drop of the single best/worst rep, **or** a pass-rate lift that survives the
-  same drop-one test.
-- `saturated` — both arms already pass 100% (no quality headroom; only efficiency can differ).
-- `noisy` — a delta exists but isn't significant / doesn't survive drop-one.
-
-Each comparison also carries the coefficient of variation for tokens and score, for **both** the
-condition and the baseline arm (`..._condition` / `..._baseline`). **Honesty note:** agent
-sampling is inherently non-deterministic; the harness-controllable variance (base commit, setup commit,
-semantic cache, filtered source-history baseline) is already pinned, so stability comes from **repetitions + CV +
-drop-one**, not a fake seed. The gate can only *downgrade* a result to saturated/noisy — it never
-manufactures significance — and the headline stays validation pass-rate + measured tokens.
-
-## Reproducing on another machine (portable paths)
-
-Task `repo_path` values are resolved portably so the suite runs without editing
-hard-coded home paths:
-
-- `~` and `$VARS`/`${VARS}` are expanded.
-- A **relative** `repo_path` is resolved against `$AGENT_BENCH_REPO_ROOT`
-  (default: the parent directory of this repo). The bundled tasks assume a
-  sibling layout: e.g. `repo_path: "entire-cli"` → `<repos>/entire-cli`, `repo_path: "../Ultron"`
-  → `<repos>/../Ultron`. Set `AGENT_BENCH_REPO_ROOT=/path/to/your/repos` to point
-  elsewhere, or use an absolute `repo_path`.
-- `path_prefix: "auto"` resolves to the directory of the host `node` (so the
-  tsx-based validations work without a hard-coded node path).
-- `setup_commands` get `$BENCH_SOURCE_REPO` = the resolved source repo path.
-- External task inputs such as `frozen_session_dates_path` use the same `~` and
-  environment-variable expansion. Relative values resolve next to the task
-  config. The bundled C0701 tasks expect
-  `AGENT_BENCH_FROZEN_SESSION_DATES=/path/to/session_dates.json`; an unset
-  variable fails closed before a run starts.
-
-Caveat: the Ultron **session-history** scenarios (`mcp_history`, `full_*`) need a
-repo that actually has Entire `.entire` session data; that data is machine-local
-and not committed. The semantic scenarios (`semantic_brain`, `mcp_semantic`) only
-need the source code and reproduce anywhere (e.g. `entireio/cli`).
-
-Each task creates a standalone disposable clone, applies a known regression,
-places that state behind an unchanged synthetic first-parent baseline, runs an
-agent, validates the fix, scores the run, and writes artifacts under
-`benchmarks/agent-brain/results/`.
-
-Tasks may also define `post_brain_replacements`, `post_brain_patch`, or
-`post_brain_commands`. `post_brain_patch` is a UTF-8 patch path resolved relative
-to the task config; it must stay within that config directory and is applied with
-`git apply` without a shell. These mutations are applied and committed after brain
-preparation, which creates a stale-context scenario for semantic and
-semantic-history runs. Use these tasks to measure whether agents check brain
-freshness before relying on prepared context.
-
-Brain prep artifacts are cached under `benchmarks/agent-brain/cache/` by
-repo/base/setup/condition/tool hash. Each run receives its own copy of the
-cached plugin directory under the disposable worktree's ignored
-`.benchmark/plugin/` path, with text artifacts rewritten to the current
-disposable worktree path. Use `--refresh-brain-cache` to overwrite a cache entry
-or `--no-brain-cache` to force per-run rebuilds. The cache avoids repeated prep
-after a brain has been built successfully; it does not fix slow or incomplete
-initial semantic indexing.
-
-## Order, cache, resume, and timing controls
-
-`run` and `panel` build every requested cell before execution. The default
-`--order-policy counterbalanced` uses seeded cyclic Latin-square rows inside each
-task/runner block (`AB`/`BA` for two arms); `--schedule-seed` selects the
-deterministic schedule. `--order-policy latin_square` explicitly selects the same
-Latin-square construction for preregistrations that name it that way. Unsupported
-order policies fail before suite setup.
-
-The immutable plan is written to `schedule.json` before cache setup, tool builds,
-or agent calls. `actual-order.ndjson` records actual starts, finishes, and explicit
-deviations, while `schedule-state.json` gives the current planned-versus-actual
-view. Resume a named interrupted suite with the identical arguments plus
-`--resume`. A cell with a start event but no durable record is considered
-ambiguous and is not rerun; the resulting imbalance is recorded as
-`interrupted_incomplete_not_retried`.
-
-The conservative default `--cache-policy isolated_per_cell` assigns separate
-`GOCACHE`, `GOMODCACHE`, and retrieval-vector cache paths to every cell and never
-inherits those host paths. `--cache-policy prewarmed_shared` performs an untimed
-deterministic `go mod download` prewarm and shares the suite cache paths. Cache
-path identities, prewarm commands/durations, host load/concurrency/power context,
-and resume invocations are retained in `runtime-controls.json`. This runtime
-policy is separate from the historical Brain-prep cache flags
-`--no-brain-cache`/`--refresh-brain-cache`.
-
-The primary time field is `timing.harness_agent_interval_wall_seconds`: monotonic
-harness wall time immediately around the agent CLI, including declared transient
-retries/backoff but excluding setup and validation. The harness also records
-`timing.agent_reported_api_seconds` when the provider CLI exposes it,
-`timing.cell_setup_wall_seconds`, and `timing.cell_total_wall_seconds`; missing
-provider timing remains null and is never replaced silently.
-
-Use `prep` to verify and cache brain artifacts without launching an agent:
-
-```sh
-python3 benchmarks/agent-brain/run.py prep \
-  --tasks entire-cli-plugin-env-xdg-prefix.json \
-  --conditions semantic_brain \
-  --suite-name entire-cli-semantic-prep
-```
-
-Prep records include semantic manifest counts, artifact sizes, stale status,
-generation metrics, command durations, and cache hit/miss metadata.
-
-Each `record.json` includes:
-
-- `provenance` with the harness HEAD, source repo HEAD, source base commit used
-  for the archived worktree, task config hash, runner/config fingerprint, and
-  tool binary hashes. If a task omits `base_commit`, the recorded source base
-  must match the recorded source HEAD. If a task pins `base_commit`, the base
-  commit is recorded separately from source HEAD.
-- `agent_info.seconds` for legacy harness wall-clock agent duration, plus the
-  explicit `timing` fields defined above.
-- `brain_prep.commands[].seconds` for seed/export/index setup cost.
-- `validation.results[].seconds` for validation command duration.
-- `agent_info.usage` for turns, tokens, cache tokens, and cost when the agent
-  output exposes those fields.
-
-Token accounting is versioned. Version 3 records the last cumulative structured
-protocol usage snapshot rather than summing snapshots, counts Claude cache
-reads/creation as processed input, and records `accounting_source` plus
-`total_input_tokens`. Token comparisons are emitted only within the same runner,
-accounting version, and source base commit; different providers remain
-side-by-side observations rather than a pooled token metric.
-
-Example:
-
-```sh
-python3 benchmarks/agent-brain/run.py run \
-  --tasks entire-brain-mcp-tool-name.json \
-  --agents codex \
-  --conditions no_brain,semantic_brain,semantic_history_brain \
-  --source-root .. \
-  --repetitions 3 \
-  --suite-name codex-mcp-smoke
-```
-
-Use the same `--source-root` for every compared Brain ref. Task worktrees are
-always created from those current source repositories; the Brain binary is the
-only intended branch/main difference.
-
-The short version is: no-Brain retains every normal coding tool, including
-ordinary Git history, but has no Entire-family tools or Entire-managed memory.
-Brain adds the condition's Entire Brain surface. Neither may access information
-from previous benchmark runs. See [`CONDITIONS.md`](CONDITIONS.md) for the full
-enforced contract.
-
-MCP-specific conditions are separate from CLI delivery:
-
-- `semantic_cli`: CLI-delivered semantic brain, equivalent to the original
-  `semantic_brain` condition.
-- `semantic_history_cli_original`: original semantic-and-indexed-history CLI policy,
-  delivered through the indexed Brain itself.
-- `semantic_history_cli_compact`: the same semantic-and-indexed-history prep delivered
-  through `brain brief` only: compact history hits and likely files/tests. The
-  optional action checklist is product-feature-flagged and off by default;
-  enable it only in a preregistered feature ablation.
-- `mcp_semantic`: local `entire brain mcp` semantic graph tools only
-  (`brain_status`, `brain_context`, `brain_impact`, `brain_changes`,
-  `brain_code`); unified `brain_query` retrieval is intentionally excluded from
-  this condition.
-- `mcp_history`: local `entire brain mcp` with `brain_brief` and indexed-history
-  retrieval.
-  > Note: this condition uses `brain_brief` plus unified `brain_search` /
-  > `brain_query` retrieval. The old dedicated `brain_history` tool was removed;
-  > history is now one source within the unified retrieval verbs.
-
-Temporal-memory ablation conditions are separate from the product-style
-semantic-history conditions:
-
-- `raw_history`: indexed records derived directly from a pinned pre-cutoff
-  session bundle;
-- `facts_only`: durable facts distilled from that same bundle;
-- `history_facts`: the exact indexed history and exact fact artifact together.
-
-These conditions require a task-level `memory_bundle` with an exact checkpoint
-ref commit, cutoff, session variant, retrieval branch, and pinned distillation
-configuration. The harness builds one unisolated source cache and derives all
-three deliveries from copies of it, so stochastic distillation cannot differ by
-condition. Raw transcripts, checkpoint refs, semantic context, seed context,
-docs, and patterns are removed before the task agent starts.
-
-Temporal tasks additionally choose a delivery lane with the task-level
-`memory_delivery` field. The default, `agent_tool`, is the product-adherence
-lane: the prompt mandates one frozen `entire brain search` and the temporal
-audit fails deviating rows. `harness` is the causal lane: the harness itself
-executes the single frozen retrieval before the task agent starts, injects the
-bounded packet into the prompt, and then physically deletes the Brain store, so
-treatment delivery never depends on agent tool adherence. Summaries never pool
-the two lanes: comparisons are keyed by delivery mode, and a harness-lane arm
-only compares against a harness-lane `no_brain` baseline. See
-`temporal-memory/README.md` for the Phase 0A development protocol and the
-Phase 0B harness-owned causal delivery. Harness tasks must preregister
-`memory_bundle.packet.min_results`: memory-positive strata use at least `1`,
-while a deliberately neutral zero-hit stratum may explicitly use `0`.
-
-Validation entries may be plain command strings (exact validators) or objects
-`{"command": ..., "kind": "exact" | "behavioral"}`. The `behavioral` kind labels
-validators that assert behavior through tests instead of one exact source
-expression; every validator of either kind must still pass, so the label never
-weakens exact validation.
-
-For a fast MCP session-history smoke on the local Ultron repo:
-
-```sh
-python3 benchmarks/agent-brain/run.py run \
-  --tasks ultron-history-youtube-media-verification.json \
-  --runners claude:sonnet:max \
-  --conditions no_brain,mcp_semantic,mcp_history \
-  --repetitions 1 \
-  --suite-name ultron-mcp-history-smoke
-```
-
-For Phase 2 candidate screening, do not spend repetitions on tasks that are
-already easy without the brain. Run one no-brain pilot first and stop the task
-when that score is above the retention threshold:
-
-```sh
-python3 benchmarks/agent-brain/run.py run \
-  --tasks entire-brain-history-claude-seed-agent.json \
-  --runners claude \
-  --conditions no_brain,semantic_history_brain \
-  --repetitions 1 \
-  --stop-after-no-brain-score 90 \
-  --suite-name phase2-layer-a-pilot
-```
-
-Retain a scenario for proof only when no-brain is not already above 90, or when
-the brain condition is demonstrably cheaper or faster at equivalent correctness.
-Scenario prompts should withhold exact file names, test names, and prior
-rationale from no-brain runs when those facts are supposed to come from
-checkpoint/session history.
-
-When `hide_validation_from_agent` is true, tasks may set `leak_markers` to
-high-entropy canaries that should never appear in agent output. If omitted, the
-harness falls back to treating the hidden validation commands themselves as leak
-markers, which is intentionally strict but can false-flag agents that
-independently discover the same focused test command.
-
-Tasks that do not exercise the benchmark harness itself may set
-`agent_hidden_paths`, for example `["benchmarks/agent-brain"]`, to remove extra
-local scaffolding from the disposable worktree before the agent runs.
-
-Runner matrixes are supported with `--runners`. Specs are
-`agent[:model[:effort]]`, optionally prefixed by a stable id:
-
-```sh
-python3 benchmarks/agent-brain/run.py run \
-  --tasks entire-brain-history-codex-schema-contract.json \
-  --runners codex:gpt-5:medium,codex:gpt-5:high,claude:sonnet:medium,claude:opus:max \
-  --conditions no_brain,semantic_history_brain \
-  --repetitions 3 \
-  --suite-name phase2-model-matrix
-```
-
-Codex runner efforts are passed as
-`--config model_reasoning_effort="<effort>"`. Claude runner efforts are passed
-as `--effort <effort>`.
-
-Agent process isolation is explicit in each result record. Codex runs use
-`--ephemeral`, `--ignore-user-config`, and `--ignore-rules`. Claude runs use
-`--no-session-persistence`, `--strict-mcp-config`, an empty MCP config, and
-`--disable-slash-commands`. Authentication still comes from the host account
-state (`CODEX_HOME` for Codex and the configured Claude Max/OAuth state for
-Claude), so the isolation claim is about run memory, MCP/tools, and project
-instructions, not about auth credentials.
-
-Claude Code runs are supported, but use `--claude-budget` deliberately when you
-need a hard cap. Even a small non-interactive Claude Code call can create a
-large prompt cache.
-
-Cost is recorded in `agent_info.usage.cost_usd`. Claude reports exact cost in
-JSON output. Codex cost is estimated only when a price map is supplied:
-
-```sh
-python3 benchmarks/agent-brain/run.py run \
-  --tasks entire-brain-history-codex-schema-contract.json \
-  --runners codex:gpt-5:medium \
-  --pricing-json '{"gpt-5":{"input_per_million":0,"output_per_million":0}}'
-```
-
-Use current pricing before making cost claims. Reports label estimated vs
-reported cost with `agent_info.usage.cost_source`.
-
-The report command recomputes aggregate means and approximate Welch p-values:
-
-```sh
-python3 benchmarks/agent-brain/run.py report codex-mcp-smoke
-```
-
-Reports include utility-score deltas, success rates, mean agent seconds, total
-tokens, turns, cost when available, and approximate Welch p-values for score,
-duration, tokens, turns, and cost. The score is not a pure correctness or model
-quality metric: pass/fail validation is primary, while `score.version = 2`
-combines separate `outcome`, `patch_focus`, `validation_discipline`,
-`runtime_efficiency`, and `brain_use` components. A lower-effort runner can
-therefore score above a higher-effort runner when both solve the task but the
-lower-effort run is faster or cheaper. Do not compare v1 and v2 score means
-directly; rerun retained tasks after a scoring change.
-
-The confirmatory v2 code-quality endpoint is deliberately narrower than this
-exploratory utility score: it normalizes only output `outcome` and `patch_focus`
-points. `validation_discipline` (whether the agent ran tests or checked its
-diff), runtime efficiency, token use, and brain-use behavior remain diagnostics
-and cannot improve confirmatory quality.
-
-Phase 2 scenario discovery is generated with `discover`:
-
-```sh
-python3 benchmarks/agent-brain/run.py discover \
-  --minimum-per-layer 21 \
-  --suite-name phase2-discovery
-```
-
-Discovery writes a committed scenario ledger under
-`benchmarks/agent-brain/discovery/<suite>/` with more than 20 brain-positive
-candidates for each benchmark layer. The current Phase 2 layer map is:
-
-- Layer A: project-native tasks in repos with Entire session data:
-  `entire-brain` and `entire-cli`.
-- Layer B: project-native GitHub CLI tasks.
-- Layer C: SWE-bench-style issue tasks.
-
-Older discovery ledgers used the obsolete map where Layer C was
-model/effort/cost. Treat those ledgers as superseded until regenerated under
-the current layer map. Model/effort/cost runs are a later overlay on retained
-A/B/C scenarios, not a Phase 2 layer.
-
-The discovery ledger is not the same as statistical proof. It records why each
-scenario should favor the brain, which brain source should matter, which metric
-should retain the scenario, and which repetitions are needed. Local
-`results/*/summary.json` files are ignored working artifacts; treat them as
-leads until a retained subset is audited and committed under
-`benchmarks/agent-brain/evidence/release`. For release evidence, run:
-
-```sh
-python3 benchmarks/agent-brain/audit_codex.py \
-  --results <retained-results-dir> \
-  --out-dir <proof-output-dir> \
-  --suite-glob '<suite-pattern>' \
-  --fail-on-flags \
-  --min-suites <n> \
-  --min-records <n> \
-  --min-proof-ready <n>
-```
-
-The repo-level release gate is:
-
-```sh
-mise run release:evidence
-```
-
-That gate reads `benchmarks/agent-brain/evidence/release/manifest.json`,
-audits only suite directories matching `release-candidate-*`, rejects
-`release-local-*`, and enforces the manifest thresholds: currently 2 suites, 16
-records, 2 proof-ready comparisons, 4 repetitions per side, panel provenance,
-zero hard flags, at least one proof-ready comparison per retained suite, and
-required proof scopes `history` and generic `mcp`.
-
-The release evidence manifest lives at
-`benchmarks/agent-brain/evidence/release/manifest.json`; it records the citable
-suite pattern and minimum proof thresholds. Do not cite benchmark results from
-outside that retained lane.
-
-Audit mode treats missing or malformed provenance as a hard integrity flag. A
-release audit must therefore be able to show, per record, which harness revision,
-source base/head commits, task config hash, runner/config fingerprint, and tool
-hashes produced the result. Ignored `results/` panels remain
-quarantine/reference evidence unless copied or regenerated into the
-provenance-complete retained lane under
-`benchmarks/agent-brain/evidence/release` and passing `mise run
-release:evidence`.
-
-For a SWE-bench-style matrix, tag tasks with `source` and `suite_tags`. The
-current harness already supports the essential SWE shape: issue prompt,
-regression setup patch/replacements, hidden validation, disposable worktree, and
-per-run artifacts. External SWE-bench tasks should be imported as local task
-JSON files with fixed base commits and cached repositories before large runs.
-
-The harness intentionally keeps generated brain artifacts and worktrees out of
-the repository. Result directories are ignored by git.
-
-Rolling-cutoff frozen-brain tasks constrain temporal eligibility before lexical
-or semantic top-K ranking. See [TEMPORAL-ELIGIBILITY-DESIGN.md](TEMPORAL-ELIGIBILITY-DESIGN.md)
-for the fail-closed provenance, immutable-cache, and audit-field contract.
+The check verifies file hashes, complete inventory, experiment entries, and the manifest's required local references.
+It rejects missing, changed, unlisted, or linked files. It does not run historical commands or certify experimental validity.
+Normal CI and `mise run check` include this test package.
+
+When intentionally changing the archive, review the source and update the manifest together.
+Keep historical records unchanged when adding an interpretation; put the new explanation in this index.
+Use `mise run check` for current source checks and `mise run release:readiness` for current local release checks.

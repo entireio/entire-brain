@@ -43,10 +43,10 @@ import (
 //  2. Its ~30 callers include distill, remember, facts gc/promote/merge and
 //     refresh — the very commands that REPAIR a lossy store. A loader that
 //     failed closed would wedge the store shut with no way out.
-//  3. The manifest's count is produced by LoadAllBranches (see
-//     updateFactSourceManifestLocked). Checking the claim with the same
-//     function that produced it makes the check an exact inverse: no
-//     branch-name-to-directory ambiguity, and any disagreement is real.
+//  3. The manifest's count is produced from the same folded read Load serves
+//     (see updateFactSourceManifestLocked). Checking the claim with the same
+//     view that produced it makes the check an exact inverse: any
+//     disagreement is real.
 //
 // So the check lives here, beside MissingBranchStores — the existing seam
 // for "the manifest names something the store cannot produce" — and every
@@ -67,7 +67,7 @@ import (
 // is not available: sources.facts records counts (facts/distilled/authored/
 // superseded/by_kind), never ids, and putting ids there would not help. That
 // manifest is re-derived from the store itself by SummarizeSource on every
-// remember, refresh, gc, promote and retract, so a declared id set would
+// mutating remember, refresh, gc, promote and retract, so a declared id set would
 // re-baseline onto the damage at the next write exactly as the count does, and
 // would cry loss on every legitimate id-changing operation in between.
 //
@@ -159,10 +159,9 @@ type Integrity struct {
 	// ParseError is the first line the store could not parse, in the loader's
 	// own words ("parse facts.ndjson line 3: ...").
 	ParseError string `json:"parse_error,omitempty"`
-	// Unreadable names the declared branches whose facts.ndjson will not parse.
-	// LoadAllBranches stops at the first bad line and does not say WHOSE
-	// it was; with several branches declared, that is the difference between a
-	// repair the user can aim and one they cannot.
+	// Unreadable names legacy branch stores that will not parse. The flat
+	// store has no per-branch attribution; the field survives for JSON readers
+	// and for ParseError context.
 	Unreadable []string `json:"unreadable_branches,omitempty"`
 	// Mode is the classification; empty when the store is intact.
 	Mode DefectMode `json:"mode,omitempty"`
@@ -237,7 +236,7 @@ func RepairHint() string {
 func (r Integrity) Warning() string {
 	switch r.Mode {
 	case DefectMissing:
-		return MissingStoreWarning(r.Missing)
+		return "the manifest declares memories but no memory store (" + RepositoryPath + ") is on disk; they cannot be recalled — run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` and re-distill"
 	case DefectUnreadable:
 		where := "memory store"
 		if len(r.Unreadable) > 0 {
@@ -284,90 +283,61 @@ func (r Integrity) Warning() string {
 // disk. A nil source is a brain with no facts declared: nothing is claimed, so
 // nothing can be lost, and the result is healthy. That is what keeps a
 // genuinely empty brain from reporting loss.
+//
+// The flat store makes two of the historical modes structural: within the
+// store an id maps to exactly one record (a JSON object key), and a key
+// standing over a different record's body — the substitution corruption the
+// duplicate check existed for — fails decodeV3 closed and reports here as
+// DefectUnreadable with the repair hint.
 func Inspect(brainDir string, source *bmanifest.FactSource) Integrity {
 	if brainDir == "" || source == nil {
 		return Integrity{}
 	}
 	report := Integrity{Declared: source.Facts, Pending: source.PendingReconcile}
 
-	// Mode 1 — not built. A declared branch with no facts.ndjson is the
-	// already-handled case; keep its more specific message rather than folding
-	// it into the count mismatch it would also produce.
-	if missing := MissingBranchStores(brainDir, source); len(missing) > 0 {
-		report.Missing = missing
-		report.Mode = DefectMissing
-		return report
-	}
-
-	// Mode 2 — corrupt. LoadAllBranches is the same function
-	// updateFactSourceManifestLocked used to PRODUCE source.Facts, so a
-	// disagreement below is a real one and not a re-derivation artifact.
-	// Validate declared paths through the same guarded reader used by recall
-	// before the aggregate loader opens any of those stores.
-	if broken := UnreadableBranchStores(brainDir, source); len(broken) > 0 {
-		report.ParseError = broken[0].Err.Error()
-		for _, store := range broken {
-			report.Unreadable = append(report.Unreadable, store.Branch)
-		}
-		report.Mode = DefectUnreadable
-		return report
-	}
-	byFile, err := LoadStoreFiles(brainDir)
+	combined, err := loadCombined(brainDir)
 	if err != nil {
 		report.ParseError = err.Error()
-		for _, broken := range UnreadableBranchStores(brainDir, source) {
-			report.Unreadable = append(report.Unreadable, broken.Branch)
-		}
 		report.Mode = DefectUnreadable
 		return report
 	}
-	duplicated := map[string]struct{}{}
-	for _, records := range byFile {
-		// One `seen` per store FILE, never one for the whole brain: a file is
-		// the set `Load` hands to recall, so a repeat within one file is
-		// the only shape that shadows a memory. The same id across files is
-		// ordinary: `facts promote` copies a record into another branch's
-		// store, and the hosted pull mirrors the repo feed into the current
-		// branch's store. Bucketing by the branch recorded on each record
-		// conflated those mirrors into one bucket and reported them as
-		// corruption (COR-2220).
-		seen := make(map[string]struct{}, len(records))
-		for _, record := range records {
-			if !IsFactRecord(record) {
-				report.Unusable++
-				continue
-			}
-			report.Readable++
-			if _, repeat := seen[record.ID]; repeat {
-				duplicated[record.ID] = struct{}{}
-				continue
-			}
-			seen[record.ID] = struct{}{}
-			report.Distinct++
+
+	// Not built: memories are declared but neither a store nor any legacy
+	// FILE exists on disk (an empty leftover branch dir holds nothing).
+	if !combined.storePresent && combined.legacyFiles == 0 && len(combined.byID) == 0 {
+		if report.expected() > 0 {
+			report.Mode = DefectMissing
 		}
-	}
-	if len(duplicated) > 0 {
-		report.DuplicateIDs = make([]string, 0, len(duplicated))
-		for id := range duplicated {
-			report.DuplicateIDs = append(report.DuplicateIDs, id)
-		}
-		sort.Strings(report.DuplicateIDs)
+		return report
 	}
 
-	// Mode 3 — readable but short (or long).
+	report.Unusable = combined.unusable
+	for _, record := range combined.byID {
+		if !IsFactRecord(record) {
+			report.Unusable++
+			continue
+		}
+		report.Distinct++
+	}
+	// Readable counts what the sources yielded: Distinct plus in-file
+	// collisions plus cross-source repeats. The last term matters only before
+	// migration — a pre-flat manifest counted one promoted or mirrored fact
+	// once per branch file, so without it every legacy brain reads as lossy.
+	report.Readable = report.Distinct + len(combined.collidedIDs) + combined.crossRepeats
+	for id := range combined.collidedIDs {
+		report.DuplicateIDs = append(report.DuplicateIDs, id)
+	}
+	sort.Strings(report.DuplicateIDs)
+
 	switch {
 	case report.Readable < report.expected(), report.Unusable > 0:
+		// Short even counting in-file repeats: genuine loss.
 		report.Mode = DefectLossy
-	// Mode 4 — readable, and the arithmetic is not short, but a branch holds
-	// one id twice. This runs BEFORE the stale test on purpose: a duplicate
-	// that was appended rather than written over also makes the store longer
-	// than the manifest, and "the manifest is behind the store — run refresh"
-	// is the one piece of advice that must not be given here. Refreshing
-	// re-derives the count from the collided store, declares it, and the
-	// brain goes quiet about a fact it can no longer produce.
-	case len(report.DuplicateIDs) > 0:
+	case len(combined.collidedIDs) > 0:
+		// The counts agree, yet one file stored an id twice: a record stands
+		// where another used to be and that one can no longer be recalled.
 		report.Mode = DefectDuplicated
-	case report.Readable > report.expected():
+	case report.Distinct > report.expected():
 		report.Mode = DefectStale
 	}
 	return report

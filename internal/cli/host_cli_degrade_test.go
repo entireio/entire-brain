@@ -17,7 +17,7 @@ import (
 //
 // The reproduction was exact. On a fresh store the FIRST refresh degraded —
 //
-//	refresh: export sessions: unavailable, using seed baseline done
+//	refresh: export sessions: unavailable, using repository context done
 //
 // because the tolerance for a failed export was gated on `manifest == nil ||
 // manifest.Sources == nil`, and a fresh store has no manifest. Once that first
@@ -45,7 +45,7 @@ func hostCLINotFound(binary string) error {
 // TestHostCLIMissingSeparatesAnAbsentBinaryFromAFailedCommand is the whole
 // safety argument for the degrade in one table. Forgiving too much here is the
 // worse defect of the two: it would answer real data loss with "unavailable,
-// using seed baseline", which is the masking refresh.go has already had to undo
+// using repository context", which is the masking refresh.go has already had to undo
 // once.
 func TestHostCLIMissingSeparatesAnAbsentBinaryFromAFailedCommand(t *testing.T) {
 	t.Parallel()
@@ -197,7 +197,7 @@ func TestRefreshDegradesWithoutTheHostCLIOnEveryRun(t *testing.T) {
 			t.Fatalf("the degraded refresh does not say %q:\n%s", want, second)
 		}
 	}
-	if strings.Contains(second, "export sessions: unavailable, using seed baseline") {
+	if strings.Contains(second, "export sessions: unavailable, using repository context") {
 		t.Fatalf("an absent host CLI is not a seed fallback; say which it is:\n%s", second)
 	}
 }

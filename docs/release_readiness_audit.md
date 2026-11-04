@@ -1,8 +1,11 @@
 # Release Readiness Audit
 
-> Naming note: recorded `search` and `vsearch` commands remain compatibility
-> aliases. Current usage is `query --keyword` and `query --semantic`; plain
-> `query` remains hybrid. Historical results below retain their original names.
+> Historical record: this document describes retired tooling and earlier product versions.
+> Python scripts, experiment runners, and their mise tasks are no longer available.
+> Use [the current Go checks](testing-for-optimization.md) for validation.
+> Retained measurements do not establish current behavior.
+
+> Historical command names below describe the audited revision, not the current CLI.
 
 This audit tracks the loose ends that need to close before `entire-brain`,
 `entire-graph`, and `entire-replay-lab` can ship with honest claims.

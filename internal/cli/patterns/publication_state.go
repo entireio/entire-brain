@@ -4,35 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
-
-// CorpusPrivacyArtifactRels derives the privacy inventory from the
-// publication layer's canonical sidecar set. Keep the ownership of those
-// names in patterns/corpus_publication.go: publication, privacy deletion, and
-// verification must agree about every SQLite leaf, including rollback journals.
-func CorpusPrivacyArtifactRels() []string {
-	rels := make([]string, 0, 1+len(CorpusSidecarNames))
-	rels = append(rels, CorpusPath)
-	for _, name := range CorpusSidecarNames {
-		rels = append(rels, filepath.ToSlash(filepath.Join("patterns", name)))
-	}
-	return rels
-}
-
-func IsCorpusPrivacyArtifactRel(rel string) bool {
-	rel = filepath.ToSlash(rel)
-	for _, candidate := range CorpusPrivacyArtifactRels() {
-		if rel == candidate {
-			return true
-		}
-	}
-	return false
-}
 
 func IsCorpusRollbackJournalRel(rel string) bool {
 	rel = filepath.ToSlash(rel)
@@ -117,49 +93,4 @@ func DecodeCorpusPublication(data []byte) (CorpusPublication, error) {
 			fmt.Errorf("%s: invalid pattern corpus publication marker", brainstore.StateCorruptCode), publication.SchemaVersion)
 	}
 	return publication, nil
-}
-
-// LoadCorpusPublicationForPrivacy binds the parsed marker bytes to the
-// exact regular-file identity observed by inventory. Callers may retain info
-// only while holding the Brain privacy/write locks; removal rechecks it.
-func LoadCorpusPublicationForPrivacy(brainDir string) (CorpusPublication, os.FileInfo, bool, error) {
-	info, present, err := brainstore.PrivacyArtifactInfo(brainDir, CorpusPublicationMarkerPath, "pattern corpus publication marker")
-	if err != nil {
-		return CorpusPublication{}, nil, present, newPublicationLoadError(err, 0)
-	}
-	if !present {
-		return CorpusPublication{}, nil, false, nil
-	}
-	if info.Size() < 1 || info.Size() > CorpusPublicationMarkerMax {
-		return CorpusPublication{}, nil, true, newPublicationLoadError(
-			fmt.Errorf("%s: pattern corpus publication marker is outside its safe size bounds", brainstore.StateUnsafeCode), 0)
-	}
-	data, stillPresent, err := brainstore.ReadMemoryStateFileExpected(
-		brainDir, CorpusPublicationMarkerPath, "pattern corpus publication marker", CorpusPublicationMarkerMax, info)
-	if err != nil {
-		return CorpusPublication{}, nil, true, newPublicationLoadError(err, 0)
-	}
-	if !stillPresent {
-		return CorpusPublication{}, nil, true, newPublicationLoadError(
-			fmt.Errorf("%s: pattern corpus publication marker disappeared during inventory", brainstore.StateUnsafeCode), 0)
-	}
-	publication, err := DecodeCorpusPublication(data)
-	if err != nil {
-		return CorpusPublication{}, nil, true, err
-	}
-	return publication, info, true, nil
-}
-
-// RemoveCorpusPublicationForPrivacy removes only a supported current
-// marker and only the exact identity whose bytes were classified. Unknown,
-// corrupt, raced, or unsafe state remains byte-for-byte untouched.
-func RemoveCorpusPublicationForPrivacy(brainDir string) error {
-	_, info, present, err := LoadCorpusPublicationForPrivacy(brainDir)
-	if err != nil || !present {
-		return err
-	}
-	if err := brainstore.RemoveBrainRelativeFileExpected(brainDir, CorpusPublicationMarkerPath, info); err != nil {
-		return newPublicationLoadError(err, CorpusPublicationVersion)
-	}
-	return nil
 }

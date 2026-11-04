@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
-	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"sort"
 	"strings"
 )
@@ -87,10 +86,10 @@ type conversationSessionView struct {
 // visible in both scopes so lookup can report the ambiguity instead of a
 // silent winner. Within one scope, duplicate ordinals still resolve through
 // the newest-record rule.
-func buildConversationSessionViews(fresh freshHistory, repoKey string, manifest *exportManifest, guard sessionReadGuard) map[string]conversationSessionView {
+func buildConversationSessionViews(fresh freshHistory, repoKey string, manifest *exportManifest) map[string]conversationSessionView {
 	views := map[string]conversationSessionView{}
 	for _, record := range fresh.mergedRecords() {
-		if record.Kind != conversationKind || historystore.GuardBlocksRecord(guard, record) {
+		if record.Kind != conversationKind {
 			continue
 		}
 		ref, degraded := recordSessionRef(record, repoKey, manifest)

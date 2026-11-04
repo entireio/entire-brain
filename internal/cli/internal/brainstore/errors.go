@@ -2,13 +2,6 @@ package brainstore
 
 import "strings"
 
-// PrivacyBusyCode is the stable code for contention on the privacy side-effect lock.
-const PrivacyBusyCode = "memory_privacy_busy"
-
-// PrivacyDirtyCode reports that excluded-session cleanup has not verified
-// clean, so privacy-gated reads and response writes must fail closed.
-const PrivacyDirtyCode = "memory_privacy_dirty"
-
 // Stable storage failure codes shared by artifact readers and their callers.
 const (
 	StateCorruptCode = "memory_state_corrupt"
@@ -35,7 +28,6 @@ const (
 	MigrationRequiredCode = "memory_migration_required"
 	QueryTooBroadCode     = "memory_query_too_broad"
 	InputTooLargeCode     = "memory_input_too_large"
-	PrivacyExcludedCode   = "memory_privacy_excluded"
 
 	IdentityAmbiguousCode = "memory_identity_ambiguous"
 	ProviderUnavailCode   = "memory_provider_unavailable"
@@ -65,9 +57,6 @@ func MemoryErrorCode(err error) string {
 		LockBusyCode,
 		QueryTooBroadCode,
 		InputTooLargeCode,
-		PrivacyExcludedCode,
-		PrivacyDirtyCode,
-		PrivacyBusyCode,
 		IdentityAmbiguousCode,
 		ProviderUnavailCode,
 		StateCorruptCode,

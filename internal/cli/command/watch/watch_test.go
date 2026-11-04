@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -314,5 +316,46 @@ func TestWatchLoopStopsOnContextCancel(t *testing.T) {
 	}
 	if refreshed != 0 {
 		t.Fatalf("a cancelled context must not tick, got %d refreshes", refreshed)
+	}
+}
+
+func TestWatchTickMaintainsUnchangedStoreBeforeWorker(t *testing.T) {
+	for _, changed := range []bool{false, true} {
+		t.Run(fmt.Sprint(changed), func(t *testing.T) {
+			now := time.Now().UTC()
+			cursor := filepath.Join(t.TempDir(), "watch.json")
+			if err := SaveCursor(cursor, Cursor{LastFingerprint: "same", LastRefreshAt: now}); err != nil {
+				t.Fatal(err)
+			}
+			var calls []string
+			steps := Steps{
+				Now: func() time.Time { return now }, Fingerprint: func(context.Context) string { return "same" },
+				Delta: func(context.Context) (historystore.ShortTermStats, error) {
+					n := 0
+					if changed {
+						n = 1
+					}
+					return historystore.ShortTermStats{Files: n}, nil
+				},
+				Refresh:   func(context.Context) error { t.Fatal("unexpected full refresh"); return nil },
+				Maintain:  func(context.Context) error { calls = append(calls, "cleanup"); return nil },
+				Reconcile: func(context.Context) error { calls = append(calls, "worker"); return nil },
+			}
+			count := 0
+			Tick(context.Background(), io.Discard, DefaultFlags(), cursor, steps, &count)
+			want := []string{"cleanup"}
+			if changed {
+				want = append(want, "worker")
+			}
+			if !reflect.DeepEqual(calls, want) {
+				t.Fatalf("steps=%v want=%v", calls, want)
+			}
+			calls = nil
+			steps.Paused = func() bool { return true }
+			Tick(context.Background(), io.Discard, DefaultFlags(), cursor, steps, &count)
+			if len(calls) != 0 {
+				t.Fatalf("paused watcher performed work: %v", calls)
+			}
+		})
 	}
 }

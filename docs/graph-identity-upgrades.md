@@ -80,8 +80,15 @@ A failed/cancelled provider call, unavailable source commit, malformed or partia
 diff envelope, wrong base/head, changing provider revision, or truncated delta
 also aborts. Entity mapping follows the same rules as backfill: file-only changes
 and records without a resolvable name/path contribute no entity, and a missing
-kind is retained according to the existing contract. These do not abort migration;
-provider warnings about partial results still do.
+kind is retained according to the existing contract. These do not abort migration.
+Migration also accepts `W_UNSUPPORTED_FILE` notices with severity `info` for
+these metadata filenames: `.brainignore`, `.gitignore`, `.gitattributes`,
+`.gitmodules`, `.editorconfig`, `go.mod`, and `go.sum`.
+These files have no code entities. The exception applies in repository
+subdirectories too. Graph must report a normalized repository-relative path.
+Unsupported source files, other filenames, unknown or malformed warnings, and
+warnings with higher severity still abort migration. This includes parse failures.
+No warning exception changes the stored format or removes older parser namespaces.
 Migration is capped at 20,000 pending commits and 200,000 new entity changes.
 Already migrated commits do not count against the cap, so small incremental
 migrations and no-op retries work on larger historical corpora. It never silently migrates a subset above those limits.
@@ -103,14 +110,20 @@ To run the real provider upgrade:
 ```sh
 BRAIN_TEST_GRAPH_BEFORE=/path/to/old/entire-graph \
 BRAIN_TEST_GRAPH_AFTER=/path/to/new/entire-graph \
-  go test -race ./internal/cli -run '^TestGraphIdentityUpgradeLive$' -count=1
+  go test -race ./internal/entityindex -run '^TestGraphIdentityUpgradeLive$' -count=1
 ```
 
-The live test creates an isolated two-commit JS/TS repository, indexes it with the
-old provider, switches binaries without editing source, refreshes the semantic
-snapshot, runs the migration command, and checks corrected IDs, relations,
-history for both commits, checkpoint links, unchanged source HEAD, and reuse of
-the now-current snapshot. It also switches back to the old provider and then
-forward again without changing metadata, verifying cache isolation and preserved
-legacy history. The test is explicitly skipped if either binary is not
-supplied; normal CI alone does not prove cross-version integration.
+The live test creates an isolated Go/TypeScript repository with tracked
+`.brainignore` and `go.mod` files. It uses real Graph binaries for backfill and
+migration through the entity-index API. It checks history preservation, unchanged
+source commits, and migration retries that make no changes. It then adds a commit
+with the older provider and migrates that commit with the newer provider.
+Use Graph v0.4.0 as the older provider and v0.5.0 or v0.6.0 as the newer provider.
+The test requires different identity revisions. It skips when either binary path
+is absent. Normal CI alone does not prove cross-version integration.
+
+Install the fixed Brain version before this migration. Released Brain v0.2.0,
+v0.3.0, and v0.4.0 still reject these metadata warnings. They can read the migrated
+records using the matching Graph identity revision. Graph v0.4.0 has no
+`graph store` interface; this migration fix does not add code inspection support
+for that provider.

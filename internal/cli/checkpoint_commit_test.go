@@ -99,15 +99,26 @@ func TestDistillStampsAnchorCommit(t *testing.T) {
 		if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
 			t.Fatalf("%s: runDistillForBrain: %v", name, err)
 		}
-		facts, err := factstore.Load(brainDir, "main")
-		if err != nil || len(facts) != 1 || len(facts[0].Provenance) != 1 {
+		facts, err := factstore.Load(brainDir)
+		if err != nil || len(facts) != 1 || len(facts[0].Provenance) == 0 {
 			t.Fatalf("%s: facts = %+v (%v)", name, facts, err)
+		}
+		// The flat store unions both sessions' anchors onto the one fact; the
+		// s1/cp1 anchor is the one whose commit the resolver stamps.
+		var anchor factAnchor
+		for _, a := range facts[0].Provenance {
+			if a.CheckpointID == "cp1" {
+				anchor = a
+			}
+		}
+		if anchor.CheckpointID != "cp1" {
+			t.Fatalf("%s: cp1 anchor missing: %+v", name, facts[0].Provenance)
 		}
 		want := ""
 		if resolver != nil {
 			want = ckptCommitMain
 		}
-		if got := facts[0].Provenance[0].Commit; got != want {
+		if got := anchor.Commit; got != want {
 			t.Fatalf("%s: anchor commit = %q, want %q", name, got, want)
 		}
 	}

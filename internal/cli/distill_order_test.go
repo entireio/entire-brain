@@ -337,20 +337,22 @@ func TestNewestFirstDoesNotAutomaticallySupersedeNewerFacts(t *testing.T) {
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
 		t.Fatal(err)
 	}
-	facts, err := factstore.Load(brainDir, "main")
+	facts, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	crossLinked := 0
 	for _, f := range facts {
 		if f.Status == "superseded" {
 			t.Fatalf("newest-first silently superseded a fact: %+v", f)
 		}
+		if len(f.RelatedIDs) > 0 {
+			crossLinked++
+		}
 	}
-	proposals, err := loadFactProposals(brainDir, "main")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(proposals) != 1 {
-		t.Fatalf("want one conflict awaiting review, got %+v", proposals)
+	// The conflict is kept-both: both facts stay active and are cross-linked
+	// for the compaction loop to settle (COR-2273); nothing is rewritten.
+	if crossLinked < 2 {
+		t.Fatalf("conflicting facts must be cross-linked, got %+v", facts)
 	}
 }

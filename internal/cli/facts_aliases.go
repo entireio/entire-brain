@@ -16,11 +16,10 @@ import (
 // Type aliases (not new named types) so struct identity and JSON tags are the
 // factmerge types exactly — a *factmerge.Record IS a factRecord.
 type (
-	factRecord   = factmerge.Record
-	factAnchor   = factmerge.Anchor
-	factAction   = factmerge.Action
-	factProposal = factmerge.Proposal
-	gcResult     = factmerge.GCResult
+	factRecord = factmerge.Record
+	factAnchor = factmerge.Anchor
+	factAction = factmerge.Action
+	gcResult   = factmerge.GCResult
 )
 
 // Const aliases for the moved identifiers the CLI still references by their
@@ -71,20 +70,8 @@ func sortFactRecords(records []factRecord) { factmerge.Sort(records) }
 
 func indexOfFact(records []factRecord, id string) int { return factmerge.IndexOf(records, id) }
 
-func applyFactActions(active []factRecord, actions []factAction, threshold float64, now time.Time) ([]factRecord, []factProposal) {
+func applyFactActions(active []factRecord, actions []factAction, threshold float64, now time.Time) []factRecord {
 	return factmerge.ApplyActions(active, actions, threshold, now)
-}
-
-func applyProposal(facts []factRecord, p factProposal, now time.Time) ([]factRecord, error) {
-	return factmerge.ApplyProposal(facts, p, now)
-}
-
-func rejectProposal(facts []factRecord, p factProposal) []factRecord {
-	return factmerge.RejectProposal(facts, p)
-}
-
-func promoteFacts(source, target []factRecord, strategy, intoBranch string, now time.Time) ([]factRecord, []factProposal, int) {
-	return factmerge.Promote(source, target, strategy, intoBranch, now)
 }
 
 func retractFact(facts []factRecord, id string, now time.Time) (found, changed bool) {

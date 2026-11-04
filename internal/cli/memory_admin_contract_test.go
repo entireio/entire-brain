@@ -105,7 +105,7 @@ func TestMemoryNotifyUsesResolvedRepoIdentityWhenKeyIsOmitted(t *testing.T) {
 	memoryWorkerLaunch = func(string) error { return nil }
 	t.Cleanup(func() { memoryWorkerLaunch = oldLaunch })
 
-	out, err := execute(t, newMemoryNotifyCommand(opts), "--event", "session_end", "--session", "notify-session", "--json")
+	out, err := execute(t, newMemoryNotifyCommand(opts), "--event", "session_start", "--session", "notify-session", "--json")
 	if err != nil {
 		t.Fatalf("notify without repo key: %v\n%s", err, out)
 	}
@@ -114,7 +114,7 @@ func TestMemoryNotifyUsesResolvedRepoIdentityWhenKeyIsOmitted(t *testing.T) {
 		SessionID  string `json:"session_id"`
 		Generation int    `json:"generation"`
 	}
-	if err := json.Unmarshal([]byte(out), &payload); err != nil || payload.Recorded != "session_end" || payload.SessionID != "notify-session" || payload.Generation != 1 {
+	if err := json.Unmarshal([]byte(out), &payload); err != nil || payload.Recorded != "session_start" || payload.SessionID != "notify-session" || payload.Generation != 1 {
 		t.Fatalf("notify payload=%+v err=%v\n%s", payload, err, out)
 	}
 	hints := loadMemoryHints(brainDir)
@@ -129,7 +129,7 @@ func TestMemoryNotifyUsesResolvedRepoIdentityWhenKeyIsOmitted(t *testing.T) {
 		t.Fatalf("mismatched repo key: err=%v out=%q", err, out)
 	}
 	hints = loadMemoryHints(brainDir)
-	if len(hints) != 1 || hints[0].Generation != 1 || hints[0].LastEvent != "session_end" {
+	if len(hints) != 1 || hints[0].Generation != 1 || hints[0].LastEvent != "session_start" {
 		t.Fatalf("mismatched key mutated hints=%+v", hints)
 	}
 }

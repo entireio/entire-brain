@@ -303,7 +303,7 @@ func TestImportTimestampsFallBackToImportTime(t *testing.T) {
 // nothing about it.
 func TestImportRefreshesTheFactSourceManifest(t *testing.T) {
 	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
-	opts, brainDir, branch := rememberReviveEnv(t, now)
+	opts, brainDir, _ := rememberReviveEnv(t, now)
 
 	// A brain with a manifest that predates the import.
 	if err := os.MkdirAll(brainDir, 0o755); err != nil {
@@ -336,7 +336,7 @@ func TestImportRefreshesTheFactSourceManifest(t *testing.T) {
 		t.Fatalf("import: %v", err)
 	}
 
-	facts, err := factstore.Load(brainDir, branch)
+	facts, err := factstore.Load(brainDir)
 	if err != nil || len(facts) == 0 {
 		t.Fatalf("the import wrote no facts: %v %+v", err, facts)
 	}
@@ -381,7 +381,7 @@ func TestImportUsesTheSupersededConstant(t *testing.T) {
 // this change had the check written and never invoked.
 func TestImportCommandRejectsAnUnusablePathPrefixBeforeWriting(t *testing.T) {
 	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
-	opts, brainDir, branch := rememberReviveEnv(t, now)
+	opts, brainDir, _ := rememberReviveEnv(t, now)
 
 	export := filepath.Join(t.TempDir(), "mem0.json")
 	payload := `{"results":[{"id":"m1","memory":"Retries stop after three attempts."}]}`
@@ -407,7 +407,7 @@ func TestImportCommandRejectsAnUnusablePathPrefixBeforeWriting(t *testing.T) {
 		t.Fatalf("the error does not name the flag: %v", err)
 	}
 	// And nothing may have been written.
-	facts, loadErr := factstore.Load(brainDir, branch)
+	facts, loadErr := factstore.Load(brainDir)
 	if loadErr == nil && len(facts) > 0 {
 		t.Fatalf("the rejected import still wrote %d fact(s)", len(facts))
 	}
@@ -570,7 +570,7 @@ func TestImportDoesNotSilentlyFailToSupersedeAnExistingFact(t *testing.T) {
 		CreatedAt: now, UpdatedAt: now,
 	}
 	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		return factstore.Write(brainDir, branch, []factRecord{local})
+		return factstore.Write(brainDir, []factRecord{local})
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -593,7 +593,7 @@ func TestImportDoesNotSilentlyFailToSupersedeAnExistingFact(t *testing.T) {
 		t.Fatalf("import: %v", err)
 	}
 
-	stored, err := factstore.Load(brainDir, branch)
+	stored, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -697,7 +697,7 @@ func TestImportedFactsAppearInTheStatusOriginTally(t *testing.T) {
 		{ID: "c", Paths: []string{"architecture.api.ports"}, Text: "Imported.", Branch: branch, Origin: factstore.OriginImported, Status: factStatusActive, CreatedAt: now, UpdatedAt: now},
 	}
 	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		return factstore.Write(brainDir, branch, facts)
+		return factstore.Write(brainDir, facts)
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -989,7 +989,7 @@ func TestDryRunReportsTheSupersessionItWouldNotApply(t *testing.T) {
 		Text: "We deploy on Thursdays.", Paths: normalizeFactPaths([]string{"project.imported.general"}),
 		Status: factStatusActive, Branch: branch,
 	}
-	if err := factstore.Write(brainDir, branch, []factRecord{local}); err != nil {
+	if err := factstore.Write(brainDir, []factRecord{local}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1012,7 +1012,7 @@ func TestDryRunReportsTheSupersessionItWouldNotApply(t *testing.T) {
 		t.Fatalf("the dry run did not report the divergence a real run would:\n%s", out)
 	}
 	// And it must still be a preview: the local fact stays active.
-	after, err := factstore.Load(brainDir, branch)
+	after, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1033,7 +1033,7 @@ func TestImportDryRunSurfacesFactStoreErrors(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				storePath := filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath(branch)))
+				storePath := filepath.Join(brainDir, filepath.FromSlash(testLegacyFactsRel(branch)))
 				if err := os.MkdirAll(filepath.Dir(storePath), 0o700); err != nil {
 					t.Fatal(err)
 				}
@@ -1041,7 +1041,7 @@ func TestImportDryRunSurfacesFactStoreErrors(t *testing.T) {
 				if err := os.WriteFile(storePath, corrupt, 0o600); err != nil {
 					t.Fatal(err)
 				}
-				_, loadErr := factstore.Load(brainDir, branch)
+				_, loadErr := factstore.Load(brainDir)
 				if loadErr == nil {
 					t.Fatal("expected corrupt store to fail loading")
 				}
@@ -1101,11 +1101,11 @@ func TestImportReportsSupersededRetention(t *testing.T) {
 					}
 				}
 				if !dryRun {
-					_, brainDir, branch, err := resolveFactsTarget(context.Background(), opts, agentSurfaceTarget(opts, nil), "")
+					_, brainDir, _, err := resolveFactsTarget(context.Background(), opts, agentSurfaceTarget(opts, nil), "")
 					if err != nil {
 						t.Fatal(err)
 					}
-					facts, err := factstore.Load(brainDir, branch)
+					facts, err := factstore.Load(brainDir)
 					if err != nil {
 						t.Fatal(err)
 					}

@@ -114,8 +114,6 @@ entire brain bundle export --include-sessions --output ./brain-backup.tar
 ```
 
 Bundle export requires a semantic index, built with `entire brain refresh index`.
-Excluded sessions are omitted, and local privacy policy is not included; review
-the destination's privacy settings before refreshing sessions there.
 
 ### How Brain compares
 
@@ -166,6 +164,19 @@ entire brain setup --no-backfill --no-daemon
 
 Configured remote history sources and hosted memories sync also use the network; see [privacy and egress](docs/reference.md#privacy-and-egress) for controls.
 
+### Background maintenance and memory sync
+
+The watcher updates local repository context and runs distillation within the configured budget.
+For connected repositories, Brain syncs after a post-commit checkpoint notification and after distillation saves its results.
+Existing push notifications and manual sync remain supported.
+The watcher does not upload or pull memories on idle ticks.
+Brain no longer processes session-end notifications.
+
+Sync sends new or changed record versions and saves server acknowledgements locally.
+Overlapping uploads use one process lock; successful batches do not need another upload.
+Failed or interrupted uploads remain eligible for the next sync event.
+Original session, checkpoint, and commit references remain unchanged.
+
 ## Usage Examples
 
 ### Check what the brain knows
@@ -201,6 +212,44 @@ one, pass it yourself: `--path constraints.retry.policy`, shaped
 
 `verify` reports hand-written facts as `unverifiable-here` — they have no source
 anchor in the repository. Expected, not a failure.
+
+Memory access uses one repository API and one `facts/store.json` file (schema 3).
+Memories are visible across branches. Migration combines copies with the same ID
+and retains provenance and lifecycle state. Brainstore's per-record wire format
+remains unchanged.
+
+Normal writes and refreshes migrate legacy stores automatically. Verified
+redundant `facts/.legacy-*` files are then removed automatically, including copies
+retained by v0.5.0. Watcher maintenance also runs when repository contents have not
+changed. No migration or cleanup command is required for normal operation.
+
+Cleanup preserves unknown files and records whose preservation cannot be proved.
+Large-file verification runs outside the write lock; a concurrent change defers
+removal until another pass. Interrupted cleanup resumes automatically. Background
+pause settings remain effective, and ordinary reads never migrate or clean up.
+
+Storage diagnostics are available when needed:
+
+```bash
+entire brain memories storage status --json
+entire brain memories storage migrate       # optional diagnostic/retry operation
+```
+
+Both commands accept `--global`. Status includes cleanup state, pending
+legacy directories, retained reasons, and recorded reclaimed bytes. A crash after
+removal can make the byte count an underestimate; it does not authorize deletion.
+
+Local migration is one-way. Stable v0.2.0, v0.3.0, and v0.4.0 cannot read the
+migrated directory. Older and newer clients can exchange hosted memories through
+separate local stores. Returning to an older version requires a complete
+pre-migration backup in a separate environment; later writes are not in that backup.
+Do not share a migrated local directory with older clients.
+
+Run `bash scripts/test-memory-storage-compat.sh` for released-binary checks.
+The script builds pinned stable releases v0.2.0, v0.3.0, v0.4.0, and v0.5.0.
+Nightly releases are excluded. Tests use temporary repositories and isolated
+stores. They do not change your installed plugin or your memories.
+See [compatibility coverage](docs/memory-storage-compatibility.md) for test scope.
 
 ### Remember something that is not about one repository
 
@@ -399,7 +448,7 @@ the binary.
 | `entire brain remember` | Record a durable fact about this repository |
 | `entire brain recall` | Retrieve durable facts for the current branch |
 | `entire brain distill` | Extract durable facts from sessions (requires an agent) |
-| `entire brain facts` | Review, promote, and garbage-collect durable facts |
+| `entire brain facts` | Inspect, retract, and garbage-collect durable facts |
 | `entire brain verify` | Verify durable fact anchors against local retained sources |
 | `entire brain patterns` | Inspect and rebuild recurring patterns from sessions |
 

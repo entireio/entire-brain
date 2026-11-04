@@ -102,7 +102,7 @@ func twoRepoWorkspace(t *testing.T, a, aIntent string, aHeads []string, b, bInte
 	if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := patterncore.BuildWorkspaceCorpus(env, manifest, nil, time.Now()); err != nil {
+	if _, err := patterncore.BuildWorkspaceCorpus(env, manifest, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	return env, manifest
@@ -202,7 +202,7 @@ func TestWorkspaceFamilyPreservedAcrossRefresh(t *testing.T) {
 		t.Fatal("setup: expected 1 accepted family before refresh")
 	}
 	// Rebuild the workspace corpus with unchanged member corpora.
-	if _, err := patterncore.BuildWorkspaceCorpus(env, manifest, nil, time.Now()); err != nil {
+	if _, err := patterncore.BuildWorkspaceCorpus(env, manifest, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if got := len(patterncore.AcceptedFamilies(wsDir)); got != 1 {

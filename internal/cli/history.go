@@ -74,6 +74,10 @@ const (
 	// results forever, so an upgraded brain would never recover its history
 	// without a manual rebuild (COR-2289).
 	historyScanCacheVersion = 11
+	// Extraction revision 11 changes parser behavior, not the record schema.
+	// Keep the wire version readable by supported stable clients. Old clients
+	// drop extractor_version when rewriting, forcing the new parser to rescan.
+	historyScanCacheWireVersion = 10
 )
 
 type historyFragment struct {
@@ -102,7 +106,6 @@ type historyProjectionIdentity struct {
 	SessionsFingerprint string
 	SessionFiles        string
 	SessionContents     string
-	Tombstones          string
 	Overlay             string
 	brainRoot           os.FileInfo
 	sessionEntries      []historySessionTreeEntry
@@ -113,7 +116,7 @@ func (i historyProjectionIdentity) same(other historyProjectionIdentity) bool {
 }
 
 func (i historyProjectionIdentity) sameMetadata(other historyProjectionIdentity) bool {
-	if i.SessionsFingerprint != other.SessionsFingerprint || i.SessionFiles != other.SessionFiles || i.Tombstones != other.Tombstones || i.Overlay != other.Overlay {
+	if i.SessionsFingerprint != other.SessionsFingerprint || i.SessionFiles != other.SessionFiles || i.Overlay != other.Overlay {
 		return false
 	}
 	return sameHistorySessionMembership(i.brainRoot, i.sessionEntries, other.brainRoot, other.sessionEntries)
@@ -148,9 +151,10 @@ var beforeHistoryProjectionContentDigest = func(string) {}
 // searchable records. Unchanged files still skip parsing, which is the costly
 // part of refresh even though the bytes are streamed once for identity.
 type historyScanCache struct {
-	Version         int                              `json:"version"`
-	Files           map[string]historyScanCacheEntry `json:"files"`
-	contentIdentity string
+	ExtractorVersion int                              `json:"extractor_version,omitempty"`
+	Version          int                              `json:"version"`
+	Files            map[string]historyScanCacheEntry `json:"files"`
+	contentIdentity  string
 }
 
 type historyScanCacheEntry struct {
@@ -217,13 +221,13 @@ func writeBrainHistoryIndexAndSourceContext(ctx context.Context, outputDir strin
 		return nil, err
 	}
 	var source *historySourceManifest
-	err = brainstore.WithBrainWriteLock(outputDir, func() error {
+	err = brainstore.WithBrainWriteLockContext(ctx, outputDir, func() error {
 		var runErr error
 		source, runErr = publishBrainHistoryProjectionLocked(outputDir, prepared, nil)
 		return runErr
 	})
 	if err == nil {
-		finalizePreparedHistoryProjection(outputDir, prepared)
+		finalizePreparedHistoryProjectionContext(ctx, outputDir, prepared)
 	}
 	return source, err
 }
@@ -258,23 +262,22 @@ func prepareBrainHistoryProjectionContext(ctx context.Context, outputDir string,
 	// opening capture therefore needs only the exact metadata membership; the
 	// strong post-capture below binds the build digest without a redundant full
 	// corpus read.
-	identity, manifest, stones, err := captureHistoryProjectionIdentityMode(ctx, outputDir, false)
+	identity, manifest, err := captureHistoryProjectionIdentityMode(ctx, outputDir, false)
 	if err != nil {
 		return nil, err
 	}
-	index, source, cache, err := buildBrainHistoryIndexSnapshotContext(ctx, outputDir, now, progress, manifest, stones)
+	index, source, cache, err := buildBrainHistoryIndexSnapshotContext(ctx, outputDir, now, progress, manifest)
 	if err != nil {
 		return nil, err
 	}
 	identity.SessionContents = cache.contentIdentity
-	source.PrivacyIdentity = identity.Tombstones
-	receipts := buildProjectionReceiptsFromSnapshot(outputDir, manifest, stones, index, now)
-	after, _, _, err := captureHistoryProjectionIdentityContext(ctx, outputDir)
+	receipts := buildProjectionReceiptsFromSnapshot(outputDir, manifest, index, now)
+	after, _, err := captureHistoryProjectionIdentityContext(ctx, outputDir)
 	if err != nil {
 		return nil, err
 	}
 	if !identity.same(after) {
-		return nil, errors.New("memory_source_stale: sessions, privacy state, or short-term overlay changed while preparing history")
+		return nil, errors.New("memory_source_stale: sessions or short-term overlay changed while preparing history")
 	}
 	// Retain the exact post-scan descriptor/root/tree snapshot for the short
 	// commit revalidation. The content aggregate already equals the immutable
@@ -346,12 +349,12 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 			return nil, err
 		}
 	}
-	current, _, _, err := captureHistoryProjectionMetadataIdentity(outputDir)
+	current, _, err := captureHistoryProjectionMetadataIdentity(outputDir)
 	if err != nil {
 		return nil, err
 	}
 	if !current.sameMetadata(prepared.identity) {
-		return nil, errors.New("memory_source_stale: sessions, privacy state, or short-term overlay changed before history commit")
+		return nil, errors.New("memory_source_stale: sessions or short-term overlay changed before history commit")
 	}
 	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
@@ -385,12 +388,12 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 			return nil, err
 		}
 	}
-	current, _, _, err = captureHistoryProjectionMetadataIdentity(outputDir)
+	current, _, err = captureHistoryProjectionMetadataIdentity(outputDir)
 	if err != nil {
 		return nil, err
 	}
 	if !current.sameMetadata(prepared.identity) {
-		return nil, errors.New("memory_source_stale: sessions, privacy state, or short-term overlay changed at history commit")
+		return nil, errors.New("memory_source_stale: sessions or short-term overlay changed at history commit")
 	}
 	bmanifest.Normalize(manifest)
 	// Normalization may fill default fields on the canonical sessions source.
@@ -444,13 +447,17 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 // FTS remains lazy: its fingerprint makes the old store unreadable for the new
 // index until a query rebuilds it.
 func finalizePreparedHistoryProjection(outputDir string, prepared *preparedHistoryProjection) {
+	finalizePreparedHistoryProjectionContext(context.Background(), outputDir, prepared)
+}
+
+func finalizePreparedHistoryProjectionContext(ctx context.Context, outputDir string, prepared *preparedHistoryProjection) {
 	if prepared == nil {
 		return
 	}
 	if len(prepared.cacheData) > 0 {
 		_ = brainstore.WriteBrainRelativeFileAtomic(outputDir, historyScanCachePath, prepared.cacheData, 0o600)
 	}
-	_ = brainstore.WithBrainWriteLock(outputDir, func() error {
+	_ = brainstore.WithBrainWriteLockContext(ctx, outputDir, func() error {
 		pruneInactiveHistoryGenerations(outputDir)
 		return nil
 	})
@@ -917,15 +924,15 @@ func recoverHistoryProjectionQuarantines(outputDir string) error {
 	return nil
 }
 
-func captureHistoryProjectionIdentity(outputDir string) (historyProjectionIdentity, *exportManifest, sessionTombstones, error) {
+func captureHistoryProjectionIdentity(outputDir string) (historyProjectionIdentity, *exportManifest, error) {
 	return captureHistoryProjectionIdentityContext(context.Background(), outputDir)
 }
 
-func captureHistoryProjectionIdentityContext(ctx context.Context, outputDir string) (historyProjectionIdentity, *exportManifest, sessionTombstones, error) {
+func captureHistoryProjectionIdentityContext(ctx context.Context, outputDir string) (historyProjectionIdentity, *exportManifest, error) {
 	return captureHistoryProjectionIdentityMode(ctx, outputDir, true)
 }
 
-func captureHistoryProjectionMetadataIdentity(outputDir string) (historyProjectionIdentity, *exportManifest, sessionTombstones, error) {
+func captureHistoryProjectionMetadataIdentity(outputDir string) (historyProjectionIdentity, *exportManifest, error) {
 	return captureHistoryProjectionIdentityMode(context.Background(), outputDir, false)
 }
 
@@ -933,18 +940,18 @@ func captureHistoryProjectionMetadataIdentity(outputDir string) (historyProjecti
 // inventory in both modes. Preparation additionally hashes non-excluded
 // transcript bytes. Commit runs metadata-only under the Brain lock: supported
 // exporters take that lock and publish transcripts by atomic replacement, so
-// retained SameFile root/tree membership plus manifest/privacy/overlay identity
+// retained SameFile root/tree membership plus manifest/overlay identity
 // binds the post-scan content snapshot without O(corpus bytes) lock hold time.
 // A hostile local process that mutates an inode in place while forging its size
 // and timestamps is local store compromise, outside the cooperative-store
 // guarantee; canonical input is not a cross-process filesystem transaction.
-func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string, includeContents bool) (historyProjectionIdentity, *exportManifest, sessionTombstones, error) {
+func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string, includeContents bool) (historyProjectionIdentity, *exportManifest, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
-		return historyProjectionIdentity{}, nil, sessionTombstones{}, err
+		return historyProjectionIdentity{}, nil, err
 	}
 	inventory, err := collectHistorySessionInventory(ctx, outputDir)
 	if err != nil {
@@ -952,33 +959,22 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 			// This runs ahead of buildBrainHistoryIndexSnapshotContext in the
 			// prepare path, so without the same empty-Brain branch it would
 			// swallow that function's actionable guidance.
-			return historyProjectionIdentity{}, nil, sessionTombstones{}, errors.New("session history missing; run `" + clibase.BrainInvocation(os.LookupEnv, "refresh sessions") + "` first")
+			return historyProjectionIdentity{}, nil, errors.New("session history missing; run `" + clibase.BrainInvocation(os.LookupEnv, "refresh sessions") + "` first")
 		}
-		return historyProjectionIdentity{}, nil, sessionTombstones{}, err
+		return historyProjectionIdentity{}, nil, err
 	}
 	defer inventory.Close()
-	stones, tombstonesIdentity, err := historyProjectionTombstoneSnapshot(outputDir)
-	if err != nil {
-		return historyProjectionIdentity{}, nil, sessionTombstones{}, err
-	}
 	fileHash := sha256.New()
 	for _, entry := range inventory.entries {
 		if err := ctx.Err(); err != nil {
-			return historyProjectionIdentity{}, nil, sessionTombstones{}, err
+			return historyProjectionIdentity{}, nil, err
 		}
 		fmt.Fprintf(fileHash, "%s\x00%d\x00%d\x00%d\n", entry.Rel, uint32(entry.Mode), entry.Size, entry.ModUnixNano)
 	}
 	contentIdentity := ""
 	if includeContents {
-		excludedByPath, err := excludedTranscriptPathsChecked(outputDir, manifest, stones)
-		if err != nil {
-			return historyProjectionIdentity{}, nil, sessionTombstones{}, err
-		}
 		contentCache := historyScanCache{Files: make(map[string]historyScanCacheEntry, len(inventory.files))}
 		for _, file := range inventory.files {
-			if _, excluded := excludedByPath[file.Rel]; excluded {
-				continue
-			}
 			digest, digestErr := digestHistorySessionInventoryFile(ctx, inventory, file)
 			if errors.Is(digestErr, errHistoryTranscriptTooLarge) {
 				// Left out of the content identity, exactly as the build leaves
@@ -989,7 +985,7 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 				continue
 			}
 			if digestErr != nil {
-				return historyProjectionIdentity{}, nil, sessionTombstones{}, digestErr
+				return historyProjectionIdentity{}, nil, digestErr
 			}
 			contentCache.Files[file.Rel] = historyScanCacheEntry{ContentDigest: digest}
 		}
@@ -997,7 +993,7 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 	}
 	overlayIdentity, err := historyProjectionFileIdentity(outputDir, historyShortTermPath, clibase.DefaultMaxReadBytes)
 	if err != nil {
-		return historyProjectionIdentity{}, nil, sessionTombstones{}, err
+		return historyProjectionIdentity{}, nil, err
 	}
 	return historyProjectionIdentity{
 		SessionsFingerprint: func() string {
@@ -1008,19 +1004,10 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 		}(),
 		SessionFiles:    "sha256:" + hex.EncodeToString(fileHash.Sum(nil)),
 		SessionContents: contentIdentity,
-		Tombstones:      tombstonesIdentity,
 		Overlay:         overlayIdentity,
 		brainRoot:       inventory.rootInfo,
 		sessionEntries:  append([]historySessionTreeEntry(nil), inventory.entries...),
-	}, manifest, stones, nil
-}
-
-func historyProjectionTombstoneSnapshot(outputDir string) (sessionTombstones, string, error) {
-	stones, state, err := brainstore.LoadSessionTombstonesChecked(outputDir)
-	if err != nil {
-		return sessionTombstones{}, state.Identity, err
-	}
-	return stones, state.Identity, nil
+	}, manifest, nil
 }
 
 func historyProjectionFileIdentity(outputDir, rel string, limit int64) (string, error) {
@@ -1049,22 +1036,18 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 	if err != nil {
 		return historyIndex{}, nil, err
 	}
-	stones, _, err := brainstore.LoadSessionTombstonesChecked(outputDir)
-	if err != nil {
-		return historyIndex{}, nil, err
-	}
-	index, source, cache, err := buildBrainHistoryIndexSnapshot(outputDir, now, progress, manifest, stones)
+	index, source, cache, err := buildBrainHistoryIndexSnapshot(outputDir, now, progress, manifest)
 	if err == nil {
 		saveHistoryScanCache(outputDir, cache)
 	}
 	return index, source, err
 }
 
-func buildBrainHistoryIndexSnapshot(outputDir string, now time.Time, progress historyIndexProgress, manifest *exportManifest, stones sessionTombstones) (historyIndex, *historySourceManifest, historyScanCache, error) {
-	return buildBrainHistoryIndexSnapshotContext(context.Background(), outputDir, now, progress, manifest, stones)
+func buildBrainHistoryIndexSnapshot(outputDir string, now time.Time, progress historyIndexProgress, manifest *exportManifest) (historyIndex, *historySourceManifest, historyScanCache, error) {
+	return buildBrainHistoryIndexSnapshotContext(context.Background(), outputDir, now, progress, manifest)
 }
 
-func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string, now time.Time, progress historyIndexProgress, manifest *exportManifest, stones sessionTombstones) (historyIndex, *historySourceManifest, historyScanCache, error) {
+func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string, now time.Time, progress historyIndexProgress, manifest *exportManifest) (historyIndex, *historySourceManifest, historyScanCache, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -1084,13 +1067,6 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 	contentIdentities := historyScanCache{Files: make(map[string]historyScanCacheEntry, len(files))}
 	branchByPath := historyBranchByTranscriptPath(manifest)
 	sessionByPath := historySessionByTranscriptPath(manifest)
-	// Session tombstones (Phase 4): excluded sessions are understood BEFORE
-	// derived indexing; their transcripts are skipped entirely (no records,
-	// no exchanges, no cache entry), counted without retaining content.
-	excludedByPath, err := excludedTranscriptPathsChecked(outputDir, manifest, stones)
-	if err != nil {
-		return index, nil, historyScanCache{}, err
-	}
 	repoKey := ""
 	if manifest != nil {
 		repoKey = manifest.RepoKey
@@ -1116,22 +1092,11 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 	// export's copy (which also carries any appended assistant output).
 	seenExchanges := map[historyRecordReplacementKey]struct{}{}
 	incompleteExchanges := 0
-	excludedSessions := map[string]struct{}{}
-	for _, sessionID := range excludedByPath {
-		excludedSessions[sessionID] = struct{}{}
-	}
 	for i, file := range files {
 		if err := ctx.Err(); err != nil {
 			return index, nil, historyScanCache{}, err
 		}
 		rel := file.Rel
-		if sessionID, excluded := excludedByPath[rel]; excluded {
-			excludedSessions[sessionID] = struct{}{}
-			if progress != nil {
-				progress(i+1, total)
-			}
-			continue
-		}
 
 		var records []historyRecord
 		var incomplete int
@@ -1253,7 +1218,6 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 		}(),
 		Records:             len(index.Records),
 		IncompleteExchanges: incompleteExchanges,
-		ExcludedSessions:    len(excludedSessions),
 		Warnings:            append([]string(nil), index.Warnings...),
 	}
 	for _, record := range index.Records {
@@ -1345,7 +1309,7 @@ func digestHistorySessionInventoryFile(ctx context.Context, inventory *historySe
 // verified content digest. It is the freshness-check counterpart of the index
 // build, which collects the same digests from the single read it already
 // performs.
-func collectHistorySessionDigests(ctx context.Context, brainDir string, excludedByPath map[string]string) ([]historySessionFile, error) {
+func collectHistorySessionDigests(ctx context.Context, brainDir string) ([]historySessionFile, error) {
 	inventory, err := collectHistorySessionInventory(ctx, brainDir)
 	if err != nil {
 		if errors.Is(err, errHistorySessionsRootMissing) {
@@ -1356,9 +1320,6 @@ func collectHistorySessionDigests(ctx context.Context, brainDir string, excluded
 	defer inventory.Close()
 	out := make([]historySessionFile, 0, len(inventory.files))
 	for _, file := range inventory.files {
-		if _, excluded := excludedByPath[file.Rel]; excluded {
-			continue
-		}
 		_, digest, readErr := readHistorySessionInventoryFile(ctx, inventory, file)
 		if errors.Is(readErr, errHistoryTranscriptTooLarge) {
 			// Must skip whatever the build skips. A freshness check that
@@ -1688,6 +1649,9 @@ func loadHistoryScanCache(outputDir string) historyScanCache {
 	if err := json.NewDecoder(limited).Decode(&cache); err != nil {
 		return empty
 	}
+	if cache.Version == historyScanCacheWireVersion && cache.ExtractorVersion == historyScanCacheVersion {
+		cache.Version = historyScanCacheVersion
+	}
 	if cache.Version != historyScanCacheVersion || cache.Files == nil {
 		return empty
 	}
@@ -1705,6 +1669,10 @@ func saveHistoryScanCache(outputDir string, cache historyScanCache) {
 }
 
 func encodeHistoryScanCache(cache historyScanCache) ([]byte, error) {
+	if cache.Version == historyScanCacheVersion {
+		cache.Version = historyScanCacheWireVersion
+		cache.ExtractorVersion = historyScanCacheVersion
+	}
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	if err := json.NewEncoder(gz).Encode(cache); err != nil {
@@ -1727,8 +1695,7 @@ func encodeHistoryScanCache(cache historyScanCache) ([]byte, error) {
 // the publisher wrote "" into sources.history.sessions_fingerprint, the checked
 // receipt reader treats "" as unproven, and `memory repair` then republished
 // the same "" it had just rejected — a prescribed remedy that could never
-// succeed. "absent" matches what the same manifest already writes for
-// privacy_identity when there are no tombstones.
+// succeed.
 const sessionSourceFingerprintAbsent = "absent"
 
 func brainSessionsFingerprint(outputDir string) string {

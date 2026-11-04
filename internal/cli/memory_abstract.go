@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
-	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"io"
 	"os"
 	"os/exec"
@@ -644,11 +643,7 @@ func abstractPreviewsForResults(brainDir string, results []unifiedResult) ([]ses
 	if err != nil {
 		return nil, false, err
 	}
-	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
-	if err != nil {
-		return nil, false, err
-	}
-	views := buildConversationSessionViews(fresh, manifest.RepoKey, manifest, guard)
+	views := buildConversationSessionViews(fresh, manifest.RepoKey, manifest)
 	resolver := newSessionAbstractResolver(brainDir)
 	previews := make([]sessionAbstractPreview, 0, len(refs))
 	total := 0
@@ -749,11 +744,6 @@ var memoryAbstractorFactory = newConfiguredConversationAbstractor
 // a seam so workers/tests can supply the same clock domain used for StartedAt
 // instead of silently falling back to the generation start instant.
 var abstractCompletionNow = func() time.Time { return time.Now().UTC() }
-
-// beforeAbstractProviderPrivacyLock is a deterministic adversarial-test seam
-// after policy capture and immediately before the provider linearization lock.
-// Production leaves it as a no-op.
-var beforeAbstractProviderPrivacyLock = func() {}
 
 var abstractExecutableAvailable = func(provider string) bool {
 	binary := provider
@@ -1584,23 +1574,6 @@ func generateSessionAbstractContext(ctx context.Context, repoDir, brainDir strin
 	return generateSessionAbstractContextGuarded(ctx, repoDir, brainDir, view, config, now, nil)
 }
 
-func ensureSessionAbstractPrivacyAllowed(brainDir string, view conversationSessionView) error {
-	manifest, err := bmanifest.Load(brainDir)
-	if err != nil {
-		return err
-	}
-	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
-	if err != nil {
-		return err
-	}
-	for _, record := range view.Records {
-		if historystore.GuardBlocksRecord(guard, record) {
-			return fmt.Errorf("%s: session %s is excluded", brainstore.PrivacyExcludedCode, view.Ref)
-		}
-	}
-	return nil
-}
-
 func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDir string, view conversationSessionView, config memoryConfig, now time.Time, beforeCommit func() error) (sessionAbstract, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -1625,22 +1598,6 @@ func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDi
 	if kind == "hosted" && !config.Abstracts.HostedEgressAllowed {
 		return sessionAbstract{}, fmt.Errorf("%s: provider %s is hosted and hosted egress is not acknowledged (--allow-hosted-egress)", brainstore.ProviderUnavailCode, providerName)
 	}
-	// Provider egress is irreversible, so an epoch token plus a post-call check
-	// cannot provide a privacy boundary. The dedicated side-effect lock is held
-	// through the complete operation; privacy mutations acquire it before the
-	// ordinary Brain lock. Brief Brain-locked sections perform final checks and
-	// persistence, while projections, retrievals, heartbeats, and cancellation
-	// requests remain available during the bounded provider call.
-	privacyUnlock, err := brainstore.AcquireBrainPrivacySideEffectLock(brainDir)
-	if err != nil {
-		return sessionAbstract{}, err
-	}
-	defer privacyUnlock()
-	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
-	if err != nil {
-		return sessionAbstract{}, err
-	}
-	policy.RequireDerivedClean = true
 	expectedDigest := sessionViewDigest(view)
 	var (
 		artifact      sessionAbstract
@@ -1650,17 +1607,13 @@ func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDi
 		input         conversationAbstractInput
 		egressReceipt *abstractEgressReceipt
 	)
-	beforeAbstractProviderPrivacyLock()
-	err = withLockedRetrievalPrivacyPolicies([]retrievalPrivacyPolicy{policy}, func() error {
+	err = brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
 		current, err := loadConversationSessionViewByRef(brainDir, view.Ref)
 		if err != nil {
 			return err
 		}
 		if sessionViewDigest(current) != expectedDigest {
 			return fmt.Errorf("%s: session changed while abstract generation was running", brainstore.SourceStaleCode)
-		}
-		if err := ensureSessionAbstractPrivacyAllowed(brainDir, current); err != nil {
-			return err
 		}
 		if err := ensureSessionAbstractReplaceable(brainDir, current); err != nil {
 			return err
@@ -1694,10 +1647,10 @@ func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDi
 	providerCtx, cancelProvider := context.WithTimeout(ctx, abstractProviderTimeout)
 	artifact, providerErr := provider.Abstract(providerCtx, repoDir, input)
 	cancelProvider()
-	err = withLockedRetrievalPrivacyPolicies([]retrievalPrivacyPolicy{policy}, func() error {
+	// Finalize paid egress even when the provider was cancelled. A cancelled
+	// acquisition must not erase the provider result or leave its receipt open.
+	err = brainstore.WithBrainWriteLockSettlement(ctx, brainDir, func() error {
 		if egressReceipt != nil {
-			// Completion is sampled after the provider call while the side-effect
-			// lock is still held, so cleanup cannot remove then have us recreate it.
 			egressReceipt.FinishedAt = abstractCompletionNow().UTC()
 			egressReceipt.Status = "completed"
 			if providerErr != nil {
@@ -1716,9 +1669,6 @@ func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDi
 		}
 		if sessionViewDigest(current) != expectedDigest {
 			return fmt.Errorf("%s: session changed while abstract generation was running", brainstore.SourceStaleCode)
-		}
-		if err := ensureSessionAbstractPrivacyAllowed(brainDir, current); err != nil {
-			return err
 		}
 		if beforeCommit != nil {
 			if err := beforeCommit(); err != nil {
@@ -1870,11 +1820,7 @@ func loadConversationSessionViewByRef(brainDir, ref string) (conversationSession
 	if err != nil {
 		return conversationSessionView{}, err
 	}
-	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
-	if err != nil {
-		return conversationSessionView{}, err
-	}
-	view, ok := buildConversationSessionViews(fresh, manifest.RepoKey, manifest, guard)[ref]
+	view, ok := buildConversationSessionViews(fresh, manifest.RepoKey, manifest)[ref]
 	if !ok {
 		return conversationSessionView{}, fmt.Errorf("%s: session %s not found", brainstore.SourceStaleCode, ref)
 	}
@@ -2252,7 +2198,7 @@ func newMemoryConfigureCommand(opts Options) *cobra.Command {
 		if dryRun {
 			err = configure()
 		} else {
-			err = brainstore.WithBrainWriteLock(storage.BrainDir, configure)
+			err = brainstore.WithBrainWriteLockContext(cmd.Context(), storage.BrainDir, configure)
 		}
 		if err != nil {
 			return fail(err)
@@ -2316,9 +2262,6 @@ func enqueueManualAbstractJobWithReceipt(brainDir, sessionRef string, override m
 		}
 		if len(view.Records) == 0 {
 			return fmt.Errorf("%s: session has no visible evidence", brainstore.SourceStaleCode)
-		}
-		if err := ensureSessionAbstractPrivacyAllowed(brainDir, view); err != nil {
-			return err
 		}
 		if err := ensureSessionAbstractReplaceable(brainDir, view); err != nil {
 			return err
@@ -2516,14 +2459,6 @@ func newMemoryAbstractCommand(opts Options) *cobra.Command {
 				}
 				return finishMemoryOperationFailure(cmd, &receipt, jsonOut, opts.Now(), cause)
 			}
-			responsePolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
-			if err != nil {
-				return fail(err)
-			}
-			// Abstracts are derived from transcript content. The final response
-			// boundary must prove both the tombstone identity and the fully-clean
-			// derived state while holding the privacy lock through the last byte.
-			responsePolicy.RequireDerivedClean = true
 			view, err := loadConversationSessionViewByRef(brainDir, ref)
 			if err != nil {
 				return fail(err)
@@ -2539,7 +2474,7 @@ func newMemoryAbstractCommand(opts Options) *cobra.Command {
 				if current != nil {
 					payload["abstract"] = current
 				}
-				return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{responsePolicy}, func() error {
+				return bufferRetrievalCommandOutput(cmd, func() error {
 					if jsonOut {
 						return cmdutil.WriteJSON(cmd, payload)
 					}
@@ -2573,7 +2508,7 @@ func newMemoryAbstractCommand(opts Options) *cobra.Command {
 				return fail(err)
 			}
 			if dryRun {
-				err = bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{responsePolicy}, func() error {
+				err = bufferRetrievalCommandOutput(cmd, func() error {
 					return emitMemoryOperationSuccess(cmd, &receipt, jsonOut, opts.Now().UTC(), func(receipt memoryOperationReceipt) any {
 						return map[string]any{
 							"session_ref": ref, "abstract_status": status, "job_id": job.JobID,
@@ -2627,7 +2562,7 @@ func newMemoryAbstractCommand(opts Options) *cobra.Command {
 					Path: abstractRel(sessionViewDigest(view)), PriorState: priorAbstractStatus, NewState: status,
 				})
 			}
-			err = bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{responsePolicy}, func() error {
+			err = bufferRetrievalCommandOutput(cmd, func() error {
 				return emitMemoryOperationSuccess(cmd, &receipt, jsonOut, opts.Now().UTC(), func(receipt memoryOperationReceipt) any {
 					payload := map[string]any{
 						"session_ref": ref, "abstract_status": status, "job_id": job.JobID,

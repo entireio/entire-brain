@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -12,7 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
@@ -189,38 +189,6 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 			t.Fatalf("malformed manifest emitted stdout %q (stderr=%q)", stdout, stderr)
 		}
 	})
-	t.Run("malformed tombstones fail closed before output", func(t *testing.T) {
-		fixture := newBrainBriefOutputFixture(t)
-		path := filepath.Join(fixture.brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath))
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte("{not-json"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		stdout, stderr, err := executeSplit(t, NewRootCommand(fixture.opts), "brief", "metadata", "--json")
-		if err == nil {
-			t.Fatalf("malformed tombstones unexpectedly succeeded: %s", stdout)
-		}
-		if stdout != "" {
-			t.Fatalf("malformed tombstones emitted stdout %q (stderr=%q)", stdout, stderr)
-		}
-	})
-	t.Run("dirty privacy state blocks derived output", func(t *testing.T) {
-		fixture := newBrainBriefOutputFixture(t)
-		stones := brainstore.LoadSessionTombstones(fixture.brainDir)
-		stones.Excluded["brief-evidence-1"] = sessionTombstone{At: fixture.opts.Now(), Reason: "brief regression"}
-		if err := brainstore.SaveSessionTombstones(fixture.brainDir, stones); err != nil {
-			t.Fatal(err)
-		}
-		stdout, stderr, err := executeSplit(t, NewRootCommand(fixture.opts), "brief", "ValidateToken", "--json")
-		if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) {
-			t.Fatalf("dirty privacy state was not rejected: %v stdout=%s stderr=%s", err, stdout, stderr)
-		}
-		if stdout != "" {
-			t.Fatalf("dirty privacy state emitted stdout %q", stdout)
-		}
-	})
 	t.Run("malformed semantic store degrades with public warnings", func(t *testing.T) {
 		fixture := newBrainBriefOutputFixture(t)
 		d := fixture.opts.Runner.(*fakeCommandRunner).graphStoreFixtures[fixture.repoDir+"\x00full"]
@@ -241,7 +209,10 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 	})
 	t.Run("malformed fact store degrades with public warning", func(t *testing.T) {
 		fixture := newBrainBriefProfileFixture(t)
-		path := filepath.Join(fixture.brainDir, filepath.FromSlash(factstore.FileRelPath("feature")))
+		path := filepath.Join(fixture.brainDir, filepath.FromSlash(testLegacyFactsRel("feature")))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(path, []byte("{not-json}\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -450,7 +421,9 @@ func TestBriefOutputWriterFailuresPropagate(t *testing.T) {
 	}
 }
 
-func TestBriefOutputEmptyBranchUsesDefaultFactBranch(t *testing.T) {
+// The store is flat: a detached HEAD (no current branch) changes nothing
+// about which memories the brief sees.
+func TestBriefOutputEmptyBranchStillSeesTheFlatStore(t *testing.T) {
 	t.Parallel()
 	fixture := newBrainBriefOutputFixture(t)
 	fixture.opts.Runner.(*fakeCommandRunner).responses[fakeCommandKey("git", "branch", "--show-current")] = fakeCommandResponse{}
@@ -462,8 +435,11 @@ func TestBriefOutputEmptyBranchUsesDefaultFactBranch(t *testing.T) {
 	if err := json.Unmarshal([]byte(packet), &report); err != nil {
 		t.Fatal(err)
 	}
-	if report.Status.Live.Branch != "" || len(report.Facts) != 0 {
-		t.Fatalf("detached branch should use the empty default-main fact view: live=%#v facts=%#v", report.Status.Live, report.Facts)
+	if report.Status.Live.Branch != "" {
+		t.Fatalf("live branch should be empty on a detached HEAD: %#v", report.Status.Live)
+	}
+	if len(report.Facts) == 0 {
+		t.Fatalf("a detached HEAD must still see the repo's memories: %s", packet)
 	}
 }
 

@@ -40,7 +40,7 @@ unset CLAUDECODE
 
 command -v git >/dev/null || { echo "FATAL: git is required" >&2; exit 1; }
 command -v entire >/dev/null || { echo "FATAL: the entire CLI is required" >&2; exit 1; }
-command -v python3 >/dev/null || { echo "FATAL: python3 is required" >&2; exit 1; }
+command -v go >/dev/null || { echo "FATAL: Go is required" >&2; exit 1; }
 if ! command -v claude >/dev/null && ! command -v codex >/dev/null; then
   echo "FATAL: leg 3 (distill) needs a coding agent on PATH (claude or codex)" >&2
   exit 1
@@ -115,6 +115,9 @@ finalize() {
 }
 trap finalize EXIT
 
+devcheck="$work/devcheck"
+(cd "$repo_root" && go build -o "$devcheck" ./tools/devcheck)
+
 leg() {
   current_leg=$1
   printf '\n== leg %s: %s\n' "$1" "${leg_names[$1 - 1]#* }"
@@ -146,18 +149,7 @@ brain_a() { machine a "$scratch" env ENTIRE_REPO_ROOT="$scratch" "$brain_bin" "$
 brain_b() { machine b "$clone_b" env ENTIRE_REPO_ROOT="$clone_b" "$brain_bin" "$@"; }
 
 json_has_fact() { # json_has_fact <needle>: stdin JSON contains <needle> in any string value
-  python3 -c '
-import json, sys
-needle = sys.argv[1]
-def walk(v):
-    if isinstance(v, str):
-        return needle in v
-    if isinstance(v, dict):
-        return any(walk(x) for x in v.values())
-    if isinstance(v, list):
-        return any(walk(x) for x in v)
-    return False
-sys.exit(0 if walk(json.load(sys.stdin)) else 1)' "$1"
+  "$devcheck" json-contains "$1"
 }
 
 echo "== build entire-brain from this checkout"
@@ -217,7 +209,7 @@ pass
 # -------------------------------------------------------------- leg 2: capture
 leg 2
 
-session_id=$(python3 -c 'import uuid; print(uuid.uuid4())')
+session_id=$("$devcheck" uuid)
 transcript="$work/$session_id.jsonl"
 hook() { # hook <verb> <payload-json>
   printf '%s' "$2" | machine a "$scratch" entire hooks claude-code "$1"
@@ -273,13 +265,7 @@ brain_a refresh sessions
 # Real extraction over the fixture session; --dry-run would only prove
 # planning. Cheap effort keeps the spend at one tiny chunk.
 distill_out=$(brain_a distill --branch "$smoke_branch" --effort low --json .)
-echo "$distill_out" | python3 -c '
-import json, sys
-r = json.load(sys.stdin)
-n = r.get("facts_written", r.get("memories_written", r.get("facts", 0)))
-if isinstance(n, list):
-    n = len(n)
-sys.exit(0 if n and int(n) >= 1 else 1)' ||
+echo "$distill_out" | "$devcheck" distill-written ||
   { echo "$distill_out" >&2; fail "distill wrote no facts from the fixture session"; }
 pass
 
@@ -287,12 +273,7 @@ pass
 leg 4
 
 recall_out=$(brain_a recall "Greet empty name invariant trailing space" --branch "$smoke_branch" --json)
-fact_text=$(echo "$recall_out" | python3 -c '
-import json, sys
-facts = json.load(sys.stdin).get("facts") or []
-if not facts:
-    sys.exit(1)
-print(facts[0].get("text") or facts[0].get("content") or "")')
+fact_text=$(echo "$recall_out" | "$devcheck" first-fact)
 [ -n "$fact_text" ] || { echo "$recall_out" >&2; fail "recall returned no facts on branch $smoke_branch"; }
 pass
 
@@ -324,31 +305,7 @@ brain_a memories sync --memories-backend http --branch "$smoke_branch" --json >/
 # GET {base}/api/v1/repos/{id}/brain/facts, paginated).
 needle=$(printf '%s' "$fact_text" | cut -c1-60)
 remote_has_fact() { # remote_has_fact <branch> <needle>
-  python3 - "$API_URL" "$REPO_ID" "$1" "$2" <<'PY'
-import json, os, sys, urllib.parse, urllib.request
-api, repo, branch, needle = sys.argv[1:5]
-token = os.environ["ENTIRE_TOKEN"]
-page = ""
-for _ in range(100):
-    q = {"pageSize": "500"}
-    if page:
-        q["pageToken"] = page
-    url = f"{api}/repos/{repo}/brain/facts?{urllib.parse.urlencode(q)}"
-    # The staging WAF rejects urllib's default Python-urllib user agent (403).
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Bearer {token}",
-        "User-Agent": "entire-release-smoke/1",
-    })
-    body = json.load(urllib.request.urlopen(req))
-    for item in body.get("items") or []:
-        rec = item.get("record") or {}
-        if rec.get("branch") == branch and needle in (rec.get("text") or ""):
-            sys.exit(0)
-    page = body.get("nextPageToken") or ""
-    if not page:
-        break
-sys.exit(1)
-PY
+  "$devcheck" remote-fact "$API_URL" "$REPO_ID" "$1" "$2"
 }
 remote_has_fact "$smoke_branch" "$needle" ||
   fail "the distilled fact is not visible in the hosted store on branch $smoke_branch"

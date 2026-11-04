@@ -3,7 +3,6 @@ package cli
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -74,7 +73,7 @@ func TestValidFactPath(t *testing.T) {
 func TestFactWritesRejectSymlinkedFactsBranch(t *testing.T) {
 	brainDir := t.TempDir()
 	outside := t.TempDir()
-	branchDir := filepath.Join(brainDir, filepath.FromSlash(factstore.BranchRelDir("main")))
+	branchDir := filepath.Join(brainDir, filepath.FromSlash(filepath.Dir(testLegacyFactsRel("main"))))
 	if err := os.MkdirAll(filepath.Dir(branchDir), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -94,14 +93,8 @@ func TestFactWritesRejectSymlinkedFactsBranch(t *testing.T) {
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
-	if err := factstore.Write(brainDir, "main", []factRecord{record}); err == nil || !strings.Contains(err.Error(), "symlink") {
-		t.Fatalf("factstore.Write should reject symlinked branch dir, got %v", err)
-	}
-	if err := writeFactProposals(brainDir, "main", []factProposal{{Action: "merge", CandidateID: "fact:a", TargetID: "fact:b"}}); err == nil || !strings.Contains(err.Error(), "symlink") {
-		t.Fatalf("writeFactProposals should reject symlinked branch dir, got %v", err)
-	}
-	if err := writeFactProposals(brainDir, "main", nil); err == nil || !strings.Contains(err.Error(), "symlink") {
-		t.Fatalf("empty writeFactProposals should reject symlinked branch dir before remove, got %v", err)
+	if err := factstore.Write(brainDir, []factRecord{record}); err != nil {
+		t.Fatalf("flat write should ignore the symlinked legacy dir: %v", err)
 	}
 	saveDistillCache(brainDir, distillCache{Version: distillCacheVersion, Sessions: map[string]string{"main/s1": "fp"}})
 	if _, err := os.Stat(filepath.Join(outside, distillCacheFileName)); !os.IsNotExist(err) {
@@ -166,7 +159,7 @@ func TestUpdateFactSourceManifestPreservesDistillEvidence(t *testing.T) {
 	brainDir := t.TempDir()
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	paths := normalizeFactPaths([]string{"preferences.coding.style"})
-	if err := factstore.Write(brainDir, "main", []factRecord{{
+	if err := factstore.Write(brainDir, []factRecord{{
 		ID:         factRecordID("Keep distill evidence", paths),
 		Paths:      paths,
 		Text:       "Keep distill evidence",

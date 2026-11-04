@@ -1,0 +1,1593 @@
+{
+  "schema_version": 1,
+  "source_commit": "115f271363804359a195708807435bff7a7136fe",
+  "experiments": [
+    {
+      "id": "retrieval",
+      "title": "Agent retrieval comparisons",
+      "question": "Did prepared code context improve task correctness or execution cost?",
+      "conclusion": "Retained runs include a narrow positive condition-level comparison and its earlier and negative comparisons.",
+      "limitations": "Historical model and product versions. The packet treatment does not isolate retrieval alone; no current or general product claim follows.",
+      "records": [
+        "evidence/semantic-clean-proof/README.md",
+        "evidence/semantic-clean-proof/layer-b-confirm-fw16-20260611/records.ndjson",
+        "evidence/semantic-clean-proof/layer-b-confirm-fw16-20260611/report.json",
+        "evidence/semantic-clean-proof/layer-b-pilot-20260611/records.ndjson",
+        "evidence/semantic-clean-proof/layer-b-pilot-20260611/report.json",
+        "evidence/semantic-clean-proof/layer-b-proof-20260611/records.ndjson",
+        "evidence/semantic-clean-proof/layer-b-proof-20260611/report.json",
+        "evidence/semantic-clean-proof/layer-b-proof-fw8-20260611/records.ndjson",
+        "evidence/semantic-clean-proof/layer-b-proof-fw8-20260611/report.json",
+        "evidence/semantic-clean-proof/layer-hist-proof-20260611/records.ndjson",
+        "evidence/semantic-clean-proof/layer-hist-proof-20260611/report.json"
+      ],
+      "context": [
+        "CONDITIONS.md",
+        "tasks/github-cli-auth-env-token.json",
+        "tasks/github-cli-display-url-scheme.json",
+        "tasks/github-cli-format-web-conflict.json",
+        "tasks/github-cli-ghrepo-url-git-suffix.json",
+        "tasks/github-cli-http-scopes-suggestion.json",
+        "tasks/github-cli-json-web-conflict.json",
+        "tasks/github-cli-pr-checks-summary.json",
+        "tasks/github-cli-repo-name-trims-dotgit.json",
+        "tasks/github-cli-search-quote-multiword.json",
+        "tasks/github-cli-tenant-name-dot.json"
+      ]
+    },
+    {
+      "id": "memory",
+      "title": "Temporal memory and history delivery",
+      "question": "Did prior project history help recover hidden decisions, and did delivery affect results?",
+      "conclusion": "The archive preserves diagnostic pilots, invalid delivery runs, corrected comparisons, and the scoped clean history result.",
+      "limitations": "Small samples, exclusions, and different delivery methods limit interpretation. Checkpoint content and private source state are not bundled.",
+      "records": [
+        "evidence/history-delivery-fix/README.md",
+        "evidence/history-delivery-fix/hist-fix-proof-v2-20260613/records.ndjson",
+        "evidence/history-delivery-fix/hist-fix-proof-v2-20260613/report.json",
+        "evidence/history-delivery-fix/hist-fix-redaction-ckpt1000-20260613/records.ndjson",
+        "evidence/history-delivery-fix/hist-fix-redaction-ckpt1000-20260613/report.json",
+        "evidence/history-delivery-fix/hist-fix-redaction-n16-20260613/records.ndjson",
+        "evidence/history-delivery-fix/hist-fix-redaction-n16-20260613/report.json",
+        "evidence/replay-lab-clean/README.md",
+        "evidence/replay-lab-clean/codex-audit-report.json",
+        "evidence/replay-lab-clean/codex-audit-report.md",
+        "evidence/replay-lab-clean/manifest.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__no_brain__r1/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__no_brain__r2/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__no_brain__r3/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__no_brain__r4/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__no_brain__r5/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__semantic_history_brain__r1/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__semantic_history_brain__r2/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__semantic_history_brain__r3/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__semantic_history_brain__r4/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__semantic_history_brain__r5/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__no_brain__r1/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__no_brain__r2/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__no_brain__r3/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__no_brain__r4/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__no_brain__r5/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__semantic_history_brain__r1/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__semantic_history_brain__r2/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__semantic_history_brain__r3/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__semantic_history_brain__r4/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__semantic_history_brain__r5/record.json",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/records.ndjson",
+        "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/summary.json",
+        "temporal-memory/generated/development-report.json",
+        "temporal-memory/generated/development-report.md",
+        "temporal-memory/generated/sealed-smoke-clean-confirmation-report.json",
+        "temporal-memory/generated/sealed-smoke-clean-confirmation-report.md",
+        "temporal-memory/generated/sealed-smoke-pilot-report.json",
+        "temporal-memory/generated/sealed-smoke-pilot-report.md",
+        "temporal-memory/phase0a-results-artifact.json",
+        "temporal-memory/phase0b-powered-pilot-memo.md",
+        "temporal-memory/phase0b-powered-pilot-results-v1.json",
+        "temporal-memory/phase0b-powered-pilot-results-v2-harness.json"
+      ],
+      "context": [
+        "fixtures/validation/entireio-cli/finalize_redaction_hidden_test.go.fixture",
+        "fixtures/validation/entireio-cli/flush_probe_window_hidden_test.go.fixture",
+        "fixtures/validation/entireio-cli/uncommitted_filter_exact_compare_test.go.fixture",
+        "panels/p01-clean-proof-claude.json",
+        "panels/p01-clean-proof.json",
+        "tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json",
+        "tasks/entire-brain-clean-default-fact-merge-confidence.json",
+        "tasks/entireio-cli-condense-drops-latest-turn.json",
+        "tasks/entireio-cli-finalize-redaction-raw-live.json",
+        "tasks/entireio-cli-uncommitted-filter-exact-compare.json",
+        "tasks/temporal-memory-default-fact-merge-confidence-harness.json",
+        "tasks/temporal-memory-default-fact-merge-confidence.json",
+        "tasks/temporal-memory-sealed-expand-opt-in.json",
+        "tasks/temporal-memory-sealed-semantic-default-stale-history.json",
+        "tasks/temporal-memory-sealed-windows-drive-neutral.json",
+        "temporal-memory/README.md",
+        "temporal-memory/phase0a-development.json",
+        "temporal-memory/phase0a-sealed-smoke.json",
+        "temporal-memory/phase0a-source-artifact.json",
+        "temporal-memory/phase0b-confirmatory-protocol-v1.md"
+      ]
+    },
+    {
+      "id": "distillation",
+      "title": "Distillation scheduling",
+      "question": "Did parallel extraction reduce elapsed time in local command-agent experiments?",
+      "conclusion": "Retained audits report scheduling improvements for the recorded local and larger-repository workloads.",
+      "limitations": "Local command-agent scheduling measurements do not establish hosted-model latency or current-product performance. Retired Python agents are not restored.",
+      "records": [
+        "evidence/distill-perf-large/README.md",
+        "evidence/distill-perf-large/distill-perf-audit-report.json",
+        "evidence/distill-perf-large/distill-perf-audit-report.md",
+        "evidence/distill-perf-large/dry-run.json",
+        "evidence/distill-perf-large/go-test-internal-cli-ollama-distill.jsonl",
+        "evidence/distill-perf-large/jobs-1.json",
+        "evidence/distill-perf-large/jobs-4.json",
+        "evidence/distill-perf-large/manifest.json",
+        "evidence/distill-perf/README.md",
+        "evidence/distill-perf/distill-perf-audit-report.json",
+        "evidence/distill-perf/distill-perf-audit-report.md",
+        "evidence/distill-perf/dry-run.json",
+        "evidence/distill-perf/go-test-internal-cli-ollama-distill.jsonl",
+        "evidence/distill-perf/jobs-1.json",
+        "evidence/distill-perf/jobs-4.json",
+        "evidence/distill-perf/manifest.json"
+      ],
+      "context": [
+
+      ]
+    },
+    {
+      "id": "packets",
+      "title": "Packet formats and brief profiling",
+      "question": "Could context serialization reduce size while preserving represented information?",
+      "conclusion": "The archive preserves compact-packet measurements, A/B designs, and the frozen profile corpus identity.",
+      "limitations": "Development measurements are not agent-quality evidence. The 114-task profile identity snapshot does not include the complete prompt corpus or a current runnable harness.",
+      "records": [
+        "BRIEF-PROFILE-BASELINE.md",
+        "PACKET-FORMAT-V3-LOCAL-MEASUREMENT.md"
+      ],
+      "context": [
+        "PACKET-FORMAT-AB.md",
+        "PACKET-FORMAT-V2-AB.md",
+        "brief-profile-corpus-v1.json"
+      ]
+    },
+    {
+      "id": "release",
+      "title": "Release controls and negative comparisons",
+      "question": "Which candidate release claims had sufficient evidence?",
+      "conclusion": "The retained release comparisons and facts-versus-raw audit retain their no-release-claim limitations; tool-contract checks are separate.",
+      "limitations": "Passing a historical contract or audit is not evidence of agent performance. Superseded MCP and Radar behavior remains historical.",
+      "records": [
+        "evidence/facts-eval/README.md",
+        "evidence/facts-eval/facts-eval-audit-report.json",
+        "evidence/facts-eval/facts-eval-audit-report.md",
+        "evidence/facts-eval/facts-status.json",
+        "evidence/facts-eval/manifest.json",
+        "evidence/radar-tool/README.md",
+        "evidence/radar-tool/go-test-internal-cli-radar.jsonl",
+        "evidence/radar-tool/manifest.json",
+        "evidence/radar-tool/radar-tool-audit-report.json",
+        "evidence/radar-tool/radar-tool-audit-report.md",
+        "evidence/release-matrix/README.md",
+        "evidence/release-matrix/manifest.json",
+        "evidence/release-matrix/release-matrix-report.json",
+        "evidence/release-matrix/release-matrix-report.md",
+        "evidence/release/README.md",
+        "evidence/release/codex-audit-report.json",
+        "evidence/release/codex-audit-report.md",
+        "evidence/release/manifest.json",
+        "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r1/mcp-server.log",
+        "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r1/record.json",
+        "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r2/mcp-server.log",
+        "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r2/record.json",
+        "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r3/mcp-server.log",
+        "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r3/record.json",
+        "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r4/mcp-server.log",
+        "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r4/record.json",
+        "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r1/record.json",
+        "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r2/record.json",
+        "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r3/record.json",
+        "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r4/record.json",
+        "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/records.ndjson",
+        "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/summary.json",
+        "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r1/record.json",
+        "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r2/record.json",
+        "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r3/record.json",
+        "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r4/record.json",
+        "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r1/record.json",
+        "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r2/record.json",
+        "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r3/record.json",
+        "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r4/record.json",
+        "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/records.ndjson",
+        "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/summary.json",
+        "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r1/mcp-server.log",
+        "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r1/record.json",
+        "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r2/mcp-server.log",
+        "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r2/record.json",
+        "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r3/mcp-server.log",
+        "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r3/record.json",
+        "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r4/mcp-server.log",
+        "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r4/record.json",
+        "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r1/record.json",
+        "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r2/record.json",
+        "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r3/record.json",
+        "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r4/record.json",
+        "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/records.ndjson",
+        "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/summary.json",
+        "evidence/workspace-radar/README.md",
+        "evidence/workspace-radar/manifest.json",
+        "evidence/workspace-radar/release-candidate-cli-workspace-radar-transcript-haiku-xhigh-20260610T154230Z/no_brain_r1/record.json",
+        "evidence/workspace-radar/release-candidate-cli-workspace-radar-transcript-haiku-xhigh-20260610T154230Z/records.ndjson",
+        "evidence/workspace-radar/release-candidate-cli-workspace-radar-transcript-haiku-xhigh-20260610T154230Z/summary.json",
+        "evidence/workspace-radar/workspace-radar-audit-report.json",
+        "evidence/workspace-radar/workspace-radar-audit-report.md"
+      ],
+      "context": [
+        "fixtures/validation/entireio-cli/manual_attribution_no_trailer_realign_test.go.fixture",
+        "panels/release-entire-brain-schema-contract.json",
+        "panels/release-entire-cli-mcp-manual-attribution.json",
+        "panels/release-entire-cli-radar-mcp-manual-attribution-deletions.json",
+        "panels/release-entire-cli-workspace-radar-mcp-transcript-reresolve-haiku-xhigh.json",
+        "tasks/entire-brain-history-codex-schema-contract.json",
+        "tasks/entireio-cli-manual-commit-attribution-base.json",
+        "tasks/entireio-cli-radar-manual-attribution-deletions.json",
+        "tasks/entireio-cli-transcript-reresolve.json"
+      ]
+    },
+    {
+      "id": "confirmatory",
+      "title": "Confirmatory planning and blocked decisions",
+      "question": "Were the experiment design, engine checks, and statistical power sufficient for confirmation?",
+      "conclusion": "The archive preserves the no-go decision, power analysis, engine-readiness reports, and the blocked ranking-change decision.",
+      "limitations": "Planning and readiness records are not completed confirmatory outcomes. Large task inventories, relevance corpora, and private attestation inputs remain omitted.",
+      "records": [
+        "analysis/WORKSTREAM-7-GATE-REPORT-2026-07-15.md",
+        "confirmatory/ENGINE-PROBE-READINESS-2026-07-15.md",
+        "confirmatory/OFFLINE-RELEVANCE-DEVELOPMENT-2026-07-15.md",
+        "confirmatory/integration-logs/analysis-protocol-tests.txt",
+        "confirmatory/integration-logs/diff-check.txt",
+        "confirmatory/integration-logs/engine-identity-tests.txt",
+        "confirmatory/integration-logs/evidence-smoke.txt",
+        "confirmatory/integration-logs/freeze-no-go.txt",
+        "confirmatory/integration-logs/go-test-all.txt",
+        "confirmatory/integration-logs/protocol-preparation.txt",
+        "confirmatory/integration-logs/python-harness.txt",
+        "confirmatory/integration-logs/task-lint.txt",
+        "confirmatory/integration-verification.json",
+        "confirmatory/power-analysis.json"
+      ],
+      "context": [
+        "confirmatory/PREREGISTRATION.md",
+        "confirmatory/analyzer-lock.json",
+        "confirmatory/engine-matrix.json",
+        "confirmatory/go-no-go.json",
+        "confirmatory/power-calibration-exploratory-v1.json"
+      ]
+    },
+    {
+      "id": "exploratory",
+      "title": "Exploratory analysis records",
+      "question": "What could be learned from earlier retained runs before a complete confirmatory protocol?",
+      "conclusion": "Exploratory recomputations and ranking diagnostics remain labeled as exploratory.",
+      "limitations": "Some original source suites and synthetic analyzer inputs are not archived. These reports cannot establish confirmatory claims.",
+      "records": [
+        "analysis/artifacts/ranking-baseline-output-v1.json",
+        "analysis/reports/README.md",
+        "analysis/reports/existing-winner-suites-exploratory.md"
+      ],
+      "context": [
+
+      ]
+    }
+  ],
+  "files": [
+    {
+      "path": "BRIEF-PROFILE-BASELINE.md",
+      "sha256": "fb52dceee8aa4f683d770dc76f622d4426a10e9543e0ba366215b1d9519326bd",
+      "role": "record"
+    },
+    {
+      "path": "CONDITIONS.md",
+      "sha256": "30d7ac862ec87ee02d2f232d9504f7829b2b3ec93f1e60e17f17ea0802134989",
+      "role": "context"
+    },
+    {
+      "path": "PACKET-FORMAT-AB.md",
+      "sha256": "a8549cf72ca5aef16d2cd4fc901fe6e8eda221cd5d08425d7ac4e74cdd3fc40c",
+      "role": "context"
+    },
+    {
+      "path": "PACKET-FORMAT-V2-AB.md",
+      "sha256": "c73c5f850016b5f3072dd3f0a90a24a2d3045849c3fa4c4cafa32ec4c3bd44a7",
+      "role": "context"
+    },
+    {
+      "path": "PACKET-FORMAT-V3-LOCAL-MEASUREMENT.md",
+      "sha256": "164c04fa20de49d307fe72e07e9625c6436658608c27688074315a164f70472c",
+      "role": "record"
+    },
+    {
+      "path": "analysis/WORKSTREAM-7-GATE-REPORT-2026-07-15.md",
+      "sha256": "3e8e9f2f528c32b4c804a3a8eeecea3489e8060dcbdbbb23eeb66e22b20281db",
+      "role": "record"
+    },
+    {
+      "path": "analysis/artifacts/ranking-baseline-output-v1.json",
+      "sha256": "0aa85efdd0419cb3567b2f608d426fd30605044733b90d511b776f51db60f2cc",
+      "role": "record"
+    },
+    {
+      "path": "analysis/reports/README.md",
+      "sha256": "1c05a1915d5b05799050ac119cbcc6aa750701df918b9196379d3beae4e80e8d",
+      "role": "record"
+    },
+    {
+      "path": "analysis/reports/existing-winner-suites-exploratory.md",
+      "sha256": "b1810656810fc004c4e5718ce7e32bda568a21278a25864e63c696d3dde001c0",
+      "role": "record"
+    },
+    {
+      "path": "brief-profile-corpus-v1.json",
+      "sha256": "9f0e62a3bce57c11de7e4314e623102eb4e0b0a3df09b78aab6e5feb985cd0ba",
+      "role": "context"
+    },
+    {
+      "path": "confirmatory/ENGINE-PROBE-READINESS-2026-07-15.md",
+      "sha256": "42805881558aa3538e89d3b5fd4d6702398b34cb88e17162008b8c1dbf5c0529",
+      "role": "record"
+    },
+    {
+      "path": "confirmatory/OFFLINE-RELEVANCE-DEVELOPMENT-2026-07-15.md",
+      "sha256": "9a7489ecf7ee35aff3938ec3ad2f8dfc75d612b634b8425505ddfa6308912220",
+      "role": "record"
+    },
+    {
+      "path": "confirmatory/PREREGISTRATION.md",
+      "sha256": "abbad932a2c782751a831bbf369d97ff16da4ef84febc6cb7aef1677bd9d857b",
+      "role": "context"
+    },
+    {
+      "path": "confirmatory/analyzer-lock.json",
+      "sha256": "dfe21a14334104041df4b91341082eb3d848be0dc19634a21a4ee57b06f0ab31",
+      "role": "context"
+    },
+    {
+      "path": "confirmatory/engine-matrix.json",
+      "sha256": "664093683bfb170b704958a3623445f46e20ed897681848f9f19b80504990cf7",
+      "role": "context"
+    },
+    {
+      "path": "confirmatory/go-no-go.json",
+      "sha256": "fd7e86b9fbdf32af4c144449a7bbc7f9af8ac5eae74a52bd39effe3a51485f06",
+      "role": "context"
+    },
+    {
+      "path": "confirmatory/integration-logs/analysis-protocol-tests.txt",
+      "sha256": "66412384f12b238869717ba797f5f58fb3cdbf757ed3d2905ecd4f4e897beeb7",
+      "role": "record"
+    },
+    {
+      "path": "confirmatory/integration-logs/diff-check.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "role": "record"
+    },
+    {
+      "path": "confirmatory/integration-logs/engine-identity-tests.txt",
+      "sha256": "ba9e5a4b16ea46cd09ff122d79163ac055b20e6a197fd1e83723c3df01c94dd5",
+      "role": "record"
+    },
+    {
+      "path": "confirmatory/integration-logs/evidence-smoke.txt",
+      "sha256": "5fe1d83d506e5bc821cc46dee29050a382a8b3cd58e5657f80e360710f524a93",
+      "role": "record"
+    },
+    {
+      "path": "confirmatory/integration-logs/freeze-no-go.txt",
+      "sha256": "232421aa510643e5f8e332d5279cbba2bdd9891d9b34a7c9f58d83f9dfe05dbf",
+      "role": "record"
+    },
+    {
+      "path": "confirmatory/integration-logs/go-test-all.txt",
+      "sha256": "f0b658b68e47cd15b24f0bfb3f871fb42d7b87aeafb68b306940a33fb70fd008",
+      "role": "record"
+    },
+    {
+      "path": "confirmatory/integration-logs/protocol-preparation.txt",
+      "sha256": "86ad3db7371f6b954a17df37b75f7d11f086658401a55f1f86de2725e6f508a6",
+      "role": "record"
+    },
+    {
+      "path": "confirmatory/integration-logs/python-harness.txt",
+      "sha256": "90e273e3455d78494cdd49f70f2a76d8325725550072e6be89602655b913c3bf",
+      "role": "record"
+    },
+    {
+      "path": "confirmatory/integration-logs/task-lint.txt",
+      "sha256": "eeebc16f0da5f0c3a0eb5443ddd7178da8279cf2d66c0d1ee7f779bd79d185c5",
+      "role": "record"
+    },
+    {
+      "path": "confirmatory/integration-verification.json",
+      "sha256": "6495447afe84379dd9fa97dbf1521f163bad8e437a704e6eba1a1780906bfea3",
+      "role": "record"
+    },
+    {
+      "path": "confirmatory/power-analysis.json",
+      "sha256": "8f6ab3f54a64f199c860a587646893c925681dcc3917c0fb55ae44bb1b6040a7",
+      "role": "record"
+    },
+    {
+      "path": "confirmatory/power-calibration-exploratory-v1.json",
+      "sha256": "a85541bad11d940dcb5e11db4fe99fb3f191616410e21a6db99df5ab81eb2c20",
+      "role": "context"
+    },
+    {
+      "path": "evidence/distill-perf-large/README.md",
+      "sha256": "fb0f07303a566a692f97b43c3c94094a7523f1e0285e7cf577c9ea8f7751c9ec",
+      "role": "record"
+    },
+    {
+      "path": "evidence/distill-perf-large/distill-perf-audit-report.json",
+      "sha256": "d90a6074349979abfe0117a547a762255a3e97f3ecb29e3f3b466496309e0357",
+      "role": "record"
+    },
+    {
+      "path": "evidence/distill-perf-large/distill-perf-audit-report.md",
+      "sha256": "8c8760987bc84469d7669b2c4b5efae6243ae91beac3637983a361a6d6e05cd8",
+      "role": "record"
+    },
+    {
+      "path": "evidence/distill-perf-large/dry-run.json",
+      "sha256": "90e5b122a1596d8cc2fb3e4d07dd71d6112ec1fe406e7b9986ab7551ea6d0174",
+      "role": "record"
+    },
+    {
+      "path": "evidence/distill-perf-large/go-test-internal-cli-ollama-distill.jsonl",
+      "sha256": "6eb9aec7ed098fcbfab19655305a0e1592097d290d2423489c57e45c45197db4",
+      "role": "record"
+    },
+    {
+      "path": "evidence/distill-perf-large/jobs-1.json",
+      "sha256": "f3c4441e174ccb9c129bf0928ddd5430cbfd8db9796ccf0d6cd440e5a4a4ed6e",
+      "role": "record"
+    },
+    {
+      "path": "evidence/distill-perf-large/jobs-4.json",
+      "sha256": "c8dc86f9f14ba3c39071d7229ba70632768a304a2b5785fb685a9cdfd4a253aa",
+      "role": "record"
+    },
+    {
+      "path": "evidence/distill-perf-large/manifest.json",
+      "sha256": "c518ce42cd1441fc930dba9d9f63d82d4cefc97c44498950c8b3f0c5bbb35523",
+      "role": "record"
+    },
+    {
+      "path": "evidence/distill-perf/README.md",
+      "sha256": "f0b09801470379427ae90613ed3a63f1475eafd6393dad7176d0d62ce4be501c",
+      "role": "record"
+    },
+    {
+      "path": "evidence/distill-perf/distill-perf-audit-report.json",
+      "sha256": "db8653b07068658e26a7dc200797d1dea82cad73d39795cc926f1deadc6bfebb",
+      "role": "record"
+    },
+    {
+      "path": "evidence/distill-perf/distill-perf-audit-report.md",
+      "sha256": "9e0d6d52678f69fa01b46d03b0b880031a9e5564a345d281e557956b6b310fe8",
+      "role": "record"
+    },
+    {
+      "path": "evidence/distill-perf/dry-run.json",
+      "sha256": "08110ae2374dc3bcc199895bd6563bfbdd3b6c239a447de0e6d45ae094e4a239",
+      "role": "record"
+    },
+    {
+      "path": "evidence/distill-perf/go-test-internal-cli-ollama-distill.jsonl",
+      "sha256": "fc12ae31f0c5ecb0b2993209ed00327ae39623158551116facd9a0d6eb7f7d94",
+      "role": "record"
+    },
+    {
+      "path": "evidence/distill-perf/jobs-1.json",
+      "sha256": "40313ffc2454af9e7c141839886fdae712c1e36a46be21c0a1f34db5d570b54c",
+      "role": "record"
+    },
+    {
+      "path": "evidence/distill-perf/jobs-4.json",
+      "sha256": "0bef98bb76cd0868cf7319ac6e25cec0ec2fa8cc60d6ed2c5f29f53511a12c0e",
+      "role": "record"
+    },
+    {
+      "path": "evidence/distill-perf/manifest.json",
+      "sha256": "869d52d67a2f57662456fc0c57698dac01443f68fef3da9190cad4b8fc98c51a",
+      "role": "record"
+    },
+    {
+      "path": "evidence/facts-eval/README.md",
+      "sha256": "26fefa92f7a77a49b63de88691650df366ac3895f8f005c025d13f51e64a5dc4",
+      "role": "record"
+    },
+    {
+      "path": "evidence/facts-eval/facts-eval-audit-report.json",
+      "sha256": "dde6ccbeeacaff673fe7f0a3a25b772ecf2c857c2cdc7bdc73a0db53f9174d55",
+      "role": "record"
+    },
+    {
+      "path": "evidence/facts-eval/facts-eval-audit-report.md",
+      "sha256": "d5d6a35fc534686cd30f221c43b1baf30221567d56e47ff649e17fbf04f904cb",
+      "role": "record"
+    },
+    {
+      "path": "evidence/facts-eval/facts-status.json",
+      "sha256": "e01c95c42cd7a05b2aee4d6738cc9863e516ac1d5b2f14f602343e9a15ec4f5a",
+      "role": "record"
+    },
+    {
+      "path": "evidence/facts-eval/manifest.json",
+      "sha256": "d8448875b78e4d5a325fde9afaab7da5f371eea15301c7ac733d722bc1553ae1",
+      "role": "record"
+    },
+    {
+      "path": "evidence/history-delivery-fix/README.md",
+      "sha256": "f029243c8338ec6b667ace7cae76bbab9199b26f6fc609bc9f4c80294aa121a2",
+      "role": "record"
+    },
+    {
+      "path": "evidence/history-delivery-fix/hist-fix-proof-v2-20260613/records.ndjson",
+      "sha256": "2fc11da98c00ae83c592f7baa37f18f098a2e936d9657f15ac4f98c7fa78e016",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-condense-drops-latest-turn.json",
+        "tasks/entireio-cli-finalize-redaction-raw-live.json",
+        "tasks/entireio-cli-uncommitted-filter-exact-compare.json"
+      ]
+    },
+    {
+      "path": "evidence/history-delivery-fix/hist-fix-proof-v2-20260613/report.json",
+      "sha256": "773fd35a6c1d56b5cc48132289a2ccb23248e639b72a203189e39f977a13f7a8",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-condense-drops-latest-turn.json",
+        "tasks/entireio-cli-finalize-redaction-raw-live.json",
+        "tasks/entireio-cli-uncommitted-filter-exact-compare.json"
+      ]
+    },
+    {
+      "path": "evidence/history-delivery-fix/hist-fix-redaction-ckpt1000-20260613/records.ndjson",
+      "sha256": "0ad31ecb8c0c7461edcc2aa08c52b42426ce8a39d182ce676dc315afc7452b94",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-finalize-redaction-raw-live.json"
+      ]
+    },
+    {
+      "path": "evidence/history-delivery-fix/hist-fix-redaction-ckpt1000-20260613/report.json",
+      "sha256": "b6423bea68f5a7392d4a747ef2b990856673fc775c4461c296f2a025704abefb",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-finalize-redaction-raw-live.json"
+      ]
+    },
+    {
+      "path": "evidence/history-delivery-fix/hist-fix-redaction-n16-20260613/records.ndjson",
+      "sha256": "240829eca20dc2734ce2a34d212516820227876ab510542edb8974a2aa4c16d8",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-finalize-redaction-raw-live.json"
+      ]
+    },
+    {
+      "path": "evidence/history-delivery-fix/hist-fix-redaction-n16-20260613/report.json",
+      "sha256": "38725bf748823fbf3e70731e148276c29c55a5f9debb0a20b8ced17b57837e55",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-finalize-redaction-raw-live.json"
+      ]
+    },
+    {
+      "path": "evidence/radar-tool/README.md",
+      "sha256": "e9c73bf01d0f72da20778b27d173a7424d42bb928aca62f932077d5545769f5c",
+      "role": "record"
+    },
+    {
+      "path": "evidence/radar-tool/go-test-internal-cli-radar.jsonl",
+      "sha256": "6d80dc07c8a5bc27282aefe9fd3f5744b06100f99a69a01a87bd572f80bf0fc0",
+      "role": "record"
+    },
+    {
+      "path": "evidence/radar-tool/manifest.json",
+      "sha256": "b05b4460ab642b069d30309be29a7b5cd11b8cd546c8a235890aa12165793f3e",
+      "role": "record"
+    },
+    {
+      "path": "evidence/radar-tool/radar-tool-audit-report.json",
+      "sha256": "77f43022a262ea11ad4ab82c6b162b628aaaba9f625abe3f6f0923010b7333dc",
+      "role": "record"
+    },
+    {
+      "path": "evidence/radar-tool/radar-tool-audit-report.md",
+      "sha256": "b141b73f9597b21cf03726520fd58f9d0b7abf1b3a37d7f2486cae69d9484a46",
+      "role": "record"
+    },
+    {
+      "path": "evidence/release-matrix/README.md",
+      "sha256": "3994feb5dd2438712ff8b0c469540221202c9aa61f71552b4854b6d3c8f21a2d",
+      "role": "record"
+    },
+    {
+      "path": "evidence/release-matrix/manifest.json",
+      "sha256": "04b2a616cf119b9b60c52a4fb478c33f53dcb2b983d807f928bf8bb76142738b",
+      "role": "record"
+    },
+    {
+      "path": "evidence/release-matrix/release-matrix-report.json",
+      "sha256": "6db82c8f7aa7516ab3fdd49556a5297da92def7185b2e203d95e5c685c13d4eb",
+      "role": "record"
+    },
+    {
+      "path": "evidence/release-matrix/release-matrix-report.md",
+      "sha256": "0467bd9c5bd1450ba3b01446add12de389f3ce120261dfbee3fcef5cdf92c667",
+      "role": "record"
+    },
+    {
+      "path": "evidence/release/README.md",
+      "sha256": "2265f15865a6eb3df15dbe3053921fc0603da221b59a333efb0083b0e7045ace",
+      "role": "record"
+    },
+    {
+      "path": "evidence/release/codex-audit-report.json",
+      "sha256": "b6e654986dd6fc8607ba37955cee1b411fc3f4167d30d389010ffb3da1174ee3",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-history-codex-schema-contract.json",
+        "tasks/entireio-cli-manual-commit-attribution-base.json",
+        "tasks/entireio-cli-radar-manual-attribution-deletions.json"
+      ]
+    },
+    {
+      "path": "evidence/release/codex-audit-report.md",
+      "sha256": "796f311277ca7205c76b026a51e719ee1e0978a3c67488eb1626e5cf37699b20",
+      "role": "record"
+    },
+    {
+      "path": "evidence/release/manifest.json",
+      "sha256": "dc74c0b38f553f8dd6d78cb8b3b7180c226117f2f636acfe748e4d629f4d9cea",
+      "role": "record"
+    },
+    {
+      "path": "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r1/mcp-server.log",
+      "sha256": "daaac7141626abb68488756c46cab51f9a3c0c2f90422a1b550cd0e92589dfbc",
+      "role": "record"
+    },
+    {
+      "path": "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r1/record.json",
+      "sha256": "179093c68bdc36ad2ad91350056c506f8ee31603ad66969cdb8c56492c87e21c",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-radar-manual-attribution-deletions.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r2/mcp-server.log",
+      "sha256": "daaac7141626abb68488756c46cab51f9a3c0c2f90422a1b550cd0e92589dfbc",
+      "role": "record"
+    },
+    {
+      "path": "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r2/record.json",
+      "sha256": "0bae6c98a48e1141af3c697e61cf2bf1bb5f088540c4a3477ac4078823c90dd9",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-radar-manual-attribution-deletions.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r3/mcp-server.log",
+      "sha256": "daaac7141626abb68488756c46cab51f9a3c0c2f90422a1b550cd0e92589dfbc",
+      "role": "record"
+    },
+    {
+      "path": "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r3/record.json",
+      "sha256": "dbeaf9f1ccafb8555a7793a13cc60e1f1b0baadaeab617e8bd649b600c8323b2",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-radar-manual-attribution-deletions.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r4/mcp-server.log",
+      "sha256": "daaac7141626abb68488756c46cab51f9a3c0c2f90422a1b550cd0e92589dfbc",
+      "role": "record"
+    },
+    {
+      "path": "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r4/record.json",
+      "sha256": "bdb242b9416f9a7a3525355de64241f6857b3fda892d72388f3eded15de302e0",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-radar-manual-attribution-deletions.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r1/record.json",
+      "sha256": "ecf6f457af8f2dfefc0976abad9ea553b900fa01f24b317548b16eca0254adbe",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-radar-manual-attribution-deletions.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r2/record.json",
+      "sha256": "8465f6658a8867a75fd0b038ca1dfca1be95d11eba6eea4afa6f9f24d89e5598",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-radar-manual-attribution-deletions.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r3/record.json",
+      "sha256": "57e33651e944249d012714ed27b169ecd92b9c49a23078ca09d39073e84844ec",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-radar-manual-attribution-deletions.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r4/record.json",
+      "sha256": "d322b397dfca8dc9c044bc3d184f39828f237b1e2b94ba4c8135070003c4c0c4",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-radar-manual-attribution-deletions.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/records.ndjson",
+      "sha256": "1d2a6186438112e75176b2e089bd815900b0fcf53522179a64bd8a8b8be9c340",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-radar-manual-attribution-deletions.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/summary.json",
+      "sha256": "0439ae4942c481d708c075101aedd000e3fada60a3151b0856cd30cbf89a0661",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-radar-manual-attribution-deletions.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r1/record.json",
+      "sha256": "86e37c39f0dd2ba8fd28844aad2cea4daae368ab4d802ab779735085a08fbfa8",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-history-codex-schema-contract.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r2/record.json",
+      "sha256": "c1376102b1219721598d7afedc67f41ef2ce088ed601f8dbf56a9d013e03548b",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-history-codex-schema-contract.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r3/record.json",
+      "sha256": "772557bbda2c2ee0e61b805d444ac803302fd774e312c32b505ac7e6c17d00d6",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-history-codex-schema-contract.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r4/record.json",
+      "sha256": "cf1baa8e3cc308b1ab3c2bf74ef13fb4530fb7bbf639d1505a37239653f64372",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-history-codex-schema-contract.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r1/record.json",
+      "sha256": "79d96e11d9c69314aaccec8ca98d6ea3dc95db8887b2c31d73edb0ff99fbcfa5",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-history-codex-schema-contract.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r2/record.json",
+      "sha256": "cd8b19a670cfd3633bc30f1855197cb02206c4b2f91660a9e01bee5f7ba108c0",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-history-codex-schema-contract.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r3/record.json",
+      "sha256": "5c8a7c93bbfe04ad456d5563c96a930d1b64e84f98749589f30a8c94c3756472",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-history-codex-schema-contract.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r4/record.json",
+      "sha256": "fd5bc710488c964128ca080d3111f64fe82143bc43e45d5d9f373ef268c024b8",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-history-codex-schema-contract.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/records.ndjson",
+      "sha256": "580d4cca0debf9a654b3214ba1ed6df4c5d5fb2ed93dd734386bca74c1bf3c07",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-history-codex-schema-contract.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/summary.json",
+      "sha256": "d3678a4da3bc2d7471f719eaed5566939aed2a16f9a68a2512244a06e26a25da",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-history-codex-schema-contract.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r1/mcp-server.log",
+      "sha256": "91781051b2395cb15a1d6c401b072bef92152008e38a9739932bdde4cbfcb541",
+      "role": "record"
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r1/record.json",
+      "sha256": "ece77ccf279e6b890c63b7e09c8680ccdd3e9d7f262a30b7884141cc8faf0dcf",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-manual-commit-attribution-base.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r2/mcp-server.log",
+      "sha256": "91781051b2395cb15a1d6c401b072bef92152008e38a9739932bdde4cbfcb541",
+      "role": "record"
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r2/record.json",
+      "sha256": "90d3358aade0bac9a213d356e11718d0815a04b93cd956563671a35069c9fed6",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-manual-commit-attribution-base.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r3/mcp-server.log",
+      "sha256": "91781051b2395cb15a1d6c401b072bef92152008e38a9739932bdde4cbfcb541",
+      "role": "record"
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r3/record.json",
+      "sha256": "f163459fa08e619f5a051f09b81560f7c68aca550300297091b3150cd694d613",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-manual-commit-attribution-base.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r4/mcp-server.log",
+      "sha256": "91781051b2395cb15a1d6c401b072bef92152008e38a9739932bdde4cbfcb541",
+      "role": "record"
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r4/record.json",
+      "sha256": "57c58d24619908a087ee67b85105e7d93e66145912559ed3014d0e966c130ec9",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-manual-commit-attribution-base.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r1/record.json",
+      "sha256": "6f1573ed0634ce798966e382d4ccfb8d81f57ec627ddaec1a88a9ab822ea50c3",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-manual-commit-attribution-base.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r2/record.json",
+      "sha256": "4179d773e876d3d5fa4cb1814d4767725758793612c311e64b9ba11bab64ce8c",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-manual-commit-attribution-base.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r3/record.json",
+      "sha256": "cc9423a754eca45d1062e6ea00a90890f7e15b8e75c517b9c4d159bb908a377c",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-manual-commit-attribution-base.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r4/record.json",
+      "sha256": "e03e94c32f9858f1c5c6f974e1f57b6a18c2c36b9f255eb65deafd46eff4c652",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-manual-commit-attribution-base.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/records.ndjson",
+      "sha256": "8ce09b5596a860acda0d3fdeec04def628fc7adb09d3c142b9b116f52f95c871",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-manual-commit-attribution-base.json"
+      ]
+    },
+    {
+      "path": "evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/summary.json",
+      "sha256": "9b1bb8a10a882fa9d25c9e6f67e5002d0b386609d37dfa7e20d4829e99b081cd",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-manual-commit-attribution-base.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/README.md",
+      "sha256": "42b34e3725546d8cec7df3f4d4f95522cfda147ba32baa673b2679537b4ad112",
+      "role": "record"
+    },
+    {
+      "path": "evidence/replay-lab-clean/codex-audit-report.json",
+      "sha256": "89bf38a13d6e71a0758bb7e74a9f0b5fff9ac7527ffb086936f4501904d75f16",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json",
+        "tasks/entire-brain-clean-default-fact-merge-confidence.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/codex-audit-report.md",
+      "sha256": "5797267007d0bc3e77aa3c1cf08ab3a57f2c845535cd35c217673a11be5c8ec1",
+      "role": "record"
+    },
+    {
+      "path": "evidence/replay-lab-clean/manifest.json",
+      "sha256": "4be8168e4ab5aa7fa6f2105f398d42e17bd3f962aec1e2815f03c5a4ee2bcf8b",
+      "role": "record"
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__no_brain__r1/record.json",
+      "sha256": "03ade282f8c46da32edc6789adbc6455097cc246e14a6f5e8bfb6ee94faa4de1",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__no_brain__r2/record.json",
+      "sha256": "b6129190e4f41f071505adf0f29e7d8586362403320bef5bfe845bdfa3bf114a",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__no_brain__r3/record.json",
+      "sha256": "68557a0fd39aee5888adf29dcc4e19ae02a6fa12a463915939cf752338092fe9",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__no_brain__r4/record.json",
+      "sha256": "e05d4254ca3af0c443b064bcfb3c24bff68b9cdeb4c0e4a9ebab9b15167cda4a",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__no_brain__r5/record.json",
+      "sha256": "e8d610deed9c50c29ec6563e65fb1f760b87e568f24151b615e1c6b84368a49a",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__semantic_history_brain__r1/record.json",
+      "sha256": "c98277221ce936a504d32e861732cec33a0610e8ac4d6be79cf49ca9cd7d5bef",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__semantic_history_brain__r2/record.json",
+      "sha256": "456ea812e6b06c5d6428a0071c54b6dd458ef79143e8f43c18705f109b38e142",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__semantic_history_brain__r3/record.json",
+      "sha256": "d6736909e99693fa6506b9a5219904020d8c3df0d160f8addc32418bf3dd97fe",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__semantic_history_brain__r4/record.json",
+      "sha256": "552ba5062cb303b31fe20aeb17ae13bcf6a90fdfce6d8feaa51a4736009600a1",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__semantic_history_brain__r5/record.json",
+      "sha256": "00034e6e2ae730fb682f41df688b2a181f5b85f863f44e1d9143840b0c4b25fa",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__no_brain__r1/record.json",
+      "sha256": "879b6230037f53a296dfb96c635eae48d41cd0036c07b05339984ef4e5efbc4a",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-default-fact-merge-confidence.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__no_brain__r2/record.json",
+      "sha256": "4140e8aa4581db43ae09b5f5736a1b8a246811ba5f8ec827f7ced4fb652b07e2",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-default-fact-merge-confidence.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__no_brain__r3/record.json",
+      "sha256": "608a5079bf362395b5aedb8f12f897101048969bcabb7085747e603993a5213c",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-default-fact-merge-confidence.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__no_brain__r4/record.json",
+      "sha256": "0c14667639ddb4d0fdbc9f09cde98283c49d4a08e304508fb1968ddb8c1483d4",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-default-fact-merge-confidence.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__no_brain__r5/record.json",
+      "sha256": "86cbe3aa1c1aea1f4e15b7463ca82c1677d31d6a3d23fd8990b995b2f97d44af",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-default-fact-merge-confidence.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__semantic_history_brain__r1/record.json",
+      "sha256": "7bbf6d329b6e51fea15a542805df96055252de58b55137cbc1549db3897861fc",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-default-fact-merge-confidence.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__semantic_history_brain__r2/record.json",
+      "sha256": "0862e640254f3777f9c265b72c4ce1311e5d5fcdf0d64a1399d42fcda34d14b2",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-default-fact-merge-confidence.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__semantic_history_brain__r3/record.json",
+      "sha256": "31c7abf57ae1313ccf5f202869215fc083014c7f658cbed9a998fa1911288b2e",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-default-fact-merge-confidence.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__semantic_history_brain__r4/record.json",
+      "sha256": "b58929ee618b746884513c0749f31f17989add4258aebf7a23cfab345e04307b",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-default-fact-merge-confidence.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__semantic_history_brain__r5/record.json",
+      "sha256": "e393684177c8a5c84237989d27269fc559b7ef25d2e401b64edbe018cd3762e7",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-default-fact-merge-confidence.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/records.ndjson",
+      "sha256": "bcb4b3cc9f8e808ea3d6534491a850a2a9705203f0ca1cde60937734e60027d0",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json",
+        "tasks/entire-brain-clean-default-fact-merge-confidence.json"
+      ]
+    },
+    {
+      "path": "evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260816T084152Z/summary.json",
+      "sha256": "00b7eee8be7707376d915d41881d6f5242c316ef068298c6b9c6abd00a9f00ae",
+      "role": "record",
+      "references": [
+        "tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json",
+        "tasks/entire-brain-clean-default-fact-merge-confidence.json"
+      ]
+    },
+    {
+      "path": "evidence/semantic-clean-proof/README.md",
+      "sha256": "275057d00459cb3d7e9bb07c6df36d74e889a0d9dbc5ad2533f167ddc248e711",
+      "role": "record"
+    },
+    {
+      "path": "evidence/semantic-clean-proof/layer-b-confirm-fw16-20260611/records.ndjson",
+      "sha256": "fcdd925564c7b9e00a259cfa863a96acab00add22e4c7218c4a978641ced9568",
+      "role": "record",
+      "references": [
+        "tasks/github-cli-format-web-conflict.json"
+      ]
+    },
+    {
+      "path": "evidence/semantic-clean-proof/layer-b-confirm-fw16-20260611/report.json",
+      "sha256": "471d9dc150922e064cc3b624d169b233b6567ee6cde25cf5ee1ec05ab2984deb",
+      "role": "record",
+      "references": [
+        "tasks/github-cli-format-web-conflict.json"
+      ]
+    },
+    {
+      "path": "evidence/semantic-clean-proof/layer-b-pilot-20260611/records.ndjson",
+      "sha256": "f5a93c8aa323e584363a60d73d57c2680139993be4089db7eac00238dca4e5c4",
+      "role": "record",
+      "references": [
+        "tasks/github-cli-auth-env-token.json",
+        "tasks/github-cli-display-url-scheme.json",
+        "tasks/github-cli-format-web-conflict.json",
+        "tasks/github-cli-ghrepo-url-git-suffix.json",
+        "tasks/github-cli-http-scopes-suggestion.json",
+        "tasks/github-cli-json-web-conflict.json",
+        "tasks/github-cli-pr-checks-summary.json",
+        "tasks/github-cli-repo-name-trims-dotgit.json",
+        "tasks/github-cli-search-quote-multiword.json",
+        "tasks/github-cli-tenant-name-dot.json"
+      ]
+    },
+    {
+      "path": "evidence/semantic-clean-proof/layer-b-pilot-20260611/report.json",
+      "sha256": "59f6bf32bb7d65ece7b7c5e6fb4d94b57b7a0f6dd01567ecf61c831d56b0c06d",
+      "role": "record",
+      "references": [
+        "tasks/github-cli-auth-env-token.json",
+        "tasks/github-cli-format-web-conflict.json",
+        "tasks/github-cli-ghrepo-url-git-suffix.json",
+        "tasks/github-cli-json-web-conflict.json",
+        "tasks/github-cli-pr-checks-summary.json",
+        "tasks/github-cli-repo-name-trims-dotgit.json",
+        "tasks/github-cli-tenant-name-dot.json"
+      ]
+    },
+    {
+      "path": "evidence/semantic-clean-proof/layer-b-proof-20260611/records.ndjson",
+      "sha256": "a0db267b00b00fd8634d8bbfc55f9bdf19bf50d3064398717e747579627c3803",
+      "role": "record",
+      "references": [
+        "tasks/github-cli-format-web-conflict.json",
+        "tasks/github-cli-json-web-conflict.json"
+      ]
+    },
+    {
+      "path": "evidence/semantic-clean-proof/layer-b-proof-20260611/report.json",
+      "sha256": "800b767cf01825d82a659324f5448c96285b734f53172a4287120ea038c12142",
+      "role": "record",
+      "references": [
+        "tasks/github-cli-format-web-conflict.json",
+        "tasks/github-cli-json-web-conflict.json"
+      ]
+    },
+    {
+      "path": "evidence/semantic-clean-proof/layer-b-proof-fw8-20260611/records.ndjson",
+      "sha256": "31171e9e8f9e28bb7311daa7064f9218d5e74eb6e5e2119af4dab86532b19bb3",
+      "role": "record",
+      "references": [
+        "tasks/github-cli-format-web-conflict.json"
+      ]
+    },
+    {
+      "path": "evidence/semantic-clean-proof/layer-b-proof-fw8-20260611/report.json",
+      "sha256": "6ec8feaf35a5daded4baca23e3d83401607929533f1e5337c9bc8632d5433e80",
+      "role": "record",
+      "references": [
+        "tasks/github-cli-format-web-conflict.json"
+      ]
+    },
+    {
+      "path": "evidence/semantic-clean-proof/layer-hist-proof-20260611/records.ndjson",
+      "sha256": "6deffd48e11678e02d0fc0c6cfa09d827df0eba590975b1e37e2624462603ac3",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-condense-drops-latest-turn.json",
+        "tasks/entireio-cli-finalize-redaction-raw-live.json",
+        "tasks/entireio-cli-uncommitted-filter-exact-compare.json"
+      ]
+    },
+    {
+      "path": "evidence/semantic-clean-proof/layer-hist-proof-20260611/report.json",
+      "sha256": "10f7c887ed773b6bdfeadb738e82b5b0bdb8ed79328652dde3deae4c76b182fa",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-condense-drops-latest-turn.json",
+        "tasks/entireio-cli-finalize-redaction-raw-live.json",
+        "tasks/entireio-cli-uncommitted-filter-exact-compare.json"
+      ]
+    },
+    {
+      "path": "evidence/workspace-radar/README.md",
+      "sha256": "2d6323669b750401658404056ad165c3b6422f1907f9a5e6702b4c50ea3a3390",
+      "role": "record"
+    },
+    {
+      "path": "evidence/workspace-radar/manifest.json",
+      "sha256": "7de8f9d794b7268dc557c6a350468b6abe37d5210d0d3e60d71842cd394605c4",
+      "role": "record"
+    },
+    {
+      "path": "evidence/workspace-radar/release-candidate-cli-workspace-radar-transcript-haiku-xhigh-20260610T154230Z/no_brain_r1/record.json",
+      "sha256": "7d6a101ed8967a78110ccac774b67faf5cee7e920860f2af54c4e2c7f67c5195",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-transcript-reresolve.json"
+      ]
+    },
+    {
+      "path": "evidence/workspace-radar/release-candidate-cli-workspace-radar-transcript-haiku-xhigh-20260610T154230Z/records.ndjson",
+      "sha256": "90f0b81d0403d41a53e46b583c4aead47ef95e7e1c3dad3aa99e3f5c9b9c0a0d",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-transcript-reresolve.json"
+      ]
+    },
+    {
+      "path": "evidence/workspace-radar/release-candidate-cli-workspace-radar-transcript-haiku-xhigh-20260610T154230Z/summary.json",
+      "sha256": "ab23ce469128eb132e04e3bf9310a570dae5ec7bc967f110353a4e54aeddd054",
+      "role": "record"
+    },
+    {
+      "path": "evidence/workspace-radar/workspace-radar-audit-report.json",
+      "sha256": "7f34925cc942643c3c082969e8f1426598393b7d6e8269477434a764abdb7afa",
+      "role": "record",
+      "references": [
+        "tasks/entireio-cli-transcript-reresolve.json"
+      ]
+    },
+    {
+      "path": "evidence/workspace-radar/workspace-radar-audit-report.md",
+      "sha256": "7ea2aec208d68591c1c8b4cd76d6bd1c3237343290a07422e13810baa4af4414",
+      "role": "record"
+    },
+    {
+      "path": "fixtures/validation/entireio-cli/finalize_redaction_hidden_test.go.fixture",
+      "sha256": "6d4ebfd8eeeb2b1ebc1d1f542fd25472a5a09ebd47bd2d965ce81767f98c0224",
+      "role": "context"
+    },
+    {
+      "path": "fixtures/validation/entireio-cli/flush_probe_window_hidden_test.go.fixture",
+      "sha256": "c2a2c7a34a2152e1a858e4c50f67bd9015b6dbf9200fcaf2d6b23d46c3fb85de",
+      "role": "context"
+    },
+    {
+      "path": "fixtures/validation/entireio-cli/manual_attribution_no_trailer_realign_test.go.fixture",
+      "sha256": "ca0b6c4f82cfd3719848ca9cd573a919df601c0d9f3caf2a0cd1926b178c783f",
+      "role": "context"
+    },
+    {
+      "path": "fixtures/validation/entireio-cli/uncommitted_filter_exact_compare_test.go.fixture",
+      "sha256": "220bd1d2a1c5ec3b807739588f47b1f1b847fb8712424aa2c307f12c84486e90",
+      "role": "context"
+    },
+    {
+      "path": "panels/p01-clean-proof-claude.json",
+      "sha256": "13edfb3708b28db96bb9635a174e922e5716cad07c0f145c968aa3521d1caa67",
+      "role": "context",
+      "references": [
+        "tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json",
+        "tasks/entire-brain-clean-default-fact-merge-confidence.json"
+      ]
+    },
+    {
+      "path": "panels/p01-clean-proof.json",
+      "sha256": "c6dc2a0d11fea4e024025fd55486889e2e3f33e43f9734474bf5afae492e99b5",
+      "role": "context",
+      "references": [
+        "tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json",
+        "tasks/entire-brain-clean-default-fact-merge-confidence.json"
+      ]
+    },
+    {
+      "path": "panels/release-entire-brain-schema-contract.json",
+      "sha256": "048ec9086b3de9f9e29fc683c8321fd0a4f8c9b77c318176bfc8a5514d767410",
+      "role": "context",
+      "references": [
+        "tasks/entire-brain-history-codex-schema-contract.json"
+      ]
+    },
+    {
+      "path": "panels/release-entire-cli-mcp-manual-attribution.json",
+      "sha256": "ffb6a1d763fd60372a6fddf0c30cd528aee3643108a1170a3faebe2d3dfa5962",
+      "role": "context",
+      "references": [
+        "tasks/entireio-cli-manual-commit-attribution-base.json"
+      ]
+    },
+    {
+      "path": "panels/release-entire-cli-radar-mcp-manual-attribution-deletions.json",
+      "sha256": "d19bd0d68ebf07ebe8d37f8f5f15928f7e21ae241e6a23264f015a4ede233a43",
+      "role": "context",
+      "references": [
+        "tasks/entireio-cli-radar-manual-attribution-deletions.json"
+      ]
+    },
+    {
+      "path": "panels/release-entire-cli-workspace-radar-mcp-transcript-reresolve-haiku-xhigh.json",
+      "sha256": "8252df593425a2ab56d0744b74b77a474e86a65d77f3a5ac49a64803818d6469",
+      "role": "context",
+      "references": [
+        "tasks/entireio-cli-transcript-reresolve.json"
+      ]
+    },
+    {
+      "path": "tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json",
+      "sha256": "577a7d33c9f15a149cad5a67c2f6d0e49b7f3fbf07dfd56a1e1705a3782af844",
+      "role": "context"
+    },
+    {
+      "path": "tasks/entire-brain-clean-default-fact-merge-confidence.json",
+      "sha256": "5e9f521d3dbdb8a02cec6b4a8604b38de36e6a9b3dfa0432795f4fb101cf90a8",
+      "role": "context"
+    },
+    {
+      "path": "tasks/entire-brain-history-codex-schema-contract.json",
+      "sha256": "ec63fceb479d397d453b004051ac8e76fee7cc2990411325b163c1893ff937c0",
+      "role": "context"
+    },
+    {
+      "path": "tasks/entireio-cli-condense-drops-latest-turn.json",
+      "sha256": "126d3e77066a56a5f4f3da042a25a4e69774b397541bd3481681992a5ad5b94d",
+      "role": "context",
+      "references": [
+        "fixtures/validation/entireio-cli/flush_probe_window_hidden_test.go.fixture"
+      ]
+    },
+    {
+      "path": "tasks/entireio-cli-finalize-redaction-raw-live.json",
+      "sha256": "7a212620d01fa6329fea2a28b3c5a5314a9fcfe69eeaa6cf6135aed41f59710e",
+      "role": "context",
+      "references": [
+        "fixtures/validation/entireio-cli/finalize_redaction_hidden_test.go.fixture"
+      ]
+    },
+    {
+      "path": "tasks/entireio-cli-manual-commit-attribution-base.json",
+      "sha256": "aa5d24910b431cf30d51f9ab29be7754d2e64c05ec86296d4e4182de4440157d",
+      "role": "context",
+      "references": [
+        "fixtures/validation/entireio-cli/manual_attribution_no_trailer_realign_test.go.fixture"
+      ]
+    },
+    {
+      "path": "tasks/entireio-cli-radar-manual-attribution-deletions.json",
+      "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985",
+      "role": "context",
+      "references": [
+        "fixtures/validation/entireio-cli/manual_attribution_no_trailer_realign_test.go.fixture"
+      ]
+    },
+    {
+      "path": "tasks/entireio-cli-transcript-reresolve.json",
+      "sha256": "16b87ec65e362384a416866f3f43d19ce811caf46326b886f65c81c468529579",
+      "role": "context"
+    },
+    {
+      "path": "tasks/entireio-cli-uncommitted-filter-exact-compare.json",
+      "sha256": "14afec646281278ff3b192108486c41a344d709e8fde903ca56040df9734453b",
+      "role": "context",
+      "references": [
+        "fixtures/validation/entireio-cli/uncommitted_filter_exact_compare_test.go.fixture"
+      ]
+    },
+    {
+      "path": "tasks/github-cli-auth-env-token.json",
+      "sha256": "56a4777b6b8763e5ca13b48aeb69a81de24394ee85eec8255e5d22c0cf948f9a",
+      "role": "context"
+    },
+    {
+      "path": "tasks/github-cli-display-url-scheme.json",
+      "sha256": "26f3aa4d6727a2491acb655ba20dfa1c28cb9f8ceaed9e923777f8fafd1bb592",
+      "role": "context"
+    },
+    {
+      "path": "tasks/github-cli-format-web-conflict.json",
+      "sha256": "2d54f75f2e7ef45c1a180d820d0c93b9803d6e7ed37dd1a52b3fa0565ca4e725",
+      "role": "context"
+    },
+    {
+      "path": "tasks/github-cli-ghrepo-url-git-suffix.json",
+      "sha256": "bd889d12571157cfeacdee7bb75a2fba6b7bbe4e52db0b4d4adec2af56ddc95e",
+      "role": "context"
+    },
+    {
+      "path": "tasks/github-cli-http-scopes-suggestion.json",
+      "sha256": "6392112745a946b1625940ba539a2d4775678245db10107917a957c4d0a50510",
+      "role": "context"
+    },
+    {
+      "path": "tasks/github-cli-json-web-conflict.json",
+      "sha256": "5a7eead405840b35b2a778e2e00bfb3b861a6d250c0e6cd3177ac7eb7d094fb4",
+      "role": "context"
+    },
+    {
+      "path": "tasks/github-cli-pr-checks-summary.json",
+      "sha256": "8865479c79cfd8f6149ac5cb28502110f3dd362647c70ee7cd188145bbbd6355",
+      "role": "context"
+    },
+    {
+      "path": "tasks/github-cli-repo-name-trims-dotgit.json",
+      "sha256": "e7617e84d632b23a9dec34ecf0912f9ff57fb1e273f9efefa04091718d4d2560",
+      "role": "context"
+    },
+    {
+      "path": "tasks/github-cli-search-quote-multiword.json",
+      "sha256": "befb11ab75a9d2973209b32e27765cf66f584144e805e47c7a3db8e04df23f7a",
+      "role": "context"
+    },
+    {
+      "path": "tasks/github-cli-tenant-name-dot.json",
+      "sha256": "bd7797da3893ae74c0ab09fdc9865094210d8ab458f496d42701bfecfd57522b",
+      "role": "context"
+    },
+    {
+      "path": "tasks/temporal-memory-default-fact-merge-confidence-harness.json",
+      "sha256": "1c980d001a5f9d969ae671c8a70ec6e6a8da2da2e9d45d25456fda64b1a938ee",
+      "role": "context"
+    },
+    {
+      "path": "tasks/temporal-memory-default-fact-merge-confidence.json",
+      "sha256": "6d4e697d920ddd88fdf9933f2263306293f87fb1360bdf120f9748ccebd52ace",
+      "role": "context"
+    },
+    {
+      "path": "tasks/temporal-memory-sealed-expand-opt-in.json",
+      "sha256": "bd015f129c8e50218e23e64d49018e5ee6811bf88d5b5b0823b0e99a15647811",
+      "role": "context"
+    },
+    {
+      "path": "tasks/temporal-memory-sealed-semantic-default-stale-history.json",
+      "sha256": "c4345e754d4bfb08ecf8531f45e20b7957805b68df7a6b76ce0d9c321239d932",
+      "role": "context"
+    },
+    {
+      "path": "tasks/temporal-memory-sealed-windows-drive-neutral.json",
+      "sha256": "432001180629c18c8f0a0fdd4e54fa8cea9de918d4007fd41661c30590598a3c",
+      "role": "context"
+    },
+    {
+      "path": "temporal-memory/README.md",
+      "sha256": "68163239b414d3479323c6fcb7db017e4bee3793fd092df7a0b5d63c09d2c0a5",
+      "role": "context"
+    },
+    {
+      "path": "temporal-memory/generated/development-report.json",
+      "sha256": "684400b91e163fff4b981ca97aff90b4ce42ca38ee6d1875ba66cc83caeae821",
+      "role": "record",
+      "references": [
+        "tasks/temporal-memory-default-fact-merge-confidence.json"
+      ]
+    },
+    {
+      "path": "temporal-memory/generated/development-report.md",
+      "sha256": "a6d914dcb423896b4bb1136f1094df15bc609a131c05eaa0625c55c3cd1c9b39",
+      "role": "record"
+    },
+    {
+      "path": "temporal-memory/generated/sealed-smoke-clean-confirmation-report.json",
+      "sha256": "53b2d30a8b55e505731f30334cffea39fb6da300f520f0043d60812e45f185a8",
+      "role": "record",
+      "references": [
+        "tasks/temporal-memory-sealed-expand-opt-in.json",
+        "tasks/temporal-memory-sealed-semantic-default-stale-history.json",
+        "tasks/temporal-memory-sealed-windows-drive-neutral.json"
+      ]
+    },
+    {
+      "path": "temporal-memory/generated/sealed-smoke-clean-confirmation-report.md",
+      "sha256": "2726db7fd916ecaeb85b5e60b2e327feca6a2952202c62ecdf38a6feedd2fe68",
+      "role": "record"
+    },
+    {
+      "path": "temporal-memory/generated/sealed-smoke-pilot-report.json",
+      "sha256": "6dfdea95e141bb2e2cb7e08328ac01fa55dca8204288f6ccdc541fb36d4b895f",
+      "role": "record",
+      "references": [
+        "tasks/temporal-memory-sealed-expand-opt-in.json",
+        "tasks/temporal-memory-sealed-semantic-default-stale-history.json",
+        "tasks/temporal-memory-sealed-windows-drive-neutral.json"
+      ]
+    },
+    {
+      "path": "temporal-memory/generated/sealed-smoke-pilot-report.md",
+      "sha256": "295d0684be8a979713b6ead0df35a7d83ff09d435d2b9246e3df20b9e79e5fcf",
+      "role": "record"
+    },
+    {
+      "path": "temporal-memory/phase0a-development.json",
+      "sha256": "aa17793c6ed9301a7ea341dd75627e8696e7ceebafc056da0d31a8bfed1291a6",
+      "role": "context",
+      "references": [
+        "tasks/temporal-memory-default-fact-merge-confidence.json"
+      ]
+    },
+    {
+      "path": "temporal-memory/phase0a-results-artifact.json",
+      "sha256": "be0514c21ce943f7deeddb97300560246156fcffa06181331586f2bd24227b22",
+      "role": "record"
+    },
+    {
+      "path": "temporal-memory/phase0a-sealed-smoke.json",
+      "sha256": "6823342eef29ee113b9d4f5d8dfcef5d336f5f660b4a9ef1064c250583bf1ccf",
+      "role": "context"
+    },
+    {
+      "path": "temporal-memory/phase0a-source-artifact.json",
+      "sha256": "35e5e50b8b29d8ecb038c15241def77b4f9b90fef3b069276af98cb2db2c1302",
+      "role": "context"
+    },
+    {
+      "path": "temporal-memory/phase0b-confirmatory-protocol-v1.md",
+      "sha256": "b08b536facd69723d91b5aad11ba8bc6943755c6c46143c7d08690c8a15546b8",
+      "role": "context"
+    },
+    {
+      "path": "temporal-memory/phase0b-powered-pilot-memo.md",
+      "sha256": "567ed59f0cb042e766e18378aefbe72b86cbb572407724037513fd0d7d796c33",
+      "role": "record"
+    },
+    {
+      "path": "temporal-memory/phase0b-powered-pilot-results-v1.json",
+      "sha256": "a1eab305f0368084213ee0d58f8bb1502ec4bb41fede614daf2ca562799ad736",
+      "role": "record",
+      "references": [
+        "tasks/temporal-memory-default-fact-merge-confidence.json"
+      ]
+    },
+    {
+      "path": "temporal-memory/phase0b-powered-pilot-results-v2-harness.json",
+      "sha256": "87d8c1587ff583de583f9cf70060f26df80fd7b54d4a2f56d8ad64cd841a17cc",
+      "role": "record",
+      "references": [
+        "tasks/temporal-memory-default-fact-merge-confidence-harness.json"
+      ]
+    }
+  ]
+}

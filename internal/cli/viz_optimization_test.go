@@ -220,14 +220,13 @@ func TestVizSemanticPathEscapeFailsClosed(t *testing.T) {
 	}
 }
 
-func TestVizHistoryFiltersPrivateAndMalformedRecordsDeterministically(t *testing.T) {
+func TestVizHistoryFiltersMalformedRecordsDeterministically(t *testing.T) {
 	brainDir := t.TempDir()
 	index := historyIndex{Records: []historyRecord{
 		{ID: "h1", Kind: "decision", Branch: "main", Path: "pkg/a.go", Summary: "Keep stable IDs", Terms: []string{"stable", "cache"}},
 		{ID: "h2", Kind: "learning", Branch: "main", Path: "pkg/a.go", Summary: "Cache graph", Terms: []string{"cache"}},
 		{ID: "h2", Kind: "learning", Summary: "duplicate must disappear"},
 		{ID: "", Kind: "decision", Summary: "empty ID must disappear"},
-		{ID: "private", Kind: "decision", SessionID: "secret-session", Summary: "PRIVATE-HISTORY-CANARY"},
 		{ID: "h3", Kind: "validation", Branch: "main", Path: "pkg/b.go", Summary: "Ordering verified"},
 	}}
 	data, err := json.Marshal(index)
@@ -245,9 +244,6 @@ func TestVizHistoryFiltersPrivateAndMalformedRecordsDeterministically(t *testing
 	srv := &viz.Server{
 		BrainDir: brainDir,
 		Manifest: &exportManifest{Sources: &brainSources{History: source}},
-		Guard: sessionReadGuard{IDs: map[string]sessionTombstone{"secret-session": {
-			At: time.Date(2026, time.September, 17, 10, 0, 0, 0, time.UTC),
-		}}},
 	}
 
 	rec := httptest.NewRecorder()
@@ -256,8 +252,8 @@ func TestVizHistoryFiltersPrivateAndMalformedRecordsDeterministically(t *testing
 	if err := json.Unmarshal(rec.Body.Bytes(), &graph); err != nil {
 		t.Fatal(err)
 	}
-	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "PRIVATE-HISTORY-CANARY") {
-		t.Fatalf("history privacy response = %d %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("history response = %d %s", rec.Code, rec.Body.String())
 	}
 	if len(graph.Nodes) != 3 {
 		t.Fatalf("filtered history node count = %d, want 3", len(graph.Nodes))

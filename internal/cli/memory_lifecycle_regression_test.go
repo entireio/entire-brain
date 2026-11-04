@@ -90,39 +90,6 @@ func TestMemoryLifecycleReconcileDryRunReceiptAndProofCompletion(t *testing.T) {
 	}
 }
 
-func TestMemoryLifecycleMaintenanceConsumesExcludedHintAndRejectsStaleSnapshot(t *testing.T) {
-	brainDir, _, _ := shortTermFixture(t)
-	now := time.Date(2026, 9, 18, 10, 30, 0, 0, time.UTC)
-	if _, err := writeMemoryHint(brainDir, "test/stm", "sess-live", "main", "session_end", now); err != nil {
-		t.Fatal(err)
-	}
-	snapshot, err := prepareMemoryReconcileSnapshot(context.Background(), brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	stones := brainstore.EmptySessionTombstones()
-	stones.Excluded["sess-live"] = sessionTombstone{At: now, Reason: "regression"}
-	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-	stats, err := maintainMemoryWorkerStateLocked(brainDir, now, snapshot)
-	if err != nil || stats.HintsConsumed != 1 || len(loadMemoryHints(brainDir)) != 0 {
-		t.Fatalf("maintenance stats=%+v hints=%+v err=%v", stats, loadMemoryHints(brainDir), err)
-	}
-
-	manifest, err := bmanifest.Load(brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest.GeneratedAt = manifest.GeneratedAt.Add(time.Second)
-	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := maintainMemoryWorkerStateLocked(brainDir, now, snapshot); err == nil || brainstore.MemoryErrorCode(err) != brainstore.SourceStaleCode {
-		t.Fatalf("stale snapshot error=%v", err)
-	}
-}
-
 func TestMemoryLifecycleProjectionFailureRetriesThenCompletes(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	now := time.Date(2026, 9, 18, 11, 0, 0, 0, time.UTC)
@@ -494,46 +461,6 @@ func TestMemoryLifecycleAbstractDigestChangeSupersedesCompletedJob(t *testing.T)
 	}
 }
 
-func TestMemoryLifecycleReconcileDryRunExclusionRecordsTransitionWithoutWrite(t *testing.T) {
-	brainDir, _, _ := shortTermFixture(t)
-	now := time.Date(2026, 9, 18, 15, 0, 0, 0, time.UTC)
-	if _, err := reconcileMemoryJobs(context.Background(), brainDir, "regression", now); err != nil {
-		t.Fatal(err)
-	}
-	jobs := loadMemoryJobs(brainDir)
-	if len(jobs) == 0 {
-		t.Fatal("fixture created no projection jobs")
-	}
-	target := jobs[0]
-	stones := brainstore.EmptySessionTombstones()
-	stones.Excluded[target.SessionID] = sessionTombstone{At: now, Reason: "regression"}
-	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-	snapshot, err := prepareMemoryReconcileSnapshot(context.Background(), brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	receipt := &memoryOperationReceipt{}
-	created, err := reconcileMemoryJobsLockedDetailed(brainDir, "exclude", now.Add(time.Minute), snapshot, true, receipt)
-	if err != nil || created != 0 {
-		t.Fatalf("exclude dry-run created=%d err=%v", created, err)
-	}
-	found := false
-	for _, artifact := range receipt.Artifacts {
-		if artifact.Path == memoryJobRel(target.JobID) {
-			found = artifact.PriorState == memoryJobStatePending && artifact.NewState == memoryJobStateExcluded
-		}
-	}
-	if !found {
-		t.Fatalf("exclude transition missing from receipt: %+v", receipt)
-	}
-	stored, err := memoryJobByID(brainDir, target.JobID)
-	if err != nil || stored.State != memoryJobStatePending {
-		t.Fatalf("dry-run exclusion changed job: %+v err=%v", stored, err)
-	}
-}
-
 func TestMemoryLifecycleAbstractPreclaimCancellation(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	now := time.Date(2026, 9, 18, 15, 30, 0, 0, time.UTC)
@@ -818,8 +745,8 @@ func TestMemoryLifecycleNotifyWarningsAndExactJobIssue(t *testing.T) {
 	originalPushLaunch := memoryPushWorkLaunch
 	memoryPushWorkLaunch = func(string, string) error { return nil }
 	t.Cleanup(func() { memoryPushWorkLaunch = originalPushLaunch })
-	textOut, err := execute(t, newMemoryNotifyCommand(opts), "--event", "session_end", "--session", "text-session")
-	if err != nil || !strings.Contains(textOut, "recorded session_end hint") {
+	textOut, err := execute(t, newMemoryNotifyCommand(opts), "--event", "session_start", "--session", "text-session")
+	if err != nil || !strings.Contains(textOut, "recorded session_start hint") {
 		t.Fatalf("notify text=%q err=%v", textOut, err)
 	}
 	jsonOut, err := execute(t, newMemoryNotifyCommand(opts), "--event", "checkpoint", "--session", "json-session", "--json")
