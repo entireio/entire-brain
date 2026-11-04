@@ -1607,7 +1607,7 @@ func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDi
 		input         conversationAbstractInput
 		egressReceipt *abstractEgressReceipt
 	)
-	err = brainstore.WithBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
 		current, err := loadConversationSessionViewByRef(brainDir, view.Ref)
 		if err != nil {
 			return err
@@ -1647,7 +1647,11 @@ func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDi
 	providerCtx, cancelProvider := context.WithTimeout(ctx, abstractProviderTimeout)
 	artifact, providerErr := provider.Abstract(providerCtx, repoDir, input)
 	cancelProvider()
-	err = brainstore.WithBrainWriteLock(brainDir, func() error {
+	// Finalize paid egress even when the provider was cancelled. A cancelled
+	// acquisition must not erase the provider result or leave its receipt open.
+	settleCtx, stopSettling := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	defer stopSettling()
+	err = brainstore.WithBrainWriteLockContext(settleCtx, brainDir, func() error {
 		if egressReceipt != nil {
 			egressReceipt.FinishedAt = abstractCompletionNow().UTC()
 			egressReceipt.Status = "completed"
@@ -2196,7 +2200,7 @@ func newMemoryConfigureCommand(opts Options) *cobra.Command {
 		if dryRun {
 			err = configure()
 		} else {
-			err = brainstore.WithBrainWriteLock(storage.BrainDir, configure)
+			err = brainstore.WithBrainWriteLockContext(cmd.Context(), storage.BrainDir, configure)
 		}
 		if err != nil {
 			return fail(err)

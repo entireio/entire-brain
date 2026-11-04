@@ -7,6 +7,14 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Fixed
 
+- Give waiting foreground writers priority over background work. Watchers,
+  memory workers, and detached backfills wait without spending job retries on
+  writer contention. Active atomic writes finish before another writer starts.
+- Fetch and filter hosted memories outside the writer lock. Recheck the feed
+  cache and connection before committing, and preserve concurrent local writes.
+- Avoid re-reading the complete memory store when updating the manifest after
+  `remember` or a hosted pull. Storage and hosted wire formats remain unchanged.
+
 - Remove verified redundant legacy memory files automatically during normal
   writes and refreshes, and during unchanged watcher passes. This also covers
   copies retained by v0.5.0. Repository and global stores need no cleanup command.

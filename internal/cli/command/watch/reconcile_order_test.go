@@ -236,3 +236,48 @@ func TestWatchReconcileContextAllowsFinalPublicationAndCleansUp(t *testing.T) {
 		t.Fatal("finished reconciliation retained its context")
 	}
 }
+
+func TestWatchTickWaitsWithoutForegroundIntent(t *testing.T) {
+	dir := t.TempDir()
+	active, err := brainstore.AcquireFileLock(brainstore.BrainWriteLockPath(dir), "brain_locked", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer active.Close()
+	started := make(chan struct{})
+	done := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	steps := Steps{
+		Now:         time.Now,
+		Fingerprint: func(context.Context) string { return "changed" },
+		Delta: func(ctx context.Context) (historystore.ShortTermStats, error) {
+			close(started)
+			err := brainstore.WithBrainWriteLockContext(ctx, dir, func() error { return nil })
+			return historystore.ShortTermStats{}, err
+		},
+		Refresh: func(context.Context) error { return nil },
+	}
+	go func() {
+		defer close(done)
+		calls := 0
+		Tick(ctx, io.Discard, DefaultFlags(), filepath.Join(t.TempDir(), "watch.json"), steps, &calls)
+	}()
+	<-started
+	// If watch lost its background classification it would register an intent.
+	select {
+	case <-done:
+		t.Fatal("watch did not wait")
+	case <-time.After(50 * time.Millisecond):
+	}
+	intents, err := filepath.Glob(filepath.Join(dir, brainstore.BrainLockDirName, "write-foreground-*.lock"))
+	if err != nil || len(intents) != 0 {
+		t.Fatalf("watch claimed foreground priority: %v %v", intents, err)
+	}
+	_ = active.Close()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("watch did not resume")
+	}
+}

@@ -221,13 +221,13 @@ func writeBrainHistoryIndexAndSourceContext(ctx context.Context, outputDir strin
 		return nil, err
 	}
 	var source *historySourceManifest
-	err = brainstore.WithBrainWriteLock(outputDir, func() error {
+	err = brainstore.WithBrainWriteLockContext(ctx, outputDir, func() error {
 		var runErr error
 		source, runErr = publishBrainHistoryProjectionLocked(outputDir, prepared, nil)
 		return runErr
 	})
 	if err == nil {
-		finalizePreparedHistoryProjection(outputDir, prepared)
+		finalizePreparedHistoryProjectionContext(ctx, outputDir, prepared)
 	}
 	return source, err
 }
@@ -447,13 +447,17 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 // FTS remains lazy: its fingerprint makes the old store unreadable for the new
 // index until a query rebuilds it.
 func finalizePreparedHistoryProjection(outputDir string, prepared *preparedHistoryProjection) {
+	finalizePreparedHistoryProjectionContext(context.Background(), outputDir, prepared)
+}
+
+func finalizePreparedHistoryProjectionContext(ctx context.Context, outputDir string, prepared *preparedHistoryProjection) {
 	if prepared == nil {
 		return
 	}
 	if len(prepared.cacheData) > 0 {
 		_ = brainstore.WriteBrainRelativeFileAtomic(outputDir, historyScanCachePath, prepared.cacheData, 0o600)
 	}
-	_ = brainstore.WithBrainWriteLock(outputDir, func() error {
+	_ = brainstore.WithBrainWriteLockContext(ctx, outputDir, func() error {
 		pruneInactiveHistoryGenerations(outputDir)
 		return nil
 	})
