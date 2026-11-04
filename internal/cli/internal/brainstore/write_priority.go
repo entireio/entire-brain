@@ -160,6 +160,10 @@ func foregroundWriterWaiting(dir string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	return foregroundWriterEntriesWaiting(dir, entries)
+}
+
+func foregroundWriterEntriesWaiting(dir string, entries []os.DirEntry) (bool, error) {
 	for _, entry := range entries {
 		name := entry.Name()
 		if !strings.HasPrefix(name, "write-foreground-") || !strings.HasSuffix(name, ".lock") {
@@ -167,6 +171,11 @@ func foregroundWriterWaiting(dir string) (bool, error) {
 		}
 		path := filepath.Join(dir, name)
 		info, err := entry.Info()
+		// A foreground waiter removes its intent after acquisition or cancellation,
+		// without holding admission. Its directory entry may already be gone.
+		if os.IsNotExist(err) {
+			continue
+		}
 		if err != nil {
 			return false, err
 		}

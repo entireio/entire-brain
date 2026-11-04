@@ -235,6 +235,24 @@ func TestWriterPriorityUnsafeIntentFailsClosed(t *testing.T) {
 	}
 }
 
+func TestWriterPriorityIntentRemovedDuringScan(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "write-foreground-cancelled.lock")
+	if err := os.WriteFile(path, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if busy, err := foregroundWriterEntriesWaiting(dir, entries); busy || err != nil {
+		t.Fatalf("removed foreground intent blocked background: busy=%v err=%v", busy, err)
+	}
+}
+
 func TestWriterPrioritySettlementDoesNotReplayMutation(t *testing.T) {
 	ctx, cancel := context.WithCancel(BackgroundWrites(context.Background()))
 	calls := 0
