@@ -1018,8 +1018,6 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 	// Cancellation stops new work, but must not prevent settling an already
 	// claimed job or removing its staging files. Keep background priority and
 	// bound shutdown if another process is stuck in its atomic write.
-	settleCtx, stopSettling := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
-	defer stopSettling()
 	published := false
 	// publishBrainHistoryProjectionLocked is the ONLY caller of
 	// discardPreparedHistoryProjection, so every path that never reaches it
@@ -1033,11 +1031,11 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 		if prepareErr != nil || publishAttempted {
 			return
 		}
-		_ = brainstore.WithBrainWriteLockContext(settleCtx, brainDir, func() error {
+		_ = brainstore.WithBrainWriteLockSettlement(ctx, brainDir, func() error {
 			return discardPreparedHistoryProjection(brainDir, prepared)
 		})
 	}()
-	err = brainstore.WithBrainWriteLockContext(settleCtx, brainDir, func() error {
+	err = brainstore.WithBrainWriteLockSettlement(ctx, brainDir, func() error {
 		cancelled := map[string]*memoryCancellationRequest{}
 		for _, job := range claimed {
 			request, err := loadMemoryCancellationRequest(brainDir, job.JobID)
@@ -1154,7 +1152,7 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 		return nil
 	})
 	if published {
-		finalizePreparedHistoryProjectionContext(settleCtx, brainDir, prepared)
+		finalizePreparedHistoryProjectionContext(ctx, brainDir, prepared)
 	}
 	if err == nil {
 		maintenance, maintenanceErr := runMemoryMaintenanceContext(ctx, brainDir, memoryClockNow(clock))
@@ -1311,9 +1309,7 @@ func runMemoryAbstractLaneWithClock(ctx context.Context, repoDir, brainDir strin
 	// run, it cancelled the provider first, so runErr is itself non-nil and the
 	// retryable path still fires.
 	settleErr := runErr
-	settleCtx, stopSettling := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
-	defer stopSettling()
-	err = brainstore.WithBrainWriteLockContext(settleCtx, brainDir, func() error {
+	err = brainstore.WithBrainWriteLockSettlement(ctx, brainDir, func() error {
 		settledAt := memoryClockNow(clock)
 		current, err := memoryJobByID(brainDir, claimed.JobID)
 		if err != nil {

@@ -1649,9 +1649,7 @@ func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDi
 	cancelProvider()
 	// Finalize paid egress even when the provider was cancelled. A cancelled
 	// acquisition must not erase the provider result or leave its receipt open.
-	settleCtx, stopSettling := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
-	defer stopSettling()
-	err = brainstore.WithBrainWriteLockContext(settleCtx, brainDir, func() error {
+	err = brainstore.WithBrainWriteLockSettlement(ctx, brainDir, func() error {
 		if egressReceipt != nil {
 			egressReceipt.FinishedAt = abstractCompletionNow().UTC()
 			egressReceipt.Status = "completed"

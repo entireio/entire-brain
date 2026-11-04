@@ -234,3 +234,21 @@ func TestWriterPriorityUnsafeIntentFailsClosed(t *testing.T) {
 		t.Fatal("accepted unsafe intent")
 	}
 }
+
+func TestWriterPrioritySettlementDoesNotReplayMutation(t *testing.T) {
+	ctx, cancel := context.WithCancel(BackgroundWrites(context.Background()))
+	calls := 0
+	err := WithBrainWriteLockSettlement(ctx, t.TempDir(), func() error {
+		calls++
+		cancel()
+		return context.Canceled
+	})
+	if calls != 1 || !errors.Is(err, context.Canceled) {
+		t.Fatalf("calls=%d err=%v", calls, err)
+	}
+	calls = 0
+	err = WithBrainWriteLockSettlement(ctx, t.TempDir(), func() error { calls++; return nil })
+	if calls != 1 || err != nil {
+		t.Fatalf("cancelled settlement calls=%d err=%v", calls, err)
+	}
+}

@@ -48,6 +48,27 @@ func WithBrainWriteLockContext(ctx context.Context, brainDir string, fn func() e
 	return fn()
 }
 
+// WithBrainWriteLockSettlement finishes already-started work after cancellation.
+// Normal background settlement retains its unbounded cancellable wait. Only
+// shutdown gets a separate deadline. Retry acquisition, never the mutation:
+// a callback may have committed before returning an error.
+func WithBrainWriteLockSettlement(ctx context.Context, brainDir string, fn func() error) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	unlock, err := AcquireBrainWriteLockContext(ctx, brainDir)
+	if err != nil && ctx.Err() != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+		defer cancel()
+		unlock, err = AcquireBrainWriteLockContext(cleanupCtx, brainDir)
+	}
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return fn()
+}
+
 // An admission lock serializes intent registration and nonblocking write-lock
 // attempts. Each foreground waiter owns a separate OS-locked intent file. The OS
 // releases that lease on exit; stale files never confer priority. This supports
