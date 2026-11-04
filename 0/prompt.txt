@@ -1,0 +1,295 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/tegucigalpa directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+Conductor shows the PR for whichever branch is checked out. After you open a PR from a different branch, or a PR stack, check out that PR's branch (for a stack, the top-most branch) so Conductor shows it.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/tegucigalpa/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+we got this message from a customer using brain:
+
+Hey team, we keep hitting brain_locked with Brain. Our setup is one Mac with several Claude Code and Codex
+agents working in parallel worktrees, all sharing one brain. entire brain brief fails after about 25
+seconds. The watch daemon logged 84 lock timeouts in two days, and the processes holding write.lock kept
+it for 20 seconds to 1.5 minutes.
+
+Part of it was us. Our prompt hook ran entire brain facts promote --from main on every prompt, and we
+changed it to once per session. I could reproduce four more causes on your side (Entire CLI 0.12.2, Brain
+0.4.0, macOS arm64):
+
+
+brief needs the write lock. When another process holds write.lock, brief waits about 25 seconds andthen fails with brain_locked. recall and query work fine at the same time. With --profile-json, 8.5of brief's 15.4 seconds go to status_build_state. Could brief read the last built state instead of takingthe write lock? To reproduce: hold locks/write.lock with flock, then run entire brain brief "x" --json.
+facts promote does a full write when there is nothing to copy. It reported promoted: 0 but took 8.75seconds, held write.lock the whole time, and rewrote facts.ndjson and manifest.json. A fast exit whennothing changed would help a lot.
+Killing entire does not stop the plugin. If you kill entire brain facts promote (our hook had a4-second timeout), the entire-brain facts promote process keeps running under launchd and keeps the lockuntil it finishes. Passing the signal on to the plugin process would fix that.
+The brain is big: 3.9 GB, 540 branch folders, 343,215 facts, and 13.5 million proposal lines. Most branches hold a full copy of main's ~1,000 facts after promote --strategy keep-both. Is that how it is meant to work, and is there a supported way to prune merged branches? I suspect the size makes every write slower, but I have not measured that.
+
+
+Happy to send the watch log or try a debug build.
+
+
+----
+diagnose what's going on here and how we can fix this
+<user-preferences>
+<!-- asd-ste100:begin -->
+## Response language: ASD-STE100
+
+Write all answers to the user in ASD-STE100 Simplified Technical English (Issue 9).
+Apply this rule to progress updates, questions, explanations, and final responses.
+
+- Follow the STE writing rules and dictionary. Use approved words with their approved meanings and parts of speech.
+- Use technical nouns and technical verbs when necessary. Explain unfamiliar terms. Use the same term for the same thing.
+- Use active voice and direct instructions.
+- Give one topic in each sentence. Give one instruction in each step.
+- Use no more than 20 words in a procedural sentence and 25 words in a descriptive sentence.
+- Use short paragraphs and clear lists. Use American English spelling.
+- Avoid idioms, figurative language, and unnecessary words.
+- Keep code, commands, paths, identifiers, URLs, and exact quotations unchanged. Apply STE to the prose around them.
+- Before you send a response, do a check for clear meaning and compliance with these rules.
+
+Reference: https://www.asd-ste100.org/
+## Writing style
+
+Write in natural, direct, conversational English. Favor how a thoughtful, technically sophisticated person would actually explain something over highly stylized or literary prose.
+
+- **Avoid agentive framing.** Don't turn systems, abstractions, or inanimate objects into actors merely to give sentences a strong noun–verb structure.
+- **Prefer ordinary verbs.** Use "gets," "has," "uses," or "can" when they're more natural than "holds," "carries," "owns," "drives," or "unlocks." Don't optimize every verb for rhetorical force.
+- **Avoid aphoristic technical prose.** Don't make ordinary explanations sound like architectural principles, maxims, or slogans.
+- **Optimize for naturalness, not elegance.** Prefer the sentence someone would say aloud in a technical discussion over one engineered to sound polished or authoritative.
+- **Preserve meaningful precision.** Use specialized terminology and precise verbs when they clarify an actual technical distinction, not simply because they sound more intentional.
+
+The writing should feel like a smart colleague explaining something clearly, not a technical manifesto.
+
+<!-- asd-ste100:end -->
+
+</user-preferences>
+
+---
+
+i think we need to address the fundamental problems here. 
+
+to me, it seems like this is 4 issues that are related but can be handled indepedently. 
+
+the easiest one is problem cause 3. if the parent is killed them the the plugin should be killed as well. what do you think about that?
+
+---
+
+no i don't like this polling situation. there should be more of a deterministic way fo doing this instead of polling. if this can be handled independently, then give me a handoff that i can have another agent work in a workspace so we can continue with the other prpblems in this workspace
+
+---
+
+give me a hand off for 1 that i can have another agent work on (the no op promote). then wewe can start on the emission lock in this workspace
+
+---
+
+walk me through this emission and lock issue in simple straightforward technial language. be very concise
+
+---
+
+if we remove the tombstone and the ability to mark it as private, is this still an issue?
+
+---
+
+brain doesn't hold full transcripts. brain only reads from checkpoints. checkpoints already handle the redaction of PII on the upload. so while i suppose it is possible that brain could create a fact with PII in it, brain isn't storing the fact itself. is this left over because of that?
+
+---
+
+we shoudl have removed the capture layer and it shoudl all bve reading it from the git repo itself. you can verify this against the code. do that and understand the actual infrastucture. otherwise you're recommending solutions due to old artchitecture.
+
+---
+
+i thikn option b but what is the git layer deletion contract?
+
+---
+
+what are we actually deleting though?
+
+---
+
+and where does this deletion originate from? i feel liek we're generally ovecomplicating this. the brain should create memories. if any checkpoitns are deleted from the entire cli, the brian shoudl delete those as well.
+
+---
+
+1. yes
+2. we'll handle this in the nightly job
+
+
+does this actually fix the user's probelm as wel?
+
+---
+
+yes we have the other work going on in a separate workspace. the no-op is already merged. the killing the cli work is currently in a trail and then the lock and the branch pruning are what's next. 
+
+so if we fix the lock then we can move onto the branch pruning. 
+
+generaly my goal is to make brain as stateless and straightforwad as possible and have it hold no transcripts or caches at all. it shoudl jsut be deriving memories from checkpoints. those checkpoitns shouldn't have PII in them. it should be that simple. the writer lock issue should be very straightforward to fix and fast.
+
+---
+
+apply fixes and re-run CI
+
+---
+
+while this is running. i've seen the "promote" command mentioned a few times. what is it? where is it? why does it exist?
+
+---
+
+what is the trail link?
+
+---
+
+okay before i merge this: walk em through it very concisely. what is the core problem, how do we solve it and why this solve work. simple, straightforward technical language.
+
+---
+
+what did we end up deleting
+
+---
+
+did you test that the fix actually fixes the customer's problem
+
+---
+
+okay we have merged this one PR. re-validate it on main now. 
+
+then let's work on the follow ups. list them them
+
+---
+
+i want to do 1 heere adn then 2 in a new workspace. 
+
+Privacy-layer removal (Option B, step 2) — delete tombstones, the privacy command family, read/derived gates, and the remaining locked mutation wrappers; strict-mirror sweep (drop the retain-last-copy behavior in export); drop facts by the approved provenance rule; hosted retraction handled in the nightly job.
+
+can you give me the hand off for this?
+
+or if you think the branch pruning belongs in a new workspace we can do that.
+
+---
+
+let's talk through the branch pruning. last week i created a workspace with the idea of removing the per branch stores. which i think is the right appraoch. we should be consolidating into a single store. the hosted store is no longer keyed off of a branch and it doesn't make sense that the local shoudl be keyed off of branches. 
+
+i think that wil also help our branch pruning issue here. the challenge is figuring out how we do this with past versions, so we need to think through that. but the longer that we keep the branch machinary around the worse it gets
+
+---
+
+1. flat, no branches
+2. delete outright. sync is the only command that should be moving memories. we need to remove the proposal framework too
+3. we should build the store and then de-dupe and migrate the branches to the store adn then delete the branches. we need to ensure that they are saved and de-duped before deleting. 
+4. filter. 
+
+the goal is that with this new release anyone on 2.0, 3.0, 4.0 should be able to upgrade and then we shoudl move their meories over to the new per-repo store
+
+---
+
+yes keep both silently for now. and log an a ticket so that we can do it on the nightly follow up. or find the existing ticket and then add it onto that
+
+---
+
+status?
+
+---
+
+fix the bugbot issues
+
+---
+
+where is this trail and work now?
+
+---
+
+okay got it. fix the finding in this trail: https://entire.com/gh/entireio/-/trails/2718/changes/entire-brain/479
+
+---
+
+okay now update me on the step by step process. be very concise.
+
+---
+
+this has a finding on a bugbot issue: https://github.com/entireio/entire-brain/pull/587
+
+---
+
+rebase on main and fix the merge conflcits: https://github.com/entireio/entire-brain/pull/587
+
+---
+
+push to the trail when ready
+
+---
+
+okay this is now merged. 
+
+https://github.com/entireio/entire-brain/pull/587
+
+run the full version matrxi and backwards compat testing
+
+---
+
+okay let' move onto PR2
+
+---
+
+status?
+
+---
+
+fix the bugbot issues: https://github.com/entireio/entire-brain/pull/590
+
+---
+
+more bugbot issues: https://github.com/entireio/entire-brain/pull/590
+
+also fix the findings
+
+---
+
+a high finding from cursor:
+
+https://github.com/entireio/entire-brain/pull/590
+
+resolve and fix it
+
+---
+
+okay before i merge it, whats the overall state on testing and code readibility
+
+---
+
+is this the trail?
+
+https://entire.com/gh/entireio/entire-brain/-/trails/2703/changes/481
+
+---
+
+okay i don't see any outstanding findings and bugbot has reviewed and found no issues.
+
+have you run the compatbility matrix acorss major version and then migrations and backwards compat?
+
+---
+
+okay this is now merged in as welll: https://entire.com/gh/entireio/entire-brain/-/trails/2703/changes/481
+
+pull main adn then let's do another verificaition of backwards compat and migrations and commands
+
+---
+
+what is teh legacy-dir GC next release?
+
+---
+
+okay aything else in this workspace? or can i archive this and go back to the main workspace? conductor://workspace?id=7d2a6847-9869-4b9c-89b8-ab09c90a30d5
+
+---
+
+any tickets to wrap in linear?
