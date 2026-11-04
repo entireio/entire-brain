@@ -5,6 +5,8 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-04
+
 ### Fixed
 
 - Give waiting foreground writers priority over background work. Watchers,

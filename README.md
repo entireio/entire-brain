@@ -101,19 +101,15 @@ removing them. If recovery cannot be proven, refresh fails and retains the cache
 | --- | --- |
 | Upgrade an existing file-based brain | Supported; migration checks recovery before deleting cached transcripts. |
 | Read a materialized bundle with an older binary | Supported when the older binary supports the bundle's schema. |
-| Run an older binary against a migrated persistent brain | Not supported. Cached search results may still work, while distillation and history rebuild fail because transcript files are absent. |
+| Run an older binary against a migrated persistent brain | Not supported. Current memory and manifest schemas require the upgraded binary. |
 
-Upgrade and restart all CLI and watcher processes that share a brain before
+Upgrade and restart all Brain CLI and watcher processes that share a brain before
 migrating it. Installing or upgrading Graph does not upgrade Brain.
 
-For rollback, use the upgraded binary to export a bundle containing transcripts,
-then import it into a separate brain store with a compatible older binary:
-
-```sh
-entire brain bundle export --include-sessions --output ./brain-backup.tar
-```
-
-Bundle export requires a semantic index, built with `entire brain refresh index`.
+Local memory migration is one-way. A post-migration bundle is not a downgrade
+format. To use an older release, restore a complete pre-migration backup into a
+separate environment. That backup does not include later writes.
+See [memory storage compatibility](docs/memory-storage-compatibility.md) before upgrading.
 
 ### How Brain compares
 
@@ -125,7 +121,9 @@ Every number we publish, how to reproduce it, and what we deliberately do not cl
 
 ## Activate it for your agent
 
-Brain is set up is per [repository](docs/reference.md#3a-what-setup-needs-first-and-what-it-does-not). Start in a local Git repository with at least one commit:
+For Claude capture, follow the [capture requirements](docs/memory-storage-compatibility.md#claude-capture-requirement).
+
+Brain is set up per [repository](docs/reference.md#3a-what-setup-needs-first-and-what-it-does-not). Start in a local Git repository with at least one commit:
 
 ```sh
 entire brain setup
@@ -471,7 +469,6 @@ the binary.
 | `entire brain gc` | Prune old local semantic overlays and snapshots |
 | `entire brain reset` | Remove local generated brain data |
 | `entire brain repo-identity` | Find and resolve conflicting brain stores |
-| `entire brain privacy` | Control which captured sessions the brain retains |
 
 **Workspaces and sharing**
 
@@ -479,7 +476,7 @@ the binary.
 | --- | --- |
 | `entire brain workspace` | Manage local multi-repo brain workspaces |
 | `entire brain bundle` | Import or export local brain bundles |
-| `entire brain memories sync` | Sync this branch's memories with the hosted memory set (opt-in) |
+| `entire brain memories sync` | Sync repository memories with the hosted memory set (opt-in) |
 
 ## Limitations
 

@@ -31,9 +31,24 @@ There is no storage rollback command. Recovery to an older version requires a
 complete pre-migration backup in an isolated environment. Such a backup does not
 include later writes. A post-migration bundle is not a downgrade format.
 
+## Before upgrading and recovering
+
+Stop background work and finish active writes before making a backup. Upgrade
+all Brain CLI and watcher processes that share the store before restarting them.
+Back up the complete Brain data and the repository's checkpoint refs. Include
+any global store in the backup. A memory export alone is not a complete backup.
+
+Normal activity resumes interrupted migration and cleanup. Keep recovery files
+and the active store intact. If Brain reports corruption, stop other writers and
+preserve the data and backup for support.
+
+See [Upgrade and Recover](https://docs.entire.com/guides/brain/upgrade) for the
+customer procedure, verification commands, and support links.
+
 ## Automatic cleanup
 
-Customers do not need a cleanup command, script, or confirmation prompt.
+Brain v0.5.1 adds automatic cleanup. Customers do not need a cleanup command,
+script, or confirmation prompt.
 Normal memory writes, foreground refreshes, and watcher maintenance remove verified
 redundant legacy files. Maintenance includes unchanged watcher passes and existing
 global stores. It does not create an unused global store or resume paused services.
@@ -59,6 +74,17 @@ retained reasons, and recorded reclaimed bytes. The byte count can underestimate
 removal if a process exits before recording progress. It is never a deletion gate.
 Status, recall, and other read surfaces remain read-only.
 
+## Claude capture requirement
+
+Use Claude Code **2.1.78 or later** with the generated Entire hooks. Check
+`claude --version` before installing or refreshing those hooks. Verify capture
+with a new Claude session, a file change, and a commit that creates a checkpoint.
+A successful Claude command alone does not verify capture.
+
+See [Claude Code](https://docs.entire.com/agents/claude-code#version-and-capture-verification)
+for the capture procedure. Do not assume that the installed Entire CLI checks
+this version requirement.
+
 ## Scan-cache compatibility
 
 Compact-transcript extraction uses its extraction revision to invalidate older
@@ -70,7 +96,7 @@ current refresh to rescan the transcripts.
 
 | Area | Checks |
 | --- | --- |
-| Stable upgrades | Actual v0.2.0–v0.5.0 binaries; normal writes trigger migration and cleanup without maintenance commands |
+| Stable upgrades | Actual v0.2.0 to v0.5.0 binaries; normal writes trigger migration and cleanup without maintenance commands |
 | Existing v0.5.0 stores | Real parked migration output, repeated cleanup, later edits, retractions, deletions, and provenance changes |
 | Repository and global memories | Complete record preservation, cross-branch copies, lifecycle, recall, and unused global stores |
 | Recovery | Receipt publication, real process exit before/after removal, changed source bytes, and stale verification |
