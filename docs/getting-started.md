@@ -769,7 +769,7 @@ captured sessions when explicitly asked or when a session-end integration is
 configured to do so.
 
 ```sh
-entire brain remember "Prefer table-driven tests for parser edge cases" --path preferences.tests
+entire brain remember "Prefer table-driven tests for parser edge cases" --path preferences.testing.style
 entire brain distill --dry-run --json
 entire brain distill --agent codex --model gpt-5.4-mini --effort low
 entire brain facts tree --depth 1

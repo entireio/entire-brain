@@ -208,7 +208,8 @@ entire brain verify
 `remember` infers where the fact belongs using a coding agent on `PATH`. Without
 one, pass it yourself: `--path constraints.retry.policy`, shaped
 `category.subcategory.type`, from `architecture`, `constraints`, `preferences`,
-`project`, `workflow`.
+`project`, `workflow`. Segments use lowercase letters, digits and `_`; a hyphen
+is rejected.
 
 `verify` reports hand-written facts as `unverifiable-here` — they have no source
 anchor in the repository. Expected, not a failure.

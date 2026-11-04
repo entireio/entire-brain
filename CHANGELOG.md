@@ -16,6 +16,11 @@ All notable changes to `entire-brain` are recorded here. The format follows
 - Report pending cleanup, retained recovery data, and recorded reclaimed bytes
   through `memories storage status --json`. Reads remain read-only. Background
   pause settings remain effective.
+- `remember --path` rejects a malformed path even when another path in the list
+  is valid. Previously it was dropped and the memory was stored under fewer
+  paths. The error names the rejected path and the rule: `category.subcategory.type`,
+  lowercase letters, digits and `_`, no hyphens. `remember --help` and the agent
+  guide written by `setup` now state the rule too.
 
 ## [0.5.0] - 2026-11-03
 

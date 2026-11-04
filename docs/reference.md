@@ -1158,7 +1158,7 @@ merge/supersede proposals, promote branch facts that should carry forward,
 retract facts that are no longer true, and garbage-collect stale retractions.
 
 ```sh
-entire brain remember "Prefer table-driven tests for parser edge cases" --path preferences.tests
+entire brain remember "Prefer table-driven tests for parser edge cases" --path preferences.testing.style
 entire brain distill --agent codex --model gpt-5.4-mini --effort low
 entire brain facts review
 entire brain facts promote --from <branch> --strategy keep-both
