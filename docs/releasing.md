@@ -8,9 +8,8 @@ prerelease is cut from `main` each morning.
 
 1. Move the work into a `## [X.Y.Z]` section in `CHANGELOG.md`, dated.
 2. Confirm the version's upgrade requirements and known limits.
-   For the flat-store release, include the one-way migration, backup requirement,
-   retained legacy directories, separate-store hosted sync, and Claude 2.1.78 minimum.
-   Use [memory storage compatibility](memory-storage-compatibility.md) for the contract.
+   Use [memory storage compatibility](memory-storage-compatibility.md) for migration,
+   backup, automatic cleanup, hosted sync, and Claude capture requirements.
 3. Tag and push:
 
    ```sh
@@ -26,7 +25,7 @@ Re-running it against an existing tag updates that release rather than failing.
 Before announcing the release, add the version's compatibility and upgrade notes
 from `CHANGELOG.md` to the published GitHub release description. The workflow uses
 `--generate-notes`; it does not copy the changelog text into the release body.
-Do not omit the migration and Claude requirements from the generated notes.
+Include the requirements that apply to that release.
 
 You can also run it from the Actions tab with a version, which is the way to
 re-cut a release whose upload failed.

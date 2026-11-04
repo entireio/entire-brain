@@ -5,49 +5,82 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-04
+
+### Fixed
+
+- Give waiting foreground writers priority over background work. Watchers,
+  memory workers, and detached backfills wait without spending job retries on
+  writer contention. Active atomic writes finish before another writer starts.
+- Fetch and filter hosted memories outside the writer lock. Recheck the feed
+  cache and connection before committing, and preserve concurrent local writes.
+- Limit hosted pull retries when concurrent syncs keep changing the feed cache.
+  Wait briefly between attempts, and allow cancellation during that wait.
+- Preserve completed distillation results and cache entries when cancellation
+  interrupts a wait for the writer lock.
+- Avoid re-reading the complete memory store when updating the manifest after
+  `remember` or a hosted pull. Storage and hosted wire formats remain unchanged.
+
+- Remove verified redundant legacy memory files automatically during normal
+  writes and refreshes, and during unchanged watcher passes. This also covers
+  copies retained by v0.5.0. Repository and global stores need no cleanup command.
+- Verify complete migrated records before cleanup. Preserve unrecognized or
+  unverified data, and resume interrupted cleanup from durable verification
+  receipts. Large-file verification runs outside the brain write lock.
+- Report pending cleanup, retained recovery data, and recorded reclaimed bytes
+  through `memories storage status --json`. Reads remain read-only. Background
+  pause settings remain effective.
+
+## [0.5.0] - 2026-11-03
+
 ### Changed
 
-- Durable memories now use one repository-level `facts/store.json` file
-  (schema 3). Default memory visibility spans branches. Migration merges copies
-  with the same ID and retains provenance and lifecycle state.
-- Local storage migration is one-way. Repository manifests use schema 5.
-  Stable v0.2.0, v0.3.0, and v0.4.0 can upgrade, but cannot read a migrated store.
-  Stop shared writers and back up the complete store before upgrading.
-  Restore a pre-migration backup to use an older release; post-migration bundles
-  are not a downgrade format.
-- Migration retains original branch directories under `facts/.legacy-*` after
-  verification. Active data shrinks when duplicate IDs are merged, but retained
-  originals can increase total disk usage. Automatic deletion of those recovery
-  copies is deferred.
+- Durable memories now use one repository-level `facts/store.json` file.
+  Memories are visible across branches by default. Migration merges copies with
+  the same ID and retains provenance and lifecycle state.
+- Local storage migration is one-way. Stable v0.2.0, v0.3.0, and v0.4.0 can
+  upgrade, but cannot read the migrated store.
+- Migration retains original branch directories under `facts/.legacy-*`.
+  Total disk usage can increase until these recovery copies are removed after
+  verification. Automatic removal is not included.
 - Hosted Brainstore sync keeps its per-fact wire format. Older and newer clients
-  can exchange memories through separate local stores. Sharing a migrated local
-  store across those versions is unsupported.
+  can exchange memories through separate local stores.
 
 ### Added
 
 - `memories storage status` and `memories storage migrate`, also with `--global`.
   Migration supports legacy branch files and the unreleased schema 1 and schema 2
-  layouts. It is safe to repeat after an interruption. Later legacy writes are
-  imported with a warning to update the older client.
+  layouts. Interrupted migration can be retried. Later legacy writes are imported
+  with a warning to update the older client.
 - Upgrade and hosted-sync checks against stable v0.2.0, v0.3.0, and v0.4.0.
-  This compatibility matrix excludes v0.1.0 and nightly releases.
+  The release compatibility matrix excludes v0.1.0 and nightly releases.
 
 ### Upgrade requirements
 
-- Claude capture requires Claude Code **2.1.78 or later** for the generated
-  `StopFailure` hook. Claude 2.1.72 can silently omit project capture hooks.
+- Stop every writer that shares the local store before backup and migration.
+  Back up the complete Brain data and repository checkpoint refs.
+  `brain stop` pauses future background work; it does not wait for an active pass.
+- To use an older release, restore a complete pre-migration backup into a separate
+  environment. That backup does not contain later writes. A post-migration bundle
+  is not a downgrade format.
+- Do not run mixed old and new versions against the same migrated local directory.
+  Hosted compatibility requires separate local stores.
+- Verify migration and the backup before removing retained legacy directories.
+  Do not delete the flat store or checkpoint refs to reclaim disk space.
+- Claude capture requires Claude Code **2.1.78 or later** with the generated hooks.
   Check `claude --version` and verify a checkpoint after a real turn and commit.
-  Capture passed with the unpatched Entire CLI and Claude 2.1.78. The separate
-  CLI version-check change is deferred and is not required for this Brain release.
-- Read [memory storage compatibility](docs/memory-storage-compatibility.md)
-  before migrating. Upgrade every Brain process that shares a local store.
+  The CLI version-check fix will follow this release.
+- Large-store concurrent writers can still report `brain_locked`.
+  Keep affected stores' background work paused during initial migration and
+  verification. Run foreground writers one at a time with support.
+  This release does not resolve all writer contention.
 
 ### Removed
 
 - `memories storage rollback`. The flat store has no supported conversion back
   to the released branch-file layout.
-- The memory promotion and review workflow (`facts promote` and `facts review`).
-  Memories use the repository-level store without branch promotion.
+- `memories promote` and `memories review`. Memories use the repository-level
+  store without branch promotion.
 
 - The brain-local privacy layer: the `privacy` command family
   (`list|exclude|include|purge|verify|retention`), session tombstones, read
@@ -79,6 +112,12 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Fixed
 
+- The watcher starts its memory worker after its own refresh, seed, and distillation
+  steps finish. This prevents that worker from blocking those steps in the same
+  pass. Other processes can still compete for the write lock.
+- Released-client repository visibility tests now use each binary's actual storage
+  path. Upgrades from v0.2.0, v0.3.0, and v0.4.0 execute without this test being skipped.
+
 - The conversation and history parsers now read the compact transcript
   dialect the Entire CLI stores per checkpoint (Entire Transcript Format:
   content blocks at the record's top level, no `message` wrapper). A default
@@ -86,10 +125,9 @@ All notable changes to `entire-brain` are recorded here. The format follows
   searchable exchanges, no user-prompt history records — until the user
   re-exported with `refresh sessions --raw` (COR-2289).
 
-  The new history extraction revision invalidates cached scan results.
-  Caches filled by the pre-compact scanner — which recorded none of those
-  records — are discarded instead of reused. The cache wire version stays
-  compatible with supported stable clients. No re-export is needed; the next
+  The history extraction revision invalidates cached scan results. Caches filled
+  by the pre-compact scanner are discarded instead of reused. The cache wire
+  version remains compatible with supported stable clients. No re-export is needed; the next
   `refresh` rescans the transcripts already on disk, and stored memories,
   their anchors and their ids are unaffected.
 

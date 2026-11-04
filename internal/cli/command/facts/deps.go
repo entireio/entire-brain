@@ -33,6 +33,8 @@ type Deps struct {
 	// UpdateFactSourceManifest refreshes sources.facts in the brain manifest;
 	// the caller already holds the brain write lock.
 	UpdateFactSourceManifest func(brainDir string, now time.Time) error
+	// UpdateFactSourceManifestRecords avoids re-reading the just-committed store.
+	UpdateFactSourceManifestRecords func(brainDir string, now time.Time, records []factmerge.Record) error
 	// DistillTimeout bounds one agent classification call.
 	DistillTimeout time.Duration
 	// RankFacts ranks a branch's facts against a query, BM25 lexical only.

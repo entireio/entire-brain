@@ -30,6 +30,10 @@ const (
 	// on a pathological feed. ponytail: a delta larger than 20k records
 	// finishes on the next trigger — the cursor persists either way.
 	maxHostedFeedPages = 200
+	// Concurrent syncs can invalidate a prepared pull. Bound repeated network
+	// and Git work; a later trigger can resume from the latest durable cursor.
+	maxHostedFeedAttempts = 3
+	hostedFeedRetryDelay  = 100 * time.Millisecond
 	// hostedNoAccessBackoff is how long every background trigger skips a repo
 	// after the server denied access to the binding (COR-2279). Long enough to
 	// stop a stuck client from tripping the server's auth-failure monitor,
@@ -137,7 +141,7 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 					continue
 				}
 			}
-			pauseHostedSyncNoAccess(errW, opts, storage.BrainDir, binding)
+			pauseHostedSyncNoAccessContext(ctx, errW, opts, storage.BrainDir, binding)
 			return hostedSyncOutcome{Attempted: true}, nil
 		}
 		if pullErr != nil {
@@ -150,7 +154,7 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 			// halves: a pull-only run leaves it unwritten, and so does a failed
 			// pull — the empty-store push "succeeds" without contacting the
 			// server, so the pull is what proves the exchange happened.
-			if err := writeHostedFactsBinding(storage.BrainDir, binding.RepoID, baseURL); err != nil {
+			if err := writeHostedFactsBindingContext(ctx, storage.BrainDir, binding.RepoID, baseURL); err != nil {
 				fmt.Fprintf(errW, "hosted sync: record hosted target: %v\n", err)
 			}
 		}
@@ -162,7 +166,7 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 			// access is back, so retire the pause instead of leaving status
 			// reporting it forever. Guarded like the pause write — a binding
 			// another writer replaced meanwhile is not touched.
-			if err := clearHostedSyncNoAccess(storage.BrainDir, binding); err != nil {
+			if err := clearHostedSyncNoAccessContext(ctx, storage.BrainDir, binding); err != nil {
 				fmt.Fprintf(errW, "hosted sync: clear expired no-access pause: %v\n", err)
 			}
 		}
@@ -185,7 +189,7 @@ func rebindStaleHostedRepo(ctx context.Context, errW io.Writer, opts Options, re
 		return brainstore.HostedRepoBinding{}, false
 	}
 	written := false
-	err = brainstore.MutateHostedRepoBinding(brainDir, func(current brainstore.HostedRepoBinding) (brainstore.HostedRepoBinding, bool) {
+	err = brainstore.MutateHostedRepoBindingContext(ctx, brainDir, func(current brainstore.HostedRepoBinding) (brainstore.HostedRepoBinding, bool) {
 		if current.OptedOut || current.RepoID != stale.RepoID || current.BaseURL != stale.BaseURL {
 			return current, false
 		}
@@ -201,7 +205,11 @@ func rebindStaleHostedRepo(ctx context.Context, errW io.Writer, opts Options, re
 
 // clearHostedSyncNoAccess retires a pause whose repo answered a pull again.
 func clearHostedSyncNoAccess(brainDir string, stale brainstore.HostedRepoBinding) error {
-	return brainstore.MutateHostedRepoBinding(brainDir, func(current brainstore.HostedRepoBinding) (brainstore.HostedRepoBinding, bool) {
+	return clearHostedSyncNoAccessContext(context.Background(), brainDir, stale)
+}
+
+func clearHostedSyncNoAccessContext(ctx context.Context, brainDir string, stale brainstore.HostedRepoBinding) error {
+	return brainstore.MutateHostedRepoBindingContext(ctx, brainDir, func(current brainstore.HostedRepoBinding) (brainstore.HostedRepoBinding, bool) {
 		if current.OptedOut || current.RepoID != stale.RepoID || current.BaseURL != stale.BaseURL || current.NoAccessUntil.IsZero() {
 			return current, false
 		}
@@ -217,9 +225,13 @@ func clearHostedSyncNoAccess(brainDir string, stale brainstore.HostedRepoBinding
 // write means another writer owns the binding now (its state speaks for
 // itself), and a failed write means the next trigger will try again.
 func pauseHostedSyncNoAccess(errW io.Writer, opts Options, brainDir string, stale brainstore.HostedRepoBinding) {
+	pauseHostedSyncNoAccessContext(context.Background(), errW, opts, brainDir, stale)
+}
+
+func pauseHostedSyncNoAccessContext(ctx context.Context, errW io.Writer, opts Options, brainDir string, stale brainstore.HostedRepoBinding) {
 	until := opts.Now().UTC().Add(hostedNoAccessBackoff)
 	written := false
-	err := brainstore.MutateHostedRepoBinding(brainDir, func(current brainstore.HostedRepoBinding) (brainstore.HostedRepoBinding, bool) {
+	err := brainstore.MutateHostedRepoBindingContext(ctx, brainDir, func(current brainstore.HostedRepoBinding) (brainstore.HostedRepoBinding, bool) {
 		if current.OptedOut || current.RepoID != stale.RepoID || current.BaseURL != stale.BaseURL {
 			return current, false
 		}
@@ -333,21 +345,64 @@ func pushHostedFacts(ctx context.Context, storage repoStorage, srv *factsync.HTT
 	return total, skipped, nil
 }
 
+var errHostedFeedChanged = errors.New("hosted feed changed during preparation")
+
 // pullHostedFacts fetches the repo delta feed since the stored cursor into
 // the repo-level cache, filters the WHOLE cache by local visibility
 // (keepHostedFact), and rebuilds the branch store from the result. Returns
 // (kept, total cached) for the caller's summary line.
 //
-// Everything runs under the brain write lock: the cache and the branch store
-// must move together, and concurrent triggers (tick, hook, push hint) must
-// not interleave their rebuilds.
+// Fetch and filter without the writer lock. Revalidate the cache at commit
+// and merge into the latest local store, preserving concurrent user writes.
 func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage repoStorage, srv *factsync.HTTPServer, repoID, baseURL, token string) (kept, total int, manifestErr, err error) {
+	for attempt := 1; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return 0, 0, nil, err
+		}
+		kept, total, manifestErr, err = pullHostedFactsAttempt(ctx, opts, repoDir, storage, srv, repoID, baseURL, token)
+		if !errors.Is(err, errHostedFeedChanged) {
+			return
+		}
+		if attempt >= maxHostedFeedAttempts {
+			return 0, 0, nil, fmt.Errorf("hosted feed changed during %d pull attempts; retry sync: %w", attempt, err)
+		}
+		timer := time.NewTimer(hostedFeedRetryDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return 0, 0, nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func pullHostedFactsAttempt(ctx context.Context, opts Options, repoDir string, storage repoStorage, srv *factsync.HTTPServer, repoID, baseURL, token string) (kept, total int, manifestErr, err error) {
 	feedDir, err := hostedFeedDirForKey(opts.Env, storage.Key)
 	if err != nil {
 		return 0, 0, nil, err
 	}
-	err = brainstore.WithBrainWriteLock(storage.BrainDir, func() error {
-		state, items, err := loadHostedFeedCache(feedDir)
+	err = func() error {
+		var state hostedFeedState
+		var items map[string]factsync.FeedItem
+		var binding brainstore.HostedRepoBinding
+		var bound bool
+		// Snapshot under the existing lock so released clients cannot expose
+		// half of a cache replacement. Network and Git work follow unlocked.
+		if err := brainstore.WithBrainWriteLockContext(ctx, storage.BrainDir, func() error {
+			var loadErr error
+			state, items, loadErr = loadHostedFeedCache(feedDir)
+			if loadErr != nil {
+				return loadErr
+			}
+			binding, bound, loadErr = brainstore.ReadHostedRepoBinding(storage.BrainDir)
+			return loadErr
+		}); err != nil {
+			return err
+		}
+		snapshot, err := json.Marshal(struct {
+			State hostedFeedState
+			Items map[string]factsync.FeedItem
+		}{state, items})
 		if err != nil {
 			return err
 		}
@@ -422,54 +477,77 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 		}
 		sort.Slice(keptRecords, func(i, j int) bool { return keptRecords[i].ID < keptRecords[j].ID })
 
-		if err := writeHostedFeedCache(feedDir, hostedFeedState{RepoID: repoID, BaseURL: baseURL, Cursor: cursor}, items); err != nil {
-			return err
-		}
+		return brainstore.WithBrainWriteLockContext(ctx, storage.BrainDir, func() error {
+			currentBinding, currentBound, err := brainstore.ReadHostedRepoBinding(storage.BrainDir)
+			if err != nil {
+				return err
+			}
+			if currentBound != bound || currentBinding != binding {
+				return fmt.Errorf("hosted connection changed during pull; retry with the current connection")
+			}
+			currentState, currentItems, err := loadHostedFeedCache(feedDir)
+			if err != nil {
+				return err
+			}
+			current, err := json.Marshal(struct {
+				State hostedFeedState
+				Items map[string]factsync.FeedItem
+			}{currentState, currentItems})
+			if err != nil {
+				return err
+			}
+			if !bytes.Equal(snapshot, current) {
+				return errHostedFeedChanged
+			}
+			if err := writeHostedFeedCache(feedDir, hostedFeedState{RepoID: repoID, BaseURL: baseURL, Cursor: cursor}, items); err != nil {
+				return err
+			}
 
-		existing, err := factstore.Load(storage.BrainDir)
-		if err != nil {
-			return err
-		}
-		for _, fact := range keptRecords {
-			// upsertFact never moves a local status, so a locally retracted
-			// fact stays retracted whatever the feed says. The feed is
-			// authoritative for RETIREMENTS, though: lifecycle moves one way —
-			// active to retired, never a revival.
-			existing = upsertFact(existing, fact)
-			if fact.Status == factStatusActive {
-				continue
+			existing, err := factstore.Load(storage.BrainDir)
+			if err != nil {
+				return err
 			}
-			if i := indexOfFact(existing, fact.ID); i >= 0 && existing[i].Status == factStatusActive {
-				existing[i].Status = fact.Status
-				existing[i].SupersededBy = fact.SupersededBy
-				existing[i].UpdatedAt = opts.Now().UTC()
+			for _, fact := range keptRecords {
+				// upsertFact never moves a local status, so a locally retracted
+				// fact stays retracted whatever the feed says. The feed is
+				// authoritative for RETIREMENTS, though: lifecycle moves one way —
+				// active to retired, never a revival.
+				existing = upsertFact(existing, fact)
+				if fact.Status == factStatusActive {
+					continue
+				}
+				if i := indexOfFact(existing, fact.ID); i >= 0 && existing[i].Status == factStatusActive {
+					existing[i].Status = fact.Status
+					existing[i].SupersededBy = fact.SupersededBy
+					existing[i].UpdatedAt = opts.Now().UTC()
+				}
 			}
-		}
-		// Retirements the keep filter rejected still apply to records already
-		// stored — same one-way move, never an adoption.
-		for _, fact := range retirements {
-			if i := indexOfFact(existing, fact.ID); i >= 0 && existing[i].Status == factStatusActive {
-				existing[i].Status = fact.Status
-				existing[i].SupersededBy = fact.SupersededBy
-				existing[i].UpdatedAt = opts.Now().UTC()
+			// Retirements the keep filter rejected still apply to records already
+			// stored — same one-way move, never an adoption.
+			for _, fact := range retirements {
+				if i := indexOfFact(existing, fact.ID); i >= 0 && existing[i].Status == factStatusActive {
+					existing[i].Status = fact.Status
+					existing[i].SupersededBy = fact.SupersededBy
+					existing[i].UpdatedAt = opts.Now().UTC()
+				}
 			}
-		}
-		// Pull never evicts a stored record. The keep filter judges
-		// reachability from the CURRENT branch head, and the flat store holds
-		// every branch's pulls — a teammate fact pulled on another branch must
-		// stay recallable when syncing here. A stored fact leaves the store
-		// when the feed retires it (the lifecycle moves above, which apply
-		// regardless of the keep filter) or when the checkpoint mirror sweep
-		// drops provenance the whole repository no longer has; the keep filter
-		// gates ADOPTION only.
-		if err := factstore.Write(storage.BrainDir, existing); err != nil {
-			return err
-		}
-		// A manifest failure reports alongside the successful pull instead of
-		// masking it.
-		manifestErr = updateFactSourceManifestLocked(storage.BrainDir, opts.Now().UTC())
-		kept, total = len(keptRecords), len(items)
-		return nil
-	})
+			// Pull never evicts a stored record. The keep filter judges
+			// reachability from the CURRENT branch head, and the flat store holds
+			// every branch's pulls — a teammate fact pulled on another branch must
+			// stay recallable when syncing here. A stored fact leaves the store
+			// when the feed retires it (the lifecycle moves above, which apply
+			// regardless of the keep filter) or when the checkpoint mirror sweep
+			// drops provenance the whole repository no longer has; the keep filter
+			// gates ADOPTION only.
+			if err := factstore.Write(storage.BrainDir, existing); err != nil {
+				return err
+			}
+			// A manifest failure reports alongside the successful pull instead of
+			// masking it.
+			manifestErr = updateFactSourceManifestRecordsLocked(storage.BrainDir, opts.Now().UTC(), existing)
+			kept, total = len(keptRecords), len(items)
+			return nil
+		})
+	}()
 	return kept, total, manifestErr, err
 }

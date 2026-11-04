@@ -721,8 +721,7 @@ entire brain facts tree --depth 1
 Distillation sends redacted transcript chunks to the selected agent unless you
 use a local loopback agent such as Ollama. It is incremental and cached:
 unchanged sessions are skipped. Extracted facts enter the repository-level
-memory store. Duplicate IDs are merged; semantic compaction is separate work.
-There is no memory proposal or review queue.
+memory store. There is no memory proposal or review queue.
 
 For active repos, keep the brain current with the watcher — deterministic
 refreshes are free; token-spending work is opt-in and separately gated:
@@ -788,9 +787,8 @@ client and how the repository is configured.
 
 ### Capture layer: Entire hooks produce the raw material
 
-Claude capture requires Claude Code **2.1.78 or later**. Check `claude --version`
-and confirm that a real Claude turn and commit produce a checkpoint.
-See [capture requirements](memory-storage-compatibility.md#claude-capture-requirement).
+For Claude capture, follow the
+[capture requirements](memory-storage-compatibility.md#claude-capture-requirement).
 
 `entire-cli` installs lifecycle hooks for agents such as Claude Code, Codex,
 Gemini CLI, OpenCode, Cursor, Factory AI Droid, Copilot CLI, and Pi. Those hooks
