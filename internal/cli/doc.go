@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -141,8 +142,12 @@ func docFileHistorical(path, text string) bool {
 // writeDocIndexAndSource builds and persists the doc index + manifest source from
 // the seed markdown. It mirrors writeBrainHistoryIndexAndSource.
 func writeDocIndexAndSource(brainDir string, now time.Time) (*docSourceManifest, error) {
+	return writeDocIndexAndSourceContext(context.Background(), brainDir, now)
+}
+
+func writeDocIndexAndSourceContext(ctx context.Context, brainDir string, now time.Time) (*docSourceManifest, error) {
 	var source *docSourceManifest
-	err := brainstore.WithBrainWriteLock(brainDir, func() error {
+	err := brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
 		var runErr error
 		source, runErr = writeDocIndexAndSourceLocked(brainDir, now)
 		return runErr

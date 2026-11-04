@@ -436,7 +436,7 @@ func reconcileMemoryJobsForAdmin(ctx context.Context, brainDir, trigger string, 
 		if dryRun {
 			err = apply()
 		} else {
-			err = brainstore.WithBrainWriteLock(brainDir, apply)
+			err = brainstore.WithBrainWriteLockContext(ctx, brainDir, apply)
 		}
 		if err == nil || !strings.Contains(err.Error(), brainstore.SourceStaleCode) {
 			return created, err
@@ -882,13 +882,17 @@ func maintainMemoryWorkerStateLocked(brainDir string, now time.Time, snapshot *m
 }
 
 func runMemoryMaintenance(brainDir string, now time.Time) (memoryWorkerStats, error) {
+	return runMemoryMaintenanceContext(context.Background(), brainDir, now)
+}
+
+func runMemoryMaintenanceContext(ctx context.Context, brainDir string, now time.Time) (memoryWorkerStats, error) {
 	for attempt := 0; attempt < 2; attempt++ {
-		snapshot, err := prepareMemoryReconcileSnapshot(context.Background(), brainDir)
+		snapshot, err := prepareMemoryReconcileSnapshot(ctx, brainDir)
 		if err != nil {
 			return memoryWorkerStats{}, err
 		}
 		var stats memoryWorkerStats
-		err = brainstore.WithBrainWriteLock(brainDir, func() error {
+		err = brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
 			var applyErr error
 			stats, applyErr = maintainMemoryWorkerStateLocked(brainDir, now, snapshot)
 			return applyErr
@@ -932,7 +936,7 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 	}
 	var claimed []memoryJob
 	claimAt := memoryClockNow(clock)
-	err = brainstore.WithBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
 		inventory := loadMemoryJobInventory(brainDir)
 		if err := memoryJobEnumerationError(inventory.Issues); err != nil {
 			return err
@@ -1005,12 +1009,15 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 		return stats, err
 	}
 	if len(claimed) == 0 {
-		maintenance, err := runMemoryMaintenance(brainDir, memoryClockNow(clock))
+		maintenance, err := runMemoryMaintenanceContext(ctx, brainDir, memoryClockNow(clock))
 		stats.add(maintenance)
 		return stats, err
 	}
 
 	prepared, prepareErr := prepareBrainHistoryProjectionContext(ctx, brainDir, memoryClockNow(clock), nil)
+	// Cancellation stops new work, but must not prevent settling an already
+	// claimed job or removing its staging files. Keep background priority and
+	// bound shutdown if another process is stuck in its atomic write.
 	published := false
 	// publishBrainHistoryProjectionLocked is the ONLY caller of
 	// discardPreparedHistoryProjection, so every path that never reaches it
@@ -1024,11 +1031,11 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 		if prepareErr != nil || publishAttempted {
 			return
 		}
-		_ = brainstore.WithBrainWriteLock(brainDir, func() error {
+		_ = brainstore.WithBrainWriteLockSettlement(ctx, brainDir, func() error {
 			return discardPreparedHistoryProjection(brainDir, prepared)
 		})
 	}()
-	err = brainstore.WithBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLockSettlement(ctx, brainDir, func() error {
 		cancelled := map[string]*memoryCancellationRequest{}
 		for _, job := range claimed {
 			request, err := loadMemoryCancellationRequest(brainDir, job.JobID)
@@ -1145,10 +1152,10 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 		return nil
 	})
 	if published {
-		finalizePreparedHistoryProjection(brainDir, prepared)
+		finalizePreparedHistoryProjectionContext(ctx, brainDir, prepared)
 	}
 	if err == nil {
-		maintenance, maintenanceErr := runMemoryMaintenance(brainDir, memoryClockNow(clock))
+		maintenance, maintenanceErr := runMemoryMaintenanceContext(ctx, brainDir, memoryClockNow(clock))
 		stats.add(maintenance)
 		if maintenanceErr != nil {
 			err = maintenanceErr
@@ -1165,7 +1172,7 @@ func runMemoryAbstractLaneWithClock(ctx context.Context, repoDir, brainDir strin
 	var stats memoryWorkerStats
 	var claimed *memoryJob
 	claimAt := memoryClockNow(clock)
-	err := brainstore.WithBrainWriteLock(brainDir, func() error {
+	err := brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
 		created, err := reconcileAbstractJobsLocked(brainDir, "worker", claimAt)
 		if err != nil {
 			return err
@@ -1302,7 +1309,7 @@ func runMemoryAbstractLaneWithClock(ctx context.Context, repoDir, brainDir strin
 	// run, it cancelled the provider first, so runErr is itself non-nil and the
 	// retryable path still fires.
 	settleErr := runErr
-	err = brainstore.WithBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLockSettlement(ctx, brainDir, func() error {
 		settledAt := memoryClockNow(clock)
 		current, err := memoryJobByID(brainDir, claimed.JobID)
 		if err != nil {
@@ -1389,6 +1396,7 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SetContext(brainstore.BackgroundWrites(cmd.Context()))
 			if !once {
 				return fmt.Errorf("only --once is supported")
 			}
@@ -1994,7 +2002,7 @@ func newMemoryRetryCommand(opts Options) *cobra.Command {
 			if dryRun {
 				err = retry()
 			} else {
-				err = brainstore.WithBrainWriteLock(storage.BrainDir, retry)
+				err = brainstore.WithBrainWriteLockContext(cmd.Context(), storage.BrainDir, retry)
 			}
 			if err != nil {
 				return fail(err)
@@ -2136,7 +2144,7 @@ func newMemoryCancelCommand(opts Options) *cobra.Command {
 			if dryRun {
 				err = cancel()
 			} else {
-				err = brainstore.WithBrainWriteLock(storage.BrainDir, cancel)
+				err = brainstore.WithBrainWriteLockContext(cmd.Context(), storage.BrainDir, cancel)
 			}
 			if err != nil {
 				return fail(err)
