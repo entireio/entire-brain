@@ -71,78 +71,19 @@ esac
 
 # ---- version -----------------------------------------------------------
 # Scratch space for the API lookup and the download. Created here, before the
-# version lookup, so the lookup can keep the response headers and body.
+# version lookup, so the lookup can keep the response body.
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-# The API lookup keeps the HTTP status, headers and body instead of letting
-# curl -f collapse every failure into an empty string. Unauthenticated GitHub
-# API calls are capped per IP address, and an exhausted cap answers 403 (or
-# 429). Reporting that as "check your network" sends the user after the wrong
+# The API lookup keeps the HTTP status and body instead of letting curl -f
+# collapse every failure into an empty string. Unauthenticated GitHub API
+# calls are capped per IP address, and an exhausted cap answers 403 (or 429).
+# Reporting that as "check your network" sends the user after the wrong
 # problem, so say what actually happened and how to get past it.
 api_status=""
 api_get() {
-  api_status="$(curl -sSL -D "${tmp}/api.headers" -o "${tmp}/api.json" \
+  api_status="$(curl -sL -o "${tmp}/api.json" \
     -w '%{http_code}' "$1" 2>/dev/null)" || api_status="000"
-  # With -L, -D also records every redirect's headers. Keep only the final
-  # response's block, the one api_status describes.
-  if [ -f "${tmp}/api.headers" ]; then
-    awk '/^HTTP\//{block=""} {block=block $0 "\n"} END{printf "%s", block}' \
-      "${tmp}/api.headers" > "${tmp}/api.headers.final"
-    mv "${tmp}/api.headers.final" "${tmp}/api.headers"
-  fi
-}
-
-api_rate_limited() {
-  # 429 always means too many requests. A 403 is a limit when the primary
-  # quota is used up, when GitHub asks for a pause (retry-after), or when the
-  # message names a rate limit or, in older wording, abuse detection.
-  case "$api_status" in
-    429) return 0 ;;
-    403) : ;;
-    *) return 1 ;;
-  esac
-  # HTTP allows spaces or tabs after the colon. retry-after counts in either
-  # form, seconds or an HTTP-date.
-  grep -qiE '^(x-ratelimit-remaining:[[:space:]]*0[[:space:]]*|retry-after:[[:space:]]*[^[:space:]].*)$' "${tmp}/api.headers" 2>/dev/null \
-    || grep -qiE 'rate limit|abuse detection' "${tmp}/api.json" 2>/dev/null
-}
-
-rate_limit_error() {
-  # Two different clocks. An exhausted primary quota (remaining: 0) resets at
-  # x-ratelimit-reset, an epoch. A secondary limit asks for a pause in
-  # retry-after, in seconds, and can come with or without an exhausted primary
-  # quota. When the primary quota is not exhausted its x-ratelimit-reset is
-  # unrelated, so ignore it. When both apply, wait for the later one.
-  local secs="" reset="" after="" wait=""
-  if grep -qiE '^x-ratelimit-remaining:[[:space:]]*0[[:space:]]*$' "${tmp}/api.headers" 2>/dev/null; then
-    reset="$({ grep -iE '^x-ratelimit-reset:[[:space:]]*[0-9]+[[:space:]]*$' "${tmp}/api.headers" || true; } \
-      | tail -1 | tr -dc '0-9')"
-    [ -z "$reset" ] || secs=$(( 10#$reset - $(date +%s) ))
-  fi
-  # retry-after is decimal seconds or an HTTP-date. Only the seconds form
-  # gives a wait; a date is never read as digits. 10# keeps a leading zero
-  # (08) from being taken as octal.
-  after="$({ grep -iE '^retry-after:[[:space:]]*[0-9]+[[:space:]]*$' "${tmp}/api.headers" 2>/dev/null || true; } \
-    | tail -1 | tr -dc '0-9')"
-  [ -z "$after" ] || after=$(( 10#$after ))
-  if [ -n "$after" ] && { [ -z "$secs" ] || [ "$after" -gt "$secs" ]; }; then
-    secs="$after"
-  fi
-  # A retry-after that is not seconds (an HTTP-date) may end after any known
-  # reset, so give no estimate rather than a too-early one.
-  if [ -z "$after" ] && grep -qiE '^retry-after:[[:space:]]*[^[:space:]]' "${tmp}/api.headers" 2>/dev/null; then
-    secs=""
-  fi
-  if [ -n "$secs" ]; then
-    [ "$secs" -ge 1 ] || secs=1
-    wait=" It resets in about $(( (secs + 59) / 60 )) minute(s)."
-  fi
-  error "GitHub's API rate limit is exhausted (HTTP ${api_status} from api.github.com),
-  so the newest ${CHANNEL} release could not be looked up.${wait}
-  Wait and re-run, or skip the lookup by naming a release:
-    curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/get-brain.sh | bash -s -- --version vX.Y.Z
-  Releases: https://github.com/${GITHUB_REPO}/releases"
 }
 
 resolve_version() {
@@ -152,10 +93,18 @@ resolve_version() {
   else
     api_get "${api}/latest"
   fi
-  api_rate_limited && rate_limit_error
   case "$api_status" in
     000) error "could not reach api.github.com to resolve a ${CHANNEL} release. Check your network, or
   pass --version vX.Y.Z. Releases: https://github.com/${GITHUB_REPO}/releases" ;;
+    # ponytail: every 403/429 from this unauthenticated GET of a public
+    # endpoint is reported as a rate limit; a genuine 403 would be mislabeled.
+    # Upgrade path: parse x-ratelimit-remaining / retry-after (PR #561 has a
+    # full implementation in its history).
+    403|429) error "GitHub's API rate limit is exhausted (HTTP ${api_status} from api.github.com),
+  so the newest ${CHANNEL} release could not be looked up. Wait a while and
+  re-run, or skip the lookup by naming a release:
+    curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/get-brain.sh | bash -s -- --version vX.Y.Z
+  Releases: https://github.com/${GITHUB_REPO}/releases" ;;
     2??) : ;;
     *) error "could not resolve a ${CHANNEL} release: api.github.com answered HTTP ${api_status}.
   Pass --version vX.Y.Z to skip the lookup. Releases: https://github.com/${GITHUB_REPO}/releases" ;;

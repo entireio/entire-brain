@@ -1,7 +1,6 @@
 package releasecheck
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestWorkflowRunBlocksDoNotInterpolateUntrustedInputs(t *testing.T) {
@@ -121,30 +119,15 @@ esac
 
 // Without --version the installer asks the GitHub API for the newest release.
 // Unauthenticated API calls are capped per IP address, and an exhausted cap
-// answers 403 with x-ratelimit-remaining: 0. The installer used to fetch with
-// curl -f and discard the error, so a rate-limited user was told to check
-// their network (#555).
+// answers 403 (or 429). The installer used to fetch with curl -f and discard
+// the error, so a rate-limited user was told to check their network (#555).
 //
 // runInstallerLookup runs the installer against a curl stub that answers the
-// release lookup with the given status, headers and body the way real curl
-// would: -f turns a 4xx/5xx into exit 22 with no output, -D writes the
-// headers, -o writes the body and -w prints the status code. Anything past the
-// lookup is the download, which the stub fails visibly, and an API URL other
-// than the channel's lookup fails the same way. No network is used.
-func runInstallerLookup(t *testing.T, status int, body string, headers map[string]string, networkDown bool, args ...string) (stdout, stderr string, err error) {
-	t.Helper()
-	var lines []string
-	for k, v := range headers {
-		lines = append(lines, k+": "+v)
-	}
-	return runInstallerLookupRawHeaders(t, status, body, lines, networkDown, args...)
-}
-
-// runInstallerLookupRawHeaders is runInstallerLookup with the header lines
-// written verbatim, for spellings a map cannot express (a tab after the colon).
-// When the first line is a status line, the lines are the whole header dump,
-// so a test can put a redirect's header block before the final response's.
-func runInstallerLookupRawHeaders(t *testing.T, status int, body string, rawHeaders []string, networkDown bool, args ...string) (stdout, stderr string, err error) {
+// release lookup with the given status and body the way real curl would:
+// -o writes the body and -w prints the status code. Anything past the lookup
+// is the download, which the stub fails visibly, and an API URL other than
+// the channel's lookup fails the same way. No network is used.
+func runInstallerLookup(t *testing.T, status int, body string, networkDown bool, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("installer is a POSIX shell script")
@@ -161,21 +144,12 @@ func runInstallerLookupRawHeaders(t *testing.T, status int, body string, rawHead
 	if err := os.WriteFile(filepath.Join(dir, "body"), []byte(body), 0600); err != nil {
 		t.Fatal(err)
 	}
-	headerLines := append([]string{fmt.Sprintf("HTTP/2 %d", status)}, rawHeaders...)
-	if len(rawHeaders) > 0 && strings.HasPrefix(rawHeaders[0], "HTTP/") {
-		headerLines = rawHeaders
-	}
-	if err := os.WriteFile(filepath.Join(dir, "headers"), []byte(strings.Join(headerLines, "\r\n")+"\r\n\r\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
 	curl := `#!/bin/sh
-fail=0; out=""; hdr=""; fmt=""; url=""
+out=""; fmt=""; url=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -o) out="$2"; shift 2 ;;
-    -D) hdr="$2"; shift 2 ;;
     -w) fmt="$2"; shift 2 ;;
-    -*f*) fail=1; shift ;;
     -*) shift ;;
     *) url="$1"; shift ;;
   esac
@@ -190,11 +164,6 @@ if [ "$FIXTURE_NETWORK_DOWN" = 1 ]; then
   [ -n "$fmt" ] && printf 000
   exit 6
 fi
-if [ "$fail" = 1 ] && [ "$FIXTURE_STATUS" -ge 400 ]; then
-  echo "curl: (22) The requested URL returned error: $FIXTURE_STATUS" >&2
-  exit 22
-fi
-[ -n "$hdr" ] && cp "$FIXTURE_DIR/headers" "$hdr"
 if [ -n "$out" ]; then cp "$FIXTURE_DIR/body" "$out"; else cat "$FIXTURE_DIR/body"; fi
 [ -n "$fmt" ] && printf '%s' "$FIXTURE_STATUS"
 exit 0
@@ -225,14 +194,6 @@ exit 0
 
 const rateLimitBody = `{"message":"API rate limit exceeded for 203.0.113.7. (But here's the good news: Authenticated requests get a higher rate limit.)","documentation_url":"https://docs.github.com/rest/overview/rate-limits-for-the-rest-api"}`
 
-func primaryRateLimitHeaders() map[string]string {
-	return map[string]string{
-		"x-ratelimit-limit":     "60",
-		"x-ratelimit-remaining": "0",
-		"x-ratelimit-reset":     strconv.FormatInt(time.Now().Add(20*time.Minute).Unix(), 10),
-	}
-}
-
 func requireNamesRateLimit(t *testing.T, stderr string, err error) {
 	t.Helper()
 	if err == nil {
@@ -250,152 +211,25 @@ func requireNamesRateLimit(t *testing.T, stderr string, err error) {
 }
 
 func TestInstallerLookupRateLimitedStableNamesTheLimit(t *testing.T) {
-	_, stderr, err := runInstallerLookup(t, 403, rateLimitBody, primaryRateLimitHeaders(), false)
+	_, stderr, err := runInstallerLookup(t, 403, rateLimitBody, false)
 	requireNamesRateLimit(t, stderr, err)
 	if !strings.Contains(stderr, "403") {
 		t.Fatalf("missing HTTP status: %q", stderr)
 	}
-	if !regexp.MustCompile(`resets in about (19|20) minute`).MatchString(stderr) {
-		t.Fatalf("missing reset estimate from x-ratelimit-reset: %q", stderr)
-	}
 }
 
 func TestInstallerLookupRateLimitedNightlyNamesTheLimit(t *testing.T) {
-	_, stderr, err := runInstallerLookup(t, 403, rateLimitBody, primaryRateLimitHeaders(), false, "--nightly")
+	_, stderr, err := runInstallerLookup(t, 403, rateLimitBody, false, "--nightly")
 	requireNamesRateLimit(t, stderr, err)
 }
 
-func TestInstallerLookupSecondaryLimit429WithoutHeaders(t *testing.T) {
-	_, stderr, err := runInstallerLookup(t, 429, `{"message":"You have exceeded a secondary rate limit."}`, nil, false)
+func TestInstallerLookup429NamesTheLimit(t *testing.T) {
+	_, stderr, err := runInstallerLookup(t, 429, `{"message":"You have exceeded a secondary rate limit."}`, false)
 	requireNamesRateLimit(t, stderr, err)
-}
-
-// A secondary limit can leave the primary quota untouched. Its
-// x-ratelimit-reset then describes the primary quota, and the time to wait is
-// retry-after.
-func TestInstallerLookupSecondaryLimitWaitsForRetryAfter(t *testing.T) {
-	_, stderr, err := runInstallerLookup(t, 403, `{"message":"You have exceeded a secondary rate limit."}`, map[string]string{
-		"retry-after":           "120",
-		"x-ratelimit-remaining": "41",
-		"x-ratelimit-reset":     strconv.FormatInt(time.Now().Add(50*time.Minute).Unix(), 10),
-	}, false)
-	requireNamesRateLimit(t, stderr, err)
-	if !strings.Contains(stderr, "resets in about 2 minute") {
-		t.Fatalf("a secondary limit should wait for retry-after: %q", stderr)
-	}
-}
-
-// A 429 is a rate limit even when the response carries no rate-limit headers
-// or wording.
-func TestInstallerLookup429WithoutDetailsNamesTheLimit(t *testing.T) {
-	_, stderr, err := runInstallerLookup(t, 429, "", nil, false)
-	requireNamesRateLimit(t, stderr, err)
-}
-
-// Older secondary-limit responses say "abuse detection mechanism" instead of
-// "rate limit" and ask for a pause in retry-after.
-func TestInstallerLookupAbuseDetectionNamesTheLimit(t *testing.T) {
-	_, stderr, err := runInstallerLookup(t, 403, `{"message":"You have triggered an abuse detection mechanism. Please wait a few minutes before you try again."}`, map[string]string{"retry-after": "60"}, false)
-	requireNamesRateLimit(t, stderr, err)
-	if !strings.Contains(stderr, "resets in about 1 minute") {
-		t.Fatalf("missing wait from retry-after: %q", stderr)
-	}
-}
-
-// When a secondary limit arrives with the primary quota also used up, the
-// user has to wait for whichever ends later.
-func TestInstallerLookupBothLimitsWaitForTheLater(t *testing.T) {
-	_, stderr, err := runInstallerLookup(t, 403, rateLimitBody, map[string]string{
-		"retry-after":           "3600",
-		"x-ratelimit-remaining": "0",
-		"x-ratelimit-reset":     strconv.FormatInt(time.Now().Add(5*time.Minute).Unix(), 10),
-	}, false)
-	requireNamesRateLimit(t, stderr, err)
-	if !strings.Contains(stderr, "resets in about 60 minute") {
-		t.Fatalf("should wait for the later retry-after, not the sooner primary reset: %q", stderr)
-	}
-}
-
-// HTTP allows a tab as well as spaces after the header colon.
-func TestInstallerLookupRateLimitHeadersAllowTabs(t *testing.T) {
-	for name, line := range map[string]string{
-		"retry-after":           "Retry-After:\t120",
-		"x-ratelimit-remaining": "X-RateLimit-Remaining:\t0",
-	} {
-		t.Run(name, func(t *testing.T) {
-			_, stderr, err := runInstallerLookupRawHeaders(t, 403, `{"message":"Forbidden"}`, []string{line}, false)
-			requireNamesRateLimit(t, stderr, err)
-		})
-	}
-	_, stderr, err := runInstallerLookupRawHeaders(t, 403, `{"message":"Forbidden"}`, []string{"Retry-After:\t120"}, false)
-	requireNamesRateLimit(t, stderr, err)
-	if !strings.Contains(stderr, "resets in about 2 minute") {
-		t.Fatalf("missing wait from a tab-separated retry-after: %q", stderr)
-	}
-}
-
-// retry-after is decimal seconds. A leading zero must not be read as octal
-// (bash arithmetic rejects 08), and the HTTP-date form carries no seconds
-// count, so it must not turn into one by dropping the non-digits.
-func TestInstallerLookupRetryAfterParsing(t *testing.T) {
-	_, stderr, err := runInstallerLookup(t, 429, "", map[string]string{"retry-after": "08"}, false)
-	requireNamesRateLimit(t, stderr, err)
-	if !strings.Contains(stderr, "resets in about 1 minute") {
-		t.Fatalf("retry-after 08 is 8 seconds: %q", stderr)
-	}
-	_, stderr, err = runInstallerLookup(t, 429, "", map[string]string{"retry-after": "Wed, 21 Oct 2026 07:28:00 GMT"}, false)
-	requireNamesRateLimit(t, stderr, err)
-	if strings.Contains(stderr, "resets in about") {
-		t.Fatalf("an HTTP-date retry-after is not a count of seconds: %q", stderr)
-	}
-}
-
-// x-ratelimit-reset is a decimal epoch too: a leading zero must not be read
-// as octal, and a malformed value must not become a wait.
-func TestInstallerLookupResetParsing(t *testing.T) {
-	reset := "0" + strconv.FormatInt(time.Now().Add(20*time.Minute).Unix(), 10)
-	_, stderr, err := runInstallerLookup(t, 403, rateLimitBody, map[string]string{"x-ratelimit-remaining": "0", "x-ratelimit-reset": reset}, false)
-	requireNamesRateLimit(t, stderr, err)
-	if !regexp.MustCompile(`resets in about (19|20) minute`).MatchString(stderr) {
-		t.Fatalf("a zero-padded reset is still decimal: %q", stderr)
-	}
-	_, stderr, err = runInstallerLookup(t, 403, rateLimitBody, map[string]string{"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1780000000 or 1790000000"}, false)
-	requireNamesRateLimit(t, stderr, err)
-	if strings.Contains(stderr, "resets in about") {
-		t.Fatalf("a malformed reset is not a wait: %q", stderr)
-	}
-}
-
-// With -L, curl -D writes every response's headers, redirects included. Only
-// the final response's block describes the status the script reports.
-func TestInstallerLookupIgnoresRedirectHeaders(t *testing.T) {
-	_, stderr, err := runInstallerLookupRawHeaders(t, 403, `{"message":"Forbidden"}`, []string{
-		"HTTP/2 301", "location: https://api.github.com/repositories/1/releases/latest", "retry-after: 120", "x-ratelimit-remaining: 0", "",
-		"HTTP/2 403", "x-ratelimit-remaining: 41",
-	}, false)
-	if err == nil || !strings.Contains(stderr, "HTTP 403") || strings.Contains(stderr, "rate limit") {
-		t.Fatalf("a redirect's rate-limit headers made a plain 403 look rate-limited: %q", stderr)
-	}
-}
-
-// A Retry-After HTTP-date still marks a secondary limit. Its wait is not
-// computed, so no estimate is printed, even when a primary reset is known: the
-// secondary limit may last longer.
-func TestInstallerLookupRetryAfterDate(t *testing.T) {
-	const date = "Wed, 21 Oct 2026 07:28:00 GMT"
-	_, stderr, err := runInstallerLookup(t, 403, `{"message":"Forbidden"}`, map[string]string{"retry-after": date, "x-ratelimit-remaining": "41"}, false)
-	requireNamesRateLimit(t, stderr, err)
-	headers := primaryRateLimitHeaders()
-	headers["retry-after"] = date
-	_, stderr, err = runInstallerLookup(t, 403, rateLimitBody, headers, false)
-	requireNamesRateLimit(t, stderr, err)
-	if strings.Contains(stderr, "resets in about") {
-		t.Fatalf("the primary reset is not the wait when a secondary limit gives a date: %q", stderr)
-	}
 }
 
 func TestInstallerLookupOtherHTTPErrorsReportStatus(t *testing.T) {
-	_, stderr, err := runInstallerLookup(t, 502, "<html>Bad Gateway</html>", nil, false)
+	_, stderr, err := runInstallerLookup(t, 502, "<html>Bad Gateway</html>", false)
 	if err == nil {
 		t.Fatalf("502 lookup succeeded: %s", stderr)
 	}
@@ -408,7 +242,7 @@ func TestInstallerLookupOtherHTTPErrorsReportStatus(t *testing.T) {
 }
 
 func TestInstallerLookupUnreachableAPIPointsAtNetwork(t *testing.T) {
-	_, stderr, err := runInstallerLookup(t, 200, "", nil, true)
+	_, stderr, err := runInstallerLookup(t, 200, "", true)
 	if err == nil {
 		t.Fatalf("unreachable lookup succeeded: %s", stderr)
 	}
@@ -420,14 +254,14 @@ func TestInstallerLookupUnreachableAPIPointsAtNetwork(t *testing.T) {
 func TestInstallerLookupSuccessResolvesTag(t *testing.T) {
 	// The download is deliberately unstubbed, so the run fails after the
 	// lookup; what matters is that the lookup picked the right tag.
-	stdout, stderr, _ := runInstallerLookup(t, 200, `{"tag_name": "v9.9.9", "name": "v9.9.9"}`, map[string]string{"x-ratelimit-remaining": "59"}, false)
+	stdout, stderr, _ := runInstallerLookup(t, 200, `{"tag_name": "v9.9.9", "name": "v9.9.9"}`, false)
 	if !strings.Contains(stdout, "Installing Entire Brain v9.9.9") {
 		t.Fatalf("stdout=%q stderr=%q", stdout, stderr)
 	}
 }
 
 func TestInstallerLookupSuccessNightlyPicksFirstNightly(t *testing.T) {
-	stdout, stderr, _ := runInstallerLookup(t, 200, `[{"tag_name": "v1.0.0"}, {"tag_name": "v1.1.0-nightly.202610280000.abc1234"}]`, nil, false, "--nightly")
+	stdout, stderr, _ := runInstallerLookup(t, 200, `[{"tag_name": "v1.0.0"}, {"tag_name": "v1.1.0-nightly.202610280000.abc1234"}]`, false, "--nightly")
 	if !strings.Contains(stdout, "Installing Entire Brain v1.1.0-nightly.202610280000.abc1234") {
 		t.Fatalf("stdout=%q stderr=%q", stdout, stderr)
 	}
