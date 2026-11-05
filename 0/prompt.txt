@@ -1,0 +1,11 @@
+testes are failing
+
+---
+
+<task-notification>
+<task-id>bcp1zf2qo</task-id>
+<tool-use-id>toolu_014bDAcXRTZdnRWADi26wxjT</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-khartoum/c0be0762-a7e3-4813-bba2-edd4df6e470f/tasks/bcp1zf2qo.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch the CI run until it completes" completed (exit code 0)</summary>
+</task-notification>
