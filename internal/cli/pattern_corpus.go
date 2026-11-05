@@ -103,11 +103,16 @@ func (g patternCorpusGraphContext) source(brainDir string, manifest *exportManif
 // transaction, removed transcripts are pruned, and an indexer-version bump forces
 // a full re-index. Deterministic and token-free.
 func buildPatternCorpus(brainDir string, now time.Time, graph ...patternCorpusGraphContext) error {
+	ctx := context.Background()
+	if len(graph) > 0 && graph[0].Context != nil {
+		ctx = graph[0].Context
+	}
+
 	// Session manifests, exported transcripts, facts, tombstones, corpus
 	// verifiers, and purge all use this lock for their mutation boundary. The
 	// deterministic build can therefore take a coherent input snapshot and a
 	// purge cannot verify clean before a stale corpus is published.
-	return brainstore.WithBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
 		return buildPatternCorpusLocked(brainDir, now, graph...)
 	})
 }

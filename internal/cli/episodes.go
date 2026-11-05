@@ -210,8 +210,12 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 // writeBrainEpisodesAndSource rebuilds the episode layer and records the patterns
 // source in the manifest, under the brain write lock.
 func writeBrainEpisodesAndSource(outputDir string, now time.Time) (*patternSourceManifest, error) {
+	return writeBrainEpisodesAndSourceContext(context.Background(), outputDir, now)
+}
+
+func writeBrainEpisodesAndSourceContext(ctx context.Context, outputDir string, now time.Time) (*patternSourceManifest, error) {
 	var source *patternSourceManifest
-	err := brainstore.WithBrainWriteLock(outputDir, func() error {
+	err := brainstore.WithBrainWriteLockContext(ctx, outputDir, func() error {
 		var runErr error
 		source, runErr = writeBrainEpisodesAndSourceLocked(outputDir, now)
 		return runErr
@@ -295,6 +299,10 @@ func patternSourceCurrent(source *patternSourceManifest, brainDir string) bool {
 // rebuilt. Deterministic and token-free; called by `entire brain refresh` so the
 // pattern layer is populated without a separate command.
 func refreshPatternLayer(brainDir string, force bool, now time.Time) (bool, error) {
+	return refreshPatternLayerContext(context.Background(), brainDir, force, now)
+}
+
+func refreshPatternLayerContext(ctx context.Context, brainDir string, force bool, now time.Time) (bool, error) {
 	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return false, err
@@ -305,7 +313,7 @@ func refreshPatternLayer(brainDir string, force bool, now time.Time) (bool, erro
 	if !force && patternSourceCurrent(manifest.Sources.Patterns, brainDir) {
 		return false, nil // current
 	}
-	if _, err := writeBrainEpisodesAndSource(brainDir, now); err != nil {
+	if _, err := writeBrainEpisodesAndSourceContext(ctx, brainDir, now); err != nil {
 		return false, err
 	}
 	return true, nil
