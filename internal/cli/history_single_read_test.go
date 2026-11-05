@@ -259,6 +259,7 @@ func buildBrainHistoryIndexHashThenScanReference(outputDir string, now time.Time
 	source := &historySourceManifest{
 		GeneratedAt:            now,
 		IndexPath:              historystore.IndexPath,
+		ExtractionVersion:      historyScanCacheVersion,
 		SessionsFingerprint:    brainSessionsFingerprint(outputDir),
 		TranscriptsFingerprint: transcriptsFingerprint,
 		Records:                len(index.Records),

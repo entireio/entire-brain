@@ -92,6 +92,15 @@ scan results. Its cache wire version remains compatible with the supported older
 clients. An older write without the current extraction revision causes a later
 current refresh to rescan the transcripts.
 
+The history source manifest and the short-term overlay
+(`history/short-term.json`) record the same extraction revision. A refresh
+rebuilds a history index that another revision built, even when the transcripts
+are unchanged. A delta re-parses overlay entries that another revision built
+instead of carrying them forward. The overlay keeps format version 3. An
+overlay stamped version 4 by a pre-release build has the version 3 layout: it
+stays readable, and the next delta re-parses its entries. Current privacy
+inspection accepts both known formats and still rejects unsupported formats.
+
 ## Test coverage
 
 | Area | Checks |

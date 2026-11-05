@@ -267,6 +267,7 @@ func TestHistoryIndexCurrentUsesSessionFingerprint(t *testing.T) {
 		Sessions: sessionSource,
 		History: &historySourceManifest{
 			IndexPath:              historystore.IndexPath,
+			ExtractionVersion:      historyScanCacheVersion,
 			IndexBytes:             int64(len(indexData)),
 			IndexSHA256:            historystore.IndexBytesFingerprint(indexData),
 			RecordsFingerprint:     historystore.RecordsFingerprint(nil),
@@ -277,6 +278,11 @@ func TestHistoryIndexCurrentUsesSessionFingerprint(t *testing.T) {
 	if !historyIndexCurrent(brainDir, manifest) {
 		t.Fatalf("history index should be current for matching session fingerprint")
 	}
+	manifest.Sources.History.ExtractionVersion--
+	if historyIndexCurrent(brainDir, manifest) {
+		t.Fatal("history index should be stale when extraction version changes")
+	}
+	manifest.Sources.History.ExtractionVersion = historyScanCacheVersion
 	manifest.Sources.History.TranscriptsFingerprint = ""
 	if historyIndexCurrent(brainDir, manifest) {
 		t.Fatal("legacy history source without transcript content identity should rebuild once")
