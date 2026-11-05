@@ -1,0 +1,111 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M6PMB36KQ4F8WR0S10H40MV0",
+  "session_id": "39fef4de-810f-4c93-a70c-9fabf52e1762",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-05T19:53:02.100229Z",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "tools/releasecheck/release_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "3c823f0d09b2",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 68,
+    "cache_creation_tokens": 280543,
+    "cache_read_tokens": 3925440,
+    "output_tokens": 46617,
+    "api_call_count": 34,
+    "subagent_tokens": {
+      "input_tokens": 42,
+      "cache_creation_tokens": 192934,
+      "cache_read_tokens": 745321,
+      "output_tokens": 14457,
+      "api_call_count": 20
+    }
+  },
+  "redaction": {
+    "replacements": 3,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 0,
+      "key_context": 3,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01DeXvqsTHoNapRwSUh675zS",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "review-pr"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "3c823f0d09b2",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 31,
+        "end": 32,
+        "entry_ids": [
+          "d92397bb-af7a-4e7f-b446-ae5701de5830"
+        ],
+        "tool_use_id": "toolu_01DeXvqsTHoNapRwSUh675zS"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01DeXvqsTHoNapRwSUh675zS"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: review-pr",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_0133XXsoAsWgt1bi6o54xcja",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "simplify"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "3c823f0d09b2",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 155,
+        "end": 156,
+        "entry_ids": [
+          "2f97434a-f710-4dff-8c2f-badcf5b9161d"
+        ],
+        "tool_use_id": "toolu_0133XXsoAsWgt1bi6o54xcja"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_0133XXsoAsWgt1bi6o54xcja"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: simplify",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 5
+  }
+}

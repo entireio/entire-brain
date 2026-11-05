@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01EwEd4qzKUpKU5J7yFgTX1g",
+  "agent_id": "a18429c0d9a4304f4",
+  "subagent_type": "Explore",
+  "task_description": "Altitude review of PR 561",
+  "token_usage": {
+    "input_tokens": 8,
+    "cache_creation_tokens": 40480,
+    "cache_read_tokens": 118202,
+    "output_tokens": 2844,
+    "api_call_count": 4
+  },
+  "started_at": "2026-11-05T11:34:30.361261-08:00",
+  "completed_at": "2026-11-05T11:35:01.267073-08:00"
+}

@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01Rf7o4JdfLHb6D2ibvZZNZQ",
+  "agent_id": "a50ef72be460a3209",
+  "subagent_type": "Explore",
+  "task_description": "Reuse review of PR 561",
+  "token_usage": {
+    "input_tokens": 16,
+    "cache_creation_tokens": 59852,
+    "cache_read_tokens": 310000,
+    "output_tokens": 3582,
+    "api_call_count": 7
+  },
+  "started_at": "2026-11-05T11:34:13.001868-08:00",
+  "completed_at": "2026-11-05T11:34:49.582138-08:00"
+}

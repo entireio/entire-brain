@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01Bfr5KkBHfGLEqDhNkAx8M1",
+  "agent_id": "a84e8a741344d144b",
+  "subagent_type": "Explore",
+  "task_description": "Simplification review of PR 561",
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 47658,
+    "cache_read_tokens": 184337,
+    "output_tokens": 5804,
+    "api_call_count": 5
+  },
+  "started_at": "2026-11-05T11:34:17.649807-08:00",
+  "completed_at": "2026-11-05T11:35:20.933895-08:00"
+}
