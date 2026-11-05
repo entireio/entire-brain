@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
@@ -163,9 +164,10 @@ func TestWatchConsolidationRefreshSkipsTranscriptSweep(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
-	// true: this models the daemon's own tick (watch.go's watchStepsForRepo),
-	// which is unattended and always skips the sweep.
-	if err := watchDeterministicRefresh(context.Background(), cmd, opts, repoDir, true); err != nil {
+	// Exercise the daemon's actual refresh wiring: unattended ticks must
+	// preserve the cache even when coordinator launch moves out of refresh.
+	steps := watchStepsForRepo(cmd, opts, watch.DefaultFlags(), repoDir, opts.Now)
+	if err := steps.Refresh(context.Background()); err != nil {
 		t.Fatalf("watch consolidation refresh: %v", err)
 	}
 

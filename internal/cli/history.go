@@ -73,10 +73,22 @@ const (
 	// sole reuse authority — unchanged transcripts would keep those empty
 	// results forever, so an upgraded brain would never recover its history
 	// without a manual rebuild (COR-2289).
-	historyScanCacheVersion = 11
-	// Extraction revision 11 changes parser behavior, not the record schema.
-	// Keep the wire version readable by supported stable clients. Old clients
-	// drop extractor_version when rewriting, forcing the new parser to rescan.
+	// v12: also mine code facts from the tool output the compact dialect
+	// inlines into each tool_use block (tool_use.result.output) instead of a
+	// separate tool_result record. A v11 cache holds compact scans without
+	// those facts.
+	// v13: a record whose "message" is null or an empty object falls back to
+	// its top-level content. Pre-release revision 12 builds read nothing from
+	// such records, and their caches would otherwise stay current.
+	// The value is also persisted as the history source's ExtractionVersion
+	// so refresh rebuilds an otherwise-unchanged index built by an older
+	// extractor, and as the short-term overlay's extractor_version so a delta
+	// re-parses entries an older extractor built.
+	historyScanCacheVersion = 13
+	// Extraction revisions 11 to 13 change parser behavior, not the record
+	// schema. Keep the wire version readable by supported stable clients. Old
+	// clients drop extractor_version when rewriting, forcing the new parser to
+	// rescan.
 	historyScanCacheWireVersion = 10
 )
 
@@ -221,13 +233,13 @@ func writeBrainHistoryIndexAndSourceContext(ctx context.Context, outputDir strin
 		return nil, err
 	}
 	var source *historySourceManifest
-	err = brainstore.WithBrainWriteLock(outputDir, func() error {
+	err = brainstore.WithBrainWriteLockContext(ctx, outputDir, func() error {
 		var runErr error
 		source, runErr = publishBrainHistoryProjectionLocked(outputDir, prepared, nil)
 		return runErr
 	})
 	if err == nil {
-		finalizePreparedHistoryProjection(outputDir, prepared)
+		finalizePreparedHistoryProjectionContext(ctx, outputDir, prepared)
 	}
 	return source, err
 }
@@ -447,13 +459,17 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 // FTS remains lazy: its fingerprint makes the old store unreadable for the new
 // index until a query rebuilds it.
 func finalizePreparedHistoryProjection(outputDir string, prepared *preparedHistoryProjection) {
+	finalizePreparedHistoryProjectionContext(context.Background(), outputDir, prepared)
+}
+
+func finalizePreparedHistoryProjectionContext(ctx context.Context, outputDir string, prepared *preparedHistoryProjection) {
 	if prepared == nil {
 		return
 	}
 	if len(prepared.cacheData) > 0 {
 		_ = brainstore.WriteBrainRelativeFileAtomic(outputDir, historyScanCachePath, prepared.cacheData, 0o600)
 	}
-	_ = brainstore.WithBrainWriteLock(outputDir, func() error {
+	_ = brainstore.WithBrainWriteLockContext(ctx, outputDir, func() error {
 		pruneInactiveHistoryGenerations(outputDir)
 		return nil
 	})
@@ -1202,6 +1218,7 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 	source := &historySourceManifest{
 		GeneratedAt:            now,
 		IndexPath:              historystore.IndexPath,
+		ExtractionVersion:      historyScanCacheVersion,
 		TranscriptsFingerprint: transcriptsFingerprint,
 		SessionsFingerprint: func() string {
 			if manifest == nil {
@@ -2132,12 +2149,23 @@ func extractClaudeToolResultFragments(obj map[string]any) []historyFragment {
 }
 
 func extractClaudeMessageFragments(obj map[string]any, role string) []historyFragment {
+	return extractContentFragments(transcriptRecordContent(obj), role+"_message")
+}
+
+// transcriptRecordContent returns the content of a "user" or "assistant"
+// record in either dialect that uses those record types. The claude-code
+// native dialect nests the turn under "message"; the Entire Transcript Format
+// v1 (the compact transcript.jsonl the default export reads, written for
+// every agent including codex and pi) puts the content blocks at the RECORD's
+// top level with no wrapper. Reading only the nested one indexed every compact
+// session to nothing. A "message" that is null or an empty object counts as
+// absent, so the record's top-level content is read, matching what the
+// history and conversation readers did before this helper existed.
+func transcriptRecordContent(obj map[string]any) any {
 	if message := jsonMap(obj["message"]); len(message) > 0 {
-		return extractContentFragments(message["content"], role+"_message")
+		return message["content"]
 	}
-	// ETF compact records carry the content blocks at the record's top level
-	// (see distillConversationText).
-	return extractContentFragments(obj["content"], role+"_message")
+	return obj["content"]
 }
 
 func extractContentFragments(content any, source string) []historyFragment {
@@ -2161,6 +2189,9 @@ func extractContentFragments(content any, source string) []historyFragment {
 				text := strings.TrimSpace(name + " " + compactJSONValue(block["input"]))
 				fragments = append(fragments, historyFragment{Text: text, Source: historyToolCallSource(name)})
 				fragments = append(fragments, extractToolResultFacts(text)...)
+				// The compact v1 dialect inlines the tool's output into the
+				// tool_use block instead of a separate tool_result record.
+				fragments = append(fragments, extractToolResultFacts(jsonString(jsonMap(block["result"])["output"]))...)
 			case "tool_result":
 				fragments = append(fragments, extractToolResultFacts(firstNonEmptyString(block["content"], block["text"]))...)
 			default:

@@ -32,7 +32,7 @@ func newFactsStorageCommand(opts Options) *cobra.Command {
 				}
 				var summary factstore.MigrationSummary
 				if action == "migrate" {
-					err = brainstore.WithBrainWriteLock(dir, func() error {
+					err = brainstore.WithBrainWriteLockContext(cmd.Context(), dir, func() error {
 						var migrateErr error
 						summary, migrateErr = factstore.MigrateRepository(dir)
 						if migrateErr != nil || global || !summary.Changed() {
@@ -63,6 +63,7 @@ func newFactsStorageCommand(opts Options) *cobra.Command {
 							"folded":          summary.Folded,
 							"straggler_files": summary.StragglerFiles,
 							"moved_dirs":      summary.MovedDirs,
+							"cleanup":         summary.Cleanup,
 						})
 					}
 					return cmdutil.WriteJSON(cmd, report)

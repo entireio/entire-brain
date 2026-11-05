@@ -88,6 +88,10 @@ func sessionIDsByCheckpoint(ctx context.Context, opts Options, repoDir, brainDir
 }
 
 func saveEntityIndexCache(brainDir string, cache entities.IndexCache) error {
+	return saveEntityIndexCacheContext(context.Background(), brainDir, cache)
+}
+
+func saveEntityIndexCacheContext(ctx context.Context, brainDir string, cache entities.IndexCache) error {
 	if strings.TrimSpace(brainDir) == "" {
 		return errors.New("entity index cache: brain dir is empty")
 	}
@@ -98,7 +102,7 @@ func saveEntityIndexCache(brainDir string, cache entities.IndexCache) error {
 	if err != nil {
 		return err
 	}
-	return brainstore.WithBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
 		return brainstore.WriteBrainRelativeFileAtomic(brainDir, entities.CachePath, append(data, '\n'), 0o600)
 	})
 }

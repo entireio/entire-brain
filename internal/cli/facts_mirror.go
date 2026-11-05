@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -136,6 +137,10 @@ func warnLegacyTombstones(out io.Writer, brainDir string) {
 // session source at all) makes the whole pass a no-op: membership can only be
 // judged against the full catalog.
 func mirrorBrainToCheckpointCatalog(brainDir string, now time.Time) (mirrorCounts, error) {
+	return mirrorBrainToCheckpointCatalogContext(context.Background(), brainDir, now)
+}
+
+func mirrorBrainToCheckpointCatalogContext(ctx context.Context, brainDir string, now time.Time) (mirrorCounts, error) {
 	var counts mirrorCounts
 	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
@@ -145,7 +150,7 @@ func mirrorBrainToCheckpointCatalog(brainDir string, now time.Time) (mirrorCount
 	if !ok {
 		return counts, nil
 	}
-	err = brainstore.WithBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
 		deleted, stripped, err := dropFactsForMissingSessionsLocked(brainDir, catalog, now)
 		if err != nil {
 			return err

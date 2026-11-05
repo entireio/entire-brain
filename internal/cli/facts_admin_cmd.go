@@ -72,7 +72,7 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 			// Seeded with the id so the event is still identifiable if the
 			// record cannot be re-read after the mutation.
 			retracted := factRecord{ID: factID}
-			if err := brainstore.WithBrainWriteLock(brainDir, func() error {
+			if err := brainstore.WithBrainWriteLockContext(cmd.Context(), brainDir, func() error {
 				if _, err := migrateFactStoreLocked(brainDir); err != nil {
 					return err
 				}
@@ -215,7 +215,7 @@ func runFactsReclassify(cmd *cobra.Command, opts Options, brainDir string, force
 	// writing the mutated copy back is a lost update: a concurrent writer that
 	// commits between this read and this write is silently overwritten, and
 	// its facts disappear.
-	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLockContext(cmd.Context(), brainDir, func() error {
 		if _, err := migrateFactStoreLocked(brainDir); err != nil {
 			return err
 		}
@@ -412,7 +412,7 @@ func runFactsGC(cmd *cobra.Command, opts Options, brainDir, branch string, force
 		"applied":   force,
 	}
 	if force {
-		if err := brainstore.WithBrainWriteLock(brainDir, func() error {
+		if err := brainstore.WithBrainWriteLockContext(cmd.Context(), brainDir, func() error {
 			if _, err := migrateFactStoreLocked(brainDir); err != nil {
 				return err
 			}
