@@ -7,7 +7,10 @@ prerelease is cut from `main` each morning.
 ## Cutting a release
 
 1. Move the work into a `## [X.Y.Z]` section in `CHANGELOG.md`, dated.
-2. Tag and push:
+2. Confirm the version's upgrade requirements and known limits.
+   Use [memory storage compatibility](memory-storage-compatibility.md) for migration,
+   backup, automatic cleanup, hosted sync, and Claude capture requirements.
+3. Tag and push:
 
    ```sh
    git tag vX.Y.Z
@@ -18,6 +21,11 @@ prerelease is cut from `main` each morning.
 `windows` for both `amd64` and `arm64`, packages each as a `.tar.gz` (`.zip` on
 Windows), writes `checksums.txt`, and creates the release with generated notes.
 Re-running it against an existing tag updates that release rather than failing.
+
+Before announcing the release, add the version's compatibility and upgrade notes
+from `CHANGELOG.md` to the published GitHub release description. The workflow uses
+`--generate-notes`; it does not copy the changelog text into the release body.
+Include the requirements that apply to that release.
 
 You can also run it from the Actions tab with a version, which is the way to
 re-cut a release whose upload failed.

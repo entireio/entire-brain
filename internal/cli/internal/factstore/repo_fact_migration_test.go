@@ -110,13 +110,11 @@ func TestMigrateMarkerAndLegacyFiles(t *testing.T) {
 	if dirs := legacyDirsOnDisk(t, root); len(dirs) != 0 {
 		t.Fatalf("legacy dirs not parked: %v", dirs)
 	}
-	parked := parkedDirs(t, root)
-	if len(parked) != 1 {
-		t.Fatalf("parked container missing: %v", parked)
+	if parked := parkedDirs(t, root); len(parked) != 0 {
+		t.Fatalf("verified redundant directories remain: %v", parked)
 	}
-	// The original bytes survive under the park for manual recovery.
-	if _, err := os.Stat(filepath.Join(root, DirName, parked[0], "main-abc123", FileName)); err != nil {
-		t.Fatalf("parked legacy file missing: %v", err)
+	if summary.Cleanup.ReclaimedBytes == 0 {
+		t.Fatal("cleanup did not report reclaimed bytes")
 	}
 
 	again, err := MigrateRepository(root)

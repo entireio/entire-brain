@@ -323,7 +323,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		return nil
 	}
 	if persistentSeed {
-		if err := brainstore.WithBrainWriteLock(outputDir, commitSeed); err != nil {
+		if err := brainstore.WithBrainWriteLockContext(ctx, outputDir, commitSeed); err != nil {
 			return err
 		}
 	} else if err := commitSeed(); err != nil {

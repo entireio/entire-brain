@@ -842,7 +842,7 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 			// reported alongside a successful import rather than replacing it.
 			var manifestErr error
 			if !dryRun {
-				if err := brainstore.WithBrainWriteLock(brainDir, func() error {
+				if err := brainstore.WithBrainWriteLockContext(cmd.Context(), brainDir, func() error {
 					if _, err := migrateFactStoreLocked(brainDir); err != nil {
 						return err
 					}

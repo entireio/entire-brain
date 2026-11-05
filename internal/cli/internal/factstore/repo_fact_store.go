@@ -35,9 +35,8 @@ const RepositoryPath = "facts/store.json"
 const repoFactsVersion = 3
 
 // legacyParkPrefix names the directory migration parks folded legacy branch
-// dirs under (facts/.legacy-<unixts>/<dirname>). Parked, never deleted: the
-// original bytes — including lines too damaged to fold — survive for manual
-// recovery until a later release garbage-collects them.
+// dirs under (facts/.legacy-<unixts>/<dirname>). Verified redundant files are
+// removed automatically; unverified bytes remain available for recovery.
 const legacyParkPrefix = ".legacy-"
 
 type repoFactStore struct {
@@ -125,17 +124,23 @@ func Load(brainDir string) ([]factmerge.Record, error) {
 // resurrect from a file nothing maintains anymore.
 func Write(brainDir string, records []factmerge.Record) error {
 	return withRepoFactStoreLock(brainDir, func() error {
-		// A store a newer build wrote must stay untouched: overwriting it
-		// would destroy state this build cannot even read. readStoreFile
-		// carries the forward-version gate.
-		if _, _, _, err := readStoreFile(brainDir); err != nil {
+		// Establish the pre-mutation migration before an intentional delete or
+		// retraction. Never merge legacy records into the caller's replacement set.
+		dirs, err := legacyBranchDirs(brainDir)
+		if err != nil {
 			return err
 		}
-		if err := writeFlatStore(brainDir, records); err != nil {
+		if len(dirs) > 0 {
+			if _, err := migrateRepositoryLocked(brainDir); err != nil {
+				return err
+			}
+		} else if _, _, _, err := readStoreFile(brainDir); err != nil {
+			// Preserve the forward-version gate without decoding the entire
+			// existing corpus again on every already-migrated write.
 			return err
 		}
-		_, err := parkLegacyDirs(brainDir)
-		return err
+		_ = cleanupLegacyLocked(brainDir)
+		return writeFlatStore(brainDir, records)
 	})
 }
 
@@ -188,7 +193,9 @@ func legacyBranchDirs(brainDir string) ([]string, error) {
 
 // parkLegacyDirs moves every legacy branch dir to facts/.legacy-<unixts>/.
 // Returns the brain-relative paths it moved. Callers hold the store lock.
-func parkLegacyDirs(brainDir string) ([]string, error) {
+func parkLegacyDirs(brainDir string) ([]string, error) { return parkLegacyDirsVerified(brainDir, nil) }
+
+func parkLegacyDirsVerified(brainDir string, proofs map[string]cleanupReceipt) ([]string, error) {
 	dirs, err := legacyBranchDirs(brainDir)
 	if err != nil || len(dirs) == 0 {
 		return nil, err
@@ -203,14 +210,48 @@ func parkLegacyDirs(brainDir string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	factsRoot, err := os.OpenRoot(filepath.Join(brainDir, DirName))
+	if err != nil {
+		return nil, err
+	}
+	defer factsRoot.Close()
+	parkRoot, err := factsRoot.OpenRoot(filepath.Base(parkAbs))
+	if err != nil {
+		return nil, err
+	}
+	defer parkRoot.Close()
 	moved := make([]string, 0, len(dirs))
 	for _, dir := range dirs {
 		rel := filepath.Join(DirName, dir)
 		if err := base.RejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
 			return moved, err
 		}
-		if err := os.Rename(filepath.Join(brainDir, rel), filepath.Join(parkAbs, dir)); err != nil {
+		if err := factsRoot.Rename(dir, filepath.Join(filepath.Base(parkAbs), dir)); err != nil {
 			return moved, err
+		}
+		// Persist both sides of the move before a receipt or a later mutation
+		// can authorize removal. Otherwise a power loss could restore an active
+		// legacy path and revive a memory the caller deliberately deleted.
+		if err := brainstore.SyncPinnedDirectory(parkRoot); err != nil {
+			return moved, err
+		}
+		if err := brainstore.SyncPinnedDirectory(factsRoot); err != nil {
+			return moved, err
+		}
+		if err := cleanupCheckpoint("parked"); err != nil {
+			return moved, err
+		}
+		// A receipt ties the input consumed by the verified migration to its
+		// committed result. Later deliberate deletions must not strand this copy.
+		if proof, ok := proofs[dir]; ok {
+			branch, openErr := parkRoot.OpenRoot(dir)
+			if openErr == nil {
+				encoded, _ := json.Marshal(proof)
+				// A failed receipt only defers cleanup; the committed migration remains
+				// valid and the original recovery bytes remain parked.
+				_ = writeCleanupReceipt(branch, append(encoded, '\n'))
+				branch.Close()
+			}
 		}
 		moved = append(moved, filepath.ToSlash(rel))
 	}

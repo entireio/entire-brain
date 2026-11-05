@@ -35,7 +35,7 @@ func TestMemoryReadOnlyHealthClassifiesObservedOverlayJobAndFTSSchemas(t *testin
 		{
 			name: "unknown newer overlay", section: "overlay", observed: "overlay", wantState: "unsupported", wantCode: brainstore.UnsupportedVersionCode,
 			prepare: func(t *testing.T, brainDir string) {
-				writeHealthFixtureFile(t, brainDir, historyShortTermPath, []byte(fmt.Sprintf(`{"version":%d,"reconciler_version":%d,"future":true,"files":{}}`, historyShortTermVersion+1, historyShortTermReconcilerVersion)+"\n"))
+				writeHealthFixtureFile(t, brainDir, historyShortTermPath, []byte(fmt.Sprintf(`{"version":%d,"reconciler_version":%d,"future":true,"files":{}}`, historyShortTermLegacyVersion4+1, historyShortTermReconcilerVersion)+"\n"))
 			},
 		},
 		{
