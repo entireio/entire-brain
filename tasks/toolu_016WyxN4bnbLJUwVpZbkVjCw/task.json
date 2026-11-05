@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_016WyxN4bnbLJUwVpZbkVjCw",
+  "agent_id": "a7f167a95d4a4f74f",
+  "subagent_type": "general-purpose",
+  "task_description": "Altitude review of PR 560",
+  "token_usage": {
+    "input_tokens": 16,
+    "cache_creation_tokens": 89406,
+    "cache_read_tokens": 533265,
+    "output_tokens": 10364,
+    "api_call_count": 8
+  },
+  "started_at": "2026-11-05T10:39:08.757859-08:00",
+  "completed_at": "2026-11-05T10:41:52.753479-08:00"
+}

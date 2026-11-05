@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01R5aiXzyuiV2J5cqiHHQaSv",
+  "agent_id": "a676609bc0aa48d50",
+  "subagent_type": "general-purpose",
+  "task_description": "Efficiency review of PR 560",
+  "token_usage": {
+    "input_tokens": 20,
+    "cache_creation_tokens": 71954,
+    "cache_read_tokens": 573014,
+    "output_tokens": 10883,
+    "api_call_count": 10
+  },
+  "started_at": "2026-11-05T10:38:59.031379-08:00",
+  "completed_at": "2026-11-05T10:41:48.592727-08:00"
+}

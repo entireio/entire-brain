@@ -1,0 +1,174 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/khartoum directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+Conductor shows the PR for whichever branch is checked out. After you open a PR from a different branch, or a PR stack, check out that PR's branch (for a stack, the top-most branch) so Conductor shows it.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/khartoum/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+let's take a look at this: 
+
+google.com/url?q=https://github.com/entireio/entire-brain/issues/412?email_source%3Dnotifications%26email_token%REDACTED%23issuecomment-6485718888&source=gmail&ust=1793988327645000&REDACTED
+<user-preferences>
+<!-- asd-ste100:begin -->
+## Response language: ASD-STE100
+
+Write all answers to the user in ASD-STE100 Simplified Technical English (Issue 9).
+Apply this rule to progress updates, questions, explanations, and final responses.
+
+- Follow the STE writing rules and dictionary. Use approved words with their approved meanings and parts of speech.
+- Use technical nouns and technical verbs when necessary. Explain unfamiliar terms. Use the same term for the same thing.
+- Use active voice and direct instructions.
+- Give one topic in each sentence. Give one instruction in each step.
+- Use no more than 20 words in a procedural sentence and 25 words in a descriptive sentence.
+- Use short paragraphs and clear lists. Use American English spelling.
+- Avoid idioms, figurative language, and unnecessary words.
+- Keep code, commands, paths, identifiers, URLs, and exact quotations unchanged. Apply STE to the prose around them.
+- Before you send a response, do a check for clear meaning and compliance with these rules.
+
+Reference: https://www.asd-ste100.org/
+## Writing style
+
+Write in natural, direct, conversational English. Favor how a thoughtful, technically sophisticated person would actually explain something over highly stylized or literary prose.
+
+- **Avoid agentive framing.** Don't turn systems, abstractions, or inanimate objects into actors merely to give sentences a strong noun–verb structure.
+- **Prefer ordinary verbs.** Use "gets," "has," "uses," or "can" when they're more natural than "holds," "carries," "owns," "drives," or "unlocks." Don't optimize every verb for rhetorical force.
+- **Avoid aphoristic technical prose.** Don't make ordinary explanations sound like architectural principles, maxims, or slogans.
+- **Optimize for naturalness, not elegance.** Prefer the sentence someone would say aloud in a technical discussion over one engineered to sound polished or authoritative.
+- **Preserve meaningful precision.** Use specialized terminology and precise verbs when they clarify an actual technical distinction, not simply because they sound more intentional.
+
+The writing should feel like a smart colleague explaining something clearly, not a technical manifesto.
+
+<!-- asd-ste100:end -->
+
+</user-preferences>
+
+---
+
+/review-pr
+
+---
+
+<task-notification>
+<task-id>bilymbcek</task-id>
+<tool-use-id>toolu_014Xit2iYHfDuCuJ8MX3h2rq</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-khartoum/c0be0762-a7e3-4813-bba2-edd4df6e470f/tasks/bilymbcek.output</output-file>
+<status>completed</status>
+<summary>Background command "Run vet, gofmt, and full cli test suite on merged tree" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ac48619b3997875c0</task-id>
+<tool-use-id>toolu_01YZJxHdQLeKxyB1zb67CLtX</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-khartoum/c0be0762-a7e3-4813-bba2-edd4df6e470f/tasks/ac48619b3997875c0.output</output-file>
+<status>completed</status>
+<summary>Agent "Reuse review of PR 560" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>REUSE review of PR 560 — 4 findings, strongest first.
+
+1. **`/tmp/pr560-merged/internal/cli/history_compact_transcript_test.go:266`** — `TestHistoryIndexesDefaultCompactExport` re-implements `filelessCheckpointFixtureWithTranscript` (`transcript_fileless_test.go:23`) nearly verbatim: same inline `git` closure, same files map (`.entire/settings.json`, `checkpointPath` layout, metadata), same commit/`update-ref`/`Options` recipe, ~40 lines. Only deltas: `compact_transcript` in metadata.json plus one extra file — and `transcript_review_test.go:204` already shows the established pattern of calling the fixture and then rewriting `metadata.json` for a compact variant. Call instead: extend/reuse `filelessCheckpointFixtureWithTranscript`. Cost: two copies of the checkpoint-repo layout that must move in lockstep whenever the metadata schema or ref plumbing changes.
+
+2. **`/tmp/pr560-merged/internal/cli/history_cache_compat_test.go:68`** — `TestHistoryScanCachePreviousExtractorRevisionRescans` hand-rolls gzip+JSON encode, `MkdirAll`, and `WriteFile` (~15 lines) to persist a stale scan cache. `saveHistoryScanCache` (`history.go:1676`) writes exactly these bytes — `encodeHistoryScanCache` leaves a non-current `Version` untouched — and the PR's own sibling test (`history_overlay_v4_test.go:TestHistoryShortTermReadsLegacyV4Overlay`) already uses `saveHistoryScanCache(brainDir, cache)` for the same purpose. Call instead: `saveHistoryScanCache(root, cache)`. Cost: the test bypasses the production encoder, so a future encoding change (header, compression) makes the fixture diverge from real on-disk caches; also inconsistent within the same PR. (The pre-existing test above it must hand-encode because it inspects the wire struct; this one doesn't.)
+
+3. **`/tmp/pr560-merged/internal/cli/distill_cmd.go:2097`** — reverse-direction reuse gap: the PR centralizes the "message"-nested vs top-level-content fallback into `transcriptRecordContent` (`history.go:2167`) and migrates three readers, but `distillConversationText` keeps its own copy with different semantics (`if message, ok := obj["message"]; ok` — key presence, not `len(jsonMap(...)) &gt; 0`). Call instead: `distillTextBlocks(transcriptRecordContent(obj))`. Cost: a `"message": null` record — the exact shape the PR's revision-13 fix and `history_brain_rev12_null_message` fixture exist for — still distills to `""` here, so the known bug survives in one diverging copy. (`episode_tools.go:80` and `recall_evidence_source.go:136` are older nested-only readers worth the same sweep.)
+
+4. **`/tmp/pr560-merged/internal/cli/history_delta_test.go:962`** (minor) — the stale-overlay write (`json.Marshal` + `append(data, '\n')` + `brainstore.WriteBrainRelativeFileAtomic(..., historyShortTermPath, ..., 0o600)`) is duplicated in `history_compact_transcript_test.go` (`TestHistoryDeltaRescansOverlayFromPreCompactReader`). A deliberate bypass of `saveHistoryShortTerm` (which would restamp version/extractor), but a 4-line `writeStaleOverlay(t, brainDir, overlay)` test helper would keep the trailing-newline/perm conventions in one place. Cost: low — copy drift across the two tests.
+
+Otherwise clean: `transcriptRecordContent` itself, `extractorRevisionLabel`, and the legacy-v4 normalization helpers have no existing equivalents (schema-version messages elsewhere are ad-hoc `fmt.Errorf`, different domain), and the new production code consistently uses the existing `jsonMap`/`jsonString`/`firstNonEmptyString` coercion helpers.</result>
+<usage><subagent_tokens>104623</subagent_tokens><tool_uses>16</tool_uses><duration_ms>179024</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a676609bc0aa48d50</task-id>
+<tool-use-id>toolu_01R5aiXzyuiV2J5cqiHHQaSv</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-khartoum/c0be0762-a7e3-4813-bba2-edd4df6e470f/tasks/a676609bc0aa48d50.output</output-file>
+<status>completed</status>
+<summary>Agent "Efficiency review of PR 560" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Efficiency review of /tmp/pr560.diff (verified against /tmp/pr560-merged). The diff is essentially clean; nothing material. Findings in order of relevance:
+
+1. **/tmp/pr560-merged/internal/cli/history.go:2192-2194 — new per-tool_use `extractToolResultFacts` call: no needless double scan.** The two calls operate on distinct strings (tool name+input vs. inlined `result.output`), and compact v1 has no separate `tool_result` record, so each byte of output is regex-scanned exactly once. For the native claude-code dialect (`result` absent) the call reduces to two type assertions plus `TrimSpace("")` — effectively free. The `jsonMap`/`jsonString` coercions are plain type assertions (history.go:2481, 2486), no allocation.
+
+2. **/tmp/pr560-merged/internal/cli/history.go:2209-2214 — unbounded `strings.Split` on large tool outputs (inherited, newly exercised).** When the fact-signal regex matches, the function allocates a `[]string` of every line of the output even though extraction stops at 8 fragments. Compact `result.output` can be full command/file output (hundreds of KB), paid per tool_use block on the one-time v13 rescan and on every delta re-parse of a changed transcript. Cheaper: cap the scanned text before Split, or iterate lines. Same shape as the pre-existing `function_call_output` path (history.go:2125), so the PR is consistent with existing design; marginal cost is one extra O(n) pass over bytes already JSON-decoded (&lt;2x of cost already paid).
+
+3. **/tmp/pr560-merged/internal/cli/memory_health_schema.go:57, 85 — double unmarshal of the same bytes is pre-existing.** The PR only changed the switch conditions and added `normalizeLegacyShortTerm` (an in-memory shallow copy). Side note, also pre-existing: `jsonUnmarshalSingle` (line ~117) copies the whole overlay file via `strings.NewReader(string(data))` on each of the two calls; `bytes.NewReader(data)` would avoid both copies. Bites only on `doctor`/health calls with a large overlay — low frequency.
+
+4. **/tmp/pr560-merged/internal/cli/history_delta.go:255-262 — `normalizeLegacyShortTerm` copying is a non-issue.** `shortTermIndex` is passed and returned by value, but its `Files` map and slices are headers only; no deep copy occurs.
+
+5. **No repeated I/O added.** The loaders (`loadHistoryShortTermState`/`Raw`), doctor (`lifecycle_ops.go:476-479`), and `historyIndexCurrent` (refresh.go:580) all work from bytes/manifests already in hand; the new `ExtractionVersion` check in refresh.go is first in the condition, so it short-circuits before the SHA validations — a small win. The loop-invariant `previous.ExtractorVersion == historyScanCacheVersion` compare inside the delta carry-over loop (history_delta.go:402) is an int compare per file; not worth hoisting.
+
+Note on process: I did not run the Brain/Graph preflight for this review — the target is a prebuilt merged tree and diff in /tmp supplied by the caller, outside the repository those tools index, so their results could not describe the code under review.</result>
+<usage><subagent_tokens>81807</subagent_tokens><tool_uses>13</tool_uses><duration_ms>169626</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a7f167a95d4a4f74f</task-id>
+<tool-use-id>toolu_016WyxN4bnbLJUwVpZbkVjCw</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-khartoum/c0be0762-a7e3-4813-bba2-edd4df6e470f/tasks/a7f167a95d4a4f74f.output</output-file>
+<status>completed</status>
+<summary>Agent "Altitude review of PR 560" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Review complete. Tooling note: Brain and Graph preflights passed (Brain dev, Graph v0.6.0), but the review target is a snapshot tree in /tmp, not this repo's indexed source — Graph cannot index it, so reader-adoption questions were answered by text search over /tmp/pr560-merged. The Brain brief surfaced the overlay's design history (disposable, delta runs every watch tick) but no recorded decision mandating the v4 quirk.
+
+**Findings (4; one positive):**
+
+1. **`/tmp/pr560-merged/internal/cli/distill_cmd.go:2097-2100` — distill keeps a private fallback with different semantics than the new helper.** `if message, ok := obj["message"]; ok { return distillTextBlocks(jsonMap(message)["content"]) }` returns "" for `"message": null` or `{}` — the exact blind spot revision 13 exists to fix, reimplemented one file away from `transcriptRecordContent` (history.go:2164). Alternative: call the helper. Rot: two definitions of the same dialect rule now disagree; the `history_brain_rev12_null_message` transcript indexes fine but distills to nothing. If PR 564 converts this, fine — but this PR introduced the divergence it leaves behind.
+
+2. **`/tmp/pr560-merged/internal/cli/episode_tools.go:80`, `recall_evidence_source.go:135-141`, `pattern_corpus_enrich.go:124-127` — three readers still read only `jsonMap(obj["message"])["content"]`, no top-level fallback at all.** Compact v1 records yield zero tool calls for episodes, zero recall evidence, zero pattern-corpus ops. These are the PR-564 candidates; not demanded here, but note the helper's comment ("Reading only the nested one indexed every compact session to nothing") describes a bug class these three still have. Rot if 564 stalls: the same silent-total-loss incident, three more times.
+
+3. **`/tmp/pr560-merged/internal/cli/history_delta.go:59-64, 245-261` — the legacy-v4 overlay quirk is a permanent special case for a file only pre-release builds (cab0496c) ever wrote.** The overlay already has a designed path for this: version != 3 → `shortTermStateUnsupported` → empty overlay → long-term-only retrieval → next delta (watch runs one every tick) rewrites it as v3. The PR instead burns version 4 forever ("a future format bump must skip 4"), threads `normalizeLegacyShortTerm` through two decode paths plus `memory_health_schema.go:67-89`, and adds `readableShortTermVersion` to the generic version classification. `memory_admin.go:680` works only because `loadHistoryShortTermRaw` normalized upstream — an implicit coupling every future decode site must remember. Alternative: let v4 hit the existing unsupported path and lose at most minutes of short-term records for dogfooders; at most tweak the one misleading doctor message. This is the clearest altitude miss: a disposable artifact got a permanent compatibility shim.
+
+4. **Manifest/cache/overlay revision stamps: mechanism is right, naming is split.** Three persisted copies are correct — scan cache, overlay, and manifest have independent lifecycles and writers, and all three derive from the single constant, so they cannot drift on write. But one revision number now has three names: constant `historyScanCacheVersion` (history.go:135 — a misnomer now that it stamps the manifest and overlay too), manifest `extraction_version` (`internal/cli/internal/manifest/manifest.go:233`), cache/overlay `extractor_version`. The manifest field is new in this PR, so it could still be named `extractor_version`; or rename the constant to `historyExtractionRevision`. Rot: reader confusion about whether these are the same number space — low severity since bumping is still one constant.
+
+**Altitude that is right:** the core change is at the correct depth. `transcriptRecordContent` fixes the dialect rule once instead of per-reader, and extractor-revision gating fixes the general class "parser changes are invisible to content-based caches" (the COR-2289 lesson) rather than a one-off rescue for revision 12 — the rev-12 fixture is just the regression pin.</result>
+<usage><subagent_tokens>100946</subagent_tokens><tool_uses>9</tool_uses><duration_ms>164073</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a2226726d5d655307</task-id>
+<tool-use-id>toolu_01WeiKDoryHRaqEK7qc84oVB</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-khartoum/c0be0762-a7e3-4813-bba2-edd4df6e470f/tasks/a2226726d5d655307.output</output-file>
+<status>completed</status>
+<summary>Agent "Simplification review of PR 560" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Review complete. Tool note: Brain and Graph preflights passed (Brain dev; entire-graph v0.6.0), and the brief supplied prior overlay-versioning rationale. Graph could not serve the call-site questions because the tree under review is the /tmp/pr560-merged copy, not this repo's indexed HEAD, so I verified relationships with grep over that copy.
+
+Findings (5):
+
+1. `/tmp/pr560-merged/internal/cli/history_delta.go:245-263` — Two helpers encode the same v4-to-v3 mapping. `readableShortTermVersion` is called only from `memory_health_schema.go:67,73`; its comment says "the loaders", but the loaders use `normalizeLegacyShortTerm` instead. Simpler form: delete `readableShortTermVersion` and normalize `header.Version` once in `memoryOverlayHealth` before the switch (one `if` line; the observed value is already stored at line 64). Cost: the next legacy stamp must change two functions, and the wrong comment sends a reader to call sites that do not exist.
+
+2. `/tmp/pr560-merged/internal/cli/history_delta.go:265-267` — `saveHistoryShortTerm` force-stamps `Version` and `ExtractorVersion`, but its only caller (line 485) builds the overlay with both fields set at line 365-371, and `overlay.complete()` at line 481 already depends on the construction-time stamp. Simpler form: stamp at construction only and drop the restamp in `save` (or make `save` the one stamping point and gate line 481 differently — one place, not two). Cost: the next revision bump must be made in two places, and a reader must compare both sites to learn which value wins.
+
+3. `/tmp/pr560-merged/internal/cli/history_delta.go:182-243` — `loadHistoryShortTermState` and `loadHistoryShortTermRaw` share a verbatim prologue (empty literal, read, unmarshal, normalize), and this PR had to apply the same two edits to each (the `ExtractorVersion` field at lines 183 and 229, the `normalizeLegacyShortTerm` call at 195 and 241). Simpler form: one shared parse helper that returns `(overlay, state, ok)`; the two loaders keep only their distinct checks. Cost: every future overlay-load change needs parallel edits that can drift.
+
+4. `/tmp/pr560-merged/internal/cli/history.go:2155-2163` — The `transcriptRecordContent` doc comment carries bug and implementation history: "Reading only the nested one indexed every compact session to nothing" and "matching what the history and conversation readers did before this helper existed" restate git history, and the null/empty-message sentence restates the two-line body. The same extraction-revision rule is also described three times (the `historyScanCacheVersion` const block at history.go:73-96, `HistorySource.ExtractionVersion` in manifest.go, `shortTermIndex.ExtractorVersion` in history_delta.go). Simpler form: keep the dialect split sentence on the helper and keep the full rule in one home (the const block), with one-line field comments pointing to it. Cost: three prose copies of one rule drift independently on the next revision.
+
+5. `/tmp/pr560-merged/internal/cli/history_cache_compat_test.go:68-89` — The new test hand-rolls gzip encode plus mkdir plus write (about 12 lines) to persist a cache, but `saveHistoryScanCache(root, cache)` already does this and passes the fixture through unchanged (the restamp in `encodeHistoryScanCache` fires only when `Version == historyScanCacheVersion`, and here Version is 10). `history_overlay_v4_test.go:34-36` already uses `saveHistoryScanCache` for the same purpose. Simpler form: replace the boilerplate with one `saveHistoryScanCache` call. Cost: a third copy of the gzip-write ritual to keep in step with the real writer.
+
+No dead code found; the `historyShortTermLegacyVersion4` spread itself is justified (the health test's `+1` change is required so "newer" no longer collides with the legacy stamp) and shrinks naturally if finding 1 is applied.</result>
+<usage><subagent_tokens>121728</subagent_tokens><tool_uses>13</tool_uses><duration_ms>210237</duration_ms></usage>
+</task-notification>
+
+---
+
+rebase and get this ready to merge

@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01WeiKDoryHRaqEK7qc84oVB",
+  "agent_id": "a2226726d5d655307",
+  "subagent_type": "general-purpose",
+  "task_description": "Simplification review of PR 560",
+  "token_usage": {
+    "input_tokens": 20,
+    "cache_creation_tokens": 112446,
+    "cache_read_tokens": 838813,
+    "output_tokens": 14268,
+    "api_call_count": 10
+  },
+  "started_at": "2026-11-05T10:38:52.468916-08:00",
+  "completed_at": "2026-11-05T10:42:22.630634-08:00"
+}
