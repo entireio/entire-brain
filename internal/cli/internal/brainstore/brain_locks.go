@@ -1,6 +1,7 @@
 package brainstore
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"time"
@@ -25,17 +26,10 @@ func AcquireBrainWriteLock(brainDir string) (func(), error) {
 }
 
 func AcquireBrainWriteLockTimeout(brainDir string, timeout time.Duration) (func(), error) {
-	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
-		return nil, err
+	if timeout < 0 {
+		timeout = 0
 	}
-	if err := base.RejectExistingSymlinkPathComponents(brainDir, BrainLockDirName); err != nil {
-		return nil, err
-	}
-	lock, err := AcquireFileLock(BrainWriteLockPath(brainDir), "brain_locked", timeout)
-	if err != nil {
-		return nil, err
-	}
-	return func() { _ = lock.Close() }, nil
+	return acquirePriorityBrainWriteLock(context.Background(), brainDir, timeout, timeout == 0)
 }
 
 func WithBrainWriteLock(brainDir string, fn func() error) error {

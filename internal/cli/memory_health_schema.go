@@ -64,13 +64,13 @@ func memoryOverlayHealth(brainDir string, source *historySourceManifest) map[str
 	health["schema_version"] = header.Version
 	health["reconciler_version"] = header.ReconcilerVersion
 	switch {
-	case header.Version > historyShortTermVersion || header.ReconcilerVersion > historyShortTermReconcilerVersion:
+	case readableShortTermVersion(header.Version) > historyShortTermVersion || header.ReconcilerVersion > historyShortTermReconcilerVersion:
 		health["state"] = shortTermStateUnsupported
 		health["schema_state"] = shortTermStateUnsupported
 		health["error_code"] = brainstore.UnsupportedVersionCode
 		health["action"] = "upgrade entire-brain; this newer overlay remains read-only"
 		return health
-	case header.Version < historyShortTermVersion || header.ReconcilerVersion < historyShortTermReconcilerVersion:
+	case readableShortTermVersion(header.Version) < historyShortTermVersion || header.ReconcilerVersion < historyShortTermReconcilerVersion:
 		health["state"] = brainstore.MigrationRequiredCode
 		health["schema_state"] = brainstore.MigrationRequiredCode
 		health["error_code"] = brainstore.MigrationRequiredCode
@@ -86,6 +86,7 @@ func memoryOverlayHealth(brainDir string, source *historySourceManifest) map[str
 		health["action"] = "rebuild the disposable overlay from canonical sessions"
 		return health
 	}
+	overlay = normalizeLegacyShortTerm(overlay)
 	health["schema_state"] = shortTermStateCurrent
 	health["generated_at"] = overlay.GeneratedAt
 	health["files"] = len(overlay.Files)

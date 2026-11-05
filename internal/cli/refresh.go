@@ -371,7 +371,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		// relying on the exit status isn't told success on an incomplete brain.
 		// (A missing seed is not an error — writeDocIndexAndSource writes an empty
 		// index in that case.)
-		docSource, derr := writeDocIndexAndSource(brainDir, opts.Now().UTC())
+		docSource, derr := writeDocIndexAndSourceContext(ctx, brainDir, opts.Now().UTC())
 		if derr != nil {
 			docTask.Finish(derr)
 			if reportStageAndShouldAbort(brainComponentDocs, derr) {
@@ -494,7 +494,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	manifest, _ = bmanifest.Load(brainDir)
 	if manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		finishMirror := progress.Step("mirror checkpoint catalog")
-		if counts, err := mirrorBrainToCheckpointCatalog(brainDir, opts.Now().UTC()); err != nil {
+		if counts, err := mirrorBrainToCheckpointCatalogContext(ctx, brainDir, opts.Now().UTC()); err != nil {
 			finishMirror(err)
 			if reportStageAndShouldAbort(brainComponentFacts, err) {
 				return err
@@ -512,7 +512,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	// rather than needing a manual `facts reclassify`. No agent, no tokens.
 	if manifest != nil && manifest.Sources != nil && manifest.Sources.Facts != nil {
 		finishReclass := progress.Step("reclassify facts")
-		if _, err := reclassifyAllFacts(brainDir, opts.Now().UTC()); err != nil {
+		if _, err := reclassifyAllFactsContext(ctx, brainDir, opts.Now().UTC()); err != nil {
 			finishReclass(err)
 			if reportStageAndShouldAbort(brainComponentFacts, err) {
 				return err
@@ -528,7 +528,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	manifest, _ = bmanifest.Load(brainDir)
 	if !refreshOpts.skipSessions && manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		finishPatterns := progress.Step("pattern layer")
-		if _, err := refreshPatternLayer(brainDir, refreshOpts.force, opts.Now().UTC()); err != nil {
+		if _, err := refreshPatternLayerContext(ctx, brainDir, refreshOpts.force, opts.Now().UTC()); err != nil {
 			finishPatterns(err)
 			if reportStageAndShouldAbort(brainComponentPatterns, err) {
 				return err
@@ -580,7 +580,7 @@ func historyIndexCurrent(brainDir string, manifest *exportManifest) bool {
 		return false
 	}
 	history := manifest.Sources.History
-	if history.IndexPath == "" || history.SessionsFingerprint == "" || history.IndexBytes <= 0 ||
+	if history.ExtractionVersion != historyScanCacheVersion || history.IndexPath == "" || history.SessionsFingerprint == "" || history.IndexBytes <= 0 ||
 		!historystore.ValidSHA256(history.IndexSHA256) || !historystore.ValidSHA256(history.RecordsFingerprint) ||
 		!historystore.ValidSHA256(history.TranscriptsFingerprint) {
 		return false

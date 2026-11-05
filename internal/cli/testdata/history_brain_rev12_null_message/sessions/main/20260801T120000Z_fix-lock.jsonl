@@ -1,0 +1,4 @@
+{"type":"user","timestamp":"2026-08-01T11:00:00Z","message":null,"content":[{"type":"text","text":"Fix the flaky lock test on Windows"}]}
+{"type":"assistant","timestamp":"2026-08-01T11:00:05Z","message":null,"content":[{"type":"text","text":"Raised the write lock timeout; the test is stable now."}]}
+{"type":"user","timestamp":"2026-08-01T11:01:00Z","message":{},"content":[{"type":"text","text":"Now update the docs"}]}
+{"type":"assistant","timestamp":"2026-08-01T11:01:05Z","message":{},"content":[{"type":"text","text":"Docs updated."}]}
