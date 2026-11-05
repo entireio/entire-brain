@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -27,12 +28,16 @@ func hostedFactsBindingPath() string {
 }
 
 func writeHostedFactsBinding(brainDir, repoID, baseURL string) error {
+	return writeHostedFactsBindingContext(context.Background(), brainDir, repoID, baseURL)
+}
+
+func writeHostedFactsBindingContext(ctx context.Context, brainDir, repoID, baseURL string) error {
 	binding := hostedFactsBinding{RepoID: repoID, BaseURL: strings.TrimRight(baseURL, "/")}
 	data, err := json.Marshal(binding)
 	if err != nil {
 		return err
 	}
-	return brainstore.WithBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
 		return brainstore.WriteBrainRelativeFileAtomic(brainDir, hostedFactsBindingPath(), append(data, '\n'), 0600)
 	})
 }

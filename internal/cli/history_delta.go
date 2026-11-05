@@ -1067,11 +1067,14 @@ func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool, skipTra
 		return historystore.ShortTermStats{}, err
 	}
 	var stats historystore.ShortTermStats
-	err = brainstore.WithBrainWriteLock(storage.BrainDir, func() error {
+	err = brainstore.WithBrainWriteLockContext(ctx, storage.BrainDir, func() error {
 		var buildErr error
 		stats, buildErr = buildHistoryShortTermLockedContext(ctx, storage.BrainDir, opts.Now().UTC())
 		return buildErr
 	})
+	if err == nil && !skipTranscriptSweep {
+		maintainFactsStorage(ctx, cmd.ErrOrStderr(), opts, storage.BrainDir)
+	}
 	return stats, err
 }
 

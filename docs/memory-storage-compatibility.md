@@ -2,98 +2,127 @@
 
 ## Supported release range
 
-This change supports stable v0.2.0, v0.3.0, and v0.4.0. Nightly releases and
-v0.1.0 are outside this compatibility matrix.
+Upgrade coverage includes stable v0.2.0, v0.3.0, v0.4.0, and v0.5.0. Nightly
+releases and v0.1.0 are outside this matrix.
 
-The tests run actual released CLI code against isolated repositories and data
-directories. `scripts/test-memory-storage-compat.sh` builds each stable release
-from its pinned commit. CI runs the script on Linux and macOS with Go's race
-detector. Local validation also uses the published macOS binaries.
+`scripts/test-memory-storage-compat.sh` builds actual released code from pinned
+commits and executes it against isolated repositories and data directories.
+The pre-flat writer suite covers v0.2.0 through v0.4.0. The automatic cleanup
+suite also covers v0.5.0, including directories produced by its real migration.
 
-## Storage contract
+## Storage and migration contract
 
-The repository memory API remains the common interface. During support for these
-older clients, memory payloads remain in `facts/<branch>/facts.ndjson`. Existing
-branch visibility, record identity, provenance, lifecycle, outlines, proposals,
-and usage receipts keep their formats.
+Memory payloads use one schema 3 `facts/store.json` file. Branch is metadata;
+memories are visible across branches. The common repository API and hosted
+per-fact wire format remain unchanged.
 
-Schema 2 `facts/store.json` contains only:
+Normal writes and refreshes fold supported legacy layouts into this store.
+Migration reads back the published store and compares complete records with the
+expected merged result before cleanup. Schema 1 snapshots and schema 2 markers
+remain supported migration inputs.
 
-```json
-{"schema_version":2,"storage":"legacy_views"}
-```
+Local migration is one-way. Released v0.2.0 through v0.4.0 clients cannot read the
+migrated directory. Hosted interoperability requires separate local stores.
+Files written later by an old local client are imported, with a warning to update
+that client. This recovery behavior does not make a shared mixed-version store
+supported.
 
-It contains no record IDs, text, provenance, or view data. Older clients can
-physically purge all memory payloads because those payloads stay in files they
-already manage. Physical consolidation into a new payload file is deferred until
-these older clients leave support. Brainstore's per-fact wire is unchanged.
+There is no storage rollback command. Recovery to an older version requires a
+complete pre-migration backup in an isolated environment. Such a backup does not
+include later writes. A post-migration bundle is not a downgrade format.
 
-Schema 1 snapshots remain readable. Conversion reconciles all legacy views,
-removes excluded-session provenance, publishes missing legacy files, and replaces
-the snapshot last. The privacy guard checks session IDs and transcript paths from
-both the manifest and durable privacy transactions. Conversion retains memories
-with independent, permitted provenance. A failed conversion can be retried.
+## Before upgrading and recovering
 
-For ordinary schema 2 writes, an unrelated damaged view does not block the target
-write. Converting a schema 1 snapshot requires every retained view to be readable.
-Corrupt state causes an error; conversion does not silently discard that state.
+Stop background work and finish active writes before making a backup. Upgrade
+all Brain CLI and watcher processes that share the store before restarting them.
+Back up the complete Brain data and the repository's checkpoint refs. Include
+any global store in the backup. A memory export alone is not a complete backup.
 
-## Snapshot repair
+Normal activity resumes interrupted migration and cleanup. Keep recovery files
+and the active store intact. If Brain reports corruption, stop other writers and
+preserve the data and backup for support.
 
-An older client cannot remove an existing schema 1 snapshot. Run
-`memories storage migrate` before using an older client to clean up such a
-store. No new client can change this behavior inside an already released
-binary. Current clients persist reconciliation on migration, which removes
-hidden snapshot residue and abandoned temporary files without requiring
-another visible memory change.
+See [Upgrade and Recover](https://docs.entire.com/guides/brain/upgrade) for the
+customer procedure, verification commands, and support links.
+
+## Automatic cleanup
+
+Brain v0.5.1 adds automatic cleanup. Customers do not need a cleanup command,
+script, or confirmation prompt.
+Normal memory writes, foreground refreshes, and watcher maintenance remove verified
+redundant legacy files. Maintenance includes unchanged watcher passes and existing
+global stores. It does not create an unused global store or resume paused services.
+
+Cleanup never imports parked records. Existing v0.5.0 copies must be proved
+redundant against the active store. Missing records or unexplained differences
+remain available for recovery. Cleanup must not restore a deleted memory or
+reverse a retraction.
+
+Unknown fields, unknown files, invalid records, corrupt receipts, unsafe paths,
+and unsupported formats prevent removal of the affected data. Valid fact files
+can be removed while unrelated files in the same directory remain intact.
+
+Small files use a bounded pass under the existing locks. Large-file verification
+runs outside the brain write lock. Removal requires the source checksum and
+published store checksum to remain consistent with that verification.
+A durable receipt records the source bytes verified before unlink. Recovery
+rechecks remaining source bytes and resumes after interruption. A busy writer
+causes maintenance to defer its work.
+
+`memories storage status --json` reports cleanup state, pending directories,
+retained reasons, and recorded reclaimed bytes. The byte count can underestimate
+removal if a process exits before recording progress. It is never a deletion gate.
+Status, recall, and other read surfaces remain read-only.
+
+## Claude capture requirement
+
+Use Claude Code **2.1.78 or later** with the generated Entire hooks. Check
+`claude --version` before installing or refreshing those hooks. Verify capture
+with a new Claude session, a file change, and a commit that creates a checkpoint.
+A successful Claude command alone does not verify capture.
+
+See [Claude Code](https://docs.entire.com/agents/claude-code#version-and-capture-verification)
+for the capture procedure. Do not assume that the installed Entire CLI checks
+this version requirement.
 
 ## Scan-cache compatibility
 
-History extraction revision 11 adds compact transcript parsing, and revision 12
-also mines the tool output that compact transcripts inline into `tool_use`
-blocks. Revision 13 reads a record's top-level content when its `message` is
-null or an empty object, which pre-release revision 12 builds skipped. Their
-cache record schema is the same as version 10, which all three stable
-releases understand. New caches therefore use wire version 10 and an
-`extractor_version: 13` field.
+Compact-transcript extraction uses its extraction revision to invalidate older
+scan results. Its cache wire version remains compatible with the supported older
+clients. An older write without the current extraction revision causes a later
+current refresh to rescan the transcripts.
 
-Current history readers reuse a version 10 cache only when that field matches.
-Older writers omit the field, and revision 11 and 12 writers record their revision, so the next
-current refresh rescans the transcripts. The short-term overlay
-(`history/short-term.json`) follows the same rule: it keeps format version 3
-and records `extractor_version`, and a delta re-parses entries from an overlay
-written by another revision instead of carrying them forward. An overlay
-stamped version 4 by a pre-release build of this change has the version 3
-layout and stays readable; its entries are re-parsed on the next delta. Current privacy
+The history source manifest and the short-term overlay
+(`history/short-term.json`) record the same extraction revision. A refresh
+rebuilds a history index that another revision built, even when the transcripts
+are unchanged. A delta re-parses overlay entries that another revision built
+instead of carrying them forward. The overlay keeps format version 3. An
+overlay stamped version 4 by a pre-release build has the version 3 layout: it
+stays readable, and the next delta re-parses its entries. Current privacy
 inspection accepts both known formats and still rejects unsupported formats.
-The extraction invalidation check remains in place.
 
 ## Test coverage
 
-| Area | Released-client checks | Additional current-client checks |
-| --- | --- | --- |
-| Migration | Upgrade, schema 1 conversion, repeated migration, rollback, re-upgrade | Partial publication, retry, missing and empty views, corrupt/future schemas, symlinks, read-only stores |
-| Repository memories | Remember, recall, branch visibility, promotion, retraction, GC, import | Lifecycle replay during schema 1 import, randomized mutation sequences, provenance differences |
-| Global memories | Old/new reads and writes, retraction, downgrade/re-upgrade | Global storage behavior and taxonomy validation |
-| Concurrent writers | Eight old/new processes sharing a global store | Concurrent views, interrupted commits, process termination at the publication boundary |
-| Read surfaces | Brief, status, tree, map, review listing, vitality, Markdown export | Bundle export, manifest/integrity checks, classification and refresh |
-| Agent workflows | Distill, outline generation, and proposal application using deterministic agent responses | Extraction, reconciliation, proposal decisions, cache and outline regression suites |
-| Privacy | Legacy purge, old purge after conversion, current purge, old schema 1 purge followed by current detection/repair | Orphan representatives, overrides, temporary files, missing projections, transcript-only anchors, multi-source provenance |
-| Hosted sync | Push/pull, multiple feed pages, shared cursor use, both retraction directions, independent repository reads, failed push/pull and retry, rollback/re-upgrade | Existing Brainstore wire, binding, permission, cursor, filtering, and background sync suites |
-| History cache | Privacy operations and verification after switching clients | Old parser cache invalidation, current parser cache reuse, known-schema inspection, unsupported-schema rejection |
+| Area | Checks |
+| --- | --- |
+| Stable upgrades | Actual v0.2.0 to v0.5.0 binaries; normal writes trigger migration and cleanup without maintenance commands |
+| Existing v0.5.0 stores | Real parked migration output, repeated cleanup, later edits, retractions, deletions, and provenance changes |
+| Repository and global memories | Complete record preservation, cross-branch copies, lifecycle, recall, and unused global stores |
+| Recovery | Receipt publication, real process exit before/after removal, changed source bytes, and stale verification |
+| File safety | Unknown fields/files, malformed records, repeated IDs, symlinks, future receipts, and retained corrupt data |
+| Background work | Unchanged watcher ticks, maintenance before worker launch, busy-writer deferral, and pause settings |
+| Existing compatibility | Pre-flat memory commands, deterministic distillation/outline workflows, hosted sync/retractions, and released-writer recovery |
 
-The full Go suite checks other repository behavior. Focused race tests cover the
-changed storage, privacy, history-cache, and sync code. Tests do not use customer
-repositories, production Brainstore, or live model services. The local HTTP test
-server checks the Brainstore wire contract; it does not prove production service
-availability or model output quality.
+The full Go suite covers other repository behavior. Released-client tests use
+isolated data and a local HTTP server for hosted wire checks. They do not establish
+production service availability or live model output quality. Those require
+separate packaged-release checks.
 
 ## Reproduce
 
 ```bash
 bash scripts/test-memory-storage-compat.sh
-go test ./...
-go vet ./...
-go test -race ./internal/cli/internal/factstore ./internal/cli \
-  -run 'TestRepoFactStore|TestHistoryScanCache|TestPrivacy|TestSessionPrivacy|TestHosted|TestMemoriesSync|TestFacts'
+mise run test:prepush
+go test -race ./internal/cli/internal/factstore ./internal/cli/command/watch
+go test -race ./internal/cli -run 'TestAutomaticMemoryCleanup|TestRepoFactStore|TestHosted|TestMemoriesSync'
 ```

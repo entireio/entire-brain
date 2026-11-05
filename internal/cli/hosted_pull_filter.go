@@ -37,9 +37,8 @@ func newCommitReachability(ctx context.Context, runner CommandRunner, repoDir st
 //     the fact main-visible even when its anchor commits never became
 //     ancestors (squash merges rewrite them).
 //  2. The member's own facts follow them to every machine. Checked before
-//     reachability: it is free, the anchor loop shells out to git, and the
-//     caller holds the brain write lock — a member's own commit-anchored
-//     facts (the common case) must not each cost a git invocation there.
+//     reachability: it is free, while the anchor loop shells out to git.
+//     A member's own commit-anchored facts must not each cost a git call.
 //  3. Any anchor commit reachable from HEAD.
 //  4. No session/commit anchors at all: the repo pool, kept by everyone.
 //

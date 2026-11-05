@@ -1217,7 +1217,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		return saveDistillCache(brainDir, cache)
 	}
 	flushFactStores := func(final bool) error {
-		return brainstore.WithBrainWriteLock(brainDir, func() error {
+		return brainstore.WithBrainWriteLockSettlement(ctx, brainDir, func() error {
 			return flushFactStoresLocked(final)
 		})
 	}
@@ -1495,7 +1495,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 
 	writeStarted := time.Now()
 	var source *factSourceManifest
-	err = brainstore.WithBrainWriteLock(brainDir, func() error {
+	// Extraction has finished. Preserve completed facts and cache entries even
+	// when cancellation interrupts the wait for another writer to finish.
+	err = brainstore.WithBrainWriteLockSettlement(ctx, brainDir, func() error {
 		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return err
