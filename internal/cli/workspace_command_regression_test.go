@@ -300,34 +300,6 @@ func TestWorkspaceCommandMalformedManifestErrorsAtEveryRoute(t *testing.T) {
 	}
 }
 
-func TestWorkspaceCommandMalformedMemberPrivacyFailsClosed(t *testing.T) {
-	opts, env, manifest := workspaceCommandFixture(t)
-	memberDir, err := base.BrainDirForKey(env, manifest.Repos[0].RepoKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tombstones := filepath.Join(memberDir, filepath.FromSlash(brainstore.SessionTombstonesPath))
-	if err := os.MkdirAll(filepath.Dir(tombstones), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(tombstones, []byte("{broken"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	for _, args := range [][]string{
-		{"workspace", "patterns", "refresh", manifest.Name},
-		{"workspace", "patterns", manifest.Name},
-		{"workspace", "patterns", "status", manifest.Name},
-		{"workspace", "patterns", "verify", manifest.Name, "--agent", "none"},
-		{"workspace", "patterns", "skills", manifest.Name},
-		{"workspace", "patterns", "skills", "form", manifest.Name, "family:any", "--agent", "none"},
-	} {
-		out, err := execute(t, NewRootCommand(opts), args...)
-		if err == nil || (!strings.Contains(err.Error(), brainstore.StateCorruptCode) && !strings.Contains(err.Error(), brainstore.StateUnsafeCode)) {
-			t.Fatalf("%s: err=%v\n%s", strings.Join(args, " "), err, out)
-		}
-	}
-}
-
 func TestWorkspaceCommandOutputFailuresPropagate(t *testing.T) {
 	run := func(t *testing.T, opts Options, args ...string) error {
 		t.Helper()

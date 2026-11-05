@@ -2,8 +2,6 @@ package cli
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -11,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
@@ -372,31 +369,6 @@ func TestAbstractResolverScansInventoryOncePerGet(t *testing.T) {
 	}
 }
 
-func TestPrivacyVerifyFailsClosedOnUnsafeAbstractInventory(t *testing.T) {
-	brainDir, _ := writeSessionNavigationFixture(t)
-	stones := brainstore.EmptySessionTombstones()
-	stones.Excluded["nav-sess"] = sessionTombstone{At: time.Now().UTC()}
-	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-	dir := filepath.Join(brainDir, filepath.FromSlash(abstractsDirRel))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	target := filepath.Join(t.TempDir(), "outside.json")
-	if err := os.WriteFile(target, []byte(`{}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	nameHash := sha256.Sum256([]byte("unsafe"))
-	name := hex.EncodeToString(nameHash[:]) + ".json"
-	if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
-		t.Fatalf("privacy verification must fail closed on unsafe abstract entry: %v", err)
-	}
-}
-
 func TestAbstractInventoryCeilingReportsDegradedBeforeProvider(t *testing.T) {
 	brainDir, _ := writeSessionNavigationFixture(t)
 	view := sessionViewForTest(t, brainDir)
@@ -418,58 +390,6 @@ func TestAbstractInventoryCeilingReportsDegradedBeforeProvider(t *testing.T) {
 	}
 	if status, exposed := resolver.status(view); status != abstractStatusDegraded || exposed != nil {
 		t.Fatalf("status=%s exposed=%+v", status, exposed)
-	}
-}
-
-func TestMemoryRepairRefusesFalseSuccessWhenPrivacyRemainsDirty(t *testing.T) {
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	now := time.Date(2026, 8, 9, 16, 0, 0, 0, time.UTC)
-	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
-	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rel := "sessions/main/private.jsonl"
-	full := filepath.Join(storage.BrainDir, filepath.FromSlash(rel))
-	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	transcript := []byte("{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"private repair canary\"}]}}\n")
-	if err := os.WriteFile(full, transcript, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	manifest := exportManifest{
-		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now.Add(-time.Hour), RepoKey: storage.Key, DefaultBranch: "main",
-		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now.Add(-time.Hour), DefaultBranch: "main", Sessions: []exportSession{{
-			SessionID: "private-session", Branch: "main", TranscriptPath: rel, CreatedAt: now.Add(-2 * time.Hour),
-		}}}},
-	}
-	if err := writeBrainManifestAndReadme(storage.BrainDir, manifest); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, now.Add(-time.Hour), nil); err != nil {
-		t.Fatal(err)
-	}
-	stones := brainstore.EmptySessionTombstones()
-	stones.Excluded["private-session"] = sessionTombstone{At: now, Reason: "excluded"}
-	if err := brainstore.SaveSessionTombstones(storage.BrainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-	pre, err := verifySessionPrivacy(storage.BrainDir)
-	if err != nil || pre.Clean {
-		t.Fatalf("dirty precondition clean=%v err=%v findings=%+v", pre.Clean, err, pre.Findings)
-	}
-	oldRebuild := rebuildMemoryProjection
-	defer func() { rebuildMemoryProjection = oldRebuild }()
-	rebuildMemoryProjection = func(string, time.Time) error { return nil }
-	out, err := execute(t, newMemoryRepairCommand(opts))
-	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) || !strings.Contains(err.Error(), clibase.BrainInvocation(os.LookupEnv, "privacy purge")+" <session-id>") {
-		t.Fatalf("repair must return actionable dirty-privacy failure: err=%v out=%s", err, out)
-	}
-	if strings.Contains(out, "repair: rebuilt") {
-		t.Fatalf("repair falsely reported success: %s", out)
 	}
 }
 

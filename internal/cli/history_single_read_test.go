@@ -117,7 +117,7 @@ func TestHistoryTranscriptAggregateFingerprintIsStableAndContentBound(t *testing
 			t.Fatal(err)
 		}
 	}
-	files, err := collectHistorySessionDigests(context.Background(), brainDir, nil)
+	files, err := collectHistorySessionDigests(context.Background(), brainDir)
 	if err != nil {
 		t.Fatalf("collect: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestHistoryTranscriptAggregateFingerprintIsStableAndContentBound(t *testing
 	if err := os.WriteFile(filepath.Join(dir, "c.md"), []byte("Decision: retain markdown parsing!\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := collectHistorySessionDigests(context.Background(), brainDir, nil)
+	changed, err := collectHistorySessionDigests(context.Background(), brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func TestHistorySingleReadPreservesIndexAndBriefPacket(t *testing.T) {
 // full rebuild.
 func buildBrainHistoryIndexHashThenScanReference(outputDir string, now time.Time) (historyIndex, *historySourceManifest, error) {
 	index := historyIndex{GeneratedAt: now}
-	files, err := collectHistorySessionDigests(context.Background(), outputDir, nil)
+	files, err := collectHistorySessionDigests(context.Background(), outputDir)
 	if err != nil {
 		return index, nil, err
 	}
@@ -259,6 +259,7 @@ func buildBrainHistoryIndexHashThenScanReference(outputDir string, now time.Time
 	source := &historySourceManifest{
 		GeneratedAt:            now,
 		IndexPath:              historystore.IndexPath,
+		ExtractionVersion:      historyScanCacheVersion,
 		SessionsFingerprint:    brainSessionsFingerprint(outputDir),
 		TranscriptsFingerprint: transcriptsFingerprint,
 		Records:                len(index.Records),

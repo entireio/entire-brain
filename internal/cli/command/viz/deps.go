@@ -10,7 +10,6 @@ import (
 	"context"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 )
@@ -29,10 +28,6 @@ type Deps struct {
 	// RetrieveUnified is the unified retrieval engine bound to the cli-side
 	// deps; same code path as `entire brain search`.
 	RetrieveUnified func(repoDir, brainDir, branch, query string, limit int, mode retrieval.Mode) ([]retrieval.Result, error)
-	// CommitRetrievalResponse revalidates the captured privacy policies and
-	// runs write under the Brain write lock, binding the cli transport race
-	// seams around it.
-	CommitRetrievalResponse func(policies []brainstore.RetrievalPrivacyPolicy, write func() error) error
 }
 
 // Config carries the CLI options plus the injected cli-bound seams.

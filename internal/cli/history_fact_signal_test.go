@@ -21,7 +21,7 @@ func TestHistoryFactSignalMatchesValuesCommandsPrint(t *testing.T) {
 		{"go constant", "\tdefaultFactConfidenceThreshold = 0.75"},
 		{"go declaration", "func applyFactActions(active []factRecord) {"},
 		{"typed declaration", "type factAction struct {"},
-		{"python default", "def merge(threshold = 0.75):"},
+		{"go variable", "var mergeThreshold = 0.75"},
 		{"quoted assignment", `mode = "queued"`},
 		{"boolean assignment", "historyIndex = true"},
 		{"short assign", "threshold := 0.75"},

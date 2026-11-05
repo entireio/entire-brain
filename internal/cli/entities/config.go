@@ -23,5 +23,6 @@ type Deps struct {
 	SessionIDsByCheckpoint func(context.Context, base.Options, string, string) (map[string][]string, error)
 	SessionBranchByID      func(context.Context, base.Options, string) map[string]string
 	SaveIndexCache         func(string, IndexCache) error
+	SaveIndexCacheContext  func(context.Context, string, IndexCache) error
 	BrainInvocation        func(string) string
 }

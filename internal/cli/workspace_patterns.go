@@ -11,6 +11,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
@@ -96,8 +97,14 @@ func runWorkspacePatternsVerify(ctx context.Context, cmd *cobra.Command, opts Op
 	if err != nil {
 		return err
 	}
-	privacyPolicies, err := captureWorkspaceDerivedReadPolicies(opts.Env, manifest)
+	wsDir, err := workspace.DefaultStore(opts.Env).Dir(name)
 	if err != nil {
+		return err
+	}
+	// Unsafe or interrupted corpus publication fails closed before any agent
+	// resolution, so a broken marker is reported as such, never as a missing
+	// agent.
+	if err := patterncore.ValidateCorpusReadSafety(wsDir); err != nil {
 		return err
 	}
 	if err := clibase.RejectAgentForNoEgress(agent); err != nil {
@@ -110,7 +117,10 @@ func runWorkspacePatternsVerify(ctx context.Context, cmd *cobra.Command, opts Op
 	if resolved == "none" {
 		return fmt.Errorf("workspace family judgment requires an agent (codex or claude-code); none found on PATH")
 	}
-	return runPrivacyLinearizedPatternMutation(cmd, privacyPolicies, func() error {
+	// The workspace brain write lock serializes family verification against
+	// skill synthesis and the corpus rebuild (WithCorpusMutationLocked inside
+	// ProposeFamilies requires the caller to hold it).
+	return brainstore.WithBrainWriteLockContext(ctx, wsDir, func() error {
 		stats, err := patterncore.ProposeFamilies(ctx, opts.Env, manifest, ".", resolved, model, effort, defaultDistillAgentRunner(resolved), opts.Now().UTC())
 		if err != nil {
 			return err
@@ -406,10 +416,6 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 	if err := patterncore.RecoverWorkspaceCorpusPublication(opts.Env, manifest); err != nil {
 		return err
 	}
-	privacyPolicies, err := captureWorkspaceDerivedReadPolicies(opts.Env, manifest)
-	if err != nil {
-		return err
-	}
 	wsDir, err := workspace.DefaultStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
@@ -418,10 +424,9 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 		members memberPatterns
 		counts  patterncore.WorkspaceCorpusCounts
 	)
-	// Member reads and every aggregate artifact write share one policy-locked
-	// snapshot. A concurrent tombstone either waits until this generation is
-	// complete or wins before validation and aborts it without stale outputs.
-	if err := withLockedRetrievalPrivacyPolicies(privacyPolicies, func() error {
+	// Member reads and every aggregate artifact write happen under the
+	// workspace brain write lock, serialized against verify and synthesis.
+	if err := brainstore.WithBrainWriteLockContext(ctx, wsDir, func() error {
 		var lockedErr error
 		members, lockedErr = loadMemberPatterns(opts, manifest)
 		if lockedErr != nil {
@@ -448,7 +453,7 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 	}); err != nil {
 		return err
 	}
-	if err := bufferRetrievalCommandOutput(cmd, privacyPolicies, func() error {
+	if err := bufferRetrievalCommandOutput(cmd, func() error {
 		fmt.Fprintf(cmd.OutOrStdout(), "workspace %s: %d cross-repo V2 pattern(s) from %d/%d member corpora\n",
 			name, counts.Patterns, counts.WithCorpus, counts.Members)
 		return nil
@@ -462,12 +467,7 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 }
 
 func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Options, name string, list patternscmd.ListOptions) error {
-	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(name)
-	if err != nil {
-		return err
-	}
-	privacyPolicies, err := captureWorkspaceDerivedReadPolicies(opts.Env, manifest)
-	if err != nil {
+	if _, err := workspace.DefaultStore(opts.Env).LoadManifest(name); err != nil {
 		return err
 	}
 	wsDir, err := workspace.DefaultStore(opts.Env).Dir(name)
@@ -482,7 +482,7 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 		return err
 	}
 	if !corpusBacked {
-		return bufferRetrievalCommandOutput(cmd, privacyPolicies, func() error {
+		return bufferRetrievalCommandOutput(cmd, func() error {
 			fmt.Fprintf(cmd.OutOrStdout(), "workspace %s: no cross-repo corpus (run `"+clibase.BrainInvocation(os.LookupEnv, "workspace patterns refresh")+" %s`)\n", name, name)
 			return nil
 		})
@@ -501,7 +501,7 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 	if list.Limit > 0 && len(filtered) > list.Limit {
 		filtered = filtered[:list.Limit]
 	}
-	return bufferRetrievalCommandOutput(cmd, privacyPolicies, func() error {
+	return bufferRetrievalCommandOutput(cmd, func() error {
 		if list.AsJSON {
 			return cmdutil.WriteJSON(cmd, filtered)
 		}
@@ -519,10 +519,6 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 
 func runWorkspacePatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, name string) error {
 	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(name)
-	if err != nil {
-		return err
-	}
-	privacyPolicies, err := captureWorkspaceDerivedReadPolicies(opts.Env, manifest)
 	if err != nil {
 		return err
 	}
@@ -559,7 +555,7 @@ func runWorkspacePatternsStatus(ctx context.Context, cmd *cobra.Command, opts Op
 			covered++
 		}
 	}
-	if err := bufferRetrievalCommandOutput(cmd, privacyPolicies, func() error {
+	if err := bufferRetrievalCommandOutput(cmd, func() error {
 		out := cmd.OutOrStdout()
 		fmt.Fprintf(out, "workspace: %s\n", name)
 		fmt.Fprintf(out, "member repos: %d (%d with patterns)\n", len(manifest.Repos), covered)
@@ -670,16 +666,8 @@ func buildWorkspaceTaskCandidates(byRepo map[string][]taskCandidate, repoOrder [
 // verified semantic groupings, not the raw exact-aggregated rows. Run
 // `workspace patterns verify` to produce them.
 func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Options, name string, asJSON bool, limit int) error {
-	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(name)
-	if err != nil && !os.IsNotExist(err) {
+	if _, err := workspace.DefaultStore(opts.Env).LoadManifest(name); err != nil && !os.IsNotExist(err) {
 		return err
-	}
-	var privacyPolicies []retrievalPrivacyPolicy
-	if err == nil {
-		privacyPolicies, err = captureWorkspaceDerivedReadPolicies(opts.Env, manifest)
-		if err != nil {
-			return err
-		}
 	}
 	wsDir, err := workspace.DefaultStore(opts.Env).Dir(name)
 	if err != nil {
@@ -695,7 +683,7 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 	if limit > 0 && len(families) > limit {
 		families = families[:limit]
 	}
-	return bufferRetrievalCommandOutput(cmd, privacyPolicies, func() error {
+	return bufferRetrievalCommandOutput(cmd, func() error {
 		if asJSON {
 			return cmdutil.WriteJSON(cmd, families)
 		}
@@ -718,12 +706,7 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 }
 
 func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options, name string, s skillFormOptions) error {
-	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(name)
-	if err != nil {
-		return err
-	}
-	privacyPolicies, err := captureWorkspaceDerivedReadPolicies(opts.Env, manifest)
-	if err != nil {
+	if _, err := workspace.DefaultStore(opts.Env).LoadManifest(name); err != nil {
 		return err
 	}
 	wsDir, err := workspace.DefaultStore(opts.Env).Dir(name)
@@ -740,10 +723,10 @@ func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Option
 	if agent == "none" {
 		return fmt.Errorf("skill synthesis requires an agent (codex or claude-code); none found on PATH")
 	}
-	return runPrivacyLinearizedPatternMutation(cmd, privacyPolicies, func() error {
-		// Resolve the accepted source only after every member policy/lock is
-		// pinned. Workspace verification uses the same locks, so a concurrent
-		// family replacement cannot leave synthesis using a stale dossier.
+	// The workspace brain write lock serializes synthesis against workspace
+	// verification, so a concurrent family replacement cannot leave synthesis
+	// using a stale dossier, and the skill-memory write stays consistent.
+	return brainstore.WithBrainWriteLockContext(ctx, wsDir, func() error {
 		fam, ok, err := patterncore.AcceptedFamilyByIDChecked(wsDir, s.taskID)
 		if err != nil {
 			return err

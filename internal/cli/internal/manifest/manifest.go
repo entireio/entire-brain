@@ -60,7 +60,12 @@ type Manifest struct {
 	CheckpointsScanned int       `json:"checkpoints_scanned"`
 	Branches           []Branch  `json:"branches,omitempty"`
 	Sessions           []Session `json:"sessions"`
-	Warnings           []string  `json:"warnings,omitempty"`
+	// UnavailableSessions are checkpoint-catalog members whose transcript
+	// bytes are not available locally (destroyed manual-commit checkpoints,
+	// unfetched refs). They are dropped from Sessions but are still part of
+	// the catalog, so the mirror must not treat them as deleted.
+	UnavailableSessions []UnavailableSession `json:"unavailable_sessions,omitempty"`
+	Warnings            []string             `json:"warnings,omitempty"`
 	// SuppressedWarnings holds the RAW text of every warning usefulExportWarnings kept out of
 	// Warnings. It exists so a diagnostic warning -- "checkpoint snapshot unavailable:" above all,
 	// which means a transcript was not readable and the export is therefore incomplete -- is
@@ -107,7 +112,13 @@ type Author struct {
 	LastCommitAt *time.Time `json:"last_commit_at,omitempty"`
 }
 
-const SchemaVersion = 4
+// SchemaVersion 5 marks the flat per-repo memory store: facts/store.json
+// schema 3 with payloads inline, no per-branch files. The bump is the one-way
+// door for released clients (v0.2–v0.4): their memory commands refuse a newer
+// manifest with memory_unsupported_version. Their write path appends to a
+// legacy branch file BEFORE that check fires, which is why migration is a
+// standing reconcile (factstore.MigrateRepository) rather than a one-shot.
+const SchemaVersion = 5
 
 // MinSchemaVersion is the oldest manifest this build reads.
 //
@@ -143,7 +154,17 @@ type SessionSource struct {
 	LatestCheckpointID string     `json:"latest_checkpoint_id,omitempty"`
 	Branches           []Branch   `json:"branches,omitempty"`
 	Sessions           []Session  `json:"sessions"`
-	Warnings           []string   `json:"warnings,omitempty"`
+	// UnavailableSessions mirrors Manifest.UnavailableSessions: catalog
+	// members without locally servable bytes, still present in the refs.
+	UnavailableSessions []UnavailableSession `json:"unavailable_sessions,omitempty"`
+	Warnings            []string             `json:"warnings,omitempty"`
+}
+
+// UnavailableSession is the content-free identity of a checkpoint-catalog
+// session the export could not serve locally.
+type UnavailableSession struct {
+	SessionID string `json:"session_id"`
+	Branch    string `json:"branch,omitempty"`
 }
 
 // FactSource is recorded under sources.facts in the brain manifest,
@@ -206,6 +227,10 @@ type FactSource struct {
 type HistorySource struct {
 	GeneratedAt time.Time `json:"generated_at"`
 	IndexPath   string    `json:"index_path"`
+	// ExtractionVersion identifies the history record extraction logic used to
+	// build the persisted index. A changed extractor must rebuild even when the
+	// transcript files themselves are unchanged.
+	ExtractionVersion int `json:"extraction_version,omitempty"`
 	// IndexBytes/IndexSHA256/RecordsFingerprint let a reader rank straight from
 	// the FTS payload table without loading index.json, and give the FTS
 	// freshness check an O(1) key.

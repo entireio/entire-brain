@@ -9,10 +9,8 @@ package dash
 
 import (
 	"context"
-	"io"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/entireio/entire-brain/internal/tui"
@@ -25,7 +23,6 @@ import (
 type StatusHome struct {
 	Home        tui.HomeView
 	Manifest    *bmanifest.Manifest
-	Guard       brainstore.SessionReadGuard
 	RepoRoot    string
 	GeneratedAt string
 }
@@ -38,21 +35,17 @@ type Deps struct {
 	// ResolveFactsTarget resolves the repo, brain directory, and the branch
 	// the brain is scoped to (the live git branch unless overridden).
 	ResolveFactsTarget func(ctx context.Context, opts base.Options, target, branchOverride string) (repoDir, brainDir, branch string, err error)
-	// StatusHome builds the Home tab view plus the manifest, session read
-	// guard, repo root, and build stamp from the target's full status report.
+	// StatusHome builds the Home tab view plus the manifest, repo root, and
+	// build stamp from the target's full status report.
 	StatusHome func(ctx context.Context, opts base.Options, target, branch, brainDir string) (StatusHome, error)
 	// RetrieveUnified is the unified retrieval engine bound to the cli-side
 	// deps; same code path as `entire brain search`.
 	RetrieveUnified func(repoDir, brainDir, branch, query string, limit int, mode retrieval.Mode) ([]retrieval.Result, error)
-	// BufferRetrievalOutput buffers the command's exact bytes and commits them
-	// through the shared final privacy boundary (--json / --plain paths).
-	BufferRetrievalOutput func(cmd *cobra.Command, policies []brainstore.RetrievalPrivacyPolicy, render func() error) error
-	// TerminalWriter wraps the dashboard's terminal stream in the
-	// privacy-linearized writer while keeping the underlying file visible to
-	// the terminal library.
-	TerminalWriter func(out io.Writer, policy brainstore.RetrievalPrivacyPolicy) io.Writer
-	// BrainSourceReader reads virtual transcripts on demand under the fresh
-	// privacy gate, keeping transcript addresses out of the OS opener.
+	// BufferRetrievalOutput buffers the command's exact bytes and emits them
+	// only when rendering succeeded (--json / --plain paths).
+	BufferRetrievalOutput func(cmd *cobra.Command, render func() error) error
+	// BrainSourceReader reads virtual transcripts on demand, keeping
+	// transcript addresses out of the OS opener.
 	BrainSourceReader func(ctx context.Context, runner base.CommandRunner, brainDir string) tui.SourceReader
 }
 

@@ -121,7 +121,7 @@ func TestRecentDecisionMatchesReportsUnreadableIndex(t *testing.T) {
 	_, brainDir := overviewHistoryFixture(t)
 	source := &historySourceManifest{IndexPath: historystore.IndexPath, Records: 1, Decisions: 1}
 
-	matches, err := recentDecisionMatches(brainDir, source, 5, sessionReadGuard{})
+	matches, err := recentDecisionMatches(brainDir, source, 5)
 	if err != nil {
 		t.Fatalf("healthy recentDecisionMatches: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestRecentDecisionMatchesReportsUnreadableIndex(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath)), []byte("{ not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	matches, err = recentDecisionMatches(brainDir, source, 5, sessionReadGuard{})
+	matches, err = recentDecisionMatches(brainDir, source, 5)
 	if err == nil {
 		t.Fatalf("recentDecisionMatches returned %d matches and no error for an unreadable index", len(matches))
 	}

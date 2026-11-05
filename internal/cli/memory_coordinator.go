@@ -437,10 +437,6 @@ func pruneMemoryJobsLocked(brainDir string, jobs []memoryJob, now time.Time) (in
 		source = manifest.Sources.History
 	}
 	receipts, receiptsCurrent := loadProjectionState(brainDir, source)
-	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
-	if err != nil {
-		return 0, err
-	}
 	abstracts := newSessionAbstractResolver(brainDir)
 	hasTruthProof := func(job memoryJob) bool {
 		switch {
@@ -455,8 +451,9 @@ func pruneMemoryJobsLocked(brainDir string, jobs []memoryJob, now time.Time) (in
 			view, err := loadConversationSessionViewByRef(brainDir, job.SessionRef)
 			return err == nil && validateSessionAbstract(entry.Artifact, view) == nil
 		case job.State == memoryJobStateExcluded:
-			_, ok := stones.Excluded[job.SessionID]
-			return ok
+			// Legacy terminal state written by the removed privacy layer;
+			// nothing produces it anymore, so it needs no further proof.
+			return true
 		}
 		return false
 	}
@@ -494,8 +491,7 @@ func pruneMemoryJobsLocked(brainDir string, jobs []memoryJob, now time.Time) (in
 		case job.State == memoryJobStateComplete || job.State == memoryJobStateExcluded:
 			proven = proofByJob[job.JobID]
 		case job.State == memoryJobStateSuperseded || job.State == memoryJobStateCancelled:
-			_, tombstoned := stones.Excluded[job.SessionID]
-			proven = tombstoned || replacementIsProven(job)
+			proven = replacementIsProven(job)
 		}
 		if !proven {
 			continue

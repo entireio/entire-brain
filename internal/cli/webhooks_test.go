@@ -200,7 +200,7 @@ func TestWebhookStatusReportsTheRedactionDefault(t *testing.T) {
 // is down would be worse than one with no webhooks at all.
 func TestRememberStillRecordsWhenTheWebhookEndpointIsDown(t *testing.T) {
 	now := clitest.WebhookTestNow()
-	opts, brainDir, branch := rememberReviveEnv(t, now)
+	opts, brainDir, _ := rememberReviveEnv(t, now)
 	t.Setenv(webhook.WebhookURLEnv, "http://127.0.0.1:1/definitely-not-listening")
 
 	text := "Refs are written through a Postgres compare-and-swap."
@@ -212,7 +212,7 @@ func TestRememberStillRecordsWhenTheWebhookEndpointIsDown(t *testing.T) {
 		facts.RememberCommandOptions{Path: "preferences.coding.style", Agent: "none"}, text); err != nil {
 		t.Fatalf("remember failed because a webhook could not be delivered: %v", err)
 	}
-	facts, err := factstore.Load(brainDir, branch)
+	facts, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatalf("factstore.Load: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestGlobalFactWebhooksDoNotClaimRepositoryOwnership(t *testing.T) {
 // machine where somebody has also configured a webhook.
 func TestRememberSendsNothingUnderNoEgress(t *testing.T) {
 	now := clitest.WebhookTestNow()
-	opts, brainDir, branch := rememberReviveEnv(t, now)
+	opts, brainDir, _ := rememberReviveEnv(t, now)
 	rec := clitest.WebhookEndpointServer(t, webhook.WebhookURLEnv)
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
 
@@ -330,7 +330,7 @@ func TestRememberSendsNothingUnderNoEgress(t *testing.T) {
 	if rec.Count() != 0 {
 		t.Fatalf("no-egress mode still sent %d webhook(s)", rec.Count())
 	}
-	facts, err := factstore.Load(brainDir, branch)
+	facts, err := factstore.Load(brainDir)
 	if err != nil || len(facts) == 0 {
 		t.Fatalf("the fact was not recorded under no-egress: %v", err)
 	}

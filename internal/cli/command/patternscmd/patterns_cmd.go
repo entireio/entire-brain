@@ -7,7 +7,6 @@ import (
 	"sort"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
@@ -59,12 +58,7 @@ func runPatternsList(ctx context.Context, cmd *cobra.Command, cfg Config, target
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
-	if err != nil {
-		return err
-	}
-	privacyPolicy.RequireDerivedClean = true
-	if err := cfg.Deps.RequireDerivedCleanRead(brainDir); err != nil {
+	if err := patterncore.ValidateCorpusReadSafety(brainDir); err != nil {
 		return err
 	}
 	// Primary analytical source is the V2 corpus; the legacy procedure/practice
@@ -129,7 +123,7 @@ func runPatternsList(ctx context.Context, cmd *cobra.Command, cfg Config, target
 		patternsPresent = status.Present
 	}
 
-	return cfg.Deps.BufferRetrievalCommandOutput(cmd, []brainstore.RetrievalPrivacyPolicy{privacyPolicy}, func() error {
+	return cfg.Deps.BufferRetrievalCommandOutput(cmd, func() error {
 		if listOpts.AsJSON {
 			return cmdutil.WriteJSON(cmd, filtered)
 		}
@@ -218,19 +212,14 @@ func runPatternsStatus(ctx context.Context, cmd *cobra.Command, cfg Config, targ
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
-	if err != nil {
-		return err
-	}
-	privacyPolicy.RequireDerivedClean = true
-	if err := cfg.Deps.RequireDerivedCleanRead(brainDir); err != nil {
+	if err := patterncore.ValidateCorpusReadSafety(brainDir); err != nil {
 		return err
 	}
 	report, err := BuildStatusReportChecked(brainDir, cfg.Deps)
 	if err != nil {
 		return err
 	}
-	return cfg.Deps.BufferRetrievalCommandOutput(cmd, []brainstore.RetrievalPrivacyPolicy{privacyPolicy}, func() error {
+	return cfg.Deps.BufferRetrievalCommandOutput(cmd, func() error {
 		if asJSON {
 			return cmdutil.WriteJSON(cmd, report)
 		}

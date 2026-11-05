@@ -112,7 +112,7 @@ func TestSetupShortBuildStepLabels(t *testing.T) {
 	t.Parallel()
 	for input, want := range map[string]string{
 		"export sessions":                     "reading past AI sessions",
-		"seed baseline: inventory":            "scanning repository files",
+		"repository context: inventory":       "scanning repository files",
 		"history index: 2/3 sessions scanned": "indexing session history",
 		"doc index":                           "indexing documentation",
 		"code index: parsing sources":         "indexing code",

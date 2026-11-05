@@ -25,7 +25,7 @@ const (
 func (s DeclaredIndexSource) Label() string {
 	switch s {
 	case DeclaredIndexSeed:
-		return "seed baseline"
+		return "repository context"
 	case DeclaredIndexHistory:
 		return "history index"
 	case DeclaredIndexDocs:

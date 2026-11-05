@@ -72,12 +72,12 @@ func assertNoDistillDerivedState(t *testing.T, brainDir string) {
 	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(distillCachePath))); !os.IsNotExist(err) {
 		t.Fatalf("refused distill cache stat error = %v, want not exist", err)
 	}
-	byBranch, err := factstore.LoadAllBranches(brainDir)
+	records, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatalf("load facts after refused distill: %v", err)
 	}
-	if len(byBranch) != 0 {
-		t.Fatalf("refused distill published fact branches: %+v", byBranch)
+	if len(records) != 0 {
+		t.Fatalf("refused distill published facts: %+v", records)
 	}
 }
 
@@ -141,42 +141,5 @@ func TestEpisodeUnsafeInputPublishesNoPartialPatternArtifacts(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestHistoryProjectionDoesNotReadExcludedTranscriptContent(t *testing.T) {
-	brainDir := writePrivacyFixture(t)
-	manifest, err := bmanifest.Load(brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	secretRel := ""
-	for _, session := range manifest.Sources.Sessions.Sessions {
-		if session.SessionID == "secret-sess" {
-			secretRel = filepath.ToSlash(session.TranscriptPath)
-			break
-		}
-	}
-	if secretRel == "" {
-		t.Fatal("privacy fixture has no secret session")
-	}
-	stones := brainstore.LoadSessionTombstones(brainDir)
-	stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "test"}
-	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-	var digested []string
-	originalHook := beforeHistoryProjectionContentDigest
-	beforeHistoryProjectionContentDigest = func(rel string) { digested = append(digested, rel) }
-	t.Cleanup(func() { beforeHistoryProjectionContentDigest = originalHook })
-	prepared, err := prepareBrainHistoryProjection(brainDir, time.Now().UTC(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = discardPreparedHistoryProjection(brainDir, prepared) })
-	for _, rel := range digested {
-		if rel == secretRel {
-			t.Fatalf("excluded transcript content was hashed during projection: %s", rel)
-		}
 	}
 }

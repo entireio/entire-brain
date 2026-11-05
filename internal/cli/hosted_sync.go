@@ -3,12 +3,12 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
@@ -30,6 +30,10 @@ const (
 	// on a pathological feed. ponytail: a delta larger than 20k records
 	// finishes on the next trigger — the cursor persists either way.
 	maxHostedFeedPages = 200
+	// Concurrent syncs can invalidate a prepared pull. Bound repeated network
+	// and Git work; a later trigger can resume from the latest durable cursor.
+	maxHostedFeedAttempts = 3
+	hostedFeedRetryDelay  = 100 * time.Millisecond
 	// hostedNoAccessBackoff is how long every background trigger skips a repo
 	// after the server denied access to the binding (COR-2279). Long enough to
 	// stop a stuck client from tripping the server's auth-failure monitor,
@@ -44,16 +48,16 @@ type hostedSyncOutcome struct {
 	PullSucceeded bool
 }
 
-// hostedFactsSyncAndPull closes the hosted-memory loop for one branch on the
-// per-fact wire (COR-2126): batch-upsert this machine's branch store to
+// hostedFactsSyncAndPull closes the hosted-memory loop on the per-fact wire
+// (COR-2126): batch-upsert this machine's store to
 // brainstore, pull the repo-wide delta feed into the repo-level cache, and
-// rebuild the branch store as the pull filter's output plus this machine's
+// rebuild the store as the pull filter's output plus this machine's
 // own facts the feed has not seen. No CAS, no branch heads, no proposals —
 // per-fact storage keeps conflicting facts side by side and resolution stays
 // deferred to the async pipeline.
 //
 // It is a NEVER-FAILS step: every gated or soft failure is one stderr line and
-// a nil return, because its callers (daemon tick, session-end hook, connect)
+// a nil return, because its callers (commit hints, distillation completion, connect)
 // must not fail on hosted outages. The error return exists for programming
 // errors only.
 //
@@ -73,7 +77,7 @@ type hostedSyncOutcome struct {
 // half completed — the half that proves the exchange (the per-branch marker
 // keys off it). Callers that promise a sync to the user (connect) key their
 // report off PullSucceeded; background callers keep ignoring it.
-func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) (hostedSyncOutcome, error) {
+func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage) (hostedSyncOutcome, error) {
 	if base.BrainNoEgressMode() {
 		return hostedSyncOutcome{}, nil
 	}
@@ -110,9 +114,9 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 
 	rebound := false
 	for {
-		counts, skipped, pushErr := pushHostedFacts(ctx, storage, srv, binding.RepoID, branch)
+		counts, skipped, pushErr := pushHostedFacts(ctx, storage, srv, binding.RepoID)
 		if skipped > 0 {
-			fmt.Fprintf(errW, "hosted sync: branch %s: skipped %d unpublishable record(s) whose content id does not re-derive (kept locally, not uploaded)\n", branch, skipped)
+			fmt.Fprintf(errW, "hosted sync: skipped %d unpublishable record(s) whose content id does not re-derive (kept locally, not uploaded)\n", skipped)
 		}
 		pushed := pushErr == nil
 		if pushErr != nil {
@@ -120,9 +124,9 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 			// grant is a real state (push 403, pull 200 — the COR-2030 staging
 			// smoke hit exactly this) and the team's memories must keep
 			// landing through it.
-			fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): %v; pull-only\n", branch, pushErr)
+			fmt.Fprintf(errW, "hosted sync: publish failed (local brain unaffected): %v; pull-only\n", pushErr)
 		}
-		kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, binding.RepoID, baseURL, token, branch)
+		kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, binding.RepoID, baseURL, token)
 		if errors.Is(pullErr, factsync.ErrNoAccess) {
 			// The pull is the half every caller is granted on a healthy
 			// binding, so its denial means the binding itself is stale: the
@@ -137,20 +141,20 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 					continue
 				}
 			}
-			pauseHostedSyncNoAccess(errW, opts, storage.BrainDir, binding)
+			pauseHostedSyncNoAccessContext(ctx, errW, opts, storage.BrainDir, binding)
 			return hostedSyncOutcome{Attempted: true}, nil
 		}
 		if pullErr != nil {
-			fmt.Fprintf(errW, "hosted sync: branch %s pull failed (local brain unaffected): %v\n", branch, pullErr)
+			fmt.Fprintf(errW, "hosted sync: pull failed (local brain unaffected): %v\n", pullErr)
 			return hostedSyncOutcome{Attempted: true}, nil
 		}
 		if pushed {
-			// The per-branch marker records that this branch completed a sync
-			// against this target; the blind-spot note keys off its absence. It
-			// needs BOTH halves: a pull-only run leaves it unwritten, and so does
-			// a failed pull — the empty-store push "succeeds" without contacting
-			// the server, so the pull is what proves the exchange happened.
-			if err := writeHostedFactsBinding(storage.BrainDir, branch, binding.RepoID, baseURL); err != nil {
+			// The marker records that this repo completed a sync against this
+			// target; the blind-spot note keys off its absence. It needs BOTH
+			// halves: a pull-only run leaves it unwritten, and so does a failed
+			// pull — the empty-store push "succeeds" without contacting the
+			// server, so the pull is what proves the exchange happened.
+			if err := writeHostedFactsBindingContext(ctx, storage.BrainDir, binding.RepoID, baseURL); err != nil {
 				fmt.Fprintf(errW, "hosted sync: record hosted target: %v\n", err)
 			}
 		}
@@ -162,12 +166,12 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 			// access is back, so retire the pause instead of leaving status
 			// reporting it forever. Guarded like the pause write — a binding
 			// another writer replaced meanwhile is not touched.
-			if err := clearHostedSyncNoAccess(storage.BrainDir, binding); err != nil {
+			if err := clearHostedSyncNoAccessContext(ctx, storage.BrainDir, binding); err != nil {
 				fmt.Fprintf(errW, "hosted sync: clear expired no-access pause: %v\n", err)
 			}
 		}
-		fmt.Fprintf(errW, "hosted sync: branch %s pushed added=%d changed=%d unchanged=%d; feed facts=%d kept=%d\n",
-			branch, counts.Added, counts.Changed, counts.Unchanged, total, kept)
+		fmt.Fprintf(errW, "hosted sync: pushed added=%d changed=%d unchanged=%d; feed facts=%d kept=%d\n",
+			counts.Added, counts.Changed, counts.Unchanged, total, kept)
 		return hostedSyncOutcome{Attempted: true, PullSucceeded: true}, nil
 	}
 }
@@ -185,7 +189,7 @@ func rebindStaleHostedRepo(ctx context.Context, errW io.Writer, opts Options, re
 		return brainstore.HostedRepoBinding{}, false
 	}
 	written := false
-	err = brainstore.MutateHostedRepoBinding(brainDir, func(current brainstore.HostedRepoBinding) (brainstore.HostedRepoBinding, bool) {
+	err = brainstore.MutateHostedRepoBindingContext(ctx, brainDir, func(current brainstore.HostedRepoBinding) (brainstore.HostedRepoBinding, bool) {
 		if current.OptedOut || current.RepoID != stale.RepoID || current.BaseURL != stale.BaseURL {
 			return current, false
 		}
@@ -201,7 +205,11 @@ func rebindStaleHostedRepo(ctx context.Context, errW io.Writer, opts Options, re
 
 // clearHostedSyncNoAccess retires a pause whose repo answered a pull again.
 func clearHostedSyncNoAccess(brainDir string, stale brainstore.HostedRepoBinding) error {
-	return brainstore.MutateHostedRepoBinding(brainDir, func(current brainstore.HostedRepoBinding) (brainstore.HostedRepoBinding, bool) {
+	return clearHostedSyncNoAccessContext(context.Background(), brainDir, stale)
+}
+
+func clearHostedSyncNoAccessContext(ctx context.Context, brainDir string, stale brainstore.HostedRepoBinding) error {
+	return brainstore.MutateHostedRepoBindingContext(ctx, brainDir, func(current brainstore.HostedRepoBinding) (brainstore.HostedRepoBinding, bool) {
 		if current.OptedOut || current.RepoID != stale.RepoID || current.BaseURL != stale.BaseURL || current.NoAccessUntil.IsZero() {
 			return current, false
 		}
@@ -217,9 +225,13 @@ func clearHostedSyncNoAccess(brainDir string, stale brainstore.HostedRepoBinding
 // write means another writer owns the binding now (its state speaks for
 // itself), and a failed write means the next trigger will try again.
 func pauseHostedSyncNoAccess(errW io.Writer, opts Options, brainDir string, stale brainstore.HostedRepoBinding) {
+	pauseHostedSyncNoAccessContext(context.Background(), errW, opts, brainDir, stale)
+}
+
+func pauseHostedSyncNoAccessContext(ctx context.Context, errW io.Writer, opts Options, brainDir string, stale brainstore.HostedRepoBinding) {
 	until := opts.Now().UTC().Add(hostedNoAccessBackoff)
 	written := false
-	err := brainstore.MutateHostedRepoBinding(brainDir, func(current brainstore.HostedRepoBinding) (brainstore.HostedRepoBinding, bool) {
+	err := brainstore.MutateHostedRepoBindingContext(ctx, brainDir, func(current brainstore.HostedRepoBinding) (brainstore.HostedRepoBinding, bool) {
 		if current.OptedOut || current.RepoID != stale.RepoID || current.BaseURL != stale.BaseURL {
 			return current, false
 		}
@@ -244,8 +256,19 @@ func pauseHostedSyncNoAccess(errW io.Writer, opts Options, brainDir string, stal
 // publish did not complete and the branch must not be marked as synced. The
 // caller owns presentation: background sync degrades to pull-only with one
 // stderr line, manual sync fails the command (COR-2202 honesty).
-func pushHostedFacts(ctx context.Context, storage repoStorage, srv *factsync.HTTPServer, repoID, branch string) (factsync.UpsertCounts, int, error) {
-	facts, err := factstore.Load(storage.BrainDir, branch)
+func pushHostedFacts(ctx context.Context, storage repoStorage, srv *factsync.HTTPServer, repoID string) (factsync.UpsertCounts, int, error) {
+	lock, err := acquireHostedUploadLock(ctx, storage.BrainDir)
+	if err != nil {
+		return factsync.UpsertCounts{}, 0, err
+	}
+	defer lock.Close()
+	receiptPath := hostedUploadReceiptPath(srv.BaseURL, repoID)
+	receipts, err := loadHostedUploadReceipts(storage.BrainDir, receiptPath)
+	if err != nil {
+		return factsync.UpsertCounts{}, 0, err
+	}
+
+	facts, err := factstore.Load(storage.BrainDir)
 	if err != nil {
 		return factsync.UpsertCounts{}, 0, err
 	}
@@ -277,6 +300,22 @@ func pushHostedFacts(ctx context.Context, storage repoStorage, srv *factsync.HTT
 		return factsync.UpsertCounts{}, skipped, errors.New("no publishable records")
 	}
 	var total factsync.UpsertCounts
+	pending := egress[:0]
+	versions := map[string]bool{}
+	for _, rec := range egress {
+		body, err := json.Marshal(rec)
+		if err != nil {
+			return total, skipped, err
+		}
+		version := hostedUploadHash(body)
+		if receipts.Versions[version] || versions[version] {
+			total.Unchanged++
+			continue
+		}
+		versions[version] = true
+		pending = append(pending, rec)
+	}
+	egress = pending
 	for start := 0; start < len(egress); start += hostedUpsertChunk {
 		end := min(start+hostedUpsertChunk, len(egress))
 		var buf bytes.Buffer
@@ -290,25 +329,80 @@ func pushHostedFacts(ctx context.Context, storage repoStorage, srv *factsync.HTT
 		total.Added += counts.Added
 		total.Changed += counts.Changed
 		total.Unchanged += counts.Unchanged
+		// Acknowledge only the snapshot actually sent, not a concurrent writer's
+		// newer version. Persist each successful chunk before sending the next.
+		for _, rec := range egress[start:end] {
+			body, err := json.Marshal(rec)
+			if err != nil {
+				return total, skipped, err
+			}
+			receipts.Versions[hostedUploadHash(body)] = true
+		}
+		if err := saveHostedUploadReceipts(storage.BrainDir, receiptPath, receipts); err != nil {
+			return total, skipped, err
+		}
 	}
 	return total, skipped, nil
 }
+
+var errHostedFeedChanged = errors.New("hosted feed changed during preparation")
 
 // pullHostedFacts fetches the repo delta feed since the stored cursor into
 // the repo-level cache, filters the WHOLE cache by local visibility
 // (keepHostedFact), and rebuilds the branch store from the result. Returns
 // (kept, total cached) for the caller's summary line.
 //
-// Everything runs under the brain write lock: the cache and the branch store
-// must move together, and concurrent triggers (tick, hook, push hint) must
-// not interleave their rebuilds.
-func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage repoStorage, srv *factsync.HTTPServer, repoID, baseURL, token, branch string) (kept, total int, manifestErr, err error) {
+// Fetch and filter without the writer lock. Revalidate the cache at commit
+// and merge into the latest local store, preserving concurrent user writes.
+func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage repoStorage, srv *factsync.HTTPServer, repoID, baseURL, token string) (kept, total int, manifestErr, err error) {
+	for attempt := 1; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return 0, 0, nil, err
+		}
+		kept, total, manifestErr, err = pullHostedFactsAttempt(ctx, opts, repoDir, storage, srv, repoID, baseURL, token)
+		if !errors.Is(err, errHostedFeedChanged) {
+			return
+		}
+		if attempt >= maxHostedFeedAttempts {
+			return 0, 0, nil, fmt.Errorf("hosted feed changed during %d pull attempts; retry sync: %w", attempt, err)
+		}
+		timer := time.NewTimer(hostedFeedRetryDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return 0, 0, nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func pullHostedFactsAttempt(ctx context.Context, opts Options, repoDir string, storage repoStorage, srv *factsync.HTTPServer, repoID, baseURL, token string) (kept, total int, manifestErr, err error) {
 	feedDir, err := hostedFeedDirForKey(opts.Env, storage.Key)
 	if err != nil {
 		return 0, 0, nil, err
 	}
-	err = brainstore.WithBrainWriteLock(storage.BrainDir, func() error {
-		state, items, err := loadHostedFeedCache(feedDir)
+	err = func() error {
+		var state hostedFeedState
+		var items map[string]factsync.FeedItem
+		var binding brainstore.HostedRepoBinding
+		var bound bool
+		// Snapshot under the existing lock so released clients cannot expose
+		// half of a cache replacement. Network and Git work follow unlocked.
+		if err := brainstore.WithBrainWriteLockContext(ctx, storage.BrainDir, func() error {
+			var loadErr error
+			state, items, loadErr = loadHostedFeedCache(feedDir)
+			if loadErr != nil {
+				return loadErr
+			}
+			binding, bound, loadErr = brainstore.ReadHostedRepoBinding(storage.BrainDir)
+			return loadErr
+		}); err != nil {
+			return err
+		}
+		snapshot, err := json.Marshal(struct {
+			State hostedFeedState
+			Items map[string]factsync.FeedItem
+		}{state, items})
 		if err != nil {
 			return err
 		}
@@ -350,94 +444,110 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 
 		member := jwtSubClaim(token)
 		reachable := newCommitReachability(ctx, opts.Runner, repoDir)
-		keptIDs := make(map[string]bool)
 		var keptRecords []factRecord
-		for id, item := range items {
-			if !keepHostedFact(item, member, reachable) {
-				continue
-			}
+		var retirements []factRecord
+		for _, item := range items {
 			rec := item.Record
 			// Server attribution is the only author source: it overwrites
 			// whatever the wire record carried (an old or hostile peer's value
 			// must not survive).
 			rec.Author = item.CreatedByHandle
-			keptRecords = append(keptRecords, rec)
-			keptIDs[id] = true
+			if keepHostedFact(item, member, reachable) {
+				keptRecords = append(keptRecords, rec)
+				continue
+			}
+			// A retirement bypasses the keep filter: the filter judges
+			// reachability from the CURRENT branch head, but a lifecycle
+			// transition for a record this store already holds must apply
+			// wherever the retiring commit lives — otherwise recall keeps
+			// serving a statement the team retracted. Applied below to
+			// existing ids only; an unreachable retirement never adopts the
+			// record it retires.
+			if rec.Status != factStatusActive {
+				retirements = append(retirements, rec)
+			}
 		}
 		// Same fail-closed rule as the old head pull: a record whose content id
 		// does not re-derive is a forgery, and nothing from this feed — cache
 		// and cursor included — may land until the server stops serving it.
-		if err := factmerge.VerifyIdentities(keptRecords); err != nil {
+		// Retirements are held to the same proof: an unverifiable id must not
+		// retire anything.
+		if err := factmerge.VerifyIdentities(append(append([]factRecord{}, keptRecords...), retirements...)); err != nil {
 			return fmt.Errorf("refused untrustworthy feed: %w", err)
 		}
 		sort.Slice(keptRecords, func(i, j int) bool { return keptRecords[i].ID < keptRecords[j].ID })
 
-		if err := writeHostedFeedCache(feedDir, hostedFeedState{RepoID: repoID, BaseURL: baseURL, Cursor: cursor}, items); err != nil {
-			return err
-		}
+		return brainstore.WithBrainWriteLockContext(ctx, storage.BrainDir, func() error {
+			currentBinding, currentBound, err := brainstore.ReadHostedRepoBinding(storage.BrainDir)
+			if err != nil {
+				return err
+			}
+			if currentBound != bound || currentBinding != binding {
+				return fmt.Errorf("hosted connection changed during pull; retry with the current connection")
+			}
+			currentState, currentItems, err := loadHostedFeedCache(feedDir)
+			if err != nil {
+				return err
+			}
+			current, err := json.Marshal(struct {
+				State hostedFeedState
+				Items map[string]factsync.FeedItem
+			}{currentState, currentItems})
+			if err != nil {
+				return err
+			}
+			if !bytes.Equal(snapshot, current) {
+				return errHostedFeedChanged
+			}
+			if err := writeHostedFeedCache(feedDir, hostedFeedState{RepoID: repoID, BaseURL: baseURL, Cursor: cursor}, items); err != nil {
+				return err
+			}
 
-		existing, err := factstore.Load(storage.BrainDir, branch)
-		if err != nil {
-			return err
-		}
-		for _, fact := range keptRecords {
-			// upsertFact never moves a local status, so a locally retracted
-			// fact stays retracted whatever the feed says. The feed is
-			// authoritative for RETIREMENTS, though: lifecycle moves one way —
-			// active to retired, never a revival.
-			existing = upsertFact(existing, fact)
-			if fact.Status == factStatusActive {
-				continue
+			existing, err := factstore.Load(storage.BrainDir)
+			if err != nil {
+				return err
 			}
-			if i := indexOfFact(existing, fact.ID); i >= 0 && existing[i].Status == factStatusActive {
-				existing[i].Status = fact.Status
-				existing[i].SupersededBy = fact.SupersededBy
-				existing[i].UpdatedAt = opts.Now().UTC()
+			for _, fact := range keptRecords {
+				// upsertFact never moves a local status, so a locally retracted
+				// fact stays retracted whatever the feed says. The feed is
+				// authoritative for RETIREMENTS, though: lifecycle moves one way —
+				// active to retired, never a revival.
+				existing = upsertFact(existing, fact)
+				if fact.Status == factStatusActive {
+					continue
+				}
+				if i := indexOfFact(existing, fact.ID); i >= 0 && existing[i].Status == factStatusActive {
+					existing[i].Status = fact.Status
+					existing[i].SupersededBy = fact.SupersededBy
+					existing[i].UpdatedAt = opts.Now().UTC()
+				}
 			}
-		}
-		// The branch store is the filter output plus this machine's own facts
-		// the feed has not seen (unsynced or push-denied). A record the feed
-		// knows but the filter rejected is another branch's — or a recycled
-		// name's — fact: drop it. This is what replaces rename/recycle
-		// detection (lineage.json is cancelled). Three stand-downs guard
-		// against evicting this machine's own knowledge when the feed's copy
-		// fails the filter (first-writer attribution can belong to a teammate
-		// who pushed the same statement first, carrying only THEIR anchors):
-		// a transcript anchor is proof the fact was distilled here
-		// (SanitizeForEgress strips it on push, so a pulled copy never
-		// carries one); the local copy's OWN anchors get the same keep filter
-		// (judged memberless — being in this store is not proof of
-		// authorship), so a locally reachable commit or an anchor-less pool
-		// fact survives; and with no member identity the filter cannot
-		// recognize this member's facts at all, so removal is disabled
-		// rather than evicting them wholesale.
-		rebuilt := existing[:0]
-		for _, rec := range existing {
-			if _, inFeed := items[rec.ID]; member != "" && inFeed && !keptIDs[rec.ID] &&
-				!hasLocalProvenance(rec) && !keepHostedFact(factsync.FeedItem{Record: rec}, "", reachable) {
-				continue
+			// Retirements the keep filter rejected still apply to records already
+			// stored — same one-way move, never an adoption.
+			for _, fact := range retirements {
+				if i := indexOfFact(existing, fact.ID); i >= 0 && existing[i].Status == factStatusActive {
+					existing[i].Status = fact.Status
+					existing[i].SupersededBy = fact.SupersededBy
+					existing[i].UpdatedAt = opts.Now().UTC()
+				}
 			}
-			rebuilt = append(rebuilt, rec)
-		}
-		if err := factstore.Write(storage.BrainDir, branch, rebuilt); err != nil {
-			return err
-		}
-		// A manifest failure reports alongside the successful pull instead of
-		// masking it.
-		manifestErr = updateFactSourceManifestLocked(storage.BrainDir, opts.Now().UTC())
-		kept, total = len(keptRecords), len(items)
-		return nil
-	})
+			// Pull never evicts a stored record. The keep filter judges
+			// reachability from the CURRENT branch head, and the flat store holds
+			// every branch's pulls — a teammate fact pulled on another branch must
+			// stay recallable when syncing here. A stored fact leaves the store
+			// when the feed retires it (the lifecycle moves above, which apply
+			// regardless of the keep filter) or when the checkpoint mirror sweep
+			// drops provenance the whole repository no longer has; the keep filter
+			// gates ADOPTION only.
+			if err := factstore.Write(storage.BrainDir, existing); err != nil {
+				return err
+			}
+			// A manifest failure reports alongside the successful pull instead of
+			// masking it.
+			manifestErr = updateFactSourceManifestRecordsLocked(storage.BrainDir, opts.Now().UTC(), existing)
+			kept, total = len(keptRecords), len(items)
+			return nil
+		})
+	}()
 	return kept, total, manifestErr, err
-}
-
-// hostedSyncBranch resolves the branch a hosted sync step should cover: the
-// repo's current branch, else the default branch.
-func hostedSyncBranch(ctx context.Context, runner CommandRunner, repoDir string) string {
-	if current, err := base.GitScalar(ctx, runner, repoDir, "branch", "--show-current"); err == nil {
-		if branch := strings.TrimSpace(current); branch != "" {
-			return branch
-		}
-	}
-	return distillDefaultBranch
 }

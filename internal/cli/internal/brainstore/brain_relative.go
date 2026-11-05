@@ -4,9 +4,35 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 )
+
+// HistoryDirName is the brain-relative directory holding the history projection.
+const HistoryDirName = "history"
+
+// SessionsDirName is the brain-relative directory holding exported session
+// transcripts.
+const SessionsDirName = "sessions"
+
+// ConversationSessionIDPrefix is the id vocabulary prefix for a conversation
+// session reference.
+const ConversationSessionIDPrefix = "conversation-session:"
+
+// NormalizeTranscriptPath normalizes a transcript path for map keying:
+// trimmed, cleaned, and slash-separated; empty when nothing remains.
+func NormalizeTranscriptPath(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return ""
+	}
+	clean := filepath.Clean(filepath.FromSlash(trimmed))
+	if clean == "." {
+		return ""
+	}
+	return filepath.ToSlash(clean)
+}
 
 // WriteBrainRelativeFileAtomic writes a brain-relative file through the shared
 // path-safety checks (no symlinked brain root, no symlinked path components)

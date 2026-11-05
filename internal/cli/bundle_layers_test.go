@@ -51,7 +51,7 @@ func seedBundleTestLayers(t *testing.T, brainDir string) {
 
 	// Privacy policy and operational state: present in the brain, and never in
 	// a bundle.
-	writeBundleTestFile(t, filepath.Join(brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath)), `{"version":1,"excluded":{"session:secret":{"at":"2026-02-03T04:05:06Z"}}}`)
+	writeBundleTestFile(t, filepath.Join(brainDir, filepath.FromSlash(brainstore.HistoryDirName+"/tombstones.json")), `{"version":1,"excluded":{"session:secret":{"at":"2026-02-03T04:05:06Z"}}}`)
 	writeBundleTestFile(t, filepath.Join(brainDir, brainstore.HistoryDirName, "privacy", "session%3Asecret.json"), `{"schema_version":1,"session_id":"session:secret"}`)
 	writeBundleTestFile(t, filepath.Join(brainDir, brainstore.HistoryDirName, "work", "v1", "worker.log"), "local worker log\n")
 
@@ -245,7 +245,7 @@ func TestBundleExportExcludesSessionFamilyAndPrivacyState(t *testing.T) {
 	// Privacy policy and operational state stay out of BOTH bundles.
 	for _, entries := range [][]string{entries, sessionEntries} {
 		for _, forbidden := range []string{
-			brainstore.SessionTombstonesPath,
+			brainstore.HistoryDirName + "/tombstones.json",
 			brainstore.HistoryDirName + "/privacy/session%3Asecret.json",
 			brainstore.HistoryDirName + "/work/v1/worker.log",
 			semstore.DirName + "/" + semanticAuditLogName,
@@ -291,7 +291,7 @@ func TestBundleRoundTripPreservesAuthoredFacts(t *testing.T) {
 		t.Fatalf("imported manifest lost seed/docs sources: %+v", manifest.Sources)
 	}
 	// The destination's own privacy policy is untouched by an import.
-	if _, err := os.Stat(filepath.Join(importedBrain, filepath.FromSlash(brainstore.SessionTombstonesPath))); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(importedBrain, filepath.FromSlash(brainstore.HistoryDirName+"/tombstones.json"))); !os.IsNotExist(err) {
 		t.Fatalf("import wrote privacy policy into the destination brain: %v", err)
 	}
 }
@@ -324,7 +324,7 @@ func TestBundleImportRefusesToOverwriteExistingLayers(t *testing.T) {
 // crafted archive must not be able to overwrite the destination's tombstones.
 func TestBundleImportRejectsPrivacyPolicyEntries(t *testing.T) {
 	for _, name := range []string{
-		brainstore.SessionTombstonesPath,
+		brainstore.HistoryDirName + "/tombstones.json",
 		brainstore.HistoryDirName + "/privacy/session%3Asecret.json",
 		brainstore.HistoryDirName + "/work/v1/worker.log",
 		semstore.DirName + "/" + semanticAuditLogName,

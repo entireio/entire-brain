@@ -26,12 +26,9 @@ func factFor(t *testing.T, text string, paths []string, now time.Time) factRecor
 func TestApplyFactActionsNew(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	cand := factFor(t, "The project uses Go.", []string{"project.tooling.stack"}, now)
-	out, proposals := applyFactActions(nil, []factAction{{Kind: factActionNew, Candidate: cand}}, defaultFactConfidenceThreshold, now)
+	out := applyFactActions(nil, []factAction{{Kind: factActionNew, Candidate: cand}}, defaultFactConfidenceThreshold, now)
 	if len(out) != 1 || out[0].Status != factStatusActive {
 		t.Fatalf("expected one active fact, got %+v", out)
-	}
-	if len(proposals) != 0 {
-		t.Fatalf("new should not produce proposals")
 	}
 }
 
@@ -44,7 +41,7 @@ func TestApplyFactActionsHighConfidenceMerge(t *testing.T) {
 	cand := factFor(t, "Analysis generation belongs in the pipeline, not the queue.", []string{"architecture.boundaries.rationale"}, later)
 	cand.Provenance = []factAnchor{{SessionID: "s2", Line: 9}}
 
-	out, proposals := applyFactActions([]factRecord{target}, []factAction{
+	out := applyFactActions([]factRecord{target}, []factAction{
 		{Kind: factActionMerge, TargetID: target.ID, Confidence: 0.9, Candidate: cand},
 	}, defaultFactConfidenceThreshold, later)
 
@@ -60,9 +57,6 @@ func TestApplyFactActionsHighConfidenceMerge(t *testing.T) {
 	if !out[0].UpdatedAt.Equal(later) {
 		t.Fatalf("merge should bump UpdatedAt")
 	}
-	if len(proposals) != 0 {
-		t.Fatalf("high-confidence merge should not propose")
-	}
 }
 
 func TestApplyFactActionsHighConfidenceSupersede(t *testing.T) {
@@ -71,7 +65,7 @@ func TestApplyFactActionsHighConfidenceSupersede(t *testing.T) {
 	old := factFor(t, "Use Supabase for the database.", []string{"project.tooling.stack"}, now)
 	newer := factFor(t, "Use MySQL for the database, not Supabase.", []string{"project.tooling.stack"}, later)
 
-	out, proposals := applyFactActions([]factRecord{old}, []factAction{
+	out := applyFactActions([]factRecord{old}, []factAction{
 		{Kind: factActionSupersede, TargetID: old.ID, Confidence: 0.95, Candidate: newer},
 	}, defaultFactConfidenceThreshold, later)
 
@@ -102,17 +96,14 @@ func TestApplyFactActionsHighConfidenceSupersede(t *testing.T) {
 	if !contains(gotNew.RelatedIDs, old.ID) {
 		t.Fatalf("replacement should relate to the superseded fact")
 	}
-	if len(proposals) != 0 {
-		t.Fatalf("high-confidence supersede should not propose")
-	}
 }
 
-func TestApplyFactActionsLowConfidenceQueuesProposal(t *testing.T) {
+func TestApplyFactActionsLowConfidenceKeepsBothCrossLinked(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	target := factFor(t, "Tests run with go test.", []string{"workflow.testing.rules"}, now)
 	cand := factFor(t, "Always run the full suite before pushing.", []string{"workflow.testing.rules"}, now)
 
-	out, proposals := applyFactActions([]factRecord{target}, []factAction{
+	out := applyFactActions([]factRecord{target}, []factAction{
 		{Kind: factActionSupersede, TargetID: target.ID, Confidence: 0.4, Candidate: cand},
 	}, defaultFactConfidenceThreshold, now)
 
@@ -124,14 +115,7 @@ func TestApplyFactActionsLowConfidenceQueuesProposal(t *testing.T) {
 			t.Fatalf("nothing should be superseded below threshold: %+v", r)
 		}
 	}
-	if len(proposals) != 1 {
-		t.Fatalf("expected one queued proposal, got %d", len(proposals))
-	}
-	p := proposals[0]
-	if p.Action != factActionSupersede || p.CandidateID != cand.ID || p.TargetID != target.ID {
-		t.Fatalf("proposal fields wrong: %+v", p)
-	}
-	// Both facts must be cross-linked for review.
+	// Both facts must be cross-linked for the compaction loop (COR-2273).
 	if !contains(out[0].RelatedIDs, out[1].ID) || !contains(out[1].RelatedIDs, out[0].ID) {
 		t.Fatalf("conflicting facts not cross-linked")
 	}
@@ -140,14 +124,11 @@ func TestApplyFactActionsLowConfidenceQueuesProposal(t *testing.T) {
 func TestApplyFactActionsUnknownTargetDegradesToNew(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	cand := factFor(t, "A brand new fact.", []string{"project.tooling.stack"}, now)
-	out, proposals := applyFactActions(nil, []factAction{
+	out := applyFactActions(nil, []factAction{
 		{Kind: factActionMerge, TargetID: "fact:doesnotexist", Confidence: 0.99, Candidate: cand},
 	}, defaultFactConfidenceThreshold, now)
 	if len(out) != 1 || out[0].ID != cand.ID {
 		t.Fatalf("unknown target should add candidate as new, got %+v", out)
-	}
-	if len(proposals) != 0 {
-		t.Fatalf("unknown target should not propose")
 	}
 }
 
@@ -159,7 +140,7 @@ func TestApplyFactActionsChronologicalChain(t *testing.T) {
 	b := factFor(t, "v2 decision.", []string{"architecture.data.flow"}, now.Add(time.Hour))
 	c := factFor(t, "v3 decision.", []string{"architecture.data.flow"}, now.Add(2*time.Hour))
 
-	out, _ := applyFactActions(nil, []factAction{
+	out := applyFactActions(nil, []factAction{
 		{Kind: factActionNew, Candidate: a},
 		{Kind: factActionSupersede, TargetID: a.ID, Confidence: 0.9, Candidate: b},
 		{Kind: factActionSupersede, TargetID: b.ID, Confidence: 0.9, Candidate: c},

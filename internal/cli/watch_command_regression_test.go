@@ -97,6 +97,7 @@ func TestWatchRootCommandOnceRefreshesThenRepeatsAsNoop(t *testing.T) {
 	}
 	first := readWatchCursor(t, cursorPath)
 	assertWatchDefaultDidNotSpend(t, first, out)
+	assertMemoryWorkerLaunches(t, *launches, repoDir, 1)
 
 	out, err = execute(t, NewRootCommand(opts), "watch", repoDir, "--once")
 	if err != nil {
@@ -108,7 +109,7 @@ func TestWatchRootCommandOnceRefreshesThenRepeatsAsNoop(t *testing.T) {
 	if !strings.Contains(out, "no change; nothing to do") {
 		t.Fatalf("second root watch did not take no-op path:\n%s", out)
 	}
-	assertMemoryWorkerLaunches(t, *launches, repoDir, 3)
+	assertMemoryWorkerLaunches(t, *launches, repoDir, 2)
 }
 
 func TestWorkspaceWatchCommandOnceUsesMemberCursorWithoutAgent(t *testing.T) {
@@ -131,7 +132,7 @@ func TestWorkspaceWatchCommandOnceUsesMemberCursorWithoutAgent(t *testing.T) {
 	if !strings.Contains(out, "workspace "+manifest.Name+" — 1 repos") || !strings.Contains(out, storage.Key) {
 		t.Fatalf("workspace member was not routed through the real watch pass:\n%s", out)
 	}
-	assertMemoryWorkerLaunches(t, *launches, repoDir, 2)
+	assertMemoryWorkerLaunches(t, *launches, repoDir, 1)
 }
 
 func TestSupervisedWorkspaceWatchOnceReadsPlanAndRefreshes(t *testing.T) {
@@ -157,7 +158,7 @@ func TestSupervisedWorkspaceWatchOnceReadsPlanAndRefreshes(t *testing.T) {
 	if !strings.Contains(out, "workspace "+manifest.Name+" — 1 repos") {
 		t.Fatalf("supervised route did not dispatch planned workspace:\n%s", out)
 	}
-	assertMemoryWorkerLaunches(t, *launches, repoDir, 2)
+	assertMemoryWorkerLaunches(t, *launches, repoDir, 1)
 }
 
 func TestWatchRootCommandRejectsMissingTargetBeforeWritingCursor(t *testing.T) {

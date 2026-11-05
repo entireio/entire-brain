@@ -1,14 +1,13 @@
 package cli
 
 import (
-	"context"
 	"fmt"
-	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
-	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
@@ -20,20 +19,19 @@ func newFactsCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "memories",
 		Aliases: []string{"facts"},
-		Short:   "Review, promote, and garbage-collect durable memories",
+		Short:   "Inspect, retract, and garbage-collect durable memories",
 		Args:    cobra.NoArgs,
 	}
 	cmd.AddCommand(newFactsTreeCommand(opts))
 	cmd.AddCommand(newFactsFilesCommand(opts))
 	cmd.AddCommand(newFactsImportCommand(opts))
 	cmd.AddCommand(newFactsStatusCommand(opts))
+	cmd.AddCommand(newFactsStorageCommand(opts))
 	cmd.AddCommand(newFactsSyncCommand(opts))
 	cmd.AddCommand(newFactsVitalityCommand(opts))
 	cmd.AddCommand(newFactsEvalCommand(opts))
 	cmd.AddCommand(newFactsEvalGenCommand(opts))
 	cmd.AddCommand(newFactsEvalCompareCommand(opts))
-	cmd.AddCommand(newFactsReviewCommand(opts))
-	cmd.AddCommand(newFactsPromoteCommand(opts))
 	cmd.AddCommand(newFactsRetractCommand(opts))
 	cmd.AddCommand(newFactsGlobalCommand(opts))
 	cmd.AddCommand(newFactsGCCommand(opts))
@@ -45,7 +43,6 @@ func newFactsCommand(opts Options) *cobra.Command {
 
 func newFactsRetractCommand(opts Options) *cobra.Command {
 	var (
-		branch  string
 		jsonOut bool
 		global  bool
 	)
@@ -56,20 +53,16 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			factID := args[0]
 			var (
-				brainDir       string
-				resolvedBranch string
-				err            error
+				brainDir string
+				err      error
 			)
 			// A fact that can be written and not retracted is a fact you are
 			// stuck with. Global facts surface in every repository, so being
 			// stuck with a wrong one is worse, not better.
 			if global {
-				if strings.TrimSpace(branch) != "" {
-					return fmt.Errorf("--global and --branch cannot be combined: a global memory is not on a branch")
-				}
-				brainDir, resolvedBranch, err = factstore.ResolveGlobalTarget(opts.Env)
+				brainDir, err = factstore.ResolveGlobalTarget(opts.Env)
 			} else {
-				_, brainDir, resolvedBranch, err = resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+				_, brainDir, _, err = resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), "")
 			}
 			if err != nil {
 				return err
@@ -79,8 +72,11 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 			// Seeded with the id so the event is still identifiable if the
 			// record cannot be re-read after the mutation.
 			retracted := factRecord{ID: factID}
-			if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-				facts, err := factstore.Load(brainDir, resolvedBranch)
+			if err := brainstore.WithBrainWriteLockContext(cmd.Context(), brainDir, func() error {
+				if _, err := migrateFactStoreLocked(brainDir); err != nil {
+					return err
+				}
+				facts, err := factstore.Load(brainDir)
 				if err != nil {
 					return err
 				}
@@ -89,7 +85,7 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 					if global {
 						return fmt.Errorf("no global memory %s", factID)
 					}
-					return fmt.Errorf("no memory %s on %s", factID, resolvedBranch)
+					return fmt.Errorf("no memory %s", factID)
 				}
 				changed = didChange
 				if !changed {
@@ -102,7 +98,7 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 				if i := indexOfFact(facts, factID); i >= 0 {
 					retracted = facts[i]
 				}
-				if err := factstore.Write(brainDir, resolvedBranch, facts); err != nil {
+				if err := factstore.Write(brainDir, facts); err != nil {
 					return err
 				}
 				return updateFactSourceManifestLocked(brainDir, now)
@@ -116,13 +112,13 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 				if global {
 					webhook.NotifyGlobalFactWebhook(cmd.Context(), cmd.ErrOrStderr(), webhook.WebhookFactRetracted, retracted, now)
 				} else {
-					webhook.NotifyFactWebhook(cmd.Context(), cmd.ErrOrStderr(), opts, webhook.WebhookFactRetracted, resolvedBranch, retracted, now)
+					webhook.NotifyFactWebhook(cmd.Context(), cmd.ErrOrStderr(), opts, webhook.WebhookFactRetracted, retracted.Branch, retracted, now)
 				}
 			}
 			if jsonOut {
-				return cmdutil.WriteJSON(cmd, map[string]any{"id": factID, "branch": resolvedBranch, "status": factStatusRetracted, "changed": changed})
+				return cmdutil.WriteJSON(cmd, map[string]any{"id": factID, "status": factStatusRetracted, "changed": changed})
 			}
-			where := "on " + resolvedBranch
+			where := "in this repository"
 			if global {
 				where = "globally"
 			}
@@ -134,325 +130,9 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch the memory belongs to (default: current branch)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the result as JSON")
 	cmd.Flags().BoolVar(&global, "global", false, "Retract a global memory rather than one of this repository's")
 	return cmd
-}
-
-// --- review ---------------------------------------------------------------
-
-func newFactsReviewCommand(opts Options) *cobra.Command {
-	var (
-		branch    string
-		jsonOut   bool
-		apply     string
-		reject    string
-		applyAll  bool
-		rejectAll bool
-	)
-	cmd := &cobra.Command{
-		Use:   "review",
-		Short: "Resolve queued merge/supersede proposals",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
-			if err != nil {
-				return err
-			}
-			return runFactsReview(cmd, opts, brainDir, resolvedBranch, factsReviewActions{apply: apply, reject: reject, applyAll: applyAll, rejectAll: rejectAll, jsonOut: jsonOut})
-		},
-	}
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch to review (default: current branch)")
-	cmd.Flags().BoolVar(&jsonOut, "json", false, "List pending proposals as JSON")
-	cmd.Flags().StringVar(&apply, "apply", "", "Apply the proposal for this candidate memory id")
-	cmd.Flags().StringVar(&reject, "reject", "", "Reject the proposed merge/supersede and keep the candidate as a separate active memory")
-	cmd.Flags().BoolVar(&applyAll, "apply-all", false, "Apply every pending proposal")
-	cmd.Flags().BoolVar(&rejectAll, "reject-all", false, "Reject every pending merge/supersede and keep the candidates as separate active memories")
-	return cmd
-}
-
-type factsReviewActions struct {
-	apply, reject       string
-	applyAll, rejectAll bool
-	jsonOut             bool
-}
-
-// validate refuses a request that asks for the same proposal to be both applied
-// and rejected.
-//
-// The resolver below tests applyThis before rejectThis, so every contradictory
-// combination used to settle the apply half, drop the reject half on the floor
-// and report "resolved 1 proposal(s)" — a user who mistyped which side they
-// meant was told their decision had landed while the opposite one actually did.
-// A contradiction is not a preference to break silently; it is a question only
-// the caller can answer.
-func (act factsReviewActions) validate() error {
-	switch {
-	case act.applyAll && act.rejectAll:
-		return fmt.Errorf("--apply-all and --reject-all cannot both be set")
-	case act.applyAll && act.reject != "":
-		return fmt.Errorf("--apply-all and --reject %s cannot both be set: --apply-all already settles that proposal", act.reject)
-	case act.rejectAll && act.apply != "":
-		return fmt.Errorf("--reject-all and --apply %s cannot both be set: --reject-all already settles that proposal", act.apply)
-	case act.apply != "" && act.apply == act.reject:
-		return fmt.Errorf("--apply and --reject cannot both name %s", act.apply)
-	}
-	return nil
-}
-
-func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, act factsReviewActions) error {
-	if err := act.validate(); err != nil {
-		return err
-	}
-	now := opts.Now().UTC()
-
-	// No resolution requested: list pending proposals.
-	if act.apply == "" && act.reject == "" && !act.applyAll && !act.rejectAll {
-		proposals, err := loadFactProposals(brainDir, branch)
-		if err != nil {
-			return err
-		}
-		facts, err := factstore.Load(brainDir, branch)
-		if err != nil {
-			return err
-		}
-		if act.jsonOut {
-			return cmdutil.WriteJSON(cmd, map[string]any{"branch": branch, "proposals": proposals})
-		}
-		if len(proposals) == 0 {
-			fmt.Fprintf(cmd.OutOrStdout(), "no pending proposals on %s\n", branch)
-			return nil
-		}
-		for _, p := range proposals {
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %s -> %s (confidence %.2f)\n", p.Action, p.CandidateID, p.TargetID, p.Confidence)
-			printProposalContext(cmd, facts, p)
-		}
-		return nil
-	}
-
-	resolved, remaining, deferred := 0, 0, 0
-	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		proposals, err := loadFactProposals(brainDir, branch)
-		if err != nil {
-			return err
-		}
-		facts, err := factstore.Load(brainDir, branch)
-		if err != nil {
-			return err
-		}
-		keep := proposals[:0:0]
-		for _, p := range proposals {
-			applyThis := act.applyAll || p.CandidateID == act.apply
-			rejectThis := act.rejectAll || p.CandidateID == act.reject
-			switch {
-			case applyThis:
-				updated, applyErr := applyDistillReviewProposal(facts, p, now)
-				if applyErr != nil {
-					if ci := indexOfFact(facts, p.CandidateID); ci >= 0 && facts[ci].Status == factStatusCandidate {
-						// A staged target may need review first. Never drop the only
-						// way to resolve this unpublished candidate.
-						fmt.Fprintf(cmd.ErrOrStderr(), "keep pending proposal %s: %v; resolve its target first or reject to keep the candidate separately\n", p.CandidateID, applyErr)
-						keep = append(keep, p)
-						deferred++
-						continue
-					}
-					fmt.Fprintf(cmd.ErrOrStderr(), "skip stale proposal %s: %v\n", p.CandidateID, applyErr)
-					resolved++ // drop the stale proposal
-					continue
-				}
-				facts = updated
-				resolved++
-			case rejectThis:
-				// Explicit rejection means keep the candidate as a separate fact.
-				if ci := indexOfFact(facts, p.CandidateID); ci >= 0 && facts[ci].Status == factStatusCandidate {
-					facts[ci].Status = factStatusActive
-					facts[ci].UpdatedAt = now
-				}
-				facts = rejectProposal(facts, p)
-				resolved++
-			default:
-				keep = append(keep, p)
-			}
-		}
-		remaining = len(keep)
-		if resolved == 0 {
-			if deferred > 0 {
-				// Warnings explain how to resolve these deferred proposals.
-				// Leave their records and queue intact.
-				return nil
-			}
-			return fmt.Errorf("no proposal matched")
-		}
-		if err := factstore.Write(brainDir, branch, facts); err != nil {
-			return err
-		}
-		if err := writeFactProposals(brainDir, branch, keep); err != nil {
-			return err
-		}
-		return updateFactSourceManifestLocked(brainDir, now)
-	}); err != nil {
-		return err
-	}
-	if deferred > 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "resolved %d proposal(s) on %s; %d remaining (%d deferred; see warnings)\n", resolved, branch, remaining, deferred)
-	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "resolved %d proposal(s) on %s; %d remaining\n", resolved, branch, remaining)
-	}
-	return nil
-}
-
-// Only local private review can publish a staged distill candidate. The shared
-// settlement engine still requires active records on both sides.
-func applyDistillReviewProposal(facts []factRecord, p factProposal, now time.Time) ([]factRecord, error) {
-	ci := indexOfFact(facts, p.CandidateID)
-	if ci < 0 || facts[ci].Status != factStatusCandidate {
-		return applyProposal(facts, p, now)
-	}
-	// Work on a copy so a rejected/stale apply cannot accidentally publish it.
-	ready := cloneDistillFacts(facts)
-	ready[ci].Status = factStatusActive
-	updated, err := applyProposal(ready, p, now)
-	if err != nil {
-		return facts, err
-	}
-	return updated, nil
-}
-
-func printProposalContext(cmd *cobra.Command, facts []factRecord, p factProposal) {
-	if i := indexOfFact(facts, p.CandidateID); i >= 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "  candidate (%s): %s\n", facts[i].Status, facts[i].Text)
-	}
-	if i := indexOfFact(facts, p.TargetID); i >= 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "  target (%s): %s\n", facts[i].Status, facts[i].Text)
-	}
-}
-
-// --- promote ---------------------------------------------------------------
-
-func newFactsPromoteCommand(opts Options) *cobra.Command {
-	var (
-		from     string
-		into     string
-		strategy string
-		jsonOut  bool
-	)
-	cmd := &cobra.Command{
-		Use:   "promote",
-		Short: "Carry a branch's active memories into another branch",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(from) == "" {
-				return fmt.Errorf("--from <branch> is required")
-			}
-			switch strategy {
-			case "keep-both", "prefer-source", "prefer-target":
-			default:
-				return fmt.Errorf("--strategy must be keep-both, prefer-source, or prefer-target")
-			}
-			repoDir, brainDir, _, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), "")
-			if err != nil {
-				return err
-			}
-			target := into
-			if strings.TrimSpace(target) == "" {
-				if current, gitErr := base.GitScalar(cmd.Context(), opts.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
-					target = strings.TrimSpace(current)
-				}
-			}
-			if strings.TrimSpace(target) == "" {
-				return fmt.Errorf("--into <branch> is required (could not detect current branch)")
-			}
-			if target == from {
-				return fmt.Errorf("--from and --into must differ")
-			}
-			if err := validateFactsPromoteEndpoints(cmd.Context(), opts, repoDir, brainDir, from, target); err != nil {
-				return err
-			}
-			return runFactsPromote(cmd, opts, brainDir, from, target, strategy, jsonOut)
-		},
-	}
-	cmd.Flags().StringVar(&from, "from", "", "Source branch to promote memories from (required)")
-	cmd.Flags().StringVar(&into, "into", "", "Target branch (default: current branch)")
-	cmd.Flags().StringVar(&strategy, "strategy", "keep-both", "Conflict strategy: keep-both, prefer-source, or prefer-target")
-	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the result summary as JSON")
-	return cmd
-}
-
-// factsBranchIsReal reports whether a branch name still names something: a ref
-// git knows, or a fact store this brain already holds. The second half matters
-// because a merged feature branch is commonly deleted while its facts live on,
-// and promoting those forward is the whole point of the command.
-func factsBranchIsReal(ctx context.Context, opts Options, repoDir, brainDir, branch string) bool {
-	if factstore.BranchStoreExists(brainDir, branch) {
-		return true
-	}
-	return gitRefExists(ctx, opts.Runner, repoDir, "refs/heads/"+branch) ||
-		gitRefExists(ctx, opts.Runner, repoDir, "refs/remotes/origin/"+branch)
-}
-
-// validateFactsPromoteEndpoints checks the two branch names promote was handed.
-// Neither used to be checked at all, and each typo failed in its own quiet way:
-//
-//   - a bad --from loaded nothing (factstore.Load reads a missing store as an empty
-//     branch) and reported "promoted 0 fact(s)" — the same success line a real
-//     but empty source produces, so the user had no way to tell a typo from a
-//     branch that genuinely had nothing to give;
-//   - a bad --into was worse than quiet. factstore.Write creates the target store on
-//     demand, so promote happily forked the fact set into a directory keyed to a
-//     branch that does not exist. Nothing reads it back, no later command names
-//     it, and no branch can ever reach it: the facts are gone while the command
-//     reports success.
-//
-// So both endpoints must name something real, and --from must additionally have
-// facts — "nothing to promote" is a distinct, stateable outcome, not a success.
-func validateFactsPromoteEndpoints(ctx context.Context, opts Options, repoDir, brainDir, from, into string) error {
-	if !factsBranchIsReal(ctx, opts, repoDir, brainDir, from) {
-		return fmt.Errorf("--from %q is not a branch: git does not know it and this brain holds no memories for it", from)
-	}
-	if !factstore.BranchStoreExists(brainDir, from) {
-		return fmt.Errorf("--from %q has no memories to promote", from)
-	}
-	if !factsBranchIsReal(ctx, opts, repoDir, brainDir, into) {
-		return fmt.Errorf("--into %q is not a branch: git does not know it and this brain holds no memories for it; promoting into it would strand a memory store no branch can reach", into)
-	}
-	return nil
-}
-
-func runFactsPromote(cmd *cobra.Command, opts Options, brainDir, from, into, strategy string, jsonOut bool) error {
-	now := opts.Now().UTC()
-	var promoted, proposalCount int
-	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		source, err := factstore.Load(brainDir, from)
-		if err != nil {
-			return err
-		}
-		target, err := factstore.Load(brainDir, into)
-		if err != nil {
-			return err
-		}
-		merged, proposals, promotedCount := promoteFacts(source, target, strategy, into, now)
-		promoted = promotedCount
-		proposalCount = len(proposals)
-		if err := factstore.Write(brainDir, into, merged); err != nil {
-			return err
-		}
-		if len(proposals) > 0 {
-			existing, _ := loadFactProposals(brainDir, into)
-			if err := writeFactProposals(brainDir, into, dedupeProposals(append(existing, proposals...))); err != nil {
-				return err
-			}
-		}
-		return updateFactSourceManifestLocked(brainDir, now)
-	}); err != nil {
-		return err
-	}
-	summary := map[string]any{"from": from, "into": into, "strategy": strategy, "promoted": promoted, "proposals": proposalCount}
-	if jsonOut {
-		return cmdutil.WriteJSON(cmd, summary)
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "promoted %d memory(ies) from %s into %s (%s); %d conflict(s) queued for review\n", promoted, from, into, strategy, proposalCount)
-	return nil
 }
 
 // --- gc ---------------------------------------------------------------------
@@ -483,18 +163,19 @@ func newFactsGCCommand(opts Options) *cobra.Command {
 				if strings.TrimSpace(branch) != "" {
 					return fmt.Errorf("--global and --branch cannot be combined: a global memory is not on a branch")
 				}
-				brainDir, resolvedBranch, err = factstore.ResolveGlobalTarget(opts.Env)
+				brainDir, err = factstore.ResolveGlobalTarget(opts.Env)
 			} else {
-				_, brainDir, resolvedBranch, err = resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+				_, brainDir, _, err = resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), "")
 			}
 			if err != nil {
 				return err
 			}
+			resolvedBranch = strings.TrimSpace(branch)
 			return runFactsGC(cmd, opts, brainDir, resolvedBranch, force, retain, jsonOut)
 		},
 	}
 	cmd.Flags().BoolVar(&global, "global", false, "Prune the global memory store rather than this repository's")
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch to gc (default: current branch)")
+	cmd.Flags().StringVar(&branch, "branch", "", "Only gc memories stamped with this branch (default: all)")
 	cmd.Flags().BoolVar(&force, "force", false, "Actually prune (default: dry-run reporting what would be pruned)")
 	cmd.Flags().DurationVar(&retain, "retain", defaultFactRetention, "Retain superseded memories updated within this window")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the gc summary as JSON")
@@ -503,7 +184,6 @@ func newFactsGCCommand(opts Options) *cobra.Command {
 
 func newFactsReclassifyCommand(opts Options) *cobra.Command {
 	var (
-		branch  string
 		force   bool
 		jsonOut bool
 	)
@@ -513,38 +193,40 @@ func newFactsReclassifyCommand(opts Options) *cobra.Command {
 		Short:  "Backfill the deterministic KIND onto memories missing one (no agent)",
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			_, brainDir, _, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), "")
 			if err != nil {
 				return err
 			}
-			return runFactsReclassify(cmd, opts, brainDir, resolvedBranch, force, jsonOut)
+			return runFactsReclassify(cmd, opts, brainDir, force, jsonOut)
 		},
 	}
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch to reclassify (default: current branch)")
 	cmd.Flags().BoolVar(&force, "force", false, "Recompute every memory's kind (default: only fill memories missing a valid kind)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the reclassify summary as JSON")
 	return cmd
 }
 
-func runFactsReclassify(cmd *cobra.Command, opts Options, brainDir, branch string, force, jsonOut bool) error {
+func runFactsReclassify(cmd *cobra.Command, opts Options, brainDir string, force, jsonOut bool) error {
 	now := opts.Now().UTC()
 	var facts []factRecord
 	changed := 0
 	// The whole load-mutate-write runs under the brain write lock, like every
-	// other fact mutator (remember, retract, review, promote, gc, distill's
-	// flush) and like the refresh-time reclassifyAllFactBranches. Reading the
-	// store outside it and writing the mutated copy back is a lost update: a
-	// concurrent writer that commits between this read and this write is
-	// silently overwritten, and its facts disappear.
-	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		loaded, err := factstore.Load(brainDir, branch)
+	// other fact mutator (remember, retract, gc, distill's flush) and like the
+	// refresh-time reclassifyAllFacts. Reading the store outside it and
+	// writing the mutated copy back is a lost update: a concurrent writer that
+	// commits between this read and this write is silently overwritten, and
+	// its facts disappear.
+	if err := brainstore.WithBrainWriteLockContext(cmd.Context(), brainDir, func() error {
+		if _, err := migrateFactStoreLocked(brainDir); err != nil {
+			return err
+		}
+		loaded, err := factstore.Load(brainDir)
 		if err != nil {
 			return err
 		}
 		facts = loaded
 		changed = factstore.Reclassify(facts, force)
 		if changed > 0 {
-			if err := factstore.Write(brainDir, branch, facts); err != nil {
+			if err := factstore.Write(brainDir, facts); err != nil {
 				return err
 			}
 		}
@@ -562,9 +244,9 @@ func runFactsReclassify(cmd *cobra.Command, opts Options, brainDir, branch strin
 		}
 	}
 	if jsonOut {
-		return cmdutil.WriteJSON(cmd, map[string]any{"branch": branch, "changed": changed, "facts": len(facts), "by_kind": byKind})
+		return cmdutil.WriteJSON(cmd, map[string]any{"changed": changed, "facts": len(facts), "by_kind": byKind})
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "reclassified %d of %d memory(ies) on %s\n", changed, len(facts), branch)
+	fmt.Fprintf(cmd.OutOrStdout(), "reclassified %d of %d memory(ies)\n", changed, len(facts))
 	for _, kind := range []string{factKindDecision, factKindInvariant, factKindGotcha, factKindPreference, factKindConvention} {
 		if byKind[kind] > 0 {
 			fmt.Fprintf(cmd.OutOrStdout(), "  %-11s %d\n", kind, byKind[kind])
@@ -576,7 +258,6 @@ func runFactsReclassify(cmd *cobra.Command, opts Options, brainDir, branch strin
 func newFactsOutlineCommand(opts Options) *cobra.Command {
 	var (
 		gen     outlineGenOptions
-		branch  string
 		jsonOut bool
 	)
 	gen.agent = "auto"
@@ -586,11 +267,11 @@ func newFactsOutlineCommand(opts Options) *cobra.Command {
 		Short: "Generate the synthesized hierarchical memory outline (agent rollup summaries)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			repoDir, brainDir, _, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), "")
 			if err != nil {
 				return err
 			}
-			facts, err := factstore.Load(brainDir, resolvedBranch)
+			facts, err := factstore.Load(brainDir)
 			if err != nil {
 				return err
 			}
@@ -599,21 +280,20 @@ func newFactsOutlineCommand(opts Options) *cobra.Command {
 				resolved.agent = defaultRefreshAgent(cmd.Context(), opts.Runner, repoDir)
 			}
 			now := opts.Now().UTC()
-			outline, regenerated, err := generateFactOutline(cmd.Context(), repoDir, brainDir, resolvedBranch, facts, resolved, now)
+			outline, regenerated, err := generateFactOutline(cmd.Context(), repoDir, brainDir, facts, resolved, now)
 			if err != nil {
 				return err
 			}
-			if err := writeFactOutline(brainDir, resolvedBranch, outline); err != nil {
+			if err := writeFactOutline(brainDir, outline); err != nil {
 				return err
 			}
 			if jsonOut {
-				return cmdutil.WriteJSON(cmd, map[string]any{"branch": resolvedBranch, "nodes": len(outline.Nodes), "regenerated": regenerated})
+				return cmdutil.WriteJSON(cmd, map[string]any{"nodes": len(outline.Nodes), "regenerated": regenerated})
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "outline for %s: %d node(s), %d summary(ies) regenerated\n", resolvedBranch, len(outline.Nodes), regenerated)
+			fmt.Fprintf(cmd.OutOrStdout(), "outline: %d node(s), %d summary(ies) regenerated\n", len(outline.Nodes), regenerated)
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch to outline (default: current branch)")
 	cmd.Flags().StringVar(&gen.agent, "agent", "auto", "Agent for summaries: auto, codex, claude-code, command, or none")
 	cmd.Flags().StringArrayVar(&gen.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&gen.model, "model", "", "Override the agent model (pairs with --effort for a cheap run)")
@@ -629,7 +309,6 @@ func newFactsOutlineCommand(opts Options) *cobra.Command {
 
 func newFactsMapCommand(opts Options) *cobra.Command {
 	var (
-		branch  string
 		path    string
 		depth   int
 		jsonOut bool
@@ -639,7 +318,7 @@ func newFactsMapCommand(opts Options) *cobra.Command {
 		Short: "Render the synthesized memory outline (summaries + structure) with progressive disclosure",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			_, brainDir, _, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), "")
 			if err != nil {
 				return err
 			}
@@ -648,12 +327,12 @@ func newFactsMapCommand(opts Options) *cobra.Command {
 			// fingerprint still matches — so a summary for a changed subtree is
 			// hidden rather than shown stale, and no `facts outline` run is required
 			// to see the map.
-			facts, err := factstore.Load(brainDir, resolvedBranch)
+			facts, err := factstore.Load(brainDir)
 			if err != nil {
 				return err
 			}
-			outline := buildFactOutlineTree(resolvedBranch, facts, opts.Now().UTC())
-			if stored, storedErr := loadFactOutline(brainDir, resolvedBranch); storedErr == nil {
+			outline := buildFactOutlineTree(facts, opts.Now().UTC())
+			if stored, storedErr := loadFactOutline(brainDir); storedErr == nil {
 				for key, n := range outline.Nodes {
 					if s, ok := stored.Nodes[key]; ok && s.Fingerprint == n.Fingerprint && s.Summary != "" {
 						n.Summary = s.Summary
@@ -663,7 +342,7 @@ func newFactsMapCommand(opts Options) *cobra.Command {
 			}
 			node := path
 			if _, ok := outline.Nodes[node]; !ok {
-				return fmt.Errorf("no outline node %q on %s", path, resolvedBranch)
+				return fmt.Errorf("no outline node %q", path)
 			}
 			// The outline counts what factstore.Load produced. When the manifest
 			// declares more than that, "root (4 facts)" is a count of survivors
@@ -679,32 +358,52 @@ func newFactsMapCommand(opts Options) *cobra.Command {
 			var b strings.Builder
 			renderFactOutline(&b, outline, node, depth)
 			if b.Len() == 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "no memories on %s\n", resolvedBranch)
+				fmt.Fprintln(cmd.OutOrStdout(), "no memories")
 				return integrityErr
 			}
 			fmt.Fprint(cmd.OutOrStdout(), b.String())
 			return integrityErr
 		},
 	}
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch to map (default: current branch)")
 	cmd.Flags().StringVar(&path, "path", "", "Drill into a node key (a directory tier, e.g. internal/cli)")
 	cmd.Flags().IntVar(&depth, "depth", 0, "Levels to render below the node (0 = all)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the outline as JSON")
 	return cmd
 }
 
+// runFactsGC prunes over the flat store. branch is an explicit metadata
+// filter: when set, only records stamped with that branch are gc candidates
+// and everything else passes through untouched; empty means the whole store.
 func runFactsGC(cmd *cobra.Command, opts Options, brainDir, branch string, force bool, retain time.Duration, jsonOut bool) error {
-	facts, err := factstore.Load(brainDir, branch)
-	if err != nil {
-		return err
-	}
 	now := opts.Now().UTC()
-	taxonomy, err := factstore.LoadTaxonomy(brainDir, now)
+	gcPass := func(facts []factRecord) ([]factRecord, gcResult, error) {
+		taxonomy, err := factstore.LoadTaxonomy(brainDir, now)
+		if err != nil {
+			return nil, gcResult{}, err
+		}
+		scoped := facts
+		var passthrough []factRecord
+		if branch != "" {
+			scoped = scoped[:0:0]
+			for _, f := range facts {
+				if f.Branch == branch {
+					scoped = append(scoped, f)
+				} else {
+					passthrough = append(passthrough, f)
+				}
+			}
+		}
+		result := gcFacts(scoped, taxonomy, now, retain)
+		return append(passthrough, result.Kept...), result, nil
+	}
+	facts, err := factstore.Load(brainDir)
 	if err != nil {
 		return err
 	}
-	result := gcFacts(facts, taxonomy, now, retain)
-
+	_, result, err := gcPass(facts)
+	if err != nil {
+		return err
+	}
 	summary := map[string]any{
 		"branch":    branch,
 		"pruned":    len(result.Pruned),
@@ -713,20 +412,23 @@ func runFactsGC(cmd *cobra.Command, opts Options, brainDir, branch string, force
 		"applied":   force,
 	}
 	if force {
-		if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-			facts, err := factstore.Load(brainDir, branch)
+		if err := brainstore.WithBrainWriteLockContext(cmd.Context(), brainDir, func() error {
+			if _, err := migrateFactStoreLocked(brainDir); err != nil {
+				return err
+			}
+			facts, err := factstore.Load(brainDir)
 			if err != nil {
 				return err
 			}
-			taxonomy, err := factstore.LoadTaxonomy(brainDir, now)
+			kept, res, err := gcPass(facts)
 			if err != nil {
 				return err
 			}
-			result = gcFacts(facts, taxonomy, now, retain)
+			result = res
 			summary["pruned"] = len(result.Pruned)
 			summary["orphans"] = len(result.Orphans)
 			summary["remaining"] = len(result.Kept)
-			if err := factstore.Write(brainDir, branch, result.Kept); err != nil {
+			if err := factstore.Write(brainDir, kept); err != nil {
 				return err
 			}
 			return updateFactSourceManifestLocked(brainDir, now)
@@ -741,8 +443,12 @@ func runFactsGC(cmd *cobra.Command, opts Options, brainDir, branch string, force
 	if force {
 		verb = "pruned"
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "%s %d memory(ies) on %s (%d retracted/old-superseded); %d taxonomy-orphaned memory(ies) reported (kept); %d remaining\n",
-		verb, len(result.Pruned), branch, len(result.Pruned), len(result.Orphans), len(result.Kept))
+	scope := "in this repository"
+	if branch != "" {
+		scope = "stamped " + branch
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "%s %d memory(ies) %s (%d retracted/old-superseded); %d taxonomy-orphaned memory(ies) reported (kept); %d remaining\n",
+		verb, len(result.Pruned), scope, len(result.Pruned), len(result.Orphans), len(result.Kept))
 	if !force && len(result.Pruned) > 0 {
 		fmt.Fprintln(cmd.OutOrStdout(), "re-run with --force to apply")
 	}

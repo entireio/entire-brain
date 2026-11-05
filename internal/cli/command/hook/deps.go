@@ -1,9 +1,8 @@
 // Package hook hosts the hidden agent-harness hook surface — pre-edit,
 // post-failure, session-end — as it moves out of package cli (COR-2268).
 // The remaining cli-bound seams — target resolution, the locus-relevance
-// engine, the legacy lexical scorer, the vitality receipt, and the whole
-// engine-bound session-end arm (incremental export, memory lifecycle hint,
-// entity refresh, hosted sync, distill) — are injected through Deps;
+// engine, the legacy lexical scorer, and the vitality receipt — are
+// injected through Deps;
 // everything else comes from base, factstore, factmerge, and cmdutil
 // directly.
 package hook
@@ -14,7 +13,6 @@ import (
 
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
-	"github.com/spf13/cobra"
 )
 
 // Deps are the cli-bound seams the hook commands still need. root.go wires
@@ -39,13 +37,6 @@ type Deps struct {
 	// actually carried, resolving the receipt clock and worktree HEAD from
 	// opts. Best-effort: recording problems go to errW, never fail the hook.
 	RecordServed func(errW io.Writer, ctx context.Context, opts base.Options, brainDir, branch, surface, repoDir, taskText string, served []factmerge.Record)
-	// SessionEnd is the whole engine-bound session-end arm, injected as one
-	// seam: pause/worker-origin gating, incremental export, the durable
-	// lifecycle hint, entity-index refresh, hosted sync, and the bounded
-	// per-session distill all bind cli-private engines (watch, memory
-	// coordinator, distill, hosted sync) and the cli-private
-	// distillCommandOptions type.
-	SessionEnd func(cmd *cobra.Command, opts base.Options, sessionID, branch, agent, model, effort string) error
 }
 
 // Config carries the CLI options plus the injected cli-bound seams.

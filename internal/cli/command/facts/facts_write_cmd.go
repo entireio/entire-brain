@@ -139,10 +139,11 @@ func RunRemember(ctx context.Context, cmd *cobra.Command, cfg Config, rememberOp
 			// would file it somewhere the user did not ask for.
 			return fmt.Errorf("--global and --branch cannot be combined: a global memory is not on a branch")
 		}
-		brainDir, branch, err = factstore.ResolveGlobalTarget(cfg.Options.Env)
+		brainDir, err = factstore.ResolveGlobalTarget(cfg.Options.Env)
 		if err != nil {
 			return err
 		}
+		branch = factstore.GlobalBranch
 		// repoDir stays empty on purpose: classification and the commit anchor
 		// below both degrade to "no repository", which is the truth.
 		repoDir = ""
@@ -199,8 +200,18 @@ func RunRemember(ctx context.Context, cmd *cobra.Command, cfg Config, rememberOp
 	}
 
 	storedKind := kind
-	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		facts, err := factstore.Load(brainDir, branch)
+	if err := brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
+		// A write entry point migrates first: legacy branch stores (and
+		// stragglers an older binary wrote after migration) fold into the flat
+		// store before this read-modify-write lands.
+		summary, err := factstore.MigrateRepository(brainDir)
+		if err != nil {
+			return err
+		}
+		if summary.StragglerFiles > 0 {
+			fmt.Fprintln(cmd.ErrOrStderr(), "warning: an older entire-brain wrote memories after migration; they were upgraded — update that machine")
+		}
+		facts, err := factstore.Load(brainDir)
 		if err != nil {
 			return err
 		}
@@ -230,17 +241,26 @@ func RunRemember(ctx context.Context, cmd *cobra.Command, cfg Config, rememberOp
 			storedKind = factstore.KindOrInferred(facts[i])
 			record = facts[i]
 		}
-		if err := factstore.Write(brainDir, branch, facts); err != nil {
+		if err := factstore.Write(brainDir, facts); err != nil {
 			return err
 		}
 		if err := factstore.WriteTaxonomy(brainDir, taxonomy); err != nil {
 			return err
+		}
+		if cfg.Deps.UpdateFactSourceManifestRecords != nil {
+			return cfg.Deps.UpdateFactSourceManifestRecords(brainDir, now, facts)
 		}
 		return cfg.Deps.UpdateFactSourceManifest(brainDir, now)
 	}); err != nil {
 		return err
 	}
 
+	// Large legacy verification must happen after the writer releases its lock.
+	if cleanup, err := factstore.CleanupLegacy(brainDir); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: memory cleanup deferred: %v\n", err)
+	} else if cleanup.State == "retained" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: memory cleanup retained recovery data: %v\n", cleanup.Retained)
+	}
 	record.Kind = storedKind // report what was actually persisted
 	// After the write, never before: a subscriber must not be told about a fact
 	// that failed to persist. Delivery cannot fail this command — the fact is

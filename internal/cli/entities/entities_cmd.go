@@ -104,7 +104,7 @@ changed it.
 
 The index lives as git-meta records beside the brain, is built once by
 ` + "`entities backfill`" + `, and is kept current by the deterministic (token-free)
-refresh the watch loop and the session-end hook already run.`,
+refresh in the watch loop.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 	}
@@ -635,7 +635,13 @@ func loadEntityIndexView(ctx context.Context, opts Config, repoDir string) (*ent
 	view.rebuilt = true
 	// Persisting is an optimization, never a correctness requirement: a
 	// read-only brain dir must still answer queries.
-	if err := opts.Deps.SaveIndexCache(storage.BrainDir, cache); err != nil {
+	save := func() error {
+		if opts.Deps.SaveIndexCacheContext != nil {
+			return opts.Deps.SaveIndexCacheContext(ctx, storage.BrainDir, cache)
+		}
+		return opts.Deps.SaveIndexCache(storage.BrainDir, cache)
+	}
+	if err := save(); err != nil {
 		return finish() //nolint:nilerr // a cache we could not persist is still a valid answer
 	}
 	return finish()

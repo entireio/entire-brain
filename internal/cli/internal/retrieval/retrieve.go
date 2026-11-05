@@ -31,15 +31,6 @@ import (
 // conversation arms with the session-view machinery. No cli-private type
 // crosses this boundary.
 type Deps struct {
-	// LoadSessionReadGuard builds the exclusion guard; a nil manifest defers
-	// the manifest-derived transcript paths until the caller resolves one.
-	LoadSessionReadGuard func(brainDir string, manifest *bmanifest.Manifest) (brainstore.SessionReadGuard, error)
-	// GuardFactRecords filters a fact slice through the exclusion guard.
-	GuardFactRecords func(guard brainstore.SessionReadGuard, facts []factmerge.Record) []factmerge.Record
-	// GuardBlocksRecord reports whether the guard excludes a history record.
-	GuardBlocksRecord func(guard brainstore.SessionReadGuard, record historystore.Record) bool
-	// LoadFactProposals loads the pending fact-review queue.
-	LoadFactProposals func(brainDir, branch string) ([]factmerge.Proposal, error)
 	// RankFacts ranks facts against a query (BM25), highest score first.
 	RankFacts func(facts []factmerge.Record, query string, limit int, includeAll bool) []factmerge.Record
 	// RankHistoryLexical is the common BM25-only history path: it hydrates its
@@ -47,10 +38,6 @@ type Deps struct {
 	// short-term tier. Legacy/stale/corrupt caches fall back through the
 	// verified full JSON index and substring scorer.
 	RankHistoryLexical func(brainDir string, source *bmanifest.HistorySource, kind, query string, limit int) ([]ScoredHistoryRecord, error)
-	// RankGuardedHistory is the full history path for brains with live
-	// tombstones: the predicate filters candidate generation, which the FTS
-	// fast path cannot do.
-	RankGuardedHistory func(brainDir string, source *bmanifest.HistorySource, kind, query string, limit int, pred func(historystore.Record) bool) ([]ScoredHistoryRecord, error)
 	// RankDocs ranks doc chunks (FTS with the in-memory lexical fallback).
 	RankDocs func(brainDir string, index docstore.Index, query string, limit int) []docstore.ScoredRecord
 	// InspectDeclaredIndex reports a declared-but-unreadable derived index.
@@ -319,57 +306,33 @@ func UnifiedWithOptions(deps Deps, repoDir, brainDir, branch, query string, limi
 	if candidateLimit < limit { // integer overflow guard for unreasonable inputs
 		candidateLimit = limit
 	}
-	// Exclusion guard: consulted at this retrieval boundary so a
-	// tombstoned session's derived records are unreadable immediately, even
-	// mid-cleanup. Empty guard (the normal case) changes nothing.
-	guard, err := deps.LoadSessionReadGuard(brainDir, nil)
-	if err != nil {
-		return nil, err
-	}
-	var guardPred func(historystore.Record) bool
-	if !guard.Empty() {
-		// Path-based exclusion needs the manifest: blocksFactAnchor falls back
-		// to the transcript path when a record lost its session id, and that
-		// map is populated only from the manifest. Resolve it HERE, before the
-		// facts arm filters below. This used to happen inside the history arm,
-		// after GuardFactRecords had already run, so an excluded session's fact
-		// whose only anchor had no session id survived on query/search/vsearch
-		// while brief, dash, handoff, viz, and the pattern corpus all hid it.
-		// Only tombstoned brains pay the manifest read.
-		manifest, err := bmanifest.Load(brainDir)
-		if err != nil {
-			return nil, err
-		}
-		guard, err = deps.LoadSessionReadGuard(brainDir, manifest)
-		if err != nil {
-			return nil, err
-		}
-		guardPred = func(r historystore.Record) bool { return !deps.GuardBlocksRecord(guard, r) }
-	}
 	// factstore.Load surfaces corrupt NDJSON as a hard error; propagate it rather than
 	// presenting a broken store as "no results".
 	var all []factmerge.Record
 	var globalFactIDs map[string]bool
 	var active []factmerge.Record
-	var proposals []factmerge.Proposal
-	var proposalsErr error
 	if includeFacts {
 		var err error
-		all, err = factstore.Load(brainDir, branch)
+		all, err = factstore.Load(brainDir)
 		if err != nil {
 			return nil, err
 		}
 		if len(opts.GlobalFacts) > 0 {
 			all, globalFactIDs = MergeGlobalFacts(all, opts.GlobalFacts)
 		}
-		all = deps.GuardFactRecords(guard, all)
 		active = make([]factmerge.Record, 0, len(all))
+		// opts.Branch is the raw flag: set only when the caller asked for one
+		// branch's memories, so the default stays the whole repository store.
+		// Global facts apply everywhere; --no-global is their only off switch.
+		branchFilter := strings.TrimSpace(opts.Branch)
 		for _, f := range all {
+			if branchFilter != "" && f.Branch != branchFilter && !globalFactIDs[f.ID] {
+				continue
+			}
 			if f.Status == factmerge.StatusActive {
 				active = append(active, f)
 			}
 		}
-		proposals, proposalsErr = deps.LoadFactProposals(brainDir, branch)
 	}
 
 	var lists [][]Result
@@ -377,25 +340,15 @@ func UnifiedWithOptions(deps Deps, repoDir, brainDir, branch, query string, limi
 	// Facts.
 	if includeFacts && len(active) > 0 {
 		factLimit := min(len(active), candidateLimit)
-		var reviewGroups []FactReviewGroup
-		if proposalsErr == nil {
-			reviewGroups = BuildFactReviewGroups(FactsEligibleForLocusDrift(active, globalFactIDs), proposals)
-			factLimit = guardedFactCandidateLimitForGroups(len(active), reviewGroups, candidateLimit)
-		}
 		factResults := FactsToUnified(deps.RankFacts(active, query, factLimit, false))
-		// Repository proposals and locus checks apply only to repository facts.
+		// Locus checks apply only to repository facts.
 		localFacts := FactsEligibleForLocusDrift(all, globalFactIDs)
 		for i := range factResults {
 			if globalFactIDs[factResults[i].ID] {
 				factResults[i].Heading += " (global)"
 			}
 		}
-		if proposalsErr == nil {
-			factResults = guardUnifiedFactResultsWithGroups(repoDir, localFacts, reviewGroups, factResults, candidateLimit)
-		} else {
-			factResults = guardUnifiedFactResultsWithGroups(repoDir, localFacts, nil, factResults, candidateLimit)
-			factResults = AnnotateProposalStateUnavailable(factResults)
-		}
+		factResults = AnnotateUnifiedFactResults(repoDir, localFacts, factResults, candidateLimit)
 		if len(factResults) > 0 {
 			lists = append(lists, factResults)
 		}
@@ -422,36 +375,16 @@ func UnifiedWithOptions(deps Deps, repoDir, brainDir, branch, query string, limi
 		}
 		if manifest.Sources != nil && manifest.Sources.History != nil {
 			source := manifest.Sources.History
-			// The FTS-payload fast path hydrates its result window without
-			// loading index.json, but it cannot apply an exclusion predicate
-			// during candidate generation and does not resolve the two-tier
-			// duplicate winner. A brain with live tombstones therefore takes
-			// the full path below; an unguarded brain, the common
-			// case, keeps the fast path.
-			if guardPred == nil {
-				scored, rankErr := deps.RankHistoryLexical(brainDir, source, "history", query, historyCandidateLimit)
-				if rankErr != nil {
-					return nil, fmt.Errorf("load history index: %w", rankErr)
-				}
-				scored = filterHistoryRetrievalSelfEchoes(scored, query)
-				if len(scored) > candidateLimit {
-					scored = scored[:candidateLimit]
-				}
-				if len(scored) > 0 {
-					lists = append(lists, HistoryToUnified(scored))
-				}
-			} else {
-				scored, loadErr := deps.RankGuardedHistory(brainDir, source, "history", query, historyCandidateLimit, guardPred)
-				if loadErr != nil {
-					return nil, fmt.Errorf("load history index: %w", loadErr)
-				}
-				scored = filterHistoryRetrievalSelfEchoes(scored, query)
-				if len(scored) > candidateLimit {
-					scored = scored[:candidateLimit]
-				}
-				if len(scored) > 0 {
-					lists = append(lists, HistoryToUnified(scored))
-				}
+			scored, rankErr := deps.RankHistoryLexical(brainDir, source, "history", query, historyCandidateLimit)
+			if rankErr != nil {
+				return nil, fmt.Errorf("load history index: %w", rankErr)
+			}
+			scored = filterHistoryRetrievalSelfEchoes(scored, query)
+			if len(scored) > candidateLimit {
+				scored = scored[:candidateLimit]
+			}
+			if len(scored) > 0 {
+				lists = append(lists, HistoryToUnified(scored))
 			}
 		}
 	}

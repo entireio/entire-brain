@@ -20,7 +20,7 @@ func outlineTestFacts() []factRecord {
 
 func TestBuildFactOutlineTree(t *testing.T) {
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
-	outline := buildFactOutlineTree("main", outlineTestFacts(), now)
+	outline := buildFactOutlineTree(outlineTestFacts(), now)
 
 	for _, key := range []string{"", "internal", "internal/cli", "internal/db"} {
 		if _, ok := outline.Nodes[key]; !ok {
@@ -52,10 +52,10 @@ func TestBuildFactOutlineTree(t *testing.T) {
 
 func TestOutlineFingerprintChangesWithLeaf(t *testing.T) {
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
-	a := buildFactOutlineTree("main", outlineTestFacts(), now)
+	a := buildFactOutlineTree(outlineTestFacts(), now)
 	facts := outlineTestFacts()
 	facts = append(facts, factRecord{ID: "f7", Status: factStatusActive, Paths: []string{"architecture.data.flow"}, Locus: []string{"internal/cli/embed.go"}, Text: "Embeds facts."})
-	b := buildFactOutlineTree("main", facts, now)
+	b := buildFactOutlineTree(facts, now)
 	// Adding a leaf under internal/cli must change that node's fingerprint AND the
 	// root's (it propagates up), but not the unrelated internal/db node.
 	if a.Nodes["internal/cli"].Fingerprint == b.Nodes["internal/cli"].Fingerprint {
@@ -81,7 +81,7 @@ func TestGenerateFactOutlineIncremental(t *testing.T) {
 
 	// First generation: nodes with subtree >= 2 are summarized — root(5),
 	// internal(3), internal/cli(2). internal/db(1) is skipped.
-	outline, regen, err := generateFactOutline(context.Background(), "/repo", brainDir, "main", outlineTestFacts(), opts, now)
+	outline, regen, err := generateFactOutline(context.Background(), "/repo", brainDir, outlineTestFacts(), opts, now)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -94,13 +94,13 @@ func TestGenerateFactOutlineIncremental(t *testing.T) {
 	if outline.Nodes["internal/db"].Summary != "" {
 		t.Fatalf("internal/db is below min-facts and should be unsummarized")
 	}
-	if err := writeFactOutline(brainDir, "main", outline); err != nil {
+	if err := writeFactOutline(brainDir, outline); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
 	// Second generation, unchanged facts: every fingerprint matches → 0 agent calls.
 	calls = 0
-	outline2, regen2, err := generateFactOutline(context.Background(), "/repo", brainDir, "main", outlineTestFacts(), opts, now)
+	outline2, regen2, err := generateFactOutline(context.Background(), "/repo", brainDir, outlineTestFacts(), opts, now)
 	if err != nil {
 		t.Fatalf("regen: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestGenerateFactOutlineBudget(t *testing.T) {
 		return "S.", nil
 	}
 	opts := outlineGenOptions{agent: "command", agentCommand: []string{"fake"}, minFacts: 2, budget: 1, run: runner}
-	if _, _, err := generateFactOutline(context.Background(), "/repo", t.TempDir(), "main", outlineTestFacts(), opts, now); err != nil {
+	if _, _, err := generateFactOutline(context.Background(), "/repo", t.TempDir(), outlineTestFacts(), opts, now); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	if calls != 1 {
@@ -130,7 +130,7 @@ func TestGenerateFactOutlineBudget(t *testing.T) {
 
 func TestRenderFactOutline(t *testing.T) {
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
-	outline := buildFactOutlineTree("main", outlineTestFacts(), now)
+	outline := buildFactOutlineTree(outlineTestFacts(), now)
 	n := outline.Nodes["internal/cli"]
 	n.Summary = "Fact storage and distillation."
 	outline.Nodes["internal/cli"] = n

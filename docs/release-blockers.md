@@ -1,5 +1,10 @@
 # Release Blockers
 
+> Historical record: this document describes retired tooling and earlier product versions.
+> Python scripts, experiment runners, and their mise tasks are no longer available.
+> Use [the current Go checks](testing-for-optimization.md) for validation.
+> Retained measurements do not establish current behavior.
+
 A register of release-gating findings from the PR #33 review (2026-06-11),
 kept next to the audit so a release decision can see what is open, what was
 fixed, and exactly why. The standard for this file is the eval ledger's:

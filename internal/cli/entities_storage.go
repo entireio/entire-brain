@@ -51,23 +51,11 @@ func gitmetaDirForKey(env EntireEnv, key string) (string, error) {
 //
 // The checkpoint store is best-effort: an unreadable or absent one leaves the
 // manifest join exactly as it was.
-// Session tombstones are honored here rather than only at the manifest, because
-// the checkpoint-store half of this join reads the repository's checkpoint refs
-// directly and never consults the brain manifest at all. Without the guard an
-// excluded or purged session reappeared in the index on the next
-// `entities backfill`, and `entities history` answered with it — a derived
-// projection quietly restoring the session linkage the user asked to erase.
-// Unreadable tombstone state fails the join closed for the same reason every
-// other privacy gate does.
 func sessionIDsByCheckpoint(ctx context.Context, opts Options, repoDir, brainDir string) (map[string][]string, error) {
-	guard, err := bmanifest.LoadSessionReadGuard(brainDir, nil)
-	if err != nil {
-		return nil, err
-	}
 	out := map[string][]string{}
 	add := func(checkpoint, id string) {
 		checkpoint, id = strings.TrimSpace(checkpoint), strings.TrimSpace(id)
-		if checkpoint == "" || id == "" || guard.BlocksSession(id) {
+		if checkpoint == "" || id == "" {
 			return
 		}
 		if !base.ContainsString(out[checkpoint], id) {
@@ -100,6 +88,10 @@ func sessionIDsByCheckpoint(ctx context.Context, opts Options, repoDir, brainDir
 }
 
 func saveEntityIndexCache(brainDir string, cache entities.IndexCache) error {
+	return saveEntityIndexCacheContext(context.Background(), brainDir, cache)
+}
+
+func saveEntityIndexCacheContext(ctx context.Context, brainDir string, cache entities.IndexCache) error {
 	if strings.TrimSpace(brainDir) == "" {
 		return errors.New("entity index cache: brain dir is empty")
 	}
@@ -110,7 +102,7 @@ func saveEntityIndexCache(brainDir string, cache entities.IndexCache) error {
 	if err != nil {
 		return err
 	}
-	return brainstore.WithBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
 		return brainstore.WriteBrainRelativeFileAtomic(brainDir, entities.CachePath, append(data, '\n'), 0o600)
 	})
 }

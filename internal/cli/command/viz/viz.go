@@ -1,19 +1,10 @@
 package viz
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
-	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
-	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
-	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
-	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
-	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
-	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
-	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -27,6 +18,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 
 	entirebrain "github.com/entireio/entire-brain"
 	"github.com/entireio/entire-brain/factmerge"
@@ -94,14 +91,11 @@ reads the brain from disk read-only: no agent calls, no outbound network.`,
 // Like the dashboard, it captures a single brain (brainDir/branch/manifest) at
 // startup; re-run `viz` to pick up a fresh `refresh`.
 type Server struct {
-	RepoDir       string
-	BrainDir      string
-	Branch        string
-	Manifest      *bmanifest.Manifest
-	Deps          Deps
-	guardMu       sync.Mutex
-	Guard         brainstore.SessionReadGuard
-	GuardObserved bool
+	RepoDir  string
+	BrainDir string
+	Branch   string
+	Manifest *bmanifest.Manifest
+	Deps     Deps
 	// repo coordinates parsed from the brain key (provider/owner/repo), used to
 	// build real entire.io + source links. Empty provider = local repo (no links).
 	Provider string
@@ -133,14 +127,8 @@ func Run(ctx context.Context, cmd *cobra.Command, cfg Config, flags Flags, targe
 	if m, serr := cfg.Deps.BrainManifest(ctx, cfg.Options, target); serr == nil {
 		manifest = m
 	}
-	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
-	if err != nil {
-		return err
-	}
-
 	srv := &Server{
 		RepoDir: repoDir, BrainDir: brainDir, Branch: branch, Manifest: manifest, Deps: cfg.Deps,
-		Guard: guard, GuardObserved: !guard.Empty(),
 	}
 	// The manifest's RepoKey is the canonical key (it survives nested owner
 	// groups and any store-layout change); the brainDir tail is the fallback.
@@ -212,78 +200,7 @@ func (s *Server) Mux() (http.Handler, error) {
 		return nil, fmt.Errorf("embedded web UI unavailable (build error): %w", err)
 	}
 	m.Handle("/", http.FileServer(http.FS(sub)))
-	return s.privacyResponseMiddleware(m), nil
-}
-
-// bufferedVizResponse keeps API status, headers, and body private until the
-// complete response can be revalidated against the exact privacy policy under
-// which the handler assembled it. Static UI assets contain no brain data and
-// bypass this buffer.
-type bufferedVizResponse struct {
-	header http.Header
-	status int
-	body   bytes.Buffer
-}
-
-func (w *bufferedVizResponse) Header() http.Header { return w.header }
-
-func (w *bufferedVizResponse) WriteHeader(status int) {
-	if w.status == 0 {
-		w.status = status
-	}
-}
-
-func (w *bufferedVizResponse) Write(p []byte) (int, error) {
-	if w.status == 0 {
-		w.status = http.StatusOK
-	}
-	return w.body.Write(p)
-}
-
-func copyHTTPHeaders(dst, src http.Header) {
-	for key, values := range src {
-		dst[key] = append([]string(nil), values...)
-	}
-}
-
-// privacyResponseMiddleware is the HTTP equivalent of the CLI's buffered final
-// writer. A tombstone cannot linearize between the last policy check and the
-// first response byte because both use the same per-Brain write lock.
-func (s *Server) privacyResponseMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.Path, "/api/") {
-			next.ServeHTTP(w, r)
-			return
-		}
-		policy, err := brainstore.CaptureRetrievalPrivacyPolicy(s.BrainDir)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusServiceUnavailable)
-			return
-		}
-		buffered := &bufferedVizResponse{header: make(http.Header)}
-		next.ServeHTTP(buffered, r)
-		status := buffered.status
-		if status == 0 {
-			status = http.StatusOK
-		}
-		err = s.Deps.CommitRetrievalResponse([]brainstore.RetrievalPrivacyPolicy{policy}, func() error {
-			copyHTTPHeaders(w.Header(), buffered.header)
-			w.WriteHeader(status)
-			if buffered.body.Len() == 0 {
-				return nil
-			}
-			n, writeErr := w.Write(buffered.body.Bytes())
-			if writeErr == nil && n != buffered.body.Len() {
-				return io.ErrShortWrite
-			}
-			return writeErr
-		})
-		if err != nil {
-			// The real response has not been committed when validation fails, so
-			// return a typed, content-free failure instead of stale API bytes.
-			http.Error(w, err.Error(), http.StatusServiceUnavailable)
-		}
-	})
+	return m, nil
 }
 
 // SecurityHeaders makes the no-egress guarantee machine-checkable: the CSP
@@ -402,10 +319,6 @@ func (s *Server) repoDisplayName() string {
 }
 
 func (s *Server) HandleSummary(w http.ResponseWriter, r *http.Request) {
-	guard, ok := s.requestSessionGuard(w)
-	if !ok {
-		return
-	}
 	resp := SummaryResp{Repo: s.repoDisplayName(), Branch: s.Branch}
 	// Counts come straight from the manifest captured at startup. Rebuilding the
 	// full status report here costs several seconds on large brains and would
@@ -426,7 +339,7 @@ func (s *Server) HandleSummary(w http.ResponseWriter, r *http.Request) {
 			resp.Counts.Facts = f.Facts
 		}
 		if ss := m.Sources.Sessions; ss != nil {
-			resp.Counts.Sessions = len(s.sessionsFromManifest(guard))
+			resp.Counts.Sessions = len(s.sessionsFromManifest())
 		}
 	}
 	if docs, err := docstore.Load(s.BrainDir); err == nil {
@@ -436,46 +349,11 @@ func (s *Server) HandleSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 // sessionsFromManifest returns the export sessions captured in the manifest.
-func (s *Server) sessionsFromManifest(guard brainstore.SessionReadGuard) []bmanifest.Session {
+func (s *Server) sessionsFromManifest() []bmanifest.Session {
 	if s.Manifest == nil || s.Manifest.Sources == nil || s.Manifest.Sources.Sessions == nil {
 		return nil
 	}
-	return bmanifest.GuardSessions(guard, s.Manifest.Sources.Sessions.Sessions)
-}
-
-// requestSessionGuard reloads privacy state at every HTTP request boundary.
-// The visualization intentionally pins its manifest for a stable graph, but a
-// privacy exclusion must take effect without restarting that long-lived
-// process. Present invalid state returns a typed 503 and no derived content.
-// If the policy file unexpectedly disappears, retain the startup guard as a
-// conservative denial until an explicit current (possibly empty) policy is
-// written or the server restarts.
-func (s *Server) requestSessionGuard(w http.ResponseWriter) (brainstore.SessionReadGuard, bool) {
-	// Serialize refreshes so one request cannot replace a newer valid policy
-	// snapshot with an older one while another request is reading it.
-	s.guardMu.Lock()
-	defer s.guardMu.Unlock()
-
-	stones, state, err := brainstore.LoadSessionTombstonesChecked(s.BrainDir)
-	if err != nil {
-		writeJSONHTTP(w, http.StatusServiceUnavailable, map[string]any{
-			"error": cmdutil.CommandErrorCode(err), "message": "session privacy state is unavailable",
-		})
-		return brainstore.SessionReadGuard{}, false
-	}
-	if state.State == brainstore.SessionTombstoneAbsent && s.GuardObserved {
-		return s.Guard, true
-	}
-	if state.State == brainstore.SessionTombstoneCurrent {
-		s.GuardObserved = true
-		if len(stones.Excluded) == 0 {
-			s.Guard = brainstore.SessionReadGuard{}
-		} else {
-			s.Guard = brainstore.SessionReadGuard{IDs: stones.Excluded, Paths: bmanifest.ExcludedTranscriptPaths(s.Manifest, stones)}
-		}
-		return s.Guard, true
-	}
-	return s.Guard, true
+	return s.Manifest.Sources.Sessions.Sessions
 }
 
 // vizQueryLimit parses ?limit with the shared safety policy: invalid input
@@ -693,57 +571,24 @@ func linkBySharedKey(keyToIDs map[string][]string, typ string, capPerKey int) []
 	return edges
 }
 
-// factBranches lists the branches whose facts to show — the current branch first,
-// then every branch the manifest records. Facts are branch-scoped on disk, but
-// the Facts view is a whole-brain view, so it aggregates across branches.
-func (s *Server) factBranches() []string {
-	out := []string{}
-	seen := map[string]bool{}
-	add := func(b string) {
-		b = strings.TrimSpace(b)
-		if b != "" && !seen[b] {
-			seen[b] = true
-			out = append(out, b)
-		}
-	}
-	add(s.Branch)
-	if s.Manifest != nil && s.Manifest.Sources != nil && s.Manifest.Sources.Facts != nil {
-		for _, b := range s.Manifest.Sources.Facts.Branches {
-			add(b)
-		}
-	}
-	if len(out) == 0 {
-		out = append(out, s.Branch)
-	}
-	return out
-}
-
 func (s *Server) HandleFacts(w http.ResponseWriter, r *http.Request) {
-	guard, ok := s.requestSessionGuard(w)
-	if !ok {
-		return
-	}
 	limit := vizQueryLimit(r, 3000)
 	seen := map[string]bool{}
 	all := []factmerge.Record{}
 	var warnings []string
-	for _, br := range s.factBranches() {
-		fs, err := factstore.Load(s.BrainDir, br)
-		if err != nil {
-			warnings = append(warnings, "facts["+br+"]: "+err.Error())
+	fs, err := factstore.Load(s.BrainDir)
+	if err != nil {
+		warnings = append(warnings, "facts: "+err.Error())
+	}
+	for _, f := range fs {
+		// Graph node IDs must be unique and non-empty; a record without one
+		// (corrupt or hand-edited store) would collide with its siblings in
+		// the frontend's byId map. factstore.Load doesn't validate IDs — skip here.
+		if f.ID == "" || seen[f.ID] {
 			continue
 		}
-		fs = factstore.GuardRecords(guard, fs)
-		for _, f := range fs {
-			// Graph node IDs must be unique and non-empty; a record without one
-			// (corrupt or hand-edited store) would collide with its siblings in
-			// the frontend's byId map. factstore.Load doesn't validate IDs — skip here.
-			if f.ID == "" || seen[f.ID] {
-				continue
-			}
-			seen[f.ID] = true
-			all = append(all, f)
-		}
+		seen[f.ID] = true
+		all = append(all, f)
 	}
 	total := len(all)
 	trunc := limit > 0 && total > limit
@@ -826,15 +671,11 @@ func vizSessionFallbackText(se bmanifest.Session) string {
 }
 
 func (s *Server) HandleSessions(w http.ResponseWriter, r *http.Request) {
-	guard, ok := s.requestSessionGuard(w)
-	if !ok {
-		return
-	}
 	limit := vizQueryLimit(r, 3000)
 	// Same defense as facts/history: node IDs must be unique and non-empty.
 	// Filter before counting so Total and the slider's "N of total" stay
 	// consistent with the nodes actually served.
-	all := s.sessionsFromManifest(guard)
+	all := s.sessionsFromManifest()
 	sessions := make([]bmanifest.Session, 0, len(all))
 	for _, se := range all {
 		if se.SessionID != "" {
@@ -915,17 +756,13 @@ const vizReplayMaxNodes = 1500
 // session across the code graph: light up each file's symbols in turn, tracing
 // the path the agent took through the codebase.
 func (s *Server) HandleSessionReplay(w http.ResponseWriter, r *http.Request) {
-	guard, ok := s.requestSessionGuard(w)
-	if !ok {
-		return
-	}
 	id := strings.TrimSpace(r.URL.Query().Get("id"))
 	resp := ReplayResp{Files: []string{}, Steps: []ReplayStep{}, Nodes: []GNode{}, Edges: []GEdge{}}
 	if id == "" {
 		writeJSONHTTP(w, http.StatusBadRequest, ReplayResp{Warnings: []string{"missing id"}})
 		return
 	}
-	sessions := s.sessionsFromManifest(guard)
+	sessions := s.sessionsFromManifest()
 	var se *bmanifest.Session
 	for i := range sessions {
 		if sessions[i].SessionID == id {
@@ -1061,10 +898,6 @@ func vizHistoryColor(kind string) string {
 }
 
 func (s *Server) HandleHistory(w http.ResponseWriter, r *http.Request) {
-	guard, ok := s.requestSessionGuard(w)
-	if !ok {
-		return
-	}
 	// History can hold hundreds of thousands of records — far too many to render
 	// legibly — so it stays capped (the UI shows an honest "N of total"), but the
 	// node-count slider lets you dial it up. The 0 sentinel and the vizGraphMaxView
@@ -1084,7 +917,7 @@ func (s *Server) HandleHistory(w http.ResponseWriter, r *http.Request) {
 	recs := make([]historystore.Record, 0, len(idx.Records))
 	seen := make(map[string]bool, len(idx.Records))
 	for _, h := range idx.Records {
-		if h.ID == "" || seen[h.ID] || historystore.GuardBlocksRecord(guard, h) {
+		if h.ID == "" || seen[h.ID] {
 			continue
 		}
 		seen[h.ID] = true

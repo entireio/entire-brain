@@ -21,3 +21,13 @@ internal/cli/testdata/render/*.json text eol=lf
 # Unified-diff context markers intentionally put one space before tab-indented
 # source. Do not report that patch syntax as a whitespace defect in outer diffs.
 *.patch -whitespace
+
+# Historical records are byte-for-byte copies of their source snapshot. Keep
+# their SHA-256 digests stable even when core.autocrlf is enabled on Windows.
+benchmarks/agent-brain/** -text
+
+# Brain fixture trees: their manifest.json records SHA-256 digests of these
+# exact bytes, so a CRLF checkout makes historystore.LoadIndex reject the
+# index and doctor return before its freshness checks.
+internal/cli/testdata/history_brain_rev12_null_message/** -text
+internal/cli/testdata/history_short_term_v4.json -text

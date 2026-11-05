@@ -23,15 +23,10 @@ func TestFactsGCRootPreservesDryRunAndPrunesOnlyEligibleRecords(t *testing.T) {
 	recent := factFor(t, "recent superseded", []string{"project.tooling.stack"}, now.Add(-24*time.Hour))
 	recent.Status = factStatusSuperseded
 	orphan := factFor(t, "active orphan", []string{"gone.sub.type"}, now)
-	if err := factstore.Write(brainDir, "main", []factRecord{active, retracted, old, recent, orphan}); err != nil {
-		t.Fatal(err)
-	}
-	if err := factstore.Write(brainDir, "other", []factRecord{retracted}); err != nil {
-		t.Fatal(err)
-	}
-	otherPath := filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath("other")))
-	otherBefore, err := os.ReadFile(otherPath)
-	if err != nil {
+	otherRetracted := factFor(t, "retracted elsewhere", []string{"project.tooling.stack"}, now)
+	otherRetracted.Branch = "other"
+	otherRetracted.Status = factStatusRetracted
+	if err := factstore.Write(brainDir, []factRecord{active, retracted, old, recent, orphan, otherRetracted}); err != nil {
 		t.Fatal(err)
 	}
 	before := privacyTreeDigest(t, brainDir)
@@ -45,20 +40,43 @@ func TestFactsGCRootPreservesDryRunAndPrunesOnlyEligibleRecords(t *testing.T) {
 			t.Fatal(err)
 		}
 		if jsonOut {
-			assertFactsGCSummary(t, out, false, 2, 1, 3)
-		} else if !strings.Contains(out, "would prune 2 memory(ies)") || !strings.Contains(out, "re-run with --force") {
+			assertFactsGCSummary(t, out, "", false, 3, 1, 3)
+		} else if !strings.Contains(out, "would prune 3 memory(ies)") || !strings.Contains(out, "re-run with --force") {
 			t.Fatalf("dry-run output: %s", out)
 		}
 		if after := privacyTreeDigest(t, brainDir); after != before {
 			t.Fatal("dry run modified persisted state")
 		}
 	}
-	out, err := execute(t, NewRootCommand(opts), "facts", "gc", "--force", "--json")
+	// --branch is a metadata filter: only "other"-stamped records are gc
+	// candidates, and main's eligible records pass through untouched.
+	out, err := execute(t, NewRootCommand(opts), "facts", "gc", "--force", "--json", "--branch", "other", "--retain", "720h")
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertFactsGCSummary(t, out, true, 2, 1, 3)
-	kept, err := factstore.Load(brainDir, "main")
+	assertFactsGCSummary(t, out, "other", true, 1, 0, 0)
+	afterFiltered, err := factstore.Load(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filteredIDs := map[string]bool{}
+	for _, f := range afterFiltered {
+		filteredIDs[f.ID] = true
+	}
+	if filteredIDs[otherRetracted.ID] {
+		t.Fatal("the filtered branch's retracted record must be pruned")
+	}
+	for _, keptID := range []string{active.ID, retracted.ID, old.ID, recent.ID, orphan.ID} {
+		if !filteredIDs[keptID] {
+			t.Fatalf("gc --branch other modified an unselected record %s", keptID)
+		}
+	}
+	out, err = execute(t, NewRootCommand(opts), "facts", "gc", "--force", "--json", "--retain", "720h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFactsGCSummary(t, out, "", true, 2, 1, 3)
+	kept, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,20 +88,13 @@ func TestFactsGCRootPreservesDryRunAndPrunesOnlyEligibleRecords(t *testing.T) {
 	if !reflect.DeepEqual(ids, want) {
 		t.Fatalf("kept identities=%v want %v", ids, want)
 	}
-	otherAfter, err := os.ReadFile(otherPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(otherBefore) != string(otherAfter) {
-		t.Fatal("gc modified an unselected branch")
-	}
 	out, err = execute(t, NewRootCommand(opts), "facts", "gc", "--force")
 	if err != nil || !strings.Contains(out, "pruned 0 memory(ies)") {
 		t.Fatalf("repeat gc: %q err=%v", out, err)
 	}
 }
 
-func assertFactsGCSummary(t *testing.T, out string, applied bool, pruned, orphans, remaining int) {
+func assertFactsGCSummary(t *testing.T, out string, branch string, applied bool, pruned, orphans, remaining int) {
 	t.Helper()
 	var result struct {
 		Branch                     string
@@ -93,14 +104,16 @@ func assertFactsGCSummary(t *testing.T, out string, applied bool, pruned, orphan
 	if err := json.Unmarshal([]byte(out), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Branch != "main" || result.Applied != applied || result.Pruned != pruned || result.Orphans != orphans || result.Remaining != remaining {
+	if result.Branch != branch || result.Applied != applied || result.Pruned != pruned || result.Orphans != orphans || result.Remaining != remaining {
 		t.Fatalf("unexpected GC summary: %+v", result)
 	}
 }
 
 func TestFactsGCRootFailsClosedOnMalformedStore(t *testing.T) {
 	opts, brainDir := privacyRegressionCommandFixture(t, time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC))
-	path := filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath("main")))
+	// A malformed LEGACY branch file must fail gc closed just like a corrupt
+	// flat store: the fold reads it on every Load.
+	path := filepath.Join(brainDir, filepath.FromSlash(testLegacyFactsRel("main")))
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}

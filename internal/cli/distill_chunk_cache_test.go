@@ -85,7 +85,7 @@ func TestDistillReusesCachedChunksForGrownTranscript(t *testing.T) {
 	}
 
 	// Facts from skipped chunks must survive the incremental run.
-	facts, err := factstore.Load(brainDir, "main")
+	facts, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

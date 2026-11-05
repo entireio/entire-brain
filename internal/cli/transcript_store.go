@@ -30,19 +30,15 @@ import (
 // are standalone artifacts that carry their transcripts as files, and brains
 // written before this change keep working until their cache is swept.
 //
-// Every direct read goes through the store, because the store is where two
-// invariants are enforced:
-//
-//   - A purged session stays purged. The tombstone gate used to be implicit —
-//     the purge deleted the cached file — and with on-demand git reads the
-//     gate must live on the read path itself.
-//   - Reads never touch the network. Resolution and blob reads run through the
-//     same no-egress policy the snapshot export uses; a promisor-absent blob
-//     is a read error the caller skips with a warning, never a fetch.
+// Every direct read goes through the store, because the store is where one
+// invariant is enforced: reads never touch the network. Resolution and blob
+// reads run through the same no-egress policy the snapshot export uses; a
+// promisor-absent blob is a read error the caller skips with a warning,
+// never a fetch.
 
 // transcriptLocation addresses one session's transcript inside the snapshot.
-// sessionID rides along so the tombstone gate can refuse by SESSION as well as
-// by path: the path-keyed gate maps the CURRENT manifest, while byRel can hold
+// sessionID rides along for diagnostics: the path-keyed map tracks the CURRENT
+// manifest, while byRel can hold
 // paths from the manifest as of snapshot resolution — a session re-keyed and
 // then purged must not slip through under its old path.
 type transcriptLocation struct {
@@ -147,32 +143,6 @@ func (s *transcriptStore) storageMode() (bool, error) {
 	return s.checkpointStorage, nil
 }
 
-// guardNow loads the tombstone gate fresh on every read: a purge that
-// tombstones a session mid-process must bind the very next read, so the gate
-// is deliberately NOT memoized. The common empty-gate case costs one small
-// file read; only tombstoned brains pay the manifest read that maps sessions
-// to paths (the same two-step every guarded surface uses — see retrieve.go).
-func (s *transcriptStore) guardNow() (sessionReadGuard, error) {
-	guard, err := bmanifest.LoadSessionReadGuard(s.brainDir, nil)
-	if err != nil {
-		// Fail closed: an unreadable tombstone file must not open purged
-		// transcripts back up.
-		return sessionReadGuard{}, fmt.Errorf("transcript store: %w", err)
-	}
-	if guard.Empty() {
-		return guard, nil
-	}
-	manifest, err := bmanifest.Load(s.brainDir)
-	if err != nil {
-		return sessionReadGuard{}, fmt.Errorf("transcript store: tombstones present but manifest unreadable: %w", err)
-	}
-	guard, err = bmanifest.LoadSessionReadGuard(s.brainDir, manifest)
-	if err != nil {
-		return sessionReadGuard{}, fmt.Errorf("transcript store: %w", err)
-	}
-	return guard, nil
-}
-
 // lookupLocation resolves one manifest path to its checkpoint location,
 // re-resolving the snapshot when the memoized state cannot serve the request
 // honestly (see snapMu). It returns the snapshot alongside the location so the
@@ -268,7 +238,7 @@ func (s *transcriptStore) resolveSnapshot(ctx context.Context) error {
 
 	s.byRel = make(map[string]transcriptLocation, len(manifest.Sources.Sessions.Sessions))
 	for _, session := range manifest.Sources.Sessions.Sessions {
-		rel := brainstore.NormalizePrivacyTranscriptPath(session.TranscriptPath)
+		rel := brainstore.NormalizeTranscriptPath(session.TranscriptPath)
 		if rel == "" {
 			continue
 		}
@@ -344,13 +314,6 @@ func (s *transcriptStore) Open(ctx context.Context, rel string) (io.Reader, func
 	if err != nil || filepath.ToSlash(clean) != rel || !strings.HasPrefix(rel, "sessions/") {
 		return nil, nil, &historySessionInventoryError{Path: rel, Reason: "canonical transcript path is unsafe", Err: err}
 	}
-	guard, err := s.guardNow()
-	if err != nil {
-		return nil, nil, err
-	}
-	if _, purged := guard.Paths[rel]; purged {
-		return nil, nil, fmt.Errorf("%s: transcript %s is tombstoned", brainstore.StateUnsafeCode, rel)
-	}
 	checkpointStorage, err := s.storageMode()
 	if err != nil {
 		return nil, nil, err
@@ -358,16 +321,7 @@ func (s *transcriptStore) Open(ctx context.Context, rel string) (io.Reader, func
 	if !checkpointStorage {
 		file, finish, fileErr := openCanonicalHistoryTranscript(ctx, s.brainDir, rel)
 		if fileErr == nil {
-			return file, func() error {
-				finishErr := finish()
-				guard, err := s.guardNow()
-				if err == nil {
-					if _, blocked := guard.Paths[rel]; blocked {
-						err = fmt.Errorf("%s: transcript %s is tombstoned", brainstore.StateUnsafeCode, rel)
-					}
-				}
-				return errors.Join(finishErr, err)
-			}, nil
+			return file, finish, nil
 		}
 		if !errors.Is(fileErr, fs.ErrNotExist) {
 			return nil, nil, fileErr
@@ -377,26 +331,12 @@ func (s *transcriptStore) Open(ctx context.Context, rel string) (io.Reader, func
 	if err != nil {
 		return nil, nil, err
 	}
-	if guard.BlocksSession(location.sessionID) {
-		return nil, nil, fmt.Errorf("%s: transcript %s is tombstoned", brainstore.StateUnsafeCode, rel)
-	}
 	data, err := readSnapshotTranscriptFromSource(ctx, s.runner, snapshot, location.sourceKey, location.sourcePath)
 	if err != nil {
 		return nil, nil, classifyTranscriptReadError(fmt.Errorf("read transcript %s: %w", rel, err))
 	}
 	return bytes.NewReader(data), func() error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		guard, err := s.guardNow()
-		if err != nil {
-			return err
-		}
-		_, blocked := guard.Paths[rel]
-		if blocked || guard.BlocksSession(location.sessionID) {
-			return fmt.Errorf("%s: transcript %s is tombstoned", brainstore.StateUnsafeCode, rel)
-		}
-		return nil
+		return ctx.Err()
 	}, nil
 }
 

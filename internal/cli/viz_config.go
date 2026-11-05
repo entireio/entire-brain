@@ -24,7 +24,6 @@ func vizDeps() viz.Deps {
 			}
 			return status.Manifest, nil
 		},
-		RetrieveUnified:         retrieveUnified,
-		CommitRetrievalResponse: commitVizRetrievalResponse,
+		RetrieveUnified: retrieveUnified,
 	}
 }

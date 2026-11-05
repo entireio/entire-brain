@@ -60,7 +60,7 @@ func TestVizNodePublicResponseUsesGraphStore(t *testing.T) {
 	if err := writeBrainManifestAndReadme(dir, *diskManifest); err != nil {
 		t.Fatal(err)
 	}
-	if err := factstore.Write(dir, "main", []factRecord{{ID: "fact:token", Branch: "main", Text: "ValidateToken checks token expiry", Status: factStatusActive}}); err != nil {
+	if err := factstore.Write(dir, []factRecord{{ID: "fact:token", Branch: "main", Text: "ValidateToken checks token expiry", Status: factStatusActive}}); err != nil {
 		t.Fatal(err)
 	}
 	s.Branch = "main"

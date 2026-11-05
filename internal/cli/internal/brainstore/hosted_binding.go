@@ -1,6 +1,7 @@
 package brainstore
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -75,7 +76,11 @@ func SetHostedOptOut(brainDir string) (HostedRepoBinding, error) {
 // untouched — this never creates, repairs, or overwrites consent state it
 // could not read (the file may record an opt-out).
 func MutateHostedRepoBinding(brainDir string, update func(HostedRepoBinding) (HostedRepoBinding, bool)) error {
-	return WithBrainWriteLock(brainDir, func() error {
+	return MutateHostedRepoBindingContext(context.Background(), brainDir, update)
+}
+
+func MutateHostedRepoBindingContext(ctx context.Context, brainDir string, update func(HostedRepoBinding) (HostedRepoBinding, bool)) error {
+	return WithBrainWriteLockContext(ctx, brainDir, func() error {
 		current, present, err := ReadHostedRepoBinding(brainDir)
 		if err != nil || !present {
 			return err

@@ -1,3 +1,0 @@
-#!/bin/sh
-# GitHub access is disabled for the nested agent so every condition sees the same history surface.
-echo "gh: network access is disabled in this environment" >&2; exit 1

@@ -1,5 +1,10 @@
 # Regression coverage completion plan
 
+> Historical record: this document describes retired tooling and earlier product versions.
+> Python scripts, experiment runners, and their mise tasks are no longer available.
+> Use [the current Go checks](testing-for-optimization.md) for validation.
+> Retained measurements do not establish current behavior.
+
 Status: implementation reviewed; final CI acceptance tracked in PR #278 and
 trail #198 (2026-09-18). This supersedes treating the
 previous safety matrix's implemented rows as completion of the broader goal.

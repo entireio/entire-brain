@@ -810,7 +810,7 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 				// A dry run that cannot report this says less than the real run
 				// it is supposed to preview, which is the one thing a preview
 				// must not do. Reading the current facts needs no write lock.
-				existing, loadErr := factstore.Load(brainDir, resolvedBranch)
+				existing, loadErr := factstore.Load(brainDir)
 				if loadErr != nil {
 					return loadErr
 				}
@@ -842,8 +842,11 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 			// reported alongside a successful import rather than replacing it.
 			var manifestErr error
 			if !dryRun {
-				if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-					existing, loadErr := factstore.Load(brainDir, resolvedBranch)
+				if err := brainstore.WithBrainWriteLockContext(cmd.Context(), brainDir, func() error {
+					if _, err := migrateFactStoreLocked(brainDir); err != nil {
+						return err
+					}
+					existing, loadErr := factstore.Load(brainDir)
 					if loadErr != nil {
 						return loadErr
 					}
@@ -862,7 +865,7 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 					for _, fact := range facts {
 						existing = upsertFact(existing, fact)
 					}
-					if err := factstore.Write(brainDir, resolvedBranch, existing); err != nil {
+					if err := factstore.Write(brainDir, existing); err != nil {
 						return err
 					}
 					// Every other fact mutator refreshes the source manifest

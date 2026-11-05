@@ -18,16 +18,16 @@ func (gitlessRunner) Run(context.Context, string, string, ...string) ([]byte, []
 	return nil, nil, errors.New("no git here")
 }
 
-func captureNotifyHostedSync(t *testing.T) *[]string {
+func captureNotifyHostedSync(t *testing.T) *int {
 	t.Helper()
 	original := notifyHostedFactsSync
 	t.Cleanup(func() { notifyHostedFactsSync = original })
-	var branches []string
-	notifyHostedFactsSync = func(_ context.Context, _ io.Writer, _ Options, _ string, _ repoStorage, branch string) (hostedSyncOutcome, error) {
-		branches = append(branches, branch)
+	calls := 0
+	notifyHostedFactsSync = func(_ context.Context, _ io.Writer, _ Options, _ string, _ repoStorage) (hostedSyncOutcome, error) {
+		calls++
 		return hostedSyncOutcome{Attempted: true, PullSucceeded: true}, nil
 	}
-	return &branches
+	return &calls
 }
 
 func notifySyncHarness(t *testing.T, now *time.Time) (Options, repoStorage) {
@@ -40,30 +40,18 @@ func notifySyncHarness(t *testing.T, now *time.Time) (Options, repoStorage) {
 	return opts, repoStorage{Key: "test/repo", BrainDir: brainDir}
 }
 
-func TestPushHintSyncsBranchAndDefault(t *testing.T) {
+// The store is repo-wide: one sync covers every branch's records, whatever
+// branch the hint named.
+func TestPushHintRunsOneRepoWideSync(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	opts, storage := notifySyncHarness(t, &now)
 	calls := captureNotifyHostedSync(t)
 
-	ran := hostedSyncOnPushHint(context.Background(), io.Discard, opts, t.TempDir(), storage, "feat-x")
-	if !ran {
+	if !syncHostedMemoriesOnEvent(context.Background(), io.Discard, opts, t.TempDir(), storage, "feat-x") {
 		t.Fatal("first push hint must sync")
 	}
-	if len(*calls) != 2 || (*calls)[0] != "feat-x" || (*calls)[1] != distillDefaultBranch {
-		t.Fatalf("expected [feat-x %s], got %v", distillDefaultBranch, *calls)
-	}
-}
-
-func TestPushHintSyncsDefaultBranchOnce(t *testing.T) {
-	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
-	opts, storage := notifySyncHarness(t, &now)
-	calls := captureNotifyHostedSync(t)
-
-	if !hostedSyncOnPushHint(context.Background(), io.Discard, opts, t.TempDir(), storage, distillDefaultBranch) {
-		t.Fatal("hint on the default branch must sync")
-	}
-	if len(*calls) != 1 || (*calls)[0] != distillDefaultBranch {
-		t.Fatalf("expected one %s sync, got %v", distillDefaultBranch, *calls)
+	if *calls != 1 {
+		t.Fatalf("expected one repo-wide sync, got %d", *calls)
 	}
 }
 
@@ -80,52 +68,41 @@ func TestPushHintSkipsPausedRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if hostedSyncOnPushHint(context.Background(), io.Discard, opts, t.TempDir(), storage, "feat-x") {
+	if syncHostedMemoriesOnEvent(context.Background(), io.Discard, opts, t.TempDir(), storage, "feat-x") {
 		t.Fatal("a paused repo must not sync on a push hint")
 	}
-	if len(*calls) != 0 {
-		t.Fatalf("expected no sync calls, got %v", *calls)
+	if *calls != 0 {
+		t.Fatalf("expected no sync calls, got %d", *calls)
 	}
 }
 
-func TestPushHintSyncThrottles(t *testing.T) {
+func TestPushHintDoesNotSuppressCompletionAtSameTime(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	opts, storage := notifySyncHarness(t, &now)
 	calls := captureNotifyHostedSync(t)
-	repoDir := t.TempDir()
-
-	if !hostedSyncOnPushHint(context.Background(), io.Discard, opts, repoDir, storage, "feat-x") {
-		t.Fatal("first hint must sync")
+	for i := 0; i < 2; i++ {
+		if !syncHostedMemoriesOnEvent(context.Background(), io.Discard, opts, t.TempDir(), storage, "main") {
+			t.Fatal("event was suppressed")
+		}
 	}
-	now = now.Add(memoryNotifyHostedSyncMinInterval - time.Second)
-	if hostedSyncOnPushHint(context.Background(), io.Discard, opts, repoDir, storage, "feat-x") {
-		t.Fatal("hint inside the interval must be throttled")
-	}
-	if len(*calls) != 2 {
-		t.Fatalf("throttled hint must not sync, got %d calls", len(*calls))
-	}
-	now = now.Add(2 * time.Second)
-	if !hostedSyncOnPushHint(context.Background(), io.Discard, opts, repoDir, storage, "feat-x") {
-		t.Fatal("hint after the interval must sync again")
-	}
-	if len(*calls) != 4 {
-		t.Fatalf("expected 4 calls after the interval, got %d", len(*calls))
+	if *calls != 2 {
+		t.Fatalf("calls=%d", *calls)
 	}
 }
 
-func TestPushHintSyncEmptyBranchFallsBackToDefault(t *testing.T) {
-	// No git repository behind repoDir, so branch resolution fails and the
-	// sync covers the default branch only — never an empty branch name.
+func TestPushHintSyncsWithoutABranchHint(t *testing.T) {
+	// No git repository behind repoDir: the sync is repo-wide, so a missing
+	// branch hint changes nothing.
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	opts, storage := notifySyncHarness(t, &now)
 	opts.Runner = gitlessRunner{}
 	calls := captureNotifyHostedSync(t)
 
-	if !hostedSyncOnPushHint(context.Background(), io.Discard, opts, t.TempDir(), storage, "") {
+	if !syncHostedMemoriesOnEvent(context.Background(), io.Discard, opts, t.TempDir(), storage, "") {
 		t.Fatal("hint without a branch must still sync")
 	}
-	if len(*calls) != 1 || (*calls)[0] != distillDefaultBranch {
-		t.Fatalf("expected one %s sync, got %v", distillDefaultBranch, *calls)
+	if *calls != 1 {
+		t.Fatalf("expected one sync, got %d", *calls)
 	}
 }
 
@@ -142,14 +119,21 @@ func TestNotifyCommandDispatchesPushWorkDetached(t *testing.T) {
 		return nil
 	}
 
-	for _, event := range []string{"session_start", "checkpoint", "session_end"} {
+	for _, event := range []string{"session_start", "session_end"} {
 		if _, err := execute(t, newMemoryNotifyCommand(opts), "--event", event, "--session", "s1"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if len(launches) != 0 {
-		t.Fatalf("only push may dispatch upload work, got %v", launches)
+		t.Fatalf("session lifecycle events must not dispatch upload work, got %v", launches)
 	}
+	if _, err := execute(t, newMemoryNotifyCommand(opts), "--event", "checkpoint", "--session", "s1", "--branch", "feat-x"); err != nil {
+		t.Fatal(err)
+	}
+	if len(launches) != 1 || launches[0] != "feat-x" {
+		t.Fatalf("checkpoint launches=%v", launches)
+	}
+	launches = nil
 	out, err := execute(t, newMemoryNotifyCommand(opts), "--event", "push", "--branch", "feat-x")
 	if err != nil {
 		t.Fatal(err)
@@ -162,14 +146,14 @@ func TestNotifyCommandDispatchesPushWorkDetached(t *testing.T) {
 	}
 }
 
-func TestPushWorkCommandRunsThrottledSync(t *testing.T) {
+func TestPushWorkCommandRunsSync(t *testing.T) {
 	opts, _ := memoryAdminCommandFixture(t)
 	calls := captureNotifyHostedSync(t)
 
 	if _, err := execute(t, newMemoryPushWorkCommand(opts), "--branch", "feat-x"); err != nil {
 		t.Fatal(err)
 	}
-	if len(*calls) != 2 || (*calls)[0] != "feat-x" {
-		t.Fatalf("push work must sync the hinted branch then default, got %v", *calls)
+	if *calls != 1 {
+		t.Fatalf("push work must run one repo-wide sync, got %d", *calls)
 	}
 }

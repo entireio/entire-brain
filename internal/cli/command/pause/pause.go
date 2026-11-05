@@ -14,8 +14,8 @@ func NewStop(opts base.Options) *cobra.Command {
 		Short: "Pause background brain work on this machine",
 		Long: "Pause background brain work on this machine until `start`.\n\n" +
 			"From its next pass every watcher, installed or run by hand, idles, memory\n" +
-			"workers exit without working, the session-end hook skips its refresh and\n" +
-			"distill, and `setup` skips its backfill. A pass already running, such as a\n" +
+			"workers exit without working, and `setup` skips its backfill.\n" +
+			"A pass already running, such as a\n" +
 			"`setup` backfill (capped at --backfill-budget sessions), finishes first.\n\n" +
 			"Nothing is lost: captured sessions stay canonical and are picked up by the\n" +
 			"watcher, the next hook, or a re-run `setup` once `start` lifts the pause.",

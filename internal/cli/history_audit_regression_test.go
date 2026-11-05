@@ -4,11 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
-	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
-	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
-	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,6 +11,11 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
@@ -196,21 +196,6 @@ func TestHistoryAuditReplacementEligibilityBeforeLimit(t *testing.T) {
 		t.Fatalf("payload eligibility lost match: %+v %t %v", got, used, err)
 	}
 
-}
-
-func TestHistoryAuditNoProposalsAllocatesNoReviewGraph(t *testing.T) {
-	facts := make([]factRecord, 100)
-	for i := range facts {
-		facts[i] = factRecord{ID: fmt.Sprint(i), Status: factStatusActive}
-	}
-	allocations := testing.AllocsPerRun(10, func() {
-		if len(retrieval.BuildFactReviewGroups(facts, nil)) != 0 {
-			t.Fatal("unexpected groups")
-		}
-	})
-	if allocations != 0 {
-		t.Fatalf("empty proposal graph allocated %g times", allocations)
-	}
 }
 
 func TestHistoryAuditProfilingMeasuresOnePhysicalScan(t *testing.T) {

@@ -39,8 +39,8 @@ var brainReference string
 // THIS FILE IS MIRRORED between entire-graph and entire-brain and must stay
 // byte-identical: both binaries install the same .entire/agent-guide.md, and
 // whichever product runs setup last rewrites it, so divergent wording makes the
-// installed guide depend on initialization order. scripts/test-agent-coordination.py
-// (in entire-brain) pins the mirror and render parity across both compiled CLIs.
+// installed guide depend on initialization order. Go tests in this package
+// cover guide rendering, activation order, and migration.
 
 // EVERY GRAPH INVOCATION BELOW ASKS FOR --format agent, AND THAT IS A COST DECISION.
 //

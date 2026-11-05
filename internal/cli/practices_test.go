@@ -49,7 +49,7 @@ func TestBuildBrainPractices(t *testing.T) {
 			UpdatedAt:  now,
 		},
 	}
-	if err := factstore.Write(brainDir, "main", facts); err != nil {
+	if err := factstore.Write(brainDir, facts); err != nil {
 		t.Fatal(err)
 	}
 
