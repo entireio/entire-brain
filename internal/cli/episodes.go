@@ -198,6 +198,7 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 	source := &patternSourceManifest{
 		GeneratedAt:         now,
 		EpisodesPath:        patternsEpisodesPath,
+		ExtractionVersion:   patterncore.IndexerVersion,
 		SessionsFingerprint: brainSessionsFingerprint(outputDir),
 		Episodes:            len(episodes),
 		Reinforcement:       counts,
@@ -283,8 +284,11 @@ func writeBrainEpisodesAndSourceLocked(outputDir string, now time.Time) (*patter
 // describes the brain's canonical session set. `patterns status` and the
 // refresh trigger share this so they can never disagree about whether a
 // rebuild is owed.
+//
+// A second input is the reader itself: the episodes are only as current as the
+// patterns.IndexerVersion that extracted them.
 func patternSourceCurrent(source *patternSourceManifest, brainDir string) bool {
-	if source == nil {
+	if source == nil || source.ExtractionVersion != patterncore.IndexerVersion {
 		return false
 	}
 	return sessionSourceFingerprintCurrent(source.SessionsFingerprint, brainSessionsFingerprint(brainDir))

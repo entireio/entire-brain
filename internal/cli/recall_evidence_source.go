@@ -108,7 +108,9 @@ func evidenceJSONFields(obj map[string]any, prefix string, line int) (fields []e
 			fields = append(fields, evidenceField{s, prefix + pointer, role, timestamp, line})
 		}
 	}
-	content := func(value any, pointer, role string) {
+	// untypedText accepts {"text":...} blocks with no "type", which is how
+	// compact v1 transcripts write user text.
+	content := func(value any, pointer, role string, untypedText bool) {
 		if role != "user" && role != "assistant" {
 			return
 		}
@@ -122,6 +124,10 @@ func evidenceJSONFields(obj map[string]any, prefix string, line int) (fields []e
 				switch jsonString(block["type"]) {
 				case "text", "input_text", "output_text":
 					add(block["text"], fmt.Sprintf("%s/%d/text", pointer, i), role)
+				case "":
+					if untypedText {
+						add(block["text"], fmt.Sprintf("%s/%d/text", pointer, i), role)
+					}
 				}
 			}
 		}
@@ -138,19 +144,29 @@ func evidenceJSONFields(obj map[string]any, prefix string, line int) (fields []e
 	case "response_item":
 		p := jsonMap(obj["payload"])
 		if jsonString(p["type"]) == "message" && jsonString(p["phase"]) != "analysis" {
-			content(p["content"], "/payload/content", jsonString(p["role"]))
+			content(p["content"], "/payload/content", jsonString(p["role"]), false)
 		}
 	case "agent_message":
 		add(obj["message"], "/message", "assistant")
 	case "user", "assistant", "message":
 		m := jsonMap(obj["message"])
+		if len(m) == 0 {
+			// Compact v1 keeps the turn's content at the record's top level
+			// and its time in "ts". A null or empty "message" is absent too,
+			// as in transcriptRecordContent.
+			if timestamp == "" {
+				timestamp = jsonString(obj["ts"])
+			}
+			content(obj["content"], "/content", jsonString(obj["type"]), true)
+			break
+		}
 		role := jsonString(m["role"])
 		if role == "" {
 			role = jsonString(obj["type"])
 		}
-		content(m["content"], "/message/content", role)
+		content(m["content"], "/message/content", role, false)
 	case "":
-		content(obj["content"], "/content", jsonString(obj["role"]))
+		content(obj["content"], "/content", jsonString(obj["role"]), false)
 		// OpenCode document messages use info.role and text parts.
 		role := jsonString(jsonMap(obj["info"])["role"])
 		if role == "user" || role == "assistant" {

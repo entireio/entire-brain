@@ -126,7 +126,13 @@ func corpusEpisodeOps(workText string) (tools []corpusToolOp, commands []corpusC
 			if jsonString(obj["type"]) == "message" && jsonString(msg["role"]) != "assistant" {
 				continue
 			}
-			t, c, f := claudeContentOps(msg["content"], ln)
+			content := msg["content"]
+			if len(msg) == 0 {
+				// ETF compact records carry the content blocks at the record's
+				// top level (see distillConversationText).
+				content = obj["content"]
+			}
+			t, c, f := claudeContentOps(content, ln)
 			tools = append(tools, t...)
 			commands = append(commands, c...)
 			files = append(files, f...)
