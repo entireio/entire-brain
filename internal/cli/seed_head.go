@@ -91,6 +91,9 @@ type seedHeadCheckout struct {
 	// out of dir because its path and size alone settle its scan entry
 	// (seedFileNeedsContent). The scan builds those entries from the size.
 	unread map[string]int64
+	// warnings are what the checkout could not do faithfully, for the scan
+	// to report.
+	warnings []string
 	// tempRoot holds dir and the scratch index; remove deletes it.
 	tempRoot string
 }
@@ -191,20 +194,44 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	if opts.maxFiles > 0 && len(selected) > opts.maxFiles {
 		selected = selected[:opts.maxFiles]
 	}
+	// The commit's own attributes decide two things below: which blobs are
+	// LFS pointers, and which ones a checkout converts.
+	var regular []string
+	for _, path := range selected {
+		if entries[path].regularFile() {
+			regular = append(regular, path)
+		}
+	}
+	attrs, err := c.attributes(ctx, runner, repoDir, env, regular)
+	if err != nil {
+		return err
+	}
 	var wanted []string
-	var small []seedHeadSmallFile
+	var lfs []seedHeadSmallFile
 	for _, path := range selected {
 		entry := entries[path]
 		if entry.regularFile() {
-			// A blob small enough to be an LFS pointer is checked out
-			// whatever its size says, unless its path alone rules it out:
-			// its real size is only known once the pointer is read.
-			if _, _, pathOK := inspectSeedFilePath(path, opts); pathOK && entry.size <= seedHeadLFSPointerMaxBytes {
-				wanted = append(wanted, path)
-				small = append(small, seedHeadSmallFile{path: path, size: entry.size})
+			attr := attrs[path]
+			switch {
+			case attr.filter == "lfs" && entry.size <= seedHeadLFSPointerMaxBytes:
+				// The blob is a pointer: the file's real size is only known
+				// once it is read, so only its path can leave it out here.
+				if _, _, pathOK := inspectSeedFilePath(path, opts); pathOK {
+					wanted = append(wanted, path)
+					lfs = append(lfs, seedHeadSmallFile{path: path, size: entry.size})
+					continue
+				}
+				c.unread[path] = entry.size
 				continue
-			}
-			if !seedFileNeedsContent(path, entry.size, opts) {
+			case attr.converts():
+				// A working-tree-encoding or filter conversion can make the
+				// checked-out file smaller than the blob, so the blob's size
+				// cannot leave it out; the scan stats the real file.
+				if !seedFileNeedsContent(path, 0, opts) {
+					c.unread[path] = entry.size
+					continue
+				}
+			case !seedFileNeedsContent(path, entry.size, opts):
 				c.unread[path] = entry.size
 				continue
 			}
@@ -231,8 +258,48 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 			return fmt.Errorf("check out committed HEAD %s: %w", shortCommitHash(c.commit), err)
 		}
 	}
-	c.settleSmallFiles(ctx, runner, repoDir, small, opts)
+	c.settleLFSPointers(ctx, runner, repoDir, lfs, opts)
 	return nil
+}
+
+// seedHeadAttrs is the commit's checkout-relevant attributes for one path.
+type seedHeadAttrs struct {
+	filter   string
+	encoding string
+}
+
+// converts reports whether a checkout can change the file's size downwards.
+// eol and ident conversions only grow it; a working-tree-encoding or a filter
+// driver can shrink it. LFS is handled on its own (settleLFSPointers).
+func (a seedHeadAttrs) converts() bool {
+	specified := func(value string) bool { return value != "" && value != "unspecified" && value != "unset" }
+	return specified(a.encoding) || (specified(a.filter) && a.filter != "lfs")
+}
+
+// attributes reads the filter and working-tree-encoding attributes of paths
+// from the commit, never from the worktree (see --attr-source in populate).
+func (c *seedHeadCheckout) attributes(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, paths []string) (map[string]seedHeadAttrs, error) {
+	attrs := make(map[string]seedHeadAttrs, len(paths))
+	for _, batch := range chunkPathsByBytes(paths, seedHeadCheckoutArgBytes) {
+		args := append([]string{"--attr-source=" + c.commit, "check-attr", "-z", "filter", "working-tree-encoding", "--"}, batch...)
+		out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", args...)
+		if err != nil {
+			return nil, fmt.Errorf("read committed HEAD %s attributes: %w", shortCommitHash(c.commit), err)
+		}
+		// -z: <path> NUL <attribute> NUL <value> NUL, repeated.
+		fields := strings.Split(string(out), "\x00")
+		for i := 0; i+2 < len(fields); i += 3 {
+			attr := attrs[fields[i]]
+			switch fields[i+1] {
+			case "filter":
+				attr.filter = fields[i+2]
+			case "working-tree-encoding":
+				attr.encoding = fields[i+2]
+			}
+			attrs[fields[i]] = attr
+		}
+	}
+	return attrs, nil
 }
 
 // seedHeadSmallFile is a checked-out blob small enough to be a Git LFS pointer.
@@ -241,34 +308,47 @@ type seedHeadSmallFile struct {
 	size int64
 }
 
-// settleSmallFiles finishes the blobs that might be Git LFS pointers. The
+// settleLFSPointers finishes the blobs the commit tracks with filter=lfs. The
 // checkout skips the smudge filter so a background seed never downloads
 // anything (seedHeadGitEnv), which on its own seeded every LFS document as its
 // pointer text. A pointer whose object is already in the local LFS store is
 // replaced with that object, which is what a working tree with the content
 // fetched holds; one whose object is not stored locally stays the pointer, the
 // same text a working tree without the content shows. Only the default store
-// (<git-common-dir>/lfs) is consulted.
+// (<git-common-dir>/lfs) is consulted. An object that is stored but cannot be
+// copied is reported in the seed's warnings rather than passed off as read.
 //
 // Each file is then held to the same rule as every other blob, at its real
 // size: one the scan would only stat leaves the checkout and is recorded
 // unread, so a large LFS binary is never copied here either.
-func (c *seedHeadCheckout) settleSmallFiles(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, files []seedHeadSmallFile, opts seedCommandOptions) {
+func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, files []seedHeadSmallFile, opts seedCommandOptions) {
 	objectsDir, objectsResolved := "", false
 	for _, file := range files {
 		target := filepath.Join(c.dir, filepath.FromSlash(file.path))
-		size, object := file.size, ""
-		if data, err := clibase.SafeReadFile(target, seedHeadLFSPointerMaxBytes); err == nil {
-			if oid, objectSize, ok := parseLFSPointer(data); ok {
-				if !objectsResolved {
-					objectsResolved = true
-					objectsDir = seedHeadLFSObjectsDir(ctx, runner, repoDir)
-				}
-				candidate := filepath.Join(objectsDir, oid[0:2], oid[2:4], oid)
-				if info, err := os.Lstat(candidate); objectsDir != "" && err == nil && info.Mode().IsRegular() && info.Size() == objectSize {
-					size, object = objectSize, candidate
-				}
-			}
+		data, err := clibase.SafeReadFile(target, seedHeadLFSPointerMaxBytes)
+		if err != nil {
+			continue
+		}
+		oid, size, ok := parseLFSPointer(data)
+		if !ok {
+			continue
+		}
+		if !objectsResolved {
+			objectsResolved = true
+			objectsDir = seedHeadLFSObjectsDir(ctx, runner, repoDir)
+		}
+		if objectsDir == "" {
+			continue
+		}
+		object := filepath.Join(objectsDir, oid[0:2], oid[2:4], oid)
+		info, err := os.Lstat(object)
+		if err != nil {
+			// Not fetched: the pointer is what the worktree shows too.
+			continue
+		}
+		if !info.Mode().IsRegular() || info.Size() != size {
+			c.warnings = append(c.warnings, fmt.Sprintf("LFS object for %s does not match its pointer; seeded the pointer text", file.path))
+			continue
 		}
 		if !seedFileNeedsContent(file.path, size, opts) {
 			if os.Remove(target) == nil {
@@ -276,8 +356,8 @@ func (c *seedHeadCheckout) settleSmallFiles(ctx context.Context, runner Environm
 			}
 			continue
 		}
-		if object != "" {
-			_ = copyLFSObject(object, target, filepath.Base(object), size)
+		if err := copyLFSObject(object, target, oid, size); err != nil {
+			c.warnings = append(c.warnings, fmt.Sprintf("LFS object for %s could not be read (%v); seeded the pointer text", file.path, err))
 		}
 	}
 }

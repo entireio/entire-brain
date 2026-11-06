@@ -376,6 +376,10 @@ func TestDirtySeedChecksOutOnlyWhatTheScanReads(t *testing.T) {
 	read := map[string]string{
 		"docs/long.md": strings.Repeat("a long committed doc ", 10),
 		"src/small.go": "package main\n",
+		// 40 Latin-1 bytes in the worktree, an 80-byte UTF-8 blob: over
+		// --max-file-bytes as a blob, under it once checked out.
+		"data/latin.txt": strings.Repeat("\xe9", 40),
+		".gitattributes": "data/latin.txt working-tree-encoding=ISO-8859-1\n",
 	}
 	writeSeedHeadFiles(t, repoDir, statOnly)
 	writeSeedHeadFiles(t, repoDir, read)
@@ -429,21 +433,31 @@ func TestDirtySeedChecksOutOnlyWhatTheScanReads(t *testing.T) {
 
 // TestDirtySeedResolvesLocalLFSObjects: the checkout skips the LFS smudge
 // filter so a background seed never downloads, which on its own seeded every
-// LFS document as pointer text. An object already in the local store is now
-// seeded as its content; one that is not stays the pointer a worktree without
-// it would show; and one the scan would only stat is never copied.
+// LFS document as pointer text. A pointer the commit tracks with filter=lfs
+// and whose object is already in the local store is now seeded as its content;
+// one whose object is not stored stays the pointer a worktree without it would
+// show; one the scan would only stat is never copied; a stored object that
+// does not match its pointer is reported; and a file that only looks like a
+// pointer, with no filter=lfs, is left exactly as committed.
 func TestDirtySeedResolvesLocalLFSObjects(t *testing.T) {
 	isolateSeedHeadTemp(t)
 	repoDir := seedHeadTestRepo(t)
 	stored := "# manual kept in LFS\n"
 	large := strings.Repeat("large LFS payload ", 20)
 	missing := "# never fetched\n"
-	writeLFSObject(t, repoDir, stored)
-	writeLFSObject(t, repoDir, large)
+	corrupt := "# corrupt object\n"
+	notLFS := "# a doc that quotes a pointer\n"
+	writeLFSObject(t, repoDir, stored, stored)
+	writeLFSObject(t, repoDir, large, large)
+	writeLFSObject(t, repoDir, corrupt, strings.Repeat("x", len(corrupt)))
+	writeLFSObject(t, repoDir, notLFS, notLFS)
 	writeSeedHeadFiles(t, repoDir, map[string]string{
-		"docs/manual.md":  lfsPointer(stored),
-		"docs/missing.md": lfsPointer(missing),
-		"data/large.txt":  lfsPointer(large),
+		".gitattributes":     "docs/manual.md filter=lfs -text\ndocs/missing.md filter=lfs -text\ndocs/corrupt.md filter=lfs -text\ndata/large.txt filter=lfs -text\n",
+		"docs/manual.md":     lfsPointer(stored),
+		"docs/missing.md":    lfsPointer(missing),
+		"docs/corrupt.md":    lfsPointer(corrupt),
+		"docs/pointerish.md": lfsPointer(notLFS),
+		"data/large.txt":     lfsPointer(large),
 	})
 	gitAt(t, repoDir, "add", "-A")
 	gitAt(t, repoDir, "commit", "-q", "-m", "lfs pointers")
@@ -454,17 +468,24 @@ func TestDirtySeedResolvesLocalLFSObjects(t *testing.T) {
 		t.Fatalf("check out HEAD: %v", err)
 	}
 	defer head.remove()
-	if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "manual.md")); err != nil || string(got) != stored {
-		t.Errorf("docs/manual.md = %q, %v; want the locally stored LFS object", got, err)
-	}
-	if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "missing.md")); err != nil || string(got) != lfsPointer(missing) {
-		t.Errorf("docs/missing.md = %q, %v; want the pointer, its object is not stored locally", got, err)
+	for rel, want := range map[string]string{
+		"docs/manual.md":     stored,
+		"docs/missing.md":    lfsPointer(missing),
+		"docs/corrupt.md":    lfsPointer(corrupt),
+		"docs/pointerish.md": lfsPointer(notLFS),
+	} {
+		if got, err := os.ReadFile(filepath.Join(head.dir, filepath.FromSlash(rel))); err != nil || string(got) != want {
+			t.Errorf("%s = %q, %v; want %q", rel, got, err, want)
+		}
 	}
 	if _, err := os.Lstat(filepath.Join(head.dir, "data", "large.txt")); err == nil {
 		t.Error("an LFS object over --max-file-bytes was copied into the checkout")
 	}
 	if size, ok := head.unreadSize("data/large.txt"); !ok || size != int64(len(large)) {
 		t.Errorf("data/large.txt: unread size = %d, %v; want the object's size %d", size, ok, len(large))
+	}
+	if warnings := strings.Join(head.warnings, "\n"); !strings.Contains(warnings, "docs/corrupt.md") || strings.Contains(warnings, "docs/missing.md") {
+		t.Errorf("a stored object that fails its pointer's check must be reported, and only that one: %q", warnings)
 	}
 }
 
@@ -473,17 +494,20 @@ func lfsPointer(content string) string {
 	return fmt.Sprintf("version https://git-lfs.github.com/spec/v1\noid sha256:%s\nsize %d\n", hex.EncodeToString(sum[:]), len(content))
 }
 
-func writeLFSObject(t *testing.T, repoDir, content string) {
+// writeLFSObject stores stored in the local LFS store under content's oid;
+// passing different bytes of the same length makes a corrupt object.
+func writeLFSObject(t *testing.T, repoDir, content, stored string) {
 	t.Helper()
 	sum := sha256.Sum256([]byte(content))
 	oid := hex.EncodeToString(sum[:])
-	writeSeedHeadFiles(t, filepath.Join(repoDir, ".git", "lfs", "objects", oid[0:2], oid[2:4]), map[string]string{oid: content})
+	writeSeedHeadFiles(t, filepath.Join(repoDir, ".git", "lfs", "objects", oid[0:2], oid[2:4]), map[string]string{oid: stored})
 }
 
-// TestDirtySeedAgentReadsCommittedHEAD: an agent that reads files (codex, a
-// command) used to run in the real repository, so on a dirty tree it could
-// fold uncommitted content into a seed recorded as committed HEAD. It now runs
-// in the checkout, and the packet names the checkout as the repository root.
+// TestDirtySeedAgentReadsCommittedHEAD: an agent used to be told the
+// repository root was the real repository, so on a dirty tree it could fold
+// uncommitted content into a seed recorded as committed HEAD. The packet now
+// names the checkout. A command agent still runs in the repository, because
+// its command line may name repository-relative files.
 func TestDirtySeedAgentReadsCommittedHEAD(t *testing.T) {
 	if os.Getenv("GO_SEED_HEAD_AGENT_FIXTURE") == "1" {
 		var request struct {
@@ -493,13 +517,13 @@ func TestDirtySeedAgentReadsCommittedHEAD(t *testing.T) {
 		if err := json.NewDecoder(os.Stdin).Decode(&request); err != nil {
 			os.Exit(2)
 		}
-		cwd, _ := os.ReadFile("README.md")
+		cwd, _ := os.Getwd()
 		root, _ := os.ReadFile(filepath.Join(request.Repo["root"], "README.md"))
-		seen := fmt.Sprintf("cwd=%q root=%q", cwd, root)
-		artifacts := map[string]string{"quick-overview.md": seen}
+		seen, _ := json.Marshal(map[string]string{"cwd": cwd, "root_readme": string(root)})
+		artifacts := map[string]string{"quick-overview.md": string(seen)}
 		if request.Phase == "deep" {
 			artifacts = map[string]string{
-				"overview.md": seen, "architecture.md": "arch", "risks.md": "risks",
+				"overview.md": string(seen), "architecture.md": "arch", "risks.md": "risks",
 				"maintenance-guide.md": "maint", "open-questions.md": "questions",
 			}
 		}
@@ -520,12 +544,28 @@ func TestDirtySeedAgentReadsCommittedHEAD(t *testing.T) {
 		"--agent-command", os.Args[0], "--agent-command=-test.run=^TestDirtySeedAgentReadsCommittedHEAD$", "--require-agent", repoDir); err != nil {
 		t.Fatalf("seed with an agent on a dirty tree: %v\n%s", err, out)
 	}
-	got, err := os.ReadFile(filepath.Join(outputDir, seedDirName, seedAgentDirName, "quick-overview.md"))
+	data, err := os.ReadFile(filepath.Join(outputDir, seedDirName, seedAgentDirName, "quick-overview.md"))
 	if err != nil {
 		t.Fatalf("quick artifact missing: %v", err)
 	}
-	want := fmt.Sprintf("cwd=%q root=%q", "# committed readme\n", "# committed readme\n")
-	if string(got) != want {
-		t.Errorf("the agent saw %s, want the committed README in both its working directory and the packet's root (%s)", got, want)
+	var seen map[string]string
+	if err := json.Unmarshal(data, &seen); err != nil {
+		t.Fatalf("agent artifact %q: %v", data, err)
+	}
+	if seen["root_readme"] != "# committed readme\n" {
+		t.Errorf("README under the packet's repo.root = %q, want the committed bytes", seen["root_readme"])
+	}
+	wantCwd, _ := filepath.EvalSymlinks(repoDir)
+	if gotCwd, _ := filepath.EvalSymlinks(seen["cwd"]); gotCwd != wantCwd {
+		t.Errorf("command agent ran in %q, want the repository %q so its relative command line still resolves", seen["cwd"], repoDir)
+	}
+}
+
+func TestSeedAgentWorkDirKeepsCommandAgentsInTheRepository(t *testing.T) {
+	t.Parallel()
+	for agent, want := range map[string]string{"command": "repo", "codex": "checkout", "claude-code": "checkout"} {
+		if got := seedAgentWorkDir(agent, "repo", "checkout"); got != want {
+			t.Errorf("seedAgentWorkDir(%q) = %q, want %q", agent, got, want)
+		}
 	}
 }

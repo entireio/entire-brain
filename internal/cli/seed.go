@@ -302,11 +302,12 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		}
 
 		if seedOpts.agent != "none" {
-			// The agent runs in, and is told the repository is at, the scan's
+			// The packet tells the agent the repository is at the scan's
 			// content root: on a dirty tree that is the committed HEAD
-			// checkout, so an agent that reads files (codex, a command) reads
-			// the commit the seed records, not the uncommitted worktree.
-			agentManifest, err := runSeedAgent(ctx, scan.contentRoot(), outputDir, scan, seedOpts)
+			// checkout, so an agent reads the commit the seed records, not
+			// the uncommitted worktree. See seedAgentWorkDir for where each
+			// agent runs.
+			agentManifest, err := runSeedAgent(ctx, repoDir, scan.contentRoot(), outputDir, scan, seedOpts)
 			if err != nil {
 				if seedOpts.requireAgent {
 					return err
@@ -410,6 +411,7 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 	if head != nil {
 		result.Commit = head.commit
 		result.ContentDir = head.dir
+		result.Warnings = append(result.Warnings, head.warnings...)
 	} else {
 		result.Commit = strings.TrimSpace(string(clibase.GitOutput(ctx, runner, repoDir, "rev-parse", "HEAD")))
 	}
@@ -1615,14 +1617,28 @@ type seedAgentOutput struct {
 	Warnings      []string          `json:"warnings,omitempty"`
 }
 
-func runSeedAgent(ctx context.Context, repoDir, outputDir string, scan seedScanResult, opts seedCommandOptions) (*seedAgentManifest, error) {
+// seedAgentWorkDir is where a synthesis agent runs. codex reads files from
+// its working directory, so it runs in contentRoot, the tree the packet
+// describes. A command agent is the user's own command line, which may name
+// repository-relative files (`./agent`, `python scripts/agent.py`), so it
+// keeps running in the repository and reads repository content through the
+// packet's repo.root. claude-code runs with no tools; contentRoot is fine.
+func seedAgentWorkDir(agent, repoDir, contentRoot string) string {
+	if agent == "command" {
+		return repoDir
+	}
+	return contentRoot
+}
+
+func runSeedAgent(ctx context.Context, repoDir, contentRoot, outputDir string, scan seedScanResult, opts seedCommandOptions) (*seedAgentManifest, error) {
 	manifest := &seedAgentManifest{Mode: opts.agent}
-	quickInput, err := buildAgentInput("quick", repoDir, scan, nil, opts)
+	workDir := seedAgentWorkDir(opts.agent, repoDir, contentRoot)
+	quickInput, err := buildAgentInput("quick", contentRoot, scan, nil, opts)
 	if err != nil {
 		return manifest, err
 	}
 	opts.reportProgress(fmt.Sprintf("synthesizing with %s (quick)", opts.agent))
-	quick, quickArtifacts, err := runSeedAgentPhase(ctx, repoDir, outputDir, opts, "quick", opts.agentQuickTimeout, quickInput, []string{"quick-overview.md"})
+	quick, quickArtifacts, err := runSeedAgentPhase(ctx, workDir, outputDir, opts, "quick", opts.agentQuickTimeout, quickInput, []string{"quick-overview.md"})
 	manifest.Quick = quick
 	if err != nil {
 		if opts.requireAgent {
@@ -1631,12 +1647,12 @@ func runSeedAgent(ctx context.Context, repoDir, outputDir string, scan seedScanR
 		manifest.Deep = seedAgentPhase{Status: "skipped", Timeout: opts.agentDeepTimeout.String()}
 		return manifest, err
 	}
-	deepInput, err := buildAgentInput("deep", repoDir, scan, quickArtifacts, opts)
+	deepInput, err := buildAgentInput("deep", contentRoot, scan, quickArtifacts, opts)
 	if err != nil {
 		return manifest, err
 	}
 	opts.reportProgress(fmt.Sprintf("synthesizing with %s (deep)", opts.agent))
-	deep, _, err := runSeedAgentPhase(ctx, repoDir, outputDir, opts, "deep", opts.agentDeepTimeout, deepInput, []string{"overview.md", "architecture.md", "risks.md", "maintenance-guide.md", "open-questions.md"})
+	deep, _, err := runSeedAgentPhase(ctx, workDir, outputDir, opts, "deep", opts.agentDeepTimeout, deepInput, []string{"overview.md", "architecture.md", "risks.md", "maintenance-guide.md", "open-questions.md"})
 	manifest.Deep = deep
 	if err != nil && opts.requireAgent {
 		return manifest, err
