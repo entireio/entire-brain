@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -74,8 +75,8 @@ const seedHeadLFSPointerMaxBytes = 1024
 // seedHeadConversionMaxShrink bounds how much smaller a working-tree-encoding
 // checkout can be than its blob: the blob is UTF-8, at most 4 bytes a
 // character, and no encoding writes a character in under one byte. A blob more
-// than this many times --max-file-bytes is too large once converted, so it is
-// never checked out (see populate).
+// than this many times --max-file-bytes is too large once re-encoded, so it is
+// never checked out (see populate). A filter driver has no such bound.
 const seedHeadConversionMaxShrink = 4
 
 // errSeedNoCommittedHead is the one checkout failure that is not a failure: a
@@ -228,6 +229,7 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	if err != nil {
 		return err
 	}
+	drivers := seedHeadFilterDrivers(ctx, runner, repoDir, env, attrs)
 	var wanted []string
 	var lfs []seedHeadSmallFile
 	for _, path := range selected {
@@ -245,21 +247,22 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 				}
 				c.unread[path] = entry.size
 				continue
-			case attr.converts():
-				// A working-tree-encoding or filter conversion changes the
+			case drivers[attr.filter] || specifiedAttr(attr.encoding):
+				// A filter driver or a working-tree-encoding changes the
 				// file's size, and the size decides both whether it is too
 				// large and, for media, which reason it gets. So a converted
-				// file is checked out and the scan stats the real one, but
-				// only up to seedHeadConversionMaxShrink times
-				// --max-file-bytes: past that it is too large however it
-				// converts, unless it is a doc the scan reads at any size.
-				// A filter driver has no such bound, and the blob's size
-				// stands in for its output there.
+				// file is checked out and the scan stats the real one. Only
+				// an encoding bounds how much it can shrink: past
+				// seedHeadConversionMaxShrink times --max-file-bytes such a
+				// file is too large however it converts, unless it is a doc
+				// the scan reads at any size. A driver's output can be any
+				// size, so its files are checked out as a clean checkout
+				// writes them.
 				if _, _, pathOK := inspectSeedFilePath(path, opts); !pathOK {
 					c.unread[path] = entry.size
 					continue
 				}
-				if !isHighSignalDoc(path) && entry.size > seedHeadConversionMaxShrink*int64(opts.maxFileBytes) {
+				if !drivers[attr.filter] && !isHighSignalDoc(path) && entry.size > seedHeadConversionMaxShrink*int64(opts.maxFileBytes) {
 					c.unread[path] = entry.size
 					continue
 				}
@@ -293,12 +296,41 @@ type seedHeadAttrs struct {
 	encoding string
 }
 
-// converts reports whether a checkout can change the file's size downwards.
-// eol and ident conversions only grow it; a working-tree-encoding or a filter
-// driver can shrink it. LFS is handled on its own (settleLFSPointers).
-func (a seedHeadAttrs) converts() bool {
-	specified := func(value string) bool { return value != "" && value != "unspecified" && value != "unset" }
-	return specified(a.encoding) || (specified(a.filter) && a.filter != "lfs")
+// specifiedAttr reports whether check-attr gave an attribute a value.
+func specifiedAttr(value string) bool {
+	return value != "" && value != "unspecified" && value != "unset"
+}
+
+// seedHeadFilterDrivers reports which of the commit's filter attributes run a
+// command on checkout: a smudge or process command is set in the configuration
+// the hardened runner leaves in force. Repository-scoped drivers are blanked
+// there (git_harden_filters.go), so a filter=x with only a repository driver,
+// or none at all, writes the blob unchanged and its size rules as usual. LFS is
+// handled on its own (settleLFSPointers). eol and ident conversions are not
+// counted: they only ever grow a file.
+func seedHeadFilterDrivers(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, attrs map[string]seedHeadAttrs) map[string]bool {
+	drivers := map[string]bool{}
+	checked := map[string]bool{}
+	for _, attr := range attrs {
+		name := attr.filter
+		if !specifiedAttr(name) || name == "lfs" || checked[name] {
+			continue
+		}
+		checked[name] = true
+		for _, key := range []string{"smudge", "process"} {
+			out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "config", "--get", "filter."+name+"."+key)
+			var exitErr *exec.ExitError
+			switch {
+			case err == nil && strings.TrimSpace(string(out)) != "":
+				drivers[name] = true
+			case err != nil && !(errors.As(err, &exitErr) && exitErr.ExitCode() == 1):
+				// Exit 1 is "not set". Anything else leaves it unknown, and
+				// assuming a driver only costs checking the file out.
+				drivers[name] = true
+			}
+		}
+	}
+	return drivers
 }
 
 // attributes reads the filter and working-tree-encoding attributes of paths

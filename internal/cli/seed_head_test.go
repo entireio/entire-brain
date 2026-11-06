@@ -505,6 +505,86 @@ func TestDirtySeedBoundsConvertedCheckouts(t *testing.T) {
 	assertNoSeedHeadLeftovers(t, tempDir)
 }
 
+// TestDirtySeedChecksOutWhatAFilterDriverRuns: a filter driver's output can
+// be any size, so a file one converts is checked out whatever its blob's size;
+// a global driver that shrinks a large blob to a small file leaves it
+// included, as in a clean seed. A filter whose only driver is repository
+// scoped is blanked by the hardened runner, writes the blob unchanged, and so
+// keeps the ordinary size rule: a large one is never checked out.
+func TestDirtySeedChecksOutWhatAFilterDriverRuns(t *testing.T) {
+	tempDir := isolateSeedHeadTemp(t)
+	global := filepath.Join(t.TempDir(), "gitconfig")
+	// clean inverts smudge, so git status keeps calling the squeezed
+	// checkout clean even when it compares contents (a racily clean entry).
+	config := "[filter \"squeeze\"]\n\tsmudge = tr -s x\n\tclean = \"cat >/dev/null; printf %0257d 0 | tr 0 x\"\n"
+	if err := os.WriteFile(global, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	repoDir := seedHeadTestRepo(t)
+	gitAt(t, repoDir, "config", "filter.local.smudge", "tr -s y")
+	big := 4*64 + 1
+	writeSeedHeadFiles(t, repoDir, map[string]string{
+		".gitattributes":        "filtered/squeezed.txt filter=squeeze\nfiltered/local.txt filter=local\n",
+		"filtered/squeezed.txt": strings.Repeat("x", big),
+		"filtered/local.txt":    strings.Repeat("y", big),
+	})
+	gitAt(t, repoDir, "add", "-A")
+	gitAt(t, repoDir, "commit", "-q", "-m", "filtered files")
+	// A clean checkout of the commit runs the global driver. The repository
+	// one is left out of it, as the hardened runner leaves it out of seed.
+	if err := os.Remove(filepath.Join(repoDir, "filtered", "squeezed.txt")); err != nil {
+		t.Fatal(err)
+	}
+	gitAt(t, repoDir, "checkout", "--", "filtered/squeezed.txt")
+	if got, err := os.ReadFile(filepath.Join(repoDir, "filtered", "squeezed.txt")); err != nil || string(got) != "x" {
+		t.Fatalf("the global driver did not run on checkout: %q, %v", got, err)
+	}
+	env := semanticTestEnv(t, repoDir)
+	opts := Options{Version: "test", Env: env, Runner: ExecRunner{}}
+	cleanDir := filepath.Join(t.TempDir(), "clean")
+	if _, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--max-file-bytes", "64", "--output", cleanDir, repoDir); err != nil {
+		t.Fatalf("seed a clean tree: %v", err)
+	}
+
+	dirtySeedHeadTree(t, repoDir)
+	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+	if err != nil {
+		t.Fatalf("check out HEAD: %v", err)
+	}
+	defer head.remove()
+	if got, err := os.ReadFile(filepath.Join(head.dir, "filtered", "squeezed.txt")); err != nil || string(got) != "x" {
+		t.Errorf("filtered/squeezed.txt = %q, %v; want the global driver's output", got, err)
+	}
+	if _, err := os.Lstat(filepath.Join(head.dir, "filtered", "local.txt")); err == nil {
+		t.Error("a large file whose only driver is repository scoped was written into the checkout")
+	}
+	if size, ok := head.unreadSize("filtered/local.txt"); !ok || size != int64(big) {
+		t.Errorf("filtered/local.txt: unread size = %d, %v; want its blob size %d", size, ok, big)
+	}
+	head.remove()
+
+	dirtyDir := filepath.Join(t.TempDir(), "dirty")
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--max-file-bytes", "64", "--output", dirtyDir, repoDir); err != nil {
+		t.Fatalf("seed the dirty tree: %v\n%s", err, out)
+	}
+	if entry := seedIndexEntry(t, dirtyDir, "filtered/squeezed.txt"); !entry.Included {
+		t.Errorf("filtered/squeezed.txt = %+v; want it included, as in a clean seed", entry)
+	}
+	cleanIndex, err := os.ReadFile(filepath.Join(cleanDir, seedDirName, "file-index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirtyIndex, err := os.ReadFile(filepath.Join(dirtyDir, seedDirName, "file-index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(cleanIndex, dirtyIndex) {
+		t.Errorf("the dirty-tree file index differs from the clean one of the same commit:\nclean:\n%s\ndirty:\n%s", cleanIndex, dirtyIndex)
+	}
+	assertNoSeedHeadLeftovers(t, tempDir)
+}
+
 // utf16LE encodes ASCII text as UTF-16LE, the bytes a working tree holds for
 // a path with working-tree-encoding=UTF-16LE.
 func utf16LE(ascii string) string {
