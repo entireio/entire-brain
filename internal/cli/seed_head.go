@@ -78,11 +78,12 @@ const seedHeadLFSPointerMaxBytes = 1024
 const seedHeadEncodingMaxShrink = 4
 
 // seedHeadDriverMaxShrink is the shrink a filter driver is allowed before its
-// file is treated as too large unread. A driver's output has no bound of its
-// own; smudge drivers in use (decrypting, decompressing, stripping) leave a
-// file about its size or grow it. Without a cap, an identity or growing driver
-// on a multi-gigabyte blob is written out in full only to be dropped; with it,
-// one file writes at most this many times --max-file-bytes.
+// file is treated as too large unread. Smudge drivers in use (decrypting,
+// decompressing, stripping) leave a file about its size or grow it. Without a
+// cap, an identity driver on a multi-gigabyte blob is run and written out only
+// to be dropped. Under it, each driver file is checked out on its own and
+// dropped at once when the scan only stats it (populate), so a driver that
+// grows a file never leaves more than that one file behind.
 const seedHeadDriverMaxShrink = 64
 
 // errSeedNoCommittedHead is the one checkout failure that is not a failure: a
@@ -238,7 +239,7 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	drivers := seedHeadFilterDrivers(ctx, runner, repoDir, env)
 	var wanted []string
 	var lfs []seedHeadSmallFile
-	var driverSkipped []string
+	var driverSkipped, driven []string
 	for _, path := range selected {
 		entry := entries[path]
 		if !entry.regularFile() {
@@ -272,6 +273,10 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 			}
 			continue
 		}
+		if drivers.runs(attr.filter) && !seedReadsAtAnySize(path) {
+			driven = append(driven, path)
+			continue
+		}
 		wanted = append(wanted, path)
 	}
 	if len(driverSkipped) > 0 {
@@ -292,6 +297,25 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 		if _, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", args...); err != nil {
 			return fmt.Errorf("check out committed HEAD %s: %w", shortCommitHash(c.commit), err)
 		}
+	}
+	// A driver's output can be any size, so each file one converts is checked
+	// out alone and stat'd, and one the scan only stats is removed before the
+	// next is written. At most one such file is on disk at a time, at the size
+	// the same driver writes it in the worktree, and the scan gets its real
+	// size.
+	for _, path := range driven {
+		if _, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "checkout-index", "-f", prefix, "--", path); err != nil {
+			return fmt.Errorf("check out committed HEAD %s: %w", shortCommitHash(c.commit), err)
+		}
+		target := filepath.Join(c.dir, filepath.FromSlash(path))
+		info, err := os.Lstat(target)
+		if err != nil || !info.Mode().IsRegular() || seedFileNeedsContent(path, info.Size(), opts) {
+			continue
+		}
+		if err := os.Remove(target); err != nil {
+			return fmt.Errorf("check out committed HEAD %s: %w", shortCommitHash(c.commit), err)
+		}
+		c.unread[path] = info.Size()
 	}
 	c.settleLFSPointers(ctx, runner, repoDir, lfs, opts)
 	return nil

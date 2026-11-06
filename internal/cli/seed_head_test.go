@@ -664,6 +664,81 @@ func TestDirtySeedCapsWhatAFilterDriverWrites(t *testing.T) {
 	assertNoSeedHeadLeftovers(t, tempDir)
 }
 
+// TestDirtySeedDropsWhatAFilterDriverGrows: a driver can write far more than
+// its blob, so the checkout cannot bound a driver file by its blob size. Each
+// one is checked out alone and removed at once when its real size puts it over
+// --max-file-bytes, and the scan records that real size, exactly as a clean
+// seed of the worktree the same driver wrote.
+func TestDirtySeedDropsWhatAFilterDriverGrows(t *testing.T) {
+	tempDir := isolateSeedHeadTemp(t)
+	global := filepath.Join(t.TempDir(), "gitconfig")
+	// clean undoes smudge, so git status calls the grown checkout clean.
+	config := "[filter \"grow\"]\n\tsmudge = \"cat >/dev/null; printf %04096d 0\"\n\tclean = \"cat >/dev/null; printf x\"\n"
+	if err := os.WriteFile(global, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	repoDir := seedHeadTestRepo(t)
+	writeSeedHeadFiles(t, repoDir, map[string]string{
+		".gitattributes": "grown/*.txt filter=grow\n",
+		"grown/one.txt":  "x",
+		"grown/two.txt":  "x",
+	})
+	gitAt(t, repoDir, "add", "-A")
+	gitAt(t, repoDir, "commit", "-q", "-m", "grown files")
+	for _, rel := range []string{"grown/one.txt", "grown/two.txt"} {
+		if err := os.Remove(filepath.Join(repoDir, filepath.FromSlash(rel))); err != nil {
+			t.Fatal(err)
+		}
+		gitAt(t, repoDir, "checkout", "--", rel)
+	}
+	if info, err := os.Stat(filepath.Join(repoDir, "grown", "one.txt")); err != nil || info.Size() != 4096 {
+		t.Fatalf("the driver did not grow the worktree file: %v, %v", info, err)
+	}
+	env := semanticTestEnv(t, repoDir)
+	opts := Options{Version: "test", Env: env, Runner: ExecRunner{}}
+	cleanDir := filepath.Join(t.TempDir(), "clean")
+	if _, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--max-file-bytes", "64", "--output", cleanDir, repoDir); err != nil {
+		t.Fatalf("seed a clean tree: %v", err)
+	}
+
+	dirtySeedHeadTree(t, repoDir)
+	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+	if err != nil {
+		t.Fatalf("check out HEAD: %v", err)
+	}
+	defer head.remove()
+	for _, rel := range []string{"grown/one.txt", "grown/two.txt"} {
+		if _, err := os.Lstat(filepath.Join(head.dir, filepath.FromSlash(rel))); err == nil {
+			t.Errorf("%s grew past --max-file-bytes and was left in the checkout", rel)
+		}
+		if size, ok := head.unreadSize(rel); !ok || size != 4096 {
+			t.Errorf("%s: unread size = %d, %v; want the driver's output size 4096", rel, size, ok)
+		}
+	}
+	head.remove()
+
+	dirtyDir := filepath.Join(t.TempDir(), "dirty")
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--max-file-bytes", "64", "--output", dirtyDir, repoDir); err != nil {
+		t.Fatalf("seed the dirty tree: %v\n%s", err, out)
+	}
+	cleanIndex, err := os.ReadFile(filepath.Join(cleanDir, seedDirName, "file-index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirtyIndex, err := os.ReadFile(filepath.Join(dirtyDir, seedDirName, "file-index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(cleanIndex, dirtyIndex) {
+		t.Errorf("the dirty-tree file index differs from the clean one of the same commit:\nclean:\n%s\ndirty:\n%s", cleanIndex, dirtyIndex)
+	}
+	if entry := seedIndexEntry(t, dirtyDir, "grown/one.txt"); entry.Reason != "too large" || entry.Bytes != 4096 {
+		t.Errorf("grown/one.txt = %+v; want too large at the driver's output size", entry)
+	}
+	assertNoSeedHeadLeftovers(t, tempDir)
+}
+
 // gitConfigCountingRunner runs commands for real and records each git config
 // call the checkout makes.
 type gitConfigCountingRunner struct {
@@ -684,7 +759,7 @@ func (r *gitConfigCountingRunner) RunWithEnv(ctx context.Context, dir string, en
 func TestDirtySeedReadsFilterDriversInOneCall(t *testing.T) {
 	isolateSeedHeadTemp(t)
 	global := filepath.Join(t.TempDir(), "gitconfig")
-	if err := os.WriteFile(global, []byte("[filter \"real\"]\n\tsmudge = cat\n"), 0o600); err != nil {
+	if err := os.WriteFile(global, []byte("[filter \"real\"]\n\tsmudge = tr -s z\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("GIT_CONFIG_GLOBAL", global)
@@ -711,8 +786,8 @@ func TestDirtySeedReadsFilterDriversInOneCall(t *testing.T) {
 	if len(runner.configCalls) != 1 {
 		t.Errorf("git config ran %d times for 13 filters; want once: %q", len(runner.configCalls), runner.configCalls)
 	}
-	if _, err := os.Stat(filepath.Join(head.dir, "real", "big.txt")); err != nil {
-		t.Errorf("a file a configured driver converts was not checked out: %v", err)
+	if got, err := os.ReadFile(filepath.Join(head.dir, "real", "big.txt")); err != nil || string(got) != "z" {
+		t.Errorf("real/big.txt = %q, %v; want its configured driver's output", got, err)
 	}
 	if _, ok := head.unreadSize("none0/big.txt"); !ok {
 		t.Error("a large file whose filter has no driver was checked out")
@@ -732,6 +807,9 @@ func (r fixedConfigRunner) RunWithEnv(ctx context.Context, dir string, env map[s
 func TestSeedHeadFilterDriversParsesTheEffectiveConfiguration(t *testing.T) {
 	t.Parallel()
 	// git config's own "not set" exit, with no shell needed to produce it.
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
 	empty := filepath.Join(t.TempDir(), "empty-config")
 	if err := os.WriteFile(empty, nil, 0o600); err != nil {
 		t.Fatal(err)

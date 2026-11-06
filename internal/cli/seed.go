@@ -647,8 +647,9 @@ func seedReadsAtAnySize(rel string) bool {
 }
 
 // seedFileNeedsContent reports whether inspectSeedFile would read a file's
-// bytes, given its path and size. The committed HEAD checkout uses it to leave
-// out a hydrated LFS object the scan only stats (seed_head.go).
+// bytes, given its path and size. The committed HEAD checkout uses it to drop a
+// hydrated LFS object or a filter driver's output the scan only stats
+// (seed_head.go).
 func seedFileNeedsContent(rel string, size int64, opts seedCommandOptions) bool {
 	entry, _, ok := inspectSeedFilePath(rel, opts)
 	return ok && inspectSeedFileSize(&entry, rel, size, opts)
