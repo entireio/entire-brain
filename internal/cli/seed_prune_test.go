@@ -119,9 +119,14 @@ func TestCleanReseedRemovesADocumentOnlyTheWorktreeHad(t *testing.T) {
 // TestSeedDocThatCannotBeReadIsDroppedNotSilentlySkipped: a document whose
 // source read fails is reported and taken out of the file index and the
 // seed's documents, so the prune that removes its earlier copy never leaves it
-// recorded as seeded with nothing on disk.
+// recorded as seeded with nothing on disk. The source is a directory: it
+// passes the path checks before the read, as a missing file would not, and
+// the regular-file read then refuses it.
 func TestSeedDocThatCannotBeReadIsDroppedNotSilentlySkipped(t *testing.T) {
 	repoDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoDir, "docs", "gone.md"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	outputDir := t.TempDir()
 	writeSeedPruneFiles(t, outputDir, map[string]string{"seed/docs/docs/gone.md": "# earlier copy\n"})
 	scan := &seedScanResult{
@@ -138,7 +143,7 @@ func TestSeedDocThatCannotBeReadIsDroppedNotSilentlySkipped(t *testing.T) {
 	if scan.Files[0].Included {
 		t.Errorf("an unreadable document is still in the file index as included: %+v", scan.Files[0])
 	}
-	if !strings.Contains(strings.Join(scan.Warnings, "\n"), "document not indexed: docs/gone.md") {
+	if !strings.Contains(strings.Join(scan.Warnings, "\n"), "document not indexed: docs/gone.md: not read:") {
 		t.Errorf("the unreadable document is not reported: %q", scan.Warnings)
 	}
 	assertSeedDoc(t, outputDir, "docs/gone.md", false)
