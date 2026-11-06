@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,11 +14,11 @@ import (
 // (entireio/cli#2897): a command is a tool_use named "Bash" that carries the
 // command's own output and marks a failure only as status "error", and an edit
 // is a tool_use named "FileChange" with absolute paths. These are the lines
-// the cli's converter writes for a failing go test and an edit of main.go,
-// with the rollout's /work/repo checkout replaced by repo.
-func codexItemPathTranscript(t *testing.T, repo string) string {
+// the cli's converter writes for a failing go test and an edit of main.go in
+// the checkout at root.
+func codexItemPathTranscript(t *testing.T, root string) string {
 	t.Helper()
-	path, err := json.Marshal(filepath.Join(repo, "main.go"))
+	path, err := json.Marshal(root + "/main.go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,6 +27,22 @@ func codexItemPathTranscript(t *testing.T, repo string) string {
 {"v":1,"agent":"codex","cli_version":"0.13.1","type":"assistant","ts":"2030-01-01T00:00:03.000Z","id":"f1","content":[{"id":"f1","input":{"changes":[{"path":` + string(path) + `,"kind":"update","diff":"@@ -1 +1 @@\n-a\n+b\n"}]},"name":"FileChange","result":{"output":"","status":"success"},"type":"tool_use"}]}
 {"v":1,"agent":"codex","cli_version":"0.13.1","type":"assistant","ts":"2030-01-01T00:00:04.000Z","id":"a1","content":[{"type":"text","text":"Fixed main.go."}]}
 `
+}
+
+type codexChange struct {
+	Path     string `json:"path"`
+	Kind     string `json:"kind,omitempty"`
+	MovePath string `json:"move_path,omitempty"`
+}
+
+// codexFileChange is one compact codex FileChange record.
+func codexFileChange(t *testing.T, changes ...codexChange) string {
+	t.Helper()
+	input, err := json.Marshal(map[string]any{"changes": changes})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return `{"v":1,"agent":"codex","type":"assistant","ts":"t","id":"f1","content":[{"id":"f1","input":` + string(input) + `,"name":"FileChange","result":{"output":"","status":"success"},"type":"tool_use"}]}`
 }
 
 func describeFileRefs(files []corpusFileRef) string {
@@ -72,38 +87,23 @@ func TestCorpusEpisodeOpsCodexItemPathCommands(t *testing.T) {
 
 // A FileChange gives one file ref per change: add, delete and update map to
 // add, delete and edit, and an update with a move_path deletes the old path
-// and adds the new one. An absolute path inside the checkout is stored
+// and adds the new one. An absolute path inside the session's root is stored
 // relative to it, like an apply_patch path; any other path is kept as is.
 func TestCorpusEpisodeOpsCodexItemPathFileChange(t *testing.T) {
-	repo := filepath.Join(t.TempDir(), "repo")
-	other := filepath.Join(t.TempDir(), "other-checkout", "x.go")
-	in := func(rel string) string { return filepath.Join(repo, filepath.FromSlash(rel)) }
-	type change struct {
-		Path     string `json:"path"`
-		Kind     string `json:"kind,omitempty"`
-		MovePath string `json:"move_path,omitempty"`
-	}
-	fileChange := func(changes ...change) string {
-		input, err := json.Marshal(map[string]any{"changes": changes})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return `{"v":1,"agent":"codex","type":"assistant","ts":"t","id":"f1","content":[{"id":"f1","input":` + string(input) + `,"name":"FileChange","result":{"output":"","status":"success"},"type":"tool_use"}]}`
-	}
-	otherJSON, err := json.Marshal([]string{"edit " + other})
-	if err != nil {
-		t.Fatal(err)
-	}
+	const root = "/work/repo"
 	cases := []struct {
 		name, work, root, want string
 	}{
-		{"update", fileChange(change{Path: in("main.go"), Kind: "update"}), repo, `["edit main.go"]`},
-		{"add and delete", fileChange(change{Path: in("docs/new.md"), Kind: "add"}, change{Path: in("old.go"), Kind: "delete"}), repo, `["add docs/new.md","delete old.go"]`},
-		{"move", fileChange(change{Path: in("a/old.go"), Kind: "update", MovePath: in("b/new.go")}), repo, `["delete a/old.go","add b/new.go"]`},
-		{"unknown kind is an edit", fileChange(change{Path: in("main.go")}), repo, `["edit main.go"]`},
-		{"relative path kept", fileChange(change{Path: "internal/x.go", Kind: "update"}), repo, `["edit internal/x.go"]`},
-		{"outside the checkout kept", fileChange(change{Path: other, Kind: "update"}), repo, string(otherJSON)},
-		{"empty path skipped", fileChange(change{Path: "", Kind: "update"}, change{Path: in("main.go"), Kind: "update"}), repo, `["edit main.go"]`},
+		{"update", codexFileChange(t, codexChange{Path: root + "/main.go", Kind: "update"}), root, `["edit main.go"]`},
+		{"add and delete", codexFileChange(t, codexChange{Path: root + "/docs/new.md", Kind: "add"}, codexChange{Path: root + "/old.go", Kind: "delete"}), root, `["add docs/new.md","delete old.go"]`},
+		{"move", codexFileChange(t, codexChange{Path: root + "/a/old.go", Kind: "update", MovePath: root + "/b/new.go"}), root, `["delete a/old.go","add b/new.go"]`},
+		{"unknown kind is an edit", codexFileChange(t, codexChange{Path: root + "/main.go"}), root, `["edit main.go"]`},
+		{"relative path kept", codexFileChange(t, codexChange{Path: "internal/x.go", Kind: "update"}), root, `["edit internal/x.go"]`},
+		{"outside the root kept", codexFileChange(t, codexChange{Path: "/elsewhere/x.go", Kind: "update"}), root, `["edit /elsewhere/x.go"]`},
+		{"root prefix is not a parent", codexFileChange(t, codexChange{Path: "/work/repo2/x.go", Kind: "update"}), root, `["edit /work/repo2/x.go"]`},
+		{"empty path skipped", codexFileChange(t, codexChange{Path: "", Kind: "update"}, codexChange{Path: root + "/main.go", Kind: "update"}), root, `["edit main.go"]`},
+		{"windows path", codexFileChange(t, codexChange{Path: `C:\work\repo\pkg\a.go`, Kind: "update"}), "C:/work/repo", `["edit pkg/a.go"]`},
+		{"no root known", codexFileChange(t, codexChange{Path: root + "/main.go", Kind: "update"}), "", `["edit /work/repo/main.go"]`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -116,20 +116,47 @@ func TestCorpusEpisodeOpsCodexItemPathFileChange(t *testing.T) {
 			}
 		})
 	}
-	// With no checkout known, the absolute path is stored as written.
-	_, _, files := corpusEpisodeOps(fileChange(change{Path: in("main.go"), Kind: "update"}), "")
-	want, err := json.Marshal([]string{"edit " + in("main.go")})
-	if err != nil {
-		t.Fatal(err)
+}
+
+// The root comes from the session itself: an absolute FileChange path that
+// ends in one of the checkpoint's repo-relative files_touched. It does not
+// depend on where the corpus is built.
+func TestCodexSessionRoot(t *testing.T) {
+	lines := func(records ...string) string { return strings.Join(records, "\n") + "\n" }
+	cases := []struct {
+		name, transcript string
+		touched          []string
+		want             string
+	}{
+		{"one touched file", lines(codexFileChange(t, codexChange{Path: "/home/ada/src/repo/main.go", Kind: "update"})), []string{"main.go"}, "/home/ada/src/repo"},
+		{"untouched paths follow the session root", lines(codexFileChange(t, codexChange{Path: "/w/r/cmd/x.go", Kind: "update"}, codexChange{Path: "/w/r/scratch.txt", Kind: "add"})), []string{"cmd/x.go"}, "/w/r"},
+		{"longest touched suffix wins", lines(codexFileChange(t, codexChange{Path: "/w/r/cmd/main.go", Kind: "update"})), []string{"main.go", "cmd/main.go"}, "/w/r"},
+		{"most paths agree", lines(
+			codexFileChange(t, codexChange{Path: "/w/r/a/main.go", Kind: "update"}),
+			codexFileChange(t, codexChange{Path: "/w/r/b.go", Kind: "update"}, codexChange{Path: "/w/r/c.go", Kind: "update"}),
+		), []string{"main.go", "b.go", "c.go"}, "/w/r"},
+		{"move path votes", lines(codexFileChange(t, codexChange{Path: "/w/r/old.go", Kind: "update", MovePath: "/w/r/pkg/new.go"})), []string{"pkg/new.go"}, "/w/r"},
+		{"windows paths", lines(codexFileChange(t, codexChange{Path: `C:\src\repo\pkg\a.go`, Kind: "update"})), []string{"pkg/a.go"}, "C:/src/repo"},
+		{"touched spelled with ./", lines(codexFileChange(t, codexChange{Path: "/w/r/main.go", Kind: "update"})), []string{"./main.go"}, "/w/r"},
+		{"no files touched", lines(codexFileChange(t, codexChange{Path: "/w/r/main.go", Kind: "update"})), nil, ""},
+		{"no touched file matches", lines(codexFileChange(t, codexChange{Path: "/w/r/main.go", Kind: "update"})), []string{"other.go"}, ""},
+		{"relative paths give no root", lines(codexFileChange(t, codexChange{Path: "main.go", Kind: "update"})), []string{"main.go"}, ""},
+		{"no FileChange", `{"v":1,"agent":"codex","type":"assistant","ts":"t","content":[{"type":"text","text":"edited /w/r/main.go"}]}` + "\n", []string{"main.go"}, ""},
 	}
-	if got := describeFileRefs(files); got != string(want) {
-		t.Errorf("no checkout: files = %s, want %s", got, want)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := codexSessionRoot(c.transcript, c.touched); got != c.want {
+				t.Errorf("root = %q, want %q", got, c.want)
+			}
+		})
 	}
 }
 
-// Through the corpus build from a live checkout: the failing go test counts in
-// exit_fails, the FileChange of <checkout>/main.go is stored as main.go and
-// links to its symbols, and the edit makes the turn a write. A corpus indexed
+// Through the corpus build: the failing go test counts in exit_fails, and the
+// FileChange of main.go is stored as main.go, links to its symbols, and makes
+// the turn a write. The session ran in a checkout other than the one building
+// the corpus (a teammate's machine, or another worktree), which does not
+// matter: the root comes from its checkpoint's files_touched. A corpus indexed
 // by IndexerVersion 11 stored neither, and the transcript bytes do not change
 // on upgrade, so only a version bump makes the next build re-index it instead
 // of skipping it as unchanged.
@@ -138,7 +165,7 @@ func TestPatternCorpusIndexesCodexItemPath(t *testing.T) {
 	runner := opts.Runner.(*fakeCommandRunner)
 	d.Header.RepoKey = "gh/example/repo"
 	key := semanticStorageKeyForTest(t, runner, opts.Env, repo)
-	brain := writeEpisodeFixture(t, opts.Now(), key, []sessionFixture{{id: "s1", agent: "codex", branch: "main", checkpoint: "cp1", relPath: "sessions/main/s1.jsonl", transcript: codexItemPathTranscript(t, repo)}})
+	brain := writeEpisodeFixture(t, opts.Now(), key, []sessionFixture{{id: "s1", agent: "codex", branch: "main", checkpoint: "cp1", relPath: "sessions/main/s1.jsonl", transcript: codexItemPathTranscript(t, "/home/teammate/src/repo"), filesTouched: []string{"main.go"}}})
 	data, err := json.Marshal(d)
 	if err != nil {
 		t.Fatal(err)

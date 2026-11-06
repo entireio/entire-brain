@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"path"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -81,8 +80,9 @@ var claudeFileTools = map[string]string{
 
 // corpusEpisodeOps extracts ordered tool calls, shell commands (with exit/failure
 // correlated by call id), and file references from one episode's work segment.
-// repoRoot is the checkout the corpus is built from, or "" when unknown; a
-// compact codex FileChange's absolute path under it is stored relative to it.
+// repoRoot is the session's checkout root from codexSessionRoot, or "" when
+// unknown; a compact codex FileChange's absolute path under it is stored
+// relative to it.
 func corpusEpisodeOps(workText, repoRoot string) (tools []corpusToolOp, commands []corpusCommand, files []corpusFileRef) {
 	exitByCall := map[string]int{}
 	failedByCall := map[string]bool{}
@@ -226,20 +226,111 @@ func fileChangeFiles(input any, repoRoot string, ln int) []corpusFileRef {
 	return out
 }
 
-// repoRelativePath is p relative to repoRoot when p is an absolute path inside
-// it, with forward slashes, so it matches the repo-relative paths apply_patch
-// and the semantic index use. Any other path (relative already, outside the
-// root, or with no root known) is returned trimmed but otherwise as is.
+// repoRelativePath is p relative to repoRoot (a forward-slash path from
+// codexSessionRoot) when p is inside it, so it matches the repo-relative
+// paths apply_patch and the semantic index use. Any other path is returned
+// trimmed but otherwise as written.
 func repoRelativePath(p, repoRoot string) string {
 	p = strings.TrimSpace(p)
-	if p == "" || repoRoot == "" || !filepath.IsAbs(p) {
+	if repoRoot == "" {
 		return p
 	}
-	rel, err := filepath.Rel(repoRoot, p)
-	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return p
+	if s := slashPath(p); strings.HasPrefix(s, repoRoot+"/") && len(s) > len(repoRoot)+1 {
+		return s[len(repoRoot)+1:]
 	}
-	return filepath.ToSlash(rel)
+	return p
+}
+
+// codexSessionRoot is the checkout a compact codex session's FileChange paths
+// are under, worked out from the session itself: a FileChange path is
+// absolute, and the session's checkpoint records the repo-relative files it
+// touched (files_touched), so an absolute path that ends in one of them gives
+// the root. The root most of the session's paths agree on wins. "" when the
+// session has no FileChange or none of its paths ends in a touched file; its
+// paths are then stored as written.
+//
+// The live checkout the corpus is built from is not used: worktrees of a repo
+// share one corpus, and an unchanged session is not re-indexed, so the paths
+// it stores must not depend on which checkout, subdirectory or symlinked
+// spelling happened to build it first.
+func codexSessionRoot(transcript string, filesTouched []string) string {
+	if len(filesTouched) == 0 || !strings.Contains(transcript, `"FileChange"`) {
+		return ""
+	}
+	var touched []string
+	for _, f := range filesTouched {
+		f = strings.TrimPrefix(path.Clean(slashPath(f)), "./")
+		if f != "." && f != "" && !isAbsSlashPath(f) && f != ".." && !strings.HasPrefix(f, "../") {
+			touched = append(touched, f)
+		}
+	}
+	votes := map[string]int{}
+	for _, line := range strings.Split(transcript, "\n") {
+		if !strings.Contains(line, `"FileChange"`) {
+			continue
+		}
+		var obj map[string]any
+		if json.Unmarshal([]byte(strings.TrimSpace(line)), &obj) != nil {
+			continue
+		}
+		blocks, _ := obj["content"].([]any)
+		for _, b := range blocks {
+			bm := jsonMap(b)
+			if jsonString(bm["name"]) != "FileChange" {
+				continue
+			}
+			changes, _ := asObject(bm["input"])["changes"].([]any)
+			for _, c := range changes {
+				cm := jsonMap(c)
+				for _, p := range []string{jsonString(cm["path"]), jsonString(cm["move_path"])} {
+					if root := pathRootFor(slashPath(p), touched); root != "" {
+						votes[root]++
+					}
+				}
+			}
+		}
+	}
+	best := ""
+	for root, n := range votes {
+		if best == "" || n > votes[best] || (n == votes[best] && (len(root) < len(best) || (len(root) == len(best) && root < best))) {
+			best = root
+		}
+	}
+	return best
+}
+
+// pathRootFor is the directory an absolute path p sits in as a checkout root,
+// given the repo-relative files touched: p minus the longest touched file it
+// ends in. "" when p is not absolute or ends in none of them.
+func pathRootFor(p string, touched []string) string {
+	if !isAbsSlashPath(p) {
+		return ""
+	}
+	root := ""
+	for _, t := range touched {
+		if strings.HasSuffix(p, "/"+t) {
+			if r := p[:len(p)-len(t)-1]; r != "" && (root == "" || len(r) < len(root)) {
+				root = r
+			}
+		}
+	}
+	return root
+}
+
+// slashPath is p trimmed and with backslashes as slashes, so a Windows
+// session's paths compare with the forward-slash paths a checkpoint records,
+// whichever OS builds the corpus.
+func slashPath(p string) string {
+	return strings.ReplaceAll(strings.TrimSpace(p), `\`, "/")
+}
+
+// isAbsSlashPath reports whether a slashPath is absolute on any OS: rooted
+// ("/work/repo", "//server/share") or with a drive letter ("C:/work/repo").
+func isAbsSlashPath(p string) bool {
+	if strings.HasPrefix(p, "/") {
+		return true
+	}
+	return len(p) >= 3 && p[1] == ':' && p[2] == '/' && ((p[0] >= 'a' && p[0] <= 'z') || (p[0] >= 'A' && p[0] <= 'Z'))
 }
 
 func patchFiles(patch string, ln int) []corpusFileRef {

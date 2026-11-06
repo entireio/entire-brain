@@ -19,6 +19,8 @@ type sessionFixture struct {
 	relPath    string
 	author     string
 	transcript string
+	// filesTouched is the checkpoint's repo-relative files_touched.
+	filesTouched []string
 }
 
 // writeEpisodeFixture lays down a brain dir with the given sessions and their
@@ -42,6 +44,7 @@ func writeEpisodeFixture(t *testing.T, now time.Time, repoKey string, sessions [
 			LatestCheckpoint: s.checkpoint,
 			TranscriptPath:   s.relPath,
 			CreatedAt:        now.Add(-time.Hour),
+			FilesTouched:     s.filesTouched,
 		}
 		if s.author != "" {
 			es.Authors = []exportAuthor{{Name: s.author}}

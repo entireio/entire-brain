@@ -165,14 +165,6 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	if manifest != nil {
 		repoKey = manifest.RepoKey
 	}
-	// The live checkout, which the semantic index's file paths are relative
-	// to: a compact codex FileChange's absolute path inside it is stored
-	// relative to it so it links like an apply_patch path (see
-	// repoRelativePath). Without one, paths are stored as written.
-	repoRoot := ""
-	if len(graph) > 0 {
-		repoRoot = graph[0].RepoDir
-	}
 	var sessions []exportSession
 	if manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		sessions = manifest.Sources.Sessions.Sessions
@@ -267,7 +259,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 		if factsFresh && corpusSessionUnchanged(db, id, size, mtime, sha) {
 			continue
 		}
-		if err := indexSessionIntoCorpus(db, repoKey, repoRoot, s, id, rel, content, size, mtime, sha, factsByBranch); err != nil {
+		if err := indexSessionIntoCorpus(db, repoKey, s, id, rel, content, size, mtime, sha, factsByBranch); err != nil {
 			return err
 		}
 		onPatternCorpusSessionIndexed(id)
@@ -383,7 +375,7 @@ func corpusSessionUnchanged(db *sql.DB, id string, size, mtime int64, sha string
 	return gotSize == size && gotMtime == mtime && gotSha == sha && parser == patterncore.IndexerVersion
 }
 
-func indexSessionIntoCorpus(db *sql.DB, repoKey, repoRoot string, s exportSession, id, rel string, content []byte, size, mtime int64, sha string, factsByBranch map[string][]factRecord) error {
+func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel string, content []byte, size, mtime int64, sha string, factsByBranch map[string][]factRecord) error {
 	segments := transcriptEpisodeSegments(string(content))
 
 	tx, err := db.Begin()
@@ -410,6 +402,11 @@ func indexSessionIntoCorpus(db *sql.DB, repoKey, repoRoot string, s exportSessio
 	}
 
 	endOfTranscript := patternTranscriptEndLine(string(content))
+	// A compact codex FileChange path is absolute. The session's own
+	// checkpoint says which checkout it was under, so the stored path is
+	// repo-relative whichever checkout or machine the session ran in, and
+	// whichever one builds the corpus.
+	repoRoot := codexSessionRoot(string(content), s.FilesTouched)
 	episodeCount := 0
 	for ord, seg := range segments {
 		feedback := ""
