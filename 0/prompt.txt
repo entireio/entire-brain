@@ -1,0 +1,387 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/juba directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+Conductor shows the PR for whichever branch is checked out. After you open a PR from a different branch, or a PR stack, check out that PR's branch (for a stack, the top-most branch) so Conductor shows it.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/juba/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+do we still have the proposal framework in brain? i can't remember if we already removed that/
+<user-preferences>
+<!-- asd-ste100:begin -->
+## Response language: ASD-STE100
+
+Write all answers to the user in ASD-STE100 Simplified Technical English (Issue 9).
+Apply this rule to progress updates, questions, explanations, and final responses.
+
+- Follow the STE writing rules and dictionary. Use approved words with their approved meanings and parts of speech.
+- Use technical nouns and technical verbs when necessary. Explain unfamiliar terms. Use the same term for the same thing.
+- Use active voice and direct instructions.
+- Give one topic in each sentence. Give one instruction in each step.
+- Use no more than 20 words in a procedural sentence and 25 words in a descriptive sentence.
+- Use short paragraphs and clear lists. Use American English spelling.
+- Avoid idioms, figurative language, and unnecessary words.
+- Keep code, commands, paths, identifiers, URLs, and exact quotations unchanged. Apply STE to the prose around them.
+- Before you send a response, do a check for clear meaning and compliance with these rules.
+
+Reference: https://www.asd-ste100.org/
+## Writing style
+
+Write in natural, direct, conversational English. Favor how a thoughtful, technically sophisticated person would actually explain something over highly stylized or literary prose.
+
+- **Avoid agentive framing.** Don't turn systems, abstractions, or inanimate objects into actors merely to give sentences a strong noun–verb structure.
+- **Prefer ordinary verbs.** Use "gets," "has," "uses," or "can" when they're more natural than "holds," "carries," "owns," "drives," or "unlocks." Don't optimize every verb for rhetorical force.
+- **Avoid aphoristic technical prose.** Don't make ordinary explanations sound like architectural principles, maxims, or slogans.
+- **Optimize for naturalness, not elegance.** Prefer the sentence someone would say aloud in a technical discussion over one engineered to sound polished or authoritative.
+- **Preserve meaningful precision.** Use specialized terminology and precise verbs when they clarify an actual technical distinction, not simply because they sound more intentional.
+
+The writing should feel like a smart colleague explaining something clearly, not a technical manifesto.
+
+<!-- asd-ste100:end -->
+
+</user-preferences>
+
+---
+
+okay good. 
+
+we've spent a lot of time lately simplifiying entire-brain to be more predictable and straightforward and faster. this meant removing the proposal framework, removing multipel different stores, storage by branches, mcp framework and more. 
+
+im curious what else is remaining that we could consider optimizing or removing to make brain faster an smarter?
+
+---
+
+<task-notification>
+<task-id>ab50f2799dbd1350c</task-id>
+<tool-use-id>toolu_01DVsmUXbQCAcjMfeLyGfjzs</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-juba/ca4ddd01-3e09-4132-9845-c3116a6f95e0/tasks/ab50f2799dbd1350c.output</output-file>
+<status>completed</status>
+<summary>Agent "Map CLI command surface" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I found about 10 good candidates for removal or consolidation. Two of them are code that no production path reaches: three compact brief serializers and the "proposals" leftovers. The other big targets are the pattern subsystem (about 16.4k LOC) and the 16-verb `inspect` group that overlaps Graph. Counts are non-test Go code unless I say otherwise.
+
+## Command tree (wired in `internal/cli/root.go`)
+
+| Group | Commands |
+|---|---|
+| setup | `setup`, `add`, `guide`, `webhook {status,test,events}`, `config {path,show,init}` |
+| explore | `overview`, `brief`, `query` (plus hidden aliases `search` and `vsearch`), `get`, `multi-get`, `dash` |
+| facts | `recall`, `remember`, `distill`, `memories`, `connect`, `disconnect`, `verify`, `patterns` |
+| `memories` children | `tree`, `files`, `import`, `status`, `storage {status,migrate}`, `sync`, `vitality`, `retract`, `global`, `gc`, `reclassify` (hidden), `outline`, `map`, `eval`/`eval-gen`/`eval-compare` (all hidden) |
+| `patterns` children | `refresh`, `status`, `verify --deep/--themes/--lessons/--conventions`, `skills` → `form` |
+| code | `inspect` with 16 subcommands: `code`, `context`, `impact`, `search-graph`, `query-graph`, `graph-schema` (hidden), `graph-ui`, `snippet`, `trace-path`, `dead-code`, `ingest-traces`, `changes`, `tests`, `boundaries`, `regressions`, `blame`. Also `show`, `viz` |
+| operations | `memory {notify, push-work(hidden), status, reconcile, jobs, retry, cancel, worker(hidden), repair, rebuild, migrate, configure→abstracts, abstract}`, `entities {backfill, migrate, history, show}`, `repair`, `reset`, `docs {extract, formats(hidden)}`, `refresh {sessions, history, delta, index, seed(hidden)}`, `watch`, `stop`, `start`, `repo-identity` |
+| maintain | `status`, `stats` |
+| share | `workspace` with 13 subcommands (listed in finding 5), `bundle {export, import}` |
+| misc | `path`, `capabilities`, `doctor`, `version` |
+| hidden | `bench {index, scale}`, `review`, `history-eval-gen`, `history-eval`, `hook {pre-edit, post-failure, session-end}`, `daemon-reregister`, tombstones for `init-agents` and `publish` |
+
+## Findings (most valuable first)
+
+**1. Three compact brief formats with no production caller.**
+- Files: `brain_brief_compact.go` (609), `brain_brief_compact_v2.go` (639), `brain_brief_compact_v3.go` (115), plus parts of `brain_brief_profile.go` (238). About 1.4k LOC, plus about 2.9k LOC in `*compact*_test.go`.
+- `brainBriefOptions.packetFormat` is never set outside tests, and no flag sets it. So `compact_v1/v2/v3` can't be reached from the CLI. The comment at `agent_surface.go:68` calls it "experimental".
+- Potential: delete outright. The only fields the brief profile still needs are `Packet.Format`/`Counts`, which reduce to text/json.
+
+**2. Pattern subsystem, about 16.4k LOC (roughly 12% of the code).**
+- Files: `internal/cli/patterns/` (21 files, 4,068), `command/patternscmd` (364), `internal/patterntest` (173). In `internal/cli` top level, 24 files total 11,805: the `pattern_*.go` files, `patterns_commands.go`, `workspace_patterns.go`, `skill_{cmd,form,synthesis}.go`, `episodes.go`, `episode_tools.go`, `procedures.go`, `practices.go`, `task_candidates.go`, `reinforcement.go`.
+- It is in the shipped tree. The free part is wired into core paths: `refresh` always builds episodes and the corpus (`refresh.go:525-546`), `overview` and `brief` read strongest patterns and verified themes (`agent_surface.go:594,1808,1827`), and `query --patterns`, `get pattern:`/`theme:` and setup status read it.
+- The agent-run part is opt-in and runs only when a user explicitly asks:
+  - `patterns verify` with `--deep`, `--themes`, `--lessons`, `--conventions`
+  - `patterns skills form`
+  - `workspace patterns verify|skills|form`
+- That opt-in part is about 5k LOC: `pattern_deep`, the four `pattern_skill_*` files, `pattern_themes`, `skill_*`, `workspace_patterns`, `patterns/workspace_*`, and the dossier/verify code.
+- Potential: high. Keep episodes, the corpus and the strongest-patterns list in brief. Drop or quarantine themes, lessons, conventions, deep dossiers, skill synthesis and cross-repo families. `patterns/legacy_views.go` (106) is a fallback for brains built before the corpus existed.
+
+**3. `inspect` duplicates Graph.**
+- Files: `agent_surface.go` (5,688), `semantic.go` (4,672), `semantic_graph.go` (1,431), `semantic_test_suggestions.go` (489), `graph_store.go`/`graph_context.go`/`graph_traces.go`, and `internal/semstore` (1,165). About 13k LOC.
+- Brain no longer indexes code itself. `refresh index` says "Graph owns the committed-tree index" and shells out to `entire graph`. Yet Brain still keeps its own semstore copy and 16 verbs over it.
+- Several verbs are niche or redundant:
+  - `search-graph` is literally `runSemanticQuery`, the same as `inspect code` (`semantic_graph.go:412`)
+  - `graph-schema` is already hidden
+  - `ingest-traces`, `trace-path`, `dead-code`, `boundaries`
+- `agentsetup` already tells agents to use `entire graph query/def`.
+- Potential: high. Have `context`, `impact` and `tests` delegate to Graph, and drop the rest.
+
+**4. Three separate ways to browse the brain.**
+- `dash` is a terminal UI: `command/dash` (506) plus the full-screen part of `internal/tui`.
+- `viz` is a browser UI: `command/viz` (1,373) plus the embedded `webui/dist` (about 104 KB of hand-written JS/CSS). CI runs Node and Playwright jobs for it (`test.yml:44,62-66`).
+- `inspect graph-ui` writes a static HTML page from inline templates (`renderSemanticGraphHTML`, `semantic_graph.go:1046`).
+- Potential: drop `graph-ui` (it overlaps `viz`). Then pick either `dash` or `viz`. Dropping `viz` also removes the module-root `webui.go` embed and the Node/Playwright jobs.
+
+**5. Multi-repo workspaces, about 5.7k LOC.**
+- Files: `workspace.go` (2,224), `internal/cli/workspace/` (8 files, 1,815), `workspace_patterns.go` (750), `pattern_workspace_cli.go` (114), `patterns/workspace_*` (828), plus the `setup --workspace` flag and the workspace path in `watch`.
+- Its 13 subcommands mirror the single-repo ones: `create`, `list`, `add`, `remove`, `refresh`, `watch`, `inspect {context, impact, graph, regressions}`, `search`/`vsearch`/`query`, `get`, `review`, `patterns`.
+- Potential: medium-high. If multi-repo isn't a priority product path, it can go in one piece, which also removes finding 2's cross-repo pattern code.
+
+**6. Hidden developer harnesses compiled into the shipped binary, about 4k LOC.**
+- Files: `facts_eval.go` (1,266), `facts_eval_gen.go` (653), `facts_eval_compare.go` (504), `facts_eval_arms.go` (129), `history_eval.go` (422), `bench_scale.go` (820), `command/bench` (221).
+- Reachable via the hidden `memories eval`/`eval-gen`/`eval-compare`, `history-eval[-gen]` and `bench {index, scale}`.
+- Potential: move them to `tools/` or behind a build tag.
+
+**7. Leftovers from the removed proposal framework and branch storage, plus compatibility aliases.**
+- Proposal and branch leftovers:
+  - `root.go:250` still lists a `"proposals"` child of `memories` in help ordering. That command no longer exists.
+  - `Proposals` counters remain in `facts_status_cmd.go:93,310` and `agent_surface.go:128,1259`, along with "across %d branch(es)" in the overview text.
+  - `memories storage migrate` (`repo_fact_storage_cmd.go`, "Fold legacy branch stores") and `factstore/repo_fact_compat.go` (435) exist only to migrate branch stores.
+- Compatibility aliases:
+  - `vsearch` and `query --semantic` are now aliases for BM25, since semantic retrieval was removed (`retrieve.go:609-612`).
+  - `memory_vectors_legacy.go` (139) handles the old vector data.
+  - `--worktree`, `--graph-inactivity-timeout` and `--semantic-worktree` are deprecated no-op flags.
+- Migration and tombstone code adds up to about 1.5k LOC: `history_legacy_identity`, `transcript_cache_migration`, `brain_legacy_layout`, `entities migrate`, `entityindex/migrate.go`, `historystore/legacy.go`, and the `init-agents`/`publish` tombstones.
+- Potential: easy, low-risk cleanup once you set a version cutoff.
+
+**8. Background execution is spread across about 3.5k LOC.**
+- Files: `command/watch` (924), `setup_daemon.go` (779), `setup_watchplan.go` (338), `watch_steps.go` (318), `watch_binary.go` (98), the hidden `daemon-reregister`, `stop`/`start`, `workspace watch`, the hidden `memory worker`/`notify`/`push-work` job queue (`memory_cmd.go` 2,167, `memory_coordinator.go` 508), and `push_hook.go` (323).
+- Status is also reported many times over: `status`, `stats`, `overview`, `doctor`, `memory status`, `memories status`, `patterns status`, `webhook status`.
+- Separately, `memory configure abstracts` and `memory abstract` (`memory_abstract.go`, 2,596) are a feature that "ships disabled".
+- Potential: medium. Fold watch and the daemon into one runner, and either remove abstracts or make them a single flag.
+
+**9. The `internal/cli` monolith.**
+- Top level of `internal/cli`: 183 prod files, 87,038 LOC, plus 461 test files at about 120k LOC.
+- Subpackages hold about 28.9k LOC: `command/` (34 files, 8,333), `internal/` (97 files, 13,360), `patterns/` (4,068), `workspace/` (1,815), `entities/` (1,351).
+- So `command/` is about 7% of the CLI and all subpackages together about 25%. About 75% is still the flat package. `command/facts` (895), `watch` (924), `hook` (595) and `viz` (1,373) are thin shells that call back into `cli` through `Deps` seams, so most of their logic is still in the monolith.
+- The 10 largest top-level non-test files:
+
+| File | LOC |
+|---|---|
+| `agent_surface.go` | 5,688 |
+| `semantic.go` | 4,672 |
+| `export.go` | 4,193 |
+| `distill_cmd.go` | 3,141 |
+| `history.go` | 2,999 |
+| `memory_abstract.go` | 2,596 |
+| `setup.go` | 2,532 |
+| `workspace.go` | 2,224 |
+| `memory_cmd.go` | 2,167 |
+| `memory_admin.go` | 2,151 |
+
+- `seed.go` (1,823) and `semantic_graph.go` (1,431) come next. Removing findings 1, 3, 5 and 8 would shrink four of these files a lot.
+
+**10. Repo assets, terminal UIs and `agentsetup`.**
+- **`benchmarks/`:** a 12 MB, 202-file archive (JSON, Markdown, NDJSON) of past experiments with no code. Its own README says it is "historical records, not current product measurements". Only `internal/cli/benchmarks_doc_test.go:222` and `tools/releasecheck/archive_test.go` touch it. Potential: move it to a separate repo or release artifact.
+- **`docs/`:** 6.1 MB, including 4.9 MB of images and several plan documents for retired features.
+- **`templates/`:** 5 prompt files (361 lines) embedded via `templates.go`. They are live, used by distill and by the recall/intake skill installers.
+- **`tools/`** (about 3.2k LOC) is all wired:
+  - `coverage` and `mutationcheck` run in `test.yml`
+  - `integration` runs via `go test` in CI
+  - `releasecheck` holds release tests
+  - `devcheck` is used only by `mise-tasks/release/smoke`
+  - `windows-sanity.ps1` runs in the release and nightly workflows
+- **`scripts/`:** `tui-census*.sh`, `demo-*.sh` and `trial-setup.sh` are demo or manual scripts and are candidates to drop. `get-brain.sh`/`install.sh` are user-facing (the README links `get-brain.sh`).
+- **`internal/tui`** (9 files, 2,601): the full-screen part serves only `dash`. The plain renderer, capabilities, phases and warnings are shared by `status`, `setup` (through `internal/setupui`), progress, `webhook` and `bench`.
+- **`internal/setupui`** (8 files, 2,061): only `setup.go`, `setup_ui.go` and `setup_terse.go` use it, and it builds on `tui`. Merging it into `tui` (or the reverse) is reasonable. If `dash` goes, `tui` shrinks to a renderer of about 1.2k LOC.
+- **`internal/agentsetup`** (15 files, 3,933): it writes `.entire/agent-guide.md` and a pointer block into `AGENTS.md`/`CLAUDE.md`, and merges a Claude Code pre-edit hook (`claudehooks.go`). It also recognizes `.cursorrules`, `.windsurfrules` and `.clinerules` as instruction files. It is mirrored byte-for-byte with the Graph repo, so it also carries `GraphGuide`/`CombinedGuide`. `files.go` (2,150) is mostly symlink, hardlink and reparse-point hardening. Nothing in it is obsolete, apart from `migration.go` (154), which redirects the legacy `.entire/graph-agent.md` and `brain-agent.md` files and removes the old `entire-graph`/`entire-brain` markers. That can go after a cutoff. The rest should become a shared module rather than a hand-kept copy.
+- **Skill synthesis and distill agents:** across those files I found `codex` and `claude-code` as primary, `ollama` for distill/verify, `factoryai-droid` as a `skills form --target`, and single mentions of `opencode`, `gemini`, `cursor`, `copilot-cli` and `pi`. Worth checking which of these are still supported.</result>
+<usage><subagent_tokens>121172</subagent_tokens><tool_uses>48</tool_uses><duration_ms>221996</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a6391fe481baec657</task-id>
+<tool-use-id>toolu_01Qs8p4cyFAmwmwLGadtA76w</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-juba/ca4ddd01-3e09-4132-9845-c3116a6f95e0/tasks/a6391fe481baec657.output</output-file>
+<status>completed</status>
+<summary>Agent "Find residual dead code" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I found 9 removal leftovers. Two need attention beyond plain deletion: a whole dead file (`semantic_relevance.go`), and old per-branch files that the current cleanup can never delete.
+
+**Your installed binaries are older than the code.** `~/.local/bin/entire-brain` was built from `1f5c62d8` on Oct 26. That build includes the gitmeta backend removal (0e353c1f) and the CAS removal (d2a89cd6). It does not include the MCP removal (9d3f08e3) or the proposal removal (6c53c114). That is why your brain still reports `proposals: 59329` and lists `mcp` under features. The current source does neither. Your brain dir is also still on the old per-branch layout: there is no `facts/store.json`, and there are 178 branch dirs under `facts/`.
+
+Recent removal commits for reference: 6c53c114 (proposals, promote/review), 9d3f08e3 (local MCP), 3f845f67 (hostedbrain MCP client), 63c524e3 (privacy layer), 11b7ff75 (publish), 96004d2b (semantic read helpers), 0e353c1f (gitmeta backend), d2a89cd6 (CAS and hosted proposals).
+
+### 1. `internal/cli/semantic_relevance.go`: dead, about 255 lines
+- None of its functions has a caller anywhere, including tests. The graph tool also shows no callers of `semanticResultMask`.
+- This includes `semanticResultMask`, `calibratedSemanticMask`, `semanticLeaveOneOutBackgrounds`, `factEmbeddingModelID` and `factEmbeddingText`.
+- It is left over from "Calibrate hybrid semantic retrieval" (c241b674). The whole file can go.
+
+### 2. Proposal leftovers: the code is dead, but the old files on disk can't be cleaned up
+- **Where 59,329 comes from:** it is exactly the line count of 14 old `facts/&lt;branch&gt;/proposals.ndjson` files in your brain dir. Your old binary counts them into the `"proposals"` field of `manifest.json`.
+- **Current code writes 0 and reads nothing:**
+  - Both callers of `factstore.SummarizeSource` pass `0` (`distill_cmd.go:1519`, `facts_manifest.go:108`).
+  - In `facts_status_cmd.go`, `counts.Proposals` is never incremented, so it always prints `proposals=0`.
+  - Nothing in non-test code mentions `proposals.ndjson`.
+- **Leftover fields to delete** (about 20 lines, but some are JSON schema fields):
+  - `facts_status_cmd.go:93, 267, 310/317`
+  - `manifest/manifest.go:182` (`FactSource.Proposals`)
+  - the `proposals` parameter of `SummarizeSource` (`factstore.go:258,262`)
+  - `agent_surface.go:128, 1259-1260` (prints "%d proposals pending"), `4619`
+  - `brain_brief_compact.go:109` and `brain_brief_compact_v2.go:107`. These are compact-brief schema fields, so removing them is a schema change.
+  - `root.go:250` lists `"proposals"` as a help entry, but no such subcommand exists.
+- **On-disk problem:** the migration moves whole branch dirs into `facts/.legacy-*`. The cleanup (`repo_fact_cleanup.go:309-312, 491`) deletes only `facts.ndjson` and then removes the dir only if it is empty. Any `proposals.ndjson`, `vitality.ndjson`/`vitality.json` or `embeddings/` left inside means the dir is kept and logged as "retained" on every run, forever. In your brain that is 14 proposals files, 92 vitality files and 32 `embeddings/` dirs (5.8 MB).
+- **Stale comment:** `reconcile_batch.go:57` says privacy cleanup or the migration deletes `proposals.ndjson`. Neither is true now that the privacy layer is gone (63c524e3).
+- **Fix:** either let the cleanup delete these known orphan file names, or delete them during migration.
+
+### 3. The confidence threshold in `factmerge` does nothing in production
+- `factmerge.ApplyActions` (`merge.go:47-89`, about 45 lines) is only reached through `applyFactActions` (`facts_aliases.go:73`), and only tests call that (`facts_merge_test.go`).
+- Real distill goes through `reconcile_batch.go:87-110`. It ignores confidence: merge/supersede publishes the candidate, keeps both facts active and cross-links them through `RelatedIDs`. Nothing is queued.
+- The threshold now affects only two things: the distill cache key (`distill_cmd.go:1028-1029, 2350+`), so changing `--confidence` just invalidates the cache, and the manifest field `source.Confidence` (`:1532`).
+- **Stale text:**
+  - `merge.go:13-16` still says "queued as a proposal for `facts review`".
+  - The `--confidence` flag help (`distill_cmd.go:757`) and the `reconcile_batch.go:16-17` header both say merges "require review".
+  - `reconcile_batch.go:100-101` and `merge.go:44` point to a "nightly compaction loop (COR-2273)" that doesn't exist in this repo.
+- **Can go:** `ApplyActions`, `applyFactActions`, `DefaultConfidenceThreshold` / `defaultFactConfidenceThreshold`, `renderConfidence`, `Action.Confidence`, and the `--confidence` flag (about 80 lines plus tests).
+
+### 4. `internal/factgitmeta`: alive, with small dead parts and orphaned data
+- **Alive:** it is the storage for the entity index. It's used by `entityindex/build.go:170,213,382-398`, `entityindex/migrate.go:19-163`, and `cli/entities/entities_cmd.go:542-576, 653`. The `entities` command is registered at `root.go:164`. `distill_cmd.go:561` and `checkpoint_commit.go:54` also use it through `cli/entities`. Every part of the `gitmeta` subpackage, including list/set values, is used by `entityindex/state.go` and `query.go`.
+- **Dead in production:**
+  - `MetaStore.TryUpdate` (`store.go:207-219`, no callers per the graph tool)
+  - `HasString` (`:140-148`)
+  - `Ref()` (`:74`)
+  - `localRepo.lockContext` (`localrepo.go:118-145`)
+  - `MetaStore.Update` (`:195`), which only tests call
+  - About 55 lines in total.
+- **Stale comments:** `store.go:44-52` (the "brain:facts:" prefix and `Backend.Advance` nesting) and `factsync/httpserver.go:19-21`. The package name is also misleading now; it could be renamed (e.g. `metastore`).
+- **On disk:** `~/.cache/entire/brain/gh/entireio/entire-brain/gitmeta.git` (16 MB) still holds `project/brain/facts/*` from the removed sync backend: 4 blobs, about 20.9 MB uncompressed. Nothing reads or deletes them. Similar `gitmeta.git` dirs exist for about 10 other repo keys.
+
+### 5. `internal/cli/internal/semstore`: alive, nothing to delete
+It is not vector code. It reads the code-graph store owned by Graph (`graph-store-v1:` handles, schema 1.4) and has no vector or embedding code. About 40 files import it, including `semantic.go`, `graph_store.go`, `refresh.go`, `agent_surface.go`, `retrieval/payload.go`, `brainreview`, `viz` and `dash`.
+
+### 6. Vector and embedding leftovers: mostly dead or fixed values
+- `memory_vectors_legacy.go` (139 lines) is meant to read old vector state and clean it up. In practice:
+  - `loadMemoryVectorProgress` still feeds health/admin (`memory_health_schema.go:403-425`, `memory_admin.go:652-661, 1627, 1687, 1921, 2064`, `lifecycle_ops.go:248`).
+  - `embedStoreFileName` (`"vectors.bin"`) is unused.
+  - `saveMemoryVectorProgress` is test-only.
+  - Nothing deletes the old `embeddings/` dirs.
+- Conversation `vector_state` is always `"removed"` (`agent_surface.go:4799`). Code built on it:
+  - the `VectorModelID`/`Vectors` fields and their docs (`agent_surface.go:172-182`)
+  - the `== "current"` render branches (`agent_surface.go:1375-1377`, `lifecycle_ops.go:521-522`, `stats/stats.go:306-308`)
+  - the `ConversationVectorStatus` hook (`stats_config.go:24-30`)
+- `brain_brief_profile.go:87-100` (`VectorCacheLoad`, `Embed`) is never set. About 40 lines.
+- `memory_admin.go:184-185, 205-206` still list `history/embeddings/*vectors.sqlite` as derived artifacts.
+- `capabilities.go:51-63` keeps `semantic_*` fields on purpose so existing agent-guides still parse; I'd leave those.
+
+### 7. Old per-branch store code: partly dead
+- `facts_vitality.go:30-32` still describes per-branch vitality, but the path functions (`:124-130`) ignore their branch argument. The `branch` parameter is threaded through about 10 functions and only ends up as the event's `Branch` field (`:296`).
+- `FactSource.Branches` is always empty now (`factstore.go:255`), yet these still print branch counts that are always 0: `dash_config.go:105`, `distill_cmd.go:942`, `agent_surface.go:1259/4618`, `brain_brief_compact.go:108`, and the guard in `practices.go:206`.
+- Keep `repo_fact_compat.go` and `repo_fact_cleanup.go`: they migrate old layouts like yours.
+
+### 8. MCP: removed in source
+- No MCP server or client code is left. What remains is fine or just stale text:
+  - `--strict-mcp-config --mcp-config {}` in the agent argument lists (`base/agent_args.go:39`, `seed.go:1742`) deliberately turns MCP off for the agents it launches. Keep it.
+  - The `mcp_tool` symbol kind (`agent_surface.go:1105`) is for indexing user code. Keep it.
+  - Stale comments only: `distill.go:151` ("MCP surfaces"), `apiurl.go:86` ("hosted-MCP clients"), `repoid.go:43-53` (`/brain/mcp` examples).
+- The `mcp` feature you saw comes from the old installed binary. Current `capabilities.go:66` doesn't list it.
+
+### 9. CAS and hosted proposals queue: only comments and one constant left
+- Comments only: `hosted_sync.go:55`, `httpx/decode.go:32`, and `factsync/httpserver.go:19-21` (the type name `HTTPServer` is a leftover).
+- `facts_sync_cmd.go:16-19, 51, 87` keeps the `local-gitmeta` constant on purpose, so that value gets a clear error.
+
+### 10. A privacy-layer leftover (not on your list)
+`purgeSessionAbstracts` (`memory_abstract.go:1949-1956`) has no production callers, only tests. Comments at `memory_abstract.go:303, 1950` and `repo_fact_compat.go:179` still refer to "privacy cleanup", which was removed in 63c524e3.</result>
+<usage><subagent_tokens>136465</subagent_tokens><tool_uses>76</tool_uses><duration_ms>294969</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a5206c006fdac6629</task-id>
+<tool-use-id>toolu_018kjA53vxxgsZgiqUjxpMFs</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-juba/ca4ddd01-3e09-4132-9845-c3116a6f95e0/tasks/a5206c006fdac6629.output</output-file>
+<status>completed</status>
+<summary>Agent "Audit retrieval hot path" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>The biggest problem is the data on disk, not the ranker. Your live brain was never migrated, so the "24,700 facts" are really about 2,834 unique facts (2,811 active), each copied many times across 176 per-branch files. Every hot command re-reads all of those copies on each call. Both warnings come from setup problems rather than real data loss. Findings, most valuable first:
+
+**1. The fact store was never migrated, and "24k facts" is mostly copies.**
+- The live brain at `~/.local/share/entire/plugins/data/brain/repos/gh/entireio/entire-brain/facts/` has no `store.json`. It still uses the old layout: 176 `&lt;branch&gt;/facts.ndjson` files, 24,735 lines, 23 MB.
+- Those lines hold only 2,834 distinct ids. 878 ids appear in 16 files each.
+- Every `factstore.Load` reads the folder, then parses and merges all 24,735 lines (`repo_fact_compat.go:82-186`).
+- The binary you run (`~/.local/bin/entire-brain`, built Oct 25, version `dev`) is older than the flat store (commit 73b62b21, Nov 2), so its `refresh` never migrates.
+- A current build migrates on refresh (`reclassifyAllFactsContext` → `migrateFactStoreLocked`, `facts_manifest.go:48`). The manifest would then declare about 2.8k facts.
+- **So what:** rebuilding and running `refresh` once cuts every fact read about 9x and makes the fact count honest. This is the cheapest big win.
+
+**2. The manifest mismatch is 7 staged candidates that your binary doesn't count.**
+- The manifest says `facts: 24728, pending_reconcile: 7`, and 24728 + 7 = 24735 readable. The 7 records have `status: candidate`.
+- Current code adds pending candidates to the expected count (`integrity.go:185`, fix 98a7c172 on Oct 26). Your Oct 25 binary doesn't.
+- Only `distill` reconciles candidates. `refresh` never runs distill (`refresh.go:490-524`), and the last distill was Oct 22.
+- No watcher is running: no `entire-brain` process and no LaunchAgent. In practice refresh is manual-only here.
+- A second drift source exists in current code: distill writes the store mid-run every 50 calls (`distill_cmd.go:73`, `:1194`) but only updates the manifest at the end (`:1500-1548`). A killed distill leaves the store ahead of the manifest.
+- **So what:** the warning is a false alarm on an old build. Separately, mid-run flushes should also update `sources.facts`.
+
+**3. "Seed is stale" can't be fixed by refreshing, given how the brain is shared.**
+- The seed counts as fresh only if its commit equals HEAD (`refresh.go:1039-1058`, status at `agent_surface.go:4713`).
+- One brain is keyed by the origin remote (`env.go:204`, `git remote get-url origin`) and shared by all 8 worktrees, each with its own HEAD.
+- The seed is at 92333786, from Oct 27. At most one worktree can ever match.
+- **So what:** the warning is permanent noise for multi-worktree users. Consider an "ancestor of HEAD within N commits" check or a per-worktree seed.
+
+**4. `recall` has no fact index and reads the whole store up to three times per query.**
+- `facts_read_cmd.go:103` does `factstore.Load` (full merge).
+- `:137` loads the 1.8 MB manifest, then `InspectBrain` loads it again and calls `loadCombined` again (`integrity.go:298,354`). That is a second full merge.
+- If the result is empty, `EmptyResultBlindSpot` loads the manifest and merges the store a third time (`blind_spot.go:51,69`).
+- BM25 is computed per query over every candidate, with no stored index. `newBM25Corpus` re-tokenizes every fact twice (plain, plus normalized/CJK) and rebuilds document frequencies. `bm25Score` allocates a term-count map per document (`facts_bm25.go:138-196`). The code comment says this was measured at 1,209 facts.
+- There are also about 4 git subprocesses per recall: toplevel, remote, `branch --show-current`, and `rev-parse HEAD` for the receipt (`facts_vitality.go:324`).
+- The `sqlite_driver` in the capabilities report is only for the history and doc FTS indexes (`history_fts.go`, `index-fts.sqlite` 204 MB). Facts never touch SQLite.
+- Nothing is cached between invocations.
+- **So what:** have `Load` and `Inspect` share one merge, and keep a stored token/postings sidecar or an FTS5 table keyed by the store's digest.
+
+**5. `brief` runs the full, non-lightweight status, and reads the fact store twice.**
+- `agent_surface.go:1464` calls `buildBrainStatusReport` with `lightweight=false` (`:4508`). That includes:
+  - the manifest
+  - a `fetchGraphStore` subprocess (`:4575`)
+  - `factstore.Inspect`, a full merge (`:4624`)
+  - live git state
+  - the retrieval audit
+  - `semanticFreshnessReport(audit=true)` (`:4669`)
+  - onboarding
+- Then brief does a second graph subprocess (`fetchGraphTaskContext`, `:1505`), history FTS (`:1620`, which is fine), the raw history walk (`:1705`), and `factstore.Load` plus BM25 again (`:1734-1753`).
+- It then loads patterns, consolidations and themes (`:1808-1831`) and may make git-intent calls.
+- For some task wordings it also reads up to 2,500 repo files (`:2856`).
+- **So what:** brief is the slowest hot path. Use lightweight status and reuse the facts it already loaded.
+
+**6. Brief's raw "history" scan reads derived indexes, and its hits outrank the FTS-ranked history.**
+- The raw walk covers the whole brain directory (`agent_surface.go:5306`). It skips history, facts, patterns, seed, semantic, export and locks (`:5023-5040`), but not `docs/` or `entities/`.
+- `sessions/` is empty in this brain, so the "raw history" hits come from `docs/index.json` (1.5 MB, the derived doc index) and `entities/index.json` (520 KB on a single line, which matches almost any identifier).
+- `mergeBrainBriefHistoryMatches(limit, rawMatches, indexedMatches)` puts raw hits first (`:1709`, `:5495`), so they push out ranked history.
+- The scan runs even when the indexed results already fill the limit, because it is passed `nil` as the existing matches.
+- Hardcoded tweaks look tuned to an eval: an "ultron" exclusion and a +100 boost for queries containing LIMIT (`:5443`, `:5476`).
+- **So what:** this is a quality bug in brief's history section. Skip derived directories and merge indexed results first.
+
+**7. Recall's arms, from `facts_commands.go:21-33`:**
+
+| Arm | What it adds | Assessment |
+|---|---|---|
+| Ranking (`rankFacts`) | BM25, plus +8 per locus overlap and +4 for closed-negative facts (`facts_bm25.go:202-214`) | The +4 applies to about 17% of facts on any match, regardless of relevance. Questionable. |
+| Proposal (`UpdateFactSourceManifest*`) | Write side only | The proposal framework was removed (`guard.go:33-34`). This is leftover. |
+| Receipt (`RecordServedFacts`) | A `git rev-parse HEAD` subprocess plus an append to `vitality.ndjson` under a lock | Paid on every recall, but by design it never affects ranking (`facts_vitality.go:27`). Cost with no benefit today. |
+| Blind-spot | Explanatory note | Only on empty results, but merges the whole store again. |
+| Evidence (`--evidence`, opt-in) | Loads all facts and runs BM25 just to get session anchors, then reads up to 128 transcripts / 32 MiB raw | Takes sessions in manifest order, not most recent; substring scoring (`recall_evidence_source.go:238-330`). Expensive. |
+| Query expansion (`--expand`, opt-in) | Spawns an LLM agent CLI | Its cache path is `""`, so results are never saved (`facts_commands.go:82`, `facts_expand.go:74`). Full LLM latency on every call. |
+
+**8. There are no quality filters at recall time, beyond "active" plus optional scope/kind/locus.**
+- Dedup is exact only: the id is a sha256 of the normalized text plus paths (`factmerge/record.go:26-28`).
+- Near-duplicates and conflicts are judged by the LLM during distill. Below the confidence threshold, both facts stay active and are linked via RelatedIDs (`factmerge/merge.go:40-46`). 1,910 active records in the live store carry related_ids, so unresolved pairs reach recall.
+- `confidence` is "1.00" on 23,404 of 24,586 active records, so it carries no signal.
+- There is no aging or decay. Recency weighting is opt-in and only on unified search/query (`retrieve.go:189`, `recency.go:66`, 90-day half-life). `recall` doesn't use it at all.
+- Locus drift only adds an annotation (`guard.go:79`).
+- **So what:** the best quality levers are collapsing RelatedIDs pairs into one result, a default recency prior, and feeding the vitality data into ranking.
+
+**9. Refresh is partly incremental, but the fact and doc steps rebuild everything.**
+- History is rebuilt only when it's not current (`refresh.go:336`). Seed is gated on the commit, and the code index on `semanticRefreshNeeded`.
+- The doc index rebuilds on every refresh, because `historyIndex` defaults to true (`refresh.go:118`, `:367`).
+- The mirror and reclassify steps each do a full Load and Write. `updateFactSourceManifestLocked` then loads the store again (`facts_manifest.go:89-95`). That is 3-4 full store reads plus a whole-file rewrite (`repo_fact_store.go:147-167`) per refresh.
+- `watch` does a cheap update every 5 minutes and a full refresh at most every 30 minutes, triggered by a fingerprint (`watch.go:96-101`, `:119-133`).
+- But the full refresh is deferred whenever the worktree has uncommitted changes (`watch.go:406`). In always-dirty Conductor workspaces, it effectively never runs.
+
+**10. Small leftovers in the hot paths.**
+- `AnnotateUnifiedFactResults` builds a lookup map over the whole corpus for every query (`guard.go:39-42`).
+- A dead `docs/embeddings/vectors.bin` (967 KB) is left over from the removed semantic retrieval.
+- A `quarantine-stray-facts-*` directory sits at the brain root.
+- **So what:** cleanup. Fine once the corpus is about 2.8k facts.
+
+**Suggested order:** rebuild the binary and run `refresh` (fixes 1 and 2), stop merging the store repeatedly in recall and brief (4, 5), fix the brief raw-scan skip list and merge order (6), then make seed staleness worktree-aware (3).</result>
+<usage><subagent_tokens>207991</subagent_tokens><tool_uses>83</tool_uses><duration_ms>440017</duration_ms></usage>
+</task-notification>

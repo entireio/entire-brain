@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_018kjA53vxxgsZgiqUjxpMFs",
+  "agent_id": "a5206c006fdac6629",
+  "subagent_type": "Explore",
+  "task_description": "Audit retrieval hot path",
+  "token_usage": {
+    "input_tokens": 154,
+    "cache_creation_tokens": 198679,
+    "cache_read_tokens": 10611983,
+    "output_tokens": 30129,
+    "api_call_count": 76
+  },
+  "started_at": "2026-11-06T14:14:50.568484-08:00",
+  "completed_at": "2026-11-06T14:22:10.519931-08:00"
+}

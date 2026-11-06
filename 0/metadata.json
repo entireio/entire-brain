@@ -1,0 +1,45 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M6SH36CMNQ32HC9H26RSSTVR",
+  "session_id": "ca4ddd01-3e09-4132-9845-c3116a6f95e0",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-06T22:53:58.608815Z",
+  "branch": "evisdren/proposal-framework-status",
+  "checkpoints_count": 5,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "f2cce78be3dc",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 38,
+    "cache_creation_tokens": 147216,
+    "cache_read_tokens": 1497836,
+    "output_tokens": 18958,
+    "api_call_count": 19,
+    "subagent_tokens": {
+      "input_tokens": 382,
+      "cache_creation_tokens": 441094,
+      "cache_read_tokens": 20584602,
+      "output_tokens": 79129,
+      "api_call_count": 190
+    }
+  },
+  "redaction": {
+    "replacements": 2,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 0,
+      "key_context": 2,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "session_metrics": {
+    "turn_count": 5
+  }
+}

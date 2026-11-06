@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01Qs8p4cyFAmwmwLGadtA76w",
+  "agent_id": "a6391fe481baec657",
+  "subagent_type": "Explore",
+  "task_description": "Find residual dead code",
+  "token_usage": {
+    "input_tokens": 136,
+    "cache_creation_tokens": 132278,
+    "cache_read_tokens": 6031456,
+    "output_tokens": 27594,
+    "api_call_count": 68
+  },
+  "started_at": "2026-11-06T14:14:27.511239-08:00",
+  "completed_at": "2026-11-06T14:19:22.3971-08:00"
+}

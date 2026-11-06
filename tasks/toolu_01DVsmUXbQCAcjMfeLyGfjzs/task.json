@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01DVsmUXbQCAcjMfeLyGfjzs",
+  "agent_id": "ab50f2799dbd1350c",
+  "subagent_type": "Explore",
+  "task_description": "Map CLI command surface",
+  "token_usage": {
+    "input_tokens": 92,
+    "cache_creation_tokens": 110137,
+    "cache_read_tokens": 3941163,
+    "output_tokens": 21406,
+    "api_call_count": 46
+  },
+  "started_at": "2026-11-06T14:14:37.184703-08:00",
+  "completed_at": "2026-11-06T14:18:19.071939-08:00"
+}
