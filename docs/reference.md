@@ -1247,6 +1247,18 @@ to `repos/` under the plugin data directory, which `entire brain facts global`
 prints. They are ordinary facts: the same format, the same taxonomy, the same
 retraction and garbage collection.
 
+### On one machine
+
+Global facts stay on the machine that recorded them. `memories sync` and the
+background sync exchange repository memories with the team's hosted memory set;
+the global store is not uploaded, so a second machine signed in to the same
+account does not recall them. There is no account-scoped hosted store for them,
+and a repository's hosted store is shared with that repository's team.
+
+`memories sync` names what it left behind: a `not synced: N global memory(ies)`
+line, and `global_not_synced` in `--json`. `memories global` says the same under
+the list, and its `--json` carries `"synced": false`.
+
 ### How they surface
 
 Every read surface merges them into the repository's results: `recall`,
@@ -1290,7 +1302,7 @@ value disables global facts rather than leaving them on.
 says so:
 
 ```
-not in a repository, so this was remembered globally; it will be recalled from every repo
+not in a repository, so this was remembered globally; it will be recalled from every repo on this machine
 ```
 
 This is decided by asking git whether the directory is a working tree, not by
