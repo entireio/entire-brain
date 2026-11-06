@@ -152,6 +152,11 @@ func TestCodexSessionRoot(t *testing.T) {
 		), []string{"main.go"}, ""},
 		{"dot segments and doubled slashes cleaned", lines(codexFileChange(t, codexChange{Path: "/w/r/./pkg//a.go", Kind: "update"})), []string{"pkg/a.go"}, "/w/r"},
 		{"a .. path gives no root", lines(codexFileChange(t, codexChange{Path: "/w/r/x/../main.go", Kind: "update"})), []string{"main.go"}, ""},
+		{"a .. path gives the whole session no root", lines(
+			codexFileChange(t, codexChange{Path: "/work/repo/src/../main.go", Kind: "update"}),
+			codexFileChange(t, codexChange{Path: "/work/repo/src/main.go", Kind: "update"}),
+		), []string{"main.go"}, ""},
+		{"a .. move path gives the whole session no root", lines(codexFileChange(t, codexChange{Path: "/w/r/main.go", Kind: "update", MovePath: "/w/r/x/../y.go"})), []string{"main.go"}, ""},
 		{"most paths agree", lines(
 			codexFileChange(t, codexChange{Path: "/w/r/a/main.go", Kind: "update"}),
 			codexFileChange(t, codexChange{Path: "/w/r/b.go", Kind: "update"}, codexChange{Path: "/w/r/c.go", Kind: "update"}),

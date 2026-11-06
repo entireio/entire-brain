@@ -256,7 +256,8 @@ func repoRelativePath(p, repoRoot string) string {
 // repo/main.go) still gets its full score, and repeated edits of one file
 // count once. A tie is ambiguous, whatever else the tied roots hold, so it
 // gives "" and the paths are stored as written rather than linked to the
-// wrong files. "" also when the session has no FileChange or no path ends in
+// wrong files. So does a session with any ".." path (see
+// codexFileChangePaths), and one with no FileChange or no path that ends in
 // a touched file.
 //
 // The live checkout the corpus is built from is not used: worktrees of a repo
@@ -274,8 +275,12 @@ func codexSessionRoot(transcript string, filesTouched []string) string {
 			touched[f] = true
 		}
 	}
+	paths, resolved := codexFileChangePaths(transcript)
+	if !resolved {
+		return ""
+	}
 	score := map[string]int{}
-	for _, p := range codexFileChangePaths(transcript) {
+	for _, p := range paths {
 		for i := 1; i < len(p)-1; i++ {
 			if p[i] == '/' && touched[p[i+1:]] {
 				score[p[:i]]++
@@ -299,9 +304,13 @@ func codexSessionRoot(transcript string, filesTouched []string) string {
 
 // codexFileChangePaths is every distinct absolute path (path and move_path)
 // in a compact codex transcript's FileChange blocks, cleaned by cleanAbsPath.
-func codexFileChangePaths(transcript string) []string {
+// resolved is false when any of them has a ".." segment: where that path
+// really is cannot be known here, and leaving it out could hand the root to
+// whichever paths are left.
+func codexFileChangePaths(transcript string) (paths []string, resolved bool) {
 	seen := map[string]bool{}
 	var out []string
+	resolved = true
 	for _, line := range strings.Split(transcript, "\n") {
 		if !strings.Contains(line, `"FileChange"`) {
 			continue
@@ -320,6 +329,9 @@ func codexFileChangePaths(transcript string) []string {
 			for _, c := range changes {
 				cm := jsonMap(c)
 				for _, p := range []string{jsonString(cm["path"]), jsonString(cm["move_path"])} {
+					if hasDotDotSegment(slashPath(p)) {
+						resolved = false
+					}
 					if s, ok := cleanAbsPath(p); ok && !seen[s] {
 						seen[s] = true
 						out = append(out, s)
@@ -328,7 +340,7 @@ func codexFileChangePaths(transcript string) []string {
 			}
 		}
 	}
-	return out
+	return out, resolved
 }
 
 // cleanAbsPath is p as a slashPath with "." segments and doubled slashes
@@ -337,10 +349,15 @@ func codexFileChangePaths(transcript string) []string {
 // and the checkout it was written in may not be here to look at.
 func cleanAbsPath(p string) (string, bool) {
 	s := slashPath(p)
-	if !isAbsSlashPath(s) || strings.Contains(s+"/", "/../") {
+	if !isAbsSlashPath(s) || hasDotDotSegment(s) {
 		return "", false
 	}
 	return path.Clean(s), true
+}
+
+// hasDotDotSegment reports whether a slashPath has a ".." segment.
+func hasDotDotSegment(p string) bool {
+	return strings.Contains("/"+p+"/", "/../")
 }
 
 // pathUnderRoot is p relative to root when p is strictly inside it. Both are
