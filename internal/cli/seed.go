@@ -640,15 +640,15 @@ func inspectSeedFileSize(entry *seedFileIndexEntry, rel string, size int64, opts
 }
 
 // seedFileNeedsContent reports whether inspectSeedFile would read a file's
-// bytes, given its path and size. It is how the committed HEAD checkout leaves
-// out every file the scan only stats (seed_head.go).
+// bytes, given its path and size. The committed HEAD checkout uses it to leave
+// out a hydrated LFS object the scan only stats (seed_head.go).
 func seedFileNeedsContent(rel string, size int64, opts seedCommandOptions) bool {
 	entry, _, ok := inspectSeedFilePath(rel, opts)
 	return ok && inspectSeedFileSize(&entry, rel, size, opts)
 }
 
 // inspectUnreadSeedFile is inspectSeedFile for a file whose bytes were never
-// written out because seedFileNeedsContent said the scan does not read them.
+// written out because its path or size settles its entry (seed_head.go).
 // It runs the same two checks on the committed size, so the entry is the one
 // a scan of the file on disk would have produced.
 func inspectUnreadSeedFile(rel string, size int64, opts seedCommandOptions) seedFileIndexEntry {

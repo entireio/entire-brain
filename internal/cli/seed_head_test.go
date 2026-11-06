@@ -375,23 +375,29 @@ func TestDirtySeedIgnoresUncommittedGitattributes(t *testing.T) {
 	assertNoSeedHeadLeftovers(t, tempDir)
 }
 
-// TestDirtySeedChecksOutOnlyWhatTheScanReads: a file the scan only stats -- a
-// denied path, an excluded test, binary media, anything over --max-file-bytes
-// -- is never written into the checkout, and the scan still records it exactly
-// as a scan of the clean tree does.
-func TestDirtySeedChecksOutOnlyWhatTheScanReads(t *testing.T) {
+// TestDirtySeedChecksOutOnlyWhatTheScanNeeds: a file whose path or blob size
+// settles its entry -- a denied path, an excluded test, a blob over
+// --max-file-bytes that no conversion can shrink -- is never written into the
+// checkout, and the scan still records it exactly as a scan of the clean tree
+// does. Everything else is checked out, media included: the size of the
+// checked-out file decides between "too large" and "binary or media", and a
+// conversion can make it differ from the blob's.
+func TestDirtySeedChecksOutOnlyWhatTheScanNeeds(t *testing.T) {
 	tempDir := isolateSeedHeadTemp(t)
 	repoDir := seedHeadTestRepo(t)
 	statOnly := map[string]string{
 		"vendor/lib.js":    "module.exports = 1\n",
 		".env":             "SECRET=committed\n",
-		"logo.png":         "\x89PNG\r\n\x1a\n\x00\x00",
 		"data/big.txt":     strings.Repeat("big ", 40),
 		"src/main_test.go": "package main\n",
 	}
-	read := map[string]string{
+	checkedOut := map[string]string{
 		"docs/long.md": strings.Repeat("a long committed doc ", 10),
 		"src/small.go": "package main\n",
+		"logo.png":     "\x89PNG\r\n\x1a\n\x00\x00",
+		// 50 bytes of LF lines as a blob, 75 once eol=crlf checks them out:
+		// too large, not media, as in a clean checkout.
+		"crlf.png": strings.Repeat("a\n", 25),
 		// 40 Latin-1 bytes in the worktree, an 80-byte UTF-8 blob: over
 		// --max-file-bytes as a blob, under it once checked out.
 		"data/latin.txt": strings.Repeat("\xe9", 40),
@@ -400,13 +406,21 @@ func TestDirtySeedChecksOutOnlyWhatTheScanReads(t *testing.T) {
 		"wide.png": utf16LE(strings.Repeat("w", 40)),
 	}
 	writeSeedHeadFiles(t, repoDir, statOnly)
-	writeSeedHeadFiles(t, repoDir, read)
+	writeSeedHeadFiles(t, repoDir, checkedOut)
 	// Over --max-file-bytes itself, so in neither list.
 	writeSeedHeadFiles(t, repoDir, map[string]string{
-		".gitattributes": "data/latin.txt working-tree-encoding=ISO-8859-1\nwide.png working-tree-encoding=UTF-16LE\n",
+		".gitattributes": "data/latin.txt working-tree-encoding=ISO-8859-1\nwide.png working-tree-encoding=UTF-16LE\ncrlf.png text eol=crlf\n",
 	})
 	gitAt(t, repoDir, "add", "-A")
 	gitAt(t, repoDir, "commit", "-q", "-m", "stat-only files")
+	// Give the clean tree the CRLF file a checkout of the commit writes.
+	if err := os.Remove(filepath.Join(repoDir, "crlf.png")); err != nil {
+		t.Fatal(err)
+	}
+	gitAt(t, repoDir, "checkout", "--", "crlf.png")
+	if info, err := os.Stat(filepath.Join(repoDir, "crlf.png")); err != nil || info.Size() != 75 {
+		t.Fatalf("crlf.png was not checked out with CRLF line ends: %v, %v", info, err)
+	}
 	env := semanticTestEnv(t, repoDir)
 	opts := Options{Version: "test", Env: env, Runner: ExecRunner{}}
 	cleanDir := filepath.Join(t.TempDir(), "clean")
@@ -428,9 +442,9 @@ func TestDirtySeedChecksOutOnlyWhatTheScanReads(t *testing.T) {
 			t.Errorf("%s: unread size = %d, %v; want its committed size %d", rel, size, ok, len(content))
 		}
 	}
-	for rel := range read {
+	for rel := range checkedOut {
 		if _, err := os.Stat(filepath.Join(head.dir, filepath.FromSlash(rel))); err != nil {
-			t.Errorf("%s is read by the scan and must be checked out: %v", rel, err)
+			t.Errorf("%s must be checked out: %v", rel, err)
 		}
 	}
 	head.remove()
@@ -450,14 +464,17 @@ func TestDirtySeedChecksOutOnlyWhatTheScanReads(t *testing.T) {
 	if !bytes.Equal(cleanIndex, dirtyIndex) {
 		t.Errorf("the dirty-tree file index differs from the clean one of the same commit:\nclean:\n%s\ndirty:\n%s", cleanIndex, dirtyIndex)
 	}
+	if entry := seedIndexEntry(t, dirtyDir, "crlf.png"); entry.Reason != "too large" {
+		t.Errorf("crlf.png = %+v; want too large at its checked-out size", entry)
+	}
 	assertNoSeedHeadLeftovers(t, tempDir)
 }
 
 // TestDirtySeedBoundsConvertedCheckouts: a file whose checkout converts is
 // checked out so the scan sees its converted size, but one whose blob alone is
-// more than seedHeadConversionMaxShrink times --max-file-bytes is too large
-// however it converts, so it is never written out; the scan gives it the same
-// reason, and so the same fingerprint, as a clean seed of the commit.
+// more than seedHeadEncodingMaxShrink times --max-file-bytes is too large
+// however it re-encodes, so it is never written out; the scan gives it the
+// same reason, and so the same fingerprint, as a clean seed of the commit.
 func TestDirtySeedBoundsConvertedCheckouts(t *testing.T) {
 	tempDir := isolateSeedHeadTemp(t)
 	repoDir := seedHeadTestRepo(t)
@@ -506,11 +523,12 @@ func TestDirtySeedBoundsConvertedCheckouts(t *testing.T) {
 }
 
 // TestDirtySeedChecksOutWhatAFilterDriverRuns: a filter driver's output can
-// be any size, so a file one converts is checked out whatever its blob's size;
-// a global driver that shrinks a large blob to a small file leaves it
-// included, as in a clean seed. A filter whose only driver is repository
-// scoped is blanked by the hardened runner, writes the blob unchanged, and so
-// keeps the ordinary size rule: a large one is never checked out.
+// be smaller than its blob, so a file one converts is checked out up to
+// seedHeadDriverMaxShrink times --max-file-bytes; a global driver that shrinks
+// a large blob to a small file leaves it included, as in a clean seed. A
+// filter whose only driver is repository scoped is blanked by the hardened
+// runner, writes the blob unchanged, and so keeps the ordinary size rule: a
+// large one is never checked out.
 func TestDirtySeedChecksOutWhatAFilterDriverRuns(t *testing.T) {
 	tempDir := isolateSeedHeadTemp(t)
 	global := filepath.Join(t.TempDir(), "gitconfig")
@@ -583,6 +601,164 @@ func TestDirtySeedChecksOutWhatAFilterDriverRuns(t *testing.T) {
 		t.Errorf("the dirty-tree file index differs from the clean one of the same commit:\nclean:\n%s\ndirty:\n%s", cleanIndex, dirtyIndex)
 	}
 	assertNoSeedHeadLeftovers(t, tempDir)
+}
+
+// TestDirtySeedCapsWhatAFilterDriverWrites: a blob more than
+// seedHeadDriverMaxShrink times --max-file-bytes is never handed to its
+// driver, so one checkout writes a bounded amount whatever the driver does.
+// It is reported too large from the blob's size. A clean seed would see the
+// driver's output instead; past the cap that is the price of the bound.
+func TestDirtySeedCapsWhatAFilterDriverWrites(t *testing.T) {
+	tempDir := isolateSeedHeadTemp(t)
+	global := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(global, []byte("[filter \"squeeze\"]\n\tsmudge = tr -s x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	repoDir := seedHeadTestRepo(t)
+	vast := seedHeadDriverMaxShrink*64 + 1
+	near := seedHeadDriverMaxShrink * 64
+	writeSeedHeadFiles(t, repoDir, map[string]string{
+		".gitattributes":    "filtered/*.txt filter=squeeze\n",
+		"filtered/vast.txt": strings.Repeat("x", vast),
+		"filtered/near.txt": strings.Repeat("x", near),
+	})
+	gitAt(t, repoDir, "add", "-A")
+	gitAt(t, repoDir, "commit", "-q", "-m", "filtered files")
+	dirtySeedHeadTree(t, repoDir)
+
+	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+	if err != nil {
+		t.Fatalf("check out HEAD: %v", err)
+	}
+	defer head.remove()
+	if _, err := os.Lstat(filepath.Join(head.dir, "filtered", "vast.txt")); err == nil {
+		t.Error("a blob past the driver cap was written into the checkout")
+	}
+	if size, ok := head.unreadSize("filtered/vast.txt"); !ok || size != int64(vast) {
+		t.Errorf("filtered/vast.txt: unread size = %d, %v; want its blob size %d", size, ok, vast)
+	}
+	if got, err := os.ReadFile(filepath.Join(head.dir, "filtered", "near.txt")); err != nil || string(got) != "x" {
+		t.Errorf("filtered/near.txt = %q, %v; want the driver's output", got, err)
+	}
+	head.remove()
+
+	env := semanticTestEnv(t, repoDir)
+	opts := Options{Version: "test", Env: env, Runner: ExecRunner{}}
+	dirtyDir := filepath.Join(t.TempDir(), "dirty")
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--max-file-bytes", "64", "--output", dirtyDir, repoDir); err != nil {
+		t.Fatalf("seed the dirty tree: %v\n%s", err, out)
+	}
+	if entry := seedIndexEntry(t, dirtyDir, "filtered/vast.txt"); entry.Included || entry.Reason != "too large" || entry.Bytes != int64(vast) {
+		t.Errorf("filtered/vast.txt = %+v; want too large at its blob size", entry)
+	}
+	if entry := seedIndexEntry(t, dirtyDir, "filtered/near.txt"); !entry.Included {
+		t.Errorf("filtered/near.txt = %+v; want it included", entry)
+	}
+	assertNoSeedHeadLeftovers(t, tempDir)
+}
+
+// gitConfigCountingRunner runs commands for real and records each git config
+// call the checkout makes.
+type gitConfigCountingRunner struct {
+	ExecRunner
+	configCalls [][]string
+}
+
+func (r *gitConfigCountingRunner) RunWithEnv(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error) {
+	if name == "git" && len(args) > 0 && args[0] == "config" {
+		r.configCalls = append(r.configCalls, args)
+	}
+	return r.ExecRunner.RunWithEnv(ctx, dir, env, name, args...)
+}
+
+// TestDirtySeedReadsFilterDriversInOneCall: however many filters the commit
+// names, the checkout reads the driver configuration once, and still tells a
+// configured driver from a filter with none.
+func TestDirtySeedReadsFilterDriversInOneCall(t *testing.T) {
+	isolateSeedHeadTemp(t)
+	global := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(global, []byte("[filter \"real\"]\n\tsmudge = cat\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	repoDir := seedHeadTestRepo(t)
+	big := strings.Repeat("z", 4*64+1)
+	files := map[string]string{".gitattributes": "real/* filter=real\n"}
+	for i := range 12 {
+		name := fmt.Sprintf("none%d", i)
+		files[".gitattributes"] += name + "/* filter=" + name + "\n"
+		files[name+"/big.txt"] = big
+	}
+	files["real/big.txt"] = big
+	writeSeedHeadFiles(t, repoDir, files)
+	gitAt(t, repoDir, "add", "-A")
+	gitAt(t, repoDir, "commit", "-q", "-m", "filtered files")
+	dirtySeedHeadTree(t, repoDir)
+
+	runner := &gitConfigCountingRunner{}
+	head, err := checkoutSeedHead(context.Background(), runner, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+	if err != nil {
+		t.Fatalf("check out HEAD: %v", err)
+	}
+	defer head.remove()
+	if len(runner.configCalls) != 1 {
+		t.Errorf("git config ran %d times for 13 filters; want once: %q", len(runner.configCalls), runner.configCalls)
+	}
+	if _, err := os.Stat(filepath.Join(head.dir, "real", "big.txt")); err != nil {
+		t.Errorf("a file a configured driver converts was not checked out: %v", err)
+	}
+	if _, ok := head.unreadSize("none0/big.txt"); !ok {
+		t.Error("a large file whose filter has no driver was checked out")
+	}
+}
+
+// fixedConfigRunner answers git config with fixed output and error.
+type fixedConfigRunner struct {
+	out []byte
+	err error
+}
+
+func (r fixedConfigRunner) RunWithEnv(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error) {
+	return r.out, nil, r.err
+}
+
+func TestSeedHeadFilterDriversParsesTheEffectiveConfiguration(t *testing.T) {
+	t.Parallel()
+	exitOne := exec.Command("sh", "-c", "exit 1").Run()
+	exitTwo := exec.Command("sh", "-c", "exit 2").Run()
+	cases := []struct {
+		name   string
+		runner fixedConfigRunner
+		runs   []string
+		skips  []string
+	}{
+		{name: "none configured", runner: fixedConfigRunner{err: exitOne}, skips: []string{"a", "lfs", ""}},
+		{
+			name: "the last value of a key wins",
+			runner: fixedConfigRunner{out: []byte("filter.a.smudge\ntr x y\x00filter.b.process\nrun it\x00" +
+				"filter.a.smudge\n\x00filter.c.d.smudge\ncat\x00filter.lfs.process\ngit-lfs filter-process\x00")},
+			runs:  []string{"b", "c.d"},
+			skips: []string{"a", "lfs", "unset", "unspecified"},
+		},
+		{name: "unreadable", runner: fixedConfigRunner{err: exitTwo}, runs: []string{"a", "anything"}, skips: []string{"lfs", ""}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			drivers := seedHeadFilterDrivers(context.Background(), tc.runner, t.TempDir(), nil)
+			for _, name := range tc.runs {
+				if !drivers.runs(name) {
+					t.Errorf("filter %q: no driver; want one", name)
+				}
+			}
+			for _, name := range tc.skips {
+				if drivers.runs(name) {
+					t.Errorf("filter %q: a driver; want none", name)
+				}
+			}
+		})
+	}
 }
 
 // utf16LE encodes ASCII text as UTF-16LE, the bytes a working tree holds for

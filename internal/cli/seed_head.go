@@ -72,12 +72,18 @@ const seedHeadCheckoutArgBytes = 16 * 1024
 // seedHeadLFSPointerMaxBytes is the largest blob Git LFS treats as a pointer.
 const seedHeadLFSPointerMaxBytes = 1024
 
-// seedHeadConversionMaxShrink bounds how much smaller a working-tree-encoding
+// seedHeadEncodingMaxShrink bounds how much smaller a working-tree-encoding
 // checkout can be than its blob: the blob is UTF-8, at most 4 bytes a
-// character, and no encoding writes a character in under one byte. A blob more
-// than this many times --max-file-bytes is too large once re-encoded, so it is
-// never checked out (see populate). A filter driver has no such bound.
-const seedHeadConversionMaxShrink = 4
+// character, and no encoding writes a character in under one byte.
+const seedHeadEncodingMaxShrink = 4
+
+// seedHeadDriverMaxShrink is the shrink a filter driver is allowed before its
+// file is treated as too large unread. A driver's output has no bound of its
+// own; smudge drivers in use (decrypting, decompressing, stripping) leave a
+// file about its size or grow it. Without a cap, an identity or growing driver
+// on a multi-gigabyte blob is written out in full only to be dropped; with it,
+// one file writes at most this many times --max-file-bytes.
+const seedHeadDriverMaxShrink = 64
 
 // errSeedNoCommittedHead is the one checkout failure that is not a failure: a
 // repository whose branch has no commit has no committed state to seed from,
@@ -97,7 +103,7 @@ type seedHeadCheckout struct {
 	paths []string
 	// unread holds the committed size of each selected file that was left
 	// out of dir because its path and size alone settle its scan entry
-	// (seedFileNeedsContent). The scan builds those entries from the size.
+	// (populate). The scan builds those entries from the size.
 	unread map[string]int64
 	// warnings are what the checkout could not do faithfully, for the scan
 	// to report.
@@ -229,47 +235,38 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	if err != nil {
 		return err
 	}
-	drivers := seedHeadFilterDrivers(ctx, runner, repoDir, env, attrs)
+	drivers := seedHeadFilterDrivers(ctx, runner, repoDir, env)
 	var wanted []string
 	var lfs []seedHeadSmallFile
 	for _, path := range selected {
 		entry := entries[path]
-		if entry.regularFile() {
-			attr := attrs[path]
-			switch {
-			case attr.filter == "lfs" && entry.size <= seedHeadLFSPointerMaxBytes:
-				// The blob is a pointer: the file's real size is only known
-				// once it is read, so only its path can leave it out here.
-				if _, _, pathOK := inspectSeedFilePath(path, opts); pathOK {
-					wanted = append(wanted, path)
-					lfs = append(lfs, seedHeadSmallFile{path: path, size: entry.size})
-					continue
-				}
-				c.unread[path] = entry.size
-				continue
-			case drivers[attr.filter] || specifiedAttr(attr.encoding):
-				// A filter driver or a working-tree-encoding changes the
-				// file's size, and the size decides both whether it is too
-				// large and, for media, which reason it gets. So a converted
-				// file is checked out and the scan stats the real one. Only
-				// an encoding bounds how much it can shrink: past
-				// seedHeadConversionMaxShrink times --max-file-bytes such a
-				// file is too large however it converts, unless it is a doc
-				// the scan reads at any size. A driver's output can be any
-				// size, so its files are checked out as a clean checkout
-				// writes them.
-				if _, _, pathOK := inspectSeedFilePath(path, opts); !pathOK {
-					c.unread[path] = entry.size
-					continue
-				}
-				if !drivers[attr.filter] && !isHighSignalDoc(path) && entry.size > seedHeadConversionMaxShrink*int64(opts.maxFileBytes) {
-					c.unread[path] = entry.size
-					continue
-				}
-			case !seedFileNeedsContent(path, entry.size, opts):
-				c.unread[path] = entry.size
-				continue
-			}
+		if !entry.regularFile() {
+			wanted = append(wanted, path)
+			continue
+		}
+		// The path rules settle an entry whatever the file holds.
+		if _, _, pathOK := inspectSeedFilePath(path, opts); !pathOK {
+			c.unread[path] = entry.size
+			continue
+		}
+		attr := attrs[path]
+		if attr.filter == "lfs" && entry.size <= seedHeadLFSPointerMaxBytes {
+			// The blob is a pointer: the file's real size is only known once
+			// it is read.
+			wanted = append(wanted, path)
+			lfs = append(lfs, seedHeadSmallFile{path: path, size: entry.size})
+			continue
+		}
+		// Otherwise the size rules need the size of the checked-out file,
+		// which conversions make differ from the blob's: an eol conversion
+		// grows it (a small media file can cross --max-file-bytes and become
+		// "too large"), an encoding or a filter driver can shrink it. So a
+		// file is checked out and the scan stats the real one, unless its
+		// blob is too large however it converts. A doc the scan reads at any
+		// size is always checked out.
+		if !isHighSignalDoc(path) && entry.size > seedHeadMaxShrink(attr, drivers)*int64(opts.maxFileBytes) {
+			c.unread[path] = entry.size
+			continue
 		}
 		wanted = append(wanted, path)
 	}
@@ -301,36 +298,69 @@ func specifiedAttr(value string) bool {
 	return value != "" && value != "unspecified" && value != "unset"
 }
 
-// seedHeadFilterDrivers reports which of the commit's filter attributes run a
-// command on checkout: a smudge or process command is set in the configuration
-// the hardened runner leaves in force. Repository-scoped drivers are blanked
-// there (git_harden_filters.go), so a filter=x with only a repository driver,
-// or none at all, writes the blob unchanged and its size rules as usual. LFS is
-// handled on its own (settleLFSPointers). eol and ident conversions are not
-// counted: they only ever grow a file.
-func seedHeadFilterDrivers(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, attrs map[string]seedHeadAttrs) map[string]bool {
-	drivers := map[string]bool{}
-	checked := map[string]bool{}
-	for _, attr := range attrs {
-		name := attr.filter
-		if !specifiedAttr(name) || name == "lfs" || checked[name] {
-			continue
+// seedHeadMaxShrink is how many times smaller than its blob a path's checkout
+// can be. With neither an encoding nor a driver, what is left (eol, ident)
+// does not shrink a file, so a blob over --max-file-bytes is too large.
+func seedHeadMaxShrink(attr seedHeadAttrs, drivers seedHeadDrivers) int64 {
+	switch {
+	case drivers.runs(attr.filter):
+		return seedHeadDriverMaxShrink
+	case specifiedAttr(attr.encoding):
+		return seedHeadEncodingMaxShrink
+	}
+	return 1
+}
+
+// seedHeadDrivers is the set of filter drivers that run a command on checkout:
+// a smudge or process command set in the configuration the hardened runner
+// leaves in force. Repository-scoped drivers are blanked there
+// (git_harden_filters.go), so a filter=x with only a repository driver, or
+// none at all, writes the blob unchanged. LFS is handled on its own
+// (settleLFSPointers).
+type seedHeadDrivers struct {
+	names map[string]bool
+	// unknown: the configuration could not be read, so every filter is
+	// taken to run one, which only costs checking more files out.
+	unknown bool
+}
+
+func (d seedHeadDrivers) runs(filter string) bool {
+	if !specifiedAttr(filter) || filter == "lfs" {
+		return false
+	}
+	return d.unknown || d.names[filter]
+}
+
+// seedHeadFilterDrivers reads every driver command in one git call, however
+// many filters the commit names.
+func seedHeadFilterDrivers(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string) seedHeadDrivers {
+	out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "config", "-z", "--get-regexp", `^filter\..*\.(smudge|process)$`)
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && len(out) == 0 {
+			return seedHeadDrivers{} // no driver is configured
 		}
-		checked[name] = true
-		for _, key := range []string{"smudge", "process"} {
-			out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "config", "--get", "filter."+name+"."+key)
-			var exitErr *exec.ExitError
-			switch {
-			case err == nil && strings.TrimSpace(string(out)) != "":
-				drivers[name] = true
-			case err != nil && !(errors.As(err, &exitErr) && exitErr.ExitCode() == 1):
-				// Exit 1 is "not set". Anything else leaves it unknown, and
-				// assuming a driver only costs checking the file out.
-				drivers[name] = true
-			}
+		return seedHeadDrivers{unknown: true}
+	}
+	// -z: <key> LF <value> NUL per entry, in the order git reads its
+	// configuration, so a key's last value is the one in force; the hardened
+	// runner's blanking comes last of all.
+	values := map[string]string{}
+	for _, record := range strings.Split(string(out), "\x00") {
+		if key, value, _ := strings.Cut(record, "\n"); key != "" {
+			values[key] = value
 		}
 	}
-	return drivers
+	names := map[string]bool{}
+	for key, value := range values {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		if name, ok := filterDriverFromConfigKey(key); ok {
+			names[name] = true
+		}
+	}
+	return seedHeadDrivers{names: names}
 }
 
 // attributes reads the filter and working-tree-encoding attributes of paths
