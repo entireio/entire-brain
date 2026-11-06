@@ -187,8 +187,19 @@ func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOpti
 		return fmt.Errorf("memories sync: pushed %d memory(ies) to %s, but the pull failed (local brain unaffected): %w", counts.Added+counts.Changed+counts.Unchanged, backendLabel, pullErr)
 	}
 
+	// The exchange above is repository-scoped, so global memories never ride
+	// it (#570). Report how many stayed on this machine: without it a sync
+	// that left them behind reads exactly like one that had nothing to send.
+	// Reading the global store cannot fail a sync that already completed, but
+	// an unreadable store is not an empty one: JSON reports the count as
+	// unknown (null) with the reason, never as zero.
+	globalLocal, globalErr := localOnlyGlobalFactCount(opts.Env)
+	if globalErr != nil {
+		fmt.Fprintf(errW, "warning: could not read the global memory store to count what stays on this machine: %v\n", globalErr)
+	}
+
 	if syncOpts.jsonOut {
-		return cmdutil.WriteJSON(cmd, map[string]any{
+		payload := map[string]any{
 			"branch":                branch,
 			"backend":               backendLabel,
 			"pushed_added":          counts.Added,
@@ -197,10 +208,20 @@ func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOpti
 			"skipped_unpublishable": skipped,
 			"feed_facts":            total,
 			"feed_kept":             kept,
-		})
+			"global_not_synced":     globalLocal,
+		}
+		if globalErr != nil {
+			payload["global_not_synced"] = nil
+			payload["global_not_synced_error"] = globalErr.Error()
+		}
+		return cmdutil.WriteJSON(cmd, payload)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "synced %s via %s: pushed added=%d changed=%d unchanged=%d; feed facts=%d kept=%d\n",
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "synced %s via %s: pushed added=%d changed=%d unchanged=%d; feed facts=%d kept=%d\n",
 		branch, backendLabel, counts.Added, counts.Changed, counts.Unchanged, total, kept)
+	if globalLocal > 0 {
+		fmt.Fprintf(out, "not synced: %d global memory(ies); %s\n", globalLocal, globalFactsStayLocalNote())
+	}
 	return nil
 }
 

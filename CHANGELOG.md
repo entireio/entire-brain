@@ -5,6 +5,13 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Say that global memories stay on the machine that recorded them.
+  `memories sync` reports how many it did not upload (`global_not_synced` in
+  JSON), and `memories global` and `remember --global` name the limit. Global
+  memories are still not synced across machines (#570).
+
 ### Fixed
 
 - `recall --evidence` no longer returns harness-injected `<system-reminder>`
