@@ -376,15 +376,13 @@ entire brain setup                         # then onboard: build, backfill, watc
 sessions up. Skip it entirely and the brain still builds, permanently without
 the one source it is most interesting for.
 
-**The commit in the middle is not optional, and it is the one thing about this
-order that surprises people.** `entire enable` writes `.entire/settings.json`
-and your agent's hook settings (`.claude/settings.json` for Claude Code) and
-leaves them uncommitted, so `setup` run immediately afterwards finds a dirty
-worktree and refuses to seed or index it — two more red ✗ on a first run,
-caused by the command directly above. Both files are project configuration that
-belongs in the repository anyway, so committing them is the real fix rather than
-a workaround; `setup` prints the same remedy if you hit it. (`--worktree`, which
-the refusal names, is a `refresh` flag — `setup` does not accept it.)
+**The commit in the middle is still worth making, though it no longer blocks
+anything.** `entire enable` writes `.entire/settings.json` and your agent's hook
+settings (`.claude/settings.json` for Claude Code) and leaves them uncommitted.
+The dirty check exempts the files Entire itself wrote, and any other uncommitted
+edit is left out of a brain built from committed HEAD rather than refused. Both
+files are project configuration that belongs in the repository anyway, so
+commit them.
 
 **A repository that is new to Entire now reaches an all-green `setup` with no
 user action** — including a `git init` repository with no remote at all, on
@@ -402,10 +400,13 @@ actually produces it is a machine with no `entire graph` provider
 (`x semantic index: provider_doctor_failed: …`, fixed by `scripts/install.sh`),
 or a checkpoint inventory Entire cannot read (`x session export`).
 
-The uncommitted worktree above is the one case that does NOT: it refuses both
-`repository context` and `semantic index`, which are the two sources a query reads,
-so the headline is `Brain set up, but not queryable` and names what is missing.
-The exit code is still 0 and everything else setup built is kept.
+An uncommitted worktree does not produce it either: repository context is built
+from a private checkout of committed HEAD and the code index describes committed
+HEAD, so both sources a query reads still build, with the open edits left out.
+The one exception is a branch with no commit yet, which has nothing committed
+to build from: there `repository context` is still refused with
+`dirty_worktree` and the hint names the ways out. The exit code is still 0 and
+everything else setup built is kept.
 
 `x semantic index: repo key mismatch` used to belong on that list, and no longer
 does. `entire-brain` and `entire-graph` name the same repository differently —
@@ -452,8 +453,10 @@ entire brain refresh
 entire brain status
 ```
 
-Refresh refuses a dirty worktree by default. Run it on a clean checkout, or use
-`entire brain refresh --worktree` only when you intentionally want seed/docs to
+On a dirty worktree, refresh builds from committed HEAD by default and leaves the
+uncommitted changes out; the repository context is read from a private checkout
+of HEAD, so a commit made while you keep editing still moves the brain forward.
+Use `entire brain refresh --worktree` only when you intentionally want seed/docs to
 include the current uncommitted state — this does not touch the semantic index.
 Use the advanced `refresh index --worktree` path when the semantic layer itself
 needs to reflect uncommitted state. Worktree-backed semantic indexes are

@@ -16,7 +16,7 @@ func TestSeedDocumentUsesConfiguredCopyLimit(t *testing.T) {
 			t.Fatal(err)
 		}
 		opts := seedCommandOptions{maxFileBytes: limit, maxFiles: 10, includeTests: true}
-		scan, err := scanSeedRepository(context.Background(), &fakeCommandRunner{}, repo, "test", opts)
+		scan, err := scanSeedRepository(context.Background(), &fakeCommandRunner{}, repo, "test", opts, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

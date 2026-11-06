@@ -109,6 +109,20 @@ type seedScanResult struct {
 	Coverage     *seedHistoryCoverage
 	Warnings     []string
 	Fingerprint  string
+
+	// ContentDir is where file bytes are read from when that is not RepoDir:
+	// a private checkout of Commit, used when the worktree has uncommitted
+	// changes (see seed_head.go). Empty means RepoDir. RepoDir stays the
+	// repository the reader knows; ContentDir is never written anywhere.
+	ContentDir string
+}
+
+// contentRoot is the directory the scan's file reads resolve against.
+func (s *seedScanResult) contentRoot() string {
+	if s.ContentDir != "" {
+		return s.ContentDir
+	}
+	return s.RepoDir
 }
 
 func newSeedCommand(opts Options) *cobra.Command {
@@ -181,6 +195,11 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	if !local {
 		return fmt.Errorf("seed target must be an existing local path: %s", target)
 	}
+	// head is set when the worktree is dirty: the scan then reads a private
+	// checkout of committed HEAD instead of the working tree, so the seed
+	// still describes exactly the commit it records (issue #327).
+	var head *seedHeadCheckout
+	var excludedPaths int
 	if !seedOpts.worktree {
 		gateIgnore, err := worktreeGateIgnore(repoDir)
 		if err != nil {
@@ -191,7 +210,12 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 			return nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("check worktree before repository context refresh: %w", err))
 		}
 		if dirty {
-			return dirtyWorktreeRefusal("build repository context from", dirtyPaths)
+			head, err = checkoutSeedHead(ctx, opts.Runner, repoDir, seedOpts.maxFiles)
+			if err != nil {
+				return seedHeadRefusal(err, dirtyPaths)
+			}
+			defer head.remove()
+			excludedPaths = len(dirtyPaths)
 		}
 	}
 
@@ -239,7 +263,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		}
 	}
 
-	scan, err := scanSeedRepository(ctx, opts.Runner, repoDir, storage.Key, seedOpts)
+	scan, err := scanSeedRepository(ctx, opts.Runner, repoDir, storage.Key, seedOpts, head)
 	if err != nil {
 		return err
 	}
@@ -332,6 +356,13 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "seeded brain from %d files\n", len(scan.Files))
+	if head != nil {
+		noun := "paths"
+		if excludedPaths == 1 {
+			noun = "path"
+		}
+		fmt.Fprintf(out, "source: committed HEAD %s; %d uncommitted %s left out\n", shortCommitHash(head.commit), excludedPaths, noun)
+	}
 	fmt.Fprintf(out, "output: %s\n", outputDir)
 	if len(seedManifest.Warnings) > 0 {
 		// A bare count is not a report. On a 50,000-file repository the entire
@@ -349,8 +380,17 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	return nil
 }
 
-func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repoKey string, opts seedCommandOptions) (seedScanResult, error) {
-	paths, warnings := listSeedFiles(ctx, runner, repoDir, opts)
+// scanSeedRepository inventories and inspects the repository. With head nil it
+// reads the working tree; with head set it reads that commit's private checkout
+// and takes the inventory and the commit from it, so nothing in the result
+// comes from the uncommitted tree.
+func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repoKey string, opts seedCommandOptions, head *seedHeadCheckout) (seedScanResult, error) {
+	var paths, warnings []string
+	if head != nil {
+		paths = append([]string(nil), head.paths...)
+	} else {
+		paths, warnings = listSeedFiles(ctx, runner, repoDir, opts)
+	}
 	if len(paths) > opts.maxFiles {
 		// Name what was dropped, not just the ceiling that dropped it. "file
 		// scan capped at 2000 files" is true of a 2,001-file repository and of
@@ -361,8 +401,14 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 		warnings = append(warnings, fmt.Sprintf("file scan capped at %d of %d files; %d files were not read (raise with --max-files)", opts.maxFiles, len(paths), len(paths)-opts.maxFiles))
 		paths = paths[:opts.maxFiles]
 	}
-	commit := strings.TrimSpace(string(clibase.GitOutput(ctx, runner, repoDir, "rev-parse", "HEAD")))
-	result := seedScanResult{MaxFileBytes: opts.maxFileBytes, RepoDir: repoDir, RepoKey: repoKey, Commit: commit, Warnings: warnings}
+	result := seedScanResult{MaxFileBytes: opts.maxFileBytes, RepoDir: repoDir, RepoKey: repoKey, Warnings: warnings}
+	if head != nil {
+		result.Commit = head.commit
+		result.ContentDir = head.dir
+	} else {
+		result.Commit = strings.TrimSpace(string(clibase.GitOutput(ctx, runner, repoDir, "rev-parse", "HEAD")))
+	}
+	contentDir := result.contentRoot()
 	// Reserve source paths and their directories before allocating derived
 	// names: spec.pdf.md may itself be an authored document (or a directory).
 	reserved := map[string]bool{}
@@ -374,7 +420,7 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 		}
 	}
 	for _, rel := range paths {
-		entry := inspectSeedFile(repoDir, rel, opts)
+		entry := inspectSeedFile(contentDir, rel, opts)
 		result.Files = append(result.Files, entry)
 		if !entry.Included {
 			continue
@@ -402,14 +448,14 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 			result.Entrypoints = append(result.Entrypoints, filepath.ToSlash(rel))
 		}
 		if filepath.Base(rel) == "package.json" {
-			commands, err := packageJSONCommands(filepath.Join(repoDir, rel), rel)
+			commands, err := packageJSONCommands(filepath.Join(contentDir, rel), rel)
 			if err != nil {
 				result.Warnings = append(result.Warnings, err.Error())
 			}
 			result.Commands = append(result.Commands, commands...)
 		}
 		if filepath.Base(rel) == "mise.toml" {
-			commands, err := miseCommands(filepath.Join(repoDir, rel), rel)
+			commands, err := miseCommands(filepath.Join(contentDir, rel), rel)
 			if err != nil {
 				result.Warnings = append(result.Warnings, err.Error())
 			}
@@ -874,7 +920,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 			dropSeedDocument(scan, doc, "unsafe source path")
 			continue
 		}
-		if err := clibase.RejectSymlinkPathComponents(scan.RepoDir, cleanSrc); err != nil {
+		if err := clibase.RejectSymlinkPathComponents(scan.contentRoot(), cleanSrc); err != nil {
 			dropSeedDocument(scan, doc, fmt.Sprintf("not read: %v", err))
 			continue
 		}
@@ -888,7 +934,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 				return fmt.Errorf("validate seed document directory %s: %w", dir, err)
 			}
 		}
-		src := filepath.Join(scan.RepoDir, cleanSrc)
+		src := filepath.Join(scan.contentRoot(), cleanSrc)
 		if err := clibase.RejectExistingSymlinkPathComponents(outputDir, cleanDst); err != nil {
 			return fmt.Errorf("validate seed document path %s: %w", cleanDst, err)
 		}

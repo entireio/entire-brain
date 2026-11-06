@@ -344,30 +344,23 @@ above it, which is not a failure a user can be expected to attribute. The dirty
 check now exempts the files Entire itself authored, so the sequence above works
 from a clean clone with nothing committed in between.
 
-The exemption is deliberately narrow. Uncommitted **source** still stops a
-repository context or code index build, because a brain attributed to a commit
-must not absorb work that commit does not contain:
-
-```
-  instant     + sessions  x repository context  + history  + docs  x semantic  + patterns  + entities  + memory
-              x repository context: dirty_worktree: refusing to build repository context from
-                uncommitted content without --worktree; commit or stash them, list them in
-                .brainignore to keep them out of the brain, or pass --worktree to build
-                repository context from them as they are (2 uncommitted paths: src/app.ts, src/lib/parse.ts)
-```
+The exemption is deliberately narrow. A brain attributed to a commit must not
+absorb work that commit does not contain, so uncommitted **source** is still
+kept out — but it no longer stops the build. With real edits in the tree, the
+repository context is built from a private checkout of committed HEAD, and the
+code index already describes committed HEAD through Graph's store. Setup
+completes, and `status` reports the open edits as `dirty-unindexed` until they
+are committed. The checkout uses a scratch index, so it never touches the
+repository's own index.
 
 The Entire-authored files are still **indexed** — `AGENTS.md` and `CLAUDE.md` are
 exactly the repository docs you want the brain to know about. They just stop
-counting as uncommitted source for the gate. (`--worktree`, which the refusal
-names, is a `refresh` flag — `setup` does not accept it.)
+counting as uncommitted source for the gate.
 
-The code index and the baseline are the two sources a query reads, so with both
-refused the summary says the brain is not queryable rather than calling it
-ready: setup still exits 0, and everything else it built is kept. Both files are
-project configuration that belongs in the repository anyway, so committing them
-is the real fix rather than a workaround. (`--worktree`, which the refusal
-names, is a `refresh` flag — `setup` does not accept it, which is why the hint
-spells out the `refresh` form.)
+A branch with no commit yet has no committed state to build from, so there the
+repository context is still refused with `dirty_worktree` and the hint names the
+ways out. (`--worktree`, which the refusal names, is a `refresh` flag — `setup`
+does not accept it, which is why the hint spells out the `refresh` form.)
 
 **A repository new to Entire reaches an all-green `setup` with no user action.**
 On a committed `git init` repository with no remote at all, every component
