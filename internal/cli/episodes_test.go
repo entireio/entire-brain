@@ -28,7 +28,6 @@ type sessionFixture struct {
 func writeEpisodeFixture(t *testing.T, now time.Time, repoKey string, sessions []sessionFixture) string {
 	t.Helper()
 	brainDir := t.TempDir()
-	manifestSessions := make([]exportSession, 0, len(sessions))
 	for _, s := range sessions {
 		p := filepath.Join(brainDir, filepath.FromSlash(s.relPath))
 		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
@@ -37,6 +36,17 @@ func writeEpisodeFixture(t *testing.T, now time.Time, repoKey string, sessions [
 		if err := os.WriteFile(p, []byte(s.transcript), 0o600); err != nil {
 			t.Fatal(err)
 		}
+	}
+	writeEpisodeFixtureManifest(t, brainDir, now, repoKey, sessions)
+	return brainDir
+}
+
+// writeEpisodeFixtureManifest writes only the manifest for sessions, leaving
+// their transcripts as they are on disk.
+func writeEpisodeFixtureManifest(t *testing.T, brainDir string, now time.Time, repoKey string, sessions []sessionFixture) {
+	t.Helper()
+	manifestSessions := make([]exportSession, 0, len(sessions))
+	for _, s := range sessions {
 		es := exportSession{
 			SessionID:        s.id,
 			Branch:           s.branch,
@@ -63,7 +73,6 @@ func writeEpisodeFixture(t *testing.T, now time.Time, repoKey string, sessions [
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
 		t.Fatal(err)
 	}
-	return brainDir
 }
 
 const claudeReviewTranscript = `{"type":"user","message":{"content":"review release readiness for the cli"}}

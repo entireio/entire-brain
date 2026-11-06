@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 )
@@ -103,6 +104,8 @@ func TestCorpusEpisodeOpsCodexItemPathFileChange(t *testing.T) {
 		{"root prefix is not a parent", codexFileChange(t, codexChange{Path: "/work/repo2/x.go", Kind: "update"}), root, `["edit /work/repo2/x.go"]`},
 		{"empty path skipped", codexFileChange(t, codexChange{Path: "", Kind: "update"}, codexChange{Path: root + "/main.go", Kind: "update"}), root, `["edit main.go"]`},
 		{"windows path", codexFileChange(t, codexChange{Path: `C:\work\repo\pkg\a.go`, Kind: "update"}), "C:/work/repo", `["edit pkg/a.go"]`},
+		{"dot segments resolved", codexFileChange(t, codexChange{Path: root + "/dir/../main.go", Kind: "update"}), root, `["edit main.go"]`},
+		{"dot segments leaving the root kept", codexFileChange(t, codexChange{Path: root + "/../outside/x.go", Kind: "update"}), root, `["edit /work/repo/../outside/x.go"]`},
 		{"no root known", codexFileChange(t, codexChange{Path: root + "/main.go", Kind: "update"}), "", `["edit /work/repo/main.go"]`},
 	}
 	for _, c := range cases {
@@ -120,7 +123,7 @@ func TestCorpusEpisodeOpsCodexItemPathFileChange(t *testing.T) {
 
 // The root comes from the session itself: an absolute FileChange path that
 // ends in one of the checkpoint's repo-relative files_touched. It does not
-// depend on where the corpus is built.
+// depend on where the corpus is built, and an ambiguous session gets none.
 func TestCodexSessionRoot(t *testing.T) {
 	lines := func(records ...string) string { return strings.Join(records, "\n") + "\n" }
 	cases := []struct {
@@ -130,7 +133,19 @@ func TestCodexSessionRoot(t *testing.T) {
 	}{
 		{"one touched file", lines(codexFileChange(t, codexChange{Path: "/home/ada/src/repo/main.go", Kind: "update"})), []string{"main.go"}, "/home/ada/src/repo"},
 		{"untouched paths follow the session root", lines(codexFileChange(t, codexChange{Path: "/w/r/cmd/x.go", Kind: "update"}, codexChange{Path: "/w/r/scratch.txt", Kind: "add"})), []string{"cmd/x.go"}, "/w/r"},
-		{"longest touched suffix wins", lines(codexFileChange(t, codexChange{Path: "/w/r/cmd/main.go", Kind: "update"})), []string{"main.go", "cmd/main.go"}, "/w/r"},
+		{"one path ending in two touched files is ambiguous", lines(codexFileChange(t, codexChange{Path: "/w/r/cmd/main.go", Kind: "update"})), []string{"main.go", "cmd/main.go"}, ""},
+		{"checkout named like a repo directory", lines(codexFileChange(t, codexChange{Path: "/work/repo/main.go", Kind: "update"}, codexChange{Path: "/work/repo/repo/main.go", Kind: "update"})), []string{"main.go", "repo/main.go"}, "/work/repo"},
+		{"repeated edits of one file count once", lines(
+			codexFileChange(t, codexChange{Path: "/work/app/main.go", Kind: "update"}),
+			codexFileChange(t, codexChange{Path: "/work/app/main.go", Kind: "update"}),
+			codexFileChange(t, codexChange{Path: "/work/app/app/main.go", Kind: "update"}),
+		), []string{"main.go", "app/main.go"}, "/work/app"},
+		{"untouched edits do not pull the root down", lines(
+			codexFileChange(t, codexChange{Path: "/repo/main.go", Kind: "update"}),
+			codexFileChange(t, codexChange{Path: "/repo/sub/main.go", Kind: "update"}),
+			codexFileChange(t, codexChange{Path: "/repo/sub/main.go", Kind: "update"}),
+		), []string{"main.go"}, "/repo"},
+		{"dot segments resolved", lines(codexFileChange(t, codexChange{Path: "/w/r/x/../main.go", Kind: "update"})), []string{"main.go"}, "/w/r"},
 		{"most paths agree", lines(
 			codexFileChange(t, codexChange{Path: "/w/r/a/main.go", Kind: "update"}),
 			codexFileChange(t, codexChange{Path: "/w/r/b.go", Kind: "update"}, codexChange{Path: "/w/r/c.go", Kind: "update"}),
@@ -152,6 +167,70 @@ func TestCodexSessionRoot(t *testing.T) {
 	}
 }
 
+// codexItemPathCorpus is a brain with codex item-path sessions and a live
+// graph context whose semantic index has main.go's 2 symbols.
+type codexItemPathCorpus struct {
+	brain, key string
+	now        time.Time
+	graph      patternCorpusGraphContext
+}
+
+func newCodexItemPathCorpus(t *testing.T, sessions ...sessionFixture) codexItemPathCorpus {
+	t.Helper()
+	opts, repo, _, d := newGraphStoreFixture(t)
+	runner := opts.Runner.(*fakeCommandRunner)
+	d.Header.RepoKey = "gh/example/repo"
+	c := codexItemPathCorpus{key: semanticStorageKeyForTest(t, runner, opts.Env, repo), now: opts.Now()}
+	c.brain = writeEpisodeFixture(t, c.now, c.key, sessions)
+	data, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.responses[fakeCommandKey("custom-entire", "graph", "store", "--repo", repo, "--profile", "full")] = fakeCommandResponse{stdout: string(data)}
+	c.graph = patternCorpusGraphContext{Context: context.Background(), Options: opts, RepoDir: repo, Binary: "custom-entire"}
+	return c
+}
+
+func (c codexItemPathCorpus) build(t *testing.T) {
+	t.Helper()
+	if err := buildPatternCorpus(c.brain, c.now, c.graph); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// state describes the corpus's one command, its episode, file refs and
+// symbol links.
+func (c codexItemPathCorpus) state(t *testing.T) string {
+	t.Helper()
+	db := openCorpusReadSnapshot(t, c.brain)
+	var head, files, shape string
+	var exit, failed, exitFails any
+	if err := db.QueryRow(`SELECT c.head, c.exit_code, c.failed, e.exit_fails, COALESCE(e.files,''), COALESCE(s.shape,'')
+		FROM episode_commands c JOIN episodes e ON e.id = c.episode_id LEFT JOIN episode_shapes s ON s.episode_id = e.id`).Scan(&head, &exit, &failed, &exitFails, &files, &shape); err != nil {
+		t.Fatal(err)
+	}
+	var refs []string
+	rows, err := db.Query(`SELECT action || ' ' || path FROM episode_files ORDER BY path`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var r string
+		if err := rows.Scan(&r); err != nil {
+			t.Fatal(err)
+		}
+		refs = append(refs, r)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprintf("%s exit_code=%v failed=%v exit_fails=%v files=%s refs=%s shape=%s symbols=%d",
+		head, exit, failed, exitFails, files, strings.Join(refs, ","), shape, patterntest.CorpusCount(t, db, "episode_symbols"))
+}
+
+const codexItemPathCorpusWant = `go test exit_code=<nil> failed=1 exit_fails=1 files=["main.go"] refs=edit main.go shape=write symbols=2`
+
 // Through the corpus build: the failing go test counts in exit_fails, and the
 // FileChange of main.go is stored as main.go, links to its symbols, and makes
 // the turn a write. The session ran in a checkout other than the one building
@@ -161,52 +240,11 @@ func TestCodexSessionRoot(t *testing.T) {
 // on upgrade, so only a version bump makes the next build re-index it instead
 // of skipping it as unchanged.
 func TestPatternCorpusIndexesCodexItemPath(t *testing.T) {
-	opts, repo, _, d := newGraphStoreFixture(t)
-	runner := opts.Runner.(*fakeCommandRunner)
-	d.Header.RepoKey = "gh/example/repo"
-	key := semanticStorageKeyForTest(t, runner, opts.Env, repo)
-	brain := writeEpisodeFixture(t, opts.Now(), key, []sessionFixture{{id: "s1", agent: "codex", branch: "main", checkpoint: "cp1", relPath: "sessions/main/s1.jsonl", transcript: codexItemPathTranscript(t, "/home/teammate/src/repo"), filesTouched: []string{"main.go"}}})
-	data, err := json.Marshal(d)
-	if err != nil {
-		t.Fatal(err)
-	}
-	runner.responses[fakeCommandKey("custom-entire", "graph", "store", "--repo", repo, "--profile", "full")] = fakeCommandResponse{stdout: string(data)}
-	graph := patternCorpusGraphContext{Context: context.Background(), Options: opts, RepoDir: repo, Binary: "custom-entire"}
-
-	state := func() string {
-		t.Helper()
-		db := openCorpusReadSnapshot(t, brain)
-		var head, files, shape string
-		var exit, failed, exitFails any
-		if err := db.QueryRow(`SELECT c.head, c.exit_code, c.failed, e.exit_fails, COALESCE(e.files,''), COALESCE(s.shape,'')
-			FROM episode_commands c JOIN episodes e ON e.id = c.episode_id LEFT JOIN episode_shapes s ON s.episode_id = e.id`).Scan(&head, &exit, &failed, &exitFails, &files, &shape); err != nil {
-			t.Fatal(err)
-		}
-		var refs []string
-		rows, err := db.Query(`SELECT action || ' ' || path FROM episode_files ORDER BY path`)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var r string
-			if err := rows.Scan(&r); err != nil {
-				t.Fatal(err)
-			}
-			refs = append(refs, r)
-		}
-		if err := rows.Err(); err != nil {
-			t.Fatal(err)
-		}
-		return fmt.Sprintf("%s exit_code=%v failed=%v exit_fails=%v files=%s refs=%s shape=%s symbols=%d",
-			head, exit, failed, exitFails, files, strings.Join(refs, ","), shape, patterntest.CorpusCount(t, db, "episode_symbols"))
-	}
-	const want = `go test exit_code=<nil> failed=1 exit_fails=1 files=["main.go"] refs=edit main.go shape=write symbols=2`
-	if err := buildPatternCorpus(brain, opts.Now(), graph); err != nil {
-		t.Fatal(err)
-	}
-	if got := state(); got != want {
-		t.Fatalf("corpus = %q, want %q", got, want)
+	c := newCodexItemPathCorpus(t, sessionFixture{id: "s1", agent: "codex", branch: "main", checkpoint: "cp1", relPath: "sessions/main/s1.jsonl", transcript: codexItemPathTranscript(t, "/home/teammate/src/repo"), filesTouched: []string{"main.go"}})
+	brain := c.brain
+	c.build(t)
+	if got := c.state(t); got != codexItemPathCorpusWant {
+		t.Fatalf("corpus = %q, want %q", got, codexItemPathCorpusWant)
 	}
 
 	db := openCorpus(t, brain)
@@ -223,10 +261,29 @@ func TestPatternCorpusIndexesCodexItemPath(t *testing.T) {
 		}
 	}
 	db.Close()
-	if err := buildPatternCorpus(brain, opts.Now(), graph); err != nil {
-		t.Fatal(err)
+	c.build(t)
+	if got := c.state(t); got != codexItemPathCorpusWant {
+		t.Fatalf("version 11 corpus kept its missing failure and file ref after rebuild: corpus = %q, want %q", got, codexItemPathCorpusWant)
 	}
-	if got := state(); got != want {
-		t.Fatalf("version 11 corpus kept its missing failure and file ref after rebuild: corpus = %q, want %q", got, want)
+}
+
+// files_touched belongs to the checkpoint a session was exported from, and a
+// later checkpoint of the same transcript can carry files the earlier one did
+// not. A session first indexed without a root is re-indexed once its
+// checkpoint changes, though its transcript did not.
+func TestPatternCorpusReindexesCodexSessionForNewCheckpoint(t *testing.T) {
+	s := sessionFixture{id: "s1", agent: "codex", branch: "main", checkpoint: "cp1", relPath: "sessions/main/s1.jsonl", transcript: codexItemPathTranscript(t, "/srv/build/repo")}
+	c := newCodexItemPathCorpus(t, s)
+	c.build(t)
+	const noRoot = `go test exit_code=<nil> failed=1 exit_fails=1 files=["/srv/build/repo/main.go"] refs=edit /srv/build/repo/main.go shape=write symbols=0`
+	if got := c.state(t); got != noRoot {
+		t.Fatalf("corpus with no files_touched = %q, want %q", got, noRoot)
+	}
+
+	s.checkpoint, s.filesTouched = "cp2", []string{"main.go"}
+	writeEpisodeFixtureManifest(t, c.brain, c.now, c.key, []sessionFixture{s})
+	c.build(t)
+	if got := c.state(t); got != codexItemPathCorpusWant {
+		t.Fatalf("new checkpoint left the session as first indexed: corpus = %q, want %q", got, codexItemPathCorpusWant)
 	}
 }

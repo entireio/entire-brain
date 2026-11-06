@@ -226,17 +226,20 @@ func fileChangeFiles(input any, repoRoot string, ln int) []corpusFileRef {
 	return out
 }
 
-// repoRelativePath is p relative to repoRoot (a forward-slash path from
-// codexSessionRoot) when p is inside it, so it matches the repo-relative
-// paths apply_patch and the semantic index use. Any other path is returned
-// trimmed but otherwise as written.
+// repoRelativePath is p relative to repoRoot (a clean forward-slash path from
+// codexSessionRoot) when p is inside it, so it matches the repo-relative paths
+// apply_patch and the semantic index use. Dot segments are resolved first, so
+// root/dir/../main.go is main.go and root/../x.go is outside. Any other path
+// is returned trimmed but otherwise as written.
 func repoRelativePath(p, repoRoot string) string {
 	p = strings.TrimSpace(p)
 	if repoRoot == "" {
 		return p
 	}
-	if s := slashPath(p); strings.HasPrefix(s, repoRoot+"/") && len(s) > len(repoRoot)+1 {
-		return s[len(repoRoot)+1:]
+	if s, ok := cleanAbsPath(p); ok {
+		if rel, ok := pathUnderRoot(s, repoRoot); ok {
+			return rel
+		}
 	}
 	return p
 }
@@ -245,9 +248,17 @@ func repoRelativePath(p, repoRoot string) string {
 // are under, worked out from the session itself: a FileChange path is
 // absolute, and the session's checkpoint records the repo-relative files it
 // touched (files_touched), so an absolute path that ends in one of them gives
-// the root. The root most of the session's paths agree on wins. "" when the
-// session has no FileChange or none of its paths ends in a touched file; its
-// paths are then stored as written.
+// a candidate root.
+//
+// Every candidate is scored against all of the session's distinct paths: the
+// root under which the most of them are touched files wins, then the root
+// that holds the most of them. Scoring every candidate, not one per path,
+// handles a checkout named like one of its own directories (/work/repo with
+// repo/main.go), and counting distinct paths keeps repeated edits of one file
+// from outvoting the rest. A tie that is still left is ambiguous, so it gives
+// "" and the paths are stored as written rather than linked to the wrong
+// files. "" also when the session has no FileChange or no path ends in a
+// touched file.
 //
 // The live checkout the corpus is built from is not used: worktrees of a repo
 // share one corpus, and an unchanged session is not re-indexed, so the paths
@@ -257,14 +268,51 @@ func codexSessionRoot(transcript string, filesTouched []string) string {
 	if len(filesTouched) == 0 || !strings.Contains(transcript, `"FileChange"`) {
 		return ""
 	}
-	var touched []string
+	touched := map[string]bool{}
 	for _, f := range filesTouched {
-		f = strings.TrimPrefix(path.Clean(slashPath(f)), "./")
-		if f != "." && f != "" && !isAbsSlashPath(f) && f != ".." && !strings.HasPrefix(f, "../") {
-			touched = append(touched, f)
+		f = path.Clean(slashPath(f))
+		if f != "." && !isAbsSlashPath(f) && f != ".." && !strings.HasPrefix(f, "../") {
+			touched[f] = true
 		}
 	}
-	votes := map[string]int{}
+	paths := codexFileChangePaths(transcript)
+	candidates := map[string]bool{}
+	for _, p := range paths {
+		for t := range touched {
+			if strings.HasSuffix(p, "/"+t) && len(p) > len(t)+1 {
+				candidates[p[:len(p)-len(t)-1]] = true
+			}
+		}
+	}
+	best, bestTouched, bestInside, tied := "", 0, 0, false
+	for root := range candidates {
+		nTouched, nInside := 0, 0
+		for _, p := range paths {
+			if rel, ok := pathUnderRoot(p, root); ok {
+				nInside++
+				if touched[rel] {
+					nTouched++
+				}
+			}
+		}
+		switch {
+		case nTouched > bestTouched || (nTouched == bestTouched && nInside > bestInside):
+			best, bestTouched, bestInside, tied = root, nTouched, nInside, false
+		case nTouched == bestTouched && nInside == bestInside:
+			tied = true
+		}
+	}
+	if tied {
+		return ""
+	}
+	return best
+}
+
+// codexFileChangePaths is every distinct absolute path (path and move_path)
+// in a compact codex transcript's FileChange blocks, cleaned by cleanAbsPath.
+func codexFileChangePaths(transcript string) []string {
+	seen := map[string]bool{}
+	var out []string
 	for _, line := range strings.Split(transcript, "\n") {
 		if !strings.Contains(line, `"FileChange"`) {
 			continue
@@ -283,38 +331,37 @@ func codexSessionRoot(transcript string, filesTouched []string) string {
 			for _, c := range changes {
 				cm := jsonMap(c)
 				for _, p := range []string{jsonString(cm["path"]), jsonString(cm["move_path"])} {
-					if root := pathRootFor(slashPath(p), touched); root != "" {
-						votes[root]++
+					if s, ok := cleanAbsPath(p); ok && !seen[s] {
+						seen[s] = true
+						out = append(out, s)
 					}
 				}
 			}
 		}
 	}
-	best := ""
-	for root, n := range votes {
-		if best == "" || n > votes[best] || (n == votes[best] && (len(root) < len(best) || (len(root) == len(best) && root < best))) {
-			best = root
-		}
-	}
-	return best
+	return out
 }
 
-// pathRootFor is the directory an absolute path p sits in as a checkout root,
-// given the repo-relative files touched: p minus the longest touched file it
-// ends in. "" when p is not absolute or ends in none of them.
-func pathRootFor(p string, touched []string) string {
-	if !isAbsSlashPath(p) {
-		return ""
+// cleanAbsPath is p as a slashPath with its dot segments resolved, when it is
+// absolute. A path that is not absolute, or stops being so once cleaned, is
+// not.
+func cleanAbsPath(p string) (string, bool) {
+	s := slashPath(p)
+	if !isAbsSlashPath(s) {
+		return "", false
 	}
-	root := ""
-	for _, t := range touched {
-		if strings.HasSuffix(p, "/"+t) {
-			if r := p[:len(p)-len(t)-1]; r != "" && (root == "" || len(r) < len(root)) {
-				root = r
-			}
-		}
+	s = path.Clean(s)
+	return s, isAbsSlashPath(s)
+}
+
+// pathUnderRoot is p relative to root when p is strictly inside it. Both are
+// clean slash paths, so a root that is only a string prefix (/work/repo2 for
+// /work/repo) is not a parent.
+func pathUnderRoot(p, root string) (string, bool) {
+	if strings.HasPrefix(p, root+"/") && len(p) > len(root)+1 {
+		return p[len(root)+1:], true
 	}
-	return root
+	return "", false
 }
 
 // slashPath is p trimmed and with backslashes as slashes, so a Windows
