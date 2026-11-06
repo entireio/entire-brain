@@ -104,8 +104,9 @@ func TestCorpusEpisodeOpsCodexItemPathFileChange(t *testing.T) {
 		{"root prefix is not a parent", codexFileChange(t, codexChange{Path: "/work/repo2/x.go", Kind: "update"}), root, `["edit /work/repo2/x.go"]`},
 		{"empty path skipped", codexFileChange(t, codexChange{Path: "", Kind: "update"}, codexChange{Path: root + "/main.go", Kind: "update"}), root, `["edit main.go"]`},
 		{"windows path", codexFileChange(t, codexChange{Path: `C:\work\repo\pkg\a.go`, Kind: "update"}), "C:/work/repo", `["edit pkg/a.go"]`},
-		{"dot segments resolved", codexFileChange(t, codexChange{Path: root + "/dir/../main.go", Kind: "update"}), root, `["edit main.go"]`},
-		{"dot segments leaving the root kept", codexFileChange(t, codexChange{Path: root + "/../outside/x.go", Kind: "update"}), root, `["edit /work/repo/../outside/x.go"]`},
+		{"dot segments cleaned", codexFileChange(t, codexChange{Path: root + "/./pkg//a.go", Kind: "update"}), root, `["edit pkg/a.go"]`},
+		{".. inside the root kept", codexFileChange(t, codexChange{Path: root + "/link/../main.go", Kind: "update"}), root, `["edit /work/repo/link/../main.go"]`},
+		{".. leaving the root kept", codexFileChange(t, codexChange{Path: root + "/../outside/x.go", Kind: "update"}), root, `["edit /work/repo/../outside/x.go"]`},
 		{"no root known", codexFileChange(t, codexChange{Path: root + "/main.go", Kind: "update"}), "", `["edit /work/repo/main.go"]`},
 	}
 	for _, c := range cases {
@@ -140,12 +141,17 @@ func TestCodexSessionRoot(t *testing.T) {
 			codexFileChange(t, codexChange{Path: "/work/app/main.go", Kind: "update"}),
 			codexFileChange(t, codexChange{Path: "/work/app/app/main.go", Kind: "update"}),
 		), []string{"main.go", "app/main.go"}, "/work/app"},
-		{"untouched edits do not pull the root down", lines(
+		{"a tie with a nested root is ambiguous", lines(
 			codexFileChange(t, codexChange{Path: "/repo/main.go", Kind: "update"}),
 			codexFileChange(t, codexChange{Path: "/repo/sub/main.go", Kind: "update"}),
 			codexFileChange(t, codexChange{Path: "/repo/sub/main.go", Kind: "update"}),
-		), []string{"main.go"}, "/repo"},
-		{"dot segments resolved", lines(codexFileChange(t, codexChange{Path: "/w/r/x/../main.go", Kind: "update"})), []string{"main.go"}, "/w/r"},
+		), []string{"main.go"}, ""},
+		{"a tie with an unrelated root is ambiguous, however many paths it holds", lines(
+			codexFileChange(t, codexChange{Path: "/work/repo/main.go", Kind: "update"}),
+			codexFileChange(t, codexChange{Path: "/tmp/job/main.go", Kind: "update"}, codexChange{Path: "/tmp/job/scratch.txt", Kind: "add"}),
+		), []string{"main.go"}, ""},
+		{"dot segments and doubled slashes cleaned", lines(codexFileChange(t, codexChange{Path: "/w/r/./pkg//a.go", Kind: "update"})), []string{"pkg/a.go"}, "/w/r"},
+		{"a .. path gives no root", lines(codexFileChange(t, codexChange{Path: "/w/r/x/../main.go", Kind: "update"})), []string{"main.go"}, ""},
 		{"most paths agree", lines(
 			codexFileChange(t, codexChange{Path: "/w/r/a/main.go", Kind: "update"}),
 			codexFileChange(t, codexChange{Path: "/w/r/b.go", Kind: "update"}, codexChange{Path: "/w/r/c.go", Kind: "update"}),

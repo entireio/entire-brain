@@ -228,9 +228,9 @@ func fileChangeFiles(input any, repoRoot string, ln int) []corpusFileRef {
 
 // repoRelativePath is p relative to repoRoot (a clean forward-slash path from
 // codexSessionRoot) when p is inside it, so it matches the repo-relative paths
-// apply_patch and the semantic index use. Dot segments are resolved first, so
-// root/dir/../main.go is main.go and root/../x.go is outside. Any other path
-// is returned trimmed but otherwise as written.
+// apply_patch and the semantic index use. Any other path, including one with
+// a ".." segment (see cleanAbsPath), is returned trimmed but otherwise as
+// written.
 func repoRelativePath(p, repoRoot string) string {
 	p = strings.TrimSpace(p)
 	if repoRoot == "" {
@@ -247,18 +247,17 @@ func repoRelativePath(p, repoRoot string) string {
 // codexSessionRoot is the checkout a compact codex session's FileChange paths
 // are under, worked out from the session itself: a FileChange path is
 // absolute, and the session's checkpoint records the repo-relative files it
-// touched (files_touched), so an absolute path that ends in one of them gives
-// a candidate root.
+// touched (files_touched), so a path that ends in one of them, split at a
+// "/", gives a candidate root.
 //
-// Every candidate is scored against all of the session's distinct paths: the
-// root under which the most of them are touched files wins, then the root
-// that holds the most of them. Scoring every candidate, not one per path,
-// handles a checkout named like one of its own directories (/work/repo with
-// repo/main.go), and counting distinct paths keeps repeated edits of one file
-// from outvoting the rest. A tie that is still left is ambiguous, so it gives
-// "" and the paths are stored as written rather than linked to the wrong
-// files. "" also when the session has no FileChange or no path ends in a
-// touched file.
+// A candidate scores one for each distinct session path that is a touched
+// file under it, and the highest score wins. Every split of every path counts,
+// so a checkout named like one of its own directories (/work/repo with
+// repo/main.go) still gets its full score, and repeated edits of one file
+// count once. A tie is ambiguous, whatever else the tied roots hold, so it
+// gives "" and the paths are stored as written rather than linked to the
+// wrong files. "" also when the session has no FileChange or no path ends in
+// a touched file.
 //
 // The live checkout the corpus is built from is not used: worktrees of a repo
 // share one corpus, and an unchanged session is not re-indexed, so the paths
@@ -275,30 +274,20 @@ func codexSessionRoot(transcript string, filesTouched []string) string {
 			touched[f] = true
 		}
 	}
-	paths := codexFileChangePaths(transcript)
-	candidates := map[string]bool{}
-	for _, p := range paths {
-		for t := range touched {
-			if strings.HasSuffix(p, "/"+t) && len(p) > len(t)+1 {
-				candidates[p[:len(p)-len(t)-1]] = true
+	score := map[string]int{}
+	for _, p := range codexFileChangePaths(transcript) {
+		for i := 1; i < len(p)-1; i++ {
+			if p[i] == '/' && touched[p[i+1:]] {
+				score[p[:i]]++
 			}
 		}
 	}
-	best, bestTouched, bestInside, tied := "", 0, 0, false
-	for root := range candidates {
-		nTouched, nInside := 0, 0
-		for _, p := range paths {
-			if rel, ok := pathUnderRoot(p, root); ok {
-				nInside++
-				if touched[rel] {
-					nTouched++
-				}
-			}
-		}
+	best, bestScore, tied := "", 0, false
+	for root, n := range score {
 		switch {
-		case nTouched > bestTouched || (nTouched == bestTouched && nInside > bestInside):
-			best, bestTouched, bestInside, tied = root, nTouched, nInside, false
-		case nTouched == bestTouched && nInside == bestInside:
+		case n > bestScore:
+			best, bestScore, tied = root, n, false
+		case n == bestScore:
 			tied = true
 		}
 	}
@@ -342,16 +331,16 @@ func codexFileChangePaths(transcript string) []string {
 	return out
 }
 
-// cleanAbsPath is p as a slashPath with its dot segments resolved, when it is
-// absolute. A path that is not absolute, or stops being so once cleaned, is
-// not.
+// cleanAbsPath is p as a slashPath with "." segments and doubled slashes
+// removed, when it is absolute. A path with a ".." segment is refused: the OS
+// resolves ".." after symlinks, so root/link/../x.go need not be root/x.go,
+// and the checkout it was written in may not be here to look at.
 func cleanAbsPath(p string) (string, bool) {
 	s := slashPath(p)
-	if !isAbsSlashPath(s) {
+	if !isAbsSlashPath(s) || strings.Contains(s+"/", "/../") {
 		return "", false
 	}
-	s = path.Clean(s)
-	return s, isAbsSlashPath(s)
+	return path.Clean(s), true
 }
 
 // pathUnderRoot is p relative to root when p is strictly inside it. Both are
