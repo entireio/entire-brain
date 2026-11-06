@@ -238,6 +238,7 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	drivers := seedHeadFilterDrivers(ctx, runner, repoDir, env)
 	var wanted []string
 	var lfs []seedHeadSmallFile
+	var driverSkipped []string
 	for _, path := range selected {
 		entry := entries[path]
 		if !entry.regularFile() {
@@ -264,11 +265,20 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 		// file is checked out and the scan stats the real one, unless its
 		// blob is too large however it converts. A doc the scan reads at any
 		// size is always checked out.
-		if !isHighSignalDoc(path) && entry.size > seedHeadMaxShrink(attr, drivers)*int64(opts.maxFileBytes) {
+		if !seedReadsAtAnySize(path) && entry.size > seedHeadMaxShrink(attr, drivers)*int64(opts.maxFileBytes) {
 			c.unread[path] = entry.size
+			if drivers.runs(attr.filter) {
+				driverSkipped = append(driverSkipped, path)
+			}
 			continue
 		}
 		wanted = append(wanted, path)
+	}
+	if len(driverSkipped) > 0 {
+		// Past the cap a driver could still have shrunk the file under
+		// --max-file-bytes, where a clean checkout would include it. Say so
+		// rather than let the entry read like an ordinary size exclusion.
+		c.warnings = append(c.warnings, fmt.Sprintf("%d committed files over %dx --max-file-bytes were not run through their filter driver and are reported too large at their committed size (first: %s)", len(driverSkipped), seedHeadDriverMaxShrink, driverSkipped[0]))
 	}
 	// git appends each path to the prefix verbatim, so it needs the trailing
 	// separator; forward slashes are what git expects on every platform.

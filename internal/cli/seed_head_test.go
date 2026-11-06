@@ -386,9 +386,11 @@ func TestDirtySeedChecksOutOnlyWhatTheScanNeeds(t *testing.T) {
 	tempDir := isolateSeedHeadTemp(t)
 	repoDir := seedHeadTestRepo(t)
 	statOnly := map[string]string{
-		"vendor/lib.js":    "module.exports = 1\n",
-		".env":             "SECRET=committed\n",
-		"data/big.txt":     strings.Repeat("big ", 40),
+		"vendor/lib.js": "module.exports = 1\n",
+		".env":          "SECRET=committed\n",
+		"data/big.txt":  strings.Repeat("big ", 40),
+		// High-signal by name, but media: the scan only stats it.
+		"README.png":       strings.Repeat("\x89PNG", 20),
 		"src/main_test.go": "package main\n",
 	}
 	checkedOut := map[string]string{
@@ -606,8 +608,9 @@ func TestDirtySeedChecksOutWhatAFilterDriverRuns(t *testing.T) {
 // TestDirtySeedCapsWhatAFilterDriverWrites: a blob more than
 // seedHeadDriverMaxShrink times --max-file-bytes is never handed to its
 // driver, so one checkout writes a bounded amount whatever the driver does.
-// It is reported too large from the blob's size. A clean seed would see the
-// driver's output instead; past the cap that is the price of the bound.
+// It is reported too large from the blob's size, with a warning: a clean seed
+// would see the driver's output instead, and past the cap that is the price
+// of the bound.
 func TestDirtySeedCapsWhatAFilterDriverWrites(t *testing.T) {
 	tempDir := isolateSeedHeadTemp(t)
 	global := filepath.Join(t.TempDir(), "gitconfig")
@@ -640,6 +643,9 @@ func TestDirtySeedCapsWhatAFilterDriverWrites(t *testing.T) {
 	}
 	if got, err := os.ReadFile(filepath.Join(head.dir, "filtered", "near.txt")); err != nil || string(got) != "x" {
 		t.Errorf("filtered/near.txt = %q, %v; want the driver's output", got, err)
+	}
+	if len(head.warnings) != 1 || !strings.Contains(head.warnings[0], "1 committed files") || !strings.Contains(head.warnings[0], "filtered/vast.txt") {
+		t.Errorf("warnings = %q; want one naming the file not run through its driver", head.warnings)
 	}
 	head.remove()
 
@@ -725,8 +731,15 @@ func (r fixedConfigRunner) RunWithEnv(ctx context.Context, dir string, env map[s
 
 func TestSeedHeadFilterDriversParsesTheEffectiveConfiguration(t *testing.T) {
 	t.Parallel()
-	exitOne := exec.Command("sh", "-c", "exit 1").Run()
-	exitTwo := exec.Command("sh", "-c", "exit 2").Run()
+	// git config's own "not set" exit, with no shell needed to produce it.
+	empty := filepath.Join(t.TempDir(), "empty-config")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	exitOne := exec.Command("git", "config", "--file", empty, "--get", "filter.none.smudge").Run()
+	if exitErr := (*exec.ExitError)(nil); !errors.As(exitOne, &exitErr) || exitErr.ExitCode() != 1 {
+		t.Fatalf("git config on an unset key: %v; want exit status 1", exitOne)
+	}
 	cases := []struct {
 		name   string
 		runner fixedConfigRunner
@@ -741,7 +754,7 @@ func TestSeedHeadFilterDriversParsesTheEffectiveConfiguration(t *testing.T) {
 			runs:  []string{"b", "c.d"},
 			skips: []string{"a", "lfs", "unset", "unspecified"},
 		},
-		{name: "unreadable", runner: fixedConfigRunner{err: exitTwo}, runs: []string{"a", "anything"}, skips: []string{"lfs", ""}},
+		{name: "unreadable", runner: fixedConfigRunner{err: errors.New("signal: killed")}, runs: []string{"a", "anything"}, skips: []string{"lfs", ""}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

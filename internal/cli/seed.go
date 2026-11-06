@@ -639,6 +639,13 @@ func inspectSeedFileSize(entry *seedFileIndexEntry, rel string, size int64, opts
 	return true
 }
 
+// seedReadsAtAnySize reports whether the scan reads a file's bytes however
+// large it is: a high-signal doc that is text or extractable. A README.png is
+// high-signal by name but only stat'd, like any other media.
+func seedReadsAtAnySize(rel string) bool {
+	return isHighSignalDoc(rel) && (!isLikelyBinaryPath(rel) || isExtractableSeedDocument(rel))
+}
+
 // seedFileNeedsContent reports whether inspectSeedFile would read a file's
 // bytes, given its path and size. The committed HEAD checkout uses it to leave
 // out a hydrated LFS object the scan only stats (seed_head.go).
