@@ -51,6 +51,45 @@ type factsVitalitySummary struct {
 	LastServedAt   *time.Time `json:"last_served_at,omitempty"`
 	LastServedFact string     `json:"last_served_fact,omitempty"`
 	LastSurface    string     `json:"last_surface,omitempty"`
+	// Surfaces is the serve count per delivery surface, and it is the number
+	// that says whether this store is being READ or merely asked. `recall` is
+	// an agent explicitly querying; `hook-pre-edit` and `hook-post-failure`
+	// are memories arriving unprompted at the moment of action.
+	//
+	// It is reported because the distinction was invisible: measured on this
+	// repo's main branch on 2026-10-31, 525 of 539 serve events were `recall`
+	// and exactly ONE was `hook-pre-edit`. A single ServedTotal cannot show
+	// that, and the per-memory breakdown only showed it to someone willing to
+	// aggregate `memories vitality --json` by hand.
+	Surfaces map[string]int `json:"surfaces,omitempty"`
+	// ReusedAnySurface and ReusedViaDelivery count memories served on more
+	// than one distinct day — the reasoning-capture exit test — overall and
+	// restricted to surfaces that deliver UNREQUESTED.
+	//
+	// Both are reported because the overall number is confounded on its own.
+	// Measured here 2026-10-31: it rose from 2.1% to 2.89% inside one working
+	// session, and every bit of that was `recall` — an agent explicitly
+	// querying. An agent asking twice is not reuse; it is the re-asking the
+	// milestone exists to remove, so a metric it can move by querying more
+	// measures the opposite of the thing. Delivery-only is the honest figure,
+	// and it read 0.00% when this was written.
+	ReusedAnySurface  int `json:"reused_any_surface"`
+	ReusedViaDelivery int `json:"reused_via_delivery"`
+}
+
+// vitalityDeliverySurfaces are the surfaces that hand a memory to an agent
+// WITHOUT it asking. Everything else is a pull: the agent already suspected
+// the memory existed, which is the behaviour reasoning capture exists to make
+// unnecessary.
+//
+// Named explicitly rather than inferred from a prefix: a future `hook-`
+// surface that merely logs would otherwise be counted as delivery and quietly
+// inflate the exit test.
+var vitalityDeliverySurfaces = map[string]bool{
+	"hook-pre-edit":     true,
+	"hook-post-failure": true,
+	"hook-prompt":       true,
+	"brief":             true,
 }
 
 // factsVitalitySummaryForBranch folds the branch's vitality view into the
@@ -69,6 +108,38 @@ func factsVitalitySummaryForBranch(brainDir, branch string) (*factsVitalitySumma
 	for id, entry := range rollup.Facts {
 		summary.ServedFacts++
 		summary.ServedTotal += entry.Served
+		for surface, count := range entry.Surfaces {
+			if summary.Surfaces == nil {
+				summary.Surfaces = map[string]int{}
+			}
+			summary.Surfaces[surface] += count
+		}
+		// The exit test, counted per memory rather than per event: a memory
+		// counts once however many surfaces reused it.
+		reusedAny, reusedDelivery := false, false
+		for surface, span := range entry.SurfaceSpans {
+			if !span.MultiDay() {
+				continue
+			}
+			reusedAny = true
+			if vitalityDeliverySurfaces[surface] {
+				reusedDelivery = true
+			}
+		}
+		// A memory served by two DIFFERENT surfaces on different days is reuse
+		// too, and no single span shows it. The whole-memory first/last catches
+		// that; it cannot distinguish delivery from pull, so it only raises the
+		// overall figure.
+		if !reusedAny && !entry.FirstServed.IsZero() && !entry.LastServed.IsZero() &&
+			entry.FirstServed.UTC().Format(time.DateOnly) != entry.LastServed.UTC().Format(time.DateOnly) {
+			reusedAny = true
+		}
+		if reusedAny {
+			summary.ReusedAnySurface++
+		}
+		if reusedDelivery {
+			summary.ReusedViaDelivery++
+		}
 		last := entry.LastServed
 		better := summary.LastServedAt == nil || last.After(*summary.LastServedAt) ||
 			(last.Equal(*summary.LastServedAt) && id < summary.LastServedFact)
@@ -299,10 +370,46 @@ func printFactsStatus(cmd *cobra.Command, report factsStatusReport) {
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "vitality: served_memories=%d served_total=%d pending_events=%d%s\n",
 			v.ServedFacts, v.ServedTotal, v.PendingEvents, last)
+		if line := formatVitalitySurfaces(v.Surfaces); line != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "surfaces: %s\n", line)
+		}
+		// Both figures, always, and delivery second so it reads last. The
+		// overall number alone is movable by an agent querying more, which is
+		// the behaviour this layer exists to remove.
+		fmt.Fprintf(cmd.OutOrStdout(),
+			"reuse: served_over_2plus_days=%d delivered_over_2plus_days=%d (of %d active)\n",
+			v.ReusedAnySurface, v.ReusedViaDelivery, report.Totals.Active)
 	}
 	for _, warning := range report.Warnings {
 		fmt.Fprintf(cmd.OutOrStdout(), "warning: %s\n", warning)
 	}
+}
+
+// formatVitalitySurfaces renders the per-surface serve counts, busiest first.
+//
+// Ordered by count and then by name, never by map iteration: the point of the
+// line is that a reader can compare two runs, and Go randomizes map order, so
+// an unsorted line would reshuffle on every invocation and make the comparison
+// impossible.
+func formatVitalitySurfaces(surfaces map[string]int) string {
+	if len(surfaces) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(surfaces))
+	for name := range surfaces {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		if surfaces[names[i]] != surfaces[names[j]] {
+			return surfaces[names[i]] > surfaces[names[j]]
+		}
+		return names[i] < names[j]
+	})
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, fmt.Sprintf("%s=%d", name, surfaces[name]))
+	}
+	return strings.Join(parts, " ")
 }
 
 func printFactsStatusCounts(cmd *cobra.Command, counts factsStatusCounts) {

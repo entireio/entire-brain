@@ -62,6 +62,7 @@ func New(cfg Config) *cobra.Command {
 	}
 	cmd.AddCommand(newPreEditCommand(cfg))
 	cmd.AddCommand(NewPostFailure(cfg))
+	cmd.AddCommand(NewPrompt(cfg))
 	cmd.AddCommand(NewSessionEnd(cfg))
 	return cmd
 }
@@ -160,14 +161,23 @@ wires it.`,
 				file = repoRel
 			}
 			rel := filepath.ToSlash(file)
-			stem := strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
-			// The stem ("distill_cmd") matches facts that name the file without
-			// its extension or talk about its symbols' shared prefix.
-			hits := cfg.Deps.FactsRelevantToChange([]string{rel, stem}, facts, 8)
+			// The path is always asked for. The stem ("distill_cmd") matches
+			// memories that name the file without its extension or talk about
+			// its symbols' shared prefix -- but only when the stem is rare
+			// enough in this branch's memories to mean anything. An ordinary
+			// word ("query", "state", "build") retrieves on the word, not on
+			// the file, and an irrelevant injection at the moment of an edit
+			// teaches agents to ignore the channel, which is worse than the
+			// silence it replaced.
+			terms := []string{rel}
+			if stem := fileStem(rel); hookStemIsDistinctive(stem, facts) {
+				terms = append(terms, stem)
+			}
+			hits := cfg.Deps.FactsRelevantToChange(terms, facts, 8)
 			var kept []factmerge.Record
 			var err error
 			if claudeHook {
-				kept, err = hookEmitClaudeEnvelope(cmd, hits, budget)
+				kept, err = hookEmitClaudeEnvelope(cmd, hits, budget, hookPreEditEvent, hookPreEditEnvelopeHeader)
 			} else {
 				kept, err = Emit(cmd, hits, budget, jsonOut)
 			}
@@ -241,21 +251,43 @@ func StdinIsPipe(r io.Reader) bool {
 	return info.Mode()&os.ModeCharDevice == 0
 }
 
+// The headers each wired verb puts above its memories. They name why the agent
+// is being handed this, which is the difference between context and noise.
+const (
+	hookPreEditEnvelopeHeader = "Memories this project recorded about this file:"
+	hookFailureEnvelopeHeader = "Memories this project recorded about this kind of failure:"
+	hookPromptEnvelopeHeader  = "Memories this project recorded about this task:"
+)
+
+// The host event each wired verb answers. Both accept additionalContext, and
+// PostToolUseFailure accepts nothing else -- no updatedToolOutput, no
+// permissionDecision -- which is exactly the shape a memory emission wants.
+const (
+	hookPreEditEvent = "PreToolUse"
+	hookFailureEvent = "PostToolUseFailure"
+	hookPromptEvent  = "UserPromptSubmit"
+)
+
 // hookEmitClaudeEnvelope writes the ONE stdout shape Claude Code feeds back into
-// the agent's context for PreToolUse. Plain lines on stdout are discarded by the
-// host at exit 0, so the text emission — the only one this verb had — could
-// never reach an agent no matter how it was wired.
+// the agent's context. Plain lines on stdout are discarded by the host at exit
+// 0, so the text emission — the only one these verbs had — could never reach an
+// agent no matter how it was wired.
+//
+// event must be a host event that accepts additionalContext, and the caller
+// names it rather than this function assuming one: the envelope is keyed by
+// event, and a mismatched key is silently dropped by the host, which is the
+// same installed-and-inert failure the pre-edit wiring already shipped once.
 //
 // It keeps the rest of the hook contract exactly: nothing at all when no fact
 // cleared the bar (an empty envelope is noise), the same budget, and no
-// permissionDecision, because surfacing a fact must never block an edit.
-func hookEmitClaudeEnvelope(cmd *cobra.Command, hits []factmerge.Record, budget int) ([]factmerge.Record, error) {
+// permissionDecision, because surfacing a memory must never block the agent.
+func hookEmitClaudeEnvelope(cmd *cobra.Command, hits []factmerge.Record, budget int, event, header string) ([]factmerge.Record, error) {
 	kept := hookKeepWithinBudget(hits, budget)
 	if len(kept) == 0 {
 		return nil, nil
 	}
 	lines := make([]string, 0, len(kept)+1)
-	lines = append(lines, "Memories this project recorded about this file:")
+	lines = append(lines, header)
 	for _, f := range kept {
 		lines = append(lines, fmt.Sprintf("- [%s] %s", factstore.KindOrInferred(f), f.Text))
 	}
@@ -265,29 +297,86 @@ func hookEmitClaudeEnvelope(cmd *cobra.Command, hits []factmerge.Record, budget 
 	}
 	envelope := struct {
 		HookSpecificOutput specific `json:"hookSpecificOutput"`
-	}{specific{HookEventName: "PreToolUse", AdditionalContext: strings.Join(lines, "\n")}}
+	}{specific{HookEventName: event, AdditionalContext: strings.Join(lines, "\n")}}
 	return kept, cmdutil.WriteJSON(cmd, envelope)
 }
 
 func NewPostFailure(cfg Config) *cobra.Command {
 	var (
-		command string
-		branch  string
-		budget  int
-		jsonOut bool
+		command    string
+		branch     string
+		budget     int
+		jsonOut    bool
+		claudeHook bool
 	)
 	cmd := &cobra.Command{
-		Use:   "post-failure [--command <cmd>]",
+		Use:   "post-failure [--command <cmd> | --claude-hook]",
 		Short: "Gotchas and closed-negatives matching a failure (text on stdin; silent when none)",
 		Long: `post-failure matches a failed command and its output against the brain's
 gotcha and closed-negative facts — the "this was tried and failed" and "this
 breaks if" knowledge — so an agent learns about a known dead end the moment it
 steps into one, not after re-deriving it. Pipe the failure output on stdin:
 
-    go test ./... 2>&1 | tail -20 | entire-brain hook post-failure --command "go test"`,
+    go test ./... 2>&1 | tail -20 | entire-brain hook post-failure --command "go test"
+
+--claude-hook is the wired spelling: Claude Code delivers a PostToolUseFailure
+event as JSON on stdin and only reads a JSON envelope back, so the flag takes
+the failure text and the command from the event and replies in the shape the
+host parses. ` + base.SetupBrainBinaryName + ` setup wires it.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			failure := hookReadFailureTail(cmd.InOrStdin())
+			// A terminal stdin is never read: io.ReadAll on a TTY waits for an
+			// EOF nobody will send, so hand-running the documented command
+			// would hang instead of failing fast. Same reason as pre-edit
+			// --claude-hook, but a tighter predicate: pre-edit asks
+			// !StdinIsPipe, which is false for EVERY character device and so
+			// treats /dev/null as a terminal. Here that would turn a harness
+			// invocation with /dev/null on stdin into an error on every
+			// failure, where the contract says an absent event is silence.
+			// hookStdinWouldBlock is true only for a reader that would really
+			// wait on a person.
+			if claudeHook && hookStdinWouldBlock(cmd.InOrStdin()) {
+				return fmt.Errorf("--claude-hook reads the host's PostToolUseFailure event from stdin, and stdin is a terminal here; pipe an event in, or pipe failure output and pass --command <cmd> to check one by hand")
+			}
+			var failure string
+			if claudeHook {
+				event, ok := DecodeClaudeFailureEvent(cmd.InOrStdin())
+				if !ok {
+					// An interrupt, an unparseable payload, or an event with no
+					// failure text: the hook contract's silent-honest-empty
+					// case, not misuse.
+					return nil
+				}
+				failure = event.Failure
+				// --command still wins when both are present, so a harness can
+				// label a failure better than the event does.
+				if strings.TrimSpace(command) == "" {
+					command = event.Command
+				}
+			} else {
+				// Read unconditionally, and deliberately WITHOUT a terminal
+				// guard. There is a real hazard here -- hookReadFailureTail
+				// loops on Read until EOF, so a genuine TTY hangs the shell --
+				// but every predicate available to detect one is wrong in the
+				// direction that matters:
+				//
+				// base.StdinIsTerminal() and StdinIsPipe() both test the
+				// CHARACTER-DEVICE bit, not whether anything is really a
+				// terminal, so both answer "terminal" for /dev/null. And
+				// /dev/null is what os.Stdin IS under `go test` and in plenty
+				// of harness invocations. Guarding on either turns ordinary
+				// empty input into an error, which breaks this verb's contract
+				// that an empty emission is SILENT -- pinned by
+				// TestHookEmitSilentAndBudget, which caught exactly that when
+				// the guard was added here.
+				//
+				// pre-edit can afford its guard because --file is REQUIRED, so
+				// refusing is the right answer anyway. post-failure has no
+				// required input: nothing to match is a valid, silent outcome.
+				// Fixing the hang needs a real isatty, not a tighter use of
+				// these two; until then, do not reintroduce a guard here.
+				failure = hookReadFailureTail(cmd.InOrStdin())
+			}
 			query := strings.TrimSpace(command + " " + failure)
 			if query == "" {
 				return nil // nothing to match against: silence
@@ -297,7 +386,13 @@ steps into one, not after re-deriving it. Pipe the failure output on stdin:
 				return nil
 			}
 			hits := MatchFailure(facts, query, cfg.Deps.FactLexicalScore)
-			kept, err := Emit(cmd, hits, budget, jsonOut)
+			var kept []factmerge.Record
+			var err error
+			if claudeHook {
+				kept, err = hookEmitClaudeEnvelope(cmd, hits, budget, hookFailureEvent, hookFailureEnvelopeHeader)
+			} else {
+				kept, err = Emit(cmd, hits, budget, jsonOut)
+			}
 			if err == nil {
 				hookRecordServed(cmd, cfg, target, "hook-post-failure", query, kept)
 			}
@@ -308,6 +403,82 @@ steps into one, not after re-deriving it. Pipe the failure output on stdin:
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch whose memories to consult (default: current)")
 	cmd.Flags().IntVar(&budget, "budget", hookDefaultBudgetTokens, "Token budget for the emission")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit JSON instead of text lines")
+	cmd.Flags().BoolVar(&claudeHook, "claude-hook", false, "Read a Claude Code PostToolUseFailure event on stdin and reply with its hook envelope")
+	return cmd
+}
+
+// NewPrompt answers the host's UserPromptSubmit event: the memories this
+// project recorded about the task the user just asked for, delivered before the
+// agent starts rather than when it thinks to ask.
+//
+// This is the delivery half of the adoption gap. Measured on main 2026-10-31,
+// 525 of 539 serve events were `recall` — an agent explicitly querying — so
+// memories were reaching agents only when an agent already suspected they
+// existed. `brief` solves that but has to be invoked; this is the same packet
+// arriving unprompted.
+func NewPrompt(cfg Config) *cobra.Command {
+	var (
+		task       string
+		branch     string
+		budget     int
+		jsonOut    bool
+		claudeHook bool
+	)
+	cmd := &cobra.Command{
+		Use:   "prompt [--task <text> | --claude-hook]",
+		Short: "Memories relevant to a submitted prompt (silent when none clears the bar)",
+		Long: `prompt matches the task a user just submitted against this branch's memories,
+so recorded decisions, invariants and dead ends arrive before the work starts
+instead of after an agent re-derives them.
+
+--task names the text directly, for hand-testing. --claude-hook is the wired
+spelling: Claude Code delivers a UserPromptSubmit event as JSON on stdin and
+reads a JSON envelope back. ` + base.SetupBrainBinaryName + ` setup wires it.
+
+This verb fires on every turn, so its relevance bar is the highest of any hook
+and is set from the measured score distribution rather than by feel: a merely
+topical memory here teaches agents to ignore the channel.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if claudeHook && hookStdinWouldBlock(cmd.InOrStdin()) {
+				return fmt.Errorf("--claude-hook reads the host's UserPromptSubmit event from stdin, and stdin is a terminal here; pipe an event in, or pass --task <text> to check one by hand")
+			}
+			if claudeHook && strings.TrimSpace(task) == "" {
+				if prompt, ok := DecodeClaudePromptEvent(cmd.InOrStdin()); ok {
+					task = prompt
+				}
+			}
+			if strings.TrimSpace(task) == "" {
+				// An event carrying no prompt is the silent-honest-empty case,
+				// not misuse. Misuse is still an error so hand-testing works.
+				if claudeHook {
+					return nil
+				}
+				return fmt.Errorf("--task is required")
+			}
+			facts, target, ok := hookLoadFacts(cmd, cfg, branch)
+			if !ok {
+				return nil
+			}
+			hits := MatchPrompt(facts, task, cfg.Deps.FactLexicalScore)
+			var kept []factmerge.Record
+			var err error
+			if claudeHook {
+				kept, err = hookEmitClaudeEnvelope(cmd, hits, budget, hookPromptEvent, hookPromptEnvelopeHeader)
+			} else {
+				kept, err = Emit(cmd, hits, budget, jsonOut)
+			}
+			if err == nil {
+				hookRecordServed(cmd, cfg, target, "hook-prompt", task, kept)
+			}
+			return err
+		},
+	}
+	cmd.Flags().StringVar(&task, "task", "", "The submitted prompt to match against")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch whose memories to consult (default: current)")
+	cmd.Flags().IntVar(&budget, "budget", hookDefaultBudgetTokens, "Token budget for the emission")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit JSON instead of text lines")
+	cmd.Flags().BoolVar(&claudeHook, "claude-hook", false, "Read a Claude Code UserPromptSubmit event on stdin and reply with its hook envelope")
 	return cmd
 }
 
@@ -546,4 +717,9 @@ func hookFileFromStdin(in io.Reader) (path string, sawInput bool) {
 		return p, true
 	}
 	return strings.TrimSpace(payload.ToolInput.NotebookPath), true
+}
+
+// fileStem is the file's base name without its extension.
+func fileStem(rel string) string {
+	return strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
 }
