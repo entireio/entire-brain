@@ -318,3 +318,42 @@ func resolveTestJSONPointer(doc any, pointer string) any {
 	}
 	return doc
 }
+
+// A "message" that is null or {} is absent, as in transcriptRecordContent: the
+// record's top-level content is the evidence, and the pointers name it there.
+// Uses the transcript from testdata/history_brain_rev12_null_message.
+func TestRecallEvidenceNullOrEmptyMessageReadsTopLevelContent(t *testing.T) {
+	t.Parallel()
+	data, err := os.ReadFile(filepath.Join("testdata", "history_brain_rev12_null_message", "sessions", "main", "20260801T120000Z_fix-lock.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields, partial := evidenceFields(data, "sessions/main/20260801T120000Z_fix-lock.jsonl")
+	if partial {
+		t.Errorf("null or empty message reported as unreadable or unsupported (fields=%d)", len(fields))
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	var got []string
+	for _, f := range fields {
+		got = append(got, fmt.Sprintf("%d %s %s %s", f.line, f.pointer, f.role, f.text))
+		var obj any
+		if err := json.Unmarshal([]byte(lines[f.line-1]), &obj); err != nil {
+			t.Fatal(err)
+		}
+		if resolved := resolveTestJSONPointer(obj, f.pointer); resolved != f.text {
+			t.Errorf("line %d pointer %s resolves to %#v, field text %q", f.line, f.pointer, resolved, f.text)
+		}
+		if ts := jsonString(jsonMap(obj)["timestamp"]); f.timestamp != ts {
+			t.Errorf("line %d timestamp = %q, want the record's timestamp %q", f.line, f.timestamp, ts)
+		}
+	}
+	want := []string{
+		"1 /content/0/text user Fix the flaky lock test on Windows",
+		"2 /content/0/text assistant Raised the write lock timeout; the test is stable now.",
+		"3 /content/0/text user Now update the docs",
+		"4 /content/0/text assistant Docs updated.",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("fields:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

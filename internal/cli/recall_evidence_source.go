@@ -139,16 +139,17 @@ func evidenceJSONFields(obj map[string]any, prefix string, line int) []evidenceF
 	case "agent_message":
 		add(obj["message"], "/message", "assistant")
 	case "user", "assistant", "message":
-		if _, nested := obj["message"]; !nested {
+		m := jsonMap(obj["message"])
+		if len(m) == 0 {
 			// Compact v1 keeps the turn's content at the record's top level
-			// and its time in "ts".
+			// and its time in "ts". A null or empty "message" is absent too,
+			// as in transcriptRecordContent.
 			if timestamp == "" {
 				timestamp = jsonString(obj["ts"])
 			}
 			content(obj["content"], "/content", jsonString(obj["type"]), true)
 			break
 		}
-		m := jsonMap(obj["message"])
 		role := jsonString(m["role"])
 		if role == "" {
 			role = jsonString(obj["type"])
