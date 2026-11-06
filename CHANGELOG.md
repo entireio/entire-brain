@@ -7,6 +7,12 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Fixed
 
+- A reseed now removes the documents under `seed/docs/` it did not write this
+  time. A document deleted from the repository, or one an earlier
+  `refresh --worktree` copied while it was untracked, used to keep its copy, and
+  `query` kept returning it although `file-index.json` no longer listed it. A
+  file that cannot be removed safely, such as a symlink, is left and reported
+  as a seed warning (#608).
 - `recall --evidence` no longer returns harness-injected `<system-reminder>`
   text as `role: "user"` evidence. User-role strings and text blocks now go
   through the same wrapper filter as the conversation reader, so reminders,
