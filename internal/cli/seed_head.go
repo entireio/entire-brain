@@ -283,7 +283,10 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 			}
 			continue
 		}
-		if drivers.runs(attr.filter) && !seedReadsAtAnySize(path) {
+		// Every file a driver converts goes through the driver checkout below,
+		// which passes the driver's stderr on. A doc the scan reads at any
+		// size is never removed there.
+		if drivers.runs(attr.filter) {
 			driven = append(driven, path)
 			continue
 		}

@@ -745,38 +745,44 @@ func TestDirtySeedDropsWhatAFilterDriverGrows(t *testing.T) {
 // writes the blob unconverted, and the seed says so instead of passing the
 // unconverted file off silently.
 func TestDirtySeedReportsAFilterDriverThatFails(t *testing.T) {
-	isolateSeedHeadTemp(t)
-	global := filepath.Join(t.TempDir(), "gitconfig")
-	if err := os.WriteFile(global, []byte("[filter \"decode\"]\n\tsmudge = sh scripts/decode.sh\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("GIT_CONFIG_GLOBAL", global)
-	repoDir := seedHeadTestRepo(t)
-	writeSeedHeadFiles(t, repoDir, map[string]string{
-		".gitattributes":    "*.enc filter=decode\n",
-		"scripts/decode.sh": "tr a b\n",
-		"data/note.enc":     "aaa\n",
-	})
-	gitAt(t, repoDir, "add", "-A")
-	gitAt(t, repoDir, "commit", "-q", "-m", "encoded file")
-	dirtySeedHeadTree(t, repoDir)
+	// A README the scan reads at any size goes through the same driver
+	// checkout, so its failure is reported too.
+	for _, path := range []string{"data/note.enc", "README.enc"} {
+		t.Run(path, func(t *testing.T) {
+			isolateSeedHeadTemp(t)
+			global := filepath.Join(t.TempDir(), "gitconfig")
+			if err := os.WriteFile(global, []byte("[filter \"decode\"]\n\tsmudge = sh scripts/decode.sh\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("GIT_CONFIG_GLOBAL", global)
+			repoDir := seedHeadTestRepo(t)
+			writeSeedHeadFiles(t, repoDir, map[string]string{
+				".gitattributes":    path + " filter=decode\n",
+				"scripts/decode.sh": "tr a b\n",
+				path:                "aaa\n",
+			})
+			gitAt(t, repoDir, "add", "-A")
+			gitAt(t, repoDir, "commit", "-q", "-m", "encoded file")
+			dirtySeedHeadTree(t, repoDir)
 
-	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
-	if err != nil {
-		t.Fatalf("check out HEAD: %v", err)
-	}
-	defer head.remove()
-	if got, err := os.ReadFile(filepath.Join(head.dir, "data", "note.enc")); err != nil || string(got) != "aaa\n" {
-		t.Fatalf("data/note.enc = %q, %v; want the unconverted blob a failed optional driver leaves", got, err)
-	}
-	found := false
-	for _, warning := range head.warnings {
-		if strings.Contains(warning, "filter driver reported errors") {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("warnings = %q; want one saying the filter driver failed", head.warnings)
+			head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+			if err != nil {
+				t.Fatalf("check out HEAD: %v", err)
+			}
+			defer head.remove()
+			if got, err := os.ReadFile(filepath.Join(head.dir, filepath.FromSlash(path))); err != nil || string(got) != "aaa\n" {
+				t.Fatalf("%s = %q, %v; want the unconverted blob a failed optional driver leaves", path, got, err)
+			}
+			found := false
+			for _, warning := range head.warnings {
+				if strings.Contains(warning, "filter driver reported errors") {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("warnings = %q; want one saying the filter driver failed", head.warnings)
+			}
+		})
 	}
 }
 
