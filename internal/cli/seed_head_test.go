@@ -816,7 +816,10 @@ func TestDirtySeedReadsFilterDriversInOneCall(t *testing.T) {
 
 // TestDropCheckedOutKeepsAFileTwoPathsShare: on a case-insensitive
 // filesystem A.txt and a.txt are one file, and removing it for one path would
-// take the other path's file with it, so such a file stays where it is.
+// take the other path's file with it, so such a file stays where it is. Its
+// path is still recorded unread at its real size: on a case-sensitive
+// filesystem the file left behind can be an LFS pointer, and the scan must not
+// read that as the content.
 func TestDropCheckedOutKeepsAFileTwoPathsShare(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -831,8 +834,8 @@ func TestDropCheckedOutKeepsAFileTwoPathsShare(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "A.txt")); err != nil {
 		t.Errorf("A.txt shares its file with another path and was removed: %v", err)
 	}
-	if _, ok := c.unread["A.txt"]; ok {
-		t.Error("A.txt was recorded unread although its file was kept")
+	if size, ok := c.unread["A.txt"]; !ok || size != 4 {
+		t.Errorf("A.txt: unread = %d, %v; want 4 although its file was kept", size, ok)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "b.txt")); err == nil {
 		t.Error("b.txt has a file of its own and was not removed")

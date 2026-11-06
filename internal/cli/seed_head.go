@@ -338,18 +338,18 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	return nil
 }
 
-// dropCheckedOut removes a checked-out file the scan only stats and records
-// it unread at size. Two selected paths that differ only in case share one
-// file on a case-insensitive filesystem; that file is left alone, since
-// removing it would take the other path's file with it, and the scan stats it
-// where it is. So is a file that cannot be removed.
+// dropCheckedOut records a checked-out file the scan only stats as unread at
+// size, which is what its entry is built from, and removes it. Two selected
+// paths that differ only in case share one file on a case-insensitive
+// filesystem, so a file another checked-out path folds to is left on disk:
+// removing it would take the other path's file with it. A file that cannot be
+// removed stays too; the scan never reads it either way.
 func (c *seedHeadCheckout) dropCheckedOut(path, target string, size int64) {
+	c.unread[path] = size
 	if c.folded[strings.ToLower(path)] > 1 {
 		return
 	}
-	if os.Remove(target) == nil {
-		c.unread[path] = size
-	}
+	_ = os.Remove(target)
 }
 
 // seedHeadAttrs is the commit's checkout-relevant attributes for one path.
