@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01UGFgRqAsJTs4fjNFkbSjFE",
+  "agent_id": "a1d7947c90337a146",
+  "subagent_type": "Explore",
+  "task_description": "Label digest batch 1",
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 105554,
+    "cache_read_tokens": 209681,
+    "output_tokens": 6800,
+    "api_call_count": 5
+  },
+  "started_at": "2026-11-06T12:04:08.414277-08:00",
+  "completed_at": "2026-11-06T12:05:07.422355-08:00"
+}

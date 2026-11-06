@@ -1,0 +1,507 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/denver directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+Conductor shows the PR for whichever branch is checked out. After you open a PR from a different branch, or a PR stack, check out that PR's branch (for a stack, the top-most branch) so Conductor shows it.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/denver/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+can we do some work to eval out our agent instructions to see if we can increase adhereance and usefulness of the memories that we provide back to agents who are working on local work? come up with a plan to evalutae what we have today for entire brian and then see how we can improve it
+<user-preferences>
+<!-- asd-ste100:begin -->
+## Response language: ASD-STE100
+
+Write all answers to the user in ASD-STE100 Simplified Technical English (Issue 9).
+Apply this rule to progress updates, questions, explanations, and final responses.
+
+- Follow the STE writing rules and dictionary. Use approved words with their approved meanings and parts of speech.
+- Use technical nouns and technical verbs when necessary. Explain unfamiliar terms. Use the same term for the same thing.
+- Use active voice and direct instructions.
+- Give one topic in each sentence. Give one instruction in each step.
+- Use no more than 20 words in a procedural sentence and 25 words in a descriptive sentence.
+- Use short paragraphs and clear lists. Use American English spelling.
+- Avoid idioms, figurative language, and unnecessary words.
+- Keep code, commands, paths, identifiers, URLs, and exact quotations unchanged. Apply STE to the prose around them.
+- Before you send a response, do a check for clear meaning and compliance with these rules.
+
+Reference: https://www.asd-ste100.org/
+## Writing style
+
+Write in natural, direct, conversational English. Favor how a thoughtful, technically sophisticated person would actually explain something over highly stylized or literary prose.
+
+- **Avoid agentive framing.** Don't turn systems, abstractions, or inanimate objects into actors merely to give sentences a strong noun–verb structure.
+- **Prefer ordinary verbs.** Use "gets," "has," "uses," or "can" when they're more natural than "holds," "carries," "owns," "drives," or "unlocks." Don't optimize every verb for rhetorical force.
+- **Avoid aphoristic technical prose.** Don't make ordinary explanations sound like architectural principles, maxims, or slogans.
+- **Optimize for naturalness, not elegance.** Prefer the sentence someone would say aloud in a technical discussion over one engineered to sound polished or authoritative.
+- **Preserve meaningful precision.** Use specialized terminology and precise verbs when they clarify an actual technical distinction, not simply because they sound more intentional.
+
+The writing should feel like a smart colleague explaining something clearly, not a technical manifesto.
+
+<!-- asd-ste100:end -->
+
+</user-preferences>
+
+---
+
+you can do paid if needed. i want you to do a real full analysis here.
+
+---
+
+<task-notification>
+<task-id>b9z0zusaq</task-id>
+<tool-use-id>toolu_017p1WLsWSnXaG7XKjWxuXgv</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-denver/8645f4dd-8e94-4429-9cbb-dd0e4af916fc/tasks/b9z0zusaq.output</output-file>
+<status>completed</status>
+<summary>Background command "Run scorer over checkpoint corpus" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a1d7947c90337a146</task-id>
+<tool-use-id>toolu_01UGFgRqAsJTs4fjNFkbSjFE</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-denver/8645f4dd-8e94-4429-9cbb-dd0e4af916fc/tasks/a1d7947c90337a146.output</output-file>
+<status>completed</status>
+<summary>Agent "Label digest batch 1" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>FILE: META_12_7f8476fb.md
+RELEVANCE: 1
+USED: 1
+FRICTION: branch-empty-recall, retry-needed, manifest-warning, noise-history-excerpt, truncated-result
+EVIDENCE: "No recorded rationale for the multicolored bar — it's fair game. Now reading the TUI framework and the current status renderer."
+NOTE: The main-branch facts were only loosely related: a distill-spinner preference and an Entire dark-theme preference. The brief's history matched an unrelated entire-judge README edit.
+
+FILE: META_2_bae1bbb2.md
+RELEVANCE: 2
+USED: 2
+FRICTION: manifest-warning, stale-warning, noise-history-excerpt, truncated-result
+EVIDENCE: "the brief surfaced an existing self-labeled eval generator and a Graph-side runner evaluation. Checking what the repo already has."
+NOTE: Every brief and recall returned the same unrelated Linear-issue BM25 fact. The useful content came from history excerpts (facts_eval_gen, durable_facts_plan), and the runner design was built on eval-gen.
+
+FILE: META_3_d774cafb.md
+RELEVANCE: 1
+USED: 1
+FRICTION: retry-needed, branch-empty-recall, manifest-warning, noise-history-excerpt
+EVIDENCE: "No recorded prior decision on the naming (empty recall). Now scoping where \"facts\" appears"
+NOTE: The first brief failed with brain_locked and needed a sleep-and-retry. The recall warned that 1,916 fact IDs were duplicated. The on-task fact about the facts→memories rename came back for an unrelated trail-grouping query.
+
+FILE: META_8_3f79f69b.md
+RELEVANCE: 2
+USED: 2
+FRICTION: null-facts, branch-empty-recall, retry-needed, truncated-result
+EVIDENCE: "Context (from Brain + source): Auto-connect was a deliberate decision — hostedFactsSyncAndPull ... silently binds when it succeeds."
+NOTE: Two retries printed empty lines because the agent parsed the wrong field names, so a third call was needed. Once fixed, the main branch returned 10 on-task facts about auto-connect and local fallback.
+
+FILE: NONMETA_18_c99ba3d3.md
+RELEVANCE: 2
+USED: 2
+FRICTION: truncated-result
+EVIDENCE: "Main is checked out in another worktree. I'll validate at the merged commit detached, as prior sessions did."
+NOTE: The first brief returned clearly on-task COR-2268 continuation facts. The later "concurrency group" brief returned an unrelated concurrency-safety invariant, matched on the word alone.
+
+FILE: NONMETA_1_89f6bc17.md
+RELEVANCE: 2
+USED: 2
+FRICTION: null-facts, branch-empty-recall, retry-needed, stale-warning, truncated-result
+EVIDENCE: "that's the recorded rationale behind the experts routing fix: home-cell-only routing left accessible repos in other jurisdictions unreachable"
+NOTE: Three recalls returned null facts with a blind_spot note. The first branch retries printed blanks because of wrong field names. Once fixed, they returned the region-locality invariant, which is on-task.
+
+FILE: NONMETA_2_b54be2a6.md
+RELEVANCE: 2
+USED: 1
+FRICTION: branch-empty-recall, retry-needed, manifest-warning, noise-history-excerpt
+EVIDENCE: "Recorded context from Brain (branch main facts): the 8-shard count was ported from entire-graph PR #189 without tuning"
+NOTE: Recall was empty on two branches before main returned the Windows CI shard facts. The session ended when the spend limit was hit.
+
+FILE: NONMETA_3_848024d0.md
+RELEVANCE: 1
+USED: 0
+FRICTION: branch-empty-recall, retry-needed, manifest-warning, noise-history-excerpt, stale-warning
+EVIDENCE: "the brief I ran printed `semantic index missing; run entire brain refresh`, but that string comes from the installed plugin binary"
+NOTE: The agent spent effort checking the stale "semantic index missing" warning as a possible missed cleanup. Main-branch recall returned unrelated graph-benchmark facts.
+
+FILE: NONMETA_4_39fef4de.md
+RELEVANCE: 1
+USED: 0
+FRICTION: branch-empty-recall, retry-needed, manifest-warning, noise-history-excerpt
+EVIDENCE: "The merge with `main` is clean. `FETCH_HEAD` (0c2c7b16) is newer than the last commit"
+NOTE: History only matched docs/index.json install text that mentions get-brain.sh. The main-branch facts (a seed dirty-tree gotcha and release suites) had nothing to do with rate limits.
+
+FILE: NONMETA_5_92c72751.md
+RELEVANCE: 2
+USED: 1
+FRICTION: null-facts, manifest-warning, truncated-result
+EVIDENCE: "No recorded Brain facts about the new read path beyond my own. Checking the code and its history."
+NOTE: The on-task facts (cat-file profiling, the parked streaming-preprocessor decision) were written earlier in this same session. The first recall returned null facts with a duplicate-fact-ID warning.
+
+FILE: NONMETA_7_c460c6d3.md
+RELEVANCE: 2
+USED: 1
+FRICTION: branch-empty-recall, retry-needed, stale-warning, noise-history-excerpt
+EVIDENCE: "Brain and ticket retrieved. Now checking whether the code COR-2135 targets still exists on the #387 branch."
+NOTE: The branch recall for env vars returned the off-topic COR-2135 fact. One main retry printed nothing because the Python one-liner had a syntax error. The later main recall returned on-task facts about the hosted opt-in decision.
+
+FILE: NONMETA_9_b0422b4f.md
+RELEVANCE: 2
+USED: 0
+FRICTION: branch-empty-recall, retry-needed, manifest-warning, truncated-result
+EVIDENCE: "`v0.1.0` tag exists, so byte-diffs against the last stable are possible. Dispatching four parallel audit agents"
+NOTE: History context was unavailable because of a "history index must not be hardlinked" error. The main-branch recall returned an on-task fact (the --jobs compatibility-alias decision), but the agent never referenced it.</result>
+<usage><subagent_tokens>111020</subagent_tokens><tool_uses>13</tool_uses><duration_ms>59132</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a5a888a66035a6333</task-id>
+<tool-use-id>toolu_01MBXdhorzTTeJn3xDRtmfFu</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-denver/8645f4dd-8e94-4429-9cbb-dd0e4af916fc/tasks/a5a888a66035a6333.output</output-file>
+<status>completed</status>
+<summary>Agent "Label digest batch 3" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>FILE: META_21_41f22359.md
+RELEVANCE: 2
+USED: 2
+FRICTION: branch-empty-recall, retry-needed, manifest-warning, truncated-result
+EVIDENCE: "Three of those state now-fixed bugs as present-tense fact... they'd mislead future sessions. Let me check how to correct them."
+NOTE: Two recalls on the feature branch returned nothing; the retry with `--branch main` found on-task facts (github.com-only host gate, compact transcript.jsonl). Later recalls brought back the agent's own stale memories, which it retracted and rewrote on main.
+
+FILE: META_3_6dd54295.md
+RELEVANCE: 2
+USED: 1
+FRICTION: truncated-result
+EVIDENCE: "in parallel reviewing the production diff and checking my memory notes for staleness."
+NOTE: The brief and the recall returned the same two near-duplicate legacyAgentDistillCacheSalts invariant facts (1aaee060 and 7a685769). Both are clearly on-task, since the PR asks to enumerate producers, but the next text the digest shows comes from much later.
+
+FILE: META_7_22cec224.md
+RELEVANCE: 2
+USED: 2
+FRICTION: branch-empty-recall, manifest-warning, null-facts, truncated-result
+EVIDENCE: "The ticket names the cause: `discoverCheckpoints` in `internal/cli/export.go`." and later "Why it's used (from the package docs and recorded Brain memories)"
+NOTE: The history excerpts (audit worklist, the remember call, the Linear ticket) supplied the root-cause pointer. A duplicate-id warning appeared on every result, and the agent's later refresh grew the store from 12,516 to 40,800 records.
+
+FILE: NONMETA_11_aacf0e43.md
+RELEVANCE: 2
+USED: 2
+FRICTION: branch-empty-recall, null-facts, retry-needed, truncated-result
+EVIDENCE: "exactly the duplication the recorded decision rules out (Brain fact `60c34192`: 'reuse the existing core CLI logic and credentials...')"
+NOTE: The brief history found the whereami plan directly. The branch recall returned `facts: null` with a blind_spot hint, and retrying with `--branch brain-cloud-memory-sync` worked.
+
+FILE: NONMETA_1_4b0161b1.md
+RELEVANCE: 2
+USED: 1
+FRICTION: branch-empty-recall, retry-needed, manifest-warning
+EVIDENCE: "The task memory lives on branch `stable-release-readiness-plan`; retrying recall there"
+NOTE: The brief warned "history context unavailable: history index must not be hardlinked", so its history came back empty. The recalled decision fact (d5bfac3b) is on-task but only restates what the user had already asked for.
+
+FILE: NONMETA_2_1922acc4.md
+RELEVANCE: 2
+USED: 1
+FRICTION: noise-history-excerpt, truncated-result
+EVIDENCE: "The recorded Brain facts confirm the diagnosis and the accepted design. Now I do the Graph preflight"
+NOTE: The brief history was off-topic (Playwright SIGKILL cleanup, git WaitDelay). The recall with an explicit `--branch` returned the customer brain_locked diagnosis and the parent-death watchdog design, which only confirmed the handoff.
+
+FILE: NONMETA_3_1152b409.md
+RELEVANCE: 2
+USED: 0
+FRICTION: null-facts, branch-empty-recall, noise-history-excerpt, truncated-result
+EVIDENCE: "The tick flow checks out structurally — all exit paths after cursor load now call `runFactsSync()`."
+NOTE: The first brief history had the on-task prior commit ("still skipped when a changed tick's refresh failed"), but the agent reviewed from code. The second brief broke the python pipe (JSONDecodeError "Extra data"), and the second recall returned off-topic facts (brainignore, FTS).
+
+FILE: NONMETA_3_db19f645.md
+RELEVANCE: 2
+USED: 1
+FRICTION: null-facts, branch-empty-recall, truncated-result
+EVIDENCE: "Stale fact retracted. Waiting on the suite, then I'll push and refresh the PR/Linear."
+NOTE: The brief showed all sources missing and an empty history. The first recall returned `facts: null` with "no brain has been built". Later recalls returned on-task auth-token minting facts, and the agent retracted one stale fact.
+
+FILE: NONMETA_5_3b8da7c5.md
+RELEVANCE: 2
+USED: 2
+FRICTION: branch-empty-recall, retry-needed, manifest-warning, noise-history-excerpt, truncated-result
+EVIDENCE: "Brain has a recorded decision that distill runs on the user's Claude Code subscription auth, no API key (`--bare` was tried and failed). So: default stays the CLI"
+NOTE: The first brief history match (shared prefetch pool PR) was on-task. The other two matches were noise (eval latency code, an unrelated test).
+
+FILE: NONMETA_6_e7e29a32.md
+RELEVANCE: 1
+USED: 0
+FRICTION: branch-empty-recall, retry-needed, manifest-warning, noise-history-excerpt, truncated-result
+EVIDENCE: "The work belongs to the entire CLI repo; there is a `cli` workspace locally. This is new feature work, so I will load the brainstorming skill"
+NOTE: Only the README excerpt on brain-local session tombstones was tangentially relevant. The main-branch recall facts (checkpoint hint batching, Phase 0B exclusion) were off-topic.
+
+FILE: NONMETA_9_8645f4dd.md
+RELEVANCE: 2
+USED: 1
+FRICTION: branch-empty-recall, retry-needed, manifest-warning, noise-history-excerpt, truncated-result
+EVIDENCE: "Strong prior evidence recorded. Now I will inspect the current instruction templates and the benchmark harness."
+NOTE: The main-branch facts (an "ignoring the brain" report traced to a parser bug in the eval harness, and the side-channel stripping rule for adherence) are on-task. The first history excerpt was a web-search call and is noise.
+
+FILE: NONMETA_9_e6894fd5.md
+RELEVANCE: 2
+USED: 2
+FRICTION: branch-empty-recall, retry-needed, manifest-warning, noise-history-excerpt, truncated-result
+EVIDENCE: "Brain facts show the work was deliberately moved to a detached backfill... batching spawns was rejected... 'revisit if spawn overhead becomes material.'"
+NOTE: Two branch recalls returned empty. The brief history matched on "spawn_agent" calls and was lexical noise. The main-branch facts shaped the ranking and the descriptions of the tickets the agent filed.</result>
+<usage><subagent_tokens>100135</subagent_tokens><tool_uses>13</tool_uses><duration_ms>59186</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ac6325c05988dcf4b</task-id>
+<tool-use-id>toolu_01MTekapDB6yhk5fJVvhNNLa</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-denver/8645f4dd-8e94-4429-9cbb-dd0e4af916fc/tasks/ac6325c05988dcf4b.output</output-file>
+<status>completed</status>
+<summary>Agent "Label digest batch 2" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>FILE: META_17_a936b5a4.md
+RELEVANCE: 2
+USED: 0
+FRICTION: branch-empty-recall, null-facts, retry-needed, noise-history-excerpt, truncated-result
+EVIDENCE: "Key call sites found. Now checking whether the doc/project-file semantic index ... is built with the same bundled embedder"
+NOTE: Two branch recalls returned facts:null. The main-branch retry and the second brief (Stage 1b "persistent pure-Go vector cache for facts and docs") were on-task, but the agent's next text only describes reading code. The projection-vectors recall was off-topic.
+
+FILE: META_3_13a0a641.md
+RELEVANCE: 2
+USED: 2
+FRICTION: branch-empty-recall, null-facts, retry-needed, stale-warning, manifest-warning, noise-history-excerpt
+EVIDENCE: "The provider's parse is brutally slow — and that's recorded. Brain's memory holds measurements: on entire-cli the provider snapshot timed out at 900 seconds"
+NOTE: This session covered several sub-tasks. It hit a brain_locked error on brief and needed a retry, one recall returned the same fact twice, a brief returned no output, and the session ended on a spend-limit message.
+
+FILE: META_4_dfb55a91.md
+RELEVANCE: 2
+USED: 0
+FRICTION: truncated-result
+EVIDENCE: "Merge in progress with one conflicted file. I need the conflict hunks and the worker launch definition."
+NOTE: Recall returned fact:945802593 about the exact watch-tick write.lock fix under review, but no agent text refers to it. The brief's facts were about unrelated Linear issue-memory tickets.
+
+FILE: META_9_69893dc2.md
+RELEVANCE: 2
+USED: 0
+FRICTION: branch-empty-recall, manifest-warning, retry-needed, noise-history-excerpt, truncated-result
+EVIDENCE: "The impact output needs a different parse, and I need main's current vector-mode handling plus the test and doc regions"
+NOTE: The main-branch recall returned on-task Linear-integration decisions, but the agent never cites them. A later brief's history matches were this same session's own commands. A remember call also needed a retry.
+
+FILE: NONMETA_1_05e1325c.md
+RELEVANCE: 1
+USED: 1
+FRICTION: branch-empty-recall, manifest-warning, noise-history-excerpt, retry-needed
+EVIDENCE: "Recall only returns my own memory. Checking what the setup `semantic` stage actually does on main and its recent history."
+NOTE: Later recalls only returned the fact the agent had just recorded itself (fact:f1710e04), so it had to go to code and git history.
+
+FILE: NONMETA_20_0d52eee2.md
+RELEVANCE: 2
+USED: 2
+FRICTION: branch-empty-recall, manifest-warning, retry-needed, stale-warning, noise-history-excerpt, truncated-result
+EVIDENCE: "Two recalled constraints materially shape the design: Branch stores are not single-branch-pure... deletion needs explicit tracking, not inference."
+NOTE: Recalled closed-negatives (v1/v2 branch-keyed CAS rejected, keep-both proposal spam) also backed the single-store redesign. Several "brief" calls were brain_locked repro experiments, not retrieval.
+
+FILE: NONMETA_3_02302f40.md
+RELEVANCE: 2
+USED: 0
+FRICTION: truncated-result
+EVIDENCE: "Large surface. The most reliable enumeration is building the binary and walking the cobra help tree. Building now."
+NOTE: The brief history had on-task connected/disconnected/local-only state-model excerpts. The recall printed nothing because the agent's parser read 'memories'/'results' keys instead of 'facts', so any results were silently dropped.
+
+FILE: NONMETA_3_9019a8c6.md
+RELEVANCE: 2
+USED: 2
+FRICTION: branch-empty-recall, retry-needed, truncated-result
+EVIDENCE: "That matches the recorded design, and it corrects my earlier suggestion: the `--memories-backend=http` advance/CAS backend I pointed you at is the **old** protocol"
+NOTE: The main-branch retry first failed with a KeyError ('content') in the agent's parser and needed another retry. The recalled init-agents facts were cited directly as "Recorded:".
+
+FILE: NONMETA_4_7cdbe3f2.md
+RELEVANCE: 1
+USED: 0
+FRICTION: branch-empty-recall, manifest-warning, retry-needed, truncated-result
+EVIDENCE: "The hosted wire addresses repos by ULID binding, not a `gh/` path — good sign."
+NOTE: The main-branch facts (Trails 403 gating, trail --body gotcha) and the COR-2110 history were only tangential to validating et/ project-level trails. The conclusion came from code and a live test.
+
+FILE: NONMETA_6_5f56b923.md
+RELEVANCE: 2
+USED: 2
+FRICTION: branch-empty-recall, manifest-warning, stale-warning, retry-needed, truncated-result
+EVIDENCE: "The recorded history confirms your correction: branch-head CAS was v1/v2 and rejected for v3. Checking what v3 does and what the current path sends."
+NOTE: The brief's likely_files (semantic.go, bench_scale.go) were off-target. One combined recall exited with code 1. One recall's output was swallowed (2&gt;/dev/null) and only the migration file printed.
+
+FILE: NONMETA_8_88872ad9.md
+RELEVANCE: 2
+USED: 2
+FRICTION: branch-empty-recall, manifest-warning, noise-history-excerpt, retry-needed, truncated-result
+EVIDENCE: "the cited memory (`fact:8f0b8c0d47ba7ed44f19ab26`...) confirms the vocabulary gotcha: 'semantic' stays as graph-provider schema vocabulary; only user-facing labels rename"
+NOTE: The on-task fact only surfaced on a third recall against a specific feature branch (brief-stale-semantic-index-fallback). The main-branch retry returned mostly tangential benchmark closed-negatives, and the brief history was README/docs index noise.
+
+FILE: NONMETA_9_b4594f25.md
+RELEVANCE: 2
+USED: 2
+FRICTION: branch-empty-recall, manifest-warning, stale-warning, retry-needed, truncated-result
+EVIDENCE: "a recorded audit showed naive GC can tag a live artifact for deletion... `memories sync` defaults to `local-gitmeta`... intent flagged for confirmation in COR-2211"
+NOTE: Both initial branch recalls returned empty. The brief had no history ("history index must not be hardlinked") and off-target likely_files. The main-branch recalls drove the #10 brainstore recommendation.</result>
+<usage><subagent_tokens>126876</subagent_tokens><tool_uses>13</tool_uses><duration_ms>71822</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ac5d07c1b5d707c6f</task-id>
+<tool-use-id>toolu_01KZHe8GCPj6whAwkxTvwCwS</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-denver/8645f4dd-8e94-4429-9cbb-dd0e4af916fc/tasks/ac5d07c1b5d707c6f.output</output-file>
+<status>completed</status>
+<summary>Agent "Label digest batch 4" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>FILE: META_23_bfe36b34.md
+RELEVANCE: 2
+USED: 2
+FRICTION: noise-history-excerpt, branch-empty-recall, manifest-warning, retry-needed, truncated-result
+EVIDENCE: "Brain backs you up, and nothing on record blocks the change: Memories v3 (COR-2110) already made checkpoints the anchor"
+NOTE: The brief's history matches were Ollama test-diff noise. The branch recall was empty. Retrying with --branch main returned on-task facts: the Gemma eval precision numbers, the ~/.entire-brain-eval convention, and the COR-2110 checkpoint anchoring. The agent cited these by ID and used them to frame its checkpoint-scoped distillation design. The session ended on a spend-limit error.
+
+FILE: META_3_7a922c8a.md
+RELEVANCE: 2
+USED: 0
+FRICTION: branch-empty-recall, stale-warning, manifest-warning, retry-needed, truncated-result
+EVIDENCE: "Now the CHANGELOG and the copy sweep."
+NOTE: The task prompt (Windows verify slowness) is a later turn and doesn't match the brief, which is about claim posture. The main-branch retry returned an on-task fact (model2vec removed in trail #278, replaced by BM25), but the agent never mentioned it. History context was unavailable because of the hardlinked-index error.
+
+FILE: META_7_470136d0.md
+RELEVANCE: 1
+USED: 0
+FRICTION: branch-empty-recall, stale-warning, manifest-warning, retry-needed, truncated-result
+EVIDENCE: "Confirmed nlink=2 on the only generation. Finding the second link to learn who created it:"
+NOTE: The brief's own warnings (hardlinked history index, manifest behind store, branch has no memories) are the degraded states this task audits. None of the main-branch facts (semantic index feeds brief only; a benchmark caveat) dealt with the hardlink repair. The agent investigated from the filesystem instead.
+
+FILE: NONMETA_12_30c4afe0.md
+RELEVANCE: 2
+USED: 0
+FRICTION: truncated-result
+EVIDENCE: "RED confirmed. Implementing the drop."
+NOTE: The history excerpts were on-task (COR-2268 privacy-gate extraction, tombstone gate in COR-2128). The first recall's facts were mostly off-topic (SQLite immutable, cancelled roadmap). The second recall surfaced the Memories v3 provenance-anchor fact and the checkpoint metadata cache fact, which are relevant to the provenance drop. The agent's text never referred to any of it. The task prompt is a later follow-up question.
+
+FILE: NONMETA_1_78defb0c.md
+RELEVANCE: 2
+USED: 1
+FRICTION: branch-empty-recall, stale-warning, manifest-warning
+EVIDENCE: "No prior theme decisions recorded in Brain (empty recall; the decision is in the task spec)."
+NOTE: The first branch recall was empty and the agent said so. A later recall without --branch returned fact 1f3b8aeb (palette Accent=5, Border=8, Good=2), which was probably authored earlier in this same session. The agent's later description, "muted gray (8), magenta (5), green (2)", matches that fact's palette codes.
+
+FILE: NONMETA_2_690ef6a2.md
+RELEVANCE: 2
+USED: 0
+FRICTION: branch-empty-recall, stale-warning, manifest-warning, retry-needed, truncated-result
+EVIDENCE: "The failing artifact is the smoke script itself — it contains a string matching the `aws-us-...` cell identifier regex."
+NOTE: Retrying with --branch release-smoke-task returned two authored facts that are clearly on-task (the staging WAF user-agent gotcha and the distill smoke fixture gotcha). The agent's next text didn't reflect either one.
+
+FILE: NONMETA_3_79fa10a4.md
+RELEVANCE: 2
+USED: 2
+FRICTION: truncated-result
+EVIDENCE: "The latest experiment artifacts exist on disk. Checking the resume-status doc and the checkpoint-vs-whole run state."
+NOTE: The brief returned facts that are directly on-task (the eval scope correction, and the temporal constraint citing .context/eval-resume-status.md). The agent went straight to the resume-status doc that the fact names. I scored this as USED 2, but that is inferred from the navigation, not stated by the agent. The final text is about an unrelated Linear move.
+
+FILE: NONMETA_3_e410673e.md
+RELEVANCE: 1
+USED: 0
+FRICTION: branch-empty-recall, manifest-warning, truncated-result
+EVIDENCE: "The agent-guide's `entire graph query` doesn't exist in this provider build — `search` is the equivalent"
+NOTE: The history excerpts touched on the repo-view merge and the connect/sync plans, so they were tangential. The recall returned an integrity warning that 958 stored records repeat an id the branch already holds. The agent didn't retry on main.
+
+FILE: NONMETA_5_6b7295ce.md
+RELEVANCE: 2
+USED: 1
+FRICTION: branch-empty-recall, manifest-warning, retry-needed, truncated-result
+EVIDENCE: "Recall was empty on this branch (per-branch memories); retrying against `main` and pulling the code context."
+NOTE: The history excerpts were on-task (the staging POST advance 403, ErrExhausted CAS retries). The main recall returned the hosted_target.go resolver decision and the auto-connect race gotcha. The agent's later text names hostedFactsSyncAndPull, but it doesn't credit the memory for it.
+
+FILE: NONMETA_72_d579bcb1.md
+RELEVANCE: 1
+USED: 1
+FRICTION: null-facts, branch-empty-recall, noise-history-excerpt, stale-warning, retry-needed, truncated-result
+EVIDENCE: "A recall for prior demo decisions found no recorded facts; the brief surfaced one related artifact: a June 2026 'brain off vs. brain on' benchmark plan"
+NOTE: Recall returned facts: null on the semantic engine with vector_count 0. The history included raw tool_end JSON noise. Main-branch recall output was flooded with a "pending fact review" wall of fact IDs. The runbook was shaped by this friction (record on main, run facts review first), and the envelope-encryption fact became demo content rather than task knowledge.
+
+FILE: NONMETA_9_93ae8948.md
+RELEVANCE: 2
+USED: 2
+FRICTION: branch-empty-recall, stale-warning, manifest-warning, retry-needed, truncated-result
+EVIDENCE: "Had I queried brain before fixing #483, it would have warned me off the 'three sites' claim... Fixing the mechanical cause"
+NOTE: This is a long session with several changes driven by memory. The "FOUR readers" fact led to a CLAUDE.md change (always pass --branch main). A recall localized the missed distill-path defect, which the agent then found already fixed ("that recorded fact is stale"). Recall rows were 74% duplicates (10 rows, 3–4 distinct) until a dedup. The agent's own extractor dropped the `facts` key, and `brief --branch` failed with "unknown flag".</result>
+<usage><subagent_tokens>110040</subagent_tokens><tool_uses>14</tool_uses><duration_ms>70772</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b0ukqv2vr</task-id>
+<tool-use-id>toolu_01BXazUAp6uMLEZz86AbAMhY</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-denver/8645f4dd-8e94-4429-9cbb-dd0e4af916fc/tasks/b0ukqv2vr.output</output-file>
+<status>completed</status>
+<summary>Background command "Pilot A/B run: current arm, history task" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bg9neuf8r</task-id>
+<tool-use-id>toolu_01Tq3kswv26RJ3R35bhDgQbV</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-denver/8645f4dd-8e94-4429-9cbb-dd0e4af916fc/tasks/bg9neuf8r.output</output-file>
+<status>completed</status>
+<summary>Background command "Retry pilot run with env fix" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bce3h9tep</task-id>
+<tool-use-id>toolu_01K6vzdwKaPh3FxWjx5x8KvA</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-denver/8645f4dd-8e94-4429-9cbb-dd0e4af916fc/tasks/bce3h9tep.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait and check pilot progress" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbr4jk9y6</task-id>
+<tool-use-id>toolu_016cDizMQUxnj4vAeBFPbfVp</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-denver/8645f4dd-8e94-4429-9cbb-dd0e4af916fc/tasks/bbr4jk9y6.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full A/B grid and usefulness runs" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b6g541oh9</task-id>
+<tool-use-id>toolu_016Af1N2Hpsi6FFFd3SxkA53</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-denver/8645f4dd-8e94-4429-9cbb-dd0e4af916fc/tasks/b6g541oh9.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait 10 min then report grid progress" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bmc7q33n8</task-id>
+<tool-use-id>toolu_01ANjTS7poF2NnpYfEY9ZrVh</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-denver/8645f4dd-8e94-4429-9cbb-dd0e4af916fc/tasks/bmc7q33n8.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait 15 min; count completed runs" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+how did you meaure this?
+
+When facts come back they are usually relevant (79% of labeled sessions had an on-task memory), but behavior visibly changed in only 38%; 32% ignored the facts entirely. Only 2% of returned fact ids were ever cited again.
