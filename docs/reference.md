@@ -1159,7 +1159,7 @@ sessions when explicitly asked. Memories are shared across branches by default.
 Retract facts that are no longer true, then garbage-collect eligible retractions.
 
 ```sh
-entire brain remember "Prefer table-driven tests for parser edge cases" --path preferences.tests
+entire brain remember "Prefer table-driven tests for parser edge cases" --path preferences.testing.style
 entire brain distill --agent codex --model gpt-5.4-mini --effort low
 entire brain facts retract <fact-id>
 entire brain facts gc --force

@@ -38,7 +38,7 @@ func NewRemember(cfg Config) *cobra.Command {
 			return RunRemember(cmd.Context(), cmd, cfg, rememberOpts, args[0])
 		},
 	}
-	cmd.Flags().StringVar(&rememberOpts.Path, "path", "", "Taxonomy path(s), comma-separated (e.g. preferences.coding.style). If omitted, the agent classifies the memory")
+	cmd.Flags().StringVar(&rememberOpts.Path, "path", "", "Taxonomy path(s), comma-separated, at most 2. Each is "+factmerge.PathRule+", e.g. preferences.coding.style. If omitted, the agent classifies the memory")
 	cmd.Flags().StringVar(&rememberOpts.Kind, "kind", "", "Memory kind: decision|invariant|gotcha|preference|convention. If omitted, it is inferred")
 	cmd.Flags().StringVar(&rememberOpts.Branch, "branch", "", "Branch to store the memory on (default: current branch)")
 	cmd.Flags().StringVar(&rememberOpts.Session, "session", "", "Session id the memory was authored in (default: $"+RememberSessionEnv+"); agent and hook callers pass it so the memory carries session provenance")
@@ -287,9 +287,20 @@ func RunRemember(ctx context.Context, cmd *cobra.Command, cfg Config, rememberOp
 // agent and without --path it errors, mirroring the plan's contract.
 func ResolveRememberPaths(ctx context.Context, cfg Config, rememberOpts RememberCommandOptions, repoDir, text string, taxonomy factstore.Taxonomy) ([]string, error) {
 	if strings.TrimSpace(rememberOpts.Path) != "" {
-		paths := factmerge.NormalizePaths(strings.Split(rememberOpts.Path, ","))
+		entries := strings.Split(rememberOpts.Path, ",")
+		// NormalizePaths drops malformed entries, which is right for agent
+		// output but hides a typo in an explicit --path: the memory would be
+		// stored under fewer paths than asked for. Name the first bad entry
+		// and the rule instead, so the caller can fix it in one try.
+		for _, entry := range entries {
+			entry = strings.TrimSpace(entry)
+			if entry != "" && !factmerge.ValidPath(strings.ToLower(entry)) {
+				return nil, fmt.Errorf("--path %q is not a valid taxonomy path; use %s, e.g. preferences.coding.style", entry, factmerge.PathRule)
+			}
+		}
+		paths := factmerge.NormalizePaths(entries)
 		if len(paths) == 0 {
-			return nil, fmt.Errorf("--path %q is not a valid taxonomy path (category.subcategory.type)", rememberOpts.Path)
+			return nil, fmt.Errorf("--path %q is not a valid taxonomy path; use %s, e.g. preferences.coding.style", rememberOpts.Path, factmerge.PathRule)
 		}
 		// Explicit paths must all sit under a known top-level category, exactly
 		// like agent-classified ones — otherwise --path can mint

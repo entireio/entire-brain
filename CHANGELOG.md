@@ -13,6 +13,11 @@ All notable changes to `entire-brain` are recorded here. The format follows
   `Caveat:` notes and environment envelopes are skipped like system-role
   records already were. As in conversation, user text that itself starts with
   `<` is skipped too. Assistant text is unchanged (#565).
+- `remember --path` rejects a malformed path even when another path in the list
+  is valid. Previously it was dropped and the memory was stored under fewer
+  paths. The error names the rejected path and the rule: `category.subcategory.type`,
+  lowercase letters, digits and `_`, no hyphens. `remember --help` and the agent
+  guide written by `setup` now state the rule too.
 
 ## [0.5.1] - 2026-11-04
 
