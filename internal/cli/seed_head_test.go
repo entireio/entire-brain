@@ -341,7 +341,19 @@ func TestDirtySeedIgnoresUncommittedGitattributes(t *testing.T) {
 	}
 	clean := readSeedManifest(t, cleanDir)
 
-	writeSeedHeadFiles(t, repoDir, map[string]string{".gitattributes": "*.md working-tree-encoding=UTF-16LE\n"})
+	// An untracked root .gitattributes, and an edit to a committed nested one.
+	writeSeedHeadFiles(t, repoDir, map[string]string{"docs/.gitattributes": "*.md text\n"})
+	gitAt(t, repoDir, "add", "docs/.gitattributes")
+	gitAt(t, repoDir, "commit", "-q", "-m", "nested attributes")
+	cleanDir = filepath.Join(t.TempDir(), "clean-nested")
+	if _, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--output", cleanDir, repoDir); err != nil {
+		t.Fatalf("seed a clean tree: %v", err)
+	}
+	clean = readSeedManifest(t, cleanDir)
+	writeSeedHeadFiles(t, repoDir, map[string]string{
+		".gitattributes":      "*.md working-tree-encoding=UTF-16LE\n",
+		"docs/.gitattributes": "*.md working-tree-encoding=UTF-16LE\n",
+	})
 	dirtyDir := filepath.Join(t.TempDir(), "dirty")
 	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--output", dirtyDir, repoDir); err != nil {
 		t.Fatalf("seed with an untracked .gitattributes: %v\n%s", err, out)
@@ -352,6 +364,10 @@ func TestDirtySeedIgnoresUncommittedGitattributes(t *testing.T) {
 	}
 	if string(readme) != "# committed readme\n" {
 		t.Errorf("seeded README = %q, want the committed bytes, not ones converted by uncommitted attributes", readme)
+	}
+	guide, err := os.ReadFile(filepath.Join(dirtyDir, seedDirName, seedDocsDirName, "docs", "guide.md"))
+	if err != nil || string(guide) != "committed guide\n" {
+		t.Errorf("seeded docs/guide.md = %q, %v; an edited nested .gitattributes must not convert it", guide, err)
 	}
 	if dirty := readSeedManifest(t, dirtyDir); dirty.FileFingerprint != clean.FileFingerprint {
 		t.Errorf("uncommitted attributes changed what the seed read: fingerprint %s, clean %s", dirty.FileFingerprint, clean.FileFingerprint)

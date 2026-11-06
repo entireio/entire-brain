@@ -55,9 +55,9 @@ import (
 // The checkout never touches the repository's real index: read-tree and
 // checkout-index run against a scratch GIT_INDEX_FILE, so a concurrent git in
 // the same repository (issue #326) sees nothing. Nor does it read the
-// worktree's .gitattributes: checkout-index takes them from the commit
-// (--attr-source), so an uncommitted attribute change cannot re-encode or
-// re-filter the committed bytes.
+// worktree's .gitattributes: checkout-index and check-attr take them from the
+// scratch index, which holds the commit's tree, so an uncommitted attribute
+// change cannot re-encode or re-filter the committed bytes.
 
 // seedHeadTempPrefix names the private checkout directory so a leftover from a
 // killed process is recognisable in the system temp directory.
@@ -190,6 +190,21 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	if _, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "read-tree", c.commit); err != nil {
 		return fmt.Errorf("read committed HEAD %s into a scratch index: %w", shortCommitHash(c.commit), err)
 	}
+	// checkout-index looks attributes up in the work tree first and the
+	// index second, so it applied the WORKTREE's .gitattributes --
+	// uncommitted or edited ones included, even with the commit's own copy in
+	// the scratch index -- and an uncommitted working-tree-encoding rule
+	// re-encoded committed docs into what the scan rejects as binary.
+	// Pointing GIT_WORK_TREE at an empty directory leaves the scratch index,
+	// the commit's tree, as the only source (info/attributes and the user's
+	// global file apply as they do to a clean checkout). This works on every
+	// supported git, unlike --attr-source (2.40+). Files are written through
+	// --prefix, never into this directory.
+	emptyWorkTree := filepath.Join(c.tempRoot, "no-worktree")
+	if err := os.Mkdir(emptyWorkTree, 0o700); err != nil {
+		return fmt.Errorf("create committed HEAD checkout: %w", err)
+	}
+	env["GIT_WORK_TREE"] = emptyWorkTree
 	selected := c.paths
 	if opts.maxFiles > 0 && len(selected) > opts.maxFiles {
 		selected = selected[:opts.maxFiles]
@@ -241,19 +256,12 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	// git appends each path to the prefix verbatim, so it needs the trailing
 	// separator; forward slashes are what git expects on every platform.
 	prefix := "--prefix=" + filepath.ToSlash(c.dir) + "/"
-	// --attr-source: without it, checkout-index applies the WORKTREE's
-	// .gitattributes -- uncommitted, or edited, ones included, even with the
-	// commit's own copy in the scratch index -- so an uncommitted
-	// `working-tree-encoding` rule re-encoded committed docs into what the
-	// scan rejects as binary. Git older than 2.40 does not know the option;
-	// the checkout fails and the seed falls back to the refusal.
-	//
 	// -f: two tracked paths that differ only in case land on one file on a
 	// case-insensitive filesystem. A clean checkout there keeps the last one
 	// written, and so does this; without -f the second is an error and the
 	// whole seed falls back to refusing.
 	for _, batch := range chunkPathsByBytes(wanted, seedHeadCheckoutArgBytes) {
-		args := append([]string{"--attr-source=" + c.commit, "checkout-index", "-f", prefix, "--"}, batch...)
+		args := append([]string{"checkout-index", "-f", prefix, "--"}, batch...)
 		if _, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", args...); err != nil {
 			return fmt.Errorf("check out committed HEAD %s: %w", shortCommitHash(c.commit), err)
 		}
@@ -277,11 +285,11 @@ func (a seedHeadAttrs) converts() bool {
 }
 
 // attributes reads the filter and working-tree-encoding attributes of paths
-// from the commit, never from the worktree (see --attr-source in populate).
+// from the commit: --cached reads .gitattributes from the scratch index only.
 func (c *seedHeadCheckout) attributes(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, paths []string) (map[string]seedHeadAttrs, error) {
 	attrs := make(map[string]seedHeadAttrs, len(paths))
 	for _, batch := range chunkPathsByBytes(paths, seedHeadCheckoutArgBytes) {
-		args := append([]string{"--attr-source=" + c.commit, "check-attr", "-z", "filter", "working-tree-encoding", "--"}, batch...)
+		args := append([]string{"check-attr", "--cached", "-z", "filter", "working-tree-encoding", "--"}, batch...)
 		out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", args...)
 		if err != nil {
 			return nil, fmt.Errorf("read committed HEAD %s attributes: %w", shortCommitHash(c.commit), err)
