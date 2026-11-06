@@ -86,6 +86,12 @@ const seedHeadEncodingMaxShrink = 4
 // grows a file never leaves more than that one file behind.
 const seedHeadDriverMaxShrink = 64
 
+// seedHeadDriverBatchFiles is how many filter-driver files one checkout-index
+// call writes before their sizes are checked: few enough that a driver that
+// grows its files leaves only that many on disk at once, many enough that a
+// filter used across a repository costs a call per batch, not per file.
+const seedHeadDriverBatchFiles = 32
+
 // errSeedNoCommittedHead is the one checkout failure that is not a failure: a
 // repository whose branch has no commit has no committed state to seed from,
 // so the dirty-tree refusal -- "commit or stash them" -- is still the answer.
@@ -109,6 +115,10 @@ type seedHeadCheckout struct {
 	// warnings are what the checkout could not do faithfully, for the scan
 	// to report.
 	warnings []string
+	// folded counts the checked-out paths under each case-folded spelling,
+	// so a file two paths share on a case-insensitive filesystem is never
+	// removed from under the other one (dropCheckedOut).
+	folded map[string]int
 	// tempRoot holds dir and the scratch index; remove deletes it.
 	tempRoot string
 }
@@ -285,6 +295,12 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 		// rather than let the entry read like an ordinary size exclusion.
 		c.warnings = append(c.warnings, fmt.Sprintf("%d committed files over %dx --max-file-bytes were not run through their filter driver and are reported too large at their committed size (first: %s)", len(driverSkipped), seedHeadDriverMaxShrink, driverSkipped[0]))
 	}
+	c.folded = map[string]int{}
+	for _, paths := range [][]string{wanted, driven} {
+		for _, path := range paths {
+			c.folded[strings.ToLower(path)]++
+		}
+	}
 	// git appends each path to the prefix verbatim, so it needs the trailing
 	// separator; forward slashes are what git expects on every platform.
 	prefix := "--prefix=" + filepath.ToSlash(c.dir) + "/"
@@ -298,27 +314,42 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 			return fmt.Errorf("check out committed HEAD %s: %w", shortCommitHash(c.commit), err)
 		}
 	}
-	// A driver's output can be any size, so each file one converts is checked
-	// out alone and stat'd, and one the scan only stats is removed before the
-	// next is written. At most one such file is on disk at a time, at the size
-	// the same driver writes it in the worktree, and the scan gets its real
-	// size.
-	for _, path := range driven {
-		if _, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "checkout-index", "-f", prefix, "--", path); err != nil {
-			return fmt.Errorf("check out committed HEAD %s: %w", shortCommitHash(c.commit), err)
+	// A driver's output can be any size, so files one converts are checked
+	// out seedHeadDriverBatchFiles at a time and stat'd, and those the scan
+	// only stats are removed before the next batch is written. No more than a
+	// batch of them is on disk at once, each at the size the same driver
+	// writes it in the worktree, and the scan gets their real size.
+	for start := 0; start < len(driven); start += seedHeadDriverBatchFiles {
+		group := driven[start:min(start+seedHeadDriverBatchFiles, len(driven))]
+		for _, batch := range chunkPathsByBytes(group, seedHeadCheckoutArgBytes) {
+			args := append([]string{"checkout-index", "-f", prefix, "--"}, batch...)
+			if _, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", args...); err != nil {
+				return fmt.Errorf("check out committed HEAD %s: %w", shortCommitHash(c.commit), err)
+			}
 		}
-		target := filepath.Join(c.dir, filepath.FromSlash(path))
-		info, err := os.Lstat(target)
-		if err != nil || !info.Mode().IsRegular() || seedFileNeedsContent(path, info.Size(), opts) {
-			continue
+		for _, path := range group {
+			target := filepath.Join(c.dir, filepath.FromSlash(path))
+			if info, err := os.Lstat(target); err == nil && info.Mode().IsRegular() && !seedFileNeedsContent(path, info.Size(), opts) {
+				c.dropCheckedOut(path, target, info.Size())
+			}
 		}
-		if err := os.Remove(target); err != nil {
-			return fmt.Errorf("check out committed HEAD %s: %w", shortCommitHash(c.commit), err)
-		}
-		c.unread[path] = info.Size()
 	}
 	c.settleLFSPointers(ctx, runner, repoDir, lfs, opts)
 	return nil
+}
+
+// dropCheckedOut removes a checked-out file the scan only stats and records
+// it unread at size. Two selected paths that differ only in case share one
+// file on a case-insensitive filesystem; that file is left alone, since
+// removing it would take the other path's file with it, and the scan stats it
+// where it is. So is a file that cannot be removed.
+func (c *seedHeadCheckout) dropCheckedOut(path, target string, size int64) {
+	if c.folded[strings.ToLower(path)] > 1 {
+		return
+	}
+	if os.Remove(target) == nil {
+		c.unread[path] = size
+	}
 }
 
 // seedHeadAttrs is the commit's checkout-relevant attributes for one path.
@@ -472,9 +503,7 @@ func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner Environ
 			continue
 		}
 		if !seedFileNeedsContent(file.path, size, opts) {
-			if os.Remove(target) == nil {
-				c.unread[file.path] = size
-			}
+			c.dropCheckedOut(file.path, target, size)
 			continue
 		}
 		if err := copyLFSObject(object, target, oid, size); err != nil {

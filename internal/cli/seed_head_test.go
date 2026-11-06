@@ -740,22 +740,29 @@ func TestDirtySeedDropsWhatAFilterDriverGrows(t *testing.T) {
 }
 
 // gitConfigCountingRunner runs commands for real and records each git config
-// call the checkout makes.
+// and checkout-index call the checkout makes.
 type gitConfigCountingRunner struct {
 	ExecRunner
-	configCalls [][]string
+	configCalls   [][]string
+	checkoutCalls [][]string
 }
 
 func (r *gitConfigCountingRunner) RunWithEnv(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error) {
-	if name == "git" && len(args) > 0 && args[0] == "config" {
-		r.configCalls = append(r.configCalls, args)
+	if name == "git" && len(args) > 0 {
+		switch args[0] {
+		case "config":
+			r.configCalls = append(r.configCalls, args)
+		case "checkout-index":
+			r.checkoutCalls = append(r.checkoutCalls, args)
+		}
 	}
 	return r.ExecRunner.RunWithEnv(ctx, dir, env, name, args...)
 }
 
 // TestDirtySeedReadsFilterDriversInOneCall: however many filters the commit
 // names, the checkout reads the driver configuration once, and still tells a
-// configured driver from a filter with none.
+// configured driver from a filter with none. Files a driver converts are
+// checked out a batch at a time, not one call each.
 func TestDirtySeedReadsFilterDriversInOneCall(t *testing.T) {
 	isolateSeedHeadTemp(t)
 	global := filepath.Join(t.TempDir(), "gitconfig")
@@ -772,6 +779,10 @@ func TestDirtySeedReadsFilterDriversInOneCall(t *testing.T) {
 		files[name+"/big.txt"] = big
 	}
 	files["real/big.txt"] = big
+	const driven = 2*seedHeadDriverBatchFiles + 1
+	for i := range driven - 1 {
+		files[fmt.Sprintf("real/more%02d.txt", i)] = big
+	}
 	writeSeedHeadFiles(t, repoDir, files)
 	gitAt(t, repoDir, "add", "-A")
 	gitAt(t, repoDir, "commit", "-q", "-m", "filtered files")
@@ -791,6 +802,43 @@ func TestDirtySeedReadsFilterDriversInOneCall(t *testing.T) {
 	}
 	if _, ok := head.unreadSize("none0/big.txt"); !ok {
 		t.Error("a large file whose filter has no driver was checked out")
+	}
+	drivenCalls := 0
+	for _, args := range runner.checkoutCalls {
+		if strings.HasPrefix(args[len(args)-1], "real/") {
+			drivenCalls++
+		}
+	}
+	if want := (driven + seedHeadDriverBatchFiles - 1) / seedHeadDriverBatchFiles; drivenCalls != want {
+		t.Errorf("checkout-index ran %d times for %d driver files; want %d batches", drivenCalls, driven, want)
+	}
+}
+
+// TestDropCheckedOutKeepsAFileTwoPathsShare: on a case-insensitive
+// filesystem A.txt and a.txt are one file, and removing it for one path would
+// take the other path's file with it, so such a file stays where it is.
+func TestDropCheckedOutKeepsAFileTwoPathsShare(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	c := &seedHeadCheckout{dir: dir, unread: map[string]int64{}, folded: map[string]int{"a.txt": 2, "b.txt": 1}}
+	for _, name := range []string{"A.txt", "b.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("data"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c.dropCheckedOut("A.txt", filepath.Join(dir, "A.txt"), 4)
+	c.dropCheckedOut("b.txt", filepath.Join(dir, "b.txt"), 4)
+	if _, err := os.Stat(filepath.Join(dir, "A.txt")); err != nil {
+		t.Errorf("A.txt shares its file with another path and was removed: %v", err)
+	}
+	if _, ok := c.unread["A.txt"]; ok {
+		t.Error("A.txt was recorded unread although its file was kept")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "b.txt")); err == nil {
+		t.Error("b.txt has a file of its own and was not removed")
+	}
+	if size, ok := c.unread["b.txt"]; !ok || size != 4 {
+		t.Errorf("b.txt: unread = %d, %v; want 4", size, ok)
 	}
 }
 
