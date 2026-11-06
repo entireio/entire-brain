@@ -319,12 +319,28 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	// only stats are removed before the next batch is written. No more than a
 	// batch of them is on disk at once, each at the size the same driver
 	// writes it in the worktree, and the scan gets their real size.
+	//
+	// A driver that fails is skipped by git and the blob written unconverted,
+	// unless the filter is required, when the checkout fails. A driver runs
+	// in the empty work tree that keeps the worktree's attributes out, so one
+	// whose command names a repository-relative helper fails here although a
+	// worktree checkout runs it. Whatever a driver says on stderr is passed on
+	// as a seed warning rather than discarded.
+	var driverStderr string
+	driverStderrBatches := 0
 	for start := 0; start < len(driven); start += seedHeadDriverBatchFiles {
 		group := driven[start:min(start+seedHeadDriverBatchFiles, len(driven))]
 		for _, batch := range chunkPathsByBytes(group, seedHeadCheckoutArgBytes) {
 			args := append([]string{"checkout-index", "-f", prefix, "--"}, batch...)
-			if _, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", args...); err != nil {
+			_, stderr, err := runner.RunWithEnv(ctx, repoDir, env, "git", args...)
+			if err != nil {
 				return fmt.Errorf("check out committed HEAD %s: %w", shortCommitHash(c.commit), err)
+			}
+			if line := strings.TrimSpace(firstLine(strings.TrimSpace(string(stderr)))); line != "" {
+				driverStderrBatches++
+				if driverStderr == "" {
+					driverStderr = truncateAgentWarning(line)
+				}
 			}
 		}
 		for _, path := range group {
@@ -333,6 +349,9 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 				c.dropCheckedOut(path, target, info.Size())
 			}
 		}
+	}
+	if driverStderr != "" {
+		c.warnings = append(c.warnings, fmt.Sprintf("a filter driver reported errors checking out committed HEAD (%d of its checkout calls), so some of its files may be seeded unconverted: %s", driverStderrBatches, driverStderr))
 	}
 	c.settleLFSPointers(ctx, runner, repoDir, lfs, opts)
 	return nil
