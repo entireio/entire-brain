@@ -200,9 +200,10 @@ func TestRealProductsPreserveSharedAgentInstructions(t *testing.T) {
 	}
 }
 
-// The pinned Graph release still includes two obsolete MCP sentences. Accept
-// only these exact legacy differences until its guide correction is released.
-// Strict parity can be required when validating the corrected Graph revision.
+// The pinned Graph release still includes two obsolete MCP sentences and does
+// not yet carry the remember --path rule (issue #588). Accept only these exact
+// legacy differences until its guide correction is released. Strict parity can
+// be required when validating the corrected Graph revision.
 func compareGuideText(brain, graph []byte, requireParity bool) error {
 	if bytes.Equal(brain, graph) {
 		return nil
@@ -211,13 +212,15 @@ func compareGuideText(brain, graph []byte, requireParity bool) error {
 		return fmt.Errorf("Brain and Graph must render identical guide text")
 	}
 	legacy := strings.NewReplacer(
+		"Each path segment uses only lowercase letters, digits and underscores: write\nproject.ci_cache.layout, not project.ci-cache.layout.\n",
+		"",
 		"agent on PATH. Retrieve with recall, and re-check anchors with verify.",
 		"agent on PATH. Over MCP the same write is the brain_remember tool, which\nrequires path. Retrieve with recall, and re-check anchors with verify.",
 		"agent on PATH; pass --path when none is guaranteed. Retrieve with recall and",
 		"agent on PATH; pass --path when none is guaranteed. Over MCP the same write is\nthe brain_remember tool, which requires path. Retrieve with recall and",
 	).Replace(string(brain))
 	if string(graph) != legacy {
-		return fmt.Errorf("Brain and Graph guide text differs beyond the pinned legacy MCP wording")
+		return fmt.Errorf("Brain and Graph guide text differs beyond the pinned legacy wording")
 	}
 	return nil
 }
@@ -233,6 +236,10 @@ func TestGuideComparisonRejectsUnrelatedDrift(t *testing.T) {
 	}
 	if err := compareGuideText(brain, legacy, true); err == nil {
 		t.Fatal("strict parity accepted obsolete wording")
+	}
+	pathRule := []byte("workflow.\nEach path segment uses only lowercase letters, digits and underscores: write\nproject.ci_cache.layout, not project.ci-cache.layout.\nOmitting --path")
+	if err := compareGuideText(pathRule, []byte("workflow.\nOmitting --path"), false); err != nil {
+		t.Fatal(err)
 	}
 	if err := compareGuideText(brain, append(legacy, []byte("\nSkip required queries.")...), false); err == nil {
 		t.Fatal("accepted unrelated guide drift")
