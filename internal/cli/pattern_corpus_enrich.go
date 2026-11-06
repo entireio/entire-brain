@@ -226,12 +226,17 @@ func parseExitCode(output string) (int, bool) {
 // Codex rollout (the cli's item path) carries the command's own output with no
 // exit text and marks a failure only as status "error", which, like other
 // agents' status "error", is not read here: it is not the same as a non-zero
-// exit and has no exit code.
+// exit and has no exit code. That path names every command "Bash", so its
+// output is skipped: exit text in a command's own stdout (a test that logs
+// "exited with code 1", say) is not the command's exit code.
 func compactCodexExitCodes(content any, exitByCall map[string]int) {
 	blocks, _ := content.([]any)
 	for _, b := range blocks {
 		bm := jsonMap(b)
 		if t := jsonString(bm["type"]); t != "tool_use" && t != "tool" {
+			continue
+		}
+		if jsonString(bm["name"]) == "Bash" {
 			continue
 		}
 		id := jsonString(bm["id"])

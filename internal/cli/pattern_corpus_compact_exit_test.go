@@ -70,6 +70,14 @@ func TestCorpusEpisodeOpsCompactNonCodexResultsLeftAlone(t *testing.T) {
 	if _, commands, _ := corpusEpisodeOps(itemPath); describeCommands(commands) != `["go test exit=nil failed=false"]` {
 		t.Errorf("codex item-path commands = %s, want no exit code (status \"error\" is not read)", describeCommands(commands))
 	}
+	// The item path inlines the command's own stdout, so exit text a
+	// successful command prints is not its exit code.
+	for _, output := range []string{`Exit code: 1\n`, `child process exited with code 1\nok\n`} {
+		printed := `{"v":1,"agent":"codex","cli_version":"0.5.1","type":"assistant","ts":"t","id":"e2","content":[{"id":"e2","input":{"command":"go test ./..."},"name":"Bash","result":{"output":"` + output + `","status":"success"},"type":"tool_use"}]}`
+		if _, commands, _ := corpusEpisodeOps(printed); describeCommands(commands) != `["go test exit=nil failed=false"]` {
+			t.Errorf("codex item-path output %q: commands = %s, want no exit code", output, describeCommands(commands))
+		}
+	}
 	for _, agent := range []string{"claude-code", "pi"} {
 		t.Run(agent, func(t *testing.T) {
 			work := `{"v":1,"agent":"` + agent + `","type":"assistant","ts":"t","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"go test ./..."},"result":{"output":"Exit code 1\nFAIL","status":"error"}}]}`
