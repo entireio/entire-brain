@@ -139,7 +139,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: entireio/entire-graph
-          ref: 28382d8ee2f0cb4ebc962255a3d8cbd364d2f258
+          ref: 56f1de69e54d7b3a04788db003000ea6503cf2fc
           path: .context/integration-graph
           persist-credentials: false
       - name: Build both real products

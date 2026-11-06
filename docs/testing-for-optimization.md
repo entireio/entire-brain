@@ -60,10 +60,8 @@ The runner leaves source files unchanged. Results include baseline logs, mutant 
 The required test jobs depend on real Brain–Graph integration. CI builds both binaries from fixed source revisions. Missing binaries fail that integration job.
 
 Go tests cover Graph indexing, Brain code inspection, memory retrieval, combined activation, preserved user instructions, and repeated setup.
-Guide comparisons cover normal and strict modes. The pinned Graph revision still includes obsolete MCP wording.
-Only those two exact legacy differences are accepted; any other text difference fails integration.
-Set `BRAIN_INTEGRATION_REQUIRE_GUIDE_PARITY=1` when validating a corrected Graph build to require exact equality.
-Removing this compatibility allowance requires the corresponding Graph correction and an updated CI revision pin.
+Guide comparisons cover normal and strict modes and require Brain and the pinned Graph revision to render identical text.
+A guide change therefore needs the matching Graph change and an updated CI revision pin.
 
 Repository publication checks inspect tracked files and new, nonignored files. They reject the audited private identifiers and internal endpoints. The audited identifier rules match the former check.
 
