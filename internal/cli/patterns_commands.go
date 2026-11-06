@@ -124,7 +124,7 @@ func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, ta
 	}
 	// WithCorpusMutationLocked requires the caller to hold the Brain lock; it
 	// also serializes verify against skill synthesis and the corpus rebuild.
-	return brainstore.WithBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
 		run := defaultDistillAgentRunner(agent)
 		verify := patterncore.VerifyDossiers
 		mode := "dossier"

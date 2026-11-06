@@ -273,6 +273,7 @@ func watchLoop(ctx context.Context, out io.Writer, fields LogFields, now func() 
 // then the GATED token-spending work (seed synthesis and/or distill). agentCalls is shared across
 // ticks/members so --budget caps total token spend across the whole run.
 func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps Steps, agentCalls *int) {
+	ctx = brainstore.BackgroundWrites(ctx)
 	if steps.Paused != nil && steps.Paused() {
 		fmt.Fprintln(out, "[watch] paused — `entire-brain start` resumes")
 		return

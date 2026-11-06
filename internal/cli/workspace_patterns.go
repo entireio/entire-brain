@@ -120,7 +120,7 @@ func runWorkspacePatternsVerify(ctx context.Context, cmd *cobra.Command, opts Op
 	// The workspace brain write lock serializes family verification against
 	// skill synthesis and the corpus rebuild (WithCorpusMutationLocked inside
 	// ProposeFamilies requires the caller to hold it).
-	return brainstore.WithBrainWriteLock(wsDir, func() error {
+	return brainstore.WithBrainWriteLockContext(ctx, wsDir, func() error {
 		stats, err := patterncore.ProposeFamilies(ctx, opts.Env, manifest, ".", resolved, model, effort, defaultDistillAgentRunner(resolved), opts.Now().UTC())
 		if err != nil {
 			return err
@@ -426,7 +426,7 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 	)
 	// Member reads and every aggregate artifact write happen under the
 	// workspace brain write lock, serialized against verify and synthesis.
-	if err := brainstore.WithBrainWriteLock(wsDir, func() error {
+	if err := brainstore.WithBrainWriteLockContext(ctx, wsDir, func() error {
 		var lockedErr error
 		members, lockedErr = loadMemberPatterns(opts, manifest)
 		if lockedErr != nil {
@@ -726,7 +726,7 @@ func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Option
 	// The workspace brain write lock serializes synthesis against workspace
 	// verification, so a concurrent family replacement cannot leave synthesis
 	// using a stale dossier, and the skill-memory write stays consistent.
-	return brainstore.WithBrainWriteLock(wsDir, func() error {
+	return brainstore.WithBrainWriteLockContext(ctx, wsDir, func() error {
 		fam, ok, err := patterncore.AcceptedFamilyByIDChecked(wsDir, s.taskID)
 		if err != nil {
 			return err

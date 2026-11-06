@@ -48,7 +48,20 @@ const (
 	// historyShortTermVersion 3 binds per-file reuse to the exact bounded
 	// descriptor-rooted content digest. Older size+mtime-only overlays are
 	// disposable and rebuild on the next delta.
+	// It is the READABLE format only: a parser change does not bump it.
+	// Like the scan cache, the overlay records the extraction revision that
+	// built its entries separately (extractor_version), and the delta carries
+	// an entry forward only from an overlay written by the current revision.
+	// A v3 overlay from an older reader (or written by a released client,
+	// which drops the field) stays readable for retrieval, and the next delta
+	// re-parses its files.
 	historyShortTermVersion = 3
+	// historyShortTermLegacyVersion4 is what a pre-release build of the
+	// compact-transcript change stamped instead of recording
+	// extractor_version. Its layout is v3's, so it stays readable; the
+	// revision that built its entries is unknown, so the next delta re-parses
+	// them and rewrites the overlay as v3. A future format bump must skip 4.
+	historyShortTermLegacyVersion4 = 4
 	// historyShortTermReconcilerVersion stamps the record-reconciliation rule
 	// the overlay was built to participate in (3 = newest-valid-copy selection
 	// scoped by logical conversation session, preserving legacy ID collisions
@@ -100,12 +113,21 @@ type shortTermIndex struct {
 	// ReconcilerVersion records the cross-tier record-reconciliation rule this
 	// overlay was built for.
 	ReconcilerVersion int `json:"reconciler_version,omitempty"`
+	// ExtractorVersion is the historyScanCacheVersion whose parser built the
+	// entries. The delta reuses an unchanged file's entry only when it matches;
+	// an older or missing revision forces a re-parse without discarding the
+	// overlay's still-readable records from retrieval.
+	ExtractorVersion int `json:"extractor_version,omitempty"`
 }
 
 // complete reports whether the overlay fully represents every changed
-// transcript it was asked to cover: nothing failed, nothing dropped.
+// transcript it was asked to cover: nothing failed, nothing dropped, and the
+// entries were built by the current extractor. An overlay from an older
+// extractor stays readable, but its entries can lack what this extractor
+// reads (compact transcripts before revision 12 had no code facts), so it is
+// not complete coverage until a delta re-parses them.
 func (o shortTermIndex) complete() bool {
-	return !o.Truncated && len(o.FailedFiles) == 0 && len(o.ScanWarnings) == 0
+	return !o.Truncated && len(o.FailedFiles) == 0 && len(o.ScanWarnings) == 0 && o.ExtractorVersion == historyScanCacheVersion
 }
 
 // shortTermIncompleteness names exactly why an overlay is not complete
@@ -121,10 +143,26 @@ func shortTermIncompleteness(overlay shortTermIndex) string {
 	if n := len(overlay.ScanWarnings); n > 0 {
 		parts = append(parts, fmt.Sprintf("%d collection warnings", n))
 	}
+	if overlay.ExtractorVersion != historyScanCacheVersion {
+		parts = append(parts, "built by "+extractorRevisionLabel(overlay.ExtractorVersion)+", re-parsed by the next `refresh delta`")
+	}
 	if len(parts) == 0 {
 		return "incomplete"
 	}
 	return strings.Join(parts, "; ")
+}
+
+// extractorRevisionLabel names a non-current extraction revision for doctor
+// and stats, without calling a newer binary's output out of date. 0 is a
+// writer that recorded no revision.
+func extractorRevisionLabel(revision int) string {
+	if revision > historyScanCacheVersion {
+		return fmt.Sprintf("a newer extractor (revision %d; this binary is %d)", revision, historyScanCacheVersion)
+	}
+	if revision <= 0 {
+		return "an older extractor (no revision recorded)"
+	}
+	return fmt.Sprintf("an older extractor (revision %d)", revision)
 }
 
 type shortTermFile struct {
@@ -142,7 +180,7 @@ type shortTermFile struct {
 // carries records; every other state returns the empty overlay so retrieval
 // falls back to exact long-term-only behavior.
 func loadHistoryShortTermState(brainDir string, source *historySourceManifest) (shortTermIndex, string) {
-	empty := shortTermIndex{Version: historyShortTermVersion, Files: map[string]shortTermFile{}}
+	empty := shortTermIndex{Version: historyShortTermVersion, ExtractorVersion: historyScanCacheVersion, Files: map[string]shortTermFile{}}
 	data, err := clibase.SafeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), clibase.DefaultMaxReadBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -154,6 +192,7 @@ func loadHistoryShortTermState(brainDir string, source *historySourceManifest) (
 	if err := json.Unmarshal(data, &overlay); err != nil || overlay.Files == nil {
 		return empty, shortTermStateCorrupt
 	}
+	overlay = normalizeLegacyShortTerm(overlay)
 	if overlay.Version != historyShortTermVersion {
 		return empty, shortTermStateUnsupported
 	}
@@ -187,7 +226,7 @@ func loadHistoryShortTerm(brainDir string, source *historySourceManifest) shortT
 // already moved and only needs the covered source fingerprint. Never rank
 // from this view.
 func loadHistoryShortTermRaw(brainDir string) (shortTermIndex, string) {
-	empty := shortTermIndex{Version: historyShortTermVersion, Files: map[string]shortTermFile{}}
+	empty := shortTermIndex{Version: historyShortTermVersion, ExtractorVersion: historyScanCacheVersion, Files: map[string]shortTermFile{}}
 	data, err := clibase.SafeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), clibase.DefaultMaxReadBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -199,11 +238,33 @@ func loadHistoryShortTermRaw(brainDir string) (shortTermIndex, string) {
 	if err := json.Unmarshal(data, &overlay); err != nil || overlay.Files == nil {
 		return empty, shortTermStateCorrupt
 	}
+	overlay = normalizeLegacyShortTerm(overlay)
 	return overlay, shortTermStateCurrent
+}
+
+// readableShortTermVersion maps the legacy v4 stamp onto the v3 format it
+// shares, for the version checks in the loaders and health surfaces.
+func readableShortTermVersion(version int) int {
+	if version == historyShortTermLegacyVersion4 {
+		return historyShortTermVersion
+	}
+	return version
+}
+
+// normalizeLegacyShortTerm reads a v4 overlay as the v3 overlay it is, with
+// no known extractor revision, so it is neither reused by the delta nor
+// counted as complete coverage.
+func normalizeLegacyShortTerm(overlay shortTermIndex) shortTermIndex {
+	if overlay.Version == historyShortTermLegacyVersion4 {
+		overlay.Version = historyShortTermVersion
+		overlay.ExtractorVersion = 0
+	}
+	return overlay
 }
 
 func saveHistoryShortTerm(brainDir string, overlay shortTermIndex) error {
 	overlay.Version = historyShortTermVersion
+	overlay.ExtractorVersion = historyScanCacheVersion
 	data, err := json.Marshal(overlay)
 	if err != nil {
 		return err
@@ -306,6 +367,7 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 		SessionsFingerprint: brainSessionsFingerprint(outputDir),
 		Files:               map[string]shortTermFile{},
 		ReconcilerVersion:   historyShortTermReconcilerVersion,
+		ExtractorVersion:    historyScanCacheVersion,
 	}
 	if source != nil {
 		overlay.BaseGeneratedAt = source.GeneratedAt
@@ -337,7 +399,7 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 			continue
 		}
 		// Unchanged since the previous delta: carry over without re-parsing.
-		if prev, ok := previous.Files[rel]; ok && prev.Size == file.Size && prev.ModUnixNano == file.ModUnixNano && prev.ContentDigest != "" && prev.ContentDigest == contentDigest {
+		if prev, ok := previous.Files[rel]; ok && previous.ExtractorVersion == historyScanCacheVersion && prev.Size == file.Size && prev.ModUnixNano == file.ModUnixNano && prev.ContentDigest != "" && prev.ContentDigest == contentDigest {
 			if err := inventory.validateFileMembership(ctx, file); err != nil {
 				return stats, err
 			}
@@ -1005,7 +1067,7 @@ func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool, skipTra
 		return historystore.ShortTermStats{}, err
 	}
 	var stats historystore.ShortTermStats
-	err = brainstore.WithBrainWriteLock(storage.BrainDir, func() error {
+	err = brainstore.WithBrainWriteLockContext(ctx, storage.BrainDir, func() error {
 		var buildErr error
 		stats, buildErr = buildHistoryShortTermLockedContext(ctx, storage.BrainDir, opts.Now().UTC())
 		return buildErr

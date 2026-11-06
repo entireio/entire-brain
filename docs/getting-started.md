@@ -23,8 +23,7 @@ repository a brain.
 
 ```sh
 # once per machine
-git clone https://github.com/entireio/entire-brain.git
-entire-brain/scripts/install.sh
+entire plugin install brain
 
 # once per repository you want a brain for
 cd /path/to/your/repo
@@ -35,13 +34,21 @@ entire brain setup
 it is invoked as `entire brain ...`. It builds a local, inspectable "brain" for a
 repository from retained Entire sessions, seed context, docs, decision history,
 a semantic code graph, and durable facts, then exposes retrieval and review
-surfaces that agents and humans query. Everything it builds stays on your machine.
+surfaces that agents and humans query. Local storage stays on your machine.
+Connected repositories can exchange memory records with hosted Entire. Agent-dependent
+commands can send selected context to the configured model. See [Privacy and
+egress](#privacy-and-egress) for controls.
 
 ## Requirements
+
+For an existing Brain, read [memory storage compatibility](memory-storage-compatibility.md)
+first. Local migration is one-way; Brain v0.2.0 to v0.4.0 cannot read the result.
 
 - The Entire CLI, available on your `PATH` as `entire`. It is the host that
   dispatches `entire brain`, and it is what captures the sessions the brain
   learns from.
+- Claude Code **2.1.78 or later**, if you use Claude capture. Follow the
+  [capture requirements](memory-storage-compatibility.md#claude-capture-requirement).
 - Git.
 - A Go toolchain (1.27 or newer), **only if you build from source**. The
   released binaries need no toolchain at all: Brain's default build is pure Go,
@@ -65,13 +72,17 @@ the provider and run the brain with `--semantic=false` (see
 
 ## Install
 
-There are two components: the brain plugin and the `entire-graph` provider it
-calls. Both are registered with the Entire CLI the same way, using
-`entire plugin install <path>`, which links a local `entire-<name>` executable
-into Entire's managed plugin directory. You do not have to fetch or arrange the
-provider yourself -- `scripts/install.sh` does both components in one pass.
+There are two components: the Brain plugin and the `entire-graph` provider.
+For normal use, install released binaries with `entire plugin install brain`.
+The CLI installs missing declared dependencies after confirmation. Use `--yes`
+for unattended installation, or `--no-deps` to manage dependencies separately.
 
-### One command
+`entire plugin install` accepts an index name, a repository URL, or an explicit
+local executable path. Local paths link an executable into the managed plugin
+directory. Repository URLs resolve a release and verify its archive against
+`checksums.txt`.
+
+### Build both components from source
 
 ```sh
 git clone https://github.com/entireio/entire-brain.git
@@ -105,14 +116,16 @@ arm64, with a `checksums.txt` beside them. Two ways to get one:
 # Through the Entire CLI, the way Graph installs.
 entire plugin install brain
 
-# Or one self-contained command, no CLI and no toolchain first.
+# Or download the Brain binary without a build toolchain (macOS/Linux).
 curl -fsSL https://raw.githubusercontent.com/entireio/entire-brain/main/scripts/get-brain.sh | bash
 ```
 
 The script resolves the release for your platform, verifies the download against
-`checksums.txt`, installs to `~/.local/bin`, and registers the plugin. It fails
-closed: a checksum that cannot be fetched or does not match aborts the install
-rather than continuing. `--nightly` takes the nightly channel, `--version vX.Y.Z`
+`checksums.txt`, and installs to `~/.local/bin`. It registers the plugin when
+Entire CLI is available. Otherwise, it prints the CLI installation and registration
+commands. It does not install Graph; install Graph separately with
+`entire plugin install graph` if needed. The installer refuses an archive if
+its checksum cannot be fetched or does not match. `--nightly` takes the nightly channel, `--version vX.Y.Z`
 pins a release, `--dir` changes where it lands.
 
 Versions restart at `0.1.0`, which is the first release of the public line. Tags
@@ -120,18 +133,12 @@ older than that predate the Graph rename -- the provider tag builds `entire-sem`
 and the brain tag invokes `entire sem` -- so do not combine them with the
 `entire graph` commands in this guide.
 
-A versioned `go install` path is still not available.
-
-`entire plugin install` currently supports local executable paths only. It does
-not fetch from a git URL or a GitHub release, and it does not auto-install the
-provider dependency.
-
 ### Managing the provider checkout yourself
 
-The one command above is the source install: until matching Graph-based tags are
-available, both components are built from their current `main` branches, which
-tracks development and is not a reproducible versioned install. Use matching
-release tags once they are published.
+The source installer builds the selected local checkouts. A checkout of `main`
+tracks development. Select explicit commits or release tags when you need a
+reproducible source build. Brain and Graph have independent version numbers;
+they do not require matching tag names.
 
 If you would rather own the `entire-graph` checkout -- to pin a commit, or to
 work on the provider -- clone it too and run the same installer:
@@ -156,25 +163,70 @@ To build and install only the brain from a checkout, run `scripts/install-local.
 (equivalently `mise run install`). You still need `entire graph` installed
 separately for the semantic layer.
 
-### Release archive (forthcoming)
+### Release archives
 
-Prebuilt per-OS/arch archives are the planned packaged distribution channel, but
-they have not been published yet. Until they appear on the
-[GitHub Releases](https://github.com/entireio/entire-brain/releases) page, use
-the pre-release source installer above.
+[GitHub Releases](https://github.com/entireio/entire-brain/releases) provides
+macOS, Linux, and Windows archives for amd64 and arm64. macOS and Linux use
+`.tar.gz`; Windows uses `.zip`. Each archive contains one executable:
+`entire-brain` or `entire-brain.exe`. The release publishes `checksums.txt`
+alongside the archives.
 
-Each published archive will contain the plugin binary plus `README.md`, `LICENSE`,
-and `entire-plugin.yml`, alongside a `SHA256SUMS` file. After downloading and
-verifying the checksum, extract and install the binary:
+For example, the macOS ARM64 archive for v0.5.1 is
+`entire-brain_0.5.1_darwin_arm64.tar.gz`. Download the archive and `checksums.txt`
+from the same release. Verify the archive's SHA-256 checksum before extraction.
+Then register the executable:
 
 ```sh
-VERSION=vX.Y.Z # use the matching version published by both repositories
-tar -xzf "entire-brain-${VERSION}-darwin-arm64.tar.gz"
-entire plugin install "./entire-brain-${VERSION}-darwin-arm64/entire-brain" --force
+tar -xzf entire-brain_0.5.1_darwin_arm64.tar.gz
+entire plugin install ./entire-brain --force
 ```
 
-When provider archives are published, install the matching `entire-graph` archive
-the same way so `entire graph` is available.
+Install Graph separately if it is missing. Brain v0.5.1 was verified with Graph
+v0.5.0 and v0.6.0. Graph v0.4.0 lacks the required provider interface.
+
+### Upgrade to v0.5.1
+
+Upgrades from stable v0.2.0, v0.3.0, v0.4.0, and v0.5.0 were verified.
+Before installation, pause background work:
+
+```sh
+entire brain stop
+```
+
+Wait for active writes to finish. Stop other writers that share the local store.
+Back up the complete Brain data and repository checkpoint refs. Include the global
+store if used. `entire brain path` prints the repository's Brain data path.
+
+```sh
+entire plugin install brain --force --no-deps
+entire brain version
+```
+
+Confirm version `0.5.1`. Resume background work if you paused it:
+
+```sh
+entire brain start
+```
+
+Normal writes, refreshes, and background passes migrate memory storage and remove
+verified legacy copies automatically. No migration or cleanup command is required.
+This includes legacy copies retained by v0.5.0. Large stores can require several
+passes. Unverified files remain available for recovery.
+
+For an optional progress check:
+
+```sh
+entire brain memories storage status --json
+entire brain memories storage status --global --json
+```
+
+After migration, the format is `repository`, with schema version `3`.
+Keep the backup until you verify expected memories. If migration or cleanup is
+interrupted, resume normal activity. Do not manually delete unverified recovery
+files to reclaim space.
+
+Local migration is one-way. Brain v0.2.0-v0.4.0 cannot reopen a migrated local
+store. Older and newer hosted clients must use separate local stores.
 
 ## Verify
 
@@ -432,8 +484,8 @@ entire brain distill --agent codex --model gpt-5.4-mini --effort low   # extract
 entire brain facts status                                              # review readiness
 ```
 
-Distillation is incremental and cached: unchanged sessions are skipped, and
-low-confidence merges are queued for `entire brain facts review`.
+Distillation is incremental and cached: unchanged sessions are skipped.
+Extracted facts enter the repository-level store. There is no memory review queue.
 
 ### Use the brain from an agent
 
@@ -779,13 +831,10 @@ Distillation is the token-spending path. It is incremental and cached, but it
 still sends redacted transcript chunks to the selected agent unless you choose a
 local loopback agent such as Ollama or use dry-run/no-egress mode.
 
-Durable facts also have a lifecycle. Review queued merge/supersede proposals,
-promote branch facts when they should carry forward, retract facts that are no
-longer true, and garbage-collect stale retractions.
+Durable memories are shared across branches by default. Retract facts that are
+no longer true, then garbage-collect eligible retractions.
 
 ```sh
-entire brain facts review
-entire brain facts promote --from <branch> --strategy keep-both
 entire brain facts retract <fact-id>
 entire brain facts gc --force
 entire brain inspect blame <fact-id> --json
@@ -898,14 +947,20 @@ model or by fetching over the network:
 - query expansion with `recall --expand`
 - pattern verification and skill synthesis
 - judged evaluation commands
-- `publish` uploads the serialized local brain to hosted Entire; opt-in and off
-  by default, requiring the command plus a target — the connected binding by
-  default, else explicit `--repo-id`/`--api-url`/`--token`
+- `memories sync` exchanges repository memory records with the team's hosted
+  memory set. Uploads cover the repository store, not only the current branch.
+  Global memories and the complete Brain directory are not uploaded by this command.
+  A connected repository supplies the default target. An unconnected repository
+  requires `--memories-backend=http` and explicit `--repo-id`/`--api-url`/`--token`.
+- Connected repositories also sync automatically after distillation and commit
+  or push notifications, and through background maintenance. A manual sync command
+  is not required after connection. `entire brain disconnect` disables automatic
+  hosted sync for the repository.
 
-Use `--agent none`, `--dry-run`, local loopback Ollama, or
-`ENTIRE_BRAIN_NO_EGRESS=1` when the repo must stay
-strictly local. No-egress mode enforces locality for no-agent, dry-run, and
-loopback-Ollama paths by validating URLs, redirects, and resolved dial targets.
+Set `ENTIRE_BRAIN_NO_EGRESS=1` to block Brain-controlled network operations.
+Selecting `--agent none` or a local model does not disable hosted memory sync.
+No-egress mode enforces locality for no-agent, dry-run, and loopback-Ollama paths
+by validating URLs, redirects, and resolved dial targets.
 A custom `--agent command` runner is treated as a trusted local command and is
 not enforceably loopback-only; no-egress mode cannot stop that runner from
 making its own network calls.

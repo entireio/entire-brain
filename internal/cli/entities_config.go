@@ -16,6 +16,7 @@ func entityConfig(opts Options) entities.Config {
 		SessionIDsByCheckpoint: sessionIDsByCheckpoint,
 		SessionBranchByID:      sessionBranchByID,
 		SaveIndexCache:         saveEntityIndexCache,
+		SaveIndexCacheContext:  saveEntityIndexCacheContext,
 		BrainInvocation:        func(verb string) string { return base.BrainInvocation(os.LookupEnv, verb) },
 	}}
 }

@@ -200,7 +200,7 @@ func RunRemember(ctx context.Context, cmd *cobra.Command, cfg Config, rememberOp
 	}
 
 	storedKind := kind
-	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
 		// A write entry point migrates first: legacy branch stores (and
 		// stragglers an older binary wrote after migration) fold into the flat
 		// store before this read-modify-write lands.
@@ -246,6 +246,9 @@ func RunRemember(ctx context.Context, cmd *cobra.Command, cfg Config, rememberOp
 		}
 		if err := factstore.WriteTaxonomy(brainDir, taxonomy); err != nil {
 			return err
+		}
+		if cfg.Deps.UpdateFactSourceManifestRecords != nil {
+			return cfg.Deps.UpdateFactSourceManifestRecords(brainDir, now, facts)
 		}
 		return cfg.Deps.UpdateFactSourceManifest(brainDir, now)
 	}); err != nil {
