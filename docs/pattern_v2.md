@@ -1061,8 +1061,8 @@ Validation:
 
 **Phase 2 landed: episodes as brain events.** Corpus episodes now carry the
 operational evidence Phase 3 corroboration needs (`pattern_corpus_enrich.go`):
-- `episode_commands` get exit codes + `failed` (correlated to outputs by call id) and `episodes.exit_fails`.
-- `episode_files` (apply_patch `*** Update/Add/Delete File`, Claude `edit/write/read` tools) with actions; `episodes.files` JSON.
+- `episode_commands` get exit codes + `failed` (correlated to outputs by call id) and `episodes.exit_fails`. A current Codex command (the cli's item path: a compact `Bash` block) carries no exit code, so its `result.status:"error"` is stored as `failed` with `exit_code` NULL.
+- `episode_files` (apply_patch `*** Update/Add/Delete File`, Claude `edit/write/read` tools, compact codex `FileChange` changes by `kind`, with a `move_path` as delete + add) with actions; `episodes.files` JSON. A `FileChange` path is absolute; one inside the checkout the corpus is built from is stored relative to it, so it links like a patch path.
 - `meta_hits` deterministic way-of-working classifier (review_request, validation_loop, handoff_resume, read_only_diagnosis, correction_followup, user_preference, no_egress_constraint).
 - `episode_facts` branch-scoped durable-fact links (text + locus overlap), graceful when no facts exist; facts never leak across branches.
 - Tool OUTPUT is never parsed as a command; everything is redacted at rest.

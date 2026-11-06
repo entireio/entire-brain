@@ -17,7 +17,7 @@ func TestCorpusEpisodeOpsCodex(t *testing.T) {
 {"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"FAIL\nexited with code 1"}}
 {"type":"response_item","payload":{"type":"custom_tool_call","call_id":"c2","name":"apply_patch","input":"*** Begin Patch\n*** Update File: internal/x.go\n+foo"}}
 {"type":"response_item","payload":{"type":"function_call_output","call_id":"c3","output":"run: go build ./..."}}`
-	tools, commands, files := corpusEpisodeOps(work)
+	tools, commands, files := corpusEpisodeOps(work, "")
 	if len(commands) != 1 || commands[0].head != "go test" {
 		t.Fatalf("commands = %+v, want only [go test] (output not parsed as command)", commands)
 	}
@@ -38,7 +38,7 @@ func TestCorpusEpisodeOpsCodex(t *testing.T) {
 
 func TestCorpusEpisodeOpsClaude(t *testing.T) {
 	work := `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"bash","input":{"command":"gofmt -w ."}},{"type":"tool_use","id":"t2","name":"edit","input":{"file_path":"a.go"}}]}}`
-	tools, commands, files := corpusEpisodeOps(work)
+	tools, commands, files := corpusEpisodeOps(work, "")
 	if len(commands) != 1 || commands[0].head != "gofmt" {
 		t.Errorf("commands = %+v, want [gofmt]", commands)
 	}
@@ -154,7 +154,7 @@ func TestCorpusEpisodeOpsCompactTranscript(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			tools, commands, files := corpusEpisodeOps(c.fixture)
+			tools, commands, files := corpusEpisodeOps(c.fixture, "")
 			var gotTools, gotCommands, gotFiles []string
 			for _, x := range tools {
 				gotTools = append(gotTools, x.name)
@@ -188,7 +188,7 @@ func TestCorpusEpisodeOpsCompactApplyPatchMatchesNative(t *testing.T) {
 	}
 	refs := func(work string) string {
 		t.Helper()
-		_, _, files := corpusEpisodeOps(work)
+		_, _, files := corpusEpisodeOps(work, "")
 		var got []string
 		for _, f := range files {
 			got = append(got, f.action+" "+f.path)

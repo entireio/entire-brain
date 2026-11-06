@@ -47,12 +47,12 @@ func TestCorpusEpisodeOpsCompactCodexExitCodesMatchNative(t *testing.T) {
 			}
 			native := `{"type":"response_item","payload":{"type":"function_call","call_id":"c1","name":"exec_command","arguments":"{\"cmd\":\"go test ./...\"}"}}
 {"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":` + string(out) + `}}`
-			_, nativeCmds, _ := corpusEpisodeOps(native)
+			_, nativeCmds, _ := corpusEpisodeOps(native, "")
 			if got := describeCommands(nativeCmds); got != c.want {
 				t.Fatalf("native codex commands = %s, want %s", got, c.want)
 			}
 			compact := `{"v":1,"agent":"codex","type":"assistant","ts":"t","content":[{"type":"tool_use","id":"c1","name":"exec_command","input":{"cmd":"go test ./..."},"result":{"output":` + string(out) + `,"status":"success"}}]}`
-			_, compactCmds, _ := corpusEpisodeOps(compact)
+			_, compactCmds, _ := corpusEpisodeOps(compact, "")
 			if got := describeCommands(compactCmds); got != c.want {
 				t.Errorf("compact codex commands = %s, want %s (same as native)", got, c.want)
 			}
@@ -60,28 +60,16 @@ func TestCorpusEpisodeOpsCompactCodexExitCodesMatchNative(t *testing.T) {
 	}
 }
 
-// Only compact codex results are read, and only their output text. For
-// claude-code and pi, and for a current Codex rollout (the cli's item path,
-// tool "Bash" with the command's own output), whether a result.status of
-// "error" should mark a command failed is an open question, so those commands
-// keep no exit code and failed=false, as they did before.
+// For claude-code and pi, whether a result.status of "error" should mark a
+// command failed is an open question (#567), so those commands keep no exit
+// code and failed=false, as they did before. Only compact codex results are
+// read; a current Codex rollout's status "error" is covered by
+// TestCorpusEpisodeOpsCodexItemPathCommands.
 func TestCorpusEpisodeOpsCompactNonCodexResultsLeftAlone(t *testing.T) {
-	itemPath := `{"v":1,"agent":"codex","cli_version":"0.5.1","type":"assistant","ts":"t","id":"e1","content":[{"id":"e1","input":{"command":"go test ./..."},"name":"Bash","result":{"output":"--- FAIL: TestX\nFAIL\n","status":"error"},"type":"tool_use"}]}`
-	if _, commands, _ := corpusEpisodeOps(itemPath); describeCommands(commands) != `["go test exit=nil failed=false"]` {
-		t.Errorf("codex item-path commands = %s, want no exit code (status \"error\" is not read)", describeCommands(commands))
-	}
-	// The item path inlines the command's own stdout, so exit text a
-	// successful command prints is not its exit code.
-	for _, output := range []string{`Exit code: 1\n`, `child process exited with code 1\nok\n`} {
-		printed := `{"v":1,"agent":"codex","cli_version":"0.5.1","type":"assistant","ts":"t","id":"e2","content":[{"id":"e2","input":{"command":"go test ./..."},"name":"Bash","result":{"output":"` + output + `","status":"success"},"type":"tool_use"}]}`
-		if _, commands, _ := corpusEpisodeOps(printed); describeCommands(commands) != `["go test exit=nil failed=false"]` {
-			t.Errorf("codex item-path output %q: commands = %s, want no exit code", output, describeCommands(commands))
-		}
-	}
 	for _, agent := range []string{"claude-code", "pi"} {
 		t.Run(agent, func(t *testing.T) {
 			work := `{"v":1,"agent":"` + agent + `","type":"assistant","ts":"t","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"go test ./..."},"result":{"output":"Exit code 1\nFAIL","status":"error"}}]}`
-			_, commands, _ := corpusEpisodeOps(work)
+			_, commands, _ := corpusEpisodeOps(work, "")
 			if got, want := describeCommands(commands), `["go test exit=nil failed=false"]`; got != want {
 				t.Errorf("commands = %s, want %s", got, want)
 			}
