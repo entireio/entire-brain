@@ -7,6 +7,12 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Fixed
 
+- `recall --evidence` no longer returns harness-injected `<system-reminder>`
+  text as `role: "user"` evidence. User-role strings and text blocks now go
+  through the same wrapper filter as the conversation reader, so reminders,
+  `Caveat:` notes and environment envelopes are skipped like system-role
+  records already were. As in conversation, user text that itself starts with
+  `<` is skipped too. Assistant text is unchanged (#565).
 - `remember --path` rejects a malformed path even when another path in the list
   is valid. Previously it was dropped and the memory was stored under fewer
   paths. The error names the rejected path and the rule: `category.subcategory.type`,
