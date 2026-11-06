@@ -928,6 +928,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 	if limit <= 0 {
 		limit = defaultSeedMaxFileBytes
 	}
+	written := map[string]bool{}
 	for i := range scan.Docs {
 		doc := &scan.Docs[i]
 		cleanSrc := filepath.Clean(filepath.FromSlash(doc.Path))
@@ -982,6 +983,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 			if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(cleanDst), []byte(rendered), 0o600); err != nil {
 				return err
 			}
+			written[filepath.ToSlash(cleanDst)] = true
 			continue
 		}
 		// Read only what can survive the truncation below, plus one byte to
@@ -1000,8 +1002,85 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 		if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(cleanDst), data, 0o600); err != nil {
 			return err
 		}
+		written[filepath.ToSlash(cleanDst)] = true
 	}
+	pruneSeedDocs(outputDir, scan, written)
 	return nil
+}
+
+// pruneSeedDocs removes every file under seed/docs that this seed did not
+// write, so the directory holds exactly the documents of the current scan.
+// Without it a reseed only ever added: a document deleted from the repository,
+// or one an earlier --worktree seed copied while it was untracked, stayed on
+// disk, and the doc index (loadDocRecordsFromSeed reads every .md under seed/)
+// kept returning it although file-index.json no longer listed it.
+//
+// A file that cannot be removed safely is left and reported as a warning
+// rather than failing the seed, as is the whole directory when a component of
+// seed/docs is a symlink.
+func pruneSeedDocs(outputDir string, scan *seedScanResult, written map[string]bool) {
+	docsRel := filepath.Join(seedDirName, seedDocsDirName)
+	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, docsRel); err != nil {
+		scan.Warnings = append(scan.Warnings, fmt.Sprintf("old seed documents not removed: %v", err))
+		return
+	}
+	// On a case-insensitive filesystem a document renamed only in case is
+	// written over the old directory entry, which can keep the old spelling.
+	// That file is the one just written, so it is matched by identity rather
+	// than by name.
+	byFold := make(map[string]string, len(written))
+	for rel := range written {
+		byFold[strings.ToLower(rel)] = rel
+	}
+	var dirs []string
+	walkErr := filepath.WalkDir(filepath.Join(outputDir, docsRel), func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			scan.Warnings = append(scan.Warnings, fmt.Sprintf("old seed documents not checked: %v", err))
+			return nil
+		}
+		rel, relErr := filepath.Rel(outputDir, path)
+		if relErr != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if d.IsDir() {
+			if rel != filepath.ToSlash(docsRel) {
+				dirs = append(dirs, rel)
+			}
+			return nil
+		}
+		if written[rel] || sameSeedDoc(outputDir, rel, byFold[strings.ToLower(rel)]) {
+			return nil
+		}
+		if err := brainstore.RemoveBrainRelativeFile(outputDir, rel); err != nil {
+			scan.Warnings = append(scan.Warnings, fmt.Sprintf("old seed document not removed: %s: %v", rel, err))
+		}
+		return nil
+	})
+	if walkErr != nil {
+		scan.Warnings = append(scan.Warnings, fmt.Sprintf("old seed documents not checked: %v", walkErr))
+	}
+	// Deepest first, so a directory emptied by removing its children goes
+	// too. A directory that still holds anything is left by os.Remove.
+	for i := len(dirs) - 1; i >= 0; i-- {
+		if clibase.RejectExistingSymlinkPathComponents(outputDir, dirs[i]) == nil {
+			_ = os.Remove(filepath.Join(outputDir, filepath.FromSlash(dirs[i])))
+		}
+	}
+}
+
+// sameSeedDoc reports whether rel names the file written as written, when the
+// two differ only in case.
+func sameSeedDoc(outputDir, rel, written string) bool {
+	if written == "" {
+		return false
+	}
+	have, err := os.Lstat(filepath.Join(outputDir, filepath.FromSlash(rel)))
+	if err != nil {
+		return false
+	}
+	want, err := os.Lstat(filepath.Join(outputDir, filepath.FromSlash(written)))
+	return err == nil && os.SameFile(have, want)
 }
 
 // renderExtractedDocument wraps extracted text as markdown, with a header that

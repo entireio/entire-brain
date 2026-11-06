@@ -54,6 +54,12 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Fixed
 
+- A reseed now removes the documents under `seed/docs/` it did not write this
+  time. A document deleted from the repository, or one an earlier
+  `refresh --worktree` copied while it was untracked, used to keep its copy, and
+  `query` kept returning it although `file-index.json` no longer listed it. A
+  file that cannot be removed safely, such as a symlink, is left and reported
+  as a seed warning (#608).
 - The pattern corpus now reads current Codex sessions (the cli's item path,
   in cli 0.13.1 and later). A command that failed is stored as failed, with no
   exit code since the session records none, and counts in `exit_fails`. A file
