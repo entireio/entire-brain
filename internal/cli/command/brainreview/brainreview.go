@@ -49,6 +49,26 @@ type Deps struct {
 	// BufferRetrievalOutput buffers rendered output and emits it only when
 	// rendering succeeded.
 	BufferRetrievalOutput func(cmd *cobra.Command, render func() error) error
+	// RememberFindings persists review-derived records (RC.M2). It resolves
+	// the branch, the anchor commit and the session — only cli can — then
+	// builds each record with ReviewFindingRecords and writes them under the
+	// brain write lock, reporting what was actually persisted.
+	//
+	// It is handed the brainDir and repoRoot this review ALREADY resolved
+	// rather than re-resolving them, so "the findings are recorded in the
+	// store they were derived from" holds by construction rather than by two
+	// resolvers agreeing.
+	//
+	// Stated precisely, because the first version of this comment claimed a
+	// bug that does not exist: buildBrainStatusReportWithAvailability (behind
+	// BrainStatus) and resolveFactsTarget (behind the write) both resolve
+	// through the same ResolveLocalTargetRepoDir + repoStoragePaths pair, so
+	// they cannot disagree today, and mutation testing confirms no test can
+	// tell the two versions apart. This is a simplification that removes a
+	// second resolution and a second git subprocess, and makes the property
+	// structural instead of coincidental — not a fix for an observed
+	// divergence.
+	RememberFindings func(ctx context.Context, brainDir, repoRoot string, anomalies []Anomaly) (RememberOutcome, error)
 }
 
 type Anomaly struct {
@@ -75,6 +95,7 @@ type DetectorOptions struct {
 	IncludeDeletions bool // deletions are higher-recall but noisier (no recency data); opt-in
 	LocationOnly     bool // emit file:line only, NOT expected/current — so a fair A/B can't paste the answer
 	Patterns         bool // opt-in: attach V2 risk/practice/task corpus context for the finding files
+	Remember         bool // opt-in: write each finding back as a durable memory (RC.M2)
 }
 
 // ScanCaps records whether a hard limit stopped the raw-history walk before it
@@ -173,6 +194,12 @@ type Report struct {
 	// regression context. omitempty keeps the default review output byte-identical
 	// for the versioned schema's existing consumers.
 	PatternContext []PatternRef `json:"pattern_context,omitempty"`
+	// Remembered is OPT-IN (only with --remember): what write-back actually
+	// persisted. Additive and omitempty for the same reason as
+	// PatternContext, so the default output stays byte-identical for the
+	// versioned schema's consumers; a consumer that does not know the field
+	// ignores it.
+	Remembered *RememberOutcome `json:"remembered,omitempty"`
 }
 
 type PatternRef struct {
@@ -246,6 +273,15 @@ func RunBrainReview(ctx context.Context, cmd *cobra.Command, cfg Config, ro Dete
 	if ro.Limit <= 0 {
 		ro.Limit = 20
 	}
+	// --location-only blanks Expected, Current and Reason by design, so the
+	// two flags together would not merely leak less — they would write
+	// records whose text is "found X reading "" where history asserted """.
+	// Every such finding normalizes to nearly the same sentence, and the id is
+	// derived from the text, so a whole review would collapse into one or two
+	// content-identical memories. Refuse rather than persist that.
+	if ro.Remember && ro.LocationOnly {
+		return fmt.Errorf("--remember and --location-only cannot both be set: --location-only removes the expected and current values, which are the whole content of a remembered finding")
+	}
 	target := cfg.Deps.AgentSurfaceTarget(cfg.Options, nil)
 	brainPath, repoRoot, semSource, err := cfg.Deps.BrainStatus(ctx, cfg.Options, target)
 	if err != nil {
@@ -256,6 +292,16 @@ func RunBrainReview(ctx context.Context, cmd *cobra.Command, cfg Config, ro Dete
 			return err
 		}
 	}
+	// NOTE on a gate that used to be here. Write-back turns quoted source
+	// lines and recorded history into durable records that later reach other
+	// surfaces and, with sync, other people, which is a stronger act than
+	// rendering them once to this terminal. It therefore answered to the
+	// brain-local derived-read privacy gate rather than the weaker default.
+	// main removed that privacy layer wholesale (no RetrievalPrivacyPolicy,
+	// no derived-read requirement, for any surface), so there is nothing left
+	// to call: the gate is gone product-wide, not relaxed for this flag.
+	// If a privacy layer returns, --remember is the surface that should be
+	// wired to its strictest setting first.
 	anomalies, scanned, warnings, caps := cfg.Deps.DetectAnomalies(brainPath, repoRoot, semSource, query, ro.Limit, ro.IncludeDeletions)
 	var runtimeTraces []semstore.Record
 	if semSource != nil {
@@ -307,6 +353,23 @@ func RunBrainReview(ctx context.Context, cmd *cobra.Command, cfg Config, ro Dete
 			return err
 		}
 	}
+	// Write AFTER the analysis is complete and BEFORE rendering, so the
+	// rendered report states what was persisted. A write failure fails the
+	// command: a review that says "remembered 4" having stored none is worse
+	// than one that errors, because the caller moves on believing the
+	// reasoning was captured.
+	//
+	// Nothing is written when the review found nothing. An empty findings list
+	// means UNKNOWN rather than clean (see Report.Checked), and recording
+	// "a review found nothing" as a durable memory would assert exactly the
+	// clean bill of health the rest of this command refuses to give.
+	if ro.Remember && len(anomalies) > 0 {
+		outcome, err := cfg.Deps.RememberFindings(ctx, brainPath, repoRoot, anomalies)
+		if err != nil {
+			return err
+		}
+		report.Remembered = &outcome
+	}
 	render := func() error {
 		if ro.JSON {
 			return cmdutil.WriteJSON(cmd, report)
@@ -322,6 +385,10 @@ func RunBrainReview(ctx context.Context, cmd *cobra.Command, cfg Config, ro Dete
 		}
 		for _, w := range warnings {
 			fmt.Fprintf(out, "  note: %s\n", w)
+		}
+		if report.Remembered != nil {
+			fmt.Fprintf(out, "\n  remembered %d finding(s) as memories on %s (%d already recorded)\n",
+				report.Remembered.Recorded, report.Remembered.Branch, report.Remembered.AlreadyPresent)
 		}
 		return nil
 	}
@@ -343,5 +410,6 @@ func New(cfg Config) *cobra.Command {
 	cmd.Flags().BoolVar(&ro.Patterns, "patterns", false, "Attach V2 corpus risk/practice/task context for the finding files (additive)")
 	cmd.Flags().BoolVar(&ro.IncludeDeletions, "include-deletions", false, "Also flag deleted assignments (lower confidence, noisier)")
 	cmd.Flags().BoolVar(&ro.LocationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
+	cmd.Flags().BoolVar(&ro.Remember, "remember", false, "Write each finding back as a durable memory on this branch (kind gotcha, path "+ReviewFactPath+"), so the reasoning survives the run")
 	return cmd
 }

@@ -45,16 +45,29 @@ type Record struct {
 	// and merge semantics: a reconcile merge keeps the surviving record's
 	// extractor, dropping the removed candidate's. Eval runs distill each
 	// model into its own store, so that loss stays out of comparisons.
-	Agent        string    `json:"agent,omitempty"`
-	Model        string    `json:"model,omitempty"`
-	Effort       string    `json:"effort,omitempty"`
-	Status       string    `json:"status"` // "active" | "candidate" | "superseded" | "retracted"
-	Confidence   string    `json:"confidence,omitempty"`
-	Provenance   []Anchor  `json:"provenance"` // >=1; retained source/authored anchors
-	RelatedIDs   []string  `json:"related_ids,omitempty"`
-	SupersededBy string    `json:"superseded_by,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	Agent      string   `json:"agent,omitempty"`
+	Model      string   `json:"model,omitempty"`
+	Effort     string   `json:"effort,omitempty"`
+	Status     string   `json:"status"` // "active" | "candidate" | "superseded" | "retracted"
+	Confidence string   `json:"confidence,omitempty"`
+	Provenance []Anchor `json:"provenance"` // >=1; retained source/authored anchors
+	// RelatedIDs is the pre-RC.M1 untyped edge bag. Every writer in this
+	// package means "unresolved tension, needs review" by it, but consumers
+	// read it as generic relatedness. It is retained, and kept in step with
+	// Relations, because the sync wire and the hosted brainstore both read it;
+	// new writers should add a typed Relation and let the mirror follow.
+	RelatedIDs []string `json:"related_ids,omitempty"`
+	// Relations are typed record-to-record edges (see Relation). Like
+	// RelatedIDs and Author they are OUTSIDE the content id, so attaching one
+	// never re-keys a stored record. Older readers ignore the field:
+	// ParseNDJSON decodes with plain json.Unmarshal and no
+	// DisallowUnknownFields, so a record carrying relations round-trips
+	// through a build that predates them without error (it loses the edges,
+	// which is why the RelatedIDs mirror exists).
+	Relations    []Relation `json:"relations,omitempty"`
+	SupersededBy string     `json:"superseded_by,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
 }
 
 // Anchor cites the source a fact was derived from or authored against.
