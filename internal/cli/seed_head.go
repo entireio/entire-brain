@@ -71,6 +71,13 @@ const seedHeadCheckoutArgBytes = 16 * 1024
 // seedHeadLFSPointerMaxBytes is the largest blob Git LFS treats as a pointer.
 const seedHeadLFSPointerMaxBytes = 1024
 
+// seedHeadConversionMaxShrink bounds how much smaller a working-tree-encoding
+// checkout can be than its blob: the blob is UTF-8, at most 4 bytes a
+// character, and no encoding writes a character in under one byte. A blob more
+// than this many times --max-file-bytes is too large once converted, so it is
+// never checked out (see populate).
+const seedHeadConversionMaxShrink = 4
+
 // errSeedNoCommittedHead is the one checkout failure that is not a failure: a
 // repository whose branch has no commit has no committed state to seed from,
 // so the dirty-tree refusal -- "commit or stash them" -- is still the answer.
@@ -239,10 +246,20 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 				c.unread[path] = entry.size
 				continue
 			case attr.converts():
-				// A working-tree-encoding or filter conversion can make the
-				// checked-out file smaller than the blob, so the blob's size
-				// cannot leave it out; the scan stats the real file.
-				if !seedFileNeedsContent(path, 0, opts) {
+				// A working-tree-encoding or filter conversion changes the
+				// file's size, and the size decides both whether it is too
+				// large and, for media, which reason it gets. So a converted
+				// file is checked out and the scan stats the real one, but
+				// only up to seedHeadConversionMaxShrink times
+				// --max-file-bytes: past that it is too large however it
+				// converts, unless it is a doc the scan reads at any size.
+				// A filter driver has no such bound, and the blob's size
+				// stands in for its output there.
+				if _, _, pathOK := inspectSeedFilePath(path, opts); !pathOK {
+					c.unread[path] = entry.size
+					continue
+				}
+				if !isHighSignalDoc(path) && entry.size > seedHeadConversionMaxShrink*int64(opts.maxFileBytes) {
 					c.unread[path] = entry.size
 					continue
 				}

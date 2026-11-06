@@ -395,10 +395,16 @@ func TestDirtySeedChecksOutOnlyWhatTheScanReads(t *testing.T) {
 		// 40 Latin-1 bytes in the worktree, an 80-byte UTF-8 blob: over
 		// --max-file-bytes as a blob, under it once checked out.
 		"data/latin.txt": strings.Repeat("\xe9", 40),
-		".gitattributes": "data/latin.txt working-tree-encoding=ISO-8859-1\n",
+		// A 40-byte blob checked out as 80 bytes of UTF-16: too large once
+		// converted, not media, which is what its blob size alone says.
+		"wide.png": utf16LE(strings.Repeat("w", 40)),
 	}
 	writeSeedHeadFiles(t, repoDir, statOnly)
 	writeSeedHeadFiles(t, repoDir, read)
+	// Over --max-file-bytes itself, so in neither list.
+	writeSeedHeadFiles(t, repoDir, map[string]string{
+		".gitattributes": "data/latin.txt working-tree-encoding=ISO-8859-1\nwide.png working-tree-encoding=UTF-16LE\n",
+	})
 	gitAt(t, repoDir, "add", "-A")
 	gitAt(t, repoDir, "commit", "-q", "-m", "stat-only files")
 	env := semanticTestEnv(t, repoDir)
@@ -445,6 +451,89 @@ func TestDirtySeedChecksOutOnlyWhatTheScanReads(t *testing.T) {
 		t.Errorf("the dirty-tree file index differs from the clean one of the same commit:\nclean:\n%s\ndirty:\n%s", cleanIndex, dirtyIndex)
 	}
 	assertNoSeedHeadLeftovers(t, tempDir)
+}
+
+// TestDirtySeedBoundsConvertedCheckouts: a file whose checkout converts is
+// checked out so the scan sees its converted size, but one whose blob alone is
+// more than seedHeadConversionMaxShrink times --max-file-bytes is too large
+// however it converts, so it is never written out; the scan gives it the same
+// reason, and so the same fingerprint, as a clean seed of the commit.
+func TestDirtySeedBoundsConvertedCheckouts(t *testing.T) {
+	tempDir := isolateSeedHeadTemp(t)
+	repoDir := seedHeadTestRepo(t)
+	huge := strings.Repeat("h", 4*64+1)
+	writeSeedHeadFiles(t, repoDir, map[string]string{
+		".gitattributes": "data/*.txt working-tree-encoding=UTF-16LE\n",
+		"data/huge.txt":  utf16LE(huge),
+	})
+	gitAt(t, repoDir, "add", "-A")
+	gitAt(t, repoDir, "commit", "-q", "-m", "converted files")
+	env := semanticTestEnv(t, repoDir)
+	opts := Options{Version: "test", Env: env, Runner: ExecRunner{}}
+	cleanDir := filepath.Join(t.TempDir(), "clean")
+	if _, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--max-file-bytes", "64", "--output", cleanDir, repoDir); err != nil {
+		t.Fatalf("seed a clean tree: %v", err)
+	}
+
+	dirtySeedHeadTree(t, repoDir)
+	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+	if err != nil {
+		t.Fatalf("check out HEAD: %v", err)
+	}
+	defer head.remove()
+	if _, err := os.Lstat(filepath.Join(head.dir, "data", "huge.txt")); err == nil {
+		t.Error("a converted file past the bound was written into the checkout")
+	}
+	if size, ok := head.unreadSize("data/huge.txt"); !ok || size != int64(len(huge)) {
+		t.Errorf("data/huge.txt: unread size = %d, %v; want its blob size %d", size, ok, len(huge))
+	}
+	head.remove()
+
+	dirtyDir := filepath.Join(t.TempDir(), "dirty")
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--max-file-bytes", "64", "--output", dirtyDir, repoDir); err != nil {
+		t.Fatalf("seed the dirty tree: %v\n%s", err, out)
+	}
+	for name, dir := range map[string]string{"clean": cleanDir, "dirty": dirtyDir} {
+		entry := seedIndexEntry(t, dir, "data/huge.txt")
+		if entry.Included || entry.Reason != "too large" {
+			t.Errorf("%s seed: data/huge.txt = %+v; want too large", name, entry)
+		}
+	}
+	if clean, dirty := readSeedManifest(t, cleanDir), readSeedManifest(t, dirtyDir); dirty.FileFingerprint != clean.FileFingerprint {
+		t.Errorf("dirty-tree seed fingerprint %s differs from the clean seed of the same commit %s", dirty.FileFingerprint, clean.FileFingerprint)
+	}
+	assertNoSeedHeadLeftovers(t, tempDir)
+}
+
+// utf16LE encodes ASCII text as UTF-16LE, the bytes a working tree holds for
+// a path with working-tree-encoding=UTF-16LE.
+func utf16LE(ascii string) string {
+	var b strings.Builder
+	for i := 0; i < len(ascii); i++ {
+		b.WriteByte(ascii[i])
+		b.WriteByte(0)
+	}
+	return b.String()
+}
+
+// seedIndexEntry reads one path's entry from a seed's file-index.json.
+func seedIndexEntry(t *testing.T, outputDir, rel string) seedFileIndexEntry {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(outputDir, seedDirName, "file-index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entries []seedFileIndexEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		t.Fatalf("parse file-index.json: %v", err)
+	}
+	for _, entry := range entries {
+		if entry.Path == rel {
+			return entry
+		}
+	}
+	t.Fatalf("file-index.json has no entry for %s", rel)
+	return seedFileIndexEntry{}
 }
 
 // TestDirtySeedResolvesLocalLFSObjects: the checkout skips the LFS smudge
