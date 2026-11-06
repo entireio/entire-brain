@@ -309,3 +309,44 @@ func TestMemoriesSyncWithoutGlobalMemoriesSaysNothingAndCreatesNothing(t *testin
 		t.Fatalf("counting global memories created the global store at %s (stat err %v)", globalDir, statErr)
 	}
 }
+
+// TestMemoriesSyncReportsAnUnreadableGlobalStoreAsUnknown: a damaged global
+// store must not fail a sync that completed, and must not read as "no global
+// memories" either. JSON carries a null count and the reason.
+func TestMemoriesSyncReportsAnUnreadableGlobalStoreAsUnknown(t *testing.T) {
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	fake := &hostedFake{}
+	f, _ := newHostedSyncCmdFixture(t, fake)
+	f.writeFacts(t, "main", []factRecord{hostedSyncTestFact("local fact A", now)})
+	globalDir, err := factstore.GlobalBrainDir(f.opts.Env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A file where the store directory belongs: it exists, and nothing can
+	// load facts from it.
+	if err := os.WriteFile(globalDir, []byte("not a store"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCommand(f.opts)
+	stdout, stderr := &strings.Builder{}, &strings.Builder{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"memories", "sync", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("an unreadable global store failed a completed sync: %v\n%s%s", err, stdout, stderr)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(stdout.String()), &payload); err != nil {
+		t.Fatalf("memories sync --json wrote non-JSON: %v\n%s", err, stdout)
+	}
+	if got, ok := payload["global_not_synced"]; !ok || got != nil {
+		t.Fatalf("global_not_synced = %v (present %v), want null for an unreadable store\n%s", got, ok, stdout)
+	}
+	if reason, _ := payload["global_not_synced_error"].(string); reason == "" {
+		t.Fatalf("an unknown count must carry its reason\n%s", stdout)
+	}
+	if !strings.Contains(stderr.String(), "could not read the global memory store") {
+		t.Fatalf("stderr must warn about the unreadable store, got %q", stderr)
+	}
+}

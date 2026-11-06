@@ -1256,8 +1256,10 @@ account does not recall them. There is no account-scoped hosted store for them,
 and a repository's hosted store is shared with that repository's team.
 
 `memories sync` names what it left behind: a `not synced: N global memory(ies)`
-line, and `global_not_synced` in `--json`. `memories global` says the same under
-the list, and its `--json` carries `"synced": false`.
+line, and `global_not_synced` in `--json`. When the global store cannot be read,
+the sync still succeeds, and `global_not_synced` is `null` with the reason in
+`global_not_synced_error`. `memories global` says the same under the list, and
+its `--json` carries `"synced": false`.
 
 ### How they surface
 
