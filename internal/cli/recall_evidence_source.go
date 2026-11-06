@@ -90,13 +90,18 @@ func evidenceBlocks(text string) [][2]int {
 
 // Explicit schemas prevent hidden reasoning, tool output and arbitrary metadata
 // from becoming conversation evidence. String values are never normalized.
-// skipped counts recognized user fields withheld as system reminders, so a
-// session holding only those is not mistaken for unsupported content.
+// User-role fields go through isWrapperRequest, the predicate every other
+// request reader uses, so harness-injected text (system reminders, caveats,
+// environment envelopes) is not returned as something the user said. Evidence
+// is deliberately no stricter than the conversation reader: user text that
+// itself starts with "<" is dropped there too. skipped counts the user fields
+// withheld this way, so a session holding only those is not mistaken for
+// unsupported content.
 func evidenceJSONFields(obj map[string]any, prefix string, line int) (fields []evidenceField, skipped int) {
 	timestamp := jsonString(obj["timestamp"])
 	add := func(value any, pointer, role string) {
 		if s, ok := value.(string); ok && strings.TrimSpace(s) != "" {
-			if role == "user" && isSystemReminderOnly(s) {
+			if role == "user" && isWrapperRequest(strings.TrimSpace(s)) {
 				skipped++
 				return
 			}
@@ -160,32 +165,6 @@ func evidenceJSONFields(obj map[string]any, prefix string, line int) (fields []e
 		}
 	}
 	return fields, skipped
-}
-
-// isSystemReminderOnly reports whether text is nothing but harness-injected
-// <system-reminder>...</system-reminder> elements and whitespace. Harnesses put
-// these system instructions inside user turns; they are not what the user said.
-// Narrower on purpose than isWrapperRequest, which drops any text starting with
-// "<": evidence must keep a user's own text even when it begins with markup or
-// mentions the tag. A field mixing a reminder with user text is kept whole,
-// because spans address the unchanged field string.
-func isSystemReminderOnly(text string) bool {
-	const open, closing = "<system-reminder>", "</system-reminder>"
-	rest := strings.TrimSpace(text)
-	if rest == "" {
-		return false
-	}
-	for rest != "" {
-		if !strings.HasPrefix(rest, open) {
-			return false
-		}
-		end := strings.Index(rest, closing)
-		if end < 0 {
-			return false
-		}
-		rest = strings.TrimSpace(rest[end+len(closing):])
-	}
-	return true
 }
 
 func evidenceFields(data []byte, path string) ([]evidenceField, bool) {
