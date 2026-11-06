@@ -116,6 +116,63 @@ func TestCleanReseedRemovesADocumentOnlyTheWorktreeHad(t *testing.T) {
 	assertDocIndexLacks(t, outputDir, "zebra pipeline")
 }
 
+// TestSeedDocThatCannotBeReadIsDroppedNotSilentlySkipped: a document whose
+// source read fails is reported and taken out of the file index and the
+// seed's documents, so the prune that removes its earlier copy never leaves it
+// recorded as seeded with nothing on disk.
+func TestSeedDocThatCannotBeReadIsDroppedNotSilentlySkipped(t *testing.T) {
+	repoDir := t.TempDir()
+	outputDir := t.TempDir()
+	writeSeedPruneFiles(t, outputDir, map[string]string{"seed/docs/docs/gone.md": "# earlier copy\n"})
+	scan := &seedScanResult{
+		RepoDir: repoDir,
+		Files:   []seedFileIndexEntry{{Path: "docs/gone.md", Included: true, Reason: "included"}},
+		Docs:    []seedDocument{{Path: "docs/gone.md", SeedPath: "seed/docs/docs/gone.md", Reason: "included"}},
+	}
+	if err := writeSeedDocs(outputDir, scan); err != nil {
+		t.Fatalf("write seed docs: %v", err)
+	}
+	if scan.Docs[0].SeedPath != "" {
+		t.Errorf("an unreadable document kept its seed path %q", scan.Docs[0].SeedPath)
+	}
+	if scan.Files[0].Included {
+		t.Errorf("an unreadable document is still in the file index as included: %+v", scan.Files[0])
+	}
+	if !strings.Contains(strings.Join(scan.Warnings, "\n"), "document not indexed: docs/gone.md") {
+		t.Errorf("the unreadable document is not reported: %q", scan.Warnings)
+	}
+	assertSeedDoc(t, outputDir, "docs/gone.md", false)
+}
+
+// TestPruneSeedDocsKeepsADocumentRenamedOnlyInCase runs where the filesystem
+// folds case (macOS and Windows by default): the old copy and the new name are
+// one file there, and the prune must not delete the document it just wrote.
+func TestPruneSeedDocsKeepsADocumentRenamedOnlyInCase(t *testing.T) {
+	probe := t.TempDir()
+	if err := os.WriteFile(filepath.Join(probe, "case"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(probe, "CASE")); err != nil {
+		t.Skip("filesystem is case-sensitive")
+	}
+	repoDir := t.TempDir()
+	outputDir := t.TempDir()
+	writeSeedPruneFiles(t, repoDir, map[string]string{"docs/guide.md": "# renamed guide\n"})
+	writeSeedPruneFiles(t, outputDir, map[string]string{"seed/docs/docs/Guide.md": "# old spelling\n"})
+	scan := &seedScanResult{
+		RepoDir: repoDir,
+		Files:   []seedFileIndexEntry{{Path: "docs/guide.md", Included: true, Reason: "included"}},
+		Docs:    []seedDocument{{Path: "docs/guide.md", SeedPath: "seed/docs/docs/guide.md", Reason: "included"}},
+	}
+	if err := writeSeedDocs(outputDir, scan); err != nil {
+		t.Fatalf("write seed docs: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(outputDir, "seed", "docs", "docs", "guide.md"))
+	if err != nil || string(got) != "# renamed guide\n" {
+		t.Errorf("the document written under its new spelling = %q, %v; want the renamed guide", got, err)
+	}
+}
+
 // TestPruneSeedDocsLeavesWhatItCannotSafelyRemove: a symlink is reported and
 // left, never followed; a second name for the file just written (what a
 // case-insensitive filesystem gives a document renamed only in case) is kept;

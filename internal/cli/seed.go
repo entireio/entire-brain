@@ -926,6 +926,10 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 		// kept precisely because it is oversized is pure waste.
 		data, truncated, err := clibase.ReadFilePrefix(src, limit)
 		if err != nil {
+			// Said, like every other drop: the prune below removes an earlier
+			// copy of a document this run did not write, so a silent skip
+			// would leave it recorded as seeded with nothing on disk.
+			dropSeedDocument(scan, doc, fmt.Sprintf("not read: %v", err))
 			continue
 		}
 		doc.Bytes = int64(len(data))
