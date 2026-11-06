@@ -252,7 +252,6 @@ func TestRecallEvidenceCompactTranscript(t *testing.T) {
 		leaked        string
 	}{
 		{"claude-code", compactOpsClaudeTranscript, []string{
-			"1 /content/0/text user <system-reminder>wrapper that must not open an exchange</system-reminder>",
 			"2 /content/0/text user Fix   the flaky lock test\non Windows",
 			"3 /content/0/text assistant Looking at the lock timeout now.",
 			"4 /content/0/text assistant Root cause: the write lock timeout is too short on Windows; raising it.",
