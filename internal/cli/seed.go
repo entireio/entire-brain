@@ -113,7 +113,8 @@ type seedScanResult struct {
 	// ContentDir is where file bytes are read from when that is not RepoDir:
 	// a private checkout of Commit, used when the worktree has uncommitted
 	// changes (see seed_head.go). Empty means RepoDir. RepoDir stays the
-	// repository the reader knows; ContentDir is never written anywhere.
+	// repository the reader knows; ContentDir is never persisted, and only
+	// a synthesis agent is told it, as the tree it may read.
 	ContentDir string
 }
 
@@ -210,7 +211,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 			return nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("check worktree before repository context refresh: %w", err))
 		}
 		if dirty {
-			head, err = checkoutSeedHead(ctx, opts.Runner, repoDir, seedOpts.maxFiles)
+			head, err = checkoutSeedHead(ctx, opts.Runner, repoDir, seedOpts)
 			if err != nil {
 				return seedHeadRefusal(err, dirtyPaths)
 			}
@@ -301,7 +302,11 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		}
 
 		if seedOpts.agent != "none" {
-			agentManifest, err := runSeedAgent(ctx, repoDir, outputDir, scan, seedOpts)
+			// The agent runs in, and is told the repository is at, the scan's
+			// content root: on a dirty tree that is the committed HEAD
+			// checkout, so an agent that reads files (codex, a command) reads
+			// the commit the seed records, not the uncommitted worktree.
+			agentManifest, err := runSeedAgent(ctx, scan.contentRoot(), outputDir, scan, seedOpts)
 			if err != nil {
 				if seedOpts.requireAgent {
 					return err
@@ -420,7 +425,12 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 		}
 	}
 	for _, rel := range paths {
-		entry := inspectSeedFile(contentDir, rel, opts)
+		var entry seedFileIndexEntry
+		if size, unread := head.unreadSize(rel); unread {
+			entry = inspectUnreadSeedFile(rel, size, opts)
+		} else {
+			entry = inspectSeedFile(contentDir, rel, opts)
+		}
 		result.Files = append(result.Files, entry)
 		if !entry.Included {
 			continue
@@ -528,21 +538,8 @@ func splitNonEmptyLines(data []byte) []string {
 }
 
 func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndexEntry {
-	entry := seedFileIndexEntry{Path: filepath.ToSlash(rel), Category: seedCategory(rel), Included: true, Reason: "included"}
-	clean := filepath.Clean(filepath.FromSlash(rel))
-	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		entry.Included = false
-		entry.Reason = "unsafe path"
-		return entry
-	}
-	if isDeniedSeedPath(rel) {
-		entry.Included = false
-		entry.Reason = "denied path"
-		return entry
-	}
-	if !opts.includeTests && isTestPath(rel) {
-		entry.Included = false
-		entry.Reason = "tests excluded"
+	entry, clean, ok := inspectSeedFilePath(rel, opts)
+	if !ok {
 		return entry
 	}
 	if err := clibase.RejectSymlinkPathComponents(repoDir, clean); err != nil {
@@ -556,20 +553,9 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 		entry.Reason = "stat failed"
 		return entry
 	}
-	entry.Bytes = info.Size()
-	if info.Size() > int64(opts.maxFileBytes) {
-		entry.Truncated = true
-		if !isHighSignalDoc(rel) {
-			entry.Included = false
-			entry.Reason = "too large"
-			return entry
-		}
-		entry.Reason = "included truncated"
+	if !inspectSeedFileSize(&entry, rel, info.Size(), opts) {
+		return entry
 	}
-	// An extractable document is binary on disk and text once read, so it must
-	// bypass both the extension denylist and the NUL-byte check below — every
-	// PDF and every Office file fails the latter by construction. The bytes are
-	// never indexed directly; writeSeedDocs converts them first.
 	if isExtractableSeedDocument(rel) {
 		// The NUL check below would reject every PDF and Office file by
 		// construction, which is why this returns early — but the content hash
@@ -581,11 +567,6 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 			entry.Hash = sum
 		}
 		entry.Reason = "included as an extracted document"
-		return entry
-	}
-	if isLikelyBinaryPath(rel) {
-		entry.Included = false
-		entry.Reason = "binary or media"
 		return entry
 	}
 	// Stream the file rather than slurping it. A high-signal doc over
@@ -601,6 +582,81 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 			return entry
 		}
 		entry.Hash = sum
+	}
+	return entry
+}
+
+// inspectSeedFilePath is the part of inspectSeedFile that the path alone
+// decides. It reports false when the path settles the entry, which is then
+// final; otherwise it returns the cleaned path for the checks that need disk.
+func inspectSeedFilePath(rel string, opts seedCommandOptions) (seedFileIndexEntry, string, bool) {
+	entry := seedFileIndexEntry{Path: filepath.ToSlash(rel), Category: seedCategory(rel), Included: true, Reason: "included"}
+	clean := filepath.Clean(filepath.FromSlash(rel))
+	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		entry.Included = false
+		entry.Reason = "unsafe path"
+		return entry, clean, false
+	}
+	if isDeniedSeedPath(rel) {
+		entry.Included = false
+		entry.Reason = "denied path"
+		return entry, clean, false
+	}
+	if !opts.includeTests && isTestPath(rel) {
+		entry.Included = false
+		entry.Reason = "tests excluded"
+		return entry, clean, false
+	}
+	return entry, clean, true
+}
+
+// inspectSeedFileSize is the part of inspectSeedFile that the path and the
+// file's size decide. It reports whether the file's bytes still have to be
+// read; false means the entry is final without them.
+func inspectSeedFileSize(entry *seedFileIndexEntry, rel string, size int64, opts seedCommandOptions) bool {
+	entry.Bytes = size
+	if size > int64(opts.maxFileBytes) {
+		entry.Truncated = true
+		if !isHighSignalDoc(rel) {
+			entry.Included = false
+			entry.Reason = "too large"
+			return false
+		}
+		entry.Reason = "included truncated"
+	}
+	// An extractable document is binary on disk and text once read, so it must
+	// bypass both the extension denylist here and the NUL-byte check in
+	// inspectSeedFile — every PDF and every Office file fails the latter by
+	// construction. The bytes are never indexed directly; writeSeedDocs
+	// converts them first.
+	if isLikelyBinaryPath(rel) && !isExtractableSeedDocument(rel) {
+		entry.Included = false
+		entry.Reason = "binary or media"
+		return false
+	}
+	return true
+}
+
+// seedFileNeedsContent reports whether inspectSeedFile would read a file's
+// bytes, given its path and size. It is how the committed HEAD checkout leaves
+// out every file the scan only stats (seed_head.go).
+func seedFileNeedsContent(rel string, size int64, opts seedCommandOptions) bool {
+	entry, _, ok := inspectSeedFilePath(rel, opts)
+	return ok && inspectSeedFileSize(&entry, rel, size, opts)
+}
+
+// inspectUnreadSeedFile is inspectSeedFile for a file whose bytes were never
+// written out because seedFileNeedsContent said the scan does not read them.
+// It runs the same two checks on the committed size, so the entry is the one
+// a scan of the file on disk would have produced.
+func inspectUnreadSeedFile(rel string, size int64, opts seedCommandOptions) seedFileIndexEntry {
+	entry, _, ok := inspectSeedFilePath(rel, opts)
+	if ok && inspectSeedFileSize(&entry, rel, size, opts) {
+		// Only files the checks above settle are left unread, so this does
+		// not happen; if it ever does, say the file was not read rather than
+		// report it included with no hash.
+		entry.Included = false
+		entry.Reason = "not read"
 	}
 	return entry
 }

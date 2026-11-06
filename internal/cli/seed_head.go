@@ -1,13 +1,20 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Seeding a dirty worktree from committed HEAD (issue #327).
@@ -38,12 +45,19 @@ import (
 // them, unchanged, instead of growing a second, object-store flavour of each.
 // Committed objects are also immutable, so an edit made while the scan runs
 // cannot leak into a seed attributed to HEAD. The cost is disk and I/O for the
-// files the scan will look at -- at most --max-files of them -- paid only when
-// the tree is dirty, and only when a reseed is due.
+// files the scan reads -- at most --max-files of them -- paid only when the
+// tree is dirty, and only when a reseed is due. A file the scan only stats (a
+// denied path, an excluded test, binary media, anything over --max-file-bytes)
+// is never written out: its committed size settles its entry, so a tracked
+// multi-gigabyte binary or a vendored tree costs nothing here, and a committed
+// secret is not copied anywhere. What is written is what the scan reads.
 //
 // The checkout never touches the repository's real index: read-tree and
 // checkout-index run against a scratch GIT_INDEX_FILE, so a concurrent git in
-// the same repository (issue #326) sees nothing.
+// the same repository (issue #326) sees nothing. Nor does it read the
+// worktree's .gitattributes: checkout-index takes them from the commit
+// (--attr-source), so an uncommitted attribute change cannot re-encode or
+// re-filter the committed bytes.
 
 // seedHeadTempPrefix names the private checkout directory so a leftover from a
 // killed process is recognisable in the system temp directory.
@@ -53,6 +67,9 @@ const seedHeadTempPrefix = "entire-brain-seed-head-"
 // The runner passes arguments, not stdin, and Windows caps a whole command line
 // at 32,767 characters; --max-files paths can be far longer than that.
 const seedHeadCheckoutArgBytes = 16 * 1024
+
+// seedHeadLFSPointerMaxBytes is the largest blob Git LFS treats as a pointer.
+const seedHeadLFSPointerMaxBytes = 1024
 
 // errSeedNoCommittedHead is the one checkout failure that is not a failure: a
 // repository whose branch has no commit has no committed state to seed from,
@@ -70,6 +87,10 @@ type seedHeadCheckout struct {
 	// paths is the commit's whole sorted file inventory, not only the files
 	// checked out, so the --max-files warning still counts what was skipped.
 	paths []string
+	// unread holds the committed size of each selected file that was left
+	// out of dir because its path and size alone settle its scan entry
+	// (seedFileNeedsContent). The scan builds those entries from the size.
+	unread map[string]int64
 	// tempRoot holds dir and the scratch index; remove deletes it.
 	tempRoot string
 }
@@ -80,13 +101,39 @@ func (c *seedHeadCheckout) remove() {
 	}
 }
 
+// unreadSize reports the committed size of a file the checkout left out. It is
+// nil-safe: a working-tree scan has no checkout and leaves nothing out.
+func (c *seedHeadCheckout) unreadSize(rel string) (int64, bool) {
+	if c == nil {
+		return 0, false
+	}
+	size, ok := c.unread[rel]
+	return size, ok
+}
+
+// seedHeadEntry is one file in the commit's tree, as `ls-tree -l` lists it.
+type seedHeadEntry struct {
+	mode string
+	// size is the blob's size in the object store, or -1 for an entry with
+	// none (a submodule).
+	size int64
+}
+
+// regularFile reports whether the entry is an ordinary file (not a symlink or
+// a submodule). Only those can be left out: the scan's answer for the other
+// two depends on what checkout-index puts on disk for them.
+func (e seedHeadEntry) regularFile() bool {
+	return (e.mode == "100644" || e.mode == "100755") && e.size >= 0
+}
+
 // seedHeadGitEnv is the environment of every git call that builds the
 // checkout. GIT_NO_LAZY_FETCH keeps a partial clone from fetching a missing
 // object over the network in the middle of a background seed, and
 // GIT_LFS_SKIP_SMUDGE does the same for an LFS smudge filter configured in the
 // user's own git config (repository-scoped filter drivers are already blanked by
 // repoFilterDriverOverrides). Either way the object is read locally or the
-// checkout fails, and a failed checkout falls back to the refusal.
+// checkout fails, and a failed checkout falls back to the refusal; an LFS
+// object already stored locally is then filled in by settleSmallFiles.
 func seedHeadGitEnv(scratchIndex string) map[string]string {
 	env := localOnlyGitEnv()
 	env["GIT_LFS_SKIP_SMUDGE"] = "1"
@@ -97,9 +144,10 @@ func seedHeadGitEnv(scratchIndex string) map[string]string {
 }
 
 // checkoutSeedHead checks HEAD's tree out into a private temporary directory:
-// the first maxFiles paths in the order the scan reads them, which is exactly
-// the set scanSeedRepository will look at. The caller owns remove().
-func checkoutSeedHead(ctx context.Context, runner CommandRunner, repoDir string, maxFiles int) (*seedHeadCheckout, error) {
+// of the first --max-files paths in the order the scan reads them, which is
+// exactly the set scanSeedRepository will look at, the ones whose bytes the
+// scan reads. The caller owns remove().
+func checkoutSeedHead(ctx context.Context, runner CommandRunner, repoDir string, opts seedCommandOptions) (*seedHeadCheckout, error) {
 	envRunner, ok := runner.(EnvironmentCommandRunner)
 	if !ok {
 		return nil, errors.New("command runner cannot run git against a scratch index")
@@ -111,25 +159,27 @@ func checkoutSeedHead(ctx context.Context, runner CommandRunner, repoDir string,
 	if err != nil || commit == "" {
 		return nil, errSeedNoCommittedHead
 	}
-	listing, _, err := envRunner.RunWithEnv(ctx, repoDir, seedHeadGitEnv(""), "git", "ls-tree", "-r", "-z", "--full-tree", "--name-only", commit)
+	// -l adds each blob's size, which is what lets a file the scan only
+	// stats stay out of the checkout.
+	listing, _, err := envRunner.RunWithEnv(ctx, repoDir, seedHeadGitEnv(""), "git", "ls-tree", "-r", "-z", "-l", "--full-tree", commit)
 	if err != nil {
 		return nil, fmt.Errorf("list committed HEAD %s: %w", shortCommitHash(commit), err)
 	}
-	paths := splitNULPaths(listing)
+	paths, entries := parseSeedHeadTree(listing)
 
 	tempRoot, err := os.MkdirTemp("", seedHeadTempPrefix)
 	if err != nil {
 		return nil, fmt.Errorf("create committed HEAD checkout: %w", err)
 	}
-	checkout := &seedHeadCheckout{commit: commit, dir: filepath.Join(tempRoot, "tree"), paths: paths, tempRoot: tempRoot}
-	if err := checkout.populate(ctx, envRunner, repoDir, maxFiles); err != nil {
+	checkout := &seedHeadCheckout{commit: commit, dir: filepath.Join(tempRoot, "tree"), paths: paths, unread: map[string]int64{}, tempRoot: tempRoot}
+	if err := checkout.populate(ctx, envRunner, repoDir, entries, opts); err != nil {
 		checkout.remove()
 		return nil, err
 	}
 	return checkout, nil
 }
 
-func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, maxFiles int) error {
+func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, entries map[string]seedHeadEntry, opts seedCommandOptions) error {
 	if err := os.Mkdir(c.dir, 0o700); err != nil {
 		return fmt.Errorf("create committed HEAD checkout: %w", err)
 	}
@@ -138,38 +188,200 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 		return fmt.Errorf("read committed HEAD %s into a scratch index: %w", shortCommitHash(c.commit), err)
 	}
 	selected := c.paths
-	if maxFiles > 0 && len(selected) > maxFiles {
-		selected = selected[:maxFiles]
+	if opts.maxFiles > 0 && len(selected) > opts.maxFiles {
+		selected = selected[:opts.maxFiles]
+	}
+	var wanted []string
+	var small []seedHeadSmallFile
+	for _, path := range selected {
+		entry := entries[path]
+		if entry.regularFile() {
+			// A blob small enough to be an LFS pointer is checked out
+			// whatever its size says, unless its path alone rules it out:
+			// its real size is only known once the pointer is read.
+			if _, _, pathOK := inspectSeedFilePath(path, opts); pathOK && entry.size <= seedHeadLFSPointerMaxBytes {
+				wanted = append(wanted, path)
+				small = append(small, seedHeadSmallFile{path: path, size: entry.size})
+				continue
+			}
+			if !seedFileNeedsContent(path, entry.size, opts) {
+				c.unread[path] = entry.size
+				continue
+			}
+		}
+		wanted = append(wanted, path)
 	}
 	// git appends each path to the prefix verbatim, so it needs the trailing
 	// separator; forward slashes are what git expects on every platform.
 	prefix := "--prefix=" + filepath.ToSlash(c.dir) + "/"
+	// --attr-source: without it, checkout-index applies the WORKTREE's
+	// .gitattributes -- uncommitted, or edited, ones included, even with the
+	// commit's own copy in the scratch index -- so an uncommitted
+	// `working-tree-encoding` rule re-encoded committed docs into what the
+	// scan rejects as binary. Git older than 2.40 does not know the option;
+	// the checkout fails and the seed falls back to the refusal.
+	//
 	// -f: two tracked paths that differ only in case land on one file on a
 	// case-insensitive filesystem. A clean checkout there keeps the last one
 	// written, and so does this; without -f the second is an error and the
 	// whole seed falls back to refusing.
-	for _, batch := range chunkPathsByBytes(selected, seedHeadCheckoutArgBytes) {
-		args := append([]string{"checkout-index", "-f", prefix, "--"}, batch...)
+	for _, batch := range chunkPathsByBytes(wanted, seedHeadCheckoutArgBytes) {
+		args := append([]string{"--attr-source=" + c.commit, "checkout-index", "-f", prefix, "--"}, batch...)
 		if _, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", args...); err != nil {
 			return fmt.Errorf("check out committed HEAD %s: %w", shortCommitHash(c.commit), err)
 		}
 	}
+	c.settleSmallFiles(ctx, runner, repoDir, small, opts)
 	return nil
 }
 
-// splitNULPaths splits `git ... -z` output into sorted, de-duplicated,
-// slash-separated paths. NUL separation is what keeps a tracked path with a
-// newline or a quote in it intact; the sort matches listSeedFiles so the cap
-// selects the same files on either root.
-func splitNULPaths(data []byte) []string {
-	var paths []string
-	for _, path := range strings.Split(string(data), "\x00") {
-		if path != "" {
-			paths = append(paths, path)
+// seedHeadSmallFile is a checked-out blob small enough to be a Git LFS pointer.
+type seedHeadSmallFile struct {
+	path string
+	size int64
+}
+
+// settleSmallFiles finishes the blobs that might be Git LFS pointers. The
+// checkout skips the smudge filter so a background seed never downloads
+// anything (seedHeadGitEnv), which on its own seeded every LFS document as its
+// pointer text. A pointer whose object is already in the local LFS store is
+// replaced with that object, which is what a working tree with the content
+// fetched holds; one whose object is not stored locally stays the pointer, the
+// same text a working tree without the content shows. Only the default store
+// (<git-common-dir>/lfs) is consulted.
+//
+// Each file is then held to the same rule as every other blob, at its real
+// size: one the scan would only stat leaves the checkout and is recorded
+// unread, so a large LFS binary is never copied here either.
+func (c *seedHeadCheckout) settleSmallFiles(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, files []seedHeadSmallFile, opts seedCommandOptions) {
+	objectsDir, objectsResolved := "", false
+	for _, file := range files {
+		target := filepath.Join(c.dir, filepath.FromSlash(file.path))
+		size, object := file.size, ""
+		if data, err := clibase.SafeReadFile(target, seedHeadLFSPointerMaxBytes); err == nil {
+			if oid, objectSize, ok := parseLFSPointer(data); ok {
+				if !objectsResolved {
+					objectsResolved = true
+					objectsDir = seedHeadLFSObjectsDir(ctx, runner, repoDir)
+				}
+				candidate := filepath.Join(objectsDir, oid[0:2], oid[2:4], oid)
+				if info, err := os.Lstat(candidate); objectsDir != "" && err == nil && info.Mode().IsRegular() && info.Size() == objectSize {
+					size, object = objectSize, candidate
+				}
+			}
+		}
+		if !seedFileNeedsContent(file.path, size, opts) {
+			if os.Remove(target) == nil {
+				c.unread[file.path] = size
+			}
+			continue
+		}
+		if object != "" {
+			_ = copyLFSObject(object, target, filepath.Base(object), size)
 		}
 	}
+}
+
+// seedHeadLFSObjectsDir is the repository's default Git LFS object store, or ""
+// when the git directory cannot be resolved.
+func seedHeadLFSObjectsDir(ctx context.Context, runner EnvironmentCommandRunner, repoDir string) string {
+	common, _, err := runner.RunWithEnv(ctx, repoDir, seedHeadGitEnv(""), "git", "rev-parse", "--git-common-dir")
+	commonDir := strings.TrimSpace(string(common))
+	if err != nil || commonDir == "" {
+		return ""
+	}
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(repoDir, commonDir)
+	}
+	return filepath.Join(commonDir, "lfs", "objects")
+}
+
+// copyLFSObject replaces target with the LFS object, verifying its size and
+// sha256 on the way; on any mismatch target keeps the pointer.
+func copyLFSObject(object, target, oid string, size int64) error {
+	src, err := clibase.SafeOpenRegularFile(object)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	tmp, err := os.CreateTemp(filepath.Dir(target), ".lfs-object-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	hash := sha256.New()
+	written, copyErr := io.Copy(io.MultiWriter(tmp, hash), io.LimitReader(src, size+1))
+	closeErr := tmp.Close()
+	switch {
+	case copyErr != nil:
+		err = copyErr
+	case closeErr != nil:
+		err = closeErr
+	case written != size || hex.EncodeToString(hash.Sum(nil)) != oid:
+		err = fmt.Errorf("LFS object %s does not match its pointer", oid)
+	}
+	if err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, target); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
+}
+
+// parseLFSPointer recognises a Git LFS pointer file (spec v1) and returns its
+// sha256 object id and size.
+func parseLFSPointer(data []byte) (string, int64, bool) {
+	if len(data) > seedHeadLFSPointerMaxBytes || !bytes.HasPrefix(data, []byte("version https://git-lfs.github.com/spec/v1\n")) {
+		return "", 0, false
+	}
+	oid, size := "", int64(-1)
+	for _, line := range strings.Split(string(data), "\n") {
+		if value, ok := strings.CutPrefix(line, "oid sha256:"); ok {
+			oid = value
+		} else if value, ok := strings.CutPrefix(line, "size "); ok {
+			if n, err := strconv.ParseInt(value, 10, 64); err == nil && n >= 0 {
+				size = n
+			}
+		}
+	}
+	if len(oid) != sha256.Size*2 || size < 0 {
+		return "", 0, false
+	}
+	if _, err := hex.DecodeString(oid); err != nil || strings.ToLower(oid) != oid {
+		return "", 0, false
+	}
+	return oid, size, true
+}
+
+// parseSeedHeadTree parses `git ls-tree -r -z -l` output into the sorted,
+// de-duplicated inventory and each path's entry. NUL separation is what keeps
+// a tracked path with a newline or a quote in it intact; the sort matches
+// listSeedFiles so the cap selects the same files on either root.
+func parseSeedHeadTree(data []byte) ([]string, map[string]seedHeadEntry) {
+	entries := map[string]seedHeadEntry{}
+	var paths []string
+	for _, record := range strings.Split(string(data), "\x00") {
+		meta, path, ok := strings.Cut(record, "\t")
+		if !ok || path == "" {
+			continue
+		}
+		// <mode> SP <type> SP <object> SP+ <size>, size "-" for a submodule.
+		fields := strings.Fields(meta)
+		if len(fields) != 4 {
+			continue
+		}
+		size, err := strconv.ParseInt(fields[3], 10, 64)
+		if err != nil {
+			size = -1
+		}
+		entries[path] = seedHeadEntry{mode: fields[0], size: size}
+		paths = append(paths, path)
+	}
 	sort.Strings(paths)
-	return compactSortedStrings(paths)
+	return compactSortedStrings(paths), entries
 }
 
 // chunkPathsByBytes groups paths so the arguments of each group stay under

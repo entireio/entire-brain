@@ -357,10 +357,13 @@ The Entire-authored files are still **indexed** — `AGENTS.md` and `CLAUDE.md` 
 exactly the repository docs you want the brain to know about. They just stop
 counting as uncommitted source for the gate.
 
-A branch with no commit yet has no committed state to build from, so there the
-repository context is still refused with `dirty_worktree` and the hint names the
-ways out. (`--worktree`, which the refusal names, is a `refresh` flag — `setup`
-does not accept it, which is why the hint spells out the `refresh` form.)
+When the exempt files are the only changes, the tree counts as clean and their
+uncommitted content is what gets seeded. A repository with no commit yet has
+no committed state to build from: `setup` stops with `no commits yet, so there
+is nothing to index` and exits non-zero, and `refresh` there still refuses
+repository context with `dirty_worktree` and a hint that names the ways out.
+(`--worktree`, which the refusal names, is a `refresh` flag — `setup` does not
+accept it, which is why the hint spells out the `refresh` form.)
 
 **A repository new to Entire reaches an all-green `setup` with no user action.**
 On a committed `git init` repository with no remote at all, every component

@@ -3,8 +3,11 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -320,5 +323,209 @@ func TestChunkPathsByBytesBoundsEachCommandLine(t *testing.T) {
 	}
 	if len(chunkPathsByBytes(nil, 10)) != 0 {
 		t.Error("no paths must produce no batches")
+	}
+}
+
+// TestDirtySeedIgnoresUncommittedGitattributes: checkout-index reads the
+// WORKTREE's .gitattributes unless told otherwise, so an uncommitted
+// working-tree-encoding rule re-encoded the committed README into UTF-16, which
+// the scan then dropped as binary content.
+func TestDirtySeedIgnoresUncommittedGitattributes(t *testing.T) {
+	tempDir := isolateSeedHeadTemp(t)
+	repoDir := seedHeadTestRepo(t)
+	env := semanticTestEnv(t, repoDir)
+	opts := Options{Version: "test", Env: env, Runner: ExecRunner{}}
+	cleanDir := filepath.Join(t.TempDir(), "clean")
+	if _, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--output", cleanDir, repoDir); err != nil {
+		t.Fatalf("seed a clean tree: %v", err)
+	}
+	clean := readSeedManifest(t, cleanDir)
+
+	writeSeedHeadFiles(t, repoDir, map[string]string{".gitattributes": "*.md working-tree-encoding=UTF-16LE\n"})
+	dirtyDir := filepath.Join(t.TempDir(), "dirty")
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--output", dirtyDir, repoDir); err != nil {
+		t.Fatalf("seed with an untracked .gitattributes: %v\n%s", err, out)
+	}
+	readme, err := os.ReadFile(filepath.Join(dirtyDir, seedDirName, seedDocsDirName, "README.md"))
+	if err != nil {
+		t.Fatalf("the committed README was not seeded: %v", err)
+	}
+	if string(readme) != "# committed readme\n" {
+		t.Errorf("seeded README = %q, want the committed bytes, not ones converted by uncommitted attributes", readme)
+	}
+	if dirty := readSeedManifest(t, dirtyDir); dirty.FileFingerprint != clean.FileFingerprint {
+		t.Errorf("uncommitted attributes changed what the seed read: fingerprint %s, clean %s", dirty.FileFingerprint, clean.FileFingerprint)
+	}
+	assertNoSeedHeadLeftovers(t, tempDir)
+}
+
+// TestDirtySeedChecksOutOnlyWhatTheScanReads: a file the scan only stats -- a
+// denied path, an excluded test, binary media, anything over --max-file-bytes
+// -- is never written into the checkout, and the scan still records it exactly
+// as a scan of the clean tree does.
+func TestDirtySeedChecksOutOnlyWhatTheScanReads(t *testing.T) {
+	tempDir := isolateSeedHeadTemp(t)
+	repoDir := seedHeadTestRepo(t)
+	statOnly := map[string]string{
+		"vendor/lib.js":    "module.exports = 1\n",
+		".env":             "SECRET=committed\n",
+		"logo.png":         "\x89PNG\r\n\x1a\n\x00\x00",
+		"data/big.txt":     strings.Repeat("big ", 40),
+		"src/main_test.go": "package main\n",
+	}
+	read := map[string]string{
+		"docs/long.md": strings.Repeat("a long committed doc ", 10),
+		"src/small.go": "package main\n",
+	}
+	writeSeedHeadFiles(t, repoDir, statOnly)
+	writeSeedHeadFiles(t, repoDir, read)
+	gitAt(t, repoDir, "add", "-A")
+	gitAt(t, repoDir, "commit", "-q", "-m", "stat-only files")
+	env := semanticTestEnv(t, repoDir)
+	opts := Options{Version: "test", Env: env, Runner: ExecRunner{}}
+	cleanDir := filepath.Join(t.TempDir(), "clean")
+	if _, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--max-file-bytes", "64", "--output", cleanDir, repoDir); err != nil {
+		t.Fatalf("seed a clean tree: %v", err)
+	}
+
+	dirtySeedHeadTree(t, repoDir)
+	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+	if err != nil {
+		t.Fatalf("check out HEAD: %v", err)
+	}
+	defer head.remove()
+	for rel, content := range statOnly {
+		if _, err := os.Lstat(filepath.Join(head.dir, filepath.FromSlash(rel))); err == nil {
+			t.Errorf("%s was written into the checkout, but the scan only stats it", rel)
+		}
+		if size, ok := head.unreadSize(rel); !ok || size != int64(len(content)) {
+			t.Errorf("%s: unread size = %d, %v; want its committed size %d", rel, size, ok, len(content))
+		}
+	}
+	for rel := range read {
+		if _, err := os.Stat(filepath.Join(head.dir, filepath.FromSlash(rel))); err != nil {
+			t.Errorf("%s is read by the scan and must be checked out: %v", rel, err)
+		}
+	}
+	head.remove()
+
+	dirtyDir := filepath.Join(t.TempDir(), "dirty")
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--max-file-bytes", "64", "--output", dirtyDir, repoDir); err != nil {
+		t.Fatalf("seed the dirty tree: %v\n%s", err, out)
+	}
+	cleanIndex, err := os.ReadFile(filepath.Join(cleanDir, seedDirName, "file-index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirtyIndex, err := os.ReadFile(filepath.Join(dirtyDir, seedDirName, "file-index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(cleanIndex, dirtyIndex) {
+		t.Errorf("the dirty-tree file index differs from the clean one of the same commit:\nclean:\n%s\ndirty:\n%s", cleanIndex, dirtyIndex)
+	}
+	assertNoSeedHeadLeftovers(t, tempDir)
+}
+
+// TestDirtySeedResolvesLocalLFSObjects: the checkout skips the LFS smudge
+// filter so a background seed never downloads, which on its own seeded every
+// LFS document as pointer text. An object already in the local store is now
+// seeded as its content; one that is not stays the pointer a worktree without
+// it would show; and one the scan would only stat is never copied.
+func TestDirtySeedResolvesLocalLFSObjects(t *testing.T) {
+	isolateSeedHeadTemp(t)
+	repoDir := seedHeadTestRepo(t)
+	stored := "# manual kept in LFS\n"
+	large := strings.Repeat("large LFS payload ", 20)
+	missing := "# never fetched\n"
+	writeLFSObject(t, repoDir, stored)
+	writeLFSObject(t, repoDir, large)
+	writeSeedHeadFiles(t, repoDir, map[string]string{
+		"docs/manual.md":  lfsPointer(stored),
+		"docs/missing.md": lfsPointer(missing),
+		"data/large.txt":  lfsPointer(large),
+	})
+	gitAt(t, repoDir, "add", "-A")
+	gitAt(t, repoDir, "commit", "-q", "-m", "lfs pointers")
+	dirtySeedHeadTree(t, repoDir)
+
+	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+	if err != nil {
+		t.Fatalf("check out HEAD: %v", err)
+	}
+	defer head.remove()
+	if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "manual.md")); err != nil || string(got) != stored {
+		t.Errorf("docs/manual.md = %q, %v; want the locally stored LFS object", got, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "missing.md")); err != nil || string(got) != lfsPointer(missing) {
+		t.Errorf("docs/missing.md = %q, %v; want the pointer, its object is not stored locally", got, err)
+	}
+	if _, err := os.Lstat(filepath.Join(head.dir, "data", "large.txt")); err == nil {
+		t.Error("an LFS object over --max-file-bytes was copied into the checkout")
+	}
+	if size, ok := head.unreadSize("data/large.txt"); !ok || size != int64(len(large)) {
+		t.Errorf("data/large.txt: unread size = %d, %v; want the object's size %d", size, ok, len(large))
+	}
+}
+
+func lfsPointer(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return fmt.Sprintf("version https://git-lfs.github.com/spec/v1\noid sha256:%s\nsize %d\n", hex.EncodeToString(sum[:]), len(content))
+}
+
+func writeLFSObject(t *testing.T, repoDir, content string) {
+	t.Helper()
+	sum := sha256.Sum256([]byte(content))
+	oid := hex.EncodeToString(sum[:])
+	writeSeedHeadFiles(t, filepath.Join(repoDir, ".git", "lfs", "objects", oid[0:2], oid[2:4]), map[string]string{oid: content})
+}
+
+// TestDirtySeedAgentReadsCommittedHEAD: an agent that reads files (codex, a
+// command) used to run in the real repository, so on a dirty tree it could
+// fold uncommitted content into a seed recorded as committed HEAD. It now runs
+// in the checkout, and the packet names the checkout as the repository root.
+func TestDirtySeedAgentReadsCommittedHEAD(t *testing.T) {
+	if os.Getenv("GO_SEED_HEAD_AGENT_FIXTURE") == "1" {
+		var request struct {
+			Phase string            `json:"phase"`
+			Repo  map[string]string `json:"repo"`
+		}
+		if err := json.NewDecoder(os.Stdin).Decode(&request); err != nil {
+			os.Exit(2)
+		}
+		cwd, _ := os.ReadFile("README.md")
+		root, _ := os.ReadFile(filepath.Join(request.Repo["root"], "README.md"))
+		seen := fmt.Sprintf("cwd=%q root=%q", cwd, root)
+		artifacts := map[string]string{"quick-overview.md": seen}
+		if request.Phase == "deep" {
+			artifacts = map[string]string{
+				"overview.md": seen, "architecture.md": "arch", "risks.md": "risks",
+				"maintenance-guide.md": "maint", "open-questions.md": "questions",
+			}
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(map[string]any{
+			"schema_version": 1, "status": "success", "model": "fake", "artifacts": artifacts,
+		}); err != nil {
+			os.Exit(2)
+		}
+		os.Exit(0)
+	}
+	t.Setenv("GO_SEED_HEAD_AGENT_FIXTURE", "1")
+	isolateSeedHeadTemp(t)
+	repoDir := seedHeadTestRepo(t)
+	dirtySeedHeadTree(t, repoDir)
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: ExecRunner{}}
+	outputDir := filepath.Join(t.TempDir(), "seed")
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--output", outputDir, "--agent", "command",
+		"--agent-command", os.Args[0], "--agent-command=-test.run=^TestDirtySeedAgentReadsCommittedHEAD$", "--require-agent", repoDir); err != nil {
+		t.Fatalf("seed with an agent on a dirty tree: %v\n%s", err, out)
+	}
+	got, err := os.ReadFile(filepath.Join(outputDir, seedDirName, seedAgentDirName, "quick-overview.md"))
+	if err != nil {
+		t.Fatalf("quick artifact missing: %v", err)
+	}
+	want := fmt.Sprintf("cwd=%q root=%q", "# committed readme\n", "# committed readme\n")
+	if string(got) != want {
+		t.Errorf("the agent saw %s, want the committed README in both its working directory and the packet's root (%s)", got, want)
 	}
 }

@@ -403,10 +403,10 @@ or a checkpoint inventory Entire cannot read (`x session export`).
 An uncommitted worktree does not produce it either: repository context is built
 from a private checkout of committed HEAD and the code index describes committed
 HEAD, so both sources a query reads still build, with the open edits left out.
-The one exception is a branch with no commit yet, which has nothing committed
-to build from: there `repository context` is still refused with
-`dirty_worktree` and the hint names the ways out. The exit code is still 0 and
-everything else setup built is kept.
+A repository with no commit yet has nothing committed to build from; `setup`
+says so (`no commits yet, so there is nothing to index`), builds nothing, and
+exits non-zero, and `refresh` there still refuses repository context with
+`dirty_worktree`.
 
 `x semantic index: repo key mismatch` used to belong on that list, and no longer
 does. `entire-brain` and `entire-graph` name the same repository differently —
@@ -456,6 +456,10 @@ entire brain status
 On a dirty worktree, refresh builds from committed HEAD by default and leaves the
 uncommitted changes out; the repository context is read from a private checkout
 of HEAD, so a commit made while you keep editing still moves the brain forward.
+The dirty check does not count the files Entire writes itself (such as
+`AGENTS.md`, `CLAUDE.md` and agent hook settings) or paths in `.brainignore`. When
+those are the only changes, the tree counts as clean and refresh reads it as it
+is, so their uncommitted content is what gets seeded.
 Use `entire brain refresh --worktree` only when you intentionally want seed/docs to
 include the current uncommitted state — this does not touch the semantic index.
 Use the advanced `refresh index --worktree` path when the semantic layer itself
