@@ -40,7 +40,11 @@ must interpret the evidence and acknowledge missing or conflicting context.
 - Supports plain text, Claude/Pi messages, Codex user/assistant events and
   response messages, simple role/content JSONL, and OpenCode message documents.
   Structured hidden reasoning, tool output, system instructions and metadata
-  are not returned as conversation text. Plain text has no role classification.
+  are not returned as conversation text. That includes user-role fields that
+  the conversation reader treats as injected wrappers, such as
+  `<system-reminder>` blocks, `Caveat:` notes and environment envelopes. The
+  filter is the same one conversation uses, so a user field that itself starts
+  with `<` is not returned either. Plain text has no role classification.
 - Malformed JSON, invalid UTF-8, unavailable files, and sources with no supported
   conversation fields yield warnings and `partial` or `unavailable` retrieval.
   Known non-conversation records are ignored. Ambiguous session identities fail

@@ -90,11 +90,21 @@ func evidenceBlocks(text string) [][2]int {
 
 // Explicit schemas prevent hidden reasoning, tool output and arbitrary metadata
 // from becoming conversation evidence. String values are never normalized.
-func evidenceJSONFields(obj map[string]any, prefix string, line int) []evidenceField {
-	var fields []evidenceField
+// User-role fields go through isWrapperRequest, the predicate every other
+// request reader uses, so harness-injected text (system reminders, caveats,
+// environment envelopes) is not returned as something the user said. Evidence
+// is deliberately no stricter than the conversation reader: user text that
+// itself starts with "<" is dropped there too. skipped counts the user fields
+// withheld this way, so a session holding only those is not mistaken for
+// unsupported content.
+func evidenceJSONFields(obj map[string]any, prefix string, line int) (fields []evidenceField, skipped int) {
 	timestamp := jsonString(obj["timestamp"])
 	add := func(value any, pointer, role string) {
 		if s, ok := value.(string); ok && strings.TrimSpace(s) != "" {
+			if role == "user" && isWrapperRequest(strings.TrimSpace(s)) {
+				skipped++
+				return
+			}
 			fields = append(fields, evidenceField{s, prefix + pointer, role, timestamp, line})
 		}
 	}
@@ -170,7 +180,7 @@ func evidenceJSONFields(obj map[string]any, prefix string, line int) []evidenceF
 			}
 		}
 	}
-	return fields
+	return fields, skipped
 }
 
 func evidenceFields(data []byte, path string) ([]evidenceField, bool) {
@@ -188,15 +198,18 @@ func evidenceFields(data []byte, path string) ([]evidenceField, bool) {
 	if json.Unmarshal(data, &doc) == nil {
 		if messages, ok := doc["messages"].([]any); ok {
 			var fields []evidenceField
+			skipped := 0
 			for i, msg := range messages {
-				fields = append(fields, evidenceJSONFields(jsonMap(msg), fmt.Sprintf("/messages/%d", i), 1)...)
+				f, n := evidenceJSONFields(jsonMap(msg), fmt.Sprintf("/messages/%d", i), 1)
+				fields, skipped = append(fields, f...), skipped+n
 			}
-			return fields, len(fields) == 0
+			return fields, len(fields) == 0 && skipped == 0
 		}
-		fields := evidenceJSONFields(doc, "", 1)
-		return fields, len(fields) == 0
+		fields, skipped := evidenceJSONFields(doc, "", 1)
+		return fields, len(fields) == 0 && skipped == 0
 	}
 	var fields []evidenceField
+	skipped := 0
 	incomplete := false
 	// A bracket prefix alone does not make a plain-text transcript JSON.
 	// Recognized JSON must still fail closed, including unsupported schemas.
@@ -213,12 +226,13 @@ func evidenceFields(data []byte, path string) ([]evidenceField, bool) {
 			incomplete = true
 			continue
 		}
-		fields = append(fields, evidenceJSONFields(obj, "", i+1)...)
+		f, n := evidenceJSONFields(obj, "", i+1)
+		fields, skipped = append(fields, f...), skipped+n
 	}
 	if !declaredJSON && !detectedJSON {
 		return []evidenceField{{text: text, line: 1}}, false
 	}
-	return fields, incomplete || len(fields) == 0
+	return fields, incomplete || (len(fields) == 0 && skipped == 0)
 }
 
 func collectEvidence(ctx context.Context, brainDir, branch, query string, limit, outputBudget int) (evidenceCandidates, error) {

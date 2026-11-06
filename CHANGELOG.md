@@ -5,6 +5,15 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `recall --evidence` no longer returns harness-injected `<system-reminder>`
+  text as `role: "user"` evidence. User-role strings and text blocks now go
+  through the same wrapper filter as the conversation reader, so reminders,
+  `Caveat:` notes and environment envelopes are skipped like system-role
+  records already were. As in conversation, user text that itself starts with
+  `<` is skipped too. Assistant text is unchanged (#565).
+
 ## [0.5.1] - 2026-11-04
 
 ### Fixed
