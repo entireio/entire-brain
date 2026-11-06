@@ -131,6 +131,9 @@ func corpusEpisodeOps(workText string) (tools []corpusToolOp, commands []corpusC
 				// ETF compact records carry the content blocks at the record's
 				// top level (see distillConversationText).
 				content = obj["content"]
+				if strings.EqualFold(jsonString(obj["agent"]), "codex") {
+					compactCodexExitCodes(content, exitByCall)
+				}
 			}
 			t, c, f := claudeContentOps(content, ln)
 			tools = append(tools, t...)
@@ -174,6 +177,11 @@ func claudeContentOps(content any, ln int) (tools []corpusToolOp, commands []cor
 			if action, isFile := claudeFileTools[name]; isFile {
 				if p := filePathFromInput(bm["input"]); p != "" {
 					files = append(files, corpusFileRef{path: p, action: action, line: ln})
+				} else if name == "apply_patch" {
+					// Compact codex has no path: the converter wraps the
+					// custom_tool_call patch text as {"input": <patch>}, so read
+					// it the way the native custom_tool_call case does.
+					files = append(files, patchFiles(jsonString(asObject(bm["input"])["input"]), ln)...)
 				}
 			}
 		}
@@ -208,6 +216,37 @@ func parseExitCode(output string) (int, bool) {
 		n = n*10 + int(c-'0')
 	}
 	return n, true
+}
+
+// compactCodexExitCodes records the exit codes a compact v1 codex record
+// carries in its tool_use blocks' inlined result.output, keyed by call id for
+// the same correlation the native function_call_output case feeds. For a
+// rollout of an older Codex (the cli's response_item path) every result is
+// status "success" and the exit code is only in the output text. A current
+// Codex rollout (the cli's item path) carries the command's own output with no
+// exit text and marks a failure only as status "error", which, like other
+// agents' status "error", is not read here: it is not the same as a non-zero
+// exit and has no exit code. That path names every command "Bash", so its
+// output is skipped: exit text in a command's own stdout (a test that logs
+// "exited with code 1", say) is not the command's exit code.
+func compactCodexExitCodes(content any, exitByCall map[string]int) {
+	blocks, _ := content.([]any)
+	for _, b := range blocks {
+		bm := jsonMap(b)
+		if t := jsonString(bm["type"]); t != "tool_use" && t != "tool" {
+			continue
+		}
+		if jsonString(bm["name"]) == "Bash" {
+			continue
+		}
+		id := jsonString(bm["id"])
+		if id == "" {
+			continue
+		}
+		if code, ok := parseExitCode(jsonString(jsonMap(bm["result"])["output"])); ok {
+			exitByCall[id] = code
+		}
+	}
 }
 
 func dedupeFileRefs(in []corpusFileRef) []corpusFileRef {
