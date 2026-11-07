@@ -19,8 +19,8 @@ func mustDecodeTranscriptRecord(t *testing.T, line string) transcriptRecord {
 
 // Lines in the Entire Transcript Format go to the CLI's transcript package
 // whatever order their fields come in, and so do user and assistant records
-// with no wrapped turn; native lines, lines the package rejects, and lines
-// with a Claude Code wrapper stay generic JSON.
+// with no wrapped turn, including ones the package rejects; native lines and
+// lines with a Claude Code wrapper stay generic JSON.
 func TestDecodeTranscriptRecordRoutesByFormat(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -33,9 +33,10 @@ func TestDecodeTranscriptRecordRoutesByFormat(t *testing.T) {
 		{"claude-code native", `{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}`, false},
 		{"codex rollout", `{"type":"response_item","payload":{"type":"message","role":"assistant","content":[]}}`, false},
 		{"pi message", `{"type":"message","message":{"role":"assistant","content":[]}}`, false},
-		{"another format version", `{"v":2,"type":"assistant","content":[]}`, false},
+		{"another format version reads as an unversioned turn", `{"v":2,"type":"assistant","content":[]}`, true},
 		{"non-integer v reads as an unversioned turn", `{"v":1.5,"type":"assistant","content":[]}`, true},
-		{"known field of the wrong type", `{"v":1,"type":"assistant","agent":42,"content":[]}`, false},
+		{"known field of the wrong type reads as an unversioned turn", `{"v":1,"type":"assistant","agent":42,"content":[]}`, true},
+		{"rejected line of another type", `{"v":2,"type":"system","content":"hi"}`, false},
 		{"format head with a wrapped turn", `{"v":1,"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}`, false},
 		{"unversioned turn with message null", `{"type":"assistant","message":null,"content":[{"type":"text","text":"hi"}]}`, true},
 		{"unversioned turn with no message", `{"type":"user","content":[{"text":"hi"}]}`, true},
@@ -105,5 +106,67 @@ func TestTranscriptReadersReadFormatNormalizations(t *testing.T) {
 	}
 	if got := conversationSubstantiveRequest(untypedUser); got != "always use tabs" {
 		t.Errorf("conversation request = %q", got)
+	}
+}
+
+// A user or assistant line the transcript package rejects (another "v", or a
+// known field of the wrong JSON type) has its top-level content read as the
+// readers always did, rather than dropped as an unrecognized native record.
+func TestTranscriptReadersReadRejectedFormatLines(t *testing.T) {
+	t.Parallel()
+	for name, line := range map[string]string{
+		"wrong-typed agent": `{"v":1,"agent":42,"type":"user","content":"Fix the bug"}`,
+		"another version":   `{"v":2,"agent":"codex","type":"user","content":[{"text":"Fix the bug"}]}`,
+		"wrong-typed model": `{"v":1,"agent":"codex","type":"user","model":7,"content":"Fix the bug"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			record := mustDecodeTranscriptRecord(t, line)
+			if got := conversationSubstantiveRequest(record); got != "Fix the bug" {
+				t.Errorf("conversation request = %q", got)
+			}
+			if got := strings.TrimSpace(transcriptUserText(record)); got != "Fix the bug" {
+				t.Errorf("user text = %q", got)
+			}
+			if got := distillConversationText(record); got != "Fix the bug" {
+				t.Errorf("distill text = %q", got)
+			}
+		})
+	}
+
+	assistant := mustDecodeTranscriptRecord(t, `{"v":2,"agent":"codex","type":"assistant","content":[{"type":"text","text":"Running the tests."},{"type":"tool_use","id":"c1","name":"exec_command","input":{"cmd":"go test ./..."},"result":{"output":"Process exited with code 1\nFAIL","status":"success"}}]}`)
+	if got := conversationAssistantNarrative(assistant); !slices.Equal(got, []string{"Running the tests."}) {
+		t.Errorf("narrative = %q", got)
+	}
+	if got := conversationToolNames(assistant); !slices.Equal(got, []string{"exec_command"}) {
+		t.Errorf("tool names = %q", got)
+	}
+	if got := toolCallsFromRecord(assistant); len(got) != 1 {
+		t.Errorf("tool calls = %+v, want one", got)
+	}
+}
+
+// A wrapped turn's tool_use block can inline its tool's output, as the format
+// does. History mines it for code facts on either route, as it did when both
+// shared one content reader.
+func TestHistoryMinesInlinedResultsInWrappedTurns(t *testing.T) {
+	t.Parallel()
+	const result = `{"output":"state.transcriptPath = \"sessions/main\"","status":"success"}`
+	for name, line := range map[string]string{
+		"wrapped turn": `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Read","input":{"path":"state.go"},"result":` + result + `}]}}`,
+		"format line":  `{"v":1,"agent":"claude-code","type":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"path":"state.go"},"result":` + result + `}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var facts []string
+			for _, fragment := range extractHistoryJSONFragments(mustDecodeTranscriptRecord(t, line)) {
+				if fragment.Source == "tool_result_fact" {
+					facts = append(facts, fragment.Text)
+				}
+			}
+			if len(facts) != 1 || !strings.Contains(facts[0], "state.transcriptPath") {
+				t.Errorf("tool result facts = %q, want the inlined output's", facts)
+			}
+		})
 	}
 }

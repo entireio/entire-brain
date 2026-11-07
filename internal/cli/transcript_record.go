@@ -37,14 +37,14 @@ var claudeMessageKey = []byte(`"message"`)
 //
 // A line is in the Entire Transcript Format when it has an integer "v" and a
 // non-empty string "type", the test transcript.Parse applies, and the
-// transcript package can decode it. A line the package rejects (another "v",
-// a known field of the wrong JSON type) is read as a native record, as any
-// other unrecognized line is. So is a line that also carries a non-empty
-// Claude Code "message" wrapper: the wrapped turn wins over top-level content,
-// as it did before the format had its own reader. A "user" or "assistant"
-// record with no "v" and no wrapped turn ("message" null, empty or absent)
-// still has its top-level content read as the format's, as the readers always
-// have (see decodeUnversionedTurn).
+// transcript package can decode it. A line that also carries a non-empty
+// Claude Code "message" wrapper is read as a native record: the wrapped turn
+// wins over top-level content, as it did before the format had its own
+// reader. A "user" or "assistant" record with no wrapped turn ("message" null,
+// empty or absent) that is not a format line, because it has no "v" or the
+// package rejects it, still has its top-level content read as the format's,
+// as the readers always have (see decodeUnversionedTurn). Anything else is a
+// native record.
 func decodeTranscriptRecord(line string) (transcriptRecord, bool) {
 	raw := bytes.TrimSpace([]byte(line))
 	// Lines the CLI wrote start with "v" and carry no wrapper, so decode them
@@ -65,18 +65,23 @@ func decodeTranscriptRecord(line string) (transcriptRecord, bool) {
 			if etf, ok := decodeETFLine(raw); ok {
 				return transcriptRecord{etf: etf}, true
 			}
-		} else if etf, ok := decodeUnversionedTurn(obj); ok {
+		}
+		if etf, ok := decodeUnversionedTurn(obj); ok {
 			return transcriptRecord{etf: etf}, true
 		}
 	}
 	return transcriptRecord{obj: obj}, true
 }
 
-// decodeUnversionedTurn reads a "user" or "assistant" record that has no "v"
-// and no wrapped turn as a format line of that type, with its top-level
-// content and agent. No agent writes this shape, but the readers fell back to
-// a record's top-level content whenever its "message" was null or empty
-// (history extraction revision 13 pins it), and they keep doing so.
+// decodeUnversionedTurn reads a "user" or "assistant" record with no wrapped
+// turn as a format line of that type, from its top-level content and agent
+// alone: a record with no "v", or one the transcript package rejects (another
+// "v", or a field other than content of the wrong JSON type). No agent writes
+// these shapes, but the readers fell back to a record's top-level content
+// whenever its "message" was null, empty or absent, whatever else the record
+// held (history extraction revision 13 pins the null and empty cases), and
+// they keep doing so. A non-string agent is dropped, as reading it as a string
+// gave "" before.
 func decodeUnversionedTurn(obj map[string]any) (*transcript.Line, bool) {
 	recordType := jsonString(obj["type"])
 	if recordType != transcript.TypeUser && recordType != transcript.TypeAssistant {

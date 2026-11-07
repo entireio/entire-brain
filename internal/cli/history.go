@@ -2209,6 +2209,9 @@ func extractContentFragments(content any, source string) []historyFragment {
 			switch blockType {
 			case "tool_use":
 				fragments = append(fragments, toolCallFragments(jsonString(block["name"]), block["input"])...)
+				// A wrapped turn can inline its tool's output into the tool_use
+				// block, as the format does, instead of a tool_result block.
+				fragments = append(fragments, extractToolResultFacts(jsonString(jsonMap(block["result"])["output"]))...)
 			case "tool_result":
 				fragments = append(fragments, extractToolResultFacts(firstNonEmptyString(block["content"], block["text"]))...)
 			default:
