@@ -214,8 +214,14 @@ func filePathFromInput(raw any) string {
 	return strings.TrimSpace(firstNonEmptyString(m["file_path"], m["path"], m["filename"]))
 }
 
+// parseExitCode reads the exit code from a command result's text. Codex's
+// command wrapper writes a header (exit code, wall time) and then an "Output:"
+// line that starts the command's own output; when that line is there, only the
+// header is searched, so exit-like text the command printed cannot shadow the
+// wrapper's own line, or stand in for one the header lacks (a command still
+// running reports a session ID, not an exit code).
 func parseExitCode(output string) (int, bool) {
-	m := reExitCode.FindStringSubmatch(output)
+	m := reExitCode.FindStringSubmatch(codexWrapperHeader(output))
 	if m == nil {
 		return 0, false
 	}
@@ -224,6 +230,26 @@ func parseExitCode(output string) (int, bool) {
 		n = n*10 + int(c-'0')
 	}
 	return n, true
+}
+
+// codexWrapperHeader returns the text before the first line that is exactly
+// "Output:" (surrounding spaces aside), or all of text when there is none.
+func codexWrapperHeader(text string) string {
+	for start := 0; start < len(text); {
+		line := text[start:]
+		end := strings.IndexByte(line, '\n')
+		if end >= 0 {
+			line = line[:end]
+		}
+		if strings.TrimSpace(line) == "Output:" {
+			return text[:start]
+		}
+		if end < 0 {
+			break
+		}
+		start += end + 1
+	}
+	return text
 }
 
 // compactCodexExitCodes records the exit codes a compact v1 codex record
