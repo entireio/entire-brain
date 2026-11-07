@@ -3,7 +3,11 @@ package cli
 import (
 	"context"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // distillChildEnvKey carries a replacement child-process environment for the
@@ -56,4 +60,63 @@ func distillClaudeChildEnv(environ []string) []string {
 		out = append(out, "MAX_THINKING_TOKENS=0")
 	}
 	return out
+}
+
+// claudeSafeModeEnv is set to 1 in the environment of every built-in
+// claude-code child (issue #552), next to the hook-disabling --settings value
+// in the argv builders (see base.ClaudeDisableHooksSettings). On Claude Code
+// 2.1.169+ it also leaves out plugins and the user's global CLAUDE.md, which
+// otherwise reach every extraction prompt; older versions ignore it, and the
+// --settings value still keeps hooks off there. It goes in the environment and
+// not as --safe-mode because versions before 2.1.169 reject that flag.
+const claudeSafeModeEnv = "CLAUDE_CODE_SAFE_MODE"
+
+// claudeSafeModeChildEnv returns a copy of environ with CLAUDE_CODE_SAFE_MODE=1
+// as its only safe-mode entry. An inherited value is replaced, not kept: the
+// child is Brain's own extraction worker, and a --agent command argv is the way
+// to run claude with a different setup.
+func claudeSafeModeChildEnv(environ []string) []string {
+	out := make([]string, 0, len(environ)+1)
+	for _, kv := range environ {
+		if strings.HasPrefix(kv, claudeSafeModeEnv+"=") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, claudeSafeModeEnv+"=1")
+}
+
+// distillAgentProcessEnv is the environment for one agent call made through
+// execDistillAgentWithPrompt, or nil to inherit the parent's. A distill run's
+// context override (withDistillAgentChildEnv) is the base. A built-in claude
+// argv also gets CLAUDE_CODE_SAFE_MODE=1, whichever command built it: distill,
+// reconcile, remember classification, abstracts, eval, query expansion,
+// outline, patterns and skills all run here. Custom --agent command argv is
+// user-owned and keeps the base unchanged. command must have its Dir set and
+// no Env yet.
+func distillAgentProcessEnv(ctx context.Context, command *exec.Cmd, args []string, carriesPrompt bool) []string {
+	env, _ := ctx.Value(distillChildEnvKey{}).([]string)
+	if !carriesPrompt || !isBuiltInClaudeArgv(args) {
+		return env
+	}
+	if env == nil {
+		env = inheritedChildEnv(command)
+	}
+	return claudeSafeModeChildEnv(env)
+}
+
+// inheritedChildEnv is the environment command would get with Env left nil.
+// command.Environ, not os.Environ: with no explicit Env, os/exec also points
+// PWD at command.Dir on Unix, and it stops doing that once Env is set, so
+// building on os.Environ would hand the child the caller's PWD.
+func inheritedChildEnv(command *exec.Cmd) []string {
+	return command.Environ()
+}
+
+// isBuiltInClaudeArgv reports whether args came from the built-in claude-code
+// builder: the system prompt is parked behind the private marker and the
+// executable is claude (claude.exe on Windows).
+func isBuiltInClaudeArgv(args []string) bool {
+	argv, _, ok := base.SplitAgentPromptArg(args)
+	return ok && len(argv) > 0 && strings.TrimSuffix(strings.ToLower(filepath.Base(argv[0])), ".exe") == "claude"
 }
