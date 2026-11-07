@@ -1345,6 +1345,54 @@ func TestDirtySeedChecksOutWhatIdentShrinks(t *testing.T) {
 	assertNoSeedHeadLeftovers(t, tempDir)
 }
 
+// TestDirtySeedSettlesAnLFSPointerWithACaseAlias: a.txt is checked out in
+// the bounded batches (ident), so its case alias A.txt, an LFS pointer, moves
+// in with it. The pointer is larger than --max-file-bytes and its object is
+// not, so the batch must leave it for settleLFSPointers rather than record it
+// too large at the pointer's size. The fixture needs a case-sensitive
+// filesystem to hold both paths.
+func TestDirtySeedSettlesAnLFSPointerWithACaseAlias(t *testing.T) {
+	tempDir := isolateSeedHeadTemp(t)
+	global := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(global, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	probe := t.TempDir()
+	if err := os.WriteFile(filepath.Join(probe, "a"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(probe, "A")); err == nil {
+		t.Skip("case-insensitive filesystem: A.txt and a.txt would be one file")
+	}
+	repoDir := seedHeadTestRepo(t)
+	object := "tiny LFS object\n"
+	writeLFSObject(t, repoDir, object, object)
+	writeSeedHeadFiles(t, repoDir, map[string]string{
+		".gitattributes": "A.txt filter=lfs -text\na.txt ident\n",
+		"A.txt":          lfsPointer(object),
+		"a.txt":          "plain alias\n",
+	})
+	gitAt(t, repoDir, "add", "-A")
+	gitAt(t, repoDir, "commit", "-q", "-m", "case aliases")
+	dirtySeedHeadTree(t, repoDir)
+
+	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+	if err != nil {
+		t.Fatalf("check out HEAD: %v", err)
+	}
+	defer head.remove()
+	if size, ok := head.unreadSize("A.txt"); ok {
+		t.Errorf("A.txt was recorded unread at %d bytes, the pointer's size, before its object was settled", size)
+	}
+	if got, err := os.ReadFile(filepath.Join(head.dir, "A.txt")); err != nil || string(got) != object {
+		t.Errorf("A.txt = %q, %v; want its LFS object", got, err)
+	}
+	head.remove()
+	assertNoSeedHeadLeftovers(t, tempDir)
+}
+
 // TestSeedHeadOrderCaseAliasesKeepsTreeOrder: on a case-insensitive
 // filesystem A.txt and a.txt are one file, and a clean checkout leaves a.txt's
 // content, the later path in tree order. With A.txt driven and a.txt not,

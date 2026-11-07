@@ -442,6 +442,13 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 			driverStderr.add(stderr)
 		}
 		for _, path := range group {
+			// A path that folds to another checked-out one is left for the
+			// scan to stat: on a case-insensitive filesystem a later alias
+			// can still overwrite its file, and an LFS pointer moved in with
+			// an alias is only settled after this (settleLFSPointers).
+			if c.folded[strings.ToLower(path)] > 1 {
+				continue
+			}
 			target := filepath.Join(c.dir, filepath.FromSlash(path))
 			if info, err := os.Lstat(target); err == nil && info.Mode().IsRegular() && !seedFileNeedsContent(path, info.Size(), opts) {
 				c.dropCheckedOut(path, target, info.Size())
