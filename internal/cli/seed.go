@@ -1590,12 +1590,11 @@ func runSeedAgentPhase(ctx context.Context, repoDir, outputDir string, opts seed
 	// Pin a fast/cheap model + effort for seed synthesis when requested (no-ops when empty),
 	// reusing the same injectors as distill so a full refresh can run cheaply end to end.
 	args = clibase.InjectAgentEffort(clibase.InjectAgentModel(args, opts.agent, opts.model), opts.agent, opts.effort)
-	childEnv := seedAgentChildEnv(opts.agent)
 	for {
 		runCtx, cancel := context.WithTimeout(ctx, timeout)
 		command := exec.CommandContext(runCtx, args[0], args[1:]...)
 		command.Dir = repoDir
-		command.Env = childEnv
+		command.Env = seedAgentChildEnv(command, opts.agent)
 		command.Stdin = bytes.NewReader(input)
 		var stdout, stderr bytes.Buffer
 		command.Stdout = &stdout
@@ -1750,12 +1749,13 @@ func seedAgentCommandArgs(repoDir, phase string, opts seedCommandOptions) ([]str
 // seedAgentChildEnv is the seed agent's process environment, or nil to inherit
 // the parent's. The built-in claude-code child runs in safe mode, like every
 // claude child the distill runner spawns (see claudeSafeModeChildEnv); codex
-// and a user-owned --agent command keep the inherited environment.
-func seedAgentChildEnv(agent string) []string {
+// and a user-owned --agent command keep the inherited environment. command
+// must have its Dir set and no Env yet, so PWD names the repository.
+func seedAgentChildEnv(command *exec.Cmd, agent string) []string {
 	if agent != "claude-code" {
 		return nil
 	}
-	return claudeSafeModeChildEnv(os.Environ())
+	return claudeSafeModeChildEnv(inheritedChildEnv(command))
 }
 
 func seedAgentPrompt(phase string) string {

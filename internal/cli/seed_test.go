@@ -312,6 +312,17 @@ func TestSeedAgentClaudePhaseUsesPATHStdinAndWritesArtifacts(t *testing.T) {
 	if got := fakeSeedAgentSafeMode(t, logDir, "claude", "deep"); got != "1" {
 		t.Fatalf("claude CLAUDE_CODE_SAFE_MODE = %q, want 1", got)
 	}
+	// Setting Env stops os/exec from pointing PWD at Dir by itself, so the
+	// explicit environment has to carry it.
+	if runtime.GOOS != "windows" {
+		want, err := filepath.Abs(repoDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := fakeSeedAgentLogField(t, logDir, "claude", "deep", "pwd"); got != want {
+			t.Fatalf("claude PWD = %q, want the repository %q", got, want)
+		}
+	}
 }
 
 func TestValidateSeedAgentOutputAcceptsSuccessStatuses(t *testing.T) {
@@ -723,17 +734,22 @@ func assertFakeSeedAgentLog(t *testing.T, logDir, agent, phase string, input []b
 // agent saw, or "<unset>".
 func fakeSeedAgentSafeMode(t *testing.T, logDir, agent, phase string) string {
 	t.Helper()
+	return fakeSeedAgentLogField(t, logDir, agent, phase, "safe_mode")
+}
+
+// fakeSeedAgentLogField returns one string field of the fake seed agent's log.
+func fakeSeedAgentLogField(t *testing.T, logDir, agent, phase, field string) string {
+	t.Helper()
 	data, err := os.ReadFile(filepath.Join(logDir, agent+"-"+phase+".json"))
 	if err != nil {
 		t.Fatalf("read fake agent log: %v", err)
 	}
-	var log struct {
-		SafeMode string `json:"safe_mode"`
-	}
+	var log map[string]any
 	if err := json.Unmarshal(data, &log); err != nil {
 		t.Fatalf("parse fake agent log: %v\n%s", err, data)
 	}
-	return log.SafeMode
+	value, _ := log[field].(string)
+	return value
 }
 
 const fakeSeedAgentSource = `package main
@@ -774,7 +790,7 @@ func main() {
 	if !safeModeSet {
 		safeMode = "<unset>"
 	}
-	log := map[string]any{"args": args, "stdin": string(stdin), "safe_mode": safeMode}
+	log := map[string]any{"args": args, "stdin": string(stdin), "safe_mode": safeMode, "pwd": os.Getenv("PWD")}
 	logData, err := json.Marshal(log)
 	if err != nil {
 		fail("marshal log: %v", err)

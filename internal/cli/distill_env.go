@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -91,16 +92,25 @@ func claudeSafeModeChildEnv(environ []string) []string {
 // argv also gets CLAUDE_CODE_SAFE_MODE=1, whichever command built it: distill,
 // reconcile, remember classification, abstracts, eval, query expansion,
 // outline, patterns and skills all run here. Custom --agent command argv is
-// user-owned and keeps the base unchanged.
-func distillAgentProcessEnv(ctx context.Context, args []string, carriesPrompt bool) []string {
+// user-owned and keeps the base unchanged. command must have its Dir set and
+// no Env yet.
+func distillAgentProcessEnv(ctx context.Context, command *exec.Cmd, args []string, carriesPrompt bool) []string {
 	env, _ := ctx.Value(distillChildEnvKey{}).([]string)
 	if !carriesPrompt || !isBuiltInClaudeArgv(args) {
 		return env
 	}
 	if env == nil {
-		env = os.Environ()
+		env = inheritedChildEnv(command)
 	}
 	return claudeSafeModeChildEnv(env)
+}
+
+// inheritedChildEnv is the environment command would get with Env left nil.
+// command.Environ, not os.Environ: with no explicit Env, os/exec also points
+// PWD at command.Dir on Unix, and it stops doing that once Env is set, so
+// building on os.Environ would hand the child the caller's PWD.
+func inheritedChildEnv(command *exec.Cmd) []string {
+	return command.Environ()
 }
 
 // isBuiltInClaudeArgv reports whether args came from the built-in claude-code

@@ -3,10 +3,10 @@ package cli
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -79,12 +79,18 @@ func TestDistillAgentProcessEnvPutsOnlyBuiltInClaudeInSafeMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	dir := t.TempDir()
+	newCommand := func() *exec.Cmd {
+		command := exec.Command("claude")
+		command.Dir = dir
+		return command
+	}
 	distillEnv := distillClaudeChildEnv([]string{"PATH=/bin", "CLAUDECODE=1"})
 	distillCtx := context.WithValue(context.Background(), distillChildEnvKey{}, distillEnv)
 
 	// A distill run keeps its own child env and adds safe mode on top, without
 	// touching the shared slice that concurrent --jobs calls read.
-	got := distillAgentProcessEnv(distillCtx, claude, true)
+	got := distillAgentProcessEnv(distillCtx, newCommand(), claude, true)
 	if want := []string{"PATH=/bin", "MAX_THINKING_TOKENS=0", "CLAUDE_CODE_SAFE_MODE=1"}; !slices.Equal(got, want) {
 		t.Fatalf("distill claude env = %v, want %v", got, want)
 	}
@@ -92,41 +98,41 @@ func TestDistillAgentProcessEnvPutsOnlyBuiltInClaudeInSafeMode(t *testing.T) {
 		t.Fatalf("distill context env was modified: %v", distillEnv)
 	}
 
-	// Every other built-in claude caller has no context env: it inherits the
-	// parent environment plus safe mode.
-	got = distillAgentProcessEnv(context.Background(), claude, true)
-	if len(got) != len(os.Environ())+1-countSafeModeEntries(os.Environ()) || got[len(got)-1] != "CLAUDE_CODE_SAFE_MODE=1" {
-		t.Fatalf("inherited claude env must be the parent env plus safe mode, got %d entries ending %q", len(got), got[len(got)-1])
+	// Every other built-in claude caller has no context env: it gets what
+	// os/exec would have given it, including PWD pointing at Dir, plus safe mode.
+	command := newCommand()
+	got = distillAgentProcessEnv(context.Background(), command, claude, true)
+	if runtime.GOOS != "windows" {
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Contains(got, "PWD="+abs) {
+			t.Fatalf("inherited claude env must point PWD at the command's Dir %q", abs)
+		}
+	}
+	if want := claudeSafeModeChildEnv(command.Environ()); !slices.Equal(got, want) {
+		t.Fatalf("inherited claude env must be the command's default env plus safe mode, got %d entries, want %d", len(got), len(want))
 	}
 
 	// A model pin and an absolute claude path are still the built-in builder.
 	pinned := base.InjectAgentModel(slices.Clone(claude), "claude-code", "haiku")
 	pinned[0] = filepath.Join(t.TempDir(), "claude")
-	if got := distillAgentProcessEnv(context.Background(), pinned, true); len(got) == 0 || got[len(got)-1] != "CLAUDE_CODE_SAFE_MODE=1" {
+	if got := distillAgentProcessEnv(context.Background(), newCommand(), pinned, true); len(got) == 0 || got[len(got)-1] != "CLAUDE_CODE_SAFE_MODE=1" {
 		t.Fatalf("pinned claude argv must run in safe mode, got %v", got)
 	}
 
 	// codex and custom --agent command argv keep the base environment, even
 	// a custom claude argv that happens to carry the marker.
-	if got := distillAgentProcessEnv(context.Background(), codex, true); got != nil {
+	if got := distillAgentProcessEnv(context.Background(), newCommand(), codex, true); got != nil {
 		t.Fatalf("codex must inherit the parent env, got %v", got)
 	}
-	if got := distillAgentProcessEnv(distillCtx, claude, false); !slices.Equal(got, distillEnv) {
+	if got := distillAgentProcessEnv(distillCtx, newCommand(), claude, false); !slices.Equal(got, distillEnv) {
 		t.Fatalf("custom command env = %v, want the distill env unchanged %v", got, distillEnv)
 	}
-	if got := distillAgentProcessEnv(context.Background(), []string{"sh", "-c", "true"}, true); got != nil {
+	if got := distillAgentProcessEnv(context.Background(), newCommand(), []string{"sh", "-c", "true"}, true); got != nil {
 		t.Fatalf("unmarked argv must inherit the parent env, got %v", got)
 	}
-}
-
-func countSafeModeEntries(environ []string) int {
-	n := 0
-	for _, kv := range environ {
-		if strings.HasPrefix(kv, claudeSafeModeEnv+"=") {
-			n++
-		}
-	}
-	return n
 }
 
 // TestExecDistillAgentRunsBuiltInClaudeInSafeMode runs the real exec path with a
@@ -147,7 +153,8 @@ func TestExecDistillAgentRunsBuiltInClaudeInSafeMode(t *testing.T) {
 	}
 	args[0] = stub
 
-	// Outside distill (remember, abstracts, eval, patterns, ...): safe mode only.
+	// Outside distill (remember, abstracts, eval, patterns, ...): safe mode
+	// only. PWD is checked in the env test above: sh resets a stale PWD itself.
 	out, err := execDistillAgent(context.Background(), t.TempDir(), args, []byte("chunk"), 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
