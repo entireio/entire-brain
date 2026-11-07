@@ -1590,10 +1590,12 @@ func runSeedAgentPhase(ctx context.Context, repoDir, outputDir string, opts seed
 	// Pin a fast/cheap model + effort for seed synthesis when requested (no-ops when empty),
 	// reusing the same injectors as distill so a full refresh can run cheaply end to end.
 	args = clibase.InjectAgentEffort(clibase.InjectAgentModel(args, opts.agent, opts.model), opts.agent, opts.effort)
+	childEnv := seedAgentChildEnv(opts.agent)
 	for {
 		runCtx, cancel := context.WithTimeout(ctx, timeout)
 		command := exec.CommandContext(runCtx, args[0], args[1:]...)
 		command.Dir = repoDir
+		command.Env = childEnv
 		command.Stdin = bytes.NewReader(input)
 		var stdout, stderr bytes.Buffer
 		command.Stdout = &stdout
@@ -1739,10 +1741,21 @@ func seedAgentCommandArgs(repoDir, phase string, opts seedCommandOptions) ([]str
 	case "codex":
 		return []string{"codex", "exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only", seedAgentPrompt(phase)}, nil
 	case "claude-code":
-		return []string{"claude", "--print", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt", seedAgentPrompt(phase)}, nil
+		return []string{"claude", "--print", "--no-session-persistence", "--setting-sources", "user", "--settings", clibase.ClaudeDisableHooksSettings, "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt", seedAgentPrompt(phase)}, nil
 	default:
 		return nil, fmt.Errorf("unsupported --agent %q", opts.agent)
 	}
+}
+
+// seedAgentChildEnv is the seed agent's process environment, or nil to inherit
+// the parent's. The built-in claude-code child runs in safe mode, like every
+// claude child the distill runner spawns (see claudeSafeModeChildEnv); codex
+// and a user-owned --agent command keep the inherited environment.
+func seedAgentChildEnv(agent string) []string {
+	if agent != "claude-code" {
+		return nil
+	}
+	return claudeSafeModeChildEnv(os.Environ())
 }
 
 func seedAgentPrompt(phase string) string {

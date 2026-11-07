@@ -216,13 +216,16 @@ func TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions(t *testing.T) {
 		t.Fatalf("claude-code args: %v", err)
 	}
 	joined := strings.Join(args, "\x00")
-	for _, want := range []string{"claude", "--print", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "\x00\x00", "--system-prompt"} {
+	for _, want := range []string{"claude", "--print", "--no-session-persistence", "--setting-sources", "user", "--settings", "{\"disableAllHooks\":true}", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "\x00\x00", "--system-prompt"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("claude-code args missing %q: %#v", want, args)
 		}
 	}
 	if strings.Contains(joined, "--bare") {
 		t.Fatalf("claude-code args should not use --bare because it bypasses logged-in Claude auth: %#v", args)
+	}
+	if strings.Contains(joined, "--safe-mode") {
+		t.Fatalf("claude-code args should not use --safe-mode because Claude Code before 2.1.169 rejects it: %#v", args)
 	}
 	if !strings.Contains(args[len(args)-1], "return only raw JSON") {
 		t.Fatalf("claude-code prompt missing structured-output instruction:\n%s", args[len(args)-1])
@@ -259,6 +262,7 @@ func TestSeedAgentCodexPhaseUsesPATHStdinAndWritesArtifacts(t *testing.T) {
 	outputDir := t.TempDir()
 	logDir := installFakeSeedAgentBinaries(t)
 	t.Setenv("FAKE_SEED_AGENT_LOG_DIR", logDir)
+	t.Setenv("CLAUDE_CODE_SAFE_MODE", "inherited")
 
 	input := []byte(`{"schema_version":1,"phase":"quick","repo":{"key":"gh/example/repo"}}`)
 	phase, artifacts, err := runSeedAgentPhase(context.Background(), repoDir, outputDir, seedCommandOptions{agent: "codex"}, "quick", 10*time.Second, input, []string{"quick-overview.md"})
@@ -273,6 +277,11 @@ func TestSeedAgentCodexPhaseUsesPATHStdinAndWritesArtifacts(t *testing.T) {
 	}
 	assertSeedAgentArtifact(t, outputDir, "quick-overview.md", "quick artifact from codex")
 	assertFakeSeedAgentLog(t, logDir, "codex", "quick", input, []string{"exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only"})
+	// Only the built-in claude child is put in safe mode; codex keeps the
+	// inherited environment untouched.
+	if got := fakeSeedAgentSafeMode(t, logDir, "codex", "quick"); got != "inherited" {
+		t.Fatalf("codex CLAUDE_CODE_SAFE_MODE = %q, want the inherited value", got)
+	}
 }
 
 func TestSeedAgentClaudePhaseUsesPATHStdinAndWritesArtifacts(t *testing.T) {
@@ -280,6 +289,8 @@ func TestSeedAgentClaudePhaseUsesPATHStdinAndWritesArtifacts(t *testing.T) {
 	outputDir := t.TempDir()
 	logDir := installFakeSeedAgentBinaries(t)
 	t.Setenv("FAKE_SEED_AGENT_LOG_DIR", logDir)
+	// An inherited value must not switch safe mode back off (issue #552).
+	t.Setenv("CLAUDE_CODE_SAFE_MODE", "0")
 
 	input := []byte(`{"schema_version":1,"phase":"deep","quick_result":{"quick-overview.md":"quick"}}`)
 	required := []string{"overview.md", "architecture.md", "risks.md", "maintenance-guide.md", "open-questions.md"}
@@ -297,7 +308,10 @@ func TestSeedAgentClaudePhaseUsesPATHStdinAndWritesArtifacts(t *testing.T) {
 		}
 		assertSeedAgentArtifact(t, outputDir, name, want)
 	}
-	assertFakeSeedAgentLog(t, logDir, "claude", "deep", input, []string{"--print", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt"})
+	assertFakeSeedAgentLog(t, logDir, "claude", "deep", input, []string{"--print", "--no-session-persistence", "--setting-sources", "user", "--settings", "{\"disableAllHooks\":true}", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt"})
+	if got := fakeSeedAgentSafeMode(t, logDir, "claude", "deep"); got != "1" {
+		t.Fatalf("claude CLAUDE_CODE_SAFE_MODE = %q, want 1", got)
+	}
 }
 
 func TestValidateSeedAgentOutputAcceptsSuccessStatuses(t *testing.T) {
@@ -705,6 +719,23 @@ func assertFakeSeedAgentLog(t *testing.T, logDir, agent, phase string, input []b
 	}
 }
 
+// fakeSeedAgentSafeMode returns the CLAUDE_CODE_SAFE_MODE value the fake seed
+// agent saw, or "<unset>".
+func fakeSeedAgentSafeMode(t *testing.T, logDir, agent, phase string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(logDir, agent+"-"+phase+".json"))
+	if err != nil {
+		t.Fatalf("read fake agent log: %v", err)
+	}
+	var log struct {
+		SafeMode string `json:"safe_mode"`
+	}
+	if err := json.Unmarshal(data, &log); err != nil {
+		t.Fatalf("parse fake agent log: %v\n%s", err, data)
+	}
+	return log.SafeMode
+}
+
 const fakeSeedAgentSource = `package main
 
 import (
@@ -739,7 +770,11 @@ func main() {
 	if logDir == "" {
 		fail("missing FAKE_SEED_AGENT_LOG_DIR")
 	}
-	log := map[string]any{"args": args, "stdin": string(stdin)}
+	safeMode, safeModeSet := os.LookupEnv("CLAUDE_CODE_SAFE_MODE")
+	if !safeModeSet {
+		safeMode = "<unset>"
+	}
+	log := map[string]any{"args": args, "stdin": string(stdin), "safe_mode": safeMode}
 	logData, err := json.Marshal(log)
 	if err != nil {
 		fail("marshal log: %v", err)
@@ -773,7 +808,7 @@ func validateArgs(base, phase string, args []string) {
 		want := []string{"exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only"}
 		requirePrefix(base, args, want)
 	} else {
-		want := []string{"--print", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt"}
+		want := []string{"--print", "--no-session-persistence", "--setting-sources", "user", "--settings", "{\"disableAllHooks\":true}", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt"}
 		requirePrefix(base, args, want)
 	}
 	if len(args) == 0 || !strings.Contains(args[len(args)-1], "For phase \""+phase+"\"") || !strings.Contains(args[len(args)-1], "return only raw JSON") {

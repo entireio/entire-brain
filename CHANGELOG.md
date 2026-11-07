@@ -13,6 +13,17 @@ All notable changes to `entire-brain` are recorded here. The format follows
   `Caveat:` notes and environment envelopes are skipped like system-role
   records already were. As in conversation, user text that itself starts with
   `<` is skipped too. Assistant text is unchanged (#565).
+- Claude Code child processes that Brain starts no longer run your Claude
+  Code plugins and hooks. This covers distill, reconcile, `remember`
+  classification, memory abstracts, seed synthesis, the eval judge, query
+  expansion, outline, patterns and skills. Before, a session-memory plugin's
+  SessionStart context reached every extraction prompt, and its Stop and
+  SessionEnd hooks recorded each call as a new session. Every claude child now
+  gets `--settings '{"disableAllHooks":true}'`, which works on every supported
+  Claude Code version, and `CLAUDE_CODE_SAFE_MODE=1`, which on Claude Code
+  2.1.169 or later also leaves out plugins and your global `~/.claude/CLAUDE.md`.
+  Signed-in (OAuth) auth and the `model`, `env` and `apiKeyHelper` values in
+  your user settings still apply. `--agent command` is unchanged (#552).
 
 ## [0.5.1] - 2026-11-04
 
