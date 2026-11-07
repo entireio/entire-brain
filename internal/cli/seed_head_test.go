@@ -1508,6 +1508,75 @@ func TestSeedHeadCaseAliasesReadTheFileACleanCheckoutLeaves(t *testing.T) {
 	}
 }
 
+// TestDirtySeedSizesCaseAliasesOfAPartialClone: a partial clone's listing
+// used to mark missing blobs and read sizes only for the first --max-files
+// paths, but the alias a clean checkout keeps can lie past them. A missing one
+// was taken for the kept alias, and the checkout failed trying to fetch it; a
+// present one had no size and was written however large. Missing blobs are now
+// marked across the tree, and a kept alias past --max-files is sized.
+func TestDirtySeedSizesCaseAliasesOfAPartialClone(t *testing.T) {
+	t.Parallel()
+	source := seedHeadTestRepo(t)
+	big := strings.Repeat("x", 200)
+	writeSeedHeadFiles(t, source, map[string]string{
+		"Y/y.md": "# fetched\n",
+		"y/y.md": "# never fetched\n",
+		"Z/x.md": "# selected\n",
+		"z/x.md": big,
+	})
+	gitAt(t, source, "add", "-A")
+	gitAt(t, source, "commit", "-q", "-m", "case aliases in a partial clone")
+	gitAt(t, source, "config", "uploadpack.allowfilter", "true")
+	gitAt(t, source, "config", "uploadpack.allowanysha1inwant", "true")
+	sourceURL := filepath.ToSlash(source)
+	if !strings.HasPrefix(sourceURL, "/") {
+		sourceURL = "/" + sourceURL
+	}
+	repoDir := filepath.Join(t.TempDir(), "partial")
+	gitAt(t, t.TempDir(), "clone", "-q", "--filter=blob:none", "--sparse", "file://"+sourceURL, repoDir)
+	gitAt(t, repoDir, "sparse-checkout", "set", "Y", "Z", "z", "src")
+	missingBlob := func(rel string) bool {
+		t.Helper()
+		object := strings.TrimSpace(gitOutputAt(t, repoDir, "rev-parse", "HEAD:"+rel))
+		cmd := exec.Command("git", "cat-file", "-e", object)
+		cmd.Dir = repoDir
+		cmd.Env = append(os.Environ(), gitNoLazyFetchEnv+"=1")
+		return cmd.Run() != nil
+	}
+	if !missingBlob("y/y.md") || missingBlob("z/x.md") {
+		t.Fatal("the fixture needs y/y.md missing and z/x.md fetched")
+	}
+	commit := strings.TrimSpace(gitOutputAt(t, repoDir, "rev-parse", "HEAD"))
+	// README.md Y/y.md Z/x.md docs/guide.md package.json src/helpers.go
+	// src/main.go | y/y.md z/x.md
+	opts := seedCommandOptions{maxFiles: 7, maxFileBytes: 64}
+	ctx := context.Background()
+	paths, entries, err := listSeedHeadTree(ctx, ExecRunner{}, repoDir, commit, opts.maxFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !entries["y/y.md"].missing {
+		t.Error("y/y.md, past --max-files and never fetched, is not marked missing")
+	}
+	tempRoot := t.TempDir()
+	c := &seedHeadCheckout{commit: commit, dir: filepath.Join(tempRoot, "tree"), paths: paths, unread: map[string]int64{}, foldsCase: true, tempRoot: tempRoot}
+	if err := c.populate(ctx, ExecRunner{}, repoDir, entries, opts); err != nil {
+		t.Fatalf("check out with a missing case alias past --max-files: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(c.dir, "Y", "y.md")); err != nil || string(got) != "# fetched\n" {
+		t.Errorf("Y/y.md = %q, %v; want it checked out, as the alias a clean checkout keeps", got, err)
+	}
+	if _, err := os.Lstat(filepath.Join(c.dir, "z", "x.md")); err == nil {
+		t.Error("z/x.md, too large however it converts, was written into the checkout")
+	}
+	if size, ok := c.unreadSize("Z/x.md"); !ok || size != int64(len(big)) {
+		t.Errorf("Z/x.md: unread = %d, %v; want z/x.md's size %d", size, ok, len(big))
+	}
+	if !missingBlob("y/y.md") {
+		t.Error("the checkout fetched y/y.md")
+	}
+}
+
 // TestDirtySeedChecksOutTheCaseAliasACleanCheckoutKeeps: where the
 // filesystem folds case, src/A.go and src/a.go are one file holding src/a.go,
 // the last in tree order. The checkout used to write src/A.go and skip an

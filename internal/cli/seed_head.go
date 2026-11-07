@@ -239,30 +239,42 @@ func listSeedHeadTree(ctx context.Context, runner EnvironmentCommandRunner, repo
 		return nil, nil, listErr
 	}
 	paths, entries := parseSeedHeadTree(listing)
+	// Every missing blob is marked, not only the selected ones': a case
+	// alias past --max-files can decide what a selected path reads.
+	for path, entry := range entries {
+		if missing[entry.object] {
+			entry.missing = true
+			entries[path] = entry
+		}
+	}
 	selected := paths
 	if maxFiles > 0 && len(selected) > maxFiles {
 		selected = selected[:maxFiles]
 	}
-	var present []string
-	for _, path := range selected {
-		entry := entries[path]
-		switch {
-		case missing[entry.object]:
-			entry.missing = true
-			entries[path] = entry
-		case entry.kind == "blob":
-			present = append(present, path)
+	if err := listSeedHeadSizes(ctx, runner, repoDir, commit, entries, selected); err != nil {
+		return nil, nil, err
+	}
+	return paths, entries, nil
+}
+
+// listSeedHeadSizes fills in the size of each of paths' present blobs whose
+// size was not listed yet, one `ls-tree -l` per batch of paths.
+func listSeedHeadSizes(ctx context.Context, runner EnvironmentCommandRunner, repoDir, commit string, entries map[string]seedHeadEntry, paths []string) error {
+	var unsized []string
+	for _, path := range paths {
+		if entry := entries[path]; entry.kind == "blob" && !entry.missing && entry.size < 0 {
+			unsized = append(unsized, path)
 		}
 	}
 	// Literal pathspecs: a tracked name that starts with ':' or holds a glob
 	// character names itself and nothing else.
-	sizeEnv := maps.Clone(env)
-	sizeEnv["GIT_LITERAL_PATHSPECS"] = "1"
-	for _, batch := range chunkPathsByBytes(present, seedHeadCheckoutArgBytes) {
+	env := seedHeadGitEnv("")
+	env["GIT_LITERAL_PATHSPECS"] = "1"
+	for _, batch := range chunkPathsByBytes(unsized, seedHeadCheckoutArgBytes) {
 		args := append([]string{"ls-tree", "-r", "-z", "-l", "--full-tree", commit, "--"}, batch...)
-		out, _, err := runner.RunWithEnv(ctx, repoDir, sizeEnv, "git", args...)
+		out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", args...)
 		if err != nil {
-			return nil, nil, fmt.Errorf("list committed HEAD %s sizes: %w", shortCommitHash(commit), err)
+			return fmt.Errorf("list committed HEAD %s sizes: %w", shortCommitHash(commit), err)
 		}
 		_, sized := parseSeedHeadTree(out)
 		for path, sizedEntry := range sized {
@@ -272,7 +284,7 @@ func listSeedHeadTree(ctx context.Context, runner EnvironmentCommandRunner, repo
 			}
 		}
 	}
-	return paths, entries, nil
+	return nil
 }
 
 // seedHeadMissingObjects names the objects of commit's tree the repository
@@ -328,6 +340,11 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	work := selected
 	if c.foldsCase {
 		work, c.readers = seedHeadCaseWork(selected, seedHeadCaseAliases(c.paths, entries))
+		// A partial clone's listing sized only the selected paths; a path
+		// past --max-files checked out for its aliases needs its size too.
+		if err := listSeedHeadSizes(ctx, runner, repoDir, c.commit, entries, work); err != nil {
+			return err
+		}
 	}
 	// The commit's own attributes decide two things below: which blobs are
 	// LFS pointers, and which ones a checkout converts.
