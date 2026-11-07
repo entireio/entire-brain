@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -400,10 +401,14 @@ func TestSeedWorktreeIncludesSelectedUntrackedDocs(t *testing.T) {
 	}
 }
 
-func TestSeedRejectsDirtyWorktreeWithoutWorktreeFlag(t *testing.T) {
+// A dirty tree is seeded from committed HEAD (seed_head_test.go). It still
+// refuses when there is no commit to fall back on, which is what this fixture
+// scripts: rev-parse --verify answers an unborn branch with exit 1.
+func TestSeedRejectsDirtyWorktreeWithNoCommitToSeedFrom(t *testing.T) {
 	repoDir := seedFixtureRepo(t)
 	runner := seedFixtureRunner(repoDir)
 	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{stdout: " M README.md\n"}
+	runner.responses[fakeCommandKey("git", "rev-parse", "--verify", "--quiet", "HEAD^{commit}")] = fakeCommandResponse{err: errors.New("exit status 1")}
 	cmd := NewRootCommand(Options{Version: "test-version", Runner: runner})
 	_, err := execute(t, cmd, "refresh", "seed", "--output", filepath.Join(t.TempDir(), "seed"), repoDir)
 	if err == nil || !strings.Contains(err.Error(), "dirty_worktree") {

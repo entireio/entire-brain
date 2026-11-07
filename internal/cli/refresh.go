@@ -657,8 +657,9 @@ func pluralUnit(unit string, count int) string {
 // refreshWorktreeSemanticSkipNote is what `--worktree` owes the reader: the
 // stage it silently declined, why, and the only action that actually clears the
 // dirty-unindexed state it leaves behind. Neither `refresh --agent none` (which
-// refuses to seed uncommitted content) nor `refresh --worktree` (which indexes
-// the uncommitted content instead of resolving it) does, so the remedy is git's
+// seeds committed HEAD and leaves the uncommitted content out) nor
+// `refresh --worktree` (which indexes the uncommitted content instead of
+// resolving it) does, so the remedy is git's
 // — the same two verbs setupDirtyWorktreeHint names on `status` and `setup`.
 func refreshWorktreeSemanticSkipNote(brainCmd string) string {
 	return "note: code index not rebuilt -- --worktree refreshes repository context and docs only;" +

@@ -13,6 +13,13 @@ All notable changes to `entire-brain` are recorded here. The format follows
   `Caveat:` notes and environment envelopes are skipped like system-role
   records already were. As in conversation, user text that itself starts with
   `<` is skipped too. Assistant text is unchanged (#565).
+- Repository context no longer refuses a worktree with uncommitted changes.
+  `refresh`, `setup` and `watch` now seed it from a private checkout of
+  committed HEAD, so the seed follows each new commit instead of staying on
+  the last clean one, and the freshness axis reads `dirty-unindexed` rather
+  than `stale`. Uncommitted content is still left out, and `--worktree`
+  still includes it. The real index is not touched. A branch with no commit
+  yet still gets the dirty-worktree refusal (#327).
 
 ## [0.5.1] - 2026-11-04
 

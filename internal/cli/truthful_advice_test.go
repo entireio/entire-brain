@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -197,6 +198,9 @@ func TestSeedDirtyRefusalNamesBrainignoreAndTheBlockingPaths(t *testing.T) {
 	repoDir := seedFixtureRepo(t)
 	runner := seedFixtureRunner(repoDir)
 	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{stdout: " M research/notes.md\n"}
+	// The refusal is what a dirty tree gets when there is no commit to seed
+	// from instead (seed_head.go); an unborn branch is that case.
+	runner.responses[fakeCommandKey("git", "rev-parse", "--verify", "--quiet", "HEAD^{commit}")] = fakeCommandResponse{err: errors.New("exit status 1")}
 	cmd := NewRootCommand(Options{Version: "test-version", Runner: runner})
 	_, err := execute(t, cmd, "refresh", "seed", "--output", filepath.Join(t.TempDir(), "seed"), repoDir)
 	assertDirtyRefusalIsActionable(t, "seed refresh", err, "research/notes.md")

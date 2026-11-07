@@ -12,8 +12,10 @@ const (
 // newer than this build supports; the bytes are read-only, not corrupt.
 const UnsupportedVersionCode = "memory_unsupported_version"
 
-// DirtyWorktreeCode prefixes the seed and semantic refusals to index
-// uncommitted content. It is shared so the reporter that attaches the
+// DirtyWorktreeCode prefixes the refusal to seed uncommitted content. Seed now
+// reads committed HEAD on a dirty tree instead, so the refusal is left for a
+// branch with no commit to read (or a checkout of HEAD that failed). It is
+// shared so the reporter that attaches the
 // remedy (newSetupComponent) matches a code rather than either message's
 // prose, which would let a reword drop the hint silently.
 const DirtyWorktreeCode = "dirty_worktree"

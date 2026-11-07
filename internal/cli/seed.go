@@ -109,6 +109,21 @@ type seedScanResult struct {
 	Coverage     *seedHistoryCoverage
 	Warnings     []string
 	Fingerprint  string
+
+	// ContentDir is where file bytes are read from when that is not RepoDir:
+	// a private checkout of Commit, used when the worktree has uncommitted
+	// changes (see seed_head.go). Empty means RepoDir. RepoDir stays the
+	// repository the reader knows; ContentDir is never persisted, and only
+	// a synthesis agent is told it, as the tree it may read.
+	ContentDir string
+}
+
+// contentRoot is the directory the scan's file reads resolve against.
+func (s *seedScanResult) contentRoot() string {
+	if s.ContentDir != "" {
+		return s.ContentDir
+	}
+	return s.RepoDir
 }
 
 func newSeedCommand(opts Options) *cobra.Command {
@@ -181,6 +196,11 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	if !local {
 		return fmt.Errorf("seed target must be an existing local path: %s", target)
 	}
+	// head is set when the worktree is dirty: the scan then reads a private
+	// checkout of committed HEAD instead of the working tree, so the seed
+	// still describes exactly the commit it records (issue #327).
+	var head *seedHeadCheckout
+	var excludedPaths int
 	if !seedOpts.worktree {
 		gateIgnore, err := worktreeGateIgnore(repoDir)
 		if err != nil {
@@ -191,7 +211,12 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 			return nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("check worktree before repository context refresh: %w", err))
 		}
 		if dirty {
-			return dirtyWorktreeRefusal("build repository context from", dirtyPaths)
+			head, err = checkoutSeedHead(ctx, opts.Runner, repoDir, seedOpts)
+			if err != nil {
+				return seedHeadRefusal(err, dirtyPaths)
+			}
+			defer head.remove()
+			excludedPaths = len(dirtyPaths)
 		}
 	}
 
@@ -239,7 +264,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		}
 	}
 
-	scan, err := scanSeedRepository(ctx, opts.Runner, repoDir, storage.Key, seedOpts)
+	scan, err := scanSeedRepository(ctx, opts.Runner, repoDir, storage.Key, seedOpts, head)
 	if err != nil {
 		return err
 	}
@@ -277,7 +302,12 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		}
 
 		if seedOpts.agent != "none" {
-			agentManifest, err := runSeedAgent(ctx, repoDir, outputDir, scan, seedOpts)
+			// The packet tells the agent the repository is at the scan's
+			// content root: on a dirty tree that is the committed HEAD
+			// checkout, so an agent reads the commit the seed records, not
+			// the uncommitted worktree. See seedAgentWorkDir for where each
+			// agent runs.
+			agentManifest, err := runSeedAgent(ctx, repoDir, scan.contentRoot(), outputDir, scan, seedOpts)
 			if err != nil {
 				if seedOpts.requireAgent {
 					return err
@@ -332,6 +362,13 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "seeded brain from %d files\n", len(scan.Files))
+	if head != nil {
+		noun := "paths"
+		if excludedPaths == 1 {
+			noun = "path"
+		}
+		fmt.Fprintf(out, "source: committed HEAD %s; %d uncommitted %s left out\n", shortCommitHash(head.commit), excludedPaths, noun)
+	}
 	fmt.Fprintf(out, "output: %s\n", outputDir)
 	if len(seedManifest.Warnings) > 0 {
 		// A bare count is not a report. On a 50,000-file repository the entire
@@ -349,8 +386,17 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	return nil
 }
 
-func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repoKey string, opts seedCommandOptions) (seedScanResult, error) {
-	paths, warnings := listSeedFiles(ctx, runner, repoDir, opts)
+// scanSeedRepository inventories and inspects the repository. With head nil it
+// reads the working tree; with head set it reads that commit's private checkout
+// and takes the inventory and the commit from it, so nothing in the result
+// comes from the uncommitted tree.
+func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repoKey string, opts seedCommandOptions, head *seedHeadCheckout) (seedScanResult, error) {
+	var paths, warnings []string
+	if head != nil {
+		paths = append([]string(nil), head.paths...)
+	} else {
+		paths, warnings = listSeedFiles(ctx, runner, repoDir, opts)
+	}
 	if len(paths) > opts.maxFiles {
 		// Name what was dropped, not just the ceiling that dropped it. "file
 		// scan capped at 2000 files" is true of a 2,001-file repository and of
@@ -361,8 +407,15 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 		warnings = append(warnings, fmt.Sprintf("file scan capped at %d of %d files; %d files were not read (raise with --max-files)", opts.maxFiles, len(paths), len(paths)-opts.maxFiles))
 		paths = paths[:opts.maxFiles]
 	}
-	commit := strings.TrimSpace(string(clibase.GitOutput(ctx, runner, repoDir, "rev-parse", "HEAD")))
-	result := seedScanResult{MaxFileBytes: opts.maxFileBytes, RepoDir: repoDir, RepoKey: repoKey, Commit: commit, Warnings: warnings}
+	result := seedScanResult{MaxFileBytes: opts.maxFileBytes, RepoDir: repoDir, RepoKey: repoKey, Warnings: warnings}
+	if head != nil {
+		result.Commit = head.commit
+		result.ContentDir = head.dir
+		result.Warnings = append(result.Warnings, head.warnings...)
+	} else {
+		result.Commit = strings.TrimSpace(string(clibase.GitOutput(ctx, runner, repoDir, "rev-parse", "HEAD")))
+	}
+	contentDir := result.contentRoot()
 	// Reserve source paths and their directories before allocating derived
 	// names: spec.pdf.md may itself be an authored document (or a directory).
 	reserved := map[string]bool{}
@@ -374,7 +427,12 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 		}
 	}
 	for _, rel := range paths {
-		entry := inspectSeedFile(repoDir, rel, opts)
+		var entry seedFileIndexEntry
+		if size, unread := head.unreadSize(rel); unread {
+			entry = inspectUnreadSeedFile(rel, size, opts)
+		} else {
+			entry = inspectSeedFile(contentDir, rel, opts)
+		}
 		result.Files = append(result.Files, entry)
 		if !entry.Included {
 			continue
@@ -402,14 +460,14 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 			result.Entrypoints = append(result.Entrypoints, filepath.ToSlash(rel))
 		}
 		if filepath.Base(rel) == "package.json" {
-			commands, err := packageJSONCommands(filepath.Join(repoDir, rel), rel)
+			commands, err := packageJSONCommands(filepath.Join(contentDir, rel), rel)
 			if err != nil {
 				result.Warnings = append(result.Warnings, err.Error())
 			}
 			result.Commands = append(result.Commands, commands...)
 		}
 		if filepath.Base(rel) == "mise.toml" {
-			commands, err := miseCommands(filepath.Join(repoDir, rel), rel)
+			commands, err := miseCommands(filepath.Join(contentDir, rel), rel)
 			if err != nil {
 				result.Warnings = append(result.Warnings, err.Error())
 			}
@@ -482,21 +540,8 @@ func splitNonEmptyLines(data []byte) []string {
 }
 
 func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndexEntry {
-	entry := seedFileIndexEntry{Path: filepath.ToSlash(rel), Category: seedCategory(rel), Included: true, Reason: "included"}
-	clean := filepath.Clean(filepath.FromSlash(rel))
-	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		entry.Included = false
-		entry.Reason = "unsafe path"
-		return entry
-	}
-	if isDeniedSeedPath(rel) {
-		entry.Included = false
-		entry.Reason = "denied path"
-		return entry
-	}
-	if !opts.includeTests && isTestPath(rel) {
-		entry.Included = false
-		entry.Reason = "tests excluded"
+	entry, clean, ok := inspectSeedFilePath(rel, opts)
+	if !ok {
 		return entry
 	}
 	if err := clibase.RejectSymlinkPathComponents(repoDir, clean); err != nil {
@@ -510,20 +555,9 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 		entry.Reason = "stat failed"
 		return entry
 	}
-	entry.Bytes = info.Size()
-	if info.Size() > int64(opts.maxFileBytes) {
-		entry.Truncated = true
-		if !isHighSignalDoc(rel) {
-			entry.Included = false
-			entry.Reason = "too large"
-			return entry
-		}
-		entry.Reason = "included truncated"
+	if !inspectSeedFileSize(&entry, rel, info.Size(), opts) {
+		return entry
 	}
-	// An extractable document is binary on disk and text once read, so it must
-	// bypass both the extension denylist and the NUL-byte check below — every
-	// PDF and every Office file fails the latter by construction. The bytes are
-	// never indexed directly; writeSeedDocs converts them first.
 	if isExtractableSeedDocument(rel) {
 		// The NUL check below would reject every PDF and Office file by
 		// construction, which is why this returns early — but the content hash
@@ -535,11 +569,6 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 			entry.Hash = sum
 		}
 		entry.Reason = "included as an extracted document"
-		return entry
-	}
-	if isLikelyBinaryPath(rel) {
-		entry.Included = false
-		entry.Reason = "binary or media"
 		return entry
 	}
 	// Stream the file rather than slurping it. A high-signal doc over
@@ -555,6 +584,89 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 			return entry
 		}
 		entry.Hash = sum
+	}
+	return entry
+}
+
+// inspectSeedFilePath is the part of inspectSeedFile that the path alone
+// decides. It reports false when the path settles the entry, which is then
+// final; otherwise it returns the cleaned path for the checks that need disk.
+func inspectSeedFilePath(rel string, opts seedCommandOptions) (seedFileIndexEntry, string, bool) {
+	entry := seedFileIndexEntry{Path: filepath.ToSlash(rel), Category: seedCategory(rel), Included: true, Reason: "included"}
+	clean := filepath.Clean(filepath.FromSlash(rel))
+	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		entry.Included = false
+		entry.Reason = "unsafe path"
+		return entry, clean, false
+	}
+	if isDeniedSeedPath(rel) {
+		entry.Included = false
+		entry.Reason = "denied path"
+		return entry, clean, false
+	}
+	if !opts.includeTests && isTestPath(rel) {
+		entry.Included = false
+		entry.Reason = "tests excluded"
+		return entry, clean, false
+	}
+	return entry, clean, true
+}
+
+// inspectSeedFileSize is the part of inspectSeedFile that the path and the
+// file's size decide. It reports whether the file's bytes still have to be
+// read; false means the entry is final without them.
+func inspectSeedFileSize(entry *seedFileIndexEntry, rel string, size int64, opts seedCommandOptions) bool {
+	entry.Bytes = size
+	if size > int64(opts.maxFileBytes) {
+		entry.Truncated = true
+		if !isHighSignalDoc(rel) {
+			entry.Included = false
+			entry.Reason = "too large"
+			return false
+		}
+		entry.Reason = "included truncated"
+	}
+	// An extractable document is binary on disk and text once read, so it must
+	// bypass both the extension denylist here and the NUL-byte check in
+	// inspectSeedFile — every PDF and every Office file fails the latter by
+	// construction. The bytes are never indexed directly; writeSeedDocs
+	// converts them first.
+	if isLikelyBinaryPath(rel) && !isExtractableSeedDocument(rel) {
+		entry.Included = false
+		entry.Reason = "binary or media"
+		return false
+	}
+	return true
+}
+
+// seedReadsAtAnySize reports whether the scan reads a file's bytes however
+// large it is: a high-signal doc that is text or extractable. A README.png is
+// high-signal by name but only stat'd, like any other media.
+func seedReadsAtAnySize(rel string) bool {
+	return isHighSignalDoc(rel) && (!isLikelyBinaryPath(rel) || isExtractableSeedDocument(rel))
+}
+
+// seedFileNeedsContent reports whether inspectSeedFile would read a file's
+// bytes, given its path and size. The committed HEAD checkout uses it to drop a
+// hydrated LFS object or a filter driver's output the scan only stats
+// (seed_head.go).
+func seedFileNeedsContent(rel string, size int64, opts seedCommandOptions) bool {
+	entry, _, ok := inspectSeedFilePath(rel, opts)
+	return ok && inspectSeedFileSize(&entry, rel, size, opts)
+}
+
+// inspectUnreadSeedFile is inspectSeedFile for a file whose bytes were never
+// written out because its path or size settles its entry (seed_head.go).
+// It runs the same two checks on the committed size, so the entry is the one
+// a scan of the file on disk would have produced.
+func inspectUnreadSeedFile(rel string, size int64, opts seedCommandOptions) seedFileIndexEntry {
+	entry, _, ok := inspectSeedFilePath(rel, opts)
+	if ok && inspectSeedFileSize(&entry, rel, size, opts) {
+		// Only files the checks above settle are left unread, so this does
+		// not happen; if it ever does, say the file was not read rather than
+		// report it included with no hash.
+		entry.Included = false
+		entry.Reason = "not read"
 	}
 	return entry
 }
@@ -874,7 +986,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 			dropSeedDocument(scan, doc, "unsafe source path")
 			continue
 		}
-		if err := clibase.RejectSymlinkPathComponents(scan.RepoDir, cleanSrc); err != nil {
+		if err := clibase.RejectSymlinkPathComponents(scan.contentRoot(), cleanSrc); err != nil {
 			dropSeedDocument(scan, doc, fmt.Sprintf("not read: %v", err))
 			continue
 		}
@@ -888,7 +1000,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 				return fmt.Errorf("validate seed document directory %s: %w", dir, err)
 			}
 		}
-		src := filepath.Join(scan.RepoDir, cleanSrc)
+		src := filepath.Join(scan.contentRoot(), cleanSrc)
 		if err := clibase.RejectExistingSymlinkPathComponents(outputDir, cleanDst); err != nil {
 			return fmt.Errorf("validate seed document path %s: %w", cleanDst, err)
 		}
@@ -1513,14 +1625,28 @@ type seedAgentOutput struct {
 	Warnings      []string          `json:"warnings,omitempty"`
 }
 
-func runSeedAgent(ctx context.Context, repoDir, outputDir string, scan seedScanResult, opts seedCommandOptions) (*seedAgentManifest, error) {
+// seedAgentWorkDir is where a synthesis agent runs. codex reads files from
+// its working directory, so it runs in contentRoot, the tree the packet
+// describes. A command agent is the user's own command line, which may name
+// repository-relative files (`./agent`, `python scripts/agent.py`), so it
+// keeps running in the repository and reads repository content through the
+// packet's repo.root. claude-code runs with no tools; contentRoot is fine.
+func seedAgentWorkDir(agent, repoDir, contentRoot string) string {
+	if agent == "command" {
+		return repoDir
+	}
+	return contentRoot
+}
+
+func runSeedAgent(ctx context.Context, repoDir, contentRoot, outputDir string, scan seedScanResult, opts seedCommandOptions) (*seedAgentManifest, error) {
 	manifest := &seedAgentManifest{Mode: opts.agent}
-	quickInput, err := buildAgentInput("quick", repoDir, scan, nil, opts)
+	workDir := seedAgentWorkDir(opts.agent, repoDir, contentRoot)
+	quickInput, err := buildAgentInput("quick", contentRoot, scan, nil, opts)
 	if err != nil {
 		return manifest, err
 	}
 	opts.reportProgress(fmt.Sprintf("synthesizing with %s (quick)", opts.agent))
-	quick, quickArtifacts, err := runSeedAgentPhase(ctx, repoDir, outputDir, opts, "quick", opts.agentQuickTimeout, quickInput, []string{"quick-overview.md"})
+	quick, quickArtifacts, err := runSeedAgentPhase(ctx, workDir, outputDir, opts, "quick", opts.agentQuickTimeout, quickInput, []string{"quick-overview.md"})
 	manifest.Quick = quick
 	if err != nil {
 		if opts.requireAgent {
@@ -1529,12 +1655,12 @@ func runSeedAgent(ctx context.Context, repoDir, outputDir string, scan seedScanR
 		manifest.Deep = seedAgentPhase{Status: "skipped", Timeout: opts.agentDeepTimeout.String()}
 		return manifest, err
 	}
-	deepInput, err := buildAgentInput("deep", repoDir, scan, quickArtifacts, opts)
+	deepInput, err := buildAgentInput("deep", contentRoot, scan, quickArtifacts, opts)
 	if err != nil {
 		return manifest, err
 	}
 	opts.reportProgress(fmt.Sprintf("synthesizing with %s (deep)", opts.agent))
-	deep, _, err := runSeedAgentPhase(ctx, repoDir, outputDir, opts, "deep", opts.agentDeepTimeout, deepInput, []string{"overview.md", "architecture.md", "risks.md", "maintenance-guide.md", "open-questions.md"})
+	deep, _, err := runSeedAgentPhase(ctx, workDir, outputDir, opts, "deep", opts.agentDeepTimeout, deepInput, []string{"overview.md", "architecture.md", "risks.md", "maintenance-guide.md", "open-questions.md"})
 	manifest.Deep = deep
 	if err != nil && opts.requireAgent {
 		return manifest, err

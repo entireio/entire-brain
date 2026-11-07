@@ -571,7 +571,10 @@ func gitHardenAssertCommandsRunNoHook(t *testing.T, repo, log, vector string) {
 		wantErr string
 	}{
 		{argv: []string{"refresh", "--worktree", "--agent", "none"}},
-		{argv: []string{"refresh", "--agent", "none"}, wantErr: "dirty_worktree"},
+		// The tree is dirty, so this seeds from a scratch-index checkout of
+		// committed HEAD (seed_head.go): read-tree WRITES an index, which is
+		// exactly what post-index-change fires on. It must still run nothing.
+		{argv: []string{"refresh", "--agent", "none"}},
 		{argv: []string{"status"}},
 		{argv: []string{"status", "--verbose"}},
 		{argv: []string{"overview"}},
