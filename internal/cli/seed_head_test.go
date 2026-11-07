@@ -1150,3 +1150,169 @@ func TestSeedAgentWorkDirKeepsCommandAgentsInTheRepository(t *testing.T) {
 		}
 	}
 }
+
+// TestDirtySeedLeavesOutWhatAPartialCloneHasNotFetched: a sparse checkout of
+// a partial clone fetches only the blobs it writes, and `ls-tree -l` dies on
+// the first one missing rather than fetch it, which made a dirty seed refuse.
+// The dirty seed now skips the blobs the clone does not have, as its worktree
+// does, reads the rest at their committed sizes, and fetches nothing.
+func TestDirtySeedLeavesOutWhatAPartialCloneHasNotFetched(t *testing.T) {
+	tempDir := isolateSeedHeadTemp(t)
+	source := seedHeadTestRepo(t)
+	writeSeedHeadFiles(t, source, map[string]string{
+		"src/large.txt":  strings.Repeat("l", 4*64+1),
+		"other/notes.md": "committed notes outside the sparse checkout\n",
+	})
+	gitAt(t, source, "add", "-A")
+	gitAt(t, source, "commit", "-q", "-m", "files in and out of the sparse checkout")
+	gitAt(t, source, "config", "uploadpack.allowfilter", "true")
+	gitAt(t, source, "config", "uploadpack.allowanysha1inwant", "true")
+	sourceURL := filepath.ToSlash(source)
+	if !strings.HasPrefix(sourceURL, "/") {
+		sourceURL = "/" + sourceURL // file:///C:/... on Windows
+	}
+	repoDir := filepath.Join(t.TempDir(), "partial")
+	gitAt(t, t.TempDir(), "clone", "-q", "--filter=blob:none", "--sparse", "file://"+sourceURL, repoDir)
+	gitAt(t, repoDir, "config", "core.autocrlf", "false")
+	gitAt(t, repoDir, "sparse-checkout", "set", "src")
+	missingBlob := func(rel string) bool {
+		t.Helper()
+		object := strings.TrimSpace(gitOutputAt(t, repoDir, "rev-parse", "HEAD:"+rel))
+		cmd := exec.Command("git", "cat-file", "-e", object)
+		cmd.Dir = repoDir
+		cmd.Env = append(os.Environ(), gitNoLazyFetchEnv+"=1")
+		return cmd.Run() != nil
+	}
+	for _, rel := range []string{"docs/guide.md", "other/notes.md"} {
+		if !missingBlob(rel) {
+			t.Fatalf("the partial clone has %s; the fixture needs it missing", rel)
+		}
+	}
+	env := semanticTestEnv(t, repoDir)
+	opts := Options{Version: "test", Env: env, Runner: ExecRunner{}}
+	cleanDir := filepath.Join(t.TempDir(), "clean")
+	if _, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--max-file-bytes", "64", "--output", cleanDir, repoDir); err != nil {
+		t.Fatalf("seed a clean tree: %v", err)
+	}
+
+	writeSeedHeadFiles(t, repoDir, map[string]string{
+		"README.md":    "# UNCOMMITTED readme\n",
+		"untracked.md": "UNCOMMITTED untracked doc\n",
+	})
+	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+	if err != nil {
+		t.Fatalf("check out HEAD of a sparse partial clone: %v", err)
+	}
+	defer head.remove()
+	if got, err := os.ReadFile(filepath.Join(head.dir, "README.md")); err != nil || string(got) != "# committed readme\n" {
+		t.Errorf("README.md = %q, %v; want the committed bytes", got, err)
+	}
+	if size, ok := head.unreadSize("src/large.txt"); !ok || size != 4*64+1 {
+		t.Errorf("src/large.txt: unread size = %d, %v; want its blob size %d", size, ok, 4*64+1)
+	}
+	for _, rel := range []string{"docs/guide.md", "other/notes.md"} {
+		if _, err := os.Lstat(filepath.Join(head.dir, filepath.FromSlash(rel))); err == nil {
+			t.Errorf("%s, which the clone has not fetched, was written into the checkout", rel)
+		}
+		if _, ok := head.unreadSize(rel); ok {
+			t.Errorf("%s was recorded unread at a size the clone does not know", rel)
+		}
+	}
+	if len(head.warnings) != 1 || !strings.Contains(head.warnings[0], "2 committed files") || !strings.Contains(head.warnings[0], "docs/guide.md") {
+		t.Errorf("warnings = %q; want one naming the files the clone has not fetched", head.warnings)
+	}
+	head.remove()
+
+	dirtyDir := filepath.Join(t.TempDir(), "dirty")
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--max-file-bytes", "64", "--output", dirtyDir, repoDir); err != nil {
+		t.Fatalf("seed the dirty tree: %v\n%s", err, out)
+	}
+	cleanIndex, err := os.ReadFile(filepath.Join(cleanDir, seedDirName, "file-index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirtyIndex, err := os.ReadFile(filepath.Join(dirtyDir, seedDirName, "file-index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(cleanIndex, dirtyIndex) {
+		t.Errorf("the dirty-tree file index differs from the clean one of the same commit:\nclean:\n%s\ndirty:\n%s", cleanIndex, dirtyIndex)
+	}
+	for _, rel := range []string{"docs/guide.md", "other/notes.md"} {
+		if !missingBlob(rel) {
+			t.Errorf("seeding fetched %s into the partial clone", rel)
+		}
+	}
+	assertNoSeedHeadLeftovers(t, tempDir)
+}
+
+// TestDirtySeedChecksOutWhatIdentShrinks: with the ident attribute, checkout
+// rewrites an expanded "$Id: ... $" committed as it is to "$Id: <object> $",
+// so a blob over --max-file-bytes can check out under it, and a clean seed
+// includes it. It is checked out and stat'd like a driver file, up to the same
+// cap, and dropped when it stays too large.
+func TestDirtySeedChecksOutWhatIdentShrinks(t *testing.T) {
+	tempDir := isolateSeedHeadTemp(t)
+	repoDir := seedHeadTestRepo(t)
+	expanded := "$Id: " + strings.Repeat("a", 4*64) + " $\n"
+	vast := "$Id: " + strings.Repeat("v", seedHeadDriverMaxShrink*64) + " $\n"
+	plain := strings.Repeat("p", 4*64+1)
+	// Committed before the attribute, so git add keeps the expansion.
+	writeSeedHeadFiles(t, repoDir, map[string]string{
+		"notes/id.txt":    expanded,
+		"notes/vast.txt":  vast,
+		"notes/plain.txt": plain,
+	})
+	gitAt(t, repoDir, "add", "-A")
+	gitAt(t, repoDir, "commit", "-q", "-m", "expanded ids")
+	// Only the attributes file: git add -A would re-clean a racily clean
+	// notes file through ident and commit the collapsed keyword instead.
+	writeSeedHeadFiles(t, repoDir, map[string]string{".gitattributes": "notes/*.txt ident\n"})
+	gitAt(t, repoDir, "add", ".gitattributes")
+	gitAt(t, repoDir, "commit", "-q", "-m", "ident")
+	for rel, content := range map[string]string{"notes/id.txt": expanded, "notes/vast.txt": vast} {
+		if size := strings.TrimSpace(gitOutputAt(t, repoDir, "cat-file", "-s", "HEAD:"+rel)); size != fmt.Sprint(len(content)) {
+			t.Fatalf("%s was committed at %s bytes; the fixture needs the expanded %d", rel, size, len(content))
+		}
+	}
+	dirtySeedHeadTree(t, repoDir)
+
+	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+	if err != nil {
+		t.Fatalf("check out HEAD: %v", err)
+	}
+	defer head.remove()
+	object := strings.TrimSpace(gitOutputAt(t, repoDir, "rev-parse", "HEAD:notes/id.txt"))
+	if got, err := os.ReadFile(filepath.Join(head.dir, "notes", "id.txt")); err != nil || string(got) != "$Id: "+object+" $\n" {
+		t.Errorf("notes/id.txt = %q, %v; want the keyword rewritten to its object", got, err)
+	}
+	if size, ok := head.unreadSize("notes/plain.txt"); !ok || size != int64(len(plain)) {
+		t.Errorf("notes/plain.txt: unread size = %d, %v; want its checked-out size %d", size, ok, len(plain))
+	}
+	if _, err := os.Lstat(filepath.Join(head.dir, "notes", "plain.txt")); err == nil {
+		t.Error("an ident file that stays too large was left in the checkout")
+	}
+	if _, err := os.Lstat(filepath.Join(head.dir, "notes", "vast.txt")); err == nil {
+		t.Error("a blob past the cap was written into the checkout")
+	}
+	if len(head.warnings) != 1 || !strings.Contains(head.warnings[0], "1 committed files") || !strings.Contains(head.warnings[0], "notes/vast.txt") {
+		t.Errorf("warnings = %q; want one naming the file past the cap", head.warnings)
+	}
+	head.remove()
+
+	env := semanticTestEnv(t, repoDir)
+	opts := Options{Version: "test", Env: env, Runner: ExecRunner{}}
+	dirtyDir := filepath.Join(t.TempDir(), "dirty")
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--max-file-bytes", "64", "--output", dirtyDir, repoDir); err != nil {
+		t.Fatalf("seed the dirty tree: %v\n%s", err, out)
+	}
+	if entry := seedIndexEntry(t, dirtyDir, "notes/id.txt"); !entry.Included {
+		t.Errorf("notes/id.txt = %+v; want it included, as in a clean seed", entry)
+	}
+	for rel, size := range map[string]int{"notes/vast.txt": len(vast), "notes/plain.txt": len(plain)} {
+		if entry := seedIndexEntry(t, dirtyDir, rel); entry.Included || entry.Reason != "too large" || entry.Bytes != int64(size) {
+			t.Errorf("%s = %+v; want too large at %d bytes", rel, entry, size)
+		}
+	}
+	assertNoSeedHeadLeftovers(t, tempDir)
+}

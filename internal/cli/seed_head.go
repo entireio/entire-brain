@@ -142,10 +142,14 @@ func (c *seedHeadCheckout) unreadSize(rel string) (int64, bool) {
 
 // seedHeadEntry is one file in the commit's tree, as `ls-tree -l` lists it.
 type seedHeadEntry struct {
-	mode string
+	mode   string
+	kind   string
+	object string
 	// size is the blob's size in the object store, or -1 for an entry with
-	// none (a submodule).
+	// none (a submodule) or whose size was not read (listSeedHeadTree).
 	size int64
+	// missing marks a blob this partial clone does not have.
+	missing bool
 }
 
 // regularFile reports whether the entry is an ordinary file (not a symlink or
@@ -188,13 +192,10 @@ func checkoutSeedHead(ctx context.Context, runner CommandRunner, repoDir string,
 	if err != nil || commit == "" {
 		return nil, errSeedNoCommittedHead
 	}
-	// -l adds each blob's size, which is what lets a file the scan only
-	// stats stay out of the checkout.
-	listing, _, err := envRunner.RunWithEnv(ctx, repoDir, seedHeadGitEnv(""), "git", "ls-tree", "-r", "-z", "-l", "--full-tree", commit)
+	paths, entries, err := listSeedHeadTree(ctx, envRunner, repoDir, commit, opts.maxFiles)
 	if err != nil {
-		return nil, fmt.Errorf("list committed HEAD %s: %w", shortCommitHash(commit), err)
+		return nil, err
 	}
-	paths, entries := parseSeedHeadTree(listing)
 
 	tempRoot, err := os.MkdirTemp("", seedHeadTempPrefix)
 	if err != nil {
@@ -206,6 +207,87 @@ func checkoutSeedHead(ctx context.Context, runner CommandRunner, repoDir string,
 		return nil, err
 	}
 	return checkout, nil
+}
+
+// listSeedHeadTree lists commit's tree with each blob's size, which is what
+// lets a file the scan only stats stay out of the checkout. `ls-tree -l` gives
+// every size in one call, but in a partial clone it dies on the first blob the
+// clone never fetched (GIT_NO_LAZY_FETCH keeps it from fetching one), and a
+// sparse checkout of a partial clone fetches only the blobs it writes. So when
+// that listing fails and the tree has objects missing, the tree is listed
+// again without sizes, the missing blobs are marked for populate to leave out,
+// and the sizes of the rest of the first maxFiles paths, the ones the scan
+// looks at, are listed by path.
+func listSeedHeadTree(ctx context.Context, runner EnvironmentCommandRunner, repoDir, commit string, maxFiles int) ([]string, map[string]seedHeadEntry, error) {
+	env := seedHeadGitEnv("")
+	listing, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "ls-tree", "-r", "-z", "-l", "--full-tree", commit)
+	if err == nil {
+		paths, entries := parseSeedHeadTree(listing)
+		return paths, entries, nil
+	}
+	listErr := fmt.Errorf("list committed HEAD %s: %w", shortCommitHash(commit), err)
+	missing, ok := seedHeadMissingObjects(ctx, runner, repoDir, env, commit)
+	if !ok || len(missing) == 0 {
+		return nil, nil, listErr
+	}
+	listing, _, err = runner.RunWithEnv(ctx, repoDir, env, "git", "ls-tree", "-r", "-z", "--full-tree", commit)
+	if err != nil {
+		return nil, nil, listErr
+	}
+	paths, entries := parseSeedHeadTree(listing)
+	selected := paths
+	if maxFiles > 0 && len(selected) > maxFiles {
+		selected = selected[:maxFiles]
+	}
+	var present []string
+	for _, path := range selected {
+		entry := entries[path]
+		switch {
+		case missing[entry.object]:
+			entry.missing = true
+			entries[path] = entry
+		case entry.kind == "blob":
+			present = append(present, path)
+		}
+	}
+	// Literal pathspecs: a tracked name that starts with ':' or holds a glob
+	// character names itself and nothing else.
+	sizeEnv := maps.Clone(env)
+	sizeEnv["GIT_LITERAL_PATHSPECS"] = "1"
+	for _, batch := range chunkPathsByBytes(present, seedHeadCheckoutArgBytes) {
+		args := append([]string{"ls-tree", "-r", "-z", "-l", "--full-tree", commit, "--"}, batch...)
+		out, _, err := runner.RunWithEnv(ctx, repoDir, sizeEnv, "git", args...)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list committed HEAD %s sizes: %w", shortCommitHash(commit), err)
+		}
+		_, sized := parseSeedHeadTree(out)
+		for path, sizedEntry := range sized {
+			if entry, ok := entries[path]; ok {
+				entry.size = sizedEntry.size
+				entries[path] = entry
+			}
+		}
+	}
+	return paths, entries, nil
+}
+
+// seedHeadMissingObjects names the objects of commit's tree the repository
+// does not have, which only a partial clone can be missing. ok is false when
+// rev-list fails.
+func seedHeadMissingObjects(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, commit string) (map[string]bool, bool) {
+	// --no-walk: the commit's own tree, not its history. --missing=print
+	// lists a missing object as "?<object>" instead of failing on it.
+	out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "rev-list", "--objects", "--no-walk", "--no-object-names", "--missing=print", commit)
+	if err != nil {
+		return nil, false
+	}
+	missing := map[string]bool{}
+	for _, line := range strings.Split(string(out), "\n") {
+		if object, ok := strings.CutPrefix(strings.TrimSpace(line), "?"); ok && object != "" {
+			missing[object] = true
+		}
+	}
+	return missing, true
 }
 
 func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, entries map[string]seedHeadEntry, opts seedCommandOptions) error {
@@ -250,9 +332,16 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	drivers := seedHeadFilterDrivers(ctx, runner, repoDir, env)
 	var wanted []string
 	var lfs []seedHeadSmallFile
-	var driverSkipped, driven []string
+	var absent, convertSkipped, driven []string
 	for _, path := range selected {
 		entry := entries[path]
+		if entry.missing {
+			// Checking it out would mean fetching it. The partial clone's
+			// own sparse checkout leaves the file out of the worktree too,
+			// and the scan reports it as it does there.
+			absent = append(absent, path)
+			continue
+		}
 		if !entry.regularFile() {
 			wanted = append(wanted, path)
 			continue
@@ -273,31 +362,36 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 		// Otherwise the size rules need the size of the checked-out file,
 		// which conversions make differ from the blob's: an eol conversion
 		// grows it (a small media file can cross --max-file-bytes and become
-		// "too large"), an encoding or a filter driver can shrink it. So a
-		// file is checked out and the scan stats the real one, unless its
-		// blob is too large however it converts. A doc the scan reads at any
-		// size is always checked out.
+		// "too large"), an encoding, ident or a filter driver can shrink it.
+		// So a file is checked out and the scan stats the real one, unless
+		// its blob is too large however it converts. A doc the scan reads at
+		// any size is always checked out.
 		if !seedReadsAtAnySize(path) && entry.size > seedHeadMaxShrink(attr, drivers)*int64(opts.maxFileBytes) {
 			c.unread[path] = entry.size
-			if drivers.runs(attr.filter) {
-				driverSkipped = append(driverSkipped, path)
+			if drivers.runs(attr.filter) || attr.ident {
+				convertSkipped = append(convertSkipped, path)
 			}
 			continue
 		}
 		// Every file a driver converts goes through the driver checkout below,
-		// which passes the driver's stderr on. A doc the scan reads at any
-		// size is never removed there.
-		if drivers.runs(attr.filter) {
+		// which passes the driver's stderr on, and so does an ident file whose
+		// blob is over --max-file-bytes: both are checked out in bounded
+		// batches and dropped there when they stay too large. A doc the scan
+		// reads at any size is never removed there.
+		if drivers.runs(attr.filter) || (attr.ident && entry.size > int64(opts.maxFileBytes)) {
 			driven = append(driven, path)
 			continue
 		}
 		wanted = append(wanted, path)
 	}
-	if len(driverSkipped) > 0 {
-		// Past the cap a driver could still have shrunk the file under
-		// --max-file-bytes, where a clean checkout would include it. Say so
-		// rather than let the entry read like an ordinary size exclusion.
-		c.warnings = append(c.warnings, fmt.Sprintf("%d committed files over %dx --max-file-bytes were not run through their filter driver and are reported too large at their committed size (first: %s)", len(driverSkipped), seedHeadDriverMaxShrink, driverSkipped[0]))
+	if len(convertSkipped) > 0 {
+		// Past the cap a driver or ident could still have shrunk the file
+		// under --max-file-bytes, where a clean checkout would include it. Say
+		// so rather than let the entry read like an ordinary size exclusion.
+		c.warnings = append(c.warnings, fmt.Sprintf("%d committed files over %dx --max-file-bytes were not converted by their filter driver or ident attribute and are reported too large at their committed size (first: %s)", len(convertSkipped), seedHeadDriverMaxShrink, convertSkipped[0]))
+	}
+	if len(absent) > 0 {
+		c.warnings = append(c.warnings, fmt.Sprintf("%d committed files were not read because this partial clone has not fetched them (first: %s)", len(absent), absent[0]))
 	}
 	c.folded = map[string]int{}
 	for _, paths := range [][]string{wanted, driven} {
@@ -420,6 +514,7 @@ func (c *seedHeadCheckout) dropCheckedOut(path, target string, size int64) {
 type seedHeadAttrs struct {
 	filter   string
 	encoding string
+	ident    bool
 }
 
 // specifiedAttr reports whether check-attr gave an attribute a value.
@@ -428,11 +523,14 @@ func specifiedAttr(value string) bool {
 }
 
 // seedHeadMaxShrink is how many times smaller than its blob a path's checkout
-// can be. With neither an encoding nor a driver, what is left (eol, ident)
-// does not shrink a file, so a blob over --max-file-bytes is too large.
+// can be. A driver can shrink a file without bound, and so can ident: checkout
+// rewrites an expanded "$Id: ... $" committed as it is to "$Id: <object> $",
+// however long the line, so both get the driver cap. An encoding shrinks a
+// file at most seedHeadEncodingMaxShrink times. eol, all that is left, does
+// not shrink one, so a blob over --max-file-bytes is too large.
 func seedHeadMaxShrink(attr seedHeadAttrs, drivers seedHeadDrivers) int64 {
 	switch {
-	case drivers.runs(attr.filter):
+	case drivers.runs(attr.filter) || attr.ident:
 		return seedHeadDriverMaxShrink
 	case specifiedAttr(attr.encoding):
 		return seedHeadEncodingMaxShrink
@@ -492,12 +590,13 @@ func seedHeadFilterDrivers(ctx context.Context, runner EnvironmentCommandRunner,
 	return seedHeadDrivers{names: names}
 }
 
-// attributes reads the filter and working-tree-encoding attributes of paths
-// from the commit: --cached reads .gitattributes from the scratch index only.
+// attributes reads the filter, working-tree-encoding and ident attributes of
+// paths from the commit: --cached reads .gitattributes from the scratch index
+// only.
 func (c *seedHeadCheckout) attributes(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, paths []string) (map[string]seedHeadAttrs, error) {
 	attrs := make(map[string]seedHeadAttrs, len(paths))
 	for _, batch := range chunkPathsByBytes(paths, seedHeadCheckoutArgBytes) {
-		args := append([]string{"check-attr", "--cached", "-z", "filter", "working-tree-encoding", "--"}, batch...)
+		args := append([]string{"check-attr", "--cached", "-z", "filter", "working-tree-encoding", "ident", "--"}, batch...)
 		out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", args...)
 		if err != nil {
 			return nil, fmt.Errorf("read committed HEAD %s attributes: %w", shortCommitHash(c.commit), err)
@@ -511,6 +610,9 @@ func (c *seedHeadCheckout) attributes(ctx context.Context, runner EnvironmentCom
 				attr.filter = fields[i+2]
 			case "working-tree-encoding":
 				attr.encoding = fields[i+2]
+			case "ident":
+				// git converts only for a set ident, not ident=<value>.
+				attr.ident = fields[i+2] == "set"
 			}
 			attrs[fields[i]] = attr
 		}
@@ -650,10 +752,11 @@ func parseLFSPointer(data []byte) (string, int64, bool) {
 	return oid, size, true
 }
 
-// parseSeedHeadTree parses `git ls-tree -r -z -l` output into the sorted,
-// de-duplicated inventory and each path's entry. NUL separation is what keeps
-// a tracked path with a newline or a quote in it intact; the sort matches
-// listSeedFiles so the cap selects the same files on either root.
+// parseSeedHeadTree parses `git ls-tree -r -z` output, with or without -l,
+// into the sorted, de-duplicated inventory and each path's entry. NUL
+// separation is what keeps a tracked path with a newline or a quote in it
+// intact; the sort matches listSeedFiles so the cap selects the same files on
+// either root.
 func parseSeedHeadTree(data []byte) ([]string, map[string]seedHeadEntry) {
 	entries := map[string]seedHeadEntry{}
 	var paths []string
@@ -662,16 +765,19 @@ func parseSeedHeadTree(data []byte) ([]string, map[string]seedHeadEntry) {
 		if !ok || path == "" {
 			continue
 		}
-		// <mode> SP <type> SP <object> SP+ <size>, size "-" for a submodule.
+		// <mode> SP <type> SP <object> [SP+ <size>], size "-" for a
+		// submodule and absent without -l.
 		fields := strings.Fields(meta)
-		if len(fields) != 4 {
+		if len(fields) != 3 && len(fields) != 4 {
 			continue
 		}
-		size, err := strconv.ParseInt(fields[3], 10, 64)
-		if err != nil {
-			size = -1
+		size := int64(-1)
+		if len(fields) == 4 {
+			if n, err := strconv.ParseInt(fields[3], 10, 64); err == nil {
+				size = n
+			}
 		}
-		entries[path] = seedHeadEntry{mode: fields[0], size: size}
+		entries[path] = seedHeadEntry{mode: fields[0], kind: fields[1], object: fields[2], size: size}
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
