@@ -1408,6 +1408,16 @@ func TestDirtySeedChecksOutWhatIdentShrinks(t *testing.T) {
 	assertNoSeedHeadLeftovers(t, tempDir)
 }
 
+// skipWhereCaseFolds skips a test whose fixture commits paths that differ
+// only in case: a case-insensitive filesystem holds them as one file, so the
+// commit would not have them all.
+func skipWhereCaseFolds(t *testing.T) {
+	t.Helper()
+	if seedHeadFoldsCase(t.TempDir()) {
+		t.Skip("case-insensitive filesystem: paths that differ only in case would be one file")
+	}
+}
+
 // TestDirtySeedSettlesAnLFSPointerWithACaseAlias: on a case-sensitive
 // filesystem, paths that differ only in case are files of their own. A.txt,
 // an LFS pointer larger than --max-file-bytes whose object is not, must not be
@@ -1423,13 +1433,7 @@ func TestDirtySeedSettlesAnLFSPointerWithACaseAlias(t *testing.T) {
 	}
 	t.Setenv("GIT_CONFIG_GLOBAL", global)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	probe := t.TempDir()
-	if err := os.WriteFile(filepath.Join(probe, "a"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(probe, "A")); err == nil {
-		t.Skip("case-insensitive filesystem: A.txt and a.txt would be one file")
-	}
+	skipWhereCaseFolds(t)
 	repoDir := seedHeadTestRepo(t)
 	object := "tiny LFS object\n"
 	writeLFSObject(t, repoDir, object, object)
@@ -1516,6 +1520,7 @@ func TestSeedHeadCaseAliasesReadTheFileACleanCheckoutLeaves(t *testing.T) {
 // marked across the tree, and a kept alias past --max-files is sized.
 func TestDirtySeedSizesCaseAliasesOfAPartialClone(t *testing.T) {
 	t.Parallel()
+	skipWhereCaseFolds(t)
 	source := seedHeadTestRepo(t)
 	big := strings.Repeat("x", 200)
 	writeSeedHeadFiles(t, source, map[string]string{
@@ -1587,6 +1592,7 @@ func TestDirtySeedSizesCaseAliasesOfAPartialClone(t *testing.T) {
 // they were never written.
 func TestDirtySeedChecksOutTheCaseAliasACleanCheckoutKeeps(t *testing.T) {
 	t.Parallel()
+	skipWhereCaseFolds(t)
 	repoDir := seedHeadTestRepo(t)
 	big := strings.Repeat("x", 200)
 	writeSeedHeadFiles(t, repoDir, map[string]string{
