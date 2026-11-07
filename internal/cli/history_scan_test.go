@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,13 +13,9 @@ import (
 // readers cannot silently diverge again.
 
 func TestExtractHistoryJSONFragmentsPiMessages(t *testing.T) {
-	parse := func(line string) map[string]any {
+	parse := func(line string) transcriptRecord {
 		t.Helper()
-		var obj map[string]any
-		if err := json.Unmarshal([]byte(line), &obj); err != nil {
-			t.Fatal(err)
-		}
-		return obj
+		return mustDecodeTranscriptRecord(t, line)
 	}
 
 	assistant := parse(`{"type":"message","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"The root cause is the resolve transcript path fallback."}]}}`)
@@ -171,12 +166,8 @@ func TestExtractHistoryJSONFragmentsRequestRecords(t *testing.T) {
 		{"assistant is not a request", `{"type":"assistant","message":{"content":[{"type":"text","text":"decided to keep it"}]}}`, ""},
 	}
 	for _, c := range cases {
-		var obj map[string]any
-		if err := json.Unmarshal([]byte(c.line), &obj); err != nil {
-			t.Fatalf("%s: %v", c.name, err)
-		}
 		var got []historyFragment
-		for _, f := range extractHistoryJSONFragments(obj) {
+		for _, f := range extractHistoryJSONFragments(mustDecodeTranscriptRecord(t, c.line)) {
 			if f.Source == "user_prompt" {
 				got = append(got, f)
 			}
