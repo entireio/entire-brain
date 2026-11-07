@@ -12,7 +12,7 @@ func TestActualSilverEvalResultsCompareWithoutProofClaims(t *testing.T) {
 	d := t.TempDir()
 	paths := normalizeFactPaths([]string{"project.tooling.stack"})
 	f := factRecord{ID: factRecordID("The project uses Go modules", paths), Paths: paths, Text: "The project uses Go modules", Branch: "main", Status: factStatusActive, UpdatedAt: time.Now()}
-	if err := factstore.Write(d, "main", []factRecord{f}); err != nil {
+	if err := factstore.Write(d, []factRecord{f}); err != nil {
 		t.Fatal(err)
 	}
 	tasks := []evalTask{{ID: "silver", Task: "Go modules", Branch: "main", Relevant: []string{f.ID}, LabelSource: evalLabelSourceProvenanceSilver}}

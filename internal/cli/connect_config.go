@@ -20,11 +20,10 @@ func connectConfig(opts Options) connect.Config {
 			hookState, hookPath, err := installPushHook(ctx, opts, repoDir)
 			return hookState == pushHookSharedDir, hookPath, err
 		},
-		HostedFactsSyncAndPull: func(ctx context.Context, errW io.Writer, opts base.Options, repoDir string, storage base.RepoStorage, branch string) (bool, bool, error) {
-			outcome, err := hostedFactsSyncAndPull(ctx, errW, opts, repoDir, storage, branch)
+		HostedFactsSyncAndPull: func(ctx context.Context, errW io.Writer, opts base.Options, repoDir string, storage base.RepoStorage) (bool, bool, error) {
+			outcome, err := hostedFactsSyncAndPull(ctx, errW, opts, repoDir, storage)
 			return outcome.Attempted, outcome.PullSucceeded, err
 		},
-		HostedSyncBranch: hostedSyncBranch,
 	}}
 }
 

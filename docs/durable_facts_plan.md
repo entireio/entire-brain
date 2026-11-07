@@ -1,5 +1,10 @@
 # Durable Facts Plan
 
+> Historical record: this document describes retired tooling and earlier product versions.
+> Python scripts, experiment runners, and their mise tasks are no longer available.
+> Use [the current Go checks](testing-for-optimization.md) for validation.
+> Retained measurements do not establish current behavior.
+
 This plan describes how Entire Brain can grow from a read-only derivation layer
 over captured sessions into a curated, branch-aware, blameable **durable fact
 memory** — without abandoning the property that makes Entire's data trustworthy:

@@ -26,13 +26,13 @@ func TestSemanticEndpointPathRecoversFieldsAroundColons(t *testing.T) {
 		{"future kind", "gh/example/repo", "gh/example/repo:Go:main.go:future_kind:F", "main.go"},
 		{"multiple colons in file path", "gh/example/repo", "gh/example/repo:Go:dir:a:b/file.go:function:F", "dir:a:b/file.go"},
 		{"ambiguous kind markers", "gh/example/repo", "gh/example/repo:Go:dir:function:file.go:function:F", ""},
-		{"colon in file path", "gh/example/repo", "gh/example/repo:Python:od:d/mod.py:function:f", "od:d/mod.py"},
-		{"colon in file path, dotted leaf", "gh/example/repo", "gh/example/repo:Python:od:mod.py:function:f", "od:mod.py"},
+		{"colon in file path", "gh/example/repo", "gh/example/repo:Go:od:d/mod.go:function:f", "od:d/mod.go"},
+		{"colon in file path, dotted leaf", "gh/example/repo", "gh/example/repo:Go:od:mod.go:function:f", "od:mod.go"},
 		{"colon in repo key", "local/My:Repo", "local/My:Repo:Go:main.go:function:main", "main.go"},
 		{"colon in qualified name", "gh/example/repo", "gh/example/repo:JavaScript:src/routes.js:route:GET /users/:id", "src/routes.js"},
 		{"colon in path and qualified name", "gh/example/repo", "gh/example/repo:JavaScript:od:d/routes.js:route:GET /users/:id", "od:d/routes.js"},
 		{"file endpoint", "gh/example/repo", "gh/example/repo:file:internal/auth/token.go", "internal/auth/token.go"},
-		{"file endpoint with colon in path", "gh/example/repo", "gh/example/repo:file:od:d/mod.py", "od:d/mod.py"},
+		{"file endpoint with colon in path", "gh/example/repo", "gh/example/repo:file:od:d/mod.go", "od:d/mod.go"},
 		{"external import", "gh/example/repo", "external:import:archive/tar", ""},
 		{"external route", "gh/example/repo", "external:route:/repo", ""},
 		{"endpoint from another repo", "gh/example/repo", "gh/other/repo:Go:main.go:function:main", ""},
@@ -50,15 +50,15 @@ func TestSemanticEndpointPathRecoversFieldsAroundColons(t *testing.T) {
 	}
 }
 
-// semanticColonPathSnapshot is a provider snapshot whose Python file lives at a
+// semanticColonPathSnapshot is a provider snapshot whose Go file lives at a
 // path containing ":" — legal on every filesystem Brain supports. Nothing in it
-// is ignored by "od": the real path is "od:d/mod.py", not "od/…".
+// is ignored by "od": the real path is "od:d/mod.go", not "od/…".
 func semanticColonPathSnapshot() string {
 	return `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
-{"record_type":"file","id":"gh/example/repo:file:od:d/mod.py","path":"od:d/mod.py","blob":"abc123","language":"Python"}
-{"record_type":"symbol","id":"gh/example/repo:Python:od:d/mod.py:function:load","kind":"function","name":"load","qualified_name":"load","file_path":"od:d/mod.py","start_line":1,"end_line":4,"language":"Python","stable_id_version":"1"}
+{"record_type":"file","id":"gh/example/repo:file:od:d/mod.go","path":"od:d/mod.go","blob":"abc123","language":"Go"}
+{"record_type":"symbol","id":"gh/example/repo:Go:od:d/mod.go:function:load","kind":"function","name":"load","qualified_name":"load","file_path":"od:d/mod.go","start_line":1,"end_line":4,"language":"Go","stable_id_version":"1"}
 {"record_type":"symbol","id":"gh/example/repo:Go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"language":"Go","stable_id_version":"1"}
-{"record_type":"relation","from_id":"gh/example/repo:Go:internal/auth/token.go:function:auth.ValidateToken","to_id":"gh/example/repo:Python:od:d/mod.py:function:load","type":"CALLS","confidence":1}
+{"record_type":"relation","from_id":"gh/example/repo:Go:internal/auth/token.go:function:auth.ValidateToken","to_id":"gh/example/repo:Go:od:d/mod.go:function:load","type":"CALLS","confidence":1}
 {"record_type":"summary","warnings":[],"partial_failures":[]}
 `
 }
@@ -72,7 +72,7 @@ func semanticIgnoredFileEndpointSnapshot() string {
 	return `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"file","id":"gh/example/repo:file:internal/auth/token.go","path":"internal/auth/token.go","blob":"abc123","language":"Go"}
 {"record_type":"relation","from_id":"gh/example/repo:file:internal/auth/token.go","to_id":"gh/example/repo:file:secret/config.go","type":"IMPORTS","confidence":1}
-{"record_type":"relation","from_id":"gh/example/repo:file:internal/auth/token.go","to_id":"gh/example/repo:file:od:d/secret.py","type":"IMPORTS","confidence":1}
+{"record_type":"relation","from_id":"gh/example/repo:file:internal/auth/token.go","to_id":"gh/example/repo:file:od:d/secret.go","type":"IMPORTS","confidence":1}
 {"record_type":"summary","warnings":[],"partial_failures":[]}
 `
 }
@@ -96,7 +96,7 @@ func semanticEndpointPathIndex(t *testing.T, brainignore, snapshot string) (*exp
 }
 
 // A ".brainignore" rule for the directory "od" must not redact a file named
-// "od:d/mod.py", which is not inside it. Reading the path out of a fixed
+// "od:d/mod.go", which is not inside it. Reading the path out of a fixed
 // colon-separated field of the symbol ID saw "od" and dropped every relation
 // touching the file, while keeping the file and its symbols — a silent,
 // one-sided loss of the relation graph.
@@ -119,7 +119,7 @@ func TestSemanticIndexDropsRelationsForIgnoredColonPath(t *testing.T) {
 	if manifest.Sources.Semantic.Relations != 0 {
 		t.Fatalf("relation touching an ignored file survived: %+v", manifest.Sources.Semantic)
 	}
-	if strings.Contains(snapshot, "od:d/mod.py") {
+	if strings.Contains(snapshot, "od:d/mod.go") {
 		t.Fatalf("ignored path leaked into the snapshot:\n%s", snapshot)
 	}
 }
@@ -132,7 +132,7 @@ func TestSemanticIndexDropsRelationsToIgnoredFileEndpoints(t *testing.T) {
 	if manifest.Sources.Semantic.Relations != 0 {
 		t.Fatalf("relations to ignored file endpoints survived: %+v", manifest.Sources.Semantic)
 	}
-	if strings.Contains(snapshot, "secret/config.go") || strings.Contains(snapshot, "od:d/secret.py") {
+	if strings.Contains(snapshot, "secret/config.go") || strings.Contains(snapshot, "od:d/secret.go") {
 		t.Fatalf("ignored path leaked into the snapshot:\n%s", snapshot)
 	}
 }
@@ -158,13 +158,13 @@ func TestFilterSemanticSnapshotHonorsColonPathEndpoints(t *testing.T) {
 	if counts.Relations != 0 {
 		t.Fatalf("relation touching an ignored file survived: %+v", counts)
 	}
-	if strings.Contains(string(filtered), "od:d/mod.py") {
+	if strings.Contains(string(filtered), "od:d/mod.go") {
 		t.Fatalf("ignored path leaked into the filtered snapshot:\n%s", filtered)
 	}
 }
 
 func TestSemanticMultipleColonPathIgnoreDecisions(t *testing.T) {
-	snapshot := strings.ReplaceAll(semanticColonPathSnapshot(), "od:d/mod.py", "dir:a:b/file.go")
+	snapshot := strings.ReplaceAll(semanticColonPathSnapshot(), "od:d/mod.go", "dir:a:b/file.go")
 	manifest, _ := semanticEndpointPathIndex(t, "dir\n", snapshot)
 	if manifest.Sources.Semantic.Relations == 0 {
 		t.Fatal("allowed relation was dropped")
@@ -177,7 +177,7 @@ func TestSemanticMultipleColonPathIgnoreDecisions(t *testing.T) {
 
 func TestSemanticDuplicateIDCannotClearIgnoreVerdict(t *testing.T) {
 	lines := strings.Split(semanticColonPathSnapshot(), "\n")
-	duplicate := strings.Replace(lines[2], `"file_path":"od:d/mod.py"`, `"file_path":"secret/hidden.py"`, 1)
+	duplicate := strings.Replace(lines[2], `"file_path":"od:d/mod.go"`, `"file_path":"secret/hidden.go"`, 1)
 	snapshot := lines[0] + "\n" + duplicate + "\n" + strings.Join(lines[1:], "\n")
 	manifest, _ := semanticEndpointPathIndex(t, "secret/\n", snapshot)
 	if manifest.Sources.Semantic.Relations != 0 {

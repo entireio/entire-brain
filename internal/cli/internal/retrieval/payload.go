@@ -271,6 +271,10 @@ type GetOptions struct {
 	// search returned can be fetched back by get. Nil means the caller did not
 	// offer them and get sees only this repository's facts, as before.
 	GlobalFacts []factmerge.Record
+	// Branch is the explicit --branch metadata filter: when set, fact ids whose
+	// record carries another branch resolve as missing. Empty means the whole
+	// repository store — get never scopes to the current git branch on its own.
+	Branch string
 }
 
 func (o GetOptions) Navigation() bool { return o.ContextSet || o.OutlineSet }

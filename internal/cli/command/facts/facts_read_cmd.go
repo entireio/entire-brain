@@ -100,9 +100,21 @@ func NewRecall(cfg Config) *cobra.Command {
 			if evidence {
 				return cfg.Deps.RunRecallEvidence(cmd, brainDir, resolvedBranch, query, limit, evidenceBytes, jsonOut)
 			}
-			allFacts, err := factstore.Load(brainDir, resolvedBranch)
+			allFacts, err := factstore.Load(brainDir)
 			if err != nil {
 				return err
+			}
+			// The store is flat; an explicit --branch narrows to records
+			// stamped with that branch, and nothing is implied from the
+			// checked-out branch.
+			if branch != "" {
+				filtered := allFacts[:0:0]
+				for _, rec := range allFacts {
+					if rec.Branch == branch {
+						filtered = append(filtered, rec)
+					}
+				}
+				allFacts = filtered
 			}
 			// Facts that are not about this repository — preferences, team
 			// conventions, environment details — merge in here, so something
@@ -122,11 +134,12 @@ func NewRecall(cfg Config) *cobra.Command {
 				}
 			}
 			var storeWarning string
-			manifest, manifestErr := bmanifest.Load(brainDir)
-			if manifestErr != nil {
+			if _, manifestErr := bmanifest.Load(brainDir); manifestErr != nil {
 				storeWarning = "memory source manifest unavailable: " + manifestErr.Error()
-			} else if manifest != nil && manifest.Sources != nil {
-				storeWarning = factstore.MissingStoreWarningForBranch(brainDir, manifest.Sources.Facts, resolvedBranch)
+			} else if integrity := factstore.InspectBrain(brainDir); !integrity.OK() {
+				// A short or collided store must never read as a smaller but
+				// healthy corpus.
+				storeWarning = integrity.Warning()
 			}
 			candidateFacts := allFacts
 			var eligibility *FactEligibilityAudit
@@ -166,23 +179,6 @@ func NewRecall(cfg Config) *cobra.Command {
 			// Locus drift (Phase 2 item 4): flag surfaced facts whose code
 			// locus left the worktree, so the agent knows which to re-verify.
 			drift := retrieval.FactsLocusDrift(repoDir, retrieval.FactsEligibleForLocusDrift(matches, globalIDs))
-			// Live trust state: a surfaced fact with a pending merge/supersede
-			// proposal is annotated (not collapsed — recall keeps its record
-			// shape), matching the guard the unified query/search/get path
-			// applies. Groups are built from the unfiltered branch set so
-			// scope/kind/locus filters cannot hide a pending relationship.
-			// Nothing surfaced means no annotation and no queue warning, so skip
-			// the proposal read entirely on the empty-recall path.
-			var proposals []factmerge.Proposal
-			var proposalsErr error
-			var pendingReviews map[string]retrieval.FactReviewNotice
-			if len(matches) > 0 {
-				proposals, proposalsErr = cfg.Deps.LoadFactProposals(brainDir, resolvedBranch)
-				if proposalsErr == nil {
-					localFacts := retrieval.FactsEligibleForLocusDrift(allFacts, globalIDs)
-					pendingReviews = retrieval.FactsPendingReview(localFacts, proposals, matches)
-				}
-			}
 			recordReceipt := func() {
 				cfg.Deps.RecordServedFacts(cmd.ErrOrStderr(), cmd.Context(), cfg.Options, brainDir, resolvedBranch, "recall",
 					repoDir, query, matches)
@@ -194,7 +190,10 @@ func NewRecall(cfg Config) *cobra.Command {
 				// prefixes the same concepts as `facts_pending_review` /
 				// `facts_locus_drift` to disambiguate. This per-surface split is
 				// intentional and kept as-is; we do not unify the keys.
-				out := map[string]any{"branch": resolvedBranch, "query": query, "facts": matches}
+				out := map[string]any{"query": query, "facts": matches}
+				if branch != "" {
+					out["branch"] = branch
+				}
 				// A consumer that renders these has to be able to tell which
 				// facts came from outside this repository; the ids are the
 				// smallest way to say so without changing the fact shape that
@@ -213,12 +212,6 @@ func NewRecall(cfg Config) *cobra.Command {
 				}
 				if len(drift) > 0 {
 					out["locus_drift"] = drift
-				}
-				if len(pendingReviews) > 0 {
-					out["pending_reviews"] = pendingReviews
-				}
-				if proposalsErr != nil && len(matches) > 0 {
-					out["warnings"] = []string{retrieval.FactReviewQueueUnavailableWarning}
 				}
 				if storeWarning != "" {
 					warnings, _ := out["warnings"].([]string)
@@ -239,7 +232,11 @@ func NewRecall(cfg Config) *cobra.Command {
 			}
 			if len(matches) == 0 {
 				return cmdutil.WriteText(cmd, func(out io.Writer) {
-					fmt.Fprintf(out, "no memories for %q on %s\n", query, resolvedBranch)
+					if branch != "" {
+						fmt.Fprintf(out, "no memories for %q stamped %s\n", query, branch)
+					} else {
+						fmt.Fprintf(out, "no memories for %q\n", query)
+					}
 					if storeWarning != "" {
 						fmt.Fprintln(out, "warning: "+storeWarning)
 					}
@@ -251,9 +248,6 @@ func NewRecall(cfg Config) *cobra.Command {
 			if err := cmdutil.WriteText(cmd, func(out io.Writer) {
 				if storeWarning != "" {
 					fmt.Fprintln(out, "warning: "+storeWarning)
-				}
-				if proposalsErr != nil {
-					fmt.Fprintf(out, "⚠ %s\n", retrieval.FactReviewQueueUnavailableWarning)
 				}
 				for _, f := range matches {
 					if globalIDs[f.ID] {
@@ -267,9 +261,6 @@ func NewRecall(cfg Config) *cobra.Command {
 					if gone := drift[f.ID]; len(gone) > 0 {
 						fmt.Fprintf(out, "  ⚠ stale locus (no longer in worktree): %s\n", strings.Join(gone, ", "))
 					}
-					if notice, ok := pendingReviews[f.ID]; ok {
-						fmt.Fprintf(out, "  %s\n", retrieval.FactReviewNoticeLine(notice))
-					}
 				}
 			}); err != nil {
 				return err
@@ -280,7 +271,7 @@ func NewRecall(cfg Config) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&evidence, "evidence", false, "Experimental: return original source spans using deterministic retrieval; no model call")
 	cmd.Flags().IntVar(&evidenceBytes, "evidence-bytes", 8192, "Maximum compact JSON bytes in the evidence array, including citations; enclosing metadata is separate")
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch to recall from (default: current branch)")
+	cmd.Flags().StringVar(&branch, "branch", "", "Only recall memories stamped with this branch (default: all)")
 	cmd.Flags().IntVar(&limit, "k", 10, fmt.Sprintf("Maximum memories to return, or candidate sessions with --evidence (1-%d)", recallMaxK))
 	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted memories")
 	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) memories")

@@ -90,15 +90,27 @@ func evidenceBlocks(text string) [][2]int {
 
 // Explicit schemas prevent hidden reasoning, tool output and arbitrary metadata
 // from becoming conversation evidence. String values are never normalized.
-func evidenceJSONFields(obj map[string]any, prefix string, line int) []evidenceField {
-	var fields []evidenceField
+// User-role fields go through isWrapperRequest, the predicate every other
+// request reader uses, so harness-injected text (system reminders, caveats,
+// environment envelopes) is not returned as something the user said. Evidence
+// is deliberately no stricter than the conversation reader: user text that
+// itself starts with "<" is dropped there too. skipped counts the user fields
+// withheld this way, so a session holding only those is not mistaken for
+// unsupported content.
+func evidenceJSONFields(obj map[string]any, prefix string, line int) (fields []evidenceField, skipped int) {
 	timestamp := jsonString(obj["timestamp"])
 	add := func(value any, pointer, role string) {
 		if s, ok := value.(string); ok && strings.TrimSpace(s) != "" {
+			if role == "user" && isWrapperRequest(strings.TrimSpace(s)) {
+				skipped++
+				return
+			}
 			fields = append(fields, evidenceField{s, prefix + pointer, role, timestamp, line})
 		}
 	}
-	content := func(value any, pointer, role string) {
+	// untypedText accepts {"text":...} blocks with no "type", which is how
+	// compact v1 transcripts write user text.
+	content := func(value any, pointer, role string, untypedText bool) {
 		if role != "user" && role != "assistant" {
 			return
 		}
@@ -112,6 +124,10 @@ func evidenceJSONFields(obj map[string]any, prefix string, line int) []evidenceF
 				switch jsonString(block["type"]) {
 				case "text", "input_text", "output_text":
 					add(block["text"], fmt.Sprintf("%s/%d/text", pointer, i), role)
+				case "":
+					if untypedText {
+						add(block["text"], fmt.Sprintf("%s/%d/text", pointer, i), role)
+					}
 				}
 			}
 		}
@@ -128,19 +144,29 @@ func evidenceJSONFields(obj map[string]any, prefix string, line int) []evidenceF
 	case "response_item":
 		p := jsonMap(obj["payload"])
 		if jsonString(p["type"]) == "message" && jsonString(p["phase"]) != "analysis" {
-			content(p["content"], "/payload/content", jsonString(p["role"]))
+			content(p["content"], "/payload/content", jsonString(p["role"]), false)
 		}
 	case "agent_message":
 		add(obj["message"], "/message", "assistant")
 	case "user", "assistant", "message":
 		m := jsonMap(obj["message"])
+		if len(m) == 0 {
+			// Compact v1 keeps the turn's content at the record's top level
+			// and its time in "ts". A null or empty "message" is absent too,
+			// as in transcriptRecordContent.
+			if timestamp == "" {
+				timestamp = jsonString(obj["ts"])
+			}
+			content(obj["content"], "/content", jsonString(obj["type"]), true)
+			break
+		}
 		role := jsonString(m["role"])
 		if role == "" {
 			role = jsonString(obj["type"])
 		}
-		content(m["content"], "/message/content", role)
+		content(m["content"], "/message/content", role, false)
 	case "":
-		content(obj["content"], "/content", jsonString(obj["role"]))
+		content(obj["content"], "/content", jsonString(obj["role"]), false)
 		// OpenCode document messages use info.role and text parts.
 		role := jsonString(jsonMap(obj["info"])["role"])
 		if role == "user" || role == "assistant" {
@@ -154,7 +180,7 @@ func evidenceJSONFields(obj map[string]any, prefix string, line int) []evidenceF
 			}
 		}
 	}
-	return fields
+	return fields, skipped
 }
 
 func evidenceFields(data []byte, path string) ([]evidenceField, bool) {
@@ -172,15 +198,18 @@ func evidenceFields(data []byte, path string) ([]evidenceField, bool) {
 	if json.Unmarshal(data, &doc) == nil {
 		if messages, ok := doc["messages"].([]any); ok {
 			var fields []evidenceField
+			skipped := 0
 			for i, msg := range messages {
-				fields = append(fields, evidenceJSONFields(jsonMap(msg), fmt.Sprintf("/messages/%d", i), 1)...)
+				f, n := evidenceJSONFields(jsonMap(msg), fmt.Sprintf("/messages/%d", i), 1)
+				fields, skipped = append(fields, f...), skipped+n
 			}
-			return fields, len(fields) == 0
+			return fields, len(fields) == 0 && skipped == 0
 		}
-		fields := evidenceJSONFields(doc, "", 1)
-		return fields, len(fields) == 0
+		fields, skipped := evidenceJSONFields(doc, "", 1)
+		return fields, len(fields) == 0 && skipped == 0
 	}
 	var fields []evidenceField
+	skipped := 0
 	incomplete := false
 	// A bracket prefix alone does not make a plain-text transcript JSON.
 	// Recognized JSON must still fail closed, including unsupported schemas.
@@ -197,12 +226,13 @@ func evidenceFields(data []byte, path string) ([]evidenceField, bool) {
 			incomplete = true
 			continue
 		}
-		fields = append(fields, evidenceJSONFields(obj, "", i+1)...)
+		f, n := evidenceJSONFields(obj, "", i+1)
+		fields, skipped = append(fields, f...), skipped+n
 	}
 	if !declaredJSON && !detectedJSON {
 		return []evidenceField{{text: text, line: 1}}, false
 	}
-	return fields, incomplete || len(fields) == 0
+	return fields, incomplete || (len(fields) == 0 && skipped == 0)
 }
 
 func collectEvidence(ctx context.Context, brainDir, branch, query string, limit, outputBudget int) (evidenceCandidates, error) {
@@ -221,27 +251,16 @@ func collectEvidence(ctx context.Context, brainDir, branch, query string, limit,
 		c.Warnings = append(c.Warnings, "no canonical sessions declared; absence of evidence is not evidence of absence")
 		return c, nil
 	}
-	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
-	if err != nil {
-		return c, err
-	}
 	// Facts are retrieval handles only. Never substitute distilled claims for bytes.
 	anchored := map[string]bool{}
-	facts, err := factstore.Load(brainDir, branch)
+	facts, err := factstore.Load(brainDir)
 	if err != nil {
 		c.Warnings = append(c.Warnings, "fact store unavailable; searching canonical sessions only")
 	} else {
-		for _, f := range rankFacts(factstore.GuardRecords(guard, facts), query, limit, false) {
+		for _, f := range rankFacts(facts, query, limit, false) {
 			for _, a := range f.Provenance {
-				if !factstore.GuardBlocksFactAnchor(guard, a) {
-					anchored[a.SessionID] = true
-				}
+				anchored[a.SessionID] = true
 			}
-		}
-	}
-	if manifest.Sources.Facts != nil {
-		if warning := factstore.MissingStoreWarningForBranch(brainDir, manifest.Sources.Facts, branch); warning != "" {
-			c.Warnings = append(c.Warnings, warning)
 		}
 	}
 	type doc struct {
@@ -264,7 +283,7 @@ func collectEvidence(ctx context.Context, brainDir, branch, query string, limit,
 		if b == "" {
 			b = distillDefaultBranch
 		}
-		if b != branch || bmanifest.GuardBlocksSession(guard, s) {
+		if b != branch {
 			continue
 		}
 		if prev, ok := seen[s.SessionID]; ok {

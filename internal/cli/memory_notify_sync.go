@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
-	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
@@ -63,41 +61,17 @@ func newMemoryPushWorkCommand(opts Options) *cobra.Command {
 // syncHostedMemoriesOnEvent flushes available memories on an explicit event. There
 // is no timer throttle: pushHostedFacts serializes uploads and deduplicates
 // acknowledged record versions. Failures remain pending until another event.
-func syncHostedMemoriesOnEvent(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) bool {
+// The store is repo-wide, so one sync covers every branch's records; the
+// branch argument survives only as the host's hint for the detached dispatch.
+func syncHostedMemoriesOnEvent(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, _ string) bool {
 	if base.BrainNoEgressMode() {
 		return false
 	}
 	if binding, present, err := brainstore.ReadHostedRepoBinding(storage.BrainDir); err != nil || (present && (binding.OptedOut || binding.NoAccessUntil.After(opts.Now().UTC()))) {
 		return false
 	}
-	if branch == "" {
-		branch = hostedSyncBranch(ctx, opts.Runner, repoDir)
-	}
-	branches := []string{branch}
-	seen := map[string]bool{branch: true}
-	if !seen[distillDefaultBranch] {
-		branches = append(branches, distillDefaultBranch)
-		seen[distillDefaultBranch] = true
-	}
-	// Distillation can finish for historical branches. A later event must also
-	// retry their pending records, even after the user changes branches.
-	all, err := factstore.LoadAllBranches(storage.BrainDir)
-	if err != nil {
-		fmt.Fprintf(errW, "memory sync: inventory failed: %v\n", err)
-		return false
-	}
-	extra := []string{}
-	for b := range all {
-		if b != "" && !seen[b] {
-			extra = append(extra, b)
-		}
-	}
-	sort.Strings(extra)
-	branches = append(branches, extra...)
-	for _, b := range branches {
-		if _, err := notifyHostedFactsSync(ctx, errW, opts, repoDir, storage, b); err != nil {
-			fmt.Fprintf(errW, "memory sync failed (pending until the next sync): %v\n", err)
-		}
+	if _, err := notifyHostedFactsSync(ctx, errW, opts, repoDir, storage); err != nil {
+		fmt.Fprintf(errW, "memory sync failed (pending until the next sync): %v\n", err)
 	}
 	return true
 }

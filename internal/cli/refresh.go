@@ -186,6 +186,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	storageTask.Update("locate brain: " + storage.Key)
 	storageTask.Finish(nil)
 	brainDir := storage.BrainDir
+	warnLegacyTombstones(cmd.ErrOrStderr(), brainDir)
 	if outputExplicit {
 		finishOutput := progress.Step("resolve output path")
 		brainDir, err = filepath.Abs(refreshOpts.outputDir)
@@ -370,7 +371,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		// relying on the exit status isn't told success on an incomplete brain.
 		// (A missing seed is not an error — writeDocIndexAndSource writes an empty
 		// index in that case.)
-		docSource, derr := writeDocIndexAndSource(brainDir, opts.Now().UTC())
+		docSource, derr := writeDocIndexAndSourceContext(ctx, brainDir, opts.Now().UTC())
 		if derr != nil {
 			docTask.Finish(derr)
 			if reportStageAndShouldAbort(brainComponentDocs, derr) {
@@ -486,13 +487,32 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			reportStageAndShouldAbort(brainComponentBranches, nil)
 		}
 	}
+	// Strict mirror: drop fact provenance, session abstracts, and egress
+	// receipts citing sessions gone from the checkpoint catalog; distilled
+	// facts left with no provenance are deleted. A partial catalog (branch
+	// scope or a checkpoint limit) makes this a no-op.
+	manifest, _ = bmanifest.Load(brainDir)
+	if manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
+		finishMirror := progress.Step("mirror checkpoint catalog")
+		if counts, err := mirrorBrainToCheckpointCatalogContext(ctx, brainDir, opts.Now().UTC()); err != nil {
+			finishMirror(err)
+			if reportStageAndShouldAbort(brainComponentFacts, err) {
+				return err
+			}
+		} else {
+			finishMirror(nil)
+			if !counts.empty() {
+				fmt.Fprintf(cmd.ErrOrStderr(), "mirror: removed %d memory(ies), %d anchor(s), %d abstract(s), %d egress receipt(s) for sessions no longer in the checkpoint catalog\n",
+					counts.FactsDeleted, counts.AnchorsStripped, counts.Abstracts, counts.EgressReceipts)
+			}
+		}
+	}
 	// Backfill deterministic fact kinds/locus when a fact store exists, so a kind
 	// distilled before kind-storage (or otherwise left empty) is repaired here
 	// rather than needing a manual `facts reclassify`. No agent, no tokens.
-	manifest, _ = bmanifest.Load(brainDir)
 	if manifest != nil && manifest.Sources != nil && manifest.Sources.Facts != nil {
 		finishReclass := progress.Step("reclassify facts")
-		if _, err := reclassifyAllFactBranches(brainDir, opts.Now().UTC()); err != nil {
+		if _, err := reclassifyAllFactsContext(ctx, brainDir, opts.Now().UTC()); err != nil {
 			finishReclass(err)
 			if reportStageAndShouldAbort(brainComponentFacts, err) {
 				return err
@@ -508,7 +528,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	manifest, _ = bmanifest.Load(brainDir)
 	if !refreshOpts.skipSessions && manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		finishPatterns := progress.Step("pattern layer")
-		if _, err := refreshPatternLayer(brainDir, refreshOpts.force, opts.Now().UTC()); err != nil {
+		if _, err := refreshPatternLayerContext(ctx, brainDir, refreshOpts.force, opts.Now().UTC()); err != nil {
 			finishPatterns(err)
 			if reportStageAndShouldAbort(brainComponentPatterns, err) {
 				return err
@@ -527,6 +547,9 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	// Include the intentional semantic skip beside the success line.
 	if refreshOpts.semanticWorktreeSkip {
 		printAroundLiveLine(cmd.OutOrStdout(), "%s\n", refreshWorktreeSemanticSkipNote(base.SetupCommandPrefix(os.LookupEnv)))
+	}
+	if !refreshOpts.skipTranscriptSweep {
+		maintainFactsStorage(ctx, cmd.ErrOrStderr(), opts, brainDir)
 	}
 	// The refresh completed; anything watching this brain can now re-read it.
 	webhook.NotifyBrainWebhook(ctx, cmd.ErrOrStderr(), opts, webhook.WebhookBrainRefreshed, opts.Now())
@@ -557,7 +580,7 @@ func historyIndexCurrent(brainDir string, manifest *exportManifest) bool {
 		return false
 	}
 	history := manifest.Sources.History
-	if history.IndexPath == "" || history.SessionsFingerprint == "" || history.IndexBytes <= 0 ||
+	if history.ExtractionVersion != historyScanCacheVersion || history.IndexPath == "" || history.SessionsFingerprint == "" || history.IndexBytes <= 0 ||
 		!historystore.ValidSHA256(history.IndexSHA256) || !historystore.ValidSHA256(history.RecordsFingerprint) ||
 		!historystore.ValidSHA256(history.TranscriptsFingerprint) {
 		return false
@@ -578,17 +601,8 @@ func historyIndexCurrent(brainDir string, manifest *exportManifest) bool {
 		return false
 	}
 	// Unsafe/unreadable entries are deliberately excluded by the same collector
-	// used to build the index. Comparing the safe included set keeps those
-	// exclusions fail-closed without forcing an endless rebuild.
-	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
-	if err != nil {
-		return false
-	}
-	excludedByPath, err := excludedTranscriptPathsChecked(brainDir, manifest, stones)
-	if err != nil {
-		return false
-	}
-	files, err := collectHistorySessionDigests(context.Background(), brainDir, excludedByPath)
+	// used to build the index.
+	files, err := collectHistorySessionDigests(context.Background(), brainDir)
 	if err != nil {
 		return false
 	}

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -192,18 +191,11 @@ func TestHistoryProjectionCancellationAtCommitPublishesNothing(t *testing.T) {
 	}
 }
 
-func TestHistoryProjectionPrivacyOrOverlayChangeBeforeCommitPublishesNothing(t *testing.T) {
+func TestHistoryProjectionOverlayChangeBeforeCommitPublishesNothing(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		mutate func(t *testing.T, brainDir string, now time.Time)
 	}{
-		{name: "tombstone", mutate: func(t *testing.T, brainDir string, now time.Time) {
-			stones := brainstore.LoadSessionTombstones(brainDir)
-			stones.Excluded["session-1"] = sessionTombstone{At: now, Reason: "test"}
-			if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-				t.Fatal(err)
-			}
-		}},
 		{name: "overlay", mutate: func(t *testing.T, brainDir string, now time.Time) {
 			source, _ := activeHistoryProjection(t, brainDir)
 			overlay := shortTermIndex{
@@ -269,45 +261,6 @@ func TestHistoryProjectionChangeDuringPrepareStagesNothing(t *testing.T) {
 	}
 }
 
-func TestPrivacyInventoryIncludesEveryHistoryGenerationArtifact(t *testing.T) {
-	brainDir, _, now := historyProjectionFixture(t)
-	if _, err := writeBrainHistoryIndexAndSource(brainDir, now.Add(time.Minute), nil); err != nil {
-		t.Fatal(err)
-	}
-	second, _ := activeHistoryProjection(t, brainDir)
-	orphanGeneration := strings.Repeat("a", 40)
-	orphanIndex := historystore.GenerationArtifactPath(orphanGeneration, historystore.IndexFileName)
-	orphanReceipt := historystore.GenerationArtifactPath(orphanGeneration, projectionStateFileName)
-	for source, target := range map[string]string{second.IndexPath: orphanIndex, second.ProjectionStatePath: orphanReceipt} {
-		data, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(source)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, target, data, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	want := map[string]bool{
-		orphanIndex:   true,
-		orphanReceipt: true,
-	}
-	artifacts, err := privacyDerivedStoreArtifacts(brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, rel := range artifacts {
-		delete(want, rel)
-	}
-	if len(want) != 0 {
-		t.Fatalf("privacy inventory omitted history generation artifacts: %v", want)
-	}
-	for _, rel := range artifacts {
-		if rel == second.IndexPath || rel == second.ProjectionStatePath {
-			t.Fatalf("privacy inventory must not delete the manifest-active generation: %s", rel)
-		}
-	}
-}
-
 func TestHistoryProjectionPrepareDoesNotAcquireBrainWriteLock(t *testing.T) {
 	brainDir, _, now := historyProjectionFixture(t)
 	unlock, err := brainstore.AcquireBrainWriteLock(brainDir)
@@ -341,89 +294,6 @@ func TestHistoryProjectionCommitRevalidationIsMetadataOnly(t *testing.T) {
 	}
 	if digestCalls != 0 {
 		t.Fatalf("commit revalidation hashed %d transcript(s) while holding the Brain lock", digestCalls)
-	}
-}
-
-func TestPrivacyGenerationInventoryFailsClosedOnWalkError(t *testing.T) {
-	brainDir, _, _ := historyProjectionFixture(t)
-	originalWalk := privacyWalkDir
-	privacyWalkDir = func(root string, fn fs.WalkDirFunc) error {
-		if strings.HasSuffix(filepath.ToSlash(root), historystore.GenerationsDir) {
-			return fs.ErrPermission
-		}
-		return originalWalk(root, fn)
-	}
-	t.Cleanup(func() { privacyWalkDir = originalWalk })
-	if _, err := privacyDerivedStoreArtifacts(brainDir); err == nil || !strings.Contains(err.Error(), "memory_state_corrupt") {
-		t.Fatalf("inventory error = %v, want fail-closed memory_state_corrupt", err)
-	}
-	if _, err := buildSessionPurgePlan(brainDir, "session-1"); err == nil {
-		t.Fatal("privacy plan must fail when generation inventory is unreadable")
-	}
-}
-
-func TestPrivacyCleanupRemovesInactiveLegacyProjectionAndEgressReceipt(t *testing.T) {
-	brainDir := writePrivacyFixture(t)
-	now := time.Date(2026, 8, 9, 18, 0, 0, 0, time.UTC)
-	manifest, err := bmanifest.Load(brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Simulate migration debris from the fixed-path projection layout. The
-	// active manifest already references a generation, so these copies are
-	// inactive and must be inventoried rather than silently retained.
-	for source, target := range map[string]string{
-		manifest.Sources.History.IndexPath:           historystore.IndexPath,
-		manifest.Sources.History.ProjectionStatePath: projectionStateRel,
-	} {
-		data, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(source)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, target, data, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	refs := sessionRefsForSessionID(brainDir, manifest, "secret-sess")
-	var sessionRef string
-	for ref := range refs {
-		sessionRef = ref
-		break
-	}
-	receipt := abstractEgressReceipt{
-		SchemaVersion: 1, OperationID: strings.Repeat("b", 20), SessionRef: sessionRef,
-		SessionDigest: "sha256:" + strings.Repeat("c", 64), Provider: "codex", Model: "test",
-		StartedAt: now, FinishedAt: now, Status: "completed",
-	}
-	if err := writeAbstractEgressReceipt(brainDir, receipt); err != nil {
-		t.Fatal(err)
-	}
-	plan, err := buildSessionPurgePlan(brainDir, "secret-sess")
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantDerived := map[string]bool{historystore.IndexPath: true, projectionStateRel: true}
-	for _, artifact := range plan.DerivedStores {
-		delete(wantDerived, artifact.Path)
-	}
-	if len(wantDerived) != 0 {
-		t.Fatalf("inactive legacy projection missing from privacy plan: %v", wantDerived)
-	}
-	egressRel := abstractEgressReceiptRel(receipt.SessionRef)
-	foundEgress := false
-	for _, artifact := range plan.WorkMetadata {
-		foundEgress = foundEgress || artifact.Path == egressRel
-	}
-	if !foundEgress {
-		t.Fatalf("egress receipt missing from privacy work inventory: %+v", plan.WorkMetadata)
-	}
-	if err := executeSessionCleanup(brainDir, "secret-sess", plan, now, "test", true); err != nil {
-		t.Fatal(err)
-	}
-	for _, rel := range []string{historystore.IndexPath, projectionStateRel, egressRel} {
-		if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(rel))); !os.IsNotExist(err) {
-			t.Fatalf("privacy cleanup retained %s: %v", rel, err)
-		}
 	}
 }
 
@@ -461,21 +331,5 @@ func TestHistoryProjectionMigrationRemovesLegacyFilesOnlyAfterSwitch(t *testing.
 		if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(rel))); !os.IsNotExist(err) {
 			t.Fatalf("inactive legacy artifact survived successful switch: %s err=%v", rel, err)
 		}
-	}
-}
-
-func TestPrivacyVerifyFailsClosedOnCorruptEgressReceipt(t *testing.T) {
-	brainDir := writePrivacyFixture(t)
-	stones := brainstore.LoadSessionTombstones(brainDir)
-	stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC()}
-	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-	rel := filepath.ToSlash(filepath.Join(abstractEgressDirRel, "corrupt.json"))
-	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, rel, []byte("{not-json\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
-		t.Fatalf("privacy verify error = %v, want %s", err, brainstore.StateCorruptCode)
 	}
 }

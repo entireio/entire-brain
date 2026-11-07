@@ -236,9 +236,13 @@ func parseProposedConventions(out string) ([]proposedConvention, error) {
 // more episodes rank first. Branch-scoped facts never cross branches because each
 // fact carries its own branch and is sampled as-is.
 func sampleCapabilityFacts(db *sql.DB, brainDir string) ([]map[string]string, map[string]string, []string) {
-	byBranch, err := factstore.LoadAllBranches(brainDir)
+	stored, err := factstore.Load(brainDir)
 	if err != nil {
 		return nil, nil, nil
+	}
+	byBranch := map[string][]factRecord{}
+	for _, rec := range stored {
+		byBranch[rec.Branch] = append(byBranch[rec.Branch], rec)
 	}
 	// Episode corroboration: how many episodes reference each fact_id.
 	episodeCount := map[string]int{}

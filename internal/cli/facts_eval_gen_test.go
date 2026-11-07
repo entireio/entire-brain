@@ -88,7 +88,7 @@ func TestGenerateEvalTasksFromProvenance(t *testing.T) {
 		mk("The mirror is best-effort", "constraints.invariants.general", "s1", 7),
 		mk("Tests run with go test", "workflow.testing.rules", "s2", 5),
 	}
-	if err := factstore.Write(brainDir, "main", facts); err != nil {
+	if err := factstore.Write(brainDir, facts); err != nil {
 		t.Fatal(err)
 	}
 	// Transcripts with recoverable opening requests.
@@ -155,10 +155,7 @@ func TestGenerateEvalTasksScopesSessionFactsByResolvedBranch(t *testing.T) {
 	featurePath := normalizeFactPaths([]string{"workflow.testing.rules"})
 	mainFact := factRecord{ID: factRecordID("main branch keeps checkpoint metadata", mainPath), Paths: mainPath, Text: "main branch keeps checkpoint metadata", Branch: "main", Status: factStatusActive, Provenance: []factAnchor{{SessionID: "same-session"}}, UpdatedAt: now}
 	featureFact := factRecord{ID: factRecordID("feature branch updates testing workflow", featurePath), Paths: featurePath, Text: "feature branch updates testing workflow", Branch: "feature", Status: factStatusActive, Provenance: []factAnchor{{SessionID: "same-session"}}, UpdatedAt: now}
-	if err := factstore.Write(brainDir, "main", []factRecord{mainFact}); err != nil {
-		t.Fatal(err)
-	}
-	if err := factstore.Write(brainDir, "feature", []factRecord{featureFact}); err != nil {
+	if err := factstore.Write(brainDir, []factRecord{mainFact, featureFact}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -255,7 +252,7 @@ func TestGenerateEvalTasksScopesDuplicateSessionIDByTranscript(t *testing.T) {
 		Provenance: []factAnchor{{SessionID: sessionID, Transcript: secondTranscript, Line: 5}},
 		UpdatedAt:  now,
 	}
-	if err := factstore.Write(brainDir, "main", []factRecord{firstFact, secondFact}); err != nil {
+	if err := factstore.Write(brainDir, []factRecord{firstFact, secondFact}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -525,7 +522,7 @@ func TestFactsEvalGenRefineOllamaNoEgressSendsModel(t *testing.T) {
 		Provenance: []factAnchor{{SessionID: "s1"}},
 		UpdatedAt:  now,
 	}
-	if err := factstore.Write(storage.BrainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 

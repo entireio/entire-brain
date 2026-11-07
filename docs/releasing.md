@@ -7,7 +7,10 @@ prerelease is cut from `main` each morning.
 ## Cutting a release
 
 1. Move the work into a `## [X.Y.Z]` section in `CHANGELOG.md`, dated.
-2. Tag and push:
+2. Confirm the version's upgrade requirements and known limits.
+   Use [memory storage compatibility](memory-storage-compatibility.md) for migration,
+   backup, automatic cleanup, hosted sync, and Claude capture requirements.
+3. Tag and push:
 
    ```sh
    git tag vX.Y.Z
@@ -19,14 +22,18 @@ prerelease is cut from `main` each morning.
 Windows), writes `checksums.txt`, and creates the release with generated notes.
 Re-running it against an existing tag updates that release rather than failing.
 
+Before announcing the release, add the version's compatibility and upgrade notes
+from `CHANGELOG.md` to the published GitHub release description. The workflow uses
+`--generate-notes`; it does not copy the changelog text into the release body.
+Include the requirements that apply to that release.
+
 You can also run it from the Actions tab with a version, which is the way to
 re-cut a release whose upload failed.
 
 ### Why one runner builds everything
 
-Brain's default build is pure Go: SQLite comes from `modernc.org/sqlite`
-(`internal/cli/internal/sqlitedriver/driver.go`) rather than a C binding, so
-`CGO_ENABLED=0` cross-compiles every target from one Linux runner.
+Brain's default build uses the pure-Go `modernc.org/sqlite` driver.
+`CGO_ENABLED=0` cross-compiles the release targets from one Linux runner.
 Graph needs a runner per OS because its tree-sitter bindings need cgo. The
 release workflow asserts this rather than assuming it:
 
@@ -38,6 +45,8 @@ release workflow asserts this rather than assuming it:
 If someone adds a cgo dependency to the default build, that step fails and the
 release stops, instead of silently producing binaries that only run on the
 build host.
+
+The embedding stack and its build variants have been removed.
 
 ### Windows verification
 
@@ -75,13 +84,13 @@ on the PR rather than on the tag that depends on it.
 
 ## What may be claimed in release material
 
-`mise run release:readiness` reports which claims the retained evidence
-supports. It classifies every track as one of `proven`, `local-gated`,
-`pending-retained-proof`, `pending-target-evidence`, or `no-claim`, and the gate
-fails when release material asserts something the evidence does not carry.
+`mise run release:readiness` checks the current Go source, tests, and builds.
+It does not validate historical performance claims.
 
-Run it before writing an announcement, and treat anything short of `proven` as
-not sayable.
+Benchmark reports remain in `benchmarks/agent-brain/` as historical results.
+Their experiment runners, fixtures, and evidence-audit tasks have been removed.
+Use the recorded source revision when interpreting those reports.
+Do not present them as measurements of the current release.
 
 ## Install channels
 
@@ -94,5 +103,4 @@ Releases reach users three ways:
 | a downloaded archive | the release page |
 
 The installer verifies the downloaded archive against `checksums.txt` and exits
-non-zero on a mismatch. A missing checksum file is a warning; a wrong checksum
-is fatal.
+non-zero on a mismatch. Missing or incorrect checksums are fatal.

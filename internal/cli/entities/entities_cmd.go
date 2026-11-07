@@ -635,7 +635,13 @@ func loadEntityIndexView(ctx context.Context, opts Config, repoDir string) (*ent
 	view.rebuilt = true
 	// Persisting is an optimization, never a correctness requirement: a
 	// read-only brain dir must still answer queries.
-	if err := opts.Deps.SaveIndexCache(storage.BrainDir, cache); err != nil {
+	save := func() error {
+		if opts.Deps.SaveIndexCacheContext != nil {
+			return opts.Deps.SaveIndexCacheContext(ctx, storage.BrainDir, cache)
+		}
+		return opts.Deps.SaveIndexCache(storage.BrainDir, cache)
+	}
+	if err := save(); err != nil {
 		return finish() //nolint:nilerr // a cache we could not persist is still a valid answer
 	}
 	return finish()

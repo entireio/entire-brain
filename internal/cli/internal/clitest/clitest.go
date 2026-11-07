@@ -3,11 +3,8 @@
 // including internal/cli itself — pins the XDG roots through PinXDGRoots, so
 // no test can resolve a store under the developer's real home.
 //
-// The Windows sharding harness pins internal/cli's TestMain declaration by
-// normalized source SHA-256 (tools/ci-bench/windows-production/settings.json,
-// expectedTestMainDeclarations); that declaration now delegates here, so pin
-// behavior changes land in this package and the harness entry only changes
-// when the one-line TestMain does.
+// Each package's TestMain delegates here. Native Go test runs use the same
+// isolated storage on Linux, macOS, and Windows.
 package clitest
 
 import (

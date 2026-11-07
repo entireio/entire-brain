@@ -2195,7 +2195,7 @@ func TestTranscriptCacheSweepRejectsSymlinkedTranscript(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(outputDir, relPath)); err != nil {
 		t.Skip(err)
 	}
-	if inventory, err := planTranscriptCacheSweep(context.Background(), ExecRunner{}, outputDir, "", nil); err == nil {
+	if inventory, err := planTranscriptCacheSweep(context.Background(), ExecRunner{}, outputDir, ""); err == nil {
 		if inventory != nil {
 			inventory.Close()
 		}

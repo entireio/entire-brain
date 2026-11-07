@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/parentwatch"
 )
 
 // spawnDetached starts the background backfill and returns immediately with the
@@ -34,6 +35,12 @@ func spawnDetached(plan setupBackfillPlan) (int, error) {
 	cmd := exec.Command(plan.Binary, plan.Args...)
 	cmd.Dir = plan.Dir
 	cmd.Env = plan.Env
+	// Exempt every detached child from the parent-death watchdog, whoever the
+	// caller: outliving the spawner is the point of this function, and the
+	// daemon-reregister child's parent dies by design (launchctl bootout).
+	// Environ copies plan.Env (or os.Environ when nil), so the caller's slice
+	// is never written to.
+	cmd.Env = append(cmd.Environ(), parentwatch.DetachedEnv+"=1")
 	cmd.SysProcAttr = detachedSysProcAttr()
 
 	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)

@@ -32,7 +32,7 @@ and agents, not a replacement for the operational reference.
    ```bash
    git add -A -n | grep -iE "\.env|\.session" && echo "ABORT"
    ```
-7. **Re-record release evidence before tagging.** The evidence manifests pin source files by content hash; edits to pinned files mark a lane stale.
+7. **Run `mise run release:readiness` before tagging.** Retained benchmark results describe historical revisions, not the current release.
 
 Be explicit about what you did *not* verify. A pull request that names its gaps is worth more than one that implies there are none.
 
@@ -48,7 +48,7 @@ Be explicit about what you did *not* verify. A pull request that names its gaps 
 | `*_test.go` alongside source | Unit and contract tests |
 | `docs/` | User, contributor, design, and operational documentation |
 | `scripts/`, `mise-tasks/`, `mise.toml` | Installation, release scripts, and local verification tasks |
-| `benchmarks/` | Evaluation harnesses and retained evidence |
+| `benchmarks/` | Archived benchmark results; no executable experiment tooling |
 
 ## Tech Stack & Dependencies
 
@@ -58,6 +58,7 @@ Be explicit about what you did *not* verify. A pull request that names its gaps 
 | CLI framework | `spf13/cobra` |
 | Git access | `go-git/go-git/v6` (plus hardened `git` subprocess calls) |
 | Storage | SQLite — `modernc.org/sqlite` (pure Go) |
+| Retrieval | BM25 lexical ranking |
 | TUI | `charmbracelet/bubbletea`, `bubbles`, `lipgloss` |
 | Agent interface | Model Context Protocol over stdio (JSON-RPC 2.0, `Content-Length` framing) |
 
@@ -67,9 +68,15 @@ Be explicit about what you did *not* verify. A pull request that names its gaps 
 including the aggregate `check` task and build variants. The full release gate
 is separate from the normal lint/test loop.
 
-### Build tags
+### Development tools
 
-There are none. Brain builds as pure Go (`go build ./cmd/entire-brain`) with `modernc.org/sqlite`, which ships FTS5, and retrieval is BM25 lexical only. The `brain_cgo` and `sqlite_fts5` tags and the embedder they enabled were retired in #416.
+Project tools and test fixtures use Go. Python packages and virtual environments
+are not required. Run `go run ./tools/coverage -race -output /tmp/brain-coverage`
+for test coverage and instrumented CLI checks. The output directory must be empty.
+
+CI runs the complete Go suite on Linux, macOS, and Windows. Go tooling divides
+the Windows CLI suite into six groups and verifies complete test results.
+Required checks also include real Brain–Graph integration and repository publication checks.
 
 See the [development reference](docs/reference.md#development) for mise tasks
 and [installation options](docs/operations.md#local-install-brain-only) for local builds.

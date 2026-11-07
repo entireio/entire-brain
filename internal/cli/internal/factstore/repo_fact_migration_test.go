@@ -2,8 +2,11 @@ package factstore
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,200 +14,295 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
-func TestRepoFactStoreRollbackPartialPublicationCanRetry(t *testing.T) {
-	for name, action := range map[string]func(string) error{"rollback": RollbackRepository, "migrate": MigrateRepository} {
-		t.Run(name, func(t *testing.T) {
-			root := t.TempDir()
-			// Directory names determine publication order. Both records exist only in
-			// the native snapshot when rollback starts.
-			a, b := repoStoreFact("first view", "a"), repoStoreFact("second view", "z")
-			s := emptyRepoFactStore()
-			for dir, rec := range map[string]factmerge.Record{"a": a, "z": b} {
-				if err := s.replaceView(dir, []factmerge.Record{rec}, ""); err != nil {
-					t.Fatal(err)
-				}
-			}
-			writeSchema1Snapshot(t, root, s)
-			before, err := os.ReadFile(filepath.Join(root, RepositoryPath))
-			if err != nil {
-				t.Fatal(err)
-			}
-			// Inventory ignores a plain file at the directory level, but publishing
-			// z/facts.ndjson must fail after a/facts.ndjson has succeeded.
-			blocker := filepath.Join(root, DirName, "z")
-			if err := os.WriteFile(blocker, []byte("not a directory"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			if err := action(root); err == nil {
-				t.Fatal("rollback ignored publication failure")
-			}
-			if _, err := os.Stat(filepath.Join(root, legacyFactViewRel("a"))); err != nil {
-				t.Fatalf("first view was not published: %v", err)
-			}
-			after, err := os.ReadFile(filepath.Join(root, RepositoryPath))
-			if err != nil || !bytes.Equal(before, after) {
-				t.Fatalf("failed rollback changed snapshot: %v", err)
-			}
-			if err := os.Remove(blocker); err != nil {
-				t.Fatal(err)
-			}
-			if err := action(root); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := os.Stat(filepath.Join(root, RepositoryPath)); name == "rollback" && !os.IsNotExist(err) {
-				t.Fatalf("snapshot remains: %v", err)
-			}
-			views, err := LoadStoreFiles(root)
-			if err != nil || len(views["a"]) != 1 || len(views["z"]) != 1 || views["a"][0].ID != a.ID || views["z"][0].ID != b.ID {
-				t.Fatalf("rollback lost records: %+v, %v", views, err)
-			}
-			if err := MigrateRepository(root); err != nil {
-				t.Fatal(err)
-			}
-			if err := action(root); err != nil {
-				t.Fatal(err)
-			}
-		})
-	}
-}
-
-func TestRepoFactStoreEmptyMigrationCycle(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "absent")
-	if _, err := Load(root, "main"); err != nil {
+func writeStoreBytes(t *testing.T, root string, data []byte) {
+	t.Helper()
+	if err := brainstore.WriteBrainRelativeFileAtomic(root, RepositoryPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RepositoryStatus(root); err != nil {
+}
+
+func writeSchemaOneStore(t *testing.T, root string, s legacyV1Store) {
+	t.Helper()
+	s.SchemaVersion = 1
+	data, err := json.Marshal(s)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(root); !os.IsNotExist(err) {
-		t.Fatalf("read created absent store: %v", err)
+	writeStoreBytes(t, root, data)
+}
+
+func storeVersionOnDisk(t *testing.T, root string) int {
+	t.Helper()
+	version, _, present, err := readStoreFile(root)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, action := range []func(string) error{MigrateRepository, MigrateRepository, RollbackRepository, RollbackRepository, MigrateRepository} {
-		if err := action(root); err != nil {
-			t.Fatal(err)
-		}
-		report, err := RepositoryStatus(root)
-		if err != nil || report.Records != 0 || report.Views != 0 {
-			t.Fatalf("empty migration changed data: %+v, %v", report, err)
-		}
+	if !present {
+		return 0
+	}
+	return version
+}
+
+// (a) A schema-1 store: views flatten, overrides apply, record identity holds.
+func TestMigrateSchemaOneStoreWithViewOverrides(t *testing.T) {
+	root := t.TempDir()
+	rec := repoStoreFact("schema one memory", "main")
+	raw, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overrideBranch, err := json.Marshal("feature")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSchemaOneStore(t, root, legacyV1Store{
+		Records: map[string]json.RawMessage{rec.ID: raw},
+		Views: map[string]legacyV1View{
+			"main-abc123":    {Entries: []legacyV1Entry{{ID: rec.ID}}},
+			"feature-def456": {Entries: []legacyV1Entry{{ID: rec.ID, Override: map[string]json.RawMessage{"branch": overrideBranch}}}},
+		},
+	})
+	summary, err := MigrateRepository(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Folded != 1 || summary.StragglerFiles != 0 {
+		t.Fatalf("summary wrong: %+v", summary)
+	}
+	if got := storeVersionOnDisk(t, root); got != repoFactsVersion {
+		t.Fatalf("store not upgraded: schema %d", got)
+	}
+	byID := loadByID(t, root)
+	if len(byID) != 1 {
+		t.Fatalf("view copies must fold to one record: %+v", byID)
+	}
+	if _, ok := byID[rec.ID]; !ok {
+		t.Fatalf("record identity lost: %+v", byID)
 	}
 }
 
-func TestRepoFactStoreSchema1ConversionPreservesLegacyChanges(t *testing.T) {
-	for _, action := range []string{"migrate", "rollback", "write"} {
-		t.Run(action, func(t *testing.T) {
-			root := t.TempDir()
-			a, b, c := repoStoreFact("private old body", "main"), repoStoreFact("surviving view", "feature"), repoStoreFact("snapshot only", "missing")
-			for branch, rec := range map[string]factmerge.Record{"main": a, "feature": b, "missing": c} {
-				writeLegacyView(t, root, branch, []factmerge.Record{rec})
-			}
-			writeSchema1FromLegacy(t, root)
-			// Old purge plus old retraction after the snapshot was written.
-			writeLegacyView(t, root, "main", nil)
-			b.Status = factmerge.StatusRetracted
-			b.UpdatedAt = b.UpdatedAt.Add(time.Hour)
-			b.Provenance = []factmerge.Anchor{{SessionID: "new-source"}}
-			writeLegacyView(t, root, "feature", []factmerge.Record{b})
-			if err := os.Remove(filepath.Join(root, FileRelPath("missing"))); err != nil {
-				t.Fatal(err)
-			}
-			var err error
-			switch action {
-			case "migrate":
-				err = MigrateRepository(root)
-			case "rollback":
-				err = RollbackRepository(root)
-			case "write":
-				err = Write(root, "target", []factmerge.Record{repoStoreFact("new write", "target")})
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			requireRepoView(t, root, "main", nil)
-			requireRepoView(t, root, "feature", []factmerge.Record{b})
-			requireRepoView(t, root, "missing", []factmerge.Record{c})
-			raw, err := os.ReadFile(filepath.Join(root, RepositoryPath))
-			if action == "rollback" {
-				if !os.IsNotExist(err) {
-					t.Fatalf("rollback retained snapshot: %v", err)
+// (b) The schema-2 marker world: payloads in legacy branch files fold in,
+// dirs park only after the write verified, provenance unions across copies.
+func TestMigrateMarkerAndLegacyFiles(t *testing.T) {
+	root := t.TempDir()
+	writeStoreBytes(t, root, []byte(`{"schema_version":2,"storage":"legacy_views"}`+"\n"))
+	shared := repoStoreFact("shared memory", "main")
+	mirrored := shared
+	mirrored.Provenance = []factmerge.Anchor{{SessionID: "session-other", Commit: "commit-other"}}
+	only := repoStoreFact("feature-only memory", "feature")
+	writeLegacyFile(t, root, "main-abc123", []factmerge.Record{shared})
+	writeLegacyFile(t, root, "feature-def456", []factmerge.Record{mirrored, only})
+
+	summary, err := MigrateRepository(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Folded != 2 || len(summary.MovedDirs) != 2 || summary.StragglerFiles != 0 {
+		t.Fatalf("summary wrong: %+v", summary)
+	}
+	byID := loadByID(t, root)
+	if len(byID) != 2 {
+		t.Fatalf("expected 2 records after fold: %+v", byID)
+	}
+	if got := byID[shared.ID]; len(got.Provenance) != 2 {
+		t.Fatalf("provenance not unioned: %+v", got.Provenance)
+	}
+	if dirs := legacyDirsOnDisk(t, root); len(dirs) != 0 {
+		t.Fatalf("legacy dirs not parked: %v", dirs)
+	}
+	if parked := parkedDirs(t, root); len(parked) != 0 {
+		t.Fatalf("verified redundant directories remain: %v", parked)
+	}
+	if summary.Cleanup.ReclaimedBytes == 0 {
+		t.Fatal("cleanup did not report reclaimed bytes")
+	}
+
+	again, err := MigrateRepository(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Changed() {
+		t.Fatalf("second migration must be a no-op: %+v", again)
+	}
+}
+
+// (c) A flat store plus a straggler file a released client wrote afterwards.
+func TestMigrateFoldsStragglersIntoFlatStore(t *testing.T) {
+	root := t.TempDir()
+	existing := repoStoreFact("existing memory", "main")
+	if err := Write(root, []factmerge.Record{existing}); err != nil {
+		t.Fatal(err)
+	}
+	straggler := repoStoreFact("straggler memory", "main")
+	writeLegacyFile(t, root, "main-abc123", []factmerge.Record{straggler})
+
+	summary, err := MigrateRepository(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.StragglerFiles != 1 || summary.Folded != 1 || len(summary.MovedDirs) != 1 {
+		t.Fatalf("straggler summary wrong: %+v", summary)
+	}
+	byID := loadByID(t, root)
+	if len(byID) != 2 {
+		t.Fatalf("straggler not folded: %+v", byID)
+	}
+}
+
+// (d) Mixed: a schema-1 store AND legacy branch files in one brain.
+func TestMigrateMixedSchemaOneAndLegacyFiles(t *testing.T) {
+	root := t.TempDir()
+	inStore := repoStoreFact("store memory", "main")
+	raw, err := json.Marshal(inStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSchemaOneStore(t, root, legacyV1Store{
+		Records: map[string]json.RawMessage{inStore.ID: raw},
+		Views:   map[string]legacyV1View{"main-abc123": {Entries: []legacyV1Entry{{ID: inStore.ID}}}},
+	})
+	inFile := repoStoreFact("file memory", "feature")
+	writeLegacyFile(t, root, "feature-def456", []factmerge.Record{inFile})
+
+	summary, err := MigrateRepository(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Folded != 2 {
+		t.Fatalf("mixed fold summary wrong: %+v", summary)
+	}
+	byID := loadByID(t, root)
+	if len(byID) != 2 {
+		t.Fatalf("mixed sources not folded: %+v", byID)
+	}
+	if storeVersionOnDisk(t, root) != repoFactsVersion {
+		t.Fatal("store not upgraded")
+	}
+}
+
+// (e) Retirement wins: an active copy that is not strictly newer never revives
+// a retraction; a strictly newer active copy does (a later explicit remember).
+func TestMigrateRetirementWins(t *testing.T) {
+	base := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name       string
+		activeAt   time.Time
+		wantStatus string
+	}{
+		{"stale active copy", base, factmerge.StatusRetracted},
+		{"older active copy", base.Add(-time.Hour), factmerge.StatusRetracted},
+		{"strictly newer active copy", base.Add(time.Hour), factmerge.StatusActive},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, retiredFirst := range []bool{true, false} {
+				root := t.TempDir()
+				retired := repoStoreFact("contested memory", "main")
+				retired.Status = factmerge.StatusRetracted
+				retired.UpdatedAt = base
+				active := retired
+				active.Status = factmerge.StatusActive
+				active.UpdatedAt = tc.activeAt
+				first, second := retired, active
+				if !retiredFirst {
+					first, second = active, retired
 				}
-			} else {
-				if err != nil {
+				writeLegacyFile(t, root, "dir-one", []factmerge.Record{first})
+				writeLegacyFile(t, root, "dir-two", []factmerge.Record{second})
+				if _, err := MigrateRepository(root); err != nil {
 					t.Fatal(err)
 				}
-				if string(raw) != "{\"schema_version\":2,\"storage\":\"legacy_views\"}\n" {
-					t.Fatalf("marker contains unexpected data: %s", raw)
+				byID := loadByID(t, root)
+				if got := byID[retired.ID]; got.Status != tc.wantStatus {
+					t.Fatalf("retiredFirst=%v: status %q, want %q", retiredFirst, got.Status, tc.wantStatus)
 				}
-			}
-			if err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-				if err != nil {
-					return err
-				}
-				if d.IsDir() {
-					return nil
-				}
-				data, err := os.ReadFile(path)
-				if err != nil {
-					return err
-				}
-				if bytes.Contains(data, []byte(a.Text)) {
-					t.Errorf("private body retained: %s", path)
-				}
-				return nil
-			}); err != nil {
-				t.Fatal(err)
 			}
 		})
 	}
 }
 
-func TestRepoFactStoreSchema2MarkerValidation(t *testing.T) {
-	for _, data := range []string{`{"schema_version":2}`, `{"schema_version":2,"storage":"future"}`, `{"schema_version":2,"storage":"legacy_views","records":{}}`, `{"schema_version":2,"storage":"legacy_views"} {}`, `{"schema_version":3,"storage":"legacy_views"}`} {
-		t.Run(data, func(t *testing.T) {
-			root := t.TempDir()
-			a := repoStoreFact("unchanged", "main")
-			writeLegacyView(t, root, "main", []factmerge.Record{a})
-			if err := os.WriteFile(filepath.Join(root, RepositoryPath), []byte(data), 0600); err != nil {
-				t.Fatal(err)
-			}
-			for _, action := range []func(string) error{MigrateRepository, RollbackRepository, func(root string) error { return Write(root, "main", nil) }} {
-				if err := action(root); err == nil {
-					t.Fatal("accepted invalid marker")
-				}
-			}
-			raw, err := os.ReadFile(filepath.Join(root, FileRelPath("main")))
-			if err != nil || !bytes.Contains(raw, []byte(a.Text)) {
-				t.Fatalf("invalid marker changed data: %v", err)
-			}
-		})
+// Published beats staged: a candidate copy never shadows the active one.
+func TestMigrateActiveBeatsCandidate(t *testing.T) {
+	root := t.TempDir()
+	active := repoStoreFact("published memory", "main")
+	candidate := active
+	candidate.Status = factmerge.StatusCandidate
+	candidate.UpdatedAt = active.UpdatedAt.Add(time.Hour)
+	writeLegacyFile(t, root, "dir-one", []factmerge.Record{candidate})
+	writeLegacyFile(t, root, "dir-two", []factmerge.Record{active})
+	if _, err := MigrateRepository(root); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadByID(t, root)[active.ID]; got.Status != factmerge.StatusActive {
+		t.Fatalf("candidate shadowed the published record: %+v", got)
 	}
 }
 
-func TestRepoFactStoreSchema1ConversionRejectsUntrustedPrivacyState(t *testing.T) {
-	for _, state := range []string{`{`, `{"version":999,"excluded":{}}`} {
-		t.Run(state, func(t *testing.T) {
-			root := t.TempDir()
-			a := repoStoreFact("must not change", "main")
-			writeLegacyView(t, root, "main", []factmerge.Record{a})
-			writeSchema1FromLegacy(t, root)
-			if err := brainstore.WriteBrainRelativeFileAtomic(root, brainstore.SessionTombstonesPath, []byte(state), 0600); err != nil {
-				t.Fatal(err)
-			}
-			snapshot, _ := os.ReadFile(filepath.Join(root, RepositoryPath))
-			legacy, _ := os.ReadFile(filepath.Join(root, FileRelPath("main")))
-			for _, action := range []func(string) error{MigrateRepository, RollbackRepository, func(root string) error { return Write(root, "main", nil) }} {
-				if err := action(root); err == nil {
-					t.Fatal("conversion ignored invalid privacy state")
-				}
-				after, _ := os.ReadFile(filepath.Join(root, RepositoryPath))
-				if !bytes.Equal(snapshot, after) {
-					t.Fatal("failed conversion changed snapshot")
-				}
-				after, _ = os.ReadFile(filepath.Join(root, FileRelPath("main")))
-				if !bytes.Equal(legacy, after) {
-					t.Fatal("failed conversion changed legacy payload")
-				}
-			}
-		})
+// (f) A failing migration leaves the legacy sources untouched.
+func TestMigrateFailureLeavesSourcesUntouched(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix directory mode test; Windows does not enforce these permission bits")
+	}
+	root := t.TempDir()
+	rec := repoStoreFact("read-only memory", "main")
+	writeLegacyFile(t, root, "main-abc123", []factmerge.Record{rec})
+	legacyPath := filepath.Join(root, DirName, "main-abc123", FileName)
+	before, err := os.ReadFile(legacyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	factsDir := filepath.Join(root, DirName)
+	if err := os.Chmod(factsDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(factsDir, 0o700) })
+	probe := filepath.Join(factsDir, "permission-probe")
+	if err := os.WriteFile(probe, nil, 0o600); err == nil {
+		_ = os.Remove(probe)
+		t.Skip("process can bypass directory permissions")
+	}
+	if _, err := MigrateRepository(root); err == nil {
+		t.Fatal("migration must fail when it cannot write")
+	}
+	after, err := os.ReadFile(legacyPath)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("failed migration changed legacy data: %v", err)
+	}
+	if dirs := legacyDirsOnDisk(t, root); len(dirs) != 1 {
+		t.Fatalf("failed migration moved legacy dirs: %v", dirs)
+	}
+	// Reads still work against the untouched sources.
+	if got := loadByID(t, root); len(got) != 1 {
+		t.Fatalf("read after failed migration lost data: %+v", got)
+	}
+}
+
+// A no-op pass writes nothing: an empty brain stays storeless.
+func TestMigrateEmptyBrainIsNoOp(t *testing.T) {
+	root := t.TempDir()
+	summary, err := MigrateRepository(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Changed() {
+		t.Fatalf("empty migration reported changes: %+v", summary)
+	}
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(RepositoryPath))); !os.IsNotExist(err) {
+		t.Fatalf("no-op migration created a store: %v", err)
+	}
+}
+
+// A damaged legacy line fails the migration closed; the bytes stay in place.
+func TestMigrateCorruptLegacyFileFailsClosed(t *testing.T) {
+	root := t.TempDir()
+	rel := filepath.ToSlash(filepath.Join(DirName, "main-abc123", FileName))
+	if err := brainstore.WriteBrainRelativeFileAtomic(root, rel, []byte("{broken\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MigrateRepository(root); err == nil || !strings.Contains(err.Error(), "parse") {
+		t.Fatalf("corrupt legacy file must fail migration closed, got %v", err)
+	}
+	if dirs := legacyDirsOnDisk(t, root); len(dirs) != 1 {
+		t.Fatalf("corrupt legacy dir must stay in place: %v", dirs)
 	}
 }

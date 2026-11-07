@@ -220,7 +220,7 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 		{ID: factRecordID("alpha checkpoint retrieval contract", paths), Text: "alpha checkpoint retrieval contract", Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: now},
 		{ID: factRecordID("alpha checkpoint second result", paths), Text: "alpha checkpoint second result", Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: now},
 	}
-	if err := factstore.Write(storage.BrainDir, "feature", facts); err != nil {
+	if err := factstore.Write(storage.BrainDir, facts); err != nil {
 		t.Fatal(err)
 	}
 
@@ -356,10 +356,7 @@ func TestQMDBranchOverrideAcrossRetrievalVerbs(t *testing.T) {
 	branch := "feature/qmd"
 	featureFact := factRecord{ID: factRecordID("zephyr branch override feature contract", paths), Text: "zephyr branch override feature contract", Paths: paths, Branch: branch, Status: factStatusActive, UpdatedAt: now}
 	mainFact := factRecord{ID: factRecordID("zephyr branch override main contract", paths), Text: "zephyr branch override main contract", Paths: paths, Branch: "main", Status: factStatusActive, UpdatedAt: now}
-	if err := factstore.Write(storage.BrainDir, branch, []factRecord{featureFact}); err != nil {
-		t.Fatal(err)
-	}
-	if err := factstore.Write(storage.BrainDir, "main", []factRecord{mainFact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, []factRecord{featureFact, mainFact}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -444,7 +441,7 @@ func TestQMDLimitAliasesAndPrecedence(t *testing.T) {
 		{ID: factRecordID("alpha checkpoint first contract", paths), Text: "alpha checkpoint first contract", Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: now},
 		{ID: factRecordID("alpha checkpoint second contract", paths), Text: "alpha checkpoint second contract", Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: now},
 	}
-	if err := factstore.Write(storage.BrainDir, "feature", facts); err != nil {
+	if err := factstore.Write(storage.BrainDir, facts); err != nil {
 		t.Fatal(err)
 	}
 
@@ -536,7 +533,7 @@ func TestQMDFormatCLIOverridesJSONAndReportsMissingIDs(t *testing.T) {
 		Status:    factStatusActive,
 		UpdatedAt: now,
 	}
-	if err := factstore.Write(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -625,7 +622,7 @@ func TestGetAndMultiGetExitNonzeroOnAMissingID(t *testing.T) {
 		Status:    factStatusActive,
 		UpdatedAt: now,
 	}
-	if err := factstore.Write(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, []factRecord{fact}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 

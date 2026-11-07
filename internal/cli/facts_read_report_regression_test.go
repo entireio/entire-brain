@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -47,7 +46,7 @@ func fileDigest(t *testing.T, path string) string {
 
 func TestFactsReadReportsOutlineMapTreeExactAndReadOnlyFacts(t *testing.T) {
 	f, facts := factsReportFixture(t)
-	factsPath := filepath.Join(f.brainDir, filepath.FromSlash(factstore.BranchRelDir("main")), factstore.FileName)
+	factsPath := testFlatStorePath(f.brainDir)
 	beforeFacts := fileDigest(t, factsPath)
 
 	outlineOut, err := execute(t, NewRootCommand(f.opts), "facts", "outline", "--agent", "none", "--min-facts", "2", "--json")
@@ -62,8 +61,8 @@ func TestFactsReadReportsOutlineMapTreeExactAndReadOnlyFacts(t *testing.T) {
 	if err := json.Unmarshal([]byte(outlineOut), &outline); err != nil {
 		t.Fatalf("decode outline report: %v\n%s", err, outlineOut)
 	}
-	if outline.Branch != "main" || outline.Nodes != 3 || outline.Regenerated != 0 {
-		t.Fatalf("outline report = %+v, want main/3/0", outline)
+	if outline.Branch != "" || outline.Nodes != 3 || outline.Regenerated != 0 {
+		t.Fatalf("outline report = %+v, want 3 nodes, 0 regenerated", outline)
 	}
 
 	mapOut, err := execute(t, NewRootCommand(f.opts), "facts", "map", "--path", "internal/cli", "--depth", "2", "--json")
@@ -123,10 +122,10 @@ func TestFactsRetractRootCommandChangesOnlyExplicitFact(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &result); err != nil {
 		t.Fatalf("decode retract: %v\n%s", err, out)
 	}
-	if result.ID != target.ID || result.Branch != "main" || result.Status != factStatusRetracted || !result.Changed {
+	if result.ID != target.ID || result.Status != factStatusRetracted || !result.Changed {
 		t.Fatalf("retract result = %+v", result)
 	}
-	stored, err := factstore.Load(f.brainDir, "main")
+	stored, err := factstore.Load(f.brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

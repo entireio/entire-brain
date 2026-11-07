@@ -38,15 +38,15 @@ func TestStagedReconcilePromotesUnflaggedWithoutAgent(t *testing.T) {
 		calls++
 		return "", nil
 	}
-	updated, proposals, stats, warnings := reconcileStagedCandidates(context.Background(), run, nil, facts, nil, ".", time.Minute, 2, now)
+	updated, stats, warnings := reconcileStagedCandidates(context.Background(), run, nil, facts, ".", time.Minute, 2, now)
 	if calls != 0 {
 		t.Fatalf("an unflagged candidate must not cost an agent call, got %d", calls)
 	}
 	if stats.Candidates != 1 || stats.Promoted != 1 || stats.Clusters != 0 {
 		t.Fatalf("stats: %+v", stats)
 	}
-	if len(proposals) != 0 || len(warnings) != 0 {
-		t.Fatalf("unexpected proposals %v or warnings %v", proposals, warnings)
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings %v", warnings)
 	}
 	active := 0
 	for _, f := range updated {
@@ -74,37 +74,38 @@ func TestStagedReconcileClustersSameRunNearDuplicates(t *testing.T) {
 		sawExisting = string(input)
 		return "1 merge 1 0.95", nil
 	}
-	updated, proposals, stats, _ := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{first, second}, nil, ".", time.Minute, 2, now)
+	updated, stats, _ := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{first, second}, ".", time.Minute, 2, now)
 	if stats.Clusters != 1 || stats.AgentCalls != 1 || stats.Promoted != 0 {
 		t.Fatalf("stats: %+v", stats)
 	}
 	if !strings.Contains(sawExisting, first.Text) {
 		t.Fatalf("the elected head must be in EXISTING so the agent can merge into it:\n%s", sawExisting)
 	}
-	if len(proposals) != 1 {
-		t.Fatalf("a confident merge must queue for review, got proposals %v", proposals)
-	}
-	var texts []string
+	// Keep-both: the merge ruling publishes the duplicate too, cross-linked to
+	// the elected head for the compaction loop to settle (COR-2273).
+	byID := map[string]factRecord{}
 	for _, f := range updated {
-		if f.Status == factStatusActive {
-			texts = append(texts, f.Text)
+		if f.Status != factStatusActive {
+			t.Fatalf("every adjudicated candidate must publish: %+v", f)
 		}
+		byID[f.ID] = f
 	}
-	if len(texts) != 1 || texts[0] != first.Text {
-		t.Fatalf("only the elected head may publish, got %v", texts)
+	if !contains(byID[second.ID].RelatedIDs, first.ID) || !contains(byID[first.ID].RelatedIDs, second.ID) {
+		t.Fatalf("merged pair must be cross-linked: %+v", updated)
 	}
 }
 
-// A candidate close to a stored active fact goes to the agent, and a confident
-// supersede ruling must wait for explicit review.
-func TestStagedReconcileQueuesSupersession(t *testing.T) {
+// A candidate close to a stored active fact goes to the agent; a confident
+// supersede ruling keeps both facts active and cross-links them — it never
+// retires the stored fact on its own (the compaction loop settles the pair).
+func TestStagedReconcilePublishesSupersedeAsKeepBoth(t *testing.T) {
 	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
 	stored := stagedTestFact("indent all source files with tabs", []string{"preferences.coding.style"}, factStatusActive, now.Add(-time.Hour))
 	candidate := stagedTestFact("indent all source files with spaces", []string{"preferences.coding.style"}, factStatusCandidate, now)
 	run := func(context.Context, string, []string, []byte, time.Duration) (string, error) {
 		return "1 supersede 1 0.95", nil
 	}
-	updated, _, stats, _ := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{stored, candidate}, nil, ".", time.Minute, 2, now)
+	updated, stats, _ := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{stored, candidate}, ".", time.Minute, 2, now)
 	if stats.AgentCalls != 1 {
 		t.Fatalf("stats: %+v", stats)
 	}
@@ -115,8 +116,11 @@ func TestStagedReconcileQueuesSupersession(t *testing.T) {
 	if byID[stored.ID].Status != factStatusActive {
 		t.Fatalf("stored fact must stay active, got %q", byID[stored.ID].Status)
 	}
-	if byID[candidate.ID].Status != factStatusCandidate {
-		t.Fatalf("candidate must remain unpublished, got %q", byID[candidate.ID].Status)
+	if byID[candidate.ID].Status != factStatusActive {
+		t.Fatalf("candidate must publish, got %q", byID[candidate.ID].Status)
+	}
+	if !contains(byID[candidate.ID].RelatedIDs, stored.ID) || !contains(byID[stored.ID].RelatedIDs, candidate.ID) {
+		t.Fatalf("conflicting pair must be cross-linked: %+v", updated)
 	}
 }
 
@@ -128,7 +132,7 @@ func TestStagedReconcileAgentFailureKeepsBoth(t *testing.T) {
 	run := func(context.Context, string, []string, []byte, time.Duration) (string, error) {
 		return "", errors.New("agent down")
 	}
-	updated, _, _, warnings := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{stored, candidate}, nil, ".", time.Minute, 2, now)
+	updated, _, warnings := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{stored, candidate}, ".", time.Minute, 2, now)
 	active := 0
 	for _, f := range updated {
 		if f.Status == factStatusActive {
@@ -144,35 +148,20 @@ func TestStagedReconcileAgentFailureKeepsBoth(t *testing.T) {
 }
 
 // In newest-first order, extraction order is not evidence of recency: a
-// supersede ruling queues for review instead of applying.
-func TestStagedReconcileNewestFirstSupersedeQueued(t *testing.T) {
+// supersede ruling never retires the stored fact — both stay active,
+// cross-linked for the compaction loop.
+func TestStagedReconcileNewestFirstSupersedeKeepsBoth(t *testing.T) {
 	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
 	stored := stagedTestFact("indent all source files with tabs", []string{"preferences.coding.style"}, factStatusActive, now.Add(-time.Hour))
 	candidate := stagedTestFact("indent all source files with spaces", []string{"preferences.coding.style"}, factStatusCandidate, now)
 	run := func(context.Context, string, []string, []byte, time.Duration) (string, error) {
 		return "1 supersede 1 0.95", nil
 	}
-	updated, proposals, _, warnings := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{stored, candidate}, nil, ".", time.Minute, 2, now)
-	if len(proposals) != 1 {
-		t.Fatalf("newest-first supersede must queue for review, got %v", proposals)
-	}
-	active := 0
+	updated, _, _ := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{stored, candidate}, ".", time.Minute, 2, now)
 	for _, f := range updated {
-		if f.Status == factStatusActive {
-			active++
+		if f.Status != factStatusActive {
+			t.Fatalf("supersede ruling must not retire or stage anything: %+v", f)
 		}
-	}
-	if active != 1 {
-		t.Fatalf("only the original may stay active pending review, got %d", active)
-	}
-	found := false
-	for _, w := range warnings {
-		if strings.Contains(w, "supersede requires review") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("the review queueing must be disclosed: %v", warnings)
 	}
 }
 
@@ -185,7 +174,7 @@ func TestStagedReconcileResumesLeftovers(t *testing.T) {
 		t.Fatal("nothing resembles the leftover; no agent call expected")
 		return "", nil
 	}
-	updated, _, stats, _ := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{leftover}, nil, ".", time.Minute, 2, now)
+	updated, stats, _ := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{leftover}, ".", time.Minute, 2, now)
 	if stats.Candidates != 1 || stats.Promoted != 1 {
 		t.Fatalf("stats: %+v", stats)
 	}
@@ -225,8 +214,8 @@ func TestStagedReconcileIsDeterministic(t *testing.T) {
 		}
 		return out.String(), nil
 	}
-	first, _, _, _ := reconcileStagedCandidates(context.Background(), run, nil, append([]factRecord(nil), facts...), nil, ".", time.Minute, 4, now)
-	second, _, _, _ := reconcileStagedCandidates(context.Background(), run, nil, append([]factRecord(nil), facts...), nil, ".", time.Minute, 4, now)
+	first, _, _ := reconcileStagedCandidates(context.Background(), run, nil, append([]factRecord(nil), facts...), ".", time.Minute, 4, now)
+	second, _, _ := reconcileStagedCandidates(context.Background(), run, nil, append([]factRecord(nil), facts...), ".", time.Minute, 4, now)
 	sortFactRecords(first)
 	sortFactRecords(second)
 	if !reflect.DeepEqual(first, second) {
@@ -236,8 +225,9 @@ func TestStagedReconcileIsDeterministic(t *testing.T) {
 
 // A high-confidence merge whose two texts share almost no vocabulary is a
 // hallucinated pairing (measured: every such ruling on the calibration corpus
-// was wrong). The guard queues it for review instead of destroying a fact.
-func TestStagedReconcileGuardsLexicallyUnrelatedRulings(t *testing.T) {
+// was wrong). Keep-both means even a hallucinated ruling never destroys or
+// retires a fact; the wrong cross-link is settled by compaction (COR-2273).
+func TestStagedReconcileLexicallyUnrelatedRulingsDestroyNothing(t *testing.T) {
 	for _, kind := range []string{factActionMerge, factActionSupersede} {
 		t.Run(kind, func(t *testing.T) {
 			now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
@@ -252,27 +242,14 @@ func TestStagedReconcileGuardsLexicallyUnrelatedRulings(t *testing.T) {
 				}
 				return "1 " + kind + " 1 0.95", nil
 			}
-			updated, proposals, _, warnings := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{similar, unrelated, candidate}, nil, ".", time.Minute, 2, now)
-			if len(proposals) != 1 {
-				t.Fatalf("an unrelated merge must queue for review, got proposals %v", proposals)
-			}
-			active := 0
+			updated, _, _ := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{similar, unrelated, candidate}, ".", time.Minute, 2, now)
 			for _, f := range updated {
-				if f.Status == factStatusActive {
-					active++
+				if f.Status != factStatusActive {
+					t.Fatalf("nothing may be destroyed or retired by a ruling: %+v", f)
 				}
 			}
-			if active != 2 {
-				t.Fatalf("nothing may be destroyed by a guarded ruling; want 2 originals active, got %d", active)
-			}
-			guarded := false
-			for _, w := range warnings {
-				if strings.Contains(w, "requires review") {
-					guarded = true
-				}
-			}
-			if !guarded {
-				t.Fatalf("the guard must be disclosed: %v", warnings)
+			if len(updated) != 3 {
+				t.Fatalf("every original and the candidate must survive, got %d", len(updated))
 			}
 		})
 	}
@@ -288,14 +265,14 @@ func TestRebaseDropsConsumedCandidatesOnly(t *testing.T) {
 	consumed := stagedTestFact("use tabs to indent source files", []string{"preferences.coding.style"}, factStatusCandidate, now)
 	foreign := stagedTestFact("another run staged this statement", []string{"architecture.data.flow"}, factStatusCandidate, now)
 	target := stagedTestFact("indent all source files with tabs", []string{"preferences.coding.style"}, factStatusActive, now.Add(-time.Hour))
-	if err := factstore.Write(brainDir, "main", []factRecord{target, consumed, foreign}); err != nil {
+	if err := factstore.Write(brainDir, []factRecord{target, consumed, foreign}); err != nil {
 		t.Fatal(err)
 	}
 	// Baseline knew target+consumed (this run staged and flushed them); memory
 	// holds only target: the pass merged the candidate away.
 	baseline := []factRecord{target, consumed}
 	inMemory := []factRecord{target}
-	rebased, err := rebaseFactsOntoDisk(brainDir, "main", inMemory, baseline, false)
+	rebased, _, err := rebaseFactsOntoDisk(brainDir, inMemory, baseline)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +296,7 @@ func TestStagedReconcilePersistsResumeBeforeExtraction(t *testing.T) {
 	brainDir := writeSingleSessionFixture(t, now, "new transcript content\n")
 	target := stagedTestFact("indent all source files with tabs", []string{"preferences.coding.style"}, factStatusActive, now.Add(-time.Hour))
 	leftover := stagedTestFact("use tabs to indent source files", target.Paths, factStatusCandidate, now.Add(-time.Minute))
-	if err := factstore.Write(brainDir, "main", []factRecord{target, leftover}); err != nil {
+	if err := factstore.Write(brainDir, []factRecord{target, leftover}); err != nil {
 		t.Fatal(err)
 	}
 	reconciled := false
@@ -331,9 +308,9 @@ func TestStagedReconcilePersistsResumeBeforeExtraction(t *testing.T) {
 		if !reconciled {
 			t.Error("extraction began before leftover reconciliation")
 		}
-		stored, err := factstore.Load(brainDir, "main")
-		if err != nil || len(stored) != 2 || stored[indexOfFact(stored, leftover.ID)].Status != factStatusCandidate {
-			t.Errorf("resumed candidate must remain staged durably before extraction: %+v, %v", stored, err)
+		stored, err := factstore.Load(brainDir)
+		if err != nil || len(stored) != 2 || stored[indexOfFact(stored, leftover.ID)].Status != factStatusActive {
+			t.Errorf("resumed candidate must be published durably before extraction: %+v, %v", stored, err)
 		}
 		return "workflow.testing.rules\tRun tests before committing.\n", nil
 	}
@@ -343,40 +320,331 @@ func TestStagedReconcilePersistsResumeBeforeExtraction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if source.PendingReconcile != 1 || source.CandidatesReconciled != 2 || source.ReconcileCalls != 1 {
+	if source.PendingReconcile != 0 || source.CandidatesReconciled != 2 || source.ReconcileCalls != 1 {
 		t.Fatalf("resume and new work must both be counted: %+v", source)
 	}
-	stored, err := factstore.Load(brainDir, "main")
+	stored, err := factstore.Load(brainDir)
 	if err != nil || len(stored) != 3 {
-		t.Fatalf("pending candidate was lost after final flush: %+v, %v", stored, err)
+		t.Fatalf("a reconciled fact was lost after final flush: %+v, %v", stored, err)
 	}
 }
 
-func TestStagedReconcileForceResumePreservesDeferredBranch(t *testing.T) {
-	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
-	brainDir := writeDistillFixture(t, now)
-	stored := stagedTestFact("keep this existing memory", []string{"preferences.coding.style"}, factStatusActive, now.Add(-time.Hour))
-	leftover := stagedTestFact("exports use batch checkpoint reads", []string{"architecture.data.flow"}, factStatusCandidate, now.Add(-time.Minute))
-	stored.Branch, leftover.Branch = "feature", "feature"
-	if err := factstore.Write(brainDir, "feature", []factRecord{stored, leftover}); err != nil {
-		t.Fatal(err)
+// forceSweepFact seeds an active distilled fact anchored to one session, the
+// shape the force sweep adjudicates.
+func forceSweepFact(text, branch, sessionID string, at time.Time) factRecord {
+	paths := normalizeFactPaths([]string{"architecture.data.flow"})
+	return factRecord{
+		ID: factRecordID(text, paths), Text: text, Paths: paths, Branch: branch,
+		Origin: factstore.OriginDistilled, Status: factStatusActive,
+		Provenance: []factAnchor{{SessionID: sessionID}},
+		CreatedAt:  at, UpdatedAt: at,
 	}
-	run := func(context.Context, string, []string, []byte, time.Duration) (string, error) {
-		return "workflow.testing.rules\tRun tests before committing.\n", nil
-	}
-	_, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, distillCommandOptions{
-		agent: "command", agentCommand: []string{"fake"}, run: run, timeout: time.Minute, force: true, maxSessions: 1,
-	}, now)
+}
+
+func forceSweepIDs(t *testing.T, brainDir string) map[string]factRecord {
+	t.Helper()
+	facts, err := factstore.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	facts, err := factstore.Load(brainDir, "feature")
-	if err != nil || len(facts) != 2 {
-		t.Fatalf("resuming a deferred branch must not force-rebuild it: %+v, %v", facts, err)
-	}
+	byID := make(map[string]factRecord, len(facts))
 	for _, f := range facts {
-		if f.Status != factStatusActive {
-			t.Fatalf("leftover was not resumed: %+v", f)
+		byID[f.ID] = f
+	}
+	return byID
+}
+
+var forceSweepRun = func(context.Context, string, []string, []byte, time.Duration) (string, error) {
+	return "workflow.testing.rules\tRun tests before committing.\n", nil
+}
+
+// A capped force run (--max-sessions) must not touch facts from the sessions
+// it deferred; the deferred session re-derives on the next run because its
+// cache entry was dropped. (Bugbot on PR #590: the pre-drop lost everything
+// outside the cap's scope.)
+func TestForceWithSessionCapKeepsDeferredSessionsFacts(t *testing.T) {
+	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+	staleS1 := forceSweepFact("old derivation from session one", "main", "s1", now.Add(-time.Hour))
+	keepS2 := forceSweepFact("derivation from the deferred session", "feature", "s2", now.Add(-time.Hour))
+	if err := factstore.Write(brainDir, []factRecord{staleS1, keepS2}); err != nil {
+		t.Fatal(err)
+	}
+	repoDir := t.TempDir()
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: forceSweepRun, timeout: time.Minute, force: true, maxSessions: 1}
+	if _, err := runDistillForBrain(context.Background(), repoDir, brainDir, opts, now); err != nil {
+		t.Fatal(err)
+	}
+	rebuilt := factRecordID("Run tests before committing.", normalizeFactPaths([]string{"workflow.testing.rules"}))
+	byID := forceSweepIDs(t, brainDir)
+	if _, ok := byID[staleS1.ID]; ok {
+		t.Fatalf("the rebuilt session's stale fact must be swept: %+v", byID)
+	}
+	if _, ok := byID[keepS2.ID]; !ok {
+		t.Fatalf("the deferred session's fact must survive the capped force run: %+v", byID)
+	}
+	if _, ok := byID[rebuilt]; !ok {
+		t.Fatalf("the visited session's fact must be re-derived: %+v", byID)
+	}
+	// The deferred session's cache entry was dropped, so a plain follow-up run
+	// re-distills it (s1 stays cached from the force run).
+	calls := 0
+	counting := func(ctx context.Context, dir string, args []string, input []byte, d time.Duration) (string, error) {
+		calls++
+		return forceSweepRun(ctx, dir, args, input, d)
+	}
+	opts2 := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: counting, timeout: time.Minute}
+	source, err := runDistillForBrain(context.Background(), repoDir, brainDir, opts2, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls == 0 || source.Distilled != 2 {
+		t.Fatalf("the deferred session must re-derive on the next run: calls=%d distilled=%d", calls, source.Distilled)
+	}
+	if byID = forceSweepIDs(t, brainDir); len(byID) != 2 {
+		t.Fatalf("store = %+v, want deferred-session fact + rebuilt fact", byID)
+	}
+}
+
+// A full-scope force run drops exactly the stale facts it proved stale:
+// distilled, active, not regenerated, and citing only rebuilt sessions.
+// Authored and retired records survive, and so does a fact citing a session
+// that left the catalog — dropping those is the mirror sweep's job now.
+func TestForceSweepDropsOnlyProvenStaleFacts(t *testing.T) {
+	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+	stale := forceSweepFact("exports use batch checkpoint reads", "main", "s1", now.Add(-time.Hour))
+	authored := forceSweepFact("keep this authored memory", "main", "s1", now.Add(-time.Hour))
+	authored.Origin = factstore.OriginAuthored
+	retired := forceSweepFact("retired statement stays a tombstone", "main", "s1", now.Add(-time.Hour))
+	retired.Status = factStatusSuperseded
+	orphan := forceSweepFact("derived from a session the catalog lost", "main", "ghost", now.Add(-time.Hour))
+	if err := factstore.Write(brainDir, []factRecord{stale, authored, retired, orphan}); err != nil {
+		t.Fatal(err)
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: forceSweepRun, timeout: time.Minute, force: true}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatal(err)
+	}
+	byID := forceSweepIDs(t, brainDir)
+	if _, ok := byID[stale.ID]; ok {
+		t.Fatalf("stale fact must be dropped: %+v", byID)
+	}
+	for _, keep := range []factRecord{authored, retired, orphan} {
+		if _, ok := byID[keep.ID]; !ok {
+			t.Fatalf("%q must survive the force sweep: %+v", keep.Text, byID)
 		}
+	}
+	rebuilt := factRecordID("Run tests before committing.", normalizeFactPaths([]string{"workflow.testing.rules"}))
+	if got, ok := byID[rebuilt]; !ok || got.Status != factStatusActive {
+		t.Fatalf("force run must re-derive the sessions' fact: %+v", byID)
+	}
+}
+
+// A branch-scoped force run sweeps stale facts only from the sessions the
+// branch filter let it rebuild.
+func TestForceWithBranchFilterSweepsOnlyThatBranchsSessions(t *testing.T) {
+	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+	keepMain := forceSweepFact("old derivation from session one", "main", "s1", now.Add(-time.Hour))
+	staleFeature := forceSweepFact("old derivation from session two", "feature", "s2", now.Add(-time.Hour))
+	if err := factstore.Write(brainDir, []factRecord{keepMain, staleFeature}); err != nil {
+		t.Fatal(err)
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: forceSweepRun, timeout: time.Minute, force: true, branch: "feature"}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatal(err)
+	}
+	byID := forceSweepIDs(t, brainDir)
+	if _, ok := byID[staleFeature.ID]; ok {
+		t.Fatalf("the filtered branch's stale fact must be swept: %+v", byID)
+	}
+	if _, ok := byID[keepMain.ID]; !ok {
+		t.Fatalf("the other branch's fact must survive a scoped force run: %+v", byID)
+	}
+	rebuilt := factRecordID("Run tests before committing.", normalizeFactPaths([]string{"workflow.testing.rules"}))
+	if got, ok := byID[rebuilt]; !ok || got.Branch != "feature" {
+		t.Fatalf("the scoped session's fact must be re-derived on its branch: %+v", byID)
+	}
+}
+
+// rebase must report the disk-side novelty — ids another writer created or
+// changed during the run — so the force sweep can exempt them.
+func TestRebaseReportsAdoptedDiskRecords(t *testing.T) {
+	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	brainDir := t.TempDir()
+	unchanged := forceSweepFact("unchanged baseline fact", "main", "s1", now.Add(-time.Hour))
+	changed := forceSweepFact("changed by another writer", "main", "s1", now.Add(-time.Hour))
+	baseline := []factRecord{unchanged, changed}
+	external := forceSweepFact("committed by another writer mid-run", "main", "s1", now)
+	changedOnDisk := changed
+	changedOnDisk.Provenance = append([]factAnchor{{SessionID: "s9"}}, changed.Provenance...)
+	if err := factstore.Write(brainDir, []factRecord{unchanged, changedOnDisk, external}); err != nil {
+		t.Fatal(err)
+	}
+	out, adopted, err := rebaseFactsOntoDisk(brainDir, cloneDistillFacts(baseline), baseline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !adopted[external.ID] || !adopted[changed.ID] || adopted[unchanged.ID] {
+		t.Fatalf("adopted = %v, want the new and the changed disk records only", adopted)
+	}
+	if i := indexOfFact(out, external.ID); i < 0 {
+		t.Fatalf("the concurrent record must be adopted into the result: %+v", out)
+	}
+}
+
+// The sweep may only delete records from this run's own baseline: anything
+// another writer landed during the run is exempt, like regenerated ids. A
+// record citing ANY unrebuilt session (e.g. absorbed from an out-of-scope
+// leftover by a resume merge) is kept by the provenance rule.
+func TestForceSweepExemptsExternalAndPartiallyCitedRecords(t *testing.T) {
+	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	stale := forceSweepFact("stale derivation", "main", "s1", now)
+	external := forceSweepFact("committed by another writer mid-run", "main", "s1", now)
+	mixed := forceSweepFact("absorbed an out-of-scope citation", "main", "s1", now)
+	mixed.Provenance = append(mixed.Provenance, factAnchor{SessionID: "s2"})
+	rebuilt := func(id string) bool { return id == "s1" }
+	kept := sweepStaleForceFacts(
+		cloneDistillFacts([]factRecord{stale, external, mixed}),
+		rebuilt, map[string]bool{}, map[string]bool{external.ID: true})
+	ids := map[string]bool{}
+	for _, f := range kept {
+		ids[f.ID] = true
+	}
+	if ids[stale.ID] || !ids[external.ID] || !ids[mixed.ID] {
+		t.Fatalf("kept = %v, want external and mixed-citation records only", ids)
+	}
+}
+
+// An interrupted force pass's leftovers must not outlive a completed force
+// pass that fully rebuilt their sessions — resume publications are governed by
+// the provenance rule, not regenerated-protection — while a leftover citing a
+// deferred (out-of-scope) session survives.
+func TestForceSweepDropsStaleResumeLeftovers(t *testing.T) {
+	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+	leftoverS1 := forceSweepFact("exports use batch checkpoint reads", "main", "s1", now.Add(-time.Minute))
+	leftoverS1.Status = factStatusCandidate
+	leftoverS2 := forceSweepFact("feature leftover from the interrupted run", "feature", "s2", now.Add(-time.Minute))
+	leftoverS2.Status = factStatusCandidate
+	if err := factstore.Write(brainDir, []factRecord{leftoverS1, leftoverS2}); err != nil {
+		t.Fatal(err)
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: forceSweepRun, timeout: time.Minute, force: true, maxSessions: 1}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatal(err)
+	}
+	byID := forceSweepIDs(t, brainDir)
+	if _, ok := byID[leftoverS1.ID]; ok {
+		t.Fatalf("a resumed leftover from a rebuilt session must not outlive the rebuild: %+v", byID)
+	}
+	if got, ok := byID[leftoverS2.ID]; !ok || got.Status != factStatusActive {
+		t.Fatalf("a resumed leftover from a deferred session must survive as published: %+v", byID)
+	}
+}
+
+// A ruling may target a cluster member that publishes in a LATER wave: that
+// member sat in the agent's EXISTING list as comparison context, so the ruling
+// is legitimate, but at apply time the target is not yet in the result set.
+// The cross-link must land regardless of apply order (Bugbot on #587: staged
+// merge targets lost their cross-links, hiding the pair from the compaction
+// loop).
+func TestStagedReconcileCrossWaveRulingStillCrossLinks(t *testing.T) {
+	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	paths := []string{"preferences.coding.style"}
+	stored := stagedTestFact("indent all source files with tabs", paths, factStatusActive, now.Add(-time.Hour))
+	candidates := make([]factRecord, 0, maxReconcileExisting+1)
+	for i := 0; i <= maxReconcileExisting; i++ {
+		candidates = append(candidates, stagedTestFact(
+			fmt.Sprintf("indent all source files with tabs variant %02d", i),
+			paths, factStatusCandidate, now.Add(time.Duration(i)*time.Second)))
+	}
+	sectionLines := func(input, header string) []string {
+		_, section, _ := strings.Cut(input, header+"\n")
+		if i := strings.Index(section, "\n\n"); i >= 0 {
+			section = section[:i]
+		}
+		var lines []string
+		for _, line := range strings.Split(section, "\n") {
+			if line != "" {
+				lines = append(lines, line)
+			}
+		}
+		return lines
+	}
+	lineText := func(line string) string {
+		_, text, _ := strings.Cut(line, "] ")
+		return text
+	}
+	// The cluster's member order is not chronological and EXISTING is ranked
+	// newest-first (activeFactsAtPaths), so neither the ruled candidate nor the
+	// cross-wave target can be assumed by position. Locate the wave-2 member in
+	// wave 1's EXISTING list explicitly: it is the one cluster member absent
+	// from wave 1's CANDIDATES, present as comparison context.
+	var ruledText, crossWaveTargetText string
+	var wave2RuledText, wave2TargetText string
+	run := func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
+		cands := sectionLines(string(input), "CANDIDATES")
+		existing := sectionLines(string(input), "EXISTING")
+		if len(cands) == maxReconcileExisting {
+			// Wave 1: rule the wave's first candidate against the member a
+			// later wave publishes.
+			inWave := map[string]bool{}
+			for _, line := range cands {
+				inWave[lineText(line)] = true
+			}
+			targetNumber := 0
+			for i, line := range existing {
+				text := lineText(line)
+				if text != stored.Text && strings.HasPrefix(text, "indent all source files with tabs variant") && !inWave[text] {
+					targetNumber = i + 1
+					crossWaveTargetText = text
+					break
+				}
+			}
+			if targetNumber == 0 {
+				return "", fmt.Errorf("wave-2 member not found in wave 1's EXISTING list:\n%s", input)
+			}
+			ruledText = lineText(cands[0])
+			var b strings.Builder
+			fmt.Fprintf(&b, "1 merge %d 0.95\n", targetNumber)
+			for i := 2; i <= maxReconcileExisting; i++ {
+				fmt.Fprintf(&b, "%d new - 1.0\n", i)
+			}
+			return b.String(), nil
+		}
+		// Wave 2: rule the lone remaining member against EXISTING #1 (the
+		// prompt caps EXISTING at the 50 most recently updated, so which fact
+		// that is is the prompt's choice, not this test's).
+		wave2RuledText = lineText(cands[0])
+		wave2TargetText = lineText(existing[0])
+		return "1 merge 1 0.95", nil
+	}
+
+	updated, stats, _ := reconcileStagedCandidates(context.Background(),
+		run, nil, append([]factRecord{stored}, candidates...), ".", time.Minute, 2, now)
+	if stats.Candidates != maxReconcileExisting+1 {
+		t.Fatalf("expected one cluster over every candidate, stats: %+v", stats)
+	}
+	if ruledText == "" || crossWaveTargetText == "" {
+		t.Fatal("wave 1 never observed; the cluster did not split into two waves")
+	}
+	byText := map[string]factRecord{}
+	for _, f := range updated {
+		byText[f.Text] = f
+	}
+	ruled, target := byText[ruledText], byText[crossWaveTargetText]
+	if ruled.Status != factStatusActive || target.Status != factStatusActive {
+		t.Fatalf("both sides of the ruling must publish: ruled=%q target=%q", ruled.Status, target.Status)
+	}
+	if !contains(ruled.RelatedIDs, target.ID) || !contains(target.RelatedIDs, ruled.ID) {
+		t.Fatalf("cross-wave ruling must cross-link once both sides land:\nruled=%+v\ntarget=%+v",
+			ruled.RelatedIDs, target.RelatedIDs)
+	}
+	w2Ruled, w2Target := byText[wave2RuledText], byText[wave2TargetText]
+	if !contains(w2Ruled.RelatedIDs, w2Target.ID) || !contains(w2Target.RelatedIDs, w2Ruled.ID) {
+		t.Fatalf("wave-2 ruling must cross-link too:\nruled=%+v\ntarget=%+v",
+			w2Ruled.RelatedIDs, w2Target.RelatedIDs)
 	}
 }

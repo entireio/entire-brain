@@ -142,18 +142,13 @@ func sessionTranscriptDigest(brainDir, rel string) (string, error) {
 
 // buildProjectionReceipts derives the receipt set from the canonical manifest
 // and the just-built index. A valid empty session succeeds with zero
-// exchanges; tombstoned sessions are represented by the tombstone, never a
-// receipt. An unreadable transcript simply has no receipt: reconciliation
+// exchanges. An unreadable transcript simply has no receipt: reconciliation
 // keeps its job open.
 func buildProjectionReceipts(brainDir string, manifest *exportManifest, index historyIndex, now time.Time) (projectionState, error) {
-	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
-	if err != nil {
-		return projectionState{}, err
-	}
-	return buildProjectionReceiptsFromSnapshot(brainDir, manifest, stones, index, now), nil
+	return buildProjectionReceiptsFromSnapshot(brainDir, manifest, index, now), nil
 }
 
-func buildProjectionReceiptsFromSnapshot(brainDir string, manifest *exportManifest, stones sessionTombstones, index historyIndex, now time.Time) projectionState {
+func buildProjectionReceiptsFromSnapshot(brainDir string, manifest *exportManifest, index historyIndex, now time.Time) projectionState {
 	state := projectionState{SchemaVersion: projectionSchemaVersion, ReconcilerVersion: projectionReconcilerVersion, GeneratedAt: now}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
 		return state
@@ -169,9 +164,6 @@ func buildProjectionReceiptsFromSnapshot(brainDir string, manifest *exportManife
 		id := strings.TrimSpace(session.SessionID)
 		if id == "" {
 			continue // no canonical receipt identity; reconciliation keeps it open
-		}
-		if _, excluded := stones.Excluded[id]; excluded {
-			continue
 		}
 		rel := filepath.ToSlash(strings.TrimSpace(session.TranscriptPath))
 		if rel == "" {

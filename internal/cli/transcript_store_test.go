@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -53,29 +51,6 @@ func TestTranscriptStoreReadsMaterializedFile(t *testing.T) {
 	}
 	if string(data) != "turn one\nturn two\n" {
 		t.Fatalf("content = %q", data)
-	}
-}
-
-// The tombstone gate refuses a purged session even while its file still
-// exists, and it binds reads made AFTER the tombstone was written in the same
-// process — the gate must never be memoized.
-func TestTranscriptStoreTombstoneGateIsFreshPerRead(t *testing.T) {
-	brainDir, rel := transcriptStoreFixture(t, true)
-	store := newTranscriptStore(ExecRunner{}, brainDir)
-
-	if _, err := store.Read(context.Background(), rel); err != nil {
-		t.Fatalf("pre-tombstone read: %v", err)
-	}
-
-	stones := brainstore.EmptySessionTombstones()
-	stones.Excluded["s1"] = sessionTombstone{At: time.Now().UTC(), Reason: "privacy"}
-	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-
-	_, err := store.Read(context.Background(), rel)
-	if err == nil || !strings.Contains(err.Error(), "tombstoned") {
-		t.Fatalf("post-tombstone read must refuse, got %v", err)
 	}
 }
 

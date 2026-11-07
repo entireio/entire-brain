@@ -15,6 +15,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/parentwatch"
 )
 
 var errMemoryReceiptOutput = errors.New("memory receipt output failed")
@@ -227,7 +228,10 @@ func TestMemoryWorkerChildEnvironmentReplacesRepositoryRouting(t *testing.T) {
 		base.EnvRepoRoot + "=/repo/stale",
 	}
 	got := memoryWorkerChildEnvironment(environ, "/repo/b")
-	wantValues := map[string]string{base.EnvRepoRoot: "/repo/b", memoryWorkerOriginEnv: "1"}
+	// The detached marker must be present: launchDetachedSelf children (memory
+	// workers) outlive their spawner by design, and the parent-death watchdog
+	// would otherwise kill them the moment a short-lived notify exits.
+	wantValues := map[string]string{base.EnvRepoRoot: "/repo/b", memoryWorkerOriginEnv: "1", parentwatch.DetachedEnv: "1"}
 	counts := map[string]int{}
 	values := map[string]string{}
 	for _, entry := range got {
@@ -333,43 +337,57 @@ func TestDelayedMemoryWorkerClaimsSchedulerBeforeSleeping(t *testing.T) {
 }
 
 func TestReconcileMemoryAndLaunchPreservesDurableWorkOnLaunchFailure(t *testing.T) {
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	now := time.Date(2026, 8, 9, 13, 0, 0, 0, time.UTC)
-	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
-	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest := exportManifest{
-		SchemaVersion: bmanifest.SchemaVersion,
-		RepoKey:       storage.Key,
-		Sources: &brainSources{Sessions: &sessionSourceManifest{
-			DefaultBranch: "main",
-			Sessions: []exportSession{{
-				SessionID:      "missed",
-				Branch:         "main",
-				TranscriptPath: "sessions/main/missing.jsonl",
-			}},
-		}},
-	}
-	if err := writeBrainManifestAndReadme(storage.BrainDir, manifest); err != nil {
-		t.Fatal(err)
-	}
-	oldLaunch := memoryWorkerLaunch
-	defer func() { memoryWorkerLaunch = oldLaunch }()
-	memoryWorkerLaunch = func(string) error { return errors.New("launch failed") }
-	created, warning, err := reconcileMemoryAndLaunch(context.Background(), opts, repoDir, "watch")
-	if err != nil {
-		t.Fatalf("reconciliation must remain successful after launch failure: %v", err)
-	}
-	if created != 1 || !strings.Contains(warning, "launch failed") {
-		t.Fatalf("created=%d warning=%q", created, warning)
-	}
-	jobs, issues := loadMemoryJobsChecked(storage.BrainDir)
-	if len(issues) != 0 || len(jobs) != 1 || jobs[0].SessionID != "missed" || jobs[0].State != memoryJobStateInvalid {
-		t.Fatalf("durable reconciliation result missing: jobs=%+v issues=%+v", jobs, issues)
+	for _, paused := range []bool{false, true} {
+		t.Run(fmt.Sprintf("paused=%t", paused), func(t *testing.T) {
+			repoDir := t.TempDir()
+			env := semanticTestEnv(t, repoDir)
+			runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+			now := time.Date(2026, 8, 9, 13, 0, 0, 0, time.UTC)
+			opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+			storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest := exportManifest{
+				SchemaVersion: bmanifest.SchemaVersion,
+				RepoKey:       storage.Key,
+				Sources: &brainSources{Sessions: &sessionSourceManifest{
+					DefaultBranch: "main",
+					Sessions: []exportSession{{
+						SessionID:      "missed",
+						Branch:         "main",
+						TranscriptPath: "sessions/main/missing.jsonl",
+					}},
+				}},
+			}
+			if err := writeBrainManifestAndReadme(storage.BrainDir, manifest); err != nil {
+				t.Fatal(err)
+			}
+			oldLaunch := memoryWorkerLaunch
+			defer func() { memoryWorkerLaunch = oldLaunch }()
+			launches := 0
+			memoryWorkerLaunch = func(string) error {
+				launches++
+				return errors.New("launch failed")
+			}
+			if err := base.SetBackgroundPaused(env, paused); err != nil {
+				t.Fatal(err)
+			}
+			created, warning, err := reconcileMemoryAndLaunch(context.Background(), opts, repoDir, "watch")
+			if err != nil {
+				t.Fatalf("reconciliation must remain successful after launch failure: %v", err)
+			}
+			if created != 1 || (!paused && !strings.Contains(warning, "launch failed")) || (paused && warning != "") {
+				t.Fatalf("created=%d warning=%q", created, warning)
+			}
+			if (paused && launches != 0) || (!paused && launches != 1) {
+				t.Fatalf("paused=%t launches=%d", paused, launches)
+			}
+			jobs, issues := loadMemoryJobsChecked(storage.BrainDir)
+			if len(issues) != 0 || len(jobs) != 1 || jobs[0].SessionID != "missed" || jobs[0].State != memoryJobStateInvalid {
+				t.Fatalf("durable reconciliation result missing: jobs=%+v issues=%+v", jobs, issues)
+			}
+		})
 	}
 }
 
@@ -865,61 +883,6 @@ func TestMemoryJobInventoryRejectsUnsafeAndArbitraryEntries(t *testing.T) {
 			t.Fatalf("directory enumeration error = %v", err)
 		}
 	})
-}
-
-func TestMemoryLegacyJobUsesActualPathForPrivacyCleanup(t *testing.T) {
-	// The legacy on-disk layout embeds the raw job id, which begins "job:".
-	// A colon cannot appear in a Windows filename: writing that path creates an
-	// NTFS alternate data stream instead of a listable file, so a legacy record
-	// could never have been written there by any build. memoryJobRel hashes the
-	// id for exactly this reason. The layout under test cannot exist on Windows,
-	// so there is nothing to adapt or purge.
-	if runtime.GOOS == "windows" {
-		t.Skip("legacy job layout embeds a colon and is unrepresentable on Windows")
-	}
-
-	brainDir := writePrivacyFixture(t)
-	now := time.Date(2026, 8, 9, 16, 30, 0, 0, time.UTC)
-	job := memoryJob{
-		SchemaVersion: 1, Kind: memoryJobKindProjection, RepoKey: "test/privacy", SessionID: "secret-sess",
-		SessionRef: "conversation-session:legacy", InputDigest: "sha256:legacy", Trigger: "worker",
-		State: memoryJobStatePending, CreatedAt: now, AvailableAt: now,
-	}
-	job.JobID = memoryJobID(job.RepoKey, job.SessionRef, job.InputDigest, job.Kind)
-	legacyRel := legacyMemoryJobRel(job.JobID)
-	if err := os.MkdirAll(filepath.Dir(filepath.Join(brainDir, filepath.FromSlash(legacyRel))), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := json.Marshal(job)
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(legacyRel)), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var plan sessionPurgePlan
-	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		var err error
-		plan, err = buildSessionPurgePlan(brainDir, job.SessionID)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, artifact := range plan.WorkMetadata {
-		if artifact.Path == legacyRel {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("legacy source path absent from privacy inventory: %+v", plan.WorkMetadata)
-	}
-	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		return purgeMemoryWorkForSessionLocked(brainDir, job.SessionID)
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(legacyRel))); !os.IsNotExist(err) {
-		t.Fatalf("legacy source survived privacy cleanup: %v", err)
-	}
 }
 
 func TestMemoryJobV1StringErrorAdaptsToV2(t *testing.T) {
@@ -1458,31 +1421,6 @@ func TestMemoryCancelRaceReportsTooLateAndRemovesMarker(t *testing.T) {
 	}
 }
 
-func TestMemoryPrivacyWorkPurgeRemovesMetadata(t *testing.T) {
-	brainDir := t.TempDir()
-	now := time.Date(2026, 8, 9, 20, 0, 0, 0, time.UTC)
-	if _, err := writeMemoryHint(brainDir, "repo", "purged", "main", "session_end", now); err != nil {
-		t.Fatal(err)
-	}
-	job := memoryJob{Kind: memoryJobKindProjection, RepoKey: "repo", SessionID: "purged", SessionRef: "conversation-session:x", InputDigest: "sha256:x", State: memoryJobStateRunning, CreatedAt: now, AvailableAt: now, OwnerToken: "owner"}
-	job.JobID = memoryJobID(job.RepoKey, job.SessionRef, job.InputDigest, job.Kind)
-	if err := saveMemoryJob(brainDir, job); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := requestMemoryJobCancellation(brainDir, job, now); err != nil {
-		t.Fatal(err)
-	}
-	if err := purgeMemoryWorkForSessionLocked(brainDir, "purged"); err != nil {
-		t.Fatal(err)
-	}
-	if len(loadMemoryHints(brainDir)) != 0 || len(loadMemoryJobs(brainDir)) != 0 {
-		t.Fatal("privacy purge retained hint or job metadata")
-	}
-	if request, err := loadMemoryCancellationRequest(brainDir, job.JobID); err != nil || request != nil {
-		t.Fatalf("privacy purge retained cancellation marker: request=%+v err=%v", request, err)
-	}
-}
-
 type firstFailureAbstractor struct {
 	calls int
 }
@@ -1697,29 +1635,4 @@ func TestMemoryReconcileWorkerAndReceipts(t *testing.T) {
 		t.Fatalf("states after supersede = %+v", states)
 	}
 
-	// Tombstoning the session moves its active job to excluded and the next
-	// worker pass consumes any hint for it.
-	stones := brainstore.LoadSessionTombstones(brainDir)
-	stones.Excluded["sess-live"] = sessionTombstone{At: now}
-	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		_, err := reconcileMemoryJobsForTestLocked(brainDir, "manual", now.Add(2*time.Minute))
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	excludedSeen := false
-	for _, job := range loadMemoryJobs(brainDir) {
-		if job.SessionID == "sess-live" && job.State == memoryJobStateExcluded {
-			excludedSeen = true
-		}
-		if job.SessionID == "sess-live" && (job.State == memoryJobStatePending || job.State == memoryJobStateRunning) {
-			t.Fatalf("tombstoned session still has active work: %+v", job)
-		}
-	}
-	if !excludedSeen {
-		t.Fatal("tombstoned session's pending job must move to excluded")
-	}
 }

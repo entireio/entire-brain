@@ -206,19 +206,20 @@ func Normalize(manifest *Manifest) {
 
 func SessionSourceFromExport(manifest Manifest) *SessionSource {
 	return &SessionSource{
-		GeneratedAt:        manifest.GeneratedAt,
-		EntireCLIVersion:   manifest.EntireCLIVersion,
-		DefaultBranch:      manifest.DefaultBranch,
-		TranscriptMode:     manifest.TranscriptMode,
-		TranscriptStorage:  manifest.TranscriptStorage,
-		Scope:              manifest.Scope,
-		CheckpointLimit:    manifest.CheckpointLimit,
-		CheckpointsScanned: manifest.CheckpointsScanned,
-		OldestSessionAt:    OldestSessionAt(manifest.Sessions),
-		LatestCheckpointID: LatestCheckpointID(manifest.Sessions),
-		Branches:           append([]Branch(nil), manifest.Branches...),
-		Sessions:           append([]Session(nil), manifest.Sessions...),
-		Warnings:           append([]string(nil), manifest.Warnings...),
+		GeneratedAt:         manifest.GeneratedAt,
+		EntireCLIVersion:    manifest.EntireCLIVersion,
+		DefaultBranch:       manifest.DefaultBranch,
+		TranscriptMode:      manifest.TranscriptMode,
+		TranscriptStorage:   manifest.TranscriptStorage,
+		Scope:               manifest.Scope,
+		CheckpointLimit:     manifest.CheckpointLimit,
+		CheckpointsScanned:  manifest.CheckpointsScanned,
+		OldestSessionAt:     OldestSessionAt(manifest.Sessions),
+		LatestCheckpointID:  LatestCheckpointID(manifest.Sessions),
+		Branches:            append([]Branch(nil), manifest.Branches...),
+		Sessions:            append([]Session(nil), manifest.Sessions...),
+		UnavailableSessions: append([]UnavailableSession(nil), manifest.UnavailableSessions...),
+		Warnings:            append([]string(nil), manifest.Warnings...),
 	}
 }
 

@@ -51,6 +51,13 @@ func newReleasedMemoryFixture(t *testing.T) *releasedMemoryFixture {
 	return f
 }
 
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
 func (f *releasedMemoryFixture) call(binary string, args ...string) ([]byte, error) {
 	f.t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -89,7 +96,13 @@ func (f *releasedMemoryFixture) brain() string {
 func (f *releasedMemoryFixture) requireVisible(binary, branch string, present, absent []factRecord) {
 	f.t.Helper()
 
-	out := f.run(binary, "recall", "--branch", branch, "--k", "128", "--json")
+	args := []string{"recall", "--k", "128", "--json"}
+	if binary == f.old {
+		// The released client selects a branch store; the current build reads
+		// the flat store and needs no branch at all.
+		args = append(args, "--branch", branch)
+	}
+	out := f.run(binary, args...)
 	var result struct {
 		Facts []factRecord `json:"facts"`
 	}
@@ -111,6 +124,68 @@ func (f *releasedMemoryFixture) requireVisible(binary, branch string, present, a
 		}
 	}
 
+}
+
+// legacyStorePath returns the released binary's branch store file under the
+// old facts/<branch>-<hash>/facts.ndjson layout, creating the directory in a
+// compatible shape when the released binary has not written one yet. Parked
+// (.legacy-*) dirs never match: they are migration output, not live stores.
+func (f *releasedMemoryFixture) legacyStorePath(root, branch string) string {
+	f.t.Helper()
+	prefix := strings.ReplaceAll(branch, "/", "-") + "-"
+	entries, _ := os.ReadDir(filepath.Join(root, "facts"))
+	for _, entry := range entries {
+		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") && strings.HasPrefix(entry.Name(), prefix) {
+			return filepath.Join(root, "facts", entry.Name(), "facts.ndjson")
+		}
+	}
+	dir := filepath.Join(root, "facts", prefix+"compat00")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		f.t.Fatal(err)
+	}
+	return filepath.Join(dir, "facts.ndjson")
+}
+
+// writeSchema1Fixture rebuilds the transient schema-1 store.json (records +
+// views) from the live legacy branch files, the way the pre-release converter
+// left it; the current build must still read and migrate that residue.
+func writeSchema1Fixture(t *testing.T, root string) {
+	t.Helper()
+	records := map[string]factRecord{}
+	selections := map[string]any{}
+	entries, err := os.ReadDir(filepath.Join(root, "facts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(root, "facts", entry.Name(), "facts.ndjson"))
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows, err := factmerge.ParseNDJSON(bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		views := []map[string]string{}
+		for _, rec := range rows {
+			records[rec.ID] = rec
+			views = append(views, map[string]string{"id": rec.ID})
+		}
+		selections[entry.Name()] = map[string]any{"entries": views}
+	}
+	payload, err := json.Marshal(map[string]any{"schema_version": 1, "records": records, "views": selections})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, factstore.RepositoryPath), payload, 0600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // Stable releases compare filesystem mtimes when verifying a regenerated scan
@@ -135,8 +210,14 @@ func (f *releasedMemoryFixture) purge(binary, brainDir, session string) {
 	}
 }
 
+// TestRepoFactStoreReleasedPrivacyDeletion pins the compatibility window for
+// stores a RELEASED binary's `privacy purge` cleaned. The current binary has
+// no privacy commands (deletion mirrors the checkpoint refs); what it must
+// still guarantee is that an old purge's result stays clean through current
+// reads and migrations, and that `memories storage migrate` removes the
+// hidden schema 1 residue an old purge leaves behind.
 func TestRepoFactStoreReleasedPrivacyDeletion(t *testing.T) {
-	for _, mode := range []string{"legacy", "converted-old-purge", "converted-new-purge", "schema1-old-purge-new-repair"} {
+	for _, mode := range []string{"legacy", "schema1-old-purge-new-migrate"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newReleasedMemoryFixture(t)
 			rec := f.remember(f.old, "RELEASED-PRIVATE-CANARY-84719", "main")
@@ -146,7 +227,7 @@ func TestRepoFactStoreReleasedPrivacyDeletion(t *testing.T) {
 			if err := factmerge.WriteNDJSON(&data, []factRecord{rec}); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(root, factstore.FileRelPath("main")), data.Bytes(), 0600); err != nil {
+			if err := os.WriteFile(f.legacyStorePath(root, "main"), data.Bytes(), 0600); err != nil {
 				t.Fatal(err)
 			}
 			rel := "sessions/main/private.jsonl"
@@ -173,22 +254,17 @@ func TestRepoFactStoreReleasedPrivacyDeletion(t *testing.T) {
 			if err := os.WriteFile(manifestPath, raw, 0600); err != nil {
 				t.Fatal(err)
 			}
-			if mode != "legacy" {
-				f.run(f.current, "memories", "storage", "migrate", "--json")
-			}
-			if mode == "schema1-old-purge-new-repair" {
+			if mode == "schema1-old-purge-new-migrate" {
 				writeSchema1Fixture(t, root)
 			}
-			purger := f.old
-			if mode == "converted-new-purge" {
-				purger = f.current
-			}
-			f.purge(purger, root, "private-session")
-			if mode == "schema1-old-purge-new-repair" {
-				if out, err := f.call(f.current, "privacy", "verify", "--json"); err == nil || !bytes.Contains(out, []byte(`"clean": false`)) {
-					t.Fatalf("hidden snapshot was not detected: %s, %v", out, err)
-				}
-				f.purge(f.current, root, "private-session")
+			// Purges happen on the released layout BEFORE upgrading — after the
+			// migration old binaries refuse to operate (the one-way door).
+			f.purge(f.old, root, "private-session")
+			if mode == "schema1-old-purge-new-migrate" {
+				// The old purge cannot remove the hidden schema 1 snapshot
+				// body; the current client's migration persists reconciliation
+				// and removes the residue.
+				f.run(f.current, "memories", "storage", "migrate", "--json")
 			}
 			if err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 				if err != nil {
@@ -208,10 +284,11 @@ func TestRepoFactStoreReleasedPrivacyDeletion(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			for _, binary := range []string{f.old, f.current} {
-				f.run(binary, "privacy", "verify", "--json")
-				f.requireVisible(binary, "main", nil, []factRecord{rec})
+			if mode == "legacy" {
+				f.run(f.old, "privacy", "verify", "--json")
+				f.requireVisible(f.old, "main", nil, []factRecord{rec})
 			}
+			f.requireVisible(f.current, "main", nil, []factRecord{rec})
 		})
 	}
 }
@@ -219,25 +296,29 @@ func TestRepoFactStoreReleasedPrivacyDeletion(t *testing.T) {
 func TestRepoFactStoreReleasedMemoryCommands(t *testing.T) {
 	f := newReleasedMemoryFixture(t)
 	a := f.remember(f.old, "old main memory", "main")
-	b := f.remember(f.current, "feature memory for promotion", "feature")
+	b := f.remember(f.old, "feature memory for promotion", "feature")
 	root := f.brain()
 	// Include a schema 1 upgrade in the command lifecycle.
 	writeSchema1Fixture(t, root)
-	f.run(f.current, "memories", "storage", "migrate", "--json")
-	for _, binary := range []string{f.old, f.current} {
-		f.run(binary, "memories", "promote", "--from", "feature", "--into", "main", "--json")
-		f.requireVisible(binary, "main", []factRecord{a, b}, nil)
-		for _, args := range [][]string{{"brief", "memory storage", "--json"}, {"memories", "status", "--json"}, {"memories", "tree", "--json"}, {"memories", "map", "--json"}, {"memories", "review", "--json"}, {"memories", "vitality", "--json"}, {"memories", "files", "--dir", filepath.Join(f.root, "export"), "--json"}, {"memories", "gc", "--json"}} {
-			f.run(binary, args...)
-		}
+	// promote and review were removed from the current build; the released
+	// client still ships them, and the current build must read their writes.
+	f.run(f.old, "memories", "promote", "--from", "feature", "--into", "main", "--json")
+	for _, args := range [][]string{{"memories", "status", "--json"}, {"memories", "review", "--json"}, {"memories", "gc", "--json"}} {
+		f.run(f.old, args...)
 	}
-	// Import through the old CLI, then read and remove through the new CLI.
+	// Import through the old CLI, then read everywhere.
 	importedPath := filepath.Join(f.root, "mem0.json")
 	if err := os.WriteFile(importedPath, []byte(`[{"id":"foreign-1","memory":"imported compatibility assertion"}]`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	f.run(f.old, "memories", "import", "--source", "mem0", "--file", importedPath, "--json")
-	records, err := factstore.Load(root, "main")
+	f.run(f.old, "memories", "retract", a.ID, "--json")
+	f.run(f.old, "memories", "gc", "--force", "--json")
+
+	// The current build folds every released-client write on its first
+	// mutation (storage migrate here), and the whole surface reads it flat.
+	f.run(f.current, "memories", "storage", "migrate", "--json")
+	records, err := factstore.Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,21 +329,63 @@ func TestRepoFactStoreReleasedMemoryCommands(t *testing.T) {
 		}
 	}
 	if imported.ID == "" {
-		t.Fatal("import did not persist")
+		t.Fatal("import did not persist through the migration")
 	}
-	for _, binary := range []string{f.current, f.old} {
-		f.requireVisible(binary, "main", []factRecord{imported}, nil)
+	f.requireVisible(f.current, "main", []factRecord{b, imported}, []factRecord{a})
+	for _, args := range [][]string{{"brief", "memory storage", "--json"}, {"memories", "status", "--json"}, {"memories", "tree", "--json"}, {"memories", "map", "--json"}, {"memories", "vitality", "--json"}, {"memories", "files", "--dir", filepath.Join(f.root, "export"), "--json"}, {"memories", "gc", "--json"}} {
+		f.run(f.current, args...)
 	}
-	f.run(f.old, "memories", "retract", a.ID, "--json")
 	f.run(f.current, "memories", "retract", imported.ID, "--json")
-	f.run(f.old, "memories", "gc", "--force", "--json")
-	for _, binary := range []string{f.old, f.current} {
-		f.requireVisible(binary, "main", []factRecord{b}, []factRecord{a, imported})
+	f.run(f.current, "memories", "gc", "--force", "--json")
+	f.requireVisible(f.current, "main", []factRecord{b}, []factRecord{a, imported})
+
+	// The one-way door, half-open: a released client against the migrated
+	// brain STILL WRITES a legacy branch file before its manifest check fails
+	// (verified against the real binaries), and its reads warn and return
+	// empty. The current build folds the straggler on its next mutation and
+	// says so.
+	// The released client reports the version refusal on stderr (carried in
+	// the wrapped error), not stdout. Recall is checked BEFORE the straggler
+	// write: the migrated corpus is invisible to the released client, but a
+	// legacy branch file it half-writes afterwards is its own layout and its
+	// recall does read that file back until the next fold parks it.
+	recallOut, recallErr := f.call(f.old, "recall", "--branch", "main", "--k", "8", "--json")
+	if combined := string(recallOut) + errText(recallErr); !strings.Contains(combined, "memory_unsupported_version") {
+		t.Fatalf("released recall against a migrated brain must warn, got: %s", combined)
 	}
-	f.run(f.current, "memories", "storage", "rollback", "--json")
-	c := f.remember(f.old, "after downgrade", "main")
-	f.run(f.current, "memories", "storage", "migrate", "--json")
-	f.requireVisible(f.current, "main", []factRecord{b, c}, []factRecord{a, imported})
+	var recallResult struct {
+		Facts []factRecord `json:"facts"`
+	}
+	if err := json.Unmarshal(recallOut, &recallResult); err == nil && len(recallResult.Facts) != 0 {
+		t.Fatalf("released recall against a migrated brain must return no facts, got %d", len(recallResult.Facts))
+	}
+	out, rememberErr := f.call(f.old, "remember", "straggler after migration", "--branch", "main", "--path", "project.memory.storage", "--json")
+	if combined := string(out) + errText(rememberErr); !strings.Contains(combined, "memory_unsupported_version") {
+		t.Fatalf("released remember against a migrated brain must name the upgrade, got: %s", combined)
+	}
+	migrateOut := f.run(f.current, "memories", "storage", "migrate", "--json")
+	var migrateResult struct {
+		StragglerFiles int `json:"straggler_files"`
+	}
+	if err := json.Unmarshal(migrateOut, &migrateResult); err != nil {
+		t.Fatal(err)
+	}
+	if migrateResult.StragglerFiles == 0 {
+		t.Fatalf("the straggler write must be reported: %s", migrateOut)
+	}
+	straggled, err := factstore.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, rec := range straggled {
+		if rec.Text == "straggler after migration" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the straggler write must be folded, not lost")
+	}
 }
 
 func TestRepoFactStoreReleasedHostedSync(t *testing.T) {
@@ -275,73 +398,99 @@ func TestRepoFactStoreReleasedHostedSync(t *testing.T) {
 		remote = hostedSyncTestFact("team memory "+strings.Repeat("x", i+1), time.Now())
 		fake.seed(remote, "trail-team", "acct-team", "team")
 	}
-	a := f.remember(f.old, "old sync assertion", "main")
-	f.remember(f.current, "feature local assertion", "feature")
 	syncArgs := []string{"memories", "sync", "--memories-backend", "http", "--repo-id", "repo1", "--api-url", srv.URL, "--token", fakeJWT, "--json"}
-	for _, binary := range []string{f.old, f.current, f.old} {
-		f.run(binary, syncArgs...)
-		if !fake.has(a.ID) {
-			t.Fatal("sync did not push local record")
-		}
-		f.requireVisible(binary, "main", []factRecord{a, remote}, nil)
+
+	// Phase 1: the released client alone, including its failure/retry paths —
+	// everything an old installation does BEFORE upgrading.
+	a := f.remember(f.old, "old sync assertion", "main")
+	f.run(f.old, syncArgs...)
+	if !fake.has(a.ID) {
+		t.Fatal("released sync did not push the local record")
 	}
-	// Retraction must survive new-to-old and old-to-new exchanges.
+	f.requireVisible(f.old, "main", []factRecord{a, remote}, nil)
+	fake.mu.Lock()
+	fake.denyFeed = true
+	fake.mu.Unlock()
+	if _, err := f.call(f.old, syncArgs...); err == nil {
+		t.Fatal("pull failure was hidden by the released client")
+	}
+	f.requireVisible(f.old, "main", []factRecord{a, remote}, nil)
+	oldPending := f.remember(f.old, "pending upload from the released client", "main")
+	fake.mu.Lock()
+	fake.denyFeed = false
+	fake.denyPush = true
+	fake.mu.Unlock()
+	if _, err := f.call(f.old, syncArgs...); err == nil {
+		t.Fatal("push failure was hidden by the released client")
+	}
+	if fake.has(oldPending.ID) {
+		t.Fatal("denied upload reached the server")
+	}
+	fake.mu.Lock()
+	fake.denyPush = false
+	fake.mu.Unlock()
+	f.run(f.old, syncArgs...)
+	if !fake.has(oldPending.ID) {
+		t.Fatal("released retry did not upload the pending memory")
+	}
+
+	// Phase 2: the upgrade. The current build's first sync migrates the brain
+	// (one-way door: the manifest advances past the released schema), keeps
+	// everything the released client synced, and pushes its own writes.
 	b := f.remember(f.current, "new sync assertion", "main")
 	f.run(f.current, syncArgs...)
-	f.run(f.old, "memories", "retract", b.ID, "--json")
-	f.run(f.old, syncArgs...)
+	if !fake.has(b.ID) {
+		t.Fatal("current sync did not push the local record")
+	}
+	f.requireVisible(f.current, "main", []factRecord{a, b, oldPending, remote}, nil)
+
+	// Retirements travel the wire both ways across the upgrade boundary: the
+	// server's lifecycle state wins on pull, local retirements publish on push.
+	f.run(f.current, "memories", "retract", b.ID, "--json")
 	f.run(f.current, syncArgs...)
 	f.requireVisible(f.current, "main", []factRecord{a, remote}, []factRecord{b})
-	f.run(f.current, "memories", "retract", a.ID, "--json")
-	f.run(f.current, syncArgs...)
-	f.run(f.old, syncArgs...)
-	f.requireVisible(f.old, "main", []factRecord{remote}, []factRecord{a, b})
-	// An independent repository must receive the server's lifecycle state too.
+
+	// An independent repository on either client receives the server's
+	// lifecycle state.
 	fake.setTrail(a.ID, "trail-shared")
 	fake.setTrail(b.ID, "trail-shared")
 	for _, reader := range []string{f.old, f.current} {
 		peer := newReleasedMemoryFixture(t)
 		peer.remember(reader, "peer local memory", "main")
 		peer.run(reader, syncArgs...)
-		peer.requireVisible(reader, "main", []factRecord{remote}, []factRecord{a, b})
+		// a is active on the server and carries the trail stamp, so the peer
+		// receives it; b's retraction is the lifecycle state under test.
+		peer.requireVisible(reader, "main", []factRecord{remote, a}, []factRecord{b})
 	}
 
-	// Failure and retry must preserve readable local data across both clients.
-	for _, binary := range []string{f.old, f.current} {
-		fake.mu.Lock()
-		fake.denyFeed = true
-		fake.mu.Unlock()
-		if _, err := f.call(binary, syncArgs...); err == nil {
-			t.Fatal("pull failure was hidden")
-		}
-		f.requireVisible(binary, "main", []factRecord{remote}, []factRecord{a, b})
-		// Acknowledged versions need no POST. Create a pending version so
-		// both clients must exercise the denied-upload and retry paths.
-		pending := f.remember(binary, "pending upload from "+filepath.Base(binary), "main")
-		fake.mu.Lock()
-		fake.denyFeed = false
-		fake.denyPush = true
-		fake.mu.Unlock()
-		if _, err := f.call(binary, syncArgs...); err == nil {
-			t.Fatal("push failure was hidden")
-		}
-		if fake.has(pending.ID) {
-			t.Fatal("denied upload reached the server")
-		}
-		f.requireVisible(binary, "main", []factRecord{pending}, nil)
-		fake.mu.Lock()
-		fake.denyPush = false
-		fake.mu.Unlock()
-		f.run(binary, syncArgs...)
-		if !fake.has(pending.ID) {
-			t.Fatal("retry did not upload pending memory")
-		}
+	// Phase 3: the current build's own failure/retry paths on the migrated
+	// brain.
+	fake.mu.Lock()
+	fake.denyFeed = true
+	fake.mu.Unlock()
+	if _, err := f.call(f.current, syncArgs...); err == nil {
+		t.Fatal("pull failure was hidden")
 	}
-	f.run(f.current, "memories", "storage", "rollback", "--json")
-	f.run(f.old, syncArgs...)
-	f.run(f.current, "memories", "storage", "migrate", "--json")
+	f.requireVisible(f.current, "main", []factRecord{a, remote}, []factRecord{b})
+	pending := f.remember(f.current, "pending upload from the current client", "main")
+	fake.mu.Lock()
+	fake.denyFeed = false
+	fake.denyPush = true
+	fake.mu.Unlock()
+	if _, err := f.call(f.current, syncArgs...); err == nil {
+		t.Fatal("push failure was hidden")
+	}
+	if fake.has(pending.ID) {
+		t.Fatal("denied upload reached the server")
+	}
+	f.requireVisible(f.current, "main", []factRecord{pending}, nil)
+	fake.mu.Lock()
+	fake.denyPush = false
+	fake.mu.Unlock()
 	f.run(f.current, syncArgs...)
-	f.requireVisible(f.current, "main", []factRecord{remote}, []factRecord{a, b})
+	if !fake.has(pending.ID) {
+		t.Fatal("retry did not upload pending memory")
+	}
 }
 
 func TestRepoFactStoreReleasedDistillOutlineAndReview(t *testing.T) {
@@ -353,12 +502,31 @@ func TestRepoFactStoreReleasedDistillOutlineAndReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := bmanifest.Load(root)
+	// Splice the sessions source as raw JSON: writeBrainManifestAndReadme
+	// stamps the CURRENT schema, which would close the one-way door before the
+	// released client's phase.
+	manifestPath := filepath.Join(root, "manifest.json")
+	raw, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest.Sources.Sessions = source.Sources.Sessions
-	if err := writeBrainManifestAndReadme(root, *manifest); err != nil {
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	sessionsJSON, err := json.Marshal(source.Sources.Sessions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sessionsAny any
+	if err := json.Unmarshal(sessionsJSON, &sessionsAny); err != nil {
+		t.Fatal(err)
+	}
+	m["sources"].(map[string]any)["sessions"] = sessionsAny
+	if raw, err = json.Marshal(m); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, raw, 0600); err != nil {
 		t.Fatal(err)
 	}
 	for _, s := range source.Sources.Sessions.Sessions {
@@ -382,12 +550,19 @@ func TestRepoFactStoreReleasedDistillOutlineAndReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, binary := range []string{f.old, f.current} {
+		// Before the current build writes, both clients can read; after its
+		// first write the manifest advances past the released schema and the
+		// released client reads warn-and-empty (pinned elsewhere).
+		readers := []string{f.old, f.current}
+		if binary == f.current {
+			readers = []string{f.current}
+		}
 		if err := os.WriteFile(response, []byte("preferences.coding.style\tUse sentence case in documentation.\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
 		f.run(binary, "distill", "--force", "--agent", "command", "--agent-command", cat, "--agent-command", response, "--json")
 		var distilled factRecord
-		records, err := factstore.Load(root, "main")
+		records, err := factstore.Load(root)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -399,27 +574,33 @@ func TestRepoFactStoreReleasedDistillOutlineAndReview(t *testing.T) {
 		if distilled.Origin != factstore.OriginDistilled || len(distilled.Provenance) == 0 {
 			t.Fatalf("distill lost body/provenance: %+v", distilled)
 		}
-		for _, reader := range []string{f.old, f.current} {
+		for _, reader := range readers {
 			f.requireVisible(reader, "main", []factRecord{distilled}, nil)
 		}
 		if err := os.WriteFile(response, []byte("Compatibility outline summary.\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
 		f.run(binary, "memories", "outline", "--force", "--min-memories", "1", "--agent", "command", "--agent-command", cat, "--agent-command", response, "--json")
-		for _, reader := range []string{f.old, f.current} {
+		for _, reader := range readers {
 			if out := f.run(reader, "memories", "map", "--json"); !bytes.Contains(out, []byte("Compatibility outline summary.")) {
 				t.Fatalf("outline not shared: %s", out)
 			}
 		}
-		// Resolve a persisted proposal with this client, then inspect using both.
-		target := f.remember(binary, "review target "+filepath.Base(binary), "main")
-		candidate := f.remember(binary, "review replacement "+filepath.Base(binary), "main")
-		if err := writeFactProposals(root, "main", []factProposal{{Action: factActionSupersede, CandidateID: candidate.ID, TargetID: target.ID, Confidence: 0.5, Branch: "main"}}); err != nil {
-			t.Fatal(err)
-		}
-		f.run(binary, "memories", "review", "--apply", candidate.ID, "--json")
-		for _, reader := range []string{f.old, f.current} {
-			f.requireVisible(reader, "main", []factRecord{candidate}, []factRecord{target})
+		// Resolve a persisted proposal with the released client (the current
+		// build removed the review queue), then inspect using both readers.
+		if binary == f.old {
+			target := f.remember(binary, "review target "+filepath.Base(binary), "main")
+			candidate := f.remember(binary, "review replacement "+filepath.Base(binary), "main")
+			queue := fmt.Sprintf(`{"action":%q,"candidate_id":%q,"target_id":%q,"confidence":0.5,"branch":"main"}`+"\n",
+				factActionSupersede, candidate.ID, target.ID)
+			queuePath := filepath.Join(filepath.Dir(f.legacyStorePath(root, "main")), "proposals.ndjson")
+			if err := os.WriteFile(queuePath, []byte(queue), 0600); err != nil {
+				t.Fatal(err)
+			}
+			f.run(binary, "memories", "review", "--apply", candidate.ID, "--json")
+			for _, reader := range readers {
+				f.requireVisible(reader, "main", []factRecord{candidate}, []factRecord{target})
+			}
 		}
 	}
 }

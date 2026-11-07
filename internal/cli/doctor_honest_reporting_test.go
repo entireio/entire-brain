@@ -244,9 +244,6 @@ func TestDoctorReportsAnUnparseableFactStore(t *testing.T) {
 	if state != "error" {
 		t.Fatalf("doctor facts = %q on a store every reader refuses to read, want error (detail %q)", state, detail)
 	}
-	if !strings.Contains(detail, "feature") {
-		t.Fatalf("doctor must name the unreadable branch: %q", detail)
-	}
 	// Doctor must report what the readers report, not its own opinion: it
 	// calls the same loader, so the REASON is the same string. Compare the
 	// reason only -- both sides append the same repair hint, but the readers
@@ -283,32 +280,6 @@ func TestDoctorExitsNonZeroOnAnUnparseableFactStore(t *testing.T) {
 // TestUnreadableFactBranchStoresIsDisjointFromMissing keeps the two failure
 // modes from being conflated: an absent store is not an unreadable one, and
 // each is reported in its own words.
-func TestUnreadableFactBranchStoresIsDisjointFromMissing(t *testing.T) {
-	_, _, brainDir := factsAvailabilityFixture(t)
-	source := &factSourceManifest{Facts: 1, Branches: []string{"feature"}}
-
-	if got := factstore.UnreadableBranchStores(brainDir, source); len(got) != 0 {
-		t.Fatalf("healthy store reported unreadable: %+v", got)
-	}
-
-	truncateFactStore(t, brainDir, "feature")
-	unreadable := factstore.UnreadableBranchStores(brainDir, source)
-	if len(unreadable) != 1 || unreadable[0].Branch != "feature" || unreadable[0].Err == nil {
-		t.Fatalf("factstore.UnreadableBranchStores = %+v, want one failing branch", unreadable)
-	}
-	if got := factstore.MissingBranchStores(brainDir, source); len(got) != 0 {
-		t.Fatalf("a present-but-corrupt store must not be reported as missing: %v", got)
-	}
-
-	removeFactStore(t, brainDir, "feature")
-	if got := factstore.UnreadableBranchStores(brainDir, source); len(got) != 0 {
-		t.Fatalf("an absent store must not be reported as unreadable: %+v", got)
-	}
-	if got := factstore.MissingBranchStores(brainDir, source); len(got) != 1 {
-		t.Fatalf("factstore.MissingBranchStores = %v, want [feature]", got)
-	}
-}
-
 // --- 3. warnings that mean something ----------------------------------------
 
 // TestDoctorReconciliationWarningCarriesItsReason is the "warn with no reason
@@ -523,7 +494,8 @@ const sha256HexPairsForTest = 32
 // half-written or partially restored store really has.
 func truncateFactStore(t *testing.T, brainDir, branch string) {
 	t.Helper()
-	path := filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath(branch)))
+	_ = branch // the store is flat; corruption hits the one store.json
+	path := filepath.Join(brainDir, factstore.DirName, "store.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

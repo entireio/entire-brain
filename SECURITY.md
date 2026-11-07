@@ -21,39 +21,48 @@ plainly:
 
 - **It reads sensitive material by design.** Repository source, agent session
   transcripts, prompts, commit history, and documentation.
-- **It keeps that material on your machine.** The brain lives under the plugin
-  data directory; `entire brain path` prints the location for a repository.
-- **The default build makes no network calls.** `entire brain doctor` reports
-  the effective egress policy under `memory_provider_egress`. The exceptions are
-  opt-in: agent-dependent commands — `distill`, and anything invoking a hosted
-  model — and webhooks, which stay off until `ENTIRE_BRAIN_WEBHOOK_URL` is set
-  and send fact ids, kinds and taxonomy paths but not fact text unless
-  `ENTIRE_BRAIN_WEBHOOK_INCLUDE_TEXT` is also set. Both respect
-  `ENTIRE_BRAIN_NO_EGRESS`.
+- **Local data stays in the Brain data directory.** `entire brain path` prints
+  the location for a repository.
+- **Hosted memory sync requires authorization.** A connection or an explicit
+  manual target permits repository memory records to leave the machine.
+  Uploads cover the repository store, not only the current branch. This does
+  not upload the complete Brain directory or the separate global memory store.
+- **Connected repositories can sync automatically.** Distillation, commit or
+  push notifications, and background maintenance can sync memories. A manual
+  `memories sync` command is not required after connection. `entire brain disconnect`
+  disables automatic hosted sync for the repository.
+- **Model calls and webhooks have separate controls.** Agent-dependent commands
+  can send selected context to the configured model. Webhooks stay off until
+  `ENTIRE_BRAIN_WEBHOOK_URL` is set. They send fact IDs, kinds, and taxonomy paths,
+  but not fact text unless `ENTIRE_BRAIN_WEBHOOK_INCLUDE_TEXT` is also set.
+  `entire brain doctor` reports the effective egress policy under
+  `memory_provider_egress`.
 
 ## Egress controls
 
 This is the authoritative list of the environment variables that govern where
 brain data may go, in precedence order:
 
-1. **`ENTIRE_BRAIN_NO_EGRESS`** — the master kill switch. When set, nothing
-   leaves the machine: hosted sync, publish, webhooks, non-local
-   model agents, and `add` cloning all refuse. It beats every other setting,
+1. **`ENTIRE_BRAIN_NO_EGRESS`** — the master kill switch for Brain-controlled
+   network operations. It blocks hosted sync, webhooks, non-local model agents,
+   and `add` cloning. It beats every other setting,
    including a recorded connection. The toggle fails closed: an unrecognised
    value counts as set. Intended for CI and machine-wide policy; per-repo
    intent belongs in `entire brain disconnect`. `ENTIRE_BRAIN_LOCAL_ONLY` is a
    deprecated alias — still honored, but it warns and should be migrated.
 2. **Explicit flags** (`--repo-id`, `--api-url`, `--token`) on the manual
-   hosted commands: `publish` and `memories sync`.
+   hosted command `memories sync`. For an unconnected repository, also pass
+   `--memories-backend=http` to select the explicit hosted target.
 3. **Environment overrides** for those same flags: `ENTIRE_REPO_ID`,
    `ENTIRE_API_URL`, `ENTIRE_API_TOKEN`. These fill fields but never authorize
    egress by themselves: a manual command refuses an env-only target unless the
    repo is connected, a target flag was passed on the invocation, or the legacy
    `ENTIRE_BRAIN_ALLOW_HOSTED=1` opt-in is set (deprecated; honored so existing
    env-only scripts keep working, with a one-time warning).
-4. **The recorded connection** (`hosted.json`, written only by
-   `entire brain connect` and `entire brain disconnect`). Background sync
-   reads only this binding; the override variables above never redirect it.
+4. **The recorded connection** (`hosted.json`). Use `entire brain connect`
+   and `entire brain disconnect` to set the repository's connection state.
+   Background sync reads only this binding; the override variables above never
+   redirect it.
    On a connected repo the manual commands also default to this binding when
    no flag or env supplies a field. Tokens are minted through the host CLI
    (`entire auth token`, which honors the host CLI's `ENTIRE_TOKEN`), and a
@@ -69,6 +78,9 @@ creates a connection or redirects background sync.
 The API base URL must be `https://` everywhere; plaintext `http://` is refused
 unless the host is loopback or `ENTIRE_BRAIN_ALLOW_INSECURE_API_URL` is
 explicitly set (that unlock fails closed on unrecognised values).
+
+A custom `--agent command` runner is a trusted local command. No-egress mode
+does not sandbox that process or prevent its own network calls.
 
 Because transcripts and source can carry credentials that were never meant to
 be retained, Brain applies a redaction pass to synthesised evidence, rendered

@@ -93,7 +93,7 @@ func outlineArm(facts []factRecord, query string, k int) []factRecord {
 	if len(ranked) == 0 {
 		return nil
 	}
-	outline := buildFactOutlineTree("", facts, time.Time{})
+	outline := buildFactOutlineTree(facts, time.Time{})
 	home := factHomeKey(ranked[0])
 	ids := subtreeFactIDs(outline, home)
 	if len(ids) == 0 || len(ids) == len(facts) {

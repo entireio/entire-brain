@@ -2,119 +2,18 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"math"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
-	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
-
-const factsProposalsFileName = "proposals.ndjson"
 
 // Local-only action: preserve a staged candidate for retry, never publish it.
 const factActionDefer = "defer"
-
-func factsProposalsRelPath(branch string) string {
-	return filepath.ToSlash(filepath.Join(factstore.BranchRelDir(branch), factsProposalsFileName))
-}
-
-// loadFactProposals reads a branch's pending proposals; a missing file yields
-// none. A malformed line is a hard error so a corrupt queue is surfaced.
-func loadFactProposals(brainDir, branch string) ([]factProposal, error) {
-	return loadFactProposalsAt(brainDir, factsProposalsRelPath(branch))
-}
-
-func loadFactProposalsAt(brainDir, rel string) ([]factProposal, error) {
-	data, present, err := brainstore.ReadMemoryStateFile(brainDir, rel, "fact proposals", base.DefaultMaxReadBytes)
-	if err != nil {
-		return nil, err
-	}
-	if !present {
-		return nil, nil
-	}
-	var proposals []factProposal
-	for i, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		var p factProposal
-		if err := json.Unmarshal([]byte(line), &p); err != nil {
-			return nil, fmt.Errorf("parse %s line %d: %w", rel, i+1, err)
-		}
-		proposals = append(proposals, p)
-	}
-	return proposals, nil
-}
-
-// writeFactProposals persists a branch's pending proposals, deduplicated by
-// (action, candidate, target) and sorted for a stable file. An empty set
-// removes the file so a fully-resolved branch leaves no stale queue.
-func writeFactProposals(brainDir, branch string, proposals []factProposal) error {
-	return writeFactProposalsAt(brainDir, factsProposalsRelPath(branch), proposals)
-}
-
-func writeFactProposalsAt(brainDir, rel string, proposals []factProposal) error {
-	deduped := dedupeProposals(proposals)
-	if len(deduped) == 0 {
-		return brainstore.RemoveBrainRelativeFile(brainDir, rel)
-	}
-	var buf strings.Builder
-	for _, p := range deduped {
-		data, err := json.Marshal(p)
-		if err != nil {
-			return err
-		}
-		buf.Write(data)
-		buf.WriteByte('\n')
-	}
-	return brainstore.WriteBrainRelativeFileAtomic(brainDir, rel, []byte(buf.String()), 0o600)
-}
-
-// dedupeProposals collapses identical queue entries, keyed on
-// factsync.ProposalID — action, candidate, target, BRANCH and PROPOSED_BY.
-// Keying on the triple alone silently merges rows that are distinct: distill's
-// private, unattributed backlog entry and a member-attributed conflict
-// `memories sync` raised for the same two facts collapse onto whichever landed
-// first, losing the attribution.
-func dedupeProposals(proposals []factProposal) []factProposal {
-	seen := make(map[string]struct{}, len(proposals))
-	out := make([]factProposal, 0, len(proposals))
-	key := func(p factProposal) string {
-		return strings.Join([]string{p.Action, p.CandidateID, p.TargetID, p.Branch, p.ProposedBy}, "\x00")
-	}
-	for _, p := range proposals {
-		k := key(p)
-		if _, ok := seen[k]; ok {
-			continue
-		}
-		seen[k] = struct{}{}
-		out = append(out, p)
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].TargetID != out[j].TargetID {
-			return out[i].TargetID < out[j].TargetID
-		}
-		if out[i].CandidateID != out[j].CandidateID {
-			return out[i].CandidateID < out[j].CandidateID
-		}
-		if out[i].Action != out[j].Action {
-			return out[i].Action < out[j].Action
-		}
-		if out[i].Branch != out[j].Branch {
-			return out[i].Branch < out[j].Branch
-		}
-		return out[i].ProposedBy < out[j].ProposedBy
-	})
-	return out
-}
 
 const (
 	// maxReconcileExisting bounds how many existing active facts at a

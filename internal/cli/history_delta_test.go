@@ -552,42 +552,20 @@ func TestShortTermStaleBasePinIsIgnored(t *testing.T) {
 	}
 }
 
-func TestShortTermHonorsTombstonesAndBuffersBound(t *testing.T) {
-	brainDir, changedRel, newRel := shortTermFixture(t)
-	// Tombstone the parallel session before the delta: it must not enter
-	// short-term memory.
-	stones := brainstore.LoadSessionTombstones(brainDir)
-	stones.Excluded["sess-parallel"] = sessionTombstone{At: time.Date(2026, 8, 7, 12, 30, 0, 0, time.UTC)}
-	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-	stats := buildShortTerm(t, brainDir)
-	if stats.Files != 1 {
-		t.Fatalf("tombstoned session entered short-term memory: %+v", stats)
-	}
+func TestShortTermBuffersBound(t *testing.T) {
+	brainDir, changedRel, _ := shortTermFixture(t)
+	_ = changedRel
 	manifest, _ := bmanifest.Load(brainDir)
-	overlay := loadHistoryShortTerm(brainDir, manifest.Sources.History)
-	if _, ok := overlay.Files[newRel]; ok {
-		t.Fatal("excluded transcript in overlay")
-	}
-	if _, ok := overlay.Files[changedRel]; !ok {
-		t.Fatal("included transcript missing from overlay")
-	}
-
 	// Buffer bound: with a cap of 1 record, the oldest file is dropped and the
 	// overlay reports truncation.
 	old := historyShortTermMaxRecords
 	historyShortTermMaxRecords = 1
 	t.Cleanup(func() { historyShortTermMaxRecords = old })
-	delete(stones.Excluded, "sess-parallel")
-	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-	stats = buildShortTerm(t, brainDir)
+	stats := buildShortTerm(t, brainDir)
 	if !stats.Truncated {
 		t.Fatalf("over-cap overlay must report truncation: %+v", stats)
 	}
-	overlay = loadHistoryShortTerm(brainDir, manifest.Sources.History)
+	overlay := loadHistoryShortTerm(brainDir, manifest.Sources.History)
 	if len(overlay.Files) >= 2 {
 		t.Fatalf("bound not enforced: %d files", len(overlay.Files))
 	}
@@ -972,6 +950,33 @@ func TestShortTermOverlayStatesNeverClaimCoverage(t *testing.T) {
 	buildShortTerm(t, brainDir)
 	if state, detail, _ := freshness(); state != "ok" || !strings.Contains(detail, "covers the gap") {
 		t.Fatalf("complete overlay must cover the gap: %s %q", state, detail)
+	}
+
+	// The same overlay as an older extractor left it (no extractor_version):
+	// still readable, but its entries may lack what this extractor reads, so
+	// doctor must not claim full coverage until a delta re-parses them.
+	raw, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var olderExtractor shortTermIndex
+	if err := json.Unmarshal(raw, &olderExtractor); err != nil {
+		t.Fatal(err)
+	}
+	olderExtractor.ExtractorVersion = 0
+	olderData, err := json.Marshal(olderExtractor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historyShortTermPath, append(olderData, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if fstate, detail, _ := freshness(); fstate != "warn" || strings.Contains(detail, "covers the gap (") || !strings.Contains(detail, "older extractor") {
+		t.Fatalf("an overlay from an older extractor must not claim coverage: %s %q", fstate, detail)
+	}
+	buildShortTerm(t, brainDir)
+	if state, detail, _ := freshness(); state != "ok" || !strings.Contains(detail, "covers the gap") {
+		t.Fatalf("a delta must restore coverage after re-parsing: %s %q", state, detail)
 	}
 
 	onDiskManifest, err := bmanifest.Load(brainDir)

@@ -3,13 +3,14 @@ package cli
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
+	"time"
+
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
-	"sort"
-	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -109,10 +110,13 @@ func newFactsStatusCommand(opts Options) *cobra.Command {
 			if allBranches && branch != "" {
 				return fmt.Errorf("--branch and --all-branches cannot be combined")
 			}
-			repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			// The store is flat: branch is an explicit metadata filter, never
+			// implied from the checked-out branch.
+			repoDir, brainDir, _, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), "")
 			if err != nil {
 				return err
 			}
+			resolvedBranch := strings.TrimSpace(branch)
 			now := time.Now
 			if opts.Now != nil {
 				now = opts.Now
@@ -128,7 +132,7 @@ func newFactsStatusCommand(opts Options) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch to summarize (default: current branch)")
+	cmd.Flags().StringVar(&branch, "branch", "", "Only summarize memories stamped with this branch (default: all)")
 	cmd.Flags().BoolVar(&allBranches, "all-branches", false, "Summarize every branch in the local memory store")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	return cmd
@@ -153,11 +157,15 @@ func buildFactsStatusReport(ctx context.Context, runner CommandRunner, repoDir, 
 		report.ManifestFacts = manifest.Sources.Facts
 	}
 
+	stored, err := factstore.Load(brainDir)
+	if err != nil {
+		return report, err
+	}
 	if allBranches {
 		report.Branch = ""
-		byBranch, err := factstore.LoadAllBranches(brainDir)
-		if err != nil {
-			return report, err
+		byBranch := map[string][]factRecord{}
+		for _, rec := range stored {
+			byBranch[rec.Branch] = append(byBranch[rec.Branch], rec)
 		}
 		branches := make([]string, 0, len(byBranch))
 		for branch := range byBranch {
@@ -169,20 +177,25 @@ func buildFactsStatusReport(ctx context.Context, runner CommandRunner, repoDir, 
 			if err != nil {
 				return report, err
 			}
-			vitality, vitalityWarnings := factsVitalitySummaryForBranch(brainDir, branch)
 			report.Branches = append(report.Branches, factsBranchState{
 				Branch:        branch,
 				FactsArmReady: counts.Active > 0,
 				Totals:        counts,
-				Vitality:      vitality,
 			})
 			report.Totals.add(counts)
-			report.Warnings = append(report.Warnings, vitalityWarnings...)
 		}
+		vitality, vitalityWarnings := factsVitalitySummaryForBranch(brainDir, "")
+		report.Vitality = vitality
+		report.Warnings = append(report.Warnings, vitalityWarnings...)
 	} else {
-		facts, err := factstore.Load(brainDir, branch)
-		if err != nil {
-			return report, err
+		facts := stored
+		if branch != "" {
+			facts = facts[:0:0]
+			for _, rec := range stored {
+				if rec.Branch == branch {
+					facts = append(facts, rec)
+				}
+			}
 		}
 		counts, err := factsStatusCountsForBranch(brainDir, branch, facts)
 		if err != nil {
@@ -240,11 +253,6 @@ func factsStatusCountsForBranch(brainDir, branch string, facts []factRecord) (fa
 			}
 		}
 	}
-	proposals, err := loadFactProposals(brainDir, branch)
-	if err != nil {
-		return counts, err
-	}
-	counts.Proposals = len(proposals)
 	return counts, nil
 }
 

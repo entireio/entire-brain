@@ -36,11 +36,10 @@ type Deps struct {
 	// reports a core.hooksPath shared across repos, where the hook is not
 	// managed.
 	InstallPushHook func(ctx context.Context, opts base.Options, repoDir string) (sharedHooksDir bool, hookPath string, err error)
-	// HostedFactsSyncAndPull runs one hosted sync for the branch; attempted
+	// HostedFactsSyncAndPull runs one hosted sync for the repo; attempted
 	// reports whether the gates passed and the server was contacted,
 	// pullSucceeded whether the pull half completed.
-	HostedFactsSyncAndPull func(ctx context.Context, errW io.Writer, opts base.Options, repoDir string, storage base.RepoStorage, branch string) (attempted, pullSucceeded bool, err error)
-	HostedSyncBranch       func(context.Context, base.CommandRunner, string) string
+	HostedFactsSyncAndPull func(ctx context.Context, errW io.Writer, opts base.Options, repoDir string, storage base.RepoStorage) (attempted, pullSucceeded bool, err error)
 }
 
 // minHostCLIVersion is the first host CLI release that ships `entire repo view
@@ -158,7 +157,7 @@ func runConnect(cmd *cobra.Command, cfg Config, connectOpts connectOptions) erro
 	// memories immediately. The sync runs BEFORE the banner so the headline
 	// reports what actually happened: a connect whose first pull failed has
 	// not started syncing, and claiming so hides a dead connection.
-	attempted, pullSucceeded, err := cfg.Deps.HostedFactsSyncAndPull(ctx, cmd.ErrOrStderr(), opts, repoDir, storage, cfg.Deps.HostedSyncBranch(ctx, opts.Runner, repoDir))
+	attempted, pullSucceeded, err := cfg.Deps.HostedFactsSyncAndPull(ctx, cmd.ErrOrStderr(), opts, repoDir, storage)
 	if err != nil {
 		return err
 	}

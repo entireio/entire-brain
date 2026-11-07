@@ -1,5 +1,10 @@
 # P0 GA readiness — entire-graph + entire-brain + GraphMark
 
+> Historical record: this document describes retired tooling and earlier product versions.
+> Python scripts, experiment runners, and their mise tasks are no longer available.
+> Use [the current Go checks](testing-for-optimization.md) for validation.
+> Retained measurements do not establish current behavior.
+
 A single, cross-repo checklist for the P0 General Availability of the local brain:
 the semantic provider (`entire-graph`), the brain (`entire-brain`), and the eval
 harness (`GraphMark`). The standard here matches `docs/release-blockers.md` and
