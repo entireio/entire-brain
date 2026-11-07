@@ -185,9 +185,16 @@ func toolUseOps(uses []toolUse, ln int) (tools []corpusToolOp, commands []corpus
 }
 
 // patchInputText returns the patch text of an apply_patch call that names no
-// path: the CLI wraps a custom_tool_call's text input as {"input": <patch>}.
+// path. The CLI wraps a custom_tool_call's text input as {"input": <patch>}
+// (as an object, or JSON-encoded in a string); any other string input is read
+// as the patch itself, so a converter that stops wrapping it still yields the
+// patch's files.
 func patchInputText(input any) string {
-	return jsonString(asObject(input)["input"])
+	if m := asObject(input); m != nil {
+		return jsonString(m["input"])
+	}
+	text, _ := input.(string)
+	return text
 }
 
 func patchFiles(patch string, ln int) []corpusFileRef {
@@ -223,22 +230,32 @@ func parseExitCode(output string) (int, bool) {
 // carries in its tool calls' inlined result output, keyed by call id for the
 // same correlation the native function_call_output case feeds. For a rollout
 // of an older Codex (the cli's response_item path) every result is status
-// "success" and the exit code is only in the output text. A current Codex
-// rollout (the cli's item path) carries the command's own output with no exit
-// text and marks a failure only as status "error", which, like other agents'
-// status "error", is not read here: it is not the same as a non-zero exit and
-// has no exit code. That path names every command "Bash", so its output is
-// skipped: exit text in a command's own stdout (a test that logs "exited with
-// code 1", say) is not the command's exit code.
+// "success" and the exit code is only in the wrapper text Codex puts around
+// the command's output. A current Codex rollout (the cli's item path) carries
+// the command's own output with no wrapper and marks a failure only as status
+// "error", which, like other agents' status "error", is not read here: it is
+// not the same as a non-zero exit and has no exit code. Such a call's output is
+// skipped, so exit text the command printed (a test that logs "exited with
+// code 1", say) is not taken for its exit code.
 func compactCodexExitCodes(uses []toolUse, exitByCall map[string]int) {
 	for _, use := range uses {
-		if use.id == "" || use.name == "bash" {
+		if use.id == "" || isCodexItemCommand(use.input) {
 			continue
 		}
 		if code, ok := parseExitCode(use.output); ok {
 			exitByCall[use.id] = code
 		}
 	}
+}
+
+// isCodexItemCommand reports whether a compact codex tool input is the item
+// path's command input, {"command": <script>}, keyed on that shape rather than
+// on the tool's name. Codex's own tools, which the response_item path keeps,
+// give a command as "cmd" (exec_command) or as an argv array (shell), never as
+// a "command" string.
+func isCodexItemCommand(input any) bool {
+	_, ok := jsonMap(input)["command"].(string)
+	return ok
 }
 
 func dedupeFileRefs(in []corpusFileRef) []corpusFileRef {
