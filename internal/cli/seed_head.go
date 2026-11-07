@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -330,11 +331,16 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	// worktree checkout runs it. Whatever a driver says on stderr is passed on
 	// as a seed warning rather than discarded.
 	var driverStderr seedHeadDriverStderr
+	// git localizes the line that says it gave up on a driver; LANGUAGE
+	// keeps it in English so the warning can tell a failure from other
+	// output. It changes only the language of messages, for the driver too.
+	driverEnv := maps.Clone(env)
+	driverEnv["LANGUAGE"] = "en"
 	for start := 0; start < len(driven); start += seedHeadDriverBatchFiles {
 		group := driven[start:min(start+seedHeadDriverBatchFiles, len(driven))]
 		for _, batch := range chunkPathsByBytes(group, seedHeadCheckoutArgBytes) {
 			args := append([]string{"checkout-index", "-f", prefix, "--"}, batch...)
-			_, stderr, err := runner.RunWithEnv(ctx, repoDir, env, "git", args...)
+			_, stderr, err := runner.RunWithEnv(ctx, repoDir, driverEnv, "git", args...)
 			if err != nil {
 				return fmt.Errorf("check out committed HEAD %s: %w", shortCommitHash(c.commit), err)
 			}
@@ -358,11 +364,11 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 // stderr. A driver that only prints progress is not reported as failing:
 // git gives up on one with "error: external filter '<command>' failed",
 // and only that line makes the warning say files are seeded unconverted.
-// git localizes the message, so outside English the warning says only
-// what the driver printed.
+// Otherwise the warning quotes the last line printed, which is git's own
+// when a failure was not recognized (a git that ignores LANGUAGE).
 type seedHeadDriverStderr struct {
 	calls   int
-	first   string
+	last    string
 	failure string
 }
 
@@ -372,13 +378,12 @@ func (r *seedHeadDriverStderr) add(stderr []byte) {
 		return
 	}
 	r.calls++
-	if r.first == "" {
-		r.first = truncateAgentWarning(strings.TrimSpace(firstLine(text)))
-	}
+	lines := strings.Split(text, "\n")
+	r.last = truncateAgentWarning(strings.TrimSpace(lines[len(lines)-1]))
 	if r.failure != "" {
 		return
 	}
-	for _, line := range strings.Split(text, "\n") {
+	for _, line := range lines {
 		if line = strings.TrimSpace(line); strings.HasPrefix(line, "error: external filter ") {
 			r.failure = truncateAgentWarning(line)
 			return
@@ -391,7 +396,7 @@ func (r seedHeadDriverStderr) warning() string {
 	case r.failure != "":
 		return fmt.Sprintf("a filter driver failed checking out committed HEAD (%d of its checkout calls printed to stderr), so some of its files are seeded unconverted: %s", r.calls, r.failure)
 	case r.calls > 0:
-		return fmt.Sprintf("a filter driver printed to stderr checking out committed HEAD (%d of its checkout calls): %s", r.calls, r.first)
+		return fmt.Sprintf("a filter driver printed to stderr checking out committed HEAD (%d of its checkout calls), last: %s", r.calls, r.last)
 	default:
 		return ""
 	}

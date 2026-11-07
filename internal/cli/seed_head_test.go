@@ -752,7 +752,7 @@ func TestDirtySeedReportsAFilterDriverThatFails(t *testing.T) {
 	}{
 		{name: "failing driver", path: "data/note.enc", smudge: "sh scripts/decode.sh", want: "aaa\n", warning: "a filter driver failed"},
 		{name: "failing driver on a README", path: "README.enc", smudge: "sh scripts/decode.sh", want: "aaa\n", warning: "a filter driver failed"},
-		{name: "driver printing progress", path: "data/note.enc", smudge: "echo decoding >&2; tr a b", want: "bbb\n", warning: "a filter driver printed to stderr checking out committed HEAD (1 of its checkout calls): decoding"},
+		{name: "driver printing progress", path: "data/note.enc", smudge: "echo decoding >&2; tr a b", want: "bbb\n", warning: "a filter driver printed to stderr checking out committed HEAD (1 of its checkout calls), last: decoding"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			isolateSeedHeadTemp(t)
@@ -761,8 +761,6 @@ func TestDirtySeedReportsAFilterDriverThatFails(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Setenv("GIT_CONFIG_GLOBAL", global)
-			// git's failure line is matched in English.
-			t.Setenv("LC_ALL", "C")
 			repoDir := seedHeadTestRepo(t)
 			writeSeedHeadFiles(t, repoDir, map[string]string{
 				".gitattributes":    tc.path + " filter=decode\n",
@@ -804,6 +802,13 @@ func TestSeedHeadDriverStderrTellsAFailureFromOutput(t *testing.T) {
 	if got := failed.warning(); got != want {
 		t.Errorf("warning = %q\nwant      %q", got, want)
 	}
+	// An unrecognized failure line still reaches the warning after progress.
+	var localized seedHeadDriverStderr
+	localized.add([]byte("progress 1/2\nerreur : le filtre externe 'sh decode.sh' a échoué\n"))
+	want = "a filter driver printed to stderr checking out committed HEAD (1 of its checkout calls), last: erreur : le filtre externe 'sh decode.sh' a échoué"
+	if got := localized.warning(); got != want {
+		t.Errorf("warning = %q\nwant      %q", got, want)
+	}
 }
 
 // gitConfigCountingRunner runs commands for real and records each git config
@@ -812,6 +817,7 @@ type gitConfigCountingRunner struct {
 	ExecRunner
 	configCalls   [][]string
 	checkoutCalls [][]string
+	checkoutEnvs  []map[string]string
 }
 
 func (r *gitConfigCountingRunner) RunWithEnv(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error) {
@@ -821,6 +827,7 @@ func (r *gitConfigCountingRunner) RunWithEnv(ctx context.Context, dir string, en
 			r.configCalls = append(r.configCalls, args)
 		case "checkout-index":
 			r.checkoutCalls = append(r.checkoutCalls, args)
+			r.checkoutEnvs = append(r.checkoutEnvs, env)
 		}
 	}
 	return r.ExecRunner.RunWithEnv(ctx, dir, env, name, args...)
@@ -871,9 +878,13 @@ func TestDirtySeedReadsFilterDriversInOneCall(t *testing.T) {
 		t.Error("a large file whose filter has no driver was checked out")
 	}
 	drivenCalls := 0
-	for _, args := range runner.checkoutCalls {
+	for i, args := range runner.checkoutCalls {
 		if strings.HasPrefix(args[len(args)-1], "real/") {
 			drivenCalls++
+			// git's failure line has to be in English to be recognized.
+			if got := runner.checkoutEnvs[i]["LANGUAGE"]; got != "en" {
+				t.Errorf("driver checkout LANGUAGE = %q, want en", got)
+			}
 		}
 	}
 	if want := (driven + seedHeadDriverBatchFiles - 1) / seedHeadDriverBatchFiles; drivenCalls != want {
