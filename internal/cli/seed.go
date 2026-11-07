@@ -862,6 +862,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 	if limit <= 0 {
 		limit = defaultSeedMaxFileBytes
 	}
+	written := map[string]bool{}
 	for i := range scan.Docs {
 		doc := &scan.Docs[i]
 		cleanSrc := filepath.Clean(filepath.FromSlash(doc.Path))
@@ -916,6 +917,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 			if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(cleanDst), []byte(rendered), 0o600); err != nil {
 				return err
 			}
+			written[filepath.ToSlash(cleanDst)] = true
 			continue
 		}
 		// Read only what can survive the truncation below, plus one byte to
@@ -924,6 +926,10 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 		// kept precisely because it is oversized is pure waste.
 		data, truncated, err := clibase.ReadFilePrefix(src, limit)
 		if err != nil {
+			// Said, like every other drop: the prune below removes an earlier
+			// copy of a document this run did not write, so a silent skip
+			// would leave it recorded as seeded with nothing on disk.
+			dropSeedDocument(scan, doc, fmt.Sprintf("not read: %v", err))
 			continue
 		}
 		doc.Bytes = int64(len(data))
@@ -934,8 +940,155 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 		if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(cleanDst), data, 0o600); err != nil {
 			return err
 		}
+		written[filepath.ToSlash(cleanDst)] = true
 	}
+	pruneSeedDocs(outputDir, scan, written)
 	return nil
+}
+
+// pruneSeedDocs removes every file under seed/docs that this seed did not
+// write, so the directory holds exactly the documents of the current scan.
+// Without it a reseed only ever added: a document deleted from the repository,
+// or one an earlier --worktree seed copied while it was untracked, stayed on
+// disk, and the doc index (loadDocRecordsFromSeed reads every .md under seed/)
+// kept returning it although file-index.json no longer listed it.
+//
+// A file that cannot be removed safely is left and reported as a warning
+// rather than failing the seed, as is the whole directory when a component of
+// seed/docs is a symlink, or when seed/docs and the repository overlap: an
+// --update into the repository itself (which skips the output checks a fresh
+// or --force seed makes) would otherwise delete the repository's own files
+// under seed/docs.
+func pruneSeedDocs(outputDir string, scan *seedScanResult, written map[string]bool) {
+	docsRel := filepath.Join(seedDirName, seedDocsDirName)
+	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, docsRel); err != nil {
+		scan.Warnings = append(scan.Warnings, fmt.Sprintf("old seed documents not removed: %v", err))
+		return
+	}
+	if docsDir := filepath.Join(outputDir, docsRel); seedDocsOverlapRepository(docsDir, scan.RepoDir) {
+		scan.Warnings = append(scan.Warnings, fmt.Sprintf("old seed documents not removed: %s overlaps the repository, so a file there may be one of its own", docsDir))
+		return
+	}
+	// On a case-insensitive filesystem a document renamed only in case is
+	// written over the old directory entry, which can keep the old spelling
+	// (and the filesystem's folding need not match strings.ToLower: Σ, σ and
+	// ς are one name on APFS). That file is the one just written, so a file
+	// this seed did not write by name is checked by identity against every
+	// file it did.
+	var writtenInfo []os.FileInfo
+	isWritten := func(rel string) bool {
+		if written[rel] {
+			return true
+		}
+		if writtenInfo == nil {
+			writtenInfo = make([]os.FileInfo, 0, len(written))
+			for w := range written {
+				if info, err := os.Lstat(filepath.Join(outputDir, filepath.FromSlash(w))); err == nil {
+					writtenInfo = append(writtenInfo, info)
+				}
+			}
+		}
+		have, err := os.Lstat(filepath.Join(outputDir, filepath.FromSlash(rel)))
+		if err != nil {
+			return false
+		}
+		for _, info := range writtenInfo {
+			if os.SameFile(have, info) {
+				return true
+			}
+		}
+		return false
+	}
+	var dirs []string
+	walkErr := filepath.WalkDir(filepath.Join(outputDir, docsRel), func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			scan.Warnings = append(scan.Warnings, fmt.Sprintf("old seed documents not checked: %v", err))
+			return nil
+		}
+		rel, relErr := filepath.Rel(outputDir, path)
+		if relErr != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if d.IsDir() {
+			if rel != filepath.ToSlash(docsRel) {
+				dirs = append(dirs, rel)
+			}
+			return nil
+		}
+		if isWritten(rel) {
+			return nil
+		}
+		if err := brainstore.RemoveBrainRelativeFile(outputDir, rel); err != nil {
+			scan.Warnings = append(scan.Warnings, fmt.Sprintf("old seed document not removed: %s: %v", rel, err))
+		}
+		return nil
+	})
+	if walkErr != nil {
+		scan.Warnings = append(scan.Warnings, fmt.Sprintf("old seed documents not checked: %v", walkErr))
+	}
+	// Deepest first, so a directory emptied by removing its children goes
+	// too. A directory that still holds anything is left by os.Remove.
+	for i := len(dirs) - 1; i >= 0; i-- {
+		if clibase.RejectExistingSymlinkPathComponents(outputDir, dirs[i]) == nil {
+			_ = os.Remove(filepath.Join(outputDir, filepath.FromSlash(dirs[i])))
+		}
+	}
+}
+
+// seedDocsOverlapRepository reports whether docsDir and the repository share
+// any path: either one inside the other.
+func seedDocsOverlapRepository(docsDir, repoDir string) bool {
+	if strings.TrimSpace(repoDir) == "" {
+		return false
+	}
+	return seedPathWithin(docsDir, repoDir) || seedPathWithin(repoDir, docsDir)
+}
+
+// seedPathWithin reports whether path is root or lies under it. Each ancestor
+// of path, as given and with symlinks resolved, is compared with root by
+// filesystem identity rather than by spelling: on a case-insensitive
+// filesystem /work/Repo and /work/repo are one directory, which no comparison
+// of the two strings can tell.
+func seedPathWithin(path, root string) bool {
+	rootInfo, err := os.Stat(root)
+	if err != nil {
+		return false
+	}
+	for _, spelling := range seedPathSpellings(path) {
+		for dir := spelling; ; dir = filepath.Dir(dir) {
+			if info, err := os.Stat(dir); err == nil && os.SameFile(info, rootInfo) {
+				return true
+			}
+			if filepath.Dir(dir) == dir {
+				break
+			}
+		}
+	}
+	return false
+}
+
+// seedPathSpellings returns path made absolute, and also with its symlinks
+// resolved when that differs. A path that does not exist yet is resolved
+// through its deepest ancestor that does.
+func seedPathSpellings(path string) []string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil
+	}
+	spellings := []string{abs}
+	rest := ""
+	for dir := abs; ; dir = filepath.Dir(dir) {
+		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+			spellings = append(spellings, filepath.Join(resolved, rest))
+			break
+		}
+		if filepath.Dir(dir) == dir {
+			break
+		}
+		rest = filepath.Join(filepath.Base(dir), rest)
+	}
+	return uniqueCleanPaths(spellings)
 }
 
 // renderExtractedDocument wraps extracted text as markdown, with a header that
