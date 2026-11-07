@@ -955,20 +955,49 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 //
 // A file that cannot be removed safely is left and reported as a warning
 // rather than failing the seed, as is the whole directory when a component of
-// seed/docs is a symlink.
+// seed/docs is a symlink, or when seed/docs and the repository overlap: an
+// --update into the repository itself (which skips the output checks a fresh
+// or --force seed makes) would otherwise delete the repository's own files
+// under seed/docs.
 func pruneSeedDocs(outputDir string, scan *seedScanResult, written map[string]bool) {
 	docsRel := filepath.Join(seedDirName, seedDocsDirName)
 	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, docsRel); err != nil {
 		scan.Warnings = append(scan.Warnings, fmt.Sprintf("old seed documents not removed: %v", err))
 		return
 	}
+	if docsDir := filepath.Join(outputDir, docsRel); seedDocsOverlapRepository(docsDir, scan.RepoDir) {
+		scan.Warnings = append(scan.Warnings, fmt.Sprintf("old seed documents not removed: %s overlaps the repository, so a file there may be one of its own", docsDir))
+		return
+	}
 	// On a case-insensitive filesystem a document renamed only in case is
-	// written over the old directory entry, which can keep the old spelling.
-	// That file is the one just written, so it is matched by identity rather
-	// than by name.
-	byFold := make(map[string]string, len(written))
-	for rel := range written {
-		byFold[strings.ToLower(rel)] = rel
+	// written over the old directory entry, which can keep the old spelling
+	// (and the filesystem's folding need not match strings.ToLower: Σ, σ and
+	// ς are one name on APFS). That file is the one just written, so a file
+	// this seed did not write by name is checked by identity against every
+	// file it did.
+	var writtenInfo []os.FileInfo
+	isWritten := func(rel string) bool {
+		if written[rel] {
+			return true
+		}
+		if writtenInfo == nil {
+			writtenInfo = make([]os.FileInfo, 0, len(written))
+			for w := range written {
+				if info, err := os.Lstat(filepath.Join(outputDir, filepath.FromSlash(w))); err == nil {
+					writtenInfo = append(writtenInfo, info)
+				}
+			}
+		}
+		have, err := os.Lstat(filepath.Join(outputDir, filepath.FromSlash(rel)))
+		if err != nil {
+			return false
+		}
+		for _, info := range writtenInfo {
+			if os.SameFile(have, info) {
+				return true
+			}
+		}
+		return false
 	}
 	var dirs []string
 	walkErr := filepath.WalkDir(filepath.Join(outputDir, docsRel), func(path string, d fs.DirEntry, err error) error {
@@ -987,7 +1016,7 @@ func pruneSeedDocs(outputDir string, scan *seedScanResult, written map[string]bo
 			}
 			return nil
 		}
-		if written[rel] || sameSeedDoc(outputDir, rel, byFold[strings.ToLower(rel)]) {
+		if isWritten(rel) {
 			return nil
 		}
 		if err := brainstore.RemoveBrainRelativeFile(outputDir, rel); err != nil {
@@ -1007,18 +1036,34 @@ func pruneSeedDocs(outputDir string, scan *seedScanResult, written map[string]bo
 	}
 }
 
-// sameSeedDoc reports whether rel names the file written as written, when the
-// two differ only in case.
-func sameSeedDoc(outputDir, rel, written string) bool {
-	if written == "" {
+// seedDocsOverlapRepository reports whether docsDir and the repository share
+// any path: either one inside the other, as given or with symlinks resolved.
+func seedDocsOverlapRepository(docsDir, repoDir string) bool {
+	if strings.TrimSpace(repoDir) == "" {
 		return false
 	}
-	have, err := os.Lstat(filepath.Join(outputDir, filepath.FromSlash(rel)))
+	for _, docs := range seedPathSpellings(docsDir) {
+		for _, repo := range seedPathSpellings(repoDir) {
+			if clibase.PathInside(docs, repo) || clibase.PathInside(repo, docs) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// seedPathSpellings returns path made absolute, and also with its symlinks
+// resolved when that differs.
+func seedPathSpellings(path string) []string {
+	abs, err := filepath.Abs(path)
 	if err != nil {
-		return false
+		return nil
 	}
-	want, err := os.Lstat(filepath.Join(outputDir, filepath.FromSlash(written)))
-	return err == nil && os.SameFile(have, want)
+	spellings := []string{abs}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		spellings = append(spellings, resolved)
+	}
+	return uniqueCleanPaths(spellings)
 }
 
 // renderExtractedDocument wraps extracted text as markdown, with a header that

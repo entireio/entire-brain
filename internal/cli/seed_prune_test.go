@@ -116,6 +116,18 @@ func TestCleanReseedRemovesADocumentOnlyTheWorktreeHad(t *testing.T) {
 	assertDocIndexLacks(t, outputDir, "zebra pipeline")
 }
 
+// TestUpdateIntoTheRepositoryKeepsItsOwnSeedDocs: --update skips the output
+// checks a fresh or --force seed makes, so it can seed into the repository
+// itself. Its own files under seed/docs are not this seed's to prune.
+func TestUpdateIntoTheRepositoryKeepsItsOwnSeedDocs(t *testing.T) {
+	repoDir := seedPruneRepo(t, map[string]string{"seed/docs/README.md": "# tracked\n"})
+	seedPruneRun(t, repoDir, repoDir, "--update")
+	got, err := os.ReadFile(filepath.Join(repoDir, "seed", "docs", "README.md"))
+	if err != nil || string(got) != "# tracked\n" {
+		t.Errorf("the repository's own seed/docs/README.md = %q, %v; want it untouched", got, err)
+	}
+}
+
 // TestSeedDocThatCannotBeReadIsDroppedNotSilentlySkipped: a document whose
 // source read fails is reported and taken out of the file index and the
 // seed's documents, so the prune that removes its earlier copy never leaves it
@@ -213,6 +225,23 @@ func TestPruneSeedDocsLeavesWhatItCannotSafelyRemove(t *testing.T) {
 		if _, err := os.Stat(outside); err != nil {
 			t.Errorf("the symlink's target outside the brain was touched: %v", err)
 		}
+	})
+	t.Run("second name that lowercasing does not match", func(t *testing.T) {
+		// What APFS gives a directory renamed from Σ to ς: one directory,
+		// listed under its old spelling, while strings.ToLower maps Σ to σ.
+		outputDir := t.TempDir()
+		docs := filepath.Join(outputDir, seedDirName, seedDocsDirName)
+		writeSeedPruneFiles(t, docs, map[string]string{"ς/guide.md": "# Guide\n"})
+		if err := os.MkdirAll(filepath.Join(docs, "Σ"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Link(filepath.Join(docs, "ς", "guide.md"), filepath.Join(docs, "Σ", "guide.md")); err != nil {
+			t.Skipf("hard links unavailable: %v", err)
+		}
+		scan := &seedScanResult{}
+		pruneSeedDocs(outputDir, scan, map[string]bool{"seed/docs/ς/guide.md": true})
+		assertSeedDoc(t, outputDir, "ς/guide.md", true)
+		assertSeedDoc(t, outputDir, "Σ/guide.md", true)
 	})
 	t.Run("symlinked seed directory", func(t *testing.T) {
 		outputDir := t.TempDir()
