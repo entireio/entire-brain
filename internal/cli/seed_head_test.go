@@ -1249,19 +1249,24 @@ func TestDirtySeedLeavesOutWhatAPartialCloneHasNotFetched(t *testing.T) {
 // TestDirtySeedChecksOutWhatIdentShrinks: with the ident attribute, checkout
 // rewrites an expanded "$Id: ... $" committed as it is to "$Id: <object> $",
 // so a blob over --max-file-bytes can check out under it, and a clean seed
-// includes it. It is checked out and stat'd like a driver file, up to the same
-// cap, and dropped when it stays too large.
+// includes it. Each "$Id$" also grows by an object id, so a small blob can
+// check out over it. Every ident file is checked out in the bounded batches,
+// stat'd, and dropped when it comes out too large; one past the cap is never
+// written. The limit leaves room for a SHA-256 object id.
 func TestDirtySeedChecksOutWhatIdentShrinks(t *testing.T) {
 	tempDir := isolateSeedHeadTemp(t)
 	repoDir := seedHeadTestRepo(t)
-	expanded := "$Id: " + strings.Repeat("a", 4*64) + " $\n"
-	vast := "$Id: " + strings.Repeat("v", seedHeadDriverMaxShrink*64) + " $\n"
-	plain := strings.Repeat("p", 4*64+1)
+	const limit = 128
+	expanded := "$Id: " + strings.Repeat("a", 4*limit) + " $\n"
+	vast := "$Id: " + strings.Repeat("v", seedHeadDriverMaxShrink*limit) + " $\n"
+	plain := strings.Repeat("p", 4*limit+1)
+	keywords := strings.Repeat("$Id$\n", 20)
 	// Committed before the attribute, so git add keeps the expansion.
 	writeSeedHeadFiles(t, repoDir, map[string]string{
-		"notes/id.txt":    expanded,
-		"notes/vast.txt":  vast,
-		"notes/plain.txt": plain,
+		"notes/id.txt":       expanded,
+		"notes/vast.txt":     vast,
+		"notes/plain.txt":    plain,
+		"notes/keywords.txt": keywords,
 	})
 	gitAt(t, repoDir, "add", "-A")
 	gitAt(t, repoDir, "commit", "-q", "-m", "expanded ids")
@@ -1275,9 +1280,11 @@ func TestDirtySeedChecksOutWhatIdentShrinks(t *testing.T) {
 			t.Fatalf("%s was committed at %s bytes; the fixture needs the expanded %d", rel, size, len(content))
 		}
 	}
+	keywordObject := strings.TrimSpace(gitOutputAt(t, repoDir, "rev-parse", "HEAD:notes/keywords.txt"))
+	grown := 20 * len("$Id: "+keywordObject+" $\n")
 	dirtySeedHeadTree(t, repoDir)
 
-	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: limit})
 	if err != nil {
 		t.Fatalf("check out HEAD: %v", err)
 	}
@@ -1286,11 +1293,13 @@ func TestDirtySeedChecksOutWhatIdentShrinks(t *testing.T) {
 	if got, err := os.ReadFile(filepath.Join(head.dir, "notes", "id.txt")); err != nil || string(got) != "$Id: "+object+" $\n" {
 		t.Errorf("notes/id.txt = %q, %v; want the keyword rewritten to its object", got, err)
 	}
-	if size, ok := head.unreadSize("notes/plain.txt"); !ok || size != int64(len(plain)) {
-		t.Errorf("notes/plain.txt: unread size = %d, %v; want its checked-out size %d", size, ok, len(plain))
-	}
-	if _, err := os.Lstat(filepath.Join(head.dir, "notes", "plain.txt")); err == nil {
-		t.Error("an ident file that stays too large was left in the checkout")
+	for rel, size := range map[string]int{"notes/plain.txt": len(plain), "notes/keywords.txt": grown} {
+		if got, ok := head.unreadSize(rel); !ok || got != int64(size) {
+			t.Errorf("%s: unread size = %d, %v; want its checked-out size %d", rel, got, ok, size)
+		}
+		if _, err := os.Lstat(filepath.Join(head.dir, filepath.FromSlash(rel))); err == nil {
+			t.Errorf("%s, which checks out too large, was left in the checkout", rel)
+		}
 	}
 	if _, err := os.Lstat(filepath.Join(head.dir, "notes", "vast.txt")); err == nil {
 		t.Error("a blob past the cap was written into the checkout")
@@ -1303,16 +1312,33 @@ func TestDirtySeedChecksOutWhatIdentShrinks(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	opts := Options{Version: "test", Env: env, Runner: ExecRunner{}}
 	dirtyDir := filepath.Join(t.TempDir(), "dirty")
-	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--max-file-bytes", "64", "--output", dirtyDir, repoDir); err != nil {
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--max-file-bytes", fmt.Sprint(limit), "--output", dirtyDir, repoDir); err != nil {
 		t.Fatalf("seed the dirty tree: %v\n%s", err, out)
 	}
 	if entry := seedIndexEntry(t, dirtyDir, "notes/id.txt"); !entry.Included {
 		t.Errorf("notes/id.txt = %+v; want it included, as in a clean seed", entry)
 	}
-	for rel, size := range map[string]int{"notes/vast.txt": len(vast), "notes/plain.txt": len(plain)} {
+	for rel, size := range map[string]int{"notes/vast.txt": len(vast), "notes/plain.txt": len(plain), "notes/keywords.txt": grown} {
 		if entry := seedIndexEntry(t, dirtyDir, rel); entry.Included || entry.Reason != "too large" || entry.Bytes != int64(size) {
 			t.Errorf("%s = %+v; want too large at %d bytes", rel, entry, size)
 		}
 	}
 	assertNoSeedHeadLeftovers(t, tempDir)
+}
+
+// TestSeedHeadOrderCaseAliasesKeepsTreeOrder: on a case-insensitive
+// filesystem A.txt and a.txt are one file, and a clean checkout leaves a.txt's
+// content, the later path in tree order. With A.txt driven and a.txt not,
+// a.txt is checked out with the driven files, after A.txt, rather than before.
+func TestSeedHeadOrderCaseAliasesKeepsTreeOrder(t *testing.T) {
+	t.Parallel()
+	selected := []string{"A.txt", "a.txt", "b.txt", "c.txt"}
+	wanted, driven := seedHeadOrderCaseAliases(selected, []string{"a.txt", "b.txt"}, []string{"A.txt", "c.txt"})
+	if fmt.Sprint(wanted) != "[b.txt]" || fmt.Sprint(driven) != "[A.txt a.txt c.txt]" {
+		t.Errorf("wanted = %q, driven = %q; want [b.txt] and [A.txt a.txt c.txt]", wanted, driven)
+	}
+	wanted, driven = seedHeadOrderCaseAliases(selected, []string{"b.txt"}, []string{"c.txt"})
+	if fmt.Sprint(wanted) != "[b.txt]" || fmt.Sprint(driven) != "[c.txt]" {
+		t.Errorf("without aliases: wanted = %q, driven = %q; want them unchanged", wanted, driven)
+	}
 }

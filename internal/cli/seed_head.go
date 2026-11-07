@@ -374,16 +374,18 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 			continue
 		}
 		// Every file a driver converts goes through the driver checkout below,
-		// which passes the driver's stderr on, and so does an ident file whose
-		// blob is over --max-file-bytes: both are checked out in bounded
-		// batches and dropped there when they stay too large. A doc the scan
-		// reads at any size is never removed there.
-		if drivers.runs(attr.filter) || (attr.ident && entry.size > int64(opts.maxFileBytes)) {
+		// which passes the driver's stderr on, and so does every ident file:
+		// ident shrinks an expanded keyword and grows each "$Id$" by an object
+		// id, so either can end up any size. Both are checked out in bounded
+		// batches and dropped there when they come out too large. A doc the
+		// scan reads at any size is never removed there.
+		if drivers.runs(attr.filter) || attr.ident {
 			driven = append(driven, path)
 			continue
 		}
 		wanted = append(wanted, path)
 	}
+	wanted, driven = seedHeadOrderCaseAliases(selected, wanted, driven)
 	if len(convertSkipped) > 0 {
 		// Past the cap a driver or ident could still have shrunk the file
 		// under --max-file-bytes, where a clean checkout would include it. Say
@@ -452,6 +454,44 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	}
 	c.settleLFSPointers(ctx, runner, repoDir, lfs, opts)
 	return nil
+}
+
+// seedHeadOrderCaseAliases keeps the checkout's last write the one a clean
+// checkout makes. Two paths that differ only in case are one file on a
+// case-insensitive filesystem, where a clean checkout leaves whichever path
+// comes last in tree order. The driven files are checked out after the
+// others, so a path that folds to a driven one moves in with them, and the
+// driven list is put back in tree order.
+func seedHeadOrderCaseAliases(selected, wanted, driven []string) ([]string, []string) {
+	if len(driven) == 0 {
+		return wanted, driven
+	}
+	drivenFolds := make(map[string]bool, len(driven))
+	for _, path := range driven {
+		drivenFolds[strings.ToLower(path)] = true
+	}
+	late := map[string]bool{}
+	var kept []string
+	for _, path := range wanted {
+		if drivenFolds[strings.ToLower(path)] {
+			late[path] = true
+		} else {
+			kept = append(kept, path)
+		}
+	}
+	if len(late) == 0 {
+		return wanted, driven
+	}
+	for _, path := range driven {
+		late[path] = true
+	}
+	ordered := make([]string, 0, len(late))
+	for _, path := range selected {
+		if late[path] {
+			ordered = append(ordered, path)
+		}
+	}
+	return kept, ordered
 }
 
 // seedHeadDriverStderr collects what the driver checkout calls print on
