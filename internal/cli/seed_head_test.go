@@ -1539,6 +1539,7 @@ func TestDirtySeedSizesCaseAliasesOfAPartialClone(t *testing.T) {
 	}
 	repoDir := filepath.Join(t.TempDir(), "partial")
 	gitAt(t, t.TempDir(), "clone", "-q", "--filter=blob:none", "--sparse", "file://"+sourceURL, repoDir)
+	gitAt(t, repoDir, "config", "core.autocrlf", "false")
 	gitAt(t, repoDir, "sparse-checkout", "set", "Y", "Z", "z", "src")
 	missingBlob := func(rel string) bool {
 		t.Helper()
