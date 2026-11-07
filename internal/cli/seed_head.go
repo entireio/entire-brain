@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -116,11 +117,13 @@ type seedHeadCheckout struct {
 	// warnings are what the checkout could not do faithfully, for the scan
 	// to report.
 	warnings []string
-	// folded counts the checked-out paths under each case-folded spelling,
-	// so a file two paths share on a case-insensitive filesystem is never
-	// removed from under the other one (dropCheckedOut). It is empty on a
-	// filesystem that does not fold case.
-	folded map[string]int
+	// foldsCase is whether dir's filesystem treats names that differ only in
+	// case as one file (seedHeadFoldsCase).
+	foldsCase bool
+	// readers lists, for a path checked out on behalf of its case aliases,
+	// every selected path whose scan reads its file (readersOf). It is empty
+	// on a filesystem that does not fold case.
+	readers map[string][]string
 	// tempRoot holds dir and the scratch index; remove deletes it.
 	tempRoot string
 }
@@ -202,7 +205,7 @@ func checkoutSeedHead(ctx context.Context, runner CommandRunner, repoDir string,
 	if err != nil {
 		return nil, fmt.Errorf("create committed HEAD checkout: %w", err)
 	}
-	checkout := &seedHeadCheckout{commit: commit, dir: filepath.Join(tempRoot, "tree"), paths: paths, unread: map[string]int64{}, tempRoot: tempRoot}
+	checkout := &seedHeadCheckout{commit: commit, dir: filepath.Join(tempRoot, "tree"), paths: paths, unread: map[string]int64{}, foldsCase: seedHeadFoldsCase(tempRoot), tempRoot: tempRoot}
 	if err := checkout.populate(ctx, envRunner, repoDir, entries, opts); err != nil {
 		checkout.remove()
 		return nil, err
@@ -318,10 +321,18 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	if opts.maxFiles > 0 && len(selected) > opts.maxFiles {
 		selected = selected[:opts.maxFiles]
 	}
+	// Paths that differ only in case share one file where the filesystem
+	// folds case, and a clean checkout leaves it holding the last of them it
+	// writes. Only that path is checked out, and its aliases are read through
+	// it; elsewhere each path is a file of its own.
+	work := selected
+	if c.foldsCase {
+		work, c.readers = seedHeadCaseWork(selected, seedHeadCaseAliases(c.paths, entries))
+	}
 	// The commit's own attributes decide two things below: which blobs are
 	// LFS pointers, and which ones a checkout converts.
 	var regular []string
-	for _, path := range selected {
+	for _, path := range work {
 		if entries[path].regularFile() {
 			regular = append(regular, path)
 		}
@@ -334,7 +345,7 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	var wanted []string
 	var lfs []seedHeadSmallFile
 	var absent, convertSkipped, driven []string
-	for _, path := range selected {
+	for _, path := range work {
 		entry := entries[path]
 		if entry.missing {
 			// Checking it out would mean fetching it. The partial clone's
@@ -347,9 +358,18 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 			wanted = append(wanted, path)
 			continue
 		}
-		// The path rules settle an entry whatever the file holds.
-		if _, _, pathOK := inspectSeedFilePath(path, opts); !pathOK {
-			c.unread[path] = entry.size
+		// The path rules settle an entry whatever the file holds. A path
+		// whose own rules settle it is still checked out when a case alias
+		// reads its file.
+		var reading []string
+		for _, reader := range c.readersOf(path) {
+			if _, _, pathOK := inspectSeedFilePath(reader, opts); pathOK {
+				reading = append(reading, reader)
+			} else {
+				c.unread[reader] = entry.size
+			}
+		}
+		if len(reading) == 0 {
 			continue
 		}
 		attr := attrs[path]
@@ -367,8 +387,10 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 		// So a file is checked out and the scan stats the real one, unless
 		// its blob is too large however it converts. A doc the scan reads at
 		// any size is always checked out.
-		if !seedReadsAtAnySize(path) && entry.size > seedHeadMaxShrink(attr, drivers)*int64(opts.maxFileBytes) {
-			c.unread[path] = entry.size
+		if !slices.ContainsFunc(reading, seedReadsAtAnySize) && entry.size > seedHeadMaxShrink(attr, drivers)*int64(opts.maxFileBytes) {
+			for _, reader := range reading {
+				c.unread[reader] = entry.size
+			}
 			if drivers.runs(attr.filter) || attr.ident {
 				convertSkipped = append(convertSkipped, path)
 			}
@@ -386,13 +408,6 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 		}
 		wanted = append(wanted, path)
 	}
-	// Paths that differ only in case share one file only where the
-	// filesystem folds case; elsewhere each is a file of its own, written and
-	// dropped like any other.
-	foldsCase := seedHeadFoldsCase(c.tempRoot)
-	if foldsCase {
-		wanted, driven = seedHeadOrderCaseAliases(selected, wanted, driven)
-	}
 	if len(convertSkipped) > 0 {
 		// Past the cap a driver or ident could still have shrunk the file
 		// under --max-file-bytes, where a clean checkout would include it. Say
@@ -402,21 +417,11 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	if len(absent) > 0 {
 		c.warnings = append(c.warnings, fmt.Sprintf("%d committed files were not read because this partial clone has not fetched them (first: %s)", len(absent), absent[0]))
 	}
-	c.folded = map[string]int{}
-	for _, paths := range [][]string{wanted, driven} {
-		for _, path := range paths {
-			if foldsCase {
-				c.folded[strings.ToLower(path)]++
-			}
-		}
-	}
 	// git appends each path to the prefix verbatim, so it needs the trailing
 	// separator; forward slashes are what git expects on every platform.
 	prefix := "--prefix=" + filepath.ToSlash(c.dir) + "/"
-	// -f: two tracked paths that differ only in case land on one file on a
-	// case-insensitive filesystem. A clean checkout there keeps the last one
-	// written, and so does this; without -f the second is an error and the
-	// whole seed falls back to refusing.
+	// -f: write over whatever is at a path, so the checkout never fails on
+	// one it did not expect there.
 	for _, batch := range chunkPathsByBytes(wanted, seedHeadCheckoutArgBytes) {
 		args := append([]string{"checkout-index", "-f", prefix, "--"}, batch...)
 		if _, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", args...); err != nil {
@@ -452,15 +457,8 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 			driverStderr.add(stderr)
 		}
 		for _, path := range group {
-			// A path that folds to another checked-out one is left for the
-			// scan to stat: on a case-insensitive filesystem a later alias
-			// can still overwrite its file, and an LFS pointer moved in with
-			// an alias is only settled after this (settleLFSPointers).
-			if c.folded[strings.ToLower(path)] > 1 {
-				continue
-			}
 			target := filepath.Join(c.dir, filepath.FromSlash(path))
-			if info, err := os.Lstat(target); err == nil && info.Mode().IsRegular() && !seedFileNeedsContent(path, info.Size(), opts) {
+			if info, err := os.Lstat(target); err == nil && info.Mode().IsRegular() && !c.needsContent(path, info.Size(), opts) {
 				c.dropCheckedOut(path, target, info.Size())
 			}
 		}
@@ -474,7 +472,7 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 
 // seedHeadFoldsCase reports whether the filesystem holding dir treats names
 // that differ only in case as one file. A probe that cannot be written counts
-// as folding, which only keeps more files on disk.
+// as folding; the checkout cannot write there either, and fails.
 func seedHeadFoldsCase(dir string) bool {
 	probe := filepath.Join(dir, "case-probe")
 	if err := os.WriteFile(probe, nil, 0o600); err != nil {
@@ -485,42 +483,90 @@ func seedHeadFoldsCase(dir string) bool {
 	return err == nil
 }
 
-// seedHeadOrderCaseAliases keeps the checkout's last write the one a clean
-// checkout makes. Two paths that differ only in case are one file on a
-// case-insensitive filesystem, where a clean checkout leaves whichever path
-// comes last in tree order. The driven files are checked out after the
-// others, so a path that folds to a driven one moves in with them, and the
-// driven list is put back in tree order.
-func seedHeadOrderCaseAliases(selected, wanted, driven []string) ([]string, []string) {
-	if len(driven) == 0 {
-		return wanted, driven
+// seedHeadCaseAliases maps each path that shares its file with another on a
+// case-insensitive filesystem to the one whose content that file holds. A
+// clean checkout writes every path in tree order, so the file holds the last
+// one it writes: the last of them whose blob is present, since a partial
+// clone's sparse checkout does not write a blob it has not fetched. A missing
+// alias of a present path is read through that path's file too. paths is the
+// whole sorted inventory, because the path a clean checkout writes last can
+// lie past --max-files.
+func seedHeadCaseAliases(paths []string, entries map[string]seedHeadEntry) map[string]string {
+	groups := map[string][]string{}
+	for _, path := range paths {
+		folded := strings.ToLower(path)
+		groups[folded] = append(groups[folded], path)
 	}
-	drivenFolds := make(map[string]bool, len(driven))
-	for _, path := range driven {
-		drivenFolds[strings.ToLower(path)] = true
-	}
-	late := map[string]bool{}
-	var kept []string
-	for _, path := range wanted {
-		if drivenFolds[strings.ToLower(path)] {
-			late[path] = true
-		} else {
-			kept = append(kept, path)
+	aliases := map[string]string{}
+	for _, group := range groups {
+		if len(group) < 2 {
+			continue
+		}
+		owner := ""
+		for _, path := range group {
+			if !entries[path].missing {
+				owner = path
+			}
+		}
+		if owner == "" {
+			continue
+		}
+		for _, path := range group {
+			if path != owner {
+				aliases[path] = owner
+			}
 		}
 	}
-	if len(late) == 0 {
-		return wanted, driven
-	}
-	for _, path := range driven {
-		late[path] = true
-	}
-	ordered := make([]string, 0, len(late))
+	return aliases
+}
+
+// seedHeadCaseWork is the paths populate checks out, given the selected ones
+// and their case aliases: each selected path that is no alias, and the path
+// whose file each alias is read through, in tree order. readers lists, for
+// each such path, the selected paths that read its file.
+func seedHeadCaseWork(selected []string, aliases map[string]string) ([]string, map[string][]string) {
+	readers := map[string][]string{}
+	work := make([]string, 0, len(selected))
 	for _, path := range selected {
-		if late[path] {
-			ordered = append(ordered, path)
+		if owner, ok := aliases[path]; ok {
+			readers[owner] = append(readers[owner], path)
+		} else {
+			work = append(work, path)
 		}
 	}
-	return kept, ordered
+	scanned := map[string]bool{}
+	for _, path := range work {
+		if _, ok := readers[path]; ok {
+			scanned[path] = true
+		}
+	}
+	for owner, aliased := range readers {
+		if scanned[owner] {
+			readers[owner] = append([]string{owner}, aliased...)
+		} else {
+			// Past --max-files: checked out for its aliases, never scanned.
+			work = append(work, owner)
+		}
+	}
+	sort.Strings(work)
+	return work, readers
+}
+
+// readersOf lists the selected paths whose scan reads path's file: path
+// itself, and where the filesystem folds case, its case aliases.
+func (c *seedHeadCheckout) readersOf(path string) []string {
+	if readers, ok := c.readers[path]; ok {
+		return readers
+	}
+	return []string{path}
+}
+
+// needsContent reports whether the scan reads the bytes of path's file, at
+// size, for any path that reads it.
+func (c *seedHeadCheckout) needsContent(path string, size int64, opts seedCommandOptions) bool {
+	return slices.ContainsFunc(c.readersOf(path), func(reader string) bool {
+		return seedFileNeedsContent(reader, size, opts)
+	})
 }
 
 // seedHeadDriverStderr collects what the driver checkout calls print on
@@ -566,15 +612,12 @@ func (r seedHeadDriverStderr) warning() string {
 }
 
 // dropCheckedOut records a checked-out file the scan only stats as unread at
-// size, which is what its entry is built from, and removes it. Two selected
-// paths that differ only in case share one file on a case-insensitive
-// filesystem, so a file another checked-out path folds to is left on disk:
-// removing it would take the other path's file with it. A file that cannot be
-// removed stays too; the scan never reads it either way.
+// size, for every path that reads it, which is what their entries are built
+// from, and removes it. A file that cannot be removed stays; the scan never
+// reads it either way.
 func (c *seedHeadCheckout) dropCheckedOut(path, target string, size int64) {
-	c.unread[path] = size
-	if c.folded[strings.ToLower(path)] > 1 {
-		return
+	for _, reader := range c.readersOf(path) {
+		c.unread[reader] = size
 	}
 	_ = os.Remove(target)
 }
@@ -744,7 +787,7 @@ func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner Environ
 			c.warnings = append(c.warnings, fmt.Sprintf("LFS pointer for %s names an LFS extension, which seed does not run; seeded the pointer text", file.path))
 			continue
 		}
-		if !seedFileNeedsContent(file.path, size, opts) {
+		if !c.needsContent(file.path, size, opts) {
 			c.dropCheckedOut(file.path, target, size)
 			continue
 		}

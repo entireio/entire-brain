@@ -892,34 +892,30 @@ func TestDirtySeedReadsFilterDriversInOneCall(t *testing.T) {
 	}
 }
 
-// TestDropCheckedOutKeepsAFileTwoPathsShare: on a case-insensitive
-// filesystem A.txt and a.txt are one file, and removing it for one path would
-// take the other path's file with it, so such a file stays where it is. Its
-// path is still recorded unread at its real size: on a case-sensitive
-// filesystem the file left behind can be an LFS pointer, and the scan must not
-// read that as the content.
-func TestDropCheckedOutKeepsAFileTwoPathsShare(t *testing.T) {
+// TestDropCheckedOutRecordsEveryPathThatReadsTheFile: on a case-insensitive
+// filesystem A.txt and a.txt are one file, checked out once. When the scan
+// would only stat it, it is removed, and both paths are recorded unread at its
+// size, so neither is reported as a file that could not be stat'd.
+func TestDropCheckedOutRecordsEveryPathThatReadsTheFile(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	c := &seedHeadCheckout{dir: dir, unread: map[string]int64{}, folded: map[string]int{"a.txt": 2, "b.txt": 1}}
-	for _, name := range []string{"A.txt", "b.txt"} {
+	c := &seedHeadCheckout{dir: dir, unread: map[string]int64{}, readers: map[string][]string{"a.txt": {"A.txt", "a.txt"}}}
+	for _, name := range []string{"a.txt", "b.txt"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("data"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	c.dropCheckedOut("A.txt", filepath.Join(dir, "A.txt"), 4)
+	c.dropCheckedOut("a.txt", filepath.Join(dir, "a.txt"), 4)
 	c.dropCheckedOut("b.txt", filepath.Join(dir, "b.txt"), 4)
-	if _, err := os.Stat(filepath.Join(dir, "A.txt")); err != nil {
-		t.Errorf("A.txt shares its file with another path and was removed: %v", err)
+	for _, name := range []string{"a.txt", "b.txt"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			t.Errorf("%s was not removed", name)
+		}
 	}
-	if size, ok := c.unread["A.txt"]; !ok || size != 4 {
-		t.Errorf("A.txt: unread = %d, %v; want 4 although its file was kept", size, ok)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "b.txt")); err == nil {
-		t.Error("b.txt has a file of its own and was not removed")
-	}
-	if size, ok := c.unread["b.txt"]; !ok || size != 4 {
-		t.Errorf("b.txt: unread = %d, %v; want 4", size, ok)
+	for _, path := range []string{"A.txt", "a.txt", "b.txt"} {
+		if size, ok := c.unread[path]; !ok || size != 4 {
+			t.Errorf("%s: unread = %d, %v; want 4", path, size, ok)
+		}
 	}
 }
 
@@ -1469,10 +1465,8 @@ func TestDirtySeedSettlesAnLFSPointerWithACaseAlias(t *testing.T) {
 	assertNoSeedHeadLeftovers(t, tempDir)
 }
 
-// TestSeedHeadOrderCaseAliasesKeepsTreeOrder: on a case-insensitive
-// filesystem A.txt and a.txt are one file, and a clean checkout leaves a.txt's
-// content, the later path in tree order. With A.txt driven and a.txt not,
-// a.txt is checked out with the driven files, after A.txt, rather than before.
+// TestSeedHeadFoldsCaseMatchesTheFilesystem: the probe answers what the
+// filesystem does, and leaves nothing behind.
 func TestSeedHeadFoldsCaseMatchesTheFilesystem(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -1491,15 +1485,88 @@ func TestSeedHeadFoldsCaseMatchesTheFilesystem(t *testing.T) {
 	}
 }
 
-func TestSeedHeadOrderCaseAliasesKeepsTreeOrder(t *testing.T) {
+// TestSeedHeadCaseAliasesReadTheFileACleanCheckoutLeaves: on a
+// case-insensitive filesystem a clean checkout writes every path in tree
+// order, so paths that differ only in case read the content of the last one
+// it writes. A blob a partial clone has not fetched is not written, and the
+// last path can lie past --max-files.
+func TestSeedHeadCaseAliasesReadTheFileACleanCheckoutLeaves(t *testing.T) {
 	t.Parallel()
-	selected := []string{"A.txt", "a.txt", "b.txt", "c.txt"}
-	wanted, driven := seedHeadOrderCaseAliases(selected, []string{"a.txt", "b.txt"}, []string{"A.txt", "c.txt"})
-	if fmt.Sprint(wanted) != "[b.txt]" || fmt.Sprint(driven) != "[A.txt a.txt c.txt]" {
-		t.Errorf("wanted = %q, driven = %q; want [b.txt] and [A.txt a.txt c.txt]", wanted, driven)
+	paths := []string{"A.txt", "B.txt", "C.txt", "Z.txt", "a.txt", "b.txt", "c.txt", "d.txt", "z.txt"}
+	entries := map[string]seedHeadEntry{"b.txt": {missing: true}, "C.txt": {missing: true}, "c.txt": {missing: true}}
+	aliases := seedHeadCaseAliases(paths, entries)
+	if got, want := fmt.Sprint(aliases), "map[A.txt:a.txt Z.txt:z.txt b.txt:B.txt]"; got != want {
+		t.Errorf("aliases = %s; want %s", got, want)
 	}
-	wanted, driven = seedHeadOrderCaseAliases(selected, []string{"b.txt"}, []string{"c.txt"})
-	if fmt.Sprint(wanted) != "[b.txt]" || fmt.Sprint(driven) != "[c.txt]" {
-		t.Errorf("without aliases: wanted = %q, driven = %q; want them unchanged", wanted, driven)
+	selected := paths[:len(paths)-1] // z.txt is past --max-files
+	work, readers := seedHeadCaseWork(selected, aliases)
+	if got, want := fmt.Sprint(work), "[B.txt C.txt a.txt c.txt d.txt z.txt]"; got != want {
+		t.Errorf("work = %s; want %s", got, want)
+	}
+	if got, want := fmt.Sprint(readers), "map[B.txt:[B.txt b.txt] a.txt:[a.txt A.txt] z.txt:[Z.txt]]"; got != want {
+		t.Errorf("readers = %s; want %s", got, want)
+	}
+}
+
+// TestDirtySeedChecksOutTheCaseAliasACleanCheckoutKeeps: where the
+// filesystem folds case, src/A.go and src/a.go are one file holding src/a.go,
+// the last in tree order. The checkout used to write src/A.go and skip an
+// oversized src/a.go, so the scan read the small blob for both paths. Now only
+// the path a clean checkout keeps is checked out, and its aliases follow it:
+// too large with it, or read through its file. On a case-sensitive filesystem
+// the aliases' own names are missing from the checkout, which is what shows
+// they were never written.
+func TestDirtySeedChecksOutTheCaseAliasACleanCheckoutKeeps(t *testing.T) {
+	t.Parallel()
+	repoDir := seedHeadTestRepo(t)
+	big := strings.Repeat("x", 200)
+	writeSeedHeadFiles(t, repoDir, map[string]string{
+		"src/A.go": "package src\n",
+		"src/a.go": big,
+		"x/B.txt":  big,
+		"x/b.txt":  "small\n",
+		"z/D.md":   "# selected\n",
+		"z/d.md":   "# past --max-files\n",
+	})
+	gitAt(t, repoDir, "add", "-A")
+	gitAt(t, repoDir, "commit", "-q", "-m", "case aliases")
+	commit := strings.TrimSpace(gitOutputAt(t, repoDir, "rev-parse", "HEAD"))
+	// 11 paths; z/d.md, the last, is past --max-files while z/D.md is not.
+	opts := seedCommandOptions{maxFiles: 10, maxFileBytes: 64}
+	ctx := context.Background()
+	paths, entries, err := listSeedHeadTree(ctx, ExecRunner{}, repoDir, commit, opts.maxFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 11 || paths[10] != "z/d.md" {
+		t.Fatalf("inventory = %q; want 11 paths ending in z/d.md", paths)
+	}
+	tempRoot := t.TempDir()
+	c := &seedHeadCheckout{commit: commit, dir: filepath.Join(tempRoot, "tree"), paths: paths, unread: map[string]int64{}, foldsCase: true, tempRoot: tempRoot}
+	if err := c.populate(ctx, ExecRunner{}, repoDir, entries, opts); err != nil {
+		t.Fatal(err)
+	}
+	for path, written := range map[string]bool{
+		"src/A.go":  false, // an alias of src/a.go
+		"src/a.go":  false, // too large however it converts
+		"x/B.txt":   false, // an alias of x/b.txt
+		"x/b.txt":   true,
+		"z/D.md":    false, // an alias of z/d.md
+		"z/d.md":    true,  // checked out for z/D.md, though past --max-files
+		"README.md": true,
+	} {
+		if _, err := os.Lstat(filepath.Join(c.dir, filepath.FromSlash(path))); (err == nil) != written {
+			t.Errorf("%s: written = %v; want %v", path, err == nil, written)
+		}
+	}
+	for path, want := range map[string]int64{"src/A.go": int64(len(big)), "src/a.go": int64(len(big))} {
+		if size, ok := c.unreadSize(path); !ok || size != want {
+			t.Errorf("%s: unread = %d, %v; want %d, src/a.go's size", path, size, ok, want)
+		}
+	}
+	for _, path := range []string{"x/B.txt", "x/b.txt", "z/D.md", "z/d.md"} {
+		if size, ok := c.unreadSize(path); ok {
+			t.Errorf("%s: recorded unread at %d; the scan reads it through the file checked out", path, size)
+		}
 	}
 }
