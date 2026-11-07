@@ -80,8 +80,12 @@ var claudeFileTools = map[string]string{
 
 // corpusEpisodeOps extracts ordered tool calls, shell commands (with exit/failure
 // correlated by call id), and file references from one episode's work segment.
-func corpusEpisodeOps(workText string) (tools []corpusToolOp, commands []corpusCommand, files []corpusFileRef) {
+// repoRoot is the session's checkout root from codexSessionRoot, or "" when
+// unknown; a compact codex FileChange's absolute path under it is stored
+// relative to it.
+func corpusEpisodeOps(workText, repoRoot string) (tools []corpusToolOp, commands []corpusCommand, files []corpusFileRef) {
 	exitByCall := map[string]int{}
+	failedByCall := map[string]bool{}
 	for i, line := range strings.Split(workText, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "{") {
@@ -132,16 +136,16 @@ func corpusEpisodeOps(workText string) (tools []corpusToolOp, commands []corpusC
 				// top level (see distillConversationText).
 				content = obj["content"]
 				if strings.EqualFold(jsonString(obj["agent"]), "codex") {
-					compactCodexExitCodes(content, exitByCall)
+					compactCodexResults(content, exitByCall, failedByCall)
 				}
 			}
-			t, c, f := claudeContentOps(content, ln)
+			t, c, f := claudeContentOps(content, repoRoot, ln)
 			tools = append(tools, t...)
 			commands = append(commands, c...)
 			files = append(files, f...)
 		}
 	}
-	// Correlate exit codes to their commands.
+	// Correlate exit codes, and failures that carry none, to their commands.
 	for i := range commands {
 		if commands[i].callID == "" {
 			continue
@@ -150,12 +154,14 @@ func corpusEpisodeOps(workText string) (tools []corpusToolOp, commands []corpusC
 			c := code
 			commands[i].exitCode = &c
 			commands[i].failed = code != 0
+		} else if failedByCall[commands[i].callID] {
+			commands[i].failed = true
 		}
 	}
 	return tools, commands, dedupeFileRefs(files)
 }
 
-func claudeContentOps(content any, ln int) (tools []corpusToolOp, commands []corpusCommand, files []corpusFileRef) {
+func claudeContentOps(content any, repoRoot string, ln int) (tools []corpusToolOp, commands []corpusCommand, files []corpusFileRef) {
 	blocks, ok := content.([]any)
 	if !ok {
 		return nil, nil, nil
@@ -184,9 +190,200 @@ func claudeContentOps(content any, ln int) (tools []corpusToolOp, commands []cor
 					files = append(files, patchFiles(jsonString(asObject(bm["input"])["input"]), ln)...)
 				}
 			}
+			if name == "filechange" {
+				files = append(files, fileChangeFiles(bm["input"], repoRoot, ln)...)
+			}
 		}
 	}
 	return tools, commands, files
+}
+
+// fileChangeFiles reads the file refs of a compact codex FileChange, the tool
+// the cli's item path (a current Codex rollout) writes for an edit:
+// {"changes":[{"path","kind","move_path","diff"}]}. kind is add, delete or
+// update; an update with a move_path deletes path and adds move_path. Like an
+// apply_patch, every change counts whatever its result status.
+func fileChangeFiles(input any, repoRoot string, ln int) []corpusFileRef {
+	changes, _ := asObject(input)["changes"].([]any)
+	var out []corpusFileRef
+	for _, c := range changes {
+		cm := jsonMap(c)
+		p := repoRelativePath(jsonString(cm["path"]), repoRoot)
+		if p == "" {
+			continue
+		}
+		kind := strings.ToLower(strings.TrimSpace(jsonString(cm["kind"])))
+		if move := repoRelativePath(jsonString(cm["move_path"]), repoRoot); move != "" && kind == "update" {
+			out = append(out, corpusFileRef{path: p, action: "delete", line: ln}, corpusFileRef{path: move, action: "add", line: ln})
+			continue
+		}
+		action := "edit"
+		if kind == "add" || kind == "delete" {
+			action = kind
+		}
+		out = append(out, corpusFileRef{path: p, action: action, line: ln})
+	}
+	return out
+}
+
+// repoRelativePath is p relative to repoRoot (a clean forward-slash path from
+// codexSessionRoot) when p is inside it, so it matches the repo-relative paths
+// apply_patch and the semantic index use. Any other path, including one with
+// a ".." segment (see cleanAbsPath), is returned trimmed but otherwise as
+// written.
+func repoRelativePath(p, repoRoot string) string {
+	p = strings.TrimSpace(p)
+	if repoRoot == "" {
+		return p
+	}
+	if s, ok := cleanAbsPath(p); ok {
+		if rel, ok := pathUnderRoot(s, repoRoot); ok {
+			return rel
+		}
+	}
+	return p
+}
+
+// codexSessionRoot is the checkout a compact codex session's FileChange paths
+// are under, worked out from the session itself: a FileChange path is
+// absolute, and the session's checkpoint records the repo-relative files it
+// touched (files_touched), so a path that ends in one of them, split at a
+// "/", gives a candidate root.
+//
+// A candidate scores one for each distinct session path that is a touched
+// file under it, and the highest score wins. Every split of every path counts,
+// so a checkout named like one of its own directories (/work/repo with
+// repo/main.go) still gets its full score, and repeated edits of one file
+// count once. A tie is ambiguous, whatever else the tied roots hold, so it
+// gives "" and the paths are stored as written rather than linked to the
+// wrong files. So does a session with any ".." path (see
+// codexFileChangePaths), and one with no FileChange or no path that ends in
+// a touched file.
+//
+// The live checkout the corpus is built from is not used: worktrees of a repo
+// share one corpus, and an unchanged session is not re-indexed, so the paths
+// it stores must not depend on which checkout, subdirectory or symlinked
+// spelling happened to build it first.
+func codexSessionRoot(transcript string, filesTouched []string) string {
+	if len(filesTouched) == 0 || !strings.Contains(transcript, `"FileChange"`) {
+		return ""
+	}
+	touched := map[string]bool{}
+	for _, f := range filesTouched {
+		f = path.Clean(slashPath(f))
+		if f != "." && !isAbsSlashPath(f) && f != ".." && !strings.HasPrefix(f, "../") {
+			touched[f] = true
+		}
+	}
+	paths, resolved := codexFileChangePaths(transcript)
+	if !resolved {
+		return ""
+	}
+	score := map[string]int{}
+	for _, p := range paths {
+		for i := 1; i < len(p)-1; i++ {
+			if p[i] == '/' && touched[p[i+1:]] {
+				score[p[:i]]++
+			}
+		}
+	}
+	best, bestScore, tied := "", 0, false
+	for root, n := range score {
+		switch {
+		case n > bestScore:
+			best, bestScore, tied = root, n, false
+		case n == bestScore:
+			tied = true
+		}
+	}
+	if tied {
+		return ""
+	}
+	return best
+}
+
+// codexFileChangePaths is every distinct absolute path (path and move_path)
+// in a compact codex transcript's FileChange blocks, cleaned by cleanAbsPath.
+// resolved is false when any of them has a ".." segment: where that path
+// really is cannot be known here, and leaving it out could hand the root to
+// whichever paths are left.
+func codexFileChangePaths(transcript string) (paths []string, resolved bool) {
+	seen := map[string]bool{}
+	var out []string
+	resolved = true
+	for _, line := range strings.Split(transcript, "\n") {
+		if !strings.Contains(line, `"FileChange"`) {
+			continue
+		}
+		var obj map[string]any
+		if json.Unmarshal([]byte(strings.TrimSpace(line)), &obj) != nil {
+			continue
+		}
+		blocks, _ := obj["content"].([]any)
+		for _, b := range blocks {
+			bm := jsonMap(b)
+			if jsonString(bm["name"]) != "FileChange" {
+				continue
+			}
+			changes, _ := asObject(bm["input"])["changes"].([]any)
+			for _, c := range changes {
+				cm := jsonMap(c)
+				for _, p := range []string{jsonString(cm["path"]), jsonString(cm["move_path"])} {
+					if hasDotDotSegment(slashPath(p)) {
+						resolved = false
+					}
+					if s, ok := cleanAbsPath(p); ok && !seen[s] {
+						seen[s] = true
+						out = append(out, s)
+					}
+				}
+			}
+		}
+	}
+	return out, resolved
+}
+
+// cleanAbsPath is p as a slashPath with "." segments and doubled slashes
+// removed, when it is absolute. A path with a ".." segment is refused: the OS
+// resolves ".." after symlinks, so root/link/../x.go need not be root/x.go,
+// and the checkout it was written in may not be here to look at.
+func cleanAbsPath(p string) (string, bool) {
+	s := slashPath(p)
+	if !isAbsSlashPath(s) || hasDotDotSegment(s) {
+		return "", false
+	}
+	return path.Clean(s), true
+}
+
+// hasDotDotSegment reports whether a slashPath has a ".." segment.
+func hasDotDotSegment(p string) bool {
+	return strings.Contains("/"+p+"/", "/../")
+}
+
+// pathUnderRoot is p relative to root when p is strictly inside it. Both are
+// clean slash paths, so a root that is only a string prefix (/work/repo2 for
+// /work/repo) is not a parent.
+func pathUnderRoot(p, root string) (string, bool) {
+	if strings.HasPrefix(p, root+"/") && len(p) > len(root)+1 {
+		return p[len(root)+1:], true
+	}
+	return "", false
+}
+
+// slashPath is p trimmed and with backslashes as slashes, so a Windows
+// session's paths compare with the forward-slash paths a checkpoint records,
+// whichever OS builds the corpus.
+func slashPath(p string) string {
+	return strings.ReplaceAll(strings.TrimSpace(p), `\`, "/")
+}
+
+// isAbsSlashPath reports whether a slashPath is absolute on any OS: rooted
+// ("/work/repo", "//server/share") or with a drive letter ("C:/work/repo").
+func isAbsSlashPath(p string) bool {
+	if strings.HasPrefix(p, "/") {
+		return true
+	}
+	return len(p) >= 3 && p[1] == ':' && p[2] == '/' && ((p[0] >= 'a' && p[0] <= 'z') || (p[0] >= 'A' && p[0] <= 'Z'))
 }
 
 func patchFiles(patch string, ln int) []corpusFileRef {
@@ -218,32 +415,38 @@ func parseExitCode(output string) (int, bool) {
 	return n, true
 }
 
-// compactCodexExitCodes records the exit codes a compact v1 codex record
-// carries in its tool_use blocks' inlined result.output, keyed by call id for
-// the same correlation the native function_call_output case feeds. For a
-// rollout of an older Codex (the cli's response_item path) every result is
-// status "success" and the exit code is only in the output text. A current
-// Codex rollout (the cli's item path) carries the command's own output with no
-// exit text and marks a failure only as status "error", which, like other
-// agents' status "error", is not read here: it is not the same as a non-zero
-// exit and has no exit code. That path names every command "Bash", so its
-// output is skipped: exit text in a command's own stdout (a test that logs
-// "exited with code 1", say) is not the command's exit code.
-func compactCodexExitCodes(content any, exitByCall map[string]int) {
+// compactCodexResults records what a compact v1 codex record's tool_use blocks
+// say about how their commands ended, keyed by call id for the same
+// correlation the native function_call_output case feeds.
+//
+// For a rollout of an older Codex (the cli's response_item path) every result
+// is status "success" and the exit code is only in the inlined output text,
+// which goes into exitByCall. A current Codex rollout (the cli's item path)
+// names every command "Bash", inlines the command's own output with no exit
+// text, and marks a failure only as status "error"; the exit code is not
+// carried over. So a Bash block's output is not read for exit text (a test
+// that logs "exited with code 1" is not the command's exit code), and its
+// status "error" goes into failedByCall: the command failed, with no exit code
+// to store. The cli also writes "error" for a command the user declined.
+func compactCodexResults(content any, exitByCall map[string]int, failedByCall map[string]bool) {
 	blocks, _ := content.([]any)
 	for _, b := range blocks {
 		bm := jsonMap(b)
 		if t := jsonString(bm["type"]); t != "tool_use" && t != "tool" {
 			continue
 		}
-		if jsonString(bm["name"]) == "Bash" {
-			continue
-		}
 		id := jsonString(bm["id"])
 		if id == "" {
 			continue
 		}
-		if code, ok := parseExitCode(jsonString(jsonMap(bm["result"])["output"])); ok {
+		result := jsonMap(bm["result"])
+		if jsonString(bm["name"]) == "Bash" {
+			if jsonString(result["status"]) == "error" {
+				failedByCall[id] = true
+			}
+			continue
+		}
+		if code, ok := parseExitCode(jsonString(result["output"])); ok {
 			exitByCall[id] = code
 		}
 	}
