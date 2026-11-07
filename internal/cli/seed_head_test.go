@@ -1022,18 +1022,35 @@ func seedIndexEntry(t *testing.T, outputDir, rel string) seedFileIndexEntry {
 // pointer, with no filter=lfs, is left exactly as committed.
 func TestDirtySeedResolvesLocalLFSObjects(t *testing.T) {
 	isolateSeedHeadTemp(t)
+	// No git-lfs from the user's or the system configuration: its --skip
+	// smudge rewrites a pointer with LF line ends. A CRLF pointer is what a
+	// checkout writes with no LFS driver in force, as when git-lfs is set up
+	// only in the repository's own configuration, which seed blanks.
+	global := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(global, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	repoDir := seedHeadTestRepo(t)
 	stored := "# manual kept in LFS\n"
 	large := strings.Repeat("large LFS payload ", 20)
 	missing := "# never fetched\n"
 	corrupt := "# corrupt object\n"
 	notLFS := "# a doc that quotes a pointer\n"
+	crlf := "# checked out with CRLF line ends\n"
+	extended := "# stored through an LFS extension\n"
+	extendedPointer := strings.Replace(lfsPointer(extended), "oid ", "ext-0-foo sha256:"+strings.Repeat("0", 64)+"\noid ", 1)
+	writeLFSObject(t, repoDir, crlf, crlf)
+	writeLFSObject(t, repoDir, extended, extended)
 	writeLFSObject(t, repoDir, stored, stored)
 	writeLFSObject(t, repoDir, large, large)
 	writeLFSObject(t, repoDir, corrupt, strings.Repeat("x", len(corrupt)))
 	writeLFSObject(t, repoDir, notLFS, notLFS)
 	writeSeedHeadFiles(t, repoDir, map[string]string{
-		".gitattributes":     "docs/manual.md filter=lfs -text\ndocs/missing.md filter=lfs -text\ndocs/corrupt.md filter=lfs -text\ndata/large.txt filter=lfs -text\n",
+		".gitattributes":     "docs/manual.md filter=lfs -text\ndocs/missing.md filter=lfs -text\ndocs/corrupt.md filter=lfs -text\ndata/large.txt filter=lfs -text\ndocs/crlf.md filter=lfs text eol=crlf\ndocs/extended.md filter=lfs -text\n",
+		"docs/crlf.md":       lfsPointer(crlf),
+		"docs/extended.md":   extendedPointer,
 		"docs/manual.md":     lfsPointer(stored),
 		"docs/missing.md":    lfsPointer(missing),
 		"docs/corrupt.md":    lfsPointer(corrupt),
@@ -1050,6 +1067,8 @@ func TestDirtySeedResolvesLocalLFSObjects(t *testing.T) {
 	}
 	defer head.remove()
 	for rel, want := range map[string]string{
+		"docs/crlf.md":       crlf,
+		"docs/extended.md":   extendedPointer,
 		"docs/manual.md":     stored,
 		"docs/missing.md":    lfsPointer(missing),
 		"docs/corrupt.md":    lfsPointer(corrupt),
@@ -1065,8 +1084,8 @@ func TestDirtySeedResolvesLocalLFSObjects(t *testing.T) {
 	if size, ok := head.unreadSize("data/large.txt"); !ok || size != int64(len(large)) {
 		t.Errorf("data/large.txt: unread size = %d, %v; want the object's size %d", size, ok, len(large))
 	}
-	if warnings := strings.Join(head.warnings, "\n"); !strings.Contains(warnings, "docs/corrupt.md") || strings.Contains(warnings, "docs/missing.md") {
-		t.Errorf("a stored object that fails its pointer's check must be reported, and only that one: %q", warnings)
+	if warnings := strings.Join(head.warnings, "\n"); len(head.warnings) != 2 || !strings.Contains(warnings, "docs/corrupt.md") || !strings.Contains(warnings, "docs/extended.md") {
+		t.Errorf("a stored object that fails its pointer's check, and one an extension transforms, must be reported, and only those: %q", warnings)
 	}
 }
 

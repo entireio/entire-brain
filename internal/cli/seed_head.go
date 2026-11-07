@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -687,7 +686,7 @@ func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner Environ
 		if err != nil {
 			continue
 		}
-		oid, size, ok := parseLFSPointer(data)
+		oid, size, extended, ok := parseLFSPointer(data)
 		if !ok {
 			continue
 		}
@@ -706,6 +705,13 @@ func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner Environ
 		}
 		if !info.Mode().IsRegular() || info.Size() != size {
 			c.warnings = append(c.warnings, fmt.Sprintf("LFS object for %s does not match its pointer; seeded the pointer text", file.path))
+			continue
+		}
+		if extended {
+			// An LFS extension transforms the stored object on smudge, and
+			// seed runs no smudge, so the object is not what a worktree with
+			// the content holds.
+			c.warnings = append(c.warnings, fmt.Sprintf("LFS pointer for %s names an LFS extension, which seed does not run; seeded the pointer text", file.path))
 			continue
 		}
 		if !seedFileNeedsContent(file.path, size, opts) {
@@ -768,14 +774,20 @@ func copyLFSObject(object, target, oid string, size int64) error {
 }
 
 // parseLFSPointer recognises a Git LFS pointer file (spec v1) and returns its
-// sha256 object id and size.
-func parseLFSPointer(data []byte) (string, int64, bool) {
-	if len(data) > seedHeadLFSPointerMaxBytes || !bytes.HasPrefix(data, []byte("version https://git-lfs.github.com/spec/v1\n")) {
-		return "", 0, false
+// sha256 object id and size, and whether it names an extension (ext-<n>-<name>
+// lines). An eol conversion runs on the pointer before the smudge filter, so a
+// checked-out pointer can have CRLF line ends, which git-lfs reads as a
+// pointer all the same.
+func parseLFSPointer(data []byte) (string, int64, bool, bool) {
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	if len(data) > seedHeadLFSPointerMaxBytes || !strings.HasPrefix(text, "version https://git-lfs.github.com/spec/v1\n") {
+		return "", 0, false, false
 	}
-	oid, size := "", int64(-1)
-	for _, line := range strings.Split(string(data), "\n") {
-		if value, ok := strings.CutPrefix(line, "oid sha256:"); ok {
+	oid, size, extended := "", int64(-1), false
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, "ext-") {
+			extended = true
+		} else if value, ok := strings.CutPrefix(line, "oid sha256:"); ok {
 			oid = value
 		} else if value, ok := strings.CutPrefix(line, "size "); ok {
 			if n, err := strconv.ParseInt(value, 10, 64); err == nil && n >= 0 {
@@ -784,12 +796,12 @@ func parseLFSPointer(data []byte) (string, int64, bool) {
 		}
 	}
 	if len(oid) != sha256.Size*2 || size < 0 {
-		return "", 0, false
+		return "", 0, false, false
 	}
 	if _, err := hex.DecodeString(oid); err != nil || strings.ToLower(oid) != oid {
-		return "", 0, false
+		return "", 0, false, false
 	}
-	return oid, size, true
+	return oid, size, extended, true
 }
 
 // parseSeedHeadTree parses `git ls-tree -r -z` output, with or without -l,
