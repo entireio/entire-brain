@@ -1103,15 +1103,31 @@ func pruneSeedDocs(outputDir string, scan *seedScanResult, written map[string]bo
 }
 
 // seedDocsOverlapRepository reports whether docsDir and the repository share
-// any path: either one inside the other, as given or with symlinks resolved.
+// any path: either one inside the other.
 func seedDocsOverlapRepository(docsDir, repoDir string) bool {
 	if strings.TrimSpace(repoDir) == "" {
 		return false
 	}
-	for _, docs := range seedPathSpellings(docsDir) {
-		for _, repo := range seedPathSpellings(repoDir) {
-			if clibase.PathInside(docs, repo) || clibase.PathInside(repo, docs) {
+	return seedPathWithin(docsDir, repoDir) || seedPathWithin(repoDir, docsDir)
+}
+
+// seedPathWithin reports whether path is root or lies under it. Each ancestor
+// of path, as given and with symlinks resolved, is compared with root by
+// filesystem identity rather than by spelling: on a case-insensitive
+// filesystem /work/Repo and /work/repo are one directory, which no comparison
+// of the two strings can tell.
+func seedPathWithin(path, root string) bool {
+	rootInfo, err := os.Stat(root)
+	if err != nil {
+		return false
+	}
+	for _, spelling := range seedPathSpellings(path) {
+		for dir := spelling; ; dir = filepath.Dir(dir) {
+			if info, err := os.Stat(dir); err == nil && os.SameFile(info, rootInfo) {
 				return true
+			}
+			if filepath.Dir(dir) == dir {
+				break
 			}
 		}
 	}
@@ -1119,15 +1135,24 @@ func seedDocsOverlapRepository(docsDir, repoDir string) bool {
 }
 
 // seedPathSpellings returns path made absolute, and also with its symlinks
-// resolved when that differs.
+// resolved when that differs. A path that does not exist yet is resolved
+// through its deepest ancestor that does.
 func seedPathSpellings(path string) []string {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return nil
 	}
 	spellings := []string{abs}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		spellings = append(spellings, resolved)
+	rest := ""
+	for dir := abs; ; dir = filepath.Dir(dir) {
+		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+			spellings = append(spellings, filepath.Join(resolved, rest))
+			break
+		}
+		if filepath.Dir(dir) == dir {
+			break
+		}
+		rest = filepath.Join(filepath.Base(dir), rest)
 	}
 	return uniqueCleanPaths(spellings)
 }

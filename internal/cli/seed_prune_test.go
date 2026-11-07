@@ -128,6 +128,47 @@ func TestUpdateIntoTheRepositoryKeepsItsOwnSeedDocs(t *testing.T) {
 	}
 }
 
+// TestSeedDocsOverlapRepositoryComparesDirectoriesNotSpellings: the overlap
+// check holds for a seed/docs reached through a symlink into the repository,
+// and, where the filesystem folds case, for a repository spelled in another
+// case.
+func TestSeedDocsOverlapRepositoryComparesDirectoriesNotSpellings(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	repoDir := filepath.Join(base, "Repo")
+	if err := os.MkdirAll(filepath.Join(repoDir, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	elsewhere := filepath.Join(t.TempDir(), "brain")
+	if err := os.MkdirAll(elsewhere, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	docs := func(outputDir string) string { return filepath.Join(outputDir, seedDirName, seedDocsDirName) }
+	if !seedDocsOverlapRepository(docs(repoDir), repoDir) {
+		t.Error("seed/docs inside the repository is not an overlap")
+	}
+	if seedDocsOverlapRepository(docs(elsewhere), repoDir) {
+		t.Error("seed/docs outside the repository is an overlap")
+	}
+	if seedDocsOverlapRepository(docs(repoDir), "") {
+		t.Error("no repository is an overlap")
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(filepath.Join(repoDir, "sub"), link); err == nil {
+		if !seedDocsOverlapRepository(docs(link), repoDir) {
+			t.Error("seed/docs reached through a symlink into the repository is not an overlap")
+		}
+	}
+	lower := filepath.Join(base, "repo")
+	if _, err := os.Stat(lower); err != nil {
+		t.Log("filesystem is case-sensitive; the other-case spelling is not checked")
+		return
+	}
+	if !seedDocsOverlapRepository(docs(lower), repoDir) {
+		t.Error("seed/docs under the repository spelled in another case is not an overlap")
+	}
+}
+
 // TestSeedDocThatCannotBeReadIsDroppedNotSilentlySkipped: a document whose
 // source read fails is reported and taken out of the file index and the
 // seed's documents, so the prune that removes its earlier copy never leaves it
