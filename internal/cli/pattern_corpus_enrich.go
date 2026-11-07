@@ -1,12 +1,12 @@
 package cli
 
 import (
-	"encoding/json"
 	"path"
 	"regexp"
 	"sort"
 	"strings"
 
+	"github.com/entireio/cli/transcript"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
@@ -87,17 +87,28 @@ func corpusEpisodeOps(workText string) (tools []corpusToolOp, commands []corpusC
 		if !strings.HasPrefix(line, "{") {
 			continue
 		}
-		var obj map[string]any
-		if json.Unmarshal([]byte(line), &obj) != nil {
+		record, ok := decodeTranscriptRecord(line)
+		if !ok {
 			continue
 		}
 		ln := i + 1
+		var uses []toolUse
+		if record.etf != nil {
+			if !record.etfIs(transcript.TypeAssistant) {
+				continue
+			}
+			uses = etfToolUses(record.etf)
+			if strings.EqualFold(record.etf.Agent, "codex") {
+				compactCodexExitCodes(uses, exitByCall)
+			}
+		}
+		obj := record.obj // nil for a format line, which matches no case below
 		switch jsonString(obj["type"]) {
 		case "response_item":
 			p := jsonMap(obj["payload"])
 			switch jsonString(p["type"]) {
 			case "function_call":
-				name := strings.ToLower(strings.TrimSpace(jsonString(p["name"])))
+				name := normalizeToolName(jsonString(p["name"]))
 				tools = append(tools, corpusToolOp{name: name, line: ln})
 				if cmd := shellCommandFromInput(name, p["arguments"]); cmd != "" {
 					if h := normalizeCommand(cmd); h != "" {
@@ -105,7 +116,7 @@ func corpusEpisodeOps(workText string) (tools []corpusToolOp, commands []corpusC
 					}
 				}
 			case "custom_tool_call":
-				name := strings.ToLower(strings.TrimSpace(jsonString(p["name"])))
+				name := normalizeToolName(jsonString(p["name"]))
 				tools = append(tools, corpusToolOp{name: name, line: ln})
 				files = append(files, patchFiles(jsonString(p["input"]), ln)...)
 			case "function_call_output", "custom_tool_call_output":
@@ -126,20 +137,12 @@ func corpusEpisodeOps(workText string) (tools []corpusToolOp, commands []corpusC
 			if jsonString(obj["type"]) == "message" && jsonString(msg["role"]) != "assistant" {
 				continue
 			}
-			content := msg["content"]
-			if len(msg) == 0 {
-				// ETF compact records carry the content blocks at the record's
-				// top level (see distillConversationText).
-				content = obj["content"]
-				if strings.EqualFold(jsonString(obj["agent"]), "codex") {
-					compactCodexExitCodes(content, exitByCall)
-				}
-			}
-			t, c, f := claudeContentOps(content, ln)
-			tools = append(tools, t...)
-			commands = append(commands, c...)
-			files = append(files, f...)
+			uses = nativeToolUses(msg["content"])
 		}
+		t, c, f := toolUseOps(uses, ln)
+		tools = append(tools, t...)
+		commands = append(commands, c...)
+		files = append(files, f...)
 	}
 	// Correlate exit codes to their commands.
 	for i := range commands {
@@ -155,38 +158,36 @@ func corpusEpisodeOps(workText string) (tools []corpusToolOp, commands []corpusC
 	return tools, commands, dedupeFileRefs(files)
 }
 
-func claudeContentOps(content any, ln int) (tools []corpusToolOp, commands []corpusCommand, files []corpusFileRef) {
-	blocks, ok := content.([]any)
-	if !ok {
-		return nil, nil, nil
-	}
-	for _, b := range blocks {
-		bm := jsonMap(b)
-		switch jsonString(bm["type"]) {
-		case "tool_use", "tool":
-			name := strings.ToLower(strings.TrimSpace(firstNonEmptyString(bm["name"], bm["tool"])))
-			if name == "" {
-				continue
+// toolUseOps returns the tool, command, and file operations of one record's
+// tool calls.
+func toolUseOps(uses []toolUse, ln int) (tools []corpusToolOp, commands []corpusCommand, files []corpusFileRef) {
+	for _, use := range uses {
+		if use.name == "" {
+			continue
+		}
+		tools = append(tools, corpusToolOp{name: use.name, line: ln})
+		if cmd := shellCommandFromInput(use.name, use.input); cmd != "" {
+			if h := normalizeCommand(cmd); h != "" {
+				commands = append(commands, corpusCommand{head: h, raw: cmd, line: ln, callID: use.id})
 			}
-			tools = append(tools, corpusToolOp{name: name, line: ln})
-			if cmd := shellCommandFromInput(name, bm["input"]); cmd != "" {
-				if h := normalizeCommand(cmd); h != "" {
-					commands = append(commands, corpusCommand{head: h, raw: cmd, line: ln, callID: jsonString(bm["id"])})
-				}
-			}
-			if action, isFile := claudeFileTools[name]; isFile {
-				if p := filePathFromInput(bm["input"]); p != "" {
-					files = append(files, corpusFileRef{path: p, action: action, line: ln})
-				} else if name == "apply_patch" {
-					// Compact codex has no path: the converter wraps the
-					// custom_tool_call patch text as {"input": <patch>}, so read
-					// it the way the native custom_tool_call case does.
-					files = append(files, patchFiles(jsonString(asObject(bm["input"])["input"]), ln)...)
-				}
+		}
+		if action, isFile := claudeFileTools[use.name]; isFile {
+			if p := filePathFromInput(use.input); p != "" {
+				files = append(files, corpusFileRef{path: p, action: action, line: ln})
+			} else if use.name == "apply_patch" {
+				// Compact codex has no path: the patch text is the input,
+				// read the way the native custom_tool_call case reads it.
+				files = append(files, patchFiles(patchInputText(use.input), ln)...)
 			}
 		}
 	}
 	return tools, commands, files
+}
+
+// patchInputText returns the patch text of an apply_patch call that names no
+// path: the CLI wraps a custom_tool_call's text input as {"input": <patch>}.
+func patchInputText(input any) string {
+	return jsonString(asObject(input)["input"])
 }
 
 func patchFiles(patch string, ln int) []corpusFileRef {
@@ -219,32 +220,23 @@ func parseExitCode(output string) (int, bool) {
 }
 
 // compactCodexExitCodes records the exit codes a compact v1 codex record
-// carries in its tool_use blocks' inlined result.output, keyed by call id for
-// the same correlation the native function_call_output case feeds. For a
-// rollout of an older Codex (the cli's response_item path) every result is
-// status "success" and the exit code is only in the output text. A current
-// Codex rollout (the cli's item path) carries the command's own output with no
-// exit text and marks a failure only as status "error", which, like other
-// agents' status "error", is not read here: it is not the same as a non-zero
-// exit and has no exit code. That path names every command "Bash", so its
-// output is skipped: exit text in a command's own stdout (a test that logs
-// "exited with code 1", say) is not the command's exit code.
-func compactCodexExitCodes(content any, exitByCall map[string]int) {
-	blocks, _ := content.([]any)
-	for _, b := range blocks {
-		bm := jsonMap(b)
-		if t := jsonString(bm["type"]); t != "tool_use" && t != "tool" {
+// carries in its tool calls' inlined result output, keyed by call id for the
+// same correlation the native function_call_output case feeds. For a rollout
+// of an older Codex (the cli's response_item path) every result is status
+// "success" and the exit code is only in the output text. A current Codex
+// rollout (the cli's item path) carries the command's own output with no exit
+// text and marks a failure only as status "error", which, like other agents'
+// status "error", is not read here: it is not the same as a non-zero exit and
+// has no exit code. That path names every command "Bash", so its output is
+// skipped: exit text in a command's own stdout (a test that logs "exited with
+// code 1", say) is not the command's exit code.
+func compactCodexExitCodes(uses []toolUse, exitByCall map[string]int) {
+	for _, use := range uses {
+		if use.id == "" || use.name == "bash" {
 			continue
 		}
-		if jsonString(bm["name"]) == "Bash" {
-			continue
-		}
-		id := jsonString(bm["id"])
-		if id == "" {
-			continue
-		}
-		if code, ok := parseExitCode(jsonString(jsonMap(bm["result"])["output"])); ok {
-			exitByCall[id] = code
+		if code, ok := parseExitCode(use.output); ok {
+			exitByCall[use.id] = code
 		}
 	}
 }
