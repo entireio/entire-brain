@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -802,35 +803,85 @@ func copyLFSObject(object, target, oid string, size int64) error {
 	return nil
 }
 
-// parseLFSPointer recognises a Git LFS pointer file (spec v1) and returns its
-// sha256 object id and size, and whether it names an extension (ext-<n>-<name>
-// lines). An eol conversion runs on the pointer before the smudge filter, so a
-// checked-out pointer can have CRLF line ends, which git-lfs reads as a
-// pointer all the same.
+// lfsPointerVersions are the version lines git-lfs reads as a pointer's.
+var lfsPointerVersions = map[string]bool{
+	"https://git-lfs.github.com/spec/v1": true,
+	"https://hawser.github.com/spec/v1":  true,
+	"http://git-media.io/v/2":            true,
+}
+
+// lfsPointerExtensionKey matches an extension line's key, ext-<n>-<name>.
+var lfsPointerExtensionKey = regexp.MustCompile(`^ext-\d-\w+`)
+
+// parseLFSPointer reads data the way git-lfs's smudge does (its non-strict
+// pointer decoder) and returns the sha256 object id and size, and whether the
+// pointer names an extension. With surrounding white space trimmed, a pointer
+// is non-empty "key value" lines: version, oid and size in that order,
+// extension lines only before size, and nothing after it. A file with any
+// other line, such as a document that quotes a pointer and goes on, is not
+// one: smudge leaves it as committed, so it is never replaced with an object.
+// An eol conversion runs before the smudge filter, so a checked-out pointer
+// can have CRLF line ends, which git-lfs reads as LF.
 func parseLFSPointer(data []byte) (string, int64, bool, bool) {
-	text := strings.ReplaceAll(string(data), "\r\n", "\n")
-	if len(data) > seedHeadLFSPointerMaxBytes || !strings.HasPrefix(text, "version https://git-lfs.github.com/spec/v1\n") {
+	if len(data) > seedHeadLFSPointerMaxBytes {
 		return "", 0, false, false
 	}
-	oid, size, extended := "", int64(-1), false
-	for _, line := range strings.Split(text, "\n") {
-		if strings.HasPrefix(line, "ext-") {
-			extended = true
-		} else if value, ok := strings.CutPrefix(line, "oid sha256:"); ok {
-			oid = value
-		} else if value, ok := strings.CutPrefix(line, "size "); ok {
-			if n, err := strconv.ParseInt(value, 10, 64); err == nil && n >= 0 {
-				size = n
-			}
+	keys := [...]string{"version", "oid", "size"}
+	var values [len(keys)]string
+	next := 0
+	extensions := map[byte]string{} // priority -> key
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		if line == "" {
+			continue
 		}
+		key, value, found := strings.Cut(line, " ")
+		if !found || next == len(keys) {
+			return "", 0, false, false
+		}
+		if key == keys[next] {
+			values[next] = value
+			next++
+			continue
+		}
+		// Only an extension can stand in another key's place. Its priority is
+		// the digit after "ext-", and two extensions may not share one.
+		if !lfsPointerExtensionKey.MatchString(key) {
+			return "", 0, false, false
+		}
+		if _, ok := lfsPointerObjectID(value); !ok {
+			return "", 0, false, false
+		}
+		if other, ok := extensions[key[4]]; ok && other != key {
+			return "", 0, false, false
+		}
+		extensions[key[4]] = key
 	}
-	if len(oid) != sha256.Size*2 || size < 0 {
+	if next != len(keys) || !lfsPointerVersions[values[0]] {
 		return "", 0, false, false
 	}
-	if _, err := hex.DecodeString(oid); err != nil || strings.ToLower(oid) != oid {
+	oid, ok := lfsPointerObjectID(values[1])
+	if !ok {
 		return "", 0, false, false
 	}
-	return oid, size, extended, true
+	size, err := strconv.ParseInt(values[2], 10, 64)
+	if err != nil || size < 0 {
+		return "", 0, false, false
+	}
+	return oid, size, len(extensions) > 0, true
+}
+
+// lfsPointerObjectID returns the object id in an LFS pointer's
+// "sha256:<64 lowercase hex>" value.
+func lfsPointerObjectID(value string) (string, bool) {
+	oid, ok := strings.CutPrefix(value, "sha256:")
+	if !ok || len(oid) != sha256.Size*2 || strings.ToLower(oid) != oid {
+		return "", false
+	}
+	if _, err := hex.DecodeString(oid); err != nil {
+		return "", false
+	}
+	return oid, true
 }
 
 // parseSeedHeadTree parses `git ls-tree -r -z` output, with or without -l,

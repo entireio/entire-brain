@@ -1041,6 +1041,9 @@ func TestDirtySeedResolvesLocalLFSObjects(t *testing.T) {
 	crlf := "# checked out with CRLF line ends\n"
 	extended := "# stored through an LFS extension\n"
 	extendedPointer := strings.Replace(lfsPointer(extended), "oid ", "ext-0-foo sha256:"+strings.Repeat("0", 64)+"\noid ", 1)
+	annotated := "# a pointer with a line after its fields\n"
+	annotatedText := lfsPointer(annotated) + "note this is how the manual is stored\n"
+	writeLFSObject(t, repoDir, annotated, annotated)
 	writeLFSObject(t, repoDir, crlf, crlf)
 	writeLFSObject(t, repoDir, extended, extended)
 	writeLFSObject(t, repoDir, stored, stored)
@@ -1048,7 +1051,8 @@ func TestDirtySeedResolvesLocalLFSObjects(t *testing.T) {
 	writeLFSObject(t, repoDir, corrupt, strings.Repeat("x", len(corrupt)))
 	writeLFSObject(t, repoDir, notLFS, notLFS)
 	writeSeedHeadFiles(t, repoDir, map[string]string{
-		".gitattributes":     "docs/manual.md filter=lfs -text\ndocs/missing.md filter=lfs -text\ndocs/corrupt.md filter=lfs -text\ndata/large.txt filter=lfs -text\ndocs/crlf.md filter=lfs text eol=crlf\ndocs/extended.md filter=lfs -text\n",
+		".gitattributes":     "docs/manual.md filter=lfs -text\ndocs/missing.md filter=lfs -text\ndocs/corrupt.md filter=lfs -text\ndata/large.txt filter=lfs -text\ndocs/crlf.md filter=lfs text eol=crlf\ndocs/extended.md filter=lfs -text\ndocs/annotated.md filter=lfs -text\n",
+		"docs/annotated.md":  annotatedText,
 		"docs/crlf.md":       lfsPointer(crlf),
 		"docs/extended.md":   extendedPointer,
 		"docs/manual.md":     lfsPointer(stored),
@@ -1067,6 +1071,7 @@ func TestDirtySeedResolvesLocalLFSObjects(t *testing.T) {
 	}
 	defer head.remove()
 	for rel, want := range map[string]string{
+		"docs/annotated.md":  annotatedText,
 		"docs/crlf.md":       crlf,
 		"docs/extended.md":   extendedPointer,
 		"docs/manual.md":     stored,
@@ -1086,6 +1091,68 @@ func TestDirtySeedResolvesLocalLFSObjects(t *testing.T) {
 	}
 	if warnings := strings.Join(head.warnings, "\n"); len(head.warnings) != 2 || !strings.Contains(warnings, "docs/corrupt.md") || !strings.Contains(warnings, "docs/extended.md") {
 		t.Errorf("a stored object that fails its pointer's check, and one an extension transforms, must be reported, and only those: %q", warnings)
+	}
+}
+
+// TestParseLFSPointerReadsWhatGitLFSReads: a filter=lfs file is replaced with
+// its stored object only when git-lfs's smudge would read it as a pointer, so
+// the parser accepts what git-lfs's non-strict decoder accepts. Each case's
+// expectation matches `git lfs pointer --check --stdin --no-strict` (git-lfs
+// 3.4.1). The one that mattered: a file with the pointer's fields and then
+// another line is a document, and smudge leaves it as committed.
+func TestParseLFSPointerReadsWhatGitLFSReads(t *testing.T) {
+	t.Parallel()
+	oid := strings.Repeat("a", 64)
+	ext := "sha256:" + strings.Repeat("b", 64)
+	v1 := "version https://git-lfs.github.com/spec/v1\n"
+	fields := v1 + "oid sha256:" + oid + "\nsize 12\n"
+	for _, tc := range []struct {
+		name     string
+		data     string
+		ok       bool
+		extended bool
+	}{
+		{"pointer", fields, true, false},
+		{"no final newline", strings.TrimSuffix(fields, "\n"), true, false},
+		{"CRLF line ends", strings.ReplaceAll(fields, "\n", "\r\n"), true, false},
+		{"blank lines", "\n" + v1 + "\noid sha256:" + oid + "\n\nsize 12\n\n", true, false},
+		{"white space around it", " \t" + fields + "   \n\u00a0", true, false},
+		{"a space after the size at the end", strings.TrimSuffix(fields, "\n") + " \n", true, false},
+		{"older version line", "version https://hawser.github.com/spec/v1\noid sha256:" + oid + "\nsize 12\n", true, false},
+		{"size with a plus sign", v1 + "oid sha256:" + oid + "\nsize +12\n", true, false},
+		{"extension before oid", v1 + "ext-0-foo " + ext + "\noid sha256:" + oid + "\nsize 12\n", true, true},
+		{"extension before version", "ext-0-foo " + ext + "\n" + fields, true, true},
+		{"extension between oid and size", v1 + "oid sha256:" + oid + "\next-0-foo-bar " + ext + "\nsize 12\n", true, true},
+		{"two extensions", v1 + "ext-0-foo " + ext + "\next-1-bar " + ext + "\noid sha256:" + oid + "\nsize 12\n", true, true},
+		{"a line after size", fields + "note see the manual\n", false, false},
+		{"an extension after size", fields + "ext-0-foo " + ext + "\n", false, false},
+		{"another key between oid and size", v1 + "oid sha256:" + oid + "\nnote x\nsize 12\n", false, false},
+		{"a line without a space", fields + "trailer\n", false, false},
+		{"a line of spaces inside it", v1 + "   \noid sha256:" + oid + "\nsize 12\n", false, false},
+		{"a space after the oid", v1 + "oid sha256:" + oid + " \nsize 12\n", false, false},
+		{"a tab for the space", v1 + "oid\tsha256:" + oid + "\nsize 12\n", false, false},
+		{"two spaces", v1 + "oid  sha256:" + oid + "\nsize 12\n", false, false},
+		{"a CR left inside a line", v1 + "oid sha256:" + oid + "\r\r\nsize 12\n", false, false},
+		{"a version with a trailing space", strings.Replace(fields, "v1\n", "v1 \n", 1), false, false},
+		{"no size", v1 + "oid sha256:" + oid + "\n", false, false},
+		{"an empty size", v1 + "oid sha256:" + oid + "\nsize \n", false, false},
+		{"a negative size", v1 + "oid sha256:" + oid + "\nsize -1\n", false, false},
+		{"an uppercase oid", v1 + "oid sha256:" + strings.ToUpper(oid) + "\nsize 12\n", false, false},
+		{"a long oid", v1 + "oid sha256:" + oid + "a\nsize 12\n", false, false},
+		{"a two-digit extension priority", v1 + "ext-10-foo " + ext + "\noid sha256:" + oid + "\nsize 12\n", false, false},
+		{"an extension without an oid", v1 + "ext-0-foo nothing\noid sha256:" + oid + "\nsize 12\n", false, false},
+		{"two extensions with one priority", v1 + "ext-0-foo " + ext + "\next-0-bar " + ext + "\noid sha256:" + oid + "\nsize 12\n", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			gotOID, size, extended, ok := parseLFSPointer([]byte(tc.data))
+			if ok != tc.ok || extended != tc.extended {
+				t.Fatalf("parseLFSPointer(%q) ok = %v, extended = %v; want %v, %v", tc.data, ok, extended, tc.ok, tc.extended)
+			}
+			if ok && (gotOID != oid || size != 12) {
+				t.Fatalf("parseLFSPointer(%q) = %s, %d; want %s, 12", tc.data, gotOID, size, oid)
+			}
+		})
 	}
 }
 
