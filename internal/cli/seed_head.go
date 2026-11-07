@@ -117,7 +117,8 @@ type seedHeadCheckout struct {
 	warnings []string
 	// folded counts the checked-out paths under each case-folded spelling,
 	// so a file two paths share on a case-insensitive filesystem is never
-	// removed from under the other one (dropCheckedOut).
+	// removed from under the other one (dropCheckedOut). It is empty on a
+	// filesystem that does not fold case.
 	folded map[string]int
 	// tempRoot holds dir and the scratch index; remove deletes it.
 	tempRoot string
@@ -384,7 +385,13 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 		}
 		wanted = append(wanted, path)
 	}
-	wanted, driven = seedHeadOrderCaseAliases(selected, wanted, driven)
+	// Paths that differ only in case share one file only where the
+	// filesystem folds case; elsewhere each is a file of its own, written and
+	// dropped like any other.
+	foldsCase := seedHeadFoldsCase(c.tempRoot)
+	if foldsCase {
+		wanted, driven = seedHeadOrderCaseAliases(selected, wanted, driven)
+	}
 	if len(convertSkipped) > 0 {
 		// Past the cap a driver or ident could still have shrunk the file
 		// under --max-file-bytes, where a clean checkout would include it. Say
@@ -397,7 +404,9 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	c.folded = map[string]int{}
 	for _, paths := range [][]string{wanted, driven} {
 		for _, path := range paths {
-			c.folded[strings.ToLower(path)]++
+			if foldsCase {
+				c.folded[strings.ToLower(path)]++
+			}
 		}
 	}
 	// git appends each path to the prefix verbatim, so it needs the trailing
@@ -460,6 +469,19 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	}
 	c.settleLFSPointers(ctx, runner, repoDir, lfs, opts)
 	return nil
+}
+
+// seedHeadFoldsCase reports whether the filesystem holding dir treats names
+// that differ only in case as one file. A probe that cannot be written counts
+// as folding, which only keeps more files on disk.
+func seedHeadFoldsCase(dir string) bool {
+	probe := filepath.Join(dir, "case-probe")
+	if err := os.WriteFile(probe, nil, 0o600); err != nil {
+		return true
+	}
+	defer os.Remove(probe)
+	_, err := os.Lstat(filepath.Join(dir, "CASE-PROBE"))
+	return err == nil
 }
 
 // seedHeadOrderCaseAliases keeps the checkout's last write the one a clean

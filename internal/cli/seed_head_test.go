@@ -1345,12 +1345,13 @@ func TestDirtySeedChecksOutWhatIdentShrinks(t *testing.T) {
 	assertNoSeedHeadLeftovers(t, tempDir)
 }
 
-// TestDirtySeedSettlesAnLFSPointerWithACaseAlias: a.txt is checked out in
-// the bounded batches (ident), so its case alias A.txt, an LFS pointer, moves
-// in with it. The pointer is larger than --max-file-bytes and its object is
-// not, so the batch must leave it for settleLFSPointers rather than record it
-// too large at the pointer's size. The fixture needs a case-sensitive
-// filesystem to hold both paths.
+// TestDirtySeedSettlesAnLFSPointerWithACaseAlias: on a case-sensitive
+// filesystem, paths that differ only in case are files of their own. A.txt,
+// an LFS pointer larger than --max-file-bytes whose object is not, must not be
+// moved in with its ident alias a.txt and recorded too large at the pointer's
+// size before settleLFSPointers runs. B.txt, an ident file that checks out too
+// large, is dropped from the checkout like any other although b.txt is its
+// alias. The fixture needs a case-sensitive filesystem to hold both paths.
 func TestDirtySeedSettlesAnLFSPointerWithACaseAlias(t *testing.T) {
 	tempDir := isolateSeedHeadTemp(t)
 	global := filepath.Join(t.TempDir(), "gitconfig")
@@ -1370,9 +1371,11 @@ func TestDirtySeedSettlesAnLFSPointerWithACaseAlias(t *testing.T) {
 	object := "tiny LFS object\n"
 	writeLFSObject(t, repoDir, object, object)
 	writeSeedHeadFiles(t, repoDir, map[string]string{
-		".gitattributes": "A.txt filter=lfs -text\na.txt ident\n",
+		".gitattributes": "A.txt filter=lfs -text\na.txt ident\nB.txt ident\n",
 		"A.txt":          lfsPointer(object),
 		"a.txt":          "plain alias\n",
+		"B.txt":          strings.Repeat("$Id$\n", 20),
+		"b.txt":          "plain alias\n",
 	})
 	gitAt(t, repoDir, "add", "-A")
 	gitAt(t, repoDir, "commit", "-q", "-m", "case aliases")
@@ -1389,6 +1392,12 @@ func TestDirtySeedSettlesAnLFSPointerWithACaseAlias(t *testing.T) {
 	if got, err := os.ReadFile(filepath.Join(head.dir, "A.txt")); err != nil || string(got) != object {
 		t.Errorf("A.txt = %q, %v; want its LFS object", got, err)
 	}
+	if _, err := os.Lstat(filepath.Join(head.dir, "B.txt")); err == nil {
+		t.Error("B.txt checks out too large and was left in the checkout because b.txt folds to it")
+	}
+	if _, ok := head.unreadSize("B.txt"); !ok {
+		t.Error("B.txt was not recorded unread at its checked-out size")
+	}
 	head.remove()
 	assertNoSeedHeadLeftovers(t, tempDir)
 }
@@ -1397,6 +1406,24 @@ func TestDirtySeedSettlesAnLFSPointerWithACaseAlias(t *testing.T) {
 // filesystem A.txt and a.txt are one file, and a clean checkout leaves a.txt's
 // content, the later path in tree order. With A.txt driven and a.txt not,
 // a.txt is checked out with the driven files, after A.txt, rather than before.
+func TestSeedHeadFoldsCaseMatchesTheFilesystem(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "probe"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := os.Stat(filepath.Join(dir, "PROBE"))
+	if got, want := seedHeadFoldsCase(dir), err == nil; got != want {
+		t.Errorf("seedHeadFoldsCase = %v, want %v", got, want)
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 1 {
+		t.Errorf("the probe was left behind: %v, %v", entries, err)
+	}
+	if !seedHeadFoldsCase(filepath.Join(dir, "missing")) {
+		t.Error("a directory the probe cannot be written to must count as folding")
+	}
+}
+
 func TestSeedHeadOrderCaseAliasesKeepsTreeOrder(t *testing.T) {
 	t.Parallel()
 	selected := []string{"A.txt", "a.txt", "b.txt", "c.txt"}
