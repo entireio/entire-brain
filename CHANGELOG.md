@@ -20,6 +20,11 @@ All notable changes to `entire-brain` are recorded here. The format follows
   `Caveat:` notes and environment envelopes are skipped like system-role
   records already were. As in conversation, user text that itself starts with
   `<` is skipped too. Assistant text is unchanged (#565).
+- The pattern corpus reads a Codex command's exit code only from the header
+  Codex writes before its `Output:` line. Exit-like text the command printed,
+  such as a test logging `child process exited with code 1`, is no longer
+  stored as the command's exit code or failure. The next corpus build
+  re-indexes existing sessions (#607).
 
 ## [0.5.1] - 2026-11-04
 
