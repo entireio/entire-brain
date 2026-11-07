@@ -329,8 +329,7 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	// whose command names a repository-relative helper fails here although a
 	// worktree checkout runs it. Whatever a driver says on stderr is passed on
 	// as a seed warning rather than discarded.
-	var driverStderr string
-	driverStderrBatches := 0
+	var driverStderr seedHeadDriverStderr
 	for start := 0; start < len(driven); start += seedHeadDriverBatchFiles {
 		group := driven[start:min(start+seedHeadDriverBatchFiles, len(driven))]
 		for _, batch := range chunkPathsByBytes(group, seedHeadCheckoutArgBytes) {
@@ -339,12 +338,7 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 			if err != nil {
 				return fmt.Errorf("check out committed HEAD %s: %w", shortCommitHash(c.commit), err)
 			}
-			if line := strings.TrimSpace(firstLine(strings.TrimSpace(string(stderr)))); line != "" {
-				driverStderrBatches++
-				if driverStderr == "" {
-					driverStderr = truncateAgentWarning(line)
-				}
-			}
+			driverStderr.add(stderr)
 		}
 		for _, path := range group {
 			target := filepath.Join(c.dir, filepath.FromSlash(path))
@@ -353,11 +347,54 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 			}
 		}
 	}
-	if driverStderr != "" {
-		c.warnings = append(c.warnings, fmt.Sprintf("a filter driver reported errors checking out committed HEAD (%d of its checkout calls), so some of its files may be seeded unconverted: %s", driverStderrBatches, driverStderr))
+	if warning := driverStderr.warning(); warning != "" {
+		c.warnings = append(c.warnings, warning)
 	}
 	c.settleLFSPointers(ctx, runner, repoDir, lfs, opts)
 	return nil
+}
+
+// seedHeadDriverStderr collects what the driver checkout calls print on
+// stderr. A driver that only prints progress is not reported as failing:
+// git gives up on one with "error: external filter '<command>' failed",
+// and only that line makes the warning say files are seeded unconverted.
+// git localizes the message, so outside English the warning says only
+// what the driver printed.
+type seedHeadDriverStderr struct {
+	calls   int
+	first   string
+	failure string
+}
+
+func (r *seedHeadDriverStderr) add(stderr []byte) {
+	text := strings.TrimSpace(string(stderr))
+	if text == "" {
+		return
+	}
+	r.calls++
+	if r.first == "" {
+		r.first = truncateAgentWarning(strings.TrimSpace(firstLine(text)))
+	}
+	if r.failure != "" {
+		return
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if line = strings.TrimSpace(line); strings.HasPrefix(line, "error: external filter ") {
+			r.failure = truncateAgentWarning(line)
+			return
+		}
+	}
+}
+
+func (r seedHeadDriverStderr) warning() string {
+	switch {
+	case r.failure != "":
+		return fmt.Sprintf("a filter driver failed checking out committed HEAD (%d of its checkout calls printed to stderr), so some of its files are seeded unconverted: %s", r.calls, r.failure)
+	case r.calls > 0:
+		return fmt.Sprintf("a filter driver printed to stderr checking out committed HEAD (%d of its checkout calls): %s", r.calls, r.first)
+	default:
+		return ""
+	}
 }
 
 // dropCheckedOut records a checked-out file the scan only stats as unread at

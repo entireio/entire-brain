@@ -743,23 +743,31 @@ func TestDirtySeedDropsWhatAFilterDriverGrows(t *testing.T) {
 // empty work tree so the worktree's attributes stay out, which breaks a
 // global driver whose command names a repository-relative helper. git then
 // writes the blob unconverted, and the seed says so instead of passing the
-// unconverted file off silently.
+// unconverted file off silently. A README the scan reads at any size goes
+// through the same driver checkout. A driver that converts the file and only
+// prints progress is reported as output, not as a failure.
 func TestDirtySeedReportsAFilterDriverThatFails(t *testing.T) {
-	// A README the scan reads at any size goes through the same driver
-	// checkout, so its failure is reported too.
-	for _, path := range []string{"data/note.enc", "README.enc"} {
-		t.Run(path, func(t *testing.T) {
+	for _, tc := range []struct {
+		name, path, smudge, want, warning string
+	}{
+		{name: "failing driver", path: "data/note.enc", smudge: "sh scripts/decode.sh", want: "aaa\n", warning: "a filter driver failed"},
+		{name: "failing driver on a README", path: "README.enc", smudge: "sh scripts/decode.sh", want: "aaa\n", warning: "a filter driver failed"},
+		{name: "driver printing progress", path: "data/note.enc", smudge: "echo decoding >&2; tr a b", want: "bbb\n", warning: "a filter driver printed to stderr checking out committed HEAD (1 of its checkout calls): decoding"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			isolateSeedHeadTemp(t)
 			global := filepath.Join(t.TempDir(), "gitconfig")
-			if err := os.WriteFile(global, []byte("[filter \"decode\"]\n\tsmudge = sh scripts/decode.sh\n"), 0o600); err != nil {
+			if err := os.WriteFile(global, []byte("[filter \"decode\"]\n\tsmudge = \""+tc.smudge+"\"\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			t.Setenv("GIT_CONFIG_GLOBAL", global)
+			// git's failure line is matched in English.
+			t.Setenv("LC_ALL", "C")
 			repoDir := seedHeadTestRepo(t)
 			writeSeedHeadFiles(t, repoDir, map[string]string{
-				".gitattributes":    path + " filter=decode\n",
+				".gitattributes":    tc.path + " filter=decode\n",
 				"scripts/decode.sh": "tr a b\n",
-				path:                "aaa\n",
+				tc.path:             "aaa\n",
 			})
 			gitAt(t, repoDir, "add", "-A")
 			gitAt(t, repoDir, "commit", "-q", "-m", "encoded file")
@@ -770,19 +778,31 @@ func TestDirtySeedReportsAFilterDriverThatFails(t *testing.T) {
 				t.Fatalf("check out HEAD: %v", err)
 			}
 			defer head.remove()
-			if got, err := os.ReadFile(filepath.Join(head.dir, filepath.FromSlash(path))); err != nil || string(got) != "aaa\n" {
-				t.Fatalf("%s = %q, %v; want the unconverted blob a failed optional driver leaves", path, got, err)
+			if got, err := os.ReadFile(filepath.Join(head.dir, filepath.FromSlash(tc.path))); err != nil || string(got) != tc.want {
+				t.Fatalf("%s = %q, %v; want %q", tc.path, got, err, tc.want)
 			}
-			found := false
-			for _, warning := range head.warnings {
-				if strings.Contains(warning, "filter driver reported errors") {
-					found = true
-				}
-			}
-			if !found {
-				t.Errorf("warnings = %q; want one saying the filter driver failed", head.warnings)
+			if len(head.warnings) != 1 || !strings.HasPrefix(head.warnings[0], tc.warning) {
+				t.Errorf("warnings = %q; want one starting %q", head.warnings, tc.warning)
 			}
 		})
+	}
+}
+
+// TestSeedHeadDriverStderrTellsAFailureFromOutput: only git's own failure
+// line makes the warning say files are unconverted, wherever it falls.
+func TestSeedHeadDriverStderrTellsAFailureFromOutput(t *testing.T) {
+	t.Parallel()
+	var quiet seedHeadDriverStderr
+	quiet.add([]byte("  \n"))
+	if got := quiet.warning(); got != "" {
+		t.Errorf("blank stderr warning = %q, want none", got)
+	}
+	var failed seedHeadDriverStderr
+	failed.add([]byte("progress 1/2\n"))
+	failed.add([]byte("sh: cannot open decode.sh\nerror: external filter 'sh decode.sh' failed 2\nerror: external filter 'sh decode.sh' failed\n"))
+	want := "a filter driver failed checking out committed HEAD (2 of its checkout calls printed to stderr), so some of its files are seeded unconverted: error: external filter 'sh decode.sh' failed 2"
+	if got := failed.warning(); got != want {
+		t.Errorf("warning = %q\nwant      %q", got, want)
 	}
 }
 
