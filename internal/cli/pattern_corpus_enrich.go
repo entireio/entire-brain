@@ -265,7 +265,7 @@ func codexWrapperHeader(text string) string {
 // code 1", say) is not taken for its exit code.
 func compactCodexExitCodes(uses []toolUse, exitByCall map[string]int) {
 	for _, use := range uses {
-		if use.id == "" || isCodexItemCommand(use.input) {
+		if use.id == "" || use.name == codexItemCommandTool {
 			continue
 		}
 		if code, ok := parseExitCode(use.output); ok {
@@ -274,15 +274,13 @@ func compactCodexExitCodes(uses []toolUse, exitByCall map[string]int) {
 	}
 }
 
-// isCodexItemCommand reports whether a compact codex tool input is the item
-// path's command input, {"command": <script>}, keyed on that shape rather than
-// on the tool's name. Codex's own tools, which the response_item path keeps,
-// give a command as "cmd" (exec_command) or as an argv array (shell), never as
-// a "command" string.
-func isCodexItemCommand(input any) bool {
-	_, ok := jsonMap(input)["command"].(string)
-	return ok
-}
+// codexItemCommandTool is the name the cli's item path gives every command,
+// lowercased as toolUse names are. Codex's own tools, which the response_item
+// path keeps, never use it. The input can't tell the two paths apart: the item
+// path writes {"command": <script>}, but Codex's own shell_command tool also
+// takes its command as a "command" string, and its output is the wrapper text
+// that carries the exit code.
+const codexItemCommandTool = "bash"
 
 func dedupeFileRefs(in []corpusFileRef) []corpusFileRef {
 	seen := map[string]bool{}

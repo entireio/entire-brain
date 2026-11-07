@@ -23,22 +23,27 @@ func compactCodexToolLine(t *testing.T, name, input, output string) string {
 	return `{"v":1,"agent":"codex","type":"assistant","ts":"t","content":[{"type":"tool_use","id":"c1","name":` + string(quotedName) + `,"input":` + input + `,"result":{"output":` + string(quotedOutput) + `,"status":"success"}}]}`
 }
 
-// Whether a compact codex result's output is Codex's wrapper text or the
-// command's own stdout follows from the call's input, not its tool name: the
-// item path writes {"command": <script>}, and Codex's own tools give a command
-// as "cmd" (exec_command) or an argv array (shell). A converter that renames
-// "Bash" must not bring back the stdout misread.
-func TestCorpusEpisodeOpsCompactCodexExitTextKeyedOnInput(t *testing.T) {
+// A compact codex result's output is the command's own stdout on the item path,
+// which names every command Bash, and Codex's wrapper text with the exit code
+// for Codex's own tools. The skip follows the name, whatever its case or
+// spacing and however the input is encoded, and not the input's shape, which
+// Codex's own tools can share: shell_command takes a "command" string too.
+func TestCorpusEpisodeOpsCompactCodexExitTextSkipsItemPathCommands(t *testing.T) {
 	t.Parallel()
+	encoded, err := json.Marshal(`{"command":"go test ./..."}`)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cases := []struct {
 		name, tool, input, output, want string
 	}{
 		{"item path", "Bash", `{"command":"go test ./..."}`, "child process exited with code 1\nok\n", `["go test exit=nil failed=false"]`},
 		{"item path, lowercase name", "bash", `{"command":"go test ./..."}`, "child process exited with code 1\nok\n", `["go test exit=nil failed=false"]`},
 		{"item path, padded name", " Bash ", `{"command":"go test ./..."}`, "Exit code: 1\n", `["go test exit=nil failed=false"]`},
-		{"item path, renamed to shell", "shell", `{"command":"go test ./..."}`, "Exit code: 1\n", `["go test exit=nil failed=false"]`},
+		{"item path, JSON-encoded input", "Bash", string(encoded), "Exit code: 1\n", `["go test exit=nil failed=false"]`},
 		{"exec_command", "exec_command", `{"cmd":"go test ./..."}`, "Process exited with code 1\nFAIL", `["go test exit=1 failed=true"]`},
 		{"shell argv", "shell", `{"command":["go","test","./..."]}`, "Exit code: 1\nWall time: 1s\nOutput:\nFAIL", `["go test exit=1 failed=true"]`},
+		{"Codex tool with a command string", "shell", `{"command":"go test ./..."}`, "Exit code: 1\nWall time: 1s\nOutput:\nFAIL", `["go test exit=1 failed=true"]`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
