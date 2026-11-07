@@ -5,6 +5,13 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Building from source needs Go 1.27.3 or newer (was 1.27). Brain now reads
+  compact transcripts with the CLI's own `transcript` package
+  (`github.com/entireio/cli` v0.13.1), whose module requires it. The source
+  installer's Go check compares the patch version too (#607).
+
 ### Fixed
 
 - `recall --evidence` no longer returns harness-injected `<system-reminder>`
