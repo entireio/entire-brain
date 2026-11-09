@@ -103,6 +103,7 @@ func TestCorpusEpisodeOpsCodexItemPathFileChange(t *testing.T) {
 		{"outside the root kept", codexFileChange(t, codexChange{Path: "/elsewhere/x.go", Kind: "update"}), root, `["edit /elsewhere/x.go"]`},
 		{"root prefix is not a parent", codexFileChange(t, codexChange{Path: "/work/repo2/x.go", Kind: "update"}), root, `["edit /work/repo2/x.go"]`},
 		{"empty path skipped", codexFileChange(t, codexChange{Path: "", Kind: "update"}, codexChange{Path: root + "/main.go", Kind: "update"}), root, `["edit main.go"]`},
+		{"move with an empty path keeps the add", codexFileChange(t, codexChange{Path: "", Kind: "update", MovePath: root + "/b/new.go"}), root, `["add b/new.go"]`},
 		{"windows path", codexFileChange(t, codexChange{Path: `C:\work\repo\pkg\a.go`, Kind: "update"}), "C:/work/repo", `["edit pkg/a.go"]`},
 		{"dot segments cleaned", codexFileChange(t, codexChange{Path: root + "/./pkg//a.go", Kind: "update"}), root, `["edit pkg/a.go"]`},
 		{".. inside the root kept", codexFileChange(t, codexChange{Path: root + "/link/../main.go", Kind: "update"}), root, `["edit /work/repo/link/../main.go"]`},

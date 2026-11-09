@@ -209,12 +209,15 @@ func fileChangeFiles(input any, repoRoot string, ln int) []corpusFileRef {
 	for _, c := range changes {
 		cm := jsonMap(c)
 		p := repoRelativePath(jsonString(cm["path"]), repoRoot)
-		if p == "" {
-			continue
-		}
 		kind := strings.ToLower(strings.TrimSpace(jsonString(cm["kind"])))
 		if move := repoRelativePath(jsonString(cm["move_path"]), repoRoot); move != "" && kind == "update" {
-			out = append(out, corpusFileRef{path: p, action: "delete", line: ln}, corpusFileRef{path: move, action: "add", line: ln})
+			if p != "" {
+				out = append(out, corpusFileRef{path: p, action: "delete", line: ln})
+			}
+			out = append(out, corpusFileRef{path: move, action: "add", line: ln})
+			continue
+		}
+		if p == "" {
 			continue
 		}
 		action := "edit"
