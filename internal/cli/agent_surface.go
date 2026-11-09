@@ -5332,10 +5332,10 @@ func (s *brainBriefShownHistory) review(match brainTextMatch, line, query string
 
 // shownTextFrom reports whether excerpts show every mention of query in
 // cleaned, one of a line's texts. An excerpt shows the text when it contains
-// it as written, or as a tool call's JSON input writes it. When an excerpt is
-// the text cut short at the summary limit, from is where the text's unshown
-// mentions can start: one query length before the cut, so a mention across
-// the cut is unshown.
+// it as written, or as a tool call's JSON input writes it, or when it is the
+// text cut short at the summary limit and the cut keeps every mention whole.
+// Otherwise from is near the latest such cut, where an excerpt of the unshown
+// mentions can start.
 func shownTextFrom(cleaned, query string, excerpts []string) (from int, shown bool) {
 	encoded := cleaned
 	if data, err := json.Marshal(cleaned); err == nil {
@@ -5349,16 +5349,33 @@ func shownTextFrom(cleaned, query string, excerpts []string) (from int, shown bo
 		if len(cut) == len(excerpt) || !strings.HasPrefix(cleaned, cut) {
 			continue
 		}
+		if !historyMentionsPastPrefix(cleaned, cut, query) {
+			return 0, true
+		}
 		at := max(0, len(cut)-len(query))
 		for at > 0 && !utf8.RuneStart(cleaned[at]) {
 			at--
 		}
-		if !historyTextMatchesQuery(cleaned[at:], query) {
-			return 0, true
-		}
 		from = max(from, at)
 	}
 	return from, false
+}
+
+// historyMentionsPastPrefix reports whether text mentions query where its
+// prefix does not hold the whole mention: text has more mentions than prefix,
+// counted the two ways historyTextMatchesQuery matches, as written and
+// normalized. A mention written with punctuation can be longer than the
+// query, so a fixed backoff from the cut could start inside it.
+func historyMentionsPastPrefix(text, prefix, query string) bool {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return false
+	}
+	if strings.Count(strings.ToLower(text), query) > strings.Count(strings.ToLower(prefix), query) {
+		return true
+	}
+	normalized := normalizeHistorySearchText(query)
+	return normalized != "" && strings.Count(normalizeHistorySearchText(text), normalized) > strings.Count(normalizeHistorySearchText(prefix), normalized)
 }
 
 // rawLineTexts returns the string values of a JSON line in order, or the

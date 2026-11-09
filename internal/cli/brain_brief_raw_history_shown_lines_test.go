@@ -149,6 +149,13 @@ func TestRawHistoryTopUpComparesTheLinesFragments(t *testing.T) {
 	if !strings.Contains(historyFragmentSummary(twice), "ALPHA_IDENTIFIER") || strings.Contains(historyRawLineExcerpt(twice, "ALPHA_IDENTIFIER"), "exit 1") {
 		t.Fatalf("fixture text must mention ALPHA_IDENTIFIER in its summary and again out of the first mention's excerpt")
 	}
+	// A mention written with punctuation, which matches the query only
+	// normalized, across the summary's 697-byte content cut.
+	head := "ALPHA_IDENTIFIER first mention "
+	straddle := head + strings.Repeat("p", 680-len(head)-1) + " ALPHA / IDENTIFIER failed later"
+	if summary := historyFragmentSummary(straddle); !strings.HasSuffix(summary, "ALPHA / IDENTIFIE...") {
+		t.Fatalf("fixture text must cut ALPHA / IDENTIFIER at the summary limit, got %q", summary[len(summary)-30:])
+	}
 	textBlock := func(text string) string { return `{"type":"text","text":"` + text + `"}` }
 	cases := []struct {
 		name     string
@@ -170,6 +177,13 @@ func TestRawHistoryTopUpComparesTheLinesFragments(t *testing.T) {
 			shown:    []string{"ALPHA_IDENTIFIER = 1"},
 			wantKept: true,
 			wantIn:   "-1",
+		},
+		{
+			name:     "a normalized mention across the summary cut",
+			blocks:   []string{textBlock(straddle)},
+			shown:    []string{historyFragmentSummary(straddle)},
+			wantKept: true,
+			wantIn:   "failed later",
 		},
 		{
 			name:     "an unshown block far after a shown one",
