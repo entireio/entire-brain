@@ -47,6 +47,11 @@ All notable changes to `entire-brain` are recorded here. The format follows
   codes the same way native codex records do. A patch-only turn is no longer
   classified read-only, and a failing command is no longer stored as a
   success (#566, #567).
+- `brief`'s raw history top-up no longer repeats a transcript line the indexed
+  history already shows. It used to fill the remaining slots with the same
+  lines again, as raw JSON, because its excerpt never matched the indexed
+  summary; a repeat also used up a query's share of the slots, so a line that
+  matched further down could be left out.
 
 ## [0.5.1] - 2026-11-04
 

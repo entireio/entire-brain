@@ -5051,10 +5051,12 @@ func brainRawScanSkipsDerived(relSlash string) bool {
 }
 
 func inspectBrainRawText(brainDir, kind, query string, maxHits int) (brainHistoryInspectReport, error) {
-	return inspectBrainRawTextObserved(brainDir, kind, query, maxHits, nil)
+	return inspectBrainRawTextObserved(brainDir, kind, query, maxHits, nil, nil)
 }
 
-func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, observation *brainBriefRawScanObservation) (brainHistoryInspectReport, error) {
+// inspectBrainRawTextObserved leaves out the lines in skip before it counts
+// hits toward maxHits.
+func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, skip brainBriefShownLines, observation *brainBriefRawScanObservation) (brainHistoryInspectReport, error) {
 	report := brainHistoryInspectReport{Kind: kind, Query: query, BrainPath: brainDir}
 	query = strings.ToLower(strings.TrimSpace(query))
 	if query == "" {
@@ -5109,9 +5111,13 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, obse
 		}
 		scanner := bufio.NewScanner(reader)
 		scanner.Buffer(make([]byte, 0, 64*1024), brainInspectHistoryMaxLine)
+		skipLines := skip[relSlash]
 		lineNo := 0
 		for scanner.Scan() {
 			lineNo++
+			if _, ok := skipLines[lineNo]; ok {
+				continue
+			}
 			line := scanner.Text()
 			if !historyTextMatchesQuery(line, query) {
 				continue
@@ -5170,6 +5176,7 @@ func brainBriefRawHistoryMatchesMultiScan(brainDir, task string, existing []brai
 	for _, match := range existing {
 		seen[brainBriefHistoryMatchKey(match)] = struct{}{}
 	}
+	shown := brainBriefShownHistoryLines(existing)
 	var matches []brainTextMatch
 	var firstErr error
 	for ordinal, query := range brainBriefRawHistoryQueries(task) {
@@ -5182,7 +5189,7 @@ func brainBriefRawHistoryMatchesMultiScan(brainDir, task string, existing []brai
 			queryStarted = time.Now()
 			observation = &brainBriefRawScanObservation{}
 		}
-		report, err := inspectBrainRawTextObserved(brainDir, "history", query, limit-len(matches), observation)
+		report, err := inspectBrainRawTextObserved(brainDir, "history", query, limit-len(matches), shown, observation)
 		if profile != nil {
 			queryErrors := len(report.ScanErrors)
 			if err != nil {
@@ -5242,12 +5249,38 @@ type brainBriefRawHistoryQuery struct {
 	matches    []brainTextMatch
 }
 
+// brainBriefShownLines is a set of Brain-relative paths and line numbers.
+type brainBriefShownLines map[string]map[int]struct{}
+
+// brainBriefShownHistoryLines is the set of lines the existing matches point
+// at. Both raw scans leave those lines out before they count a query's hits:
+// the indexed history already shows them, and a raw hit on the same line is
+// the same evidence as raw JSON. Its excerpt never equals the indexed summary,
+// so the path:line:excerpt dedup keeps both, and a hit that counted toward a
+// query's cap would take a top-up slot from a line the brief does not show.
+func brainBriefShownHistoryLines(existing []brainTextMatch) brainBriefShownLines {
+	if len(existing) == 0 {
+		return nil
+	}
+	shown := brainBriefShownLines{}
+	for _, match := range existing {
+		lines := shown[match.Path]
+		if lines == nil {
+			lines = map[int]struct{}{}
+			shown[match.Path] = lines
+		}
+		lines[match.Line] = struct{}{}
+	}
+	return shown
+}
+
 // brainBriefRawHistoryMatchesSingleScan evaluates the same prioritized raw
 // history queries in a single deterministic WalkDir pass. The legacy path
 // walks the identical files up to eight times. Collecting the first limit hits
 // for every query is sufficient to replay its exact behavior afterward:
 // query n can request at most limit-len(matches) hits, and the legacy scanner
-// stops before deduplication at precisely that prefix length.
+// stops before deduplication at precisely that prefix length. Both leave out
+// the lines the existing matches already show before counting.
 func brainBriefRawHistoryMatchesSingleScan(brainDir, task string, existing []brainTextMatch, limit int) ([]brainTextMatch, error) {
 	return brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task, existing, limit, nil)
 }
@@ -5310,6 +5343,7 @@ func brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task string, existi
 	if catalogErr != nil {
 		return nil, catalogErr
 	}
+	shown := brainBriefShownHistoryLines(existing)
 	fullQueries := 0
 	scannedFiles := 0
 	scanBuffer := make([]byte, 64*1024)
@@ -5363,9 +5397,13 @@ func brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task string, existi
 		}
 		scanner := bufio.NewScanner(reader)
 		scanner.Buffer(scanBuffer, brainInspectHistoryMaxLine)
+		shownLines := shown[relSlash]
 		lineNo := 0
 		for scanner.Scan() {
 			lineNo++
+			if _, ok := shownLines[lineNo]; ok {
+				continue
+			}
 			line := scanner.Text()
 			lowerLine := strings.ToLower(line)
 			normalizedLine := ""
