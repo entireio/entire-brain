@@ -165,6 +165,13 @@ func TestRawHistoryTopUpComparesTheLinesFragments(t *testing.T) {
 			wantIn:   "failed with exit 1",
 		},
 		{
+			name:     "an unshown block that normalizes like the shown one",
+			blocks:   []string{textBlock("ALPHA_IDENTIFIER = 1"), textBlock("ALPHA_IDENTIFIER = -1")},
+			shown:    []string{"ALPHA_IDENTIFIER = 1"},
+			wantKept: true,
+			wantIn:   "-1",
+		},
+		{
 			name:     "an unshown block far after a shown one",
 			blocks:   []string{textBlock("ALPHA_IDENTIFIER was discussed"), textBlock(padding + padding), textBlock("ALPHA_IDENTIFIER failed with exit 1")},
 			shown:    []string{"ALPHA_IDENTIFIER was discussed"},

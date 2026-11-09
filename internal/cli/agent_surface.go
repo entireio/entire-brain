@@ -5317,7 +5317,15 @@ func (s *brainBriefShownHistory) review(match brainTextMatch, line, query string
 			shown = true
 			continue
 		}
-		return false, historyExcerptWindow(cleaned, query, from)
+		rewritten := match
+		rewritten.Excerpt = historyExcerptWindow(cleaned, query, from)
+		if _, ok := s.keys[brainBriefHistoryMatchKey(rewritten)]; ok {
+			// The window normalizes like an existing match (it can differ
+			// only in punctuation), so the scans' dedup would drop it after
+			// it took a slot. The raw line's excerpt does not collide.
+			return false, ""
+		}
+		return false, rewritten.Excerpt
 	}
 	return shown, ""
 }
