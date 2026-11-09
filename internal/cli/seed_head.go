@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -862,8 +863,9 @@ func seedHeadFilterDrivers(ctx context.Context, runner EnvironmentCommandRunner,
 // to the real one (repoDir) instead, as git joins it, without cleaning. A
 // file there that HEAD tracks is part of the commit and, like .gitattributes,
 // is read as committed: it is checked out into the scratch area and that copy
-// is named. Any other file is read where it is, as git reads it. --path
-// expands ~ and %(prefix); an unset value needs nothing.
+// is named (one HEAD stores in Git LFS is settled by lfsAttributesFile). Any
+// other file is read where it is, as git reads it. --path expands ~ and
+// %(prefix); an unset value needs nothing.
 func (c *seedHeadCheckout) attributesFileConfig(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string) []string {
 	out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "config", "-z", "--path", "--get", "core.attributesFile")
 	if err != nil {
@@ -885,7 +887,7 @@ func (c *seedHeadCheckout) attributesFileConfig(ctx context.Context, runner Envi
 	}
 	if tracked, ok := seedHeadWorkTreePath(root, file); ok && slices.Contains(c.paths, tracked) {
 		if committed, ok := c.checkOutAttributesFile(ctx, runner, repoDir, env, tracked); ok {
-			return []string{"-c", "core.attributesFile=" + committed}
+			return []string{"-c", "core.attributesFile=" + c.lfsAttributesFile(tracked, committed, file)}
 		}
 	}
 	if !relative {
@@ -910,6 +912,48 @@ func (c *seedHeadCheckout) checkOutAttributesFile(ctx context.Context, runner En
 		return "", false
 	}
 	return file, true
+}
+
+// lfsAttributesFile settles a tracked attributes file whose HEAD copy
+// (committed) is a Git LFS pointer. git reads the worktree's file, which
+// git-lfs smudged to the object or left as the pointer. Where that file is
+// exactly the object, it is the committed content and is named; where it is
+// the pointer, so is the copy. Otherwise it was edited, and seed, which runs
+// no smudge, names the pointer and says so. Any other copy is named as it is.
+func (c *seedHeadCheckout) lfsAttributesFile(path, committed, worktree string) string {
+	pointer, err := clibase.SafeReadFile(committed, seedHeadLFSPointerMaxBytes)
+	if err != nil {
+		return committed
+	}
+	oid, size, _, ok := parseLFSPointer(pointer)
+	if !ok {
+		return committed
+	}
+	if seedHeadFileIsLFSObject(worktree, oid, size) {
+		return worktree
+	}
+	if data, err := clibase.SafeReadFile(worktree, seedHeadLFSPointerMaxBytes); err != nil || !bytes.Equal(data, pointer) {
+		c.warnings = append(c.warnings, fmt.Sprintf("the attributes file core.attributesFile names (%s) is stored in Git LFS and edited in the work tree; seed read the rules in its committed pointer text", path))
+	}
+	return committed
+}
+
+// seedHeadFileIsLFSObject reports whether path holds exactly the object a
+// pointer names: size bytes whose sha256 is oid.
+func seedHeadFileIsLFSObject(path, oid string, size int64) bool {
+	f, err := clibase.SafeOpenRegularFile(path)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+	if info, err := f.Stat(); err != nil || info.Size() != size {
+		return false
+	}
+	hash := sha256.New()
+	if n, err := io.Copy(hash, io.LimitReader(f, size+1)); err != nil || n != size {
+		return false
+	}
+	return hex.EncodeToString(hash.Sum(nil)) == oid
 }
 
 // seedHeadWorkTreePath returns file's path in the work tree at root, in git's

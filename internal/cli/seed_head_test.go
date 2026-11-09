@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1668,11 +1669,27 @@ func writeLFSObject(t *testing.T, repoDir, content, stored string) {
 // document, which a clean checkout hydrates from the local store, and a doc
 // checked out with CRLF line ends, which only checkout-index applies. A file
 // HEAD tracks is read as committed, like .gitattributes, so edits to it in
-// the worktree do not count; one it does not track is read where it is.
+// the worktree do not count; one it does not track is read where it is. One
+// HEAD stores in Git LFS is read from the worktree where that is exactly its
+// object, and otherwise as its pointer text, with a warning.
 func TestDirtySeedReadsARelativeAttributesFileFromTheWorkTree(t *testing.T) {
 	rules := "docs/manual.md filter=lfs -text\ndocs/crlf.md text eol=crlf\n"
-	for _, tracked := range []bool{true, false} {
-		t.Run(fmt.Sprintf("tracked=%v", tracked), func(t *testing.T) {
+	noRules := "docs/manual.md -text\ndocs/crlf.md -text\n"
+	cases := []struct {
+		name      string
+		committed map[string]string
+		worktree  string
+		applied   bool
+		warned    bool
+	}{
+		{name: "committed, edited in the worktree", committed: map[string]string{"custom.attrs": rules}, worktree: noRules, applied: true},
+		{name: "untracked", worktree: rules, applied: true},
+		{name: "in LFS, its content in the worktree", committed: map[string]string{".gitattributes": "custom.attrs filter=lfs -text\n", "custom.attrs": lfsPointer(rules)}, worktree: rules, applied: true},
+		{name: "in LFS, its pointer in the worktree", committed: map[string]string{".gitattributes": "custom.attrs filter=lfs -text\n", "custom.attrs": lfsPointer(rules)}, worktree: lfsPointer(rules)},
+		{name: "in LFS, edited in the worktree", committed: map[string]string{".gitattributes": "custom.attrs filter=lfs -text\n", "custom.attrs": lfsPointer(rules)}, worktree: rules + "# edited\n", warned: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			stored := "# manual kept in LFS\n"
 			isolateSeedHeadTemp(t)
 			global := filepath.Join(t.TempDir(), "gitconfig")
@@ -1691,24 +1708,12 @@ func TestDirtySeedReadsARelativeAttributesFileFromTheWorkTree(t *testing.T) {
 			repoDir := seedHeadTestRepo(t)
 			writeLFSObject(t, repoDir, stored, stored)
 			files := map[string]string{"docs/manual.md": lfsPointer(stored), "docs/crlf.md": "one\ntwo\n"}
-			if tracked {
-				files["custom.attrs"] = rules
-			}
+			maps.Copy(files, tc.committed)
 			writeSeedHeadFiles(t, repoDir, files)
 			gitAt(t, repoDir, "add", "-A")
 			gitAt(t, repoDir, "commit", "-q", "-m", "files marked by the user's attributes file")
-			// The worktree's copy drops both rules where HEAD tracks it.
-			worktreeRules := rules
-			if tracked {
-				worktreeRules = "docs/manual.md -text\ndocs/crlf.md -text\n"
-			}
-			writeSeedHeadFiles(t, repoDir, map[string]string{"custom.attrs": worktreeRules})
+			writeSeedHeadFiles(t, repoDir, map[string]string{"custom.attrs": tc.worktree})
 			useLFSSmudge(t, repoDir)
-			check := exec.Command("git", "check-attr", "eol", "--", "docs/crlf.md")
-			check.Dir = repoDir
-			if got, err := check.Output(); err != nil || strings.Contains(string(got), "eol: crlf") == tracked {
-				t.Fatalf("git reads the worktree's attributes file as %q, %v", got, err)
-			}
 			dirtySeedHeadTree(t, repoDir)
 
 			head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
@@ -1716,14 +1721,19 @@ func TestDirtySeedReadsARelativeAttributesFileFromTheWorkTree(t *testing.T) {
 				t.Fatalf("check out HEAD: %v", err)
 			}
 			defer head.remove()
-			if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "manual.md")); err != nil || string(got) != stored {
-				t.Errorf("docs/manual.md = %q, %v; want the stored object %q", got, err, stored)
+			wantManual, wantCRLF := lfsPointer(stored), "one\ntwo\n"
+			if tc.applied {
+				wantManual, wantCRLF = stored, "one\r\ntwo\r\n"
 			}
-			if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "crlf.md")); err != nil || string(got) != "one\r\ntwo\r\n" {
-				t.Errorf("docs/crlf.md = %q, %v; want CRLF line ends", got, err)
+			if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "manual.md")); err != nil || string(got) != wantManual {
+				t.Errorf("docs/manual.md = %q, %v; want %q", got, err, wantManual)
 			}
-			if len(head.warnings) > 0 {
-				t.Errorf("warnings = %q, want none", head.warnings)
+			if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "crlf.md")); err != nil || string(got) != wantCRLF {
+				t.Errorf("docs/crlf.md = %q, %v; want %q", got, err, wantCRLF)
+			}
+			warned := slices.ContainsFunc(head.warnings, func(w string) bool { return strings.Contains(w, "core.attributesFile") })
+			if warned != tc.warned || len(head.warnings) > 1 {
+				t.Errorf("warnings = %q; want an attributes file warning: %v", head.warnings, tc.warned)
 			}
 		})
 	}
