@@ -1812,6 +1812,34 @@ func TestSeedHeadAttributesFileConfigJoinsPathsAsGitDoes(t *testing.T) {
 	}
 }
 
+// TestSeedHeadAttributesFileConfigReadsAnUnsizedEntryAsCommitted: a partial
+// clone lists no size for a path past --max-files, and a tracked attributes
+// file there is still read as committed, not from the worktree.
+func TestSeedHeadAttributesFileConfigReadsAnUnsizedEntryAsCommitted(t *testing.T) {
+	t.Parallel()
+	repoDir := seedHeadTestRepo(t)
+	rules := "*.md text eol=crlf\n"
+	writeSeedHeadFiles(t, repoDir, map[string]string{"custom.attrs": rules})
+	gitAt(t, repoDir, "add", "-A")
+	gitAt(t, repoDir, "commit", "-q", "-m", "attributes")
+	gitAt(t, repoDir, "config", "core.attributesFile", "custom.attrs")
+	writeSeedHeadFiles(t, repoDir, map[string]string{"custom.attrs": "# edited\n"})
+	object, _, err := ExecRunner{}.RunWithEnv(context.Background(), repoDir, nil, "git", "rev-parse", "HEAD:custom.attrs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &seedHeadCheckout{tempRoot: t.TempDir()}
+	entries := map[string]seedHeadEntry{"custom.attrs": {mode: "100644", kind: "blob", object: strings.TrimSpace(string(object)), size: -1}}
+	got := c.attributesFileConfig(context.Background(), ExecRunner{}, repoDir, seedHeadGitEnv(""), entries)
+	committed := filepath.Join(c.tempRoot, "attributes")
+	if want := []string{"-c", "core.attributesFile=" + committed}; !slices.Equal(got, want) {
+		t.Fatalf("config = %q, want %q", got, want)
+	}
+	if data, err := os.ReadFile(committed); err != nil || string(data) != rules {
+		t.Errorf("committed copy = %q, %v; want %q", data, err, rules)
+	}
+}
+
 func TestSeedHeadWorkTreePathMatchesOnlyPathsInside(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

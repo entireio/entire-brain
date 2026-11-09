@@ -161,7 +161,13 @@ type seedHeadEntry struct {
 // a submodule). Only those can be left out: the scan's answer for the other
 // two depends on what checkout-index puts on disk for them.
 func (e seedHeadEntry) regularFile() bool {
-	return (e.mode == "100644" || e.mode == "100755") && e.size >= 0
+	return e.ordinaryFile() && e.size >= 0
+}
+
+// ordinaryFile reports whether the entry is an ordinary file, whether or not
+// its size was read: a partial clone lists none past --max-files.
+func (e seedHeadEntry) ordinaryFile() bool {
+	return e.mode == "100644" || e.mode == "100755"
 }
 
 // seedHeadGitEnv is the environment of every git call that builds the
@@ -893,7 +899,7 @@ func (c *seedHeadCheckout) attributesFileConfig(ctx context.Context, runner Envi
 		file = root + string(filepath.Separator) + value
 	}
 	if tracked, ok := seedHeadWorkTreePath(root, file); ok {
-		if entry, ok := entries[tracked]; ok && entry.regularFile() {
+		if entry, ok := entries[tracked]; ok && entry.ordinaryFile() {
 			committed := filepath.Join(c.tempRoot, "attributes")
 			if err := writeSeedHeadBlob(ctx, runner, repoDir, env, entry, committed); err != nil {
 				c.warnings = append(c.warnings, fmt.Sprintf("the attributes file core.attributesFile names (%s) could not be read from HEAD (%v); its rules were not applied", tracked, err))
