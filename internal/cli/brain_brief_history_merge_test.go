@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -92,6 +93,58 @@ func TestBrainBriefSkipsRawScanWhenIndexFillsLimit(t *testing.T) {
 	}
 	if path := report.History.Matches[0].Path; !strings.HasPrefix(path, "sessions/") {
 		t.Errorf("match path = %q, want an indexed sessions match", path)
+	}
+}
+
+func TestBrainBriefDuplicateIndexedKeysStillTopUpFromRaw(t *testing.T) {
+	fixture := newBrainBriefOutputFixture(t)
+	manifest, err := bmanifest.Load(fixture.brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const rel = "sessions/main/overlay-dup.jsonl"
+	const summary = "DUPKEY_CANARY identical ranked summary"
+	overlay := shortTermIndex{
+		ReconcilerVersion: historyShortTermReconcilerVersion,
+		BaseGeneratedAt:   manifest.Sources.History.GeneratedAt,
+		Files: map[string]shortTermFile{rel: {Records: []historyRecord{
+			{ID: "dup-decision", Kind: "decision", Branch: "main", Path: rel, Line: 7,
+				Summary: summary, Terms: []string{"dupkey", "canary"}},
+			{ID: "dup-learning", Kind: "learning", Branch: "main", Path: rel, Line: 7,
+				Summary: summary, Terms: []string{"dupkey", "canary"}},
+		}}},
+	}
+	if err := saveHistoryShortTerm(fixture.brainDir, overlay); err != nil {
+		t.Fatal(err)
+	}
+	rawMatch := brainTextMatch{Path: "raw/fallback.jsonl", Line: 1, Excerpt: "raw DUPKEY_CANARY fallback"}
+	calls := 0
+	matcher := func(brainDir, task string, existing []brainTextMatch, matcherLimit int, profile *brainBriefProfileRawHistory) ([]brainTextMatch, error) {
+		calls++
+		return []brainTextMatch{rawMatch}, nil
+	}
+
+	var out bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	briefOpts := brainBriefOptions{json: true, limit: 2, noSemantic: true}
+	if err := runBrainBriefWithRawHistoryMatcher(context.Background(), cmd, fixture.opts, briefOpts, "DUPKEY_CANARY", matcher); err != nil {
+		t.Fatalf("brain brief: %v", err)
+	}
+	var report briefHistoryJSON
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("parse brief JSON: %v", err)
+	}
+
+	matches := report.History.Matches
+	if len(matches) != 2 {
+		t.Fatalf("want 2 history matches (deduped indexed + raw top-up), got %d: %+v", len(matches), matches)
+	}
+	if calls != 1 {
+		t.Errorf("raw matcher calls = %d, want 1: duplicate indexed keys must not consume the budget", calls)
+	}
+	if matches[0].Path != rel || matches[1].Path != rawMatch.Path {
+		t.Errorf("want deduped indexed match then raw top-up, got %+v", matches)
 	}
 }
 
