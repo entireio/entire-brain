@@ -53,7 +53,7 @@ All notable changes to `entire-brain` are recorded here. The format follows
   because its excerpt never matched the indexed summary; a repeat also used
   up a query's share of the slots, so a line that matched further down could
   be left out. A line with anything more (another block, tool output, a tool
-  call, text past the summary cut) is still shown.
+  call or result, text past the summary cut) is still shown.
 
 ## [0.5.1] - 2026-11-04
 

@@ -5282,10 +5282,10 @@ func newBrainBriefShownHistory(existing []brainTextMatch) *brainBriefShownHistor
 // indexed summary, so the path:line:excerpt dedup alone kept such repeats, and
 // each took a top-up slot from a line the brief does not show. The check only
 // leaves out a hit it can prove repeats the brief: a block that is not shown,
-// tool output the index keeps only code facts from, a tool call (the index
-// keeps the call, not its outcome), text past the 700-character summary cut,
-// or a mention in a key or across values keeps the hit, with its excerpt as
-// before.
+// tool output the index keeps only code facts from, a tool call or result (the
+// index keeps its text, not its outcome or status), text past the
+// 700-character summary cut, or a mention in a key or across values keeps the
+// hit, with its excerpt as before.
 func (s *brainBriefShownHistory) repeats(match brainTextMatch, line, query string) bool {
 	if s == nil {
 		return false
@@ -5315,15 +5315,16 @@ func (s *brainBriefShownHistory) repeats(match brainTextMatch, line, query strin
 	return shown.literal+shown.normalized > 0 &&
 		countHistoryMentions(normalizeHistoryTextForExcerpt(line), query) == shown &&
 		countHistoryMentions(cleanHistorySummary(decoded), query) == shown &&
-		!rawLineHasToolCall(line)
+		!rawLineHasToolRecord(line)
 }
 
-// rawLineHasToolCall reports whether the history index reads a tool call from
-// the line. The index keeps a call but not its outcome (an exec_command_end
-// line's output and exit code, a tool_use block's inlined result), so such a
-// line can hold evidence the brief does not show even when every mention is
-// shown.
-func rawLineHasToolCall(line string) bool {
+// rawLineHasToolRecord reports whether the history index reads a tool call or
+// a tool result from the line. The index keeps a call's text but not its
+// outcome (an exec_command_end line's output and exit code, a tool_use block's
+// inlined result), and a result's code facts but not its status (a
+// tool_result's is_error, a pi toolResult's isError), so such a line can hold
+// evidence the brief does not show even when every mention is shown.
+func rawLineHasToolRecord(line string) bool {
 	text := strings.TrimSpace(line)
 	if !strings.HasPrefix(text, "{") {
 		return false
@@ -5333,7 +5334,7 @@ func rawLineHasToolCall(line string) bool {
 		return false
 	}
 	for _, fragment := range extractHistoryJSONFragments(record) {
-		if strings.HasPrefix(fragment.Source, "tool_call") {
+		if strings.HasPrefix(fragment.Source, "tool_call") || fragment.Source == "tool_result_fact" {
 			return true
 		}
 	}

@@ -336,6 +336,20 @@ func TestRawHistoryTopUpKeepsACommandsOutcome(t *testing.T) {
 	assertRawTopUpKeepsFullyIndexedLine(t, line, "expected 2, got 3")
 }
 
+func TestRawHistoryTopUpKeepsAToolResultsStatus(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"claude tool_result": `{"type":"user","timestamp":"2026-07-16T01:02:03Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"func ALPHA_IDENTIFIER() error","is_error":true}]}}`,
+		"pi toolResult":      `{"type":"message","timestamp":"2026-07-16T01:02:03Z","message":{"role":"toolResult","toolCallId":"t1","toolName":"bash","content":[{"type":"text","text":"func ALPHA_IDENTIFIER() error"}],"isError":true}}`,
+	}
+	for name, line := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			assertRawTopUpKeepsFullyIndexedLine(t, line, "rror\":true")
+		})
+	}
+}
+
 // assertRawTopUpKeepsFullyIndexedLine shows every record the history index
 // makes for line and checks that both scans still return the line, with an
 // excerpt that has wantIn, which no record may hold.
