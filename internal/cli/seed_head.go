@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -992,7 +993,8 @@ const (
 
 // seedHeadLFSCheckoutMode reads the caller's Git LFS settings. The lfs filter
 // git runs is filter.lfs.process when it is set and filter.lfs.smudge
-// otherwise; with neither, there is none. Git LFS skips the smudge when that
+// otherwise; with neither, there is none, and one that is not git-lfs
+// (seedHeadRunsGitLFS) counts as none. Git LFS skips the smudge when that
 // filter passes --skip, as `git lfs install --skip-smudge` sets it up, or when
 // GIT_LFS_SKIP_SMUDGE is true in the caller's environment. Seed's own git
 // commands always skip it (seedHeadGitEnv), so only the caller's settings
@@ -1004,7 +1006,7 @@ func seedHeadLFSCheckoutMode(ctx context.Context, runner EnvironmentCommandRunne
 	if command == "" {
 		command = smudge
 	}
-	if command == "" {
+	if command == "" || !seedHeadRunsGitLFS(command) {
 		return seedHeadLFSUnfiltered
 	}
 	switch strings.ToLower(os.Getenv("GIT_LFS_SKIP_SMUDGE")) {
@@ -1021,6 +1023,36 @@ func seedHeadLFSCheckoutMode(ctx context.Context, runner EnvironmentCommandRunne
 	return seedHeadLFSSmudges
 }
 
+// seedHeadRunsGitLFS reports whether a filter command runs git-lfs, as the
+// commands `git lfs install` writes do: its program is git-lfs, from any
+// directory and with .exe on Windows, or `git lfs`. Seed does not run any
+// other program here, so what the checkout wrote is left for it, as for no
+// filter.
+func seedHeadRunsGitLFS(command string) bool {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return false
+	}
+	program, rest := "", ""
+	if quote := command[:1]; quote == `"` || quote == `'` {
+		if end := strings.Index(command[1:], quote); end >= 0 {
+			program, rest = command[1:1+end], command[2+end:]
+		}
+	}
+	if program == "" {
+		program = command
+		if i := strings.IndexFunc(command, unicode.IsSpace); i >= 0 {
+			program, rest = command[:i], command[i:]
+		}
+	}
+	name := strings.TrimSuffix(strings.ToLower(path.Base(strings.ReplaceAll(program, `\`, "/"))), ".exe")
+	if name == "git" {
+		args := strings.Fields(rest)
+		return len(args) > 0 && args[0] == "lfs"
+	}
+	return name == "git-lfs"
+}
+
 // seedHeadCallerLFSFilter returns filter.lfs.process and filter.lfs.smudge,
 // trimmed, as a git command the caller runs in repoDir reads them. Seed's git
 // commands read one more value for each: where the repository's own
@@ -1029,42 +1061,53 @@ func seedHeadLFSCheckoutMode(ctx context.Context, runner EnvironmentCommandRunne
 // (git_harden_filters.go). That entry is dropped. Reading a filter's command
 // as text runs nothing.
 func seedHeadCallerLFSFilter(ctx context.Context, runner EnvironmentCommandRunner, repoDir string) (process, smudge string) {
-	out, _, err := runner.RunWithEnv(ctx, repoDir, seedHeadGitEnv(""), "git", "config", "-z", "--show-scope", "--get-regexp", `^filter\.lfs\.(clean|smudge|process|required)$`)
+	out, _, err := runner.RunWithEnv(ctx, repoDir, seedHeadGitEnv(""), "git", "config", "-z", "--show-scope", "--show-origin", "--get-regexp", `^filter\.lfs\.(clean|smudge|process|required)$`)
 	if err != nil {
 		return "", ""
 	}
-	// -z with --show-scope: <scope> NUL <key> LF <value> NUL per value, in the
-	// order git reads them: the configuration files, then GIT_CONFIG_COUNT's
-	// entries, then GIT_CONFIG_PARAMETERS (git -c). Keys come lowercased
-	// except for the subsection.
-	files := map[string][]string{}
-	command := map[string][]string{}
+	// -z with --show-scope and --show-origin: <scope> NUL <origin> NUL <key> LF
+	// <value> NUL per value, in the order git reads them: the configuration
+	// files, then GIT_CONFIG_COUNT's entries, then GIT_CONFIG_PARAMETERS
+	// (git -c), so the last value is in force. Keys come lowercased except for
+	// the subsection. A file included from the command scope keeps that scope
+	// and names its own origin; values set there directly have the origin
+	// "command line:".
+	type configValue struct {
+		direct bool
+		value  string
+	}
+	values := map[string][]configValue{}
 	blanked := false
 	fields := strings.Split(string(out), "\x00")
-	for i := 0; i+1 < len(fields); i += 2 {
-		key, value, _ := strings.Cut(fields[i+1], "\n")
-		switch fields[i] {
-		case "command":
-			command[key] = append(command[key], value)
-		case "local", "worktree":
+	for i := 0; i+2 < len(fields); i += 3 {
+		scope, origin := fields[i], fields[i+1]
+		key, value, _ := strings.Cut(fields[i+2], "\n")
+		if scope == "local" || scope == "worktree" {
 			blanked = true
-			files[key] = append(files[key], value)
-		default:
-			files[key] = append(files[key], value)
 		}
+		values[key] = append(values[key], configValue{direct: scope == "command" && origin == "command line:", value: value})
 	}
 	last := func(key string) string {
-		values := command[key]
-		if n := seedHeadCallerConfigCountEntries(key); blanked && n < len(values) {
-			values = slices.Delete(slices.Clone(values), n, n+1)
+		all := values[key]
+		if blanked {
+			// The blank follows the caller's own GIT_CONFIG_COUNT entries for
+			// the key, which come first among the values set directly.
+			skip := seedHeadCallerConfigCountEntries(key)
+			for i, v := range all {
+				if !v.direct {
+					continue
+				}
+				if skip == 0 {
+					all = slices.Delete(slices.Clone(all), i, i+1)
+					break
+				}
+				skip--
+			}
 		}
-		if len(values) == 0 {
-			values = files[key]
-		}
-		if len(values) == 0 {
+		if len(all) == 0 {
 			return ""
 		}
-		return strings.TrimSpace(values[len(values)-1])
+		return strings.TrimSpace(all[len(all)-1].value)
 	}
 	return last("filter.lfs.process"), last("filter.lfs.smudge")
 }

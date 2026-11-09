@@ -1298,6 +1298,33 @@ func TestDirtySeedKeepsLFSPointersWhenTheSmudgeIsSkipped(t *testing.T) {
 			useLFSSmudge(t, repoDir)
 			t.Setenv("GIT_CONFIG_PARAMETERS", "'filter.lfs.process=git-lfs filter-process --skip'")
 		}},
+		// A value from a file the caller includes is in the command scope too,
+		// and is not the hardened runner's blank.
+		{name: "caller's GIT_CONFIG_COUNT include over a repository --skip", want: content, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.process", "git-lfs filter-process --skip")
+			included := filepath.Join(t.TempDir(), "included")
+			if err := os.WriteFile(included, []byte("[filter \"lfs\"]\n\tprocess = git-lfs filter-process\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("GIT_CONFIG_COUNT", "1")
+			t.Setenv("GIT_CONFIG_KEY_0", "include.path")
+			t.Setenv("GIT_CONFIG_VALUE_0", included)
+		}},
+		{name: "repository git-lfs at a quoted path with --skip", want: encoded, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.smudge", `"/opt/Git LFS/git-lfs.exe" smudge --skip -- %f`)
+		}},
+		{name: "repository git lfs smudge --skip", want: encoded, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.smudge", "git lfs smudge --skip -- %f")
+		}},
+		// Seed does not know what another program writes, so what the checkout
+		// wrote stays: the global filter's output, the committed text where
+		// the filter is the repository's.
+		{name: "global filter that is not git-lfs with GIT_LFS_SKIP_SMUDGE=1", skipEnv: "1", want: asCommitted, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "--global", "filter.lfs.smudge", "cat")
+		}},
+		{name: "repository filter that is not git-lfs", want: asCommitted, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.smudge", "my-lfs-wrapper smudge %f")
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := exec.LookPath("git-lfs"); tc.runsGitLFS && err != nil {
@@ -1343,6 +1370,30 @@ func TestDirtySeedKeepsLFSPointersWhenTheSmudgeIsSkipped(t *testing.T) {
 				t.Errorf("warnings = %q, want none", head.warnings)
 			}
 		})
+	}
+}
+
+func TestSeedHeadRunsGitLFSNamesTheProgram(t *testing.T) {
+	t.Parallel()
+	for command, want := range map[string]bool{
+		"git-lfs filter-process":                                true,
+		"git-lfs smudge --skip -- %f":                           true,
+		"/usr/local/bin/git-lfs smudge -- %f":                   true,
+		`"C:\Program Files\Git LFS\git-lfs.exe" filter-process`: true,
+		"'/opt/git lfs/git-lfs' smudge %f":                      true,
+		"git lfs smudge %f":                                     true,
+		"git\tlfs smudge %f":                                    true,
+		"cat":                                                   false,
+		"git status":                                            false,
+		"git":                                                   false,
+		"my-git-lfs-wrapper smudge %f":                          false,
+		"git-lfs-wrapper smudge %f":                             false,
+		`"unterminated git-lfs filter-process`:                  false,
+		"":                                                      false,
+	} {
+		if got := seedHeadRunsGitLFS(command); got != want {
+			t.Errorf("seedHeadRunsGitLFS(%q) = %v, want %v", command, got, want)
+		}
 	}
 }
 
