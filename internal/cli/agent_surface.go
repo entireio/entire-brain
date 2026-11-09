@@ -5325,7 +5325,11 @@ func countHistoryMentions(text, query string) historyMentionCount {
 	if query == "" {
 		return historyMentionCount{}
 	}
-	count := historyMentionCount{literal: countOverlapping(strings.ToLower(text), query)}
+	// Fold case before normalizing, as historyTextMatchesQuery does: normalized
+	// in its original case, "fooBar/baz" splits into "foo bar baz" and misses
+	// the "foobar baz" mention the matcher finds.
+	text = strings.ToLower(text)
+	count := historyMentionCount{literal: countOverlapping(text, query)}
 	if normalized := normalizeHistorySearchText(query); normalized != "" {
 		count.normalized = countOverlapping(normalizeHistorySearchText(text), normalized)
 	}

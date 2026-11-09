@@ -221,6 +221,16 @@ func TestRawHistoryTopUpComparesTheLinesFragments(t *testing.T) {
 			wantIn:   "failed",
 		},
 		{
+			// Case-folded, the key reads "foobar/baz", which normalizes to the
+			// query's "foobar baz"; in its own case it would read "foo bar baz".
+			name:     "a camel-case key that matches once case-folded",
+			blocks:   []string{textBlock("FOOBAR_BAZ discussed"), `{"type":"tool_use","id":"c1","name":"Write","input":{"fooBar/baz":"failed"}}`},
+			shown:    []string{"FOOBAR_BAZ discussed"},
+			query:    "FOOBAR_BAZ",
+			wantKept: true,
+			wantIn:   "failed",
+		},
+		{
 			name:     "every block with the query is shown",
 			blocks:   []string{textBlock("ALPHA_IDENTIFIER was discussed"), textBlock("ALPHA_IDENTIFIER failed with exit 1")},
 			shown:    []string{"ALPHA_IDENTIFIER was discussed", "ALPHA_IDENTIFIER failed with exit 1"},
@@ -363,5 +373,8 @@ func TestCountHistoryMentionsCountsOverlaps(t *testing.T) {
 	}
 	if got := countHistoryMentions("ALPHA / IDENTIFIER", "ALPHA_IDENTIFIER"); got != (historyMentionCount{literal: 0, normalized: 1}) {
 		t.Fatalf("countHistoryMentions = %+v, want 1 normalized", got)
+	}
+	if got := countHistoryMentions("fooBar/baz", "FOOBAR_BAZ"); got != (historyMentionCount{literal: 0, normalized: 1}) {
+		t.Fatalf("countHistoryMentions = %+v, want the case-folded mention", got)
 	}
 }
