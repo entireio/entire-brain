@@ -616,6 +616,70 @@ func TestDirtySeedChecksOutWhatAFilterDriverRuns(t *testing.T) {
 	assertNoSeedHeadLeftovers(t, tempDir)
 }
 
+// TestDirtySeedSizesWhatAnotherLFSDriverWrites: an lfs filter that is not
+// git-lfs is a driver like any other. A blob too big to be a pointer is
+// checked out and stat'd, so a driver that shrinks it under --max-file-bytes
+// gets it included, as a clean checkout does.
+func TestDirtySeedSizesWhatAnotherLFSDriverWrites(t *testing.T) {
+	tempDir := isolateSeedHeadTemp(t)
+	big := 1800
+	global := filepath.Join(t.TempDir(), "gitconfig")
+	// clean inverts smudge, as in TestDirtySeedChecksOutWhatAFilterDriverRuns.
+	config := fmt.Sprintf("[filter \"lfs\"]\n\tsmudge = tr -s x\n\tclean = \"cat >/dev/null; printf %%0%dd 0 | tr 0 x\"\n", big)
+	if err := os.WriteFile(global, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	for _, key := range []string{"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"} {
+		t.Setenv(key, "")
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repoDir := seedHeadTestRepo(t)
+	writeSeedHeadFiles(t, repoDir, map[string]string{
+		".gitattributes": "squeezed.txt filter=lfs\n",
+		"squeezed.txt":   strings.Repeat("x", big),
+	})
+	gitAt(t, repoDir, "add", "-A")
+	gitAt(t, repoDir, "commit", "-q", "-m", "a file the lfs driver squeezes")
+	if err := os.Remove(filepath.Join(repoDir, "squeezed.txt")); err != nil {
+		t.Fatal(err)
+	}
+	gitAt(t, repoDir, "checkout", "--", "squeezed.txt")
+	if got, err := os.ReadFile(filepath.Join(repoDir, "squeezed.txt")); err != nil || string(got) != "x" {
+		t.Fatalf("the lfs driver did not run on checkout: %q, %v", got, err)
+	}
+	env := semanticTestEnv(t, repoDir)
+	opts := Options{Version: "test", Env: env, Runner: ExecRunner{}}
+	cleanDir := filepath.Join(t.TempDir(), "clean")
+	if _, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--max-file-bytes", "64", "--output", cleanDir, repoDir); err != nil {
+		t.Fatalf("seed a clean tree: %v", err)
+	}
+
+	dirtySeedHeadTree(t, repoDir)
+	dirtyDir := filepath.Join(t.TempDir(), "dirty")
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--max-file-bytes", "64", "--output", dirtyDir, repoDir); err != nil {
+		t.Fatalf("seed the dirty tree: %v\n%s", err, out)
+	}
+	if entry := seedIndexEntry(t, dirtyDir, "squeezed.txt"); !entry.Included {
+		t.Errorf("squeezed.txt = %+v; want it included, as in a clean seed", entry)
+	}
+	cleanIndex, err := os.ReadFile(filepath.Join(cleanDir, seedDirName, "file-index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirtyIndex, err := os.ReadFile(filepath.Join(dirtyDir, seedDirName, "file-index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(cleanIndex, dirtyIndex) {
+		t.Errorf("the dirty-tree file index differs from the clean one of the same commit:\nclean:\n%s\ndirty:\n%s", cleanIndex, dirtyIndex)
+	}
+	assertNoSeedHeadLeftovers(t, tempDir)
+}
+
 // TestDirtySeedCapsWhatAFilterDriverWrites: a blob more than
 // seedHeadDriverMaxShrink times --max-file-bytes is never handed to its
 // driver, so one checkout writes a bounded amount whatever the driver does.
@@ -965,10 +1029,10 @@ func TestSeedHeadFilterDriversParsesTheEffectiveConfiguration(t *testing.T) {
 			name: "the last value of a key wins",
 			runner: fixedConfigRunner{out: []byte("filter.a.smudge\ntr x y\x00filter.b.process\nrun it\x00" +
 				"filter.a.smudge\n\x00filter.c.d.smudge\ncat\x00filter.lfs.process\ngit-lfs filter-process\x00")},
-			runs:  []string{"b", "c.d"},
-			skips: []string{"a", "lfs", "unset", "unspecified"},
+			runs:  []string{"b", "c.d", "lfs"},
+			skips: []string{"a", "unset", "unspecified"},
 		},
-		{name: "unreadable", runner: fixedConfigRunner{err: errors.New("signal: killed")}, runs: []string{"a", "anything"}, skips: []string{"lfs", ""}},
+		{name: "unreadable", runner: fixedConfigRunner{err: errors.New("signal: killed")}, runs: []string{"a", "anything", "lfs"}, skips: []string{""}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -983,6 +1047,11 @@ func TestSeedHeadFilterDriversParsesTheEffectiveConfiguration(t *testing.T) {
 				if drivers.runs(name) {
 					t.Errorf("filter %q: a driver; want none", name)
 				}
+			}
+			// Where the lfs filter is git-lfs, the checkout leaves it out.
+			drivers.gitLFS = true
+			if drivers.runs("lfs") {
+				t.Error("filter \"lfs\" is git-lfs: a driver; want none")
 			}
 		})
 	}

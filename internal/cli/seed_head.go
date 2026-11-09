@@ -365,6 +365,21 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 		return err
 	}
 	drivers := seedHeadFilterDrivers(ctx, runner, repoDir, env)
+	// Where the caller's lfs filter is git-lfs, seed does itself what git-lfs
+	// would (settleLFSPointers), so the checkout leaves git-lfs out, as the
+	// hardened runner does for a repository's own filter. Its command line
+	// can set GIT_LFS_SKIP_SMUDGE=0 over seedHeadGitEnv's, and it would then
+	// download objects in the middle of a background seed. Any other command
+	// the lfs filter runs is a driver like any other.
+	lfsMode := seedHeadLFSUnfiltered
+	var checkoutConfig []string
+	if slices.ContainsFunc(regular, func(path string) bool { return attrs[path].filter == "lfs" }) {
+		lfsMode = seedHeadLFSCheckoutMode(ctx, runner, repoDir)
+		if lfsMode != seedHeadLFSUnfiltered {
+			drivers.gitLFS = true
+			checkoutConfig = []string{"-c", "filter.lfs.process=", "-c", "filter.lfs.smudge=", "-c", "filter.lfs.required=false"}
+		}
+	}
 	var wanted []string
 	var lfs []seedHeadSmallFile
 	var absent, convertSkipped, driven []string
@@ -396,9 +411,9 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 			continue
 		}
 		attr := attrs[path]
-		if attr.filter == "lfs" && entry.size <= seedHeadLFSPointerMaxBytes {
-			// The blob is a pointer: the file's real size is only known once
-			// it is read.
+		if attr.filter == "lfs" && !drivers.runs(attr.filter) && entry.size <= seedHeadLFSPointerMaxBytes {
+			// The blob is a pointer git-lfs, or no command, would check out:
+			// the file's real size is only known once it is read.
 			wanted = append(wanted, path)
 			lfs = append(lfs, seedHeadSmallFile{path: path, size: entry.size})
 			continue
@@ -442,19 +457,6 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	}
 	if len(absent) > 0 {
 		c.warnings = append(c.warnings, fmt.Sprintf("%d committed files were not read because this partial clone has not fetched them (first: %s)", len(absent), absent[0]))
-	}
-	// Where the caller's lfs filter is git-lfs, seed does itself what git-lfs
-	// would (settleLFSPointers), so the checkout leaves git-lfs out, as the
-	// hardened runner does for a repository's own filter. Its command line
-	// can set GIT_LFS_SKIP_SMUDGE=0 over seedHeadGitEnv's, and it would then
-	// download objects in the middle of a background seed.
-	lfsMode := seedHeadLFSUnfiltered
-	var checkoutConfig []string
-	if len(lfs) > 0 {
-		lfsMode = seedHeadLFSCheckoutMode(ctx, runner, repoDir)
-		if lfsMode != seedHeadLFSUnfiltered {
-			checkoutConfig = []string{"-c", "filter.lfs.process=", "-c", "filter.lfs.smudge=", "-c", "filter.lfs.required=false"}
-		}
 	}
 	// git appends each path to the prefix verbatim, so it needs the trailing
 	// separator; forward slashes are what git expects on every platform.
@@ -800,17 +802,20 @@ func seedHeadConvertsUnbounded(attr seedHeadAttrs, drivers seedHeadDrivers) bool
 // a smudge or process command set in the configuration the hardened runner
 // leaves in force. Repository-scoped drivers are blanked there
 // (git_harden_filters.go), so a filter=x with only a repository driver, or
-// none at all, writes the blob unchanged. LFS is handled on its own
-// (settleLFSPointers).
+// none at all, writes the blob unchanged. Where the lfs filter is git-lfs,
+// LFS is handled on its own (settleLFSPointers); another command named lfs is
+// a driver like any other.
 type seedHeadDrivers struct {
 	names map[string]bool
+	// gitLFS: the lfs filter is git-lfs, which the checkout leaves out.
+	gitLFS bool
 	// unknown: the configuration could not be read, so every filter is
 	// taken to run one, which only costs checking more files out.
 	unknown bool
 }
 
 func (d seedHeadDrivers) runs(filter string) bool {
-	if !specifiedAttr(filter) || filter == "lfs" {
+	if !specifiedAttr(filter) || (filter == "lfs" && d.gitLFS) {
 		return false
 	}
 	return d.unknown || d.names[filter]
@@ -894,9 +899,9 @@ type seedHeadSmallFile struct {
 // (<git-common-dir>/lfs) is consulted. An object that is stored but cannot be
 // copied is reported in the seed's warnings rather than passed off as read.
 // The caller's Git LFS settings come first (mode, from
-// seedHeadLFSCheckoutMode): with no lfs filter, every pointer stays as the
-// checkout wrote it, and where the smudge is skipped, every pointer is written
-// the way git-lfs writes it.
+// seedHeadLFSCheckoutMode): with no lfs filter, or one that is not git-lfs,
+// every file stays as the checkout wrote it, and where the smudge is skipped,
+// every pointer is written the way git-lfs writes it.
 //
 // Each file is then held to the same rule as every other blob, at its real
 // size: one the scan would only stat leaves the checkout and is recorded
