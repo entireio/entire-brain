@@ -330,9 +330,10 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	// re-encoded committed docs into what the scan rejects as binary.
 	// Pointing GIT_WORK_TREE at an empty directory leaves the scratch index,
 	// the commit's tree, as the only source (info/attributes and the user's
-	// global file apply as they do to a clean checkout). This works on every
-	// supported git, unlike --attr-source (2.40+). Files are written through
-	// --prefix, never into this directory.
+	// own attributes file apply as they do to a clean checkout). This works
+	// on every supported git, unlike --attr-source (2.40+). Files are written
+	// through --prefix, never into this directory.
+	attrConfig := seedHeadAttributesFileConfig(ctx, runner, repoDir, env)
 	emptyWorkTree := filepath.Join(c.tempRoot, "no-worktree")
 	if err := os.Mkdir(emptyWorkTree, 0o700); err != nil {
 		return fmt.Errorf("create committed HEAD checkout: %w", err)
@@ -360,7 +361,7 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 			regular = append(regular, path)
 		}
 	}
-	attrs, err := c.attributes(ctx, runner, repoDir, env, regular)
+	attrs, err := c.attributes(ctx, runner, repoDir, env, attrConfig, regular)
 	if err != nil {
 		return err
 	}
@@ -372,12 +373,12 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	// download objects in the middle of a background seed. Any other command
 	// the lfs filter runs is a driver like any other.
 	lfsMode := seedHeadLFSUnfiltered
-	var checkoutConfig []string
+	checkoutConfig := slices.Clone(attrConfig)
 	if slices.ContainsFunc(regular, func(path string) bool { return attrs[path].filter == "lfs" }) {
 		lfsMode = seedHeadLFSCheckoutMode(ctx, runner, repoDir)
 		if lfsMode != seedHeadLFSUnfiltered {
 			drivers.gitLFS = true
-			checkoutConfig = []string{"-c", "filter.lfs.process=", "-c", "filter.lfs.smudge=", "-c", "filter.lfs.required=false"}
+			checkoutConfig = append(checkoutConfig, "-c", "filter.lfs.process=", "-c", "filter.lfs.smudge=", "-c", "filter.lfs.required=false")
 		}
 	}
 	var wanted []string
@@ -853,13 +854,41 @@ func seedHeadFilterDrivers(ctx context.Context, runner EnvironmentCommandRunner,
 	return seedHeadDrivers{names: names}
 }
 
+// seedHeadAttributesFileConfig keeps the user's own attributes file where a
+// clean checkout finds it. git reads a relative core.attributesFile from the
+// top of the work tree, which the checkout points at an empty directory, so
+// such a value is passed as the absolute path it names in the real work tree
+// (repoDir), read from there as git reads it. An absolute value, ~ and
+// %(prefix) (expanded by --path), or none at all need nothing.
+func seedHeadAttributesFileConfig(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string) []string {
+	out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "config", "-z", "--path", "--get", "core.attributesFile")
+	if err != nil {
+		return nil // unset, or unreadable, which the checkout reports itself
+	}
+	value := strings.TrimSuffix(string(out), "\x00")
+	if value == "" || seedHeadGitAbsolutePath(value) {
+		return nil
+	}
+	abs, err := filepath.Abs(filepath.Join(repoDir, value))
+	if err != nil {
+		return nil
+	}
+	return []string{"-c", "core.attributesFile=" + abs}
+}
+
+// seedHeadGitAbsolutePath reports whether git takes a path as absolute: on
+// Windows a drive prefix or a leading separator of either kind is enough.
+func seedHeadGitAbsolutePath(value string) bool {
+	return filepath.IsAbs(value) || filepath.VolumeName(value) != "" || strings.HasPrefix(filepath.ToSlash(value), "/")
+}
+
 // attributes reads the filter, working-tree-encoding and ident attributes of
 // paths from the commit: --cached reads .gitattributes from the scratch index
-// only.
-func (c *seedHeadCheckout) attributes(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, paths []string) (map[string]seedHeadAttrs, error) {
+// only. config carries seedHeadAttributesFileConfig.
+func (c *seedHeadCheckout) attributes(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, config, paths []string) (map[string]seedHeadAttrs, error) {
 	attrs := make(map[string]seedHeadAttrs, len(paths))
 	for _, batch := range chunkPathsByBytes(paths, seedHeadCheckoutArgBytes) {
-		args := append([]string{"check-attr", "--cached", "-z", "filter", "working-tree-encoding", "ident", "--"}, batch...)
+		args := append(append(slices.Clone(config), "check-attr", "--cached", "-z", "filter", "working-tree-encoding", "ident", "--"), batch...)
 		out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", args...)
 		if err != nil {
 			return nil, fmt.Errorf("read committed HEAD %s attributes: %w", shortCommitHash(c.commit), err)

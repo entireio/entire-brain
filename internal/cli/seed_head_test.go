@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -899,7 +900,10 @@ func (r *gitConfigCountingRunner) RunWithEnv(ctx context.Context, dir string, en
 	if name == "git" && len(args) > 0 {
 		switch args[0] {
 		case "config":
-			r.configCalls = append(r.configCalls, args)
+			// The one core.attributesFile read is not per filter.
+			if !slices.Contains(args, "core.attributesFile") {
+				r.configCalls = append(r.configCalls, args)
+			}
 		case "checkout-index":
 			r.checkoutCalls = append(r.checkoutCalls, args)
 			r.checkoutEnvs = append(r.checkoutEnvs, env)
@@ -1656,6 +1660,77 @@ func writeLFSObject(t *testing.T, repoDir, content, stored string) {
 	sum := sha256.Sum256([]byte(content))
 	oid := hex.EncodeToString(sum[:])
 	writeSeedHeadFiles(t, filepath.Join(repoDir, ".git", "lfs", "objects", oid[0:2], oid[2:4]), map[string]string{oid: stored})
+}
+
+// TestDirtySeedReadsARelativeAttributesFileFromTheWorkTree: git reads a
+// relative core.attributesFile from the top of the work tree, so the empty
+// work tree the checkout runs in must not hide it. Here it marks an LFS
+// document, which a clean checkout hydrates from the local store, and a doc
+// checked out with CRLF line ends, which only checkout-index applies.
+func TestDirtySeedReadsARelativeAttributesFileFromTheWorkTree(t *testing.T) {
+	stored := "# manual kept in LFS\n"
+	isolateSeedHeadTemp(t)
+	global := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(global, []byte("[core]\n\tattributesFile = custom.attrs\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_LFS_SKIP_SMUDGE", "")
+	for _, key := range []string{"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"} {
+		t.Setenv(key, "")
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repoDir := seedHeadTestRepo(t)
+	writeLFSObject(t, repoDir, stored, stored)
+	writeSeedHeadFiles(t, repoDir, map[string]string{
+		"custom.attrs":   "docs/manual.md filter=lfs -text\ndocs/crlf.md text eol=crlf\n",
+		"docs/manual.md": lfsPointer(stored),
+		"docs/crlf.md":   "one\ntwo\n",
+	})
+	gitAt(t, repoDir, "add", "-A")
+	gitAt(t, repoDir, "commit", "-q", "-m", "lfs pointer marked by the user's attributes file")
+	useLFSSmudge(t, repoDir)
+	check := exec.Command("git", "check-attr", "filter", "--", "docs/manual.md")
+	check.Dir = repoDir
+	if got, err := check.Output(); err != nil || !strings.Contains(string(got), "filter: lfs") {
+		t.Fatalf("git does not read the relative attributes file: %q, %v", got, err)
+	}
+	dirtySeedHeadTree(t, repoDir)
+
+	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+	if err != nil {
+		t.Fatalf("check out HEAD: %v", err)
+	}
+	defer head.remove()
+	if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "manual.md")); err != nil || string(got) != stored {
+		t.Errorf("docs/manual.md = %q, %v; want the stored object %q", got, err, stored)
+	}
+	if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "crlf.md")); err != nil || string(got) != "one\r\ntwo\r\n" {
+		t.Errorf("docs/crlf.md = %q, %v; want CRLF line ends", got, err)
+	}
+	if len(head.warnings) > 0 {
+		t.Errorf("warnings = %q, want none", head.warnings)
+	}
+}
+
+func TestSeedHeadGitAbsolutePathReadsPathsAsGitDoes(t *testing.T) {
+	t.Parallel()
+	cases := map[string]bool{"/etc/gitattributes": true, "custom.attrs": false, "attrs/custom": false, "./custom.attrs": false}
+	if runtime.GOOS == "windows" {
+		cases[`C:\attrs`] = true
+		cases[`C:attrs`] = true
+		cases[`\attrs`] = true
+	} else {
+		cases[`\attrs`] = false
+	}
+	for value, want := range cases {
+		if got := seedHeadGitAbsolutePath(value); got != want {
+			t.Errorf("seedHeadGitAbsolutePath(%q) = %v, want %v", value, got, want)
+		}
+	}
 }
 
 // TestDirtySeedAgentReadsCommittedHEAD: an agent used to be told the
