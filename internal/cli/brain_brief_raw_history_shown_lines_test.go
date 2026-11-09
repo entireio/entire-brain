@@ -322,13 +322,31 @@ func TestBrainBriefRawTopUpDoesNotRepeatIndexedLines(t *testing.T) {
 // does not show that text, and the kept hit's excerpt shows it.
 func TestRawHistoryTopUpKeepsToolOutputTheIndexLeavesOut(t *testing.T) {
 	t.Parallel()
+	line := `{"v":1,"type":"assistant","content":[{"type":"tool_use","id":"c1","name":"Bash","input":{"command":"grep \"ALPHA_IDENTIFIER\" -n"},"result":{"output":"ALPHA_IDENTIFIER stopped halfway and never answered","status":"error"}}]}`
+	assertRawTopUpKeepsFullyIndexedLine(t, line, "stopped halfway")
+}
+
+// The index keeps an exec_command_end line's command but not its outcome. A
+// string command is the line's only value with the query and is exactly its
+// record's summary, yet the output and exit code are evidence the brief does
+// not show.
+func TestRawHistoryTopUpKeepsACommandsOutcome(t *testing.T) {
+	t.Parallel()
+	line := `{"timestamp":"2026-07-16T01:02:03Z","type":"event_msg","payload":{"type":"exec_command_end","call_id":"c1","command":"go test -run ALPHA_IDENTIFIER ./...","aggregated_output":"FAIL: expected 2, got 3","exit_code":1}}`
+	assertRawTopUpKeepsFullyIndexedLine(t, line, "expected 2, got 3")
+}
+
+// assertRawTopUpKeepsFullyIndexedLine shows every record the history index
+// makes for line and checks that both scans still return the line, with an
+// excerpt that has wantIn, which no record may hold.
+func assertRawTopUpKeepsFullyIndexedLine(t *testing.T, line, wantIn string) {
+	t.Helper()
 	brainDir := t.TempDir()
 	sessionDir := filepath.Join(brainDir, "sessions", "main")
 	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	name := "20260716T010203Z_0001.jsonl"
-	line := `{"v":1,"type":"assistant","content":[{"type":"tool_use","id":"c1","name":"Bash","input":{"command":"grep \"ALPHA_IDENTIFIER\" -n"},"result":{"output":"ALPHA_IDENTIFIER stopped halfway and never answered","status":"error"}}]}`
 	if err := os.WriteFile(filepath.Join(sessionDir, name), []byte(line+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -340,8 +358,8 @@ func TestRawHistoryTopUpKeepsToolOutputTheIndexLeavesOut(t *testing.T) {
 	var indexed []brainTextMatch
 	for _, fragment := range extractHistoryJSONFragments(record) {
 		summary := historyFragmentSummary(fragment.Text)
-		if strings.Contains(summary, "halfway") {
-			t.Fatalf("fixture output must not be indexed, got fragment %q", summary)
+		if strings.Contains(summary, wantIn) {
+			t.Fatalf("fixture evidence %q must not be indexed, got fragment %q", wantIn, summary)
 		}
 		indexed = append(indexed, brainTextMatch{Path: rel, Line: 1, Excerpt: summary})
 	}
@@ -353,8 +371,8 @@ func TestRawHistoryTopUpKeepsToolOutputTheIndexLeavesOut(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(got) != 1 || got[0].Line != 1 || !strings.Contains(got[0].Excerpt, "stopped halfway") {
-			t.Fatalf("%s: raw top-up = %+v, want the line kept with its tool output", impl, got)
+		if len(got) != 1 || got[0].Line != 1 || !strings.Contains(got[0].Excerpt, wantIn) {
+			t.Fatalf("%s: raw top-up = %+v, want the line kept with %q", impl, got, wantIn)
 		}
 	}
 }
