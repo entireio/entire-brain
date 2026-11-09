@@ -153,7 +153,7 @@ func evidenceJSONFields(obj map[string]any, prefix string, line int) (fields []e
 		if len(m) == 0 {
 			// Compact v1 keeps the turn's content at the record's top level
 			// and its time in "ts". A null or empty "message" is absent too,
-			// as in transcriptRecordContent.
+			// as in decodeTranscriptRecord.
 			if timestamp == "" {
 				timestamp = jsonString(obj["ts"])
 			}
