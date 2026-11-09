@@ -5055,9 +5055,8 @@ func inspectBrainRawText(brainDir, kind, query string, maxHits int) (brainHistor
 	return inspectBrainRawTextObserved(brainDir, kind, query, maxHits, nil, nil)
 }
 
-// inspectBrainRawTextObserved leaves out a hit that shown already shows, and
-// points a kept hit's excerpt at what it does not (see
-// brainBriefShownHistory.review), before the hit counts toward maxHits.
+// inspectBrainRawTextObserved leaves out a hit that shown already shows (see
+// brainBriefShownHistory.repeats) before it counts toward maxHits.
 func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, shown *brainBriefShownHistory, observation *brainBriefRawScanObservation) (brainHistoryInspectReport, error) {
 	report := brainHistoryInspectReport{Kind: kind, Query: query, BrainPath: brainDir}
 	query = strings.ToLower(strings.TrimSpace(query))
@@ -5125,12 +5124,8 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, show
 				Line:    lineNo,
 				Excerpt: historyRawLineExcerpt(line, query),
 			}
-			repeat, excerpt := shown.review(rawMatch, line, query)
-			if repeat {
+			if shown.repeats(rawMatch, line, query) {
 				continue
-			}
-			if excerpt != "" {
-				rawMatch.Excerpt = excerpt
 			}
 			if ts, ok := historyRecordTimestamp(relSlash); ok {
 				rawMatch.Timestamp = ts.Format(time.RFC3339)
@@ -5278,104 +5273,62 @@ func newBrainBriefShownHistory(existing []brainTextMatch) *brainBriefShownHistor
 	return shown
 }
 
-// review reports what a raw hit adds to what the brief already shows. repeat
-// is true when it adds nothing: it equals an existing match, or every text of
-// its line that has the query is inside an excerpt the brief shows for that
-// line. Otherwise a non-empty excerpt is a window around the first such text's
-// first mention the brief does not show, which replaces the raw line's excerpt.
+// repeats reports whether a raw hit adds nothing the brief already shows: it
+// equals an existing match, or each string value of its line that has the
+// query is, cleaned, exactly an excerpt the brief shows for that line, and the
+// line mentions the query nowhere else.
 //
 // A raw hit's excerpt is a window of the raw JSON line and never equals an
 // indexed summary, so the path:line:excerpt dedup alone kept such repeats, and
-// each took a top-up slot from a line the brief does not show. The check reads
-// the line's own string values rather than the history fragments the index
-// keeps: a line can hold several blocks, the index keeps only code facts from
-// a tool's output, and it cuts each summary at 700 characters. So a block that
-// is not shown, tool output the index left out, or a mention past a summary's
-// cut keeps the hit, and the raw line's excerpt, which centers on its first
-// mention, is replaced by one that shows the unshown text. A line with no
-// string value that has the query keeps the hit and its excerpt. When in doubt
-// the hit is kept, as it was before the check.
-func (s *brainBriefShownHistory) review(match brainTextMatch, line, query string) (repeat bool, excerpt string) {
+// each took a top-up slot from a line the brief does not show. The check only
+// leaves out a hit it can prove repeats the brief: a block that is not shown,
+// tool output the index keeps only code facts from, a tool call (whose record
+// is its name and JSON input), text past the 700-character summary cut, or a
+// mention in a key or across values keeps the hit, with its excerpt as before.
+func (s *brainBriefShownHistory) repeats(match brainTextMatch, line, query string) bool {
 	if s == nil {
-		return false, ""
+		return false
 	}
 	if _, ok := s.keys[brainBriefHistoryMatchKey(match)]; ok {
-		return true, ""
+		return true
 	}
 	excerpts := s.lines[match.Path][match.Line]
 	if len(excerpts) == 0 {
-		return false, ""
+		return false
 	}
-	shown := false
+	var shown historyMentionCount
 	for _, text := range rawLineTexts(line) {
 		if !historyTextMatchesQuery(text, query) {
 			continue
 		}
 		cleaned := cleanHistorySummary(text)
-		from, ok := shownTextFrom(cleaned, query, excerpts)
-		if ok {
-			shown = true
-			continue
+		if !slices.Contains(excerpts, cleaned) {
+			return false
 		}
-		rewritten := match
-		rewritten.Excerpt = historyExcerptWindow(cleaned, query, from)
-		if _, ok := s.keys[brainBriefHistoryMatchKey(rewritten)]; ok {
-			// The window normalizes like an existing match (it can differ
-			// only in punctuation), so the scans' dedup would drop it after
-			// it took a slot. The raw line's excerpt does not collide.
-			return false, ""
-		}
-		return false, rewritten.Excerpt
+		shown = shown.add(countHistoryMentions(cleaned, query))
 	}
-	return shown, ""
+	return shown.literal+shown.normalized > 0 && countHistoryMentions(normalizeHistoryTextForExcerpt(line), query) == shown
 }
 
-// shownTextFrom reports whether excerpts show every mention of query in
-// cleaned, one of a line's texts. An excerpt shows the text when it contains
-// it as written, or as a tool call's JSON input writes it, or when it is the
-// text cut short at the summary limit and the cut keeps every mention whole.
-// Otherwise from is near the latest such cut, where an excerpt of the unshown
-// mentions can start.
-func shownTextFrom(cleaned, query string, excerpts []string) (from int, shown bool) {
-	encoded := cleaned
-	if data, err := json.Marshal(cleaned); err == nil {
-		encoded = cleanHistorySummary(string(data[1 : len(data)-1]))
-	}
-	for _, excerpt := range excerpts {
-		if strings.Contains(excerpt, cleaned) || strings.Contains(excerpt, encoded) {
-			return 0, true
-		}
-		cut := strings.TrimSuffix(excerpt, "...")
-		if len(cut) == len(excerpt) || !strings.HasPrefix(cleaned, cut) {
-			continue
-		}
-		if !historyMentionsPastPrefix(cleaned, cut, query) {
-			return 0, true
-		}
-		at := max(0, len(cut)-len(query))
-		for at > 0 && !utf8.RuneStart(cleaned[at]) {
-			at--
-		}
-		from = max(from, at)
-	}
-	return from, false
+// historyMentionCount counts a query's mentions in a text the two ways
+// historyTextMatchesQuery matches them: as written, case-folded, and
+// normalized.
+type historyMentionCount struct{ literal, normalized int }
+
+func (c historyMentionCount) add(other historyMentionCount) historyMentionCount {
+	return historyMentionCount{literal: c.literal + other.literal, normalized: c.normalized + other.normalized}
 }
 
-// historyMentionsPastPrefix reports whether text mentions query where its
-// prefix does not hold the whole mention: text has more mentions than prefix,
-// counted the two ways historyTextMatchesQuery matches, as written and
-// normalized. A mention written with punctuation can be longer than the
-// query, so a fixed backoff from the cut could start inside it.
-func historyMentionsPastPrefix(text, prefix, query string) bool {
+func countHistoryMentions(text, query string) historyMentionCount {
 	query = strings.ToLower(strings.TrimSpace(query))
 	if query == "" {
-		return false
+		return historyMentionCount{}
 	}
-	if strings.Count(strings.ToLower(text), query) > strings.Count(strings.ToLower(prefix), query) {
-		return true
+	count := historyMentionCount{literal: strings.Count(strings.ToLower(text), query)}
+	if normalized := normalizeHistorySearchText(query); normalized != "" {
+		count.normalized = strings.Count(normalizeHistorySearchText(text), normalized)
 	}
-	normalized := normalizeHistorySearchText(query)
-	return normalized != "" && strings.Count(normalizeHistorySearchText(text), normalized) > strings.Count(normalizeHistorySearchText(prefix), normalized)
+	return count
 }
 
 // rawLineTexts returns the string values of a JSON line in order, or the
@@ -5575,12 +5528,8 @@ func brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task string, existi
 					Line:    lineNo,
 					Excerpt: historyRawLineExcerpt(line, query.original),
 				}
-				repeat, excerpt := shown.review(match, line, query.lower)
-				if repeat {
+				if shown.repeats(match, line, query.lower) {
 					continue
-				}
-				if excerpt != "" {
-					match.Excerpt = excerpt
 				}
 				if ts, ok := historyRecordTimestamp(relSlash); ok {
 					match.Timestamp = ts.Format(time.RFC3339)
@@ -5716,34 +5665,13 @@ func mergeBrainBriefHistoryMatches(limit int, groups ...[]brainTextMatch) []brai
 }
 
 func historyRawLineExcerpt(line, query string) string {
-	return historyExcerptWindow(normalizeHistoryTextForExcerpt(line), query, 0)
-}
-
-// historyExcerptWindow is the excerpt of text around the first occurrence of
-// query at or after byte offset from, which must be a rune boundary.
-func historyExcerptWindow(text, query string, from int) string {
+	text := normalizeHistoryTextForExcerpt(line)
 	lower := strings.ToLower(text)
 	query = strings.ToLower(strings.TrimSpace(query))
-	// Lowercasing keeps the rune count but can change UTF-8 byte widths, so
-	// from maps to the folded text through its rune position.
-	lowerFrom := 0
-	if from > 0 {
-		lowerFrom = len(lower)
-		fromRune, ordinal := utf8.RuneCountInString(text[:from]), 0
-		for offset := range lower {
-			if ordinal == fromRune {
-				lowerFrom = offset
-				break
-			}
-			ordinal++
-		}
-	}
 	idx := -1
 	matchLen := len(query)
 	if query != "" {
-		if at := strings.Index(lower[lowerFrom:], query); at != -1 {
-			idx = lowerFrom + at
-		}
+		idx = strings.Index(lower, query)
 	}
 	if idx == -1 {
 		// The full query was not a literal substring. Locate the first significant
@@ -5752,15 +5680,15 @@ func historyExcerptWindow(text, query string, from int) string {
 			if len(tok) < 3 {
 				continue
 			}
-			if at := strings.Index(lower[lowerFrom:], tok); at != -1 {
-				idx = lowerFrom + at
+			if at := strings.Index(lower, tok); at != -1 {
+				idx = at
 				matchLen = len(tok)
 				break
 			}
 		}
 	}
 	if idx == -1 {
-		return strings.TrimSpace(clibase.TruncateString(text[from:], 700))
+		return strings.TrimSpace(clibase.TruncateString(text, 700))
 	}
 	// Lowercasing can change UTF-8 byte widths. Convert the folded offsets
 	// through rune positions before taking a byte-bounded original window.

@@ -134,10 +134,9 @@ func TestRawHistoryTopUpKeepsAHitTheLinesExcerptLacks(t *testing.T) {
 	}
 }
 
-// The raw hit is a repeat only when every occurrence of the query in its
-// line's fragments is inside a summary the brief shows. Sharing the query with
-// one shown fragment is not enough, and a kept hit's excerpt shows the
-// occurrence the brief does not.
+// The raw hit is a repeat only when each value of its line that has the query
+// is exactly an excerpt the brief shows and the line mentions the query
+// nowhere else. Anything less keeps the hit with its raw excerpt.
 func TestRawHistoryTopUpComparesTheLinesFragments(t *testing.T) {
 	t.Parallel()
 	padding := strings.Repeat("padding words before the term ", 30)
@@ -146,8 +145,8 @@ func TestRawHistoryTopUpComparesTheLinesFragments(t *testing.T) {
 		t.Fatalf("fixture text must put ALPHA_IDENTIFIER past the 700-character summary cut")
 	}
 	twice := "ALPHA_IDENTIFIER first mention " + padding + padding + "ALPHA_IDENTIFIER failed with exit 1"
-	if !strings.Contains(historyFragmentSummary(twice), "ALPHA_IDENTIFIER") || strings.Contains(historyRawLineExcerpt(twice, "ALPHA_IDENTIFIER"), "exit 1") {
-		t.Fatalf("fixture text must mention ALPHA_IDENTIFIER in its summary and again out of the first mention's excerpt")
+	if !strings.Contains(historyFragmentSummary(twice), "ALPHA_IDENTIFIER") {
+		t.Fatalf("fixture text must mention ALPHA_IDENTIFIER in its summary and again past the cut")
 	}
 	// A mention written with punctuation, which matches the query only
 	// normalized, across the summary's 697-byte content cut.
@@ -162,7 +161,7 @@ func TestRawHistoryTopUpComparesTheLinesFragments(t *testing.T) {
 		blocks   []string
 		shown    []string
 		wantKept bool
-		wantIn   string // text the kept hit's excerpt must show
+		wantIn   string // text the kept hit's excerpt must show, when set
 	}{
 		{
 			name:     "another block has the query too",
@@ -179,25 +178,36 @@ func TestRawHistoryTopUpComparesTheLinesFragments(t *testing.T) {
 			wantIn:   "-1",
 		},
 		{
+			name:     "a shown excerpt that ends in an ellipsis",
+			blocks:   []string{textBlock("ALPHA_IDENTIFIER was fixed..."), textBlock("ALPHA_IDENTIFIER was fixed but broke later")},
+			shown:    []string{"ALPHA_IDENTIFIER was fixed..."},
+			wantKept: true,
+			wantIn:   "broke later",
+		},
+		{
+			name:     "a key that has the query",
+			blocks:   []string{textBlock("ALPHA_IDENTIFIER already fixed"), `{"type":"tool_use","id":"c1","name":"Write","input":{"ALPHA_IDENTIFIER":"new value"}}`},
+			shown:    []string{"ALPHA_IDENTIFIER already fixed"},
+			wantKept: true,
+			wantIn:   "new value",
+		},
+		{
 			name:     "a normalized mention across the summary cut",
 			blocks:   []string{textBlock(straddle)},
 			shown:    []string{historyFragmentSummary(straddle)},
 			wantKept: true,
-			wantIn:   "failed later",
 		},
 		{
 			name:     "an unshown block far after a shown one",
 			blocks:   []string{textBlock("ALPHA_IDENTIFIER was discussed"), textBlock(padding + padding), textBlock("ALPHA_IDENTIFIER failed with exit 1")},
 			shown:    []string{"ALPHA_IDENTIFIER was discussed"},
 			wantKept: true,
-			wantIn:   "failed with exit 1",
 		},
 		{
 			name:     "the query again past the summary cut",
 			blocks:   []string{textBlock(twice)},
 			shown:    []string{historyFragmentSummary(twice)},
 			wantKept: true,
-			wantIn:   "failed with exit 1",
 		},
 		{
 			name:     "every block with the query is shown",
@@ -244,6 +254,9 @@ func TestRawHistoryTopUpComparesTheLinesFragments(t *testing.T) {
 				}
 				if kept := len(got) == 1 && got[0].Line == 1; kept != tc.wantKept || len(got) > 1 {
 					t.Fatalf("%s: raw top-up = %+v, want kept=%v", impl, got, tc.wantKept)
+				}
+				if tc.wantKept && got[0].Excerpt != historyRawLineExcerpt(line, "ALPHA_IDENTIFIER") {
+					t.Fatalf("%s: kept excerpt %q is not the raw line's excerpt", impl, got[0].Excerpt)
 				}
 				if tc.wantKept && !strings.Contains(got[0].Excerpt, tc.wantIn) {
 					t.Fatalf("%s: kept excerpt %q does not show %q", impl, got[0].Excerpt, tc.wantIn)
