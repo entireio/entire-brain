@@ -890,16 +890,16 @@ type seedHeadSmallFile struct {
 // same text a working tree without the content shows. Only the default store
 // (<git-common-dir>/lfs) is consulted. An object that is stored but cannot be
 // copied is reported in the seed's warnings rather than passed off as read.
-// Where the caller's Git LFS settings make a clean checkout skip the smudge, or
-// configure no lfs filter, every pointer stays as committed
-// (seedHeadLFSSkipsSmudge).
+// The caller's Git LFS settings come first (seedHeadLFSCheckoutMode): with no
+// lfs filter, every pointer stays as committed, and where the smudge is
+// skipped, every pointer is written the way git-lfs writes it.
 //
 // Each file is then held to the same rule as every other blob, at its real
 // size: one the scan would only stat leaves the checkout and is recorded
 // unread, so a large LFS binary is never copied here either.
 func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, files []seedHeadSmallFile, opts seedCommandOptions) {
 	objectsDir, objectsResolved := "", false
-	skipsSmudge, skipResolved := false, false
+	mode, modeResolved := seedHeadLFSUnfiltered, false
 	fetchFiltered, filterResolved := false, false
 	var filteredPaths []string
 	defer func() {
@@ -917,13 +917,16 @@ func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner Environ
 		if !ok {
 			continue
 		}
-		if !skipResolved {
-			skipResolved = true
-			skipsSmudge = seedHeadLFSSkipsSmudge(ctx, runner, repoDir)
+		if !modeResolved {
+			modeResolved = true
+			mode = seedHeadLFSCheckoutMode(ctx, runner, repoDir)
 		}
-		if skipsSmudge {
-			// A clean checkout leaves every pointer as committed.
+		switch mode {
+		case seedHeadLFSUnfiltered:
 			return
+		case seedHeadLFSSkips:
+			c.encodeLFSPointer(file.path, target, data, oid, size, extended)
+			continue
 		}
 		if !objectsResolved {
 			objectsResolved = true
@@ -971,48 +974,147 @@ func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner Environ
 	}
 }
 
-// seedHeadLFSSkipsSmudge reports whether a clean checkout by the caller leaves
-// every Git LFS pointer as committed: GIT_LFS_SKIP_SMUDGE is true in the
-// caller's environment, the lfs filter git would run passes --skip (as
-// `git lfs install --skip-smudge` sets it up), or no lfs filter is configured
-// at all. That filter is filter.lfs.process when it is set and
-// filter.lfs.smudge otherwise. Seed's own git commands always skip the smudge
-// (seedHeadGitEnv), so only the caller's settings count. Checked against
-// git-lfs 3.4.1, which reads 1, t, true, yes and on in any case as true.
-func seedHeadLFSSkipsSmudge(ctx context.Context, runner EnvironmentCommandRunner, repoDir string) bool {
+// seedHeadLFSMode is what a clean checkout by the caller does with an LFS
+// pointer.
+type seedHeadLFSMode int
+
+const (
+	// seedHeadLFSUnfiltered: no lfs filter is set up, so git writes the
+	// pointer as committed.
+	seedHeadLFSUnfiltered seedHeadLFSMode = iota
+	// seedHeadLFSSkips: git-lfs runs but skips the smudge, and writes the
+	// pointer in its own encoding.
+	seedHeadLFSSkips
+	// seedHeadLFSSmudges: git-lfs replaces the pointer with its object,
+	// where it can get it.
+	seedHeadLFSSmudges
+)
+
+// seedHeadLFSCheckoutMode reads the caller's Git LFS settings. The lfs filter
+// git runs is filter.lfs.process when it is set and filter.lfs.smudge
+// otherwise; with neither, there is none. Git LFS skips the smudge when that
+// filter passes --skip, as `git lfs install --skip-smudge` sets it up, or when
+// GIT_LFS_SKIP_SMUDGE is true in the caller's environment. Seed's own git
+// commands always skip it (seedHeadGitEnv), so only the caller's settings
+// count. Checked against git-lfs 3.4.1, which reads 1, t, true, yes and on in
+// any case as true.
+func seedHeadLFSCheckoutMode(ctx context.Context, runner EnvironmentCommandRunner, repoDir string) seedHeadLFSMode {
+	process, smudge := seedHeadCallerLFSFilter(ctx, runner, repoDir)
+	command := process
+	if command == "" {
+		command = smudge
+	}
+	if command == "" {
+		return seedHeadLFSUnfiltered
+	}
 	switch strings.ToLower(os.Getenv("GIT_LFS_SKIP_SMUDGE")) {
 	case "1", "t", "true", "yes", "on":
-		return true
+		return seedHeadLFSSkips
 	}
-	for _, key := range []string{"filter.lfs.process", "filter.lfs.smudge"} {
-		if command := seedHeadCallerConfig(ctx, runner, repoDir, key); command != "" {
-			return slices.Contains(strings.Fields(command), "--skip")
+	for _, arg := range strings.Fields(command) {
+		// git runs the command through the shell, so a quoted --skip is one
+		// too.
+		if strings.Trim(arg, `'"`) == "--skip" {
+			return seedHeadLFSSkips
 		}
 	}
-	return true
+	return seedHeadLFSSmudges
 }
 
-// seedHeadCallerConfig returns the value of key that a git command the caller
-// runs in repoDir reads, trimmed, or "" when it is not set. Values in the
-// command scope are left out: in seed's git commands that scope ends with the
-// blanks the hardened runner sets for every filter the repository's own
-// configuration defines (git_harden_filters.go), which the caller's git does
-// not see. Reading a filter's command as text runs nothing.
-func seedHeadCallerConfig(ctx context.Context, runner EnvironmentCommandRunner, repoDir, key string) string {
-	out, _, err := runner.RunWithEnv(ctx, repoDir, seedHeadGitEnv(""), "git", "config", "-z", "--show-scope", "--get-all", key)
+// seedHeadCallerLFSFilter returns filter.lfs.process and filter.lfs.smudge,
+// trimmed, as a git command the caller runs in repoDir reads them. Seed's git
+// commands read one more value for each: where the repository's own
+// configuration defines the lfs filter, the hardened runner blanks its
+// commands with GIT_CONFIG_COUNT entries appended after the caller's
+// (git_harden_filters.go). That entry is dropped. Reading a filter's command
+// as text runs nothing.
+func seedHeadCallerLFSFilter(ctx context.Context, runner EnvironmentCommandRunner, repoDir string) (process, smudge string) {
+	out, _, err := runner.RunWithEnv(ctx, repoDir, seedHeadGitEnv(""), "git", "config", "-z", "--show-scope", "--get-regexp", `^filter\.lfs\.(clean|smudge|process|required)$`)
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	// -z with --show-scope: <scope> NUL <value> NUL per value, in the order
-	// git reads them, so the last one is in force.
-	value := ""
+	// -z with --show-scope: <scope> NUL <key> LF <value> NUL per value, in the
+	// order git reads them: the configuration files, then GIT_CONFIG_COUNT's
+	// entries, then GIT_CONFIG_PARAMETERS (git -c). Keys come lowercased
+	// except for the subsection.
+	files := map[string][]string{}
+	command := map[string][]string{}
+	blanked := false
 	fields := strings.Split(string(out), "\x00")
 	for i := 0; i+1 < len(fields); i += 2 {
-		if fields[i] != "command" {
-			value = fields[i+1]
+		key, value, _ := strings.Cut(fields[i+1], "\n")
+		switch fields[i] {
+		case "command":
+			command[key] = append(command[key], value)
+		case "local", "worktree":
+			blanked = true
+			files[key] = append(files[key], value)
+		default:
+			files[key] = append(files[key], value)
 		}
 	}
-	return strings.TrimSpace(value)
+	last := func(key string) string {
+		values := command[key]
+		if n := seedHeadCallerConfigCountEntries(key); blanked && n < len(values) {
+			values = slices.Delete(slices.Clone(values), n, n+1)
+		}
+		if len(values) == 0 {
+			values = files[key]
+		}
+		if len(values) == 0 {
+			return ""
+		}
+		return strings.TrimSpace(values[len(values)-1])
+	}
+	return last("filter.lfs.process"), last("filter.lfs.smudge")
+}
+
+// seedHeadCallerConfigCountEntries counts the GIT_CONFIG_COUNT entries of the
+// caller's environment that set key, compared as git compares keys: the
+// section and variable names ignore case, a subsection does not.
+func seedHeadCallerConfigCountEntries(key string) int {
+	count, err := strconv.Atoi(strings.TrimSpace(os.Getenv("GIT_CONFIG_COUNT")))
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for i := range count {
+		name := os.Getenv("GIT_CONFIG_KEY_" + strconv.Itoa(i))
+		first, last := strings.Index(name, "."), strings.LastIndex(name, ".")
+		if first >= 0 && strings.ToLower(name[:first])+name[first:last]+strings.ToLower(name[last:]) == key {
+			n++
+		}
+	}
+	return n
+}
+
+// encodeLFSPointer writes the pointer at target the way git-lfs writes one
+// whose smudge it skips: the current version line, LF line ends, nothing for
+// an empty object. An extended pointer is left as committed.
+func (c *seedHeadCheckout) encodeLFSPointer(path, target string, data []byte, oid string, size int64, extended bool) {
+	encoded := ""
+	if size > 0 {
+		encoded = fmt.Sprintf("version https://git-lfs.github.com/spec/v1\noid sha256:%s\nsize %d\n", oid, size)
+	}
+	if extended || string(data) == encoded {
+		return
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(target), ".lfs-pointer-*")
+	if err == nil {
+		_, err = tmp.WriteString(encoded)
+		if closeErr := tmp.Close(); err == nil {
+			err = closeErr
+		}
+		if err == nil {
+			err = os.Rename(tmp.Name(), target)
+		}
+		if err != nil {
+			_ = os.Remove(tmp.Name())
+		}
+	}
+	if err != nil {
+		c.warnings = append(c.warnings, fmt.Sprintf("LFS pointer for %s could not be written as Git LFS writes it (%v); seeded the committed pointer text", path, err))
+	}
 }
 
 // seedHeadLFSFetchFiltered reports whether Git LFS is set to smudge only some

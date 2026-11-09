@@ -1232,44 +1232,77 @@ func TestDirtySeedKeepsLFSPointersWhenFetchFiltersAreSet(t *testing.T) {
 }
 
 // TestDirtySeedKeepsLFSPointersWhenTheSmudgeIsSkipped: when the caller's Git
-// LFS settings make a clean checkout skip the smudge, or set up no lfs filter
-// at all, it keeps every pointer although the object is stored locally, and so
-// does seed, without a warning, since that is exactly what the checkout holds.
-// Cases checked against git-lfs 3.4.1. The repository's own configuration
-// counts although seed's git commands blank its filters.
+// LFS settings make a clean checkout skip the smudge, it holds the pointer in
+// git-lfs's own encoding although the object is stored locally, and so does
+// seed; with no lfs filter set up it holds the pointer as committed. Neither
+// is warned about, since it is what the checkout holds. Cases checked against
+// git-lfs 3.4.1. The committed pointer has an older version line, so the
+// three outcomes differ. The repository's own configuration counts although
+// seed's git commands blank its filters, and so does the caller's command
+// scope, with only those blanks left out.
 func TestDirtySeedKeepsLFSPointersWhenTheSmudgeIsSkipped(t *testing.T) {
 	stored := "# manual kept in LFS\n"
+	committed := strings.Replace(lfsPointer(stored), "git-lfs.github.com", "hawser.github.com", 1)
+	const (
+		content = iota
+		encoded
+		asCommitted
+	)
 	for _, tc := range []struct {
-		name        string
-		skipEnv     string
-		configure   func(t *testing.T, repoDir string)
-		wantPointer bool
+		name      string
+		skipEnv   string
+		configure func(t *testing.T, repoDir string)
+		// runsGitLFS: seed's own checkout runs the filter, which needs git-lfs.
+		runsGitLFS bool
+		want       int
 	}{
-		{name: "GIT_LFS_SKIP_SMUDGE=1", skipEnv: "1", configure: useLFSSmudge, wantPointer: true},
-		{name: "GIT_LFS_SKIP_SMUDGE=Yes", skipEnv: "Yes", configure: useLFSSmudge, wantPointer: true},
-		{name: "GIT_LFS_SKIP_SMUDGE=2", skipEnv: "2", configure: useLFSSmudge},
-		{name: "no lfs filter", wantPointer: true},
-		{name: "repository filter-process --skip", wantPointer: true, configure: func(t *testing.T, repoDir string) {
+		{name: "GIT_LFS_SKIP_SMUDGE=1", skipEnv: "1", configure: useLFSSmudge, want: encoded},
+		{name: "GIT_LFS_SKIP_SMUDGE=Yes", skipEnv: "Yes", configure: useLFSSmudge, want: encoded},
+		{name: "GIT_LFS_SKIP_SMUDGE=2", skipEnv: "2", configure: useLFSSmudge, want: content},
+		{name: "GIT_LFS_SKIP_SMUDGE=1 with no lfs filter", skipEnv: "1", want: asCommitted},
+		{name: "no lfs filter", want: asCommitted},
+		{name: "repository filter-process --skip", want: encoded, configure: func(t *testing.T, repoDir string) {
 			gitAt(t, repoDir, "config", "filter.lfs.process", "git-lfs filter-process --skip")
 		}},
-		{name: "global filter-process --skip", wantPointer: true, configure: func(t *testing.T, repoDir string) {
+		{name: "repository filter-process with a quoted --skip", want: encoded, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.process", "git-lfs filter-process '--skip'")
+		}},
+		{name: "global filter-process --skip", runsGitLFS: true, want: encoded, configure: func(t *testing.T, repoDir string) {
 			gitAt(t, repoDir, "config", "--global", "filter.lfs.process", "git-lfs filter-process --skip")
 		}},
-		{name: "smudge --skip without a process", wantPointer: true, configure: func(t *testing.T, repoDir string) {
+		{name: "smudge --skip without a process", runsGitLFS: true, want: encoded, configure: func(t *testing.T, repoDir string) {
 			gitAt(t, repoDir, "config", "--global", "filter.lfs.smudge", "git-lfs smudge --skip -- %f")
 		}},
-		{name: "smudge --skip behind a process that does not skip", configure: func(t *testing.T, repoDir string) {
+		{name: "smudge --skip behind a process that does not skip", want: content, configure: func(t *testing.T, repoDir string) {
 			gitAt(t, repoDir, "config", "filter.lfs.process", "git-lfs filter-process")
 			gitAt(t, repoDir, "config", "filter.lfs.smudge", "git-lfs smudge --skip -- %f")
 		}},
 		// An empty process is no process: git runs the smudge.
-		{name: "repository emptying the global filter-process --skip", configure: func(t *testing.T, repoDir string) {
+		{name: "repository emptying the global filter-process --skip", want: content, configure: func(t *testing.T, repoDir string) {
 			gitAt(t, repoDir, "config", "--global", "filter.lfs.process", "git-lfs filter-process --skip")
 			gitAt(t, repoDir, "config", "filter.lfs.process", "")
 			useLFSSmudge(t, repoDir)
 		}},
+		{name: "caller's GIT_CONFIG_COUNT filter-process over a repository --skip", want: content, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.process", "git-lfs filter-process --skip")
+			t.Setenv("GIT_CONFIG_COUNT", "1")
+			t.Setenv("GIT_CONFIG_KEY_0", "Filter.lfs.Process")
+			t.Setenv("GIT_CONFIG_VALUE_0", "git-lfs filter-process")
+		}},
+		{name: "caller's GIT_CONFIG_COUNT filter-process alone", runsGitLFS: true, want: content, configure: func(t *testing.T, repoDir string) {
+			t.Setenv("GIT_CONFIG_COUNT", "1")
+			t.Setenv("GIT_CONFIG_KEY_0", "filter.lfs.process")
+			t.Setenv("GIT_CONFIG_VALUE_0", "git-lfs filter-process")
+		}},
+		{name: "caller's git -c filter-process --skip over a repository smudge", runsGitLFS: true, want: encoded, configure: func(t *testing.T, repoDir string) {
+			useLFSSmudge(t, repoDir)
+			t.Setenv("GIT_CONFIG_PARAMETERS", "'filter.lfs.process=git-lfs filter-process --skip'")
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if _, err := exec.LookPath("git-lfs"); tc.runsGitLFS && err != nil {
+				t.Skip("git-lfs not installed")
+			}
 			isolateSeedHeadTemp(t)
 			global := filepath.Join(t.TempDir(), "gitconfig")
 			if err := os.WriteFile(global, nil, 0o600); err != nil {
@@ -1278,11 +1311,17 @@ func TestDirtySeedKeepsLFSPointersWhenTheSmudgeIsSkipped(t *testing.T) {
 			t.Setenv("GIT_CONFIG_GLOBAL", global)
 			t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 			t.Setenv("GIT_LFS_SKIP_SMUDGE", tc.skipEnv)
+			for _, key := range []string{"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"} {
+				t.Setenv(key, "")
+				if err := os.Unsetenv(key); err != nil {
+					t.Fatal(err)
+				}
+			}
 			repoDir := seedHeadTestRepo(t)
 			writeLFSObject(t, repoDir, stored, stored)
 			writeSeedHeadFiles(t, repoDir, map[string]string{
 				".gitattributes": "docs/manual.md filter=lfs -text\n",
-				"docs/manual.md": lfsPointer(stored),
+				"docs/manual.md": committed,
 			})
 			gitAt(t, repoDir, "add", "-A")
 			gitAt(t, repoDir, "commit", "-q", "-m", "lfs pointer")
@@ -1296,10 +1335,7 @@ func TestDirtySeedKeepsLFSPointersWhenTheSmudgeIsSkipped(t *testing.T) {
 				t.Fatalf("check out HEAD: %v", err)
 			}
 			defer head.remove()
-			want := stored
-			if tc.wantPointer {
-				want = lfsPointer(stored)
-			}
+			want := map[int]string{content: stored, encoded: lfsPointer(stored), asCommitted: committed}[tc.want]
 			if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "manual.md")); err != nil || string(got) != want {
 				t.Errorf("docs/manual.md = %q, %v; want %q", got, err, want)
 			}
