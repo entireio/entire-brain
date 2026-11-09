@@ -134,14 +134,20 @@ func TestRawHistoryTopUpKeepsAHitTheLinesExcerptLacks(t *testing.T) {
 	}
 }
 
-// The raw hit is a repeat only when every fragment of its line that has the
-// query is shown with the query in its summary. Sharing the query with one
-// shown fragment is not enough.
+// The raw hit is a repeat only when every occurrence of the query in its
+// line's fragments is inside a summary the brief shows. Sharing the query with
+// one shown fragment is not enough, and a kept hit's excerpt shows the
+// occurrence the brief does not.
 func TestRawHistoryTopUpComparesTheLinesFragments(t *testing.T) {
 	t.Parallel()
-	long := strings.Repeat("padding words before the term ", 30) + "ALPHA_IDENTIFIER past the cut"
+	padding := strings.Repeat("padding words before the term ", 30)
+	long := padding + "ALPHA_IDENTIFIER past the cut"
 	if len(cleanHistorySummary(long)) <= 700 || strings.Contains(historyFragmentSummary(long), "ALPHA_IDENTIFIER") {
 		t.Fatalf("fixture text must put ALPHA_IDENTIFIER past the 700-character summary cut")
+	}
+	twice := "ALPHA_IDENTIFIER first mention " + padding + padding + "ALPHA_IDENTIFIER failed with exit 1"
+	if !strings.Contains(historyFragmentSummary(twice), "ALPHA_IDENTIFIER") || strings.Contains(historyRawLineExcerpt(twice, "ALPHA_IDENTIFIER"), "exit 1") {
+		t.Fatalf("fixture text must mention ALPHA_IDENTIFIER in its summary and again out of the first mention's excerpt")
 	}
 	textBlock := func(text string) string { return `{"type":"text","text":"` + text + `"}` }
 	cases := []struct {
@@ -149,12 +155,28 @@ func TestRawHistoryTopUpComparesTheLinesFragments(t *testing.T) {
 		blocks   []string
 		shown    []string
 		wantKept bool
+		wantIn   string // text the kept hit's excerpt must show
 	}{
 		{
 			name:     "another block has the query too",
 			blocks:   []string{textBlock("ALPHA_IDENTIFIER was discussed"), textBlock("ALPHA_IDENTIFIER failed with exit 1")},
 			shown:    []string{"ALPHA_IDENTIFIER was discussed"},
 			wantKept: true,
+			wantIn:   "failed with exit 1",
+		},
+		{
+			name:     "an unshown block far after a shown one",
+			blocks:   []string{textBlock("ALPHA_IDENTIFIER was discussed"), textBlock(padding + padding), textBlock("ALPHA_IDENTIFIER failed with exit 1")},
+			shown:    []string{"ALPHA_IDENTIFIER was discussed"},
+			wantKept: true,
+			wantIn:   "failed with exit 1",
+		},
+		{
+			name:     "the query again past the summary cut",
+			blocks:   []string{textBlock(twice)},
+			shown:    []string{historyFragmentSummary(twice)},
+			wantKept: true,
+			wantIn:   "failed with exit 1",
 		},
 		{
 			name:     "every block with the query is shown",
@@ -173,6 +195,7 @@ func TestRawHistoryTopUpComparesTheLinesFragments(t *testing.T) {
 			blocks:   []string{textBlock(long)},
 			shown:    []string{historyFragmentSummary(long)},
 			wantKept: true,
+			wantIn:   "past the cut",
 		},
 	}
 	for _, tc := range cases {
@@ -200,6 +223,9 @@ func TestRawHistoryTopUpComparesTheLinesFragments(t *testing.T) {
 				}
 				if kept := len(got) == 1 && got[0].Line == 1; kept != tc.wantKept || len(got) > 1 {
 					t.Fatalf("%s: raw top-up = %+v, want kept=%v", impl, got, tc.wantKept)
+				}
+				if tc.wantKept && !strings.Contains(got[0].Excerpt, tc.wantIn) {
+					t.Fatalf("%s: kept excerpt %q does not show %q", impl, got[0].Excerpt, tc.wantIn)
 				}
 			}
 		})
