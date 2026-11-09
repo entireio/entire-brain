@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1634,11 +1635,30 @@ func TestSeedRepoFoldsCaseLooksAnEntryUpUnderAnotherCase(t *testing.T) {
 	check("two files", dirWith("Readme", "rEADME"), false, true)
 	check("nothing cased", dirWith("123"), false, false)
 	check("missing directory", filepath.Join(t.TempDir(), "missing"), false, false)
-	folding := dirWith("Readme")
-	if err := os.Link(filepath.Join(folding, "Readme"), filepath.Join(folding, "rEADME")); err != nil {
+	// Two spellings listed side by side are two entries, so case is kept even
+	// when they are hard links to one file.
+	linked := dirWith("Readme")
+	if err := os.Link(filepath.Join(linked, "Readme"), filepath.Join(linked, "rEADME")); err != nil {
 		t.Skipf("hard links unavailable: %v", err)
 	}
-	check("one file under two spellings", folding, true, true)
+	check("two spellings linked to one file", linked, false, true)
+
+	// A folding filesystem lists one spelling and finds the file under the
+	// other too. This container cannot mount one, so the lookup stands in.
+	folding := dirWith("Readme")
+	info, err := os.Lstat(filepath.Join(folding, "Readme"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	foldingLstat := func(name string) (fs.FileInfo, error) {
+		if strings.EqualFold(name, "Readme") {
+			return info, nil
+		}
+		return nil, fs.ErrNotExist
+	}
+	if folds, ok := seedFoldsCaseAmong([]string{"Readme"}, foldingLstat); !folds || !ok {
+		t.Errorf("one file under two spellings: seedFoldsCaseAmong = %v, %v; want true, true", folds, ok)
+	}
 }
 
 // TestSeedHeadCaseMismatchRefusesWhatTheRulesReadDifferently: a temporary

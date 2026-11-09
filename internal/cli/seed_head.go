@@ -512,24 +512,48 @@ func seedHeadFoldsCase(dir string) bool {
 
 // seedRepoFoldsCase reports whether the filesystem holding repoDir treats
 // names that differ only in case as one file, which is what decides how a
-// clean checkout there stores them. It looks one of repoDir's entries up under
-// another case and writes nothing; ok is false when no entry could tell.
+// clean checkout there stores them. It reads repoDir's listing and looks one
+// of its entries up under another case, and writes nothing; ok is false when
+// no entry could tell.
 func seedRepoFoldsCase(repoDir string) (folds, ok bool) {
 	entries, err := os.ReadDir(repoDir)
 	if err != nil {
 		return false, false
 	}
+	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		name := entry.Name()
+		names = append(names, entry.Name())
+	}
+	return seedFoldsCaseAmong(names, func(name string) (fs.FileInfo, error) {
+		return os.Lstat(filepath.Join(repoDir, name))
+	})
+}
+
+// seedFoldsCaseAmong decides seedRepoFoldsCase from a directory's entry names
+// and a lookup of a name in that directory. A listing with two entries whose
+// names differ only in case comes from a filesystem that keeps them apart,
+// even when both are hard links to one file, which the lookup alone would
+// take for folding. Otherwise an entry found under another case as the same
+// file shows folding, and one not found shows that case is kept.
+func seedFoldsCaseAmong(names []string, lstat func(name string) (fs.FileInfo, error)) (folds, ok bool) {
+	spellings := make(map[string]bool, len(names))
+	for _, name := range names {
+		key := strings.ToLower(name)
+		if spellings[key] {
+			return false, true
+		}
+		spellings[key] = true
+	}
+	for _, name := range names {
 		other := seedSwapCase(name)
 		if other == name {
 			continue
 		}
-		have, err := os.Lstat(filepath.Join(repoDir, name))
+		have, err := lstat(name)
 		if err != nil {
 			continue
 		}
-		got, err := os.Lstat(filepath.Join(repoDir, other))
+		got, err := lstat(other)
 		if errors.Is(err, fs.ErrNotExist) {
 			return false, true
 		}
